@@ -19,7 +19,7 @@
  * Store module-level : rien ne doit re-rendre l'arbre quand cette table change.
  */
 
-import { invaliderJetonSession, jetonSession } from './sessionToken.ts';
+import { invalidateSessionToken, sessionToken } from './sessionToken.ts';
 
 const charges = new Map<string, number>();
 
@@ -30,17 +30,17 @@ const charges = new Map<string, number>();
  * `jeton` : capturé au lancement du chargement, refusé s'il a changé depuis.
  * Voir [[jetonSession]].
  */
-export function marquerFilCharge(filId: string, generation: number, jeton: number): void {
-  if (jeton !== jetonSession()) return;
+export function markThreadLoaded(filId: string, generation: number, jeton: number): void {
+  if (jeton !== sessionToken()) return;
   charges.set(filId, generation);
 }
 
-export function filChargeSous(filId: string, generation: number): boolean {
+export function threadLoadedUnder(filId: string, generation: number): boolean {
   return charges.get(filId) === generation;
 }
 
 /** Fin de session / changement de serveur : plus rien de ce cache ne vaut. */
-export function oublierFilsCharges(): void {
+export function forgetLoadedThreads(): void {
   charges.clear();
-  invaliderJetonSession();
+  invalidateSessionToken();
 }

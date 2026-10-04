@@ -22,23 +22,23 @@
  * poignée d'auteurs du salon, pas 6000 codes : montrer la liste au `@` nu est
  * le geste Slack/Discord attendu.
  */
-export const MIN_REQUETE_MENTION = 0;
+export const MIN_MENTION_QUERY = 0;
 /** La bande défile horizontalement ; au-delà, le classement a déjà tranché. */
-export const LIMITE_SUGGESTIONS_MENTION = 12;
+export const MENTION_SUGGESTION_LIMIT = 12;
 
 /**
  * Un candidat à la mention : le `username` exact (c'est lui qu'on insère et
  * qui sert d'avatar), et son `_id` serveur quand on le connaît (`null` pour
  * les mentions spéciales `all` / `here`).
  */
-export type CandidatMention = { username: string; uid: string | null };
+export type MentionCandidate = { username: string; uid: string | null };
 
 /**
  * Mentions spéciales de Rocket.Chat. Proposées après les personnes à qualité
  * de correspondance égale : `@a` doit d'abord montrer les Alice du salon,
  * `@all` reste à portée juste derrière.
  */
-export const MENTIONS_SPECIALES: readonly string[] = ['all', 'here'];
+export const SPECIAL_MENTIONS: readonly string[] = ['all', 'here'];
 
 /**
  * Jeu de caractères d'un username Rocket.Chat (réglage serveur par défaut
@@ -61,10 +61,10 @@ const LETTRE_OU_CHIFFRE = /[\p{L}\p{N}]/u;
  * champ, ou précédé d'un caractère qui n'est ni lettre ni chiffre), et la
  * requête doit rester dans le jeu de caractères d'un username.
  */
-export function detecterJetonMention(
+export function detectMentionToken(
   texte: string,
   curseur: number,
-): { debut: number; requete: string } | null {
+): { start: number; query: string } | null {
   const c = Math.max(0, Math.min(curseur, texte.length));
   const avant = texte.slice(0, c);
   const arobase = avant.lastIndexOf('@');
@@ -72,8 +72,8 @@ export function detecterJetonMention(
   // `charAt` renvoie '' hors bornes : pas de garde d'index nécessaire.
   if (arobase > 0 && LETTRE_OU_CHIFFRE.test(avant.charAt(arobase - 1))) return null;
   const requete = avant.slice(arobase + 1);
-  if (!USERNAME_VALIDE.test(requete) || requete.length < MIN_REQUETE_MENTION) return null;
-  return { debut: arobase, requete: requete.toLowerCase() };
+  if (!USERNAME_VALIDE.test(requete) || requete.length < MIN_MENTION_QUERY) return null;
+  return { start: arobase, query: requete.toLowerCase() };
 }
 
 /**
@@ -87,30 +87,30 @@ export function detecterJetonMention(
  * Requête vide (`@` nu) : tous les candidats dans l'ordre d'arrivée, puis les
  * mentions spéciales.
  */
-export function completerMention(
+export function completeMention(
   requete: string,
-  candidats: readonly CandidatMention[],
-  limite = LIMITE_SUGGESTIONS_MENTION,
-): CandidatMention[] {
+  candidats: readonly MentionCandidate[],
+  limite = MENTION_SUGGESTION_LIMIT,
+): MentionCandidate[] {
   const q = requete.toLowerCase();
 
-  const retenus: { c: CandidatMention; rang: number; ordre: number }[] = [];
+  const retenus: { c: MentionCandidate; rank: number; order: number }[] = [];
   const vus = new Set<string>();
-  const ajouter = (c: CandidatMention, speciale: boolean): void => {
+  const ajouter = (c: MentionCandidate, speciale: boolean): void => {
     const nom = c.username.toLowerCase();
     if (vus.has(nom)) return;
     const i = q === '' ? 0 : nom.indexOf(q);
     if (i === -1) return;
     const correspondance = q === '' ? 2 : nom === q ? 0 : i === 0 ? 1 : 2;
     vus.add(nom);
-    retenus.push({ c, rang: correspondance * 2 + (speciale ? 1 : 0), ordre: retenus.length });
+    retenus.push({ c, rank: correspondance * 2 + (speciale ? 1 : 0), order: retenus.length });
   };
 
   for (const c of candidats) ajouter(c, false);
-  for (const nom of MENTIONS_SPECIALES) ajouter({ username: nom, uid: null }, true);
+  for (const nom of SPECIAL_MENTIONS) ajouter({ username: nom, uid: null }, true);
 
   // Tri STABLE requis (l'ordre d'arrivée départage) : garanti par ECMAScript
   // depuis ES2019, mais `ordre` le rend explicite et indépendant du moteur.
-  retenus.sort((a, b) => a.rang - b.rang || a.ordre - b.ordre);
+  retenus.sort((a, b) => a.rank - b.rank || a.order - b.order);
   return retenus.slice(0, limite).map((x) => x.c);
 }

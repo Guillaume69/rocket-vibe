@@ -3,33 +3,33 @@ import { describe, test } from 'node:test';
 
 import {
   CATALOGUES,
-  LANGUES,
-  formateurHeure,
-  formateurJour,
-  langueAppareil,
-  traduire,
+  LANGUAGES,
+  timeFormatter,
+  dayFormatter,
+  deviceLanguage,
+  translate,
 } from './messages.ts';
 
 describe('traduire', () => {
   test('substitue les {param}', () => {
-    assert.equal(traduire('fr', 'ligneMessage.profilDe', { nom: 'alice' }), 'Profil de alice');
-    assert.equal(traduire('en', 'ligneMessage.profilDe', { nom: 'alice' }), 'Profile of alice');
+    assert.equal(translate('fr', 'ligneMessage.profilDe', { nom: 'alice' }), 'Profil de alice');
+    assert.equal(translate('en', 'ligneMessage.profilDe', { nom: 'alice' }), 'Profile of alice');
   });
 
   test('un {param} sans valeur est laissé tel quel (repérer un oubli)', () => {
-    assert.equal(traduire('fr', 'ligneMessage.profilDe'), 'Profil de {nom}');
+    assert.equal(translate('fr', 'ligneMessage.profilDe'), 'Profil de {nom}');
   });
 
   test('pluriel FR : singulier pour 0 et 1, pluriel dès 2', () => {
-    assert.equal(traduire('fr', 'ligneMessage.reponses', { n: 0 }), '0 réponse');
-    assert.equal(traduire('fr', 'ligneMessage.reponses', { n: 1 }), '1 réponse');
-    assert.equal(traduire('fr', 'ligneMessage.reponses', { n: 2 }), '2 réponses');
+    assert.equal(translate('fr', 'ligneMessage.reponses', { n: 0 }), '0 réponse');
+    assert.equal(translate('fr', 'ligneMessage.reponses', { n: 1 }), '1 réponse');
+    assert.equal(translate('fr', 'ligneMessage.reponses', { n: 2 }), '2 réponses');
   });
 
   test('pluriel EN : singulier pour 1 seulement (0 au pluriel)', () => {
-    assert.equal(traduire('en', 'ligneMessage.reponses', { n: 0 }), '0 replies');
-    assert.equal(traduire('en', 'ligneMessage.reponses', { n: 1 }), '1 reply');
-    assert.equal(traduire('en', 'ligneMessage.reponses', { n: 2 }), '2 replies');
+    assert.equal(translate('en', 'ligneMessage.reponses', { n: 0 }), '0 replies');
+    assert.equal(translate('en', 'ligneMessage.reponses', { n: 1 }), '1 reply');
+    assert.equal(translate('en', 'ligneMessage.reponses', { n: 2 }), '2 replies');
   });
 });
 
@@ -43,7 +43,7 @@ describe('catalogue', () => {
   });
 
   test('aucune valeur vide', () => {
-    for (const langue of LANGUES) {
+    for (const langue of LANGUAGES) {
       for (const [cle, valeur] of Object.entries(CATALOGUES[langue])) {
         assert.notEqual(valeur.trim(), '', `${langue}/${cle} est vide`);
       }
@@ -57,8 +57,8 @@ describe('formateurHeure', () => {
   // insécable (U+202F) qu'ICU met devant AM/PM.
   test('FR au format 24 h sur deux chiffres, EN au format 12 h AM/PM', () => {
     const ms = Date.UTC(2026, 0, 15, 14, 5, 0);
-    assert.match(formateurHeure('fr')(ms), /^\d{2}:\d{2}$/u);
-    assert.match(formateurHeure('en')(ms), /^\d{1,2}:\d{2}\s[AP]M$/u);
+    assert.match(timeFormatter('fr')(ms), /^\d{2}:\d{2}$/u);
+    assert.match(timeFormatter('en')(ms), /^\d{1,2}:\d{2}\s[AP]M$/u);
   });
 });
 
@@ -68,22 +68,22 @@ describe('formateurJour', () => {
   const maintenant = new Date(2026, 7, 1, 12).getTime(); // samedi 1ᵉʳ août 2026
 
   test("aujourd'hui et hier passent par le catalogue, pas par la date", () => {
-    assert.equal(formateurJour('fr')(maintenant, maintenant), "Aujourd'hui");
-    assert.equal(formateurJour('fr')(new Date(2026, 6, 31, 9).getTime(), maintenant), 'Hier');
-    assert.equal(formateurJour('en')(maintenant, maintenant), 'Today');
-    assert.equal(formateurJour('en')(new Date(2026, 6, 31, 9).getTime(), maintenant), 'Yesterday');
+    assert.equal(dayFormatter('fr')(maintenant, maintenant), "Aujourd'hui");
+    assert.equal(dayFormatter('fr')(new Date(2026, 6, 31, 9).getTime(), maintenant), 'Hier');
+    assert.equal(dayFormatter('en')(maintenant, maintenant), 'Today');
+    assert.equal(dayFormatter('en')(new Date(2026, 6, 31, 9).getTime(), maintenant), 'Yesterday');
   });
 
   test("l'année courante porte le jour de semaine, une autre année porte l'année", () => {
-    assert.equal(formateurJour('fr')(new Date(2026, 6, 30, 12).getTime(), maintenant), 'jeudi 30 juillet');
-    assert.equal(formateurJour('fr')(new Date(2025, 6, 30, 12).getTime(), maintenant), '30 juillet 2025');
-    assert.equal(formateurJour('en')(new Date(2026, 6, 30, 12).getTime(), maintenant), 'Thursday, July 30');
-    assert.equal(formateurJour('en')(new Date(2025, 6, 30, 12).getTime(), maintenant), 'July 30, 2025');
+    assert.equal(dayFormatter('fr')(new Date(2026, 6, 30, 12).getTime(), maintenant), 'jeudi 30 juillet');
+    assert.equal(dayFormatter('fr')(new Date(2025, 6, 30, 12).getTime(), maintenant), '30 juillet 2025');
+    assert.equal(dayFormatter('en')(new Date(2026, 6, 30, 12).getTime(), maintenant), 'Thursday, July 30');
+    assert.equal(dayFormatter('en')(new Date(2025, 6, 30, 12).getTime(), maintenant), 'July 30, 2025');
   });
 });
 
 describe('langueAppareil', () => {
   test('rend une langue couverte, jamais autre chose', () => {
-    assert.ok(LANGUES.includes(langueAppareil()));
+    assert.ok(LANGUAGES.includes(deviceLanguage()));
   });
 });

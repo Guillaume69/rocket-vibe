@@ -13,15 +13,15 @@
 import { drizzle } from 'drizzle-orm/expo-sqlite';
 import { openDatabaseSync, type SQLiteDatabase } from 'expo-sqlite';
 
-import { creerFileEcritures, type FileEcritures } from './writeQueue.ts';
-import { nomFichier } from './fileName.ts';
+import { createWriteQueue, type WriteQueue } from './writeQueue.ts';
+import { databaseFileName } from './fileName.ts';
 import * as schema from './schema.ts';
 
 export type BaseLocale = ReturnType<typeof drizzle<typeof schema>>;
 
-export { nomFichier };
+export { databaseFileName };
 
-type Connexion = { brute: SQLiteDatabase; base: BaseLocale; fileEcritures: FileEcritures };
+type Connexion = { raw: SQLiteDatabase; base: BaseLocale; writeQueue: WriteQueue };
 
 /**
  * Les connexions ouvertes vivent pour la durée du PROCESS : rien n'appelle
@@ -39,8 +39,8 @@ const ouvertes = new Map<string, Connexion>();
  * simple renommage (objet `session` neuf pour le même compte), fabriquait une
  * seconde file, et les deux moteurs s'entrelaçaient sur un seul SQLite.
  */
-export function ouvrirBase(baseUrl: string, utilisateurId?: string): Connexion {
-  const nom = nomFichier(baseUrl, utilisateurId);
+export function openDatabase(baseUrl: string, utilisateurId?: string): Connexion {
+  const nom = databaseFileName(baseUrl, utilisateurId);
   const existante = ouvertes.get(nom);
   if (existante) return existante;
 
@@ -51,9 +51,9 @@ export function ouvrirBase(baseUrl: string, utilisateurId?: string): Connexion {
   brute.execSync('PRAGMA journal_mode = WAL;');
 
   const connexion: Connexion = {
-    brute,
+    raw: brute,
     base: drizzle(brute, { schema }),
-    fileEcritures: creerFileEcritures(),
+    writeQueue: createWriteQueue(),
   };
   ouvertes.set(nom, connexion);
   return connexion;
@@ -66,10 +66,10 @@ export function ouvrirBase(baseUrl: string, utilisateurId?: string): Connexion {
  * Gardée pour les tests et un éventuel effacement de compte, où l'on sait que
  * plus rien n'écrit.
  */
-export function fermerBase(baseUrl: string, utilisateurId?: string): void {
-  const nom = nomFichier(baseUrl, utilisateurId);
+export function closeDatabase(baseUrl: string, utilisateurId?: string): void {
+  const nom = databaseFileName(baseUrl, utilisateurId);
   const paire = ouvertes.get(nom);
   if (!paire) return;
-  paire.brute.closeSync();
+  paire.raw.closeSync();
   ouvertes.delete(nom);
 }

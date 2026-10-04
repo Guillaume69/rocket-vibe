@@ -47,17 +47,17 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
-  completerEmoji,
+  completeEmoji,
   type SuggestionEmoji,
 } from '../lib/emojiCompletion.ts';
-import { codesEmojiStandard, emojisParCategorie, type CategorieEmoji } from '../lib/emojis.ts';
-import { codesEmojiCustom, surChangementEmojisCustom } from '../lib/customEmojis.ts';
-import { resoudre } from './emojiCompletion.tsx';
+import { codesEmojiStandard, emojisByCategory, type EmojiCategory } from '../lib/emojis.ts';
+import { codesEmojiCustom, onCustomEmojisChange } from '../lib/customEmojis.ts';
+import { resolve } from './emojiCompletion.tsx';
 import { useT } from './i18n.ts';
-import type { CleTraduction } from './messages.ts';
-import { useRetourMateriel } from './hardwareBack.ts';
-import { type Couleurs, DELAI_PRESSION_LISTE, POLICES } from './theme.ts';
-import { Appuyable } from './tappable.tsx';
+import type { TranslationKey } from './messages.ts';
+import { useHardwareBack } from './hardwareBack.ts';
+import { type Colors, LIST_PRESS_DELAY, FONTS } from './theme.ts';
+import { Tappable } from './tappable.tsx';
 
 /** Une recherche dans le navigateur ratisse plus large que la bande inline. */
 const LIMITE_RECHERCHE = 300;
@@ -89,7 +89,7 @@ type EtatPanneau = 'ferme' | 'ouvert' | 'cede';
  * lieu de quitter l'écran, et la hauteur calée sur le vrai clavier.
  * Partagé par le salon et le fil — mêmes gestes, une seule mécanique.
  */
-export function usePanneauEmoji(champRef: RefObject<TextInput | null>) {
+export function useEmojiPanel(champRef: RefObject<TextInput | null>) {
   const [etat, setEtat] = useState<EtatPanneau>('ferme');
   const { height: hauteurEcran } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -153,17 +153,17 @@ export function usePanneauEmoji(champRef: RefObject<TextInput | null>) {
   const surFocus = useCallback(() => setEtat((e) => (e === 'ouvert' ? 'cede' : e)), []);
   const fermer = useCallback(() => setEtat('ferme'), []);
 
-  useRetourMateriel(etat === 'ouvert', fermer);
+  useHardwareBack(etat === 'ouvert', fermer);
 
   return {
     /** Vrai quand le panneau tient la place (bouton en ⌨️, bandeaux masqués). */
-    ouvert: etat === 'ouvert',
+    open: etat === 'ouvert',
     /** Monté (peut-être à hauteur nulle). */
     monte,
     /** Taille du CONTENU : stable, pour que la grille ne se remesure pas à l'ouverture. */
     hauteur,
     /** Hauteur visée ; 0 replie. */
-    cible: etat === 'ferme' ? 0 : hauteur,
+    target: etat === 'ferme' ? 0 : hauteur,
     /**
      * Le panneau doit-il s'animer LUI-MÊME ? Clavier ouvert, non : il se
      * rétracte déjà et découvre le panneau à son rythme, s'animer en plus les
@@ -171,7 +171,7 @@ export function usePanneauEmoji(champRef: RefObject<TextInput | null>) {
      * fermé — le cas de LOIN le plus courant, on ouvre les emojis sans avoir
      * tapé — rien ne pilote : sans ça le panneau surgit d'un bloc.
      */
-    glisse: !clavierVisible,
+    swiped: !clavierVisible,
     basculer,
     surFocus,
     fermer,
@@ -179,37 +179,37 @@ export function usePanneauEmoji(champRef: RefObject<TextInput | null>) {
 }
 
 /** Onglet actif : une catégorie standard, ou les customs du serveur. */
-type Onglet = CategorieEmoji | 'custom';
+type Onglet = EmojiCategory | 'custom';
 
 /** Métadonnées d'affichage des onglets, dans l'ordre canonique. Icône = un emoji
  *  représentatif de la catégorie ; libellé (clé de traduction) pour l'accessibilité. */
-const ONGLETS: { cle: CategorieEmoji; icone: string; libelleCle: CleTraduction }[] = [
-  { cle: 'people', icone: '😀', libelleCle: 'navigateurEmoji.people' },
-  { cle: 'nature', icone: '🐻', libelleCle: 'navigateurEmoji.nature' },
-  { cle: 'food', icone: '🍔', libelleCle: 'navigateurEmoji.food' },
-  { cle: 'activity', icone: '⚽', libelleCle: 'navigateurEmoji.activity' },
-  { cle: 'travel', icone: '✈️', libelleCle: 'navigateurEmoji.travel' },
-  { cle: 'objects', icone: '💡', libelleCle: 'navigateurEmoji.objects' },
-  { cle: 'symbols', icone: '❤️', libelleCle: 'navigateurEmoji.symbols' },
-  { cle: 'flags', icone: '🏁', libelleCle: 'navigateurEmoji.flags' },
+const ONGLETS: { key: EmojiCategory; icon: string; labelKey: TranslationKey }[] = [
+  { key: 'people', icon: '😀', labelKey: 'navigateurEmoji.people' },
+  { key: 'nature', icon: '🐻', labelKey: 'navigateurEmoji.nature' },
+  { key: 'food', icon: '🍔', labelKey: 'navigateurEmoji.food' },
+  { key: 'activity', icon: '⚽', labelKey: 'navigateurEmoji.activity' },
+  { key: 'travel', icon: '✈️', labelKey: 'navigateurEmoji.travel' },
+  { key: 'objects', icon: '💡', labelKey: 'navigateurEmoji.objects' },
+  { key: 'symbols', icon: '❤️', labelKey: 'navigateurEmoji.symbols' },
+  { key: 'flags', icon: '🏁', labelKey: 'navigateurEmoji.flags' },
 ];
 
-export function NavigateurEmoji({
+export function EmojiPicker({
   c,
-  hauteur,
-  cible,
-  glisse,
-  onChoisir,
+  height: hauteur,
+  target: cible,
+  swiped: glisse,
+  onPick: onChoisir,
 }: {
-  c: Couleurs;
+  c: Colors;
   /** Taille du contenu — stable : la grille est mesurée une fois, pas à chaque ouverture. */
-  hauteur: number;
+  height: number;
   /** Hauteur visée (`usePanneauEmoji`), 0 pour se replier. */
-  cible: number;
+  target: number;
   /** Le panneau s'anime lui-même (aucun clavier ne le fait pour lui). */
-  glisse: boolean;
+  swiped: boolean;
   /** Reçoit ce qu'on insère : un glyphe (standard) ou `:nom:` (custom). */
-  onChoisir: (insertion: string) => void;
+  onPick: (insertion: string) => void;
 }) {
   const t = useT();
   const { width } = useWindowDimensions();
@@ -239,13 +239,13 @@ export function NavigateurEmoji({
   // la liste lue au montage est vide, l'onglet ⭐ n'existerait pas et la
   // recherche ne proposerait aucun custom de toute la session. Le cache gelé de
   // `codesEmojiCustom` est l'instantané stable qu'exige `useSyncExternalStore`.
-  const customs = useSyncExternalStore(surChangementEmojisCustom, codesEmojiCustom);
-  const parCategorie = useMemo(() => emojisParCategorie(), []);
+  const customs = useSyncExternalStore(onCustomEmojisChange, codesEmojiCustom);
+  const parCategorie = useMemo(() => emojisByCategory(), []);
 
   const requete = recherche.trim();
   const items: SuggestionEmoji[] = useMemo(() => {
     if (requete !== '') {
-      return completerEmoji(requete, codesEmojiStandard(), customs, LIMITE_RECHERCHE);
+      return completeEmoji(requete, codesEmojiStandard(), customs, LIMITE_RECHERCHE);
     }
     if (onglet === 'custom') return customs.map((code) => ({ code, type: 'custom' as const }));
     return parCategorie[onglet].map((code) => ({ code, type: 'standard' as const }));
@@ -258,46 +258,46 @@ export function NavigateurEmoji({
 
   return (
     <Animated.View
-      style={[styles.panneau, { backgroundColor: c.carte, borderTopColor: c.bordure }, style]}
+      style={[styles.panneau, { backgroundColor: c.card, borderTopColor: c.border }, style]}
     >
       {/* Contenu à taille FIXE derrière l'enveloppe qui, elle, s'anime : la
           grille est mesurée une fois pour toutes, jamais frame par frame. */}
       <View style={{ height: hauteur }}>
-      <View style={[styles.recherche, { backgroundColor: c.carteProfonde }]}>
+      <View style={[styles.search, { backgroundColor: c.deepCard }]}>
         <Text style={styles.loupe}>🔍</Text>
         <TextInput
           value={recherche}
           onChangeText={setRecherche}
           placeholder={t('navigateurEmoji.rechercher')}
-          placeholderTextColor={c.texteTertiaire}
+          placeholderTextColor={c.tertiaryText}
           autoCapitalize="none"
           autoCorrect={false}
-          style={[styles.champRecherche, { color: c.texte }]}
+          style={[styles.champRecherche, { color: c.text }]}
         />
         {recherche !== '' && (
           <Pressable onPress={() => setRecherche('')} hitSlop={8} accessibilityLabel={t('navigateurEmoji.effacerRecherche')}>
-            <Text style={[styles.effacer, { color: c.texteTertiaire }]}>✕</Text>
+            <Text style={[styles.clear, { color: c.tertiaryText }]}>✕</Text>
           </Pressable>
         )}
       </View>
 
       {requete === '' && (
-        <View style={[styles.onglets, { borderBottomColor: c.bordureDouce }]}>
+        <View style={[styles.tabs, { borderBottomColor: c.softBorder }]}>
           {(customs.length > 0
-            ? ([{ cle: 'custom' as const, icone: '⭐', libelleCle: 'navigateurEmoji.personnalises' as CleTraduction }, ...ONGLETS])
+            ? ([{ key: 'custom' as const, icon: '⭐', labelKey: 'navigateurEmoji.personnalises' as TranslationKey }, ...ONGLETS])
             : ONGLETS
           ).map((o) => {
-            const actif = onglet === o.cle;
+            const actif = onglet === o.key;
             return (
               <Pressable
-                key={o.cle}
-                onPress={() => setOnglet(o.cle)}
-                style={styles.onglet}
+                key={o.key}
+                onPress={() => setOnglet(o.key)}
+                style={styles.tab}
                 accessibilityRole="tab"
-                accessibilityLabel={t(o.libelleCle)}
+                accessibilityLabel={t(o.labelKey)}
                 accessibilityState={{ selected: actif }}
               >
-                <Text style={[styles.ongletIcone, !actif && styles.ongletInactif]}>{o.icone}</Text>
+                <Text style={[styles.ongletIcone, !actif && styles.ongletInactif]}>{o.icon}</Text>
                 {actif && <View style={[styles.soulignement, { backgroundColor: c.accent }]} />}
               </Pressable>
             );
@@ -316,27 +316,27 @@ export function NavigateurEmoji({
         removeClippedSubviews
         contentContainerStyle={styles.grille}
         ListEmptyComponent={
-          <Text style={[styles.vide, { color: c.texteTertiaire }]}>{t('navigateurEmoji.vide')}</Text>
+          <Text style={[styles.empty, { color: c.tertiaryText }]}>{t('navigateurEmoji.vide')}</Text>
         }
         renderItem={({ item }) => {
-          const { glyphe, uri, insertion, suggestion } = resoudre(item);
+          const { glyph: glyphe, uri, insertion, suggestion } = resolve(item);
           return (
-            <Appuyable
+            <Tappable
               onPress={() => onChoisir(insertion)}
               // Vague CIRCULAIRE. `borderless` + rayon calibré sur la case :
               // le masque du ripple borné ignore borderRadius sous Fabric
               // (vérifié sur l'émulateur — rectangle quel que soit le style).
-              android_ripple={{ color: c.ondulation, borderless: true, radius: caseTaille / 2 - 2 }}
-              unstable_pressDelay={DELAI_PRESSION_LISTE}
+              android_ripple={{ color: c.ripple, borderless: true, radius: caseTaille / 2 - 2 }}
+              unstable_pressDelay={LIST_PRESS_DELAY}
               style={[styles.case, { width: caseTaille, height: caseTaille }]}
               accessibilityLabel={`:${suggestion.code}:`}
             >
               {uri !== null ? (
                 <Image source={{ uri }} style={styles.imageCustom} resizeMode="contain" />
               ) : (
-                <Text style={styles.glyphe}>{glyphe}</Text>
+                <Text style={styles.glyph}>{glyphe}</Text>
               )}
-            </Appuyable>
+            </Tappable>
           );
         }}
       />
@@ -347,7 +347,7 @@ export function NavigateurEmoji({
 
 const styles = StyleSheet.create({
   panneau: { borderTopWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
-  recherche: {
+  search: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -358,20 +358,20 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   loupe: { fontSize: 14 },
-  champRecherche: { flex: 1, fontFamily: POLICES.corps, fontSize: 15, paddingVertical: 9 },
-  effacer: { fontSize: 15, paddingHorizontal: 2 },
-  onglets: {
+  champRecherche: { flex: 1, fontFamily: FONTS.body, fontSize: 15, paddingVertical: 9 },
+  clear: { fontSize: 15, paddingHorizontal: 2 },
+  tabs: {
     flexDirection: 'row',
     borderBottomWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 4,
   },
-  onglet: { flex: 1, alignItems: 'center', paddingTop: 8, paddingBottom: 6 },
+  tab: { flex: 1, alignItems: 'center', paddingTop: 8, paddingBottom: 6 },
   ongletIcone: { fontSize: 20 },
   ongletInactif: { opacity: 0.45 },
   soulignement: { height: 2, width: 22, borderRadius: 1, marginTop: 5 },
   grille: { paddingHorizontal: 2, paddingBottom: 8 },
   case: { alignItems: 'center', justifyContent: 'center' },
-  glyphe: { fontSize: 26 },
+  glyph: { fontSize: 26 },
   imageCustom: { width: 28, height: 28 },
-  vide: { textAlign: 'center', marginTop: 24, fontFamily: POLICES.corps, fontSize: 14 },
+  empty: { textAlign: 'center', marginTop: 24, fontFamily: FONTS.body, fontSize: 14 },
 });

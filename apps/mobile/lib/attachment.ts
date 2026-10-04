@@ -19,17 +19,17 @@
  * `TransportUpload` (lib/upload.ts).
  */
 
-import { estJointeCitation } from './quote.ts';
-import { chiffrementDeJointe, type ChiffrementFichier } from './e2e/crypto.ts';
+import { isQuoteAttachment } from './quote.ts';
+import { attachmentEncryption, type FileEncryption } from './e2e/crypto.ts';
 
 /** Crée un dossier et ses parents. Doit être sans effet s'il existe déjà. */
-export type CreerDossier = (chemin: string) => Promise<void>;
+export type CreateFolder = (chemin: string) => Promise<void>;
 
 /** Télécharge `url` (authentifiée) vers `destination`, un `file://` local. */
-export type TelechargerFichier = (url: string, destination: string) => Promise<void>;
+export type DownloadFile = (url: string, destination: string) => Promise<void>;
 
 /** Ouvre la feuille de partage du système sur un fichier LOCAL. */
-export type PartagerFichier = (fichierLocal: string, type: string | null) => Promise<void>;
+export type ShareFile = (fichierLocal: string, type: string | null) => Promise<void>;
 
 /** Nom de dernier recours, quand le message n'en propose aucun d'exploitable. */
 const NOM_REPLI = 'fichier';
@@ -82,7 +82,7 @@ function decoder(s: string): string {
  * message, ou le dernier segment de l'URL). Ne peut jamais désigner autre chose
  * qu'un fichier du dossier de destination.
  */
-export function nomDeFichierSur(propose: string | null | undefined): string {
+export function safeFileName(propose: string | null | undefined): string {
   const brut = typeof propose === 'string' ? propose : '';
   // `../../evil.sh` → `evil.sh` : seul le dernier segment est retenu, ce qui
   // neutralise la remontée de dossier avant même l'assainissement.
@@ -101,7 +101,7 @@ export function nomDeFichierSur(propose: string | null | undefined): string {
  * Rocket.Chat est immuable, le dossier est donc stable d'une ouverture à
  * l'autre.
  */
-export function cleDeFichier(url: string): string {
+export function fileKey(url: string): string {
   const parts = segments(url);
   const brut = parts.length >= 2 ? parts[parts.length - 2]! : '';
   const propre = brut.replace(/[^A-Za-z0-9_-]/g, '');
@@ -133,7 +133,7 @@ const A_UNE_EXTENSION = /\.[A-Za-z0-9]{1,8}$/;
  * de l'application qui ouvrira le fichier, et de l'endroit où la galerie le
  * range : un `photo` nu y serait classé comme une image quelconque.
  */
-export function avecExtension(nom: string, type: string | null | undefined): string {
+export function withExtension(nom: string, type: string | null | undefined): string {
   if (A_UNE_EXTENSION.test(nom) || typeof type !== 'string') return nom;
   const mime = type.toLowerCase().split(';')[0]!.trim();
   const connue = EXTENSIONS_PAR_TYPE[mime];
@@ -152,7 +152,7 @@ const EXTENSIONS_MEDIA = new Set([
  * Photo, vidéo ou son : la galerie (MediaStore) sait les ranger. Tout le
  * reste (PDF, archive…) va dans un dossier choisi par l'utilisateur.
  */
-export function versGalerie(nom: string, type: string | null | undefined): boolean {
+export function toGallery(nom: string, type: string | null | undefined): boolean {
   if (typeof type === 'string' && /^(image|video|audio)\//i.test(type)) return true;
   const ext = nom.slice(nom.lastIndexOf('.') + 1).toLowerCase();
   return nom.includes('.') && EXTENSIONS_MEDIA.has(ext);
@@ -164,28 +164,28 @@ export function versGalerie(nom: string, type: string | null | undefined): boole
  * `url` porte le jeton et ne quitte JAMAIS cette fonction : elle n'est passée
  * qu'à `telecharger`, dont l'implémentation fait une requête HTTP interne.
  */
-export async function telechargerFichierJoint(options: {
+export async function downloadAttachment(options: {
   /** URL protégée, jeton compris. */
   url: string;
   /** `title` du message — proposé par autrui, donc assaini. */
-  titre: string | null | undefined;
+  title: string | null | undefined;
   /** MIME annoncé : complète l'extension quand le nom n'en a pas. */
   type: string | null | undefined;
   /** Dossier de cache de l'app (`file:///…/cache/`). */
-  dossier: string;
-  creerDossier: CreerDossier;
-  telecharger: TelechargerFichier;
+  folder: string;
+  createFolder: CreateFolder;
+  download: DownloadFile;
 }): Promise<string> {
-  const { url, titre, type, dossier, creerDossier, telecharger } = options;
+  const { url, title: titre, type, folder: dossier, createFolder: creerDossier, download: telecharger } = options;
 
   const racine = dossier.endsWith('/') ? dossier : `${dossier}/`;
-  const sousDossier = `${racine}jointes/${cleDeFichier(url)}/`;
+  const sousDossier = `${racine}jointes/${fileKey(url)}/`;
   // Le `title` d'abord (c'est ce que l'utilisateur voit dans le fil), le dernier
   // segment de l'URL en repli — décodé, sans quoi `mon%20rapport.pdf`
   // s'écrirait avec son `%20`.
   const depuisUrl = segments(url).at(-1);
-  const nom = avecExtension(
-    nomDeFichierSur(
+  const nom = withExtension(
+    safeFileName(
       typeof titre === 'string' && titre.trim() !== ''
         ? titre
         : depuisUrl === undefined
@@ -205,31 +205,31 @@ export async function telechargerFichierJoint(options: {
  * Télécharge la pièce jointe et ouvre la feuille de partage dessus. Rend le
  * chemin local ; `partager` ne reçoit que lui, jamais l'URL.
  */
-export async function ouvrirFichierJoint(options: {
+export async function openAttachment(options: {
   url: string;
-  titre: string | null | undefined;
+  title: string | null | undefined;
   /** MIME annoncé, passé tel quel à la feuille de partage. */
   type: string | null | undefined;
-  dossier: string;
-  creerDossier: CreerDossier;
-  telecharger: TelechargerFichier;
-  partager: PartagerFichier;
+  folder: string;
+  createFolder: CreateFolder;
+  download: DownloadFile;
+  share: ShareFile;
 }): Promise<string> {
-  const { partager, ...reste } = options;
-  const destination = await telechargerFichierJoint(reste);
+  const { share: partager, ...reste } = options;
+  const destination = await downloadAttachment(reste);
   await partager(destination, typeof options.type === 'string' && options.type !== '' ? options.type : null);
   return destination;
 }
 
-export type JointePartageable = {
+export type ShareableAttachment = {
   /** Chemin (relatif au serveur) de l'ORIGINAL, sans jeton. */
-  chemin: string;
-  titre: string | null;
+  path: string;
+  title: string | null;
   type: string | null;
   /** Poids annoncé par le message, en octets : la progression s'y rapporte quand le serveur tait le sien. */
-  taille: number | null;
+  size: number | null;
   /** Fichier d'un salon chiffré : sa clé, pour le rendre en clair. */
-  chiffrement: ChiffrementFichier | null;
+  encryption: FileEncryption | null;
 };
 
 type JointeBrute = {
@@ -260,7 +260,7 @@ function chaine(v: unknown): string | null {
  * `title_link` d'abord, qui désigne l'original là où `image_url` n'est que la
  * vignette. Les citations sont ignorées : on partage ce que le message porte.
  */
-export function jointeAPartager(piecesJointes: string | null): JointePartageable | null {
+export function attachmentToShare(piecesJointes: string | null): ShareableAttachment | null {
   let brut: unknown;
   try {
     brut = JSON.parse(piecesJointes ?? '[]');
@@ -269,17 +269,17 @@ export function jointeAPartager(piecesJointes: string | null): JointePartageable
   }
   if (!Array.isArray(brut)) return null;
   for (const jointe of brut as unknown[]) {
-    if (typeof jointe !== 'object' || jointe === null || estJointeCitation(jointe)) continue;
+    if (typeof jointe !== 'object' || jointe === null || isQuoteAttachment(jointe)) continue;
     const j = jointe as JointeBrute;
     const chemin =
       chaine(j.title_link) ?? chaine(j.image_url) ?? chaine(j.video_url) ?? chaine(j.audio_url);
     if (chemin === null) continue;
     return {
-      chemin,
-      titre: chaine(j.title),
+      path: chemin,
+      title: chaine(j.title),
       type: chaine(j.image_type) ?? chaine(j.video_type) ?? chaine(j.audio_type),
-      taille: octets(j.size) ?? octets(j.image_size) ?? octets(j.video_size) ?? octets(j.audio_size),
-      chiffrement: chiffrementDeJointe(jointe),
+      size: octets(j.size) ?? octets(j.image_size) ?? octets(j.video_size) ?? octets(j.audio_size),
+      encryption: attachmentEncryption(jointe),
     };
   }
   return null;
@@ -290,7 +290,7 @@ export function jointeAPartager(piecesJointes: string | null): JointePartageable
  * taille (réponse en `chunked`) : on se rapporte alors au poids annoncé par le
  * message, plafonné à 1. `null` si on ne sait rien du tout.
  */
-export function fractionTelechargee(
+export function downloadedFraction(
   ecrits: number,
   attendus: number,
   taille: number | null | undefined,
@@ -305,8 +305,8 @@ export function fractionTelechargee(
  * le disque, et le serveur le garde tel quel : une copie de cache (sélecteur,
  * réduction) partirait sous un nom aléatoire. `null` : l'URI porte déjà le bon.
  */
-export function nomATeleverser(uri: string, nom: string): string | null {
-  const voulu = nomDeFichierSur(nom);
+export function uploadName(uri: string, nom: string): string | null {
+  const voulu = safeFileName(nom);
   const actuel = decoder(uri.split(/[?#]/)[0]!.split('/').pop() ?? '');
   return actuel === voulu ? null : voulu;
 }

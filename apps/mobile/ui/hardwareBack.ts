@@ -10,7 +10,7 @@ import { BackHandler } from 'react-native';
  * inscrit d'abord — deux éléments ouverts, le plus récent se referme en premier,
  * ce qui est l'ordre attendu.
  */
-export function useRetourMateriel(actif: boolean, action: () => void): void {
+export function useHardwareBack(actif: boolean, action: () => void): void {
   useEffect(() => {
     if (!actif) return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {

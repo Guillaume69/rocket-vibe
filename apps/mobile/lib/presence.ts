@@ -19,16 +19,16 @@
  * l'UI n'affiche alors simplement rien.
  */
 
-import type { Evenement } from './ddp.ts';
+import type { DdpEvent } from './ddp.ts';
 import type { ClientRest } from './rest.ts';
 
-export type StatutPresence = 'online' | 'away' | 'busy' | 'offline';
+export type PresenceStatus = 'online' | 'away' | 'busy' | 'offline';
 
 export const STREAM_NOTIFY_LOGGED = 'stream-notify-logged';
-export const EVENEMENT_PRESENCE = 'user-status';
+export const PRESENCE_EVENT = 'user-status';
 
 /** `STATUS_MAP` du serveur (relevé dans le bundle 8.5). */
-const DEPUIS_NUMERO = new Map<number, StatutPresence>([
+const DEPUIS_NUMERO = new Map<number, PresenceStatus>([
   [0, 'offline'],
   [1, 'online'],
   [2, 'away'],
@@ -42,34 +42,34 @@ type ReponsePresence = {
   full?: boolean;
 };
 
-export class MoteurPresence {
-  private statuts = new Map<string, StatutPresence>();
-  private ecouteurs = new Set<() => void>();
+export class PresenceEngine {
+  private statuses = new Map<string, PresenceStatus>();
+  private listeners = new Set<() => void>();
   /** N° du dernier événement STREAM par uid — départage REST/stream. */
   private sequences = new Map<string, number>();
-  private compteur = 0;
-  private enVol = false;
-  private repasser = false;
+  private counter = 0;
+  private inFlight = false;
+  private rerun = false;
   /**
    * Incrémentée à chaque `invalider()`. Une photo partie sous une époque
    * révolue décrit le monde d'avant la coupure : on la jette entière.
    */
-  private epoque = 0;
+  private epoch = 0;
 
   /** `null` = inconnu — l'UI ne doit alors RIEN afficher (dégradation). */
-  statutDe(uid: string): StatutPresence | null {
-    return this.statuts.get(uid) ?? null;
+  statusOf(uid: string): PresenceStatus | null {
+    return this.statuses.get(uid) ?? null;
   }
 
-  surChangement(ecouteur: () => void): () => void {
-    this.ecouteurs.add(ecouteur);
+  onChange(ecouteur: () => void): () => void {
+    this.listeners.add(ecouteur);
     return () => {
-      this.ecouteurs.delete(ecouteur);
+      this.listeners.delete(ecouteur);
     };
   }
 
   private notifier(): void {
-    for (const ecouteur of this.ecouteurs) ecouteur();
+    for (const ecouteur of this.listeners) ecouteur();
   }
 
   /**
@@ -83,19 +83,19 @@ export class MoteurPresence {
    * et les photos REST, et le rembobiner ferait passer un événement frais
    * pour antérieur au seuil d'une photo en vol, qui l'écraserait.
    */
-  invalider(): void {
-    this.epoque++;
-    const avaitQuelqueChose = this.statuts.size > 0;
-    this.statuts.clear();
+  invalidate(): void {
+    this.epoch++;
+    const avaitQuelqueChose = this.statuses.size > 0;
+    this.statuses.clear();
     this.sequences.clear();
     if (avaitQuelqueChose) this.notifier();
   }
 
   /** Route un événement DDP. Tout ce qui n'est pas de la présence est ignoré. */
-  appliquer(evenement: Evenement): void {
+  apply(evenement: DdpEvent): void {
     if (
       evenement.collection !== STREAM_NOTIFY_LOGGED ||
-      evenement.cleEvenement !== EVENEMENT_PRESENCE
+      evenement.eventKey !== PRESENCE_EVENT
     ) {
       return;
     }
@@ -107,8 +107,8 @@ export class MoteurPresence {
     if (typeof uid !== 'string' || uid === '') return;
     const statut = typeof numero === 'number' ? DEPUIS_NUMERO.get(numero) : undefined;
     if (statut === undefined) return;
-    this.statuts.set(uid, statut);
-    this.sequences.set(uid, ++this.compteur);
+    this.statuses.set(uid, statut);
+    this.sequences.set(uid, ++this.counter);
     this.notifier();
   }
 
@@ -130,43 +130,43 @@ export class MoteurPresence {
    * Un échec est silencieux : la présence est un ornement, jamais une
    * dépendance. Sérialisé : un appel pendant un appel est rejoué à la fin.
    */
-  async charger(client: ClientRest): Promise<void> {
-    if (this.enVol) {
-      this.repasser = true;
+  async load(client: ClientRest): Promise<void> {
+    if (this.inFlight) {
+      this.rerun = true;
       return;
     }
-    this.enVol = true;
+    this.inFlight = true;
     try {
       do {
-        this.repasser = false;
-        await this.unePhoto(client);
-      } while (this.repasser);
+        this.rerun = false;
+        await this.snapshot(client);
+      } while (this.rerun);
     } finally {
-      this.enVol = false;
+      this.inFlight = false;
     }
   }
 
-  private async unePhoto(client: ClientRest): Promise<void> {
-    const seuil = this.compteur;
-    const epoque = this.epoque;
+  private async snapshot(client: ClientRest): Promise<void> {
+    const seuil = this.counter;
+    const epoque = this.epoch;
     try {
       const reponse = await client.get<ReponsePresence>('users.presence', { params: {} });
       // Une invalidation a eu lieu pendant la requête : cette photo décrit le
       // monde d'avant la coupure. L'appliquer rallumerait exactement les
       // pastilles qu'on vient d'éteindre.
-      if (this.epoque !== epoque) return;
-      const photo = new Map<string, StatutPresence>();
+      if (this.epoch !== epoque) return;
+      const photo = new Map<string, PresenceStatus>();
       for (const u of reponse.users ?? []) {
         if (typeof u._id !== 'string' || u._id === '') continue;
         if (typeof u.status !== 'string' || !DEPUIS_TEXTE.has(u.status)) continue;
-        photo.set(u._id, u.status as StatutPresence);
+        photo.set(u._id, u.status as PresenceStatus);
       }
       const intact = (uid: string) => (this.sequences.get(uid) ?? 0) <= seuil;
       for (const [uid, statut] of photo) {
-        if (intact(uid)) this.statuts.set(uid, statut);
+        if (intact(uid)) this.statuses.set(uid, statut);
       }
-      for (const uid of this.statuts.keys()) {
-        if (!photo.has(uid) && intact(uid)) this.statuts.set(uid, 'offline');
+      for (const uid of this.statuses.keys()) {
+        if (!photo.has(uid) && intact(uid)) this.statuses.set(uid, 'offline');
       }
       this.notifier();
     } catch {

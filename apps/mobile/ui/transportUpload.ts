@@ -9,10 +9,10 @@
 
 import * as FileSystem from 'expo-file-system/legacy';
 
-import { nomATeleverser } from '../lib/attachment.ts';
-import { ErreurRest } from '../lib/rest.ts';
+import { uploadName } from '../lib/attachment.ts';
+import { RestError } from '../lib/rest.ts';
 import type { TransportUpload } from '../lib/upload.ts';
-import { signalerFinUpload } from './uploadProbe.ts';
+import { reportUploadEnd } from './uploadProbe.ts';
 
 /**
  * Copie le fichier sous son vrai nom, dans un dossier à lui : le multipart part
@@ -22,8 +22,8 @@ import { signalerFinUpload } from './uploadProbe.ts';
 async function copieNommee(
   uri: string,
   nom: string,
-): Promise<{ dossier: string; fichier: string } | null> {
-  const voulu = nomATeleverser(uri, nom);
+): Promise<{ folder: string; file: string } | null> {
+  const voulu = uploadName(uri, nom);
   const cache = FileSystem.cacheDirectory;
   if (voulu === null || cache === null) return null;
   const dossier = `${cache}envoi-nomme/${Date.now()}-${Math.random().toString(36).slice(2)}/`;
@@ -31,7 +31,7 @@ async function copieNommee(
     await FileSystem.makeDirectoryAsync(dossier, { intermediates: true });
     const fichier = dossier + encodeURIComponent(voulu);
     await FileSystem.copyAsync({ from: uri, to: fichier });
-    return { dossier, fichier };
+    return { folder: dossier, file: fichier };
   } catch {
     await FileSystem.deleteAsync(dossier, { idempotent: true }).catch(() => {});
     return null;
@@ -45,14 +45,14 @@ function transportExpoAvec(champ: string): TransportUpload {
     // abandonnable — pas une attente éternelle.
     const info = await FileSystem.getInfoAsync(fichier.uri);
     if (!info.exists) {
-      throw new Error(`Fichier introuvable (${fichier.nom}) — cache purgé ?`);
+      throw new Error(`Fichier introuvable (${fichier.name}) — cache purgé ?`);
     }
 
-    const copie = await copieNommee(fichier.uri, fichier.nom);
+    const copie = await copieNommee(fichier.uri, fichier.name);
 
     const tache = FileSystem.createUploadTask(
       url,
-      copie?.fichier ?? fichier.uri,
+      copie?.file ?? fichier.uri,
       {
         httpMethod: 'POST',
         uploadType: FileSystem.FileSystemUploadType.MULTIPART,
@@ -79,19 +79,19 @@ function transportExpoAvec(champ: string): TransportUpload {
       // `uploadAsync` ne rejette que quand AUCUNE réponse HTTP n'est arrivée :
       // c'est le réseau. Statut 0 = la ligne reste « en-attente », le rejeu du
       // prochain raccordement s'en charge — même sémantique que ClientRest.
-      throw new ErreurRest('Upload : serveur injoignable.', 0);
+      throw new RestError('Upload : serveur injoignable.', 0);
     } finally {
       // Réussi comme échoué : c'est le passage des octets qui fait tomber la
       // socket, pas le verdict du serveur.
-      signalerFinUpload();
+      reportUploadEnd();
       if (copie !== null) {
-        void FileSystem.deleteAsync(copie.dossier, { idempotent: true }).catch(() => {});
+        void FileSystem.deleteAsync(copie.folder, { idempotent: true }).catch(() => {});
       }
     }
     if (resultat == null) {
       throw new Error('Téléversement annulé.');
     }
-    return { statut: resultat.status, corps: resultat.body };
+    return { status: resultat.status, body: resultat.body };
   };
 }
 

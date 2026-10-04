@@ -14,12 +14,12 @@
 
 import { useEffect, useReducer } from 'react';
 
-import type { OutboxFichiers } from '../lib/provider.ts';
+import type { FileOutbox } from '../lib/provider.ts';
 
-export function useProgressionFichiers(fichiers: OutboxFichiers): Map<string, number> {
+export function useFileProgress(fichiers: FileOutbox): Map<string, number> {
   // La `Map` est mutée EN PLACE par le moteur : sa référence ne change jamais,
   // donc rien ne déclencherait un rendu. Ce compteur est le signal.
   const [, redessiner] = useReducer((n: number) => n + 1, 0);
-  useEffect(() => fichiers.abonner(redessiner), [fichiers]);
-  return fichiers.progression;
+  useEffect(() => fichiers.subscribe(redessiner), [fichiers]);
+  return fichiers.progress;
 }

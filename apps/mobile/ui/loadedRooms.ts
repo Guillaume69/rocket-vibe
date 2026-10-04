@@ -26,7 +26,7 @@
  * de navigation quand cette table change.
  */
 
-import { invaliderJetonSession, jetonSession } from './sessionToken.ts';
+import { invalidateSessionToken, sessionToken } from './sessionToken.ts';
 
 const charges = new Map<string, number>();
 
@@ -39,17 +39,17 @@ const charges = new Map<string, number>();
  * et la suivante sautait l'historique d'ouverture du salon dès que son compteur
  * de génération — reparti de 0 — atteignait la valeur mémorisée.
  */
-export function marquerSalonCharge(rid: string, generation: number, jeton: number): void {
-  if (jeton !== jetonSession()) return;
+export function markRoomLoaded(rid: string, generation: number, jeton: number): void {
+  if (jeton !== sessionToken()) return;
   charges.set(rid, generation);
 }
 
-export function salonChargeSous(rid: string, generation: number): boolean {
+export function roomLoadedUnder(rid: string, generation: number): boolean {
   return charges.get(rid) === generation;
 }
 
 /** Fin de session / changement de serveur : plus rien de ce cache ne vaut. */
-export function oublierSalonsCharges(): void {
+export function forgetLoadedRooms(): void {
   charges.clear();
-  invaliderJetonSession();
+  invalidateSessionToken();
 }

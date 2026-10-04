@@ -21,7 +21,7 @@
  * Module sans `react-native` : il ne dépend que du client REST, comme `rest.ts`.
  */
 
-import { ErreurRest, estJetonRefuse } from './rest.ts';
+import { RestError, isTokenRejected } from './rest.ts';
 import type { ClientRest } from './rest.ts';
 
 const chaine = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
@@ -35,10 +35,10 @@ type ReponseJoin = { url?: unknown };
  * membres du salon — c'est ainsi qu'un correspondant est prévenu, puisque la
  * sonnerie mobile (`VideoConf_Mobile_Ringing`) est désactivée sur la cible.
  */
-export async function demarrerConference(client: ClientRest, roomId: string): Promise<string> {
-  const r = await client.post<ReponseStart>('video-conference.start', { corps: { roomId } });
+export async function startConference(client: ClientRest, roomId: string): Promise<string> {
+  const r = await client.post<ReponseStart>('video-conference.start', { body: { roomId } });
   const callId = chaine(r.data?.callId);
-  if (callId === null) throw new ErreurRest("Le serveur n'a pas renvoyé d'identifiant d'appel.", 0);
+  if (callId === null) throw new RestError("Le serveur n'a pas renvoyé d'identifiant d'appel.", 0);
   return callId;
 }
 
@@ -47,16 +47,16 @@ export async function demarrerConference(client: ClientRest, roomId: string): Pr
  * serveur exige l'authentification Jitsi). `etat` pré-règle caméra/micro à
  * l'entrée ; omis, on laisse le fournisseur décider.
  */
-export async function rejoindreConference(
+export async function joinConference(
   client: ClientRest,
   callId: string,
   etat?: { cam?: boolean; mic?: boolean },
 ): Promise<string> {
   const r = await client.post<ReponseJoin>('video-conference.join', {
-    corps: etat === undefined ? { callId } : { callId, state: etat },
+    body: etat === undefined ? { callId } : { callId, state: etat },
   });
   const url = chaine(r.url);
-  if (url === null) throw new ErreurRest("Le serveur n'a pas renvoyé d'URL d'appel.", 0);
+  if (url === null) throw new RestError("Le serveur n'a pas renvoyé d'URL d'appel.", 0);
   return url;
 }
 
@@ -74,7 +74,7 @@ export async function rejoindreConference(
  */
 const dispoParServeur = new Map<string, boolean>();
 
-export async function sonderAppelDisponible(client: ClientRest): Promise<boolean> {
+export async function probeCallAvailable(client: ClientRest): Promise<boolean> {
   const memo = dispoParServeur.get(client.baseUrl);
   if (memo !== undefined) return memo;
   try {
@@ -85,7 +85,7 @@ export async function sonderAppelDisponible(client: ClientRest): Promise<boolean
     // Un 401 ne dit rien de la visioconférence — il dit que la session est
     // finie. Le mémoïser éteignait le bouton 📞 pour la vie du process, y
     // compris après une reconnexion réussie, et aucun geste n'en sortait.
-    if (e instanceof ErreurRest && e.statut !== 0 && !estJetonRefuse(e)) {
+    if (e instanceof RestError && e.status !== 0 && !isTokenRejected(e)) {
       dispoParServeur.set(client.baseUrl, false);
     }
     return false;
@@ -93,7 +93,7 @@ export async function sonderAppelDisponible(client: ClientRest): Promise<boolean
 }
 
 /** Fin de session / changement de serveur : le verdict est celui d'un compte. */
-export function oublierDisponibiliteAppel(): void {
+export function forgetCallAvailability(): void {
   dispoParServeur.clear();
 }
 
@@ -102,6 +102,6 @@ export function oublierDisponibiliteAppel(): void {
  * défaut prudent que la sonde). Sert à figer la présence du bouton « Appeler »
  * dès la première frame quand la sonde a déjà tourné (fiche préchargée).
  */
-export function appelDisponibleMemo(client: ClientRest): boolean {
+export function memoizedCallAvailable(client: ClientRest): boolean {
   return dispoParServeur.get(client.baseUrl) ?? false;
 }

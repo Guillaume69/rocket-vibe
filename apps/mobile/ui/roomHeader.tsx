@@ -11,54 +11,54 @@ import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import type { salons } from '../db/schema.ts';
-import { demarrerConference, sonderAppelDisponible } from '../lib/call.ts';
-import type { StatutPresence } from '../lib/presence.ts';
-import { ouvrirFicheProfil } from '../lib/profilePreload.ts';
+import type { rooms } from '../db/schema.ts';
+import { startConference, probeCallAvailable } from '../lib/call.ts';
+import type { PresenceStatus } from '../lib/presence.ts';
+import { openProfileCard } from '../lib/profilePreload.ts';
 import type { ClientRest } from '../lib/rest.ts';
-import { useActivite } from './activity.ts';
-import { useE2EDeverrouille } from './e2e.ts';
+import { useActivity } from './activity.ts';
+import { useE2EUnlocked } from './e2e.ts';
 import { useT } from './i18n.ts';
-import { AvatarSalon, BarreSynchro } from './kit.tsx';
-import { CLES_PRESENCE, couleursPresence } from './presence.ts';
-import { useSynchro } from './sync.tsx';
-import { type Couleurs, POLICES } from './theme.ts';
-import { Appuyable } from './tappable.tsx';
+import { RoomAvatar, SyncBar } from './kit.tsx';
+import { PRESENCE_KEYS, presenceColors } from './presence.ts';
+import { useSync } from './sync.tsx';
+import { type Colors, FONTS } from './theme.ts';
+import { Tappable } from './tappable.tsx';
 
-type LigneDeSalon = typeof salons.$inferSelect;
+type LigneDeSalon = typeof rooms.$inferSelect;
 
 /** En-tête du salon : retour, tuile, nom, présence du correspondant (DM), recherche. */
-export function EnTeteSalon({
+export function RoomHeader({
   c,
   rid,
-  salon,
+  room: salon,
   client,
-  statutDM,
+  dmStatus: statutDM,
   insetTop,
-  onRetour,
-  onRecherche,
-  onMarques,
+  onBack: onRetour,
+  onSearch: onRecherche,
+  onMarked: onMarques,
 }: {
-  c: Couleurs;
+  c: Colors;
   rid: string;
-  salon: LigneDeSalon | undefined;
+  room: LigneDeSalon | undefined;
   client: ClientRest;
-  statutDM: StatutPresence | null;
+  dmStatus: PresenceStatus | null;
   insetTop: number;
-  onRetour: () => void;
-  onRecherche: () => void;
+  onBack: () => void;
+  onSearch: () => void;
   /** Ouvre les messages épinglés et favoris du salon. */
-  onMarques: () => void;
+  onMarked: () => void;
 }) {
-  const nom = salon ? (salon.nomAffiche ?? salon.nom ?? salon.rid) : '…';
+  const nom = salon ? (salon.displayName ?? salon.name ?? salon.rid) : '…';
   const estDM = salon?.type === 'd';
   // Chargement de l'historique (ouverture) et rattrapage du salon (reconnexion)
   // allument la barre — même portée `rid` que le fetch enveloppé par l'écran.
-  const enSynchro = useActivite(rid);
+  const enSynchro = useActivity(rid);
   const routeur = useRouter();
   const t = useT();
-  const synchro = useSynchro();
-  const deverrouille = useE2EDeverrouille(synchro.phase === 'pret' ? synchro.e2e : null);
+  const synchro = useSync();
+  const deverrouille = useE2EUnlocked(synchro.phase === 'pret' ? synchro.e2e : null);
 
   // Disponibilité de la visioconférence : masque le bouton là où aucun
   // fournisseur n'est configuré (Docker local), l'affiche sur la cible (Jitsi).
@@ -66,7 +66,7 @@ export function EnTeteSalon({
   const [demarrage, setDemarrage] = useState(false);
   useEffect(() => {
     let vivant = true;
-    void sonderAppelDisponible(client).then((ok) => {
+    void probeCallAvailable(client).then((ok) => {
       if (vivant) setAppelDispo(ok);
     });
     return () => {
@@ -81,8 +81,8 @@ export function EnTeteSalon({
       try {
         // `start` crée la conférence, poste le message d'appel dans le salon,
         // et renvoie le callId — l'écran d'appel s'occupe de `join` + WebView.
-        const callId = await demarrerConference(client, rid);
-        routeur.push({ pathname: '/call/[callId]', params: { callId, titre: nom } });
+        const callId = await startConference(client, rid);
+        routeur.push({ pathname: '/call/[callId]', params: { callId, title: nom } });
       } catch {
         Alert.alert(t('salon.appelTitre'), t('salon.appelImpossibleDemarrer'));
       } finally {
@@ -92,90 +92,90 @@ export function EnTeteSalon({
   }, [demarrage, client, rid, routeur, nom, t]);
 
   return (
-    <View style={[styles.entete, { paddingTop: insetTop + 6, borderBottomColor: c.bordureDouce }]}>
+    <View style={[styles.header, { paddingTop: insetTop + 6, borderBottomColor: c.softBorder }]}>
       <Pressable onPress={onRetour} hitSlop={10} accessibilityRole="button" accessibilityLabel={t('salon.retour')}>
-        <Text style={[styles.retour, { color: c.violet }]}>‹</Text>
+        <Text style={[styles.back, { color: c.purple }]}>‹</Text>
       </Pressable>
       {/* Le nom (et l'avatar) ouvrent la fiche : celle de l'INTERLOCUTEUR pour
           un DM (visé par `dmAutreUid` — le `name` d'un DM est null localement),
           celle du salon sinon. */}
       <View style={styles.enveloppeEntete}>
-        <Appuyable
+        <Tappable
           onPress={() =>
-            estDM && salon?.dmAutreUid != null
-              ? void ouvrirFicheProfil({ uid: salon.dmAutreUid })
+            estDM && salon?.dmOtherUid != null
+              ? void openProfileCard({ uid: salon.dmOtherUid })
               : routeur.push({ pathname: '/room-info', params: { rid } })
           }
-          android_ripple={{ color: c.ondulation, borderless: false }}
+          android_ripple={{ color: c.ripple, borderless: false }}
           style={styles.enteteFiche}
           accessibilityRole="button"
           accessibilityLabel={t('salon.infosConversation')}
         >
-        <AvatarSalon
+        <RoomAvatar
           c={c}
-          nom={nom}
+          name={nom}
           type={salon?.type}
-          chiffre={salon?.chiffre ?? false}
-          chiffreDeverrouille={deverrouille}
+          encrypted={salon?.encrypted ?? false}
+          encryptedUnlocked={deverrouille}
           rid={salon?.rid}
-          dmAutreUid={salon?.dmAutreUid}
+          dmOtherUid={salon?.dmOtherUid}
           avatarEtag={salon?.avatarEtag}
           client={client}
-          taille={34}
-          rayon={12}
+          size={34}
+          radius={12}
         />
         <View style={styles.enteteBloc}>
-          <Text style={[styles.enteteNom, { color: c.texte }]} numberOfLines={1}>
-            {salon?.chiffre === true && <Text style={styles.badgeChiffreEntete}>🔒 </Text>}
+          <Text style={[styles.enteteNom, { color: c.text }]} numberOfLines={1}>
+            {salon?.encrypted === true && <Text style={styles.badgeChiffreEntete}>🔒 </Text>}
             {nom}
           </Text>
           {estDM && statutDM !== null && (
             <Text
-              style={[styles.enteteSous, { color: couleursPresence(c)[statutDM] }]}
+              style={[styles.enteteSous, { color: presenceColors(c)[statutDM] }]}
               numberOfLines={1}
             >
-              {t(CLES_PRESENCE[statutDM])}
+              {t(PRESENCE_KEYS[statutDM])}
             </Text>
           )}
           </View>
-        </Appuyable>
+        </Tappable>
       </View>
       {appelDispo && (
-        <Appuyable
+        <Tappable
           onPress={demarrerAppel}
           disabled={demarrage}
           hitSlop={8}
-          android_ripple={{ color: c.ondulation, borderless: true }}
+          android_ripple={{ color: c.ripple, borderless: true }}
           accessibilityRole="button"
           accessibilityLabel={t('salon.demarrerAppel')}
           style={({ pressed }) => ({ opacity: pressed || demarrage ? 0.5 : 1 })}
         >
           <Text style={styles.iconeEntete}>📞</Text>
-        </Appuyable>
+        </Tappable>
       )}
-      <Appuyable
+      <Tappable
         onPress={onMarques}
         hitSlop={8}
-        android_ripple={{ color: c.ondulation, borderless: true }}
+        android_ripple={{ color: c.ripple, borderless: true }}
         accessibilityRole="button"
         accessibilityLabel={t('salon.marques')}
       >
         <Text style={styles.iconeEntete}>📌</Text>
-      </Appuyable>
-      <Appuyable
+      </Tappable>
+      <Tappable
         onPress={onRecherche}
         hitSlop={8}
-        android_ripple={{ color: c.ondulation, borderless: true }}
+        android_ripple={{ color: c.ripple, borderless: true }}
       >
         <Text style={styles.iconeEntete}>🔍</Text>
-      </Appuyable>
-      <BarreSynchro c={c} actif={enSynchro} />
+      </Tappable>
+      <SyncBar c={c} active={enSynchro} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  entete: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 11,
@@ -183,7 +183,7 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
     borderBottomWidth: 1,
   },
-  retour: { fontFamily: POLICES.titre, fontSize: 26, paddingRight: 2 },
+  back: { fontFamily: FONTS.title, fontSize: 26, paddingRight: 2 },
   // Reprend la géométrie qu'avaient avatar + bloc en enfants directs de
   // l'en-tête (ligne, même gap, extension) — le Pressable est transparent.
   // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
@@ -192,8 +192,8 @@ const styles = StyleSheet.create({
   enveloppeEntete: { flex: 1, minWidth: 0, borderRadius: 12, overflow: 'hidden' },
   enteteFiche: { flexDirection: 'row', alignItems: 'center', gap: 11 },
   enteteBloc: { flex: 1, minWidth: 0 },
-  enteteNom: { fontFamily: POLICES.titre, fontSize: 16 },
+  enteteNom: { fontFamily: FONTS.title, fontSize: 16 },
   badgeChiffreEntete: { fontSize: 12 },
-  enteteSous: { fontFamily: POLICES.corpsGras, fontSize: 11 },
+  enteteSous: { fontFamily: FONTS.corpsGras, fontSize: 11 },
   iconeEntete: { fontSize: 18, paddingHorizontal: 6 },
 });

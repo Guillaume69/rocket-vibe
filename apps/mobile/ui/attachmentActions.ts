@@ -7,28 +7,28 @@
 
 import { Alert } from 'react-native';
 
-import type { ChiffrementFichier } from '../lib/e2e/crypto.ts';
-import { enregistrerJointeProtegee, ouvrirJointeProtegee } from './attachment.ts';
-import type { Traducteur } from './messages.ts';
-import { transferer } from './transfers.ts';
-import { signaler as toast } from './toast.tsx';
+import type { FileEncryption } from '../lib/e2e/crypto.ts';
+import { saveProtectedAttachment, openProtectedAttachment } from './attachment.ts';
+import type { TranslateFn } from './messages.ts';
+import { transfer } from './transfers.ts';
+import { notify as toast } from './toast.tsx';
 
-export type JointeATransferer = {
+export type AttachmentToTransfer = {
   /** Clé du transfert : le chemin serveur du fichier, sans jeton. */
-  cle: string;
+  key: string;
   /** URL protégée, jeton compris — ne quitte pas le processus. */
   url: string;
-  titre: string | null;
+  title: string | null;
   type: string | null;
   /** Poids annoncé par le message, en octets. */
-  taille: number | null;
-  chiffrement?: ChiffrementFichier | null;
+  size: number | null;
+  encryption?: FileEncryption | null;
 };
 
-export function enregistrerEnFond(jointe: JointeATransferer, t: Traducteur): void {
-  void transferer(jointe.cle, async (surProgression) => {
+export function saveInBackground(jointe: AttachmentToTransfer, t: TranslateFn): void {
+  void transfer(jointe.key, async (surProgression) => {
     try {
-      const lieu = await enregistrerJointeProtegee({ ...jointe, surProgression });
+      const lieu = await saveProtectedAttachment({ ...jointe, onProgress: surProgression });
       if (lieu !== 'partage') {
         toast(t(lieu === 'galerie' ? 'enregistrement.galerie' : 'enregistrement.telechargements'));
       }
@@ -38,10 +38,10 @@ export function enregistrerEnFond(jointe: JointeATransferer, t: Traducteur): voi
   });
 }
 
-export function partagerEnFond(jointe: JointeATransferer, t: Traducteur): void {
-  void transferer(jointe.cle, async (surProgression) => {
+export function shareInBackground(jointe: AttachmentToTransfer, t: TranslateFn): void {
+  void transfer(jointe.key, async (surProgression) => {
     try {
-      await ouvrirJointeProtegee({ ...jointe, surProgression });
+      await openProtectedAttachment({ ...jointe, onProgress: surProgression });
     } catch {
       toast(t('ligneMessage.fichierOuvertureEchouee'));
     }
@@ -49,14 +49,14 @@ export function partagerEnFond(jointe: JointeATransferer, t: Traducteur): void {
 }
 
 /** Le choix au toucher d'un fichier : télécharger ou partager, avant tout téléchargement. */
-export function proposerTelechargerOuPartager(jointe: JointeATransferer, t: Traducteur): void {
+export function offerDownloadOrShare(jointe: AttachmentToTransfer, t: TranslateFn): void {
   Alert.alert(
-    jointe.titre ?? t('ligneMessage.fichier'),
+    jointe.title ?? t('ligneMessage.fichier'),
     undefined,
     [
       { text: t('commun.annuler'), style: 'cancel' },
-      { text: t('actionsMessage.partager'), onPress: () => partagerEnFond(jointe, t) },
-      { text: t('actionsMessage.enregistrer'), onPress: () => enregistrerEnFond(jointe, t) },
+      { text: t('actionsMessage.partager'), onPress: () => shareInBackground(jointe, t) },
+      { text: t('actionsMessage.enregistrer'), onPress: () => saveInBackground(jointe, t) },
     ],
     { cancelable: true },
   );

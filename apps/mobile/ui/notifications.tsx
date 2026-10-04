@@ -15,16 +15,16 @@
  */
 
 import * as Notifications from 'expo-notifications';
-import { useRequeteVive } from './liveQuery.ts';
+import { useCoalescedLiveQuery } from './liveQuery.ts';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 
-import { salons, abonnements } from '../db/schema.ts';
-import { estSalonChiffre, poserSalonsChiffres } from './notificationState.ts';
-import { identifiantNotifSalon } from '../lib/notificationId.ts';
-import { traduireCourant } from './i18n.ts';
-import { useSynchro } from './sync.tsx';
+import { rooms, subscriptions } from '../db/schema.ts';
+import { isRoomEncrypted, setEncryptedRooms } from './notificationState.ts';
+import { roomNotificationId } from '../lib/notificationId.ts';
+import { translateCurrent } from './i18n.ts';
+import { useSync } from './sync.tsx';
 
 /** Le salon d'un push, et le serveur d'où il vient (multi-session). */
 type CibleNotification = { rid: string; host: string | null };
@@ -44,12 +44,12 @@ function cibleDeNotification(contenu: Notifications.NotificationContent): CibleN
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const cible = cibleDeNotification(notification.request.content);
-    if (cible !== null && estSalonChiffre(cible.rid)) {
+    if (cible !== null && isRoomEncrypted(cible.rid)) {
       // Ne pas afficher le ciphertext : on republie un texte générique.
       Notifications.scheduleNotificationAsync({
         content: {
-          title: traduireCourant('notifications.titreChiffre'),
-          body: traduireCourant('notifications.corpsChiffre'),
+          title: translateCurrent('notifications.titreChiffre'),
+          body: translateCurrent('notifications.corpsChiffre'),
         },
         trigger: null,
       }).catch(() => {});
@@ -69,9 +69,9 @@ Notifications.setNotificationHandler({
   },
 });
 
-export function GestionNotifications() {
+export function NotificationHandler() {
   const routeur = useRouter();
-  const synchro = useSynchro();
+  const synchro = useSync();
 
   // Tap sur une notification : en marche, et au démarrage à froid.
   //
@@ -126,14 +126,14 @@ export function GestionNotifications() {
 
 /** Vit seulement quand la base est prête : badge, retrait des lus, chiffré. */
 function SuiviBadgeEtChiffre() {
-  const synchro = useSynchro();
+  const synchro = useSync();
   const base = synchro.phase === 'pret' ? synchro.base : null;
 
-  const { data: lignesAbonnements } = useRequeteVive(base!.select().from(abonnements));
-  const { data: lignesSalons } = useRequeteVive(base!.select().from(salons));
+  const { data: lignesAbonnements } = useCoalescedLiveQuery(base!.select().from(subscriptions));
+  const { data: lignesSalons } = useCoalescedLiveQuery(base!.select().from(rooms));
 
   useEffect(() => {
-    const total = (lignesAbonnements ?? []).reduce((somme, a) => somme + a.nonLus, 0);
+    const total = (lignesAbonnements ?? []).reduce((somme, a) => somme + a.unread, 0);
     Notifications.setBadgeCountAsync(total).catch(() => {});
   }, [lignesAbonnements]);
 
@@ -153,7 +153,7 @@ function SuiviBadgeEtChiffre() {
   useEffect(() => {
     const aRetirer: string[] = [];
     for (const a of lignesAbonnements ?? []) {
-      if (a.nonLus > 0) {
+      if (a.unread > 0) {
         retirees.current.delete(a.rid);
         continue;
       }
@@ -165,7 +165,7 @@ function SuiviBadgeEtChiffre() {
   }, [lignesAbonnements]);
 
   useEffect(() => {
-    poserSalonsChiffres((lignesSalons ?? []).filter((s) => s.chiffre).map((s) => s.rid));
+    setEncryptedRooms((lignesSalons ?? []).filter((s) => s.encrypted).map((s) => s.rid));
   }, [lignesSalons]);
 
   return null;
@@ -179,7 +179,7 @@ function SuiviBadgeEtChiffre() {
 function retirerNotifsSalons(rids: string[]): void {
   if (Platform.OS !== 'ios') {
     for (const rid of rids) {
-      Notifications.dismissNotificationAsync(identifiantNotifSalon(rid)).catch(() => {});
+      Notifications.dismissNotificationAsync(roomNotificationId(rid)).catch(() => {});
     }
     return;
   }

@@ -34,7 +34,7 @@ type ConfigMetro = {
 // d'expo — donc ce test casse aussi si la config devient inchargeable.
 const config = (await import('../../metro.config.js')).default as ConfigMetro;
 
-function resoudre(module: string): { demandes: string[]; rendu: unknown } {
+function resoudre(module: string): { requests: string[]; rendered: unknown } {
   const demandes: string[] = [];
   const sentinelle = { type: 'sourceFile' };
   const contexte: ContexteResolution = {
@@ -45,12 +45,12 @@ function resoudre(module: string): { demandes: string[]; rendu: unknown } {
   };
   assert.notEqual(config.resolver.resolveRequest, undefined);
   const rendu = config.resolver.resolveRequest?.(contexte, module, 'android');
-  return { demandes, rendu: rendu === sentinelle ? 'sentinelle' : rendu };
+  return { requests: demandes, rendered: rendu === sentinelle ? 'sentinelle' : rendu };
 }
 
 describe('alias Metro de la crypto embarquée', () => {
   test('`crypto` se résout vers react-native-quick-crypto', () => {
-    const { demandes, rendu } = resoudre('crypto');
+    const { requests: demandes, rendered: rendu } = resoudre('crypto');
     assert.deepEqual(demandes, ['react-native-quick-crypto']);
     // Le résultat du résolveur standard est bien RENDU, pas avalé.
     assert.equal(rendu, 'sentinelle');
@@ -59,7 +59,7 @@ describe('alias Metro de la crypto embarquée', () => {
   test('`buffer` se résout vers l’implémentation feuille, PAS le barrel quick-crypto', () => {
     // L'aliaser vers le barrel créerait un cycle de require — voir le
     // commentaire de metro.config.js. La cible exacte fait partie du contrat.
-    const { demandes } = resoudre('buffer');
+    const { requests: demandes } = resoudre('buffer');
     assert.deepEqual(demandes, ['@craftzdog/react-native-buffer']);
   });
 

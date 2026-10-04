@@ -19,40 +19,40 @@
 
 import { useSyncExternalStore } from 'react';
 
-export type CibleReponse = {
+export type ReplyTarget = {
   /** `_id` du message cité. */
   id: string;
   /** Username de l'auteur cité — l'instantané suffit pour un bandeau. */
-  auteur: string | null;
+  author: string | null;
   /** Extrait du texte cité, déjà purgé de son propre permalien de citation. */
-  apercu: string | null;
+  preview: string | null;
   /** Permalien `?msg=` — deviendra le préfixe `[ ](…)` à l'envoi. */
-  permalien: string;
+  permalink: string;
   /** Pièce jointe de citation prête pour l'affichage optimiste
    *  (`jointeCitationLocale`) — pièces du cité incluses, chaîne taillée à 2. */
-  jointeLocale: string;
+  localAttachment: string;
   /** URL (relative) de la première image du cité — vignette du bandeau. */
-  imageApercu: string | null;
+  previewImage: string | null;
 };
 
-const cibles = new Map<string, CibleReponse>();
+const cibles = new Map<string, ReplyTarget>();
 const abonnes = new Set<() => void>();
 
 function notifier(): void {
   for (const abonne of abonnes) abonne();
 }
 
-export function demanderReponse(cle: string, cible: CibleReponse): void {
+export function requestReply(cle: string, cible: ReplyTarget): void {
   cibles.set(cle, cible);
   notifier();
 }
 
-export function annulerReponse(cle: string): void {
+export function cancelReply(cle: string): void {
   if (cibles.delete(cle)) notifier();
 }
 
 /** Fin de session / changement de serveur : aucune citation ne traverse. */
-export function oublierReponses(): void {
+export function forgetReplies(): void {
   if (cibles.size === 0) return;
   cibles.clear();
   notifier();
@@ -66,6 +66,6 @@ function souscrire(relire: () => void): () => void {
 }
 
 /** La cible armée pour cette clé, `null` sinon. Se met à jour toute seule. */
-export function useReponse(cle: string): CibleReponse | null {
+export function useReply(cle: string): ReplyTarget | null {
   return useSyncExternalStore(souscrire, () => cibles.get(cle) ?? null);
 }

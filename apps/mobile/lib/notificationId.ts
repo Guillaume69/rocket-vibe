@@ -29,6 +29,6 @@ export function hashCodeJava(s: string): number {
 }
 
 /** L'identifiant expo de la notification de conversation d'un salon. */
-export function identifiantNotifSalon(rid: string): string {
+export function roomNotificationId(rid: string): string {
   return `expo-notifications://foreign_notifications?id=${hashCodeJava(rid)}`;
 }

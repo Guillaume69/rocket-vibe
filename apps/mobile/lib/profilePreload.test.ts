@@ -17,36 +17,36 @@
 import assert from 'node:assert/strict';
 import { beforeEach, describe, test, type TestContext } from 'node:test';
 
-import { oublierDisponibiliteAppel } from './call.ts';
+import { forgetCallAvailability } from './call.ts';
 import {
-  definirClientProfil,
-  definirNavigateurProfil,
-  lireProfilPrecharge,
-  oublierFichesProfil,
-  ouvrirFicheProfil,
-  sabonnerOuvertureProfil,
-  type ParamsProfil,
+  setProfileClient,
+  setProfileNavigator,
+  readPreloadedProfile,
+  forgetProfileCards,
+  openProfileCard,
+  subscribeProfileOpening,
+  type ProfileParams,
 } from './profilePreload.ts';
 import type { ClientRest } from './rest.ts';
 
 const UTILISATEUR = { _id: 'u1', username: 'alice' };
 
-function differee<T>(): { promesse: Promise<T>; resoudre: (v: T) => void } {
+function differee<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
   let resoudre!: (v: T) => void;
   const promesse = new Promise<T>((r) => {
     resoudre = r;
   });
-  return { promesse, resoudre };
+  return { promise: promesse, resolve: resoudre };
 }
 
 function fauxClient(poignees: {
   usersInfo: () => Promise<unknown>;
-  capacites: () => Promise<unknown>;
+  capabilities: () => Promise<unknown>;
 }): ClientRest {
   return {
     baseUrl: 'http://banc.local',
     get: (chemin: string) =>
-      chemin === 'users.info' ? poignees.usersInfo() : poignees.capacites(),
+      chemin === 'users.info' ? poignees.usersInfo() : poignees.capabilities(),
   } as unknown as ClientRest;
 }
 
@@ -56,34 +56,34 @@ async function drainer(): Promise<void> {
 }
 
 describe('ouvrirFicheProfil', () => {
-  let navigations: ParamsProfil[];
+  let navigations: ProfileParams[];
 
   beforeEach(() => {
     navigations = [];
-    oublierFichesProfil();
-    oublierDisponibiliteAppel();
-    definirNavigateurProfil((p) => navigations.push(p));
+    forgetProfileCards();
+    forgetCallAvailability();
+    setProfileNavigator((p) => navigations.push(p));
   });
 
   test('réponse rapide : fiche en cache, navigation, indicateur jamais montré', async (t: TestContext) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
-    definirClientProfil(
+    setProfileClient(
       fauxClient({
         usersInfo: () => Promise.resolve({ user: UTILISATEUR }),
-        capacites: () => Promise.resolve({}),
+        capabilities: () => Promise.resolve({}),
       }),
     );
     const busy: boolean[] = [];
-    const desabonner = sabonnerOuvertureProfil((v) => busy.push(v));
+    const desabonner = subscribeProfileOpening((v) => busy.push(v));
 
-    const fin = ouvrirFicheProfil({ username: 'alice' });
+    const fin = openProfileCard({ username: 'alice' });
     await drainer();
     await fin;
 
     assert.deepEqual(navigations, [{ username: 'alice' }]);
-    assert.deepEqual(lireProfilPrecharge({ username: 'alice' }), {
+    assert.deepEqual(readPreloadedProfile({ username: 'alice' }), {
       user: UTILISATEUR,
-      erreur: null,
+      error: null,
     });
     // `sabonnerOuvertureProfil` rejoue l'état courant (false) à l'abonnement ;
     // rien d'autre ne doit s'être affiché sous le seuil.
@@ -95,14 +95,14 @@ describe('ouvrirFicheProfil', () => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
     // `users.info` répond tout de suite — c'est la SONDE qui pend : le
     // `Promise.all` ne doit pas résoudre, et seul le plafond ouvre.
-    definirClientProfil(
+    setProfileClient(
       fauxClient({
         usersInfo: () => Promise.resolve({ user: UTILISATEUR }),
-        capacites: () => differee<unknown>().promesse,
+        capabilities: () => differee<unknown>().promise,
       }),
     );
 
-    const fin = ouvrirFicheProfil({ username: 'alice' });
+    const fin = openProfileCard({ username: 'alice' });
     await drainer();
     assert.deepEqual(navigations, [], 'rien ne doit ouvrir avant le plafond');
 
@@ -114,21 +114,21 @@ describe('ouvrirFicheProfil', () => {
     assert.deepEqual(navigations, [{ username: 'alice' }]);
     // Plafond dépassé : l'entrée est PURGÉE — l'écran refera son chargement,
     // plutôt que de servir une fiche dont la hauteur mentirait.
-    assert.equal(lireProfilPrecharge({ username: 'alice' }), undefined);
+    assert.equal(readPreloadedProfile({ username: 'alice' }), undefined);
   });
 
   test("tout traîne : l'indicateur s'affiche à 450 ms et s'éteint à l'ouverture", async (t: TestContext) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
-    definirClientProfil(
+    setProfileClient(
       fauxClient({
-        usersInfo: () => differee<unknown>().promesse,
-        capacites: () => differee<unknown>().promesse,
+        usersInfo: () => differee<unknown>().promise,
+        capabilities: () => differee<unknown>().promise,
       }),
     );
     const busy: boolean[] = [];
-    const desabonner = sabonnerOuvertureProfil((v) => busy.push(v));
+    const desabonner = subscribeProfileOpening((v) => busy.push(v));
 
-    const fin = ouvrirFicheProfil({ username: 'alice' });
+    const fin = openProfileCard({ username: 'alice' });
     await drainer();
     t.mock.timers.tick(450);
     await drainer();
@@ -147,20 +147,20 @@ describe('ouvrirFicheProfil', () => {
   test('anti-flash : une réponse juste après le seuil retient la pastille 400 ms', async (t: TestContext) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
     const fiche = differee<unknown>();
-    definirClientProfil(
+    setProfileClient(
       fauxClient({
-        usersInfo: () => fiche.promesse,
-        capacites: () => Promise.resolve({}),
+        usersInfo: () => fiche.promise,
+        capabilities: () => Promise.resolve({}),
       }),
     );
     const busy: boolean[] = [];
-    const desabonner = sabonnerOuvertureProfil((v) => busy.push(v));
+    const desabonner = subscribeProfileOpening((v) => busy.push(v));
 
-    const fin = ouvrirFicheProfil({ username: 'alice' });
+    const fin = openProfileCard({ username: 'alice' });
     await drainer();
     t.mock.timers.tick(450);
     t.mock.timers.tick(50);
-    fiche.resoudre({ user: UTILISATEUR });
+    fiche.resolve({ user: UTILISATEUR });
     await drainer();
 
     // Réponse à 500 ms, pastille née à 450 : elle doit tenir jusqu'à 850.
@@ -182,22 +182,22 @@ describe('ouvrirFicheProfil', () => {
   test('réentrance : même cible fondue dans le vol en cours, autre cible non bloquée', async (t: TestContext) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
     const fiche = differee<unknown>();
-    definirClientProfil(
+    setProfileClient(
       fauxClient({
-        usersInfo: () => fiche.promesse,
-        capacites: () => Promise.resolve({}),
+        usersInfo: () => fiche.promise,
+        capabilities: () => Promise.resolve({}),
       }),
     );
 
-    const premiere = ouvrirFicheProfil({ username: 'alice' });
+    const premiere = openProfileCard({ username: 'alice' });
     await drainer();
     // Second tap sur la MÊME fiche pendant le vol : absorbé par la garde.
-    const doublon = ouvrirFicheProfil({ username: 'alice' });
+    const doublon = openProfileCard({ username: 'alice' });
     // Un tap sur une AUTRE fiche, lui, part — un verrou global l'avalerait.
-    const autre = ouvrirFicheProfil({ username: 'bob' });
+    const autre = openProfileCard({ username: 'bob' });
     await drainer();
 
-    fiche.resoudre({ user: UTILISATEUR });
+    fiche.resolve({ user: UTILISATEUR });
     await drainer();
     await Promise.all([premiere, doublon, autre]);
 
@@ -206,7 +206,7 @@ describe('ouvrirFicheProfil', () => {
     assert.deepEqual(navigations, [{ username: 'alice' }, { username: 'bob' }]);
 
     // Le vol fini, la garde est rendue : rouvrir navigue à nouveau.
-    await ouvrirFicheProfil({ username: 'alice' });
+    await openProfileCard({ username: 'alice' });
     await drainer();
     assert.equal(navigations.length, 3);
   });

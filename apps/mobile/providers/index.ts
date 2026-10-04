@@ -9,17 +9,17 @@
  */
 
 import type { Session } from '../lib/auth.ts';
-import type { Fournisseur } from '../lib/provider.ts';
+import type { Provider } from '../lib/provider.ts';
 import type { ClientRest } from '../lib/rest.ts';
-import { creerFournisseurRC } from './rocketchat/index.ts';
+import { createRcProvider } from './rocketchat/index.ts';
 
-export function creerFournisseur(
+export function createProvider(
   session: Session,
   client: ClientRest,
   genererId: () => string,
-): Fournisseur {
+): Provider {
   switch (session.genre) {
     case 'rocketchat':
-      return creerFournisseurRC(session, client, genererId);
+      return createRcProvider(session, client, genererId);
   }
 }

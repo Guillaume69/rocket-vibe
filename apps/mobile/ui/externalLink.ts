@@ -10,14 +10,14 @@
 
 import { Linking } from 'react-native';
 
-import { peutSortirDuProcessus } from '../lib/externalLink.ts';
+import { canLeaveProcess } from '../lib/externalLink.ts';
 
 /**
  * Ouvre `url` dans l'application du système, si et seulement si c'est du web
  * sans identifiant à nous. Sinon : rien, en silence — l'utilisateur a tapé sur
  * une donnée forgée, il n'y a rien à lui dire.
  */
-export function ouvrirLienExterne(url: unknown): void {
-  if (!peutSortirDuProcessus(url)) return;
+export function openExternalLink(url: unknown): void {
+  if (!canLeaveProcess(url)) return;
   Linking.openURL(url).catch(() => {});
 }

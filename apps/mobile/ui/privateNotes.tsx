@@ -9,11 +9,11 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { arbreDuMessage } from '../lib/markdown.ts';
-import { Appuyable } from './tappable.tsx';
+import { messageTree } from '../lib/markdown.ts';
+import { Tappable } from './tappable.tsx';
 import { useT } from './i18n.ts';
-import { CorpsMessage, GardeRendu } from './markdown.tsx';
-import { type Couleurs, POLICES } from './theme.ts';
+import { MessageBody, RenderGuard } from './markdown.tsx';
+import { type Colors, FONTS } from './theme.ts';
 
 const notes = new Map<string, string>();
 const ecouteurs = new Set<() => void>();
@@ -22,12 +22,12 @@ function notifier(): void {
   for (const e of ecouteurs) e();
 }
 
-export function poserNotePrivee(rid: string, texte: string): void {
+export function setPrivateNote(rid: string, texte: string): void {
   notes.set(rid, texte);
   notifier();
 }
 
-export function fermerNotePrivee(rid: string): void {
+export function closePrivateNote(rid: string): void {
   if (notes.delete(rid)) notifier();
 }
 
@@ -36,34 +36,34 @@ function abonner(e: () => void): () => void {
   return () => ecouteurs.delete(e);
 }
 
-export function useNotePrivee(rid: string): string | null {
+export function usePrivateNote(rid: string): string | null {
   const lire = useCallback(() => notes.get(rid) ?? null, [rid]);
   return useSyncExternalStore(abonner, lire);
 }
 
-export function NotePrivee({ c, rid, texte }: { c: Couleurs; rid: string; texte: string }) {
+export function PrivateNote({ c, rid, text: texte }: { c: Colors; rid: string; text: string }) {
   const t = useT();
-  const arbre = useMemo(() => arbreDuMessage(null, texte), [texte]);
+  const arbre = useMemo(() => messageTree(null, texte), [texte]);
   return (
-    <View style={[styles.note, { backgroundColor: c.carte, borderLeftColor: c.accent }]}>
-      <View style={styles.corps}>
-        <Text style={[styles.titre, { color: c.accent }]}>{t('salon.notePrivee')}</Text>
+    <View style={[styles.note, { backgroundColor: c.card, borderLeftColor: c.accent }]}>
+      <View style={styles.body}>
+        <Text style={[styles.title, { color: c.accent }]}>{t('salon.notePrivee')}</Text>
         {arbre === null ? (
-          <Text style={{ color: c.texte }}>{texte}</Text>
+          <Text style={{ color: c.text }}>{texte}</Text>
         ) : (
-          <GardeRendu key={texte} repli={<Text style={{ color: c.texte }}>{texte}</Text>}>
-            <CorpsMessage arbre={arbre} c={c} />
-          </GardeRendu>
+          <RenderGuard key={texte} fallback={<Text style={{ color: c.text }}>{texte}</Text>}>
+            <MessageBody tree={arbre} c={c} />
+          </RenderGuard>
         )}
       </View>
-      <Appuyable
-        onPress={() => fermerNotePrivee(rid)}
-        android_ripple={{ color: c.ondulation, borderless: true }}
-        style={styles.fermer}
+      <Tappable
+        onPress={() => closePrivateNote(rid)}
+        android_ripple={{ color: c.ripple, borderless: true }}
+        style={styles.close}
         accessibilityLabel={t('commun.fermer')}
       >
-        <Text style={{ color: c.attenue }}>✕</Text>
-      </Appuyable>
+        <Text style={{ color: c.dimmed }}>✕</Text>
+      </Tappable>
     </View>
   );
 }
@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 3,
     borderRadius: 10,
   },
-  corps: { flex: 1, gap: 2 },
-  titre: { fontFamily: POLICES.corps, fontSize: 12, fontWeight: '700' },
-  fermer: { paddingHorizontal: 10, paddingVertical: 2 },
+  body: { flex: 1, gap: 2 },
+  title: { fontFamily: FONTS.body, fontSize: 12, fontWeight: '700' },
+  close: { paddingHorizontal: 10, paddingVertical: 2 },
 });

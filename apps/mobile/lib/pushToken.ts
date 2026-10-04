@@ -19,26 +19,26 @@
  * `ClientRest` : on ne le réimplémente pas ici.
  */
 
-import { ClientRest, ErreurRest } from './rest.ts';
+import { ClientRest, RestError } from './rest.ts';
 
 export const APP_NAME = 'rocket-vibe';
 
-export type TypeJeton = 'gcm' | 'apn';
+export type TokenType = 'gcm' | 'apn';
 
-export function enregistrerJeton(
+export function registerToken(
   client: ClientRest,
   jeton: string,
-  type: TypeJeton,
+  type: TokenType,
 ): Promise<unknown> {
-  return client.post('push.token', { corps: { type, value: jeton, appName: APP_NAME } });
+  return client.post('push.token', { body: { type, value: jeton, appName: APP_NAME } });
 }
 
-export async function desenregistrerJeton(client: ClientRest, jeton: string): Promise<void> {
+export async function unregisterToken(client: ClientRest, jeton: string): Promise<void> {
   try {
-    await client.supprimer('push.token', { corps: { token: jeton } });
+    await client.delete('push.token', { body: { token: jeton } });
   } catch (e) {
     // On teste le statut, pas le texte du message, qui peut être reformulé.
-    if (e instanceof ErreurRest && e.statut === 404) return;
+    if (e instanceof RestError && e.status === 404) return;
     throw e;
   }
 }

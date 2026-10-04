@@ -24,7 +24,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 const CACHE = FileSystem.cacheDirectory;
 
 /** Vrai si l'URI désigne un fichier que NOUS avons écrit dans le cache de l'app. */
-export function estFichierTemporaire(uri: string): boolean {
+export function isTemporaryFile(uri: string): boolean {
   // Le natif rend parfois une chaîne vide au lieu d'une URI (l'enregistreur
   // audio, notamment) : `''.startsWith(…)` est faux, mais on le dit ici plutôt
   // que de compter sur un effet de bord.
@@ -37,8 +37,8 @@ export function estFichierTemporaire(uri: string): boolean {
  * avoir déjà été purgé par Android, et le ménage ne vaut pas qu'on perde un
  * message pour lui.
  */
-export async function supprimerSiTemporaire(uri: string): Promise<void> {
-  if (!estFichierTemporaire(uri)) return;
+export async function deleteIfTemporary(uri: string): Promise<void> {
+  if (!isTemporaryFile(uri)) return;
   try {
     await FileSystem.deleteAsync(uri, { idempotent: true });
   } catch {

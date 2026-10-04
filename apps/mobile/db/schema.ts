@@ -13,27 +13,27 @@
 import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 /** Type de salon Rocket.Chat : c=canal, p=groupe privé, d=direct, l=livechat. */
-export type TypeSalon = 'c' | 'p' | 'd' | 'l';
+export type RoomType = 'c' | 'p' | 'd' | 'l';
 
-export const salons = sqliteTable(
+export const rooms = sqliteTable(
   'salons',
   {
     rid: text('rid').primaryKey(),
-    type: text('type').$type<TypeSalon>().notNull(),
+    type: text('type').$type<RoomType>().notNull(),
     /** `name` est le slug ; `fname` le nom affiché (peut contenir des espaces). */
-    nom: text('nom'),
-    nomAffiche: text('nom_affiche'),
+    name: text('nom'),
+    displayName: text('nom_affiche'),
     /** Salon chiffré de bout en bout : on n'y écrit pas, on n'affiche pas l'aperçu. */
-    chiffre: integer('chiffre', { mode: 'boolean' }).notNull().default(false),
-    lectureSeule: integer('lecture_seule', { mode: 'boolean' }).notNull().default(false),
+    encrypted: integer('chiffre', { mode: 'boolean' }).notNull().default(false),
+    readOnly: integer('lecture_seule', { mode: 'boolean' }).notNull().default(false),
     /**
      * L'AUTRE participant d'un DM à deux (depuis `uids` du document Rooms),
      * pour la présence (8.4). Le rid d'un DM 8.5 est un ObjectId ALÉATOIRE —
      * plus la concaténation des deux uids, il ne se dérive pas.
      */
-    dmAutreUid: text('dm_autre_uid'),
+    dmOtherUid: text('dm_autre_uid'),
     /** Aperçu du dernier message. `null` si le salon est chiffré. */
-    dernierMessage: text('dernier_message'),
+    lastMessage: text('dernier_message'),
     /**
      * Le `t` du dernier message, quand il en a un. Sépare les DEUX sens de
      * `dernier_message IS NULL` : « ce salon n'a plus de dernier message »
@@ -43,8 +43,8 @@ export const salons = sqliteTable(
      * une ligne d'aperçu VIDE. Toujours null pour un salon chiffré : son aperçu
      * se calcule localement (`MAJ_APERCU_CHIFFRE`), pas depuis `lastMessage`.
      */
-    dernierMessageType: text('dernier_message_type'),
-    horodatageDernierMessage: integer('horodatage_dernier_message'),
+    lastMessageType: text('dernier_message_type'),
+    lastMessageTs: integer('horodatage_dernier_message'),
     /**
      * `avatarETag` : version de la photo du salon. Sans lui, `/avatar/room/<rid>`
      * est une URI FIGÉE que le cache image d'Android sert éternellement — la
@@ -52,16 +52,16 @@ export const salons = sqliteTable(
      * bouger l'URI à chaque changement (voir `lib/upload.ts#urlAvatar`).
      */
     avatarEtag: text('avatar_etag'),
-    misAJourLe: integer('mis_a_jour_le').notNull().default(0),
+    updatedAt: integer('mis_a_jour_le').notNull().default(0),
   },
-  (t) => [index('idx_salons_activite').on(t.horodatageDernierMessage)],
+  (t) => [index('idx_salons_activite').on(t.lastMessageTs)],
 );
 
 /**
  * État **par utilisateur** d'un salon : non-lus, favori, dernière lecture.
  * Distinct du salon lui-même, que tous les membres partagent.
  */
-export const abonnements = sqliteTable('abonnements', {
+export const subscriptions = sqliteTable('abonnements', {
   rid: text('rid').primaryKey(),
   /**
    * `_id` de l'abonnement côté serveur. Les `remove[]` du rattrapage ne
@@ -69,21 +69,21 @@ export const abonnements = sqliteTable('abonnements', {
    * cette colonne, un salon quitté ailleurs resterait listé pour toujours.
    */
   subId: text('sub_id'),
-  nonLus: integer('non_lus').notNull().default(0),
+  unread: integer('non_lus').notNull().default(0),
   mentions: integer('mentions').notNull().default(0),
-  mentionsGroupe: integer('mentions_groupe').notNull().default(0),
-  alerte: integer('alerte', { mode: 'boolean' }).notNull().default(false),
-  ouvert: integer('ouvert', { mode: 'boolean' }).notNull().default(true),
-  favori: integer('favori', { mode: 'boolean' }).notNull().default(false),
+  groupMentions: integer('mentions_groupe').notNull().default(0),
+  alert: integer('alerte', { mode: 'boolean' }).notNull().default(false),
+  open: integer('ouvert', { mode: 'boolean' }).notNull().default(true),
+  favorite: integer('favori', { mode: 'boolean' }).notNull().default(false),
   /** `ls` : date de dernière lecture, pour la barre « nouveaux messages ». */
-  luJusquA: integer('lu_jusqu_a'),
+  lastSeen: integer('lu_jusqu_a'),
   /** `E2EKey` : clé AES du salon chiffrée RSA pour ce membre (E2EE, étape 10). */
   e2eKey: text('e2e_key'),
   /** `e2eKeyId` : UUID de la clé de salon, si le serveur le fournit à part. */
   e2eKeyId: text('e2e_key_id'),
   /** `roles` : mes rôles DANS ce salon (`owner`, `moderator`…), sérialisés ; `null` si aucun. */
   roles: text('roles'),
-  misAJourLe: integer('mis_a_jour_le').notNull().default(0),
+  updatedAt: integer('mis_a_jour_le').notNull().default(0),
 });
 
 export const messages = sqliteTable(
@@ -93,24 +93,24 @@ export const messages = sqliteTable(
     id: text('id').primaryKey(),
     rid: text('rid').notNull(),
     /** `null` pour un message chiffré non déchiffrable, ou un message système. */
-    texte: text('texte'),
-    horodatage: integer('horodatage').notNull(),
-    auteurId: text('auteur_id').notNull(),
-    auteurNom: text('auteur_nom'),
+    text: text('texte'),
+    ts: integer('horodatage').notNull(),
+    authorId: text('auteur_id').notNull(),
+    authorName: text('auteur_nom'),
     /** `t` : type de message système (`uj`, `ul`, `rm`, `e2e`…). `null` = message ordinaire. */
-    typeSysteme: text('type_systeme'),
+    systemType: text('type_systeme'),
     /** `tmid` : identifiant du message racine, si ce message est une réponse de fil. */
-    filId: text('fil_id'),
+    threadId: text('fil_id'),
     /** `tcount` : nombre de réponses, sur le message racine. */
-    filReponses: integer('fil_reponses').notNull().default(0),
+    threadCount: integer('fil_reponses').notNull().default(0),
     /** `tlm` : horodatage de la dernière réponse, porté par le message racine. */
-    filDernier: integer('fil_dernier'),
+    threadLast: integer('fil_dernier'),
     /** `tshow` : réponse de fil à montrer AUSSI dans le flux principal du salon. */
-    filAffiche: integer('fil_affiche', { mode: 'boolean' }).notNull().default(false),
-    modifieLe: integer('modifie_le'),
+    threadShown: integer('fil_affiche', { mode: 'boolean' }).notNull().default(false),
+    editedAt: integer('modifie_le'),
     /** AST markdown pré-parsé par le serveur (`md`), sérialisé. Absent des vieux messages. */
     md: text('md'),
-    piecesJointes: text('pieces_jointes'),
+    attachments: text('pieces_jointes'),
     reactions: text('reactions'),
     /**
      * `urls` : métadonnées de lien parsées par le SERVEUR (OpenGraph/oEmbed),
@@ -125,28 +125,28 @@ export const messages = sqliteTable(
      * champ qu'on rejoue (bouton « Rejoindre »), et il n'est PAS le `_id` du
      * message. `null` partout ailleurs.
      */
-    appelId: text('appel_id'),
+    callId: text('appel_id'),
     /**
      * Objet `content` d'un message chiffré (`rc.v2.aes-sha2`), sérialisé, gardé
      * pour un déchiffrement différé au déverrouillage E2EE. `texte` reste null
      * tant que le salon n'est pas déverrouillé. Voir `lib/e2e`.
      */
-    chiffreBrut: text('chiffre_brut'),
+    encryptedRaw: text('chiffre_brut'),
     /** `pinned`. */
-    epingle: integer('epingle', { mode: 'boolean' }).notNull().default(false),
+    pinned: integer('epingle', { mode: 'boolean' }).notNull().default(false),
     /** `starred` réduit aux uids, sérialisé ; `null` si personne. Voir `lib/marks.ts`. */
-    etoiles: text('etoiles'),
-    misAJourLe: integer('mis_a_jour_le').notNull().default(0),
+    starred: text('etoiles'),
+    updatedAt: integer('mis_a_jour_le').notNull().default(0),
   },
   // L'index couvre la requête de l'écran salon : `WHERE rid = ? ORDER BY horodatage DESC`.
-  (t) => [index('idx_messages_salon_date').on(t.rid, t.horodatage), index('idx_messages_fil').on(t.filId)],
+  (t) => [index('idx_messages_salon_date').on(t.rid, t.ts), index('idx_messages_fil').on(t.threadId)],
 );
 
 /**
  * Statut d'un envoi optimiste. Il n'y a pas d'état « envoyé » : au succès (ou
  * dès qu'une copie d'origine serveur arrive), la ligne est SUPPRIMÉE.
  */
-export type StatutSortie = 'en-attente' | 'echec';
+export type OutboxStatus = 'en-attente' | 'echec';
 
 /**
  * File d'envoi persistante. Le message est affiché immédiatement, puis
@@ -155,19 +155,19 @@ export type StatutSortie = 'en-attente' | 'echec';
  * crée pas de doublon. ATTENTION : le rejeu répond 400, pas un succès
  * idempotent (voir lib/outbox.ts).
  */
-export const sortie = sqliteTable(
+export const outbox = sqliteTable(
   'sortie',
   {
     id: text('id').primaryKey(),
     rid: text('rid').notNull(),
-    texte: text('texte').notNull(),
-    filId: text('fil_id'),
-    statut: text('statut').$type<StatutSortie>().notNull().default('en-attente'),
-    tentatives: integer('tentatives').notNull().default(0),
+    text: text('texte').notNull(),
+    threadId: text('fil_id'),
+    status: text('statut').$type<OutboxStatus>().notNull().default('en-attente'),
+    attempts: integer('tentatives').notNull().default(0),
     derniereErreur: text('derniere_erreur'),
-    creeLe: integer('cree_le').notNull(),
+    createdAt: integer('cree_le').notNull(),
   },
-  (t) => [index('idx_sortie_statut').on(t.statut)],
+  (t) => [index('idx_sortie_statut').on(t.status)],
 );
 
 /**
@@ -195,25 +195,25 @@ export const sortie = sqliteTable(
  *   vidéo refusée (413, type, quota) repoussait tous ses octets à chaque
  *   retour au premier plan. Seul le geste « Réessayer » la ré-arme.
  */
-export const televersements = sqliteTable(
+export const uploads = sqliteTable(
   'televersements',
   {
     id: text('id').primaryKey(),
     rid: text('rid').notNull(),
     uri: text('uri').notNull(),
-    nom: text('nom').notNull(),
+    name: text('nom').notNull(),
     type: text('type').notNull(),
-    legende: text('legende'),
-    statut: text('statut')
+    caption: text('legende'),
+    status: text('statut')
       .$type<'en-attente' | 'envoi' | 'echec'>()
       .notNull()
       .default('en-attente'),
     derniereErreur: text('derniere_erreur'),
     /** Rendu par `rooms.media`. Non nul = les octets sont déjà chez le serveur. */
     fileId: text('file_id'),
-    creeLe: integer('cree_le').notNull(),
+    createdAt: integer('cree_le').notNull(),
   },
-  (t) => [index('idx_televersements_statut').on(t.statut)],
+  (t) => [index('idx_televersements_statut').on(t.status)],
 );
 
 /**
@@ -223,11 +223,11 @@ export const televersements = sqliteTable(
  * de plus — donc un rebuild — ne se justifie pas contre ROADMAP §4.2 quand
  * la base couvre déjà tout l'état local.
  */
-export const brouillons = sqliteTable('brouillons', {
+export const drafts = sqliteTable('brouillons', {
   /** `rid`, ou `rid:tmid` pour la réponse dans un fil. */
-  cle: text('cle').primaryKey(),
-  texte: text('texte').notNull(),
-  misAJourLe: integer('mis_a_jour_le').notNull(),
+  key: text('cle').primaryKey(),
+  text: text('texte').notNull(),
+  updatedAt: integer('mis_a_jour_le').notNull(),
 });
 
 /**
@@ -243,11 +243,11 @@ export const brouillons = sqliteTable('brouillons', {
  * entière (`:parrot:` = `:party_parrot:`), l'index mémoire les déplie.
  */
 export const emojisCustom = sqliteTable('emojis_custom', {
-  nom: text('nom').primaryKey(),
+  name: text('nom').primaryKey(),
   extension: text('extension').notNull(),
   /** JSON `string[]`. Un alias sert la même image que son nom canonique. */
   aliases: text('aliases').notNull().default('[]'),
-  misAJourLe: integer('mis_a_jour_le').notNull().default(0),
+  updatedAt: integer('mis_a_jour_le').notNull().default(0),
 });
 
 /**
@@ -258,7 +258,7 @@ export const emojisCustom = sqliteTable('emojis_custom', {
  * le PLUS RÉCENT par uid fait foi), donne le pseudo à AFFICHER — à jour même
  * pour les messages postés AVANT un renommage, qu'on ne re-télécharge pas.
  */
-export const utilisateurs = sqliteTable('utilisateurs', {
+export const users = sqliteTable('utilisateurs', {
   uid: text('uid').primaryKey(),
   username: text('username'),
   /**
@@ -270,7 +270,7 @@ export const utilisateurs = sqliteTable('utilisateurs', {
    */
   avatarEtag: text('avatar_etag'),
   /** `_updatedAt` du message qui a fixé ce pseudo : arbitre « le plus récent gagne ». */
-  misAJourLe: integer('mis_a_jour_le').notNull().default(0),
+  updatedAt: integer('mis_a_jour_le').notNull().default(0),
 });
 
 /**
@@ -278,13 +278,13 @@ export const utilisateurs = sqliteTable('utilisateurs', {
  * salon à la fois et le REST est rate-limité : on ne re-synchronise que les
  * salons ouverts ou récemment actifs (étape 5.2).
  */
-export const etatSynchro = sqliteTable(
+export const cursors = sqliteTable(
   'etat_synchro',
   {
     /** `rid`, ou `*` pour les curseurs globaux (`subscriptions.get?updatedSince`). */
-    portee: text('portee').notNull(),
-    flux: text('flux').notNull(),
+    scope: text('portee').notNull(),
+    stream: text('flux').notNull(),
     misAJourDepuis: integer('mis_a_jour_depuis').notNull(),
   },
-  (t) => [primaryKey({ columns: [t.portee, t.flux] })],
+  (t) => [primaryKey({ columns: [t.scope, t.stream] })],
 );

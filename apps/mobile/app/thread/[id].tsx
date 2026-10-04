@@ -1,33 +1,33 @@
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { asc, eq } from 'drizzle-orm';
-import { useRequeteVive } from '../../ui/liveQuery.ts';
+import { useCoalescedLiveQuery } from '../../ui/liveQuery.ts';
 import * as Haptics from 'expo-haptics';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import type { BaseLocale } from '../../db/client.ts';
-import type { DepotBrouillons } from '../../db/store.ts';
-import { messages, salons, sortie } from '../../db/schema.ts';
-import type { MoteurActivite } from '../../lib/activity.ts';
-import type { ActionsFournisseur, Fournisseur, Listener, Outbox } from '../../lib/provider.ts';
+import type { DraftStore } from '../../db/store.ts';
+import { messages, rooms, outbox } from '../../db/schema.ts';
+import type { ActivityEngine } from '../../lib/activity.ts';
+import type { ProviderActions, Provider, Listener, Outbox } from '../../lib/provider.ts';
 import type { ClientRest } from '../../lib/rest.ts';
-import { MoteurSynchro } from '../../lib/sync.ts';
-import { useActivite } from '../../ui/activity.ts';
-import { useBrouillon } from '../../ui/drafts.ts';
-import { filChargeSous, marquerFilCharge } from '../../ui/loadedThreads.ts';
-import { idsHeuresRepetees, idsSuites } from '../../ui/messageGrouping.ts';
-import { insererSeparateursJour, type LigneJour } from '../../ui/daySeparator.ts';
-import { jetonSession } from '../../ui/sessionToken.ts';
-import { BarreSynchro, SeparateurJour } from '../../ui/kit.tsx';
-import { VueEvitantLeClavier } from '../../ui/keyboard.tsx';
-import { useCandidatsMention } from '../../ui/mentionCompletion.tsx';
+import { SyncEngine } from '../../lib/sync.ts';
+import { useActivity } from '../../ui/activity.ts';
+import { useDraft } from '../../ui/drafts.ts';
+import { threadLoadedUnder, markThreadLoaded } from '../../ui/loadedThreads.ts';
+import { repeatedTimeIds, continuationIds } from '../../ui/messageGrouping.ts';
+import { insertDaySeparators, type DayRow } from '../../ui/daySeparator.ts';
+import { sessionToken } from '../../ui/sessionToken.ts';
+import { SyncBar, DaySeparator } from '../../ui/kit.tsx';
+import { KeyboardAvoidingContainer } from '../../ui/keyboard.tsx';
+import { useMentionCandidates } from '../../ui/mentionCompletion.tsx';
 import { Composer } from '../../ui/composer.tsx';
 import { useT } from '../../ui/i18n.ts';
-import { LigneMessage, type LigneDeMessage } from '../../ui/messageRow.tsx';
+import { MessageRow, type MessageRowData } from '../../ui/messageRow.tsx';
 import { useSession } from '../../ui/session.tsx';
-import { useSynchro } from '../../ui/sync.tsx';
-import { useCouleurs, type Couleurs, POLICES } from '../../ui/theme.ts';
+import { useSync } from '../../ui/sync.tsx';
+import { useColors, type Colors, FONTS } from '../../ui/theme.ts';
 
 /**
  * Écran d'un fil (8.3). `id` = `_id` du message racine (`tmid` de ses
@@ -39,24 +39,24 @@ import { useCouleurs, type Couleurs, POLICES } from '../../ui/theme.ts';
  * pagination à l'écran.
  */
 
-export default function EcranFil() {
+export default function ThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { etat } = useSession();
-  const synchro = useSynchro();
-  const c = useCouleurs();
+  const { state: etat } = useSession();
+  const synchro = useSync();
+  const c = useColors();
 
   if (etat.phase === 'deconnecte') return <Redirect href="/login" />;
 
   if (synchro.phase === 'erreur') {
     return (
-      <View style={[styles.centre, { backgroundColor: c.fond }]}>
-        <Text style={[styles.erreur, { color: c.texteErreur }]}>{synchro.message}</Text>
+      <View style={[styles.center, { backgroundColor: c.background }]}>
+        <Text style={[styles.error, { color: c.errorText }]}>{synchro.message}</Text>
       </View>
     );
   }
   if (typeof id !== 'string' || synchro.phase !== 'pret' || etat.phase !== 'connecte') {
     return (
-      <View style={[styles.centre, { backgroundColor: c.fond }]}>
+      <View style={[styles.center, { backgroundColor: c.background }]}>
         <ActivityIndicator />
       </View>
     );
@@ -65,17 +65,17 @@ export default function EcranFil() {
   return (
     <Fil
       c={c}
-      filId={id}
+      threadId={id}
       base={synchro.base}
-      brouillons={synchro.brouillons}
-      moteur={synchro.moteur}
-      envoi={synchro.envoi}
+      drafts={synchro.drafts}
+      engine={synchro.engine}
+      outbox={synchro.outbox}
       ddp={synchro.ddp}
-      fournisseur={synchro.fournisseur}
+      provider={synchro.provider}
       actions={synchro.actions}
       client={etat.client}
-      moi={etat.session.username}
-      activite={synchro.activite}
+      me={etat.session.username}
+      activity={synchro.activity}
       generation={synchro.generation}
     />
   );
@@ -83,53 +83,53 @@ export default function EcranFil() {
 
 function Fil({
   c,
-  filId,
+  threadId: filId,
   base,
-  brouillons,
-  moteur,
-  envoi,
+  drafts: brouillons,
+  engine: moteur,
+  outbox: envoi,
   ddp,
-  fournisseur,
+  provider: fournisseur,
   actions,
   client,
-  moi,
-  activite,
+  me: moi,
+  activity: activite,
   generation,
 }: {
-  c: Couleurs;
-  filId: string;
+  c: Colors;
+  threadId: string;
   base: BaseLocale;
-  brouillons: DepotBrouillons;
-  moteur: MoteurSynchro;
-  envoi: Outbox;
+  drafts: DraftStore;
+  engine: SyncEngine;
+  outbox: Outbox;
   ddp: Listener;
-  fournisseur: Fournisseur;
-  actions: ActionsFournisseur;
+  provider: Provider;
+  actions: ProviderActions;
   client: ClientRest;
   /** Mon username — marque mes réactions dans les lignes. */
-  moi: string;
-  activite: MoteurActivite;
+  me: string;
+  activity: ActivityEngine;
   generation: number;
 }) {
   const t = useT();
-  const enSynchro = useActivite(filId);
+  const enSynchro = useActivity(filId);
   // La racine du fil — elle porte le titre et le `rid`.
-  const { data: lignesRacine } = useRequeteVive(
+  const { data: lignesRacine } = useCoalescedLiveQuery(
     base.select().from(messages).where(eq(messages.id, filId)).limit(1),
     [filId],
   );
   const racine = lignesRacine?.[0];
 
-  const { data: lignesReponses } = useRequeteVive(
+  const { data: lignesReponses } = useCoalescedLiveQuery(
     base
       .select()
       .from(messages)
-      .where(eq(messages.filId, filId))
+      .where(eq(messages.threadId, filId))
       // Clé secondaire `id` (même raison que l'écran salon) : un ex æquo à la
       // milliseconde près est départagé de façon déterministe, pas par l'ordre
       // d'insertion. Ordre ASC ici pour rester cohérent avec le tri DESC du
       // salon — deux messages liés gardent la même relation dans les deux vues.
-      .orderBy(asc(messages.horodatage), asc(messages.id)),
+      .orderBy(asc(messages.ts), asc(messages.id)),
     [filId],
   );
 
@@ -142,17 +142,17 @@ function Fil({
   // Les drapeaux du salon : mêmes interdits que le composer du salon —
   // promettre une réponse dans un salon chiffré ou en lecture seule, c'est
   // promettre un `error-not-allowed`.
-  const { data: lignesSalon } = useRequeteVive(
+  const { data: lignesSalon } = useCoalescedLiveQuery(
     base
       .select()
-      .from(salons)
-      .where(eq(salons.rid, rid ?? ''))
+      .from(rooms)
+      .where(eq(rooms.rid, rid ?? ''))
       .limit(1),
     [rid],
   );
   const salon = lignesSalon?.[0];
-  const { data: lignesSortie } = useRequeteVive(
-    base.select().from(sortie).where(eq(sortie.filId, filId)),
+  const { data: lignesSortie } = useCoalescedLiveQuery(
+    base.select().from(outbox).where(eq(outbox.threadId, filId)),
     [filId],
   );
   const sortieParId = useMemo(
@@ -161,7 +161,7 @@ function Fil({
   );
 
   // Racine en tête, réponses en ordre chronologique — un fil se lit du haut.
-  const donnees = useMemo<LigneDeMessage[]>(() => {
+  const donnees = useMemo<MessageRowData[]>(() => {
     const reponses = lignesReponses ?? [];
     return racine === undefined ? reponses : [racine, ...reponses];
   }, [racine, lignesReponses]);
@@ -169,13 +169,13 @@ function Fil({
   // Séparateurs de jour puis regroupement des rafales d'un même auteur
   // (`ui/daySeparator`, `ui/messageGrouping`) — données ASC ici, l'inverse
   // de l'écran salon.
-  const donneesListe = useMemo<(LigneDeMessage | LigneJour)[]>(
-    () => insererSeparateursJour(donnees, 'ancien-en-tete'),
+  const donneesListe = useMemo<(MessageRowData | DayRow)[]>(
+    () => insertDaySeparators(donnees, 'ancien-en-tete'),
     [donnees],
   );
-  const suites = useMemo(() => idsSuites(donneesListe, 'ancien-en-tete'), [donneesListe]);
+  const suites = useMemo(() => continuationIds(donneesListe, 'ancien-en-tete'), [donneesListe]);
   const heuresRepetees = useMemo(
-    () => idsHeuresRepetees(donneesListe, 'ancien-en-tete', suites),
+    () => repeatedTimeIds(donneesListe, 'ancien-en-tete', suites),
     [donneesListe, suites],
   );
 
@@ -185,7 +185,7 @@ function Fil({
   // attendre : sans cet état initial, sauter le fetch laisserait « chargement »
   // affiché à vie (même piège que l'écran salon).
   const [premierPassageFini, setPremierPassageFini] = useState(() =>
-    filChargeSous(filId, generation),
+    threadLoadedUnder(filId, generation),
   );
   useEffect(() => {
     // Ce chargement ne se rejoue QUE si ce fil n'a pas déjà été chargé sous
@@ -193,9 +193,9 @@ function Fil({
     // raccordement — donc chaque retour au premier plan, chaque flap réseau —
     // relançait `chat.getMessage` PUIS toute la pagination du fil, pour
     // ré-ingérer les mêmes documents. Voir `ui/loadedThreads.ts`.
-    if (filChargeSous(filId, generation)) return;
+    if (threadLoadedUnder(filId, generation)) return;
     let annule = false;
-    const jeton = jetonSession();
+    const jeton = sessionToken();
     // Portée d'activité = le fil lui-même, pas son salon : `rid` n'est pas
     // encore connu quand ce chargement part (fil ouvert par lien direct, la
     // racine n'est pas en base) et il apparaîtrait EN COURS de fetch — la barre
@@ -203,11 +203,11 @@ function Fil({
     // Le chargement (racine puis pagination défensive des réponses) vit chez
     // le fournisseur — voir `chargerFil` côté Rocket.Chat pour ses quirks.
     void activite
-      .suivre(filId, fournisseur.chargerFil(moteur, filId, () => annule))
+      .track(filId, fournisseur.loadThread(moteur, filId, () => annule))
       .then(() => {
         // Marqué au SUCCÈS seulement : un fil ouvert hors ligne doit repartir
         // au raccordement suivant, pas rester vide.
-        if (!annule) marquerFilCharge(filId, generation, jeton);
+        if (!annule) markThreadLoaded(filId, generation, jeton);
       })
       .catch(() => {
         // Hors ligne : le cache local suffit.
@@ -231,8 +231,8 @@ function Fil({
   useEffect(() => {
     if (rid === undefined) return;
     const relachers = fournisseur
-      .souscriptionsSalon(rid)
-      .map(([nom, cle]) => ddp.souscrire(nom, cle));
+      .roomSubscriptions(rid)
+      .map(([nom, cle]) => ddp.subscribe(nom, cle));
     return () => {
       for (const relacher of relachers) relacher();
     };
@@ -245,16 +245,16 @@ function Fil({
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       // `fil` : une éventuelle cible de réponse revient au composer de CE fil,
       // pas à celui du salon empilé dessous.
-      routeur.push({ pathname: '/message-actions', params: { id: idMessage, fil: filId } });
+      routeur.push({ pathname: '/message-actions', params: { id: idMessage, thread: filId } });
     },
     [routeur, filId],
   );
   const reessayer = useCallback(() => {
-    envoi.traiter().catch(() => {});
+    envoi.process().catch(() => {});
   }, [envoi]);
   const abandonner = useCallback(
     (idMessage: string) => {
-      envoi.abandonner(idMessage).catch(() => {});
+      envoi.discard(idMessage).catch(() => {});
     },
     [envoi],
   );
@@ -262,39 +262,39 @@ function Fil({
   // `messages.reactions`, la requête vive re-rend la pastille.
   const reagir = useCallback(
     (ridMessage: string, idMessage: string, code: string, mettre: boolean) => {
-      actions.reagir(ridMessage, idMessage, code, mettre).catch(() => {});
+      actions.react(ridMessage, idMessage, code, mettre).catch(() => {});
     },
     [actions],
   );
 
   const rendreLigne = useCallback(
-    ({ item }: { item: LigneDeMessage | LigneJour }) => {
-      if ('jour' in item) {
-        return <SeparateurJour c={c} horodatage={item.horodatage} />;
+    ({ item }: { item: MessageRowData | DayRow }) => {
+      if ('day' in item) {
+        return <DaySeparator c={c} ts={item.ts} />;
       }
       const etatEnvoi = sortieParId.get(item.id);
       return (
-        <LigneMessage
+        <MessageRow
           c={c}
           message={item}
           client={client}
-          statutEnvoi={etatEnvoi?.statut ?? null}
-          surReessayer={etatEnvoi?.statut === 'echec' ? reessayer : null}
-          surAbandonner={etatEnvoi?.statut === 'echec' ? abandonner : null}
-          surAppuiLong={etatEnvoi === undefined ? ouvrirActions : null}
+          sendStatus={etatEnvoi?.status ?? null}
+          onRetry={etatEnvoi?.status === 'echec' ? reessayer : null}
+          onDiscard={etatEnvoi?.status === 'echec' ? abandonner : null}
+          onLongPress={etatEnvoi === undefined ? ouvrirActions : null}
           // On EST dans le fil : pas d'indicateur « N réponses » sur la racine.
-          surOuvrirFil={null}
-          moi={moi}
-          surReagir={etatEnvoi === undefined ? reagir : null}
-          suite={suites.has(item.id)}
-          heureRepetee={heuresRepetees.has(item.id)}
+          onOpenThread={null}
+          me={moi}
+          onReact={etatEnvoi === undefined ? reagir : null}
+          continuation={suites.has(item.id)}
+          repeatedTime={heuresRepetees.has(item.id)}
         />
       );
     },
     [c, client, sortieParId, reessayer, abandonner, ouvrirActions, moi, reagir, suites, heuresRepetees],
   );
 
-  const liste = useRef<FlashListRef<LigneDeMessage | LigneJour>>(null);
+  const liste = useRef<FlashListRef<MessageRowData | DayRow>>(null);
   // La liste s'ouvre sur la RACINE : sans défilement après envoi, la réponse
   // optimiste naît sous le pli et l'envoi semble n'avoir rien fait. On attend
   // l'`_id` rendu par `envoi.envoyer` DANS les données — c'est le rendu qui
@@ -320,25 +320,25 @@ function Fil({
 
   // Brouillon du fil (8.7), clé `rid:tmid` : isolé du brouillon du salon.
   // `null` tant que le rid n'est pas connu — le composer attend.
-  const persistance = useBrouillon(brouillons, rid === undefined ? null : `${rid}:${filId}`);
+  const persistance = useDraft(brouillons, rid === undefined ? null : `${rid}:${filId}`);
 
   // Candidats à la mention (@) : ceux du SALON, pas seulement du fil — on
   // mentionne souvent dans un fil quelqu'un qui a parlé dans le flux principal.
   // `rid` encore inconnu → requête sur '' : liste vide, le composer n'est de
   // toute façon pas monté.
-  const candidatsMention = useCandidatsMention(base, rid ?? '');
+  const candidatsMention = useMentionCandidates(base, rid ?? '');
 
   return (
-    <VueEvitantLeClavier>
+    <KeyboardAvoidingContainer>
       <Stack.Screen options={{ title: t('fil.titre') }} />
       {/* L'en-tête est natif ici (pas d'`EnTeteSalon`) : la barre se pose donc
           juste sous lui. Sans elle, le fil se réécrivait intégralement sans
           qu'aucun signal ne l'indique. */}
-      <BarreSynchro c={c} actif={enSynchro} />
+      <SyncBar c={c} active={enSynchro} />
       {donnees.length === 0 ? (
-        <View style={styles.centre}>
+        <View style={styles.center}>
           {premierPassageFini ? (
-            <Text style={[styles.vide, { color: c.attenue }]}>{t('fil.introuvable')}</Text>
+            <Text style={[styles.empty, { color: c.dimmed }]}>{t('fil.introuvable')}</Text>
           ) : (
             <ActivityIndicator />
           )}
@@ -351,10 +351,10 @@ function Fil({
           // Trois gabarits (tête avec avatar / suite sans / séparateur de
           // jour) : typés pour que le recyclage de FlashList ne les mélange pas.
           getItemType={(item) =>
-            'jour' in item ? 'jour' : suites.has(item.id) ? 'suite' : 'message'
+            'day' in item ? 'jour' : suites.has(item.id) ? 'suite' : 'message'
           }
           renderItem={rendreLigne}
-          contentContainerStyle={styles.contenu}
+          contentContainerStyle={styles.content}
           // Un fil se LIT depuis sa racine : ouverture en haut — l'idiome
           // INVERSÉ du salon (8.10) n'aurait pas de sens ici. On garde donc
           // le mVCP pour suivre les réponses entrantes près du bas, avec son
@@ -372,27 +372,27 @@ function Fil({
           key={`${rid}:${filId}`}
           c={c}
           rid={rid}
-          filId={filId}
-          envoi={envoi}
-          fichiers={null}
+          threadId={filId}
+          outbox={envoi}
+          files={null}
           client={client}
-          candidatsMention={candidatsMention}
-          lectureSeule={salon.lectureSeule}
-          chiffre={salon.chiffre}
+          mentionCandidates={candidatsMention}
+          readOnly={salon.readOnly}
+          encrypted={salon.encrypted}
           placeholder={t('fil.repondre')}
-          apresEnvoi={apresEnvoi}
-          brouillonInitial={persistance.initial}
-          sauverBrouillon={persistance.sauver}
-          effacerBrouillon={persistance.effacer}
+          afterSend={apresEnvoi}
+          initialDraft={persistance.initial}
+          saveDraft={persistance.sauver}
+          clearDraft={persistance.effacer}
         />
       )}
-    </VueEvitantLeClavier>
+    </KeyboardAvoidingContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  contenu: { paddingHorizontal: 16, paddingVertical: 8 },
-  vide: { textAlign: 'center', padding: 24, fontSize: 14 },
-  erreur: { fontFamily: POLICES.corpsSemi, fontSize: 14, textAlign: 'center' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  content: { paddingHorizontal: 16, paddingVertical: 8 },
+  empty: { textAlign: 'center', padding: 24, fontSize: 14 },
+  error: { fontFamily: FONTS.corpsSemi, fontSize: 14, textAlign: 'center' },
 });

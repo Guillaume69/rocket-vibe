@@ -14,7 +14,7 @@ import type { ClientRest } from './rest.ts';
 export type SourcesPermissions = {
   /** Permission → rôles qui l'accordent. */
   roles: Map<string, string[]>;
-  rolesGlobaux: string[];
+  globalRoles: string[];
 };
 
 type LecteurRest = Pick<ClientRest, 'get'>;
@@ -22,7 +22,7 @@ type LecteurRest = Pick<ClientRest, 'get'>;
 const chaines = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 
-export async function lireSourcesPermissions(client: LecteurRest): Promise<SourcesPermissions> {
+export async function readPermissionSources(client: LecteurRest): Promise<SourcesPermissions> {
   const [liste, moi] = await Promise.all([
     client.get<{ update?: { _id?: unknown; roles?: unknown }[] }>('permissions.listAll'),
     client.get<{ roles?: unknown }>('me'),
@@ -31,11 +31,11 @@ export async function lireSourcesPermissions(client: LecteurRest): Promise<Sourc
   for (const p of liste.update ?? []) {
     if (typeof p._id === 'string') roles.set(p._id, chaines(p.roles));
   }
-  return { roles, rolesGlobaux: chaines(moi.roles) };
+  return { roles, globalRoles: chaines(moi.roles) };
 }
 
 /** La colonne `abonnements.roles` → liste ; illisible ou absente = aucun rôle. */
-export function rolesDuSalon(roles: string | null | undefined): string[] {
+export function roomRoles(roles: string | null | undefined): string[] {
   if (roles == null) return [];
   try {
     return chaines(JSON.parse(roles));
@@ -44,8 +44,8 @@ export function rolesDuSalon(roles: string | null | undefined): string[] {
   }
 }
 
-export function permissionsAccordees(sources: SourcesPermissions, rolesSalon: string[]): string[] {
-  const miens = new Set([...sources.rolesGlobaux, ...rolesSalon]);
+export function grantedPermissions(sources: SourcesPermissions, rolesSalon: string[]): string[] {
+  const miens = new Set([...sources.globalRoles, ...rolesSalon]);
   const accordees: string[] = [];
   for (const [permission, roles] of sources.roles) {
     if (roles.some((r) => miens.has(r))) accordees.push(permission);
@@ -56,12 +56,12 @@ export function permissionsAccordees(sources: SourcesPermissions, rolesSalon: st
 const enCache = new Map<string, Promise<SourcesPermissions>>();
 
 export function sourcesPermissions(
-  client: LecteurRest & Pick<ClientRest, 'baseUrl' | 'identifiants'>,
+  client: LecteurRest & Pick<ClientRest, 'baseUrl' | 'auth'>,
 ): Promise<SourcesPermissions> {
-  const cle = `${client.baseUrl}|${client.identifiants?.userId ?? ''}`;
+  const cle = `${client.baseUrl}|${client.auth?.userId ?? ''}`;
   const connue = enCache.get(cle);
   if (connue !== undefined) return connue;
-  const lecture = lireSourcesPermissions(client);
+  const lecture = readPermissionSources(client);
   enCache.set(cle, lecture);
   lecture.catch(() => enCache.delete(cle));
   return lecture;

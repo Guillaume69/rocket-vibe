@@ -8,28 +8,28 @@
  * l'animation. Un glissé du doigt reprend la main et lève le verrou.
  */
 
-export type EtatRetour = { visible: boolean; retourEnCours: boolean };
+export type BackToLatestState = { visible: boolean; backInProgress: boolean };
 
-export const ETAT_RETOUR_INITIAL: EtatRetour = { visible: false, retourEnCours: false };
+export const INITIAL_BACK_TO_LATEST_STATE: BackToLatestState = { visible: false, backInProgress: false };
 
-export function loinDuPlusRecent(decalage: number, hauteurVue: number): boolean {
+export function farFromLatest(decalage: number, hauteurVue: number): boolean {
   return hauteurVue > 0 && decalage > hauteurVue;
 }
 
-export function surDefilementRetour(
-  etat: EtatRetour,
+export function onBackToLatestScroll(
+  etat: BackToLatestState,
   decalage: number,
   hauteurVue: number,
-): EtatRetour {
-  const loin = loinDuPlusRecent(decalage, hauteurVue);
-  if (etat.retourEnCours) return loin ? etat : ETAT_RETOUR_INITIAL;
-  return etat.visible === loin ? etat : { visible: loin, retourEnCours: false };
+): BackToLatestState {
+  const loin = farFromLatest(decalage, hauteurVue);
+  if (etat.backInProgress) return loin ? etat : INITIAL_BACK_TO_LATEST_STATE;
+  return etat.visible === loin ? etat : { visible: loin, backInProgress: false };
 }
 
-export function surAppuiRetour(): EtatRetour {
-  return { visible: false, retourEnCours: true };
+export function onBackToLatestPress(): BackToLatestState {
+  return { visible: false, backInProgress: true };
 }
 
-export function surGlisseRetour(etat: EtatRetour): EtatRetour {
-  return etat.retourEnCours ? { ...etat, retourEnCours: false } : etat;
+export function onBackToLatestSwipe(etat: BackToLatestState): BackToLatestState {
+  return etat.backInProgress ? { ...etat, backInProgress: false } : etat;
 }

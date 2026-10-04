@@ -25,18 +25,18 @@
  * quelques serveurs d'un même appareil.
  */
 
-import type { Hacheur } from './auth.ts';
+import type { Hasher } from './auth.ts';
 
 /**
  * La clé de stockage, le pointeur « dernier serveur » et la comparaison de
  * `lireSession` doivent réduire l'URL EXACTEMENT pareil, sinon une session
  * enregistrée devient introuvable au démarrage. Un seul point de vérité.
  */
-export const sansSlashFinal = (baseUrl: string): string => baseUrl.replace(/\/+$/, '');
+export const withoutTrailingSlash = (baseUrl: string): string => baseUrl.replace(/\/+$/, '');
 
 /** Clé de la session d'un serveur. Volontairement indépendante du compte. */
-export async function cleSession(baseUrl: string, hacher: Hacheur): Promise<string> {
-  return `session-${(await hacher(sansSlashFinal(baseUrl))).slice(0, 32)}`;
+export async function sessionStorageKey(baseUrl: string, hacher: Hasher): Promise<string> {
+  return `session-${(await hacher(withoutTrailingSlash(baseUrl))).slice(0, 32)}`;
 }
 
 /**
@@ -46,12 +46,12 @@ export async function cleSession(baseUrl: string, hacher: Hacheur): Promise<stri
  * identifiant Mongo : sans lui, `('https://x/a', 'b')` et `('https://x/ab',
  * '')` se condenseraient pareil.
  */
-export async function cleE2E(
+export async function e2eStorageKey(
   baseUrl: string,
   utilisateurId: string,
-  hacher: Hacheur,
+  hacher: Hasher,
 ): Promise<string> {
-  const empreinte = await hacher(`${sansSlashFinal(baseUrl)}|${utilisateurId}`);
+  const empreinte = await hacher(`${withoutTrailingSlash(baseUrl)}|${utilisateurId}`);
   return `e2e-${empreinte.slice(0, 32)}`;
 }
 
@@ -64,6 +64,6 @@ export async function cleE2E(
  * de l'app, et `expo-secure-store` ne sait pas énumérer ses clés — sans cette
  * dérivation, plus rien au monde ne pourrait la retrouver pour la supprimer.
  */
-export async function cleE2EHeritee(baseUrl: string, hacher: Hacheur): Promise<string> {
-  return `e2e-${(await hacher(sansSlashFinal(baseUrl))).slice(0, 32)}`;
+export async function legacyE2eStorageKey(baseUrl: string, hacher: Hasher): Promise<string> {
+  return `e2e-${(await hacher(withoutTrailingSlash(baseUrl))).slice(0, 32)}`;
 }

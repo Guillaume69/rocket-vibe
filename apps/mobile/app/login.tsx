@@ -3,16 +3,16 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { SERVEUR_PAR_DEFAUT } from '../db/migrate.ts';
-import { demanderCodeParEmail, preparerCodeDeuxFacteurs, seConnecter } from '../lib/auth.ts';
-import { ClientRest, ErreurDeuxFacteurs, ErreurRest, type CodeDeuxFacteurs } from '../lib/rest.ts';
-import { sonderServeur, type ProfilServeur } from '../lib/server.ts';
-import { hacher, lireDernierServeur, listerServeursConnus } from '../lib/sessionStore.ts';
-import { VueEvitantLeClavier } from '../ui/keyboard.tsx';
+import { DEFAULT_SERVER } from '../db/migrate.ts';
+import { requestEmailCode, prepareTwoFactorCode, logIn } from '../lib/auth.ts';
+import { ClientRest, TwoFactorError, RestError, type TwoFactorCode } from '../lib/rest.ts';
+import { probeServer, type ServerProfile } from '../lib/server.ts';
+import { hash, readLastServer, listKnownServers } from '../lib/sessionStore.ts';
+import { KeyboardAvoidingContainer } from '../ui/keyboard.tsx';
 import { useT } from '../ui/i18n.ts';
-import { BoutonPrincipal, ChampPilule, Marque, TuileAvatar } from '../ui/kit.tsx';
+import { PrimaryButton, PillField, Brand, AvatarTile } from '../ui/kit.tsx';
 import { useSession } from '../ui/session.tsx';
-import { type Couleurs, POLICES, useCouleurs } from '../ui/theme.ts';
+import { type Colors, FONTS, useColors } from '../ui/theme.ts';
 
 /**
  * Écran de connexion, en trois temps : serveur → identifiants → second facteur.
@@ -27,26 +27,26 @@ import { type Couleurs, POLICES, useCouleurs } from '../ui/theme.ts';
  */
 
 type Phase =
-  | { nom: 'serveur' }
-  | { nom: 'identifiants'; profil: ProfilServeur; client: ClientRest }
+  | { name: 'serveur' }
+  | { name: 'identifiants'; profile: ServerProfile; client: ClientRest }
   | {
-      nom: 'deuxFacteurs';
-      profil: ProfilServeur;
+      name: 'deuxFacteurs';
+      profile: ServerProfile;
       client: ClientRest;
-      erreur: ErreurDeuxFacteurs;
-      codeEnvoye: boolean;
+      error: TwoFactorError;
+      codeSent: boolean;
     };
 
-export default function EcranConnexion() {
-  const { etat, connecter, changerDeServeur } = useSession();
-  const { changer } = useLocalSearchParams<{ changer?: string }>();
+export default function LoginScreen() {
+  const { state: etat, connect: connecter, switchServer: changerDeServeur } = useSession();
+  const { change: changer } = useLocalSearchParams<{ change?: string }>();
   const routeur = useRouter();
-  const c = useCouleurs();
+  const c = useColors();
   const t = useT();
   const insets = useSafeAreaInsets();
 
-  const [phase, setPhase] = useState<Phase>({ nom: 'serveur' });
-  const [adresse, setAdresse] = useState(SERVEUR_PAR_DEFAUT);
+  const [phase, setPhase] = useState<Phase>({ name: 'serveur' });
+  const [adresse, setAdresse] = useState(DEFAULT_SERVER);
   const [utilisateur, setUtilisateur] = useState('');
   const [motDePasse, setMotDePasse] = useState('');
   const [code, setCode] = useState('');
@@ -66,14 +66,14 @@ export default function EcranConnexion() {
   const [serveursConnus, setServeursConnus] = useState<string[]>([]);
   useEffect(() => {
     let abandonne = false;
-    lireDernierServeur()
+    readLastServer()
       .then((dernier) => {
         if (!abandonne && dernier !== null) {
-          setAdresse((courante) => (courante === SERVEUR_PAR_DEFAUT ? dernier : courante));
+          setAdresse((courante) => (courante === DEFAULT_SERVER ? dernier : courante));
         }
       })
       .catch(() => {});
-    listerServeursConnus()
+    listKnownServers()
       .then((liste) => {
         if (!abandonne) setServeursConnus(liste);
       })
@@ -101,7 +101,7 @@ export default function EcranConnexion() {
           // pré-remplit simplement.
           setAdresse(url);
           setMessage(null);
-          setPhase({ nom: 'serveur' });
+          setPhase({ name: 'serveur' });
         }
       } finally {
         enVol.current = false;
@@ -120,15 +120,15 @@ export default function EcranConnexion() {
     setOccupe(true);
     setMessage(null);
     try {
-      const profil = await sonderServeur(adresse, controleur.signal);
+      const profil = await probeServer(adresse, controleur.signal);
       if (controleur.signal.aborted) return;
-      if (!profil.formulaireDeConnexion) {
+      if (!profil.loginForm) {
         // `Accounts_ShowFormLogin = false` : le serveur ne propose que du SSO.
         // L'API accepte parfois quand même un login direct — on prévient sans
         // bloquer.
         setMessage(t('connexion.sansMotDePasse'));
       }
-      setPhase({ nom: 'identifiants', profil, client: new ClientRest(profil.baseUrl) });
+      setPhase({ name: 'identifiants', profile: profil, client: new ClientRest(profil.baseUrl) });
     } catch (e) {
       if (!controleur.signal.aborted) {
         setMessage(e instanceof Error ? e.message : t('connexion.serveurInjoignable'));
@@ -140,48 +140,48 @@ export default function EcranConnexion() {
   }, [adresse, t]);
 
   const tenterConnexion = useCallback(
-    async (deuxFacteurs?: CodeDeuxFacteurs) => {
-      if (enVol.current || phase.nom === 'serveur') return;
+    async (deuxFacteurs?: TwoFactorCode) => {
+      if (enVol.current || phase.name === 'serveur') return;
       enVol.current = true;
       setOccupe(true);
       setMessage(null);
       try {
-        const session = await seConnecter(
+        const session = await logIn(
           phase.client,
-          { utilisateur: utilisateur.trim(), motDePasse },
+          { user: utilisateur.trim(), password: motDePasse },
           deuxFacteurs,
         );
         // `Site_Url` vient du sondage, pas du login : c'est ICI qu'il entre
         // dans la session persistée — voir `Session.siteUrl` (lib/auth.ts).
-        await connecter({ ...session, siteUrl: phase.profil.siteUrl });
+        await connecter({ ...session, siteUrl: phase.profile.siteUrl });
         // Navigation explicite : le <Redirect> en tête de rendu couvre la
         // reprise de session, mais il est neutralisé quand on est venu par
         // « changer de serveur » (`?changer=1`) — sans ceci, un login réussi
         // depuis ce chemin laisserait l'utilisateur planté ici.
         routeur.replace('/');
       } catch (e) {
-        if (e instanceof ErreurDeuxFacteurs) {
+        if (e instanceof TwoFactorError) {
           // Le serveur veut un second facteur — ou refuse celui qu'on vient
           // d'envoyer, auquel cas il relève la même erreur.
-          const memeMethode = phase.nom === 'deuxFacteurs' && phase.erreur.methode === e.methode;
+          const memeMethode = phase.name === 'deuxFacteurs' && phase.error.method === e.method;
           setCode('');
           setPhase({
-            nom: 'deuxFacteurs',
-            profil: phase.profil,
+            name: 'deuxFacteurs',
+            profile: phase.profile,
             client: phase.client,
-            erreur: e,
+            error: e,
             // Un code email déjà parti ne « repart » pas parce que le serveur
             // relève l'erreur avec `codeGenerated: false` (renvoi limité).
-            codeEnvoye: e.codeGenere || (memeMethode && phase.codeEnvoye),
+            codeSent: e.generatedCode || (memeMethode && phase.codeSent),
           });
           if (deuxFacteurs !== undefined && memeMethode) setMessage(t('connexion.codeRefuse'));
         } else if (
-          e instanceof ErreurRest &&
-          (e.erreur === 'totp-invalid' || e.errorType === 'totp-invalid')
+          e instanceof RestError &&
+          (e.error === 'totp-invalid' || e.errorType === 'totp-invalid')
         ) {
           // Même dualité error/errorType que `totp-required` : voir lib/rest.ts.
           setMessage(t('connexion.codeRefuse'));
-        } else if (e instanceof ErreurRest && e.statut === 401) {
+        } else if (e instanceof RestError && e.status === 401) {
           setMessage(t('connexion.identifiantsRefuses'));
         } else {
           setMessage(e instanceof Error ? e.message : t('connexion.connexionImpossible'));
@@ -195,9 +195,9 @@ export default function EcranConnexion() {
   );
 
   const validerCode = useCallback(async () => {
-    if (phase.nom !== 'deuxFacteurs' || code.trim() === '') return;
+    if (phase.name !== 'deuxFacteurs' || code.trim() === '') return;
     try {
-      const prepare = await preparerCodeDeuxFacteurs(phase.erreur, code, hacher);
+      const prepare = await prepareTwoFactorCode(phase.error, code, hash);
       await tenterConnexion(prepare);
     } catch (e) {
       // Un `hacher` qui échoue ne doit pas rendre le bouton muet.
@@ -206,13 +206,13 @@ export default function EcranConnexion() {
   }, [phase, code, tenterConnexion, t]);
 
   const envoyerCodeEmail = useCallback(async () => {
-    if (enVol.current || phase.nom !== 'deuxFacteurs') return;
+    if (enVol.current || phase.name !== 'deuxFacteurs') return;
     enVol.current = true;
     setOccupe(true);
     setMessage(null);
     try {
-      await demanderCodeParEmail(phase.client, utilisateur.trim());
-      setPhase({ ...phase, codeEnvoye: true });
+      await requestEmailCode(phase.client, utilisateur.trim());
+      setPhase({ ...phase, codeSent: true });
     } catch (e) {
       setMessage(e instanceof Error ? e.message : t('connexion.envoiCodeImpossible'));
     } finally {
@@ -225,26 +225,26 @@ export default function EcranConnexion() {
     setMotDePasse('');
     setCode('');
     setMessage(null);
-    setPhase({ nom: 'serveur' });
+    setPhase({ name: 'serveur' });
   }, []);
 
   // Déjà connecté (reprise au démarrage, ou login qui vient d'aboutir) : cet
   // écran n'a rien à montrer — SAUF si on vient exprès changer de serveur.
   if (etat.phase === 'connecte' && changer !== '1') return <Redirect href="/" />;
 
-  const surServeur = phase.nom === 'serveur';
+  const surServeur = phase.name === 'serveur';
   // Route « changer de serveur » (poussée depuis l'accueil) : on GARDE l'en-tête
   // natif — son bouton retour est la seule sortie vers l'app, et il porte le
   // titre accessible. Le login racine, lui, reste sans en-tête (logo plein).
   const routeChangement = changer === '1';
 
   return (
-    <VueEvitantLeClavier>
+    <KeyboardAvoidingContainer>
       <Stack.Screen options={{ headerShown: routeChangement, title: t('connexion.titre') }} />
       <CielEtoile c={c} />
       <ScrollView
         contentContainerStyle={[
-          styles.contenu,
+          styles.content,
           {
             paddingTop: routeChangement ? 20 : insets.top + 20,
             justifyContent: surServeur ? 'center' : 'flex-start',
@@ -255,24 +255,24 @@ export default function EcranConnexion() {
         {surServeur ? (
           <EnTeteMarque c={c} />
         ) : (
-          <RetourConnexion c={c} onRetour={revenirAuServeur} occupe={occupe} />
+          <RetourConnexion c={c} onBack={revenirAuServeur} busy={occupe} />
         )}
 
-        {phase.nom !== 'serveur' && (
-          <View style={[styles.chipServeur, { backgroundColor: c.carte, borderColor: c.bordure }]}>
-            <Text style={[styles.chipTexte, { color: c.attenue }]}>
-              {phase.client.baseUrl} · Rocket.Chat {phase.profil.version}
+        {phase.name !== 'serveur' && (
+          <View style={[styles.chipServeur, { backgroundColor: c.card, borderColor: c.border }]}>
+            <Text style={[styles.chipTexte, { color: c.dimmed }]}>
+              {phase.client.baseUrl} · Rocket.Chat {phase.profile.version}
             </Text>
           </View>
         )}
 
-        {phase.nom === 'serveur' && (
+        {phase.name === 'serveur' && (
           <>
-            <ChampPilule
+            <PillField
               c={c}
-              etiquette={t('connexion.adresseServeur')}
-              icone="🌐"
-              valeur={adresse}
+              label={t('connexion.adresseServeur')}
+              icon="🌐"
+              value={adresse}
               onChangeText={setAdresse}
               onSubmitEditing={validerServeur}
               keyboardType="url"
@@ -280,11 +280,11 @@ export default function EcranConnexion() {
               placeholder="chat.exemple.fr"
               autoComplete="url"
             />
-            <BoutonPrincipal c={c} occupe={occupe} onPress={() => void validerServeur()} titre={t('connexion.continuer')} />
+            <PrimaryButton c={c} busy={occupe} onPress={() => void validerServeur()} title={t('connexion.continuer')} />
 
             {serveursConnus.length > 0 && (
-              <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
-                <Text style={[styles.surtitre, { color: c.attenue }]}>{t('connexion.serveursConnus')}</Text>
+              <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
+                <Text style={[styles.surtitre, { color: c.dimmed }]}>{t('connexion.serveursConnus')}</Text>
                 {serveursConnus.map((url) => (
                   <Pressable key={url} onPress={() => void basculer(url)} disabled={occupe}>
                     <Text style={[styles.lienServeur, { color: c.cyan }]}>{url}</Text>
@@ -295,81 +295,81 @@ export default function EcranConnexion() {
           </>
         )}
 
-        {phase.nom === 'identifiants' && (
+        {phase.name === 'identifiants' && (
           <>
-            <ChampPilule
+            <PillField
               c={c}
-              etiquette={t('connexion.identifiantOuEmail')}
-              valeur={utilisateur}
+              label={t('connexion.identifiantOuEmail')}
+              value={utilisateur}
               onChangeText={setUtilisateur}
               placeholder={t('connexion.exempleIdentifiant')}
               autoComplete="username"
               autoFocus
             />
-            <ChampPilule
+            <PillField
               c={c}
-              etiquette={t('connexion.motDePasse')}
-              valeur={motDePasse}
+              label={t('connexion.motDePasse')}
+              value={motDePasse}
               onChangeText={setMotDePasse}
               onSubmitEditing={() => void tenterConnexion()}
               placeholder="••••••••"
               autoComplete="current-password"
               secureTextEntry
             />
-            <BoutonPrincipal
+            <PrimaryButton
               c={c}
-              occupe={occupe}
+              busy={occupe}
               onPress={() => void tenterConnexion()}
-              titre={t('connexion.seConnecter')}
+              title={t('connexion.seConnecter')}
             />
           </>
         )}
 
-        {phase.nom === 'deuxFacteurs' && (
+        {phase.name === 'deuxFacteurs' && (
           <SectionDeuxFacteurs
             c={c}
-            erreur={phase.erreur}
-            codeEnvoye={phase.codeEnvoye}
+            error={phase.error}
+            codeSent={phase.codeSent}
             code={code}
-            occupe={occupe}
+            busy={occupe}
             onChangeCode={setCode}
-            onValider={() => void validerCode()}
-            onEnvoyerEmail={() => void envoyerCodeEmail()}
+            onSubmit={() => void validerCode()}
+            onSendEmail={() => void envoyerCodeEmail()}
           />
         )}
 
         {message !== null && (
-          <View style={[styles.carte, { backgroundColor: c.carteErreur, borderColor: c.danger }]}>
-            <Text style={[styles.messageErreur, { color: c.texteErreur }]}>{message}</Text>
-            {phase.nom === 'serveur' && Platform.OS === 'android' && (
-              <Text style={[styles.aide, { color: c.texteErreur }]}>{t('connexion.aideReseau')}</Text>
+          <View style={[styles.card, { backgroundColor: c.errorCard, borderColor: c.danger }]}>
+            <Text style={[styles.errorMessage, { color: c.errorText }]}>{message}</Text>
+            {phase.name === 'serveur' && Platform.OS === 'android' && (
+              <Text style={[styles.help, { color: c.errorText }]}>{t('connexion.aideReseau')}</Text>
             )}
           </View>
         )}
 
-        {phase.nom !== 'serveur' && (
+        {phase.name !== 'serveur' && (
           <Pressable onPress={revenirAuServeur} disabled={occupe}>
-            <Text style={[styles.lien, { color: c.cyan }]}>{t('connexion.changerServeur')}</Text>
+            <Text style={[styles.link, { color: c.cyan }]}>{t('connexion.changerServeur')}</Text>
           </Pressable>
         )}
       </ScrollView>
-    </VueEvitantLeClavier>
+    </KeyboardAvoidingContainer>
   );
 }
 
 /** En-tête de la marque : licorne, barres arc-en-ciel, logotype, sous-titre. */
-function EnTeteMarque({ c }: { c: Couleurs }) {
+function EnTeteMarque({ c }: { c: Colors }) {
   const t = useT();
   return (
     <View style={styles.marque}>
       <Text style={styles.licorne}>🦄</Text>
-      <View style={styles.barres}>
-        {[c.accent, c.jaune, c.cyan, c.violet].map((couleur, i) => (
-          <View key={i} style={[styles.barre, { backgroundColor: couleur }]} />
+      <View style={styles.bars}>
+        {[c.accent, c.yellow, c.cyan, c.purple].map((couleur, i) => (
+          <View key={i} style={[styles.bar, { backgroundColor: couleur }]} />
         ))}
       </View>
-      <Marque c={c} />
-      <Text style={[styles.sousTitre, { color: c.attenue }]}>{t('connexion.slogan')}</Text>
+      <Brand c={c} />
+      <Text style={[styles.subtitle, { color: c.dimmed }]}>{t('connexion.slogan')}</Text>
     </View>
   );
 }
@@ -377,57 +377,57 @@ function EnTeteMarque({ c }: { c: Couleurs }) {
 /** Retour vers l'étape serveur, en tête des phases identifiants / 2FA. */
 function RetourConnexion({
   c,
-  onRetour,
-  occupe,
+  onBack: onRetour,
+  busy: occupe,
 }: {
-  c: Couleurs;
-  onRetour: () => void;
-  occupe: boolean;
+  c: Colors;
+  onBack: () => void;
+  busy: boolean;
 }) {
   const t = useT();
   return (
-    <Pressable onPress={onRetour} disabled={occupe} style={styles.retour} hitSlop={10}>
-      <Text style={[styles.chevron, { color: c.violet }]}>‹</Text>
-      <Text style={[styles.retourTitre, { color: c.texte }]}>{t('connexion.titre')}</Text>
+    <Pressable onPress={onRetour} disabled={occupe} style={styles.back} hitSlop={10}>
+      <Text style={[styles.chevron, { color: c.purple }]}>‹</Text>
+      <Text style={[styles.retourTitre, { color: c.text }]}>{t('connexion.titre')}</Text>
     </Pressable>
   );
 }
 
 function SectionDeuxFacteurs({
   c,
-  erreur,
-  codeEnvoye,
+  error: erreur,
+  codeSent: codeEnvoye,
   code,
-  occupe,
+  busy: occupe,
   onChangeCode,
-  onValider,
-  onEnvoyerEmail,
+  onSubmit: onValider,
+  onSendEmail: onEnvoyerEmail,
 }: {
-  c: Couleurs;
-  erreur: ErreurDeuxFacteurs;
-  codeEnvoye: boolean;
+  c: Colors;
+  error: TwoFactorError;
+  codeSent: boolean;
   code: string;
-  occupe: boolean;
+  busy: boolean;
   onChangeCode: (v: string) => void;
-  onValider: () => void;
-  onEnvoyerEmail: () => void;
+  onSubmit: () => void;
+  onSendEmail: () => void;
 }) {
   const t = useT();
-  if (erreur.methode === 'email' && !codeEnvoye) {
+  if (erreur.method === 'email' && !codeEnvoye) {
     // `codeGenerated: false` : aucun code n'est encore parti, il faut le
     // demander explicitement avant d'afficher un champ de saisie.
     return (
       <>
-        <BlasonDeuxFacteurs c={c} sousTitre={t('connexion.introEmail')} />
-        <BoutonPrincipal c={c} occupe={occupe} onPress={onEnvoyerEmail} titre={t('connexion.envoyerLeCode')} />
+        <BlasonDeuxFacteurs c={c} subtitle={t('connexion.introEmail')} />
+        <PrimaryButton c={c} busy={occupe} onPress={onEnvoyerEmail} title={t('connexion.envoyerLeCode')} />
       </>
     );
   }
 
   const etiquette =
-    erreur.methode === 'totp'
+    erreur.method === 'totp'
       ? t('connexion.etiquetteTotp')
-      : erreur.methode === 'email'
+      : erreur.method === 'email'
         ? t('connexion.etiquetteEmail')
         : t('connexion.etiquettePassword');
 
@@ -435,29 +435,29 @@ function SectionDeuxFacteurs({
     <>
       <BlasonDeuxFacteurs
         c={c}
-        sousTitre={
-          erreur.methode === 'password'
+        subtitle={
+          erreur.method === 'password'
             ? t('connexion.introPassword')
             : t('connexion.introTotp')
         }
       />
-      <ChampPilule
+      <PillField
         c={c}
-        etiquette={etiquette}
-        valeur={code}
-        grand={erreur.methode !== 'password'}
+        label={etiquette}
+        value={code}
+        large={erreur.method !== 'password'}
         onChangeText={onChangeCode}
         onSubmitEditing={onValider}
-        placeholder={erreur.methode === 'password' ? '••••••••' : '123456'}
-        keyboardType={erreur.methode === 'password' ? 'default' : 'number-pad'}
-        autoComplete={erreur.methode === 'password' ? 'current-password' : 'one-time-code'}
-        secureTextEntry={erreur.methode === 'password'}
+        placeholder={erreur.method === 'password' ? '••••••••' : '123456'}
+        keyboardType={erreur.method === 'password' ? 'default' : 'number-pad'}
+        autoComplete={erreur.method === 'password' ? 'current-password' : 'one-time-code'}
+        secureTextEntry={erreur.method === 'password'}
         autoFocus
       />
-      <BoutonPrincipal c={c} occupe={occupe} onPress={onValider} titre={t('connexion.valider')} />
-      {erreur.methode === 'email' && (
+      <PrimaryButton c={c} busy={occupe} onPress={onValider} title={t('connexion.valider')} />
+      {erreur.method === 'email' && (
         <Pressable onPress={onEnvoyerEmail} disabled={occupe}>
-          <Text style={[styles.lien, { color: c.cyan }]}>{t('connexion.renvoyerCode')}</Text>
+          <Text style={[styles.link, { color: c.cyan }]}>{t('connexion.renvoyerCode')}</Text>
         </Pressable>
       )}
     </>
@@ -465,19 +465,19 @@ function SectionDeuxFacteurs({
 }
 
 /** Blason « Vérification magique » : icône bouclier en dégradé + sous-titre. */
-function BlasonDeuxFacteurs({ c, sousTitre }: { c: Couleurs; sousTitre: string }) {
+function BlasonDeuxFacteurs({ c, subtitle: sousTitre }: { c: Colors; subtitle: string }) {
   const t = useT();
   return (
     <View style={styles.blason}>
-      <TuileAvatar
+      <AvatarTile
         c={c}
-        deg={[c.violet, c.cyan] as const}
-        taille={70}
-        rayon={22}
-        enfant={<Text style={styles.bouclierGlyphe}>🛡️</Text>}
+        deg={[c.purple, c.cyan] as const}
+        size={70}
+        radius={22}
+        child={<Text style={styles.bouclierGlyphe}>🛡️</Text>}
       />
-      <Text style={[styles.blasonTitre, { color: c.texte }]}>{t('connexion.verificationMagique')}</Text>
-      <Text style={[styles.blasonSousTitre, { color: c.attenue }]}>{sousTitre}</Text>
+      <Text style={[styles.blasonTitre, { color: c.text }]}>{t('connexion.verificationMagique')}</Text>
+      <Text style={[styles.blasonSousTitre, { color: c.dimmed }]}>{sousTitre}</Text>
     </View>
   );
 }
@@ -486,15 +486,15 @@ function BlasonDeuxFacteurs({ c, sousTitre }: { c: Couleurs; sousTitre: string }
  * Ciel étoilé décoratif, en fond d'écran. Purement ornemental. `memo` car `c`
  * est stable (palette forcée) : inutile de le re-rendre à chaque frappe.
  */
-const CielEtoile = memo(function CielEtoile({ c }: { c: Couleurs }) {
-  const etoiles: { top: number; left: number; taille: number; couleur: string; opacite: number }[] = [
-    { top: 90, left: 44, taille: 10, couleur: '#FFFFFF', opacite: 0.5 },
-    { top: 150, left: 300, taille: 12, couleur: c.jaune, opacite: 0.7 },
-    { top: 250, left: 70, taille: 9, couleur: c.cyan, opacite: 0.6 },
-    { top: 330, left: 320, taille: 11, couleur: '#FFFFFF', opacite: 0.4 },
-    { top: 470, left: 40, taille: 10, couleur: c.violet, opacite: 0.55 },
-    { top: 560, left: 280, taille: 9, couleur: c.cyan, opacite: 0.4 },
-    { top: 640, left: 120, taille: 8, couleur: '#FFFFFF', opacite: 0.35 },
+const CielEtoile = memo(function CielEtoile({ c }: { c: Colors }) {
+  const etoiles: { top: number; left: number; size: number; color: string; opacity: number }[] = [
+    { top: 90, left: 44, size: 10, color: '#FFFFFF', opacity: 0.5 },
+    { top: 150, left: 300, size: 12, color: c.yellow, opacity: 0.7 },
+    { top: 250, left: 70, size: 9, color: c.cyan, opacity: 0.6 },
+    { top: 330, left: 320, size: 11, color: '#FFFFFF', opacity: 0.4 },
+    { top: 470, left: 40, size: 10, color: c.purple, opacity: 0.55 },
+    { top: 560, left: 280, size: 9, color: c.cyan, opacity: 0.4 },
+    { top: 640, left: 120, size: 8, color: '#FFFFFF', opacity: 0.35 },
   ];
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -505,9 +505,9 @@ const CielEtoile = memo(function CielEtoile({ c }: { c: Couleurs }) {
             position: 'absolute',
             top: e.top,
             left: e.left,
-            fontSize: e.taille,
-            color: e.couleur,
-            opacity: e.opacite,
+            fontSize: e.size,
+            color: e.color,
+            opacity: e.opacity,
           }}
         >
           ✦
@@ -518,25 +518,25 @@ const CielEtoile = memo(function CielEtoile({ c }: { c: Couleurs }) {
 });
 
 const styles = StyleSheet.create({
-  contenu: { flexGrow: 1, padding: 26, paddingBottom: 32, gap: 16 },
+  content: { flexGrow: 1, padding: 26, paddingBottom: 32, gap: 16 },
   marque: { alignItems: 'center', gap: 4, marginBottom: 10 },
   licorne: { fontSize: 46, lineHeight: 52 },
-  barres: { flexDirection: 'row', gap: 5, marginVertical: 8 },
-  barre: { width: 26, height: 5, borderRadius: 3 },
-  sousTitre: { fontFamily: POLICES.corps, fontSize: 13, marginTop: 2 },
-  retour: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  chevron: { fontSize: 26, fontFamily: POLICES.titre },
-  retourTitre: { fontFamily: POLICES.titre, fontSize: 17 },
+  bars: { flexDirection: 'row', gap: 5, marginVertical: 8 },
+  bar: { width: 26, height: 5, borderRadius: 3 },
+  subtitle: { fontFamily: FONTS.body, fontSize: 13, marginTop: 2 },
+  back: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  chevron: { fontSize: 26, fontFamily: FONTS.title },
+  retourTitre: { fontFamily: FONTS.title, fontSize: 17 },
   chipServeur: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12 },
-  chipTexte: { fontFamily: POLICES.corpsSemi, fontSize: 12.5 },
+  chipTexte: { fontFamily: FONTS.corpsSemi, fontSize: 12.5 },
   blason: { alignItems: 'center', gap: 4, marginTop: 6, marginBottom: 4 },
   bouclierGlyphe: { fontSize: 34 },
-  blasonTitre: { fontFamily: POLICES.titre, fontSize: 21, marginTop: 12 },
-  blasonSousTitre: { fontFamily: POLICES.corps, fontSize: 13, textAlign: 'center', lineHeight: 19 },
-  carte: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 9 },
-  surtitre: { fontFamily: POLICES.corpsFort, fontSize: 11.5, letterSpacing: 0.4, textTransform: 'uppercase' },
-  lienServeur: { fontFamily: POLICES.corpsGras, fontSize: 14, paddingVertical: 3 },
-  messageErreur: { fontFamily: POLICES.corpsGras, fontSize: 14 },
-  aide: { fontFamily: POLICES.corps, fontSize: 13, lineHeight: 18 },
-  lien: { fontFamily: POLICES.corpsGras, fontSize: 14, paddingVertical: 12, textAlign: 'center' },
+  blasonTitre: { fontFamily: FONTS.title, fontSize: 21, marginTop: 12 },
+  blasonSousTitre: { fontFamily: FONTS.body, fontSize: 13, textAlign: 'center', lineHeight: 19 },
+  card: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 9 },
+  surtitre: { fontFamily: FONTS.corpsFort, fontSize: 11.5, letterSpacing: 0.4, textTransform: 'uppercase' },
+  lienServeur: { fontFamily: FONTS.corpsGras, fontSize: 14, paddingVertical: 3 },
+  errorMessage: { fontFamily: FONTS.corpsGras, fontSize: 14 },
+  help: { fontFamily: FONTS.body, fontSize: 13, lineHeight: 18 },
+  link: { fontFamily: FONTS.corpsGras, fontSize: 14, paddingVertical: 12, textAlign: 'center' },
 });

@@ -13,79 +13,79 @@
 
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { filtrerAliases, type DepotEmojis, type EmojiCustom } from '../lib/customEmojis.ts';
-import type { DepotEnvoi, LigneSortie } from '../lib/outbox.ts';
-import type { DepotTeleversements, LigneTeleversement } from '../lib/uploadQueue.ts';
-import type { Depot, EcrituresDepot } from '../lib/sync.ts';
-import type { FileEcritures } from './writeQueue.ts';
+import { filterAliases, type EmojiStore, type EmojiCustom } from '../lib/customEmojis.ts';
+import type { OutboxStore, OutboxRow } from '../lib/outbox.ts';
+import type { UploadStore, UploadRow } from '../lib/uploadQueue.ts';
+import type { Store, StoreWrites } from '../lib/sync.ts';
+import type { WriteQueue } from './writeQueue.ts';
 import {
-  APPLIQUER_RETENTION,
-  INSERER_EMOJI_CUSTOM,
-  INSERER_SORTIE,
-  LISTER_RIDS_CONNUS,
-  PURGER_BROUILLONS_ABSENTS,
-  PURGER_CURSEURS_ABSENTS,
-  PURGER_SORTIE_ABSENTE,
-  PURGER_TELEVERSEMENTS_ABSENTS,
-  SUPPRIMER_BROUILLONS_SALON,
-  SUPPRIMER_CURSEURS_SALON,
-  SUPPRIMER_SORTIE_SALON,
-  SUPPRIMER_TELEVERSEMENTS_SALON,
-  INSERER_TELEVERSEMENT,
-  LISTER_EMOJIS_CUSTOM,
-  VIDER_EMOJIS_CUSTOM,
+  APPLY_RETENTION,
+  INSERT_CUSTOM_EMOJI,
+  INSERT_OUTBOX,
+  LIST_KNOWN_RIDS,
+  PURGE_MISSING_DRAFTS,
+  PURGE_MISSING_CURSORS,
+  PURGE_MISSING_OUTBOX,
+  PURGE_MISSING_UPLOADS,
+  DELETE_ROOM_DRAFTS,
+  DELETE_ROOM_CURSORS,
+  DELETE_ROOM_OUTBOX,
+  DELETE_ROOM_UPLOADS,
+  INSERT_UPLOAD,
+  LIST_CUSTOM_EMOJIS,
+  CLEAR_CUSTOM_EMOJIS,
   paramsEmojiCustom,
-  LISTER_TELEVERSEMENTS_A_ENVOYER,
-  MARQUER_TELEVERSEMENT_ECHEC,
-  MARQUER_TELEVERSEMENT_EN_VOL,
-  MESSAGE_AVEC_FICHIER,
-  NOTER_FILE_ID,
-  REARMER_TELEVERSEMENT,
-  REARMER_TELEVERSEMENTS_EN_VOL,
-  SUPPRIMER_TELEVERSEMENT,
-  LIRE_BROUILLON,
-  UPSERT_BROUILLON,
-  SUPPRIMER_BROUILLON,
-  LIRE_CURSEUR,
-  DERNIER_MESSAGE_MIS_A_JOUR,
-  LISTER_CLES_SALON,
-  MAJ_AVATAR_SALON,
-  MAJ_AVATAR_UTILISATEUR,
-  UPSERT_IDENTITE,
-  paramsIdentite,
-  MESSAGES_A_DECHIFFRER,
-  MAJ_TEXTE_MESSAGE,
-  MAJ_MARQUES_MESSAGE,
-  MASQUER_MESSAGES_CHIFFRES,
-  MAJ_APERCU_CHIFFRE,
-  MASQUER_APERCU_CHIFFRE,
-  LISTER_SORTIE_A_ENVOYER,
-  SALON_CHIFFRE,
-  MARQUER_SORTIE_ECHEC,
-  PURGER_ABONNEMENTS_ABSENTS,
-  PURGER_MESSAGES_ABSENTS,
-  PURGER_SALONS_ABSENTS,
-  RID_PAR_SUB_ID,
-  SUPPRIMER_ABONNEMENT,
-  SUPPRIMER_MESSAGE,
-  SUPPRIMER_MESSAGE_OPTIMISTE,
-  SUPPRIMER_SALON,
-  SUPPRIMER_SORTIE,
-  UPSERT_ABONNEMENT,
-  UPSERT_CURSEUR,
+  LIST_UPLOADS_TO_SEND,
+  MARK_UPLOAD_FAILED,
+  MARK_UPLOAD_IN_FLIGHT,
+  MESSAGE_WITH_FILE,
+  RECORD_FILE_ID,
+  REARM_UPLOAD,
+  REARM_IN_FLIGHT_UPLOADS,
+  DELETE_UPLOAD,
+  READ_DRAFT,
+  UPSERT_DRAFT,
+  DELETE_DRAFT,
+  READ_CURSOR,
+  LAST_MESSAGE_UPDATED_AT,
+  LIST_ROOM_KEYS,
+  UPDATE_ROOM_AVATAR,
+  UPDATE_USER_AVATAR,
+  UPSERT_IDENTITY,
+  identityParams,
+  MESSAGES_TO_DECRYPT,
+  UPDATE_MESSAGE_TEXT,
+  UPDATE_MESSAGE_MARKS,
+  HIDE_ENCRYPTED_MESSAGES,
+  UPDATE_ENCRYPTED_PREVIEW,
+  HIDE_ENCRYPTED_PREVIEW,
+  LIST_OUTBOX_TO_SEND,
+  ROOM_ENCRYPTED,
+  MARK_OUTBOX_FAILED,
+  PURGE_MISSING_SUBSCRIPTIONS,
+  PURGE_MISSING_MESSAGES,
+  PURGE_MISSING_ROOMS,
+  RID_BY_SUB_ID,
+  DELETE_SUBSCRIPTION,
+  DELETE_MESSAGE,
+  DELETE_OPTIMISTIC_MESSAGE,
+  DELETE_ROOM,
+  DELETE_OUTBOX,
+  UPSERT_SUBSCRIPTION,
+  UPSERT_CURSOR,
   UPSERT_MESSAGE,
-  UPSERT_SALON,
-  UPSERT_UTILISATEUR,
-  paramsAbonnement,
+  UPSERT_ROOM,
+  UPSERT_USER,
+  subscriptionParams,
   paramsMessage,
-  paramsSalon,
-  paramsUtilisateur,
+  roomParams,
+  userParams,
 } from './upserts.ts';
 
 /** Le quota de rétention, par salon. Voir `APPLIQUER_RETENTION`. */
-export const MESSAGES_GARDES_PAR_SALON = 500;
+export const MESSAGES_KEPT_PER_ROOM = 500;
 
-export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot {
+export function createStore(brute: SQLiteDatabase, enSerie: WriteQueue): Store {
   /**
    * Ce qu'un salon laisse derrière lui et que personne ne peut plus atteindre :
    * sa file d'envoi, sa file de téléversements, ses brouillons, ses curseurs.
@@ -95,95 +95,95 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
    * réconciliation, comme avant : c'est elle qui balaye les orphelins.
    */
   const effacerSatellites = async (rid: string): Promise<void> => {
-    await brute.runAsync(SUPPRIMER_SORTIE_SALON, [rid]);
-    await brute.runAsync(SUPPRIMER_TELEVERSEMENTS_SALON, [rid]);
-    await brute.runAsync(SUPPRIMER_BROUILLONS_SALON, [rid]);
-    await brute.runAsync(SUPPRIMER_CURSEURS_SALON, [rid]);
+    await brute.runAsync(DELETE_ROOM_OUTBOX, [rid]);
+    await brute.runAsync(DELETE_ROOM_UPLOADS, [rid]);
+    await brute.runAsync(DELETE_ROOM_DRAFTS, [rid]);
+    await brute.runAsync(DELETE_ROOM_CURSORS, [rid]);
   };
 
   // Les écritures DIRECTES, sans file : c'est ce que reçoit le `fn` d'une
   // transaction (la file attend la fin de la transaction ouverte — passer
   // par elle depuis `fn` s'interbloquerait, la signature de
   // `Depot.transaction` l'interdit).
-  const direct: EcrituresDepot = {
+  const direct: StoreWrites = {
     async upsertMessage(m) {
       await brute.runAsync(UPSERT_MESSAGE, paramsMessage(m));
       // L'identité de l'auteur (`uid → pseudo courant`) se dérive de chaque
       // message : le plus récent par uid fait foi. Un message chiffré
       // indéchiffrable n'a pas de pseudo (`auteurNom` null) — rien à noter.
-      if (m.auteurNom !== null) {
+      if (m.authorName !== null) {
         await brute.runAsync(
-          UPSERT_UTILISATEUR,
-          paramsUtilisateur({ uid: m.auteurId, username: m.auteurNom, misAJourLe: m.misAJourLe }),
+          UPSERT_USER,
+          userParams({ uid: m.authorId, username: m.authorName, updatedAt: m.updatedAt }),
         );
       }
       // Réconciliation de la file d'envoi : ce dépôt ne reçoit QUE des
       // documents d'origine serveur (stream, historique, réponse d'envoi).
       // L'un d'eux qui porte notre `_id` prouve la livraison — la ligne de
       // sortie n'a plus de raison d'être, quel que soit son statut.
-      await brute.runAsync(SUPPRIMER_SORTIE, [m.id]);
+      await brute.runAsync(DELETE_OUTBOX, [m.id]);
     },
-    async upsertSalon(s) {
-      await brute.runAsync(UPSERT_SALON, paramsSalon(s));
+    async upsertRoom(s) {
+      await brute.runAsync(UPSERT_ROOM, roomParams(s));
       // L'AUTRE d'un DM entre dans `utilisateurs` dès l'ingestion du salon, sans
       // attendre qu'un de ses messages soit chargé : la liste montre sa photo, et
       // le stream `updateAvatar` ne sait la rattacher qu'à une ligne existante
       // (il ne désigne l'utilisateur que par son pseudo). Sans cela, l'avatar
       // d'un DM jamais ouvert ne se rafraîchirait jamais.
-      if (s.dmAutreUid !== null && s.dmAutreUsername !== null) {
+      if (s.dmOtherUid !== null && s.dmOtherUsername !== null) {
         await brute.runAsync(
-          UPSERT_IDENTITE,
-          paramsIdentite({ uid: s.dmAutreUid, username: s.dmAutreUsername, avatarEtag: null }),
+          UPSERT_IDENTITY,
+          identityParams({ uid: s.dmOtherUid, username: s.dmOtherUsername, avatarEtag: null }),
         );
       }
     },
-    async upsertAbonnement(a) {
-      await brute.runAsync(UPSERT_ABONNEMENT, paramsAbonnement(a));
+    async upsertSubscription(a) {
+      await brute.runAsync(UPSERT_SUBSCRIPTION, subscriptionParams(a));
     },
-    async supprimerMessage(id) {
-      await brute.runAsync(SUPPRIMER_MESSAGE, [id]);
+    async deleteMessage(id) {
+      await brute.runAsync(DELETE_MESSAGE, [id]);
       // L'aperçu de liste d'un salon CHIFFRÉ n'a pas de source serveur — le
       // stream ne porte que du ciphertext. Effacer le dernier message y
       // laisserait donc son texte en aperçu, indéfiniment. On le recalcule sur
       // les messages restants ; le SQL ne touche rien s'il n'a rien à changer,
       // et c'est un no-op sans salon chiffré. Les salons en clair, eux, sont
       // couverts par le `rooms-changed` qui suit toute suppression.
-      await brute.runAsync(MAJ_APERCU_CHIFFRE);
+      await brute.runAsync(UPDATE_ENCRYPTED_PREVIEW);
     },
-    async supprimerSalon(rid) {
-      await brute.runAsync(SUPPRIMER_SALON, [rid]);
+    async deleteRoom(rid) {
+      await brute.runAsync(DELETE_ROOM, [rid]);
       await effacerSatellites(rid);
     },
-    async supprimerAbonnement(rid) {
-      await brute.runAsync(SUPPRIMER_ABONNEMENT, [rid]);
+    async deleteSubscription(rid) {
+      await brute.runAsync(DELETE_SUBSCRIPTION, [rid]);
     },
-    async supprimerParSubId(subId) {
-      const ligne = await brute.getFirstAsync<{ rid: string }>(RID_PAR_SUB_ID, [subId]);
+    async deleteBySubId(subId) {
+      const ligne = await brute.getFirstAsync<{ rid: string }>(RID_BY_SUB_ID, [subId]);
       if (ligne === null) return;
-      await brute.runAsync(SUPPRIMER_ABONNEMENT, [ligne.rid]);
+      await brute.runAsync(DELETE_SUBSCRIPTION, [ligne.rid]);
       // Quitter un salon le fait disparaître de la liste — le document Rooms
       // existe toujours côté serveur, mais plus pour ce compte.
-      await brute.runAsync(SUPPRIMER_SALON, [ligne.rid]);
+      await brute.runAsync(DELETE_ROOM, [ligne.rid]);
       await effacerSatellites(ligne.rid);
     },
-    async ecrireCurseur(portee, flux, misAJourDepuis) {
-      await brute.runAsync(UPSERT_CURSEUR, [portee, flux, misAJourDepuis]);
+    async writeCursor(scope, stream, misAJourDepuis) {
+      await brute.runAsync(UPSERT_CURSOR, [scope, stream, misAJourDepuis]);
     },
   };
 
   return {
     upsertMessage: (m) => enSerie(() => direct.upsertMessage(m)),
-    upsertSalon: (s) => enSerie(() => direct.upsertSalon(s)),
-    upsertAbonnement: (a) => enSerie(() => direct.upsertAbonnement(a)),
-    supprimerMessage: (id) => enSerie(() => direct.supprimerMessage(id)),
-    supprimerSalon: (rid) => enSerie(() => direct.supprimerSalon(rid)),
-    supprimerAbonnement: (rid) => enSerie(() => direct.supprimerAbonnement(rid)),
-    supprimerParSubId: (subId) => enSerie(() => direct.supprimerParSubId(subId)),
-    async listerRidsConnus() {
-      const lignes = await brute.getAllAsync<{ rid: string }>(LISTER_RIDS_CONNUS);
+    upsertRoom: (s) => enSerie(() => direct.upsertRoom(s)),
+    upsertSubscription: (a) => enSerie(() => direct.upsertSubscription(a)),
+    deleteMessage: (id) => enSerie(() => direct.deleteMessage(id)),
+    deleteRoom: (rid) => enSerie(() => direct.deleteRoom(rid)),
+    deleteSubscription: (rid) => enSerie(() => direct.deleteSubscription(rid)),
+    deleteBySubId: (subId) => enSerie(() => direct.deleteBySubId(subId)),
+    async listKnownRids() {
+      const lignes = await brute.getAllAsync<{ rid: string }>(LIST_KNOWN_RIDS);
       return lignes.map((l) => l.rid);
     },
-    purgerSalonsAbsents(ridsVivants, ridsConnus) {
+    purgeMissingRooms(ridsVivants, ridsConnus) {
       // Garde-fou : jamais de purge totale sur une liste vide (réponse serveur
       // muette ou tronquée). L'appelant garde aussi ce test — ceinture et
       // bretelles, car `NOT IN (rien)` effacerait tout ce qui est connu.
@@ -195,84 +195,84 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
       return enSerie(() =>
         brute.withTransactionAsync(async () => {
           for (const sql of [
-            PURGER_SALONS_ABSENTS,
-            PURGER_ABONNEMENTS_ABSENTS,
-            PURGER_MESSAGES_ABSENTS,
-            PURGER_SORTIE_ABSENTE,
-            PURGER_TELEVERSEMENTS_ABSENTS,
-            PURGER_BROUILLONS_ABSENTS,
-            PURGER_CURSEURS_ABSENTS,
+            PURGE_MISSING_ROOMS,
+            PURGE_MISSING_SUBSCRIPTIONS,
+            PURGE_MISSING_MESSAGES,
+            PURGE_MISSING_OUTBOX,
+            PURGE_MISSING_UPLOADS,
+            PURGE_MISSING_DRAFTS,
+            PURGE_MISSING_CURSORS,
           ]) {
             await brute.runAsync(sql, [connus, vivants]);
           }
         }),
       );
     },
-    appliquerRetention: (nbMax) =>
+    applyRetention: (nbMax) =>
       enSerie(async () => {
-        await brute.runAsync(APPLIQUER_RETENTION, [nbMax]);
+        await brute.runAsync(APPLY_RETENTION, [nbMax]);
       }),
-    async lireCurseur(portee, flux) {
+    async readCursor(portee, flux) {
       // Lecture : pas de file. Elle peut voir un lot non commis — sans
       // conséquence, les curseurs ne s'écrivent qu'après le retour du lot.
-      const ligne = await brute.getFirstAsync<{ mis_a_jour_depuis: number }>(LIRE_CURSEUR, [
+      const ligne = await brute.getFirstAsync<{ mis_a_jour_depuis: number }>(READ_CURSOR, [
         portee,
         flux,
       ]);
       return ligne?.mis_a_jour_depuis ?? null;
     },
-    async dernierMessageMisAJour(rid) {
+    async lastMessageUpdatedAt(rid) {
       // Lecture directe (pas de file), comme `lireCurseur`. `MAX(...)` d'un
       // salon sans message local rend `NULL` → `null`.
       const ligne = await brute.getFirstAsync<{ mis_a_jour_le: number | null }>(
-        DERNIER_MESSAGE_MIS_A_JOUR,
+        LAST_MESSAGE_UPDATED_AT,
         [rid],
       );
       return ligne?.mis_a_jour_le ?? null;
     },
-    ecrireCurseur: (portee, flux, v) => enSerie(() => direct.ecrireCurseur(portee, flux, v)),
-    async listerClesSalon() {
-      const lignes = await brute.getAllAsync<{ rid: string; e2e_key: string }>(LISTER_CLES_SALON);
+    writeCursor: (portee, flux, v) => enSerie(() => direct.writeCursor(portee, flux, v)),
+    async listRoomKeys() {
+      const lignes = await brute.getAllAsync<{ rid: string; e2e_key: string }>(LIST_ROOM_KEYS);
       return lignes.map((l) => ({ rid: l.rid, e2eKey: l.e2e_key }));
     },
-    async messagesADechiffrer() {
+    async messagesToDecrypt() {
       const lignes = await brute.getAllAsync<{ id: string; rid: string; chiffre_brut: string }>(
-        MESSAGES_A_DECHIFFRER,
+        MESSAGES_TO_DECRYPT,
       );
-      return lignes.map((l) => ({ id: l.id, rid: l.rid, chiffreBrut: l.chiffre_brut }));
+      return lignes.map((l) => ({ id: l.id, rid: l.rid, encryptedRaw: l.chiffre_brut }));
     },
     // La passe de déverrouillage écrit le clair : elle passe par la file, comme
     // toute écriture, pour ne pas s'intercaler dans une transaction ouverte.
-    majTexteMessage: (id, texte, piecesJointes) =>
+    updateMessageText: (id, texte, piecesJointes) =>
       enSerie(async () => {
-        await brute.runAsync(MAJ_TEXTE_MESSAGE, [texte, piecesJointes, id]);
+        await brute.runAsync(UPDATE_MESSAGE_TEXT, [texte, piecesJointes, id]);
       }),
-    majMarquesMessage: (id, epingle, etoiles) =>
+    updateMessageMarks: (id, epingle, etoiles) =>
       enSerie(async () => {
-        await brute.runAsync(MAJ_MARQUES_MESSAGE, [epingle ? 1 : 0, etoiles, id]);
+        await brute.runAsync(UPDATE_MESSAGE_MARKS, [epingle ? 1 : 0, etoiles, id]);
       }),
-    masquerMessagesChiffres: () =>
+    hideEncryptedMessages: () =>
       enSerie(async () => {
-        await brute.runAsync(MASQUER_MESSAGES_CHIFFRES);
-        await brute.runAsync(MASQUER_APERCU_CHIFFRE);
+        await brute.runAsync(HIDE_ENCRYPTED_MESSAGES);
+        await brute.runAsync(HIDE_ENCRYPTED_PREVIEW);
       }),
-    majApercuChiffre: () =>
+    updateEncryptedPreview: () =>
       enSerie(async () => {
-        await brute.runAsync(MAJ_APERCU_CHIFFRE);
+        await brute.runAsync(UPDATE_ENCRYPTED_PREVIEW);
       }),
     // Versions d'avatar. L'etag est passé deux fois : le SQL ne touche la ligne
     // que s'il CHANGE (voir `MAJ_AVATAR_UTILISATEUR`).
-    majAvatarUtilisateur: (username, etag) =>
+    updateUserAvatar: (username, etag) =>
       enSerie(async () => {
-        await brute.runAsync(MAJ_AVATAR_UTILISATEUR, [etag, username, etag]);
+        await brute.runAsync(UPDATE_USER_AVATAR, [etag, username, etag]);
       }),
-    majAvatarSalon: (rid, etag) =>
+    updateRoomAvatar: (rid, etag) =>
       enSerie(async () => {
-        await brute.runAsync(MAJ_AVATAR_SALON, [etag, rid, etag]);
+        await brute.runAsync(UPDATE_ROOM_AVATAR, [etag, rid, etag]);
       }),
-    enregistrerIdentite: (identite) =>
+    saveIdentity: (identite) =>
       enSerie(async () => {
-        await brute.runAsync(UPSERT_IDENTITE, paramsIdentite(identite));
+        await brute.runAsync(UPSERT_IDENTITY, identityParams(identite));
       }),
     transaction(fn) {
       // Un lot = un commit = UN rafraîchissement des requêtes vives,
@@ -289,27 +289,27 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
  * rafraîchissement des requêtes vives, et pas de fenêtre où la table
  * est vide.
  */
-export function creerDepotEmojis(brute: SQLiteDatabase, enSerie: FileEcritures): DepotEmojis {
+export function createEmojiStore(brute: SQLiteDatabase, enSerie: WriteQueue): EmojiStore {
   return {
-    remplacer(entrees: EmojiCustom[]) {
+    replace(entrees: EmojiCustom[]) {
       return enSerie(() =>
         brute.withTransactionAsync(async () => {
-          await brute.runAsync(VIDER_EMOJIS_CUSTOM);
+          await brute.runAsync(CLEAR_CUSTOM_EMOJIS);
           for (const e of entrees) {
             await brute.runAsync(
-              INSERER_EMOJI_CUSTOM,
-              paramsEmojiCustom({ ...e, misAJourLe: Date.now() }),
+              INSERT_CUSTOM_EMOJI,
+              paramsEmojiCustom({ ...e, updatedAt: Date.now() }),
             );
           }
         }),
       );
     },
-    async lister(): Promise<EmojiCustom[]> {
+    async list(): Promise<EmojiCustom[]> {
       const lignes = await brute.getAllAsync<{ nom: string; extension: string; aliases: string }>(
-        LISTER_EMOJIS_CUSTOM,
+        LIST_CUSTOM_EMOJIS,
       );
       return lignes.map((l) => ({
-        nom: l.nom,
+        name: l.nom,
         extension: l.extension,
         // `aliases` est du JSON écrit par nous ; un `catch` évite qu'une ligne
         // corrompue prive tout le salon de ses autres emojis. Le même filtre
@@ -322,7 +322,7 @@ export function creerDepotEmojis(brute: SQLiteDatabase, enSerie: FileEcritures):
 
 function parseAliases(brut: string): string[] {
   try {
-    return filtrerAliases(JSON.parse(brut));
+    return filterAliases(JSON.parse(brut));
   } catch {
     return [];
   }
@@ -337,41 +337,41 @@ type BruteSortie = {
   tentatives: number;
 };
 
-export function creerDepotEnvoi(brute: SQLiteDatabase, enSerie: FileEcritures): DepotEnvoi {
+export function createOutboxStore(brute: SQLiteDatabase, enSerie: WriteQueue): OutboxStore {
   // Écritures dans la MÊME file que les lots de synchro : émises hors file
   // pendant un lot ouvert, elles rejoindraient sa transaction — un rollback
   // du lot emporterait alors le message que l'utilisateur vient d'envoyer.
   return {
-    insererSortie(id, rid, texte, filId) {
+    insertOutbox(id, rid, texte, filId) {
       return enSerie(() =>
-        brute.runAsync(INSERER_SORTIE, [id, rid, texte, filId, Date.now()]).then(() => {}),
+        brute.runAsync(INSERT_OUTBOX, [id, rid, texte, filId, Date.now()]).then(() => {}),
       );
     },
-    async listerAEnvoyer(): Promise<LigneSortie[]> {
-      const lignes = await brute.getAllAsync<BruteSortie>(LISTER_SORTIE_A_ENVOYER);
+    async listToSend(): Promise<OutboxRow[]> {
+      const lignes = await brute.getAllAsync<BruteSortie>(LIST_OUTBOX_TO_SEND);
       return lignes.map((l) => ({
         id: l.id,
         rid: l.rid,
-        texte: l.texte,
-        filId: l.fil_id,
-        statut: l.statut,
-        tentatives: l.tentatives,
+        text: l.texte,
+        threadId: l.fil_id,
+        status: l.statut,
+        attempts: l.tentatives,
       }));
     },
-    marquerEchec(id, erreur) {
-      return enSerie(() => brute.runAsync(MARQUER_SORTIE_ECHEC, [erreur, id]).then(() => {}));
+    markFailed(id, erreur) {
+      return enSerie(() => brute.runAsync(MARK_OUTBOX_FAILED, [erreur, id]).then(() => {}));
     },
-    supprimerSortie(id) {
-      return enSerie(() => brute.runAsync(SUPPRIMER_SORTIE, [id]).then(() => {}));
+    deleteOutbox(id) {
+      return enSerie(() => brute.runAsync(DELETE_OUTBOX, [id]).then(() => {}));
     },
     upsertMessage(m) {
       return enSerie(() => brute.runAsync(UPSERT_MESSAGE, paramsMessage(m)).then(() => {}));
     },
-    supprimerMessageOptimiste(id) {
-      return enSerie(() => brute.runAsync(SUPPRIMER_MESSAGE_OPTIMISTE, [id]).then(() => {}));
+    deleteOptimisticMessage(id) {
+      return enSerie(() => brute.runAsync(DELETE_OPTIMISTIC_MESSAGE, [id]).then(() => {}));
     },
-    async salonChiffre(rid) {
-      const ligne = await brute.getFirstAsync<{ chiffre: number }>(SALON_CHIFFRE, [rid]);
+    async roomEncrypted(rid) {
+      const ligne = await brute.getFirstAsync<{ chiffre: number }>(ROOM_ENCRYPTED, [rid]);
       return ligne?.chiffre === 1;
     },
   };
@@ -389,67 +389,67 @@ type BruteTeleversement = {
   file_id: string | null;
 };
 
-export function creerDepotTeleversements(
+export function createUploadStore(
   brute: SQLiteDatabase,
-  enSerie: FileEcritures,
-): DepotTeleversements {
+  enSerie: WriteQueue,
+): UploadStore {
   return {
-    inserer(ligne) {
+    insert(ligne) {
       return enSerie(() =>
         brute
-          .runAsync(INSERER_TELEVERSEMENT, [
+          .runAsync(INSERT_UPLOAD, [
             ligne.id,
             ligne.rid,
             ligne.uri,
-            ligne.nom,
+            ligne.name,
             ligne.type,
-            ligne.legende,
+            ligne.caption,
             Date.now(),
           ])
           .then(() => {}),
       );
     },
-    async listerAEnvoyer(): Promise<LigneTeleversement[]> {
-      const lignes = await brute.getAllAsync<BruteTeleversement>(LISTER_TELEVERSEMENTS_A_ENVOYER);
+    async listToSend(): Promise<UploadRow[]> {
+      const lignes = await brute.getAllAsync<BruteTeleversement>(LIST_UPLOADS_TO_SEND);
       return lignes.map((l) => ({
         id: l.id,
         rid: l.rid,
         uri: l.uri,
-        nom: l.nom,
+        name: l.nom,
         type: l.type,
-        legende: l.legende,
-        statut: l.statut,
+        caption: l.legende,
+        status: l.statut,
         fileId: l.file_id,
       }));
     },
-    async prendreEnCharge(id) {
+    async claim(id) {
       // Hors `enSerie` : on a besoin du nombre de lignes touchées, et c'est LUI
       // qui dit si une autre passe nous a devancés.
-      const r = await brute.runAsync(MARQUER_TELEVERSEMENT_EN_VOL, [id]);
+      const r = await brute.runAsync(MARK_UPLOAD_IN_FLIGHT, [id]);
       return r.changes > 0;
     },
-    rearmerEnVol(enVolIci) {
+    rearmInFlight(enVolIci) {
       return enSerie(() =>
-        brute.runAsync(REARMER_TELEVERSEMENTS_EN_VOL, [JSON.stringify(enVolIci)]).then(() => {}),
+        brute.runAsync(REARM_IN_FLIGHT_UPLOADS, [JSON.stringify(enVolIci)]).then(() => {}),
       );
     },
-    rearmer(id) {
-      return enSerie(() => brute.runAsync(REARMER_TELEVERSEMENT, [id]).then(() => {}));
+    rearm(id) {
+      return enSerie(() => brute.runAsync(REARM_UPLOAD, [id]).then(() => {}));
     },
-    noterFileId(id, fileId) {
-      return enSerie(() => brute.runAsync(NOTER_FILE_ID, [fileId, id]).then(() => {}));
+    recordFileId(id, fileId) {
+      return enSerie(() => brute.runAsync(RECORD_FILE_ID, [fileId, id]).then(() => {}));
     },
-    async fichierDejaPoste(rid, fileId) {
-      const l = await brute.getFirstAsync<{ id: string }>(MESSAGE_AVEC_FICHIER, [rid, fileId]);
+    async fileAlreadyPosted(rid, fileId) {
+      const l = await brute.getFirstAsync<{ id: string }>(MESSAGE_WITH_FILE, [rid, fileId]);
       return l !== null;
     },
-    marquerEchec(id, erreur) {
+    markFailed(id, erreur) {
       return enSerie(() =>
-        brute.runAsync(MARQUER_TELEVERSEMENT_ECHEC, [erreur, id]).then(() => {}),
+        brute.runAsync(MARK_UPLOAD_FAILED, [erreur, id]).then(() => {}),
       );
     },
-    supprimer(id) {
-      return enSerie(() => brute.runAsync(SUPPRIMER_TELEVERSEMENT, [id]).then(() => {}));
+    delete(id) {
+      return enSerie(() => brute.runAsync(DELETE_UPLOAD, [id]).then(() => {}));
     },
   };
 }
@@ -461,29 +461,29 @@ export function creerDepotTeleversements(
  * faisait entrer l'INSERT dans le `BEGIN` du lot (`withTransactionAsync` n'est
  * pas exclusif), et un échec du lot annulait le brouillon en silence.
  */
-export type DepotBrouillons = {
+export type DraftStore = {
   /** `null` si aucun brouillon pour cette clé. */
-  lire: (cle: string) => Promise<string | null>;
-  ecrire: (cle: string, texte: string) => Promise<void>;
-  supprimer: (cle: string) => Promise<void>;
+  read: (cle: string) => Promise<string | null>;
+  write: (cle: string, texte: string) => Promise<void>;
+  delete: (cle: string) => Promise<void>;
 };
 
-export function creerDepotBrouillons(
+export function createDraftStore(
   brute: SQLiteDatabase,
-  enSerie: FileEcritures,
-): DepotBrouillons {
+  enSerie: WriteQueue,
+): DraftStore {
   return {
-    async lire(cle) {
-      const ligne = await brute.getFirstAsync<{ texte: string }>(LIRE_BROUILLON, [cle]);
+    async read(cle) {
+      const ligne = await brute.getFirstAsync<{ texte: string }>(READ_DRAFT, [cle]);
       return ligne?.texte ?? null;
     },
-    ecrire(cle, texte) {
+    write(cle, texte) {
       return enSerie(() =>
-        brute.runAsync(UPSERT_BROUILLON, [cle, texte, Date.now()]).then(() => {}),
+        brute.runAsync(UPSERT_DRAFT, [cle, texte, Date.now()]).then(() => {}),
       );
     },
-    supprimer(cle) {
-      return enSerie(() => brute.runAsync(SUPPRIMER_BROUILLON, [cle]).then(() => {}));
+    delete(cle) {
+      return enSerie(() => brute.runAsync(DELETE_DRAFT, [cle]).then(() => {}));
     },
   };
 }

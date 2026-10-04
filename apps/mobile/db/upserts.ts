@@ -14,7 +14,7 @@
  *    message éditée depuis, ou réafficher des non-lus déjà remis à zéro.
  */
 
-import type { AbonnementLocal, MessageLocal, SalonLocal } from '../lib/normalize.ts';
+import type { LocalSubscription, MessageLocal, LocalRoom } from '../lib/normalize.ts';
 
 export const UPSERT_MESSAGE = `
 INSERT INTO messages (
@@ -77,7 +77,7 @@ WHERE excluded.mis_a_jour_le >= messages.mis_a_jour_le
  * détient que du ciphertext) : son aperçu vient de `MAJ_APERCU_CHIFFRE`, sur
  * les messages déchiffrés localement. D'où le `CASE`, qui n'y touche pas.
  */
-export const UPSERT_SALON = `
+export const UPSERT_ROOM = `
 INSERT INTO salons (
   rid, type, nom, nom_affiche, chiffre, lecture_seule, dm_autre_uid,
   dernier_message, dernier_message_type, horodatage_dernier_message, avatar_etag,
@@ -113,7 +113,7 @@ ON CONFLICT(rid) DO UPDATE SET
 WHERE excluded.mis_a_jour_le >= salons.mis_a_jour_le
 `;
 
-export const UPSERT_ABONNEMENT = `
+export const UPSERT_SUBSCRIPTION = `
 INSERT INTO abonnements (
   rid, sub_id, non_lus, mentions, mentions_groupe, alerte, ouvert, favori,
   lu_jusqu_a, e2e_key, e2e_key_id, roles, mis_a_jour_le
@@ -139,7 +139,7 @@ WHERE excluded.mis_a_jour_le >= abonnements.mis_a_jour_le
 `;
 
 /** Curseur de rattrapage. Ne recule jamais : un curseur qui régresse re-télécharge. */
-export const UPSERT_CURSEUR = `
+export const UPSERT_CURSOR = `
 INSERT INTO etat_synchro (portee, flux, mis_a_jour_depuis) VALUES (?, ?, ?)
 ON CONFLICT(portee, flux) DO UPDATE SET mis_a_jour_depuis = excluded.mis_a_jour_depuis
 WHERE excluded.mis_a_jour_depuis > etat_synchro.mis_a_jour_depuis
@@ -155,7 +155,7 @@ WHERE excluded.mis_a_jour_depuis > etat_synchro.mis_a_jour_depuis
  *    requête vive de la table — donc re-rendre toutes les lignes visibles. Là,
  *    la table ne bouge qu'à un VRAI renommage.
  */
-export const UPSERT_UTILISATEUR = `
+export const UPSERT_USER = `
 INSERT INTO utilisateurs (uid, username, mis_a_jour_le) VALUES (?, ?, ?)
 ON CONFLICT(uid) DO UPDATE SET
   username = excluded.username,
@@ -179,7 +179,7 @@ WHERE excluded.mis_a_jour_le >= utilisateurs.mis_a_jour_le
  *    ouverture de fiche toucherait la table et re-rendrait toutes les lignes
  *    abonnées à `utilisateurs`.
  */
-export const UPSERT_IDENTITE = `
+export const UPSERT_IDENTITY = `
 INSERT INTO utilisateurs (uid, username, avatar_etag, mis_a_jour_le) VALUES (?, ?, ?, 0)
 ON CONFLICT(uid) DO UPDATE SET
   username = excluded.username,
@@ -197,25 +197,25 @@ WHERE excluded.username IS NOT utilisateurs.username
  * L'etag est passé DEUX fois : la garde `IS NOT` évite une écriture inutile,
  * donc un rejeu de toutes les requêtes vives assises sur la table.
  */
-export const MAJ_AVATAR_UTILISATEUR = `
+export const UPDATE_USER_AVATAR = `
 UPDATE utilisateurs SET avatar_etag = ? WHERE username = ? AND avatar_etag IS NOT ?
 `;
 
-export const MAJ_AVATAR_SALON = `
+export const UPDATE_ROOM_AVATAR = `
 UPDATE salons SET avatar_etag = ? WHERE rid = ? AND avatar_etag IS NOT ?
 `;
 
 /** Clés de salon connues, pour la passe de déchiffrement E2EE au déverrouillage. */
-export const LISTER_CLES_SALON = `SELECT rid, e2e_key FROM abonnements WHERE e2e_key IS NOT NULL`;
+export const LIST_ROOM_KEYS = `SELECT rid, e2e_key FROM abonnements WHERE e2e_key IS NOT NULL`;
 /** Messages chiffrés encore illisibles : ciphertext gardé, clair pas encore posé. */
-export const MESSAGES_A_DECHIFFRER = `SELECT id, rid, chiffre_brut FROM messages WHERE chiffre_brut IS NOT NULL AND texte IS NULL`;
+export const MESSAGES_TO_DECRYPT = `SELECT id, rid, chiffre_brut FROM messages WHERE chiffre_brut IS NOT NULL AND texte IS NULL`;
 /** Pose le clair d'un message une fois déchiffré, et les pièces jointes d'un fichier. */
-export const MAJ_TEXTE_MESSAGE = `UPDATE messages SET texte = ?, pieces_jointes = COALESCE(?, pieces_jointes) WHERE id = ?`;
+export const UPDATE_MESSAGE_TEXT = `UPDATE messages SET texte = ?, pieces_jointes = COALESCE(?, pieces_jointes) WHERE id = ?`;
 /**
  * Pose l'épinglage et les étoiles après un geste réussi (voir `lib/marks.ts`).
  * `mis_a_jour_le` n'avance pas : la prochaine version du serveur fait foi.
  */
-export const MAJ_MARQUES_MESSAGE = `UPDATE messages SET epingle = ?, etoiles = ? WHERE id = ?`;
+export const UPDATE_MESSAGE_MARKS = `UPDATE messages SET epingle = ?, etoiles = ? WHERE id = ?`;
 /** Re-masque tout message chiffré au verrouillage : le clair local disparaît,
  *  pièces jointes comprises (elles portent la clé de chaque fichier), le
  *  ciphertext (`chiffre_brut`) reste pour re-déchiffrer au prochain déverrou.
@@ -224,7 +224,7 @@ export const MAJ_MARQUES_MESSAGE = `UPDATE messages SET epingle = ?, etoiles = ?
  *  verrouillage rejoué (`reverrouillageE2E`) sur des messages DÉJÀ masqués
  *  toucherait toute la table sans rien changer, et réveillerait chaque
  *  requête vive assise dessus — donc re-rendrait le salon ouvert. */
-export const MASQUER_MESSAGES_CHIFFRES = `UPDATE messages SET texte = NULL, pieces_jointes = NULL WHERE chiffre_brut IS NOT NULL AND texte IS NOT NULL`;
+export const HIDE_ENCRYPTED_MESSAGES = `UPDATE messages SET texte = NULL, pieces_jointes = NULL WHERE chiffre_brut IS NOT NULL AND texte IS NOT NULL`;
 /**
  * Aperçu de la liste pour les salons chiffrés DÉVERROUILLÉS : le dernier
  * message déchiffré. Sans déchiffrement, `dernier_message` reste null (le
@@ -258,7 +258,7 @@ export const MASQUER_MESSAGES_CHIFFRES = `UPDATE messages SET texte = NULL, piec
  *    messages à la même milliseconde. Sans elle, l'aperçu et la première ligne
  *    du salon peuvent désigner deux messages différents.
  */
-export const MAJ_APERCU_CHIFFRE = `
+export const UPDATE_ENCRYPTED_PREVIEW = `
 UPDATE salons SET dernier_message = (
   SELECT texte FROM messages
   WHERE messages.rid = salons.rid AND messages.texte IS NOT NULL
@@ -274,15 +274,15 @@ UPDATE salons SET dernier_message = (
 )`;
 /** Au verrouillage : l'aperçu redevient le placeholder (dernier_message null).
  *  Même garde que ci-dessus, pour la liste des salons cette fois. */
-export const MASQUER_APERCU_CHIFFRE = `UPDATE salons SET dernier_message = NULL WHERE chiffre = 1 AND dernier_message IS NOT NULL`;
+export const HIDE_ENCRYPTED_PREVIEW = `UPDATE salons SET dernier_message = NULL WHERE chiffre = 1 AND dernier_message IS NOT NULL`;
 
-export const SUPPRIMER_MESSAGE = `DELETE FROM messages WHERE id = ?`;
+export const DELETE_MESSAGE = `DELETE FROM messages WHERE id = ?`;
 
 /** Départ d'un salon : le rattrapage (`remove[]` d'updatedSince) fait le ménage. */
-export const SUPPRIMER_SALON = `DELETE FROM salons WHERE rid = ?`;
-export const SUPPRIMER_ABONNEMENT = `DELETE FROM abonnements WHERE rid = ?`;
+export const DELETE_ROOM = `DELETE FROM salons WHERE rid = ?`;
+export const DELETE_SUBSCRIPTION = `DELETE FROM abonnements WHERE rid = ?`;
 /** Les `remove[]` d'abonnements ne portent QUE le `_id` de l'abonnement. */
-export const RID_PAR_SUB_ID = `SELECT rid FROM abonnements WHERE sub_id = ?`;
+export const RID_BY_SUB_ID = `SELECT rid FROM abonnements WHERE sub_id = ?`;
 
 /**
  * Le `rid` d'un brouillon : la clé est `rid` ou `rid:tmid` (fil). Un rid
@@ -310,7 +310,7 @@ const RID_DU_BROUILLON = `substr(cle, 1, CASE WHEN instr(cle, ':') = 0 THEN leng
  * purge bornée aux salons connus. `etat_synchro` y entre sans ses curseurs
  * globaux (`portee = '*'`), qui ne sont pas des rids.
  */
-export const LISTER_RIDS_CONNUS = `
+export const LIST_KNOWN_RIDS = `
 SELECT rid FROM salons
 UNION SELECT rid FROM abonnements
 UNION SELECT rid FROM messages
@@ -338,18 +338,18 @@ UNION SELECT ${RID_DU_BROUILLON} FROM brouillons
  * bouton « abandonner » — mais que le rejeu repousse à CHAQUE raccordement,
  * pour toujours, en retardant les envois légitimes derrière elle.
  */
-export const PURGER_SALONS_ABSENTS = `DELETE FROM salons WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
-export const PURGER_ABONNEMENTS_ABSENTS = `DELETE FROM abonnements WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
-export const PURGER_MESSAGES_ABSENTS = `DELETE FROM messages WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
-export const PURGER_SORTIE_ABSENTE = `DELETE FROM sortie WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
-export const PURGER_TELEVERSEMENTS_ABSENTS = `DELETE FROM televersements WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
-export const PURGER_BROUILLONS_ABSENTS = `DELETE FROM brouillons WHERE ${RID_DU_BROUILLON} IN (SELECT value FROM json_each(?)) AND ${RID_DU_BROUILLON} NOT IN (SELECT value FROM json_each(?))`;
+export const PURGE_MISSING_ROOMS = `DELETE FROM salons WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
+export const PURGE_MISSING_SUBSCRIPTIONS = `DELETE FROM abonnements WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
+export const PURGE_MISSING_MESSAGES = `DELETE FROM messages WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
+export const PURGE_MISSING_OUTBOX = `DELETE FROM sortie WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
+export const PURGE_MISSING_UPLOADS = `DELETE FROM televersements WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
+export const PURGE_MISSING_DRAFTS = `DELETE FROM brouillons WHERE ${RID_DU_BROUILLON} IN (SELECT value FROM json_each(?)) AND ${RID_DU_BROUILLON} NOT IN (SELECT value FROM json_each(?))`;
 /**
  * `portee <> '*'` est INDISPENSABLE : les curseurs globaux (`salons`,
  * `abonnements`) ne sont pas des rids et ne doivent jamais tomber — les perdre
  * relancerait un rattrapage complet à chaque réconciliation.
  */
-export const PURGER_CURSEURS_ABSENTS = `DELETE FROM etat_synchro WHERE portee <> '*' AND portee IN (SELECT value FROM json_each(?)) AND portee NOT IN (SELECT value FROM json_each(?))`;
+export const PURGE_MISSING_CURSORS = `DELETE FROM etat_synchro WHERE portee <> '*' AND portee IN (SELECT value FROM json_each(?)) AND portee NOT IN (SELECT value FROM json_each(?))`;
 
 /**
  * Départ d'un salon, immédiat : ce que la purge ferait plus tard, mais tout de
@@ -358,10 +358,10 @@ export const PURGER_CURSEURS_ABSENTS = `DELETE FROM etat_synchro WHERE portee <>
  * puis le `chat.getMessage` de `messageLivre`) jusqu'à la prochaine
  * réconciliation — qui n'a lieu qu'UNE fois par session.
  */
-export const SUPPRIMER_SORTIE_SALON = `DELETE FROM sortie WHERE rid = ?`;
-export const SUPPRIMER_TELEVERSEMENTS_SALON = `DELETE FROM televersements WHERE rid = ?`;
-export const SUPPRIMER_BROUILLONS_SALON = `DELETE FROM brouillons WHERE ${RID_DU_BROUILLON} = ?`;
-export const SUPPRIMER_CURSEURS_SALON = `DELETE FROM etat_synchro WHERE portee = ?`;
+export const DELETE_ROOM_OUTBOX = `DELETE FROM sortie WHERE rid = ?`;
+export const DELETE_ROOM_UPLOADS = `DELETE FROM televersements WHERE rid = ?`;
+export const DELETE_ROOM_DRAFTS = `DELETE FROM brouillons WHERE ${RID_DU_BROUILLON} = ?`;
+export const DELETE_ROOM_CURSORS = `DELETE FROM etat_synchro WHERE portee = ?`;
 
 /**
  * Rétention : par salon, ne garder que les N messages les plus RÉCENTS.
@@ -387,7 +387,7 @@ export const SUPPRIMER_CURSEURS_SALON = `DELETE FROM etat_synchro WHERE portee =
  * de rattrapage : on ne coupe que par le bas, et l'app sait re-télécharger sa
  * pagination.
  */
-export const APPLIQUER_RETENTION = `
+export const APPLY_RETENTION = `
 DELETE FROM messages WHERE id IN (
   SELECT id FROM (
     SELECT id, ROW_NUMBER() OVER (PARTITION BY rid ORDER BY horodatage DESC, id DESC) AS rang
@@ -396,7 +396,7 @@ DELETE FROM messages WHERE id IN (
 ) AND id NOT IN (SELECT fil_id FROM messages WHERE fil_id IS NOT NULL)
 `;
 
-export const LIRE_CURSEUR = `
+export const READ_CURSOR = `
 SELECT mis_a_jour_depuis FROM etat_synchro WHERE portee = ? AND flux = ?
 `;
 
@@ -405,12 +405,12 @@ SELECT mis_a_jour_depuis FROM etat_synchro WHERE portee = ? AND flux = ?
  * contrairement aux upserts venus du réseau : la seule source est la frappe de
  * l'utilisateur, débouncée, et la dernière l'emporte toujours.
  */
-export const UPSERT_BROUILLON = `
+export const UPSERT_DRAFT = `
 INSERT INTO brouillons (cle, texte, mis_a_jour_le) VALUES (?, ?, ?)
 ON CONFLICT(cle) DO UPDATE SET texte = excluded.texte, mis_a_jour_le = excluded.mis_a_jour_le
 `;
-export const SUPPRIMER_BROUILLON = `DELETE FROM brouillons WHERE cle = ?`;
-export const LIRE_BROUILLON = `SELECT texte FROM brouillons WHERE cle = ?`;
+export const DELETE_DRAFT = `DELETE FROM brouillons WHERE cle = ?`;
+export const READ_DRAFT = `SELECT texte FROM brouillons WHERE cle = ?`;
 
 /**
  * Le plus grand `_updatedAt` déjà ingéré pour un salon — sert à RÉ-ANCRER le
@@ -419,7 +419,7 @@ export const LIRE_BROUILLON = `SELECT texte FROM brouillons WHERE cle = ?`;
  * re-demander éternellement le même gouffre. `MAX(NULL)` d'une table vide rend
  * `NULL` → `null` côté appelant.
  */
-export const DERNIER_MESSAGE_MIS_A_JOUR = `
+export const LAST_MESSAGE_UPDATED_AT = `
 SELECT MAX(mis_a_jour_le) AS mis_a_jour_le FROM messages WHERE rid = ?
 `;
 
@@ -430,23 +430,23 @@ SELECT MAX(mis_a_jour_le) AS mis_a_jour_le FROM messages WHERE rid = ?
 // côté serveur en fantômes cliquables.
 // ---------------------------------------------------------------------------
 
-export const VIDER_EMOJIS_CUSTOM = `DELETE FROM emojis_custom`;
+export const CLEAR_CUSTOM_EMOJIS = `DELETE FROM emojis_custom`;
 
-export const INSERER_EMOJI_CUSTOM = `
+export const INSERT_CUSTOM_EMOJI = `
 INSERT INTO emojis_custom (nom, extension, aliases, mis_a_jour_le) VALUES (?, ?, ?, ?)
 `;
 
-export const LISTER_EMOJIS_CUSTOM = `
+export const LIST_CUSTOM_EMOJIS = `
 SELECT nom, extension, aliases FROM emojis_custom
 `;
 
 export function paramsEmojiCustom(e: {
-  nom: string;
+  name: string;
   extension: string;
   aliases: string[];
-  misAJourLe: number;
-}): Parametre[] {
-  return [e.nom, e.extension, JSON.stringify(e.aliases), e.misAJourLe];
+  updatedAt: number;
+}): SqlParam[] {
+  return [e.name, e.extension, JSON.stringify(e.aliases), e.updatedAt];
 }
 
 // ---------------------------------------------------------------------------
@@ -454,33 +454,33 @@ export function paramsEmojiCustom(e: {
 // serveur déduplique dessus, c'est ce qui rend le rejeu après crash sûr.
 // ---------------------------------------------------------------------------
 
-export const INSERER_SORTIE = `
+export const INSERT_OUTBOX = `
 INSERT INTO sortie (id, rid, texte, fil_id, statut, tentatives, derniere_erreur, cree_le)
 VALUES (?, ?, ?, ?, 'en-attente', 0, NULL, ?)
 `;
 
 /** Les échecs aussi : le rejeu au retour du réseau retente tout ce qui reste. */
 /** Le salon est-il chiffré ? Décide du chemin d'envoi d'un message. */
-export const SALON_CHIFFRE = `SELECT chiffre FROM salons WHERE rid = ?`;
+export const ROOM_ENCRYPTED = `SELECT chiffre FROM salons WHERE rid = ?`;
 
-export const LISTER_SORTIE_A_ENVOYER = `
+export const LIST_OUTBOX_TO_SEND = `
 SELECT id, rid, texte, fil_id, statut, tentatives FROM sortie
 WHERE statut IN ('en-attente', 'echec') ORDER BY cree_le
 `;
 
-export const MARQUER_SORTIE_ECHEC = `
+export const MARK_OUTBOX_FAILED = `
 UPDATE sortie SET statut = 'echec', tentatives = tentatives + 1, derniere_erreur = ?
 WHERE id = ?
 `;
 
-export const SUPPRIMER_SORTIE = `DELETE FROM sortie WHERE id = ?`;
+export const DELETE_OUTBOX = `DELETE FROM sortie WHERE id = ?`;
 
 /**
  * Abandon d'un envoi : seul un message ENCORE optimiste (`mis_a_jour_le = 0`)
  * s'efface — si une version serveur existe, le message a été livré et n'a
  * plus rien d'abandonnable.
  */
-export const SUPPRIMER_MESSAGE_OPTIMISTE = `
+export const DELETE_OPTIMISTIC_MESSAGE = `
 DELETE FROM messages WHERE id = ? AND mis_a_jour_le = 0
 `;
 
@@ -488,7 +488,7 @@ DELETE FROM messages WHERE id = ? AND mis_a_jour_le = 0
 // File de téléversements (7.2) — mêmes règles que la sortie texte.
 // ---------------------------------------------------------------------------
 
-export const INSERER_TELEVERSEMENT = `
+export const INSERT_UPLOAD = `
 INSERT INTO televersements (id, rid, uri, nom, type, legende, statut, derniere_erreur, file_id, cree_le)
 VALUES (?, ?, ?, ?, ?, ?, 'en-attente', NULL, NULL, ?)
 `;
@@ -504,7 +504,7 @@ VALUES (?, ?, ?, ?, ?, ?, 'en-attente', NULL, NULL, ?)
  * `envoi` est exclu pour une autre raison : la ligne est déjà prise en charge
  * par une passe en vol, la relister la téléverserait deux fois en parallèle.
  */
-export const LISTER_TELEVERSEMENTS_A_ENVOYER = `
+export const LIST_UPLOADS_TO_SEND = `
 SELECT id, rid, uri, nom, type, legende, statut, file_id FROM televersements
 WHERE statut = 'en-attente' ORDER BY cree_le, id
 `;
@@ -514,7 +514,7 @@ WHERE statut = 'en-attente' ORDER BY cree_le, id
  * atomique : deux passes concurrentes ne peuvent pas saisir la même ligne,
  * la seconde met à jour 0 ligne et passe son chemin.
  */
-export const MARQUER_TELEVERSEMENT_EN_VOL = `
+export const MARK_UPLOAD_IN_FLIGHT = `
 UPDATE televersements SET statut = 'envoi' WHERE id = ? AND statut = 'en-attente'
 `;
 
@@ -523,7 +523,7 @@ UPDATE televersements SET statut = 'envoi' WHERE id = ? AND statut = 'en-attente
  * de l'échec précédent : le garder afficherait une erreur périmée pendant la
  * nouvelle tentative.
  */
-export const REARMER_TELEVERSEMENT = `
+export const REARM_UPLOAD = `
 UPDATE televersements SET statut = 'en-attente', derniere_erreur = NULL WHERE id = ?
 `;
 
@@ -542,13 +542,13 @@ UPDATE televersements SET statut = 'en-attente', derniere_erreur = NULL WHERE id
  * messages. On exclut donc ce que CE runtime a en vol — même discipline que la
  * purge du chantier 6, bornée par un instantané plutôt que par un délai.
  */
-export const REARMER_TELEVERSEMENTS_EN_VOL = `
+export const REARM_IN_FLIGHT_UPLOADS = `
 UPDATE televersements SET statut = 'en-attente'
 WHERE statut = 'envoi' AND id NOT IN (SELECT value FROM json_each(?))
 `;
 
 /** Les octets sont chez le serveur : `rooms.media` a rendu ce `fileId`. */
-export const NOTER_FILE_ID = `UPDATE televersements SET file_id = ? WHERE id = ?`;
+export const RECORD_FILE_ID = `UPDATE televersements SET file_id = ? WHERE id = ?`;
 
 /**
  * « Ce fichier a-t-il DÉJÀ été posté ? » — posé à SQLite, jamais au réseau.
@@ -563,15 +563,15 @@ export const NOTER_FILE_ID = `UPDATE televersements SET file_id = ? WHERE id = ?
  * `chat.getMessage` aurait consommé le quota au pire moment, celui où l'on
  * rejoue une file entière.
  */
-export const MESSAGE_AVEC_FICHIER = `
+export const MESSAGE_WITH_FILE = `
 SELECT id FROM messages WHERE rid = ? AND pieces_jointes LIKE '%' || ? || '%' LIMIT 1
 `;
 
-export const MARQUER_TELEVERSEMENT_ECHEC = `
+export const MARK_UPLOAD_FAILED = `
 UPDATE televersements SET statut = 'echec', derniere_erreur = ? WHERE id = ?
 `;
 
-export const SUPPRIMER_TELEVERSEMENT = `DELETE FROM televersements WHERE id = ?`;
+export const DELETE_UPLOAD = `DELETE FROM televersements WHERE id = ?`;
 
 // ---------------------------------------------------------------------------
 // Constructeurs de paramètres. Ils vivent ici, collés au SQL : un ordre de
@@ -582,81 +582,81 @@ export const SUPPRIMER_TELEVERSEMENT = `DELETE FROM televersements WHERE id = ?`
 /** SQLite n'a pas de booléen : `false` doit devenir `0`, jamais `'false'`. */
 const b = (v: boolean): number => (v ? 1 : 0);
 
-export type Parametre = string | number | null;
+export type SqlParam = string | number | null;
 
-export function paramsUtilisateur(u: {
+export function userParams(u: {
   uid: string;
   username: string;
-  misAJourLe: number;
-}): Parametre[] {
-  return [u.uid, u.username, u.misAJourLe];
+  updatedAt: number;
+}): SqlParam[] {
+  return [u.uid, u.username, u.updatedAt];
 }
 
-export function paramsIdentite(i: {
+export function identityParams(i: {
   uid: string;
   username: string;
   avatarEtag: string | null;
-}): Parametre[] {
+}): SqlParam[] {
   return [i.uid, i.username, i.avatarEtag];
 }
 
-export function paramsMessage(m: MessageLocal): Parametre[] {
+export function paramsMessage(m: MessageLocal): SqlParam[] {
   return [
     m.id,
     m.rid,
-    m.texte,
-    m.horodatage,
-    m.auteurId,
-    m.auteurNom,
-    m.typeSysteme,
-    m.filId,
-    m.filReponses,
-    m.filDernier,
-    b(m.filAffiche),
-    m.modifieLe,
+    m.text,
+    m.ts,
+    m.authorId,
+    m.authorName,
+    m.systemType,
+    m.threadId,
+    m.threadCount,
+    m.threadLast,
+    b(m.threadShown),
+    m.editedAt,
     m.md,
-    m.piecesJointes,
+    m.attachments,
     m.reactions,
     m.urls,
-    m.appelId,
-    m.chiffreBrut,
-    b(m.epingle),
-    m.etoiles,
-    m.misAJourLe,
+    m.callId,
+    m.encryptedRaw,
+    b(m.pinned),
+    m.starred,
+    m.updatedAt,
   ];
 }
 
-export function paramsSalon(s: SalonLocal): Parametre[] {
+export function roomParams(s: LocalRoom): SqlParam[] {
   return [
     s.rid,
     s.type,
-    s.nom,
-    s.nomAffiche,
-    b(s.chiffre),
-    b(s.lectureSeule),
-    s.dmAutreUid,
-    s.dernierMessage,
-    s.dernierMessageType,
-    s.horodatageDernierMessage,
+    s.name,
+    s.displayName,
+    b(s.encrypted),
+    b(s.readOnly),
+    s.dmOtherUid,
+    s.lastMessage,
+    s.lastMessageType,
+    s.lastMessageTs,
     s.avatarEtag,
-    s.misAJourLe,
+    s.updatedAt,
   ];
 }
 
-export function paramsAbonnement(a: AbonnementLocal): Parametre[] {
+export function subscriptionParams(a: LocalSubscription): SqlParam[] {
   return [
     a.rid,
     a.subId,
-    a.nonLus,
+    a.unread,
     a.mentions,
-    a.mentionsGroupe,
-    b(a.alerte),
-    b(a.ouvert),
-    b(a.favori),
-    a.luJusquA,
+    a.groupMentions,
+    b(a.alert),
+    b(a.open),
+    b(a.favorite),
+    a.lastSeen,
     a.e2eKey,
     a.e2eKeyId,
     a.roles,
-    a.misAJourLe,
+    a.updatedAt,
   ];
 }

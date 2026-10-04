@@ -13,4 +13,4 @@ type JetonFcmNatif = {
   addListener(evenement: 'jetonRenouvele', quand: (e: { jeton: string }) => void): EventSubscription;
 };
 
-export const JetonFcm = requireOptionalNativeModule<JetonFcmNatif>('JetonFcm');
+export const FcmToken = requireOptionalNativeModule<JetonFcmNatif>('JetonFcm');

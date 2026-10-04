@@ -14,25 +14,25 @@
  * reconnaît quand même, la carte tombe alors sur sa bannière dégradée.
  */
 
-export type FournisseurVideo = 'youtube' | 'dailymotion' | 'vimeo';
+export type VideoProvider = 'youtube' | 'dailymotion' | 'vimeo';
 
-export type LienVideo = {
-  provider: FournisseurVideo;
+export type VideoLink = {
+  provider: VideoProvider;
   /** Nom du fournisseur (« YouTube »). */
-  nom: string;
+  name: string;
   id: string;
   /** URL normalisée à ouvrir en externe. */
   url: string;
   /** Vignette publique, ou `null` si le fournisseur n'en expose pas de stable. */
-  vignette: string | null;
+  thumbnail: string | null;
 };
 
 type Motif = {
-  provider: FournisseurVideo;
-  nom: string;
+  provider: VideoProvider;
+  name: string;
   re: RegExp;
   url: (id: string) => string;
-  vignette: (id: string) => string | null;
+  thumbnail: (id: string) => string | null;
 };
 
 const vignetteYouTube = (id: string) => `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
@@ -54,37 +54,37 @@ const MOTIFS: readonly Motif[] = [
   // youtu.be/ID, youtube.com/shorts|embed|live|v/ID
   {
     provider: 'youtube',
-    nom: 'YouTube',
+    name: 'YouTube',
     re: new RegExp(
       `${DEBUT}${HOTE}(?:youtu\\.be\\/|youtube\\.com\\/(?:shorts|embed|live|v)\\/)([A-Za-z0-9_-]{11})`,
       'gi',
     ),
     url: urlYouTube,
-    vignette: vignetteYouTube,
+    thumbnail: vignetteYouTube,
   },
   // youtube.com/watch?...v=ID (le v= n'est pas forcément le premier paramètre)
   {
     provider: 'youtube',
-    nom: 'YouTube',
+    name: 'YouTube',
     re: new RegExp(`${DEBUT}${HOTE}youtube\\.com\\/watch\\?[^\\s"'<>]*v=([A-Za-z0-9_-]{11})`, 'gi'),
     url: urlYouTube,
-    vignette: vignetteYouTube,
+    thumbnail: vignetteYouTube,
   },
   // dailymotion.com/video/ID, dai.ly/ID
   {
     provider: 'dailymotion',
-    nom: 'Dailymotion',
+    name: 'Dailymotion',
     re: new RegExp(`${DEBUT}${HOTE}(?:dailymotion\\.com\\/video\\/|dai\\.ly\\/)([A-Za-z0-9]+)`, 'gi'),
     url: (id) => `https://www.dailymotion.com/video/${id}`,
-    vignette: (id) => `https://www.dailymotion.com/thumbnail/video/${id}`,
+    thumbnail: (id) => `https://www.dailymotion.com/thumbnail/video/${id}`,
   },
   // vimeo.com/ID (numérique)
   {
     provider: 'vimeo',
-    nom: 'Vimeo',
+    name: 'Vimeo',
     re: new RegExp(`${DEBUT}${HOTE}vimeo\\.com\\/(\\d+)`, 'gi'),
     url: (id) => `https://vimeo.com/${id}`,
-    vignette: () => null,
+    thumbnail: () => null,
   },
 ];
 
@@ -93,9 +93,9 @@ const MOTIFS: readonly Motif[] = [
  * doublon (même fournisseur + même id), plafonnés à `max` pour qu'un message
  * truffé de liens ne noie pas le fil.
  */
-export function detecterLiensVideo(texte: string | null | undefined, max = 3): LienVideo[] {
+export function detectVideoLinks(texte: string | null | undefined, max = 3): VideoLink[] {
   if (texte === null || texte === undefined || texte === '') return [];
-  const trouves: { pos: number; lien: LienVideo }[] = [];
+  const trouves: { pos: number; link: VideoLink }[] = [];
   const vus = new Set<string>();
 
   for (const m of MOTIFS) {
@@ -108,19 +108,19 @@ export function detecterLiensVideo(texte: string | null | undefined, max = 3): L
       vus.add(cle);
       trouves.push({
         pos: r.index,
-        lien: {
+        link: {
           provider: m.provider,
-          nom: m.nom,
+          name: m.name,
           id,
           url: m.url(id),
-          vignette: m.vignette(id),
+          thumbnail: m.thumbnail(id),
         },
       });
     }
   }
 
   trouves.sort((a, b) => a.pos - b.pos);
-  return trouves.slice(0, max).map((t) => t.lien);
+  return trouves.slice(0, max).map((t) => t.link);
 }
 
 /**
@@ -128,7 +128,7 @@ export function detecterLiensVideo(texte: string | null | undefined, max = 3): L
  * Dailymotion, Vimeo). Sert à la déduplication : les aperçus génériques
  * (`lib/linkPreview.ts`) sautent ces liens pour ne pas doubler la carte vidéo.
  */
-export function estLienVideo(url: string): boolean {
+export function isVideoLink(url: string): boolean {
   return idVideo(url) !== null;
 }
 

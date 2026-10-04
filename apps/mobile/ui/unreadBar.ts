@@ -15,9 +15,9 @@
  * sous le message le plus récent — sans qu'aucun symptôme immédiat le dise.
  */
 
-export type LigneBarre = { barre: true; id: string };
+export type BarRow = { bar: true; id: string };
 
-export const ID_BARRE_NON_LUS = 'barre-nouveaux';
+export const UNREAD_BAR_ID = 'barre-nouveaux';
 
 /**
  * `donneesDesc` : les messages du salon, du plus récent au plus ancien.
@@ -28,21 +28,21 @@ export const ID_BARRE_NON_LUS = 'barre-nouveaux';
  * « d'autrui » ne peut alors rien exclure et la barre peut se poser au-dessus
  * d'un de MES messages — comportement en place, consigné par les tests.
  */
-export function insererBarreNonLus<M extends { id: string; horodatage: number; auteurId: string }>(
+export function insertUnreadBar<M extends { id: string; ts: number; authorId: string }>(
   donneesDesc: M[],
   luJusquA: number | null | undefined,
   moiUid: string | undefined,
-): (M | LigneBarre)[] {
+): (M | BarRow)[] {
   if (typeof luJusquA !== 'number') return donneesDesc;
   let premierNonLu = -1;
   for (let i = 0; i < donneesDesc.length; i++) {
     const m = donneesDesc[i];
-    if (m.horodatage > luJusquA && m.auteurId !== moiUid) premierNonLu = i;
+    if (m.ts > luJusquA && m.authorId !== moiUid) premierNonLu = i;
   }
   if (premierNonLu === -1) return donneesDesc;
   return [
     ...donneesDesc.slice(0, premierNonLu + 1),
-    { barre: true, id: ID_BARRE_NON_LUS },
+    { bar: true, id: UNREAD_BAR_ID },
     ...donneesDesc.slice(premierNonLu + 1),
   ];
 }

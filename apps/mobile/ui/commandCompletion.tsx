@@ -9,51 +9,51 @@ import { eq } from 'drizzle-orm';
 import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { abonnements } from '../db/schema.ts';
+import { subscriptions } from '../db/schema.ts';
 import {
-  completerCommande,
-  detecterJetonCommande,
-  lireCommandes,
-  listeBrute,
-  type Commande,
+  completeCommand,
+  detectCommandToken,
+  readCommands,
+  rawList,
+  type Command,
 } from '../lib/commands.ts';
-import { permissionsAccordees, rolesDuSalon, sourcesPermissions } from '../lib/permissions.ts';
+import { grantedPermissions, roomRoles, sourcesPermissions } from '../lib/permissions.ts';
 import type { ClientRest } from '../lib/rest.ts';
-import { Appuyable } from './tappable.tsx';
-import { useLangue } from './i18n.ts';
-import { useSynchro } from './sync.tsx';
-import { type Couleurs, DELAI_PRESSION_LISTE, POLICES } from './theme.ts';
+import { Tappable } from './tappable.tsx';
+import { useLanguage } from './i18n.ts';
+import { useSync } from './sync.tsx';
+import { type Colors, LIST_PRESS_DELAY, FONTS } from './theme.ts';
 
 /**
  * Les commandes du serveur et mes permissions dans `rid` (`null` tant
  * qu'elles ne sont pas connues : rien n'est masqué, le serveur tranchera).
  */
-export function useCommandes(
+export function useCommands(
   client: ClientRest,
   rid: string,
-): { commandes: Commande[]; accordees: string[] | null } {
-  const synchro = useSynchro();
+): { commands: Command[]; granted: string[] | null } {
+  const synchro = useSync();
   const base = synchro.phase === 'pret' ? synchro.base : null;
-  const langue = useLangue();
-  const [etat, setEtat] = useState<{ brute: unknown; accordees: string[] | null }>({
-    brute: null,
-    accordees: null,
+  const langue = useLanguage();
+  const [etat, setEtat] = useState<{ raw: unknown; granted: string[] | null }>({
+    raw: null,
+    granted: null,
   });
 
   useEffect(() => {
     let annule = false;
     void (async () => {
       const [brute, sources, lignes] = await Promise.all([
-        listeBrute(client).catch(() => null),
+        rawList(client).catch(() => null),
         sourcesPermissions(client).catch(() => null),
         base === null
           ? Promise.resolve([])
-          : base.select({ roles: abonnements.roles }).from(abonnements).where(eq(abonnements.rid, rid)).limit(1),
+          : base.select({ roles: subscriptions.roles }).from(subscriptions).where(eq(subscriptions.rid, rid)).limit(1),
       ]);
       if (annule) return;
       setEtat({
-        brute,
-        accordees: sources === null ? null : permissionsAccordees(sources, rolesDuSalon(lignes[0]?.roles)),
+        raw: brute,
+        granted: sources === null ? null : grantedPermissions(sources, roomRoles(lignes[0]?.roles)),
       });
     })();
     return () => {
@@ -61,29 +61,29 @@ export function useCommandes(
     };
   }, [client, base, rid]);
 
-  const commandes = useMemo(() => lireCommandes(etat.brute, langue), [etat.brute, langue]);
-  return { commandes, accordees: etat.accordees };
+  const commandes = useMemo(() => readCommands(etat.raw, langue), [etat.raw, langue]);
+  return { commands: commandes, granted: etat.granted };
 }
 
-export function BandeauCompletionCommande({
-  texte,
-  curseur,
-  commandes,
-  accordees,
+export function CommandCompletionBanner({
+  text: texte,
+  cursor: curseur,
+  commands: commandes,
+  granted: accordees,
   c,
-  surChoisir,
+  onPick: surChoisir,
 }: {
-  texte: string;
-  curseur: number;
-  commandes: readonly Commande[];
-  accordees: readonly string[] | null;
-  c: Couleurs;
+  text: string;
+  cursor: number;
+  commands: readonly Command[];
+  granted: readonly string[] | null;
+  c: Colors;
   /** Reçoit le texte à insérer (`/nom`) et le `debut` du jeton (toujours 0). */
-  surChoisir: (insertion: string, debut: number) => void;
+  onPick: (insertion: string, debut: number) => void;
 }) {
   const items = useMemo(() => {
-    const jeton = detecterJetonCommande(texte, curseur);
-    return jeton === null ? [] : completerCommande(commandes, jeton.requete, accordees);
+    const jeton = detectCommandToken(texte, curseur);
+    return jeton === null ? [] : completeCommand(commandes, jeton.query, accordees);
   }, [texte, curseur, commandes, accordees]);
 
   if (items.length === 0) return null;
@@ -93,29 +93,29 @@ export function BandeauCompletionCommande({
       // VITAL : sans lui, le premier toucher défocalise le champ et la
       // suggestion est perdue (même leçon que les autres bandeaux).
       keyboardShouldPersistTaps="always"
-      style={[styles.bande, { backgroundColor: c.carte, borderTopColor: c.bordure }]}
+      style={[styles.strip, { backgroundColor: c.card, borderTopColor: c.border }]}
     >
       {items.map((commande) => (
-        <View key={commande.nom}>
-          <Appuyable
-            onPress={() => surChoisir(`/${commande.nom}`, 0)}
-            android_ripple={{ color: c.ondulation, borderless: false }}
-            unstable_pressDelay={DELAI_PRESSION_LISTE}
-            style={styles.ligne}
-            accessibilityLabel={`/${commande.nom}`}
+        <View key={commande.name}>
+          <Tappable
+            onPress={() => surChoisir(`/${commande.name}`, 0)}
+            android_ripple={{ color: c.ripple, borderless: false }}
+            unstable_pressDelay={LIST_PRESS_DELAY}
+            style={styles.row}
+            accessibilityLabel={`/${commande.name}`}
           >
-            <Text style={[styles.nom, { color: c.texte }]} numberOfLines={1}>
-              /{commande.nom}
-              {commande.parametres !== '' && (
-                <Text style={[styles.parametres, { color: c.attenue }]}>  {commande.parametres}</Text>
+            <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
+              /{commande.name}
+              {commande.params !== '' && (
+                <Text style={[styles.params, { color: c.dimmed }]}>  {commande.params}</Text>
               )}
             </Text>
             {commande.description !== '' && (
-              <Text style={[styles.description, { color: c.attenue }]} numberOfLines={1}>
+              <Text style={[styles.description, { color: c.dimmed }]} numberOfLines={1}>
                 {commande.description}
               </Text>
             )}
-          </Appuyable>
+          </Tappable>
         </View>
       ))}
     </ScrollView>
@@ -123,9 +123,9 @@ export function BandeauCompletionCommande({
 }
 
 const styles = StyleSheet.create({
-  bande: { maxHeight: 200, borderTopWidth: StyleSheet.hairlineWidth },
-  ligne: { paddingHorizontal: 14, paddingVertical: 7 },
-  nom: { fontFamily: POLICES.corps, fontSize: 14, fontWeight: '700' },
-  parametres: { fontWeight: '400' },
-  description: { fontFamily: POLICES.corps, fontSize: 12, marginTop: 1 },
+  strip: { maxHeight: 200, borderTopWidth: StyleSheet.hairlineWidth },
+  row: { paddingHorizontal: 14, paddingVertical: 7 },
+  name: { fontFamily: FONTS.body, fontSize: 14, fontWeight: '700' },
+  params: { fontWeight: '400' },
+  description: { fontFamily: FONTS.body, fontSize: 12, marginTop: 1 },
 });

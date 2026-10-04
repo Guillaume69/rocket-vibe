@@ -14,16 +14,16 @@ import * as SecureStore from 'expo-secure-store';
 
 import type { Session } from './auth.ts';
 import {
-  cleE2E,
-  cleE2EHeritee,
-  cleSession,
-  sansSlashFinal,
+  e2eStorageKey,
+  legacyE2eStorageKey,
+  sessionStorageKey,
+  withoutTrailingSlash,
 } from './storageKeys.ts';
-import type { DeconnexionEnSuspens } from './deferredLogout.ts';
-import { normaliserGenre } from './provider.ts';
+import type { PendingLogout } from './deferredLogout.ts';
+import { normalizeProviderKind } from './provider.ts';
 
 /** SHA-256 hexadécimal — l'implémentation de `Hacheur` côté application. */
-export function hacher(texte: string): Promise<string> {
+export function hash(texte: string): Promise<string> {
   return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, texte);
 }
 
@@ -32,7 +32,7 @@ export function hacher(texte: string): Promise<string> {
  * dépendance à `expo`, parce que c'est elle qui décide de l'isolation entre
  * comptes — et que cela se prouve par des tests, pas par une relecture.
  */
-const cle = (baseUrl: string): Promise<string> => cleSession(baseUrl, hacher);
+const cle = (baseUrl: string): Promise<string> => sessionStorageKey(baseUrl, hash);
 
 /**
  * iOS : lisible par la Notification Service Extension, qui tourne aussi
@@ -44,11 +44,11 @@ const ACCES_EXTENSION_PUSH: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
 };
 
-export async function enregistrerSession(session: Session): Promise<void> {
+export async function saveSession(session: Session): Promise<void> {
   await SecureStore.setItemAsync(await cle(session.baseUrl), JSON.stringify(session), ACCES_EXTENSION_PUSH);
 }
 
-export async function lireSession(baseUrl: string): Promise<Session | null> {
+export async function readSession(baseUrl: string): Promise<Session | null> {
   const brut = await SecureStore.getItemAsync(await cle(baseUrl));
   if (brut === null) return null;
   try {
@@ -58,13 +58,13 @@ export async function lireSession(baseUrl: string): Promise<Session | null> {
     if (typeof session?.authToken !== 'string' || typeof session?.userId !== 'string') return null;
     // La clé dérive d'un condensé tronqué : on ne se fie pas à elle seule pour
     // affirmer que cette session appartient bien au serveur demandé.
-    if (sansSlashFinal(session.baseUrl) !== sansSlashFinal(baseUrl)) return null;
+    if (withoutTrailingSlash(session.baseUrl) !== withoutTrailingSlash(baseUrl)) return null;
     // Migration à la lecture : les sessions d'avant les champs `genre` et
     // `siteUrl` retombent sur leurs replis (`rocketchat`, null → `baseUrl` à
     // l'usage), sans réécriture.
     return {
       ...session,
-      genre: normaliserGenre(session.genre),
+      genre: normalizeProviderKind(session.genre),
       siteUrl: typeof session.siteUrl === 'string' ? session.siteUrl : null,
     };
   } catch {
@@ -72,7 +72,7 @@ export async function lireSession(baseUrl: string): Promise<Session | null> {
   }
 }
 
-export async function effacerSession(baseUrl: string): Promise<void> {
+export async function clearSession(baseUrl: string): Promise<void> {
   await SecureStore.deleteItemAsync(await cle(baseUrl));
 }
 
@@ -89,26 +89,26 @@ export async function effacerSession(baseUrl: string): Promise<void> {
  * L'indexation par compte n'est pas une commodité : rangée par serveur seul,
  * la clé d'un compte était réimportée pour le suivant. Voir `storageKeys.ts`.
  */
-export async function enregistrerClePriveeE2E(
+export async function saveE2EPrivateKey(
   baseUrl: string,
   utilisateurId: string,
   jwkJson: string,
 ): Promise<void> {
-  await SecureStore.setItemAsync(await cleE2E(baseUrl, utilisateurId, hacher), jwkJson);
+  await SecureStore.setItemAsync(await e2eStorageKey(baseUrl, utilisateurId, hash), jwkJson);
 }
 
-export async function lireClePriveeE2E(
+export async function readE2EPrivateKey(
   baseUrl: string,
   utilisateurId: string,
 ): Promise<string | null> {
-  return SecureStore.getItemAsync(await cleE2E(baseUrl, utilisateurId, hacher));
+  return SecureStore.getItemAsync(await e2eStorageKey(baseUrl, utilisateurId, hash));
 }
 
-export async function effacerClePriveeE2E(
+export async function clearE2EPrivateKey(
   baseUrl: string,
   utilisateurId: string,
 ): Promise<void> {
-  await SecureStore.deleteItemAsync(await cleE2E(baseUrl, utilisateurId, hacher));
+  await SecureStore.deleteItemAsync(await e2eStorageKey(baseUrl, utilisateurId, hash));
 }
 
 /**
@@ -124,8 +124,8 @@ export async function effacerClePriveeE2E(
  * se déconnecte jamais est le cas courant, et c'est justement lui qui garde
  * l'orpheline.
  */
-export async function purgerCleE2EHeritee(baseUrl: string): Promise<void> {
-  await SecureStore.deleteItemAsync(await cleE2EHeritee(baseUrl, hacher));
+export async function purgeLegacyE2EKey(baseUrl: string): Promise<void> {
+  await SecureStore.deleteItemAsync(await legacyE2eStorageKey(baseUrl, hash));
 }
 
 /**
@@ -142,9 +142,9 @@ export async function purgerCleE2EHeritee(baseUrl: string): Promise<void> {
  * d'avant. Joué une fois par démarrage : quelques suppressions d'entrées
  * absentes, ce que `deleteItemAsync` traite sans erreur.
  */
-export async function purgerToutesClesE2EHeritees(): Promise<void> {
-  for (const url of await listerServeursConnus()) {
-    await purgerCleE2EHeritee(url);
+export async function purgeAllLegacyE2EKeys(): Promise<void> {
+  for (const url of await listKnownServers()) {
+    await purgeLegacyE2EKey(url);
   }
 }
 
@@ -155,11 +155,11 @@ export async function purgerToutesClesE2EHeritees(): Promise<void> {
  */
 const CLE_DERNIER_SERVEUR = 'dernier-serveur';
 
-export async function enregistrerDernierServeur(baseUrl: string): Promise<void> {
-  await SecureStore.setItemAsync(CLE_DERNIER_SERVEUR, sansSlashFinal(baseUrl));
+export async function saveLastServer(baseUrl: string): Promise<void> {
+  await SecureStore.setItemAsync(CLE_DERNIER_SERVEUR, withoutTrailingSlash(baseUrl));
 }
 
-export async function lireDernierServeur(): Promise<string | null> {
+export async function readLastServer(): Promise<string | null> {
   return SecureStore.getItemAsync(CLE_DERNIER_SERVEUR);
 }
 
@@ -170,7 +170,7 @@ export async function lireDernierServeur(): Promise<string | null> {
  */
 const CLE_SERVEURS_CONNUS = 'serveurs-connus';
 
-export async function listerServeursConnus(): Promise<string[]> {
+export async function listKnownServers(): Promise<string[]> {
   const brut = await SecureStore.getItemAsync(CLE_SERVEURS_CONNUS);
   if (brut === null) return [];
   try {
@@ -181,9 +181,9 @@ export async function listerServeursConnus(): Promise<string[]> {
   }
 }
 
-export async function enregistrerServeurConnu(baseUrl: string): Promise<void> {
-  const propre = sansSlashFinal(baseUrl);
-  const liste = await listerServeursConnus();
+export async function saveKnownServer(baseUrl: string): Promise<void> {
+  const propre = withoutTrailingSlash(baseUrl);
+  const liste = await listKnownServers();
   if (liste.includes(propre)) return;
   await SecureStore.setItemAsync(CLE_SERVEURS_CONNUS, JSON.stringify([...liste, propre]));
 }
@@ -201,11 +201,11 @@ export async function enregistrerServeurConnu(baseUrl: string): Promise<void> {
  */
 const CLE_JETON_PUSH = 'jeton-push-appareil';
 
-export async function retenirJetonPush(jeton: string): Promise<void> {
+export async function rememberPushToken(jeton: string): Promise<void> {
   await SecureStore.setItemAsync(CLE_JETON_PUSH, jeton);
 }
 
-export function lireJetonPushRetenu(): Promise<string | null> {
+export function readRememberedPushToken(): Promise<string | null> {
   return SecureStore.getItemAsync(CLE_JETON_PUSH);
 }
 
@@ -224,7 +224,7 @@ export function lireJetonPushRetenu(): Promise<string | null> {
  */
 const CLE_DECONNEXIONS = 'deconnexions-en-suspens';
 
-export async function listerDeconnexionsEnSuspens(): Promise<DeconnexionEnSuspens[]> {
+export async function listPendingLogouts(): Promise<PendingLogout[]> {
   const brut = await SecureStore.getItemAsync(CLE_DECONNEXIONS);
   if (brut === null) return [];
   try {
@@ -233,25 +233,25 @@ export async function listerDeconnexionsEnSuspens(): Promise<DeconnexionEnSuspen
     // Parse défensif, comme `lireSession` : une entrée d'une ancienne version
     // ou tronquée ne doit pas faire échouer tout le démarrage.
     return liste.filter(
-      (d): d is DeconnexionEnSuspens =>
-        typeof (d as DeconnexionEnSuspens)?.baseUrl === 'string' &&
-        typeof (d as DeconnexionEnSuspens)?.authToken === 'string' &&
-        typeof (d as DeconnexionEnSuspens)?.userId === 'string',
+      (d): d is PendingLogout =>
+        typeof (d as PendingLogout)?.baseUrl === 'string' &&
+        typeof (d as PendingLogout)?.authToken === 'string' &&
+        typeof (d as PendingLogout)?.userId === 'string',
     );
   } catch {
     return [];
   }
 }
 
-export async function ajouterDeconnexionEnSuspens(entree: DeconnexionEnSuspens): Promise<void> {
-  const propre = { ...entree, baseUrl: sansSlashFinal(entree.baseUrl) };
-  const autres = (await listerDeconnexionsEnSuspens()).filter((d) => d.baseUrl !== propre.baseUrl);
+export async function addPendingLogout(entree: PendingLogout): Promise<void> {
+  const propre = { ...entree, baseUrl: withoutTrailingSlash(entree.baseUrl) };
+  const autres = (await listPendingLogouts()).filter((d) => d.baseUrl !== propre.baseUrl);
   await SecureStore.setItemAsync(CLE_DECONNEXIONS, JSON.stringify([...autres, propre]));
 }
 
-export async function retirerDeconnexionEnSuspens(baseUrl: string): Promise<void> {
-  const propre = sansSlashFinal(baseUrl);
-  const restantes = (await listerDeconnexionsEnSuspens()).filter((d) => d.baseUrl !== propre);
+export async function removePendingLogout(baseUrl: string): Promise<void> {
+  const propre = withoutTrailingSlash(baseUrl);
+  const restantes = (await listPendingLogouts()).filter((d) => d.baseUrl !== propre);
   if (restantes.length === 0) {
     await SecureStore.deleteItemAsync(CLE_DECONNEXIONS);
     return;

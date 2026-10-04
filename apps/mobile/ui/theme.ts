@@ -23,61 +23,61 @@
 import { Platform } from 'react-native';
 
 /** Un dégradé linéaire : au moins deux arrêts de couleur. */
-export type Degrade = readonly [string, string, ...string[]];
+export type Gradient = readonly [string, string, ...string[]];
 
-export interface Couleurs {
+export interface Colors {
   /** Fond d'écran plein. */
-  fond: string;
+  background: string;
   /** Surface d'un champ, d'une bulle, d'une pilule. */
-  carte: string;
+  card: string;
   /** Panneau plus profond (feuille d'actions, encart « serveurs connus »). */
-  carteProfonde: string;
+  deepCard: string;
   /** Surface légèrement rehaussée (cercle de réaction, pastille active). */
   surfaceActive: string;
   /** Fond d'un encart d'erreur. */
-  carteErreur: string;
+  errorCard: string;
 
   /** Contour d'un champ, d'une pilule. */
-  bordure: string;
+  border: string;
   /** Séparateur discret entre deux lignes. */
-  bordureDouce: string;
+  softBorder: string;
 
   /** Texte principal. */
-  texte: string;
+  text: string;
   /** Corps d'un message (un cran sous `texte`). */
-  texteMessage: string;
+  messageText: string;
   /** Texte secondaire encore lisible (nom de salon non mis en avant). */
-  texteSecondaire: string;
+  secondaryText: string;
   /** Texte atténué : étiquettes, aperçus. */
-  attenue: string;
+  dimmed: string;
   /** Texte tertiaire : horodatage, indice, placeholder. */
-  texteTertiaire: string;
+  tertiaryText: string;
   /** Texte d'erreur. */
-  texteErreur: string;
+  errorText: string;
 
   /** Accent primaire (rose). */
   accent: string;
   /** Ondulation Android au toucher. */
-  ondulation: string;
+  ripple: string;
   /** Texte/icône POSÉ sur un aplat ou un dégradé d'accent. */
-  surAccent: string;
+  onAccent: string;
 
   /** Accents secondaires de l'arc-en-ciel. */
-  violet: string;
+  purple: string;
   cyan: string;
-  bleu: string;
-  jaune: string;
+  blue: string;
+  yellow: string;
   /**
    * Texte POSÉ sur un aplat JAUNE — toujours sombre, dans les deux thèmes.
    * Surtout pas `surAccent` : il est blanc en clair, et blanc sur jaune tombe
    * à 1,9:1 de contraste. Le compteur de non-lus y était illisible.
    */
-  surJaune: string;
+  onYellow: string;
 
   /** Pastilles de présence. */
-  enLigne: string;
+  online: string;
   absent: string;
-  horsLigne: string;
+  offline: string;
 
   /** Action destructive (supprimer). */
   danger: string;
@@ -86,75 +86,75 @@ export interface Couleurs {
    * Fond d'un média plein écran (visionneuse, vidéo). Une photo se regarde sur
    * du noir, thème clair compris : identique dans les deux jeux.
    */
-  fondPleinEcran: string;
+  fullScreenBackground: string;
   /** Voile couvrant posé SUR un média, sous une icône claire (lecteur vidéo). */
-  voileMedia: string;
+  mediaScrim: string;
   /** Voile léger qui laisse transparaître la vignette (embed vidéo). */
-  voileMediaLeger: string;
+  lightMediaScrim: string;
   /** Fond d'attente sous une image en cours de chargement (cartes lien/embed). */
-  fondImageAttente: string;
+  pendingImageBackground: string;
   /** Initiale posée sur le dégradé (saturé) d'une tuile avatar. */
-  surDegradeAvatar: string;
+  onAvatarGradient: string;
   /** Ombre portée d'un élément flottant (pastille de saisie). */
-  ombrePortee: string;
+  dropShadow: string;
 
   /** Dégradé des boutons d'action principale. */
-  degradeCta: Degrade;
+  ctaGradient: Gradient;
   /** Dégradé du logotype « rocket-vibe ». */
-  degradeMarque: Degrade;
+  brandGradient: Gradient;
   /** Palette de dégradés pour les tuiles d'avatar, choisie par le nom. */
-  avatarsDegrades: readonly Degrade[];
+  avatarGradients: readonly Gradient[];
   /** Dégradé neutre (salon chiffré, avatar système). */
-  degradeNeutre: Degrade;
+  neutralGradient: Gradient;
 }
 
-export const couleursSombres: Couleurs = {
-  fond: '#0C0B16',
-  carte: '#171529',
-  carteProfonde: '#141227',
+export const darkColors: Colors = {
+  background: '#0C0B16',
+  card: '#171529',
+  deepCard: '#141227',
   surfaceActive: '#1E1B33',
-  carteErreur: '#2A1420',
+  errorCard: '#2A1420',
 
-  bordure: '#2C2946',
-  bordureDouce: '#1E1B33',
+  border: '#2C2946',
+  softBorder: '#1E1B33',
 
-  texte: '#F3F0FF',
-  texteMessage: '#E7E3F5',
-  texteSecondaire: '#C9C3E0',
-  attenue: '#8F89AB',
-  texteTertiaire: '#6E6890',
-  texteErreur: '#FF7A8A',
+  text: '#F3F0FF',
+  messageText: '#E7E3F5',
+  secondaryText: '#C9C3E0',
+  dimmed: '#8F89AB',
+  tertiaryText: '#6E6890',
+  errorText: '#FF7A8A',
 
   accent: '#FF5FA2',
   // Translucide (25 %) : la RippleDrawable dessine la couleur telle quelle —
   // opaque, la vague est un flash dur qui écrase le contenu qu'elle recouvre.
-  ondulation: '#E14B9640',
-  surAccent: '#0B0913',
+  ripple: '#E14B9640',
+  onAccent: '#0B0913',
 
-  violet: '#A78BFA',
+  purple: '#A78BFA',
   cyan: '#34E1D0',
-  bleu: '#5CC8FF',
-  jaune: '#FFD34E',
-  surJaune: '#0B0913',
+  blue: '#5CC8FF',
+  yellow: '#FFD34E',
+  onYellow: '#0B0913',
 
-  enLigne: '#3ED67F',
+  online: '#3ED67F',
   absent: '#FFC24B',
-  horsLigne: '#5A5573',
+  offline: '#5A5573',
 
   danger: '#FF7A8A',
 
-  fondPleinEcran: 'rgba(4,3,10,0.94)',
-  voileMedia: 'rgba(12,11,22,0.80)',
-  voileMediaLeger: 'rgba(12,11,22,0.42)',
-  fondImageAttente: '#00000020',
-  surDegradeAvatar: '#FFFFFF',
-  ombrePortee: 'rgba(0,0,0,0.55)',
+  fullScreenBackground: 'rgba(4,3,10,0.94)',
+  mediaScrim: 'rgba(12,11,22,0.80)',
+  lightMediaScrim: 'rgba(12,11,22,0.42)',
+  pendingImageBackground: '#00000020',
+  onAvatarGradient: '#FFFFFF',
+  dropShadow: 'rgba(0,0,0,0.55)',
 
-  degradeCta: ['#FF5FA2', '#A78BFA'],
-  degradeMarque: ['#FF5FA2', '#A78BFA', '#34E1D0'],
+  ctaGradient: ['#FF5FA2', '#A78BFA'],
+  brandGradient: ['#FF5FA2', '#A78BFA', '#34E1D0'],
   // Sept teintes aux ENSEMBLES de couleurs distincts (aucune n'est l'inverse
   // d'une autre) : deux avatars voisins ne se confondent pas.
-  avatarsDegrades: [
+  avatarGradients: [
     ['#FF5FA2', '#A78BFA'],
     ['#A78BFA', '#5CC8FF'],
     ['#5CC8FF', '#34E1D0'],
@@ -163,55 +163,55 @@ export const couleursSombres: Couleurs = {
     ['#34E1D0', '#A78BFA'],
     ['#FFD34E', '#FF5FA2'],
   ],
-  degradeNeutre: ['#8F89AB', '#5A5573'],
+  neutralGradient: ['#8F89AB', '#5A5573'],
 };
 
-export const couleursClaires: Couleurs = {
-  fond: '#FBF7FF',
-  carte: '#FFFFFF',
-  carteProfonde: '#F5EFFC',
+export const lightColors: Colors = {
+  background: '#FBF7FF',
+  card: '#FFFFFF',
+  deepCard: '#F5EFFC',
   surfaceActive: '#F5EFFC',
-  carteErreur: '#FDE7EF',
+  errorCard: '#FDE7EF',
 
-  bordure: '#E7DCF5',
-  bordureDouce: '#F1EBFA',
+  border: '#E7DCF5',
+  softBorder: '#F1EBFA',
 
-  texte: '#2A2140',
-  texteMessage: '#2A2140',
-  texteSecondaire: '#4A4066',
-  attenue: '#8A7FA6',
-  texteTertiaire: '#A99EC0',
-  texteErreur: '#D6335A',
+  text: '#2A2140',
+  messageText: '#2A2140',
+  secondaryText: '#4A4066',
+  dimmed: '#8A7FA6',
+  tertiaryText: '#A99EC0',
+  errorText: '#D6335A',
 
   accent: '#E14B96',
   // Même logique qu'en sombre : translucide, sinon flash opaque.
-  ondulation: '#C0398A38',
-  surAccent: '#FFFFFF',
+  ripple: '#C0398A38',
+  onAccent: '#FFFFFF',
 
-  violet: '#7C5CE0',
+  purple: '#7C5CE0',
   cyan: '#10AE9F',
-  bleu: '#3AA0E8',
-  jaune: '#F2B300',
-  surJaune: '#2A2140',
+  blue: '#3AA0E8',
+  yellow: '#F2B300',
+  onYellow: '#2A2140',
 
-  enLigne: '#17B06B',
+  online: '#17B06B',
   absent: '#E0952A',
-  horsLigne: '#C4B7DA',
+  offline: '#C4B7DA',
 
   danger: '#D6335A',
 
   // Posés sur un média (pas sur le fond du thème) : mêmes valeurs qu'en sombre.
-  fondPleinEcran: 'rgba(4,3,10,0.94)',
-  voileMedia: 'rgba(12,11,22,0.80)',
-  voileMediaLeger: 'rgba(12,11,22,0.42)',
-  fondImageAttente: '#00000020',
-  surDegradeAvatar: '#FFFFFF',
+  fullScreenBackground: 'rgba(4,3,10,0.94)',
+  mediaScrim: 'rgba(12,11,22,0.80)',
+  lightMediaScrim: 'rgba(12,11,22,0.42)',
+  pendingImageBackground: '#00000020',
+  onAvatarGradient: '#FFFFFF',
   // Une ombre à 55 % sur fond clair serait un pochoir : adoucie.
-  ombrePortee: 'rgba(0,0,0,0.25)',
+  dropShadow: 'rgba(0,0,0,0.25)',
 
-  degradeCta: ['#E14B96', '#7C5CE0'],
-  degradeMarque: ['#E14B96', '#7C5CE0', '#10AE9F'],
-  avatarsDegrades: [
+  ctaGradient: ['#E14B96', '#7C5CE0'],
+  brandGradient: ['#E14B96', '#7C5CE0', '#10AE9F'],
+  avatarGradients: [
     ['#E14B96', '#7C5CE0'],
     ['#7C5CE0', '#3AA0E8'],
     ['#3AA0E8', '#10AE9F'],
@@ -220,7 +220,7 @@ export const couleursClaires: Couleurs = {
     ['#10AE9F', '#7C5CE0'],
     ['#E8A600', '#E14B96'],
   ],
-  degradeNeutre: ['#C4B7DA', '#A99EC0'],
+  neutralGradient: ['#C4B7DA', '#A99EC0'],
 };
 
 /**
@@ -238,11 +238,11 @@ export const couleursClaires: Couleurs = {
 const police = (fichier: string, postScript: string): string =>
   Platform.OS === 'ios' ? postScript : fichier;
 
-export const POLICES = {
+export const FONTS = {
   titreSemi: police('Baloo2_600SemiBold', 'Baloo2-SemiBold'),
-  titre: police('Baloo2_700Bold', 'Baloo2-Bold'),
+  title: police('Baloo2_700Bold', 'Baloo2-Bold'),
   titreFort: police('Baloo2_800ExtraBold', 'Baloo2-ExtraBold'),
-  corps: police('Nunito_400Regular', 'Nunito-Regular'),
+  body: police('Nunito_400Regular', 'Nunito-Regular'),
   corpsSemi: police('Nunito_600SemiBold', 'Nunito-SemiBold'),
   corpsGras: police('Nunito_700Bold', 'Nunito-Bold'),
   corpsFort: police('Nunito_800ExtraBold', 'Nunito-ExtraBold'),
@@ -259,7 +259,7 @@ export const POLICES = {
  * 120 ms : au-delà du seuil de détection du scroll, en-deçà du perceptible sur
  * un tap franc. Ne PAS mettre sur les gros CTA hors liste, ça les rendrait mous.
  */
-export const DELAI_PRESSION_LISTE = 120;
+export const LIST_PRESS_DELAY = 120;
 
 /**
  * Largeur disponible pour le corps d'un message : écran − marges de liste
@@ -268,7 +268,7 @@ export const DELAI_PRESSION_LISTE = 120;
  * aperçus de lien (`ui/linkCard.tsx`), qui doivent s'aligner — le calcul
  * était recopié dans les deux.
  */
-export function largeurDispoCorps(largeurEcran: number): number {
+export function availableBodyWidth(largeurEcran: number): number {
   return Math.min(largeurEcran - 92, 380);
 }
 
@@ -277,7 +277,7 @@ export function largeurDispoCorps(largeurEcran: number): number {
  * garde sa cutie-mark d'un écran à l'autre. Somme des points de code modulo la
  * taille de la palette — déterministe, sans dépendance.
  */
-export function degradeAvatar(cle: string, palette: readonly Degrade[]): Degrade {
+export function avatarGradient(cle: string, palette: readonly Gradient[]): Gradient {
   // Hash polynomial (×31), sensible à l'ORDRE : deux anagrammes (« bob » / « obb »)
   // ne tombent plus sur la même teinte. `| 0` borne à 32 bits signés.
   let h = 0;
@@ -289,6 +289,6 @@ export function degradeAvatar(cle: string, palette: readonly Degrade[]): Degrade
  * Palette active. Forcée en SOMBRE le temps de l'import du design (dark only).
  * Rebrancher `useColorScheme()` ici quand le thème « jour » (2b) sera livré.
  */
-export function useCouleurs(): Couleurs {
-  return couleursSombres;
+export function useColors(): Colors {
+  return darkColors;
 }

@@ -7,65 +7,65 @@
  */
 
 import type { Session } from '../../lib/auth.ts';
-import { EVENEMENT_MESSAGE_PRIVE, messagePrive } from '../../lib/commands.ts';
+import { PRIVATE_MESSAGE_EVENT, privateMessage } from '../../lib/commands.ts';
 import { ClientDdp } from '../../lib/ddp.ts';
-import { MoteurEnvoi } from '../../lib/outbox.ts';
-import { MoteurTeleversement } from '../../lib/uploadQueue.ts';
+import { OutboxEngine } from '../../lib/outbox.ts';
+import { UploadEngine } from '../../lib/uploadQueue.ts';
 import {
-  CAPACITES_ROCKETCHAT,
-  type Fournisseur,
-  type Ingerer,
+  ROCKETCHAT_CAPABILITIES,
+  type Provider,
+  type Ingest,
   type Outbox,
-  type OutboxFichiers,
+  type FileOutbox,
 } from '../../lib/provider.ts';
-import { EVENEMENT_PRESENCE, STREAM_NOTIFY_LOGGED } from '../../lib/presence.ts';
-import { rattraperGlobal, rattraperSalon, reconcilierSalons } from '../../lib/catchUp.ts';
+import { PRESENCE_EVENT, STREAM_NOTIFY_LOGGED } from '../../lib/presence.ts';
+import { catchUpGlobal, catchUpRoom, reconcileRooms } from '../../lib/catchUp.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { STREAM_MESSAGES, STREAM_NOTIFY_ROOM, STREAM_NOTIFY_USER } from '../../lib/sync.ts';
-import type { ChiffreurEnvoi, DepotEnvoi } from '../../lib/outbox.ts';
-import type { ChiffrementTeleversement, DepotTeleversements } from '../../lib/uploadQueue.ts';
+import type { OutboxEncryptor, OutboxStore } from '../../lib/outbox.ts';
+import type { UploadEncryption, UploadStore } from '../../lib/uploadQueue.ts';
 import type { TransportUpload } from '../../lib/upload.ts';
 import { ActionsRC } from './actions.ts';
-import { chargerFil, chargerHistorique } from './history.ts';
-import { EVENEMENT_AVATAR, TraducteurRC } from './translator.ts';
+import { loadThread, loadHistory } from './history.ts';
+import { AVATAR_EVENT, RcTranslator } from './translator.ts';
 
 function urlWebSocket(baseUrl: string): string {
   return `${baseUrl.replace(/^http/i, 'ws')}/websocket`;
 }
 
-export function creerFournisseurRC(
+export function createRcProvider(
   session: Session,
   client: ClientRest,
   genererId: () => string,
-): Fournisseur {
+): Provider {
   const listener = new ClientDdp(urlWebSocket(session.baseUrl));
-  const traducteur = new TraducteurRC(session.username, session.userId);
+  const traducteur = new RcTranslator(session.username, session.userId);
   const actions = new ActionsRC(client);
 
   return {
-    capacites: CAPACITES_ROCKETCHAT,
+    capabilities: ROCKETCHAT_CAPABILITIES,
     listener,
-    traducteur,
+    translator: traducteur,
     actions,
-    souscriptionsInitiales(): readonly (readonly [string, string])[] {
+    initialSubscriptions(): readonly (readonly [string, string])[] {
       return [
         [STREAM_NOTIFY_USER, `${session.userId}/subscriptions-changed`],
         [STREAM_NOTIFY_USER, `${session.userId}/rooms-changed`],
         // La réponse d'une commande slash (`lib/commands.ts`).
-        [STREAM_NOTIFY_USER, `${session.userId}/${EVENEMENT_MESSAGE_PRIVE}`],
-        [STREAM_NOTIFY_LOGGED, EVENEMENT_PRESENCE],
+        [STREAM_NOTIFY_USER, `${session.userId}/${PRIVATE_MESSAGE_EVENT}`],
+        [STREAM_NOTIFY_LOGGED, PRESENCE_EVENT],
         // Photos de profil et de salon : le serveur diffuse la nouvelle version
         // (`etag`) à TOUS les connectés. Sans cet abonnement, un avatar changé
         // reste figé jusqu'au prochain `me`/`users.info` — voir `urlAvatar`.
-        [STREAM_NOTIFY_LOGGED, EVENEMENT_AVATAR],
+        [STREAM_NOTIFY_LOGGED, AVATAR_EVENT],
       ];
     },
-    notePrivee(evenement) {
-      const cle = `${session.userId}/${EVENEMENT_MESSAGE_PRIVE}`;
-      if (evenement.collection !== STREAM_NOTIFY_USER || evenement.cleEvenement !== cle) return null;
-      return messagePrive(evenement.args);
+    privateNote(evenement) {
+      const cle = `${session.userId}/${PRIVATE_MESSAGE_EVENT}`;
+      if (evenement.collection !== STREAM_NOTIFY_USER || evenement.eventKey !== cle) return null;
+      return privateMessage(evenement.args);
     },
-    souscriptionsSalon(rid: string): readonly (readonly [string, string])[] {
+    roomSubscriptions(rid: string): readonly (readonly [string, string])[] {
       // Le format « rid » / « rid/sujet » est CELUI de Rocket.Chat : fabriqué
       // ici, parsé par `sujetDe` dans le traducteur — nulle part ailleurs.
       return [
@@ -74,43 +74,43 @@ export function creerFournisseurRC(
         [STREAM_NOTIFY_ROOM, `${rid}/user-activity`],
       ];
     },
-    chargerHistorique: (moteur, rid, type, latest) =>
-      chargerHistorique(client, moteur, rid, type, latest),
-    chargerFil: (moteur, filId, estAbandonne) => chargerFil(client, moteur, filId, estAbandonne),
-    creerEnvoi(depot: DepotEnvoi, ingerer: Ingerer, chiffreur?: ChiffreurEnvoi): Outbox {
-      return new MoteurEnvoi({
-        depot,
+    loadHistory: (moteur, rid, type, latest) =>
+      loadHistory(client, moteur, rid, type, latest),
+    loadThread: (moteur, filId, estAbandonne) => loadThread(client, moteur, filId, estAbandonne),
+    createOutbox(depot: OutboxStore, ingerer: Ingest, chiffreur?: OutboxEncryptor): Outbox {
+      return new OutboxEngine({
+        store: depot,
         client,
-        moi: { id: session.userId, username: session.username },
-        genererId,
-        ingerer,
-        chiffreur,
+        me: { id: session.userId, username: session.username },
+        generateId: genererId,
+        ingest: ingerer,
+        encryptor: chiffreur,
       });
     },
-    creerTeleversement(
-      depot: DepotTeleversements,
+    createUploadQueue(
+      depot: UploadStore,
       transport: TransportUpload,
-      ingerer: Ingerer,
+      ingerer: Ingest,
       crochets?: {
-        supprimerFichierLocal?: (uri: string) => Promise<void>;
-        rafraichirSalon?: (rid: string) => Promise<void>;
-        chiffrement?: ChiffrementTeleversement;
+        deleteLocalFile?: (uri: string) => Promise<void>;
+        refreshRoom?: (rid: string) => Promise<void>;
+        encryption?: UploadEncryption;
       },
-    ): OutboxFichiers {
-      return new MoteurTeleversement({
-        depot,
+    ): FileOutbox {
+      return new UploadEngine({
+        store: depot,
         client,
         transport,
-        genererId,
-        ingerer,
-        supprimerFichierLocal: crochets?.supprimerFichierLocal,
-        rafraichirSalon: crochets?.rafraichirSalon,
-        chiffrement: crochets?.chiffrement,
+        generateId: genererId,
+        ingest: ingerer,
+        deleteLocalFile: crochets?.deleteLocalFile,
+        refreshRoom: crochets?.refreshRoom,
+        encryption: crochets?.encryption,
       });
     },
-    rattraperGlobal: (moteur, estAbandonne) => rattraperGlobal(client, moteur, estAbandonne),
-    rattraperSalon: (moteur, rid, estAbandonne) =>
-      rattraperSalon(client, moteur, rid, estAbandonne),
-    reconcilier: (moteur, estAbandonne) => reconcilierSalons(client, moteur, estAbandonne),
+    catchUpGlobal: (moteur, estAbandonne) => catchUpGlobal(client, moteur, estAbandonne),
+    catchUpRoom: (moteur, rid, estAbandonne) =>
+      catchUpRoom(client, moteur, rid, estAbandonne),
+    reconcile: (moteur, estAbandonne) => reconcileRooms(client, moteur, estAbandonne),
   };
 }

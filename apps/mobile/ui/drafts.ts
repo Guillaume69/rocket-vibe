@@ -11,8 +11,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { creerBrouillonDifferre } from './deferredDraft.ts';
-import type { DepotBrouillons } from '../db/store.ts';
+import { createDeferredDraft } from './deferredDraft.ts';
+import type { DraftStore } from '../db/store.ts';
 
 /**
  * `cle: null` = pas encore déterminable (fil dont le rid n'est pas arrivé) :
@@ -23,26 +23,26 @@ import type { DepotBrouillons } from '../db/store.ts';
  * de la connexion, sans quoi le débounce qui tombe pendant un lot de synchro
  * entre dans SA transaction et disparaît avec elle si le lot échoue.
  */
-export function useBrouillon(depot: DepotBrouillons, cle: string | null) {
-  const [etat, setEtat] = useState<{ cle: string | null; initial: string | null }>({
-    cle,
+export function useDraft(depot: DraftStore, cle: string | null) {
+  const [etat, setEtat] = useState<{ key: string | null; initial: string | null }>({
+    key: cle,
     initial: null,
   });
   // Changement de clé PENDANT le rendu (motif React sanctionné, plutôt qu'un
   // setState dans l'effet) : l'initial de l'ancienne clé ne doit pas fuir
   // vers la nouvelle.
-  if (etat.cle !== cle) setEtat({ cle, initial: null });
+  if (etat.key !== cle) setEtat({ key: cle, initial: null });
 
   useEffect(() => {
     if (cle === null) return;
     let annule = false;
     depot
-      .lire(cle)
+      .read(cle)
       .then((texte) => {
-        if (!annule) setEtat({ cle, initial: texte ?? '' });
+        if (!annule) setEtat({ key: cle, initial: texte ?? '' });
       })
       .catch(() => {
-        if (!annule) setEtat({ cle, initial: '' });
+        if (!annule) setEtat({ key: cle, initial: '' });
       });
     return () => {
       annule = true;
@@ -63,9 +63,9 @@ export function useBrouillon(depot: DepotBrouillons, cle: string | null) {
         () => {},
       );
     };
-    return creerBrouillonDifferre({
-      ecrire: (texte) => avaler(depot.ecrire(cle, texte)),
-      supprimer: () => avaler(depot.supprimer(cle)),
+    return createDeferredDraft({
+      write: (texte) => avaler(depot.write(cle, texte)),
+      delete: () => avaler(depot.delete(cle)),
     });
   }, [depot, cle]);
 
@@ -75,11 +75,11 @@ export function useBrouillon(depot: DepotBrouillons, cle: string | null) {
   useEffect(() => () => differe?.flusher(), [differe]);
 
   /** À appeler à chaque frappe : l'écriture part après une pause de 400 ms. */
-  const sauver = useCallback((texte: string) => differe?.sauver(texte), [differe]);
+  const sauver = useCallback((texte: string) => differe?.save(texte), [differe]);
 
   /** À l'envoi : le brouillon n'a plus lieu d'être, débounce compris. */
-  const effacer = useCallback(() => differe?.effacer(), [differe]);
+  const effacer = useCallback(() => differe?.clear(), [differe]);
 
-  const initial = etat.cle === cle ? etat.initial : null;
+  const initial = etat.key === cle ? etat.initial : null;
   return useMemo(() => ({ initial, sauver, effacer }), [initial, sauver, effacer]);
 }

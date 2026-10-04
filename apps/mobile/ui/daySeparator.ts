@@ -14,10 +14,10 @@
  * jour est plus structurel que l'état de lecture.
  */
 
-export type LigneJour = { jour: true; id: string; horodatage: number };
+export type DayRow = { day: true; id: string; ts: number };
 
 /** Jour calendaire LOCAL (fuseau de l'appareil), comparable et triable. */
-export function cleJour(ms: number): number {
+export function dayKey(ms: number): number {
   const d = new Date(ms);
   return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
 }
@@ -28,22 +28,22 @@ export function cleJour(ms: number): number {
  * frontière de jour, la MÊME référence est rendue : le useMemo de l'écran ne
  * re-rend pas pour rien.
  */
-export function insererSeparateursJour<L extends { id: string }>(
+export function insertDaySeparators<L extends { id: string }>(
   lignes: L[],
   ordre: 'recent-en-tete' | 'ancien-en-tete',
-): (L | LigneJour)[] {
-  const resultat: (L | LigneJour)[] = [];
-  let precedent: { horodatage: number } | null = null;
+): (L | DayRow)[] {
+  const resultat: (L | DayRow)[] = [];
+  let precedent: { ts: number } | null = null;
   for (const ligne of lignes) {
     if (estMessage(ligne)) {
-      if (precedent !== null && cleJour(ligne.horodatage) !== cleJour(precedent.horodatage)) {
+      if (precedent !== null && dayKey(ligne.ts) !== dayKey(precedent.ts)) {
         // Le séparateur titre le jour du message le plus RÉCENT de la
         // frontière : celui déjà poussé en DESC, celui qui arrive en ASC.
         const recent = ordre === 'recent-en-tete' ? precedent : ligne;
         resultat.push({
-          jour: true,
-          id: `jour-${cleJour(recent.horodatage)}`,
-          horodatage: recent.horodatage,
+          day: true,
+          id: `jour-${dayKey(recent.ts)}`,
+          ts: recent.ts,
         });
       }
       precedent = ligne;
@@ -54,6 +54,6 @@ export function insererSeparateursJour<L extends { id: string }>(
 }
 
 /** Un message, par opposition aux lignes déjà insérées (barre de non-lus). */
-function estMessage<L extends { id: string }>(l: L): l is L & { horodatage: number } {
-  return typeof (l as { horodatage?: unknown }).horodatage === 'number';
+function estMessage<L extends { id: string }>(l: L): l is L & { ts: number } {
+  return typeof (l as { ts?: unknown }).ts === 'number';
 }

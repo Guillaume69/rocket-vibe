@@ -5,10 +5,10 @@
 
 import { useCallback, useSyncExternalStore } from 'react';
 
-import type { StatutPresence } from '../lib/presence.ts';
-import type { CleTraduction } from './messages.ts';
-import { useSynchro } from './sync.tsx';
-import type { Couleurs } from './theme.ts';
+import type { PresenceStatus } from '../lib/presence.ts';
+import type { TranslationKey } from './messages.ts';
+import { useSync } from './sync.tsx';
+import type { Colors } from './theme.ts';
 
 const RIEN = () => {};
 
@@ -17,8 +17,8 @@ const RIEN = () => {};
  * statut → couleur de l'app (l'audit en avait relevé trois, avec trois teintes
  * différentes pour le même statut).
  */
-export function couleursPresence(c: Couleurs): Record<StatutPresence, string> {
-  return { online: c.enLigne, away: c.absent, busy: c.danger, offline: c.horsLigne };
+export function presenceColors(c: Colors): Record<PresenceStatus, string> {
+  return { online: c.online, away: c.absent, busy: c.danger, offline: c.offline };
 }
 
 /**
@@ -26,7 +26,7 @@ export function couleursPresence(c: Couleurs): Record<StatutPresence, string> {
  * minuscule : la casse d'un contexte (« En ligne » d'un sélecteur) est à
  * l'appelant.
  */
-export const CLES_PRESENCE: Record<StatutPresence, CleTraduction> = {
+export const PRESENCE_KEYS: Record<PresenceStatus, TranslationKey> = {
   online: 'commun.presenceEnLigne',
   away: 'commun.presenceAbsent',
   busy: 'commun.presenceOccupe',
@@ -38,8 +38,8 @@ export const CLES_PRESENCE: Record<StatutPresence, CleTraduction> = {
  * RIEN (dégradation : au-delà d'~200 connexions le serveur cesse de
  * diffuser, et l'UI ne doit jamais en dépendre).
  */
-export function usePresence(uid: string | null): StatutPresence | null {
-  const synchro = useSynchro();
+export function usePresence(uid: string | null): PresenceStatus | null {
+  const synchro = useSync();
   const presence = synchro.phase === 'pret' ? synchro.presence : null;
 
   // Identités STABLES : un `subscribe` recréé à chaque rendu ferait
@@ -48,11 +48,11 @@ export function usePresence(uid: string | null): StatutPresence | null {
   // de présence réveillerait toutes les lignes visibles.
   const abonner = useCallback(
     (relire: () => void) =>
-      presence === null || uid === null ? RIEN : presence.surChangement(relire),
+      presence === null || uid === null ? RIEN : presence.onChange(relire),
     [presence, uid],
   );
   const lire = useCallback(
-    () => (uid === null || presence === null ? null : presence.statutDe(uid)),
+    () => (uid === null || presence === null ? null : presence.statusOf(uid)),
     [presence, uid],
   );
   return useSyncExternalStore(abonner, lire);

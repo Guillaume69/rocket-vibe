@@ -60,7 +60,7 @@ declare const jwk: {
  * Jamais appelée — seul son TYPAGE compte. Chaque bloc est la copie conforme
  * d'un appel de `crypto.ts`, dans l'ordre du fichier.
  */
-export function surfaceEmployeeParCryptoTs(): void {
+export function surfaceUsedByCryptoTs(): void {
   // `Buffer.from` / `Buffer.concat` (base64VersOctets, dechiffrerGcm…).
   const b64 = moduleBuffer.Buffer.from('AA==', 'base64');
   const utf8 = moduleBuffer.Buffer.from('texte', 'utf8');

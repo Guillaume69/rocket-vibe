@@ -18,7 +18,7 @@ import { useSyncExternalStore } from 'react';
 let identites: ReadonlyMap<string, string> = new Map();
 const ecouteurs = new Set<() => void>();
 
-export function poserIdentites(nouvelle: ReadonlyMap<string, string>): void {
+export function setIdentities(nouvelle: ReadonlyMap<string, string>): void {
   identites = nouvelle;
   for (const e of ecouteurs) e();
 }
@@ -31,7 +31,7 @@ function sabonner(cb: () => void): () => void {
 }
 
 /** Map `uid → pseudo courant`. Re-rend l'appelant quand une identité change. */
-export function useIdentites(): ReadonlyMap<string, string> {
+export function useIdentities(): ReadonlyMap<string, string> {
   return useSyncExternalStore(sabonner, () => identites);
 }
 
@@ -41,11 +41,11 @@ export function useIdentites(): ReadonlyMap<string, string> {
  * (l'autre d'un DM, dont on n'a souvent que l'uid).
  */
 export type EtagsAvatars = {
-  parUid: ReadonlyMap<string, string>;
-  parUsername: ReadonlyMap<string, string>;
+  byUid: ReadonlyMap<string, string>;
+  byUsername: ReadonlyMap<string, string>;
 };
 
-const AUCUN_ETAG: EtagsAvatars = { parUid: new Map(), parUsername: new Map() };
+const AUCUN_ETAG: EtagsAvatars = { byUid: new Map(), byUsername: new Map() };
 let etags: EtagsAvatars = AUCUN_ETAG;
 const ecouteursEtags = new Set<() => void>();
 
@@ -60,8 +60,8 @@ function memeMap(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>)
  * chaque écriture dans `utilisateurs` — un simple message ingéré, donc — et
  * chaque notification re-rendrait tous les avatars montés à l'écran.
  */
-export function poserEtags(nouveaux: EtagsAvatars): void {
-  if (memeMap(etags.parUid, nouveaux.parUid) && memeMap(etags.parUsername, nouveaux.parUsername)) {
+export function setEtags(nouveaux: EtagsAvatars): void {
+  if (memeMap(etags.byUid, nouveaux.byUid) && memeMap(etags.byUsername, nouveaux.byUsername)) {
     return;
   }
   etags = nouveaux;
@@ -96,7 +96,7 @@ export function useEtagsAvatars(): EtagsAvatars {
  * périmé est pire qu'un pseudo périmé : l'URL d'avatar ne bouge pas, donc le
  * cache image d'Android sert l'ancienne photo, et rien ne la fait sortir.
  */
-export function oublierIdentites(): void {
-  poserIdentites(new Map());
-  poserEtags(AUCUN_ETAG);
+export function forgetIdentities(): void {
+  setIdentities(new Map());
+  setEtags(AUCUN_ETAG);
 }

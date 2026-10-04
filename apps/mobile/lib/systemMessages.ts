@@ -14,7 +14,7 @@
  * import plateforme), donc ses tests tournent sous Node avec un `t` réel.
  */
 
-import type { Traducteur } from '../ui/messages.ts';
+import type { TranslateFn } from '../ui/messages.ts';
 
 /**
  * Table type → clé de traduction. Les types dont le rendu dépend d'un paramètre
@@ -53,27 +53,27 @@ const CLES = {
   'room-allowed-reacting': 'sys.allowedReacting',
   'room-disallowed-reacting': 'sys.disallowedReacting',
   'message-deleted-notification': 'sys.messageDeleted',
-} as const satisfies Record<string, Parameters<Traducteur>[0]>;
+} as const satisfies Record<string, Parameters<TranslateFn>[0]>;
 
 /** Types dont un `msg` VIDE efface la partie « : … » — traités hors table. */
 const AVEC_CAS_VIDE = {
-  room_changed_topic: { retire: 'sys.topicRetire', plein: 'sys.topic' },
-  room_changed_announcement: { retire: 'sys.annonceRetire', plein: 'sys.annonce' },
-  room_changed_description: { retire: 'sys.descriptionRetire', plein: 'sys.description' },
-} as const satisfies Record<string, { retire: Parameters<Traducteur>[0]; plein: Parameters<Traducteur>[0] }>;
+  room_changed_topic: { removed: 'sys.topicRetire', full: 'sys.topic' },
+  room_changed_announcement: { removed: 'sys.annonceRetire', full: 'sys.annonce' },
+  room_changed_description: { removed: 'sys.descriptionRetire', full: 'sys.description' },
+} as const satisfies Record<string, { removed: Parameters<TranslateFn>[0]; full: Parameters<TranslateFn>[0] }>;
 
 /**
  * Phrase d'un message système, dans la langue portée par `t`. `parametre` est
  * le `msg` brut du message — vide pour les actions qui n'en ont pas.
  */
-export function texteSysteme(t: Traducteur, type: string, parametre: string | null): string {
+export function systemText(t: TranslateFn, type: string, parametre: string | null): string {
   const p = parametre ?? '';
 
   // Bienvenue : `msg` vide = accueil anonyme (« bienvenue ! »), sinon nominatif.
   if (type === 'wm') return p === '' ? t('sys.wmVide') : t('sys.wm', { p });
 
   const cas = AVEC_CAS_VIDE[type as keyof typeof AVEC_CAS_VIDE];
-  if (cas !== undefined) return p === '' ? t(cas.retire) : t(cas.plein, { p });
+  if (cas !== undefined) return p === '' ? t(cas.removed) : t(cas.full, { p });
 
   const cle = CLES[type as keyof typeof CLES];
   if (cle !== undefined) return t(cle, { p });
@@ -96,6 +96,6 @@ export function texteSysteme(t: Traducteur, type: string, parametre: string | nu
  * aujourd'hui l'appel vidéo, le seul dont le contenu vive entièrement dans
  * `blocks`.
  */
-export function apercuSysteme(t: Traducteur, type: string | null): string | null {
+export function systemPreview(t: TranslateFn, type: string | null): string | null {
   return type === 'videoconf' ? t('accueil.apercuAppel') : null;
 }

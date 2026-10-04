@@ -6,12 +6,12 @@
  */
 
 import { mentionsE2E } from '../../lib/e2e/mentions.ts';
-import type { ChiffreurEnvoi } from '../../lib/outbox.ts';
-import type { ActionsFournisseur } from '../../lib/provider.ts';
-import { versMessage, type MessageLocal } from '../../lib/normalize.ts';
+import type { OutboxEncryptor } from '../../lib/outbox.ts';
+import type { ProviderActions } from '../../lib/provider.ts';
+import { toMessage, type MessageLocal } from '../../lib/normalize.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 
-export class ActionsRC implements ActionsFournisseur {
+export class ActionsRC implements ProviderActions {
   // Champ ordinaire, pas une « parameter property » : cette dernière n'est pas
   // une syntaxe effaçable et empêcherait de charger le module sous Node (test).
   private readonly client: ClientRest;
@@ -25,9 +25,9 @@ export class ActionsRC implements ActionsFournisseur {
    * refuse l'unicode brut (« Invalid emoji provided ») et veut `:code:`.
    * `mettre` mappe sur `shouldReact` — poser ou retirer sans ambiguïté de bascule.
    */
-  async reagir(_rid: string, mid: string, emoji: string, mettre: boolean): Promise<void> {
+  async react(_rid: string, mid: string, emoji: string, mettre: boolean): Promise<void> {
     await this.client.post('chat.react', {
-      corps: { messageId: mid, emoji: `:${emoji}:`, shouldReact: mettre },
+      body: { messageId: mid, emoji: `:${emoji}:`, shouldReact: mettre },
     });
   }
 
@@ -35,63 +35,63 @@ export class ActionsRC implements ActionsFournisseur {
    * Un message chiffré se modifie par `content`, que le serveur n'accepte que
    * sur un message `e2e` — et un `text` y serait refusé.
    */
-  async modifier(rid: string, mid: string, texte: string, chiffreur?: ChiffreurEnvoi): Promise<void> {
+  async edit(rid: string, mid: string, texte: string, chiffreur?: OutboxEncryptor): Promise<void> {
     if (chiffreur === undefined) {
-      await this.client.post('chat.update', { corps: { roomId: rid, msgId: mid, text: texte } });
+      await this.client.post('chat.update', { body: { roomId: rid, msgId: mid, text: texte } });
       return;
     }
-    const content = chiffreur.chiffrer(rid, { msg: texte });
+    const content = chiffreur.encrypt(rid, { msg: texte });
     if (content === null) throw new Error('chat.update: clé du salon indisponible');
     await this.client.post('chat.update', {
-      corps: { roomId: rid, msgId: mid, content, e2eMentions: mentionsE2E(texte) },
+      body: { roomId: rid, msgId: mid, content, e2eMentions: mentionsE2E(texte) },
     });
   }
 
-  async supprimer(rid: string, mid: string): Promise<void> {
-    await this.client.post('chat.delete', { corps: { roomId: rid, msgId: mid } });
+  async delete(rid: string, mid: string): Promise<void> {
+    await this.client.post('chat.delete', { body: { roomId: rid, msgId: mid } });
   }
 
-  async epingler(_rid: string, mid: string): Promise<void> {
-    await this.client.post('chat.pinMessage', { corps: { messageId: mid } });
+  async pin(_rid: string, mid: string): Promise<void> {
+    await this.client.post('chat.pinMessage', { body: { messageId: mid } });
   }
 
-  async desepingler(_rid: string, mid: string): Promise<void> {
-    await this.client.post('chat.unPinMessage', { corps: { messageId: mid } });
+  async unpin(_rid: string, mid: string): Promise<void> {
+    await this.client.post('chat.unPinMessage', { body: { messageId: mid } });
   }
 
-  async etoiler(_rid: string, mid: string, mettre: boolean): Promise<void> {
+  async star(_rid: string, mid: string, mettre: boolean): Promise<void> {
     await this.client.post(mettre ? 'chat.starMessage' : 'chat.unStarMessage', {
-      corps: { messageId: mid },
+      body: { messageId: mid },
     });
   }
 
-  listerEpingles(rid: string): Promise<MessageLocal[]> {
-    return this.lister('chat.getPinnedMessages', rid);
+  listPinned(rid: string): Promise<MessageLocal[]> {
+    return this.list('chat.getPinnedMessages', rid);
   }
 
-  listerEtoiles(rid: string): Promise<MessageLocal[]> {
-    return this.lister('chat.getStarredMessages', rid);
+  listStarred(rid: string): Promise<MessageLocal[]> {
+    return this.list('chat.getStarredMessages', rid);
   }
 
-  private async lister(chemin: string, rid: string): Promise<MessageLocal[]> {
+  private async list(chemin: string, rid: string): Promise<MessageLocal[]> {
     const reponse = await this.client.get<{ messages?: Record<string, unknown>[] }>(chemin, {
       params: { roomId: rid, count: 50 },
     });
     return (reponse.messages ?? [])
-      .map((brut) => versMessage(brut))
+      .map((brut) => toMessage(brut))
       .filter((m): m is MessageLocal => m !== null)
-      .sort((a, b) => b.horodatage - a.horodatage);
+      .sort((a, b) => b.ts - a.ts);
   }
 
-  async marquerLu(rid: string): Promise<void> {
-    await this.client.post('subscriptions.read', { corps: { rid } });
+  async markRead(rid: string): Promise<void> {
+    await this.client.post('subscriptions.read', { body: { rid } });
   }
 
-  async ouvrirOuCreerDm(
+  async openOrCreateDm(
     username: string,
-  ): Promise<{ rid: string; salonBrut: Record<string, unknown> }> {
+  ): Promise<{ rid: string; rawRoom: Record<string, unknown> }> {
     const reponse = await this.client.post<{ room?: Record<string, unknown> }>('im.create', {
-      corps: { username },
+      body: { username },
     });
     const salonBrut = reponse.room;
     const rid = salonBrut?._id;
@@ -100,6 +100,6 @@ export class ActionsRC implements ActionsFournisseur {
     if (salonBrut === undefined || typeof rid !== 'string') {
       throw new Error('im.create: réponse sans salon');
     }
-    return { rid, salonBrut };
+    return { rid, rawRoom: salonBrut };
   }
 }

@@ -2,54 +2,54 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import {
-  completerMention,
-  detecterJetonMention,
-  type CandidatMention,
+  completeMention,
+  detectMentionToken,
+  type MentionCandidate,
 } from './mentionCompletion.ts';
 
 describe('detecterJetonMention', () => {
   test('repère le jeton ouvert juste avant le curseur', () => {
-    assert.deepEqual(detecterJetonMention('salut @al', 9), { debut: 6, requete: 'al' });
+    assert.deepEqual(detectMentionToken('salut @al', 9), { start: 6, query: 'al' });
   });
 
   test('le @ nu propose (requête vide)', () => {
-    assert.deepEqual(detecterJetonMention('@', 1), { debut: 0, requete: '' });
+    assert.deepEqual(detectMentionToken('@', 1), { start: 0, query: '' });
   });
 
   test('minuscule la requête, garde le début intact', () => {
-    assert.deepEqual(detecterJetonMention('@ALice', 6), { debut: 0, requete: 'alice' });
+    assert.deepEqual(detectMentionToken('@ALice', 6), { start: 0, query: 'alice' });
   });
 
   test('ne déclenche pas au milieu d’une adresse email', () => {
-    assert.equal(detecterJetonMention('marc@barrut.me', 14), null);
+    assert.equal(detectMentionToken('marc@barrut.me', 14), null);
   });
 
   test('une lettre accentuée avant le @ ferme aussi la porte', () => {
-    assert.equal(detecterJetonMention('café@bar', 8), null);
+    assert.equal(detectMentionToken('café@bar', 8), null);
   });
 
   test('une espace dans la requête ferme le jeton', () => {
-    assert.equal(detecterJetonMention('@alice bonjour', 14), null);
+    assert.equal(detectMentionToken('@alice bonjour', 14), null);
   });
 
   test('le jeton est celui AVANT le curseur, pas la fin du texte', () => {
-    assert.deepEqual(detecterJetonMention('@alice bonjour', 3), { debut: 0, requete: 'al' });
+    assert.deepEqual(detectMentionToken('@alice bonjour', 3), { start: 0, query: 'al' });
   });
 
   test('accepte points, tirets et underscores', () => {
-    assert.deepEqual(detecterJetonMention('@jean.du_pont-2', 15), {
-      debut: 0,
-      requete: 'jean.du_pont-2',
+    assert.deepEqual(detectMentionToken('@jean.du_pont-2', 15), {
+      start: 0,
+      query: 'jean.du_pont-2',
     });
   });
 
   test('curseur hors bornes est ramené dans le texte', () => {
-    assert.deepEqual(detecterJetonMention('@al', 99), { debut: 0, requete: 'al' });
+    assert.deepEqual(detectMentionToken('@al', 99), { start: 0, query: 'al' });
   });
 });
 
 describe('completerMention', () => {
-  const candidats: CandidatMention[] = [
+  const candidats: MentionCandidate[] = [
     { username: 'bob', uid: 'u2' },
     { username: 'alice', uid: 'u1' },
     { username: 'ali', uid: 'u3' },
@@ -58,14 +58,14 @@ describe('completerMention', () => {
 
   test('exact, puis préfixe, puis sous-chaîne', () => {
     assert.deepEqual(
-      completerMention('ali', candidats).map((c) => c.username),
+      completeMention('ali', candidats).map((c) => c.username),
       ['ali', 'alice'],
     );
   });
 
   test('requête vide : tous, dans l’ordre d’arrivée, spéciales à la fin', () => {
     assert.deepEqual(
-      completerMention('', candidats).map((c) => c.username),
+      completeMention('', candidats).map((c) => c.username),
       ['bob', 'alice', 'ali', 'pascal', 'all', 'here'],
     );
   });
@@ -73,20 +73,20 @@ describe('completerMention', () => {
   test('une personne passe avant la mention spéciale à qualité égale', () => {
     // `al` est un préfixe d'`alice`, `ali` ET `all`.
     assert.deepEqual(
-      completerMention('al', candidats).map((c) => c.username),
+      completeMention('al', candidats).map((c) => c.username),
       ['alice', 'ali', 'all', 'pascal'],
     );
   });
 
   test('les spéciales matchent comme les autres', () => {
     assert.deepEqual(
-      completerMention('here', []).map((c) => c.username),
+      completeMention('here', []).map((c) => c.username),
       ['here'],
     );
   });
 
   test('insensible à la casse, username original conservé', () => {
-    const r = completerMention('ALI', [{ username: 'Alice', uid: 'u1' }]);
+    const r = completeMention('ALI', [{ username: 'Alice', uid: 'u1' }]);
     assert.deepEqual(
       r.map((c) => c.username),
       ['Alice'],
@@ -94,7 +94,7 @@ describe('completerMention', () => {
   });
 
   test('déduplique par username, première occurrence gagne', () => {
-    const r = completerMention('bob', [
+    const r = completeMention('bob', [
       { username: 'bob', uid: 'u2' },
       { username: 'BOB', uid: 'u9' },
     ]);
@@ -106,10 +106,10 @@ describe('completerMention', () => {
       username: `user${i}`,
       uid: `u${i}`,
     }));
-    assert.equal(completerMention('user', beaucoup, 5).length, 5);
+    assert.equal(completeMention('user', beaucoup, 5).length, 5);
   });
 
   test('aucune correspondance : liste vide', () => {
-    assert.deepEqual(completerMention('zz', candidats), []);
+    assert.deepEqual(completeMention('zz', candidats), []);
   });
 });

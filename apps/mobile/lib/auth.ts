@@ -13,8 +13,8 @@
  * injecté (`expo-crypto` dans l'app, `node:crypto` dans les tests).
  */
 
-import type { Genre } from './provider.ts';
-import { ClientRest, ErreurDeuxFacteurs, type CodeDeuxFacteurs } from './rest.ts';
+import type { ProviderKind } from './provider.ts';
+import { ClientRest, TwoFactorError, type TwoFactorCode } from './rest.ts';
 
 export type Session = {
   baseUrl: string;
@@ -22,7 +22,7 @@ export type Session = {
   userId: string;
   username: string;
   /** Type de serveur : décide quel driver instancier. Ici toujours `rocketchat`. */
-  genre: Genre;
+  genre: ProviderKind;
   /**
    * `Site_Url` du serveur, relevé au sondage de connexion. C'est la SEULE URL
    * que le serveur reconnaît en tête d'un permalien de citation
@@ -35,11 +35,11 @@ export type Session = {
 };
 
 /** SHA-256 hexadécimal, en minuscules. */
-export type Hacheur = (texte: string) => Promise<string>;
+export type Hasher = (texte: string) => Promise<string>;
 
 export type Credentials = {
-  utilisateur: string;
-  motDePasse: string;
+  user: string;
+  password: string;
 };
 
 type ReponseLogin = {
@@ -57,15 +57,15 @@ type ReponseLogin = {
  * - `totp` et `email` : le code est envoyé tel quel.
  * - `password` : c'est le mot de passe qu'il faut hacher, pas le code saisi.
  */
-export async function preparerCodeDeuxFacteurs(
-  erreur: ErreurDeuxFacteurs,
+export async function prepareTwoFactorCode(
+  erreur: TwoFactorError,
   saisie: string,
-  hacher: Hacheur,
-): Promise<CodeDeuxFacteurs> {
-  if (erreur.methode === 'password') {
-    return { methode: 'password', code: await hacher(saisie) };
+  hacher: Hasher,
+): Promise<TwoFactorCode> {
+  if (erreur.method === 'password') {
+    return { method: 'password', code: await hacher(saisie) };
   }
-  return { methode: erreur.methode, code: saisie.trim() };
+  return { method: erreur.method, code: saisie.trim() };
 }
 
 /**
@@ -73,15 +73,15 @@ export async function preparerCodeDeuxFacteurs(
  * facteur : l'appelant affiche la bonne UI selon `erreur.methode`, puis rappelle
  * `seConnecter` avec le code préparé.
  */
-export async function seConnecter(
+export async function logIn(
   client: ClientRest,
   credentials: Credentials,
-  deuxFacteurs?: CodeDeuxFacteurs,
+  deuxFacteurs?: TwoFactorCode,
 ): Promise<Session> {
   const reponse = await client.post<ReponseLogin>('login', {
-    anonyme: true,
-    deuxFacteurs,
-    corps: { user: credentials.utilisateur, password: credentials.motDePasse },
+    anonymous: true,
+    twoFactor: deuxFacteurs,
+    body: { user: credentials.user, password: credentials.password },
   });
   return sessionDepuis(client.baseUrl, reponse);
 }
@@ -91,10 +91,10 @@ export async function seConnecter(
  * **et** au WebSocket : le spike DDP l'a vérifié, `method login {resume}`
  * l'accepte tel quel.
  */
-export async function reprendreSession(client: ClientRest, authToken: string): Promise<Session> {
+export async function resumeSession(client: ClientRest, authToken: string): Promise<Session> {
   const reponse = await client.post<ReponseLogin>('login', {
-    anonyme: true,
-    corps: { resume: authToken },
+    anonymous: true,
+    body: { resume: authToken },
   });
   return sessionDepuis(client.baseUrl, reponse);
 }
@@ -137,9 +137,9 @@ function sessionDepuis(baseUrl: string, reponse: ReponseLogin | undefined): Sess
  * Ne prend que l'identifiant : exiger `Credentials` obligerait à garder le mot
  * de passe en mémoire pour rien.
  */
-export function demanderCodeParEmail(client: ClientRest, emailOuNom: string): Promise<void> {
+export function requestEmailCode(client: ClientRest, emailOuNom: string): Promise<void> {
   return client
-    .post('users.2fa.sendEmailCode', { anonyme: true, corps: { emailOrUsername: emailOuNom } })
+    .post('users.2fa.sendEmailCode', { anonymous: true, body: { emailOrUsername: emailOuNom } })
     .then(() => undefined);
 }
 
@@ -158,18 +158,18 @@ export function demanderCodeParEmail(client: ClientRest, emailOuNom: string): Pr
  * quoi qu'il arrive, un serveur injoignable ne doit pas retenir l'utilisateur
  * sur un écran qu'il vient de quitter.
  */
-export async function seDeconnecter(client: ClientRest): Promise<boolean> {
+export async function logOut(client: ClientRest): Promise<boolean> {
   try {
     await client.post('logout');
     return true;
   } catch {
     return false;
   } finally {
-    client.identifiants = null;
+    client.auth = null;
   }
 }
 
 /** Applique la session au client pour les appels suivants. */
-export function appliquerSession(client: ClientRest, session: Session): void {
-  client.identifiants = { authToken: session.authToken, userId: session.userId };
+export function applySession(client: ClientRest, session: Session): void {
+  client.auth = { authToken: session.authToken, userId: session.userId };
 }

@@ -10,22 +10,22 @@
  * dépréciés depuis Rocket.Chat 8.0, avec retrait annoncé en 9.0.
  */
 
-export type Identifiants = {
+export type RestAuth = {
   authToken: string;
   userId: string;
 };
 
 /** Méthodes du mécanisme 2FA générique de Rocket.Chat. */
-export type MethodeDeuxFacteurs = 'totp' | 'email' | 'password';
+export type TwoFactorMethod = 'totp' | 'email' | 'password';
 
-export type CodeDeuxFacteurs = {
+export type TwoFactorCode = {
   code: string;
-  methode: MethodeDeuxFacteurs;
+  method: TwoFactorMethod;
 };
 
-export class ErreurRest extends Error {
-  readonly statut: number;
-  readonly erreur?: string;
+export class RestError extends Error {
+  readonly status: number;
+  readonly error?: string;
   readonly errorType?: string;
   /**
    * Le corps a été lu comme une réponse **Rocket.Chat** (enveloppe
@@ -37,7 +37,7 @@ export class ErreurRest extends Error {
    * est le SIEN — il ne dit rien de notre jeton, et le prendre pour une
    * révocation éjecterait l'utilisateur d'une session parfaitement valide.
    */
-  readonly reponseComprise: boolean;
+  readonly understoodResponse: boolean;
 
   constructor(
     message: string,
@@ -48,10 +48,10 @@ export class ErreurRest extends Error {
   ) {
     super(message);
     this.name = 'ErreurRest';
-    this.statut = statut;
-    this.erreur = erreur;
+    this.status = statut;
+    this.error = erreur;
     this.errorType = errorType;
-    this.reponseComprise = reponseComprise;
+    this.understoodResponse = reponseComprise;
   }
 }
 
@@ -62,14 +62,14 @@ export class ErreurRest extends Error {
  * méthode réellement attendue est dans `details.method`. Pour `password`, le
  * code est le **SHA-256 du mot de passe**, jamais le mot de passe en clair.
  */
-export class ErreurDeuxFacteurs extends ErreurRest {
-  readonly methode: MethodeDeuxFacteurs;
-  readonly methodesDisponibles: MethodeDeuxFacteurs[];
-  readonly codeGenere: boolean;
+export class TwoFactorError extends RestError {
+  readonly method: TwoFactorMethod;
+  readonly availableMethods: TwoFactorMethod[];
+  readonly generatedCode: boolean;
 
   constructor(
-    methode: MethodeDeuxFacteurs,
-    methodesDisponibles: MethodeDeuxFacteurs[],
+    methode: TwoFactorMethod,
+    methodesDisponibles: TwoFactorMethod[],
     codeGenere: boolean,
   ) {
     // `reponseComprise` vaut bien TRUE : un défi 2FA est une réponse
@@ -80,9 +80,9 @@ export class ErreurDeuxFacteurs extends ErreurRest {
     // hors login, 8.5 répond 400.
     super(`Double authentification requise (${methode})`, 401, undefined, 'totp-required', true);
     this.name = 'ErreurDeuxFacteurs';
-    this.methode = methode;
-    this.methodesDisponibles = methodesDisponibles;
-    this.codeGenere = codeGenere;
+    this.method = methode;
+    this.availableMethods = methodesDisponibles;
+    this.generatedCode = codeGenere;
   }
 }
 
@@ -119,19 +119,19 @@ export class ErreurDeuxFacteurs extends ErreurRest {
  * affichée. Cette comparaison appartient à l'appelant, qui seul connaît le
  * jeton réellement envoyé (voir `surJetonRefuse`).
  */
-export function estJetonRefuse(e: unknown): boolean {
-  if (e instanceof ErreurDeuxFacteurs) return false;
-  if (!(e instanceof ErreurRest)) return false;
-  return e.statut === 401 && e.reponseComprise;
+export function isTokenRejected(e: unknown): boolean {
+  if (e instanceof TwoFactorError) return false;
+  if (!(e instanceof RestError)) return false;
+  return e.status === 401 && e.understoodResponse;
 }
 
-export type OptionsAppel = {
+export type RequestOptions = {
   params?: Record<string, string | number | boolean | undefined>;
-  corps?: unknown;
+  body?: unknown;
   signal?: AbortSignal;
-  deuxFacteurs?: CodeDeuxFacteurs;
+  twoFactor?: TwoFactorCode;
   /** Ignorer l'authentification (login, settings.public…). */
-  anonyme?: boolean;
+  anonymous?: boolean;
   /**
    * Rejouer UNE fois si le `fetch` échoue au niveau réseau (aucune réponse
    * HTTP reçue). Réservé aux écritures idempotentes (profil, statut) : une
@@ -139,23 +139,23 @@ export type OptionsAppel = {
    * aucun effet serveur. `chat.sendMessage` NE l'active PAS — sa déduplication
    * vit dans lib/outbox, qui garde la ligne « en-attente » pour un rejeu propre.
    */
-  rejeuReseau?: boolean;
+  networkReplay?: boolean;
   /**
    * Chemin servi HORS de `/api/v1/`. Un seul cas : `/api/info`, la seule
    * route Rocket.Chat utile qui vive à la racine. Sans cela, elle échappait à
    * toute la défense de ce module — délai maximal en tête — et pouvait
    * bloquer l'écran de connexion à vie (voir `lib/server.ts`).
    */
-  horsApiV1?: boolean;
+  outsideApiV1?: boolean;
 };
 
 /** Injectables pour les tests : aucun sommeil réel, aucune horloge réelle. */
-export type Dependances = {
+export type Dependencies = {
   fetch: typeof globalThis.fetch;
-  dormir: (ms: number) => Promise<void>;
-  maintenant: () => number;
+  sleep: (ms: number) => Promise<void>;
+  now: () => number;
   /** Dispersion des rejeux. Injecté pour que les délais restent testables. */
-  alea: () => number;
+  random: () => number;
 };
 
 const DELAI_MS = 15_000;
@@ -185,9 +185,9 @@ type ReponseRocketChat = {
   };
 };
 
-const METHODES: readonly MethodeDeuxFacteurs[] = ['totp', 'email', 'password'];
+const METHODES: readonly TwoFactorMethod[] = ['totp', 'email', 'password'];
 
-function estMethode(v: unknown): v is MethodeDeuxFacteurs {
+function estMethode(v: unknown): v is TwoFactorMethod {
   return typeof v === 'string' && (METHODES as readonly string[]).includes(v);
 }
 
@@ -200,7 +200,7 @@ function erreurAnnulation(): Error {
 
 export class ClientRest {
   readonly baseUrl: string;
-  identifiants: Identifiants | null = null;
+  auth: RestAuth | null = null;
 
   /**
    * Appelé quand le serveur refuse le jeton (`estJetonRefuse`), avec le jeton
@@ -219,17 +219,17 @@ export class ClientRest {
    * la requête volait). `ClientRest` ne connaît pas la notion de session : il
    * rapporte, il ne décide pas.
    */
-  surJetonRefuse: ((jeton: string) => void) | null = null;
+  onTokenRejected: ((jeton: string) => void) | null = null;
 
-  private readonly dep: Dependances;
+  private readonly dep: Dependencies;
 
-  constructor(baseUrl: string, dep?: Partial<Dependances>) {
+  constructor(baseUrl: string, dep?: Partial<Dependencies>) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.dep = {
       fetch: dep?.fetch ?? globalThis.fetch.bind(globalThis),
-      dormir: dep?.dormir ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
-      maintenant: dep?.maintenant ?? (() => Date.now()),
-      alea: dep?.alea ?? Math.random,
+      sleep: dep?.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
+      now: dep?.now ?? (() => Date.now()),
+      random: dep?.random ?? Math.random,
     };
   }
 
@@ -242,8 +242,8 @@ export class ClientRest {
    * cumulés sur trois tentatives. La promesse rendue à l'appelant restait
    * pendante d'autant, et son spinner avec elle.
    */
-  private async dormirAnnulable(ms: number, signal?: AbortSignal): Promise<void> {
-    if (signal === undefined) return this.dep.dormir(ms);
+  private async cancelableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+    if (signal === undefined) return this.dep.sleep(ms);
     if (signal.aborted) throw erreurAnnulation();
     let surAbandon: () => void = () => {};
     const annulation = new Promise<never>((_, rejeter) => {
@@ -251,7 +251,7 @@ export class ClientRest {
       signal.addEventListener('abort', surAbandon);
     });
     try {
-      await Promise.race([this.dep.dormir(ms), annulation]);
+      await Promise.race([this.dep.sleep(ms), annulation]);
     } finally {
       // Détaché dans tous les cas : sans quoi un `abort()` postérieur au
       // réveil rejetterait une promesse que plus personne n'observe.
@@ -259,20 +259,20 @@ export class ClientRest {
     }
   }
 
-  get<T>(chemin: string, options: OptionsAppel = {}): Promise<T> {
-    return this.appeler<T>('GET', chemin, options);
+  get<T>(chemin: string, options: RequestOptions = {}): Promise<T> {
+    return this.call<T>('GET', chemin, options);
   }
 
-  post<T>(chemin: string, options: OptionsAppel = {}): Promise<T> {
-    return this.appeler<T>('POST', chemin, options);
+  post<T>(chemin: string, options: RequestOptions = {}): Promise<T> {
+    return this.call<T>('POST', chemin, options);
   }
 
-  supprimer<T>(chemin: string, options: OptionsAppel = {}): Promise<T> {
-    return this.appeler<T>('DELETE', chemin, options);
+  delete<T>(chemin: string, options: RequestOptions = {}): Promise<T> {
+    return this.call<T>('DELETE', chemin, options);
   }
 
-  private construireUrl(chemin: string, options: OptionsAppel): string {
-    const prefixe = options.horsApiV1 === true ? '' : 'api/v1/';
+  private buildUrl(chemin: string, options: RequestOptions): string {
+    const prefixe = options.outsideApiV1 === true ? '' : 'api/v1/';
     const url = new URL(`${this.baseUrl}/${prefixe}${chemin}`);
     const params = options.params;
     for (const [cle, valeur] of Object.entries(params ?? {})) {
@@ -281,15 +281,15 @@ export class ClientRest {
     return url.toString();
   }
 
-  private enTetes(options: OptionsAppel): Record<string, string> {
+  private headers(options: RequestOptions): Record<string, string> {
     const h: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (!options.anonyme && this.identifiants) {
-      h['X-Auth-Token'] = this.identifiants.authToken;
-      h['X-User-Id'] = this.identifiants.userId;
+    if (!options.anonymous && this.auth) {
+      h['X-Auth-Token'] = this.auth.authToken;
+      h['X-User-Id'] = this.auth.userId;
     }
-    if (options.deuxFacteurs) {
-      h['x-2fa-code'] = options.deuxFacteurs.code;
-      h['x-2fa-method'] = options.deuxFacteurs.methode;
+    if (options.twoFactor) {
+      h['x-2fa-code'] = options.twoFactor.code;
+      h['x-2fa-method'] = options.twoFactor.method;
     }
     return h;
   }
@@ -302,17 +302,17 @@ export class ClientRest {
    * La dispersion s'ajoute AVANT le plafond, pour qu'un en-tête aberrant
    * reste borné à 30 s.
    */
-  private delaiApres429(reponse: Response, tentative: number): number {
+  private delayAfter429(reponse: Response, tentative: number): number {
     const brut = Number(reponse.headers.get('x-ratelimit-reset'));
-    const attente = Number.isFinite(brut) ? brut - this.dep.maintenant() : 0;
+    const attente = Number.isFinite(brut) ? brut - this.dep.now() : 0;
     const delai = attente > 0 ? attente + 250 : 1000 * 2 ** tentative;
-    return Math.min(delai + this.dep.alea() * DISPERSION_429_MS, 30_000);
+    return Math.min(delai + this.dep.random() * DISPERSION_429_MS, 30_000);
   }
 
-  private async appeler<T>(
+  private async call<T>(
     methode: 'GET' | 'POST' | 'DELETE',
     chemin: string,
-    options: OptionsAppel,
+    options: RequestOptions,
     tentative = 0,
     tentativeReseau = 0,
   ): Promise<T> {
@@ -326,7 +326,7 @@ export class ClientRest {
     // la réception rendrait le jeton COURANT : sur une session remplacée
     // pendant le vol, un 401 portant l'ancien jeton se présenterait alors sous
     // le nouveau, et effacerait une session toute neuve.
-    const jetonEnvoye = options.anonyme === true ? null : (this.identifiants?.authToken ?? null);
+    const jetonEnvoye = options.anonymous === true ? null : (this.auth?.authToken ?? null);
 
     const controleur = new AbortController();
     let expire = false;
@@ -339,16 +339,16 @@ export class ClientRest {
 
     let reponse: Response;
     try {
-      reponse = await this.dep.fetch(this.construireUrl(chemin, options), {
+      reponse = await this.dep.fetch(this.buildUrl(chemin, options), {
         method: methode,
-        headers: this.enTetes(options),
-        body: options.corps === undefined ? undefined : JSON.stringify(options.corps),
+        headers: this.headers(options),
+        body: options.body === undefined ? undefined : JSON.stringify(options.body),
         signal: controleur.signal,
       });
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') {
         if (!expire) throw e; // Annulation demandée par l'appelant.
-        throw new ErreurRest(`${chemin} : pas de réponse en ${DELAI_MS / 1000} s.`, 0);
+        throw new RestError(`${chemin} : pas de réponse en ${DELAI_MS / 1000} s.`, 0);
       }
       // Échec réseau : le `fetch` a rejeté sans réponse HTTP. Sur Android/OkHttp,
       // la PREMIÈRE requête après un temps d'inactivité (ici : le temps de
@@ -357,24 +357,24 @@ export class ClientRest {
       // — le classique « ça passe à la 2e fois ». Rien n'ayant été reçu du
       // serveur, la requête n'a (quasi) jamais été délivrée : la rejouer ne
       // double aucun effet, mais on ne le fait que si l'appelant l'a demandé.
-      if (options.rejeuReseau && tentativeReseau < TENTATIVES_RESEAU) {
+      if (options.networkReplay && tentativeReseau < TENTATIVES_RESEAU) {
         // Le `finally` ferme minuterie et listener à l'évaluation du `return` ;
         // la récursion en réarme de neufs. Les 400 ms d'attente restent bien en
         // deçà du timeout de 15 s, donc l'ancien timer ne fire pas entre-temps.
-        await this.dormirAnnulable(DELAI_REJEU_RESEAU_MS, options.signal);
-        return this.appeler<T>(methode, chemin, options, tentative, tentativeReseau + 1);
+        await this.cancelableSleep(DELAI_REJEU_RESEAU_MS, options.signal);
+        return this.call<T>(methode, chemin, options, tentative, tentativeReseau + 1);
       }
-      throw new ErreurRest(`${chemin} : serveur injoignable.`, 0);
+      throw new RestError(`${chemin} : serveur injoignable.`, 0);
     } finally {
       clearTimeout(minuterie);
       options.signal?.removeEventListener('abort', relayer);
     }
 
     if (reponse.status === 429 && tentative < TENTATIVES_429) {
-      const delai = this.delaiApres429(reponse, tentative);
+      const delai = this.delayAfter429(reponse, tentative);
       await reponse.body?.cancel();
-      await this.dormirAnnulable(delai, options.signal);
-      return this.appeler<T>(methode, chemin, options, tentative + 1, tentativeReseau);
+      await this.cancelableSleep(delai, options.signal);
+      return this.call<T>(methode, chemin, options, tentative + 1, tentativeReseau);
     }
 
     // Lire le texte avant de parser : un reverse proxy peut renvoyer du HTML
@@ -389,7 +389,7 @@ export class ClientRest {
     try {
       json = JSON.parse(texte) as typeof json;
     } catch {
-      throw new ErreurRest(
+      throw new RestError(
         `${chemin} : réponse non JSON (${reponse.status}, ${texte.length} octets).`,
         reponse.status,
       );
@@ -403,7 +403,7 @@ export class ClientRest {
     if (json.errorType === 'totp-required' || json.error === 'totp-required') {
       const brutes = json.details?.availableMethods ?? [];
       const methodeDemandee = estMethode(json.details?.method) ? json.details.method : 'password';
-      throw new ErreurDeuxFacteurs(
+      throw new TwoFactorError(
         methodeDemandee,
         brutes.filter(estMethode),
         json.details?.codeGenerated === true,
@@ -422,7 +422,7 @@ export class ClientRest {
         typeof json.success === 'boolean' ||
         json.status === 'error' ||
         typeof json.errorType === 'string';
-      const erreur = new ErreurRest(
+      const erreur = new RestError(
         message,
         reponse.status,
         json.error,
@@ -432,7 +432,7 @@ export class ClientRest {
       // Placé APRÈS la branche `totp-required` (jamais sur un défi 2FA) et
       // APRÈS le parse (jamais sur un 401 HTML de proxy). Un appel `anonyme`
       // n'a envoyé aucun jeton : son 401 ne dit rien de la session.
-      if (jetonEnvoye !== null && estJetonRefuse(erreur)) this.surJetonRefuse?.(jetonEnvoye);
+      if (jetonEnvoye !== null && isTokenRejected(erreur)) this.onTokenRejected?.(jetonEnvoye);
       throw erreur;
     }
 

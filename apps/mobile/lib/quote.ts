@@ -25,29 +25,29 @@ import type { Paragraph, Root } from '@rocket.chat/message-parser';
  * `piecesJointes` et le rendu retirait le lien brut du corps — le message final
  * ne portait plus aucune trace de ce à quoi il répondait.
  */
-export function permalienMessage(options: {
+export function messagePermalink(options: {
   baseUrl: string;
   /** `Site_Url` de la session — null (réglage ou session d'avant) : repli `baseUrl`. */
   siteUrl: string | null;
   /** Type Rocket.Chat du salon : `c`, `p` ou `d`. */
   type: string;
   /** `name` du salon — null pour un DM. */
-  nom: string | null;
+  name: string | null;
   rid: string;
   msgId: string;
 }): string {
   const base = (options.siteUrl ?? options.baseUrl).replace(/\/+$/, '');
   const chemin =
     options.type === 'c'
-      ? `channel/${encodeURIComponent(options.nom ?? options.rid)}`
+      ? `channel/${encodeURIComponent(options.name ?? options.rid)}`
       : options.type === 'p'
-        ? `group/${encodeURIComponent(options.nom ?? options.rid)}`
+        ? `group/${encodeURIComponent(options.name ?? options.rid)}`
         : `direct/${encodeURIComponent(options.rid)}`;
   return `${base}/${chemin}?msg=${encodeURIComponent(options.msgId)}`;
 }
 
 /** Le texte à envoyer : le permalien invisible devant, la réponse derrière. */
-export function citer(permalien: string, texte: string): string {
+export function quote(permalien: string, texte: string): string {
   return texte === '' ? `[ ](${permalien})` : `[ ](${permalien}) ${texte}`;
 }
 
@@ -59,7 +59,7 @@ const PREFIXE_CITATION = /^\s*\[ ?\]\(https?:\/\/[^)\s]+[?&]msg=[^)\s]*\)\s*/;
  * l'extrait affiché (bandeau de réponse, bloc de citation) : le message cité
  * peut lui-même être une réponse, on ne veut montrer que ses mots.
  */
-export function sansPrefixeCitation(texte: string): string {
+export function stripQuotePrefix(texte: string): string {
   let restant = texte;
   for (;;) {
     const suivant = restant.replace(PREFIXE_CITATION, '');
@@ -73,7 +73,7 @@ export function sansPrefixeCitation(texte: string): string {
  * `message_link` est une citation. Tout le reste (image, audio, fichier) n'en
  * est pas.
  */
-export function estJointeCitation(jointe: unknown): boolean {
+export function isQuoteAttachment(jointe: unknown): boolean {
   return (
     typeof jointe === 'object' &&
     jointe !== null &&
@@ -83,7 +83,7 @@ export function estJointeCitation(jointe: unknown): boolean {
 
 /** Profondeur de rendu des citations imbriquées — celle que produit le serveur
  *  avec `Message_QuoteChainLimit` par défaut (2), et qu'affiche l'app officielle. */
-export const PROFONDEUR_MAX_CITATION = 2;
+export const MAX_QUOTE_DEPTH = 2;
 
 /**
  * La pièce jointe de citation LOCALE (JSON `attachments` sérialisé), pour
@@ -93,33 +93,33 @@ export const PROFONDEUR_MAX_CITATION = 2;
  * gardées mais purgées de LEURS citations — le niveau 3, que le serveur retire
  * aussi (`recursiveRemoveAttachments`, limite 2).
  */
-export function jointeCitationLocale(options: {
-  permalien: string;
-  auteur: string | null;
-  texte: string | null;
+export function localQuoteAttachment(options: {
+  permalink: string;
+  author: string | null;
+  text: string | null;
   /** `piecesJointes` (JSON) du message cité, tel que stocké. */
-  piecesJointes: string | null;
+  attachments: string | null;
 }): string {
   let imbriquees: unknown[] = [];
   try {
-    const brut = JSON.parse(options.piecesJointes ?? '[]') as unknown;
+    const brut = JSON.parse(options.attachments ?? '[]') as unknown;
     if (Array.isArray(brut)) imbriquees = brut;
   } catch {
     // Illisible : citation sans pièces, le texte reste.
   }
   const nettoyees = imbriquees.map((jointe) => {
-    if (!estJointeCitation(jointe)) return jointe;
+    if (!isQuoteAttachment(jointe)) return jointe;
     const { attachments, ...reste } = jointe as Record<string, unknown>;
     const fichiers = Array.isArray(attachments)
-      ? attachments.filter((a) => !estJointeCitation(a))
+      ? attachments.filter((a) => !isQuoteAttachment(a))
       : [];
     return fichiers.length > 0 ? { ...reste, attachments: fichiers } : reste;
   });
   return JSON.stringify([
     {
-      message_link: options.permalien,
-      ...(options.auteur === null ? {} : { author_name: options.auteur }),
-      text: options.texte ?? '',
+      message_link: options.permalink,
+      ...(options.author === null ? {} : { author_name: options.author }),
+      text: options.text ?? '',
       attachments: nettoyees,
     },
   ]);
@@ -130,12 +130,12 @@ export function jointeCitationLocale(options: {
  * bandeau « Réponse à … ». Les citations imbriquées sont ignorées : on montre
  * ce que la personne citée a POSTÉ, pas ce qu'elle citait.
  */
-export function premiereImageDesJointes(piecesJointes: string | null): string | null {
+export function firstAttachmentImage(piecesJointes: string | null): string | null {
   try {
     const brut = JSON.parse(piecesJointes ?? '[]') as unknown;
     if (!Array.isArray(brut)) return null;
     for (const jointe of brut) {
-      if (estJointeCitation(jointe)) continue;
+      if (isQuoteAttachment(jointe)) continue;
       const image = (jointe as { image_url?: unknown } | null)?.image_url;
       if (typeof image === 'string') return image;
     }
@@ -175,7 +175,7 @@ function estLienDeCitation(noeud: unknown): boolean {
  * INCHANGÉ (même référence) quand il n'y a rien à retirer — le cas de presque
  * tous les messages, aucun coût.
  */
-export function sansLiensDeCitation(arbre: Root): Root {
+export function withoutQuoteLinks(arbre: Root): Root {
   if (!arbre.some((bloc) => estParagrapheAvecCitation(bloc))) return arbre;
 
   // `Root` est un tuple-union (`[BigEmoji] | …`) : on construit sur le type

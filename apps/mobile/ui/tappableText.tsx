@@ -12,7 +12,7 @@
 import { useState } from 'react';
 import { type StyleProp, StyleSheet, Text, type TextStyle } from 'react-native';
 
-export function TexteTappable({
+export function TappableText({
   onPress,
   onLongPress,
   style,
@@ -30,7 +30,7 @@ export function TexteTappable({
   const [presse, setPresse] = useState(false);
   return (
     <Text
-      style={[style, presse && styles.presse]}
+      style={[style, presse && styles.pressed]}
       numberOfLines={numberOfLines}
       onPress={onPress}
       onLongPress={onLongPress}
@@ -46,5 +46,5 @@ export function TexteTappable({
 }
 
 const styles = StyleSheet.create({
-  presse: { opacity: 0.55 },
+  pressed: { opacity: 0.55 },
 });

@@ -4,32 +4,32 @@ import { describe, test } from 'node:test';
 import { ClientRest } from './rest.ts';
 import {
   confirmerMedia,
-  definirAvatar,
-  ErreurUpload,
-  televerserOctets,
+  setAvatar,
+  UploadError,
+  uploadBytes,
   urlAvatar,
-  urlFichierProtege,
+  protectedFileUrl,
   type TransportUpload,
 } from './upload.ts';
 
 function clientAuthentifie(reponsesPost: Record<string, unknown>) {
-  const posts: { chemin: string; corps: unknown }[] = [];
+  const posts: { path: string; body: unknown }[] = [];
   const client = new ClientRest('http://x', {
     fetch: async (url, init) => {
       const chemin = String(url).split('/api/v1/')[1] ?? '';
-      posts.push({ chemin, corps: JSON.parse(String(init?.body ?? '{}')) });
+      posts.push({ path: chemin, body: JSON.parse(String(init?.body ?? '{}')) });
       return new Response(JSON.stringify(reponsesPost[chemin] ?? { success: true }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
     },
-    dormir: async () => {},
+    sleep: async () => {},
   });
-  client.identifiants = { authToken: 'jeton-alice', userId: 'uid-alice' };
+  client.auth = { authToken: 'jeton-alice', userId: 'uid-alice' };
   return { client, posts };
 }
 
-const fichier = { uri: 'file:///x/mini.png', nom: 'mini.png', type: 'image/png' };
+const fichier = { uri: 'file:///x/mini.png', name: 'mini.png', type: 'image/png' };
 
 describe('televerserOctets', () => {
   test('poste sur rooms.media, authentifié, et rend le fileId — SANS rien confirmer', async () => {
@@ -37,11 +37,11 @@ describe('televerserOctets', () => {
     const transport: TransportUpload = async (url, entetes) => {
       appels.push(url);
       assert.equal(entetes['X-Auth-Token'], 'jeton-alice', "l'upload est authentifié");
-      return { statut: 200, corps: JSON.stringify({ file: { _id: 'f1' }, success: true }) };
+      return { status: 200, body: JSON.stringify({ file: { _id: 'f1' }, success: true }) };
     };
     const { client, posts } = clientAuthentifie({});
 
-    const fileId = await televerserOctets({ client, transport, rid: 'r1', fichier });
+    const fileId = await uploadBytes({ client, transport, rid: 'r1', file: fichier });
 
     assert.deepEqual(appels, ['http://x/api/v1/rooms.media/r1']);
     assert.equal(fileId, 'f1', 'c’est LUI qu’on persiste avant d’aller plus loin');
@@ -50,21 +50,21 @@ describe('televerserOctets', () => {
 
   test('un refus de rooms.media est une erreur claire', async () => {
     const transport: TransportUpload = async () => ({
-      statut: 413,
-      corps: JSON.stringify({ success: false, error: 'File too large' }),
+      status: 413,
+      body: JSON.stringify({ success: false, error: 'File too large' }),
     });
     const { client, posts } = clientAuthentifie({});
     await assert.rejects(
-      televerserOctets({ client, transport, rid: 'r1', fichier }),
-      (e: unknown) => e instanceof ErreurUpload && e.message === 'File too large',
+      uploadBytes({ client, transport, rid: 'r1', file: fichier }),
+      (e: unknown) => e instanceof UploadError && e.message === 'File too large',
     );
     assert.equal(posts.length, 0);
   });
 
   test('une réponse non JSON (reverse proxy) ne plante pas en TypeError', async () => {
-    const transport: TransportUpload = async () => ({ statut: 502, corps: '<html>bad gateway' });
+    const transport: TransportUpload = async () => ({ status: 502, body: '<html>bad gateway' });
     const { client } = clientAuthentifie({});
-    await assert.rejects(televerserOctets({ client, transport, rid: 'r1', fichier }), ErreurUpload);
+    await assert.rejects(uploadBytes({ client, transport, rid: 'r1', file: fichier }), UploadError);
   });
 
   test('l’interrupteur de la tâche est remonté à l’appelant', async () => {
@@ -72,15 +72,15 @@ describe('televerserOctets', () => {
     let annule = false;
     const transport: TransportUpload = async (_u, _e, _f, _p, surAnnulable) => {
       surAnnulable?.(async () => void (annule = true));
-      return { statut: 200, corps: JSON.stringify({ file: { _id: 'f1' } }) };
+      return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
     };
     const { client } = clientAuthentifie({});
-    await televerserOctets({
+    await uploadBytes({
       client,
       transport,
       rid: 'r1',
-      fichier,
-      surAnnulable: (a) => void (annuler = a),
+      file: fichier,
+      onCancelable: (a) => void (annuler = a),
     });
     assert.notEqual(annuler, null, 'sans lui, « Abandonner » ne serait qu’un DELETE');
     await (annuler as unknown as () => Promise<void>)();
@@ -94,8 +94,8 @@ describe('confirmerMedia', () => {
       'rooms.mediaConfirm/r1/f1': { success: true, message: { _id: 'm1', rid: 'r1' } },
     });
     const message = await confirmerMedia({ client, rid: 'r1', fileId: 'f1', message: 'légende' });
-    assert.equal(posts[0]?.chemin, 'rooms.mediaConfirm/r1/f1');
-    assert.deepEqual(posts[0]?.corps, { msg: 'légende' });
+    assert.equal(posts[0]?.path, 'rooms.mediaConfirm/r1/f1');
+    assert.deepEqual(posts[0]?.body, { msg: 'légende' });
     assert.equal(message._id, 'm1');
   });
 
@@ -104,12 +104,12 @@ describe('confirmerMedia', () => {
       'rooms.mediaConfirm/r1/f1': { success: true, message: { _id: 'm1' } },
     });
     await confirmerMedia({ client, rid: 'r1', fileId: 'f1' });
-    assert.deepEqual(posts[0]?.corps, {}, 'le serveur refuserait toute clé en trop');
+    assert.deepEqual(posts[0]?.body, {}, 'le serveur refuserait toute clé en trop');
   });
 
   test('une confirmation sans message est une erreur, pas un succès silencieux', async () => {
     const { client } = clientAuthentifie({ 'rooms.mediaConfirm/r1/f1': { success: true } });
-    await assert.rejects(confirmerMedia({ client, rid: 'r1', fileId: 'f1' }), ErreurUpload);
+    await assert.rejects(confirmerMedia({ client, rid: 'r1', fileId: 'f1' }), UploadError);
   });
 });
 
@@ -119,29 +119,29 @@ describe('definirAvatar', () => {
     const transport: TransportUpload = async (url, entetes) => {
       urlVue = url;
       assert.equal(entetes['X-Auth-Token'], 'jeton-alice', "l'upload d'avatar est authentifié");
-      return { statut: 200, corps: JSON.stringify({ success: true }) };
+      return { status: 200, body: JSON.stringify({ success: true }) };
     };
     const { client } = clientAuthentifie({});
-    await definirAvatar({ client, transport, fichier });
+    await setAvatar({ client, transport, file: fichier });
     assert.equal(urlVue, 'http://x/api/v1/users.setAvatar');
   });
 
   test('un refus serveur devient une ErreurUpload claire', async () => {
     const transport: TransportUpload = async () => ({
-      statut: 400,
-      corps: JSON.stringify({ success: false, error: 'Avatar change disabled' }),
+      status: 400,
+      body: JSON.stringify({ success: false, error: 'Avatar change disabled' }),
     });
     const { client } = clientAuthentifie({});
     await assert.rejects(
-      definirAvatar({ client, transport, fichier }),
-      (e: unknown) => e instanceof ErreurUpload && e.message === 'Avatar change disabled',
+      setAvatar({ client, transport, file: fichier }),
+      (e: unknown) => e instanceof UploadError && e.message === 'Avatar change disabled',
     );
   });
 
   test('une réponse non JSON ne plante pas en TypeError', async () => {
-    const transport: TransportUpload = async () => ({ statut: 502, corps: '<html>' });
+    const transport: TransportUpload = async () => ({ status: 502, body: '<html>' });
     const { client } = clientAuthentifie({});
-    await assert.rejects(definirAvatar({ client, transport, fichier }), ErreurUpload);
+    await assert.rejects(setAvatar({ client, transport, file: fichier }), UploadError);
   });
 });
 
@@ -149,14 +149,14 @@ describe('urlFichierProtege', () => {
   test('ajoute rc_uid et rc_token — FileUpload_ProtectFiles les exige', () => {
     const { client } = clientAuthentifie({});
     assert.equal(
-      urlFichierProtege(client, '/file-upload/f1/mini.png'),
+      protectedFileUrl(client, '/file-upload/f1/mini.png'),
       'http://x/file-upload/f1/mini.png?rc_uid=uid-alice&rc_token=jeton-alice',
     );
   });
 
   test('respecte une query déjà présente', () => {
     const { client } = clientAuthentifie({});
-    assert.match(urlFichierProtege(client, '/file-upload/f1/x.png?a=1'), /\?a=1&rc_uid=/);
+    assert.match(protectedFileUrl(client, '/file-upload/f1/x.png?a=1'), /\?a=1&rc_uid=/);
   });
 
   test('un chemin ABSOLU vers un autre hôte ne reçoit PAS le jeton', () => {
@@ -164,24 +164,24 @@ describe('urlFichierProtege', () => {
     // accepte tel quel : un lien absolu forgé repartait d'ici avec rc_uid et
     // rc_token collés dessus, et une `<Image>` les livrait à cet hôte.
     const { client } = clientAuthentifie({});
-    const url = urlFichierProtege(client, 'https://evil.example/collecte.png');
+    const url = protectedFileUrl(client, 'https://evil.example/collecte.png');
     assert.equal(url, 'https://evil.example/collecte.png');
     assert.ok(!url.includes('rc_token'));
   });
 
   test('un hôte dont le nôtre est un préfixe reste un autre hôte', () => {
     const { client } = clientAuthentifie({});
-    assert.ok(!urlFichierProtege(client, 'http://x.evil.example/f.png').includes('rc_token'));
+    assert.ok(!protectedFileUrl(client, 'http://x.evil.example/f.png').includes('rc_token'));
   });
 
   test("un userinfo qui imite notre hôte n'obtient rien non plus", () => {
     const { client } = clientAuthentifie({});
-    assert.ok(!urlFichierProtege(client, 'http://x@evil.example/f.png').includes('rc_token'));
+    assert.ok(!protectedFileUrl(client, 'http://x@evil.example/f.png').includes('rc_token'));
   });
 
   test('une URL absolue vers NOTRE serveur reste authentifiée', () => {
     const { client } = clientAuthentifie({});
-    assert.match(urlFichierProtege(client, 'http://x/file-upload/f1/x.png'), /rc_token=jeton-alice/);
+    assert.match(protectedFileUrl(client, 'http://x/file-upload/f1/x.png'), /rc_token=jeton-alice/);
   });
 });
 

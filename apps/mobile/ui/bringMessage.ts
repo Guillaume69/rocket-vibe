@@ -9,31 +9,31 @@
  * chaque page est une requête REST, et la route est limitée à 10 par minute.
  */
 
-import { pageARecule } from './roomPagination.ts';
+import { pageMovedBack } from './roomPagination.ts';
 
-export const PAGES_MAX_SAUT = 4;
+export const MAX_JUMP_PAGES = 4;
 
-export async function amenerMessage(options: {
-  horodatage: number;
+export async function bringMessage(options: {
+  ts: number;
   /** Nombre de messages du flux principal PLUS RÉCENTS que la cible, ou `null` si elle n'est pas en base. */
-  rang: () => Promise<number | null>;
+  rank: () => Promise<number | null>;
   /** Horodatage du plus vieux message local du salon, `null` si aucun. */
-  plusVieux: () => Promise<number | null>;
+  older: () => Promise<number | null>;
   /** Charge la page d'historique antérieure à `latest` (ms). */
-  chargerPage: (latest: number) => Promise<{ plusAncien: number | null }>;
+  loadPage: (latest: number) => Promise<{ oldest: number | null }>;
   pagesMax?: number;
 }): Promise<number | null> {
-  const pagesMax = options.pagesMax ?? PAGES_MAX_SAUT;
-  let rang = await options.rang();
+  const pagesMax = options.pagesMax ?? MAX_JUMP_PAGES;
+  let rang = await options.rank();
   for (let page = 0; rang === null && page < pagesMax; page++) {
-    const borne = await options.plusVieux();
+    const borne = await options.older();
     // Déjà remonté au-delà de la cible sans la trouver : elle n'est pas dans
     // le flux principal (réponse de fil, message supprimé). Charger plus n'y
     // changerait rien.
-    if (borne === null || borne < options.horodatage) return null;
-    const { plusAncien } = await options.chargerPage(borne);
-    rang = await options.rang();
-    if (rang === null && !pageARecule(plusAncien, borne)) return null;
+    if (borne === null || borne < options.ts) return null;
+    const { oldest: plusAncien } = await options.loadPage(borne);
+    rang = await options.rank();
+    if (rang === null && !pageMovedBack(plusAncien, borne)) return null;
   }
   return rang;
 }

@@ -11,50 +11,50 @@
  * d'erreur.
  */
 
-import { sansPrefixeCitation } from './quote.ts';
-import { jointeAPartager } from './attachment.ts';
-import { TYPE_CHIFFRE } from './normalize.ts';
-import { ErreurRest } from './rest.ts';
+import { stripQuotePrefix } from './quote.ts';
+import { attachmentToShare } from './attachment.ts';
+import { ENCRYPTED_TYPE } from './normalize.ts';
+import { RestError } from './rest.ts';
 
-export type ReglesMessages = {
-  editionAutorisee: boolean;
+export type MessageRules = {
+  editAllowed: boolean;
   /** 0 = pas de limite. */
-  minutesBlocageEdition: number;
-  suppressionAutorisee: boolean;
-  minutesBlocageSuppression: number;
-  epinglageAutorise: boolean;
-  etoilageAutorise: boolean;
+  editBlockMinutes: number;
+  deleteAllowed: boolean;
+  deleteBlockMinutes: number;
+  pinAllowed: boolean;
+  starAllowed: boolean;
 };
 
-export type ContexteAction = {
+export type ActionContext = {
   /**
    * `texte` sert à distinguer un message chiffré LISIBLE (déchiffré en base par
    * `deverrouillageE2E`) d'un message encore opaque — voir la garde de
    * `actionsPossibles`.
    */
   message: {
-    auteurId: string;
-    horodatage: number;
-    typeSysteme: string | null;
-    texte: string | null;
-    piecesJointes: string | null;
-    epingle: boolean;
+    authorId: string;
+    ts: number;
+    systemType: string | null;
+    text: string | null;
+    attachments: string | null;
+    pinned: boolean;
     /** Étoilé par MOI (`lib/marks.ts`). */
-    etoile: boolean;
+    starred: boolean;
   };
-  moi: string;
-  regles: ReglesMessages;
+  me: string;
+  rules: MessageRules;
   /** Permissions accordées dans ce salon ; `null` : pas (encore) connues. */
   permissions: string[] | null;
-  lectureSeule: boolean;
+  readOnly: boolean;
   /**
    * Salon chiffré : on y répond dans un fil, pas en citant — la citation est
    * une carte que le serveur bâtit depuis le texte, et il ne lit pas celui-ci.
    */
-  chiffre: boolean;
+  encrypted: boolean;
   /** Feuille ouverte depuis l'écran d'un fil : on y répond déjà. */
-  dansUnFil: boolean;
-  maintenant: number;
+  inThread: boolean;
+  now: number;
 };
 
 export type ActionMessage =
@@ -71,14 +71,14 @@ export type ActionMessage =
   | 'etoiler'
   | 'desetoiler';
 
-function dansLeDelai(contexte: ContexteAction, minutes: number): boolean {
+function dansLeDelai(contexte: ActionContext, minutes: number): boolean {
   if (minutes <= 0) return true; // 0 = illimité
-  return contexte.maintenant - contexte.message.horodatage <= minutes * 60_000;
+  return contexte.now - contexte.message.ts <= minutes * 60_000;
 }
 
-export function actionsPossibles(contexte: ContexteAction): ActionMessage[] {
+export function actionsPossibles(contexte: ActionContext): ActionMessage[] {
   const actions: ActionMessage[] = [];
-  const { message, moi, regles, permissions, lectureSeule, chiffre, dansUnFil } = contexte;
+  const { message, me: moi, rules: regles, permissions, readOnly: lectureSeule, encrypted: chiffre, inThread: dansUnFil } = contexte;
 
   // Un message système ne se modifie pas, ne s'épingle pas, ne se commente
   // pas d'un emoji.
@@ -89,21 +89,21 @@ export function actionsPossibles(contexte: ContexteAction): ActionMessage[] {
   // ui/messageRow.tsx le rend comme n'importe quel autre message ; la sortie
   // sèche ci-dessous ouvrait donc une feuille d'actions VIDE sur la totalité
   // d'un salon chiffré.
-  const chiffreLisible = message.typeSysteme === TYPE_CHIFFRE && message.texte !== null;
-  if (message.typeSysteme !== null && !chiffreLisible) return actions;
+  const chiffreLisible = message.systemType === ENCRYPTED_TYPE && message.text !== null;
+  if (message.systemType !== null && !chiffreLisible) return actions;
 
   if (!lectureSeule) actions.push('reagir');
   // Répondre en citant (`lib/quote.ts`) : n'importe quel message d'autrui ou
   // de soi, tant qu'on PEUT poster dans le salon.
   if (!lectureSeule && !chiffre) actions.push('repondre');
   if (!lectureSeule && !dansUnFil) actions.push('repondreFil');
-  const texte = texteACopier(message.texte) !== null;
+  const texte = textToCopy(message.text) !== null;
   if (texte) actions.push('copier');
-  const fichier = jointeAPartager(message.piecesJointes) !== null;
+  const fichier = attachmentToShare(message.attachments) !== null;
   if (texte || fichier) actions.push('partager');
   if (fichier) actions.push('enregistrer');
 
-  const mien = message.auteurId === moi;
+  const mien = message.authorId === moi;
   // Inconnues : ses propres messages et l'épingle restent proposés, rien de plus.
   const a = (permission: string, siInconnue: boolean): boolean =>
     permissions === null ? siInconnue : permissions.includes(permission);
@@ -112,30 +112,30 @@ export function actionsPossibles(contexte: ContexteAction): ActionMessage[] {
   // d'autrui, DANS le délai ; `force-delete-message` supprime sans condition.
   const sansDelai = a('bypass-time-limit-edit-and-delete', false);
   if (
-    (a('edit-message', false) || (mien && regles.editionAutorisee)) &&
-    (sansDelai || dansLeDelai(contexte, regles.minutesBlocageEdition))
+    (a('edit-message', false) || (mien && regles.editAllowed)) &&
+    (sansDelai || dansLeDelai(contexte, regles.editBlockMinutes))
   ) {
     actions.push('modifier');
   }
   if (
     a('force-delete-message', false) ||
-    (regles.suppressionAutorisee &&
+    (regles.deleteAllowed &&
       (a('delete-message', false) || (mien && a('delete-own-message', true))) &&
-      (sansDelai || dansLeDelai(contexte, regles.minutesBlocageSuppression)))
+      (sansDelai || dansLeDelai(contexte, regles.deleteBlockMinutes)))
   ) {
     actions.push('supprimer');
   }
-  if (regles.epinglageAutorise && a('pin-message', true)) {
-    actions.push(message.epingle ? 'desepingler' : 'epingler');
+  if (regles.pinAllowed && a('pin-message', true)) {
+    actions.push(message.pinned ? 'desepingler' : 'epingler');
   }
-  if (regles.etoilageAutorise) actions.push(message.etoile ? 'desetoiler' : 'etoiler');
+  if (regles.starAllowed) actions.push(message.starred ? 'desetoiler' : 'etoiler');
 
   return actions;
 }
 
 /** Le texte que « Copier » et « Partager » emportent : sans le permalien de citation. */
-export function texteACopier(texte: string | null): string | null {
-  const mots = sansPrefixeCitation(texte ?? '').trim();
+export function textToCopy(texte: string | null): string | null {
+  const mots = stripQuotePrefix(texte ?? '').trim();
   return mots === '' ? null : mots;
 }
 
@@ -155,7 +155,7 @@ type LecteurMessage = {
  * Toute autre issue — message encore là, erreur réseau (statut 0), 429 —
  * vaut « on ne sait pas » : l'erreur d'origine reste la bonne réponse.
  */
-export async function messageDisparuDuServeur(
+export async function messageGoneFromServer(
   client: LecteurMessage,
   msgId: string,
 ): Promise<boolean> {
@@ -163,14 +163,14 @@ export async function messageDisparuDuServeur(
     await client.get('chat.getMessage', { params: { msgId } });
     return false;
   } catch (e) {
-    return e instanceof ErreurRest && e.statut === 400;
+    return e instanceof RestError && e.status === 400;
   }
 }
 
 type ReglagePublic = { _id?: string; value?: unknown };
 
 /** À croiser avec la lecture `count=0` de settings.public (le `query` est mort en 7.0). */
-export function reglesDepuisReglages(reglages: ReglagePublic[]): ReglesMessages {
+export function rulesFromSettings(reglages: ReglagePublic[]): MessageRules {
   const valeurs = new Map<string, unknown>();
   for (const r of reglages) {
     if (typeof r._id === 'string') valeurs.set(r._id, r.value);
@@ -180,11 +180,11 @@ export function reglesDepuisReglages(reglages: ReglagePublic[]): ReglesMessages 
     return typeof v === 'number' && Number.isFinite(v) ? v : 0;
   };
   return {
-    editionAutorisee: valeurs.get('Message_AllowEditing') !== false,
-    minutesBlocageEdition: nombre('Message_AllowEditing_BlockEditInMinutes'),
-    suppressionAutorisee: valeurs.get('Message_AllowDeleting') !== false,
-    minutesBlocageSuppression: nombre('Message_AllowDeleting_BlockDeleteInMinutes'),
-    epinglageAutorise: valeurs.get('Message_AllowPinning') !== false,
-    etoilageAutorise: valeurs.get('Message_AllowStarring') !== false,
+    editAllowed: valeurs.get('Message_AllowEditing') !== false,
+    editBlockMinutes: nombre('Message_AllowEditing_BlockEditInMinutes'),
+    deleteAllowed: valeurs.get('Message_AllowDeleting') !== false,
+    deleteBlockMinutes: nombre('Message_AllowDeleting_BlockDeleteInMinutes'),
+    pinAllowed: valeurs.get('Message_AllowPinning') !== false,
+    starAllowed: valeurs.get('Message_AllowStarring') !== false,
   };
 }

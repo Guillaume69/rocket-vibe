@@ -27,7 +27,7 @@
 let jeton = 0;
 
 /** À capturer au MONTAGE, à rendre au démontage — jamais relu entre les deux. */
-export function jetonSession(): number {
+export function sessionToken(): number {
   return jeton;
 }
 
@@ -36,6 +36,6 @@ export function jetonSession(): number {
  * elles-mêmes : ce qui vide un cache de session invalide forcément le jeton,
  * et l'oubli d'un des deux gestes ferait retomber le défaut.
  */
-export function invaliderJetonSession(): void {
+export function invalidateSessionToken(): void {
   jeton += 1;
 }

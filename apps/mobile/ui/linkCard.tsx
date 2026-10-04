@@ -20,47 +20,47 @@ import {
   View,
 } from 'react-native';
 
-import { apercusDeLien, type ApercuLien } from '../lib/linkPreview.ts';
+import { linkPreviews, type LinkPreview } from '../lib/linkPreview.ts';
 import { useT } from './i18n.ts';
-import { ouvrirLienExterne } from './externalLink.ts';
-import { type Couleurs, largeurDispoCorps, POLICES } from './theme.ts';
-import { useVisionneuse } from './imageViewer.tsx';
+import { openExternalLink } from './externalLink.ts';
+import { type Colors, availableBodyWidth, FONTS } from './theme.ts';
+import { useImageViewer } from './imageViewer.tsx';
 
 /** Rend un aperçu par lien exploitable dans `urls` (rien si aucun). */
-export function ApercusLien({
+export function LinkPreviews({
   c,
   urls,
-  surAppuiLong,
+  onLongPress: surAppuiLong,
 }: {
-  c: Couleurs;
+  c: Colors;
   urls: string | null;
-  surAppuiLong?: (() => void) | undefined;
+  onLongPress?: (() => void) | undefined;
 }) {
   const { width: largeurEcran } = useWindowDimensions();
-  const apercus = useMemo(() => apercusDeLien(urls), [urls]);
+  const apercus = useMemo(() => linkPreviews(urls), [urls]);
   if (apercus.length === 0) return null;
 
   // Même largeur disponible que les images jointes — voir `largeurDispoCorps`.
-  const largeurDispo = largeurDispoCorps(largeurEcran);
+  const largeurDispo = availableBodyWidth(largeurEcran);
 
   return (
-    <View style={styles.liste}>
+    <View style={styles.list}>
       {apercus.map((apercu, i) =>
         apercu.type === 'image' ? (
           <ApercuImage
             key={apercu.url + i}
             c={c}
             url={apercu.url}
-            largeurDispo={largeurDispo}
-            surAppuiLong={surAppuiLong}
+            availableWidth={largeurDispo}
+            onLongPress={surAppuiLong}
           />
         ) : (
           <ApercuCarte
             key={apercu.url + i}
             c={c}
-            apercu={apercu}
-            largeurDispo={largeurDispo}
-            surAppuiLong={surAppuiLong}
+            preview={apercu}
+            availableWidth={largeurDispo}
+            onLongPress={surAppuiLong}
           />
         ),
       )}
@@ -72,16 +72,16 @@ export function ApercusLien({
 function ApercuImage({
   c,
   url,
-  largeurDispo,
-  surAppuiLong,
+  availableWidth: largeurDispo,
+  onLongPress: surAppuiLong,
 }: {
-  c: Couleurs;
+  c: Colors;
   url: string;
-  largeurDispo: number;
-  surAppuiLong: (() => void) | undefined;
+  availableWidth: number;
+  onLongPress: (() => void) | undefined;
 }) {
   const t = useT();
-  const visionneuse = useVisionneuse();
+  const visionneuse = useImageViewer();
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const [erreur, setErreur] = useState(false);
 
@@ -115,7 +115,7 @@ function ApercuImage({
   return (
     <Pressable
       onPress={() =>
-        visionneuse.ouvrir({ uri: url, largeur: dims?.w ?? null, hauteur: dims?.h ?? null, titre: null })
+        visionneuse.open({ uri: url, width: dims?.w ?? null, height: dims?.h ?? null, title: null })
       }
       onLongPress={surAppuiLong}
       delayLongPress={350}
@@ -127,7 +127,7 @@ function ApercuImage({
         <View
           style={[
             styles.imageAttente,
-            { width: largeur, height: hauteur, backgroundColor: c.fondImageAttente },
+            { width: largeur, height: hauteur, backgroundColor: c.pendingImageBackground },
           ]}
         >
           <ActivityIndicator />
@@ -137,7 +137,7 @@ function ApercuImage({
           source={{ uri: url }}
           style={[
             styles.image,
-            { width: largeur, height: hauteur, backgroundColor: c.fondImageAttente },
+            { width: largeur, height: hauteur, backgroundColor: c.pendingImageBackground },
           ]}
           resizeMode="cover"
           onError={() => setErreur(true)}
@@ -150,33 +150,33 @@ function ApercuImage({
 /** Carte « unfurl » : bandeau optionnel + site + titre + description. */
 function ApercuCarte({
   c,
-  apercu,
-  largeurDispo,
-  surAppuiLong,
+  preview: apercu,
+  availableWidth: largeurDispo,
+  onLongPress: surAppuiLong,
 }: {
-  c: Couleurs;
-  apercu: Extract<ApercuLien, { type: 'carte' }>;
-  largeurDispo: number;
-  surAppuiLong: (() => void) | undefined;
+  c: Colors;
+  preview: Extract<LinkPreview, { type: 'carte' }>;
+  availableWidth: number;
+  onLongPress: (() => void) | undefined;
 }) {
   const t = useT();
   const [erreurImage, setErreurImage] = useState(false);
   const montreBandeau = apercu.image !== null && !erreurImage;
-  const nomAccessible = apercu.titre ?? apercu.site ?? t('carteLien.lienDefaut');
+  const nomAccessible = apercu.title ?? apercu.site ?? t('carteLien.lienDefaut');
 
   return (
     <Pressable
-      onPress={() => ouvrirLienExterne(apercu.url)}
+      onPress={() => openExternalLink(apercu.url)}
       onLongPress={surAppuiLong}
       delayLongPress={350}
       accessibilityRole="link"
       accessibilityLabel={t('carteLien.ouvrir', { nom: nomAccessible })}
-      style={[styles.carte, { width: largeurDispo, backgroundColor: c.carte, borderColor: c.bordure }]}
+      style={[styles.card, { width: largeurDispo, backgroundColor: c.card, borderColor: c.border }]}
     >
       {montreBandeau && (
         <Image
           source={{ uri: apercu.image! }}
-          style={[styles.bandeau, { backgroundColor: c.fondImageAttente }]}
+          style={[styles.banner, { backgroundColor: c.pendingImageBackground }]}
           resizeMode="cover"
           onError={() => setErreurImage(true)}
         />
@@ -187,13 +187,13 @@ function ApercuCarte({
             {apercu.site}
           </Text>
         )}
-        {apercu.titre !== null && (
-          <Text style={[styles.titre, { color: c.texte }]} numberOfLines={2}>
-            {apercu.titre}
+        {apercu.title !== null && (
+          <Text style={[styles.title, { color: c.text }]} numberOfLines={2}>
+            {apercu.title}
           </Text>
         )}
         {apercu.description !== null && (
-          <Text style={[styles.description, { color: c.texteSecondaire }]} numberOfLines={2}>
+          <Text style={[styles.description, { color: c.secondaryText }]} numberOfLines={2}>
             {apercu.description}
           </Text>
         )}
@@ -203,7 +203,7 @@ function ApercuCarte({
 }
 
 const styles = StyleSheet.create({
-  liste: { gap: 6, marginTop: 4 },
+  list: { gap: 6, marginTop: 4 },
   // Les fonds d'attente (`fondImageAttente`) viennent du thème, posés au rendu.
   image: { borderRadius: 10 },
   imageAttente: {
@@ -211,18 +211,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  carte: {
+  card: {
     maxWidth: '100%',
     borderRadius: 14,
     borderWidth: 1,
     overflow: 'hidden',
   },
-  bandeau: {
+  banner: {
     width: '100%',
     aspectRatio: 1.91, // ratio OpenGraph standard
   },
   texteCarte: { paddingHorizontal: 12, paddingVertical: 10, gap: 3 },
-  site: { fontFamily: POLICES.corpsSemi, fontSize: 11, letterSpacing: 0.3 },
-  titre: { fontFamily: POLICES.corpsFort, fontSize: 13.5, lineHeight: 18 },
-  description: { fontFamily: POLICES.corps, fontSize: 12.5, lineHeight: 17 },
+  site: { fontFamily: FONTS.corpsSemi, fontSize: 11, letterSpacing: 0.3 },
+  title: { fontFamily: FONTS.corpsFort, fontSize: 13.5, lineHeight: 18 },
+  description: { fontFamily: FONTS.body, fontSize: 12.5, lineHeight: 17 },
 });

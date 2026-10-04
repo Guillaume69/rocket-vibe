@@ -20,13 +20,13 @@
  */
 
 /** 5 min — la valeur par défaut de `Message_GroupingPeriod` côté Rocket.Chat. */
-export const FENETRE_GROUPE_MS = 5 * 60_000;
+export const GROUP_WINDOW_MS = 5 * 60_000;
 
 type Groupable = {
   id: string;
-  auteurId: string;
-  horodatage: number;
-  typeSysteme: string | null;
+  authorId: string;
+  ts: number;
+  systemType: string | null;
 };
 
 /**
@@ -35,7 +35,7 @@ type Groupable = {
  * inversée), l'écran fil en ASC (`'ancien-en-tete'`) — se tromper d'ordre
  * grouperait les messages sous leur SUIVANT, pas leur précédent.
  */
-export function idsSuites(
+export function continuationIds(
   lignes: readonly (Groupable | { id: string })[],
   ordre: 'recent-en-tete' | 'ancien-en-tete',
 ): Set<string> {
@@ -46,8 +46,8 @@ export function idsSuites(
     if (precedent === undefined) continue;
     if (!estMessage(courant) || !estMessage(precedent)) continue;
     if (!seGroupe(courant) || !seGroupe(precedent)) continue;
-    if (courant.auteurId !== precedent.auteurId) continue;
-    if (courant.horodatage - precedent.horodatage > FENETRE_GROUPE_MS) continue;
+    if (courant.authorId !== precedent.authorId) continue;
+    if (courant.ts - precedent.ts > GROUP_WINDOW_MS) continue;
     suites.add(courant.id);
   }
   return suites;
@@ -61,7 +61,7 @@ export function idsSuites(
  * DIRECT suffit : la dernière heure rendue au-dessus est forcément celle de la
  * chaîne (« même minute » est transitive).
  */
-export function idsHeuresRepetees(
+export function repeatedTimeIds(
   lignes: readonly (Groupable | { id: string })[],
   ordre: 'recent-en-tete' | 'ancien-en-tete',
   suites: ReadonlySet<string>,
@@ -72,7 +72,7 @@ export function idsHeuresRepetees(
     if (!suites.has(courant.id)) continue;
     const precedent = lignes[ordre === 'recent-en-tete' ? i + 1 : i - 1];
     if (precedent === undefined || !estMessage(courant) || !estMessage(precedent)) continue;
-    if (minuteAffichee(courant.horodatage) === minuteAffichee(precedent.horodatage)) {
+    if (minuteAffichee(courant.ts) === minuteAffichee(precedent.ts)) {
       repetees.add(courant.id);
     }
   }
@@ -91,10 +91,10 @@ function minuteAffichee(ms: number): number {
 }
 
 function seGroupe(m: Groupable): boolean {
-  return m.typeSysteme === null || m.typeSysteme === 'e2e';
+  return m.systemType === null || m.systemType === 'e2e';
 }
 
 /** Un message, par opposition aux lignes insérées (barre de non-lus, séparateur de jour). */
 function estMessage(l: Groupable | { id: string }): l is Groupable {
-  return typeof (l as Groupable).auteurId === 'string';
+  return typeof (l as Groupable).authorId === 'string';
 }

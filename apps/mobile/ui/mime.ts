@@ -8,7 +8,7 @@
  */
 
 /** Émoji d'après la famille MIME, pour les rendus non-image. */
-export function emojiFichier(type: string): string {
+export function fileEmoji(type: string): string {
   if (type.startsWith('video/')) return '🎬';
   if (type.startsWith('audio/')) return '🎵';
   if (type === 'application/pdf') return '📄';
@@ -18,7 +18,7 @@ export function emojiFichier(type: string): string {
 }
 
 /** Un type MIME d'image — rendu en vignette plutôt qu'en tuile à emoji. */
-export function estImage(type: string): boolean {
+export function isImage(type: string): boolean {
   return type.startsWith('image/');
 }
 
@@ -26,7 +26,7 @@ export function estImage(type: string): boolean {
  * Le format court d'une pièce (« PNG », « PDF », « M4A ») : l'extension du nom
  * quand il en a une, sinon le sous-type MIME débarrassé de ses préfixes.
  */
-export function formatCourt(nom: string, type: string): string | null {
+export function shortFormat(nom: string, type: string): string | null {
   const point = nom.lastIndexOf('.');
   const extension = point > 0 ? nom.slice(point + 1) : '';
   if (/^[a-z0-9]{1,5}$/i.test(extension)) return extension.toUpperCase();

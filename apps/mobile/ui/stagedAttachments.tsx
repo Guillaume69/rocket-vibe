@@ -12,48 +12,48 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 
 import {
-  ApercuPieceJointe,
-  formaterTaille,
-  PastilleQualite,
-  type FichierEnAttente,
+  AttachmentPreview,
+  formatSize,
+  QualityBadge,
+  type PendingFile,
 } from './attachmentPreview.tsx';
 import { useT } from './i18n.ts';
-import { emojiFichier, estImage, formatCourt } from './mime.ts';
-import type { QualiteEnvoi } from './attachmentQuality.ts';
-import { type Couleurs, POLICES } from './theme.ts';
+import { fileEmoji, isImage, shortFormat } from './mime.ts';
+import type { SendQuality } from './attachmentQuality.ts';
+import { type Colors, FONTS } from './theme.ts';
 
-export type PieceEnAttente = FichierEnAttente & { cle: number };
+export type StagedAttachment = PendingFile & { key: number };
 
-export function PiecesEnAttente({
+export function StagedAttachments({
   c,
-  pieces,
-  occupe,
-  onRetirer,
-  onOuvrir,
-  qualite,
-  surQualite,
+  attachments: pieces,
+  busy: occupe,
+  onRemove: onRetirer,
+  onOpen: onOuvrir,
+  quality: qualite,
+  onQuality: surQualite,
 }: {
-  c: Couleurs;
-  pieces: PieceEnAttente[];
+  c: Colors;
+  attachments: StagedAttachment[];
   /** Envoi en cours : retrait et choix de qualité gelés. */
-  occupe: boolean;
-  onRetirer: (cle: number) => void;
-  onOuvrir: (piece: PieceEnAttente) => void;
+  busy: boolean;
+  onRemove: (cle: number) => void;
+  onOpen: (piece: StagedAttachment) => void;
   /** `null` quand aucune pièce n'est réductible. Vaut pour toutes celles qui le sont. */
-  qualite: QualiteEnvoi | null;
-  surQualite: (qualite: QualiteEnvoi) => void;
+  quality: SendQuality | null;
+  onQuality: (qualite: SendQuality) => void;
 }) {
   const vocaux = pieces.filter((p) => p.type.startsWith('audio/'));
   const autres = pieces.filter((p) => !p.type.startsWith('audio/'));
   return (
     <View>
       {vocaux.map((p) => (
-        <ApercuPieceJointe
-          key={p.cle}
+        <AttachmentPreview
+          key={p.key}
           c={c}
-          fichier={p}
-          occupe={occupe}
-          onRetirer={() => onRetirer(p.cle)}
+          file={p}
+          busy={occupe}
+          onRemove={() => onRetirer(p.key)}
         />
       ))}
       {autres.length > 0 && (
@@ -62,29 +62,29 @@ export function PiecesEnAttente({
             horizontal
             showsHorizontalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.rangee}
+            contentContainerStyle={styles.row}
           >
             {autres.map((p) => (
               <Pastille
-                key={p.cle}
+                key={p.key}
                 c={c}
-                piece={p}
-                occupe={occupe}
-                onRetirer={() => onRetirer(p.cle)}
-                onOuvrir={() => onOuvrir(p)}
+                attachment={p}
+                busy={occupe}
+                onRemove={() => onRetirer(p.key)}
+                onOpen={() => onOuvrir(p)}
               />
             ))}
           </ScrollView>
           {qualite !== null && (
-            <View style={styles.qualites}>
+            <View style={styles.qualities}>
               {(['reduite', 'originale'] as const).map((q) => (
-                <PastilleQualite
+                <QualityBadge
                   key={q}
                   c={c}
-                  quelle={q}
-                  choisie={qualite === q}
-                  occupe={occupe}
-                  surChoisir={surQualite}
+                  which={q}
+                  chosen={qualite === q}
+                  busy={occupe}
+                  onPick={surQualite}
                 />
               ))}
             </View>
@@ -97,24 +97,24 @@ export function PiecesEnAttente({
 
 function Pastille({
   c,
-  piece,
-  occupe,
-  onRetirer,
-  onOuvrir,
+  attachment: piece,
+  busy: occupe,
+  onRemove: onRetirer,
+  onOpen: onOuvrir,
 }: {
-  c: Couleurs;
-  piece: PieceEnAttente;
-  occupe: boolean;
-  onRetirer: () => void;
-  onOuvrir: () => void;
+  c: Colors;
+  attachment: StagedAttachment;
+  busy: boolean;
+  onRemove: () => void;
+  onOpen: () => void;
 }) {
   const t = useT();
   // Une vidéo locale a sa première image décodée par le pipeline d'images
   // d'Android ; ailleurs (ou en cas d'échec), la tuile à emoji.
   const [sansVignette, setSansVignette] = useState(false);
   const vignette =
-    !sansVignette && (estImage(piece.type) || piece.type.startsWith('video/'));
-  const meta = [formatCourt(piece.nom, piece.type), formaterTaille(piece.taille, t)]
+    !sansVignette && (isImage(piece.type) || piece.type.startsWith('video/'));
+  const meta = [shortFormat(piece.name, piece.type), formatSize(piece.size, t)]
     .filter((x) => x !== null)
     .join(' ');
 
@@ -123,37 +123,37 @@ function Pastille({
       entering={FadeIn.duration(180)}
       exiting={FadeOut.duration(140)}
       layout={LinearTransition.duration(180)}
-      style={[styles.pastille, { backgroundColor: c.carte, borderColor: c.bordure }]}
+      style={[styles.badge, { backgroundColor: c.card, borderColor: c.border }]}
     >
       <Pressable
         onPress={onOuvrir}
-        style={({ pressed }) => [styles.corps, { opacity: pressed ? 0.7 : 1 }]}
+        style={({ pressed }) => [styles.body, { opacity: pressed ? 0.7 : 1 }]}
         accessibilityRole="button"
-        accessibilityLabel={t('apercuPieceJointe.apercu', { nom: piece.nom })}
+        accessibilityLabel={t('apercuPieceJointe.apercu', { nom: piece.name })}
       >
         {vignette ? (
           <Image
             source={{ uri: piece.uri }}
-            style={styles.vignette}
+            style={styles.thumbnail}
             resizeMode="cover"
             onError={() => setSansVignette(true)}
           />
         ) : (
           <LinearGradient
-            colors={c.degradeNeutre}
+            colors={c.neutralGradient}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={styles.vignette}
+            style={styles.thumbnail}
           >
-            <Text style={styles.emoji}>{emojiFichier(piece.type)}</Text>
+            <Text style={styles.emoji}>{fileEmoji(piece.type)}</Text>
           </LinearGradient>
         )}
         <View style={styles.infos}>
-          <Text style={[styles.nom, { color: c.texte }]} numberOfLines={1} ellipsizeMode="middle">
-            {piece.nom}
+          <Text style={[styles.name, { color: c.text }]} numberOfLines={1} ellipsizeMode="middle">
+            {piece.name}
           </Text>
           {meta !== '' && (
-            <Text style={[styles.meta, { color: c.attenue }]} numberOfLines={1}>
+            <Text style={[styles.meta, { color: c.dimmed }]} numberOfLines={1}>
               {meta}
             </Text>
           )}
@@ -165,17 +165,17 @@ function Pastille({
         hitSlop={8}
         accessibilityRole="button"
         accessibilityLabel={t('apercuPieceJointe.retirer')}
-        style={({ pressed }) => [styles.retirer, { opacity: occupe ? 0.4 : pressed ? 0.6 : 1 }]}
+        style={({ pressed }) => [styles.remove, { opacity: occupe ? 0.4 : pressed ? 0.6 : 1 }]}
       >
-        <Text style={[styles.retirerGlyphe, { color: c.texteSecondaire }]}>✕</Text>
+        <Text style={[styles.removeGlyph, { color: c.secondaryText }]}>✕</Text>
       </Pressable>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  rangee: { gap: 8, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 6 },
-  pastille: {
+  row: { gap: 8, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 6 },
+  badge: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
@@ -184,8 +184,8 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     maxWidth: 240,
   },
-  corps: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
-  vignette: {
+  body: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
+  thumbnail: {
     width: 40,
     height: 40,
     borderRadius: 9,
@@ -195,9 +195,9 @@ const styles = StyleSheet.create({
   },
   emoji: { fontSize: 20 },
   infos: { flexShrink: 1, minWidth: 0, gap: 1 },
-  nom: { fontFamily: POLICES.corpsGras, fontSize: 13 },
-  meta: { fontFamily: POLICES.corps, fontSize: 11 },
-  retirer: { paddingHorizontal: 10, paddingVertical: 8 },
-  retirerGlyphe: { fontFamily: POLICES.corpsSemi, fontSize: 14 },
-  qualites: { flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingBottom: 4 },
+  name: { fontFamily: FONTS.corpsGras, fontSize: 13 },
+  meta: { fontFamily: FONTS.body, fontSize: 11 },
+  remove: { paddingHorizontal: 10, paddingVertical: 8 },
+  removeGlyph: { fontFamily: FONTS.corpsSemi, fontSize: 14 },
+  qualities: { flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingBottom: 4 },
 });

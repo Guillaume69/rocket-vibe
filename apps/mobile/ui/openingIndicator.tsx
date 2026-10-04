@@ -13,19 +13,19 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 
-import { sabonnerOuvertureProfil } from '../lib/profilePreload.ts';
-import { useCouleurs } from './theme.ts';
+import { subscribeProfileOpening } from '../lib/profilePreload.ts';
+import { useColors } from './theme.ts';
 
-export function IndicateurOuvertureProfil() {
-  const c = useCouleurs();
+export function ProfileOpeningIndicator() {
+  const c = useColors();
   const [actif, setActif] = useState(false);
 
-  useEffect(() => sabonnerOuvertureProfil(setActif), []);
+  useEffect(() => subscribeProfileOpening(setActif), []);
 
   if (!actif) return null;
   return (
     <View style={styles.couche} pointerEvents="none">
-      <View style={[styles.pastille, { backgroundColor: c.carteProfonde }]}>
+      <View style={[styles.badge, { backgroundColor: c.deepCard }]}>
         <ActivityIndicator color={c.accent} />
       </View>
     </View>
@@ -42,7 +42,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pastille: {
+  badge: {
     padding: 18,
     borderRadius: 18,
     ...Platform.select({ ios: { boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.45)' }, default: { elevation: 8 } }),

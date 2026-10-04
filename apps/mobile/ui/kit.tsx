@@ -35,25 +35,25 @@ import Animated, {
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar } from '../lib/upload.ts';
 import { useEtagsAvatars } from './identities.tsx';
-import { useJour } from './i18n.ts';
-import { type Couleurs, degradeAvatar, type Degrade, POLICES } from './theme.ts';
+import { useDayFormatter } from './i18n.ts';
+import { type Colors, avatarGradient, type Gradient, FONTS } from './theme.ts';
 
 const DEBUT = { x: 0, y: 0 } as const;
 const FIN = { x: 1, y: 0 } as const;
 const FIN_DIAG = { x: 1, y: 1 } as const;
 
 /** Bouton d'action principale : fond en dégradé, texte Baloo 2. */
-export function BoutonPrincipal({
+export function PrimaryButton({
   c,
-  titre,
+  title: titre,
   onPress,
-  occupe = false,
+  busy: occupe = false,
   style,
 }: {
-  c: Couleurs;
-  titre: string;
+  c: Colors;
+  title: string;
   onPress: () => void;
-  occupe?: boolean;
+  busy?: boolean;
   style?: StyleProp<ViewStyle>;
 }) {
   return (
@@ -67,11 +67,11 @@ export function BoutonPrincipal({
         style,
       ]}
     >
-      <LinearGradient colors={c.degradeCta} start={DEBUT} end={FIN} style={styles.cta}>
+      <LinearGradient colors={c.ctaGradient} start={DEBUT} end={FIN} style={styles.cta}>
         {occupe ? (
-          <ActivityIndicator color={c.surAccent} />
+          <ActivityIndicator color={c.onAccent} />
         ) : (
-          <Text style={[styles.ctaTexte, { color: c.surAccent }]}>{titre}</Text>
+          <Text style={[styles.ctaTexte, { color: c.onAccent }]}>{titre}</Text>
         )}
       </LinearGradient>
     </Pressable>
@@ -79,19 +79,19 @@ export function BoutonPrincipal({
 }
 
 /** Logotype « rocket-vibe » rempli par le dégradé de marque (texte masqué). */
-export function Marque({
+export function Brand({
   c,
-  taille = 32,
-  texte = 'rocket-vibe',
+  size: taille = 32,
+  text: texte = 'rocket-vibe',
 }: {
-  c: Couleurs;
-  taille?: number;
-  texte?: string;
+  c: Colors;
+  size?: number;
+  text?: string;
 }) {
-  const styleTexte: TextStyle = { fontFamily: POLICES.titreFort, fontSize: taille, lineHeight: taille * 1.15 };
+  const styleTexte: TextStyle = { fontFamily: FONTS.titreFort, fontSize: taille, lineHeight: taille * 1.15 };
   return (
     <MaskedView maskElement={<Text style={styleTexte}>{texte}</Text>}>
-      <LinearGradient colors={c.degradeMarque} start={DEBUT} end={FIN}>
+      <LinearGradient colors={c.brandGradient} start={DEBUT} end={FIN}>
         {/* Le texte transparent donne sa taille au dégradé sous le masque. */}
         <Text style={[styleTexte, styles.invisible]}>{texte}</Text>
       </LinearGradient>
@@ -109,36 +109,36 @@ export function Marque({
  * serveur renvoie alors un SVG que `<Image>` ne décode pas, donc `onError`
  * démasque à nouveau le dégradé (voir `urlAvatar`).
  */
-export function TuileAvatar({
+export function AvatarTile({
   c,
-  cle,
-  initiale,
-  taille = 44,
-  rayon = 15,
-  neutre = false,
+  key: cle,
+  initial: initiale,
+  size: taille = 44,
+  radius: rayon = 15,
+  neutral: neutre = false,
   deg,
-  couleurTexte,
-  enfant,
+  textColor: couleurTexte,
+  child: enfant,
   uri,
   style,
 }: {
-  c: Couleurs;
+  c: Colors;
   /** Clé (nom, id) qui fixe la teinte. Optionnelle si `deg` ou `neutre` est fourni. */
-  cle?: string;
-  initiale?: string;
-  taille?: number;
-  rayon?: number;
-  neutre?: boolean;
+  key?: string;
+  initial?: string;
+  size?: number;
+  radius?: number;
+  neutral?: boolean;
   /** Dégradé IMPOSÉ (bouclier 2FA, etc.), court-circuite le choix par `cle`. */
-  deg?: Degrade;
-  couleurTexte?: string;
-  enfant?: ReactNode;
+  deg?: Gradient;
+  textColor?: string;
+  child?: ReactNode;
   /** Photo à superposer. `null`/absente → tuile seule. */
   uri?: string | null;
   style?: StyleProp<ViewStyle>;
 }) {
-  const gradient: Degrade =
-    deg ?? (neutre ? c.degradeNeutre : degradeAvatar(cle ?? '', c.avatarsDegrades));
+  const gradient: Gradient =
+    deg ?? (neutre ? c.neutralGradient : avatarGradient(cle ?? '', c.avatarGradients));
 
   // Une photo échouée (SVG placeholder, réseau) fait retomber sur la tuile. On
   // réarme à chaque changement d'`uri` — lignes de liste recyclées — via le
@@ -156,14 +156,14 @@ export function TuileAvatar({
       colors={gradient}
       start={DEBUT}
       end={FIN_DIAG}
-      style={[{ width: taille, height: taille, borderRadius: rayon }, styles.centre, style]}
+      style={[{ width: taille, height: taille, borderRadius: rayon }, styles.center, style]}
     >
       {enfant ?? (
         <Text
           style={{
-            fontFamily: POLICES.titreFort,
+            fontFamily: FONTS.titreFort,
             fontSize: taille * 0.4,
-            color: couleurTexte ?? c.surDegradeAvatar,
+            color: couleurTexte ?? c.onAvatarGradient,
           }}
           numberOfLines={1}
         >
@@ -187,28 +187,28 @@ export function TuileAvatar({
  * lettre pour un DM, `#` pour un canal. Règle unique, partagée par la liste et
  * l'en-tête du salon (sinon les deux dérivent).
  */
-export function AvatarSalon({
+export function RoomAvatar({
   c,
-  nom,
+  name: nom,
   type,
-  chiffre,
-  chiffreDeverrouille = false,
+  encrypted: chiffre,
+  encryptedUnlocked: chiffreDeverrouille = false,
   rid,
-  dmAutreUid,
+  dmOtherUid: dmAutreUid,
   avatarEtag,
   client,
-  taille = 44,
-  rayon = 15,
+  size: taille = 44,
+  radius: rayon = 15,
 }: {
-  c: Couleurs;
-  nom: string;
+  c: Colors;
+  name: string;
   type: string | undefined;
-  chiffre: boolean;
+  encrypted: boolean;
   /** E2EE déverrouillé sur l'appareil : cadenas OUVERT plutôt que fermé. */
-  chiffreDeverrouille?: boolean;
+  encryptedUnlocked?: boolean;
   rid: string | undefined;
   /** L'autre participant d'un DM à deux, pour viser sa photo par uid. */
-  dmAutreUid: string | null | undefined;
+  dmOtherUid: string | null | undefined;
   /**
    * `avatarETag` du SALON (colonne `salons.avatar_etag`), sans quoi l'URI de sa
    * photo ne bougerait jamais. Pour un DM, c'est la photo de l'AUTRE qui est
@@ -221,8 +221,8 @@ export function AvatarSalon({
    */
   avatarEtag: string | null | undefined;
   client: ClientRest;
-  taille?: number;
-  rayon?: number;
+  size?: number;
+  radius?: number;
 }) {
   const etags = useEtagsAvatars();
   // Salon chiffré VERROUILLÉ : tuile grise + cadenas fermé (illisible).
@@ -231,12 +231,12 @@ export function AvatarSalon({
   // `🔒` seuls étaient trop proches à cette taille pour signaler l'état.
   if (chiffre && !chiffreDeverrouille) {
     return (
-      <TuileAvatar
+      <AvatarTile
         c={c}
-        neutre
-        taille={taille}
-        rayon={rayon}
-        enfant={<Text style={{ fontSize: Math.round(taille * 0.42) }}>🔒</Text>}
+        neutral
+        size={taille}
+        radius={rayon}
+        child={<Text style={{ fontSize: Math.round(taille * 0.42) }}>🔒</Text>}
       />
     );
   }
@@ -248,18 +248,18 @@ export function AvatarSalon({
     estDM
       ? {
           uid: dmAutreUid,
-          etag: typeof dmAutreUid === 'string' ? etags.parUid.get(dmAutreUid) : null,
+          etag: typeof dmAutreUid === 'string' ? etags.byUid.get(dmAutreUid) : null,
         }
       : { rid, etag: avatarEtag },
   );
   return (
-    <TuileAvatar
+    <AvatarTile
       c={c}
-      cle={nom}
-      initiale={estDM ? nom.charAt(0) || '?' : '#'}
+      key={nom}
+      initial={estDM ? nom.charAt(0) || '?' : '#'}
       uri={uri}
-      taille={taille}
-      rayon={rayon}
+      size={taille}
+      radius={rayon}
     />
   );
 }
@@ -278,7 +278,7 @@ const COMETE_LARGEUR = 120;
  * fournit `actif` (via `useActivite`) : allumage → balayage en boucle + fondu
  * d'entrée ; extinction → fondu de sortie, puis la boucle est coupée.
  */
-export function BarreSynchro({ c, actif }: { c: Couleurs; actif: boolean }) {
+export function SyncBar({ c, active: actif }: { c: Colors; active: boolean }) {
   // Largeur réelle mesurée (onLayout) : le balayage va de tout-à-gauche
   // (hors piste) à tout-à-droite, indépendant de la taille d'écran.
   const largeur = useSharedValue(0);
@@ -309,7 +309,7 @@ export function BarreSynchro({ c, actif }: { c: Couleurs; actif: boolean }) {
     ],
   }));
 
-  const degradeComete: Degrade = [c.accent + '00', c.accent, c.violet, c.cyan, c.cyan + '00'];
+  const degradeComete: Gradient = [c.accent + '00', c.accent, c.purple, c.cyan, c.cyan + '00'];
 
   return (
     <View
@@ -346,7 +346,7 @@ export function BarreSynchro({ c, actif }: { c: Couleurs; actif: boolean }) {
  * au montage — l'animation de la PREMIÈRE apparition est alors déjà juste — et
  * pouvoir jouer le repli quand `phrase` repasse à `null`.
  */
-export function IndicateurSaisie({ c, phrase }: { c: Couleurs; phrase: string | null }) {
+export function TypingIndicator({ c, phrase }: { c: Colors; phrase: string | null }) {
   const actif = phrase !== null;
   // Retenir la dernière phrase le temps du repli : le texte ne doit pas
   // s'effacer d'un coup avant que la pastille se soit résorbée. Ajusté PENDANT
@@ -389,19 +389,19 @@ export function IndicateurSaisie({ c, phrase }: { c: Couleurs; phrase: string | 
           style={[
             styles.saisiePastille,
             {
-              backgroundColor: c.carte,
-              borderColor: c.bordure,
-              boxShadow: `0px 6px 16px -6px ${c.ombrePortee}`,
+              backgroundColor: c.card,
+              borderColor: c.border,
+              boxShadow: `0px 6px 16px -6px ${c.dropShadow}`,
             },
           ]}
         >
-          <Text style={[styles.saisieTexte, { color: c.texteSecondaire }]} numberOfLines={1}>
+          <Text style={[styles.saisieTexte, { color: c.secondaryText }]} numberOfLines={1}>
             {texte}
           </Text>
           <View style={styles.saisiePoints}>
-            <PointSaisie c={c} rang={0} />
-            <PointSaisie c={c} rang={1} />
-            <PointSaisie c={c} rang={2} />
+            <PointSaisie c={c} rank={0} />
+            <PointSaisie c={c} rank={1} />
+            <PointSaisie c={c} rank={2} />
           </View>
         </View>
       </View>
@@ -410,7 +410,7 @@ export function IndicateurSaisie({ c, phrase }: { c: Couleurs; phrase: string | 
 }
 
 /** Un point de l'indicateur : pulse opacité + petit saut, en boucle. */
-function PointSaisie({ c, rang }: { c: Couleurs; rang: number }) {
+function PointSaisie({ c, rank: rang }: { c: Colors; rank: number }) {
   const v = useSharedValue(0);
   useEffect(() => {
     // Décalage initial UNE fois, HORS de la boucle : les trois points gardent
@@ -438,11 +438,11 @@ function PointSaisie({ c, rang }: { c: Couleurs; rang: number }) {
  * fallu ~50 px, presque l'avatar). Une forme convexe, elle, s'étire avec son
  * contenu : `minWidth` la garde ronde à un chiffre, le padding fait le reste.
  */
-export function BadgeNonLus({ c, n }: { c: Couleurs; n: number }) {
+export function UnreadBadge({ c, n }: { c: Colors; n: number }) {
   if (n < 1) return null;
   return (
-    <View style={[styles.badgeNonLus, { backgroundColor: c.jaune }]}>
-      <Text style={[styles.badgeNonLusTexte, { color: c.surJaune }]}>{n > 99 ? '99+' : n}</Text>
+    <View style={[styles.badgeNonLus, { backgroundColor: c.yellow }]}>
+      <Text style={[styles.badgeNonLusTexte, { color: c.onYellow }]}>{n > 99 ? '99+' : n}</Text>
     </View>
   );
 }
@@ -453,38 +453,38 @@ export function BadgeNonLus({ c, n }: { c: Couleurs; n: number }) {
  * silhouette que la barre « nouveaux messages » du salon, mais aux couleurs
  * discrètes : c'est un repère, pas une alerte.
  */
-export function SeparateurJour({ c, horodatage }: { c: Couleurs; horodatage: number }) {
-  const formatJour = useJour();
+export function DaySeparator({ c, ts: horodatage }: { c: Colors; ts: number }) {
+  const formatJour = useDayFormatter();
   return (
     <View style={styles.separateurJour}>
-      <View style={[styles.traitJour, { backgroundColor: c.bordure }]} />
-      <Text style={[styles.texteJour, { color: c.attenue }]}>{formatJour(horodatage)}</Text>
-      <View style={[styles.traitJour, { backgroundColor: c.bordure }]} />
+      <View style={[styles.traitJour, { backgroundColor: c.border }]} />
+      <Text style={[styles.texteJour, { color: c.dimmed }]}>{formatJour(horodatage)}</Text>
+      <View style={[styles.traitJour, { backgroundColor: c.border }]} />
     </View>
   );
 }
 
-export type PropsChampPilule = {
-  c: Couleurs;
-  etiquette: string;
-  valeur: string;
-  icone?: string;
+export type PillFieldProps = {
+  c: Colors;
+  label: string;
+  value: string;
+  icon?: string;
   /** Champ « code », gros et espacé (saisie d'un code 2FA). */
-  grand?: boolean;
+  large?: boolean;
   /** Champ multiligne (bio) : la pilule grandit, le texte s'aligne en haut. */
-  multiligne?: boolean;
+  multiline?: boolean;
 } & Omit<React.ComponentProps<typeof TextInput>, 'value' | 'style'>;
 
 /**
  * Champ en pilule : contour cyan et anneau au focus, comme le design. Partagé
  * par la connexion et l'écran « Mon profil » — une seule source pour le style.
  */
-export function ChampPilule({ c, etiquette, valeur, icone, grand, multiligne, ...props }: PropsChampPilule) {
+export function PillField({ c, label: etiquette, value: valeur, icon: icone, large: grand, multiline: multiligne, ...props }: PillFieldProps) {
   const [focus, setFocus] = useState(false);
   const champ = useRef<TextInput>(null);
   return (
     <View style={styles.groupeChamp}>
-      <Text style={[styles.champEtiquette, { color: c.attenue }]}>{etiquette}</Text>
+      <Text style={[styles.champEtiquette, { color: c.dimmed }]}>{etiquette}</Text>
       {/* Pressable : taper N'IMPORTE OÙ dans la pilule (padding, icône) focalise
           le champ — le padding vit sur l'enveloppe, pas sur l'input lui-même. */}
       <Pressable
@@ -492,7 +492,7 @@ export function ChampPilule({ c, etiquette, valeur, icone, grand, multiligne, ..
         style={[
           styles.pilule,
           multiligne === true && styles.piluleMultiligne,
-          { backgroundColor: c.carte, borderColor: focus ? c.cyan : c.bordure },
+          { backgroundColor: c.card, borderColor: focus ? c.cyan : c.border },
           // Anneau diffus au focus, DÉRIVÉ du token (`24` hex ≈ 14 % d'opacité).
           focus && { boxShadow: `0px 0px 0px 3px ${c.cyan}24` },
         ]}
@@ -504,7 +504,7 @@ export function ChampPilule({ c, etiquette, valeur, icone, grand, multiligne, ..
           autoCapitalize="none"
           autoCorrect={false}
           returnKeyType={multiligne === true ? 'default' : 'go'}
-          placeholderTextColor={c.texteTertiaire}
+          placeholderTextColor={c.tertiaryText}
           multiline={multiligne}
           {...props}
           onFocus={() => setFocus(true)}
@@ -512,7 +512,7 @@ export function ChampPilule({ c, etiquette, valeur, icone, grand, multiligne, ..
           style={[
             grand === true ? styles.saisieGrande : styles.saisie,
             multiligne === true && styles.saisieMultiligne,
-            { color: c.texte },
+            { color: c.text },
           ]}
         />
       </Pressable>
@@ -523,9 +523,9 @@ export function ChampPilule({ c, etiquette, valeur, icone, grand, multiligne, ..
 const styles = StyleSheet.create({
   ctaEnveloppe: { borderRadius: 16, overflow: 'hidden' },
   cta: { paddingVertical: 15, paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center', minHeight: 52 },
-  ctaTexte: { fontFamily: POLICES.titre, fontSize: 16 },
+  ctaTexte: { fontFamily: FONTS.title, fontSize: 16 },
   invisible: { opacity: 0 },
-  centre: { alignItems: 'center', justifyContent: 'center' },
+  center: { alignItems: 'center', justifyContent: 'center' },
   pisteSynchro: {
     position: 'absolute',
     left: 0,
@@ -560,7 +560,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     maxWidth: '100%',
   },
-  saisieTexte: { fontFamily: POLICES.corps, fontSize: 12, fontStyle: 'italic' },
+  saisieTexte: { fontFamily: FONTS.body, fontSize: 12, fontStyle: 'italic' },
   saisiePoints: { flexDirection: 'row', alignItems: 'flex-end', gap: 3, paddingBottom: 2 },
   saisiePoint: { width: 5, height: 5, borderRadius: 3 },
   badgeNonLus: {
@@ -573,12 +573,12 @@ const styles = StyleSheet.create({
   },
   // `lineHeight` explicite : sans lui, Android ajoute au Text le padding de
   // police de Nunito, asymétrique, et le chiffre se pose bas dans la capsule.
-  badgeNonLusTexte: { fontFamily: POLICES.corpsFort, fontSize: 12, lineHeight: 14 },
+  badgeNonLusTexte: { fontFamily: FONTS.corpsFort, fontSize: 12, lineHeight: 14 },
   separateurJour: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
   traitJour: { flex: 1, height: 1, borderRadius: 1 },
-  texteJour: { fontFamily: POLICES.corpsSemi, fontSize: 11.5 },
+  texteJour: { fontFamily: FONTS.corpsSemi, fontSize: 11.5 },
   groupeChamp: { gap: 6 },
-  champEtiquette: { fontFamily: POLICES.corpsGras, fontSize: 12.5, paddingLeft: 4 },
+  champEtiquette: { fontFamily: FONTS.corpsGras, fontSize: 12.5, paddingLeft: 4 },
   pilule: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -590,11 +590,11 @@ const styles = StyleSheet.create({
   },
   piluleMultiligne: { alignItems: 'flex-start' },
   champIcone: { fontSize: 14 },
-  saisie: { flex: 1, fontFamily: POLICES.corpsSemi, fontSize: 15, padding: 0 },
+  saisie: { flex: 1, fontFamily: FONTS.corpsSemi, fontSize: 15, padding: 0 },
   saisieMultiligne: { minHeight: 76, textAlignVertical: 'top', lineHeight: 21 },
   saisieGrande: {
     flex: 1,
-    fontFamily: POLICES.titre,
+    fontFamily: FONTS.title,
     fontSize: 26,
     letterSpacing: 8,
     textAlign: 'center',

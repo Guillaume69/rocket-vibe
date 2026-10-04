@@ -19,45 +19,45 @@ import { Redirect, Stack, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { preparerCodeDeuxFacteurs } from '../lib/auth.ts';
+import { prepareTwoFactorCode } from '../lib/auth.ts';
 import {
   diffInfos,
-  enregistrerInfos,
-  enregistrerStatut,
-  exigeMotDePasse,
-  type InfosDeBase,
-  lireMonIdentite,
-  lireMonProfil,
-  type MonProfil,
-  type StatutDefaut,
+  saveBasicInfo,
+  saveStatus,
+  requiresPassword,
+  type BasicInfo,
+  readMyIdentity,
+  readMyProfile,
+  type MyProfile,
+  type DefaultStatus,
 } from '../lib/myProfile.ts';
-import { ClientRest, ErreurDeuxFacteurs, type CodeDeuxFacteurs } from '../lib/rest.ts';
-import { hacher } from '../lib/sessionStore.ts';
-import { definirAvatar, type FichierAEnvoyer, urlAvatar } from '../lib/upload.ts';
-import { choisirAvatar } from '../ui/pickAvatar.ts';
-import { VueEvitantLeClavier } from '../ui/keyboard.tsx';
-import { traduireCourant, useT } from '../ui/i18n.ts';
-import { BoutonPrincipal, ChampPilule, TuileAvatar } from '../ui/kit.tsx';
-import type { CleTraduction } from '../ui/messages.ts';
+import { ClientRest, TwoFactorError, type TwoFactorCode } from '../lib/rest.ts';
+import { hash } from '../lib/sessionStore.ts';
+import { setAvatar, type FileToSend, urlAvatar } from '../lib/upload.ts';
+import { pickAvatar } from '../ui/pickAvatar.ts';
+import { KeyboardAvoidingContainer } from '../ui/keyboard.tsx';
+import { translateCurrent, useT } from '../ui/i18n.ts';
+import { PrimaryButton, PillField, AvatarTile } from '../ui/kit.tsx';
+import type { TranslationKey } from '../ui/messages.ts';
 import { useEtagsAvatars } from '../ui/identities.tsx';
-import { CLES_PRESENCE, couleursPresence } from '../ui/presence.ts';
+import { PRESENCE_KEYS, presenceColors } from '../ui/presence.ts';
 import { useSession } from '../ui/session.tsx';
-import { useSynchro } from '../ui/sync.tsx';
-import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
+import { useSync } from '../ui/sync.tsx';
+import { type Colors, LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
 import { transportAvatarExpo } from '../ui/transportUpload.ts';
-import { Appuyable } from '../ui/tappable.tsx';
+import { Tappable } from '../ui/tappable.tsx';
 
 /** Les quatre statuts choisissables — couleurs et libellés : ui/presence.ts. */
-const PRESENCES: readonly StatutDefaut[] = ['online', 'away', 'busy', 'offline'];
+const PRESENCES: readonly DefaultStatus[] = ['online', 'away', 'busy', 'offline'];
 
 /** Les clés `commun.presence*` sont en minuscule ; ici, entrées d'un sélecteur. */
 const capitaliser = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
-type Bandeau = { type: 'succes' | 'erreur' | 'info'; texte: string };
+type Bandeau = { type: 'succes' | 'erreur' | 'info'; text: string };
 
-export default function EcranMonProfil() {
-  const { etat } = useSession();
-  const c = useCouleurs();
+export default function MyProfileScreen() {
+  const { state: etat } = useSession();
+  const c = useColors();
   // Atteint depuis Paramètres ; un état déconnecté (déconnexion en cours)
   // renvoie au login plutôt que de crasher sur `client`.
   if (etat.phase !== 'connecte') return <Redirect href="/login" />;
@@ -69,33 +69,33 @@ function FormMonProfil({
   client,
   username,
 }: {
-  c: Couleurs;
+  c: Colors;
   client: ClientRest;
   username: string;
 }) {
   const t = useT();
   const routeur = useRouter();
-  const { majProfilSession } = useSession();
-  const synchro = useSynchro();
+  const { updateSessionProfile: majProfilSession } = useSession();
+  const synchro = useSync();
   // Le dépôt local, pour y ranger la version de ma photo après l'avoir changée.
   // `null` tant que la base n'est pas prête — l'enregistrement marche quand même,
   // le rattrapage du prochain raccordement (`me`) posera l'etag.
-  const depot = synchro.phase === 'pret' ? synchro.moteur.depotSynchro : null;
+  const depot = synchro.phase === 'pret' ? synchro.engine.syncStore : null;
   const etags = useEtagsAvatars();
   // `initial` = référence lue au chargement ; `form` = valeurs en cours d'édition.
   // Le diff des deux décide quels endpoints appeler. Après un enregistrement
   // réussi, `form` DEVIENT la nouvelle référence (le diff repart à zéro).
-  const [initial, setInitial] = useState<MonProfil | null>(null);
-  const [form, setForm] = useState<MonProfil | null>(null);
+  const [initial, setInitial] = useState<MyProfile | null>(null);
+  const [form, setForm] = useState<MyProfile | null>(null);
   const [chargeErreur, setChargeErreur] = useState<string | null>(null);
 
-  const [avatarLocal, setAvatarLocal] = useState<FichierAEnvoyer | null>(null);
+  const [avatarLocal, setAvatarLocal] = useState<FileToSend | null>(null);
   const [motDePasse, setMotDePasse] = useState('');
   const [occupe, setOccupe] = useState(false);
   const [bandeau, setBandeau] = useState<Bandeau | null>(null);
 
   // Second facteur demandé par `users.updateOwnBasicInfo` (e-mail/pseudo).
-  const [demande2FA, setDemande2FA] = useState<ErreurDeuxFacteurs | null>(null);
+  const [demande2FA, setDemande2FA] = useState<TwoFactorError | null>(null);
   const [code, setCode] = useState('');
 
   // Garde de réentrance en ref (pas dans `occupe`) : deux events d'une même
@@ -104,52 +104,52 @@ function FormMonProfil({
 
   useEffect(() => {
     let vivant = true;
-    lireMonProfil(client)
+    readMyProfile(client)
       .then((p) => {
         if (!vivant) return;
         setInitial(p);
         setForm(p);
       })
       .catch((e: unknown) => {
-        if (vivant) setChargeErreur(e instanceof Error ? e.message : traduireCourant('monProfil.profilIllisible'));
+        if (vivant) setChargeErreur(e instanceof Error ? e.message : translateCurrent('monProfil.profilIllisible'));
       });
     return () => {
       vivant = false;
     };
   }, [client]);
 
-  const majChamp = useCallback((champ: keyof MonProfil, valeur: string) => {
+  const majChamp = useCallback((champ: keyof MyProfile, valeur: string) => {
     setBandeau(null);
     setForm((f) => (f === null ? f : { ...f, [champ]: valeur }));
   }, []);
 
   const choisirPhoto = useCallback(async () => {
     try {
-      const f = await choisirAvatar();
+      const f = await pickAvatar();
       if (f !== null) {
         setAvatarLocal(f);
         setBandeau(null);
       }
     } catch (e) {
-      setBandeau({ type: 'erreur', texte: e instanceof Error ? e.message : t('monProfil.selectionImpossible') });
+      setBandeau({ type: 'erreur', text: e instanceof Error ? e.message : t('monProfil.selectionImpossible') });
     }
   }, [t]);
 
   const enregistrer = useCallback(
-    async (deuxFacteurs?: CodeDeuxFacteurs) => {
+    async (deuxFacteurs?: TwoFactorCode) => {
       if (form === null || initial === null || enVol.current) return;
 
       const infos = diffInfos(initial, form);
       const statutChange = form.status !== initial.status || form.statusText !== initial.statusText;
       const avatarChange = avatarLocal !== null;
       if (Object.keys(infos).length === 0 && !statutChange && !avatarChange) {
-        setBandeau({ type: 'info', texte: t('monProfil.rienAEnregistrer') });
+        setBandeau({ type: 'info', text: t('monProfil.rienAEnregistrer') });
         return;
       }
-      if (exigeMotDePasse(infos) && motDePasse.trim() === '') {
+      if (requiresPassword(infos) && motDePasse.trim() === '') {
         setBandeau({
           type: 'erreur',
-          texte: t('monProfil.mdpRequis'),
+          text: t('monProfil.mdpRequis'),
         });
         return;
       }
@@ -171,9 +171,9 @@ function FormMonProfil({
         // S'il la réclame, il lève AVANT tout effet de bord (statut, avatar) —
         // on prompte, puis on rejoue toute la fonction avec le code.
         if (Object.keys(infos).length > 0) {
-          const data: InfosDeBase = { ...infos };
-          if (exigeMotDePasse(infos)) data.currentPassword = await hacher(motDePasse);
-          await enregistrerInfos(client, data, deuxFacteurs);
+          const data: BasicInfo = { ...infos };
+          if (requiresPassword(infos)) data.currentPassword = await hash(motDePasse);
+          await saveBasicInfo(client, data, deuxFacteurs);
           setInitial((i) => (i === null ? i : { ...i, ...infos }));
           setMotDePasse('');
           // Le pseudo est porté par la session (Paramètres, avatar de cet
@@ -182,13 +182,13 @@ function FormMonProfil({
           if (infos.username !== undefined) await majProfilSession({ username: infos.username });
         }
         if (statutChange) {
-          await enregistrerStatut(client, { status: form.status, message: form.statusText });
+          await saveStatus(client, { status: form.status, message: form.statusText });
           setInitial((i) =>
             i === null ? i : { ...i, status: form.status, statusText: form.statusText },
           );
         }
         if (avatarChange) {
-          await definirAvatar({ client, transport: transportAvatarExpo, fichier: avatarLocal });
+          await setAvatar({ client, transport: transportAvatarExpo, file: avatarLocal });
           setAvatarLocal(null);
         }
 
@@ -200,24 +200,24 @@ function FormMonProfil({
         // visuel d'une socket qui peut être tombée. Best-effort : la photo est
         // déjà enregistrée côté serveur, l'échec ici ne remet rien en cause.
         if ((avatarChange || infos.username !== undefined) && depot !== null) {
-          const moi = await lireMonIdentite(client).catch(() => null);
-          if (moi !== null) await depot.enregistrerIdentite(moi).catch(() => {});
+          const moi = await readMyIdentity(client).catch(() => null);
+          if (moi !== null) await depot.saveIdentity(moi).catch(() => {});
         }
 
         setDemande2FA(null);
         setCode('');
-        setBandeau({ type: 'succes', texte: t('monProfil.profilEnregistre') });
+        setBandeau({ type: 'succes', text: t('monProfil.profilEnregistre') });
       } catch (e) {
-        if (e instanceof ErreurDeuxFacteurs) {
+        if (e instanceof TwoFactorError) {
           // Le serveur veut un second facteur — ou refuse celui qu'on vient
           // d'envoyer, auquel cas il relève la même erreur.
-          if (deuxFacteurs !== undefined) setBandeau({ type: 'erreur', texte: t('monProfil.codeRefuse') });
+          if (deuxFacteurs !== undefined) setBandeau({ type: 'erreur', text: t('monProfil.codeRefuse') });
           setCode('');
           setDemande2FA(e);
         } else {
           setBandeau({
             type: 'erreur',
-            texte: e instanceof Error ? e.message : t('monProfil.enregistrementImpossible'),
+            text: e instanceof Error ? e.message : t('monProfil.enregistrementImpossible'),
           });
         }
       } finally {
@@ -231,63 +231,63 @@ function FormMonProfil({
   const validerCode = useCallback(async () => {
     if (demande2FA === null || code.trim() === '') return;
     try {
-      const prepare = await preparerCodeDeuxFacteurs(demande2FA, code, hacher);
+      const prepare = await prepareTwoFactorCode(demande2FA, code, hash);
       await enregistrer(prepare);
     } catch (e) {
       setBandeau({
         type: 'erreur',
-        texte: e instanceof Error ? e.message : t('monProfil.preparationCodeImpossible'),
+        text: e instanceof Error ? e.message : t('monProfil.preparationCodeImpossible'),
       });
     }
   }, [demande2FA, code, enregistrer, t]);
 
   if (chargeErreur !== null) {
     return (
-      <VueEvitantLeClavier>
+      <KeyboardAvoidingContainer>
         <Stack.Screen options={{ title: t('monProfil.titre') }} />
-        <View style={styles.centre}>
-          <Text style={[styles.erreurCharge, { color: c.texteErreur }]}>{chargeErreur}</Text>
+        <View style={styles.center}>
+          <Text style={[styles.erreurCharge, { color: c.errorText }]}>{chargeErreur}</Text>
         </View>
-      </VueEvitantLeClavier>
+      </KeyboardAvoidingContainer>
     );
   }
 
   if (form === null) {
     return (
-      <VueEvitantLeClavier>
+      <KeyboardAvoidingContainer>
         <Stack.Screen options={{ title: t('monProfil.titre') }} />
-        <View style={styles.centre}>
+        <View style={styles.center}>
           <ActivityIndicator color={c.accent} />
         </View>
-      </VueEvitantLeClavier>
+      </KeyboardAvoidingContainer>
     );
   }
 
   const besoinMdp = form.email !== initial?.email || form.username !== initial?.username;
   const avatarUri =
-    avatarLocal?.uri ?? urlAvatar(client, { username, etag: etags.parUsername.get(username) });
+    avatarLocal?.uri ?? urlAvatar(client, { username, etag: etags.byUsername.get(username) });
 
   return (
-    <VueEvitantLeClavier>
+    <KeyboardAvoidingContainer>
       <Stack.Screen options={{ title: t('monProfil.titre') }} />
-      <ScrollView contentContainerStyle={styles.contenu} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {/* Avatar — tap pour changer. Aperçu immédiat de la photo choisie. */}
         <View style={styles.avatarBloc}>
           <Pressable
             onPress={() => void choisirPhoto()}
             accessibilityRole="button"
             accessibilityLabel={t('monProfil.changerPhotoLabel')}
-            style={({ pressed }) => pressed && styles.presse}
+            style={({ pressed }) => pressed && styles.pressed}
           >
-            <TuileAvatar
+            <AvatarTile
               c={c}
-              cle={username}
-              initiale={(form.name || username).charAt(0)}
-              taille={96}
-              rayon={30}
+              key={username}
+              initial={(form.name || username).charAt(0)}
+              size={96}
+              radius={30}
               uri={avatarUri}
             />
-            <View style={[styles.crayon, { backgroundColor: c.accent, borderColor: c.fond }]}>
+            <View style={[styles.crayon, { backgroundColor: c.accent, borderColor: c.background }]}>
               <Text style={styles.crayonGlyphe}>✎</Text>
             </View>
           </Pressable>
@@ -297,54 +297,54 @@ function FormMonProfil({
         </View>
 
         {/* Présence */}
-        <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('monProfil.sectionPresence')}</Text>
-        <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>
+        <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('monProfil.sectionPresence')}</Text>
+        <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
           {PRESENCES.map((p, i) => {
             const actif = form.status === p;
-            const libelle = capitaliser(t(CLES_PRESENCE[p]));
+            const libelle = capitaliser(t(PRESENCE_KEYS[p]));
             return (
               <View key={p} style={styles.enveloppePresence}>
-                <Appuyable
+                <Tappable
                   onPress={() => {
                     setBandeau(null);
                     setForm((f) => (f === null ? f : { ...f, status: p }));
                   }}
-                  android_ripple={{ color: c.ondulation }}
-                  unstable_pressDelay={DELAI_PRESSION_LISTE}
+                  android_ripple={{ color: c.ripple }}
+                  unstable_pressDelay={LIST_PRESS_DELAY}
                   accessibilityRole="radio"
                   accessibilityState={{ selected: actif }}
                   accessibilityLabel={libelle}
                   style={[
                     styles.presenceLigne,
                     i > 0 && {
-                      borderTopColor: c.bordureDouce,
+                      borderTopColor: c.softBorder,
                       borderTopWidth: StyleSheet.hairlineWidth,
                     },
                   ]}
                 >
-                  <View style={[styles.pastille, { backgroundColor: couleursPresence(c)[p] }]} />
+                  <View style={[styles.badge, { backgroundColor: presenceColors(c)[p] }]} />
                   <Text
                     style={[
                       styles.presenceTexte,
-                      { color: actif ? c.texte : c.texteSecondaire },
+                      { color: actif ? c.text : c.secondaryText },
                       actif && styles.presenceTexteActif,
                     ]}
                   >
                     {libelle}
                   </Text>
-                  <View style={[styles.radio, { borderColor: actif ? c.accent : c.bordure }]}>
-                    {actif && <View style={[styles.radioPoint, { backgroundColor: c.accent }]} />}
+                  <View style={[styles.radio, { borderColor: actif ? c.accent : c.border }]}>
+                    {actif && <View style={[styles.radioDot, { backgroundColor: c.accent }]} />}
                   </View>
-                </Appuyable>
+                </Tappable>
               </View>
             );
           })}
         </View>
 
-        <ChampPilule
+        <PillField
           c={c}
-          etiquette={t('monProfil.etiquetteStatut')}
-          valeur={form.statusText}
+          label={t('monProfil.etiquetteStatut')}
+          value={form.statusText}
           onChangeText={(v) => majChamp('statusText', v)}
           placeholder={t('monProfil.placeholderStatut')}
           autoCapitalize="sentences"
@@ -352,52 +352,52 @@ function FormMonProfil({
         />
 
         {/* Profil */}
-        <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('monProfil.sectionProfil')}</Text>
-        <ChampPilule
+        <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('monProfil.sectionProfil')}</Text>
+        <PillField
           c={c}
-          etiquette={t('monProfil.etiquetteNom')}
-          valeur={form.name}
+          label={t('monProfil.etiquetteNom')}
+          value={form.name}
           onChangeText={(v) => majChamp('name', v)}
           placeholder={t('monProfil.placeholderNom')}
           autoCapitalize="words"
         />
-        <ChampPilule
+        <PillField
           c={c}
-          etiquette={t('monProfil.etiquetteBio')}
-          valeur={form.bio}
+          label={t('monProfil.etiquetteBio')}
+          value={form.bio}
           onChangeText={(v) => majChamp('bio', v)}
           placeholder={t('monProfil.placeholderBio')}
           autoCapitalize="sentences"
           maxLength={260}
-          multiligne
+          multiline
         />
 
         {/* Compte — sensible : e-mail et nom d'utilisateur exigent le mot de passe. */}
-        <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('monProfil.sectionCompte')}</Text>
-        <Text style={[styles.aide, { color: c.attenue }]}>{t('monProfil.aideCompte')}</Text>
-        <ChampPilule
+        <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('monProfil.sectionCompte')}</Text>
+        <Text style={[styles.help, { color: c.dimmed }]}>{t('monProfil.aideCompte')}</Text>
+        <PillField
           c={c}
-          etiquette={t('monProfil.etiquetteEmail')}
-          valeur={form.email}
+          label={t('monProfil.etiquetteEmail')}
+          value={form.email}
           onChangeText={(v) => majChamp('email', v)}
           placeholder={t('monProfil.placeholderEmail')}
           keyboardType="email-address"
           autoComplete="email"
         />
-        <ChampPilule
+        <PillField
           c={c}
-          etiquette={t('monProfil.etiquetteUsername')}
-          valeur={form.username}
-          icone="@"
+          label={t('monProfil.etiquetteUsername')}
+          value={form.username}
+          icon="@"
           onChangeText={(v) => majChamp('username', v)}
           placeholder={t('monProfil.placeholderUsername')}
         />
         {besoinMdp && (
-          <ChampPilule
+          <PillField
             c={c}
-            etiquette={t('monProfil.etiquetteMdp')}
-            valeur={motDePasse}
-            icone="🔒"
+            label={t('monProfil.etiquetteMdp')}
+            value={motDePasse}
+            icon="🔒"
             onChangeText={setMotDePasse}
             placeholder="••••••••"
             autoComplete="current-password"
@@ -406,38 +406,38 @@ function FormMonProfil({
         )}
 
         {demande2FA !== null && (
-          <View style={[styles.carte2FA, { backgroundColor: c.carte, borderColor: c.violet }]}>
-            <Text style={[styles.titre2FA, { color: c.texte }]}>{t('monProfil.verificationRequise')}</Text>
-            <Text style={[styles.aide, { color: c.attenue }]}>{t(etiquette2FA(demande2FA.methode))}</Text>
-            <ChampPilule
+          <View style={[styles.carte2FA, { backgroundColor: c.card, borderColor: c.purple }]}>
+            <Text style={[styles.titre2FA, { color: c.text }]}>{t('monProfil.verificationRequise')}</Text>
+            <Text style={[styles.help, { color: c.dimmed }]}>{t(etiquette2FA(demande2FA.method))}</Text>
+            <PillField
               c={c}
-              etiquette={t('monProfil.etiquetteCode')}
-              valeur={code}
-              grand={demande2FA.methode !== 'password'}
+              label={t('monProfil.etiquetteCode')}
+              value={code}
+              large={demande2FA.method !== 'password'}
               onChangeText={setCode}
               onSubmitEditing={() => void validerCode()}
-              placeholder={demande2FA.methode === 'password' ? '••••••••' : '123456'}
-              keyboardType={demande2FA.methode === 'password' ? 'default' : 'number-pad'}
-              autoComplete={demande2FA.methode === 'password' ? 'current-password' : 'one-time-code'}
-              secureTextEntry={demande2FA.methode === 'password'}
+              placeholder={demande2FA.method === 'password' ? '••••••••' : '123456'}
+              keyboardType={demande2FA.method === 'password' ? 'default' : 'number-pad'}
+              autoComplete={demande2FA.method === 'password' ? 'current-password' : 'one-time-code'}
+              secureTextEntry={demande2FA.method === 'password'}
               autoFocus
             />
-            <BoutonPrincipal c={c} occupe={occupe} onPress={() => void validerCode()} titre={t('monProfil.validerCode')} />
+            <PrimaryButton c={c} busy={occupe} onPress={() => void validerCode()} title={t('monProfil.validerCode')} />
           </View>
         )}
 
         {bandeau !== null && (
           <View
             style={[
-              styles.bandeau,
+              styles.banner,
               {
-                backgroundColor: bandeau.type === 'erreur' ? c.carteErreur : c.carte,
+                backgroundColor: bandeau.type === 'erreur' ? c.errorCard : c.card,
                 borderColor:
                   bandeau.type === 'erreur'
                     ? c.danger
                     : bandeau.type === 'succes'
-                      ? c.enLigne
-                      : c.bordure,
+                      ? c.online
+                      : c.border,
               },
             ]}
           >
@@ -447,46 +447,46 @@ function FormMonProfil({
                 {
                   color:
                     bandeau.type === 'erreur'
-                      ? c.texteErreur
+                      ? c.errorText
                       : bandeau.type === 'succes'
-                        ? c.enLigne
-                        : c.texteSecondaire,
+                        ? c.online
+                        : c.secondaryText,
                 },
               ]}
             >
-              {bandeau.texte}
+              {bandeau.text}
             </Text>
           </View>
         )}
 
-        <BoutonPrincipal
+        <PrimaryButton
           c={c}
-          occupe={occupe}
+          busy={occupe}
           onPress={() => void enregistrer()}
-          titre={t('commun.enregistrer')}
-          style={styles.enregistrer}
+          title={t('commun.enregistrer')}
+          style={styles.save}
         />
         <Pressable onPress={() => routeur.back()} hitSlop={8}>
-          <Text style={[styles.annuler, { color: c.attenue }]}>{t('commun.annuler')}</Text>
+          <Text style={[styles.cancel, { color: c.dimmed }]}>{t('commun.annuler')}</Text>
         </Pressable>
       </ScrollView>
-    </VueEvitantLeClavier>
+    </KeyboardAvoidingContainer>
   );
 }
 
 /** Sous-titre du bloc 2FA selon la méthode réclamée par le serveur. */
-function etiquette2FA(methode: ErreurDeuxFacteurs['methode']): CleTraduction {
+function etiquette2FA(methode: TwoFactorError['method']): TranslationKey {
   if (methode === 'totp') return 'monProfil.aide2faTotp';
   if (methode === 'email') return 'monProfil.aide2faEmail';
   return 'monProfil.aide2faMdp';
 }
 
 const styles = StyleSheet.create({
-  contenu: { padding: 20, gap: 12, paddingBottom: 40 },
-  centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  erreurCharge: { fontFamily: POLICES.corpsGras, fontSize: 14, textAlign: 'center' },
+  content: { padding: 20, gap: 12, paddingBottom: 40 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  erreurCharge: { fontFamily: FONTS.corpsGras, fontSize: 14, textAlign: 'center' },
   avatarBloc: { alignItems: 'center', gap: 10, paddingVertical: 8 },
-  presse: { opacity: 0.7 },
+  pressed: { opacity: 0.7 },
   crayon: {
     position: 'absolute',
     right: -2,
@@ -499,16 +499,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   crayonGlyphe: { fontSize: 14, color: '#FFFFFF' },
-  changerPhoto: { fontFamily: POLICES.corpsGras, fontSize: 14 },
-  sectionTitre: {
-    fontFamily: POLICES.corpsFort,
+  changerPhoto: { fontFamily: FONTS.corpsGras, fontSize: 14 },
+  sectionTitle: {
+    fontFamily: FONTS.corpsFort,
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
     marginTop: 8,
     marginLeft: 4,
   },
-  carte: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 16 },
+  card: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 16 },
   // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
   // découpe l'ondulation — borderRadius sur le Pressable est ignoré par le
   // masque du ripple sous Fabric. Invisible au repos (pas de fond).
@@ -519,9 +519,9 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingVertical: 14,
   },
-  pastille: { width: 11, height: 11, borderRadius: 6 },
-  presenceTexte: { fontFamily: POLICES.corpsGras, fontSize: 15, flex: 1 },
-  presenceTexteActif: { fontFamily: POLICES.corpsFort },
+  badge: { width: 11, height: 11, borderRadius: 6 },
+  presenceTexte: { fontFamily: FONTS.corpsGras, fontSize: 15, flex: 1 },
+  presenceTexteActif: { fontFamily: FONTS.corpsFort },
   radio: {
     width: 22,
     height: 22,
@@ -530,12 +530,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  radioPoint: { width: 10, height: 10, borderRadius: 5 },
-  aide: { fontFamily: POLICES.corps, fontSize: 13, lineHeight: 18, marginLeft: 4 },
+  radioDot: { width: 10, height: 10, borderRadius: 5 },
+  help: { fontFamily: FONTS.body, fontSize: 13, lineHeight: 18, marginLeft: 4 },
   carte2FA: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 10, marginTop: 4 },
-  titre2FA: { fontFamily: POLICES.titre, fontSize: 17 },
-  bandeau: { borderRadius: 14, borderWidth: 1, padding: 14 },
-  bandeauTexte: { fontFamily: POLICES.corpsGras, fontSize: 14 },
-  enregistrer: { marginTop: 8 },
-  annuler: { fontFamily: POLICES.corpsGras, fontSize: 14, textAlign: 'center', paddingVertical: 12 },
+  titre2FA: { fontFamily: FONTS.title, fontSize: 17 },
+  banner: { borderRadius: 14, borderWidth: 1, padding: 14 },
+  bandeauTexte: { fontFamily: FONTS.corpsGras, fontSize: 14 },
+  save: { marginTop: 8 },
+  cancel: { fontFamily: FONTS.corpsGras, fontSize: 14, textAlign: 'center', paddingVertical: 12 },
 });

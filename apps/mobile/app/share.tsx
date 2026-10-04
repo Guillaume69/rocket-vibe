@@ -13,7 +13,7 @@
  */
 
 import { desc } from 'drizzle-orm';
-import { useRequeteVive } from '../ui/liveQuery.ts';
+import { useCoalescedLiveQuery } from '../ui/liveQuery.ts';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, useRouter } from 'expo-router';
 import { type ShareIntent, useShareIntentContext } from 'expo-share-intent';
@@ -31,23 +31,23 @@ import {
 } from 'react-native';
 
 import type { BaseLocale } from '../db/client.ts';
-import { abonnements, salons } from '../db/schema.ts';
-import type { Outbox, OutboxFichiers } from '../lib/provider.ts';
+import { subscriptions, rooms } from '../db/schema.ts';
+import type { Outbox, FileOutbox } from '../lib/provider.ts';
 import type { ClientRest } from '../lib/rest.ts';
-import { ApercuPieceJointe, type FichierEnAttente } from '../ui/attachmentPreview.tsx';
-import { VueEvitantLeClavier } from '../ui/keyboard.tsx';
-import { supprimerSiTemporaire } from '../ui/temporaryFiles.ts';
+import { AttachmentPreview, type PendingFile } from '../ui/attachmentPreview.tsx';
+import { KeyboardAvoidingContainer } from '../ui/keyboard.tsx';
+import { deleteIfTemporary } from '../ui/temporaryFiles.ts';
 import { useT } from '../ui/i18n.ts';
-import { AvatarSalon } from '../ui/kit.tsx';
-import { emojiFichier, estImage } from '../ui/mime.ts';
-import { compresserImageSiUtile } from '../ui/prepareAttachment.ts';
+import { RoomAvatar } from '../ui/kit.tsx';
+import { fileEmoji, isImage } from '../ui/mime.ts';
+import { compressImageIfUseful } from '../ui/prepareAttachment.ts';
 import { useSession } from '../ui/session.tsx';
-import { useSynchro } from '../ui/sync.tsx';
+import { useSync } from '../ui/sync.tsx';
 import { phraseValidation } from '../ui/fileValidation.ts';
-import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
-import { Appuyable } from '../ui/tappable.tsx';
+import { type Colors, LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
+import { Tappable } from '../ui/tappable.tsx';
 
-type LigneDeSalon = typeof salons.$inferSelect;
+type LigneDeSalon = typeof rooms.$inferSelect;
 
 /**
  * Pièce partagée, à clé stable. On sépare CE QU'ON AFFICHE de CE QU'ON ENVOIE :
@@ -58,12 +58,12 @@ type LigneDeSalon = typeof salons.$inferSelect;
  * plusieurs photos (toutes les images rechargent d'un coup en fin de
  * compression).
  */
-type PieceEnAttente = { cle: number; origine: FichierEnAttente; aEnvoyer: FichierEnAttente };
+type PieceEnAttente = { key: number; origin: PendingFile; toSend: PendingFile };
 
-export default function EcranPartager() {
-  const c = useCouleurs();
-  const { etat } = useSession();
-  const synchro = useSynchro();
+export default function ShareScreen() {
+  const c = useColors();
+  const { state: etat } = useSession();
+  const synchro = useSync();
   const { shareIntent, resetShareIntent } = useShareIntentContext();
   const t = useT();
 
@@ -78,14 +78,14 @@ export default function EcranPartager() {
   useEffect(() => () => resetRef.current(true), []);
 
   if (etat.phase === 'deconnecte') {
-    return <Message c={c} texte={t('partager.connecteToi')} />;
+    return <Message c={c} text={t('partager.connecteToi')} />;
   }
   if (synchro.phase === 'erreur') {
-    return <Message c={c} texte={synchro.message} />;
+    return <Message c={c} text={synchro.message} />;
   }
   if (etat.phase !== 'connecte' || synchro.phase !== 'pret') {
     return (
-      <View style={[styles.centre, { backgroundColor: c.fond }]}>
+      <View style={[styles.center, { backgroundColor: c.background }]}>
         <Stack.Screen options={{ title: t('partager.titre') }} />
         <ActivityIndicator color={c.accent} />
       </View>
@@ -95,20 +95,20 @@ export default function EcranPartager() {
     <Partager
       c={c}
       base={synchro.base}
-      envoi={synchro.envoi}
-      fichiers={synchro.fichiers}
+      outbox={synchro.outbox}
+      files={synchro.files}
       client={etat.client}
       shareIntent={shareIntent}
     />
   );
 }
 
-function Message({ c, texte }: { c: Couleurs; texte: string }) {
+function Message({ c, text: texte }: { c: Colors; text: string }) {
   const t = useT();
   return (
-    <View style={[styles.centre, { backgroundColor: c.fond }]}>
+    <View style={[styles.center, { backgroundColor: c.background }]}>
       <Stack.Screen options={{ title: t('partager.titre') }} />
-      <Text style={[styles.message, { color: c.texteSecondaire }]}>{texte}</Text>
+      <Text style={[styles.message, { color: c.secondaryText }]}>{texte}</Text>
     </View>
   );
 }
@@ -116,15 +116,15 @@ function Message({ c, texte }: { c: Couleurs; texte: string }) {
 function Partager({
   c,
   base,
-  envoi,
-  fichiers,
+  outbox: envoi,
+  files: fichiers,
   client,
   shareIntent,
 }: {
-  c: Couleurs;
+  c: Colors;
   base: BaseLocale;
-  envoi: Outbox;
-  fichiers: OutboxFichiers;
+  outbox: Outbox;
+  files: FileOutbox;
   client: ClientRest;
   shareIntent: ShareIntent;
 }) {
@@ -140,13 +140,13 @@ function Partager({
   // n'a pas fini, on enverrait l'original — acceptable (juste plus lourd).
   const [pieces, setPieces] = useState<PieceEnAttente[]>(() =>
     (shareIntent.files ?? []).map((f, i) => {
-      const fichier: FichierEnAttente = {
+      const fichier: PendingFile = {
         uri: f.path,
-        nom: f.fileName,
+        name: f.fileName,
         type: f.mimeType,
-        taille: f.size,
+        size: f.size,
       };
-      return { cle: i, origine: fichier, aEnvoyer: fichier };
+      return { key: i, origin: fichier, toSend: fichier };
     }),
   );
 
@@ -160,13 +160,13 @@ function Partager({
     let vivant = true;
     void (async () => {
       const originales = pieces;
-      const prepares: FichierEnAttente[] = [];
-      for (const p of originales) prepares.push(await compresserImageSiUtile(p.origine));
+      const prepares: PendingFile[] = [];
+      for (const p of originales) prepares.push(await compressImageIfUseful(p.origin));
       if (!vivant) return;
       setPieces((actuelles) =>
         actuelles.map((p) => {
-          const i = originales.findIndex((o) => o.cle === p.cle);
-          return i >= 0 ? { ...p, aEnvoyer: prepares[i] } : p;
+          const i = originales.findIndex((o) => o.key === p.key);
+          return i >= 0 ? { ...p, toSend: prepares[i] } : p;
         }),
       );
     })();
@@ -192,17 +192,17 @@ function Partager({
 
   // Même source que l'accueil : deux requêtes vives (une par table), fusionnées
   // en JS, ordonnées par récence. On ne garde que les salons visibles.
-  const { data: lignesSalons } = useRequeteVive(
-    base.select().from(salons).orderBy(desc(salons.horodatageDernierMessage)),
+  const { data: lignesSalons } = useCoalescedLiveQuery(
+    base.select().from(rooms).orderBy(desc(rooms.lastMessageTs)),
   );
-  const { data: lignesAbonnements } = useRequeteVive(base.select().from(abonnements));
+  const { data: lignesAbonnements } = useCoalescedLiveQuery(base.select().from(subscriptions));
   const aboParRid = new Map((lignesAbonnements ?? []).map((a) => [a.rid, a]));
   const filtreNorm = filtre.trim().toLowerCase();
   const cibles = (lignesSalons ?? [])
-    .filter((s) => aboParRid.get(s.rid)?.ouvert !== false)
+    .filter((s) => aboParRid.get(s.rid)?.open !== false)
     .filter((s) => {
       if (filtreNorm === '') return true;
-      return (s.nomAffiche ?? s.nom ?? s.rid).toLowerCase().includes(filtreNorm);
+      return (s.displayName ?? s.name ?? s.rid).toLowerCase().includes(filtreNorm);
     });
 
   /**
@@ -216,14 +216,14 @@ function Partager({
   const retirerPiece = useCallback(
     (cle: number) => {
       // Hors de l'updater : React peut le rejouer, une suppression non.
-      const partante = pieces.find((x) => x.cle === cle);
+      const partante = pieces.find((x) => x.key === cle);
       if (partante !== undefined) {
-        void supprimerSiTemporaire(partante.origine.uri);
-        if (partante.aEnvoyer.uri !== partante.origine.uri) {
-          void supprimerSiTemporaire(partante.aEnvoyer.uri);
+        void deleteIfTemporary(partante.origin.uri);
+        if (partante.toSend.uri !== partante.origin.uri) {
+          void deleteIfTemporary(partante.toSend.uri);
         }
       }
-      setPieces((prev) => prev.filter((x) => x.cle !== cle));
+      setPieces((prev) => prev.filter((x) => x.key !== cle));
     },
     [pieces],
   );
@@ -247,9 +247,9 @@ function Partager({
           // sinon elle se répéterait sous chaque pièce.
           for (let i = 0; i < pieces.length; i++) {
             const porteLegende = i === 0 && legendePropre !== '';
-            await fichiers.envoyer(
+            await fichiers.send(
               rid,
-              pieces[i].aEnvoyer,
+              pieces[i].toSend,
               porteLegende ? legendePropre : undefined,
             );
             // Ce qui est parti est noté, mais l'état n'est PAS amputé ici :
@@ -258,11 +258,11 @@ function Partager({
             // alors EN PLEIN ENVOI — la liste des destinations sauterait sous
             // le doigt alors que `scrollEnabled={!occupe}` la fige justement.
             // L'amputation se fait dans le `catch`, seul endroit où elle sert.
-            partis.push(pieces[i].cle);
+            partis.push(pieces[i].key);
             if (porteLegende) legendePartie = true;
           }
         } else {
-          await envoi.envoyer(rid, legendePropre);
+          await envoi.send(rid, legendePropre);
         }
         // Succès : on ouvre la conversation. Le démontage soldera l'intent.
         routeur.replace({ pathname: '/salon/[rid]', params: { rid } });
@@ -277,7 +277,7 @@ function Partager({
         // précédentes seraient postées une seconde fois. La légende suit : elle
         // accompagnait la première pièce, elle est partie avec elle.
         if (partis.length > 0) {
-          setPieces((prev) => prev.filter((x) => !partis.includes(x.cle)));
+          setPieces((prev) => prev.filter((x) => !partis.includes(x.key)));
           if (legendePartie) setLegende('');
         }
         setErreur(
@@ -293,7 +293,7 @@ function Partager({
   );
 
   return (
-    <VueEvitantLeClavier>
+    <KeyboardAvoidingContainer>
       <Stack.Screen options={{ title: t('partager.titre'), headerShown: true }} />
       <View style={styles.haut}>
         {/*
@@ -305,41 +305,41 @@ function Partager({
           soit le nombre de pièces.
         */}
         {pieces.length === 1 && (
-          <ApercuPieceJointe
-            key={pieces[0].cle}
+          <AttachmentPreview
+            key={pieces[0].key}
             c={c}
-            fichier={pieces[0].origine}
-            occupe={occupe}
-            retraitHorizontal={0}
-            retraitVertical={0}
-            onRetirer={() => retirerPiece(pieces[0].cle)}
+            file={pieces[0].origin}
+            busy={occupe}
+            horizontalInset={0}
+            verticalInset={0}
+            onRemove={() => retirerPiece(pieces[0].key)}
           />
         )}
         {pieces.length > 1 && (
-          <BandeauApercus c={c} pieces={pieces} occupe={occupe} onRetirer={retirerPiece} />
+          <BandeauApercus c={c} attachments={pieces} busy={occupe} onRemove={retirerPiece} />
         )}
         <TextInput
           value={legende}
           onChangeText={setLegende}
           editable={!occupe}
           placeholder={aFichiers ? t('partager.ajouterLegende') : t('partager.messageAPartager')}
-          placeholderTextColor={c.texteTertiaire}
+          placeholderTextColor={c.tertiaryText}
           multiline
           style={[
-            styles.legende,
-            { color: c.texte, backgroundColor: c.carte, borderColor: c.bordure },
+            styles.caption,
+            { color: c.text, backgroundColor: c.card, borderColor: c.border },
           ]}
         />
-        {erreur !== null && <Text style={[styles.erreur, { color: c.texteErreur }]}>{erreur}</Text>}
-        <Text style={[styles.label, { color: c.attenue }]}>{t('partager.partagerVers')}</Text>
+        {erreur !== null && <Text style={[styles.error, { color: c.errorText }]}>{erreur}</Text>}
+        <Text style={[styles.label, { color: c.dimmed }]}>{t('partager.partagerVers')}</Text>
         <TextInput
           value={filtre}
           onChangeText={setFiltre}
           placeholder={t('partager.rechercherConversation')}
-          placeholderTextColor={c.texteTertiaire}
+          placeholderTextColor={c.tertiaryText}
           autoCapitalize="none"
           autoCorrect={false}
-          style={[styles.filtre, { color: c.texte, borderColor: c.bordure }]}
+          style={[styles.filtre, { color: c.text, borderColor: c.border }]}
         />
       </View>
       <FlatList
@@ -349,23 +349,23 @@ function Partager({
         // Pendant l'envoi, on fige la liste : le spinner reste sur la ligne
         // choisie plutôt que de flotter au-dessus d'un contenu qui défile.
         scrollEnabled={!occupe}
-        style={styles.liste}
+        style={styles.list}
         contentContainerStyle={styles.listeContenu}
         renderItem={({ item }) => (
           <LigneCible
             c={c}
-            salon={item}
+            room={item}
             client={client}
-            occupe={occupe}
-            envoiEnCours={item.rid === ridEnCours}
-            onChoisir={() => void partagerVers(item.rid)}
+            busy={occupe}
+            sending={item.rid === ridEnCours}
+            onPick={() => void partagerVers(item.rid)}
           />
         )}
         ListEmptyComponent={
-          <Text style={[styles.vide, { color: c.attenue }]}>{t('partager.aucuneConversation')}</Text>
+          <Text style={[styles.empty, { color: c.dimmed }]}>{t('partager.aucuneConversation')}</Text>
         }
       />
-    </VueEvitantLeClavier>
+    </KeyboardAvoidingContainer>
   );
 }
 
@@ -376,44 +376,44 @@ function Partager({
  */
 function LigneCible({
   c,
-  salon,
+  room: salon,
   client,
-  occupe,
-  envoiEnCours,
-  onChoisir,
+  busy: occupe,
+  sending: envoiEnCours,
+  onPick: onChoisir,
 }: {
-  c: Couleurs;
-  salon: LigneDeSalon;
+  c: Colors;
+  room: LigneDeSalon;
   client: ClientRest;
-  occupe: boolean;
+  busy: boolean;
   /** Cette ligne est la destination de l'envoi en cours : elle porte le spinner. */
-  envoiEnCours: boolean;
-  onChoisir: () => void;
+  sending: boolean;
+  onPick: () => void;
 }) {
   const t = useT();
-  const nom = salon.nomAffiche ?? salon.nom ?? salon.rid;
-  const bloque = salon.chiffre || salon.lectureSeule;
-  const raison = salon.chiffre ? t('partager.chiffre') : salon.lectureSeule ? t('partager.lectureSeule') : null;
+  const nom = salon.displayName ?? salon.name ?? salon.rid;
+  const bloque = salon.encrypted || salon.readOnly;
+  const raison = salon.encrypted ? t('partager.chiffre') : salon.readOnly ? t('partager.lectureSeule') : null;
   // Bloqué, ou une autre destination pendant un envoi : la ligne s'estompe pour
   // concentrer l'attention sur celle qui reçoit.
   const attenue = bloque || (occupe && !envoiEnCours);
 
   return (
-    <View style={styles.enveloppeLigne}>
-      <Appuyable
+    <View style={styles.rowWrapper}>
+      <Tappable
         onPress={onChoisir}
         disabled={occupe || bloque}
-        android_ripple={bloque ? undefined : { color: c.ondulation }}
-        unstable_pressDelay={DELAI_PRESSION_LISTE}
-        style={({ pressed }) => [styles.ligne, { opacity: attenue ? 0.4 : pressed ? 0.6 : 1 }]}
+        android_ripple={bloque ? undefined : { color: c.ripple }}
+        unstable_pressDelay={LIST_PRESS_DELAY}
+        style={({ pressed }) => [styles.row, { opacity: attenue ? 0.4 : pressed ? 0.6 : 1 }]}
       >
-      <AvatarSalon
+      <RoomAvatar
         c={c}
-        nom={nom}
+        name={nom}
         type={salon.type}
-        chiffre={salon.chiffre}
+        encrypted={salon.encrypted}
         rid={salon.rid}
-        dmAutreUid={salon.dmAutreUid}
+        dmOtherUid={salon.dmOtherUid}
         avatarEtag={salon.avatarEtag}
         client={client}
       />
@@ -422,18 +422,18 @@ function LigneCible({
           serveur rejetant le clair en E2EE. Le cadenas fermé dit exactement
           l'état de la ligne — un avatar ordinaire sur une ligne grisée et non
           sélectionnable serait moins juste, pas plus. */}
-      <View style={styles.corpsLigne}>
-        <Text style={[styles.nomCible, { color: c.texte }]} numberOfLines={1}>
+      <View style={styles.rowBody}>
+        <Text style={[styles.nomCible, { color: c.text }]} numberOfLines={1}>
           {nom}
         </Text>
         {raison !== null && (
-          <Text style={[styles.raison, { color: c.attenue }]} numberOfLines={1}>
+          <Text style={[styles.reason, { color: c.dimmed }]} numberOfLines={1}>
             {raison}
           </Text>
         )}
       </View>
         {envoiEnCours && <ActivityIndicator color={c.accent} />}
-      </Appuyable>
+      </Tappable>
     </View>
   );
 }
@@ -445,29 +445,29 @@ function LigneCible({
  */
 function BandeauApercus({
   c,
-  pieces,
-  occupe,
-  onRetirer,
+  attachments: pieces,
+  busy: occupe,
+  onRemove: onRetirer,
 }: {
-  c: Couleurs;
-  pieces: PieceEnAttente[];
-  occupe: boolean;
-  onRetirer: (cle: number) => void;
+  c: Colors;
+  attachments: PieceEnAttente[];
+  busy: boolean;
+  onRemove: (cle: number) => void;
 }) {
   return (
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
-      contentContainerStyle={styles.bandeau}
+      contentContainerStyle={styles.banner}
     >
       {pieces.map((p) => (
         <VignettePiece
-          key={p.cle}
+          key={p.key}
           c={c}
-          fichier={p.origine}
-          occupe={occupe}
-          onRetirer={() => onRetirer(p.cle)}
+          file={p.origin}
+          busy={occupe}
+          onRemove={() => onRetirer(p.key)}
         />
       ))}
     </ScrollView>
@@ -476,29 +476,29 @@ function BandeauApercus({
 
 function VignettePiece({
   c,
-  fichier,
-  occupe,
-  onRetirer,
+  file: fichier,
+  busy: occupe,
+  onRemove: onRetirer,
 }: {
-  c: Couleurs;
-  fichier: FichierEnAttente;
-  occupe: boolean;
-  onRetirer: () => void;
+  c: Colors;
+  file: PendingFile;
+  busy: boolean;
+  onRemove: () => void;
 }) {
   const t = useT();
-  const enImage = estImage(fichier.type);
+  const enImage = isImage(fichier.type);
   return (
     <View style={styles.vignetteHote}>
       {enImage ? (
         <Image source={{ uri: fichier.uri }} style={styles.vignetteImg} resizeMode="cover" />
       ) : (
         <LinearGradient
-          colors={c.degradeNeutre}
+          colors={c.neutralGradient}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={styles.vignetteImg}
         >
-          <Text style={styles.vignetteEmoji}>{emojiFichier(fichier.type)}</Text>
+          <Text style={styles.vignetteEmoji}>{fileEmoji(fichier.type)}</Text>
         </LinearGradient>
       )}
       <Pressable
@@ -511,22 +511,22 @@ function VignettePiece({
           styles.vignetteRetirer,
           {
             backgroundColor: c.surfaceActive,
-            borderColor: c.bordure,
+            borderColor: c.border,
             opacity: occupe ? 0.4 : 1,
           },
         ]}
       >
-        <Text style={[styles.vignetteCroix, { color: c.texteSecondaire }]}>×</Text>
+        <Text style={[styles.vignetteCroix, { color: c.secondaryText }]}>×</Text>
       </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  message: { fontFamily: POLICES.corpsGras, fontSize: 15, textAlign: 'center' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  message: { fontFamily: FONTS.corpsGras, fontSize: 15, textAlign: 'center' },
   haut: { paddingHorizontal: 12, paddingTop: 12, gap: 10 },
-  bandeau: { gap: 8, paddingVertical: 2 },
+  banner: { gap: 8, paddingVertical: 2 },
   vignetteHote: { width: 76, height: 76 },
   vignetteImg: {
     width: 76,
@@ -548,20 +548,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  vignetteCroix: { fontFamily: POLICES.corpsSemi, fontSize: 15, lineHeight: 16 },
-  legende: {
+  vignetteCroix: { fontFamily: FONTS.corpsSemi, fontSize: 15, lineHeight: 16 },
+  caption: {
     borderWidth: 1,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    fontFamily: POLICES.corps,
+    fontFamily: FONTS.body,
     fontSize: 15,
     minHeight: 46,
     maxHeight: 140,
   },
-  erreur: { fontFamily: POLICES.corpsGras, fontSize: 13 },
+  error: { fontFamily: FONTS.corpsGras, fontSize: 13 },
   label: {
-    fontFamily: POLICES.corpsFort,
+    fontFamily: FONTS.corpsFort,
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
@@ -572,24 +572,24 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    fontFamily: POLICES.corps,
+    fontFamily: FONTS.body,
     fontSize: 15,
   },
-  liste: { flex: 1, marginTop: 4 },
+  list: { flex: 1, marginTop: 4 },
   listeContenu: { paddingBottom: 16 },
   // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
   // découpe l'ondulation — borderRadius sur le Pressable est ignoré par le
   // masque du ripple sous Fabric. Invisible au repos (pas de fond).
-  enveloppeLigne: { borderRadius: 18, overflow: 'hidden' },
-  ligne: {
+  rowWrapper: { borderRadius: 18, overflow: 'hidden' },
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
-  corpsLigne: { flex: 1, minWidth: 0, gap: 2 },
-  nomCible: { fontFamily: POLICES.corpsGras, fontSize: 15 },
-  raison: { fontFamily: POLICES.corps, fontSize: 12 },
-  vide: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: POLICES.corps },
+  rowBody: { flex: 1, minWidth: 0, gap: 2 },
+  nomCible: { fontFamily: FONTS.corpsGras, fontSize: 15 },
+  reason: { fontFamily: FONTS.body, fontSize: 12 },
+  empty: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: FONTS.body },
 });

@@ -17,102 +17,102 @@
  * que pas d'indicateur.
  */
 
-import type { Evenement } from './ddp.ts';
+import type { DdpEvent } from './ddp.ts';
 
-export const STREAM_NOTIFY_ROOM_SAISIE = 'stream-notify-room';
-export const ACTIVITE_SAISIE = 'user-typing';
+export const STREAM_NOTIFY_ROOM_TYPING = 'stream-notify-room';
+export const TYPING_ACTIVITY = 'user-typing';
 
 const EXPIRATION_MS = 15_000;
 
 type Annulation = unknown;
 
-export class MoteurSaisie {
+export class TypingEngine {
   private readonly rid: string;
-  private readonly moi: string | null;
+  private readonly me: string | null;
   private readonly expirationMs: number;
-  private readonly planifier: (fn: () => void, ms: number) => Annulation;
-  private readonly annuler: (a: Annulation) => void;
+  private readonly schedule: (fn: () => void, ms: number) => Annulation;
+  private readonly cancel: (a: Annulation) => void;
 
-  private minuteries = new Map<string, Annulation>();
-  private ecouteurs = new Set<() => void>();
+  private timers = new Map<string, Annulation>();
+  private listeners = new Set<() => void>();
   /** Figé entre deux notifications : `useSyncExternalStore` compare par référence. */
-  private instantane: string[] = [];
+  private snapshot: string[] = [];
 
   constructor(options: {
     rid: string;
     /** Mon username : ma propre saisie ne s'affiche pas chez moi. */
-    moi: string | null;
+    me: string | null;
     expirationMs?: number;
-    planifier?: (fn: () => void, ms: number) => Annulation;
-    annuler?: (a: Annulation) => void;
+    schedule?: (fn: () => void, ms: number) => Annulation;
+    cancel?: (a: Annulation) => void;
   }) {
     this.rid = options.rid;
-    this.moi = options.moi;
+    this.me = options.me;
     this.expirationMs = options.expirationMs ?? EXPIRATION_MS;
-    this.planifier = options.planifier ?? ((fn, ms) => setTimeout(fn, ms));
-    this.annuler = options.annuler ?? ((a) => clearTimeout(a as ReturnType<typeof setTimeout>));
+    this.schedule = options.schedule ?? ((fn, ms) => setTimeout(fn, ms));
+    this.cancel = options.cancel ?? ((a) => clearTimeout(a as ReturnType<typeof setTimeout>));
   }
 
-  quiTape(): string[] {
-    return this.instantane;
+  whoIsTyping(): string[] {
+    return this.snapshot;
   }
 
-  surChangement(ecouteur: () => void): () => void {
-    this.ecouteurs.add(ecouteur);
+  onChange(ecouteur: () => void): () => void {
+    this.listeners.add(ecouteur);
     return () => {
-      this.ecouteurs.delete(ecouteur);
+      this.listeners.delete(ecouteur);
     };
   }
 
-  appliquer(evenement: Evenement): void {
+  apply(evenement: DdpEvent): void {
     if (
-      evenement.collection !== STREAM_NOTIFY_ROOM_SAISIE ||
-      evenement.cleEvenement !== `${this.rid}/user-activity`
+      evenement.collection !== STREAM_NOTIFY_ROOM_TYPING ||
+      evenement.eventKey !== `${this.rid}/user-activity`
     ) {
       return;
     }
     const username = evenement.args[0];
     const activites = evenement.args[1];
-    if (typeof username !== 'string' || username === '' || username === this.moi) return;
-    const tape = Array.isArray(activites) && activites.includes(ACTIVITE_SAISIE);
+    if (typeof username !== 'string' || username === '' || username === this.me) return;
+    const tape = Array.isArray(activites) && activites.includes(TYPING_ACTIVITY);
 
-    const existante = this.minuteries.get(username);
-    if (existante !== undefined) this.annuler(existante);
+    const existante = this.timers.get(username);
+    if (existante !== undefined) this.cancel(existante);
 
     if (tape) {
-      this.minuteries.set(
+      this.timers.set(
         username,
-        this.planifier(() => {
-          this.minuteries.delete(username);
+        this.schedule(() => {
+          this.timers.delete(username);
           this.notifier();
         }, this.expirationMs),
       );
     } else {
-      this.minuteries.delete(username);
+      this.timers.delete(username);
     }
     this.notifier();
   }
 
   /** À la fermeture de l'écran : plus aucune minuterie ne doit survivre. */
-  arreter(): void {
-    for (const minuterie of this.minuteries.values()) this.annuler(minuterie);
-    this.minuteries.clear();
-    this.instantane = [];
+  stop(): void {
+    for (const minuterie of this.timers.values()) this.cancel(minuterie);
+    this.timers.clear();
+    this.snapshot = [];
   }
 
   private notifier(): void {
-    const nouveau = [...this.minuteries.keys()].sort();
+    const nouveau = [...this.timers.keys()].sort();
     // Ne notifier QUE sur changement réel : Rocket.Chat ré-émet
     // « user-typing » en battement de cœur pendant toute la frappe — chaque
     // battement re-rendrait sinon l'écran salon entier pour rien.
     if (
-      nouveau.length === this.instantane.length &&
-      nouveau.every((nom, i) => nom === this.instantane[i])
+      nouveau.length === this.snapshot.length &&
+      nouveau.every((nom, i) => nom === this.snapshot[i])
     ) {
       return;
     }
-    this.instantane = nouveau;
-    for (const ecouteur of this.ecouteurs) ecouteur();
+    this.snapshot = nouveau;
+    for (const ecouteur of this.listeners) ecouteur();
   }
 }
 
@@ -121,15 +121,15 @@ export class MoteurSaisie {
  * PHRASE appartient au catalogue (`salon.saisieUn/Deux/N`, ui/messages.ts) —
  * ce module, pur et testé sous Node, n'embarque aucune langue.
  */
-export type ResumeSaisie =
-  | { forme: 'un'; nom: string }
+export type TypingSummary =
+  | { forme: 'un'; name: string }
   | { forme: 'deux'; a: string; b: string }
   | { forme: 'plusieurs'; n: number };
 
 /** null si personne n'écrit. */
-export function resumerSaisie(noms: string[]): ResumeSaisie | null {
+export function summarizeTyping(noms: string[]): TypingSummary | null {
   if (noms.length === 0) return null;
-  if (noms.length === 1) return { forme: 'un', nom: noms[0] };
+  if (noms.length === 1) return { forme: 'un', name: noms[0] };
   if (noms.length === 2) return { forme: 'deux', a: noms[0], b: noms[1] };
   return { forme: 'plusieurs', n: noms.length };
 }

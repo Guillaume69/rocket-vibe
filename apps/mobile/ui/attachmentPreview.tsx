@@ -18,125 +18,125 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 
 import { useT } from './i18n.ts';
-import { LecteurAudio } from './audioPlayer.tsx';
-import type { Traducteur } from './messages.ts';
-import { emojiFichier, estImage } from './mime.ts';
-import type { QualiteEnvoi } from './attachmentQuality.ts';
-import { type Couleurs, POLICES } from './theme.ts';
+import { AudioPlayer } from './audioPlayer.tsx';
+import type { TranslateFn } from './messages.ts';
+import { fileEmoji, isImage } from './mime.ts';
+import type { SendQuality } from './attachmentQuality.ts';
+import { type Colors, FONTS } from './theme.ts';
 
-export type FichierEnAttente = {
+export type PendingFile = {
   uri: string;
-  nom: string;
+  name: string;
   /** MIME. Validé à la pose et à l'envoi contre `FileUpload_MediaTypeWhiteList`. */
   type: string;
-  taille: number | null;
+  size: number | null;
 };
 
-export function formaterTaille(octets: number | null, t: Traducteur): string | null {
+export function formatSize(octets: number | null, t: TranslateFn): string | null {
   if (octets === null || octets <= 0) return null;
   if (octets < 1024) return t('apercuPieceJointe.octets', { taille: octets });
   if (octets < 1024 * 1024) return t('apercuPieceJointe.kilooctets', { taille: Math.round(octets / 1024) });
   return t('apercuPieceJointe.megaoctets', { taille: (octets / 1024 / 1024).toFixed(1) });
 }
 
-export function ApercuPieceJointe({
+export function AttachmentPreview({
   c,
-  fichier,
-  onRetirer,
-  occupe = false,
-  retraitHorizontal = 12,
-  retraitVertical,
-  qualite = null,
-  surQualite,
+  file: fichier,
+  onRemove: onRetirer,
+  busy: occupe = false,
+  horizontalInset: retraitHorizontal = 12,
+  verticalInset: retraitVertical,
+  quality: qualite = null,
+  onQuality: surQualite,
 }: {
-  c: Couleurs;
-  fichier: FichierEnAttente;
-  onRetirer: () => void;
+  c: Colors;
+  file: PendingFile;
+  onRemove: () => void;
   /** Envoi en cours : le retrait est gelé (le fichier est déjà en vol). */
-  occupe?: boolean;
+  busy?: boolean;
   /**
    * Choix de qualité (pastilles Réduite/Originale) — `null` quand il n'y a
    * rien à choisir (audio, document, image légère, ou écran sans réduction).
    * La réduction elle-même se fait à l'ENVOI, chez l'appelant.
    */
-  qualite?: QualiteEnvoi | null;
-  surQualite?: (qualite: QualiteEnvoi) => void;
+  quality?: SendQuality | null;
+  onQuality?: (qualite: SendQuality) => void;
   /**
    * Retrait horizontal de la carte. 12 par défaut : dans le composeur du salon,
    * le parent n'a pas de padding, la carte s'inset donc elle-même. Quand
    * l'appelant est déjà dans un conteneur padé (écran de partage), passer 0
    * pour aligner la carte sur les autres champs.
    */
-  retraitHorizontal?: number;
+  horizontalInset?: number;
   /**
    * Retrait vertical propre de la carte. Non défini : garde l'espacement du
    * composeur (8/10). Quand plusieurs cartes s'empilent (écran de partage),
    * passer 0 et laisser le conteneur gérer l'espacement, sinon les cartes sont
    * trop écartées.
    */
-  retraitVertical?: number;
+  verticalInset?: number;
 }) {
   const t = useT();
-  const enImage = estImage(fichier.type);
+  const enImage = isImage(fichier.type);
   const estAudio = fichier.type.startsWith('audio/');
-  const taille = formaterTaille(fichier.taille, t);
+  const taille = formatSize(fichier.size, t);
 
   return (
     <Animated.View
       entering={FadeInDown.duration(220)}
       exiting={FadeOutDown.duration(140)}
       style={[
-        styles.hote,
+        styles.host,
         { paddingHorizontal: retraitHorizontal },
         retraitVertical !== undefined && { paddingVertical: retraitVertical },
       ]}
     >
       {estAudio ? (
         // Le vocal se réécoute AVANT d'envoyer : le vrai lecteur, pas une icône.
-        <View style={styles.rangee}>
-          <View style={styles.plein}>
-            <LecteurAudio c={c} url={fichier.uri} titre={t('lecteurAudio.messageVocal')} />
+        <View style={styles.row}>
+          <View style={styles.full}>
+            <AudioPlayer c={c} url={fichier.uri} title={t('lecteurAudio.messageVocal')} />
           </View>
-          <BoutonRetirer c={c} onRetirer={onRetirer} occupe={occupe} />
+          <BoutonRetirer c={c} onRemove={onRetirer} busy={occupe} />
         </View>
       ) : (
-        <View style={[styles.carte, { backgroundColor: c.carte, borderColor: c.bordure }]}>
+        <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
           {enImage ? (
-            <Image source={{ uri: fichier.uri }} style={styles.vignette} resizeMode="cover" />
+            <Image source={{ uri: fichier.uri }} style={styles.thumbnail} resizeMode="cover" />
           ) : (
             <LinearGradient
-              colors={c.degradeNeutre}
+              colors={c.neutralGradient}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              style={styles.vignette}
+              style={styles.thumbnail}
             >
-              <Text style={styles.emoji}>{emojiFichier(fichier.type)}</Text>
+              <Text style={styles.emoji}>{fileEmoji(fichier.type)}</Text>
             </LinearGradient>
           )}
           <View style={styles.infos}>
-            <Text style={[styles.nom, { color: c.texte }]} numberOfLines={1}>
-              {fichier.nom}
+            <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
+              {fichier.name}
             </Text>
-            <Text style={[styles.meta, { color: c.attenue }]} numberOfLines={1}>
+            <Text style={[styles.meta, { color: c.dimmed }]} numberOfLines={1}>
               {enImage ? t('apercuPieceJointe.image') : fichier.type || t('apercuPieceJointe.fichier')}
               {taille !== null ? ` · ${taille}` : ''}
             </Text>
             {qualite !== null && surQualite !== undefined && (
-              <View style={styles.qualites}>
+              <View style={styles.qualities}>
                 {(['reduite', 'originale'] as const).map((q) => (
-                  <PastilleQualite
+                  <QualityBadge
                     key={q}
                     c={c}
-                    quelle={q}
-                    choisie={qualite === q}
-                    occupe={occupe}
-                    surChoisir={surQualite}
+                    which={q}
+                    chosen={qualite === q}
+                    busy={occupe}
+                    onPick={surQualite}
                   />
                 ))}
               </View>
             )}
           </View>
-          <BoutonRetirer c={c} onRetirer={onRetirer} occupe={occupe} />
+          <BoutonRetirer c={c} onRemove={onRetirer} busy={occupe} />
         </View>
       )}
     </Animated.View>
@@ -148,18 +148,18 @@ export function ApercuPieceJointe({
  * la version qui part est déjà en cours de préparation, changer d'avis ici ne
  * serait qu'un mensonge d'affichage.
  */
-export function PastilleQualite({
+export function QualityBadge({
   c,
-  quelle,
-  choisie,
-  occupe,
-  surChoisir,
+  which: quelle,
+  chosen: choisie,
+  busy: occupe,
+  onPick: surChoisir,
 }: {
-  c: Couleurs;
-  quelle: QualiteEnvoi;
-  choisie: boolean;
-  occupe: boolean;
-  surChoisir: (qualite: QualiteEnvoi) => void;
+  c: Colors;
+  which: SendQuality;
+  chosen: boolean;
+  busy: boolean;
+  onPick: (qualite: SendQuality) => void;
 }) {
   const t = useT();
   return (
@@ -175,16 +175,16 @@ export function PastilleQualite({
           : 'apercuPieceJointe.envoyerOriginale',
       )}
       style={[
-        styles.pastille,
+        styles.badge,
         {
-          borderColor: choisie ? c.accent : c.bordure,
+          borderColor: choisie ? c.accent : c.border,
           backgroundColor: choisie ? c.surfaceActive : 'transparent',
           opacity: occupe ? 0.5 : 1,
         },
       ]}
     >
       <Text
-        style={[styles.pastilleTexte, { color: choisie ? c.texte : c.attenue }]}
+        style={[styles.badgeText, { color: choisie ? c.text : c.dimmed }]}
         numberOfLines={1}
       >
         {t(quelle === 'reduite' ? 'apercuPieceJointe.reduite' : 'apercuPieceJointe.originale')}
@@ -195,12 +195,12 @@ export function PastilleQualite({
 
 function BoutonRetirer({
   c,
-  onRetirer,
-  occupe,
+  onRemove: onRetirer,
+  busy: occupe,
 }: {
-  c: Couleurs;
-  onRetirer: () => void;
-  occupe: boolean;
+  c: Colors;
+  onRemove: () => void;
+  busy: boolean;
 }) {
   const t = useT();
   return (
@@ -211,24 +211,24 @@ function BoutonRetirer({
       accessibilityRole="button"
       accessibilityLabel={t('apercuPieceJointe.retirer')}
       style={({ pressed }) => [
-        styles.retirer,
+        styles.remove,
         {
           backgroundColor: c.surfaceActive,
-          borderColor: c.bordure,
+          borderColor: c.border,
           opacity: occupe ? 0.4 : pressed ? 0.6 : 1,
         },
       ]}
     >
-      <Text style={[styles.retirerGlyphe, { color: c.texteSecondaire }]}>×</Text>
+      <Text style={[styles.removeGlyph, { color: c.secondaryText }]}>×</Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  hote: { paddingTop: 8, paddingBottom: 10 },
-  plein: { flex: 1 },
-  rangee: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  carte: {
+  host: { paddingTop: 8, paddingBottom: 10 },
+  full: { flex: 1 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  card: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
@@ -236,7 +236,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 8,
   },
-  vignette: {
+  thumbnail: {
     width: 56,
     height: 56,
     borderRadius: 12,
@@ -246,17 +246,17 @@ const styles = StyleSheet.create({
   },
   emoji: { fontSize: 26 },
   infos: { flex: 1, minWidth: 0, gap: 2 },
-  nom: { fontFamily: POLICES.corpsGras, fontSize: 13.5 },
-  meta: { fontFamily: POLICES.corps, fontSize: 11 },
-  qualites: { flexDirection: 'row', gap: 6, marginTop: 3 },
-  pastille: {
+  name: { fontFamily: FONTS.corpsGras, fontSize: 13.5 },
+  meta: { fontFamily: FONTS.body, fontSize: 11 },
+  qualities: { flexDirection: 'row', gap: 6, marginTop: 3 },
+  badge: {
     borderWidth: 1,
     borderRadius: 999,
     paddingHorizontal: 9,
     paddingVertical: 2,
   },
-  pastilleTexte: { fontFamily: POLICES.corpsSemi, fontSize: 11 },
-  retirer: {
+  badgeText: { fontFamily: FONTS.corpsSemi, fontSize: 11 },
+  remove: {
     width: 30,
     height: 30,
     borderRadius: 15,
@@ -264,5 +264,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  retirerGlyphe: { fontFamily: POLICES.corpsSemi, fontSize: 20, lineHeight: 22 },
+  removeGlyph: { fontFamily: FONTS.corpsSemi, fontSize: 20, lineHeight: 22 },
 });

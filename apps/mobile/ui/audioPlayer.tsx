@@ -52,7 +52,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { useT } from './i18n.ts';
-import { type Couleurs, POLICES } from './theme.ts';
+import { type Colors, FONTS } from './theme.ts';
 
 const NB_BARRES = 28;
 const H_MAX = 30;
@@ -183,13 +183,13 @@ function repartirArcEnCiel(arrets: readonly string[], n: number): string[] {
 }
 
 function Barre({
-  niveaux,
+  levels: niveaux,
   index,
-  couleur,
+  color: couleur,
 }: {
-  niveaux: SharedValue<number[]>;
+  levels: SharedValue<number[]>;
   index: number;
-  couleur: string;
+  color: string;
 }) {
   // Chaque barre GLISSE vers sa cible : fluide malgré le pas d'échantillonnage.
   const style = useAnimatedStyle(() => ({
@@ -200,23 +200,23 @@ function Barre({
       easing: Easing.linear,
     }),
   }));
-  return <Animated.View style={[styles.barre, { backgroundColor: couleur }, style]} />;
+  return <Animated.View style={[styles.bar, { backgroundColor: couleur }, style]} />;
 }
 
 type PropsLecteur = {
-  c: Couleurs;
+  c: Colors;
   url: string;
-  titre?: string | null;
-  surAppuiLong?: (() => void) | undefined;
+  title?: string | null;
+  onLongPress?: (() => void) | undefined;
 };
 
-export function LecteurAudio({ c, url, titre, surAppuiLong }: PropsLecteur) {
+export function AudioPlayer({ c, url, title: titre, onLongPress: surAppuiLong }: PropsLecteur) {
   const t = useT();
   const [actif, setActif] = useState(false);
-  const couleurs = useMemo(() => repartirArcEnCiel(c.degradeMarque, NB_BARRES), [c.degradeMarque]);
+  const couleurs = useMemo(() => repartirArcEnCiel(c.brandGradient, NB_BARRES), [c.brandGradient]);
 
   if (actif) {
-    return <LecteurAudioActif c={c} url={url} titre={titre} surAppuiLong={surAppuiLong} />;
+    return <LecteurAudioActif c={c} url={url} title={titre} onLongPress={surAppuiLong} />;
   }
 
   // La carte AU REPOS : même gabarit que la carte active (le montage du player
@@ -224,7 +224,7 @@ export function LecteurAudio({ c, url, titre, surAppuiLong }: PropsLecteur) {
   const activer = () => setActif(true);
   return (
     <View
-      style={[styles.carte, { backgroundColor: c.carte, borderColor: c.bordure }]}
+      style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
       accessibilityLabel={titre ?? t('lecteurAudio.messageVocal')}
     >
       <Pressable
@@ -236,37 +236,37 @@ export function LecteurAudio({ c, url, titre, surAppuiLong }: PropsLecteur) {
         accessibilityLabel={t('lecteurAudio.lire')}
       >
         <LinearGradient
-          colors={c.degradeCta}
+          colors={c.ctaGradient}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={styles.bouton}
+          style={styles.button}
         >
-          <View style={[styles.iconePlay, { borderLeftColor: c.surAccent }]} />
+          <View style={[styles.playIcon, { borderLeftColor: c.onAccent }]} />
         </LinearGradient>
       </Pressable>
 
       <Pressable
-        style={styles.centre}
+        style={styles.center}
         onPress={activer}
         onLongPress={surAppuiLong}
         delayLongPress={350}
       >
-        <View style={styles.barres}>
+        <View style={styles.bars}>
           {couleurs.map((couleur, i) => (
-            <View key={i} style={[styles.barre, styles.barreRepos, { backgroundColor: couleur }]} />
+            <View key={i} style={[styles.bar, styles.barreRepos, { backgroundColor: couleur }]} />
           ))}
         </View>
-        <View style={[styles.piste, { backgroundColor: c.bordure }]} />
+        <View style={[styles.track, { backgroundColor: c.border }]} />
       </Pressable>
 
       {/* La durée n'est pas connue sans player (l'attachement ne la porte pas) :
           l'emplacement reste réservé pour que le montage ne décale rien. */}
-      <Text style={[styles.temps, { color: c.attenue }]} />
+      <Text style={[styles.temps, { color: c.dimmed }]} />
     </View>
   );
 }
 
-function LecteurAudioActif({ c, url, titre, surAppuiLong }: PropsLecteur) {
+function LecteurAudioActif({ c, url, title: titre, onLongPress: surAppuiLong }: PropsLecteur) {
   const t = useT();
   const player = useAudioPlayer(url);
   const status = useAudioPlayerStatus(player);
@@ -284,7 +284,7 @@ function LecteurAudioActif({ c, url, titre, surAppuiLong }: PropsLecteur) {
     }
   };
 
-  const couleurs = useMemo(() => repartirArcEnCiel(c.degradeMarque, NB_BARRES), [c.degradeMarque]);
+  const couleurs = useMemo(() => repartirArcEnCiel(c.brandGradient, NB_BARRES), [c.brandGradient]);
 
   // Monté = « lire » vient d'être touché : lecture immédiate, en prenant le
   // relais du lecteur en cours — même coordinateur que `basculer`.
@@ -400,7 +400,7 @@ function LecteurAudioActif({ c, url, titre, surAppuiLong }: PropsLecteur) {
 
   return (
     <View
-      style={[styles.carte, { backgroundColor: c.carte, borderColor: c.bordure }]}
+      style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
       accessibilityLabel={titre ?? t('lecteurAudio.messageVocal')}
     >
       <Pressable
@@ -412,49 +412,49 @@ function LecteurAudioActif({ c, url, titre, surAppuiLong }: PropsLecteur) {
         accessibilityLabel={status.playing ? t('lecteurAudio.pause') : t('lecteurAudio.lire')}
       >
         <LinearGradient
-          colors={c.degradeCta}
+          colors={c.ctaGradient}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={styles.bouton}
+          style={styles.button}
         >
           {/* Icônes DESSINÉES, pas des emojis : un « ⏸ » emoji s'affiche
               toujours en orange sur Android, sourd à la couleur du thème. */}
           {occupe ? (
-            <ActivityIndicator color={c.surAccent} size="small" />
+            <ActivityIndicator color={c.onAccent} size="small" />
           ) : status.playing ? (
             <View style={styles.iconePause}>
-              <View style={[styles.barrePause, { backgroundColor: c.surAccent }]} />
-              <View style={[styles.barrePause, { backgroundColor: c.surAccent }]} />
+              <View style={[styles.barrePause, { backgroundColor: c.onAccent }]} />
+              <View style={[styles.barrePause, { backgroundColor: c.onAccent }]} />
             </View>
           ) : (
-            <View style={[styles.iconePlay, { borderLeftColor: c.surAccent }]} />
+            <View style={[styles.playIcon, { borderLeftColor: c.onAccent }]} />
           )}
         </LinearGradient>
       </Pressable>
 
       <Pressable
-        style={styles.centre}
+        style={styles.center}
         onPress={surSeek}
         onLongPress={surAppuiLong}
         delayLongPress={350}
       >
-        <View style={styles.barres} onLayout={surLayout}>
+        <View style={styles.bars} onLayout={surLayout}>
           {couleurs.map((couleur, i) => (
-            <Barre key={i} niveaux={niveaux} index={i} couleur={couleur} />
+            <Barre key={i} levels={niveaux} index={i} color={couleur} />
           ))}
         </View>
-        <View style={[styles.piste, { backgroundColor: c.bordure }]}>
+        <View style={[styles.track, { backgroundColor: c.border }]}>
           <View style={[styles.pisteRemplie, { backgroundColor: c.accent, width: `${progres * 100}%` }]} />
         </View>
       </Pressable>
 
-      <Text style={[styles.temps, { color: c.attenue }]}>{mmss(tempsAffiche)}</Text>
+      <Text style={[styles.temps, { color: c.dimmed }]}>{mmss(tempsAffiche)}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  carte: {
+  card: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
@@ -464,14 +464,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     maxWidth: 320,
   },
-  bouton: {
+  button: {
     width: 38,
     height: 38,
     borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  iconePlay: {
+  playIcon: {
     width: 0,
     height: 0,
     borderTopWidth: 8,
@@ -483,19 +483,19 @@ const styles = StyleSheet.create({
   },
   iconePause: { flexDirection: 'row', gap: 4 },
   barrePause: { width: 4, height: 15, borderRadius: 1.5 },
-  centre: { flex: 1, gap: 5 },
-  barres: {
+  center: { flex: 1, gap: 5 },
+  bars: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     height: H_MAX,
   },
-  barre: { width: 3, borderRadius: 2 },
+  bar: { width: 3, borderRadius: 2 },
   barreRepos: { height: H_MIN },
-  piste: { height: 3, borderRadius: 2, overflow: 'hidden' },
+  track: { height: 3, borderRadius: 2, overflow: 'hidden' },
   pisteRemplie: { height: 3, borderRadius: 2 },
   temps: {
-    fontFamily: POLICES.corps,
+    fontFamily: FONTS.body,
     fontSize: 11,
     minWidth: 34,
     textAlign: 'right',

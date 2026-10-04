@@ -5,10 +5,10 @@
  * les bizarreries du serveur, pour qu'elles ne se répandent pas ailleurs.
  */
 
-import { idsEtoiles } from './marks.ts';
+import { starredIds } from './marks.ts';
 
 /** Le serveur envoie soit `{"$date": epochMs}` (EJSON), soit une chaîne ISO. */
-export function versEpoch(valeur: unknown): number | null {
+export function toEpoch(valeur: unknown): number | null {
   if (typeof valeur === 'number' && Number.isFinite(valeur)) return valeur;
   if (typeof valeur === 'string') {
     const t = Date.parse(valeur);
@@ -28,23 +28,23 @@ export function versEpoch(valeur: unknown): number | null {
 export type MessageLocal = {
   id: string;
   rid: string;
-  texte: string | null;
-  horodatage: number;
-  auteurId: string;
-  auteurNom: string | null;
-  typeSysteme: string | null;
-  filId: string | null;
-  filReponses: number;
-  filDernier: number | null;
-  filAffiche: boolean;
-  modifieLe: number | null;
+  text: string | null;
+  ts: number;
+  authorId: string;
+  authorName: string | null;
+  systemType: string | null;
+  threadId: string | null;
+  threadCount: number;
+  threadLast: number | null;
+  threadShown: boolean;
+  editedAt: number | null;
   md: string | null;
-  piecesJointes: string | null;
+  attachments: string | null;
   reactions: string | null;
   /** Métadonnées de lien parsées par le serveur (`urls`), sérialisées. */
   urls: string | null;
   /** `callId` d'un message d'appel (`t: 'videoconf'`), extrait du bloc. */
-  appelId: string | null;
+  callId: string | null;
   /**
    * Objet `content` d'un message chiffré (`rc.v2.aes-sha2`), sérialisé. On le
    * GARDE — contrairement au reste, où le blob chiffré est jeté — pour pouvoir
@@ -52,22 +52,22 @@ export type MessageLocal = {
    * message chiffré, ou pour un chiffrement hérité `rc.v1` (dans `msg`, non
    * pris en charge). Ce n'est pas du clair : rien à afficher tel quel.
    */
-  chiffreBrut: string | null;
-  epingle: boolean;
+  encryptedRaw: string | null;
+  pinned: boolean;
   /** Uids qui ont étoilé le message, sérialisés (`lib/marks.ts`). */
-  etoiles: string | null;
-  misAJourLe: number;
+  starred: string | null;
+  updatedAt: number;
 };
 
-export type SalonLocal = {
+export type LocalRoom = {
   rid: string;
   type: string;
-  nom: string | null;
-  nomAffiche: string | null;
-  chiffre: boolean;
-  lectureSeule: boolean;
+  name: string | null;
+  displayName: string | null;
+  encrypted: boolean;
+  readOnly: boolean;
   /** L'autre participant d'un DM à deux — voir `versSalon`. */
-  dmAutreUid: string | null;
+  dmOtherUid: string | null;
   /**
    * Son PSEUDO. **Transporté, pas stocké dans `salons`** : il sert au dépôt à
    * inscrire l'autre dans `utilisateurs` (uid ↔ pseudo). Sans cette ligne,
@@ -75,37 +75,37 @@ export type SalonLocal = {
    * pseudo — ne trouve rien à mettre à jour, et l'avatar du DM reste figé :
    * la liste des salons affiche des gens dont aucun message n'a été ingéré.
    */
-  dmAutreUsername: string | null;
-  dernierMessage: string | null;
+  dmOtherUsername: string | null;
+  lastMessage: string | null;
   /**
    * Le `t` du dernier message — ce qui sépare « salon vidé » de « dernier
    * message sans texte à montrer ». Voir `db/schema.ts` et `apercuDuDernier`.
    */
-  dernierMessageType: string | null;
-  horodatageDernierMessage: number | null;
+  lastMessageType: string | null;
+  lastMessageTs: number | null;
   /** `avatarETag` : version de la photo du salon, cache-buster de son URL. */
   avatarEtag: string | null;
-  misAJourLe: number;
+  updatedAt: number;
 };
 
-export type AbonnementLocal = {
+export type LocalSubscription = {
   rid: string;
   /** `_id` de l'abonnement — la seule clé que portent les `remove[]` du rattrapage. */
   subId: string | null;
-  nonLus: number;
+  unread: number;
   mentions: number;
-  mentionsGroupe: number;
-  alerte: boolean;
-  ouvert: boolean;
-  favori: boolean;
-  luJusquA: number | null;
+  groupMentions: number;
+  alert: boolean;
+  open: boolean;
+  favorite: boolean;
+  lastSeen: number | null;
   /** `E2EKey` : clé AES du salon chiffrée RSA pour ce membre (keyID + base64). */
   e2eKey: string | null;
   /** `e2eKeyId` : UUID de la clé de salon, quand le serveur le fournit à part. */
   e2eKeyId: string | null;
   /** Mes rôles dans le salon, sérialisés — `null` si le document n'en porte pas. */
   roles: string | null;
-  misAJourLe: number;
+  updatedAt: number;
 };
 
 const chaine = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
@@ -115,10 +115,10 @@ const jsonOuNull = (v: unknown): string | null =>
   v === undefined || v === null ? null : JSON.stringify(v);
 
 /** Un message chiffré n'est pas déchiffrable ici : on n'expose jamais le blob. */
-export const TYPE_CHIFFRE = 'e2e';
+export const ENCRYPTED_TYPE = 'e2e';
 
 /** Type système d'un message de visioconférence Rocket.Chat. */
-export const TYPE_APPEL = 'videoconf';
+export const CALL_TYPE = 'videoconf';
 
 /**
  * Le message d'appel porte son `callId` dans un bloc `video_conf` (`appId:
@@ -137,10 +137,10 @@ function callIdDuBloc(blocks: unknown): string | null {
   return null;
 }
 
-export function versMessage(brut: Record<string, unknown>): MessageLocal | null {
+export function toMessage(brut: Record<string, unknown>): MessageLocal | null {
   const id = chaine(brut._id);
   const rid = chaine(brut.rid);
-  const horodatage = versEpoch(brut.ts);
+  const horodatage = toEpoch(brut.ts);
   const auteur = brut.u as { _id?: unknown; username?: unknown } | undefined;
   const auteurId = chaine(auteur?._id);
   if (id === null || rid === null || horodatage === null || auteurId === null) return null;
@@ -148,36 +148,36 @@ export function versMessage(brut: Record<string, unknown>): MessageLocal | null 
   const typeSysteme = chaine(brut.t);
   // `msg` d'un message chiffré contient du base64 opaque. Le stocker inviterait
   // à l'afficher un jour par accident.
-  const chiffre = typeSysteme === TYPE_CHIFFRE;
+  const chiffre = typeSysteme === ENCRYPTED_TYPE;
 
   return {
     id,
     rid,
-    texte: chiffre ? null : chaine(brut.msg),
-    horodatage,
-    auteurId,
-    auteurNom: chaine(auteur?.username),
-    typeSysteme,
-    filId: chaine(brut.tmid),
-    filReponses: entier(brut.tcount),
-    filDernier: versEpoch(brut.tlm),
-    filAffiche: booleen(brut.tshow),
-    modifieLe: versEpoch(brut.editedAt),
+    text: chiffre ? null : chaine(brut.msg),
+    ts: horodatage,
+    authorId: auteurId,
+    authorName: chaine(auteur?.username),
+    systemType: typeSysteme,
+    threadId: chaine(brut.tmid),
+    threadCount: entier(brut.tcount),
+    threadLast: toEpoch(brut.tlm),
+    threadShown: booleen(brut.tshow),
+    editedAt: toEpoch(brut.editedAt),
     md: chiffre ? null : jsonOuNull(brut.md),
-    piecesJointes: chiffre ? null : jsonOuNull(brut.attachments),
+    attachments: chiffre ? null : jsonOuNull(brut.attachments),
     reactions: jsonOuNull(brut.reactions),
     // Rien à prévisualiser pour un salon chiffré ; sinon on garde `urls` brut,
     // parsé au rendu (`lib/linkPreview.ts`).
     urls: chiffre ? null : jsonOuNull(brut.urls),
-    appelId: typeSysteme === TYPE_APPEL ? callIdDuBloc(brut.blocks) : null,
+    callId: typeSysteme === CALL_TYPE ? callIdDuBloc(brut.blocks) : null,
     // Le `content` chiffré est conservé pour un déchiffrement différé ; le `msg`
     // opaque, lui, ne l'est jamais (voir `texte`).
-    chiffreBrut: chiffre ? jsonOuNull(brut.content) : null,
-    epingle: booleen(brut.pinned),
-    etoiles: idsEtoiles(brut.starred),
+    encryptedRaw: chiffre ? jsonOuNull(brut.content) : null,
+    pinned: booleen(brut.pinned),
+    starred: starredIds(brut.starred),
     // `_updatedAt` est l'horloge du serveur : c'est elle qui arbitre les
     // conflits entre le WebSocket et un rattrapage REST plus lent.
-    misAJourLe: versEpoch(brut._updatedAt) ?? horodatage,
+    updatedAt: toEpoch(brut._updatedAt) ?? horodatage,
   };
 }
 
@@ -219,11 +219,11 @@ function apercuDuDernier(dernier: Record<string, unknown> | undefined): string |
  * d'un DM depuis `uids` (présence, 8.4). `uids` et `usernames` ne sont PAS
  * alignés entre eux (vérifié sur 8.5) : seul le filtrage par uid est sûr.
  */
-export function versSalon(
+export function toRoom(
   brut: Record<string, unknown>,
   moi?: string | null,
   moiUid?: string | null,
-): SalonLocal | null {
+): LocalRoom | null {
   const rid = chaine(brut._id);
   const type = chaine(brut.t);
   if (rid === null || type === null) return null;
@@ -277,12 +277,12 @@ export function versSalon(
   return {
     rid,
     type,
-    nom: chaine(brut.name),
-    nomAffiche,
-    chiffre,
-    lectureSeule: booleen(brut.ro),
-    dmAutreUid,
-    dmAutreUsername,
+    name: chaine(brut.name),
+    displayName: nomAffiche,
+    encrypted: chiffre,
+    readOnly: booleen(brut.ro),
+    dmOtherUid: dmAutreUid,
+    dmOtherUsername: dmAutreUsername,
     // L'aperçu d'un salon chiffré est du ciphertext : jamais affiché. Le sien
     // est posé localement, après déchiffrement (`MAJ_APERCU_CHIFFRE`) — d'où
     // le `null` ici, que l'UPSERT sait ne pas prendre pour un effacement.
@@ -291,39 +291,39 @@ export function versSalon(
     // message d'un salon est supprimé, le document Room perd complètement son
     // `lastMessage` (sondé sur 8.5, stream ET `rooms.get`). C'est la seule
     // façon d'apprendre qu'un salon a été vidé.
-    dernierMessage: chiffre ? null : apercuDuDernier(dernier),
+    lastMessage: chiffre ? null : apercuDuDernier(dernier),
     // Null pour un salon chiffré, comme l'aperçu : là-bas c'est la base locale
     // qui désigne le dernier message (`MAJ_APERCU_CHIFFRE`), et elle écarte les
     // messages système — garder le `t` du serveur ferait décrire un message par
     // le type d'un AUTRE.
-    dernierMessageType: chiffre ? null : chaine(dernier?.t),
-    horodatageDernierMessage: versEpoch(dernier?.ts) ?? versEpoch(brut.lm),
+    lastMessageType: chiffre ? null : chaine(dernier?.t),
+    lastMessageTs: toEpoch(dernier?.ts) ?? toEpoch(brut.lm),
     // Absent tant que le salon n'a pas de photo, et absent des documents
     // partiels : `null` veut dire « rien à dire », jamais « efface » (le
     // COALESCE de `UPSERT_SALON` le garantit).
     avatarEtag: chaine(brut.avatarETag),
-    misAJourLe: versEpoch(brut._updatedAt) ?? 0,
+    updatedAt: toEpoch(brut._updatedAt) ?? 0,
   };
 }
 
-export function versAbonnement(brut: Record<string, unknown>): AbonnementLocal | null {
+export function toSubscription(brut: Record<string, unknown>): LocalSubscription | null {
   const rid = chaine(brut.rid);
   if (rid === null) return null;
   return {
     rid,
     subId: chaine(brut._id),
-    nonLus: entier(brut.unread),
+    unread: entier(brut.unread),
     mentions: entier(brut.userMentions),
-    mentionsGroupe: entier(brut.groupMentions),
-    alerte: booleen(brut.alert),
-    ouvert: booleen(brut.open),
-    favori: booleen(brut.f),
-    luJusquA: versEpoch(brut.ls),
+    groupMentions: entier(brut.groupMentions),
+    alert: booleen(brut.alert),
+    open: booleen(brut.open),
+    favorite: booleen(brut.f),
+    lastSeen: toEpoch(brut.ls),
     e2eKey: chaine(brut.E2EKey),
     e2eKeyId: chaine(brut.e2eKeyId),
     roles: Array.isArray(brut.roles)
       ? JSON.stringify(brut.roles.filter((r): r is string => typeof r === 'string'))
       : null,
-    misAJourLe: versEpoch(brut._updatedAt) ?? 0,
+    updatedAt: toEpoch(brut._updatedAt) ?? 0,
   };
 }

@@ -2,18 +2,18 @@ import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
 
-import type { ActionsFournisseur } from '../lib/provider.ts';
+import type { ProviderActions } from '../lib/provider.ts';
 import type { MessageLocal } from '../lib/normalize.ts';
 import type { ClientRest } from '../lib/rest.ts';
-import { Appuyable } from '../ui/tappable.tsx';
+import { Tappable } from '../ui/tappable.tsx';
 import { useT } from '../ui/i18n.ts';
-import { SeparateurJour } from '../ui/kit.tsx';
-import { LigneMessage } from '../ui/messageRow.tsx';
-import { demanderSaut } from '../ui/messageJump.ts';
-import { cleJour } from '../ui/daySeparator.ts';
+import { DaySeparator } from '../ui/kit.tsx';
+import { MessageRow } from '../ui/messageRow.tsx';
+import { requestJump } from '../ui/messageJump.ts';
+import { dayKey } from '../ui/daySeparator.ts';
 import { useSession } from '../ui/session.tsx';
-import { useSynchro } from '../ui/sync.tsx';
-import { type Couleurs, POLICES, useCouleurs } from '../ui/theme.ts';
+import { useSync } from '../ui/sync.tsx';
+import { type Colors, FONTS, useColors } from '../ui/theme.ts';
 
 /**
  * Messages épinglés du salon et mes favoris (étoilés) dans ce salon. Comme la
@@ -31,18 +31,18 @@ type EtatListe =
   | { phase: 'pret'; messages: MessageLocal[] }
   | { phase: 'erreur' };
 
-export default function EcranMessagesMarques() {
+export default function MarkedMessagesScreen() {
   const { rid } = useLocalSearchParams<{ rid: string }>();
-  const { etat } = useSession();
-  const synchro = useSynchro();
-  const c = useCouleurs();
+  const { state: etat } = useSession();
+  const synchro = useSync();
+  const c = useColors();
   const t = useT();
 
   if (etat.phase === 'deconnecte') return <Redirect href="/login" />;
 
   if (etat.phase !== 'connecte' || synchro.phase !== 'pret' || typeof rid !== 'string') {
     return (
-      <View style={[styles.centre, { backgroundColor: c.fond }]}>
+      <View style={[styles.center, { backgroundColor: c.background }]}>
         <Stack.Screen options={{ title: t('marques.titre') }} />
         <ActivityIndicator />
       </View>
@@ -54,7 +54,7 @@ export default function EcranMessagesMarques() {
       client={etat.client}
       actions={synchro.actions}
       rid={rid}
-      moi={etat.session.username}
+      me={etat.session.username}
     />
   );
 }
@@ -64,13 +64,13 @@ function MessagesMarques({
   client,
   actions,
   rid,
-  moi,
+  me: moi,
 }: {
-  c: Couleurs;
+  c: Colors;
   client: ClientRest;
-  actions: ActionsFournisseur;
+  actions: ProviderActions;
   rid: string;
-  moi: string;
+  me: string;
 }) {
   const t = useT();
   const routeur = useRouter();
@@ -83,7 +83,7 @@ function MessagesMarques({
     if (demandes.current.has(onglet)) return;
     demandes.current.add(onglet);
     const quel = onglet;
-    (quel === 'epingles' ? actions.listerEpingles(rid) : actions.listerEtoiles(rid)).then(
+    (quel === 'epingles' ? actions.listPinned(rid) : actions.listStarred(rid)).then(
       (messages) => setListes((l) => ({ ...l, [quel]: { phase: 'pret', messages } })),
       () => setListes((l) => ({ ...l, [quel]: { phase: 'erreur' } })),
     );
@@ -92,11 +92,11 @@ function MessagesMarques({
   const ouvrir = useCallback(
     (m: MessageLocal) => {
       routeur.back();
-      if (m.filId !== null && !m.filAffiche) {
-        routeur.push({ pathname: '/thread/[id]', params: { id: m.filId } });
+      if (m.threadId !== null && !m.threadShown) {
+        routeur.push({ pathname: '/thread/[id]', params: { id: m.threadId } });
         return;
       }
-      demanderSaut(rid, { id: m.id, horodatage: m.horodatage });
+      requestJump(rid, { id: m.id, ts: m.ts });
     },
     [routeur, rid],
   );
@@ -107,77 +107,77 @@ function MessagesMarques({
   }, [onglet]);
 
   return (
-    <View style={[styles.plein, { backgroundColor: c.fond }]}>
+    <View style={[styles.full, { backgroundColor: c.background }]}>
       <Stack.Screen options={{ title: t('marques.titre') }} />
-      <View style={styles.onglets} accessibilityRole="tablist">
+      <View style={styles.tabs} accessibilityRole="tablist">
         {(['epingles', 'favoris'] as const).map((o) => {
           const actif = o === onglet;
           return (
-            <Appuyable
+            <Tappable
               key={o}
               onPress={() => setOnglet(o)}
               accessibilityRole="tab"
               accessibilityState={{ selected: actif }}
-              android_ripple={{ color: c.ondulation, borderless: false }}
+              android_ripple={{ color: c.ripple, borderless: false }}
               style={[
-                styles.onglet,
+                styles.tab,
                 {
-                  borderColor: actif ? c.accent : c.bordure,
+                  borderColor: actif ? c.accent : c.border,
                   backgroundColor: actif ? c.surfaceActive : 'transparent',
                 },
               ]}
             >
-              <Text style={[styles.ongletTexte, { color: actif ? c.texte : c.attenue }]}>
+              <Text style={[styles.ongletTexte, { color: actif ? c.text : c.dimmed }]}>
                 {t(o === 'epingles' ? 'marques.epingles' : 'marques.favoris')}
               </Text>
-            </Appuyable>
+            </Tappable>
           );
         })}
       </View>
       {courante === undefined || courante.phase === 'chargement' ? (
-        <View style={styles.centre}>
+        <View style={styles.center}>
           <ActivityIndicator />
         </View>
       ) : courante.phase === 'erreur' ? (
-        <View style={styles.centre}>
-          <Text style={[styles.vide, { color: c.texteErreur }]}>{t('marques.chargementImpossible')}</Text>
-          <Appuyable onPress={recharger} hitSlop={8}>
-            <Text style={[styles.reessayer, { color: c.accent }]}>{t('commun.reessayer')}</Text>
-          </Appuyable>
+        <View style={styles.center}>
+          <Text style={[styles.empty, { color: c.errorText }]}>{t('marques.chargementImpossible')}</Text>
+          <Tappable onPress={recharger} hitSlop={8}>
+            <Text style={[styles.retry, { color: c.accent }]}>{t('commun.reessayer')}</Text>
+          </Tappable>
         </View>
       ) : (
         <FlatList
           data={courante.messages}
           keyExtractor={(m) => m.id}
           renderItem={({ item, index }) => (
-            <View style={styles.resultat}>
+            <View style={styles.result}>
               {(index === 0 ||
-                cleJour(courante.messages[index - 1].horodatage) !== cleJour(item.horodatage)) && (
-                <SeparateurJour c={c} horodatage={item.horodatage} />
+                dayKey(courante.messages[index - 1].ts) !== dayKey(item.ts)) && (
+                <DaySeparator c={c} ts={item.ts} />
               )}
-              <LigneMessage
+              <MessageRow
                 c={c}
                 message={item}
                 client={client}
-                statutEnvoi={null}
-                surReessayer={null}
-                surAbandonner={null}
-                surAppuiLong={null}
-                surAppui={() => ouvrir(item)}
-                surOuvrirFil={null}
-                moi={moi}
-                surReagir={null}
-                suite={false}
-                heureRepetee={false}
+                sendStatus={null}
+                onRetry={null}
+                onDiscard={null}
+                onLongPress={null}
+                onPress={() => ouvrir(item)}
+                onOpenThread={null}
+                me={moi}
+                onReact={null}
+                continuation={false}
+                repeatedTime={false}
               />
             </View>
           )}
           ListEmptyComponent={
-            <Text style={[styles.vide, { color: c.attenue }]}>
+            <Text style={[styles.empty, { color: c.dimmed }]}>
               {t(onglet === 'epingles' ? 'marques.aucunEpingle' : 'marques.aucunFavori')}
             </Text>
           }
-          contentContainerStyle={styles.contenu}
+          contentContainerStyle={styles.content}
         />
       )}
     </View>
@@ -185,19 +185,19 @@ function MessagesMarques({
 }
 
 const styles = StyleSheet.create({
-  plein: { flex: 1 },
-  centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
-  onglets: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 12 },
-  onglet: {
+  full: { flex: 1 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
+  tabs: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 12 },
+  tab: {
     borderWidth: 1,
     borderRadius: 999,
     paddingHorizontal: 16,
     paddingVertical: 7,
     overflow: 'hidden',
   },
-  ongletTexte: { fontFamily: POLICES.corpsSemi, fontSize: 13.5 },
-  contenu: { paddingHorizontal: 8, paddingBottom: 24 },
-  resultat: { paddingHorizontal: 8, paddingVertical: 4 },
-  vide: { textAlign: 'center', padding: 24, fontFamily: POLICES.corps, fontSize: 14 },
-  reessayer: { fontFamily: POLICES.corpsGras, fontSize: 14 },
+  ongletTexte: { fontFamily: FONTS.corpsSemi, fontSize: 13.5 },
+  content: { paddingHorizontal: 8, paddingBottom: 24 },
+  result: { paddingHorizontal: 8, paddingVertical: 4 },
+  empty: { textAlign: 'center', padding: 24, fontFamily: FONTS.body, fontSize: 14 },
+  retry: { fontFamily: FONTS.corpsGras, fontSize: 14 },
 });

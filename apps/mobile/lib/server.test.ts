@@ -9,8 +9,8 @@
 import assert from 'node:assert/strict';
 import { describe, mock, test } from 'node:test';
 
-import { ErreurRest } from './rest.ts';
-import { ErreurServeur, normaliserUrl, sonderServeur } from './server.ts';
+import { RestError } from './rest.ts';
+import { ServerError, normalizeUrl, probeServer } from './server.ts';
 
 const REGLAGES = {
   settings: [
@@ -68,43 +68,43 @@ function reponsePendante(init?: RequestInit): Promise<Response> {
 
 describe('normaliserUrl', () => {
   test('sans schéma, https est supposé', () => {
-    assert.equal(normaliserUrl('chat.exemple.fr'), 'https://chat.exemple.fr');
+    assert.equal(normalizeUrl('chat.exemple.fr'), 'https://chat.exemple.fr');
   });
 
   test('le SOUS-CHEMIN est conservé — un Rocket.Chat derrière proxy vit sous /chat', () => {
     // `new URL(…).origin` le supprimerait, et toutes les requêtes viseraient
     // la racine du proxy : 404 partout, sans indice.
-    assert.equal(normaliserUrl('https://exemple.fr/chat/'), 'https://exemple.fr/chat');
-    assert.equal(normaliserUrl('https://exemple.fr/chat///'), 'https://exemple.fr/chat');
+    assert.equal(normalizeUrl('https://exemple.fr/chat/'), 'https://exemple.fr/chat');
+    assert.equal(normalizeUrl('https://exemple.fr/chat///'), 'https://exemple.fr/chat');
   });
 
   test('http explicite et port sont respectés', () => {
-    assert.equal(normaliserUrl('http://192.168.1.106:3000'), 'http://192.168.1.106:3000');
+    assert.equal(normalizeUrl('http://192.168.1.106:3000'), 'http://192.168.1.106:3000');
   });
 
   test('les espaces autour sont ignorés', () => {
-    assert.equal(normaliserUrl('  chat.exemple.fr  '), 'https://chat.exemple.fr');
+    assert.equal(normalizeUrl('  chat.exemple.fr  '), 'https://chat.exemple.fr');
   });
 
   test('query et fragment ne font pas partie de l’adresse d’un serveur', () => {
     // Une URL collée depuis le navigateur porte volontiers `?msg=…` : la
     // conserver ferait viser `settings.public` avec des paramètres parasites.
-    assert.equal(normaliserUrl('https://exemple.fr/chat?x=1#y'), 'https://exemple.fr/chat');
+    assert.equal(normalizeUrl('https://exemple.fr/chat?x=1#y'), 'https://exemple.fr/chat');
   });
 
   test('l’hôte se normalise en minuscules, le port sans schéma survit', () => {
-    assert.equal(normaliserUrl('HTTPS://Chat.Exemple.fr'), 'https://chat.exemple.fr');
-    assert.equal(normaliserUrl('chat.exemple.fr:8443'), 'https://chat.exemple.fr:8443');
+    assert.equal(normalizeUrl('HTTPS://Chat.Exemple.fr'), 'https://chat.exemple.fr');
+    assert.equal(normalizeUrl('chat.exemple.fr:8443'), 'https://chat.exemple.fr:8443');
   });
 
   test('vide et invalide lèvent ErreurServeur, pas une TypeError brute', () => {
     // NB : repose sur un `URL` qui LÈVE sur l'invalide — vrai sous Node comme
     // dans l'app (runtime Winter d'Expo, conforme au standard), faux du vieux
     // polyfill regex de RN, le piège consigné pour `lib/origin.ts`.
-    assert.throws(() => normaliserUrl(''), ErreurServeur);
-    assert.throws(() => normaliserUrl('   '), ErreurServeur);
-    assert.throws(() => normaliserUrl('https://'), ErreurServeur);
-    assert.throws(() => normaliserUrl('chat exemple.fr'), ErreurServeur);
+    assert.throws(() => normalizeUrl(''), ServerError);
+    assert.throws(() => normalizeUrl('   '), ServerError);
+    assert.throws(() => normalizeUrl('https://'), ServerError);
+    assert.throws(() => normalizeUrl('chat exemple.fr'), ServerError);
   });
 });
 
@@ -115,7 +115,7 @@ describe('sonderServeur', () => {
     const t = transport((u) =>
       u.endsWith('/api/info') ? json({ version: '8.5', success: true }) : json(REGLAGES),
     );
-    const profil = await sonderServeur('https://chat.exemple.fr', undefined, t);
+    const profil = await probeServer('https://chat.exemple.fr', undefined, t);
 
     assert.equal(profil.version, '8.5');
     assert.ok(
@@ -132,7 +132,7 @@ describe('sonderServeur', () => {
     // Entrée BRUTE : c'est l'URL normalisée que le sondage doit viser, et
     // c'est elle que `baseUrl` doit rendre — l'appelant construit son client
     // dessus, pas sur sa propre re-normalisation de la saisie.
-    const p = await sonderServeur('exemple.fr/chat/', undefined, t);
+    const p = await probeServer('exemple.fr/chat/', undefined, t);
     assert.equal(p.baseUrl, 'https://exemple.fr/chat');
     assert.ok(t.urls.every((u) => u.startsWith('https://exemple.fr/chat/')), t.urls.join(' '));
   });
@@ -141,25 +141,25 @@ describe('sonderServeur', () => {
     const t = transport((u) =>
       u.endsWith('/api/info') ? json({ version: '8.5' }) : json(REGLAGES),
     );
-    const p = await sonderServeur('https://chat.exemple.fr', undefined, t);
+    const p = await probeServer('https://chat.exemple.fr', undefined, t);
 
     assert.equal(p.baseUrl, 'https://chat.exemple.fr');
     assert.equal(p.siteUrl, 'https://chat.exemple.fr/');
-    assert.equal(p.formulaireDeConnexion, true);
-    assert.deepEqual(p.deuxFacteurs, { actif: true, totp: true, email: false });
+    assert.equal(p.loginForm, true);
+    assert.deepEqual(p.twoFactor, { active: true, totp: true, email: false });
     assert.equal(p.ldap, false);
     assert.deepEqual(p.oauth, ['Github'], 'seuls les fournisseurs à true');
-    assert.equal(p.e2eeActif, true);
-    assert.equal(p.fichiersProteges, true);
-    assert.equal(p.avatarsProteges, true);
+    assert.equal(p.e2eeEnabled, true);
+    assert.equal(p.filesProtected, true);
+    assert.equal(p.avatarsProtected, true);
   });
 
   test('un réglage absent vaut faux, jamais undefined', async () => {
     const t = transport((u) =>
       u.endsWith('/api/info') ? json({ version: '8.5' }) : json({ settings: [], success: true }),
     );
-    const p = await sonderServeur('https://x', undefined, t);
-    assert.equal(p.e2eeActif, false);
+    const p = await probeServer('https://x', undefined, t);
+    assert.equal(p.e2eeEnabled, false);
     assert.equal(p.siteUrl, null);
     assert.deepEqual(p.oauth, []);
   });
@@ -168,8 +168,8 @@ describe('sonderServeur', () => {
     const t = transport((u) =>
       u.endsWith('/api/info') ? json({ hello: 'world' }) : json(REGLAGES),
     );
-    await assert.rejects(sonderServeur('https://x', undefined, t), (e: unknown) => {
-      assert.ok(e instanceof ErreurServeur);
+    await assert.rejects(probeServer('https://x', undefined, t), (e: unknown) => {
+      assert.ok(e instanceof ServerError);
       assert.match(e.message, /ne ressemble pas/);
       return true;
     });
@@ -185,10 +185,10 @@ describe('sonderServeur', () => {
           })
         : json(REGLAGES),
     );
-    await assert.rejects(sonderServeur('https://x', undefined, t), (e: unknown) => {
-      assert.ok(e instanceof ErreurServeur);
+    await assert.rejects(probeServer('https://x', undefined, t), (e: unknown) => {
+      assert.ok(e instanceof ServerError);
       assert.match(e.message, /non JSON/);
-      assert.ok(e.origine instanceof ErreurRest, 'la cause est conservée');
+      assert.ok(e.origin instanceof RestError, 'la cause est conservée');
       return true;
     });
   });
@@ -197,7 +197,7 @@ describe('sonderServeur', () => {
     const t = transport((u) =>
       u.endsWith('/api/info') ? json({ version: '8.5' }) : json({ success: false }, 404),
     );
-    await assert.rejects(sonderServeur('https://x', undefined, t), ErreurServeur);
+    await assert.rejects(probeServer('https://x', undefined, t), ServerError);
   });
 
   test('settings.public 200 SANS tableau `settings` → ErreurServeur', async () => {
@@ -207,8 +207,8 @@ describe('sonderServeur', () => {
       u.endsWith('/api/info') ? json({ version: '8.5' }) : json({ success: true }),
     );
     await assert.rejects(
-      sonderServeur('https://x', undefined, t),
-      (e: unknown) => e instanceof ErreurServeur && /tableau/.test(e.message),
+      probeServer('https://x', undefined, t),
+      (e: unknown) => e instanceof ServerError && /tableau/.test(e.message),
     );
   });
 
@@ -221,8 +221,8 @@ describe('sonderServeur', () => {
         ? reponsePendante(init)
         : Promise.reject(new TypeError('Network request failed')),
     );
-    await assert.rejects(sonderServeur('https://x', undefined, t), (e: unknown) => {
-      assert.ok(e instanceof ErreurServeur);
+    await assert.rejects(probeServer('https://x', undefined, t), (e: unknown) => {
+      assert.ok(e instanceof ServerError);
       assert.match(e.message, /injoignable/);
       return true;
     });
@@ -234,12 +234,12 @@ describe('sonderServeur', () => {
     // panne, l'écran ne doit pas afficher « serveur injoignable ».
     const t = transport((_u, init) => reponsePendante(init));
     const controleur = new AbortController();
-    const sondage = sonderServeur('https://x', controleur.signal, t);
+    const sondage = probeServer('https://x', controleur.signal, t);
     controleur.abort();
     await assert.rejects(sondage, (e: unknown) => {
       assert.ok(e instanceof Error);
       assert.equal(e.name, 'AbortError');
-      assert.ok(!(e instanceof ErreurServeur));
+      assert.ok(!(e instanceof ServerError));
       return true;
     });
     assert.equal(t.signaux.get('/api/info')?.aborted, true);
@@ -250,7 +250,7 @@ describe('sonderServeur', () => {
     const t = transport(() => json({ version: '8.5' }));
     const controleur = new AbortController();
     controleur.abort();
-    await assert.rejects(sonderServeur('https://x', controleur.signal, t), (e: unknown) => {
+    await assert.rejects(probeServer('https://x', controleur.signal, t), (e: unknown) => {
       assert.ok(e instanceof Error);
       assert.equal(e.name, 'AbortError');
       return true;
@@ -260,7 +260,7 @@ describe('sonderServeur', () => {
 
   test('une adresse invalide échoue AVANT toute requête', async () => {
     const t = transport(() => json({ version: '8.5' }));
-    await assert.rejects(sonderServeur('', undefined, t), ErreurServeur);
+    await assert.rejects(probeServer('', undefined, t), ServerError);
     assert.deepEqual(t.urls, []);
   });
 
@@ -291,7 +291,7 @@ describe('sonderServeur', () => {
         });
       }) as unknown as typeof globalThis.fetch;
 
-      const p = sonderServeur('https://x', undefined, { fetch: fetchMuet });
+      const p = probeServer('https://x', undefined, { fetch: fetchMuet });
       let etat = 'pendante';
       void p.then(
         () => (etat = 'résolue'),
@@ -304,7 +304,7 @@ describe('sonderServeur', () => {
 
       mock.timers.tick(2);
       await assert.rejects(p, (e: unknown) => {
-        assert.ok(e instanceof ErreurServeur);
+        assert.ok(e instanceof ServerError);
         assert.match(e.message, /pas de réponse en 15 s/);
         return true;
       });

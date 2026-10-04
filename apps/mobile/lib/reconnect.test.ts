@@ -1,19 +1,19 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { Reconnecteur } from './reconnect.ts';
+import { Reconnector } from './reconnect.ts';
 
 /** Horloge simulée : les minuteries partent quand ON le décide. */
 function fausseHorloge() {
   let prochainId = 1;
   const prevues = new Map<number, { fn: () => void; ms: number }>();
   return {
-    programmer: (fn: () => void, ms: number) => {
+    schedule: (fn: () => void, ms: number) => {
       const id = prochainId++;
       prevues.set(id, { fn, ms });
       return id as unknown as ReturnType<typeof setTimeout>;
     },
-    annuler: (m: ReturnType<typeof setTimeout>) => void prevues.delete(m as unknown as number),
+    cancel: (m: ReturnType<typeof setTimeout>) => void prevues.delete(m as unknown as number),
     /** Fait partir la prochaine minuterie et rend son délai. */
     async avancer(): Promise<number | null> {
       const [id, entree] = [...prevues.entries()][0] ?? [];
@@ -25,7 +25,7 @@ function fausseHorloge() {
       await new Promise((r) => setImmediate(r));
       return entree.ms;
     },
-    enAttente: () => prevues.size,
+    pending: () => prevues.size,
   };
 }
 
@@ -35,17 +35,17 @@ describe('Reconnecteur', () => {
     const delais: number[] = [];
     let reussirApres = 99;
     let essais = 0;
-    const r = new Reconnecteur({
-      connecter: async () => {
+    const r = new Reconnector({
+      connect: async () => {
         essais++;
         if (essais <= reussirApres) throw new Error('pas encore');
       },
-      alea: () => 1, // gigue déterministe : plein délai
-      programmer: horloge.programmer,
-      annuler: horloge.annuler,
+      random: () => 1, // gigue déterministe : plein délai
+      schedule: horloge.schedule,
+      cancel: horloge.cancel,
     });
 
-    r.declencher();
+    r.trigger();
     for (let i = 0; i < 8; i++) {
       const ms = await horloge.avancer();
       if (ms !== null) delais.push(ms);
@@ -56,7 +56,7 @@ describe('Reconnecteur', () => {
     // Un succès remet le compteur à zéro.
     reussirApres = 0;
     await horloge.avancer();
-    r.declencher();
+    r.trigger();
     const apresSucces = await horloge.avancer();
     assert.equal(apresSucces, 0, 'après un succès, la tentative suivante est immédiate');
   });
@@ -67,15 +67,15 @@ describe('Reconnecteur', () => {
       [1, 1000],
     ] as const) {
       const horloge = fausseHorloge();
-      const r = new Reconnecteur({
-        connecter: async () => {
+      const r = new Reconnector({
+        connect: async () => {
           throw new Error('non');
         },
-        alea: () => alea,
-        programmer: horloge.programmer,
-        annuler: horloge.annuler,
+        random: () => alea,
+        schedule: horloge.schedule,
+        cancel: horloge.cancel,
       });
-      r.declencher();
+      r.trigger();
       await horloge.avancer(); // tentative 0, immédiate, échoue
       const ms = await horloge.avancer(); // tentative 1 : 1 s plein
       assert.equal(ms, attendu);
@@ -84,32 +84,32 @@ describe('Reconnecteur', () => {
 
   test('declencher est idempotent : une seule tentative programmée à la fois', () => {
     const horloge = fausseHorloge();
-    const r = new Reconnecteur({
-      connecter: async () => {},
-      programmer: horloge.programmer,
-      annuler: horloge.annuler,
+    const r = new Reconnector({
+      connect: async () => {},
+      schedule: horloge.schedule,
+      cancel: horloge.cancel,
     });
-    r.declencher();
-    r.declencher();
-    r.declencher();
-    assert.equal(horloge.enAttente(), 1);
+    r.trigger();
+    r.trigger();
+    r.trigger();
+    assert.equal(horloge.pending(), 1);
   });
 
   test('arreter annule la tentative prévue et bloque les suivantes', async () => {
     const horloge = fausseHorloge();
     let essais = 0;
-    const r = new Reconnecteur({
-      connecter: async () => {
+    const r = new Reconnector({
+      connect: async () => {
         essais++;
       },
-      programmer: horloge.programmer,
-      annuler: horloge.annuler,
+      schedule: horloge.schedule,
+      cancel: horloge.cancel,
     });
-    r.declencher();
-    r.arreter();
-    assert.equal(horloge.enAttente(), 0, 'la minuterie est annulée');
-    r.declencher();
-    assert.equal(horloge.enAttente(), 0, 'plus rien ne se programme');
+    r.trigger();
+    r.stop();
+    assert.equal(horloge.pending(), 0, 'la minuterie est annulée');
+    r.trigger();
+    assert.equal(horloge.pending(), 0, 'plus rien ne se programme');
     assert.equal(essais, 0);
   });
 
@@ -118,24 +118,24 @@ describe('Reconnecteur', () => {
     // tentative qui va « réussir ». Sans relance, le signal était perdu et
     // plus rien ne reconnectait jamais — cache figé jusqu'au redémarrage.
     const horloge = fausseHorloge();
-    const vanne: { ouvrir: (() => void) | null } = { ouvrir: null };
+    const vanne: { open: (() => void) | null } = { open: null };
     let essais = 0;
-    const r = new Reconnecteur({
-      connecter: () =>
+    const r = new Reconnector({
+      connect: () =>
         new Promise<void>((resoudre) => {
           essais++;
-          vanne.ouvrir = resoudre;
+          vanne.open = resoudre;
         }),
-      programmer: horloge.programmer,
-      annuler: horloge.annuler,
+      schedule: horloge.schedule,
+      cancel: horloge.cancel,
     });
-    r.declencher();
+    r.trigger();
     await horloge.avancer(); // tentative 1 en vol, bloquée sur la vanne
-    r.declencher(); // la socket vient de retomber : à MÉMORISER
-    vanne.ouvrir?.();
+    r.trigger(); // la socket vient de retomber : à MÉMORISER
+    vanne.open?.();
     await new Promise((s) => setImmediate(s));
     await new Promise((s) => setImmediate(s));
-    assert.equal(horloge.enAttente(), 1, 'une nouvelle tentative est programmée');
+    assert.equal(horloge.pending(), 1, 'une nouvelle tentative est programmée');
     await horloge.avancer();
     assert.equal(essais, 2);
   });
@@ -147,20 +147,20 @@ describe('Reconnecteur', () => {
     // Doze tuera, et entraîne un rattraperTout() REST rate-limité.
     const horloge = fausseHorloge();
     let essais = 0;
-    const r = new Reconnecteur({
-      connecter: async () => {
+    const r = new Reconnector({
+      connect: async () => {
         essais++;
       },
-      programmer: horloge.programmer,
-      annuler: horloge.annuler,
+      schedule: horloge.schedule,
+      cancel: horloge.cancel,
     });
-    r.declencher();
-    assert.equal(horloge.enAttente(), 1);
+    r.trigger();
+    assert.equal(horloge.pending(), 1);
 
-    r.suspendre();
-    assert.equal(horloge.enAttente(), 0, 'la minuterie armée est désarmée');
-    r.declencher();
-    assert.equal(horloge.enAttente(), 0, 'plus aucune demande ne programme');
+    r.suspend();
+    assert.equal(horloge.pending(), 0, 'la minuterie armée est désarmée');
+    r.trigger();
+    assert.equal(horloge.pending(), 0, 'plus aucune demande ne programme');
     assert.equal(essais, 0);
   });
 
@@ -169,46 +169,46 @@ describe('Reconnecteur', () => {
     // c'est son `catch` qui rappellera `declencher()`. Le drapeau doit tenir
     // là aussi, sinon le passage en arrière-plan ne suspend qu'une moitié.
     const horloge = fausseHorloge();
-    const vanne: { echouer: ((e: Error) => void) | null } = { echouer: null };
-    const r = new Reconnecteur({
-      connecter: () =>
+    const vanne: { fail: ((e: Error) => void) | null } = { fail: null };
+    const r = new Reconnector({
+      connect: () =>
         new Promise<void>((_, rejeter) => {
-          vanne.echouer = rejeter;
+          vanne.fail = rejeter;
         }),
-      programmer: horloge.programmer,
-      annuler: horloge.annuler,
+      schedule: horloge.schedule,
+      cancel: horloge.cancel,
     });
-    r.declencher();
+    r.trigger();
     await horloge.avancer(); // tentative en vol
 
-    r.suspendre(); // l'app passe en arrière-plan pendant la tentative
-    vanne.echouer?.(new Error('réseau coupé'));
+    r.suspend(); // l'app passe en arrière-plan pendant la tentative
+    vanne.fail?.(new Error('réseau coupé'));
     await new Promise((s) => setImmediate(s));
     await new Promise((s) => setImmediate(s));
 
-    assert.equal(horloge.enAttente(), 0, 'rien ne se reprogramme en fond');
+    assert.equal(horloge.pending(), 0, 'rien ne se reprogramme en fond');
   });
 
   test('une relance mémorisée pendant une tentative RÉUSSIE ne survit pas à suspendre', async () => {
     const horloge = fausseHorloge();
-    const vanne: { ouvrir: (() => void) | null } = { ouvrir: null };
-    const r = new Reconnecteur({
-      connecter: () =>
+    const vanne: { open: (() => void) | null } = { open: null };
+    const r = new Reconnector({
+      connect: () =>
         new Promise<void>((resoudre) => {
-          vanne.ouvrir = resoudre;
+          vanne.open = resoudre;
         }),
-      programmer: horloge.programmer,
-      annuler: horloge.annuler,
+      schedule: horloge.schedule,
+      cancel: horloge.cancel,
     });
-    r.declencher();
+    r.trigger();
     await horloge.avancer();
-    r.declencher(); // la socket retombe : relance mémorisée
-    r.suspendre(); // …puis l'app part en arrière-plan
-    vanne.ouvrir?.();
+    r.trigger(); // la socket retombe : relance mémorisée
+    r.suspend(); // …puis l'app part en arrière-plan
+    vanne.open?.();
     await new Promise((s) => setImmediate(s));
     await new Promise((s) => setImmediate(s));
 
-    assert.equal(horloge.enAttente(), 0);
+    assert.equal(horloge.pending(), 0);
   });
 
   test('reprendre réarme, et la tentative est IMMÉDIATE — pas au bout du backoff', async () => {
@@ -217,57 +217,57 @@ describe('Reconnecteur', () => {
     // le faire attendre 30 s serait la punition que ce chantier veut lever.
     const horloge = fausseHorloge();
     let essais = 0;
-    const r = new Reconnecteur({
-      connecter: async () => {
+    const r = new Reconnector({
+      connect: async () => {
         essais++;
         throw new Error('non');
       },
-      alea: () => 1,
-      programmer: horloge.programmer,
-      annuler: horloge.annuler,
+      random: () => 1,
+      schedule: horloge.schedule,
+      cancel: horloge.cancel,
     });
-    r.declencher();
+    r.trigger();
     for (let i = 0; i < 6; i++) await horloge.avancer(); // le backoff monte
     assert.equal(essais, 6);
 
-    r.suspendre();
-    r.reprendre();
-    r.declencher();
+    r.suspend();
+    r.resume();
+    r.trigger();
     assert.equal(await horloge.avancer(), 0, 'immédiate au retour');
     assert.equal(essais, 7);
   });
 
   test('reprendre ne ressuscite pas un pilote arrêté', () => {
     const horloge = fausseHorloge();
-    const r = new Reconnecteur({
-      connecter: async () => {},
-      programmer: horloge.programmer,
-      annuler: horloge.annuler,
+    const r = new Reconnector({
+      connect: async () => {},
+      schedule: horloge.schedule,
+      cancel: horloge.cancel,
     });
-    r.arreter(); // démontage : définitif
-    r.reprendre();
-    r.declencher();
-    assert.equal(horloge.enAttente(), 0);
+    r.stop(); // démontage : définitif
+    r.resume();
+    r.trigger();
+    assert.equal(horloge.pending(), 0);
   });
 
   test('un declencher PENDANT une tentative en vol ne double pas', async () => {
     const horloge = fausseHorloge();
-    const vanne: { ouvrir: (() => void) | null } = { ouvrir: null };
+    const vanne: { open: (() => void) | null } = { open: null };
     let essais = 0;
-    const r = new Reconnecteur({
-      connecter: () =>
+    const r = new Reconnector({
+      connect: () =>
         new Promise<void>((resoudre) => {
           essais++;
-          vanne.ouvrir = resoudre;
+          vanne.open = resoudre;
         }),
-      programmer: horloge.programmer,
-      annuler: horloge.annuler,
+      schedule: horloge.schedule,
+      cancel: horloge.cancel,
     });
-    r.declencher();
+    r.trigger();
     await horloge.avancer(); // lance la tentative, qui bloque sur la vanne
-    r.declencher(); // en vol : ne doit rien programmer
-    assert.equal(horloge.enAttente(), 0);
-    vanne.ouvrir?.();
+    r.trigger(); // en vol : ne doit rien programmer
+    assert.equal(horloge.pending(), 0);
+    vanne.open?.();
     await new Promise((s) => setImmediate(s));
     assert.equal(essais, 1);
   });

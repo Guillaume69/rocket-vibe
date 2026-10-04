@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import {
-  lireSourcesPermissions,
-  permissionsAccordees,
-  rolesDuSalon,
+  readPermissionSources,
+  grantedPermissions,
+  roomRoles,
   sourcesPermissions,
 } from './permissions.ts';
 
@@ -13,7 +13,7 @@ function fauxClient(echecs = 0) {
   let restants = echecs;
   const client = {
     baseUrl: 'http://x',
-    identifiants: { userId: 'u1', authToken: 't' },
+    auth: { userId: 'u1', authToken: 't' },
     get: async <T>(chemin: string): Promise<T> => {
       appels.push(chemin);
       if (restants > 0) {
@@ -37,9 +37,9 @@ function fauxClient(echecs = 0) {
 
 describe('permissions', () => {
   test('accordée quand un rôle global OU du salon la porte', async () => {
-    const sources = await lireSourcesPermissions(fauxClient().client);
-    assert.deepEqual(permissionsAccordees(sources, []).sort(), ['delete-own-message']);
-    assert.deepEqual(permissionsAccordees(sources, ['owner']).sort(), [
+    const sources = await readPermissionSources(fauxClient().client);
+    assert.deepEqual(grantedPermissions(sources, []).sort(), ['delete-own-message']);
+    assert.deepEqual(grantedPermissions(sources, ['owner']).sort(), [
       'delete-own-message',
       'force-delete-message',
       'pin-message',
@@ -47,10 +47,10 @@ describe('permissions', () => {
   });
 
   test('rolesDuSalon lit la colonne, et ne lève jamais', () => {
-    assert.deepEqual(rolesDuSalon('["owner","moderator"]'), ['owner', 'moderator']);
-    assert.deepEqual(rolesDuSalon(null), []);
-    assert.deepEqual(rolesDuSalon('{pas du json'), []);
-    assert.deepEqual(rolesDuSalon('"owner"'), []);
+    assert.deepEqual(roomRoles('["owner","moderator"]'), ['owner', 'moderator']);
+    assert.deepEqual(roomRoles(null), []);
+    assert.deepEqual(roomRoles('{pas du json'), []);
+    assert.deepEqual(roomRoles('"owner"'), []);
   });
 
   test('une lecture par compte, et un échec n’est pas retenu', async () => {

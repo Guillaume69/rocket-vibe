@@ -11,13 +11,13 @@
  * est dans `ui/messageRow.tsx`.
  */
 
-export type ReactionAffichee = {
+export type DisplayedReaction = {
   /** Code court SANS les deux-points (`+1`, `party_parrot`). */
   code: string;
   /** Nombre de personnes ayant posé cette réaction. */
   total: number;
   /** Mon username y figure : le contour s'accentue, et le tap RETIRE. */
-  parMoi: boolean;
+  byMe: boolean;
 };
 
 /**
@@ -27,7 +27,7 @@ export type ReactionAffichee = {
  * qui vient d'autrui : un JSON illisible ou une forme inattendue rend `[]`,
  * jamais une exception. L'ordre du serveur est préservé.
  */
-export function listeReactions(brut: string | null, moi: string | null): ReactionAffichee[] {
+export function reactionList(brut: string | null, moi: string | null): DisplayedReaction[] {
   if (brut === null) return [];
   let racine: unknown;
   try {
@@ -36,7 +36,7 @@ export function listeReactions(brut: string | null, moi: string | null): Reactio
     return [];
   }
   if (typeof racine !== 'object' || racine === null || Array.isArray(racine)) return [];
-  const sorties: ReactionAffichee[] = [];
+  const sorties: DisplayedReaction[] = [];
   for (const [cle, valeur] of Object.entries(racine as Record<string, unknown>)) {
     const brutUsernames = (valeur as { usernames?: unknown } | null)?.usernames;
     const usernames = Array.isArray(brutUsernames)
@@ -46,7 +46,7 @@ export function listeReactions(brut: string | null, moi: string | null): Reactio
     sorties.push({
       code: cle.replace(/^:/, '').replace(/:$/, ''),
       total: usernames.length,
-      parMoi: moi !== null && usernames.includes(moi),
+      byMe: moi !== null && usernames.includes(moi),
     });
   }
   return sorties;

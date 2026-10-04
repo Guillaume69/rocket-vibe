@@ -19,10 +19,10 @@
  * cette logique se teste sous Node, sans appareil.
  */
 
-import { desenregistrerJeton } from './pushToken.ts';
-import { ClientRest, estJetonRefuse } from './rest.ts';
+import { unregisterToken } from './pushToken.ts';
+import { ClientRest, isTokenRejected } from './rest.ts';
 
-export type DeconnexionEnSuspens = {
+export type PendingLogout = {
   baseUrl: string;
   userId: string;
   authToken: string;
@@ -30,9 +30,9 @@ export type DeconnexionEnSuspens = {
   jetonPush: string | null;
 };
 
-export type FileDeconnexions = {
-  lister: () => Promise<DeconnexionEnSuspens[]>;
-  retirer: (baseUrl: string) => Promise<void>;
+export type LogoutQueue = {
+  list: () => Promise<PendingLogout[]>;
+  remove: (baseUrl: string) => Promise<void>;
 };
 
 /**
@@ -52,11 +52,11 @@ export type FileDeconnexions = {
  * Un `DELETE push.token` sur un jeton déjà retiré répond 404, que
  * `desenregistrerJeton` traite déjà comme un succès : le rejeu est donc sûr.
  */
-export async function terminerDeconnexions(
-  file: FileDeconnexions,
-  creerClient: (entree: DeconnexionEnSuspens) => ClientRest,
+export async function finishPendingLogouts(
+  file: LogoutQueue,
+  creerClient: (entree: PendingLogout) => ClientRest,
 ): Promise<void> {
-  const entrees = await file.lister();
+  const entrees = await file.list();
   for (const entree of entrees) {
     const client = creerClient(entree);
     let echecReseau = false;
@@ -64,10 +64,10 @@ export async function terminerDeconnexions(
     // `DELETE` a besoin. L'ordre est le même qu'à la déconnexion nominale.
     const jetonPush = entree.jetonPush;
     if (jetonPush !== null) {
-      echecReseau = !(await tenter(() => desenregistrerJeton(client, jetonPush)));
+      echecReseau = !(await tenter(() => unregisterToken(client, jetonPush)));
     }
     if (!(await tenter(() => client.post('logout')))) echecReseau = true;
-    if (!echecReseau) await file.retirer(entree.baseUrl);
+    if (!echecReseau) await file.remove(entree.baseUrl);
   }
 }
 
@@ -80,6 +80,6 @@ async function tenter(geste: () => Promise<unknown>): Promise<boolean> {
     await geste();
     return true;
   } catch (e) {
-    return estJetonRefuse(e);
+    return isTokenRejected(e);
   }
 }

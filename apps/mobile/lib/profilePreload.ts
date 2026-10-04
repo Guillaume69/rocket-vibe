@@ -21,21 +21,21 @@
  * navigation est injectée, l'erreur voyage en clé à traduire à l'affichage.
  */
 
-import type { CleTraduction } from '../ui/messages.ts'; // import type seul : consigné, comme lib/systemMessages.ts
-import { sonderAppelDisponible } from './call.ts';
+import type { TranslationKey } from '../ui/messages.ts'; // import type seul : consigné, comme lib/systemMessages.ts
+import { probeCallAvailable } from './call.ts';
 import type { ClientRest } from './rest.ts';
 
 /** Une des deux formes acceptées par `users.info` (jamais les deux à la fois). */
-export type ParamsProfil = { username?: string; uid?: string };
+export type ProfileParams = { username?: string; uid?: string };
 
 /**
  * Pourquoi `user` manque : une clé du catalogue — traduite à l'AFFICHAGE, ce
  * module est du lib/ pur — ou le message d'une `ErreurRest`, déjà en langue.
  */
-export type ErreurProfil = { cle: CleTraduction } | { message: string };
+export type ProfileError = { key: TranslationKey } | { message: string };
 
 /** Brut `users.info` mis en cache : `user` absent ⇒ échec décrit par `erreur`. */
-export type ProfilBrut = { user: Record<string, unknown> | undefined; erreur: ErreurProfil | null };
+export type RawProfile = { user: Record<string, unknown> | undefined; error: ProfileError | null };
 
 /**
  * Plafond d'attente avant d'ouvrir malgré tout. Sur réseau normal, `users.info`
@@ -63,11 +63,11 @@ const DUREE_MIN_VISIBLE_MS = 400;
 let clientActif: ClientRest | null = null;
 
 /** Posé par `SessionProvider` à chaque changement de session. */
-export function definirClientProfil(client: ClientRest | null): void {
+export function setProfileClient(client: ClientRest | null): void {
   clientActif = client;
 }
 
-let navigateurActif: ((p: ParamsProfil) => void) | null = null;
+let navigateurActif: ((p: ProfileParams) => void) | null = null;
 
 /**
  * Posé par le layout racine (`app/_layout.tsx`) : c'est LUI qui sait pousser
@@ -75,7 +75,7 @@ let navigateurActif: ((p: ParamsProfil) => void) | null = null;
  * que `definirClientProfil`. Sans navigateur posé (jamais le cas une fois
  * l'app montée), l'ouverture est un no-op silencieux.
  */
-export function definirNavigateurProfil(nav: ((p: ParamsProfil) => void) | null): void {
+export function setProfileNavigator(nav: ((p: ProfileParams) => void) | null): void {
   navigateurActif = nav;
 }
 
@@ -93,7 +93,7 @@ function poserBusy(v: boolean): void {
 }
 
 /** Abonne un écouteur à l'état « ouverture en cours » ; renvoie le désabonnement. */
-export function sabonnerOuvertureProfil(cb: EcouteurBusy): () => void {
+export function subscribeProfileOpening(cb: EcouteurBusy): () => void {
   ecouteurs.add(cb);
   cb(busy);
   return () => {
@@ -101,16 +101,16 @@ export function sabonnerOuvertureProfil(cb: EcouteurBusy): () => void {
   };
 }
 
-const cache = new Map<string, ProfilBrut>();
+const cache = new Map<string, RawProfile>();
 
-function cle(p: ParamsProfil): string {
+function cle(p: ProfileParams): string {
   return typeof p.username === 'string' && p.username !== ''
     ? `u:${p.username}`
     : `i:${p.uid ?? ''}`;
 }
 
 /** Fiche préchargée pour ces params, ou `undefined` si l'écran doit charger lui-même. */
-export function lireProfilPrecharge(p: ParamsProfil): ProfilBrut | undefined {
+export function readPreloadedProfile(p: ProfileParams): RawProfile | undefined {
   return cache.get(cle(p));
 }
 
@@ -124,7 +124,7 @@ export function lireProfilPrecharge(p: ParamsProfil): ProfilBrut | undefined {
  * la vie du process est une résidence de données personnelles que rien ne
  * justifie — et une course étroite suffit à les afficher.
  */
-export function oublierFichesProfil(): void {
+export function forgetProfileCards(): void {
   cache.clear();
   cleEnCours = null;
 }
@@ -153,7 +153,7 @@ let cleEnCours: string | null = null;
  * profil — que l'utilisateur aurait dû retaper. Deux cibles différentes gardent
  * donc le comportement d'avant.
  */
-export async function ouvrirFicheProfil(p: ParamsProfil): Promise<void> {
+export async function openProfileCard(p: ProfileParams): Promise<void> {
   const k = cle(p);
   if (cleEnCours === k) return;
   cleEnCours = k;
@@ -165,7 +165,7 @@ export async function ouvrirFicheProfil(p: ParamsProfil): Promise<void> {
   }
 }
 
-async function prechargerPuisOuvrir(p: ParamsProfil): Promise<void> {
+async function prechargerPuisOuvrir(p: ProfileParams): Promise<void> {
   const client = clientActif;
   const k = cle(p);
 
@@ -178,7 +178,7 @@ async function prechargerPuisOuvrir(p: ParamsProfil): Promise<void> {
     return;
   }
 
-  const params: ParamsProfil =
+  const params: ProfileParams =
     typeof p.username === 'string' && p.username !== ''
       ? { username: p.username }
       : { uid: p.uid ?? '' };
@@ -186,13 +186,13 @@ async function prechargerPuisOuvrir(p: ParamsProfil): Promise<void> {
 
   const fetchBrut = client
     .get<{ user?: Record<string, unknown> }>('users.info', { params: rest })
-    .then<ProfilBrut>((r) => ({
+    .then<RawProfile>((r) => ({
       user: r.user,
-      erreur: r.user ? null : { cle: 'profil.profilIllisible' },
+      error: r.user ? null : { key: 'profil.profilIllisible' },
     }))
-    .catch<ProfilBrut>((e: unknown) => ({
+    .catch<RawProfile>((e: unknown) => ({
       user: undefined,
-      erreur: e instanceof Error ? { message: e.message } : { cle: 'profil.profilIntrouvable' },
+      error: e instanceof Error ? { message: e.message } : { key: 'profil.profilIntrouvable' },
     }));
 
   // Indicateur différé : ne s'affiche QUE si l'attente dépasse le seuil, et
@@ -204,10 +204,10 @@ async function prechargerPuisOuvrir(p: ParamsProfil): Promise<void> {
   }, SEUIL_INDICATEUR_MS);
   // On attend AUSSI la sonde d'appel (mémoïsée par serveur) : c'est elle qui
   // décide de la présence du bouton « Appeler », donc de la hauteur finale.
-  let brut: ProfilBrut | null;
+  let brut: RawProfile | null;
   try {
-    brut = await Promise.race<ProfilBrut | null>([
-      Promise.all([fetchBrut, sonderAppelDisponible(client)]).then(([b]) => b),
+    brut = await Promise.race<RawProfile | null>([
+      Promise.all([fetchBrut, probeCallAvailable(client)]).then(([b]) => b),
       delai(PLAFOND_MS).then(() => null),
     ]);
   } finally {

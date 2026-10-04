@@ -74,7 +74,7 @@ function fichierDeLaRequete(requete: unknown): string | null {
   return typeof chemin === 'string' && chemin !== '' ? nomDeFichier(chemin) : null;
 }
 
-export function useRequeteVive<L>(
+export function useCoalescedLiveQuery<L>(
   requete: PromiseLike<L[]>,
   deps: DependencyList = [],
 ): { data: L[] } {

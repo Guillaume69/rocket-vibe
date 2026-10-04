@@ -13,4 +13,4 @@ type TelechargementsNatif = {
   enregistrer(source: string, nom: string, type: string | null): Promise<string>;
 };
 
-export const Telechargements = requireOptionalNativeModule<TelechargementsNatif>('Telechargements');
+export const Downloads = requireOptionalNativeModule<TelechargementsNatif>('Telechargements');

@@ -12,7 +12,7 @@
  */
 
 /** `starred` brut → uids sérialisés, `null` si personne. */
-export function idsEtoiles(starred: unknown): string | null {
+export function starredIds(starred: unknown): string | null {
   if (!Array.isArray(starred)) return null;
   const ids: string[] = [];
   for (const e of starred) {
@@ -32,12 +32,12 @@ function lire(etoiles: string | null): string[] {
   }
 }
 
-export function etoilePar(etoiles: string | null, uid: string): boolean {
+export function starredBy(etoiles: string | null, uid: string): boolean {
   return lire(etoiles).includes(uid);
 }
 
 /** La colonne `etoiles` après que `uid` a (dés)étoilé le message. */
-export function etoilesApres(etoiles: string | null, uid: string, mettre: boolean): string | null {
+export function starredAfter(etoiles: string | null, uid: string, mettre: boolean): string | null {
   const autres = lire(etoiles).filter((x) => x !== uid);
   const ids = mettre ? [...autres, uid] : autres;
   return ids.length === 0 ? null : JSON.stringify(ids);

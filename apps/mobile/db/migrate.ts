@@ -11,11 +11,11 @@
 
 import { migrate } from 'drizzle-orm/expo-sqlite/migrator';
 
-import { ouvrirBase } from './client.ts';
+import { openDatabase } from './client.ts';
 // Généré par `npm run db:generate`. Résolu grâce à `babel-plugin-inline-import`
 // et à l'extension `sql` ajoutée aux `sourceExts` de Metro.
 import migrations from './migrations/migrations.js';
-import { nomFichier } from './fileName.ts';
+import { databaseFileName } from './fileName.ts';
 
 /**
  * Le serveur proposé par défaut sur l'écran de connexion, et celui dont la
@@ -26,18 +26,18 @@ import { nomFichier } from './fileName.ts';
  * dev. Le garde `typeof` : ce module est aussi chargé sous Node (tests), où
  * `__DEV__` n'existe pas.
  */
-export const SERVEUR_PAR_DEFAUT =
+export const DEFAULT_SERVER =
   typeof __DEV__ !== 'undefined' && __DEV__ ? 'http://localhost:3000' : 'https://chat.barrut.me';
 
 const enCours = new Map<string, Promise<void>>();
 
-export function migrerBase(baseUrl: string, utilisateurId?: string): Promise<void> {
-  const nom = nomFichier(baseUrl, utilisateurId);
+export function migrateDatabase(baseUrl: string, utilisateurId?: string): Promise<void> {
+  const nom = databaseFileName(baseUrl, utilisateurId);
   const existante = enCours.get(nom);
   if (existante !== undefined) return existante;
 
   const promesse = (async () => {
-    await migrate(ouvrirBase(baseUrl, utilisateurId).base, migrations);
+    await migrate(openDatabase(baseUrl, utilisateurId).base, migrations);
   })();
   enCours.set(nom, promesse);
   // Un échec ne doit pas rester mémoïsé : le prochain appel retente.

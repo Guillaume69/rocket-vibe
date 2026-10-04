@@ -13,12 +13,12 @@
  * dans les tests. Ce module reste pur.
  */
 
-import { memeOrigine } from './origin.ts';
+import { sameOrigin } from './origin.ts';
 import type { ClientRest } from './rest.ts';
 
-export type FichierAEnvoyer = {
+export type FileToSend = {
   uri: string;
-  nom: string;
+  name: string;
   /** MIME. Vérifié contre `FileUpload_MediaTypeWhiteList` AVANT l'appel. */
   type: string;
 };
@@ -30,7 +30,7 @@ export type FichierAEnvoyer = {
 export type TransportUpload = (
   url: string,
   entetes: Record<string, string>,
-  fichier: FichierAEnvoyer,
+  fichier: FileToSend,
   surProgression?: (fraction: number) => void,
   /**
    * Appelé UNE fois, dès que la tâche existe, avec de quoi l'interrompre.
@@ -41,9 +41,9 @@ export type TransportUpload = (
   surAnnulable?: (annuler: () => Promise<void>) => void,
   /** Champs texte ajoutés au multipart (le `content` chiffré d'un fichier de salon chiffré). */
   champs?: Record<string, string>,
-) => Promise<{ statut: number; corps: string }>;
+) => Promise<{ status: number; body: string }>;
 
-export class ErreurUpload extends Error {
+export class UploadError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'ErreurUpload';
@@ -66,24 +66,24 @@ type ReponseConfirm = { message?: Record<string, unknown> };
  * `surProgression` reçoit une fraction 0..1 ; `surAnnulable`, de quoi
  * interrompre la tâche.
  */
-export async function televerserOctets(options: {
+export async function uploadBytes(options: {
   client: ClientRest;
   transport: TransportUpload;
   rid: string;
-  fichier: FichierAEnvoyer;
-  surProgression?: (fraction: number) => void;
-  surAnnulable?: (annuler: () => Promise<void>) => void;
-  champs?: Record<string, string>;
+  file: FileToSend;
+  onProgress?: (fraction: number) => void;
+  onCancelable?: (annuler: () => Promise<void>) => void;
+  fields?: Record<string, string>;
 }): Promise<string> {
-  const { client, transport, rid, fichier, surProgression, surAnnulable, champs } = options;
+  const { client, transport, rid, file: fichier, onProgress: surProgression, onCancelable: surAnnulable, fields: champs } = options;
 
   const entetes: Record<string, string> = {};
-  if (client.identifiants !== null) {
-    entetes['X-Auth-Token'] = client.identifiants.authToken;
-    entetes['X-User-Id'] = client.identifiants.userId;
+  if (client.auth !== null) {
+    entetes['X-Auth-Token'] = client.auth.authToken;
+    entetes['X-User-Id'] = client.auth.userId;
   }
 
-  const { statut, corps } = await transport(
+  const { status: statut, body: corps } = await transport(
     `${client.baseUrl}/api/v1/rooms.media/${rid}`,
     entetes,
     fichier,
@@ -96,11 +96,11 @@ export async function televerserOctets(options: {
   try {
     media = JSON.parse(corps) as typeof media;
   } catch {
-    throw new ErreurUpload(`rooms.media : réponse non JSON (${statut}).`);
+    throw new UploadError(`rooms.media : réponse non JSON (${statut}).`);
   }
   const fileId = media.file?._id;
   if (statut >= 400 || media.success === false || typeof fileId !== 'string') {
-    throw new ErreurUpload(media.error ?? `rooms.media a échoué (${statut}).`);
+    throw new UploadError(media.error ?? `rooms.media a échoué (${statut}).`);
   }
   return fileId;
 }
@@ -119,14 +119,14 @@ export async function confirmerMedia(options: {
   fileId: string;
   message?: string;
   /** Corps complet, à la place de `message` : celui d'un fichier chiffré. */
-  corps?: Record<string, unknown>;
+  body?: Record<string, unknown>;
 }): Promise<Record<string, unknown>> {
   const { client, rid, fileId, message } = options;
   const confirmation = await client.post<ReponseConfirm>(`rooms.mediaConfirm/${rid}/${fileId}`, {
-    corps: options.corps ?? (message === undefined || message === '' ? {} : { msg: message }),
+    body: options.body ?? (message === undefined || message === '' ? {} : { msg: message }),
   });
   if (confirmation.message === undefined) {
-    throw new ErreurUpload('rooms.mediaConfirm : pas de message dans la réponse.');
+    throw new UploadError('rooms.mediaConfirm : pas de message dans la réponse.');
   }
   return confirmation.message;
 }
@@ -138,20 +138,20 @@ export async function confirmerMedia(options: {
  * de champ ; c'est le seul écart avec `televerser`. Pas de progression : un
  * avatar réduit est minuscule.
  */
-export async function definirAvatar(options: {
+export async function setAvatar(options: {
   client: ClientRest;
   transport: TransportUpload;
-  fichier: FichierAEnvoyer;
+  file: FileToSend;
 }): Promise<void> {
-  const { client, transport, fichier } = options;
+  const { client, transport, file: fichier } = options;
 
   const entetes: Record<string, string> = {};
-  if (client.identifiants !== null) {
-    entetes['X-Auth-Token'] = client.identifiants.authToken;
-    entetes['X-User-Id'] = client.identifiants.userId;
+  if (client.auth !== null) {
+    entetes['X-Auth-Token'] = client.auth.authToken;
+    entetes['X-User-Id'] = client.auth.userId;
   }
 
-  const { statut, corps } = await transport(
+  const { status: statut, body: corps } = await transport(
     `${client.baseUrl}/api/v1/users.setAvatar`,
     entetes,
     fichier,
@@ -161,10 +161,10 @@ export async function definirAvatar(options: {
   try {
     json = JSON.parse(corps) as typeof json;
   } catch {
-    throw new ErreurUpload(`users.setAvatar : réponse non JSON (${statut}).`);
+    throw new UploadError(`users.setAvatar : réponse non JSON (${statut}).`);
   }
   if (statut >= 400 || json.success === false) {
-    throw new ErreurUpload(json.error ?? `users.setAvatar a échoué (${statut}).`);
+    throw new UploadError(json.error ?? `users.setAvatar a échoué (${statut}).`);
   }
 }
 
@@ -181,12 +181,12 @@ export async function definirAvatar(options: {
  * sans un geste de l'utilisateur. Hors origine, on rend l'URL nue : le fichier
  * ne s'affichera pas s'il était protégé, ce qui est le bon échec.
  */
-export function urlFichierProtege(client: ClientRest, chemin: string): string {
+export function protectedFileUrl(client: ClientRest, chemin: string): string {
   const absolu = chemin.startsWith('http') ? chemin : `${client.baseUrl}${chemin}`;
-  if (client.identifiants === null) return absolu;
-  if (!memeOrigine(absolu, client.baseUrl)) return absolu;
+  if (client.auth === null) return absolu;
+  if (!sameOrigin(absolu, client.baseUrl)) return absolu;
   const separateur = absolu.includes('?') ? '&' : '?';
-  return `${absolu}${separateur}rc_uid=${encodeURIComponent(client.identifiants.userId)}&rc_token=${encodeURIComponent(client.identifiants.authToken)}`;
+  return `${absolu}${separateur}rc_uid=${encodeURIComponent(client.auth.userId)}&rc_token=${encodeURIComponent(client.auth.authToken)}`;
 }
 
 /**
@@ -197,7 +197,7 @@ export function urlFichierProtege(client: ClientRest, chemin: string): string {
  * l'ancienne photo. Une constante suffit — l'URL correspondante rend un SVG,
  * que `<Image>` refuse, donc la tuile dégradée reprend sa place.
  */
-export const AVATAR_SANS_PHOTO = 'sans-photo';
+export const AVATAR_NO_PHOTO = 'sans-photo';
 
 /**
  * URL d'avatar authentifiée. Le serveur cible a
@@ -246,5 +246,5 @@ export function urlAvatar(
   if (typeof etag === 'string' && etag !== '') {
     chemin += `?etag=${encodeURIComponent(etag)}`;
   }
-  return urlFichierProtege(client, chemin);
+  return protectedFileUrl(client, chemin);
 }

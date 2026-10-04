@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { after, before, beforeEach, describe, test } from 'node:test';
 
-import { ClientRest, ErreurDeuxFacteurs, ErreurRest, estJetonRefuse } from './rest.ts';
+import { ClientRest, TwoFactorError, RestError, isTokenRejected } from './rest.ts';
 
 type Poignee = (req: IncomingMessage, res: ServerResponse) => void;
 
@@ -10,11 +10,11 @@ let serveur: Server;
 let base: string;
 let poignee: Poignee;
 /** Requêtes reçues, pour vérifier les en-têtes réellement envoyés. */
-let recues: { url: string; methode: string; enTetes: Record<string, string | string[] | undefined> }[] = [];
+let recues: { url: string; method: string; headers: Record<string, string | string[] | undefined> }[] = [];
 
 before(async () => {
   serveur = createServer((req, res) => {
-    recues.push({ url: req.url ?? '', methode: req.method ?? '', enTetes: req.headers });
+    recues.push({ url: req.url ?? '', method: req.method ?? '', headers: req.headers });
     poignee(req, res);
   });
   await new Promise<void>((r) => serveur.listen(0, '127.0.0.1', r));
@@ -43,11 +43,11 @@ function repondre(res: ServerResponse, statut: number, corps: unknown, enTetes: 
  */
 function client(dormirs: number[] = []) {
   return new ClientRest(base, {
-    dormir: async (ms) => {
+    sleep: async (ms) => {
       dormirs.push(ms);
     },
-    maintenant: () => 1_000_000,
-    alea: () => 0,
+    now: () => 1_000_000,
+    random: () => 0,
   });
 }
 
@@ -70,24 +70,24 @@ describe('ClientRest', () => {
   test("les en-têtes d'authentification sont envoyés, sauf en anonyme", async () => {
     poignee = (_q, res) => repondre(res, 200, { success: true });
     const c = client();
-    c.identifiants = { authToken: 'jeton', userId: 'moi' };
+    c.auth = { authToken: 'jeton', userId: 'moi' };
 
     await c.get('me');
-    assert.equal(recues[0].enTetes['x-auth-token'], 'jeton');
-    assert.equal(recues[0].enTetes['x-user-id'], 'moi');
+    assert.equal(recues[0].headers['x-auth-token'], 'jeton');
+    assert.equal(recues[0].headers['x-user-id'], 'moi');
 
-    await c.post('login', { anonyme: true, corps: {} });
-    assert.equal(recues[1].enTetes['x-auth-token'], undefined);
+    await c.post('login', { anonymous: true, body: {} });
+    assert.equal(recues[1].headers['x-auth-token'], undefined);
   });
 
   test('les en-têtes 2FA sont envoyés quand un code est fourni', async () => {
     poignee = (_q, res) => repondre(res, 200, { success: true });
     await client().post('settings/Push_enable', {
-      corps: { value: true },
-      deuxFacteurs: { code: 'abcdef', methode: 'password' },
+      body: { value: true },
+      twoFactor: { code: 'abcdef', method: 'password' },
     });
-    assert.equal(recues[0].enTetes['x-2fa-code'], 'abcdef');
-    assert.equal(recues[0].enTetes['x-2fa-method'], 'password');
+    assert.equal(recues[0].headers['x-2fa-code'], 'abcdef');
+    assert.equal(recues[0].headers['x-2fa-method'], 'password');
   });
 
   test('`totp-required` lève une ErreurDeuxFacteurs, même quand la méthode est `password`', async () => {
@@ -98,10 +98,10 @@ describe('ClientRest', () => {
         details: { method: 'password', availableMethods: [], codeGenerated: false },
       });
     await assert.rejects(client().get('me'), (e: unknown) => {
-      assert.ok(e instanceof ErreurDeuxFacteurs);
-      assert.equal(e.methode, 'password');
-      assert.deepEqual(e.methodesDisponibles, []);
-      assert.equal(e.codeGenere, false);
+      assert.ok(e instanceof TwoFactorError);
+      assert.equal(e.method, 'password');
+      assert.deepEqual(e.availableMethods, []);
+      assert.equal(e.generatedCode, false);
       return true;
     });
   });
@@ -116,10 +116,10 @@ describe('ClientRest', () => {
         message: 'TOTP Required',
         details: { method: 'email', availableMethods: ['email'], codeGenerated: false },
       });
-    await assert.rejects(client().post('login', { anonyme: true }), (e: unknown) => {
-      assert.ok(e instanceof ErreurDeuxFacteurs, 'doit être une ErreurDeuxFacteurs, pas ErreurRest');
-      assert.equal(e.methode, 'email');
-      assert.deepEqual(e.methodesDisponibles, ['email']);
+    await assert.rejects(client().post('login', { anonymous: true }), (e: unknown) => {
+      assert.ok(e instanceof TwoFactorError, 'doit être une ErreurDeuxFacteurs, pas ErreurRest');
+      assert.equal(e.method, 'email');
+      assert.deepEqual(e.availableMethods, ['email']);
       return true;
     });
   });
@@ -132,9 +132,9 @@ describe('ClientRest', () => {
         details: { method: 'sms-du-futur', availableMethods: ['totp', 'martien'] },
       });
     await assert.rejects(client().get('me'), (e: unknown) => {
-      assert.ok(e instanceof ErreurDeuxFacteurs);
-      assert.equal(e.methode, 'password');
-      assert.deepEqual(e.methodesDisponibles, ['totp']);
+      assert.ok(e instanceof TwoFactorError);
+      assert.equal(e.method, 'password');
+      assert.deepEqual(e.availableMethods, ['totp']);
       return true;
     });
   });
@@ -142,16 +142,16 @@ describe('ClientRest', () => {
   test('un 401 ordinaire lève une ErreurRest portant le statut', async () => {
     poignee = (_q, res) => repondre(res, 401, { success: false, error: 'unauthorized' });
     await assert.rejects(client().get('me'), (e: unknown) => {
-      assert.ok(e instanceof ErreurRest);
-      assert.equal(e.statut, 401);
-      assert.equal(e.erreur, 'unauthorized');
+      assert.ok(e instanceof RestError);
+      assert.equal(e.status, 401);
+      assert.equal(e.error, 'unauthorized');
       return true;
     });
   });
 
   test("`status: 'error'` de /login est traité comme un échec malgré le code 200", async () => {
     poignee = (_q, res) => repondre(res, 200, { status: 'error', message: 'Unauthorized' });
-    await assert.rejects(client().post('login', { anonyme: true }), ErreurRest);
+    await assert.rejects(client().post('login', { anonymous: true }), RestError);
   });
 
   test('un 429 est rejoué en honorant `x-ratelimit-reset`', async () => {
@@ -187,8 +187,8 @@ describe('ClientRest', () => {
     const dormirs: number[] = [];
     poignee = (_q, res) => repondre(res, 429, { success: false, error: 'too-many' });
     await assert.rejects(client(dormirs).get('chat.postMessage'), (e: unknown) => {
-      assert.ok(e instanceof ErreurRest);
-      assert.equal(e.statut, 429);
+      assert.ok(e instanceof RestError);
+      assert.equal(e.status, 429);
       return true;
     });
     assert.equal(dormirs.length, 3);
@@ -200,7 +200,7 @@ describe('ClientRest', () => {
       res.end('<html>502 Bad Gateway</html>');
     };
     await assert.rejects(client().get('info'), (e: unknown) => {
-      assert.ok(e instanceof ErreurRest);
+      assert.ok(e instanceof RestError);
       assert.match(e.message, /non JSON/);
       return true;
     });
@@ -220,7 +220,7 @@ describe('ClientRest', () => {
       res.writeHead(502);
       res.end();
     };
-    await assert.rejects(client().get('info'), ErreurRest);
+    await assert.rejects(client().get('info'), RestError);
   });
 
   test("une annulation par l'appelant propage AbortError, pas une ErreurRest", async () => {
@@ -261,14 +261,14 @@ describe('ClientRest', () => {
         if (appels === 1) throw new TypeError('Network request failed');
         return globalThis.fetch(url, init);
       },
-      dormir: async (ms) => {
+      sleep: async (ms) => {
         dormirs.push(ms);
       },
-      maintenant: () => 1_000_000,
+      now: () => 1_000_000,
     });
     const r = await c.post<{ ok: number }>('users.updateOwnBasicInfo', {
-      corps: { data: {} },
-      rejeuReseau: true,
+      body: { data: {} },
+      networkReplay: true,
     });
     assert.equal(r.ok, 1);
     assert.equal(appels, 2, 'un échec puis un rejeu');
@@ -282,12 +282,12 @@ describe('ClientRest', () => {
         appels += 1;
         throw new TypeError('Network request failed');
       },
-      dormir: async () => {},
-      maintenant: () => 1_000_000,
+      sleep: async () => {},
+      now: () => 1_000_000,
     });
-    await assert.rejects(c.post('users.setStatus', { corps: {}, rejeuReseau: true }), (e: unknown) => {
-      assert.ok(e instanceof ErreurRest);
-      assert.equal(e.statut, 0);
+    await assert.rejects(c.post('users.setStatus', { body: {}, networkReplay: true }), (e: unknown) => {
+      assert.ok(e instanceof RestError);
+      assert.equal(e.status, 0);
       assert.match(e.message, /injoignable/);
       return true;
     });
@@ -303,12 +303,12 @@ describe('ClientRest', () => {
         appels += 1;
         throw new TypeError('Network request failed');
       },
-      dormir: async () => {},
-      maintenant: () => 1_000_000,
+      sleep: async () => {},
+      now: () => 1_000_000,
     });
-    await assert.rejects(c.post('chat.sendMessage', { corps: {} }), (e: unknown) => {
-      assert.ok(e instanceof ErreurRest);
-      assert.equal(e.statut, 0);
+    await assert.rejects(c.post('chat.sendMessage', { body: {} }), (e: unknown) => {
+      assert.ok(e instanceof RestError);
+      assert.equal(e.status, 0);
       return true;
     });
     assert.equal(appels, 1, 'aucun rejeu sans le drapeau');
@@ -330,11 +330,11 @@ describe('ClientRest', () => {
         }
       };
       const c = new ClientRest(base, {
-        dormir: async (ms) => {
+        sleep: async (ms) => {
           dormirs.push(ms);
         },
-        maintenant: () => 1_000_000,
-        alea: () => alea,
+        now: () => 1_000_000,
+        random: () => alea,
       });
       await c.get('chat.postMessage');
       return dormirs[0];
@@ -354,13 +354,13 @@ describe('ClientRest', () => {
     poignee = (_q, res) =>
       repondre(res, 429, { success: false }, { 'x-ratelimit-reset': '9999999999999' });
     const c = new ClientRest(base, {
-      dormir: async (ms) => {
+      sleep: async (ms) => {
         dormirs.push(ms);
       },
-      maintenant: () => 1_000_000,
-      alea: () => 1,
+      now: () => 1_000_000,
+      random: () => 1,
     });
-    await assert.rejects(c.get('chat.postMessage'), ErreurRest);
+    await assert.rejects(c.get('chat.postMessage'), RestError);
     assert.deepEqual(dormirs, [30_000, 30_000, 30_000], 'le plafond tient malgré la dispersion');
   });
 
@@ -376,12 +376,12 @@ describe('ClientRest', () => {
       dortMaintenant = r;
     });
     const c = new ClientRest(base, {
-      dormir: () =>
+      sleep: () =>
         new Promise<void>(() => {
           dortMaintenant();
         }),
-      maintenant: () => 1_000_000,
-      alea: () => 0,
+      now: () => 1_000_000,
+      random: () => 0,
     });
 
     const controleur = new AbortController();
@@ -422,11 +422,11 @@ describe('ClientRest', () => {
           }),
           { status: 429, headers: { 'x-ratelimit-reset': '1030000' } },
         ),
-      dormir: async () => {
+      sleep: async () => {
         dodos++;
       },
-      maintenant: () => 1_000_000,
-      alea: () => 0,
+      now: () => 1_000_000,
+      random: () => 0,
     });
 
     await assert.rejects(c.get('chat.postMessage', { signal: controleur.signal }), (e: unknown) => {
@@ -453,53 +453,53 @@ describe('ClientRest', () => {
 describe('estJetonRefuse', () => {
   /** Ce que `ClientRest` construit quand il a LU l'enveloppe Rocket.Chat. */
   const duServeur = (statut: number, erreur?: string, errorType?: string) =>
-    new ErreurRest(erreur ?? 'x', statut, erreur, errorType, true);
+    new RestError(erreur ?? 'x', statut, erreur, errorType, true);
 
   test('un 401 du serveur applicatif est un jeton refusé', () => {
     // Le corps exact d'un jeton révoqué par `logout`, relevé sur 8.5.
-    assert.equal(estJetonRefuse(duServeur(401, 'You must be logged in to do this.')), true);
+    assert.equal(isTokenRejected(duServeur(401, 'You must be logged in to do this.')), true);
   });
 
   test('un défi 2FA n’est PAS un jeton refusé', () => {
     // `ErreurDeuxFacteurs` se DÉCLARE 401 quel que soit le statut HTTP réel —
     // et sur 8.5 une opération sensible en cours de session (users.update)
     // répond 400. Sans cette exclusion, changer son mot de passe déconnectait.
-    assert.equal(estJetonRefuse(new ErreurDeuxFacteurs('password', ['password'], false)), false);
+    assert.equal(isTokenRejected(new TwoFactorError('password', ['password'], false)), false);
   });
 
   test('un échec réseau (statut 0) n’est PAS un jeton refusé', () => {
     // C'est la moitié du chantier : hors ligne n'est pas révoqué. Un client
     // mobile passe sa vie sans réseau ; jeter la session pour ça serait pire
     // que l'état zombie qu'on corrige.
-    assert.equal(estJetonRefuse(new ErreurRest('serveur injoignable.', 0)), false);
+    assert.equal(isTokenRejected(new RestError('serveur injoignable.', 0)), false);
   });
 
   test('une erreur d’un autre transport (DDP) n’est PAS un jeton refusé', () => {
     class ErreurDdp extends Error {}
-    assert.equal(estJetonRefuse(new ErreurDdp('Message refusé')), false);
-    assert.equal(estJetonRefuse(new Error('boum')), false);
-    assert.equal(estJetonRefuse('401'), false);
-    assert.equal(estJetonRefuse(null), false);
-    assert.equal(estJetonRefuse(undefined), false);
+    assert.equal(isTokenRejected(new ErreurDdp('Message refusé')), false);
+    assert.equal(isTokenRejected(new Error('boum')), false);
+    assert.equal(isTokenRejected('401'), false);
+    assert.equal(isTokenRejected(null), false);
+    assert.equal(isTokenRejected(undefined), false);
   });
 
   test('un 401 dont le corps n’est PAS du Rocket.Chat est ignoré', () => {
     // Le proxy d'entreprise, le portail captif, le ballast de maintenance :
     // ils répondent 401 en HTML. `ClientRest` lève alors sans `reponseComprise`
     // (branche « réponse non JSON »), et ce statut est le LEUR.
-    assert.equal(estJetonRefuse(new ErreurRest('réponse non JSON (401, 812 octets).', 401)), false);
+    assert.equal(isTokenRejected(new RestError('réponse non JSON (401, 812 octets).', 401)), false);
   });
 
   test('les refus que 8.5 rend AUTREMENT qu’en 401 sont ignorés', () => {
     // Relevés un par un sur le banc. Chacun survient en session parfaitement
     // valide, et chacun aurait éjecté l'utilisateur si on s'était contenté de
     // « le serveur a dit non ».
-    assert.equal(estJetonRefuse(duServeur(403, 'User does not have the permissions required for this action [error-unauthorized]')), false);
-    assert.equal(estJetonRefuse(duServeur(400, 'Not allowed [error-not-allowed]', 'error-not-allowed')), false);
-    assert.equal(estJetonRefuse(duServeur(400, 'does not match any channel [error-room-not-found]', 'error-room-not-found')), false);
-    assert.equal(estJetonRefuse(duServeur(404, 'Not Found')), false);
-    assert.equal(estJetonRefuse(duServeur(429, 'too many requests')), false);
-    assert.equal(estJetonRefuse(duServeur(500, 'boum')), false);
+    assert.equal(isTokenRejected(duServeur(403, 'User does not have the permissions required for this action [error-unauthorized]')), false);
+    assert.equal(isTokenRejected(duServeur(400, 'Not allowed [error-not-allowed]', 'error-not-allowed')), false);
+    assert.equal(isTokenRejected(duServeur(400, 'does not match any channel [error-room-not-found]', 'error-room-not-found')), false);
+    assert.equal(isTokenRejected(duServeur(404, 'Not Found')), false);
+    assert.equal(isTokenRejected(duServeur(429, 'too many requests')), false);
+    assert.equal(isTokenRejected(duServeur(500, 'boum')), false);
   });
 });
 
@@ -513,9 +513,9 @@ describe('ClientRest — signalement du jeton refusé', () => {
         message: 'You must be logged in to do this.',
       });
     const c = client();
-    c.identifiants = { authToken: 'jeton-a', userId: 'u1' };
+    c.auth = { authToken: 'jeton-a', userId: 'u1' };
     const signales: string[] = [];
-    c.surJetonRefuse = (j) => signales.push(j);
+    c.onTokenRejected = (j) => signales.push(j);
 
     await assert.rejects(c.get('chat.syncMessages'));
     assert.deepEqual(signales, ['jeton-a']);
@@ -525,13 +525,13 @@ describe('ClientRest — signalement du jeton refusé', () => {
     // La course réelle : déconnexion puis reconnexion pendant que la requête
     // volait. Signaler le jeton courant ferait effacer la session TOUTE NEUVE.
     const c = client();
-    c.identifiants = { authToken: 'ancien', userId: 'u1' };
+    c.auth = { authToken: 'ancien', userId: 'u1' };
     poignee = (_req, res) => {
-      c.identifiants = { authToken: 'tout-neuf', userId: 'u1' };
+      c.auth = { authToken: 'tout-neuf', userId: 'u1' };
       repondre(res, 401, { success: false, error: 'You must be logged in to do this.' });
     };
     const signales: string[] = [];
-    c.surJetonRefuse = (j) => signales.push(j);
+    c.onTokenRejected = (j) => signales.push(j);
 
     await assert.rejects(c.get('me'));
     assert.deepEqual(signales, ['ancien'], 'l’appelant doit pouvoir reconnaître un 401 périmé');
@@ -542,11 +542,11 @@ describe('ClientRest — signalement du jeton refusé', () => {
     // de la session — et au login il n'y en a même pas encore.
     poignee = (_req, res) => repondre(res, 401, { success: false, error: 'unauthorized' });
     const c = client();
-    c.identifiants = { authToken: 'jeton-a', userId: 'u1' };
+    c.auth = { authToken: 'jeton-a', userId: 'u1' };
     let signale = 0;
-    c.surJetonRefuse = () => signale++;
+    c.onTokenRejected = () => signale++;
 
-    await assert.rejects(c.get('settings.public', { anonyme: true }));
+    await assert.rejects(c.get('settings.public', { anonymous: true }));
     assert.equal(signale, 0);
   });
 
@@ -560,11 +560,11 @@ describe('ClientRest — signalement du jeton refusé', () => {
         details: { method: 'password', codeGenerated: false, availableMethods: [] },
       });
     const c = client();
-    c.identifiants = { authToken: 'jeton-a', userId: 'u1' };
+    c.auth = { authToken: 'jeton-a', userId: 'u1' };
     let signale = 0;
-    c.surJetonRefuse = () => signale++;
+    c.onTokenRejected = () => signale++;
 
-    await assert.rejects(c.post('users.update'), (e: unknown) => e instanceof ErreurDeuxFacteurs);
+    await assert.rejects(c.post('users.update'), (e: unknown) => e instanceof TwoFactorError);
     assert.equal(signale, 0, 'changer son mot de passe ne doit pas déconnecter');
   });
 
@@ -574,13 +574,13 @@ describe('ClientRest — signalement du jeton refusé', () => {
     // la marque de l'enveloppe maison — `success`, `status`, `errorType`.
     poignee = (_req, res) => repondre(res, 401, { message: 'Unauthorized' });
     const c = client();
-    c.identifiants = { authToken: 'jeton-a', userId: 'u1' };
+    c.auth = { authToken: 'jeton-a', userId: 'u1' };
     let signale = 0;
-    c.surJetonRefuse = () => signale++;
+    c.onTokenRejected = () => signale++;
 
     await assert.rejects(c.get('me'), (e: unknown) => {
-      assert.ok(e instanceof ErreurRest);
-      assert.equal(e.reponseComprise, false);
+      assert.ok(e instanceof RestError);
+      assert.equal(e.understoodResponse, false);
       return true;
     });
     assert.equal(signale, 0);
@@ -594,11 +594,11 @@ describe('ClientRest — signalement du jeton refusé', () => {
     poignee = (_req, res) =>
       repondre(res, 401, { success: false, error: 'Unauthorized', status: 'error' });
     const c = client();
-    c.identifiants = { authToken: 'jeton-a', userId: 'u1' };
+    c.auth = { authToken: 'jeton-a', userId: 'u1' };
     let signale = 0;
-    c.surJetonRefuse = () => signale++;
+    c.onTokenRejected = () => signale++;
 
-    await assert.rejects(c.post('login', { anonyme: true, corps: { user: 'x', password: 'y' } }));
+    await assert.rejects(c.post('login', { anonymous: true, body: { user: 'x', password: 'y' } }));
     assert.equal(signale, 0);
   });
 
@@ -608,14 +608,14 @@ describe('ClientRest — signalement du jeton refusé', () => {
       res.end('<html><body>401 Authorization Required</body></html>');
     };
     const c = client();
-    c.identifiants = { authToken: 'jeton-a', userId: 'u1' };
+    c.auth = { authToken: 'jeton-a', userId: 'u1' };
     let signale = 0;
-    c.surJetonRefuse = () => signale++;
+    c.onTokenRejected = () => signale++;
 
     await assert.rejects(c.get('me'), (e: unknown) => {
-      assert.ok(e instanceof ErreurRest);
-      assert.equal(e.statut, 401, 'le statut du proxy est bien conservé…');
-      assert.equal(e.reponseComprise, false, '…mais il ne vient pas du serveur applicatif');
+      assert.ok(e instanceof RestError);
+      assert.equal(e.status, 401, 'le statut du proxy est bien conservé…');
+      assert.equal(e.understoodResponse, false, '…mais il ne vient pas du serveur applicatif');
       return true;
     });
     assert.equal(signale, 0);
@@ -629,9 +629,9 @@ describe('ClientRest — signalement du jeton refusé', () => {
       [500, { success: false, error: 'boum' }],
     ] as const;
     const c = client();
-    c.identifiants = { authToken: 'jeton-a', userId: 'u1' };
+    c.auth = { authToken: 'jeton-a', userId: 'u1' };
     let signale = 0;
-    c.surJetonRefuse = () => signale++;
+    c.onTokenRejected = () => signale++;
 
     for (const [statut, corps] of cas) {
       poignee = (_req, res) => repondre(res, statut, corps);
@@ -643,10 +643,10 @@ describe('ClientRest — signalement du jeton refusé', () => {
   test('sans abonné, un 401 reste une erreur ordinaire', async () => {
     poignee = (_req, res) => repondre(res, 401, { success: false, error: 'You must be logged in to do this.' });
     const c = client();
-    c.identifiants = { authToken: 'jeton-a', userId: 'u1' };
+    c.auth = { authToken: 'jeton-a', userId: 'u1' };
     await assert.rejects(c.get('me'), (e: unknown) => {
-      assert.ok(e instanceof ErreurRest);
-      assert.equal(e.statut, 401);
+      assert.ok(e instanceof RestError);
+      assert.equal(e.status, 401);
       return true;
     });
   });

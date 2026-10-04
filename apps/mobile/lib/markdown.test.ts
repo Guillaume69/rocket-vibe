@@ -1,74 +1,74 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { apercuTexte, arbreDuMessage, texteDe, unicodeDEmoji } from './markdown.ts';
+import { textPreview, messageTree, textOf, unicodeDEmoji } from './markdown.ts';
 
 describe('arbreDuMessage', () => {
   test('préfère le `md` du serveur quand il est présent', () => {
     const md = JSON.stringify([
       { type: 'PARAGRAPH', value: [{ type: 'PLAIN_TEXT', value: 'serveur' }] },
     ]);
-    const arbre = arbreDuMessage(md, 'texte ignoré');
-    assert.equal(texteDe(arbre), 'serveur');
+    const arbre = messageTree(md, 'texte ignoré');
+    assert.equal(textOf(arbre), 'serveur');
   });
 
   test('un VIEUX message sans `md` est parsé localement — le repli du contrat 4.3', () => {
-    const arbre = arbreDuMessage(null, '**gras** et _italique_');
+    const arbre = messageTree(null, '**gras** et _italique_');
     assert.ok(arbre !== null);
     assert.equal(arbre[0].type, 'PARAGRAPH');
-    assert.equal(texteDe(arbre), 'gras et italique');
+    assert.equal(textOf(arbre), 'gras et italique');
   });
 
   test('un `md` corrompu en base retombe sur le texte au lieu de planter', () => {
-    assert.equal(texteDe(arbreDuMessage('{pas du json', 'secours')), 'secours');
-    assert.equal(texteDe(arbreDuMessage('"pas un tableau"', 'secours')), 'secours');
-    assert.equal(texteDe(arbreDuMessage('[]', 'secours')), 'secours');
+    assert.equal(textOf(messageTree('{pas du json', 'secours')), 'secours');
+    assert.equal(textOf(messageTree('"pas un tableau"', 'secours')), 'secours');
+    assert.equal(textOf(messageTree('[]', 'secours')), 'secours');
   });
 
   test('un `md` de FORME corrompue (éléments empoisonnés) retombe aussi sur le texte', () => {
     // Un tableau ne suffit pas : `[null]` ou un nœud sans `type` passait la
     // garde et plantait le rendu — durablement, le `md` étant persisté.
-    assert.equal(texteDe(arbreDuMessage('[null]', 'secours')), 'secours');
-    assert.equal(texteDe(arbreDuMessage('[{"value":[]}]', 'secours')), 'secours');
-    assert.equal(texteDe(arbreDuMessage('[42]', 'secours')), 'secours');
+    assert.equal(textOf(messageTree('[null]', 'secours')), 'secours');
+    assert.equal(textOf(messageTree('[{"value":[]}]', 'secours')), 'secours');
+    assert.equal(textOf(messageTree('[42]', 'secours')), 'secours');
   });
 
   test('ni `md` ni texte : null, pas une exception', () => {
-    assert.equal(arbreDuMessage(null, null), null);
-    assert.equal(arbreDuMessage(null, '   '), null);
+    assert.equal(messageTree(null, null), null);
+    assert.equal(messageTree(null, '   '), null);
   });
 });
 
 describe('texteDe', () => {
   test('aplatit les nœuds imbriqués', () => {
-    const arbre = arbreDuMessage(null, '**gras _et italique_** `code`');
-    assert.equal(texteDe(arbre), 'gras et italique code');
+    const arbre = messageTree(null, '**gras _et italique_** `code`');
+    assert.equal(textOf(arbre), 'gras et italique code');
   });
 
   test('un code court connu rend son caractère', () => {
-    const arbre = arbreDuMessage(null, ':smile: bonjour');
-    assert.equal(texteDe(arbre), '😄 bonjour');
+    const arbre = messageTree(null, ':smile: bonjour');
+    assert.equal(textOf(arbre), '😄 bonjour');
   });
 
   test('un code court inconnu reste littéral — un emoji personnalisé se lit encore', () => {
-    const arbre = arbreDuMessage(null, 'bravo :shipit: !');
-    assert.equal(texteDe(arbre), 'bravo :shipit: !');
+    const arbre = messageTree(null, 'bravo :shipit: !');
+    assert.equal(textOf(arbre), 'bravo :shipit: !');
   });
 
   test('un nœud inconnu rend une chaîne vide, pas un plantage', () => {
-    assert.equal(texteDe({ type: 'FUTUR_TYPE' }), '');
-    assert.equal(texteDe(42), '');
+    assert.equal(textOf({ type: 'FUTUR_TYPE' }), '');
+    assert.equal(textOf(42), '');
   });
 
   test('un TIMESTAMP rend son `fallback`, pas une chaîne vide', () => {
     // `<t:…:F>` produit un nœud dont `value` est un objet opaque ; le parseur
     // fournit `fallback` exactement pour l'affichage de secours.
-    const arbre = arbreDuMessage(null, 'rdv <t:1720000000:F> ok');
-    assert.match(texteDe(arbre), /rdv <t:1720000000:F> ok/);
+    const arbre = messageTree(null, 'rdv <t:1720000000:F> ok');
+    assert.match(textOf(arbre), /rdv <t:1720000000:F> ok/);
   });
 
   test('un emoji unicode rend son caractère', () => {
-    assert.equal(texteDe({ type: 'EMOJI', unicode: '🙂' }), '🙂');
+    assert.equal(textOf({ type: 'EMOJI', unicode: '🙂' }), '🙂');
   });
 });
 
@@ -84,12 +84,12 @@ describe('unicodeDEmoji', () => {
   test('un BIG_EMOJI peut n’en contenir aucun — le parseur ne valide pas', () => {
     // La preuve, prise sur le serveur 8.5 : `:pas_un_emoji:` seul sur sa ligne
     // ressort en BIG_EMOJI. Sans ce `null`, l'écran l'afficherait en 36 px.
-    const arbre = arbreDuMessage(null, ':pas_un_emoji:');
+    const arbre = messageTree(null, ':pas_un_emoji:');
     assert.ok(arbre !== null);
     assert.equal(arbre[0].type, 'BIG_EMOJI');
     const noeuds = (arbre[0] as { value: unknown[] }).value;
     assert.deepEqual(noeuds.map(unicodeDEmoji), [null]);
-    assert.equal(texteDe(arbre), ':pas_un_emoji:');
+    assert.equal(textOf(arbre), ':pas_un_emoji:');
   });
 
   test('ce qui n’est pas un nœud EMOJI vaut `null`', () => {
@@ -101,9 +101,9 @@ describe('unicodeDEmoji', () => {
 
 describe('apercuTexte', () => {
   test('un aperçu se lit comme du texte, sans syntaxe markdown', () => {
-    assert.equal(apercuTexte('```\nZOB\n```'), 'ZOB');
-    assert.equal(apercuTexte('[t.gg](http://t.gg) *gras* ~barré~ `code`'), 't.gg gras barré code');
-    assert.equal(apercuTexte('salut @bob #general\n\n- un\n- deux'), 'salut @bob #general • un • deux');
-    assert.equal(apercuTexte(':kkk: :smile:'), ':kkk: 😄');
+    assert.equal(textPreview('```\nZOB\n```'), 'ZOB');
+    assert.equal(textPreview('[t.gg](http://t.gg) *gras* ~barré~ `code`'), 't.gg gras barré code');
+    assert.equal(textPreview('salut @bob #general\n\n- un\n- deux'), 'salut @bob #general • un • deux');
+    assert.equal(textPreview(':kkk: :smile:'), ':kkk: 😄');
   });
 });

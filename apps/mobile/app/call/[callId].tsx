@@ -12,12 +12,12 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
-import { rejoindreConference } from '../../lib/call.ts';
-import { memeOrigine, origineDe } from '../../lib/origin.ts';
+import { joinConference } from '../../lib/call.ts';
+import { sameOrigin, originOf } from '../../lib/origin.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 import { useT } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
-import { type Couleurs, POLICES, useCouleurs } from '../../ui/theme.ts';
+import { type Colors, FONTS, useColors } from '../../ui/theme.ts';
 
 /**
  * Écran d'appel : la conférence Jitsi dans une WebView plein écran.
@@ -88,27 +88,27 @@ const UA_MOBILE =
  * la garde du jeton, avec la raison de ne pas utiliser `new URL().origin`.
  */
 
-export default function EcranAppel() {
-  const c = useCouleurs();
-  const { etat } = useSession();
-  const { callId, titre } = useLocalSearchParams<{ callId: string; titre?: string }>();
+export default function CallScreen() {
+  const c = useColors();
+  const { state: etat } = useSession();
+  const { callId, title: titre } = useLocalSearchParams<{ callId: string; title?: string }>();
   const t = useT();
   // Atteint depuis un salon connecté ; un état déconnecté (session expirée)
   // renvoie au login plutôt que de crasher sur `client`.
   if (etat.phase !== 'connecte') return <Redirect href="/login" />;
-  return <Appel c={c} client={etat.client} callId={callId} titre={titre ?? t('appel.appelVideo')} />;
+  return <Appel c={c} client={etat.client} callId={callId} title={titre ?? t('appel.appelVideo')} />;
 }
 
 function Appel({
   c,
   client,
   callId,
-  titre,
+  title: titre,
 }: {
-  c: Couleurs;
+  c: Colors;
   client: ClientRest;
   callId: string;
-  titre: string;
+  title: string;
 }) {
   const routeur = useRouter();
   const insets = useSafeAreaInsets();
@@ -127,12 +127,12 @@ function Appel({
     void (async () => {
       try {
         await demanderCameraMicro();
-        const u = await rejoindreConference(client, callId);
+        const u = await joinConference(client, callId);
         // Une URL de conférence sans origine lisible (schéma exotique, réponse
         // tronquée) ne donnerait pas de verrou à poser sur la WebView : on
         // refuse plutôt que de charger sans garde.
         if (vivant) {
-          if (origineDe(u) === null) setErreur(t('appel.impossibleRejoindre'));
+          if (originOf(u) === null) setErreur(t('appel.impossibleRejoindre'));
           else setUrl(u);
         }
       } catch {
@@ -155,14 +155,14 @@ function Appel({
 
   // Non nulle dès que `url` l'est : l'effet ci-dessus refuse une URL dont
   // l'origine ne se lit pas. Le rendu le revérifie quand même — c'est le verrou.
-  const origine = useMemo(() => (url === null ? null : origineDe(url)), [url]);
+  const origine = useMemo(() => (url === null ? null : originOf(url)), [url]);
 
   return (
-    <View style={[styles.plein, { backgroundColor: '#000', paddingTop: insets.top }]}>
+    <View style={[styles.full, { backgroundColor: '#000', paddingTop: insets.top }]}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <View style={[styles.barre, { borderBottomColor: c.bordureDouce }]}>
-        <Text style={[styles.titre, { color: c.texte }]} numberOfLines={1}>
+      <View style={[styles.bar, { borderBottomColor: c.softBorder }]}>
+        <Text style={[styles.title, { color: c.text }]} numberOfLines={1}>
           {titre}
         </Text>
         <Pressable
@@ -171,30 +171,30 @@ function Appel({
           accessibilityRole="button"
           accessibilityLabel={t('appel.terminerAppel')}
           style={({ pressed }) => [
-            styles.terminer,
-            { backgroundColor: c.carteErreur, opacity: pressed ? 0.7 : 1 },
+            styles.finish,
+            { backgroundColor: c.errorCard, opacity: pressed ? 0.7 : 1 },
           ]}
         >
-          <Text style={[styles.terminerTexte, { color: c.texteErreur }]}>{t('appel.terminer')}</Text>
+          <Text style={[styles.terminerTexte, { color: c.errorText }]}>{t('appel.terminer')}</Text>
         </Pressable>
       </View>
 
       {erreur !== null ? (
-        <View style={styles.centre}>
-          <Text style={[styles.messageErreur, { color: c.texteErreur }]}>{erreur}</Text>
-          <Pressable onPress={reessayer} style={styles.reessayer}>
+        <View style={styles.center}>
+          <Text style={[styles.errorMessage, { color: c.errorText }]}>{erreur}</Text>
+          <Pressable onPress={reessayer} style={styles.retry}>
             <Text style={[styles.reessayerTexte, { color: c.cyan }]}>{t('commun.reessayer')}</Text>
           </Pressable>
         </View>
       ) : url === null || origine === null ? (
-        <View style={styles.centre}>
+        <View style={styles.center}>
           <ActivityIndicator color={c.accent} size="large" />
-          <Text style={[styles.chargeTexte, { color: c.attenue }]}>{t('appel.connexion')}</Text>
+          <Text style={[styles.chargeTexte, { color: c.dimmed }]}>{t('appel.connexion')}</Text>
         </View>
       ) : (
         <WebView
           source={{ uri: sansInterstitielJitsi(url) }}
-          style={styles.plein}
+          style={styles.full}
           userAgent={UA_MOBILE}
           // Jitsi lance l'audio/vidéo sans geste explicite de l'utilisateur.
           mediaPlaybackRequiresUserAction={false}
@@ -218,7 +218,7 @@ function Appel({
           // et un https quelconque hériterait de caméra et micro sans invite —
           // voir `origineDe` en tête de fichier.
           onShouldStartLoadWithRequest={(req) =>
-            req.url === 'about:blank' || memeOrigine(req.url, origine)
+            req.url === 'about:blank' || sameOrigin(req.url, origine)
           }
           onNavigationStateChange={(nav) => {
             // Raccrocher mène Jitsi vers une page « close » : on rend la main au
@@ -233,7 +233,7 @@ function Appel({
 }
 
 const styles = StyleSheet.create({
-  plein: { flex: 1 },
+  full: { flex: 1 },
   voile: {
     position: 'absolute',
     top: 0,
@@ -244,8 +244,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  centre: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24 },
-  barre: {
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24 },
+  bar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -254,11 +254,11 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  titre: { fontFamily: POLICES.titre, fontSize: 16, flexShrink: 1 },
-  terminer: { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
-  terminerTexte: { fontFamily: POLICES.corpsFort, fontSize: 14 },
-  chargeTexte: { fontFamily: POLICES.corps, fontSize: 14 },
-  messageErreur: { fontFamily: POLICES.corpsGras, fontSize: 15, textAlign: 'center' },
-  reessayer: { paddingVertical: 8, paddingHorizontal: 16 },
-  reessayerTexte: { fontFamily: POLICES.corpsGras, fontSize: 15 },
+  title: { fontFamily: FONTS.title, fontSize: 16, flexShrink: 1 },
+  finish: { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
+  terminerTexte: { fontFamily: FONTS.corpsFort, fontSize: 14 },
+  chargeTexte: { fontFamily: FONTS.body, fontSize: 14 },
+  errorMessage: { fontFamily: FONTS.corpsGras, fontSize: 15, textAlign: 'center' },
+  retry: { paddingVertical: 8, paddingHorizontal: 16 },
+  reessayerTexte: { fontFamily: FONTS.corpsGras, fontSize: 15 },
 });

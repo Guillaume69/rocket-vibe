@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { detecterLiensVideo, estLienVideo, idVideo } from './videoLinks.ts';
+import { detectVideoLinks, isVideoLink, idVideo } from './videoLinks.ts';
 
 const ID = 'dQw4w9WgXcQ';
 
@@ -14,7 +14,7 @@ describe('detecterLiensVideo', () => {
       `https://m.youtube.com/watch?feature=share&v=${ID}`,
       `(https://www.youtube.com/watch?v=${ID})`,
     ]) {
-      const r = detecterLiensVideo(texte);
+      const r = detectVideoLinks(texte);
       assert.equal(r.length, 1, texte);
       assert.equal(r[0]!.id, ID, texte);
       assert.equal(r[0]!.url, `https://www.youtube.com/watch?v=${ID}`);
@@ -30,19 +30,19 @@ describe('detecterLiensVideo', () => {
       `ecris-moi@youtube.com/watch?v=${ID}`,
       `pasvimeo.com/12345`,
     ]) {
-      assert.deepEqual(detecterLiensVideo(texte), [], texte);
+      assert.deepEqual(detectVideoLinks(texte), [], texte);
     }
   });
 
   test('déduplique et plafonne', () => {
-    assert.equal(detecterLiensVideo(`https://youtu.be/${ID} et https://youtu.be/${ID}`).length, 1);
+    assert.equal(detectVideoLinks(`https://youtu.be/${ID} et https://youtu.be/${ID}`).length, 1);
     const trois = `https://youtu.be/aaaaaaaaaaa https://youtu.be/bbbbbbbbbbb https://youtu.be/ccccccccccc https://youtu.be/ddddddddddd`;
-    assert.equal(detecterLiensVideo(trois).length, 3);
+    assert.equal(detectVideoLinks(trois).length, 3);
   });
 
   test('texte vide ou nul → []', () => {
-    assert.deepEqual(detecterLiensVideo(null), []);
-    assert.deepEqual(detecterLiensVideo(''), []);
+    assert.deepEqual(detectVideoLinks(null), []);
+    assert.deepEqual(detectVideoLinks(''), []);
   });
 });
 
@@ -54,7 +54,7 @@ describe('idVideo / estLienVideo', () => {
 
   test('null hors vidéo', () => {
     assert.equal(idVideo('https://ex.com/article'), null);
-    assert.equal(estLienVideo('https://ex.com/article'), false);
-    assert.equal(estLienVideo(`https://youtu.be/${ID}`), true);
+    assert.equal(isVideoLink('https://ex.com/article'), false);
+    assert.equal(isVideoLink(`https://youtu.be/${ID}`), true);
   });
 });

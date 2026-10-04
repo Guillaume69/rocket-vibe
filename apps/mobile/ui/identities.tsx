@@ -23,18 +23,18 @@
  * pourquoi la séparation n'est pas cosmétique.
  */
 
-import { useRequeteVive } from './liveQuery.ts';
+import { useCoalescedLiveQuery } from './liveQuery.ts';
 import { useEffect } from 'react';
 
-import { utilisateurs } from '../db/schema.ts';
-import { poserEtags, poserIdentites } from './identityStore.ts';
+import { users } from '../db/schema.ts';
+import { setEtags, setIdentities } from './identityStore.ts';
 import { useSession } from './session.tsx';
-import { useSynchro } from './sync.tsx';
+import { useSync } from './sync.tsx';
 
 export {
-  oublierIdentites,
+  forgetIdentities,
   useEtagsAvatars,
-  useIdentites,
+  useIdentities,
   type EtagsAvatars,
 } from './identityStore.ts';
 
@@ -42,29 +42,29 @@ export {
  * Alimente le store depuis la table `utilisateurs` et la session. Frère de la
  * pile (monté dans `_layout`), il ne rend rien : il pousse dans le store.
  */
-export function SuiviIdentites() {
-  const synchro = useSynchro();
+export function IdentityTracker() {
+  const synchro = useSync();
   if (synchro.phase !== 'pret') return null;
   return <Alimente />;
 }
 
 function Alimente() {
-  const synchro = useSynchro();
-  const { etat } = useSession();
+  const synchro = useSync();
+  const { state: etat } = useSession();
   const base = synchro.phase === 'pret' ? synchro.base : null;
   // La session porte MON pseudo courant, rafraîchi à l'édition/à la reprise plus
   // tôt qu'un message ré-ingéré : on la superpose à la table (autoritaire pour moi).
   const moiUid = etat.phase === 'connecte' ? etat.session.userId : null;
   const moiUsername = etat.phase === 'connecte' ? etat.session.username : null;
 
-  const { data } = useRequeteVive(
+  const { data } = useCoalescedLiveQuery(
     base!
       .select({
-        uid: utilisateurs.uid,
-        username: utilisateurs.username,
-        avatarEtag: utilisateurs.avatarEtag,
+        uid: users.uid,
+        username: users.username,
+        avatarEtag: users.avatarEtag,
       })
-      .from(utilisateurs),
+      .from(users),
   );
 
   useEffect(() => {
@@ -78,8 +78,8 @@ function Alimente() {
       if (u.username !== null) parUsername.set(u.username, u.avatarEtag);
     }
     if (moiUid !== null && moiUsername !== null) m.set(moiUid, moiUsername);
-    poserIdentites(m);
-    poserEtags({ parUid, parUsername });
+    setIdentities(m);
+    setEtags({ byUid: parUid, byUsername: parUsername });
   }, [data, moiUid, moiUsername]);
 
   return null;

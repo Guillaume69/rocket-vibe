@@ -2,46 +2,46 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import {
-  ErreurValidation,
-  jointeDeFichierChiffre,
-  MoteurTeleversement,
-  lireReglesUpload,
-  validerFichier,
-  type DepotTeleversements,
-  type LigneTeleversement,
+  ValidationError,
+  encryptedFileAttachment,
+  UploadEngine,
+  readUploadRules,
+  validateFile,
+  type UploadStore,
+  type UploadRow,
 } from './uploadQueue.ts';
-import { ClientRest, ErreurRest } from './rest.ts';
-import type { JwkFichier } from './e2e/crypto.ts';
+import { ClientRest, RestError } from './rest.ts';
+import type { FileJwk } from './e2e/crypto.ts';
 import type { TransportUpload } from './upload.ts';
 
 describe('validerFichier', () => {
   test('la taille maximale du serveur est respectée AVANT le moindre octet', () => {
-    const regles = { tailleMax: 1000, typesAcceptes: null, fichiersChiffres: true };
-    validerFichier(regles, { type: 'image/png', taille: 999 });
+    const regles = { maxSize: 1000, acceptedTypes: null, encryptedFiles: true };
+    validateFile(regles, { type: 'image/png', size: 999 });
     // Le refus porte une DONNÉE (code + params), pas une phrase : c'est le
     // contrat du point d'affichage (ui/fileValidation.ts).
     assert.throws(
-      () => validerFichier(regles, { type: 'image/png', taille: 1001 }),
+      () => validateFile(regles, { type: 'image/png', size: 1001 }),
       (e: unknown) =>
-        e instanceof ErreurValidation &&
+        e instanceof ValidationError &&
         e.detail.code === 'taille' &&
-        e.detail.maxMo === '0.0',
+        e.detail.maxMb === '0.0',
     );
   });
 
   test('la liste blanche accepte les jokers `image/*`', () => {
-    const regles = { tailleMax: null, typesAcceptes: ['image/*', 'application/pdf'], fichiersChiffres: true };
-    validerFichier(regles, { type: 'image/png', taille: null });
-    validerFichier(regles, { type: 'application/pdf', taille: null });
+    const regles = { maxSize: null, acceptedTypes: ['image/*', 'application/pdf'], encryptedFiles: true };
+    validateFile(regles, { type: 'image/png', size: null });
+    validateFile(regles, { type: 'application/pdf', size: null });
     assert.throws(
-      () => validerFichier(regles, { type: 'video/mp4', taille: null }),
+      () => validateFile(regles, { type: 'video/mp4', size: null }),
       (e: unknown) =>
-        e instanceof ErreurValidation && e.detail.code === 'type' && e.detail.type === 'video/mp4',
+        e instanceof ValidationError && e.detail.code === 'type' && e.detail.type === 'video/mp4',
     );
   });
 
   test('sans réglage, tout passe — le serveur tranchera', () => {
-    validerFichier({ tailleMax: null, typesAcceptes: null, fichiersChiffres: true }, { type: 'x/y', taille: 1e12 });
+    validateFile({ maxSize: null, acceptedTypes: null, encryptedFiles: true }, { type: 'x/y', size: 1e12 });
   });
 });
 
@@ -58,11 +58,11 @@ describe('lireReglesUpload', () => {
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
-      dormir: async () => {},
+      sleep: async () => {},
     });
-    const regles = await lireReglesUpload(client);
-    assert.equal(regles.tailleMax, 104857600);
-    assert.deepEqual(regles.typesAcceptes, ['image/*', 'application/pdf']);
+    const regles = await readUploadRules(client);
+    assert.equal(regles.maxSize, 104857600);
+    assert.deepEqual(regles.acceptedTypes, ['image/*', 'application/pdf']);
   });
 });
 
@@ -73,49 +73,49 @@ describe('lireReglesUpload', () => {
  * échouerait.
  */
 function fauxDepot() {
-  const lignes = new Map<string, LigneTeleversement>();
+  const lignes = new Map<string, UploadRow>();
   const postes = new Set<string>();
   /** Journal des appels : c'est lui qui distingue « pas marqué » de « marqué en attente ». */
   const appels: string[] = [];
-  const depot: DepotTeleversements = {
-    inserer: async (l) => void lignes.set(l.id, { ...l, statut: 'en-attente', fileId: null }),
-    listerAEnvoyer: async () => {
+  const depot: UploadStore = {
+    insert: async (l) => void lignes.set(l.id, { ...l, status: 'en-attente', fileId: null }),
+    listToSend: async () => {
       appels.push('lister');
-      return [...lignes.values()].filter((l) => l.statut === 'en-attente');
+      return [...lignes.values()].filter((l) => l.status === 'en-attente');
     },
-    prendreEnCharge: async (id) => {
+    claim: async (id) => {
       const l = lignes.get(id);
-      if (l === undefined || l.statut !== 'en-attente') return false;
-      l.statut = 'envoi';
+      if (l === undefined || l.status !== 'en-attente') return false;
+      l.status = 'envoi';
       appels.push(`prendre:${id}`);
       return true;
     },
-    rearmerEnVol: async (enVolIci) => {
+    rearmInFlight: async (enVolIci) => {
       appels.push(`rearmerEnVol:[${enVolIci.join(',')}]`);
       for (const l of lignes.values()) {
-        if (l.statut === 'envoi' && !enVolIci.includes(l.id)) l.statut = 'en-attente';
+        if (l.status === 'envoi' && !enVolIci.includes(l.id)) l.status = 'en-attente';
       }
     },
-    rearmer: async (id) => {
+    rearm: async (id) => {
       appels.push(`rearmer:${id}`);
       const l = lignes.get(id);
-      if (l) l.statut = 'en-attente';
+      if (l) l.status = 'en-attente';
     },
-    noterFileId: async (id, fileId) => {
+    recordFileId: async (id, fileId) => {
       appels.push(`fileId:${id}=${fileId}`);
       const l = lignes.get(id);
       if (l) l.fileId = fileId;
     },
-    fichierDejaPoste: async (_rid, fileId) => postes.has(fileId),
-    marquerEchec: async (id, erreur) => {
+    fileAlreadyPosted: async (_rid, fileId) => postes.has(fileId),
+    markFailed: async (id, erreur) => {
       appels.push(`echec:${id}`);
       const l = lignes.get(id);
       if (l) {
-        l.statut = 'echec';
+        l.status = 'echec';
         void erreur;
       }
     },
-    supprimer: async (id) => {
+    delete: async (id) => {
       appels.push(`supprimer:${id}`);
       lignes.delete(id);
     },
@@ -123,7 +123,7 @@ function fauxDepot() {
   return { depot, lignes, appels, postes };
 }
 
-const FICHIER = { uri: 'file:///a.png', nom: 'a.png', type: 'image/png', taille: 10 };
+const FICHIER = { uri: 'file:///a.png', name: 'a.png', type: 'image/png', size: 10 };
 
 /** Une promesse qu'on dénoue à la main — jamais un délai. */
 function verrou() {
@@ -145,7 +145,7 @@ function clientConfirmant() {
         headers: { 'Content-Type': 'application/json' },
       });
     },
-    dormir: async () => {},
+    sleep: async () => {},
   });
 }
 
@@ -166,22 +166,22 @@ describe('MoteurTeleversement', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       },
-      dormir: async () => {},
+      sleep: async () => {},
     });
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client,
       transport: async () => assert.fail('valider ne téléverse rien'),
-      genererId: () => 'id-fichier-000000000000',
-      ingerer: async () => {},
+      generateId: () => 'id-fichier-000000000000',
+      ingest: async () => {},
     });
 
-    await moteur.valider({ type: 'image/png', taille: 99 });
-    await assert.rejects(moteur.valider({ type: 'image/png', taille: 101 }), (e: unknown) => {
-      return e instanceof ErreurValidation && e.detail.code === 'taille';
+    await moteur.validate({ type: 'image/png', size: 99 });
+    await assert.rejects(moteur.validate({ type: 'image/png', size: 101 }), (e: unknown) => {
+      return e instanceof ValidationError && e.detail.code === 'taille';
     });
-    await assert.rejects(moteur.valider({ type: 'application/pdf', taille: 1 }), (e: unknown) => {
-      return e instanceof ErreurValidation && e.detail.code === 'type';
+    await assert.rejects(moteur.validate({ type: 'application/pdf', size: 1 }), (e: unknown) => {
+      return e instanceof ValidationError && e.detail.code === 'type';
     });
     assert.equal(lignes.size, 0);
     assert.equal(lectures, 1);
@@ -193,17 +193,17 @@ describe('MoteurTeleversement', () => {
     const transport: TransportUpload = async (_url, _entetes, _fichier, surProgression) => {
       surProgression?.(0.5);
       assert.equal(lignes.size, 1, "l'intention est persistée avant que l'octet parte");
-      return { statut: 200, corps: JSON.stringify({ file: { _id: 'f1' } }) };
+      return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
     };
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client: clientConfirmant(),
       transport,
-      genererId: () => 'id-fichier-000000000000',
-      ingerer: async (doc) => void ingeres.push(doc),
+      generateId: () => 'id-fichier-000000000000',
+      ingest: async (doc) => void ingeres.push(doc),
     });
 
-    await moteur.envoyer('r1', { uri: 'file:///a.png', nom: 'a.png', type: 'image/png', taille: 10 });
+    await moteur.send('r1', { uri: 'file:///a.png', name: 'a.png', type: 'image/png', size: 10 });
 
     assert.equal(lignes.size, 0, 'purgé au succès');
     assert.equal(ingeres.length, 1, 'le message confirmé repasse par la synchro');
@@ -212,19 +212,19 @@ describe('MoteurTeleversement', () => {
   test('un refus serveur marque `echec`, rejouable', async () => {
     const { depot, lignes } = fauxDepot();
     const transport: TransportUpload = async () => ({
-      statut: 413,
-      corps: JSON.stringify({ success: false, error: 'trop gros' }),
+      status: 413,
+      body: JSON.stringify({ success: false, error: 'trop gros' }),
     });
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client: clientConfirmant(),
       transport,
-      genererId: () => 'id-fichier-000000000000',
-      ingerer: async () => {},
+      generateId: () => 'id-fichier-000000000000',
+      ingest: async () => {},
     });
-    await moteur.envoyer('r1', { uri: 'file:///a.png', nom: 'a.png', type: 'image/png', taille: 10 });
-    assert.equal([...lignes.values()][0]?.statut, 'echec');
-    assert.equal(moteur.progression.size, 0, 'la progression ne survit pas à l’échec');
+    await moteur.send('r1', { uri: 'file:///a.png', name: 'a.png', type: 'image/png', size: 10 });
+    assert.equal([...lignes.values()][0]?.status, 'echec');
+    assert.equal(moteur.progress.size, 0, 'la progression ne survit pas à l’échec');
   });
 
   /**
@@ -236,25 +236,25 @@ describe('MoteurTeleversement', () => {
   test('réseau injoignable : la ligne reste `en-attente`, rien n’est marqué en échec', async () => {
     const { depot, lignes, appels } = fauxDepot();
     const transport: TransportUpload = async () => {
-      throw new ErreurRest('Upload : serveur injoignable.', 0);
+      throw new RestError('Upload : serveur injoignable.', 0);
     };
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client: clientConfirmant(),
       transport,
-      genererId: () => 'id-fichier-000000000000',
-      ingerer: async () => {},
+      generateId: () => 'id-fichier-000000000000',
+      ingest: async () => {},
     });
 
-    await moteur.envoyer('r1', FICHIER);
+    await moteur.send('r1', FICHIER);
 
     assert.equal(lignes.size, 1, 'l’intention survit — le rejeu la reprendra');
-    assert.equal([...lignes.values()][0]?.statut, 'en-attente');
+    assert.equal([...lignes.values()][0]?.status, 'en-attente');
     assert.ok(
       !appels.some((a) => a.startsWith('echec:')),
       'un injoignable n’est pas un refus : marquerEchec ne doit PAS être appelé',
     );
-    assert.equal(moteur.progression.size, 0, 'la progression est vidée même sur abandon de passe');
+    assert.equal(moteur.progress.size, 0, 'la progression est vidée même sur abandon de passe');
   });
 
   test('un injoignable arrête la passe : la ligne suivante n’est pas tentée', async () => {
@@ -262,26 +262,26 @@ describe('MoteurTeleversement', () => {
     let tentatives = 0;
     const transport: TransportUpload = async () => {
       tentatives++;
-      throw new ErreurRest('Upload : serveur injoignable.', 0);
+      throw new RestError('Upload : serveur injoignable.', 0);
     };
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client: clientConfirmant(),
       transport,
-      genererId: () => 'x',
-      ingerer: async () => {},
+      generateId: () => 'x',
+      ingest: async () => {},
     });
-    await depot.inserer({ id: 't1', rid: 'r1', ...FICHIER, legende: null });
-    await depot.inserer({ id: 't2', rid: 'r1', ...FICHIER, legende: null });
+    await depot.insert({ id: 't1', rid: 'r1', ...FICHIER, caption: null });
+    await depot.insert({ id: 't2', rid: 'r1', ...FICHIER, caption: null });
 
-    await moteur.traiter();
+    await moteur.process();
 
     assert.equal(tentatives, 1, 'insister sur un réseau mort gaspille les octets de t2');
     assert.equal(appels.filter((a) => a === 'lister').length, 1, 'aucune passe supplémentaire');
     // Les DEUX doivent rester rejouables : t1 ré-armée après sa prise en
     // charge, t2 jamais touchée.
     assert.deepEqual(
-      [...lignes.values()].map((l) => l.statut),
+      [...lignes.values()].map((l) => l.status),
       ['en-attente', 'en-attente'],
     );
   });
@@ -295,45 +295,45 @@ describe('MoteurTeleversement', () => {
     const { depot, lignes } = fauxDepot();
     let coupe = true;
     const transport: TransportUpload = async () => {
-      if (coupe) throw new ErreurRest('Upload : serveur injoignable.', 0);
-      return { statut: 200, corps: JSON.stringify({ file: { _id: 'f1' } }) };
+      if (coupe) throw new RestError('Upload : serveur injoignable.', 0);
+      return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
     };
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client: clientConfirmant(),
       transport,
-      genererId: () => 'x',
-      ingerer: async () => {},
+      generateId: () => 'x',
+      ingest: async () => {},
     });
-    await depot.inserer({ id: 't1', rid: 'r1', ...FICHIER, legende: null });
+    await depot.insert({ id: 't1', rid: 'r1', ...FICHIER, caption: null });
 
-    await moteur.traiter();
-    assert.equal([...lignes.values()][0]?.statut, 'en-attente');
+    await moteur.process();
+    assert.equal([...lignes.values()][0]?.status, 'en-attente');
 
     coupe = false;
-    await moteur.traiter();
+    await moteur.process();
     assert.equal(lignes.size, 0, 'le réseau revenu, la même ligne part enfin');
   });
 
   test('un `envoi` orphelin d’un processus tué est repris au premier `traiter()`', async () => {
     const { depot, lignes } = fauxDepot();
     const transport: TransportUpload = async () => ({
-      statut: 200,
-      corps: JSON.stringify({ file: { _id: 'f1' } }),
+      status: 200,
+      body: JSON.stringify({ file: { _id: 'f1' } }),
     });
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client: clientConfirmant(),
       transport,
-      genererId: () => 'x',
-      ingerer: async () => {},
+      generateId: () => 'x',
+      ingest: async () => {},
     });
     // L'état que laisse un kill en plein téléversement.
-    await depot.inserer({ id: 't1', rid: 'r1', ...FICHIER, legende: null });
-    await depot.prendreEnCharge('t1');
-    assert.equal([...lignes.values()][0]?.statut, 'envoi');
+    await depot.insert({ id: 't1', rid: 'r1', ...FICHIER, caption: null });
+    await depot.claim('t1');
+    assert.equal([...lignes.values()][0]?.status, 'envoi');
 
-    await moteur.traiter();
+    await moteur.process();
 
     assert.equal(lignes.size, 0, 'sans le ré-armement, la ligne serait restée hors du listage');
   });
@@ -344,29 +344,29 @@ describe('MoteurTeleversement', () => {
     let tentatives = 0;
     const transport: TransportUpload = async () => {
       tentatives++;
-      if (refuse) return { statut: 413, corps: JSON.stringify({ success: false, error: 'gros' }) };
-      return { statut: 200, corps: JSON.stringify({ file: { _id: 'f1' } }) };
+      if (refuse) return { status: 413, body: JSON.stringify({ success: false, error: 'gros' }) };
+      return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
     };
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client: clientConfirmant(),
       transport,
-      genererId: () => 'x',
-      ingerer: async () => {},
+      generateId: () => 'x',
+      ingest: async () => {},
     });
-    await depot.inserer({ id: 't1', rid: 'r1', ...FICHIER, legende: null });
+    await depot.insert({ id: 't1', rid: 'r1', ...FICHIER, caption: null });
 
-    await moteur.traiter();
-    assert.equal([...lignes.values()][0]?.statut, 'echec');
+    await moteur.process();
+    assert.equal([...lignes.values()][0]?.status, 'echec');
     assert.equal(tentatives, 1);
 
     // Ce que fait `apresRattrapage` à CHAQUE raccordement.
-    await moteur.traiter();
-    await moteur.traiter();
+    await moteur.process();
+    await moteur.process();
     assert.equal(tentatives, 1, 'la vidéo refusée ne repousse plus ses octets à chaque flap');
 
     refuse = false;
-    await moteur.reessayer('t1');
+    await moteur.retry('t1');
     assert.equal(tentatives, 2, 'le geste explicite, LUI, retente');
     assert.equal(lignes.size, 0);
   });
@@ -382,7 +382,7 @@ describe('MoteurTeleversement', () => {
     let confirms = 0;
     const transport: TransportUpload = async () => {
       octets++;
-      return { statut: 200, corps: JSON.stringify({ file: { _id: 'f1' } }) };
+      return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
     };
     const client = new ClientRest('http://x', {
       fetch: async (url) => {
@@ -396,28 +396,28 @@ describe('MoteurTeleversement', () => {
           headers: { 'Content-Type': 'application/json' },
         });
       },
-      dormir: async () => {},
+      sleep: async () => {},
     });
     const ingeres: unknown[] = [];
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client,
       transport,
-      genererId: () => 'x',
-      ingerer: async (d) => void ingeres.push(d),
+      generateId: () => 'x',
+      ingest: async (d) => void ingeres.push(d),
     });
-    await depot.inserer({ id: 't1', rid: 'r1', ...FICHIER, legende: null });
+    await depot.insert({ id: 't1', rid: 'r1', ...FICHIER, caption: null });
 
-    await moteur.traiter();
+    await moteur.process();
     assert.equal(octets, 1);
     assert.equal(confirms, 1);
     assert.ok(appels.includes('fileId:t1=f1'), 'le fileId est noté AVANT le confirm');
-    assert.equal([...lignes.values()][0]?.statut, 'en-attente', 'rejouable');
+    assert.equal([...lignes.values()][0]?.status, 'en-attente', 'rejouable');
 
     // Entre-temps, le stream DDP a livré le message que le confirm avait créé.
     postes.add('f1');
 
-    await moteur.traiter();
+    await moteur.process();
 
     assert.equal(octets, 1, 'les octets ne repartent pas — c’est tout l’objet de file_id');
     assert.equal(confirms, 1, 'et AUCUN second message n’est posté');
@@ -431,7 +431,7 @@ describe('MoteurTeleversement', () => {
     let confirms = 0;
     const transport: TransportUpload = async () => {
       octets++;
-      return { statut: 200, corps: JSON.stringify({ file: { _id: 'f1' } }) };
+      return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
     };
     let premier = true;
     const client = new ClientRest('http://x', {
@@ -452,20 +452,20 @@ describe('MoteurTeleversement', () => {
           headers: { 'Content-Type': 'application/json' },
         });
       },
-      dormir: async () => {},
+      sleep: async () => {},
     });
     const ingeres: unknown[] = [];
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client,
       transport,
-      genererId: () => 'x',
-      ingerer: async (d) => void ingeres.push(d),
+      generateId: () => 'x',
+      ingest: async (d) => void ingeres.push(d),
     });
-    await depot.inserer({ id: 't1', rid: 'r1', ...FICHIER, legende: null });
+    await depot.insert({ id: 't1', rid: 'r1', ...FICHIER, caption: null });
 
-    await moteur.traiter();
-    await moteur.traiter();
+    await moteur.process();
+    await moteur.process();
 
     assert.equal(octets, 1, 'un seul passage des octets');
     assert.equal(confirms, 2, 'le confirm, lui, est bien retenté');
@@ -485,8 +485,8 @@ describe('MoteurTeleversement', () => {
     let confirms = 0;
     const rafraichis: string[] = [];
     const transport: TransportUpload = async () => ({
-      statut: 200,
-      corps: JSON.stringify({ file: { _id: 'f1' } }),
+      status: 200,
+      body: JSON.stringify({ file: { _id: 'f1' } }),
     });
     const client = new ClientRest('http://x', {
       fetch: async (url) => {
@@ -499,27 +499,27 @@ describe('MoteurTeleversement', () => {
           headers: { 'Content-Type': 'application/json' },
         });
       },
-      dormir: async () => {},
+      sleep: async () => {},
     });
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client,
       transport,
-      genererId: () => 'x',
-      ingerer: async () => {},
+      generateId: () => 'x',
+      ingest: async () => {},
       // Le rattrapage rapporte le message : c'est ce que fait `rattraperSalon`.
-      rafraichirSalon: async (rid) => {
+      refreshRoom: async (rid) => {
         rafraichis.push(rid);
         postes.add('f1');
       },
     });
-    await depot.inserer({ id: 't1', rid: 'r1', ...FICHIER, legende: null });
+    await depot.insert({ id: 't1', rid: 'r1', ...FICHIER, caption: null });
 
-    await moteur.traiter(); // les octets partent, le confirm se perd
+    await moteur.process(); // les octets partent, le confirm se perd
     assert.equal(confirms, 1);
     assert.deepEqual(rafraichis, [], 'aucun rafraîchissement sur le chemin nominal');
 
-    await moteur.traiter(); // reprise : la base ne sait pas encore
+    await moteur.process(); // reprise : la base ne sait pas encore
 
     assert.deepEqual(rafraichis, ['r1'], 'un appel ciblé, sur CE salon');
     assert.equal(confirms, 1, 'et surtout : pas de second confirm');
@@ -530,8 +530,8 @@ describe('MoteurTeleversement', () => {
     const { depot, lignes } = fauxDepot();
     let confirms = 0;
     const transport: TransportUpload = async () => ({
-      statut: 200,
-      corps: JSON.stringify({ file: { _id: 'f1' } }),
+      status: 200,
+      body: JSON.stringify({ file: { _id: 'f1' } }),
     });
     let premier = true;
     const client = new ClientRest('http://x', {
@@ -552,22 +552,22 @@ describe('MoteurTeleversement', () => {
           headers: { 'Content-Type': 'application/json' },
         });
       },
-      dormir: async () => {},
+      sleep: async () => {},
     });
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client,
       transport,
-      genererId: () => 'x',
-      ingerer: async () => {},
-      rafraichirSalon: async () => {
+      generateId: () => 'x',
+      ingest: async () => {},
+      refreshRoom: async () => {
         throw new Error('rattrapage impossible');
       },
     });
-    await depot.inserer({ id: 't1', rid: 'r1', ...FICHIER, legende: null });
+    await depot.insert({ id: 't1', rid: 'r1', ...FICHIER, caption: null });
 
-    await moteur.traiter();
-    await moteur.traiter();
+    await moteur.process();
+    await moteur.process();
 
     // Choix assumé : dans le doute, confirmer. Perdre le fichier serait pire
     // qu'un doublon visible et effaçable.
@@ -589,23 +589,23 @@ describe('MoteurTeleversement', () => {
       await barriere.attendre;
       // Une tâche annulée ne rend pas de fileId : `uploadAsync` a rendu null.
       if (annule) throw new Error('Téléversement annulé.');
-      return { statut: 200, corps: JSON.stringify({ file: { _id: 'f1' } }) };
+      return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
     };
     const ingeres: unknown[] = [];
     const effaces: string[] = [];
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client: clientConfirmant(),
       transport,
-      genererId: () => 'x',
-      ingerer: async (d) => void ingeres.push(d),
-      supprimerFichierLocal: async (uri) => void effaces.push(uri),
+      generateId: () => 'x',
+      ingest: async (d) => void ingeres.push(d),
+      deleteLocalFile: async (uri) => void effaces.push(uri),
     });
-    await depot.inserer({ id: 't1', rid: 'r1', ...FICHIER, legende: null });
+    await depot.insert({ id: 't1', rid: 'r1', ...FICHIER, caption: null });
 
-    const passe = moteur.traiter();
+    const passe = moteur.process();
     await entree.attendre;
-    await moteur.abandonner('t1', FICHIER.uri);
+    await moteur.discard('t1', FICHIER.uri);
     await passe;
 
     assert.ok(annule, 'la FileSystemUploadTask est vraiment interrompue');
@@ -628,7 +628,7 @@ describe('MoteurTeleversement', () => {
     const transport: TransportUpload = async () => {
       entree.ouvrir();
       await barriere.attendre; // l'abandon tombe ici, l'upload est fini
-      return { statut: 200, corps: JSON.stringify({ file: { _id: 'f1' } }) };
+      return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
     };
     const client = new ClientRest('http://x', {
       fetch: async (url) => {
@@ -638,21 +638,21 @@ describe('MoteurTeleversement', () => {
           headers: { 'Content-Type': 'application/json' },
         });
       },
-      dormir: async () => {},
+      sleep: async () => {},
     });
     const ingeres: unknown[] = [];
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client,
       transport,
-      genererId: () => 'x',
-      ingerer: async (d) => void ingeres.push(d),
+      generateId: () => 'x',
+      ingest: async (d) => void ingeres.push(d),
     });
-    await depot.inserer({ id: 't1', rid: 'r1', ...FICHIER, legende: null });
+    await depot.insert({ id: 't1', rid: 'r1', ...FICHIER, caption: null });
 
-    const passe = moteur.traiter();
+    const passe = moteur.process();
     await entree.attendre;
-    await moteur.abandonner('t1');
+    await moteur.discard('t1');
     barriere.ouvrir();
     await passe;
 
@@ -666,8 +666,8 @@ describe('MoteurTeleversement', () => {
     const entree = verrou();
     const barriere = verrou();
     const transport: TransportUpload = async () => ({
-      statut: 200,
-      corps: JSON.stringify({ file: { _id: 'f1' } }),
+      status: 200,
+      body: JSON.stringify({ file: { _id: 'f1' } }),
     });
     const client = new ClientRest('http://x', {
       fetch: async (url) => {
@@ -680,21 +680,21 @@ describe('MoteurTeleversement', () => {
           headers: { 'Content-Type': 'application/json' },
         });
       },
-      dormir: async () => {},
+      sleep: async () => {},
     });
     const ingeres: unknown[] = [];
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client,
       transport,
-      genererId: () => 'x',
-      ingerer: async (d) => void ingeres.push(d),
+      generateId: () => 'x',
+      ingest: async (d) => void ingeres.push(d),
     });
-    await depot.inserer({ id: 't1', rid: 'r1', ...FICHIER, legende: null });
+    await depot.insert({ id: 't1', rid: 'r1', ...FICHIER, caption: null });
 
-    const passe = moteur.traiter();
+    const passe = moteur.process();
     await entree.attendre;
-    await moteur.abandonner('t1');
+    await moteur.discard('t1');
     barriere.ouvrir();
     await passe;
 
@@ -708,19 +708,19 @@ describe('MoteurTeleversement', () => {
     const { depot } = fauxDepot();
     const effaces: string[] = [];
     const transport: TransportUpload = async () => ({
-      statut: 200,
-      corps: JSON.stringify({ file: { _id: 'f1' } }),
+      status: 200,
+      body: JSON.stringify({ file: { _id: 'f1' } }),
     });
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client: clientConfirmant(),
       transport,
-      genererId: () => 'id-fichier-000000000000',
-      ingerer: async () => {},
-      supprimerFichierLocal: async (uri) => void effaces.push(uri),
+      generateId: () => 'id-fichier-000000000000',
+      ingest: async () => {},
+      deleteLocalFile: async (uri) => void effaces.push(uri),
     });
 
-    await moteur.envoyer('r1', FICHIER);
+    await moteur.send('r1', FICHIER);
 
     assert.deepEqual(effaces, [FICHIER.uri], 'sinon le cache enfle sans fin');
   });
@@ -728,21 +728,21 @@ describe('MoteurTeleversement', () => {
   test('un échec d’effacement ne fait pas échouer l’envoi', async () => {
     const { depot, lignes } = fauxDepot();
     const transport: TransportUpload = async () => ({
-      statut: 200,
-      corps: JSON.stringify({ file: { _id: 'f1' } }),
+      status: 200,
+      body: JSON.stringify({ file: { _id: 'f1' } }),
     });
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client: clientConfirmant(),
       transport,
-      genererId: () => 'id-fichier-000000000000',
-      ingerer: async () => {},
-      supprimerFichierLocal: async () => {
+      generateId: () => 'id-fichier-000000000000',
+      ingest: async () => {},
+      deleteLocalFile: async () => {
         throw new Error('fichier déjà purgé par Android');
       },
     });
 
-    await moteur.envoyer('r1', FICHIER);
+    await moteur.send('r1', FICHIER);
 
     assert.equal(lignes.size, 0, 'le message est posté : le ménage est secondaire');
   });
@@ -765,20 +765,20 @@ describe('MoteurTeleversement', () => {
         entree.ouvrir();
         await barriere.attendre;
       }
-      return { statut: 200, corps: JSON.stringify({ file: { _id: 'f1' } }) };
+      return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
     };
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client: clientConfirmant(),
       transport,
-      genererId: () => 'x',
-      ingerer: async () => {},
+      generateId: () => 'x',
+      ingest: async () => {},
     });
-    await depot.inserer({ id: 't1', rid: 'r1', ...FICHIER, legende: null });
+    await depot.insert({ id: 't1', rid: 'r1', ...FICHIER, caption: null });
 
-    const premierePasse = moteur.traiter();
+    const premierePasse = moteur.process();
     await entree.attendre; // la passe est VRAIMENT en vol — aucun délai d'attente
-    await moteur.traiter(); // doit se contenter de noter la repasse et rendre
+    await moteur.process(); // doit se contenter de noter la repasse et rendre
     assert.equal(
       appels.filter((a) => a === 'lister').length,
       1,
@@ -793,7 +793,7 @@ describe('MoteurTeleversement', () => {
       2,
       'la repasse notée est bien exécutée À LA FIN de la première',
     );
-    assert.equal(moteur.progression.size, 0);
+    assert.equal(moteur.progress.size, 0);
   });
 
   test('la progression est vidée après un succès', async () => {
@@ -802,47 +802,47 @@ describe('MoteurTeleversement', () => {
     const transport: TransportUpload = async (_u, _e, _f, surProgression) => {
       surProgression?.(0.25);
       surProgression?.(1);
-      return { statut: 200, corps: JSON.stringify({ file: { _id: 'f1' } }) };
+      return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
     };
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client: clientConfirmant(),
       transport,
-      genererId: () => 'id-fichier-000000000000',
-      ingerer: async () => {
-        vues.push(moteur.progression.get('id-fichier-000000000000') ?? -1);
+      generateId: () => 'id-fichier-000000000000',
+      ingest: async () => {
+        vues.push(moteur.progress.get('id-fichier-000000000000') ?? -1);
       },
     });
 
-    await moteur.envoyer('r1', FICHIER);
+    await moteur.send('r1', FICHIER);
 
     assert.deepEqual(vues, [1], 'la fraction est bien tenue à jour pendant l’envoi');
-    assert.equal(moteur.progression.size, 0, 'et retirée ensuite — sinon la barre reste à 100 %');
+    assert.equal(moteur.progress.size, 0, 'et retirée ensuite — sinon la barre reste à 100 %');
   });
 });
 
 describe('MoteurTeleversement — salon chiffré', () => {
   const CONTENU = { algorithm: 'rc.v2.aes-sha2', kid: 'k', iv: 'aXY=', ciphertext: 'Y3Q=' };
-  const JWK: JwkFichier = { kty: 'oct', alg: 'A256CTR', k: 'Y2xl', ext: true, key_ops: ['encrypt', 'decrypt'] };
+  const JWK: FileJwk = { kty: 'oct', alg: 'A256CTR', k: 'Y2xl', ext: true, key_ops: ['encrypt', 'decrypt'] };
 
-  function chiffrement(options: { cle?: () => boolean } = {}) {
+  function chiffrement(options: { key?: () => boolean } = {}) {
     const charges: object[] = [];
     const fichiersChiffres: string[] = [];
     return {
       charges,
       fichiersChiffres,
-      chiffrement: {
-        salonChiffre: async (rid: string) => rid === 'p1',
-        chiffrer: (_rid: string, charge: object) => {
-          if (options.cle && !options.cle()) return null;
+      encryption: {
+        roomEncrypted: async (rid: string) => rid === 'p1',
+        encrypt: (_rid: string, charge: object) => {
+          if (options.key && !options.key()) return null;
           charges.push(charge);
           return CONTENU;
         },
-        chiffrerFichier: async (uri: string) => {
+        encryptFile: async (uri: string) => {
           fichiersChiffres.push(uri);
-          return { uri: `${uri}.chiffre`, cle: JWK, iv: 'Y3RyMTY=', sha256: 'abc', taille: 10 };
+          return { uri: `${uri}.chiffre`, key: JWK, iv: 'Y3RyMTY=', sha256: 'abc', size: 10 };
         },
-        empreinteNom: (nom: string) => `hache(${nom})`,
+        hashedName: (nom: string) => `hache(${nom})`,
       },
     };
   }
@@ -855,35 +855,35 @@ describe('MoteurTeleversement — salon chiffré', () => {
         const corps = confirm ? { success: true, message: { _id: 'm1', rid: 'p1' } } : { settings: reglages };
         return new Response(JSON.stringify(corps), { status: 200, headers: { 'Content-Type': 'application/json' } });
       },
-      dormir: async () => {},
+      sleep: async () => {},
     });
   }
 
   test('le fichier part chiffré sous l’empreinte de son nom ; nom, clé et légende ne voyagent que chiffrés', async () => {
     const { depot, lignes } = fauxDepot();
-    const { chiffrement: c, charges } = chiffrement();
-    const envois: { fichier: unknown; champs: unknown }[] = [];
+    const { encryption: c, charges } = chiffrement();
+    const envois: { file: unknown; fields: unknown }[] = [];
     const confirmes: unknown[] = [];
     const effaces: string[] = [];
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client: clientQuiConfirme(confirmes, [{ _id: 'E2E_Enable_Encrypt_Files', value: true }]),
       transport: async (_url, _entetes, fichier, _p, _a, champs) => {
-        envois.push({ fichier, champs });
-        return { statut: 200, corps: JSON.stringify({ file: { _id: 'f1' } }) };
+        envois.push({ file: fichier, fields: champs });
+        return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
       },
-      genererId: () => 'id-fichier-000000000000',
-      ingerer: async () => {},
-      supprimerFichierLocal: async (uri) => void effaces.push(uri),
-      chiffrement: c,
+      generateId: () => 'id-fichier-000000000000',
+      ingest: async () => {},
+      deleteLocalFile: async (uri) => void effaces.push(uri),
+      encryption: c,
     });
 
-    await moteur.envoyer('p1', { uri: 'file:///cache/a.png', nom: 'vacances.png', type: 'image/png', taille: 10 }, 'la plage');
+    await moteur.send('p1', { uri: 'file:///cache/a.png', name: 'vacances.png', type: 'image/png', size: 10 }, 'la plage');
 
     assert.deepEqual(envois, [
       {
-        fichier: { uri: 'file:///cache/a.png.chiffre', nom: 'hache(vacances.png)', type: 'application/octet-stream' },
-        champs: { content: JSON.stringify(CONTENU) },
+        file: { uri: 'file:///cache/a.png.chiffre', name: 'hache(vacances.png)', type: 'application/octet-stream' },
+        fields: { content: JSON.stringify(CONTENU) },
       },
     ]);
     assert.deepEqual(confirmes, [{ msg: '', t: 'e2e', content: CONTENU, fileContent: CONTENU }]);
@@ -899,47 +899,47 @@ describe('MoteurTeleversement — salon chiffré', () => {
   test('verrouillé : rien ne part, la ligne attend sans échouer', async () => {
     const { depot, lignes, appels } = fauxDepot();
     let cle = false;
-    const { chiffrement: c } = chiffrement({ cle: () => cle });
+    const { encryption: c } = chiffrement({ key: () => cle });
     let envois = 0;
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client: clientQuiConfirme([], [{ _id: 'E2E_Enable_Encrypt_Files', value: true }]),
       transport: async () => {
         envois++;
-        return { statut: 200, corps: JSON.stringify({ file: { _id: 'f1' } }) };
+        return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
       },
-      genererId: () => 'id-fichier-000000000000',
-      ingerer: async () => {},
-      chiffrement: c,
+      generateId: () => 'id-fichier-000000000000',
+      ingest: async () => {},
+      encryption: c,
     });
 
-    await moteur.envoyer('p1', FICHIER);
+    await moteur.send('p1', FICHIER);
     assert.equal(envois, 0);
-    assert.equal([...lignes.values()][0].statut, 'en-attente');
+    assert.equal([...lignes.values()][0].status, 'en-attente');
     assert.ok(!appels.some((a) => a.startsWith('echec')));
 
     cle = true;
-    await moteur.traiter();
+    await moteur.process();
     assert.equal(envois, 1);
     assert.equal(lignes.size, 0);
   });
 
   test('clé perdue entre les deux temps (processus tué) : le fichier repart, chiffré à neuf', async () => {
     const { depot, lignes } = fauxDepot();
-    const { chiffrement: c, fichiersChiffres } = chiffrement();
-    await depot.inserer({ id: 'l1', rid: 'p1', uri: 'file:///cache/a.png', nom: 'a.png', type: 'image/png', legende: null });
-    await depot.noterFileId('l1', 'f-ancien');
+    const { encryption: c, fichiersChiffres } = chiffrement();
+    await depot.insert({ id: 'l1', rid: 'p1', uri: 'file:///cache/a.png', name: 'a.png', type: 'image/png', caption: null });
+    await depot.recordFileId('l1', 'f-ancien');
     const confirmes: unknown[] = [];
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client: clientQuiConfirme(confirmes),
-      transport: async () => ({ statut: 200, corps: JSON.stringify({ file: { _id: 'f-neuf' } }) }),
-      genererId: () => 'x',
-      ingerer: async () => {},
-      chiffrement: c,
+      transport: async () => ({ status: 200, body: JSON.stringify({ file: { _id: 'f-neuf' } }) }),
+      generateId: () => 'x',
+      ingest: async () => {},
+      encryption: c,
     });
 
-    await moteur.traiter();
+    await moteur.process();
     assert.deepEqual(fichiersChiffres, ['file:///cache/a.png']);
     assert.equal(confirmes.length, 1);
     assert.equal(lignes.size, 0);
@@ -947,27 +947,27 @@ describe('MoteurTeleversement — salon chiffré', () => {
 
   test('serveur sans fichiers chiffrés : refusé dès la pose', async () => {
     const { depot } = fauxDepot();
-    const moteur = new MoteurTeleversement({
-      depot,
+    const moteur = new UploadEngine({
+      store: depot,
       client: clientQuiConfirme([], [{ _id: 'E2E_Enable_Encrypt_Files', value: false }]),
       transport: async () => assert.fail('rien ne part'),
-      genererId: () => 'x',
-      ingerer: async () => {},
-      chiffrement: chiffrement().chiffrement,
+      generateId: () => 'x',
+      ingest: async () => {},
+      encryption: chiffrement().encryption,
     });
-    await assert.rejects(moteur.valider({ type: 'image/png', taille: 1 }, 'p1'), (e: unknown) => {
-      return e instanceof ErreurValidation && e.detail.code === 'chiffre';
+    await assert.rejects(moteur.validate({ type: 'image/png', size: 1 }, 'p1'), (e: unknown) => {
+      return e instanceof ValidationError && e.detail.code === 'chiffre';
     });
-    await moteur.valider({ type: 'image/png', taille: 1 }, 'r-clair');
+    await moteur.validate({ type: 'image/png', size: 1 }, 'r-clair');
   });
 });
 
 describe('jointeDeFichierChiffre', () => {
-  const cle: JwkFichier = { kty: 'oct', alg: 'A256CTR', k: 'k', ext: true, key_ops: ['encrypt', 'decrypt'] };
-  const commun = { fileId: 'f1', url: '/file-upload/f1/h', taille: 42, cle, iv: 'iv', sha256: 'abc' };
+  const cle: FileJwk = { kty: 'oct', alg: 'A256CTR', k: 'k', ext: true, key_ops: ['encrypt', 'decrypt'] };
+  const commun = { fileId: 'f1', url: '/file-upload/f1/h', size: 42, key: cle, iv: 'iv', sha256: 'abc' };
 
   test('une image s’annonce comme image', () => {
-    const j = jointeDeFichierChiffre({ ...commun, nom: 'a.jpg', type: 'image/jpeg' });
+    const j = encryptedFileAttachment({ ...commun, name: 'a.jpg', type: 'image/jpeg' });
     assert.equal(j.image_url, '/file-upload/f1/h');
     assert.equal(j.image_type, 'image/jpeg');
     assert.equal(j.image_size, 42);
@@ -975,7 +975,7 @@ describe('jointeDeFichierChiffre', () => {
   });
 
   test('un autre fichier porte son poids et son format', () => {
-    const j = jointeDeFichierChiffre({ ...commun, nom: 'Rapport.PDF', type: 'application/pdf' });
+    const j = encryptedFileAttachment({ ...commun, name: 'Rapport.PDF', type: 'application/pdf' });
     assert.equal(j.size, 42);
     assert.equal(j.format, 'pdf');
     assert.equal(j.image_url, undefined);

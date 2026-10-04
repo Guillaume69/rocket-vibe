@@ -13,7 +13,7 @@
  * (cf. `ui/i18n.ts`).
  */
 
-import { cleJour } from './daySeparator.ts';
+import { dayKey } from './daySeparator.ts';
 
 const fr = {
   // ── Commun — réutilisé par plusieurs écrans. Préférer une clé d'écran
@@ -421,13 +421,13 @@ const fr = {
 } as const;
 
 /** Toutes les clés valides de traduction — dérivées de `fr`, la référence. */
-export type CleTraduction = keyof typeof fr;
+export type TranslationKey = keyof typeof fr;
 
 /**
  * Anglais. Typé `Record<CleTraduction, string>` : une clé oubliée ou en trop
  * casse la compilation. Garder le MÊME ordre que `fr` facilite la relecture.
  */
-const en: Record<CleTraduction, string> = {
+const en: Record<TranslationKey, string> = {
   'commun.enregistrer': 'Save',
   'commun.annuler': 'Cancel',
   'commun.reessayer': 'Retry',
@@ -789,24 +789,24 @@ const en: Record<CleTraduction, string> = {
 export const CATALOGUES = { fr, en } as const;
 
 /** Langues disponibles — dérivées des catalogues, jamais désynchronisées. */
-export type Langue = keyof typeof CATALOGUES;
-export const LANGUES = Object.keys(CATALOGUES) as readonly Langue[];
+export type Language = keyof typeof CATALOGUES;
+export const LANGUAGES = Object.keys(CATALOGUES) as readonly Language[];
 
 /** Préférence stockée : une langue explicite, ou « suivre l'appareil ». */
-export type PreferenceLangue = Langue | 'auto';
+export type LanguagePreference = Language | 'auto';
 
 /**
  * Noms de langue en ENDONYME (dans la langue elle-même) : « Français » et
  * « English » se lisent pareil quelle que soit la langue de l'interface —
  * convention des sélecteurs de langue.
  */
-export const NOMS_LANGUE: Record<Langue, string> = {
+export const LANGUAGE_NAMES: Record<Language, string> = {
   fr: 'Français',
   en: 'English',
 };
 
-export type ParamsTraduction = Record<string, string | number>;
-export type Traducteur = (cle: CleTraduction, params?: ParamsTraduction) => string;
+export type TranslationParams = Record<string, string | number>;
+export type TranslateFn = (cle: TranslationKey, params?: TranslationParams) => string;
 
 /**
  * Langue du téléphone, en PUR JS : Hermes (RN 0.86) embarque `Intl`/ICU adossé
@@ -815,7 +815,7 @@ export type Traducteur = (cle: CleTraduction, params?: ParamsTraduction) => stri
  * sous Node. Repli sur l'anglais pour toute locale non couverte (défaut
  * international neutre).
  */
-export function langueAppareil(): Langue {
+export function deviceLanguage(): Language {
   const locale = Intl.DateTimeFormat().resolvedOptions().locale;
   const sousTag = locale.split(/[-_]/)[0]?.toLowerCase();
   return sousTag === 'fr' ? 'fr' : 'en';
@@ -829,7 +829,7 @@ export function langueAppareil(): Langue {
  * mémoïser par l'appelant : construire un `Intl.DateTimeFormat` coûte cher,
  * `format` non (cf. `useHeure`, ui/i18n.ts).
  */
-export function formateurHeure(langue: Langue): (ms: number) => string {
+export function timeFormatter(langue: Language): (ms: number) => string {
   const format = new Intl.DateTimeFormat(langue === 'fr' ? 'fr-FR' : 'en-US', {
     hour: langue === 'fr' ? '2-digit' : 'numeric',
     minute: '2-digit',
@@ -845,16 +845,16 @@ export function formateurHeure(langue: Langue): (ms: number) => string {
  * `formateurHeure`. `maintenantMs` est lu à CHAQUE appel (une liste ouverte à
  * travers minuit re-rend « Aujourd'hui » juste) ; injectable pour les tests.
  */
-export function formateurJour(langue: Langue): (ms: number, maintenantMs?: number) => string {
+export function dayFormatter(langue: Language): (ms: number, maintenantMs?: number) => string {
   const locale = langue === 'fr' ? 'fr-FR' : 'en-US';
   const memeAnnee = new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long' });
   const autreAnnee = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric' });
   return (ms, maintenantMs = Date.now()) => {
     const maintenant = new Date(maintenantMs);
-    const jour = cleJour(ms);
-    if (jour === cleJour(maintenantMs)) return traduire(langue, 'separateurJour.aujourdhui');
+    const jour = dayKey(ms);
+    if (jour === dayKey(maintenantMs)) return translate(langue, 'separateurJour.aujourdhui');
     const hier = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() - 1);
-    if (jour === cleJour(hier.getTime())) return traduire(langue, 'separateurJour.hier');
+    if (jour === dayKey(hier.getTime())) return translate(langue, 'separateurJour.hier');
     const date = new Date(ms);
     return date.getFullYear() === maintenant.getFullYear()
       ? memeAnnee.format(date)
@@ -866,7 +866,7 @@ export function formateurJour(langue: Langue): (ms: number, maintenantMs?: numbe
  * Sélection singulier/pluriel. FR : singulier pour 0 et 1 (« 0 membre »,
  * « 1 membre »), pluriel dès 2. EN : singulier pour 1 seulement.
  */
-function estPluriel(langue: Langue, n: number): boolean {
+function estPluriel(langue: Language, n: number): boolean {
   return langue === 'fr' ? n > 1 : n !== 1;
 }
 
@@ -878,8 +878,8 @@ function estPluriel(langue: Langue, n: number): boolean {
  */
 function interpoler(
   modele: string,
-  params: ParamsTraduction | undefined,
-  langue: Langue,
+  params: TranslationParams | undefined,
+  langue: Language,
 ): string {
   let s = modele;
   if (s.includes(' | ') && typeof params?.n === 'number') {
@@ -897,10 +897,10 @@ function interpoler(
  * clé venait à manquer côté cible — impossible en théorie (le type l'interdit),
  * mais un texte français reste préférable à une clé brute affichée.
  */
-export function traduire(
-  langue: Langue,
-  cle: CleTraduction,
-  params?: ParamsTraduction,
+export function translate(
+  langue: Language,
+  cle: TranslationKey,
+  params?: TranslationParams,
 ): string {
   const modele = CATALOGUES[langue][cle] ?? CATALOGUES.fr[cle];
   return interpoler(modele, params, langue);

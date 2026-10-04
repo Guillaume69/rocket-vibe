@@ -6,7 +6,7 @@
 
 import { Platform, Pressable, type PressableProps, StyleSheet } from 'react-native';
 
-export function Appuyable({ style, android_ripple, ...props }: PressableProps) {
+export function Tappable({ style, android_ripple, ...props }: PressableProps) {
   if (Platform.OS === 'android' || android_ripple == null) {
     return <Pressable style={style} android_ripple={android_ripple} {...props} />;
   }

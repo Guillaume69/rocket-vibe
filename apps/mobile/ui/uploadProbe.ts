@@ -22,11 +22,11 @@
 let sonde: (() => void) | null = null;
 
 /** Branchée par `ui/sync.tsx`. `null` pour débrancher, au démontage. */
-export function brancherSondeUpload(nouvelle: (() => void) | null): void {
+export function armUploadProbe(nouvelle: (() => void) | null): void {
   sonde = nouvelle;
 }
 
 /** Sans sonde branchée (tests, session fermée) : sans effet, jamais d'erreur. */
-export function signalerFinUpload(): void {
+export function reportUploadEnd(): void {
   sonde?.();
 }

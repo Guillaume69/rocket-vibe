@@ -29,26 +29,26 @@
  * solde la précédente, et `repondreSource` est idempotent — le démontage de la
  * feuille l'appelle après un éventuel choix, sans effet.
  */
-export type SourcePieceJointe = 'photo' | 'video' | 'bibliotheque' | 'fichier';
+export type AttachmentSource = 'photo' | 'video' | 'bibliotheque' | 'fichier';
 
-let resolveur: ((source: SourcePieceJointe | null) => void) | null = null;
+let resolveur: ((source: AttachmentSource | null) => void) | null = null;
 let feuilleMontee = false;
 
-export function demanderSource(): Promise<SourcePieceJointe | null> {
+export function requestSource(): Promise<AttachmentSource | null> {
   resolveur?.(null);
   return new Promise((resolve) => {
     resolveur = resolve;
   });
 }
 
-export function repondreSource(source: SourcePieceJointe | null): void {
+export function answerSource(source: AttachmentSource | null): void {
   const r = resolveur;
   resolveur = null;
   r?.(source);
 }
 
 /** La feuille s'annonce à son montage. */
-export function signalerFeuilleMontee(): void {
+export function reportSheetMounted(): void {
   feuilleMontee = true;
 }
 
@@ -57,12 +57,12 @@ export function signalerFeuilleMontee(): void {
  * retour matériel, ou le `back()` du composeur. Solde une demande restée en
  * attente (feuille fermée sans choix → `null`).
  */
-export function signalerFeuilleDemontee(): void {
+export function reportSheetUnmounted(): void {
   feuilleMontee = false;
-  repondreSource(null);
+  answerSource(null);
 }
 
 /** Le composeur n'a le droit de fermer que si la feuille est ENCORE là. */
-export function feuilleEstMontee(): boolean {
+export function isSheetMounted(): boolean {
   return feuilleMontee;
 }

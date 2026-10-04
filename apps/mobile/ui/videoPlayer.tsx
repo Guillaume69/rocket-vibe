@@ -24,21 +24,21 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useT } from './i18n.ts';
-import { type Couleurs, POLICES } from './theme.ts';
+import { type Colors, FONTS } from './theme.ts';
 
-export function LecteurVideo({
+export function VideoPlayer({
   c,
   url,
-  titre,
-  surAppuiLong,
-  superposition,
+  title: titre,
+  onLongPress: surAppuiLong,
+  overlay: superposition,
 }: {
-  c: Couleurs;
+  c: Colors;
   url: string;
-  titre?: string | null;
-  surAppuiLong?: (() => void) | undefined;
+  title?: string | null;
+  onLongPress?: (() => void) | undefined;
   /** Rendue par-dessus la carte (progression d'un téléchargement). */
-  superposition?: React.ReactNode;
+  overlay?: React.ReactNode;
 }) {
   const t = useT();
   const [ouvert, setOuvert] = useState(false);
@@ -49,53 +49,53 @@ export function LecteurVideo({
         onPress={() => setOuvert(true)}
         onLongPress={surAppuiLong}
         delayLongPress={350}
-        style={[styles.carte, { borderColor: c.bordure }]}
+        style={[styles.card, { borderColor: c.border }]}
         accessibilityRole="button"
         accessibilityLabel={titre ? t('lecteurVideo.lireAvecTitre', { titre }) : t('lecteurVideo.lire')}
       >
         {/* Aurore comète, tamisée par un voile sombre : un rappel de couleur
             sans que la carte crie. */}
         <LinearGradient
-          colors={c.degradeMarque}
+          colors={c.brandGradient}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
         />
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: c.voileMedia }]} />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: c.mediaScrim }]} />
 
         <LinearGradient
-          colors={c.degradeCta}
+          colors={c.ctaGradient}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={styles.bouton}
+          style={styles.button}
         >
           {/* Triangle DESSINÉ, pas un emoji (« ▶ » sort orange sur Android). */}
-          <View style={[styles.iconePlay, { borderLeftColor: c.surAccent }]} />
+          <View style={[styles.playIcon, { borderLeftColor: c.onAccent }]} />
         </LinearGradient>
 
-        <View style={styles.pied}>
-          <Text style={[styles.etiquette, { color: c.texte }]} numberOfLines={1}>
+        <View style={styles.footer}>
+          <Text style={[styles.label, { color: c.text }]} numberOfLines={1}>
             {titre ?? t('lecteurVideo.video')}
           </Text>
         </View>
         {superposition}
       </Pressable>
 
-      {ouvert && <ModaleVideo c={c} url={url} titre={titre ?? null} onFermer={() => setOuvert(false)} />}
+      {ouvert && <VideoModal c={c} url={url} title={titre ?? null} onClose={() => setOuvert(false)} />}
     </>
   );
 }
 
-export function ModaleVideo({
+export function VideoModal({
   c,
   url,
-  titre,
-  onFermer,
+  title: titre,
+  onClose: onFermer,
 }: {
-  c: Couleurs;
+  c: Colors;
   url: string;
-  titre: string | null;
-  onFermer: () => void;
+  title: string | null;
+  onClose: () => void;
 }) {
   const t = useT();
   const insets = useSafeAreaInsets();
@@ -115,7 +115,7 @@ export function ModaleVideo({
       onRequestClose={onFermer}
       supportedOrientations={['portrait', 'landscape']}
     >
-      <View style={[styles.fond, { backgroundColor: c.fondPleinEcran }]}>
+      <View style={[styles.background, { backgroundColor: c.fullScreenBackground }]}>
         <VideoView
           player={player}
           style={styles.video}
@@ -129,16 +129,16 @@ export function ModaleVideo({
       <Pressable
         onPress={onFermer}
         hitSlop={12}
-        style={[styles.fermer, { top: insets.top + 8, backgroundColor: c.carte + 'D9' }]}
+        style={[styles.close, { top: insets.top + 8, backgroundColor: c.card + 'D9' }]}
         accessibilityRole="button"
         accessibilityLabel={t('commun.fermer')}
       >
-        <Text style={[styles.croix, { color: c.texte }]}>✕</Text>
+        <Text style={[styles.cross, { color: c.text }]}>✕</Text>
       </Pressable>
 
       {titre != null && titre !== '' && (
-        <View style={[styles.legende, { bottom: insets.bottom + 12 }]} pointerEvents="none">
-          <Text style={[styles.legendeTexte, { color: c.texte }]} numberOfLines={2}>
+        <View style={[styles.caption, { bottom: insets.bottom + 12 }]} pointerEvents="none">
+          <Text style={[styles.captionText, { color: c.text }]} numberOfLines={2}>
             {titre}
           </Text>
         </View>
@@ -148,7 +148,7 @@ export function ModaleVideo({
 }
 
 const styles = StyleSheet.create({
-  carte: {
+  card: {
     width: 240,
     maxWidth: '100%',
     aspectRatio: 16 / 9,
@@ -158,14 +158,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bouton: {
+  button: {
     width: 52,
     height: 52,
     borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  iconePlay: {
+  playIcon: {
     width: 0,
     height: 0,
     borderTopWidth: 11,
@@ -175,21 +175,21 @@ const styles = StyleSheet.create({
     borderBottomColor: 'transparent',
     marginLeft: 4, // recentrage optique du triangle
   },
-  pied: {
+  footer: {
     position: 'absolute',
     left: 10,
     right: 10,
     bottom: 8,
   },
-  etiquette: { fontFamily: POLICES.corpsSemi, fontSize: 12 },
+  label: { fontFamily: FONTS.corpsSemi, fontSize: 12 },
   // La couleur (`fondPleinEcran`) vient du thème, posée au rendu.
-  fond: {
+  background: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   video: { width: '100%', height: '100%' },
-  fermer: {
+  close: {
     position: 'absolute',
     right: 12,
     width: 38,
@@ -198,7 +198,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  croix: { fontFamily: POLICES.corpsFort, fontSize: 17, lineHeight: 20 },
-  legende: { position: 'absolute', left: 16, right: 16, alignItems: 'center' },
-  legendeTexte: { fontFamily: POLICES.corps, fontSize: 13, textAlign: 'center' },
+  cross: { fontFamily: FONTS.corpsFort, fontSize: 17, lineHeight: 20 },
+  caption: { position: 'absolute', left: 16, right: 16, alignItems: 'center' },
+  captionText: { fontFamily: FONTS.body, fontSize: 13, textAlign: 'center' },
 });

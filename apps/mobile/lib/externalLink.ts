@@ -38,12 +38,12 @@ const WEB = /^https?:\/\//i;
 const IDENTIFIANTS = /\brc_(token|uid)=/i;
 
 /** Vrai si `url` est une chaîne `http(s)://…`. */
-export function estLienWeb(url: unknown): url is string {
+export function isWebLink(url: unknown): url is string {
   return typeof url === 'string' && WEB.test(url);
 }
 
 /** Vrai si l'URL transporte `rc_uid` ou `rc_token`. */
-export function porteUnIdentifiant(url: string): boolean {
+export function carriesCredentials(url: string): boolean {
   return IDENTIFIANTS.test(url);
 }
 
@@ -51,6 +51,6 @@ export function porteUnIdentifiant(url: string): boolean {
  * La seule question à poser avant `Linking.openURL` : cette chaîne peut-elle
  * quitter le processus ?
  */
-export function peutSortirDuProcessus(url: unknown): url is string {
-  return estLienWeb(url) && !porteUnIdentifiant(url);
+export function canLeaveProcess(url: unknown): url is string {
+  return isWebLink(url) && !carriesCredentials(url);
 }

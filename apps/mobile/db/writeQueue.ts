@@ -19,9 +19,9 @@
  * SUR une connexion).
  */
 
-export type FileEcritures = <T>(job: () => Promise<T>) => Promise<T>;
+export type WriteQueue = <T>(job: () => Promise<T>) => Promise<T>;
 
-export function creerFileEcritures(): FileEcritures {
+export function createWriteQueue(): WriteQueue {
   let queue: Promise<unknown> = Promise.resolve();
   return (job) => {
     // `tour` porte le rejet au demandeur ; la file, elle, l'avale pour ne

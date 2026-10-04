@@ -14,40 +14,40 @@
  * muet, son garde `enVol` armé pour toujours.
  */
 
-import { ClientRest, type Dependances, ErreurRest } from './rest.ts';
+import { ClientRest, type Dependencies, RestError } from './rest.ts';
 
-export type DeuxFacteurs = {
-  actif: boolean;
+export type TwoFactor = {
+  active: boolean;
   totp: boolean;
   email: boolean;
 };
 
-export type ProfilServeur = {
+export type ServerProfile = {
   /** L'URL normalisée par `normaliserUrl` : celle que le sondage a réellement
    * interrogée. L'appelant construit son client dessus, plutôt que de
    * re-normaliser la saisie de son côté et risquer de viser un autre hôte. */
   baseUrl: string;
   version: string;
   siteUrl: string | null;
-  formulaireDeConnexion: boolean;
-  deuxFacteurs: DeuxFacteurs;
+  loginForm: boolean;
+  twoFactor: TwoFactor;
   ldap: boolean;
   oauth: string[];
-  e2eeActif: boolean;
-  fichiersProteges: boolean;
-  avatarsProteges: boolean;
+  e2eeEnabled: boolean;
+  filesProtected: boolean;
+  avatarsProtected: boolean;
 };
 
 /** Le champ `value` de `settings.public` est hétérogène : on ne le contraint pas. */
 type ReglagePublic = { _id: string; value: unknown };
 
-export class ErreurServeur extends Error {
-  readonly origine?: unknown;
+export class ServerError extends Error {
+  readonly origin?: unknown;
 
   constructor(message: string, origine?: unknown) {
     super(message);
     this.name = 'ErreurServeur';
-    this.origine = origine;
+    this.origin = origine;
   }
 }
 
@@ -58,15 +58,15 @@ export class ErreurServeur extends Error {
  * Le **sous-chemin est conservé** : un Rocket.Chat servi derrière un reverse
  * proxy vit souvent sous `/chat`, et `new URL(…).origin` le supprimerait.
  */
-export function normaliserUrl(entree: string): string {
+export function normalizeUrl(entree: string): string {
   const brut = entree.trim();
-  if (brut === '') throw new ErreurServeur('Adresse vide.');
+  if (brut === '') throw new ServerError('Adresse vide.');
   const avecSchema = /^https?:\/\//i.test(brut) ? brut : `https://${brut}`;
   let url: URL;
   try {
     url = new URL(avecSchema);
   } catch (e) {
-    throw new ErreurServeur(`Adresse invalide : ${brut}`, e);
+    throw new ServerError(`Adresse invalide : ${brut}`, e);
   }
   return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
 }
@@ -74,7 +74,7 @@ export function normaliserUrl(entree: string): string {
 function indexerReglages(charge: unknown): Map<string, unknown> {
   const settings = (charge as { settings?: unknown } | null)?.settings;
   if (!Array.isArray(settings)) {
-    throw new ErreurServeur('`settings.public` ne contient pas de tableau `settings`.');
+    throw new ServerError('`settings.public` ne contient pas de tableau `settings`.');
   }
   const index = new Map<string, unknown>();
   for (const brut of settings as ReglagePublic[]) {
@@ -96,23 +96,23 @@ async function recupererVersion(
   signal?: AbortSignal,
 ): Promise<string> {
   const charge = await client.get<{ version?: unknown }>('api/info', {
-    anonyme: true,
-    horsApiV1: true,
+    anonymous: true,
+    outsideApiV1: true,
     signal,
   });
   if (typeof charge.version !== 'string') {
-    throw new ErreurServeur("La réponse ne ressemble pas à celle d'un Rocket.Chat.");
+    throw new ServerError("La réponse ne ressemble pas à celle d'un Rocket.Chat.");
   }
   return charge.version;
 }
 
-export async function sonderServeur(
+export async function probeServer(
   entree: string,
   signal?: AbortSignal,
   /** Même seam que `ClientRest` : les tests éprouvent la borne sans dormir. */
-  dep?: Partial<Dependances>,
-): Promise<ProfilServeur> {
-  const base = normaliserUrl(entree);
+  dep?: Partial<Dependencies>,
+): Promise<ServerProfile> {
+  const base = normalizeUrl(entree);
   const client = new ClientRest(base, dep);
 
   const controleur = new AbortController();
@@ -126,7 +126,7 @@ export async function sonderServeur(
     const pVersion = recupererVersion(client, controleur.signal);
     const pReglages = client.get<unknown>('settings.public', {
       params: { count: 0 },
-      anonyme: true,
+      anonymous: true,
       signal: controleur.signal,
     });
     pVersion.catch(() => {});
@@ -138,10 +138,10 @@ export async function sonderServeur(
       [version, brutReglages] = await Promise.all([pVersion, pReglages]);
     } catch (e) {
       controleur.abort(); // Ne pas laisser la requête sœur traîner.
-      if (e instanceof ErreurServeur) throw e;
-      if (e instanceof ErreurRest) throw new ErreurServeur(e.message, e);
+      if (e instanceof ServerError) throw e;
+      if (e instanceof RestError) throw new ServerError(e.message, e);
       if (e instanceof Error && e.name === 'AbortError') throw e;
-      throw new ErreurServeur('Serveur injoignable.', e);
+      throw new ServerError('Serveur injoignable.', e);
     }
 
     const reglages = indexerReglages(brutReglages);
@@ -156,17 +156,17 @@ export async function sonderServeur(
       baseUrl: base,
       version,
       siteUrl: typeof siteUrl === 'string' ? siteUrl : null,
-      formulaireDeConnexion: vraiSi(reglages.get('Accounts_ShowFormLogin')),
-      deuxFacteurs: {
-        actif: vraiSi(reglages.get('Accounts_TwoFactorAuthentication_Enabled')),
+      loginForm: vraiSi(reglages.get('Accounts_ShowFormLogin')),
+      twoFactor: {
+        active: vraiSi(reglages.get('Accounts_TwoFactorAuthentication_Enabled')),
         totp: vraiSi(reglages.get('Accounts_TwoFactorAuthentication_By_TOTP_Enabled')),
         email: vraiSi(reglages.get('Accounts_TwoFactorAuthentication_By_Email_Enabled')),
       },
       ldap: vraiSi(reglages.get('LDAP_Enable')),
       oauth,
-      e2eeActif: vraiSi(reglages.get('E2E_Enable')),
-      fichiersProteges: vraiSi(reglages.get('FileUpload_ProtectFiles')),
-      avatarsProteges: vraiSi(reglages.get('Accounts_AvatarBlockUnauthenticatedAccess')),
+      e2eeEnabled: vraiSi(reglages.get('E2E_Enable')),
+      filesProtected: vraiSi(reglages.get('FileUpload_ProtectFiles')),
+      avatarsProtected: vraiSi(reglages.get('Accounts_AvatarBlockUnauthenticatedAccess')),
     };
   } finally {
     signal?.removeEventListener('abort', relayer);

@@ -3,41 +3,41 @@ import { describe, test } from 'node:test';
 
 import {
   diffInfos,
-  enregistrerInfos,
-  enregistrerStatut,
-  exigeMotDePasse,
-  lireMonProfil,
-  profilDepuisMe,
-  type MonProfil,
+  saveBasicInfo,
+  saveStatus,
+  requiresPassword,
+  readMyProfile,
+  profileFromMe,
+  type MyProfile,
 } from './myProfile.ts';
 import { ClientRest } from './rest.ts';
 
 /** Client qui enregistre chaque appel et répond ce qu'on lui donne par chemin. */
 function clientEspion(reponses: Record<string, unknown> = {}) {
-  const appels: { methode: string; chemin: string; corps: unknown; entetes: Headers }[] = [];
+  const appels: { method: string; path: string; body: unknown; headers: Headers }[] = [];
   const client = new ClientRest('http://x', {
     fetch: async (url, init) => {
       const chemin = String(url).split('/api/v1/')[1] ?? '';
       appels.push({
-        methode: init?.method ?? 'GET',
-        chemin,
-        corps: init?.body === undefined ? undefined : JSON.parse(String(init.body)),
-        entetes: new Headers(init?.headers),
+        method: init?.method ?? 'GET',
+        path: chemin,
+        body: init?.body === undefined ? undefined : JSON.parse(String(init.body)),
+        headers: new Headers(init?.headers),
       });
       return new Response(JSON.stringify(reponses[chemin] ?? { success: true }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
     },
-    dormir: async () => {},
+    sleep: async () => {},
   });
-  client.identifiants = { authToken: 'jeton-alice', userId: 'uid-alice' };
+  client.auth = { authToken: 'jeton-alice', userId: 'uid-alice' };
   return { client, appels };
 }
 
 describe('profilDepuisMe', () => {
   test('normalise les champs présents (statusDefault prioritaire)', () => {
-    const p = profilDepuisMe({
+    const p = profileFromMe({
       username: 'alice',
       name: 'Alice Merveille',
       status: 'online',
@@ -59,15 +59,15 @@ describe('profilDepuisMe', () => {
   test('statusDefault prime sur la présence live (offline à froid)', () => {
     // Le cas réel : app juste ouverte, présence encore offline, mais le choix
     // de l'utilisateur est « online ». L'éditeur doit montrer le choix.
-    assert.equal(profilDepuisMe({ status: 'offline', statusDefault: 'online' }).status, 'online');
+    assert.equal(profileFromMe({ status: 'offline', statusDefault: 'online' }).status, 'online');
   });
 
   test('sans statusDefault, on retombe sur status', () => {
-    assert.equal(profilDepuisMe({ status: 'away' }).status, 'away');
+    assert.equal(profileFromMe({ status: 'away' }).status, 'away');
   });
 
   test('champs absents → chaînes vides, statut inconnu → offline', () => {
-    const p = profilDepuisMe({ username: 'bob' });
+    const p = profileFromMe({ username: 'bob' });
     assert.equal(p.name, '');
     assert.equal(p.email, '');
     assert.equal(p.bio, '');
@@ -76,22 +76,22 @@ describe('profilDepuisMe', () => {
   });
 
   test('statut hors-liste → offline', () => {
-    assert.equal(profilDepuisMe({ status: 'invisible' }).status, 'offline');
+    assert.equal(profileFromMe({ status: 'invisible' }).status, 'offline');
   });
 
   test('emails vide ou malformé → e-mail vide, sans planter', () => {
-    assert.equal(profilDepuisMe({ emails: [] }).email, '');
-    assert.equal(profilDepuisMe({ emails: 'pas-un-tableau' }).email, '');
-    assert.equal(profilDepuisMe({ emails: [{ verified: true }] }).email, '');
+    assert.equal(profileFromMe({ emails: [] }).email, '');
+    assert.equal(profileFromMe({ emails: 'pas-un-tableau' }).email, '');
+    assert.equal(profileFromMe({ emails: [{ verified: true }] }).email, '');
   });
 });
 
 describe('lireMonProfil', () => {
   test('lit GET me et normalise', async () => {
     const { client, appels } = clientEspion({ me: { username: 'alice', status: 'online' } });
-    const p = await lireMonProfil(client);
-    assert.equal(appels[0]?.chemin, 'me');
-    assert.equal(appels[0]?.methode, 'GET');
+    const p = await readMyProfile(client);
+    assert.equal(appels[0]?.path, 'me');
+    assert.equal(appels[0]?.method, 'GET');
     assert.equal(p.username, 'alice');
     assert.equal(p.status, 'online');
   });
@@ -100,31 +100,31 @@ describe('lireMonProfil', () => {
 describe('enregistrerStatut', () => {
   test('poste status ET message ensemble', async () => {
     const { client, appels } = clientEspion();
-    await enregistrerStatut(client, { status: 'away', message: 'Déjeuner' });
-    assert.equal(appels[0]?.chemin, 'users.setStatus');
-    assert.deepEqual(appels[0]?.corps, { status: 'away', message: 'Déjeuner' });
+    await saveStatus(client, { status: 'away', message: 'Déjeuner' });
+    assert.equal(appels[0]?.path, 'users.setStatus');
+    assert.deepEqual(appels[0]?.body, { status: 'away', message: 'Déjeuner' });
   });
 });
 
 describe('enregistrerInfos', () => {
   test('poste { data } sans en-tête 2FA quand aucun code', async () => {
     const { client, appels } = clientEspion();
-    await enregistrerInfos(client, { name: 'Alice M.' });
-    assert.equal(appels[0]?.chemin, 'users.updateOwnBasicInfo');
-    assert.deepEqual(appels[0]?.corps, { data: { name: 'Alice M.' } });
-    assert.equal(appels[0]?.entetes.get('x-2fa-code'), null);
+    await saveBasicInfo(client, { name: 'Alice M.' });
+    assert.equal(appels[0]?.path, 'users.updateOwnBasicInfo');
+    assert.deepEqual(appels[0]?.body, { data: { name: 'Alice M.' } });
+    assert.equal(appels[0]?.headers.get('x-2fa-code'), null);
   });
 
   test('ajoute les en-têtes x-2fa-* quand un code est fourni', async () => {
     const { client, appels } = clientEspion();
-    await enregistrerInfos(client, { email: 'neuf@x.fr' }, { code: '123456', methode: 'totp' });
-    assert.equal(appels[0]?.entetes.get('x-2fa-code'), '123456');
-    assert.equal(appels[0]?.entetes.get('x-2fa-method'), 'totp');
+    await saveBasicInfo(client, { email: 'neuf@x.fr' }, { code: '123456', method: 'totp' });
+    assert.equal(appels[0]?.headers.get('x-2fa-code'), '123456');
+    assert.equal(appels[0]?.headers.get('x-2fa-method'), 'totp');
   });
 });
 
 describe('diffInfos', () => {
-  const base: MonProfil = {
+  const base: MyProfile = {
     username: 'alice',
     name: 'Alice',
     email: 'alice@x.fr',
@@ -150,11 +150,11 @@ describe('diffInfos', () => {
 
 describe('exigeMotDePasse', () => {
   test('e-mail ou nom d’utilisateur → vrai', () => {
-    assert.equal(exigeMotDePasse({ email: 'x@y.fr' }), true);
-    assert.equal(exigeMotDePasse({ username: 'neuf' }), true);
+    assert.equal(requiresPassword({ email: 'x@y.fr' }), true);
+    assert.equal(requiresPassword({ username: 'neuf' }), true);
   });
   test('nom ou bio seuls → faux', () => {
-    assert.equal(exigeMotDePasse({ name: 'X', bio: 'Y' }), false);
-    assert.equal(exigeMotDePasse({}), false);
+    assert.equal(requiresPassword({ name: 'X', bio: 'Y' }), false);
+    assert.equal(requiresPassword({}), false);
   });
 });

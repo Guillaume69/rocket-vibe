@@ -8,40 +8,40 @@
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { ClientRest } from '../lib/rest.ts';
-import { urlFichierProtege } from '../lib/upload.ts';
+import { protectedFileUrl } from '../lib/upload.ts';
 import { useT } from './i18n.ts';
-import type { CibleReponse } from './reply.ts';
-import { POLICES, type Couleurs } from './theme.ts';
+import type { ReplyTarget } from './reply.ts';
+import { FONTS, type Colors } from './theme.ts';
 
-export function BandeauReponse({
+export function ReplyBanner({
   c,
-  cible,
+  target: cible,
   client,
-  surAnnuler,
+  onCancel: surAnnuler,
 }: {
-  c: Couleurs;
-  cible: CibleReponse;
+  c: Colors;
+  target: ReplyTarget;
   /** Les fichiers du serveur cible exigent `rc_uid`/`rc_token` (vignette). */
   client: ClientRest;
-  surAnnuler: () => void;
+  onCancel: () => void;
 }) {
   const t = useT();
-  const apercu = cible.apercu?.trim() ?? '';
+  const apercu = cible.preview?.trim() ?? '';
   return (
-    <View style={[styles.bandeau, { borderTopColor: c.bordureDouce }]}>
+    <View style={[styles.banner, { borderTopColor: c.softBorder }]}>
       <View style={[styles.trait, { backgroundColor: c.accent }]} />
-      {cible.imageApercu !== null && (
+      {cible.previewImage !== null && (
         <Image
-          source={{ uri: urlFichierProtege(client, cible.imageApercu) }}
-          style={styles.vignette}
+          source={{ uri: protectedFileUrl(client, cible.previewImage) }}
+          style={styles.thumbnail}
           resizeMode="cover"
         />
       )}
-      <View style={styles.corps}>
-        <Text style={[styles.titre, { color: c.accent }]} numberOfLines={1}>
-          {t('salon.reponseA', { nom: cible.auteur ?? '?' })}
+      <View style={styles.body}>
+        <Text style={[styles.title, { color: c.accent }]} numberOfLines={1}>
+          {t('salon.reponseA', { nom: cible.author ?? '?' })}
         </Text>
-        <Text style={[styles.extrait, { color: c.attenue }]} numberOfLines={1}>
+        <Text style={[styles.extrait, { color: c.dimmed }]} numberOfLines={1}>
           {apercu !== '' ? apercu : t('commun.pieceJointe')}
         </Text>
       </View>
@@ -50,16 +50,16 @@ export function BandeauReponse({
         hitSlop={10}
         accessibilityRole="button"
         accessibilityLabel={t('salon.annulerReponse')}
-        style={({ pressed }) => [styles.fermer, { opacity: pressed ? 0.5 : 1 }]}
+        style={({ pressed }) => [styles.close, { opacity: pressed ? 0.5 : 1 }]}
       >
-        <Text style={[styles.croix, { color: c.attenue }]}>✕</Text>
+        <Text style={[styles.cross, { color: c.dimmed }]}>✕</Text>
       </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  bandeau: {
+  banner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
@@ -69,10 +69,10 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
   },
   trait: { width: 3, alignSelf: 'stretch', borderRadius: 2 },
-  vignette: { width: 34, height: 34, borderRadius: 6, backgroundColor: '#00000010' },
-  corps: { flex: 1, minWidth: 0, gap: 1 },
-  titre: { fontFamily: POLICES.corpsGras, fontSize: 12.5 },
-  extrait: { fontFamily: POLICES.corps, fontSize: 13, fontStyle: 'italic' },
-  fermer: { padding: 4 },
-  croix: { fontSize: 15 },
+  thumbnail: { width: 34, height: 34, borderRadius: 6, backgroundColor: '#00000010' },
+  body: { flex: 1, minWidth: 0, gap: 1 },
+  title: { fontFamily: FONTS.corpsGras, fontSize: 12.5 },
+  extrait: { fontFamily: FONTS.body, fontSize: 13, fontStyle: 'italic' },
+  close: { padding: 4 },
+  cross: { fontSize: 15 },
 });

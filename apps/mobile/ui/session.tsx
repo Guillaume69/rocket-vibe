@@ -10,51 +10,51 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
-import { appliquerSession, reprendreSession, seDeconnecter, type Session } from '../lib/auth.ts';
-import { terminerDeconnexions } from '../lib/deferredLogout.ts';
-import { definirClientProfil } from '../lib/profilePreload.ts';
-import { desenregistrerJeton } from '../lib/pushToken.ts';
-import { ClientRest, estJetonRefuse } from '../lib/rest.ts';
+import { applySession, resumeSession, logOut, type Session } from '../lib/auth.ts';
+import { finishPendingLogouts } from '../lib/deferredLogout.ts';
+import { setProfileClient } from '../lib/profilePreload.ts';
+import { unregisterToken } from '../lib/pushToken.ts';
+import { ClientRest, isTokenRejected } from '../lib/rest.ts';
 import {
-  ajouterDeconnexionEnSuspens,
-  effacerClePriveeE2E,
-  effacerSession,
-  enregistrerDernierServeur,
-  enregistrerServeurConnu,
-  enregistrerSession,
-  lireDernierServeur,
-  lireJetonPushRetenu,
-  lireSession,
-  listerDeconnexionsEnSuspens,
-  purgerCleE2EHeritee,
-  purgerToutesClesE2EHeritees,
-  retirerDeconnexionEnSuspens,
+  addPendingLogout,
+  clearE2EPrivateKey,
+  clearSession,
+  saveLastServer,
+  saveKnownServer,
+  saveSession,
+  readLastServer,
+  readRememberedPushToken,
+  readSession,
+  listPendingLogouts,
+  purgeLegacyE2EKey,
+  purgeAllLegacyE2EKeys,
+  removePendingLogout,
 } from '../lib/sessionStore.ts';
 
-export type EtatSession =
+export type SessionState =
   | { phase: 'demarrage' }
   | { phase: 'deconnecte' }
   | { phase: 'connecte'; session: Session; client: ClientRest };
 
 type ContexteSession = {
-  etat: EtatSession;
+  state: SessionState;
   /** Persiste la session et bascule l'app en mode connecté. */
-  connecter: (session: Session) => Promise<void>;
+  connect: (session: Session) => Promise<void>;
   /** Efface la session locale ; le logout serveur est best-effort. */
-  deconnecter: () => Promise<void>;
+  logOut: () => Promise<void>;
   /**
    * Bascule vers un autre serveur connu SANS toucher aux sessions : chacune
    * vit sous sa propre clé. Rend true si une session y existait ; sinon,
    * l'état retombe sur « deconnecte » et l'écran de connexion se pré-remplit.
    */
-  changerDeServeur: (baseUrl: string) => Promise<boolean>;
+  switchServer: (baseUrl: string) => Promise<boolean>;
   /**
    * Met à jour les infos de profil PORTÉES par la session (le pseudo) après une
    * édition réussie, et re-persiste. Le pseudo de la session alimente Paramètres
    * (`@username`) et l'avatar de « Mon profil » : sans ce rafraîchissement, ils
    * garderaient l'ancien pseudo jusqu'à une déconnexion/reconnexion.
    */
-  majProfilSession: (maj: { username?: string }) => Promise<void>;
+  updateSessionProfile: (maj: { username?: string }) => Promise<void>;
 };
 
 const Contexte = createContext<ContexteSession | null>(null);
@@ -67,8 +67,8 @@ const Contexte = createContext<ContexteSession | null>(null);
  */
 function clientPour(session: Session, surJetonRefuse: (jeton: string) => void): ClientRest {
   const client = new ClientRest(session.baseUrl);
-  client.surJetonRefuse = surJetonRefuse;
-  appliquerSession(client, session);
+  client.onTokenRejected = surJetonRefuse;
+  applySession(client, session);
   return client;
 }
 
@@ -82,16 +82,16 @@ function clientPour(session: Session, surJetonRefuse: (jeton: string) => void): 
  */
 async function effacerTraces(session: Session): Promise<void> {
   await Promise.all([
-    effacerSession(session.baseUrl),
-    effacerClePriveeE2E(session.baseUrl, session.userId),
+    clearSession(session.baseUrl),
+    clearE2EPrivateKey(session.baseUrl, session.userId),
     // L'entrée de l'ancien format, si le balayage de démarrage ne l'a pas
     // encore emportée : sans elle, cette fonction mentirait sur son contrat.
-    purgerCleE2EHeritee(session.baseUrl),
+    purgeLegacyE2EKey(session.baseUrl),
   ]);
 }
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
-  const [etat, setEtat] = useState<EtatSession>({ phase: 'demarrage' });
+  const [etat, setEtat] = useState<SessionState>({ phase: 'demarrage' });
 
   // Jeton de la session actuellement affichée. La validation de démarrage s'y
   // compare avant d'agir : sans cela, un 401 tardif sur un jeton déjà remplacé
@@ -102,7 +102,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     jetonCourant.current = etat.phase === 'connecte' ? etat.session.authToken : null;
     // Le préchargement de fiche (`lib/profilePreload`) ouvre `/profile` depuis des
     // fonctions de rendu sans client sous la main : on lui pose le client actif.
-    definirClientProfil(etat.phase === 'connecte' ? etat.client : null);
+    setProfileClient(etat.phase === 'connecte' ? etat.client : null);
   }, [etat]);
 
   /**
@@ -133,7 +133,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       // — le stockage est indexé par serveur, pas par session. Effacer en
       // aveugle emporterait cette session-là, et l'app démarrerait déconnectée
       // alors qu'un compte valide venait d'être ouvert.
-      const stockee = await lireSession(session.baseUrl);
+      const stockee = await readSession(session.baseUrl);
       if (stockee !== null && stockee.authToken !== jeton) return;
       await effacerTraces(session);
       // Relu APRÈS l'attente, pour la même raison.
@@ -148,11 +148,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     // session qui démarre — on peut très bien reprendre une session sur un
     // serveur pendant qu'on solde une déconnexion sur un autre. Tir-et-oublie :
     // rien ici ne doit retenir l'écran.
-    terminerDeconnexions(
-      { lister: listerDeconnexionsEnSuspens, retirer: retirerDeconnexionEnSuspens },
+    finishPendingLogouts(
+      { list: listPendingLogouts, remove: removePendingLogout },
       (entree) => {
         const c = new ClientRest(entree.baseUrl);
-        c.identifiants = { authToken: entree.authToken, userId: entree.userId };
+        c.auth = { authToken: entree.authToken, userId: entree.userId };
         return c;
       },
     ).catch(() => {});
@@ -161,11 +161,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     // et pas dans `SynchroProvider` : celui-ci ne monte que sur session active,
     // donc il ne verrait jamais l'orpheline d'un serveur que l'utilisateur a
     // quitté — précisément le cas que la migration doit servir.
-    purgerToutesClesE2EHeritees().catch(() => {});
+    purgeAllLegacyE2EKeys().catch(() => {});
 
     (async () => {
-      const serveur = await lireDernierServeur();
-      const session = serveur === null ? null : await lireSession(serveur);
+      const serveur = await readLastServer();
+      const session = serveur === null ? null : await readSession(serveur);
       if (abandonne) return;
       if (session === null) {
         setEtat({ phase: 'deconnecte' });
@@ -184,7 +184,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         // fermée), on l'adopte — sinon l'ancienne valeur stockée resterait
         // affichée dans Paramètres jusqu'à une reconnexion. Le jeton et l'uid ne
         // bougent pas, donc le `client` reste valable tel quel.
-        const frais = await reprendreSession(client, session.authToken);
+        const frais = await resumeSession(client, session.authToken);
         if (
           !abandonne &&
           jetonCourant.current === session.authToken &&
@@ -192,7 +192,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           frais.username !== session.username
         ) {
           const maj = { ...session, username: frais.username };
-          await enregistrerSession(maj);
+          await saveSession(maj);
           if (!abandonne && jetonCourant.current === session.authToken) {
             setEtat({ phase: 'connecte', session: maj, client });
           }
@@ -204,7 +204,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         // `surJetonRefuse` ne la couvre pas — cette validation garde sa propre
         // détection, et elle doit être la même. Un 401 de proxy en HTML tombait
         // ici en plein, et déconnectait une session valide.
-        if (abandonne || perime || !estJetonRefuse(e)) return;
+        if (abandonne || perime || !isTokenRejected(e)) return;
         // La clé privée E2EE part avec la session : rangée par (serveur,
         // compte), elle n'a plus de compte à qui appartenir.
         await effacerTraces(session);
@@ -229,9 +229,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     // au prochain démarrage que sa session n'a jamais existé. Les trois
     // écritures sont indépendantes, donc en parallèle.
     await Promise.all([
-      enregistrerSession(session),
-      enregistrerDernierServeur(session.baseUrl),
-      enregistrerServeurConnu(session.baseUrl),
+      saveSession(session),
+      saveLastServer(session.baseUrl),
+      saveKnownServer(session.baseUrl),
     ]);
     setEtat({
       phase: 'connecte',
@@ -245,18 +245,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     // là-bas, on ne bouge ni l'état ni le pointeur — déconnecter l'utilisateur
     // et déplacer le pointeur de reprise vers un serveur sans session ferait
     // démarrer l'app déconnectée alors qu'une session valide existe ailleurs.
-    const session = await lireSession(baseUrl);
+    const session = await readSession(baseUrl);
     if (session === null) return false;
 
-    await enregistrerDernierServeur(baseUrl);
+    await saveLastServer(baseUrl);
     const client = clientPour(session, (jeton) => revoquer(session, jeton));
     setEtat({ phase: 'connecte', session, client });
 
     // Même règle qu'au démarrage : validation en arrière-plan, seul un 401
     // (jeton révoqué) déconnecte — et seulement si cette session est encore
     // celle affichée.
-    reprendreSession(client, session.authToken).catch(async (e: unknown) => {
-      if (estJetonRefuse(e) && jetonCourant.current === session.authToken) {
+    resumeSession(client, session.authToken).catch(async (e: unknown) => {
+      if (isTokenRejected(e) && jetonCourant.current === session.authToken) {
         await effacerTraces(session);
         if (jetonCourant.current === session.authToken) setEtat({ phase: 'deconnecte' });
       }
@@ -275,13 +275,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       // se déconnecter pouvait faire surgir un prompt système. Et sur un
       // appareil sans Play Services, il ne rendait rien — donc aucun `DELETE`
       // n'était même tenté, alors que le jeton, lui, avait bien été enregistré.
-      const jetonPush = await lireJetonPushRetenu().catch(() => null);
+      const jetonPush = await readRememberedPushToken().catch(() => null);
 
       // Dé-enregistrer le jeton push AVANT le logout : l'appel exige encore
       // l'authentification. Un 404 est un succès (`lib/pushToken.ts`).
       const pushRetire =
-        jetonPush === null ? true : await desenregistrerJeton(client, jetonPush).then(() => true, () => false);
-      const sessionFermee = await seDeconnecter(client);
+        jetonPush === null ? true : await unregisterToken(client, jetonPush).then(() => true, () => false);
+      const sessionFermee = await logOut(client);
 
       // Ce que le réseau n'a pas laissé aboutir se rejoue au prochain
       // démarrage. Sans cette file, un logout hors ligne laissait la session
@@ -289,7 +289,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       // continuait de recevoir des « Nouveau message » fantômes pour un compte
       // dont il n'a plus rien, jusqu'à la désinstallation.
       if (!pushRetire || !sessionFermee) {
-        await ajouterDeconnexionEnSuspens({
+        await addPendingLogout({
           baseUrl: session.baseUrl,
           userId: session.userId,
           authToken: session.authToken,
@@ -314,14 +314,20 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       const session = { ...etat.session, ...maj };
       // Persister AVANT de basculer l'UI, comme `connecter` : le client garde
       // ses identifiants (jeton + uid inchangés), seul le pseudo affiché change.
-      await enregistrerSession(session);
+      await saveSession(session);
       setEtat({ phase: 'connecte', session, client: etat.client });
     },
     [etat],
   );
 
   const valeur = useMemo(
-    () => ({ etat, connecter, deconnecter, changerDeServeur, majProfilSession }),
+    () => ({
+      state: etat,
+      connect: connecter,
+      logOut: deconnecter,
+      switchServer: changerDeServeur,
+      updateSessionProfile: majProfilSession,
+    }),
     [etat, connecter, deconnecter, changerDeServeur, majProfilSession],
   );
 

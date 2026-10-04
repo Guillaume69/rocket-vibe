@@ -23,7 +23,7 @@
 const ORIGINE = /^(https?:\/\/[^/?#]+)/i;
 
 /** Scheme + authority en minuscules, `null` si ce n'est pas une URL web. */
-export function origineDe(url: string): string | null {
+export function originOf(url: string): string | null {
   const m = ORIGINE.exec(url);
   return m === null ? null : m[1]!.toLowerCase();
 }
@@ -36,7 +36,7 @@ export function origineDe(url: string): string | null {
  * compare les deux chaînes entières — la frontière est alors dans la regex, pas
  * dans une arithmétique d'index qu'on peut rater.
  */
-export function memeOrigine(url: string, origine: string): boolean {
-  const sienne = origineDe(url);
-  return sienne !== null && sienne === origineDe(origine);
+export function sameOrigin(url: string, origine: string): boolean {
+  const sienne = originOf(url);
+  return sienne !== null && sienne === originOf(origine);
 }

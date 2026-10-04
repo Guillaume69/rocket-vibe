@@ -16,17 +16,17 @@ import { useEffect, useRef, useState } from 'react';
  * `dernierRenduMs` vaut 0 avant le premier rendu — l'écoulé dépasse alors
  * n'importe quel délai, donc la première valeur passe immédiatement.
  */
-export function decisionLissage(
+export function smoothingDecision(
   dernierRenduMs: number,
   maintenantMs: number,
   delaiMs: number,
-): { immediat: true } | { immediat: false; attenteMs: number } {
+): { immediate: true } | { immediate: false; waitMs: number } {
   const ecoule = maintenantMs - dernierRenduMs;
-  if (ecoule >= delaiMs) return { immediat: true };
-  return { immediat: false, attenteMs: delaiMs - ecoule };
+  if (ecoule >= delaiMs) return { immediate: true };
+  return { immediate: false, waitMs: delaiMs - ecoule };
 }
 
-export function useDonneesLissees<T>(
+export function useSmoothedData<T>(
   valeur: T,
   delaiMs: number,
   /** Horloge injectable — les tests du hook restent possibles sans attendre. */
@@ -36,8 +36,8 @@ export function useDonneesLissees<T>(
   const dernierRendu = useRef(0);
 
   useEffect(() => {
-    const decision = decisionLissage(dernierRendu.current, maintenant(), delaiMs);
-    if (decision.immediat) {
+    const decision = smoothingDecision(dernierRendu.current, maintenant(), delaiMs);
+    if (decision.immediate) {
       dernierRendu.current = maintenant();
       setLisse(valeur);
       return;
@@ -45,7 +45,7 @@ export function useDonneesLissees<T>(
     const minuterie = setTimeout(() => {
       dernierRendu.current = maintenant();
       setLisse(valeur);
-    }, decision.attenteMs);
+    }, decision.waitMs);
     return () => clearTimeout(minuterie);
   }, [valeur, delaiMs, maintenant]);
 

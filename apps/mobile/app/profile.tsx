@@ -16,26 +16,26 @@ import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-rout
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
-import { appelDisponibleMemo, demarrerConference, sonderAppelDisponible } from '../lib/call.ts';
-import type { StatutPresence } from '../lib/presence.ts';
-import { lireProfilPrecharge, type ErreurProfil } from '../lib/profilePreload.ts';
+import { memoizedCallAvailable, startConference, probeCallAvailable } from '../lib/call.ts';
+import type { PresenceStatus } from '../lib/presence.ts';
+import { readPreloadedProfile, type ProfileError } from '../lib/profilePreload.ts';
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar } from '../lib/upload.ts';
-import { traduireCourant, useT } from '../ui/i18n.ts';
+import { translateCurrent, useT } from '../ui/i18n.ts';
 import { useEtagsAvatars } from '../ui/identities.tsx';
-import { TuileAvatar } from '../ui/kit.tsx';
-import { CLES_PRESENCE, couleursPresence } from '../ui/presence.ts';
+import { AvatarTile } from '../ui/kit.tsx';
+import { PRESENCE_KEYS, presenceColors } from '../ui/presence.ts';
 import { useSession } from '../ui/session.tsx';
-import { useSynchro } from '../ui/sync.tsx';
-import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
-import { Appuyable } from '../ui/tappable.tsx';
-import { useMargeBasFeuille } from '../ui/sheetMargin.ts';
+import { useSync } from '../ui/sync.tsx';
+import { LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
+import { Tappable } from '../ui/tappable.tsx';
+import { useSheetBottomMargin } from '../ui/sheetMargin.ts';
 
 type Profil = {
   uid: string;
   username: string;
-  nom: string | null;
-  statut: StatutPresence;
+  name: string | null;
+  status: PresenceStatus;
   /** Décalage UTC en heures (peut être fractionnaire : 5.5 pour l'Inde). */
   utcOffset: number | null;
   roles: string[];
@@ -61,8 +61,8 @@ function profilDe(brut: Record<string, unknown> | undefined): Profil | null {
   return {
     uid,
     username,
-    nom: chaine(brut.name),
-    statut:
+    name: chaine(brut.name),
+    status:
       statut === 'online' || statut === 'away' || statut === 'busy' ? statut : 'offline',
     utcOffset: typeof brut.utcOffset === 'number' ? brut.utcOffset : null,
     roles: Array.isArray(brut.roles) ? brut.roles.filter((r): r is string => typeof r === 'string') : [],
@@ -73,9 +73,9 @@ function profilDe(brut: Record<string, unknown> | undefined): Profil | null {
 
 /** L'erreur du préchargement, en langue : la clé se traduit ICI — le module
  *  `lib/profilePreload.ts` est du lib/ pur, il ne porte que la clé. */
-function texteErreurProfil(e: ErreurProfil | null): string | null {
+function texteErreurProfil(e: ProfileError | null): string | null {
   if (e === null) return null;
-  return 'message' in e ? e.message : traduireCourant(e.cle);
+  return 'message' in e ? e.message : translateCurrent(e.key);
 }
 
 /** `14:07 (UTC+2)` — l'heure qu'il est CHEZ LUI, calculée du décalage serveur. */
@@ -90,14 +90,14 @@ function heureLocale(utcOffset: number): string {
   return `${h}:${m} (UTC${signe}${entier}${fraction})`;
 }
 
-export default function EcranProfil() {
-  const margeBas = useMargeBasFeuille();
+export default function ProfileScreen() {
+  const margeBas = useSheetBottomMargin();
   // `username` (mentions, lignes de message) OU `uid` (en-tête d'un DM, où
   // seul `dmAutreUid` est connu localement) — `users.info` accepte les deux.
   const { username, uid } = useLocalSearchParams<{ username?: string; uid?: string }>();
-  const { etat } = useSession();
-  const synchro = useSynchro();
-  const c = useCouleurs();
+  const { state: etat } = useSession();
+  const synchro = useSync();
+  const c = useColors();
   const routeur = useRouter();
   // Pour lire la pile sous la feuille — voir « Message » plus bas.
   const navigation = useNavigation();
@@ -105,7 +105,7 @@ export default function EcranProfil() {
 
   const client: ClientRest | null = etat.phase === 'connecte' ? etat.client : null;
   const moi = etat.phase === 'connecte' ? etat.session.username : null;
-  const moteur = synchro.phase === 'pret' ? synchro.moteur : null;
+  const moteur = synchro.phase === 'pret' ? synchro.engine : null;
   const actions = synchro.phase === 'pret' ? synchro.actions : null;
   const etags = useEtagsAvatars();
 
@@ -114,17 +114,17 @@ export default function EcranProfil() {
   // sheet `fitToContents` se mesure à sa hauteur finale dès la première frame,
   // sans saut. Absente (réseau lent qui a fait sauter le plafond, ou pas de
   // client) : on retombe sur le chargement async ci-dessous, avec le squelette.
-  const [precharge] = useState(() => lireProfilPrecharge({ username, uid }));
+  const [precharge] = useState(() => readPreloadedProfile({ username, uid }));
   const [profil, setProfil] = useState<Profil | null>(() =>
     precharge !== undefined ? profilDe(precharge.user) : null,
   );
   const [erreur, setErreur] = useState<string | null>(() =>
     precharge !== undefined && precharge.user === undefined
-      ? texteErreurProfil(precharge.erreur)
+      ? texteErreurProfil(precharge.error)
       : null,
   );
   const [appelDispo, setAppelDispo] = useState(() =>
-    client !== null ? appelDisponibleMemo(client) : false,
+    client !== null ? memoizedCallAvailable(client) : false,
   );
   const [occupe, setOccupe] = useState(false);
   const enVol = useRef(false);
@@ -145,13 +145,13 @@ export default function EcranProfil() {
       .then((r) => {
         if (!vivant) return;
         const p = profilDe(r.user);
-        if (p === null) setErreur(traduireCourant('profil.profilIllisible'));
+        if (p === null) setErreur(translateCurrent('profil.profilIllisible'));
         else setProfil(p);
       })
       .catch((e: unknown) => {
-        if (vivant) setErreur(e instanceof Error ? e.message : traduireCourant('profil.profilIntrouvable'));
+        if (vivant) setErreur(e instanceof Error ? e.message : translateCurrent('profil.profilIntrouvable'));
       });
-    void sonderAppelDisponible(client).then((ok) => {
+    void probeCallAvailable(client).then((ok) => {
       if (vivant) setAppelDispo(ok);
     });
     return () => {
@@ -165,8 +165,8 @@ export default function EcranProfil() {
   // quelque chose a vraiment changé (voir `UPSERT_IDENTITE`).
   useEffect(() => {
     if (profil === null || moteur === null) return;
-    void moteur.depotSynchro
-      .enregistrerIdentite({
+    void moteur.syncStore
+      .saveIdentity({
         uid: profil.uid,
         username: profil.username,
         avatarEtag: profil.avatarEtag,
@@ -184,16 +184,16 @@ export default function EcranProfil() {
       setOccupe(true);
       setErreur(null);
       try {
-        const { rid, salonBrut } = await actions.ouvrirOuCreerDm(profil.username);
-        if (moteur !== null) await moteur.ingererSalons([salonBrut]);
+        const { rid, rawRoom: salonBrut } = await actions.openOrCreateDm(profil.username);
+        if (moteur !== null) await moteur.ingestRooms([salonBrut]);
         if (versAppel) {
           // `start` crée la conférence et poste le message d'appel dans le DM ;
           // l'écran d'appel fait le `join`. Au retour (back), on retombe là où
           // la fiche avait été ouverte.
-          const callId = await demarrerConference(client, rid);
+          const callId = await startConference(client, rid);
           routeur.replace({
             pathname: '/call/[callId]',
-            params: { callId, titre: profil.nom ?? profil.username },
+            params: { callId, title: profil.name ?? profil.username },
           });
         } else {
           // `im.create` est idempotent : ouverte depuis un DM, la fiche rend le
@@ -240,13 +240,13 @@ export default function EcranProfil() {
   // optionnels (rôles, heure locale, bio) se posent ensuite, vers le bas.
   const usernameConnu = typeof username === 'string' && username !== '' ? username : null;
   const usernameAff = profil?.username ?? usernameConnu;
-  const nomAff = profil?.nom ?? usernameAff ?? '';
+  const nomAff = profil?.name ?? usernameAff ?? '';
   // L'etag vient de la fiche fraîchement lue, sinon de la base (l'affichage
   // reste alors identique à celui de la ligne de message d'où l'on vient — pas
   // de photo qui saute d'une version à l'autre entre les deux écrans).
   const etagConnu =
-    (usernameAff !== null ? etags.parUsername.get(usernameAff) : undefined) ??
-    (typeof uid === 'string' ? etags.parUid.get(uid) : undefined) ??
+    (usernameAff !== null ? etags.byUsername.get(usernameAff) : undefined) ??
+    (typeof uid === 'string' ? etags.byUid.get(uid) : undefined) ??
     null;
   const avatarUri =
     client !== null
@@ -260,38 +260,38 @@ export default function EcranProfil() {
   const erreurAvantProfil = profil === null && erreur !== null;
 
   return (
-    <View style={[styles.feuille, { backgroundColor: c.carteProfonde, paddingBottom: margeBas }]}>
+    <View style={[styles.sheet, { backgroundColor: c.deepCard, paddingBottom: margeBas }]}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <View style={styles.entete}>
-        <TuileAvatar
+      <View style={styles.header}>
+        <AvatarTile
           c={c}
-          cle={usernameAff ?? '?'}
-          initiale={(usernameAff ?? '?').charAt(0)}
-          taille={72}
-          rayon={22}
+          key={usernameAff ?? '?'}
+          initial={(usernameAff ?? '?').charAt(0)}
+          size={72}
+          radius={22}
           uri={avatarUri ?? undefined}
         />
-        <View style={styles.identite}>
+        <View style={styles.identity}>
           {/* `|| ' '` réserve la hauteur de ligne tant que le nom n'est pas là
               (cas du DM ouvert par uid), pour que rien ne bouge à l'arrivée. */}
-          <Text style={[styles.nom, { color: c.texte }]} numberOfLines={1}>
+          <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
             {nomAff || ' '}
           </Text>
           {usernameAff !== null && (
-            <Text style={[styles.username, { color: c.attenue }]} numberOfLines={1}>
+            <Text style={[styles.username, { color: c.dimmed }]} numberOfLines={1}>
               @{usernameAff}
             </Text>
           )}
           <View style={styles.presence}>
             <View
               style={[
-                styles.pastille,
-                { backgroundColor: profil !== null ? couleursPresence(c)[profil.statut] : c.attenue },
+                styles.badge,
+                { backgroundColor: profil !== null ? presenceColors(c)[profil.status] : c.dimmed },
               ]}
             />
-            <Text style={[styles.phrasePresence, { color: c.attenue }]}>
-              {profil !== null ? t(CLES_PRESENCE[profil.statut]) : '…'}
+            <Text style={[styles.phrasePresence, { color: c.dimmed }]}>
+              {profil !== null ? t(PRESENCE_KEYS[profil.status]) : '…'}
             </Text>
           </View>
         </View>
@@ -300,26 +300,26 @@ export default function EcranProfil() {
       {profil !== null && profil.roles.length > 0 && (
         <View style={styles.roles}>
           {profil.roles.map((role) => (
-            <View key={role} style={[styles.role, { backgroundColor: c.carte }]}>
-              <Text style={[styles.roleTexte, { color: c.attenue }]}>{role}</Text>
+            <View key={role} style={[styles.role, { backgroundColor: c.card }]}>
+              <Text style={[styles.roleTexte, { color: c.dimmed }]}>{role}</Text>
             </View>
           ))}
         </View>
       )}
 
       {profil !== null && profil.utcOffset !== null && (
-        <Text style={[styles.detail, { color: c.attenue }]}>
+        <Text style={[styles.detail, { color: c.dimmed }]}>
           {t('profil.heureLocale', { heure: heureLocale(profil.utcOffset) })}
         </Text>
       )}
       {profil !== null && profil.bio !== null && (
-        <Text style={[styles.detail, { color: c.texte }]} numberOfLines={4}>
+        <Text style={[styles.detail, { color: c.text }]} numberOfLines={4}>
           {profil.bio}
         </Text>
       )}
 
       {erreur !== null && (
-        <Text style={[styles.erreur, { color: c.texteErreur }]}>{erreur}</Text>
+        <Text style={[styles.error, { color: c.errorText }]}>{erreur}</Text>
       )}
 
       {/* Actions présentes dès le squelette (Message désactivé le temps du
@@ -327,15 +327,15 @@ export default function EcranProfil() {
           Masquées si c'est moi, ou si le chargement a échoué avant tout profil. */}
       {!estMoi && !erreurAvantProfil && (
         <View style={styles.actions}>
-          <Appuyable
+          <Tappable
             onPress={() => void ouvrirDm(false)}
             disabled={occupe || profil === null}
-            android_ripple={{ color: c.ondulation }}
-            unstable_pressDelay={DELAI_PRESSION_LISTE}
+            android_ripple={{ color: c.ripple }}
+            unstable_pressDelay={LIST_PRESS_DELAY}
             style={[
-              styles.bouton,
+              styles.button,
               { backgroundColor: c.accent },
-              (occupe || profil === null) && styles.inactif,
+              (occupe || profil === null) && styles.inactive,
             ]}
             accessibilityRole="button"
             accessibilityLabel={t('profil.envoyerMessageLabel', { nom: usernameAff ?? '' })}
@@ -343,25 +343,25 @@ export default function EcranProfil() {
             {occupe ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
-              <Text style={styles.boutonTexte}>{t('profil.boutonMessage')}</Text>
+              <Text style={styles.buttonText}>{t('profil.boutonMessage')}</Text>
             )}
-          </Appuyable>
+          </Tappable>
           {appelDispo && (
-            <Appuyable
+            <Tappable
               onPress={() => void ouvrirDm(true)}
               disabled={occupe || profil === null}
-              android_ripple={{ color: c.ondulation }}
-              unstable_pressDelay={DELAI_PRESSION_LISTE}
+              android_ripple={{ color: c.ripple }}
+              unstable_pressDelay={LIST_PRESS_DELAY}
               style={[
-                styles.bouton,
-                { backgroundColor: c.carte },
-                (occupe || profil === null) && styles.inactif,
+                styles.button,
+                { backgroundColor: c.card },
+                (occupe || profil === null) && styles.inactive,
               ]}
               accessibilityRole="button"
               accessibilityLabel={t('profil.appelerLabel', { nom: usernameAff ?? '' })}
             >
-              <Text style={[styles.boutonTexte, { color: c.texte }]}>{t('profil.boutonAppeler')}</Text>
-            </Appuyable>
+              <Text style={[styles.buttonText, { color: c.text }]}>{t('profil.boutonAppeler')}</Text>
+            </Tappable>
           )}
         </View>
       )}
@@ -370,21 +370,21 @@ export default function EcranProfil() {
 }
 
 const styles = StyleSheet.create({
-  feuille: { padding: 20, paddingBottom: 28, gap: 14 },
-  entete: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  identite: { flex: 1, gap: 2 },
-  nom: { fontFamily: POLICES.titre, fontSize: 20 },
-  username: { fontFamily: POLICES.corps, fontSize: 14 },
+  sheet: { padding: 20, paddingBottom: 28, gap: 14 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  identity: { flex: 1, gap: 2 },
+  name: { fontFamily: FONTS.title, fontSize: 20 },
+  username: { fontFamily: FONTS.body, fontSize: 14 },
   presence: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
-  pastille: { width: 9, height: 9, borderRadius: 5 },
-  phrasePresence: { fontFamily: POLICES.corps, fontSize: 13 },
+  badge: { width: 9, height: 9, borderRadius: 5 },
+  phrasePresence: { fontFamily: FONTS.body, fontSize: 13 },
   roles: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   role: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-  roleTexte: { fontFamily: POLICES.corpsFort, fontSize: 12 },
-  detail: { fontFamily: POLICES.corps, fontSize: 14 },
-  erreur: { fontFamily: POLICES.corps, fontSize: 13 },
+  roleTexte: { fontFamily: FONTS.corpsFort, fontSize: 12 },
+  detail: { fontFamily: FONTS.body, fontSize: 14 },
+  error: { fontFamily: FONTS.body, fontSize: 13 },
   actions: { flexDirection: 'row', gap: 10, marginTop: 4 },
-  bouton: {
+  button: {
     flex: 1,
     flexDirection: 'row',
     justifyContent: 'center',
@@ -392,6 +392,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 14,
   },
-  inactif: { opacity: 0.6 },
-  boutonTexte: { fontFamily: POLICES.corpsFort, fontSize: 15, color: '#FFFFFF' },
+  inactive: { opacity: 0.6 },
+  buttonText: { fontFamily: FONTS.corpsFort, fontSize: 15, color: '#FFFFFF' },
 });

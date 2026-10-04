@@ -1,6 +1,6 @@
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { and, count, desc, eq, gt, isNull, min, or } from 'drizzle-orm';
-import { useRequeteVive } from '../../ui/liveQuery.ts';
+import { useCoalescedLiveQuery } from '../../ui/liveQuery.ts';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import {
@@ -24,52 +24,52 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { BaseLocale } from '../../db/client.ts';
-import type { DepotBrouillons } from '../../db/store.ts';
-import { abonnements, messages, salons, sortie, televersements } from '../../db/schema.ts';
-import type { MoteurActivite } from '../../lib/activity.ts';
+import type { DraftStore } from '../../db/store.ts';
+import { subscriptions, messages, rooms, outbox, uploads } from '../../db/schema.ts';
+import type { ActivityEngine } from '../../lib/activity.ts';
 import type {
-  ActionsFournisseur,
-  Fournisseur,
+  ProviderActions,
+  Provider,
   Listener,
   Outbox,
-  OutboxFichiers,
+  FileOutbox,
 } from '../../lib/provider.ts';
 import type { ClientRest } from '../../lib/rest.ts';
-import { MoteurSaisie, resumerSaisie } from '../../lib/typing.ts';
-import { amenerMessage } from '../../ui/bringMessage.ts';
-import { useBrouillon } from '../../ui/drafts.ts';
-import { useProgressionFichiers } from '../../ui/fileProgress.ts';
-import { VueEvitantLeClavier } from '../../ui/keyboard.tsx';
-import { useCandidatsMention } from '../../ui/mentionCompletion.tsx';
+import { TypingEngine, summarizeTyping } from '../../lib/typing.ts';
+import { bringMessage } from '../../ui/bringMessage.ts';
+import { useDraft } from '../../ui/drafts.ts';
+import { useFileProgress } from '../../ui/fileProgress.ts';
+import { KeyboardAvoidingContainer } from '../../ui/keyboard.tsx';
+import { useMentionCandidates } from '../../ui/mentionCompletion.tsx';
 import { Composer } from '../../ui/composer.tsx';
-import { EnTeteSalon } from '../../ui/roomHeader.tsx';
-import { jetonSession } from '../../ui/sessionToken.ts';
-import { insererBarreNonLus, type LigneBarre } from '../../ui/unreadBar.ts';
-import { useDonneesLissees } from '../../ui/smoothedData.ts';
-import { idsHeuresRepetees, idsSuites } from '../../ui/messageGrouping.ts';
-import { insererSeparateursJour, type LigneJour } from '../../ui/daySeparator.ts';
-import { avancerBorne, borneImmobile, pageARecule } from '../../ui/roomPagination.ts';
+import { RoomHeader } from '../../ui/roomHeader.tsx';
+import { sessionToken } from '../../ui/sessionToken.ts';
+import { insertUnreadBar, type BarRow } from '../../ui/unreadBar.ts';
+import { useSmoothedData } from '../../ui/smoothedData.ts';
+import { repeatedTimeIds, continuationIds } from '../../ui/messageGrouping.ts';
+import { insertDaySeparators, type DayRow } from '../../ui/daySeparator.ts';
+import { advanceBound, boundIsStuck, pageMovedBack } from '../../ui/roomPagination.ts';
 import {
-  ETAT_RETOUR_INITIAL,
-  type EtatRetour,
-  surAppuiRetour,
-  surDefilementRetour,
-  surGlisseRetour,
+  INITIAL_BACK_TO_LATEST_STATE,
+  type BackToLatestState,
+  onBackToLatestPress,
+  onBackToLatestScroll,
+  onBackToLatestSwipe,
 } from '../../ui/backToLatest.ts';
-import { garderAuChaud, salonCouvert } from '../../ui/hotRooms.ts';
-import { consommerSaut, useSaut } from '../../ui/messageJump.ts';
-import { signaler } from '../../ui/toast.tsx';
-import { marquerSalonCharge, salonChargeSous } from '../../ui/loadedRooms.ts';
-import { BoutonPrincipal, IndicateurSaisie, SeparateurJour } from '../../ui/kit.tsx';
-import { Appuyable } from '../../ui/tappable.tsx';
-import { memeOrigine, origineDe } from '../../lib/origin.ts';
-import { MoteurSynchro } from '../../lib/sync.ts';
-import { LigneMessage, type LigneDeMessage } from '../../ui/messageRow.tsx';
+import { keepWarm, roomCovered } from '../../ui/hotRooms.ts';
+import { consumeJump, useJump } from '../../ui/messageJump.ts';
+import { notify } from '../../ui/toast.tsx';
+import { markRoomLoaded, roomLoadedUnder } from '../../ui/loadedRooms.ts';
+import { PrimaryButton, TypingIndicator, DaySeparator } from '../../ui/kit.tsx';
+import { Tappable } from '../../ui/tappable.tsx';
+import { sameOrigin, originOf } from '../../lib/origin.ts';
+import { SyncEngine } from '../../lib/sync.ts';
+import { MessageRow, type MessageRowData } from '../../ui/messageRow.tsx';
 import { usePresence } from '../../ui/presence.ts';
 import { useT } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
-import { useSynchro } from '../../ui/sync.tsx';
-import { type Couleurs, POLICES, useCouleurs } from '../../ui/theme.ts';
+import { useSync } from '../../ui/sync.tsx';
+import { type Colors, FONTS, useColors } from '../../ui/theme.ts';
 
 /**
  * Écran d'un salon.
@@ -114,14 +114,14 @@ const DEBOUNCE_LU_MS = 1_500;
  */
 const PLANCHER_LU_MS = 10_000;
 
-export default function EcranSalon() {
+export default function RoomScreen() {
   // `host` vient du deep-link d'une notification (natif comme expo) : il dit de
   // QUEL serveur ce message parle. Absent pour toute navigation interne — le
   // comportement est alors exactement celui d'avant.
   const { rid, host } = useLocalSearchParams<{ rid: string; host?: string }>();
-  const { etat } = useSession();
-  const synchro = useSynchro();
-  const c = useCouleurs();
+  const { state: etat } = useSession();
+  const synchro = useSync();
+  const c = useColors();
 
   // Ce garde est le pendant de celui d'index.tsx : un lien profond (le tap
   // sur une notification, étape 6.2) peut atterrir ici sans session.
@@ -129,15 +129,15 @@ export default function EcranSalon() {
 
   if (synchro.phase === 'erreur') {
     return (
-      <View style={[styles.centre, { backgroundColor: c.fond }]}>
-        <Text style={[styles.erreur, { color: c.texteErreur }]}>{synchro.message}</Text>
+      <View style={[styles.center, { backgroundColor: c.background }]}>
+        <Text style={[styles.error, { color: c.errorText }]}>{synchro.message}</Text>
       </View>
     );
   }
 
   if (typeof rid !== 'string' || synchro.phase !== 'pret' || etat.phase !== 'connecte') {
     return (
-      <View style={[styles.centre, { backgroundColor: c.fond }]}>
+      <View style={[styles.center, { backgroundColor: c.background }]}>
         <ActivityIndicator />
       </View>
     );
@@ -155,9 +155,9 @@ export default function EcranSalon() {
   // pas un serveur Rocket.Chat — on l'ignore, et le comportement redevient
   // exactement celui d'avant plutôt que d'afficher au premier plan un texte
   // arbitraire de longueur arbitraire.
-  const origineHote = typeof host === 'string' ? origineDe(host) : null;
-  if (origineHote !== null && !memeOrigine(host!, etat.session.baseUrl)) {
-    return <AutreServeur c={c} hote={origineHote} rid={rid} />;
+  const origineHote = typeof host === 'string' ? originOf(host) : null;
+  if (origineHote !== null && !sameOrigin(host!, etat.session.baseUrl)) {
+    return <AutreServeur c={c} host={origineHote} rid={rid} />;
   }
 
   return (
@@ -165,17 +165,17 @@ export default function EcranSalon() {
       c={c}
       rid={rid}
       base={synchro.base}
-      brouillons={synchro.brouillons}
-      moteur={synchro.moteur}
-      envoi={synchro.envoi}
-      fichiers={synchro.fichiers}
+      drafts={synchro.drafts}
+      engine={synchro.engine}
+      outbox={synchro.outbox}
+      files={synchro.files}
       ddp={synchro.ddp}
-      fournisseur={synchro.fournisseur}
+      provider={synchro.provider}
       actions={synchro.actions}
       client={etat.client}
-      moi={etat.session.username}
-      declarerSalonOuvert={synchro.declarerSalonOuvert}
-      activite={synchro.activite}
+      me={etat.session.username}
+      declareOpenRoom={synchro.declareOpenRoom}
+      activity={synchro.activity}
       generation={synchro.generation}
     />
   );
@@ -188,10 +188,10 @@ export default function EcranSalon() {
  * notification ne doit pas emporter ça sans qu'on le demande. Geste explicite,
  * donc, et le libellé dit où l'on va.
  */
-function AutreServeur({ c, hote, rid }: { c: Couleurs; hote: string; rid: string }) {
+function AutreServeur({ c, host: hote, rid }: { c: Colors; host: string; rid: string }) {
   const t = useT();
   const routeur = useRouter();
-  const { changerDeServeur } = useSession();
+  const { switchServer: changerDeServeur } = useSession();
   const [occupe, setOccupe] = useState(false);
   const [echec, setEchec] = useState(false);
 
@@ -217,21 +217,21 @@ function AutreServeur({ c, hote, rid }: { c: Couleurs; hote: string; rid: string
   }, [changerDeServeur, hote, rid, routeur]);
 
   return (
-    <View style={[styles.centre, { backgroundColor: c.fond }]}>
+    <View style={[styles.center, { backgroundColor: c.background }]}>
       <Stack.Screen options={{ title: t('salon.autreServeurTitre') }} />
-      <Text style={[styles.erreur, { color: c.texte }]}>{t('salon.autreServeurTitre')}</Text>
-      <Text style={[styles.autreServeurHote, { color: c.texteSecondaire }]}>
+      <Text style={[styles.error, { color: c.text }]}>{t('salon.autreServeurTitre')}</Text>
+      <Text style={[styles.autreServeurHote, { color: c.secondaryText }]}>
         {t('salon.autreServeurCorps', { hote })}
       </Text>
-      <BoutonPrincipal
+      <PrimaryButton
         c={c}
-        titre={t('salon.autreServeurBouton')}
+        title={t('salon.autreServeurBouton')}
         onPress={basculer}
-        occupe={occupe}
+        busy={occupe}
         style={styles.autreServeurBouton}
       />
       {echec ? (
-        <Text style={[styles.autreServeurHote, { color: c.texteErreur }]}>
+        <Text style={[styles.autreServeurHote, { color: c.errorText }]}>
           {t('salon.autreServeurEchec')}
         </Text>
       ) : null}
@@ -243,34 +243,34 @@ function Salon({
   c,
   rid,
   base,
-  brouillons,
-  moteur,
-  envoi,
-  fichiers,
+  drafts: brouillons,
+  engine: moteur,
+  outbox: envoi,
+  files: fichiers,
   ddp,
-  fournisseur,
+  provider: fournisseur,
   actions,
   client,
-  moi,
-  declarerSalonOuvert,
-  activite,
+  me: moi,
+  declareOpenRoom: declarerSalonOuvert,
+  activity: activite,
   generation,
 }: {
-  c: Couleurs;
+  c: Colors;
   rid: string;
   base: BaseLocale;
-  brouillons: DepotBrouillons;
-  moteur: MoteurSynchro;
-  envoi: Outbox;
-  fichiers: OutboxFichiers;
+  drafts: DraftStore;
+  engine: SyncEngine;
+  outbox: Outbox;
+  files: FileOutbox;
   ddp: Listener;
-  fournisseur: Fournisseur;
-  actions: ActionsFournisseur;
+  provider: Provider;
+  actions: ProviderActions;
   client: ClientRest;
   /** Mon username — ma propre saisie ne s'affiche pas chez moi. */
-  moi: string;
-  declarerSalonOuvert: (rid: string) => () => void;
-  activite: MoteurActivite;
+  me: string;
+  declareOpenRoom: (rid: string) => () => void;
+  activity: ActivityEngine;
   generation: number;
 }) {
   const t = useT();
@@ -281,27 +281,27 @@ function Salon({
   // attendre : sans cet état initial, sauter le fetch laisserait « chargement »
   // affiché à vie (rien ne viendrait plus poser le drapeau).
   const [premierPassageFini, setPremierPassageFini] = useState(() =>
-    salonChargeSous(rid, generation),
+    roomLoadedUnder(rid, generation),
   );
 
-  const { data: lignesSalon } = useRequeteVive(
-    base.select().from(salons).where(eq(salons.rid, rid)).limit(1),
+  const { data: lignesSalon } = useCoalescedLiveQuery(
+    base.select().from(rooms).where(eq(rooms.rid, rid)).limit(1),
     [rid],
   );
   const salon = lignesSalon?.[0];
   const insets = useSafeAreaInsets();
   // Sous-titre d'en-tête HONNÊTE : le nombre de membres en ligne n'est pas dans
   // le schéma, mais la présence du correspondant d'un DM, si — sinon, rien.
-  const statutDM = usePresence(salon?.dmAutreUid ?? null);
+  const statutDM = usePresence(salon?.dmOtherUid ?? null);
 
-  const { data: brutes } = useRequeteVive(
+  const { data: brutes } = useCoalescedLiveQuery(
     base
       .select()
       .from(messages)
       // Une réponse de fil vit dans SON fil, pas dans le flux principal —
       // sauf si l'expéditeur a coché « aussi dans le salon » (`tshow`).
       .where(
-        and(eq(messages.rid, rid), or(isNull(messages.filId), eq(messages.filAffiche, true))),
+        and(eq(messages.rid, rid), or(isNull(messages.threadId), eq(messages.threadShown, true))),
       )
       // Clé secondaire `id` : deux messages à la MÊME milliseconde (rafale de
       // bot, intégration) n'ont sinon aucun ordre défini — SQLite les rend dans
@@ -311,15 +311,15 @@ function Salon({
       // `id` rend l'ordre DÉTERMINISTE, identique quel que soit le chargement.
       // (Rocket.Chat n'expose aucun signal sous la milliseconde : l'ordre exact
       // d'un vrai ex æquo reste indécidable, mais au moins il est stable.)
-      .orderBy(desc(messages.horodatage), desc(messages.id))
+      .orderBy(desc(messages.ts), desc(messages.id))
       .limit(limite),
     [rid, limite],
   );
   // Statuts d'envoi (en-attente / échec) : table séparée, requête vive
   // séparée — même raison que la liste des salons, `useRequeteVive` n'écoute
   // que la table du FROM.
-  const { data: lignesSortie } = useRequeteVive(
-    base.select().from(sortie).where(eq(sortie.rid, rid)),
+  const { data: lignesSortie } = useCoalescedLiveQuery(
+    base.select().from(outbox).where(eq(outbox.rid, rid)),
     [rid],
   );
   // TOUS les téléversements de ce salon, quel que soit leur statut.
@@ -329,14 +329,14 @@ function Salon({
   // l'aperçu, le brouillon et la citation se vident — et l'écran ne montrait
   // RIEN. La photo disparaissait sans le moindre signe ; l'utilisateur la
   // renvoyait, il en avait deux.
-  const { data: lignesTeleversements } = useRequeteVive(
-    base.select().from(televersements).where(eq(televersements.rid, rid)),
+  const { data: lignesTeleversements } = useCoalescedLiveQuery(
+    base.select().from(uploads).where(eq(uploads.rid, rid)),
     [rid],
   );
   const fichiersEnCours = lignesTeleversements ?? [];
   // La fraction d'avancement ne vit qu'en mémoire du moteur : aucune écriture
   // SQLite ne la porte, donc `useRequeteVive` ne la verrait jamais bouger.
-  const progressions = useProgressionFichiers(fichiers);
+  const progressions = useFileProgress(fichiers);
   // Les décisions (pagination) se prennent sur la valeur FRAÎCHE ; seul
   // l'affichage est lissé.
   const fraiches = useMemo(() => brutes ?? [], [brutes]);
@@ -345,7 +345,7 @@ function Salon({
   // écriture — et REMONTÉ dans l'historique, chaque prepend décale le
   // contenu de sa hauteur (mVCP coupé, voir l'en-tête) : autant grouper la
   // rafale en un seul décalage. On lisse la projection, pas la base.
-  const donnees = useDonneesLissees(fraiches, 200);
+  const donnees = useSmoothedData(fraiches, 200);
 
   // Non-lus (8.1). La barre « nouveaux messages » se place sur un INSTANTANÉ
   // de `ls` pris au montage : si elle suivait la valeur vive, le
@@ -355,11 +355,11 @@ function Salon({
     let annule = false;
     base
       .select()
-      .from(abonnements)
-      .where(eq(abonnements.rid, rid))
+      .from(subscriptions)
+      .where(eq(subscriptions.rid, rid))
       .limit(1)
       .then((lignes) => {
-        if (!annule) setLuJusquA(lignes[0]?.luJusquA ?? null);
+        if (!annule) setLuJusquA(lignes[0]?.lastSeen ?? null);
       })
       .catch(() => {
         if (!annule) setLuJusquA(null);
@@ -388,7 +388,7 @@ function Salon({
     luProgramme.current = setTimeout(() => {
       luProgramme.current = null;
       dernierLu.current = Date.now();
-      actions.marquerLu(rid).catch(() => {});
+      actions.markRead(rid).catch(() => {});
     }, Math.max(DEBOUNCE_LU_MS, restant));
   }, [actions, rid, dernierIdRecu]);
 
@@ -402,7 +402,7 @@ function Salon({
     clearTimeout(luProgramme.current);
     luProgramme.current = null;
     dernierLu.current = Date.now();
-    actions.marquerLu(rid).catch(() => {});
+    actions.markRead(rid).catch(() => {});
   }, [actions, rid]);
   useEffect(() => {
     const abonnement = AppState.addEventListener('change', (suivant) => {
@@ -417,21 +417,21 @@ function Salon({
   // Les données de la liste : la barre « nouveaux messages » puis les
   // séparateurs de jour, insérés par les projections de `ui/` (testées sous
   // Node). L'ordre compte : les séparateurs se posent au-dessus de la barre.
-  type LigneListe = LigneDeMessage | LigneBarre | LigneJour;
+  type LigneListe = MessageRowData | BarRow | DayRow;
   const donneesAvecBarre = useMemo(
-    () => insererBarreNonLus(donnees, luJusquA, client.identifiants?.userId),
+    () => insertUnreadBar(donnees, luJusquA, client.auth?.userId),
     [donnees, luJusquA, client],
   );
   const donneesListe = useMemo<LigneListe[]>(
-    () => insererSeparateursJour(donneesAvecBarre, 'recent-en-tete'),
+    () => insertDaySeparators(donneesAvecBarre, 'recent-en-tete'),
     [donneesAvecBarre],
   );
 
   // Regroupement des rafales d'un même auteur (`ui/messageGrouping`) : calculé
   // APRÈS les insertions — barre et séparateur rompent les groupes. Données DESC.
-  const suites = useMemo(() => idsSuites(donneesListe, 'recent-en-tete'), [donneesListe]);
+  const suites = useMemo(() => continuationIds(donneesListe, 'recent-en-tete'), [donneesListe]);
   const heuresRepetees = useMemo(
-    () => idsHeuresRepetees(donneesListe, 'recent-en-tete', suites),
+    () => repeatedTimeIds(donneesListe, 'recent-en-tete', suites),
     [donneesListe, suites],
   );
 
@@ -441,11 +441,11 @@ function Salon({
   // d'historique, on ne bouge pas. Refs : le défilement ne re-rend rien.
   const liste = useRef<FlashListRef<LigneListe>>(null);
   const presDuBas = useRef(true);
-  const dernierSuivi = useRef<{ id: string; horodatage: number } | null>(null);
+  const dernierSuivi = useRef<{ id: string; ts: number } | null>(null);
   const hauteurListe = useRef(0);
-  const etatRetour = useRef<EtatRetour>(ETAT_RETOUR_INITIAL);
+  const etatRetour = useRef<BackToLatestState>(INITIAL_BACK_TO_LATEST_STATE);
   const [retourVisible, setRetourVisible] = useState(false);
-  const appliquerRetour = useCallback((suivant: EtatRetour) => {
+  const appliquerRetour = useCallback((suivant: BackToLatestState) => {
     etatRetour.current = suivant;
     setRetourVisible(suivant.visible);
   }, []);
@@ -453,26 +453,26 @@ function Salon({
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const decalage = e.nativeEvent.contentOffset.y;
       presDuBas.current = decalage <= PRES_DU_BAS_PX;
-      appliquerRetour(surDefilementRetour(etatRetour.current, decalage, hauteurListe.current));
+      appliquerRetour(onBackToLatestScroll(etatRetour.current, decalage, hauteurListe.current));
     },
     [appliquerRetour],
   );
   const allerAuPlusRecent = useCallback(() => {
-    appliquerRetour(surAppuiRetour());
+    appliquerRetour(onBackToLatestPress());
     liste.current?.scrollToOffset({ offset: 0, animated: true });
   }, [appliquerRetour]);
   const plusRecent = donnees[0];
   useEffect(() => {
     if (plusRecent === undefined || dernierSuivi.current?.id === plusRecent.id) return;
     const precedent = dernierSuivi.current;
-    dernierSuivi.current = { id: plusRecent.id, horodatage: plusRecent.horodatage };
+    dernierSuivi.current = { id: plusRecent.id, ts: plusRecent.ts };
     // Premier remplissage : la liste inversée naît déjà calée en bas.
     if (precedent === null) return;
     // Un head PLUS ANCIEN que le précédent n'est pas un entrant : c'est la
     // SUPPRESSION du plus récent (stream deleteMessage, abandon d'un envoi).
     // Snapper là-dessus arracherait le lecteur à l'historique.
-    if (plusRecent.horodatage < precedent.horodatage) return;
-    const deMoi = plusRecent.auteurId === client.identifiants?.userId;
+    if (plusRecent.ts < precedent.ts) return;
+    const deMoi = plusRecent.authorId === client.auth?.userId;
     if (deMoi || presDuBas.current) {
       liste.current?.scrollToOffset({ offset: 0, animated: true });
     }
@@ -501,12 +501,12 @@ function Salon({
     // références appartiennent. Le provider peut être démonté AVANT cet
     // écran — son cleanup court en premier — et les relâcheurs pointeraient
     // alors sur un client déjà rangé. Voir `ui/sessionToken.ts`.
-    const jeton = jetonSession();
+    const jeton = sessionToken();
     // Les streams et leurs clés sont l'affaire du fournisseur — on arme ce
     // qu'il déclare, sans en connaître le format.
     const relachers = fournisseur
-      .souscriptionsSalon(rid)
-      .map(([nom, cle]) => ddp.souscrire(nom, cle));
+      .roomSubscriptions(rid)
+      .map(([nom, cle]) => ddp.subscribe(nom, cle));
     // Le rattrapage (`chat.syncMessages`, un salon à la fois) vise le salon
     // que l'utilisateur regarde : on se déclare, et on rend la déclaration en
     // partant — jamais un `null` global, qui effacerait l'écran salon resté
@@ -514,47 +514,47 @@ function Salon({
     const rendreDeclaration = declarerSalonOuvert(rid);
     return () => {
       rendreDeclaration();
-      garderAuChaud(rid, generationRef.current, relachers, jeton);
+      keepWarm(rid, generationRef.current, relachers, jeton);
     };
   }, [ddp, fournisseur, rid, declarerSalonOuvert]);
 
   // Indicateur de saisie (8.6) : volatil, propre à l'écran — écoute seule,
   // voir lib/typing.ts pour l'écart consigné sur l'émission.
-  const saisie = useMemo(() => new MoteurSaisie({ rid, moi }), [rid, moi]);
+  const saisie = useMemo(() => new TypingEngine({ rid, me: moi }), [rid, moi]);
   useEffect(() => {
-    const detacher = ddp.surEvenement((evenement) => saisie.appliquer(evenement));
+    const detacher = ddp.onEvent((evenement) => saisie.apply(evenement));
     return () => {
       detacher();
-      saisie.arreter();
+      saisie.stop();
     };
   }, [ddp, saisie]);
   const quiTape = useSyncExternalStore(
-    useCallback((relire) => saisie.surChangement(relire), [saisie]),
-    useCallback(() => saisie.quiTape(), [saisie]),
+    useCallback((relire) => saisie.onChange(relire), [saisie]),
+    useCallback(() => saisie.whoIsTyping(), [saisie]),
   );
-  const resumeQuiTape = resumerSaisie(quiTape);
+  const resumeQuiTape = summarizeTyping(quiTape);
   const phraseQuiTape =
     resumeQuiTape === null
       ? null
       : resumeQuiTape.forme === 'un'
-        ? t('salon.saisieUn', { nom: resumeQuiTape.nom })
+        ? t('salon.saisieUn', { nom: resumeQuiTape.name })
         : resumeQuiTape.forme === 'deux'
           ? t('salon.saisieDeux', { a: resumeQuiTape.a, b: resumeQuiTape.b })
           : t('salon.saisieN', { n: resumeQuiTape.n });
 
   // Brouillon persistant (8.7) — le hook vit ICI : le composer ne monte
   // qu'une fois la valeur initiale lue.
-  const persistance = useBrouillon(brouillons, rid);
+  const persistance = useDraft(brouillons, rid);
 
   // Candidats à la mention (@) : le hook vit ICI, où `base` est en scope — le
   // composer reçoit la liste toute prête, comme le brouillon.
-  const candidatsMention = useCandidatsMention(base, rid);
+  const candidatsMention = useMentionCandidates(base, rid);
 
   // Le chargement lui-même (endpoint, quirks de pagination, naissance du
   // curseur de rattrapage) vit chez le fournisseur — l'écran ne garde que le
   // critère de recul (`plusAncien`) pour sa pagination.
   const chargerHistorique = useCallback(
-    (type: string, latest?: string) => fournisseur.chargerHistorique(moteur, rid, type, latest),
+    (type: string, latest?: string) => fournisseur.loadHistory(moteur, rid, type, latest),
     [fournisseur, moteur, rid],
   );
 
@@ -584,17 +584,17 @@ function Salon({
   useEffect(() => {
     if (type === undefined) return;
     let annule = false;
-    const jeton = jetonSession();
+    const jeton = sessionToken();
     // Rattrapage SAUTÉ quand le salon est resté écouté sans interruption : rien
     // n'a pu être manqué, et la lecture coûterait plusieurs secondes pour zéro
     // document sur un gros salon.
-    if (!salonCouvert(rid, generation)) {
+    if (!roomCovered(rid, generation)) {
       void activite
-        .suivre(rid, fournisseur.rattraperSalon(moteur, rid, () => annule))
+        .track(rid, fournisseur.catchUpRoom(moteur, rid, () => annule))
         .catch((e: unknown) => console.warn('rattraperSalon (ouverture): échec ignoré', e));
     }
 
-    if (salonChargeSous(rid, generation)) {
+    if (roomLoadedUnder(rid, generation)) {
       return () => {
         annule = true;
       };
@@ -603,11 +603,11 @@ function Salon({
     // du fetch, même quand le cache local remplit déjà la liste (rien ne
     // signalait sinon qu'on la rafraîchit).
     activite
-      .suivre(rid, chargerHistorique(type))
+      .track(rid, chargerHistorique(type))
       .then(() => {
         // Marqué au SUCCÈS seulement. Un échec (hors ligne) laisse la garde
         // ouverte : la prochaine génération refera partir le chargement.
-        if (!annule) marquerSalonCharge(rid, generation, jeton);
+        if (!annule) markRoomLoaded(rid, generation, jeton);
       })
       .catch((e: unknown) => {
         // Hors ligne : le cache local suffit. Mais pas en silence — un échec
@@ -647,16 +647,16 @@ function Salon({
     const plusVieux = fraiches[fraiches.length - 1];
     // Prédicats extraits dans `ui/roomPagination.ts`, testés sous Node — ils
     // encodent les deux leçons payées en 429 (ex æquo, borne immobile).
-    bornePrecedente.current = avancerBorne(bornePrecedente.current, plusVieux.id);
-    if (borneImmobile(bornePrecedente.current)) {
+    bornePrecedente.current = advanceBound(bornePrecedente.current, plusVieux.id);
+    if (boundIsStuck(bornePrecedente.current)) {
       passeEpuise.current = true;
       console.warn(`salon ${rid}: pagination immobile sur ${plusVieux.id}, passé déclaré épuisé`);
       return;
     }
     enVol.current = true;
-    chargerHistorique(type, new Date(plusVieux.horodatage).toISOString())
-      .then(({ plusAncien }) => {
-        if (pageARecule(plusAncien, plusVieux.horodatage)) {
+    chargerHistorique(type, new Date(plusVieux.ts).toISOString())
+      .then(({ oldest: plusAncien }) => {
+        if (pageMovedBack(plusAncien, plusVieux.ts)) {
           setLimite((l) => l + PAGE);
         } else {
           passeEpuise.current = true;
@@ -671,7 +671,7 @@ function Salon({
   // Saut vers un message choisi dans les épinglés/favoris (`ui/messageJump.ts`) :
   // l'amener dans la fenêtre (`ui/bringMessage.ts`), attendre qu'il figure
   // dans les données de la liste, défiler jusqu'à lui et le surligner.
-  const cibleSaut = useSaut(rid);
+  const cibleSaut = useJump(rid);
   const [sautVise, setSautVise] = useState<string | null>(null);
   useEffect(() => {
     if (cibleSaut === null || type === undefined) return;
@@ -679,18 +679,18 @@ function Salon({
     const cible = cibleSaut;
     const fluxPrincipal = and(
       eq(messages.rid, rid),
-      or(isNull(messages.filId), eq(messages.filAffiche, true)),
+      or(isNull(messages.threadId), eq(messages.threadShown, true)),
     );
     const echouer = () => {
       if (annule) return;
-      consommerSaut(rid, cible.id);
-      signaler(t('salon.sautImpossible'));
+      consumeJump(rid, cible.id);
+      notify(t('salon.sautImpossible'));
     };
-    amenerMessage({
-      horodatage: cible.horodatage,
-      rang: async () => {
+    bringMessage({
+      ts: cible.ts,
+      rank: async () => {
         const trouve = await base
-          .select({ horodatage: messages.horodatage })
+          .select({ ts: messages.ts })
           .from(messages)
           .where(and(eq(messages.id, cible.id), fluxPrincipal))
           .limit(1);
@@ -698,25 +698,25 @@ function Salon({
         const [plusRecents] = await base
           .select({ n: count() })
           .from(messages)
-          .where(and(fluxPrincipal, gt(messages.horodatage, trouve[0].horodatage)));
+          .where(and(fluxPrincipal, gt(messages.ts, trouve[0].ts)));
         return plusRecents?.n ?? 0;
       },
-      plusVieux: async () => {
+      older: async () => {
         const [ligne] = await base
-          .select({ h: min(messages.horodatage) })
+          .select({ h: min(messages.ts) })
           .from(messages)
           .where(eq(messages.rid, rid));
         return ligne?.h ?? null;
       },
-      chargerPage: (latest) =>
-        activite.suivre(rid, chargerHistorique(type, new Date(latest).toISOString())),
+      loadPage: (latest) =>
+        activite.track(rid, chargerHistorique(type, new Date(latest).toISOString())),
     }).then((rang) => {
       if (annule) return;
       if (rang === null) {
         echouer();
         return;
       }
-      consommerSaut(rid, cible.id);
+      consumeJump(rid, cible.id);
       setLimite((l) => Math.max(l, rang + PAGE));
       setSautVise(cible.id);
     }, echouer);
@@ -728,7 +728,7 @@ function Salon({
     () =>
       sautVise === null
         ? -1
-        : donneesListe.findIndex((l) => !('barre' in l) && !('jour' in l) && l.id === sautVise),
+        : donneesListe.findIndex((l) => !('bar' in l) && !('day' in l) && l.id === sautVise),
     [sautVise, donneesListe],
   );
   const dejaDefile = useRef<string | null>(null);
@@ -771,11 +771,11 @@ function Salon({
   );
 
   const reessayer = useCallback(() => {
-    envoi.traiter().catch(() => {});
+    envoi.process().catch(() => {});
   }, [envoi]);
   const abandonner = useCallback(
     (id: string) => {
-      envoi.abandonner(id).catch(() => {});
+      envoi.discard(id).catch(() => {});
     },
     [envoi],
   );
@@ -783,7 +783,7 @@ function Salon({
   // requête vive re-rend la pastille — pas d'état optimiste à tenir ici.
   const reagir = useCallback(
     (ridMessage: string, id: string, code: string, mettre: boolean) => {
-      actions.reagir(ridMessage, id, code, mettre).catch(() => {});
+      actions.react(ridMessage, id, code, mettre).catch(() => {});
     },
     [actions],
   );
@@ -795,7 +795,7 @@ function Salon({
   const surligne = indexSaut >= 0 ? sautVise : null;
   const rendreLigne = useCallback(
     ({ item }: { item: LigneListe }) => {
-      if ('barre' in item) {
+      if ('bar' in item) {
         return (
           <View style={styles.barreNouveaux}>
             <View style={[styles.traitNouveaux, { backgroundColor: c.accent }]} />
@@ -804,8 +804,8 @@ function Salon({
           </View>
         );
       }
-      if ('jour' in item) {
-        return <SeparateurJour c={c} horodatage={item.horodatage} />;
+      if ('day' in item) {
+        return <DaySeparator c={c} ts={item.ts} />;
       }
       const etatEnvoi = sortieParId.get(item.id);
       return (
@@ -815,22 +815,22 @@ function Salon({
             item.id === surligne && { backgroundColor: c.surfaceActive },
           ]}
         >
-          <LigneMessage
+          <MessageRow
             c={c}
             message={item}
             client={client}
-            statutEnvoi={etatEnvoi?.statut ?? null}
-            surReessayer={etatEnvoi?.statut === 'echec' ? reessayer : null}
-            surAbandonner={etatEnvoi?.statut === 'echec' ? abandonner : null}
+            sendStatus={etatEnvoi?.status ?? null}
+            onRetry={etatEnvoi?.status === 'echec' ? reessayer : null}
+            onDiscard={etatEnvoi?.status === 'echec' ? abandonner : null}
             // Pas d'actions sur une ligne d'outbox : son `_id` client n'a pas
             // été accepté par le serveur — `chat.delete`/`chat.update` dessus ne
             // peuvent qu'échouer. Ses vraies actions sont réessayer/abandonner.
-            surAppuiLong={etatEnvoi === undefined ? ouvrirActions : null}
-            surOuvrirFil={ouvrirFil}
-            moi={moi}
-            surReagir={etatEnvoi === undefined ? reagir : null}
-            suite={suites.has(item.id)}
-            heureRepetee={heuresRepetees.has(item.id)}
+            onLongPress={etatEnvoi === undefined ? ouvrirActions : null}
+            onOpenThread={ouvrirFil}
+            me={moi}
+            onReact={etatEnvoi === undefined ? reagir : null}
+            continuation={suites.has(item.id)}
+            repeatedTime={heuresRepetees.has(item.id)}
           />
         </View>
       );
@@ -839,35 +839,35 @@ function Salon({
   );
 
   return (
-    <VueEvitantLeClavier>
+    <KeyboardAvoidingContainer>
       <Stack.Screen options={{ headerShown: false }} />
-      <EnTeteSalon
+      <RoomHeader
         c={c}
         rid={rid}
-        salon={salon}
+        room={salon}
         client={client}
-        statutDM={statutDM}
+        dmStatus={statutDM}
         insetTop={insets.top}
         // Repli si le salon est la RACINE (deep-link à froid) : `back()` n'a
         // alors aucune cible et laisserait l'utilisateur coincé.
-        onRetour={() => (routeur.canGoBack() ? routeur.back() : routeur.replace('/'))}
-        onRecherche={() => routeur.push({ pathname: '/message-search', params: { rid } })}
-        onMarques={() => routeur.push({ pathname: '/marked-messages', params: { rid } })}
+        onBack={() => (routeur.canGoBack() ? routeur.back() : routeur.replace('/'))}
+        onSearch={() => routeur.push({ pathname: '/message-search', params: { rid } })}
+        onMarked={() => routeur.push({ pathname: '/marked-messages', params: { rid } })}
       />
       {donneesListe.length === 0 ? (
         // Vide : indicateur, puis mention explicite. (L'ancien piège mVCP
         // « viewport sous le contenu » a disparu avec l'inversion ; attendre
         // le premier lot reste la bonne UX — une liste qui clignote non.)
-        <View style={styles.centre}>
+        <View style={styles.center}>
           {premierPassageFini ? (
-            <Text style={[styles.vide, { color: c.attenue }]}>{t('salon.aucunMessage')}</Text>
+            <Text style={[styles.empty, { color: c.dimmed }]}>{t('salon.aucunMessage')}</Text>
           ) : (
             <ActivityIndicator />
           )}
         </View>
       ) : (
         <View
-          style={styles.plein}
+          style={styles.full}
           onLayout={(e) => {
             hauteurListe.current = e.nativeEvent.layout.height;
           }}
@@ -876,7 +876,7 @@ function Salon({
             ref={liste}
             inverted
             onScrollBeginDrag={() => {
-              etatRetour.current = surGlisseRetour(etatRetour.current);
+              etatRetour.current = onBackToLatestSwipe(etatRetour.current);
             }}
             data={donneesListe}
             // Coupé : à l'offset 0, un prepend s'affiche de lui-même, et le
@@ -887,9 +887,9 @@ function Salon({
             // non-lus, séparateurs de jour) : sans type d'item, le recyclage
             // de FlashList mélange les gabarits.
             getItemType={(item) =>
-              'barre' in item
+              'bar' in item
                 ? 'barre'
-                : 'jour' in item
+                : 'day' in item
                   ? 'jour'
                   : suites.has(item.id)
                     ? 'suite'
@@ -902,43 +902,43 @@ function Salon({
             // Inversé : la fin des DONNÉES est le haut visuel — le passé.
             onEndReached={chargerPlus}
             onEndReachedThreshold={0.4}
-            contentContainerStyle={styles.contenu}
+            contentContainerStyle={styles.content}
           />
           {retourVisible && (
-            <Appuyable
+            <Tappable
               onPress={allerAuPlusRecent}
-              android_ripple={{ color: c.ondulation, borderless: true }}
+              android_ripple={{ color: c.ripple, borderless: true }}
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel={t('salon.allerAuPlusRecent')}
               style={[
                 styles.retourPlusRecent,
                 {
-                  backgroundColor: c.carte,
-                  borderColor: c.bordure,
-                  boxShadow: `0px 4px 12px -4px ${c.ombrePortee}`,
+                  backgroundColor: c.card,
+                  borderColor: c.border,
+                  boxShadow: `0px 4px 12px -4px ${c.dropShadow}`,
                 },
               ]}
             >
               <Text style={[styles.retourPlusRecentFleche, { color: c.accent }]}>↓</Text>
-            </Appuyable>
+            </Tappable>
           )}
         </View>
       )}
       {fichiersEnCours.map((tele) => {
-        const enEchec = tele.statut === 'echec';
+        const enEchec = tele.status === 'echec';
         const libelle = enEchec
-          ? t('salon.fichierNonEnvoye', { nom: tele.nom })
-          : tele.statut === 'envoi'
+          ? t('salon.fichierNonEnvoye', { nom: tele.name })
+          : tele.status === 'envoi'
             ? t('salon.fichierEnvoi', {
-                nom: tele.nom,
+                nom: tele.name,
                 pourcent: String(Math.round((progressions.get(tele.id) ?? 0) * 100)),
               })
-            : t('salon.fichierEnAttente', { nom: tele.nom });
+            : t('salon.fichierEnAttente', { nom: tele.name });
         return (
           <View key={tele.id} style={styles.bandeEchecFichier}>
             <Text
-              style={[styles.heure, { color: enEchec ? c.texteErreur : c.attenue }]}
+              style={[styles.time, { color: enEchec ? c.errorText : c.dimmed }]}
               numberOfLines={1}
             >
               {libelle}
@@ -948,12 +948,12 @@ function Salon({
                 un simple `traiter()` passerait à côté. Une ligne `en-attente`
                 ou `envoi`, elle, part déjà toute seule. */}
             {enEchec && (
-              <Pressable onPress={() => void fichiers.reessayer(tele.id)}>
-                <Text style={[styles.heure, { color: c.accent }]}>{t('salon.reessayer')}</Text>
+              <Pressable onPress={() => void fichiers.retry(tele.id)}>
+                <Text style={[styles.time, { color: c.accent }]}>{t('salon.reessayer')}</Text>
               </Pressable>
             )}
-            <Pressable onPress={() => void fichiers.abandonner(tele.id, tele.uri)}>
-              <Text style={[styles.heure, { color: c.attenue }]}>{t('salon.abandonner')}</Text>
+            <Pressable onPress={() => void fichiers.discard(tele.id, tele.uri)}>
+              <Text style={[styles.time, { color: c.dimmed }]}>{t('salon.abandonner')}</Text>
             </Pressable>
           </View>
         );
@@ -962,22 +962,22 @@ function Salon({
           fil_id) : sans ce bandeau, son échec ne serait visible qu'en
           rouvrant le fil exact — silencieusement jamais, en pratique. */}
       {(lignesSortie ?? [])
-        .filter((s) => s.statut === 'echec' && s.filId !== null)
+        .filter((s) => s.status === 'echec' && s.threadId !== null)
         .map((s) => (
           <View key={s.id} style={styles.bandeEchecFichier}>
             <Pressable
-              style={styles.plein}
-              onPress={() => routeur.push({ pathname: '/thread/[id]', params: { id: s.filId ?? '' } })}
+              style={styles.full}
+              onPress={() => routeur.push({ pathname: '/thread/[id]', params: { id: s.threadId ?? '' } })}
             >
-              <Text style={[styles.heure, { color: c.texteErreur }]} numberOfLines={1}>
+              <Text style={[styles.time, { color: c.errorText }]} numberOfLines={1}>
                 {t('salon.reponseFilNonEnvoyee')}
               </Text>
             </Pressable>
             <Pressable onPress={reessayer}>
-              <Text style={[styles.heure, { color: c.accent }]}>{t('salon.reessayer')}</Text>
+              <Text style={[styles.time, { color: c.accent }]}>{t('salon.reessayer')}</Text>
             </Pressable>
             <Pressable onPress={() => abandonner(s.id)}>
-              <Text style={[styles.heure, { color: c.attenue }]}>{t('salon.abandonner')}</Text>
+              <Text style={[styles.time, { color: c.dimmed }]}>{t('salon.abandonner')}</Text>
             </Pressable>
           </View>
         ))}
@@ -986,7 +986,7 @@ function Salon({
           `flex: 1`, ce gain comprime la liste et fait remonter nativement le
           dernier message au lieu de le masquer. Replié à 0, aucune bande morte. */}
       <View style={styles.basComposer}>
-        <IndicateurSaisie c={c} phrase={phraseQuiTape} />
+        <TypingIndicator c={c} phrase={phraseQuiTape} />
         {/* Tant que la ligne du salon n'est pas là (lien profond vers un salon
             pas encore synchronisé), on ne promet pas un envoi : `chiffre` et
             `lectureSeule` sont peut-être vrais. */}
@@ -998,28 +998,28 @@ function Salon({
             key={rid}
             c={c}
             rid={rid}
-            envoi={envoi}
-            fichiers={fichiers}
+            outbox={envoi}
+            files={fichiers}
             client={client}
-            candidatsMention={candidatsMention}
-            lectureSeule={salon.lectureSeule}
-            chiffre={salon.chiffre}
+            mentionCandidates={candidatsMention}
+            readOnly={salon.readOnly}
+            encrypted={salon.encrypted}
             placeholder={t('salon.messagePlaceholder')}
-            brouillonInitial={persistance.initial}
-            sauverBrouillon={persistance.sauver}
-            effacerBrouillon={persistance.effacer}
+            initialDraft={persistance.initial}
+            saveDraft={persistance.sauver}
+            clearDraft={persistance.effacer}
           />
         )}
       </View>
-    </VueEvitantLeClavier>
+    </KeyboardAvoidingContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  plein: { flex: 1 },
-  centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  contenu: { paddingHorizontal: 16, paddingVertical: 8 },
-  heure: { fontSize: 11 },
+  full: { flex: 1 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  content: { paddingHorizontal: 16, paddingVertical: 8 },
+  time: { fontSize: 11 },
   basComposer: { position: 'relative' },
   ligneSurlignable: { borderRadius: 12, marginHorizontal: -8, paddingHorizontal: 8 },
   retourPlusRecent: {
@@ -1033,11 +1033,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  retourPlusRecentFleche: { fontFamily: POLICES.titreFort, fontSize: 22, lineHeight: 26 },
-  vide: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: POLICES.corps },
-  erreur: { fontFamily: POLICES.corpsGras, fontSize: 14, textAlign: 'center' },
+  retourPlusRecentFleche: { fontFamily: FONTS.titreFort, fontSize: 22, lineHeight: 26 },
+  empty: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: FONTS.body },
+  error: { fontFamily: FONTS.corpsGras, fontSize: 14, textAlign: 'center' },
   autreServeurHote: {
-    fontFamily: POLICES.corps,
+    fontFamily: FONTS.body,
     fontSize: 13,
     textAlign: 'center',
     marginTop: 8,
@@ -1046,7 +1046,7 @@ const styles = StyleSheet.create({
   barreNouveaux: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
   traitNouveaux: { flex: 1, height: 2, borderRadius: 2, opacity: 0.5 },
   texteNouveaux: {
-    fontFamily: POLICES.corpsFort,
+    fontFamily: FONTS.corpsFort,
     fontSize: 10.5,
     textTransform: 'uppercase',
     letterSpacing: 0.5,

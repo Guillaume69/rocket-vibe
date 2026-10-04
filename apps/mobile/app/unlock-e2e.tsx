@@ -10,17 +10,17 @@ import { Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { ErreurE2E } from '../lib/e2e/crypto.ts';
+import { E2EError } from '../lib/e2e/crypto.ts';
 import { useT } from '../ui/i18n.ts';
-import { useSynchro } from '../ui/sync.tsx';
-import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
-import { Appuyable } from '../ui/tappable.tsx';
-import { useMargeBasFeuille } from '../ui/sheetMargin.ts';
+import { useSync } from '../ui/sync.tsx';
+import { LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
+import { Tappable } from '../ui/tappable.tsx';
+import { useSheetBottomMargin } from '../ui/sheetMargin.ts';
 
-export default function EcranDeverrouillerE2E() {
-  const margeBas = useMargeBasFeuille();
-  const synchro = useSynchro();
-  const c = useCouleurs();
+export default function UnlockE2EScreen() {
+  const margeBas = useSheetBottomMargin();
+  const synchro = useSync();
+  const c = useColors();
   const routeur = useRouter();
   const t = useT();
 
@@ -29,7 +29,7 @@ export default function EcranDeverrouillerE2E() {
   const [erreur, setErreur] = useState<string | null>(null);
 
   const deverrouiller =
-    synchro.phase === 'pret' ? synchro.deverrouillerE2E : null;
+    synchro.phase === 'pret' ? synchro.unlockE2E : null;
 
   const soumettre = (): void => {
     if (deverrouiller === null || occupe || motDePasse === '') return;
@@ -42,22 +42,22 @@ export default function EcranDeverrouillerE2E() {
       } catch (e) {
         // Un mot de passe faux échoue à l'authentification GCM (ErreurE2E) ;
         // tout le reste (réseau, clé absente) est générique.
-        setErreur(t(e instanceof ErreurE2E ? 'e2e.erreurMotDePasse' : 'e2e.erreurGenerique'));
+        setErreur(t(e instanceof E2EError ? 'e2e.erreurMotDePasse' : 'e2e.erreurGenerique'));
         setOccupe(false);
       }
     })();
   };
 
   return (
-    <View style={[styles.feuille, { backgroundColor: c.carteProfonde, paddingBottom: margeBas }]}>
+    <View style={[styles.sheet, { backgroundColor: c.deepCard, paddingBottom: margeBas }]}>
       <Stack.Screen options={{ headerShown: false }} />
-      <Text style={[styles.titre, { color: c.texte }]}>{t('e2e.titre')}</Text>
-      <Text style={[styles.explication, { color: c.attenue }]}>{t('e2e.explication')}</Text>
+      <Text style={[styles.title, { color: c.text }]}>{t('e2e.titre')}</Text>
+      <Text style={[styles.explication, { color: c.dimmed }]}>{t('e2e.explication')}</Text>
 
       <TextInput
-        style={[styles.champ, { color: c.texte, backgroundColor: c.carte, borderColor: c.bordure }]}
+        style={[styles.field, { color: c.text, backgroundColor: c.card, borderColor: c.border }]}
         placeholder={t('e2e.champ')}
-        placeholderTextColor={c.attenue}
+        placeholderTextColor={c.dimmed}
         secureTextEntry
         autoFocus
         autoCapitalize="none"
@@ -76,17 +76,17 @@ export default function EcranDeverrouillerE2E() {
         editable={!occupe}
       />
 
-      {erreur !== null && <Text style={[styles.erreur, { color: c.texteErreur }]}>{erreur}</Text>}
+      {erreur !== null && <Text style={[styles.error, { color: c.errorText }]}>{erreur}</Text>}
 
-      <Appuyable
+      <Tappable
         onPress={soumettre}
         disabled={occupe || motDePasse === '' || deverrouiller === null}
-        android_ripple={{ color: c.ondulation }}
-        unstable_pressDelay={DELAI_PRESSION_LISTE}
+        android_ripple={{ color: c.ripple }}
+        unstable_pressDelay={LIST_PRESS_DELAY}
         style={[
-          styles.bouton,
+          styles.button,
           { backgroundColor: c.accent },
-          (occupe || motDePasse === '') && styles.inactif,
+          (occupe || motDePasse === '') && styles.inactive,
         ]}
         accessibilityRole="button"
         accessibilityLabel={t('e2e.deverrouiller')}
@@ -94,33 +94,33 @@ export default function EcranDeverrouillerE2E() {
         {occupe ? (
           <ActivityIndicator size="small" color="#FFFFFF" />
         ) : (
-          <Text style={styles.boutonTexte}>{t('e2e.deverrouiller')}</Text>
+          <Text style={styles.buttonText}>{t('e2e.deverrouiller')}</Text>
         )}
-      </Appuyable>
+      </Tappable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  feuille: { padding: 20, paddingBottom: 28, gap: 14 },
-  titre: { fontFamily: POLICES.titre, fontSize: 20 },
-  explication: { fontFamily: POLICES.corps, fontSize: 14, lineHeight: 20 },
-  champ: {
-    fontFamily: POLICES.corps,
+  sheet: { padding: 20, paddingBottom: 28, gap: 14 },
+  title: { fontFamily: FONTS.title, fontSize: 20 },
+  explication: { fontFamily: FONTS.body, fontSize: 14, lineHeight: 20 },
+  field: {
+    fontFamily: FONTS.body,
     fontSize: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  erreur: { fontFamily: POLICES.corps, fontSize: 13 },
-  bouton: {
+  error: { fontFamily: FONTS.body, fontSize: 13 },
+  button: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 13,
     borderRadius: 14,
   },
-  inactif: { opacity: 0.6 },
-  boutonTexte: { fontFamily: POLICES.corpsFort, fontSize: 15, color: '#FFFFFF' },
+  inactive: { opacity: 0.6 },
+  buttonText: { fontFamily: FONTS.corpsFort, fontSize: 15, color: '#FFFFFF' },
 });

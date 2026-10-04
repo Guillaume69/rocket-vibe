@@ -4,20 +4,20 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { after, before, beforeEach, describe, test } from 'node:test';
 
 import {
-  appliquerSession,
-  preparerCodeDeuxFacteurs,
-  reprendreSession,
-  seConnecter,
-  seDeconnecter,
+  applySession,
+  prepareTwoFactorCode,
+  resumeSession,
+  logIn,
+  logOut,
 } from './auth.ts';
-import { ClientRest, ErreurDeuxFacteurs } from './rest.ts';
+import { ClientRest, TwoFactorError } from './rest.ts';
 
 const hacher = async (t: string) => createHash('sha256').update(t).digest('hex');
 
 let serveur: Server;
 let base: string;
 let poignee: (req: IncomingMessage, res: ServerResponse, corps: string) => void;
-let recues: { url: string; corps: unknown; enTetes: Record<string, string | string[] | undefined> }[] =
+let recues: { url: string; body: unknown; headers: Record<string, string | string[] | undefined> }[] =
   [];
 
 before(async () => {
@@ -27,8 +27,8 @@ before(async () => {
     req.on('end', () => {
       recues.push({
         url: req.url ?? '',
-        corps: brut === '' ? null : (JSON.parse(brut) as unknown),
-        enTetes: req.headers,
+        body: brut === '' ? null : (JSON.parse(brut) as unknown),
+        headers: req.headers,
       });
       poignee(req, res, brut);
     });
@@ -57,9 +57,9 @@ const SUCCES_LOGIN = {
 describe('auth', () => {
   test('un login sans 2FA renvoie une session', async () => {
     poignee = (_q, res) => json(res, 200, SUCCES_LOGIN);
-    const s = await seConnecter(new ClientRest(base), {
-      utilisateur: 'alice',
-      motDePasse: 'secret',
+    const s = await logIn(new ClientRest(base), {
+      user: 'alice',
+      password: 'secret',
     });
     assert.deepEqual(s, {
       baseUrl: base,
@@ -71,15 +71,15 @@ describe('auth', () => {
       // depuis son sondage avant de persister.
       siteUrl: null,
     });
-    assert.deepEqual(recues[0].corps, { user: 'alice', password: 'secret' });
+    assert.deepEqual(recues[0].body, { user: 'alice', password: 'secret' });
   });
 
   test("le login n'envoie pas d'en-têtes d'authentification", async () => {
     poignee = (_q, res) => json(res, 200, SUCCES_LOGIN);
     const c = new ClientRest(base);
-    c.identifiants = { authToken: 'ancien', userId: 'vieux' };
-    await seConnecter(c, { utilisateur: 'alice', motDePasse: 'secret' });
-    assert.equal(recues[0].enTetes['x-auth-token'], undefined);
+    c.auth = { authToken: 'ancien', userId: 'vieux' };
+    await logIn(c, { user: 'alice', password: 'secret' });
+    assert.equal(recues[0].headers['x-auth-token'], undefined);
   });
 
   test('une 2FA requise lève ErreurDeuxFacteurs avec sa méthode', async () => {
@@ -90,25 +90,25 @@ describe('auth', () => {
         details: { method: 'totp', availableMethods: ['totp'], codeGenerated: false },
       });
     await assert.rejects(
-      seConnecter(new ClientRest(base), { utilisateur: 'alice', motDePasse: 's' }),
+      logIn(new ClientRest(base), { user: 'alice', password: 's' }),
       (e: unknown) => {
-        assert.ok(e instanceof ErreurDeuxFacteurs);
-        assert.equal(e.methode, 'totp');
+        assert.ok(e instanceof TwoFactorError);
+        assert.equal(e.method, 'totp');
         return true;
       },
     );
   });
 
   test('un code TOTP est transmis tel quel', async () => {
-    const erreur = new ErreurDeuxFacteurs('totp', ['totp'], false);
-    const code = await preparerCodeDeuxFacteurs(erreur, ' 123456 ', hacher);
-    assert.deepEqual(code, { methode: 'totp', code: '123456' });
+    const erreur = new TwoFactorError('totp', ['totp'], false);
+    const code = await prepareTwoFactorCode(erreur, ' 123456 ', hacher);
+    assert.deepEqual(code, { method: 'totp', code: '123456' });
   });
 
   test("pour la méthode `password`, c'est le SHA-256 qui part, pas le clair", async () => {
-    const erreur = new ErreurDeuxFacteurs('password', [], false);
-    const code = await preparerCodeDeuxFacteurs(erreur, 'mon-mot-de-passe', hacher);
-    assert.equal(code.methode, 'password');
+    const erreur = new TwoFactorError('password', [], false);
+    const code = await prepareTwoFactorCode(erreur, 'mon-mot-de-passe', hacher);
+    assert.equal(code.method, 'password');
     assert.equal(code.code, await hacher('mon-mot-de-passe'));
     assert.notEqual(code.code, 'mon-mot-de-passe');
     assert.match(code.code, /^[0-9a-f]{64}$/);
@@ -116,26 +116,26 @@ describe('auth', () => {
 
   test('le rejeu avec le code envoie les en-têtes 2FA', async () => {
     poignee = (_q, res) => json(res, 200, SUCCES_LOGIN);
-    await seConnecter(
+    await logIn(
       new ClientRest(base),
-      { utilisateur: 'alice', motDePasse: 's' },
-      { code: '123456', methode: 'totp' },
+      { user: 'alice', password: 's' },
+      { code: '123456', method: 'totp' },
     );
-    assert.equal(recues[0].enTetes['x-2fa-code'], '123456');
-    assert.equal(recues[0].enTetes['x-2fa-method'], 'totp');
+    assert.equal(recues[0].headers['x-2fa-code'], '123456');
+    assert.equal(recues[0].headers['x-2fa-method'], 'totp');
   });
 
   test('reprendreSession envoie `resume`, pas de mot de passe', async () => {
     poignee = (_q, res) => json(res, 200, SUCCES_LOGIN);
-    const s = await reprendreSession(new ClientRest(base), 'jeton-stocke');
-    assert.deepEqual(recues[0].corps, { resume: 'jeton-stocke' });
+    const s = await resumeSession(new ClientRest(base), 'jeton-stocke');
+    assert.deepEqual(recues[0].body, { resume: 'jeton-stocke' });
     assert.equal(s.userId, 'u1');
   });
 
   test('une réponse de login sans jeton est rejetée proprement', async () => {
     poignee = (_q, res) => json(res, 200, { status: 'success', data: { me: {} } });
     await assert.rejects(
-      seConnecter(new ClientRest(base), { utilisateur: 'a', motDePasse: 'b' }),
+      logIn(new ClientRest(base), { user: 'a', password: 'b' }),
       /Réponse de login invalide/,
     );
   });
@@ -148,7 +148,7 @@ describe('auth', () => {
       res.end();
     };
     await assert.rejects(
-      seConnecter(new ClientRest(base), { utilisateur: 'a', motDePasse: 'b' }),
+      logIn(new ClientRest(base), { user: 'a', password: 'b' }),
       (e: unknown) => {
         assert.ok(e instanceof Error);
         assert.equal(e.name, 'ErreurLogin');
@@ -160,14 +160,14 @@ describe('auth', () => {
   test('seDeconnecter est best-effort : un 401 ne rejette pas', async () => {
     poignee = (_q, res) => json(res, 401, { success: false, error: 'invalid' });
     const c = new ClientRest(base);
-    c.identifiants = { authToken: 'x', userId: 'y' };
-    await seDeconnecter(c); // ne doit pas lever
-    assert.equal(c.identifiants, null, 'un jeton déjà invalide ne doit pas rester en mémoire');
+    c.auth = { authToken: 'x', userId: 'y' };
+    await logOut(c); // ne doit pas lever
+    assert.equal(c.auth, null, 'un jeton déjà invalide ne doit pas rester en mémoire');
   });
 
   test('appliquerSession branche les identifiants sur le client', () => {
     const c = new ClientRest(base);
-    appliquerSession(c, {
+    applySession(c, {
       baseUrl: base,
       authToken: 't',
       userId: 'u',
@@ -175,6 +175,6 @@ describe('auth', () => {
       genre: 'rocketchat',
       siteUrl: null,
     });
-    assert.deepEqual(c.identifiants, { authToken: 't', userId: 'u' });
+    assert.deepEqual(c.auth, { authToken: 't', userId: 'u' });
   });
 });

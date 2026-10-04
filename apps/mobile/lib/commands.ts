@@ -13,16 +13,16 @@ import type { ClientRest } from './rest.ts';
 
 type Langue = 'fr' | 'en';
 
-export type Commande = {
-  nom: string;
+export type Command = {
+  name: string;
   /** Affichés après le nom, tels qu'à taper : `@username`, `#channel`, « ton message ». */
-  parametres: string;
+  params: string;
   description: string;
   /** L'une suffit ; vide, tout le monde peut la lancer. */
   permissions: string[];
 };
 
-export const LIMITE_SUGGESTIONS_COMMANDE = 8;
+export const COMMAND_SUGGESTION_LIMIT = 8;
 
 /** (clé, français, anglais) des descriptions et paramètres des commandes du cœur. */
 const MOTS: readonly (readonly [string, string, string])[] = [
@@ -69,7 +69,7 @@ const MOTS: readonly (readonly [string, string, string])[] = [
  * web a son catalogue : le nôtre couvre les commandes du cœur, et la clé
  * d'une app se lit au moins comme des mots.
  */
-export function mots(cle: string, langue: Langue): string {
+export function words(cle: string, langue: Langue): string {
   const connu = MOTS.find(([k]) => k === cle);
   if (connu !== undefined) return langue === 'fr' ? connu[1] : connu[2];
   const ressembleACle = !/\s/.test(cle) && cle.includes('_') && /[A-Z]/.test(cle);
@@ -79,10 +79,10 @@ export function mots(cle: string, langue: Langue): string {
 const chaine = (v: unknown): string => (typeof v === 'string' ? v : '');
 
 /** Les commandes que rend `commands.list`, leurs clés i18n mises en mots. */
-export function lireCommandes(reponse: unknown, langue: Langue): Commande[] {
+export function readCommands(reponse: unknown, langue: Langue): Command[] {
   const liste = (reponse as { commands?: unknown } | null)?.commands;
   if (!Array.isArray(liste)) return [];
-  const commandes: Commande[] = [];
+  const commandes: Command[] = [];
   for (const brute of liste as Record<string, unknown>[]) {
     const nom = chaine(brute.command);
     if (nom === '') continue;
@@ -90,9 +90,9 @@ export function lireCommandes(reponse: unknown, langue: Langue): Commande[] {
     const permissions =
       typeof p === 'string' ? [p] : Array.isArray(p) ? p.filter((x): x is string => typeof x === 'string') : [];
     commandes.push({
-      nom,
-      parametres: mots(chaine(brute.params), langue),
-      description: mots(chaine(brute.description), langue),
+      name: nom,
+      params: words(chaine(brute.params), langue),
+      description: words(chaine(brute.description), langue),
       permissions,
     });
   }
@@ -103,12 +103,12 @@ export function lireCommandes(reponse: unknown, langue: Langue): Commande[] {
  * Le nom de commande en cours de frappe : le brouillon commence par `/` et
  * le curseur n'a pas quitté son premier mot.
  */
-export function detecterJetonCommande(texte: string, curseur: number): { requete: string } | null {
+export function detectCommandToken(texte: string, curseur: number): { query: string } | null {
   const avant = texte.slice(0, Math.max(0, Math.min(curseur, texte.length)));
   if (!avant.startsWith('/')) return null;
   const requete = avant.slice(1);
   if (/\s/.test(requete) || requete.includes('/')) return null;
-  return { requete };
+  return { query: requete };
 }
 
 /**
@@ -116,17 +116,17 @@ export function detecterJetonCommande(texte: string, curseur: number): { requete
  * de lancer quand mes permissions sont connues (`null` : on laisse le serveur
  * trancher), triées par nom.
  */
-export function completerCommande(
-  commandes: readonly Commande[],
+export function completeCommand(
+  commandes: readonly Command[],
   requete: string,
   accordees: readonly string[] | null,
-  limite = LIMITE_SUGGESTIONS_COMMANDE,
-): Commande[] {
+  limite = COMMAND_SUGGESTION_LIMIT,
+): Command[] {
   const q = requete.toLowerCase();
   return commandes
-    .filter((c) => c.nom.toLowerCase().startsWith(q))
+    .filter((c) => c.name.toLowerCase().startsWith(q))
     .filter((c) => accordees === null || c.permissions.length === 0 || c.permissions.some((p) => accordees.includes(p)))
-    .sort((a, b) => (a.nom < b.nom ? -1 : a.nom > b.nom ? 1 : 0))
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     .slice(0, limite);
 }
 
@@ -134,33 +134,33 @@ export function completerCommande(
  * (nom, paramètres) d'un brouillon qui se lit comme une commande : `/nom` en
  * tête, puis ce qui suit. L'appelant vérifie que le serveur connaît ce nom.
  */
-export function decouperCommande(texte: string): { nom: string; parametres: string } | null {
+export function splitCommand(texte: string): { name: string; params: string } | null {
   const reste = texte.trimStart();
   if (!reste.startsWith('/')) return null;
   const corps = reste.slice(1);
   const blanc = corps.search(/\s/);
   const nom = blanc === -1 ? corps : corps.slice(0, blanc);
   if (nom === '' || nom.includes('/')) return null;
-  return { nom, parametres: blanc === -1 ? '' : corps.slice(blanc).trim() };
+  return { name: nom, params: blanc === -1 ? '' : corps.slice(blanc).trim() };
 }
 
 /** Clé d'événement des messages privés, sur `stream-notify-user`. */
-export const EVENEMENT_MESSAGE_PRIVE = 'message';
+export const PRIVATE_MESSAGE_EVENT = 'message';
 
 /** `<uid>/message` args : `[{ rid, msg, private: true, … }]` → (rid, texte). */
-export function messagePrive(args: readonly unknown[]): { rid: string; texte: string } | null {
+export function privateMessage(args: readonly unknown[]): { rid: string; text: string } | null {
   const m = args[0] as { rid?: unknown; msg?: unknown } | undefined;
   const rid = chaine(m?.rid);
   const texte = chaine(m?.msg).trim();
   if (rid === '' || texte === '') return null;
-  return { rid, texte };
+  return { rid, text: texte };
 }
 
 const enCache = new Map<string, Promise<unknown>>();
 
 /** `commands.list`, lu une fois par session et par compte ; un échec n'est pas retenu. */
-export function listeBrute(client: Pick<ClientRest, 'get' | 'baseUrl' | 'identifiants'>): Promise<unknown> {
-  const cle = `${client.baseUrl}|${client.identifiants?.userId ?? ''}`;
+export function rawList(client: Pick<ClientRest, 'get' | 'baseUrl' | 'auth'>): Promise<unknown> {
+  const cle = `${client.baseUrl}|${client.auth?.userId ?? ''}`;
   const connue = enCache.get(cle);
   if (connue !== undefined) return connue;
   const lecture = client.get<unknown>('commands.list', { params: { count: 0 } });
@@ -173,28 +173,28 @@ export function listeBrute(client: Pick<ClientRest, 'get' | 'baseUrl' | 'identif
  * Lance `texte` comme commande quand il en nomme une que le serveur connaît :
  * `false` quand c'est un message à envoyer. Rejette si le serveur la refuse.
  */
-export async function lancerCommande(
-  client: Pick<ClientRest, 'get' | 'post' | 'baseUrl' | 'identifiants'>,
+export async function runCommand(
+  client: Pick<ClientRest, 'get' | 'post' | 'baseUrl' | 'auth'>,
   rid: string,
   texte: string,
   filId: string | null,
 ): Promise<boolean> {
-  const decoupe = decouperCommande(texte);
+  const decoupe = splitCommand(texte);
   if (decoupe === null) return false;
-  let connues: Commande[];
+  let connues: Command[];
   try {
-    connues = lireCommandes(await listeBrute(client), 'en');
+    connues = readCommands(await rawList(client), 'en');
   } catch {
     return false;
   }
-  if (!connues.some((c) => c.nom === decoupe.nom)) return false;
+  if (!connues.some((c) => c.name === decoupe.name)) return false;
   const corps: Record<string, string> = {
-    command: decoupe.nom,
+    command: decoupe.name,
     roomId: rid,
-    params: decoupe.parametres,
+    params: decoupe.params,
     triggerId: Math.random().toString(36).slice(2) + Date.now().toString(36),
   };
   if (filId !== null) corps.tmid = filId;
-  await client.post('commands.run', { corps });
+  await client.post('commands.run', { body: corps });
   return true;
 }

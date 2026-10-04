@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { estRejetArbreDeVues, lancerSelecteurAvecReprise } from './launchPicker.ts';
+import { isViewTreeRejection, launchPickerWithRetry } from './launchPicker.ts';
 
 const npeArbreDeVues = new Error(
   "Call to function 'ExponentImagePicker.launchImageLibraryAsync' has been rejected.\n" +
@@ -13,7 +13,7 @@ describe('lancerSelecteurAvecReprise', () => {
   test('le NPE d’arbre de vues est repris, après la pause', async () => {
     let appels = 0;
     let pause = 0;
-    const resultat = await lancerSelecteurAvecReprise(
+    const resultat = await launchPickerWithRetry(
       () => (++appels === 1 ? Promise.reject(npeArbreDeVues) : Promise.resolve('ok')),
       (ms) => {
         pause = ms;
@@ -27,7 +27,7 @@ describe('lancerSelecteurAvecReprise', () => {
 
   test('PLUSIEURS reprises : une seule ne suffisait pas en usage réel', async () => {
     let appels = 0;
-    const resultat = await lancerSelecteurAvecReprise(
+    const resultat = await launchPickerWithRetry(
       () => (++appels < 4 ? Promise.reject(npeArbreDeVues) : Promise.resolve('ok')),
       () => Promise.resolve(),
     );
@@ -38,7 +38,7 @@ describe('lancerSelecteurAvecReprise', () => {
   test('les pauses vont CROISSANT — laisser plus de temps à chaque échec', async () => {
     const pauses: number[] = [];
     await assert.rejects(
-      lancerSelecteurAvecReprise(
+      launchPickerWithRetry(
         () => Promise.reject(npeArbreDeVues),
         (ms) => {
           pauses.push(ms);
@@ -55,7 +55,7 @@ describe('lancerSelecteurAvecReprise', () => {
   test('un échec qui persiste finit par ressortir — pas de boucle infinie', async () => {
     let appels = 0;
     await assert.rejects(
-      lancerSelecteurAvecReprise(
+      launchPickerWithRetry(
         () => (++appels, Promise.reject(npeArbreDeVues)),
         () => Promise.resolve(),
       ),
@@ -67,23 +67,23 @@ describe('lancerSelecteurAvecReprise', () => {
   test('tout autre rejet (permission, refus réel) ressort SANS reprise', async () => {
     let appels = 0;
     await assert.rejects(
-      lancerSelecteurAvecReprise(() => (++appels, Promise.reject(new Error('User rejected permissions')))),
+      launchPickerWithRetry(() => (++appels, Promise.reject(new Error('User rejected permissions')))),
       /User rejected permissions/,
     );
     assert.equal(appels, 1);
   });
 
   test('le premier essai qui réussit passe tel quel', async () => {
-    assert.equal(await lancerSelecteurAvecReprise(() => Promise.resolve(42)), 42);
+    assert.equal(await launchPickerWithRetry(() => Promise.resolve(42)), 42);
   });
 });
 
 describe('estRejetArbreDeVues', () => {
   test('reconnaît le NPE d’Android, et lui seul', () => {
-    assert.equal(estRejetArbreDeVues(npeArbreDeVues), true);
-    assert.equal(estRejetArbreDeVues(new Error('User rejected permissions')), false);
-    assert.equal(estRejetArbreDeVues('dispatchCancelPendingInputEvents'), false);
-    assert.equal(estRejetArbreDeVues(null), false);
-    assert.equal(estRejetArbreDeVues(undefined), false);
+    assert.equal(isViewTreeRejection(npeArbreDeVues), true);
+    assert.equal(isViewTreeRejection(new Error('User rejected permissions')), false);
+    assert.equal(isViewTreeRejection('dispatchCancelPendingInputEvents'), false);
+    assert.equal(isViewTreeRejection(null), false);
+    assert.equal(isViewTreeRejection(undefined), false);
   });
 });

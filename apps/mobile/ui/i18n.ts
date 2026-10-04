@@ -18,15 +18,15 @@ import * as SecureStore from 'expo-secure-store';
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 
 import {
-  type CleTraduction,
-  type Langue,
-  type ParamsTraduction,
-  type PreferenceLangue,
-  type Traducteur,
-  formateurHeure,
-  formateurJour,
-  langueAppareil,
-  traduire,
+  type TranslationKey,
+  type Language,
+  type TranslationParams,
+  type LanguagePreference,
+  type TranslateFn,
+  timeFormatter,
+  dayFormatter,
+  deviceLanguage,
+  translate,
 } from './messages.ts';
 
 const CLE = 'langue-preferee';
@@ -37,7 +37,7 @@ const CLE = 'langue-preferee';
  * retombe sur « automatique » ; un accès qui échoue au démarrage ne doit jamais
  * briquer l'app, d'où le `try`.
  */
-function lirePreference(): PreferenceLangue {
+function lirePreference(): LanguagePreference {
   try {
     const brut = SecureStore.getItem(CLE);
     return brut === 'fr' || brut === 'en' ? brut : 'auto';
@@ -46,12 +46,12 @@ function lirePreference(): PreferenceLangue {
   }
 }
 
-function resoudre(pref: PreferenceLangue): Langue {
-  return pref === 'auto' ? langueAppareil() : pref;
+function resoudre(pref: LanguagePreference): Language {
+  return pref === 'auto' ? deviceLanguage() : pref;
 }
 
-let preference: PreferenceLangue = lirePreference();
-let langueActive: Langue = resoudre(preference);
+let preference: LanguagePreference = lirePreference();
+let langueActive: Language = resoudre(preference);
 const ecouteurs = new Set<() => void>();
 
 /**
@@ -59,7 +59,7 @@ const ecouteurs = new Set<() => void>();
  * téléphone), une langue explicite l'écrit. L'écriture est asynchrone et
  * best-effort : l'UI bascule tout de suite, le disque suit.
  */
-export function definirLangue(pref: PreferenceLangue): void {
+export function setLanguage(pref: LanguagePreference): void {
   preference = pref;
   langueActive = resoudre(pref);
   if (pref === 'auto') void SecureStore.deleteItemAsync(CLE);
@@ -76,12 +76,12 @@ function sabonner(cb: () => void): () => void {
 }
 
 /** La langue RÉSOLUE ('fr' | 'en'). Re-rend l'appelant à chaque bascule. */
-export function useLangue(): Langue {
+export function useLanguage(): Language {
   return useSyncExternalStore(sabonner, () => langueActive);
 }
 
 /** La PRÉFÉRENCE ('fr' | 'en' | 'auto'), pour cocher la bonne option du sélecteur. */
-export function usePreferenceLangue(): PreferenceLangue {
+export function useLanguagePreference(): LanguagePreference {
   return useSyncExternalStore(sabonner, () => preference);
 }
 
@@ -90,9 +90,9 @@ export function usePreferenceLangue(): PreferenceLangue {
  * pas (`useCallback`) : passé en dépendance d'un `useMemo`/`useEffect`, il ne
  * les invalide qu'à une vraie bascule.
  */
-export function useT(): Traducteur {
-  const langue = useLangue();
-  return useCallback((cle, params) => traduire(langue, cle, params), [langue]);
+export function useT(): TranslateFn {
+  const langue = useLanguage();
+  return useCallback((cle, params) => translate(langue, cle, params), [langue]);
 }
 
 /**
@@ -100,15 +100,15 @@ export function useT(): Traducteur {
  * `Intl.DateTimeFormat` sous-jacent n'est reconstruit qu'à une vraie bascule,
  * pas à chaque ligne de message rendue.
  */
-export function useHeure(): (ms: number) => string {
-  const langue = useLangue();
-  return useMemo(() => formateurHeure(langue), [langue]);
+export function useTimeFormatter(): (ms: number) => string {
+  const langue = useLanguage();
+  return useMemo(() => timeFormatter(langue), [langue]);
 }
 
 /** Le libellé des séparateurs de jour (« Aujourd'hui », « Hier », la date). */
-export function useJour(): (ms: number) => string {
-  const langue = useLangue();
-  return useMemo(() => formateurJour(langue), [langue]);
+export function useDayFormatter(): (ms: number) => string {
+  const langue = useLanguage();
+  return useMemo(() => dayFormatter(langue), [langue]);
 }
 
 /**
@@ -117,6 +117,6 @@ export function useJour(): (ms: number) => string {
  * courant de l'utilisateur — à préférer à `traduire(langueAppareil(), …)`, qui
  * ignorerait une langue explicitement sélectionnée dans les paramètres.
  */
-export function traduireCourant(cle: CleTraduction, params?: ParamsTraduction): string {
-  return traduire(langueActive, cle, params);
+export function translateCurrent(cle: TranslationKey, params?: TranslationParams): string {
+  return translate(langueActive, cle, params);
 }

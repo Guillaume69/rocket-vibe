@@ -8,12 +8,12 @@
 import { useCallback, useSyncExternalStore } from 'react';
 
 /** Fraction 0..1, ou `null` tant que la taille totale est inconnue. */
-export type Progression = number | null;
+export type Progress = number | null;
 
-let enCours = new Map<string, Progression>();
+let enCours = new Map<string, Progress>();
 const abonnes = new Set<() => void>();
 
-function publier(cle: string, valeur: Progression | undefined): void {
+function publier(cle: string, valeur: Progress | undefined): void {
   const suivant = new Map(enCours);
   if (valeur === undefined) suivant.delete(cle);
   else suivant.set(cle, valeur);
@@ -29,7 +29,7 @@ function abonner(abonne: () => void): () => void {
 }
 
 /** `undefined` : aucun transfert en cours pour ce fichier. */
-export function useProgression(cle: string | null): Progression | undefined {
+export function useProgress(cle: string | null): Progress | undefined {
   const lire = useCallback(() => (cle === null ? undefined : enCours.get(cle)), [cle]);
   return useSyncExternalStore(abonner, lire);
 }
@@ -39,9 +39,9 @@ export function useProgression(cle: string | null): Progression | undefined {
  * est ignoré : deux téléchargements vers la même destination s'écraseraient.
  * Rend `false` dans ce cas.
  */
-export async function transferer(
+export async function transfer(
   cle: string,
-  travail: (surProgression: (p: Progression) => void) => Promise<void>,
+  travail: (surProgression: (p: Progress) => void) => Promise<void>,
 ): Promise<boolean> {
   if (enCours.has(cle)) return false;
   publier(cle, null);
@@ -54,6 +54,6 @@ export async function transferer(
 }
 
 /** « 37 % », ou « … » tant que la taille est inconnue. */
-export function libelleProgression(p: Progression): string {
+export function progressLabel(p: Progress): string {
   return p === null ? '…' : `${Math.round(p * 100)} %`;
 }

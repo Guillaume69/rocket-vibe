@@ -8,17 +8,17 @@ import * as SecureStore from 'expo-secure-store';
 import { useSyncExternalStore } from 'react';
 
 import {
-  type CleSection,
-  basculerSection,
-  ecrireSectionsRepliees,
-  lireSectionsRepliees,
+  type SectionKey,
+  toggleSection,
+  writeCollapsedSections,
+  readCollapsedSections,
 } from './homeSections.ts';
 
 const CLE = 'sections-repliees';
 
-function lire(): ReadonlySet<CleSection> {
+function lire(): ReadonlySet<SectionKey> {
   try {
-    return lireSectionsRepliees(SecureStore.getItem(CLE));
+    return readCollapsedSections(SecureStore.getItem(CLE));
   } catch {
     return new Set();
   }
@@ -27,9 +27,9 @@ function lire(): ReadonlySet<CleSection> {
 let repliees = lire();
 const ecouteurs = new Set<() => void>();
 
-export function basculerSectionRepliee(cle: CleSection): void {
-  repliees = basculerSection(repliees, cle);
-  void SecureStore.setItemAsync(CLE, ecrireSectionsRepliees(repliees)).catch(() => {});
+export function toggleCollapsedSection(cle: SectionKey): void {
+  repliees = toggleSection(repliees, cle);
+  void SecureStore.setItemAsync(CLE, writeCollapsedSections(repliees)).catch(() => {});
   for (const e of ecouteurs) e();
 }
 
@@ -40,6 +40,6 @@ function sabonner(cb: () => void): () => void {
   };
 }
 
-export function useSectionsRepliees(): ReadonlySet<CleSection> {
+export function useCollapsedSections(): ReadonlySet<SectionKey> {
   return useSyncExternalStore(sabonner, () => repliees);
 }

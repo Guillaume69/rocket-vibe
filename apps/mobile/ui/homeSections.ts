@@ -19,54 +19,54 @@
  *     PRÉSERVÉ par chaque section — aucun re-tri ici.
  */
 
-export type EntreeAccueil<S, A> = { salon: S; abonnement: A | null };
+export type HomeEntry<S, A> = { room: S; subscription: A | null };
 
-export type CleSection = 'nonLus' | 'favoris' | 'salons' | 'messagesPrives';
+export type SectionKey = 'nonLus' | 'favoris' | 'salons' | 'messagesPrives';
 
-export type TitresSections = Record<CleSection, string>;
+export type SectionTitles = Record<SectionKey, string>;
 
-export type SectionAccueil<E> = { cle: CleSection; titre: string; data: E[] };
+export type HomeSection<E> = { key: SectionKey; title: string; data: E[] };
 
-export function construireSections<
+export function buildSections<
   S extends { rid: string; type: string },
-  A extends { rid: string; nonLus: number; alerte: boolean; ouvert: boolean; favori: boolean },
+  A extends { rid: string; unread: number; alert: boolean; open: boolean; favorite: boolean },
 >(
   lignesSalons: S[] | undefined,
   lignesAbonnements: A[] | undefined,
-  titres: TitresSections,
-): SectionAccueil<EntreeAccueil<S, A>>[] {
+  titres: SectionTitles,
+): HomeSection<HomeEntry<S, A>>[] {
   const abonnementParRid = new Map((lignesAbonnements ?? []).map((a) => [a.rid, a]));
-  const visibles: EntreeAccueil<S, A>[] = (lignesSalons ?? [])
-    .filter((s) => abonnementParRid.get(s.rid)?.ouvert !== false)
-    .map((s) => ({ salon: s, abonnement: abonnementParRid.get(s.rid) ?? null }));
+  const visibles: HomeEntry<S, A>[] = (lignesSalons ?? [])
+    .filter((s) => abonnementParRid.get(s.rid)?.open !== false)
+    .map((s) => ({ room: s, subscription: abonnementParRid.get(s.rid) ?? null }));
 
-  const aUnMessage = (e: EntreeAccueil<S, A>): boolean =>
-    (e.abonnement?.nonLus ?? 0) > 0 || e.abonnement?.alerte === true;
+  const aUnMessage = (e: HomeEntry<S, A>): boolean =>
+    (e.subscription?.unread ?? 0) > 0 || e.subscription?.alert === true;
   const nonLus = visibles.filter(aUnMessage);
-  const favoris = visibles.filter((e) => !aUnMessage(e) && e.abonnement?.favori === true);
-  const lus = visibles.filter((e) => !aUnMessage(e) && e.abonnement?.favori !== true);
+  const favoris = visibles.filter((e) => !aUnMessage(e) && e.subscription?.favorite === true);
+  const lus = visibles.filter((e) => !aUnMessage(e) && e.subscription?.favorite !== true);
 
-  const sections: SectionAccueil<EntreeAccueil<S, A>>[] = [
-    { cle: 'nonLus', titre: titres.nonLus, data: nonLus },
-    { cle: 'favoris', titre: titres.favoris, data: favoris },
-    { cle: 'salons', titre: titres.salons, data: lus.filter((e) => e.salon.type !== 'd') },
+  const sections: HomeSection<HomeEntry<S, A>>[] = [
+    { key: 'nonLus', title: titres.nonLus, data: nonLus },
+    { key: 'favoris', title: titres.favoris, data: favoris },
+    { key: 'salons', title: titres.salons, data: lus.filter((e) => e.room.type !== 'd') },
     {
-      cle: 'messagesPrives',
-      titre: titres.messagesPrives,
-      data: lus.filter((e) => e.salon.type === 'd'),
+      key: 'messagesPrives',
+      title: titres.messagesPrives,
+      data: lus.filter((e) => e.room.type === 'd'),
     },
   ];
   return sections.filter((s) => s.data.length > 0);
 }
 
-const CLES_SECTIONS: readonly CleSection[] = ['nonLus', 'favoris', 'salons', 'messagesPrives'];
+const CLES_SECTIONS: readonly SectionKey[] = ['nonLus', 'favoris', 'salons', 'messagesPrives'];
 
 /**
  * Relit les sections repliées persistées. Tout ce qui n'est pas un tableau de
  * clés connues (absence, stockage corrompu, clé d'une version future) est
  * ignoré : au pire, une section se redéplie.
  */
-export function lireSectionsRepliees(brut: string | null): ReadonlySet<CleSection> {
+export function readCollapsedSections(brut: string | null): ReadonlySet<SectionKey> {
   if (brut === null) return new Set();
   let valeur: unknown;
   try {
@@ -79,34 +79,34 @@ export function lireSectionsRepliees(brut: string | null): ReadonlySet<CleSectio
   return new Set(CLES_SECTIONS.filter((cle) => cles.includes(cle)));
 }
 
-export function ecrireSectionsRepliees(repliees: ReadonlySet<CleSection>): string {
+export function writeCollapsedSections(repliees: ReadonlySet<SectionKey>): string {
   return JSON.stringify(CLES_SECTIONS.filter((cle) => repliees.has(cle)));
 }
 
-export function basculerSection(
-  repliees: ReadonlySet<CleSection>,
-  cle: CleSection,
-): ReadonlySet<CleSection> {
+export function toggleSection(
+  repliees: ReadonlySet<SectionKey>,
+  cle: SectionKey,
+): ReadonlySet<SectionKey> {
   const suivantes = new Set(repliees);
   if (suivantes.has(cle)) suivantes.delete(cle);
   else suivantes.add(cle);
   return suivantes;
 }
 
-export type SectionAffichee<E> = SectionAccueil<E> & { repliee: boolean; total: number };
+export type DisplayedSection<E> = HomeSection<E> & { collapsed: boolean; total: number };
 
 /**
  * Vide les sections repliées en gardant leur effectif. Une section SEULE n'a
  * pas d'en-tête à l'écran, donc aucun moyen de la redéplier : elle reste
  * dépliée quel que soit l'état persisté.
  */
-export function replierSections<E>(
-  sections: SectionAccueil<E>[],
-  repliees: ReadonlySet<CleSection>,
-): SectionAffichee<E>[] {
+export function collapseSections<E>(
+  sections: HomeSection<E>[],
+  repliees: ReadonlySet<SectionKey>,
+): DisplayedSection<E>[] {
   const repliable = sections.length > 1;
   return sections.map((s) => {
-    const repliee = repliable && repliees.has(s.cle);
-    return { ...s, data: repliee ? [] : s.data, repliee, total: s.data.length };
+    const repliee = repliable && repliees.has(s.key);
+    return { ...s, data: repliee ? [] : s.data, collapsed: repliee, total: s.data.length };
   });
 }

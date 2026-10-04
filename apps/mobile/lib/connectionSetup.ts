@@ -35,39 +35,39 @@
  * Pur : tout se teste sous Node, sans réseau et sans horloge.
  */
 
-export type OptionsRaccordement = {
+export type HookupOptions = {
   /**
    * Le stream est-il DÉJÀ actif, souscriptions armées ? Évalué avant tout le
    * reste : c'est ce qui dit si la première lecture garantit à elle seule.
    */
-  streamDejaActif: () => boolean;
+  streamAlreadyActive: () => boolean;
   /**
    * Ouvre le stream, s'authentifie et rejoue les souscriptions désirées. Se
    * résout immédiatement si la socket est déjà vivante.
    */
-  ouvrirStream: () => Promise<void>;
+  openStream: () => Promise<void>;
   /** Résolue quand le serveur a armé les souscriptions. Ne rejette pas. */
-  streamArme: () => Promise<void>;
+  streamArmed: () => Promise<void>;
   /** Rattrapage REST. Appelé une fois, deux si le stream vient d'être branché. */
-  rattraper: () => Promise<void>;
+  catchUp: () => Promise<void>;
   /**
    * Ce qui suit la lecture sans dépendre du stream (files d'envoi, présence,
    * réveil des écrans). Joué UNE fois, avant que l'échec éventuel du stream ne
    * soit relayé.
    */
-  ensuite?: () => void;
+  then?: () => void;
   /** Coupe court : session terminée pendant le raccordement. */
-  estAbandonne?: () => boolean;
+  isDiscarded?: () => boolean;
 };
 
-export async function raccorder(options: OptionsRaccordement): Promise<void> {
+export async function hookUp(options: HookupOptions): Promise<void> {
   const {
-    streamDejaActif,
-    ouvrirStream,
-    streamArme,
-    rattraper,
-    ensuite,
-    estAbandonne = () => false,
+    streamAlreadyActive: streamDejaActif,
+    openStream: ouvrirStream,
+    streamArmed: streamArme,
+    catchUp: rattraper,
+    then: ensuite,
+    isDiscarded: estAbandonne = () => false,
   } = options;
 
   // Lu AVANT d'ouvrir quoi que ce soit : la question est bien « le stream

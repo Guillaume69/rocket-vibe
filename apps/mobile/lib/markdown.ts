@@ -13,8 +13,8 @@
 
 import { parse, type Root } from '@rocket.chat/message-parser';
 
-import { sansLiensDeCitation } from './quote.ts';
-import { unicodeDeCodeCourt } from './emojis.ts';
+import { withoutQuoteLinks } from './quote.ts';
+import { unicodeOfShortcode } from './emojis.ts';
 
 export type { Root };
 
@@ -31,7 +31,7 @@ export function unicodeDEmoji(noeud: unknown): string | null {
   const n = noeud as { type?: unknown; unicode?: unknown; shortCode?: unknown };
   if (n.type !== 'EMOJI') return null;
   if (typeof n.unicode === 'string') return n.unicode;
-  if (typeof n.shortCode === 'string') return unicodeDeCodeCourt(n.shortCode);
+  if (typeof n.shortCode === 'string') return unicodeOfShortcode(n.shortCode);
   return null;
 }
 
@@ -40,12 +40,12 @@ function noeudPlausible(n: unknown): boolean {
   return typeof n === 'object' && n !== null && typeof (n as { type?: unknown }).type === 'string';
 }
 
-export function arbreDuMessage(md: string | null, texte: string | null): Root | null {
+export function messageTree(md: string | null, texte: string | null): Root | null {
   // Le permalien d'une citation (`[ ](…?msg=…)`) est retiré du corps : la
   // citation se rend à part (pièce jointe `message_link`) — et pour un envoi
   // optimiste, l'aperçu local. Un message qui n'était QUE la citation rend null.
   const epure = (arbre: Root): Root | null => {
-    const filtre = sansLiensDeCitation(arbre);
+    const filtre = withoutQuoteLinks(arbre);
     return filtre.length > 0 ? filtre : null;
   };
   if (md !== null) {
@@ -78,9 +78,9 @@ export function arbreDuMessage(md: string | null, texte: string | null): Root | 
  * Texte brut d'un nœud, récursivement. Sert d'ultime repli : un type de nœud
  * que le rendu ne connaît pas doit afficher son contenu, pas disparaître.
  */
-export function texteDe(noeud: unknown): string {
+export function textOf(noeud: unknown): string {
   if (typeof noeud === 'string') return noeud;
-  if (Array.isArray(noeud)) return noeud.map(texteDe).join('');
+  if (Array.isArray(noeud)) return noeud.map(textOf).join('');
   if (typeof noeud === 'object' && noeud !== null) {
     const objet = noeud as {
       type?: unknown;
@@ -97,32 +97,32 @@ export function texteDe(noeud: unknown): string {
       if (typeof objet.shortCode === 'string') return `:${objet.shortCode}:`;
     }
     if (typeof objet.unicode === 'string') return objet.unicode;
-    const parValue = 'value' in objet ? texteDe(objet.value) : '';
+    const parValue = 'value' in objet ? textOf(objet.value) : '';
     if (parValue !== '') return parValue;
     // TIMESTAMP (et consorts) : `value` est un objet opaque, mais le parseur
     // fournit `fallback`, un nœud Plain prévu exactement pour ce cas.
-    if ('fallback' in objet) return texteDe(objet.fallback);
+    if ('fallback' in objet) return textOf(objet.fallback);
   }
   return '';
 }
 
 function enLigne(noeud: unknown): string {
   if (Array.isArray(noeud)) return noeud.map(enLigne).join('');
-  if (typeof noeud !== 'object' || noeud === null) return texteDe(noeud);
+  if (typeof noeud !== 'object' || noeud === null) return textOf(noeud);
   const n = noeud as { type?: unknown; value?: unknown };
   const valeur = n.value as { src?: unknown; label?: unknown } | undefined;
   switch (n.type) {
     case 'LINK': {
       const libelle = enLigne(valeur?.label ?? []).trim();
-      return libelle !== '' ? libelle : texteDe(valeur?.src);
+      return libelle !== '' ? libelle : textOf(valeur?.src);
     }
     case 'MENTION_USER':
-      return `@${texteDe(n.value)}`;
+      return `@${textOf(n.value)}`;
     case 'MENTION_CHANNEL':
-      return `#${texteDe(n.value)}`;
+      return `#${textOf(n.value)}`;
     case 'CODE':
     case 'QUOTE':
-      return Array.isArray(n.value) ? n.value.map(enLigne).join(' ') : texteDe(n.value);
+      return Array.isArray(n.value) ? n.value.map(enLigne).join(' ') : textOf(n.value);
     case 'UNORDERED_LIST':
     case 'ORDERED_LIST':
     case 'TASKS':
@@ -130,20 +130,20 @@ function enLigne(noeud: unknown): string {
         ? n.value.map((item) => `• ${enLigne((item as { value?: unknown }).value)}`).join(' ')
         : '';
     case 'BIG_EMOJI':
-      return Array.isArray(n.value) ? n.value.map(texteDe).join(' ') : texteDe(n.value);
+      return Array.isArray(n.value) ? n.value.map(textOf).join(' ') : textOf(n.value);
     case 'LINE_BREAK':
       return ' ';
     case 'EMOJI':
     case 'PLAIN_TEXT':
-      return texteDe(noeud);
+      return textOf(noeud);
     default:
-      return 'value' in n ? enLigne(n.value) : texteDe(noeud);
+      return 'value' in n ? enLigne(n.value) : textOf(noeud);
   }
 }
 
 /** Un message sur une ligne, sans syntaxe : l'aperçu de la liste des salons. */
-export function apercuTexte(texte: string): string {
-  const arbre = arbreDuMessage(null, texte);
+export function textPreview(texte: string): string {
+  const arbre = messageTree(null, texte);
   if (arbre === null) return texte;
   return arbre.map(enLigne).join(' ').replace(/\s+/g, ' ').trim();
 }

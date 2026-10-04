@@ -5,15 +5,15 @@
  * plus dans `app/` (chantiers 14 puis 15).
  */
 
-import { versEpoch } from '../../lib/normalize.ts';
+import { toEpoch } from '../../lib/normalize.ts';
 import type { ClientRest } from '../../lib/rest.ts';
-import type { MoteurSynchro } from '../../lib/sync.ts';
+import type { SyncEngine } from '../../lib/sync.ts';
 
 /**
  * Endpoint d'historique Rocket.Chat selon le type du salon — trois routes pour
  * la même chose, héritage de l'API. `l` (livechat) est hors périmètre.
  */
-export function cheminHistorique(type: string): string {
+export function historyPath(type: string): string {
   if (type === 'c') return 'channels.history';
   if (type === 'p') return 'groups.history';
   return 'im.history';
@@ -22,15 +22,15 @@ export function cheminHistorique(type: string): string {
 /** Taille de page serveur — le même pas que la fenêtre SQLite de l'écran. */
 const PAGE = 50;
 
-export async function chargerHistorique(
+export async function loadHistory(
   client: ClientRest,
-  moteur: MoteurSynchro,
+  moteur: SyncEngine,
   rid: string,
   type: string,
   latest?: string,
-): Promise<{ plusAncien: number | null }> {
+): Promise<{ oldest: number | null }> {
   const reponse = await client.get<{ messages?: Record<string, unknown>[] }>(
-    cheminHistorique(type),
+    historyPath(type),
     {
       // `inclusive` : deux messages peuvent partager la même milliseconde.
       // Sans lui, le jumeau du message-borne serait un trou permanent dans
@@ -44,12 +44,12 @@ export async function chargerHistorique(
     },
   );
   const lot = reponse.messages ?? [];
-  const recent = await moteur.ingererMessages(lot);
+  const recent = await moteur.ingestMessages(lot);
   // Le plus ancien `ts` de la page : c'est LUI qui dit à l'écran si la page a
   // vraiment reculé dans le passé (voir `chargerPlus` et `pageARecule`).
   let plusAncien: number | null = null;
   for (const brut of lot) {
-    const ts = versEpoch((brut as { ts?: unknown }).ts);
+    const ts = toEpoch((brut as { ts?: unknown }).ts);
     if (ts !== null && (plusAncien === null || ts < plusAncien)) plusAncien = ts;
   }
   // Le curseur de rattrapage du salon NAÎT ici — et RIEN DE PLUS. Sans lui,
@@ -63,12 +63,12 @@ export async function chargerHistorique(
   // (`lib/catchUp.ts`), la fenêtre n'a plus besoin d'être petite : le
   // curseur peut redevenir honnête.
   if (recent !== null) {
-    const existant = await moteur.depotSynchro.lireCurseur(rid, 'messages');
+    const existant = await moteur.syncStore.readCursor(rid, 'messages');
     if (existant === null) {
-      await moteur.depotSynchro.ecrireCurseur(rid, 'messages', recent);
+      await moteur.syncStore.writeCursor(rid, 'messages', recent);
     }
   }
-  return { plusAncien };
+  return { oldest: plusAncien };
 }
 
 /**
@@ -80,9 +80,9 @@ export async function chargerHistorique(
 const PAGE_FIL = 100;
 const PAGES_FIL_MAX = 20;
 
-export async function chargerFil(
+export async function loadThread(
   client: ClientRest,
-  moteur: MoteurSynchro,
+  moteur: SyncEngine,
   filId: string,
   estAbandonne: () => boolean,
 ): Promise<void> {
@@ -93,7 +93,7 @@ export async function chargerFil(
     .get<{ message?: Record<string, unknown> }>('chat.getMessage', {
       params: { msgId: filId },
     })
-    .then((r) => (r.message === undefined ? null : moteur.ingererMessages([r.message])))
+    .then((r) => (r.message === undefined ? null : moteur.ingestMessages([r.message])))
     .catch(() => {});
   for (let page = 0; page < PAGES_FIL_MAX && !estAbandonne(); page++) {
     const reponse = await client.get<{ messages?: Record<string, unknown>[] }>(
@@ -101,7 +101,7 @@ export async function chargerFil(
       { params: { tmid: filId, count: PAGE_FIL, offset: page * PAGE_FIL } },
     );
     const lot = reponse.messages ?? [];
-    await moteur.ingererMessages(lot);
+    await moteur.ingestMessages(lot);
     if (lot.length < PAGE_FIL) break;
   }
 }

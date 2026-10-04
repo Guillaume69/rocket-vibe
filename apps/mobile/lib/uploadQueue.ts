@@ -14,64 +14,64 @@
  * client web.
  */
 
-import type { ContenuChiffre, JwkFichier } from './e2e/crypto.ts';
+import type { EncryptedContent, FileJwk } from './e2e/crypto.ts';
 import type { ClientRest } from './rest.ts';
-import { ErreurRest } from './rest.ts';
+import { RestError } from './rest.ts';
 import {
   confirmerMedia,
-  televerserOctets,
-  type FichierAEnvoyer,
+  uploadBytes,
+  type FileToSend,
   type TransportUpload,
 } from './upload.ts';
 
-export type LigneTeleversement = {
+export type UploadRow = {
   id: string;
   rid: string;
   uri: string;
-  nom: string;
+  name: string;
   type: string;
-  legende: string | null;
-  statut: 'en-attente' | 'envoi' | 'echec';
+  caption: string | null;
+  status: 'en-attente' | 'envoi' | 'echec';
   /** Rendu par `rooms.media`. Non nul = les octets sont déjà chez le serveur. */
   fileId: string | null;
 };
 
-export interface DepotTeleversements {
-  inserer(ligne: Omit<LigneTeleversement, 'statut' | 'fileId'>): Promise<void>;
+export interface UploadStore {
+  insert(ligne: Omit<UploadRow, 'status' | 'fileId'>): Promise<void>;
   /** Les `en-attente` seulement, dans l'ordre de création. */
-  listerAEnvoyer(): Promise<LigneTeleversement[]>;
+  listToSend(): Promise<UploadRow[]>;
   /** Saisit la ligne (`en-attente` → `envoi`). `false` si une autre passe l'a prise. */
-  prendreEnCharge(id: string): Promise<boolean>;
+  claim(id: string): Promise<boolean>;
   /** Rend au rejeu les `envoi` orphelins d'un processus tué, SAUF ceux encore en vol ici. */
-  rearmerEnVol(enVolIci: string[]): Promise<void>;
+  rearmInFlight(enVolIci: string[]): Promise<void>;
   /** Le geste « Réessayer » : un échec redevient candidat. */
-  rearmer(id: string): Promise<void>;
-  noterFileId(id: string, fileId: string): Promise<void>;
+  rearm(id: string): Promise<void>;
+  recordFileId(id: string, fileId: string): Promise<void>;
   /** Le message portant ce fichier est-il DÉJÀ en base ? Local, jamais réseau. */
-  fichierDejaPoste(rid: string, fileId: string): Promise<boolean>;
-  marquerEchec(id: string, erreur: string): Promise<void>;
-  supprimer(id: string): Promise<void>;
+  fileAlreadyPosted(rid: string, fileId: string): Promise<boolean>;
+  markFailed(id: string, erreur: string): Promise<void>;
+  delete(id: string): Promise<void>;
 }
 
-export type ReglesUpload = {
-  tailleMax: number | null;
+export type UploadRules = {
+  maxSize: number | null;
   /** Liste blanche MIME, `null` = tout accepté. */
-  typesAcceptes: string[] | null;
+  acceptedTypes: string[] | null;
   /** `E2E_Enable_Encrypt_Files` : sans lui, un salon chiffré n'accepte aucun fichier. */
-  fichiersChiffres: boolean;
+  encryptedFiles: boolean;
 };
 
 /** Un fichier chiffré dans un fichier temporaire, prêt à téléverser. */
-export type FichierChiffre = { uri: string; cle: JwkFichier; iv: string; sha256: string; taille: number };
+export type EncryptedFile = { uri: string; key: FileJwk; iv: string; sha256: string; size: number };
 
 /** Ce que la file demande pour envoyer dans un salon chiffré. */
-export interface ChiffrementTeleversement {
-  salonChiffre(rid: string): Promise<boolean>;
+export interface UploadEncryption {
+  roomEncrypted(rid: string): Promise<boolean>;
   /** Contenu chiffré pour ce salon, `null` sans clé (verrouillé). */
-  chiffrer(rid: string, charge: object): ContenuChiffre | null;
-  chiffrerFichier(uri: string): Promise<FichierChiffre>;
+  encrypt(rid: string, charge: object): EncryptedContent | null;
+  encryptFile(uri: string): Promise<EncryptedFile>;
   /** Empreinte SHA-256 (hexadécimal) d'un texte : le nom sous lequel le fichier part. */
-  empreinteNom(nom: string): string;
+  hashedName(nom: string): string;
 }
 
 /** La clé du salon manque : la ligne attend le déverrouillage, elle n'échoue pas. */
@@ -82,23 +82,23 @@ class AttenteCle extends Error {}
  * relit : `title_link` désigne le chiffré, la clé et l'empreinte le rendent
  * lisible, et une image, un son ou une vidéo s'annonce comme tel.
  */
-export function jointeDeFichierChiffre(options: {
+export function encryptedFileAttachment(options: {
   fileId: string;
   url: string;
-  nom: string;
+  name: string;
   type: string;
-  taille: number;
-  cle: JwkFichier;
+  size: number;
+  key: FileJwk;
   iv: string;
   sha256: string;
 }): Record<string, unknown> {
-  const { fileId, url, nom, type, taille } = options;
+  const { fileId, url, name: nom, type, size: taille } = options;
   const base = {
     title: nom,
     type: 'file',
     title_link: url,
     title_link_download: true,
-    encryption: { key: options.cle, iv: options.iv },
+    encryption: { key: options.key, iv: options.iv },
     hashes: { sha256: options.sha256 },
     fileId,
   };
@@ -121,7 +121,7 @@ type ReglagePublic = { _id?: string; value?: unknown };
  * no-op). On demande TOUT (`count=0`, comme le relevé de connexion) et on
  * filtre côté client.
  */
-export async function lireReglesUpload(client: ClientRest): Promise<ReglesUpload> {
+export async function readUploadRules(client: ClientRest): Promise<UploadRules> {
   const reponse = await client.get<{ settings?: ReglagePublic[] }>('settings.public', {
     params: { count: 0 },
   });
@@ -141,7 +141,7 @@ export async function lireReglesUpload(client: ClientRest): Promise<ReglesUpload
       typesAcceptes = liste.length > 0 ? liste : null;
     }
   }
-  return { tailleMax, typesAcceptes, fichiersChiffres };
+  return { maxSize: tailleMax, acceptedTypes: typesAcceptes, encryptedFiles: fichiersChiffres };
 }
 
 /**
@@ -159,18 +159,18 @@ const EN_VOL_ICI = new Set<string>();
  * phrase se fait au point d'affichage (`phraseValidation`, ui/fileValidation.ts).
  */
 export type DetailValidation =
-  | { code: 'taille'; maxMo: string }
+  | { code: 'taille'; maxMb: string }
   | { code: 'type'; type: string }
   | { code: 'chiffre' };
 
-export class ErreurValidation extends Error {
+export class ValidationError extends Error {
   readonly detail: DetailValidation;
 
   constructor(detail: DetailValidation) {
     // `message` est un diagnostic (logs) — jamais la chaîne affichée.
     super(
       detail.code === 'taille'
-        ? `taille > ${detail.maxMo} Mo`
+        ? `taille > ${detail.maxMb} Mo`
         : detail.code === 'type'
           ? `type ${detail.type} refusé`
           : 'fichiers chiffrés désactivés',
@@ -181,62 +181,62 @@ export class ErreurValidation extends Error {
 }
 
 /** `image/*` dans la liste blanche accepte `image/png`, etc. */
-export function validerFichier(
-  regles: ReglesUpload,
-  fichier: { type: string; taille: number | null },
+export function validateFile(
+  regles: UploadRules,
+  fichier: { type: string; size: number | null },
   salonChiffre = false,
 ): void {
-  if (salonChiffre && !regles.fichiersChiffres) throw new ErreurValidation({ code: 'chiffre' });
-  if (regles.tailleMax !== null && fichier.taille !== null && fichier.taille > regles.tailleMax) {
-    const mo = (regles.tailleMax / 1024 / 1024).toFixed(1);
-    throw new ErreurValidation({ code: 'taille', maxMo: mo });
+  if (salonChiffre && !regles.encryptedFiles) throw new ValidationError({ code: 'chiffre' });
+  if (regles.maxSize !== null && fichier.size !== null && fichier.size > regles.maxSize) {
+    const mo = (regles.maxSize / 1024 / 1024).toFixed(1);
+    throw new ValidationError({ code: 'taille', maxMb: mo });
   }
-  if (regles.typesAcceptes !== null) {
-    const accepte = regles.typesAcceptes.some((motif) => {
+  if (regles.acceptedTypes !== null) {
+    const accepte = regles.acceptedTypes.some((motif) => {
       if (motif === fichier.type) return true;
       const [famille, sous] = motif.split('/');
       return sous === '*' && fichier.type.startsWith(`${famille}/`);
     });
     if (!accepte) {
-      throw new ErreurValidation({ code: 'type', type: fichier.type });
+      throw new ValidationError({ code: 'type', type: fichier.type });
     }
   }
 }
 
-export class MoteurTeleversement {
-  private readonly depot: DepotTeleversements;
+export class UploadEngine {
+  private readonly store: UploadStore;
   private readonly client: ClientRest;
   private readonly transport: TransportUpload;
-  private readonly genererId: () => string;
-  private readonly ingerer: (doc: Record<string, unknown>) => Promise<void>;
-  private readonly supprimerFichierLocal: ((uri: string) => Promise<void>) | undefined;
-  private readonly rafraichirSalon: ((rid: string) => Promise<void>) | undefined;
-  private readonly chiffrement: ChiffrementTeleversement | undefined;
+  private readonly generateId: () => string;
+  private readonly ingest: (doc: Record<string, unknown>) => Promise<void>;
+  private readonly deleteLocalFile: ((uri: string) => Promise<void>) | undefined;
+  private readonly refreshRoom: ((rid: string) => Promise<void>) | undefined;
+  private readonly encryption: UploadEncryption | undefined;
   /**
    * Clé de chaque fichier chiffré déjà téléversé, en attente de son confirm.
    * En mémoire seulement : un processus tué entre les deux temps la perd, et
    * le fichier repart alors, chiffré sous une clé neuve.
    */
-  private readonly chiffres = new Map<string, FichierChiffre & { nomHache: string }>();
-  private enVol = false;
-  private repasser = false;
+  private readonly encrypted = new Map<string, EncryptedFile & { hashedName: string }>();
+  private inFlight = false;
+  private rerun = false;
   /** Progression 0..1 du téléversement en cours, par id — pour l'UI. */
-  readonly progression = new Map<string, number>();
-  private regles: ReglesUpload | null = null;
+  readonly progress = new Map<string, number>();
+  private rules: UploadRules | null = null;
   /** Faux tant que les `envoi` orphelins du processus d'avant n'ont pas été rendus. */
-  private rearme = false;
+  private rearmed = false;
   /** Ids abandonnés pendant leur propre envoi — vérifiés avant de poster. */
-  private readonly abandonnes = new Set<string>();
+  private readonly discarded = new Set<string>();
   /** Interrupteurs des tâches en vol, posés par le transport. */
-  private readonly annulations = new Map<string, () => Promise<void>>();
-  private readonly auditeurs = new Set<() => void>();
+  private readonly cancellations = new Map<string, () => Promise<void>>();
+  private readonly observers = new Set<() => void>();
 
   constructor(options: {
-    depot: DepotTeleversements;
+    store: UploadStore;
     client: ClientRest;
     transport: TransportUpload;
-    genererId: () => string;
-    ingerer: (doc: Record<string, unknown>) => Promise<void>;
+    generateId: () => string;
+    ingest: (doc: Record<string, unknown>) => Promise<void>;
     /**
      * Efface le fichier local d'une ligne soldée (succès ou abandon). Injecté
      * plutôt qu'importé : `expo-file-system` n'existe pas sous Node, et ce
@@ -244,23 +244,23 @@ export class MoteurTeleversement {
      * l'URI est bien dans le cache de l'app — on n'efface JAMAIS un fichier
      * que l'utilisateur a choisi ailleurs.
      */
-    supprimerFichierLocal?: (uri: string) => Promise<void>;
+    deleteLocalFile?: (uri: string) => Promise<void>;
     /**
      * Rapatrie les messages récents d'un salon. Appelé UNIQUEMENT quand un
      * `file_id` déjà persisté oblige à savoir si le message existe et que la
      * base locale ne le sait pas — donc jamais sur le chemin nominal.
      */
-    rafraichirSalon?: (rid: string) => Promise<void>;
-    chiffrement?: ChiffrementTeleversement;
+    refreshRoom?: (rid: string) => Promise<void>;
+    encryption?: UploadEncryption;
   }) {
-    this.depot = options.depot;
+    this.store = options.store;
     this.client = options.client;
     this.transport = options.transport;
-    this.genererId = options.genererId;
-    this.ingerer = options.ingerer;
-    this.supprimerFichierLocal = options.supprimerFichierLocal;
-    this.rafraichirSalon = options.rafraichirSalon;
-    this.chiffrement = options.chiffrement;
+    this.generateId = options.generateId;
+    this.ingest = options.ingest;
+    this.deleteLocalFile = options.deleteLocalFile;
+    this.refreshRoom = options.refreshRoom;
+    this.encryption = options.encryption;
   }
 
   /**
@@ -268,25 +268,25 @@ export class MoteurTeleversement {
    * barre du bandeau. Un `useRequeteVive` ne suffit pas : la fraction ne vit
    * qu'en mémoire, aucune écriture SQLite ne la porte.
    */
-  abonner(auditeur: () => void): () => void {
-    this.auditeurs.add(auditeur);
-    return () => void this.auditeurs.delete(auditeur);
+  subscribe(auditeur: () => void): () => void {
+    this.observers.add(auditeur);
+    return () => void this.observers.delete(auditeur);
   }
 
-  private publier(): void {
-    for (const auditeur of this.auditeurs) auditeur();
+  private publish(): void {
+    for (const auditeur of this.observers) auditeur();
   }
 
-  private async reglesUpload(): Promise<ReglesUpload> {
-    if (this.regles !== null) return this.regles;
+  private async uploadRules(): Promise<UploadRules> {
+    if (this.rules !== null) return this.rules;
     try {
-      const regles = await lireReglesUpload(this.client);
-      this.regles = regles; // seul un SUCCÈS est mémoïsé —
+      const regles = await readUploadRules(this.client);
+      this.rules = regles; // seul un SUCCÈS est mémoïsé —
       return regles;
     } catch {
       // — un repli permissif mis en cache après un passage hors ligne
       // désactiverait la validation pour toute la session.
-      return { tailleMax: null, typesAcceptes: null, fichiersChiffres: true };
+      return { maxSize: null, acceptedTypes: null, encryptedFiles: true };
     }
   }
 
@@ -295,96 +295,96 @@ export class MoteurTeleversement {
    * dès qu'on la pose, pas au moment d'envoyer. `envoyer` revalide de toute
    * façon — la pièce a pu être réduite entre-temps.
    */
-  async valider(fichier: { type: string; taille: number | null }, rid?: string): Promise<void> {
-    const chiffre = rid !== undefined && (await this.chiffrement?.salonChiffre(rid)) === true;
-    validerFichier(await this.reglesUpload(), fichier, chiffre);
+  async validate(fichier: { type: string; size: number | null }, rid?: string): Promise<void> {
+    const chiffre = rid !== undefined && (await this.encryption?.roomEncrypted(rid)) === true;
+    validateFile(await this.uploadRules(), fichier, chiffre);
   }
 
   /** Valide (7.3) PUIS persiste l'intention PUIS tente l'envoi. */
-  async envoyer(
+  async send(
     rid: string,
-    fichier: FichierAEnvoyer & { taille: number | null },
+    fichier: FileToSend & { size: number | null },
     legende?: string,
   ): Promise<void> {
-    const chiffre = (await this.chiffrement?.salonChiffre(rid)) === true;
-    validerFichier(await this.reglesUpload(), fichier, chiffre);
+    const chiffre = (await this.encryption?.roomEncrypted(rid)) === true;
+    validateFile(await this.uploadRules(), fichier, chiffre);
 
-    await this.depot.inserer({
-      id: this.genererId(),
+    await this.store.insert({
+      id: this.generateId(),
       rid,
       uri: fichier.uri,
-      nom: fichier.nom,
+      name: fichier.name,
       type: fichier.type,
-      legende: legende ?? null,
+      caption: legende ?? null,
     });
-    await this.traiter();
+    await this.process();
   }
 
   /** Rejoue la file, une passe à la fois — même discipline que MoteurEnvoi. */
-  async traiter(): Promise<void> {
-    if (this.enVol) {
-      this.repasser = true;
+  async process(): Promise<void> {
+    if (this.inFlight) {
+      this.rerun = true;
       return;
     }
-    this.enVol = true;
+    this.inFlight = true;
     try {
       // Une seule fois par processus, AVANT la première lecture de la file :
       // un `envoi` ne peut avoir été posé que par une exécution précédente,
       // tuée en plein téléversement. Sans ce geste, sa ligne resterait hors du
       // listage à vie et le fichier ne partirait jamais.
-      if (!this.rearme) {
-        this.rearme = true;
-        await this.depot.rearmerEnVol([...EN_VOL_ICI]);
+      if (!this.rearmed) {
+        this.rearmed = true;
+        await this.store.rearmInFlight([...EN_VOL_ICI]);
       }
       do {
-        this.repasser = false;
-        if (!(await this.unePasse())) return;
-      } while (this.repasser);
+        this.rerun = false;
+        if (!(await this.runPass())) return;
+      } while (this.rerun);
     } finally {
-      this.enVol = false;
+      this.inFlight = false;
     }
   }
 
   /** Le geste explicite « Réessayer » — le seul qui sorte une ligne de l'échec. */
-  async reessayer(id: string): Promise<void> {
-    await this.depot.rearmer(id);
-    await this.traiter();
+  async retry(id: string): Promise<void> {
+    await this.store.rearm(id);
+    await this.process();
   }
 
-  private async unePasse(): Promise<boolean> {
-    for (const ligne of await this.depot.listerAEnvoyer()) {
+  private async runPass(): Promise<boolean> {
+    for (const ligne of await this.store.listToSend()) {
       // Saisie atomique : si une autre passe l'a déjà prise, on la laisse.
-      if (!(await this.depot.prendreEnCharge(ligne.id))) continue;
+      if (!(await this.store.claim(ligne.id))) continue;
       EN_VOL_ICI.add(ligne.id);
       try {
-        this.progression.set(ligne.id, 0);
-        this.publier();
-        if (!(await this.poster(ligne))) return false;
+        this.progress.set(ligne.id, 0);
+        this.publish();
+        if (!(await this.post(ligne))) return false;
       } catch (e) {
-        if (this.abandonnes.has(ligne.id)) {
+        if (this.discarded.has(ligne.id)) {
           // L'annulation a fait échouer la tâche, c'est le résultat voulu :
           // la ligne est déjà supprimée, il n'y a rien à marquer.
           continue;
         }
         if (e instanceof AttenteCle) {
-          await this.depot.rearmer(ligne.id);
+          await this.store.rearm(ligne.id);
           continue;
         }
-        if (e instanceof ErreurRest && e.statut === 0) {
+        if (e instanceof RestError && e.status === 0) {
           // Injoignable. La ligne doit REDEVENIR `en-attente` : la laisser en
           // `envoi` la sortirait du listage jusqu'au prochain lancement.
-          await this.depot.rearmer(ligne.id);
+          await this.store.rearm(ligne.id);
           return false;
         }
         // `derniere_erreur` est un DIAGNOSTIC (jamais affiché — l'UI montre
         // `ligneMessage.echecReessayer`) : pas une chaîne à traduire.
-        await this.depot.marquerEchec(ligne.id, e instanceof Error ? e.message : 'Envoi refusé.');
+        await this.store.markFailed(ligne.id, e instanceof Error ? e.message : 'Envoi refusé.');
       } finally {
         EN_VOL_ICI.delete(ligne.id);
-        this.progression.delete(ligne.id);
-        this.annulations.delete(ligne.id);
-        this.abandonnes.delete(ligne.id);
-        this.publier();
+        this.progress.delete(ligne.id);
+        this.cancellations.delete(ligne.id);
+        this.discarded.delete(ligne.id);
+        this.publish();
       }
     }
     return true;
@@ -394,24 +394,24 @@ export class MoteurTeleversement {
    * Une ligne, en deux temps séparés par une écriture. Rend `false` quand le
    * réseau est mort et qu'il faut arrêter la passe.
    */
-  private async poster(ligne: LigneTeleversement): Promise<boolean> {
-    if ((await this.chiffrement?.salonChiffre(ligne.rid)) === true) {
-      return this.posterChiffre(ligne, this.chiffrement as ChiffrementTeleversement);
+  private async post(ligne: UploadRow): Promise<boolean> {
+    if ((await this.encryption?.roomEncrypted(ligne.rid)) === true) {
+      return this.postEncrypted(ligne, this.encryption as UploadEncryption);
     }
     let fileId = ligne.fileId;
 
     if (fileId === null) {
-      fileId = await televerserOctets({
+      fileId = await uploadBytes({
         client: this.client,
         transport: this.transport,
         rid: ligne.rid,
-        fichier: { uri: ligne.uri, nom: ligne.nom, type: ligne.type },
-        surProgression: (fraction) => this.noterProgression(ligne.id, fraction),
-        surAnnulable: (annuler) => void this.annulations.set(ligne.id, annuler),
+        file: { uri: ligne.uri, name: ligne.name, type: ligne.type },
+        onProgress: (fraction) => this.recordProgress(ligne.id, fraction),
+        onCancelable: (annuler) => void this.cancellations.set(ligne.id, annuler),
       });
       // AVANT le confirm : c'est tout l'objet de la colonne.
-      await this.depot.noterFileId(ligne.id, fileId);
-    } else if (await this.dejaPoste(ligne.rid, fileId)) {
+      await this.store.recordFileId(ligne.id, fileId);
+    } else if (await this.alreadyPosted(ligne.rid, fileId)) {
       // Les octets étaient déjà partis ET le message est là : le confirm avait
       // abouti, seule sa réponse s'est perdue. Re-confirmer posterait un
       // doublon. On solde la ligne, sans rien envoyer.
@@ -422,16 +422,16 @@ export class MoteurTeleversement {
     // Dernière fenêtre où « Abandonner » peut encore empêcher le message
     // d'exister : après le confirm, le serveur l'a créé et le stream DDP le
     // livrera de toute façon — on ne peut plus le dé-poster.
-    if (this.abandonnes.has(ligne.id)) return true;
+    if (this.discarded.has(ligne.id)) return true;
 
     const message = await confirmerMedia({
       client: this.client,
       rid: ligne.rid,
       fileId,
-      message: ligne.legende ?? undefined,
+      message: ligne.caption ?? undefined,
     });
     await this.solder(ligne);
-    if (!this.abandonnes.has(ligne.id)) await this.ingerer(message);
+    if (!this.discarded.has(ligne.id)) await this.ingest(message);
     return true;
   }
 
@@ -439,83 +439,83 @@ export class MoteurTeleversement {
    * Le pendant chiffré de `poster`, mêmes deux temps. Rien ne part tant que la
    * clé du salon manque : ni les octets, ni le message.
    */
-  private async posterChiffre(
-    ligne: LigneTeleversement,
-    chiffrement: ChiffrementTeleversement,
+  private async postEncrypted(
+    ligne: UploadRow,
+    chiffrement: UploadEncryption,
   ): Promise<boolean> {
-    if (chiffrement.chiffrer(ligne.rid, {}) === null) throw new AttenteCle();
+    if (chiffrement.encrypt(ligne.rid, {}) === null) throw new AttenteCle();
     let fileId = ligne.fileId;
-    let fichier = this.chiffres.get(ligne.id);
+    let fichier = this.encrypted.get(ligne.id);
 
     if (fileId !== null && fichier === undefined) {
-      if (await this.dejaPoste(ligne.rid, fileId)) {
+      if (await this.alreadyPosted(ligne.rid, fileId)) {
         await this.solder(ligne);
         return true;
       }
       fileId = null;
     }
 
-    const meta = (f: FichierChiffre) => ({
+    const meta = (f: EncryptedFile) => ({
       type: ligne.type,
       typeGroup: ligne.type.split('/')[0],
-      name: ligne.nom,
-      encryption: { key: f.cle, iv: f.iv },
+      name: ligne.name,
+      encryption: { key: f.key, iv: f.iv },
       hashes: { sha256: f.sha256 },
     });
 
     if (fileId === null || fichier === undefined) {
-      const chiffre = await chiffrement.chiffrerFichier(ligne.uri);
-      fichier = { ...chiffre, nomHache: chiffrement.empreinteNom(ligne.nom) };
-      const contenuFichier = chiffrement.chiffrer(ligne.rid, meta(fichier));
+      const chiffre = await chiffrement.encryptFile(ligne.uri);
+      fichier = { ...chiffre, hashedName: chiffrement.hashedName(ligne.name) };
+      const contenuFichier = chiffrement.encrypt(ligne.rid, meta(fichier));
       if (contenuFichier === null) throw new AttenteCle();
       try {
-        fileId = await televerserOctets({
+        fileId = await uploadBytes({
           client: this.client,
           transport: this.transport,
           rid: ligne.rid,
-          fichier: { uri: fichier.uri, nom: fichier.nomHache, type: 'application/octet-stream' },
-          surProgression: (fraction) => this.noterProgression(ligne.id, fraction),
-          surAnnulable: (annuler) => void this.annulations.set(ligne.id, annuler),
-          champs: { content: JSON.stringify(contenuFichier) },
+          file: { uri: fichier.uri, name: fichier.hashedName, type: 'application/octet-stream' },
+          onProgress: (fraction) => this.recordProgress(ligne.id, fraction),
+          onCancelable: (annuler) => void this.cancellations.set(ligne.id, annuler),
+          fields: { content: JSON.stringify(contenuFichier) },
         });
       } finally {
-        await this.supprimerFichierLocal?.(fichier.uri).catch(() => {});
+        await this.deleteLocalFile?.(fichier.uri).catch(() => {});
       }
-      this.chiffres.set(ligne.id, fichier);
-      await this.depot.noterFileId(ligne.id, fileId);
+      this.encrypted.set(ligne.id, fichier);
+      await this.store.recordFileId(ligne.id, fileId);
     }
 
-    if (this.abandonnes.has(ligne.id)) return true;
+    if (this.discarded.has(ligne.id)) return true;
 
-    const piece = { _id: fileId, name: ligne.nom, type: ligne.type, size: fichier.taille };
-    const jointe = jointeDeFichierChiffre({
+    const piece = { _id: fileId, name: ligne.name, type: ligne.type, size: fichier.size };
+    const jointe = encryptedFileAttachment({
       fileId,
-      url: `/file-upload/${fileId}/${fichier.nomHache}`,
-      nom: ligne.nom,
+      url: `/file-upload/${fileId}/${fichier.hashedName}`,
+      name: ligne.name,
       type: ligne.type,
-      taille: fichier.taille,
-      cle: fichier.cle,
+      size: fichier.size,
+      key: fichier.key,
       iv: fichier.iv,
       sha256: fichier.sha256,
     });
-    const content = chiffrement.chiffrer(ligne.rid, {
-      msg: ligne.legende ?? '',
+    const content = chiffrement.encrypt(ligne.rid, {
+      msg: ligne.caption ?? '',
       attachments: [jointe],
       files: [piece],
       file: piece,
     });
-    const fileContent = chiffrement.chiffrer(ligne.rid, meta(fichier));
+    const fileContent = chiffrement.encrypt(ligne.rid, meta(fichier));
     if (content === null || fileContent === null) throw new AttenteCle();
 
     const message = await confirmerMedia({
       client: this.client,
       rid: ligne.rid,
       fileId,
-      corps: { msg: '', t: 'e2e', content, fileContent },
+      body: { msg: '', t: 'e2e', content, fileContent },
     });
-    this.chiffres.delete(ligne.id);
+    this.encrypted.delete(ligne.id);
     await this.solder(ligne);
-    if (!this.abandonnes.has(ligne.id)) await this.ingerer(message);
+    if (!this.discarded.has(ligne.id)) await this.ingest(message);
     return true;
   }
 
@@ -535,23 +535,23 @@ export class MoteurTeleversement {
    * on redemande. Un appel REST ciblé, payé seulement dans le cas rare d'une
    * réponse perdue — jamais sur le chemin nominal.
    */
-  private async dejaPoste(rid: string, fileId: string): Promise<boolean> {
-    if (await this.depot.fichierDejaPoste(rid, fileId)) return true;
-    if (this.rafraichirSalon === undefined) return false;
+  private async alreadyPosted(rid: string, fileId: string): Promise<boolean> {
+    if (await this.store.fileAlreadyPosted(rid, fileId)) return true;
+    if (this.refreshRoom === undefined) return false;
     try {
-      await this.rafraichirSalon(rid);
+      await this.refreshRoom(rid);
     } catch {
       // Rafraîchissement impossible : on ne sait toujours pas. Voir plus bas
       // le choix assumé entre le doublon et la perte.
       return false;
     }
-    return this.depot.fichierDejaPoste(rid, fileId);
+    return this.store.fileAlreadyPosted(rid, fileId);
   }
 
   /** Ligne soldée : plus de file, plus de fichier temporaire. */
-  private async solder(ligne: LigneTeleversement): Promise<void> {
-    await this.depot.supprimer(ligne.id);
-    await this.supprimerFichierLocal?.(ligne.uri).catch(() => {});
+  private async solder(ligne: UploadRow): Promise<void> {
+    await this.store.delete(ligne.id);
+    await this.deleteLocalFile?.(ligne.uri).catch(() => {});
   }
 
   /**
@@ -559,10 +559,10 @@ export class MoteurTeleversement {
    * main à chaque bloc : re-rendre l'écran de salon à cette cadence coûterait
    * plus cher que le téléversement lui-même.
    */
-  private noterProgression(id: string, fraction: number): void {
-    const avant = this.progression.get(id) ?? 0;
-    this.progression.set(id, fraction);
-    if (Math.floor(fraction * 100) !== Math.floor(avant * 100)) this.publier();
+  private recordProgress(id: string, fraction: number): void {
+    const avant = this.progress.get(id) ?? 0;
+    this.progress.set(id, fraction);
+    if (Math.floor(fraction * 100) !== Math.floor(avant * 100)) this.publish();
   }
 
   /**
@@ -574,14 +574,14 @@ export class MoteurTeleversement {
    * `uri` permet d'effacer aussi le fichier temporaire — l'appelant l'a sous
    * la main, le moteur non (la ligne vient d'être supprimée).
    */
-  async abandonner(id: string, uri?: string): Promise<void> {
-    this.abandonnes.add(id);
-    this.chiffres.delete(id);
-    await this.depot.supprimer(id);
-    const annuler = this.annulations.get(id);
+  async discard(id: string, uri?: string): Promise<void> {
+    this.discarded.add(id);
+    this.encrypted.delete(id);
+    await this.store.delete(id);
+    const annuler = this.cancellations.get(id);
     if (annuler !== undefined) await annuler().catch(() => {});
-    if (uri !== undefined) await this.supprimerFichierLocal?.(uri).catch(() => {});
-    this.progression.delete(id);
-    this.publier();
+    if (uri !== undefined) await this.deleteLocalFile?.(uri).catch(() => {});
+    this.progress.delete(id);
+    this.publish();
   }
 }

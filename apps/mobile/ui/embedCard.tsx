@@ -20,36 +20,36 @@ import { useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { metasVideo, type MetaVideo } from '../lib/linkPreview.ts';
-import { detecterLiensVideo, type LienVideo } from '../lib/videoLinks.ts';
+import { detectVideoLinks, type VideoLink } from '../lib/videoLinks.ts';
 import { useT } from './i18n.ts';
-import { ouvrirLienExterne } from './externalLink.ts';
-import { type Couleurs, POLICES } from './theme.ts';
+import { openExternalLink } from './externalLink.ts';
+import { type Colors, FONTS } from './theme.ts';
 
 /** Rend une carte par lien vidéo détecté dans `texte` (rien si aucun). */
-export function LiensEmbed({
+export function EmbedLinks({
   c,
-  texte,
+  text: texte,
   urls,
-  surAppuiLong,
+  onLongPress: surAppuiLong,
 }: {
-  c: Couleurs;
-  texte: string | null;
+  c: Colors;
+  text: string | null;
   /** `message.urls` : le titre de la vidéo s'y trouve, récolté par le serveur. */
   urls: string | null;
-  surAppuiLong?: (() => void) | undefined;
+  onLongPress?: (() => void) | undefined;
 }) {
-  const liens = useMemo(() => detecterLiensVideo(texte), [texte]);
+  const liens = useMemo(() => detectVideoLinks(texte), [texte]);
   const metas = useMemo(() => metasVideo(urls), [urls]);
   if (liens.length === 0) return null;
   return (
-    <View style={styles.liste}>
+    <View style={styles.list}>
       {liens.map((lien, i) => (
         <CarteEmbed
           key={`${lien.provider}:${lien.id}:${i}`}
           c={c}
-          lien={lien}
+          link={lien}
           meta={metas.get(lien.id) ?? null}
-          surAppuiLong={surAppuiLong}
+          onLongPress={surAppuiLong}
         />
       ))}
     </View>
@@ -58,42 +58,42 @@ export function LiensEmbed({
 
 function CarteEmbed({
   c,
-  lien,
+  link: lien,
   meta,
-  surAppuiLong,
+  onLongPress: surAppuiLong,
 }: {
-  c: Couleurs;
-  lien: LienVideo;
+  c: Colors;
+  link: VideoLink;
   /** `null` tant que le serveur n'a pas (encore) décrit le lien. */
   meta: MetaVideo | null;
-  surAppuiLong?: (() => void) | undefined;
+  onLongPress?: (() => void) | undefined;
 }) {
   const t = useT();
   const [erreurVignette, setErreurVignette] = useState(false);
-  const montreVignette = lien.vignette !== null && !erreurVignette;
+  const montreVignette = lien.thumbnail !== null && !erreurVignette;
 
-  const titre = meta?.titre ?? null;
+  const titre = meta?.title ?? null;
 
   return (
     <Pressable
-      onPress={() => ouvrirLienExterne(lien.url)}
+      onPress={() => openExternalLink(lien.url)}
       onLongPress={surAppuiLong}
       delayLongPress={350}
-      style={[styles.carte, { borderColor: c.bordure, backgroundColor: c.fondImageAttente }]}
+      style={[styles.card, { borderColor: c.border, backgroundColor: c.pendingImageBackground }]}
       accessibilityRole="button"
-      accessibilityLabel={t('carteEmbed.ouvrir', { nom: titre ?? lien.nom })}
+      accessibilityLabel={t('carteEmbed.ouvrir', { nom: titre ?? lien.name })}
     >
       <View style={styles.media}>
       {montreVignette ? (
         <Image
-          source={{ uri: lien.vignette! }}
+          source={{ uri: lien.thumbnail! }}
           style={StyleSheet.absoluteFill}
           resizeMode="cover"
           onError={() => setErreurVignette(true)}
         />
       ) : (
         <LinearGradient
-          colors={c.degradeMarque}
+          colors={c.brandGradient}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
@@ -101,29 +101,29 @@ function CarteEmbed({
       )}
       {/* Voile : contraste pour que le bouton et l'étiquette ressortent sur
           n'importe quelle vignette. */}
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: c.voileMediaLeger }]} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: c.lightMediaScrim }]} />
 
       <LinearGradient
-        colors={c.degradeCta}
+        colors={c.ctaGradient}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={styles.bouton}
+        style={styles.button}
       >
         {/* Triangle DESSINÉ, pas un emoji (« ▶ » sort orange sur Android). */}
-        <View style={[styles.iconePlay, { borderLeftColor: c.surAccent }]} />
+        <View style={[styles.playIcon, { borderLeftColor: c.onAccent }]} />
       </LinearGradient>
       </View>
 
-      <View style={[styles.pied, { backgroundColor: c.carte }]}>
+      <View style={[styles.footer, { backgroundColor: c.card }]}>
         {titre !== null && (
-          <Text style={[styles.titre, { color: c.texte }]} numberOfLines={2}>
+          <Text style={[styles.title, { color: c.text }]} numberOfLines={2}>
             {titre}
           </Text>
         )}
         <View style={styles.ligneSource}>
-          <View style={[styles.triangleMini, { borderLeftColor: c.texteTertiaire }]} />
-          <Text style={[styles.nom, { color: c.texteTertiaire }]} numberOfLines={1}>
-            {meta?.auteur != null ? `${lien.nom} · ${meta.auteur}` : lien.nom}
+          <View style={[styles.triangleMini, { borderLeftColor: c.tertiaryText }]} />
+          <Text style={[styles.name, { color: c.tertiaryText }]} numberOfLines={1}>
+            {meta?.author != null ? `${lien.name} · ${meta.author}` : lien.name}
           </Text>
         </View>
       </View>
@@ -132,9 +132,9 @@ function CarteEmbed({
 }
 
 const styles = StyleSheet.create({
-  liste: { gap: 6, marginTop: 4 },
+  list: { gap: 6, marginTop: 4 },
   // Les couleurs (`fondImageAttente`, `voileMediaLeger`) viennent du thème.
-  carte: {
+  card: {
     width: 240,
     maxWidth: '100%',
     borderRadius: 14,
@@ -142,14 +142,14 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   media: { aspectRatio: 16 / 9, alignItems: 'center', justifyContent: 'center' },
-  bouton: {
+  button: {
     width: 52,
     height: 52,
     borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  iconePlay: {
+  playIcon: {
     width: 0,
     height: 0,
     borderTopWidth: 11,
@@ -159,9 +159,9 @@ const styles = StyleSheet.create({
     borderBottomColor: 'transparent',
     marginLeft: 4, // recentrage optique du triangle
   },
-  pied: { paddingHorizontal: 10, paddingVertical: 8, gap: 4 },
+  footer: { paddingHorizontal: 10, paddingVertical: 8, gap: 4 },
   ligneSource: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  titre: { fontFamily: POLICES.corpsSemi, fontSize: 13, lineHeight: 17 },
+  title: { fontFamily: FONTS.corpsSemi, fontSize: 13, lineHeight: 17 },
   triangleMini: {
     width: 0,
     height: 0,
@@ -171,5 +171,5 @@ const styles = StyleSheet.create({
     borderTopColor: 'transparent',
     borderBottomColor: 'transparent',
   },
-  nom: { fontFamily: POLICES.corps, fontSize: 11, flexShrink: 1 },
+  name: { fontFamily: FONTS.body, fontSize: 11, flexShrink: 1 },
 });

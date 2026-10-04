@@ -23,9 +23,9 @@
  * remonte les bons en tête et `LIMITE_SUGGESTIONS` borne la bande. En deçà (le
  * `:` seul), rien : ce serait tout le dictionnaire.
  */
-export const MIN_REQUETE = 1;
+export const MIN_QUERY = 1;
 /** Plafond de suggestions montrées : la bande défile, inutile d'en classer 2000. */
-export const LIMITE_SUGGESTIONS = 30;
+export const SUGGESTION_LIMIT = 30;
 
 export type TypeEmoji = 'standard' | 'custom';
 export type SuggestionEmoji = { code: string; type: TypeEmoji };
@@ -48,10 +48,10 @@ const LETTRE_OU_CHIFFRE = /[\p{L}\p{N}]/u;
  * déclenche pas : `lastIndexOf(':')` tombe alors sur le `:` de clôture et la
  * requête est vide.
  */
-export function detecterJetonEmoji(
+export function detectEmojiToken(
   texte: string,
   curseur: number,
-): { debut: number; requete: string } | null {
+): { start: number; query: string } | null {
   const c = Math.max(0, Math.min(curseur, texte.length));
   const avant = texte.slice(0, c);
   const colon = avant.lastIndexOf(':');
@@ -59,8 +59,8 @@ export function detecterJetonEmoji(
   // `charAt` renvoie toujours une chaîne ('' hors bornes) : pas de garde d'index.
   if (colon > 0 && LETTRE_OU_CHIFFRE.test(avant.charAt(colon - 1))) return null;
   const requete = avant.slice(colon + 1);
-  if (!CODE_VALIDE.test(requete) || requete.length < MIN_REQUETE) return null;
-  return { debut: colon, requete: requete.toLowerCase() };
+  if (!CODE_VALIDE.test(requete) || requete.length < MIN_QUERY) return null;
+  return { start: colon, query: requete.toLowerCase() };
 }
 
 // Le `Set` des codes standard est construit UNE fois : `codesEmojiStandard()`
@@ -93,16 +93,16 @@ function ensembleStandard(codes: readonly string[]): Set<string> {
  * rendu, le glyphe Unicode gagne sur l'image custom (`ui/markdown.tsx`), donc
  * la suggestion doit insérer le glyphe — on le traite en standard.
  */
-export function completerEmoji(
+export function completeEmoji(
   requete: string,
   codesStandard: readonly string[],
   codesCustom: readonly string[],
-  limite = LIMITE_SUGGESTIONS,
+  limite = SUGGESTION_LIMIT,
 ): SuggestionEmoji[] {
   const q = requete.toLowerCase();
-  if (q.length < MIN_REQUETE) return [];
+  if (q.length < MIN_QUERY) return [];
 
-  const candidats: { s: SuggestionEmoji; rang: number }[] = [];
+  const candidats: { s: SuggestionEmoji; rank: number }[] = [];
   const ajouter = (code: string, type: TypeEmoji): void => {
     // Standard : déjà minuscule. Custom : minusculé pour la comparaison seule.
     const foin = type === 'custom' ? code.toLowerCase() : code;
@@ -111,7 +111,7 @@ export function completerEmoji(
     const correspondance = foin === q ? 0 : i === 0 ? 1 : 2;
     // custom (0) avant standard (1) à correspondance égale.
     const rang = correspondance * 2 + (type === 'custom' ? 0 : 1);
-    candidats.push({ s: { code, type }, rang });
+    candidats.push({ s: { code, type }, rank: rang });
   };
 
   const standard = ensembleStandard(codesStandard);
@@ -123,7 +123,7 @@ export function completerEmoji(
 
   candidats.sort(
     (a, b) =>
-      a.rang - b.rang ||
+      a.rank - b.rank ||
       a.s.code.length - b.s.code.length ||
       (a.s.code < b.s.code ? -1 : a.s.code > b.s.code ? 1 : 0),
   );
@@ -137,15 +137,15 @@ export function completerEmoji(
  * qui suit commence déjà par une espace (sinon on en aurait deux). Le curseur
  * revient pile après ce qu'on vient d'écrire, jamais dans la suite du texte.
  */
-export function appliquerCompletion(
+export function applyCompletion(
   texte: string,
   debut: number,
   curseur: number,
   insertion: string,
-): { texte: string; curseur: number } {
+): { text: string; cursor: number } {
   const c = Math.max(debut, Math.min(curseur, texte.length));
   const avant = texte.slice(0, debut);
   const apres = texte.slice(c);
   const bloc = insertion + (/^\s/.test(apres) ? '' : ' ');
-  return { texte: avant + bloc + apres, curseur: (avant + bloc).length };
+  return { text: avant + bloc + apres, cursor: (avant + bloc).length };
 }

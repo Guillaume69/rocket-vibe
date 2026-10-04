@@ -36,30 +36,30 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { enregistrerEnFond } from './attachmentActions.ts';
+import { saveInBackground } from './attachmentActions.ts';
 import { useT } from './i18n.ts';
-import { POLICES, useCouleurs } from './theme.ts';
-import { libelleProgression, useProgression } from './transfers.ts';
+import { FONTS, useColors } from './theme.ts';
+import { progressLabel, useProgress } from './transfers.ts';
 
-export type CibleImage = {
+export type ImageTarget = {
   /** URL absolue déjà authentifiée (rc_uid/rc_token inclus). */
   uri: string;
-  largeur?: number | null;
-  hauteur?: number | null;
-  titre?: string | null;
+  width?: number | null;
+  height?: number | null;
+  title?: string | null;
   /** MIME de l'image, quand le message le porte : nomme le fichier enregistré. */
   type?: string | null;
   /** Chemin serveur, sans jeton : la clé du transfert, partagée avec la ligne du message. */
-  cle?: string | null;
+  key?: string | null;
   /** Poids du fichier annoncé par le message, en octets. */
-  taille?: number | null;
+  size?: number | null;
   /** Fichier de l'appareil (pièce pas encore envoyée) : rien à télécharger. */
   local?: boolean;
 };
 
 type ContexteVisionneuse = {
   /** Ouvre l'image en plein écran. */
-  ouvrir: (cible: CibleImage) => void;
+  open: (cible: ImageTarget) => void;
 };
 
 const Contexte = createContext<ContexteVisionneuse | null>(null);
@@ -69,21 +69,21 @@ const ZOOM_DOUBLE_TAP = 2.5;
 /** Glisser au-delà de ce seuil (non zoomé) ferme la visionneuse. */
 const SEUIL_FERMETURE = 120;
 
-export function VisionneuseImageProvider({ children }: { children: React.ReactNode }) {
-  const [cible, setCible] = useState<CibleImage | null>(null);
-  const ouvrir = useCallback((c: CibleImage) => setCible(c), []);
+export function ImageViewerProvider({ children }: { children: React.ReactNode }) {
+  const [cible, setCible] = useState<ImageTarget | null>(null);
+  const ouvrir = useCallback((c: ImageTarget) => setCible(c), []);
   const fermer = useCallback(() => setCible(null), []);
-  const valeur = useMemo(() => ({ ouvrir }), [ouvrir]);
+  const valeur = useMemo(() => ({ open: ouvrir }), [ouvrir]);
 
   return (
     <Contexte.Provider value={valeur}>
       {children}
-      <ModaleImage cible={cible} onFermer={fermer} />
+      <ModaleImage target={cible} onClose={fermer} />
     </Contexte.Provider>
   );
 }
 
-export function useVisionneuse(): ContexteVisionneuse {
+export function useImageViewer(): ContexteVisionneuse {
   const contexte = useContext(Contexte);
   if (contexte === null) {
     throw new Error('useVisionneuse appelé hors de <VisionneuseImageProvider>.');
@@ -96,25 +96,25 @@ function serrer(valeur: number, min: number, max: number): number {
   return Math.min(Math.max(valeur, min), max);
 }
 
-function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: () => void }) {
+function ModaleImage({ target: cible, onClose: onFermer }: { target: ImageTarget | null; onClose: () => void }) {
   const t = useT();
-  const c = useCouleurs();
+  const c = useColors();
   const insets = useSafeAreaInsets();
   const [charge, setCharge] = useState(false);
-  const cleTransfert = cible === null ? null : (cible.cle ?? cible.uri);
-  const progression = useProgression(cleTransfert);
+  const cleTransfert = cible === null ? null : (cible.key ?? cible.uri);
+  const progression = useProgress(cleTransfert);
 
   const enregistrer = () => {
     if (cible === null || cleTransfert === null) return;
-    enregistrerEnFond(
+    saveInBackground(
       {
-        cle: cleTransfert,
+        key: cleTransfert,
         url: cible.uri,
-        titre: cible.titre ?? null,
+        title: cible.title ?? null,
         // Une visionneuse ne montre que des images : faute de MIME, le fichier
         // part quand même vers la galerie.
         type: cible.type ?? 'image/jpeg',
-        taille: cible.taille ?? null,
+        size: cible.size ?? null,
       },
       t,
     );
@@ -218,8 +218,8 @@ function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: 
       onRequestClose={onFermer}
     >
       {/* La Modal est une fenêtre native séparée : son propre root de gestes. */}
-      <GestureHandlerRootView style={styles.racine}>
-        <View style={[styles.fond, { backgroundColor: c.fondPleinEcran }]}>
+      <GestureHandlerRootView style={styles.root}>
+        <View style={[styles.background, { backgroundColor: c.fullScreenBackground }]}>
           {cible !== null && (
             <>
               {!charge && (
@@ -235,7 +235,7 @@ function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: 
                     // zoom révèle le vrai détail. Sans risque — une seule image.
                     resizeMethod="scale"
                     onLoadEnd={() => setCharge(true)}
-                    accessibilityLabel={cible.titre ?? t('visionneuse.image')}
+                    accessibilityLabel={cible.title ?? t('visionneuse.image')}
                   />
                 </Animated.View>
               </GestureDetector>
@@ -247,11 +247,11 @@ function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: 
         <Pressable
           onPress={onFermer}
           hitSlop={12}
-          style={[styles.fermer, { top: insets.top + 8, backgroundColor: c.carte + 'D9' }]}
+          style={[styles.close, { top: insets.top + 8, backgroundColor: c.card + 'D9' }]}
           accessibilityRole="button"
           accessibilityLabel={t('commun.fermer')}
         >
-          <Text style={[styles.croix, { color: c.texte }]}>✕</Text>
+          <Text style={[styles.cross, { color: c.text }]}>✕</Text>
         </Pressable>
 
         {cible?.local !== true && (
@@ -259,24 +259,24 @@ function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: 
             onPress={enregistrer}
             disabled={progression !== undefined}
             hitSlop={12}
-            style={[styles.enregistrer, { top: insets.top + 8, backgroundColor: c.carte + 'D9' }]}
+            style={[styles.save, { top: insets.top + 8, backgroundColor: c.card + 'D9' }]}
             accessibilityRole="button"
             accessibilityLabel={t('actionsMessage.enregistrer')}
           >
             {progression === undefined ? (
-              <Text style={[styles.croix, { color: c.texte }]}>⤓</Text>
+              <Text style={[styles.cross, { color: c.text }]}>⤓</Text>
             ) : (
-              <Text style={[styles.pourcentage, { color: c.texte }]}>
-                {libelleProgression(progression)}
+              <Text style={[styles.percentage, { color: c.text }]}>
+                {progressLabel(progression)}
               </Text>
             )}
           </Pressable>
         )}
 
-        {cible?.titre != null && cible.titre !== '' && (
-          <View style={[styles.legende, { bottom: insets.bottom + 12 }]} pointerEvents="none">
-            <Text style={[styles.legendeTexte, { color: c.texte }]} numberOfLines={2}>
-              {cible.titre}
+        {cible?.title != null && cible.title !== '' && (
+          <View style={[styles.caption, { bottom: insets.bottom + 12 }]} pointerEvents="none">
+            <Text style={[styles.captionText, { color: c.text }]} numberOfLines={2}>
+              {cible.title}
             </Text>
           </View>
         )}
@@ -286,16 +286,16 @@ function ModaleImage({ cible, onFermer }: { cible: CibleImage | null; onFermer: 
 }
 
 const styles = StyleSheet.create({
-  racine: { flex: 1 },
+  root: { flex: 1 },
   // La couleur (`fondPleinEcran`) vient du thème, posée au rendu.
-  fond: {
+  background: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cadre: { width: '100%', height: '100%' },
   image: { width: '100%', height: '100%' },
-  fermer: {
+  close: {
     position: 'absolute',
     right: 12,
     width: 38,
@@ -304,7 +304,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  enregistrer: {
+  save: {
     position: 'absolute',
     right: 62,
     width: 38,
@@ -313,13 +313,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pourcentage: { fontFamily: POLICES.corpsSemi, fontSize: 11 },
-  croix: { fontFamily: POLICES.corpsFort, fontSize: 17, lineHeight: 20 },
-  legende: {
+  percentage: { fontFamily: FONTS.corpsSemi, fontSize: 11 },
+  cross: { fontFamily: FONTS.corpsFort, fontSize: 17, lineHeight: 20 },
+  caption: {
     position: 'absolute',
     left: 16,
     right: 16,
     alignItems: 'center',
   },
-  legendeTexte: { fontFamily: POLICES.corps, fontSize: 13, textAlign: 'center' },
+  captionText: { fontFamily: FONTS.body, fontSize: 13, textAlign: 'center' },
 });

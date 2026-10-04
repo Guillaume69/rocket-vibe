@@ -13,46 +13,46 @@
  * attendre une vraie seconde.
  */
 
-export type OptionsReconnexion = {
+export type ReconnectOptions = {
   /** La tentative complète : connexion + login. Rejette = on retentera. */
-  connecter: () => Promise<void>;
-  delaiMinMs?: number;
-  delaiMaxMs?: number;
-  alea?: () => number;
-  programmer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
-  annuler?: (m: ReturnType<typeof setTimeout>) => void;
+  connect: () => Promise<void>;
+  minDelayMs?: number;
+  maxDelayMs?: number;
+  random?: () => number;
+  schedule?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
+  cancel?: (m: ReturnType<typeof setTimeout>) => void;
 };
 
-export class Reconnecteur {
-  private readonly connecter: () => Promise<void>;
-  private readonly delaiMinMs: number;
-  private readonly delaiMaxMs: number;
-  private readonly alea: () => number;
-  private readonly programmer: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
-  private readonly annulerMinuterie: (m: ReturnType<typeof setTimeout>) => void;
+export class Reconnector {
+  private readonly connect: () => Promise<void>;
+  private readonly minDelayMs: number;
+  private readonly maxDelayMs: number;
+  private readonly random: () => number;
+  private readonly schedule: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
+  private readonly cancelTimer: (m: ReturnType<typeof setTimeout>) => void;
 
-  private tentative = 0;
-  private minuterie: ReturnType<typeof setTimeout> | null = null;
-  private enVol = false;
-  private relance = false;
-  private arrete = false;
+  private attempt = 0;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private inFlight = false;
+  private rerunRequested = false;
+  private stopped = false;
   /** Réversible, contrairement à `arrete` : le temps d'un passage en fond. */
-  private suspendu = false;
+  private suspended = false;
 
-  constructor(options: OptionsReconnexion) {
-    this.connecter = options.connecter;
-    this.delaiMinMs = options.delaiMinMs ?? 1_000;
-    this.delaiMaxMs = options.delaiMaxMs ?? 30_000;
-    this.alea = options.alea ?? Math.random;
-    this.programmer = options.programmer ?? ((fn, ms) => setTimeout(fn, ms));
-    this.annulerMinuterie = options.annuler ?? ((m) => clearTimeout(m));
+  constructor(options: ReconnectOptions) {
+    this.connect = options.connect;
+    this.minDelayMs = options.minDelayMs ?? 1_000;
+    this.maxDelayMs = options.maxDelayMs ?? 30_000;
+    this.random = options.random ?? Math.random;
+    this.schedule = options.schedule ?? ((fn, ms) => setTimeout(fn, ms));
+    this.cancelTimer = options.cancel ?? ((m) => clearTimeout(m));
   }
 
   /** Prochain délai : 0 pour la première tentative, puis 1 s, 2 s… plafonné à 30 s. */
-  private delai(): number {
-    if (this.tentative === 0) return 0;
-    const plein = Math.min(this.delaiMaxMs, this.delaiMinMs * 2 ** (this.tentative - 1));
-    return plein / 2 + this.alea() * (plein / 2);
+  private delay(): number {
+    if (this.attempt === 0) return 0;
+    const plein = Math.min(this.maxDelayMs, this.minDelayMs * 2 ** (this.attempt - 1));
+    return plein / 2 + this.random() * (plein / 2);
   }
 
   /**
@@ -62,44 +62,44 @@ export class Reconnecteur {
    * (la socket retombe pendant le rechargement REST) serait sinon avalée, et
    * plus rien ne reconnecterait jamais.
    */
-  declencher(): void {
-    if (this.arrete || this.suspendu || this.minuterie !== null) return;
-    if (this.enVol) {
-      this.relance = true;
+  trigger(): void {
+    if (this.stopped || this.suspended || this.timer !== null) return;
+    if (this.inFlight) {
+      this.rerunRequested = true;
       return;
     }
-    this.minuterie = this.programmer(() => {
-      this.minuterie = null;
-      void this.essayer();
-    }, this.delai());
+    this.timer = this.schedule(() => {
+      this.timer = null;
+      void this.tryConnect();
+    }, this.delay());
   }
 
-  private async essayer(): Promise<void> {
-    if (this.arrete) return;
-    this.enVol = true;
-    this.relance = false;
+  private async tryConnect(): Promise<void> {
+    if (this.stopped) return;
+    this.inFlight = true;
+    this.rerunRequested = false;
     try {
-      await this.connecter();
-      this.tentative = 0;
+      await this.connect();
+      this.attempt = 0;
     } catch {
-      this.tentative++;
-      this.enVol = false;
-      this.declencher();
+      this.attempt++;
+      this.inFlight = false;
+      this.trigger();
       return;
     }
-    this.enVol = false;
-    if (this.relance) {
-      this.relance = false;
-      this.declencher();
+    this.inFlight = false;
+    if (this.rerunRequested) {
+      this.rerunRequested = false;
+      this.trigger();
     }
   }
 
   /** À la déconnexion ou au démontage : plus aucune tentative ne partira. */
-  arreter(): void {
-    this.arrete = true;
-    if (this.minuterie !== null) {
-      this.annulerMinuterie(this.minuterie);
-      this.minuterie = null;
+  stop(): void {
+    this.stopped = true;
+    if (this.timer !== null) {
+      this.cancelTimer(this.timer);
+      this.timer = null;
     }
   }
 
@@ -113,11 +113,11 @@ export class Reconnecteur {
    * Chaque tentative en fond coûte une socket que Doze tuera — ce qui
    * redéclenche `surPerte` — et un `rattraperTout()` REST rate-limité.
    */
-  suspendre(): void {
-    this.suspendu = true;
-    if (this.minuterie !== null) {
-      this.annulerMinuterie(this.minuterie);
-      this.minuterie = null;
+  suspend(): void {
+    this.suspended = true;
+    if (this.timer !== null) {
+      this.cancelTimer(this.timer);
+      this.timer = null;
     }
   }
 
@@ -129,8 +129,8 @@ export class Reconnecteur {
    *
    * Ne ressuscite pas un pilote `arreter()` : ce chemin-là est définitif.
    */
-  reprendre(): void {
-    this.suspendu = false;
-    this.tentative = 0;
+  resume(): void {
+    this.suspended = false;
+    this.attempt = 0;
   }
 }

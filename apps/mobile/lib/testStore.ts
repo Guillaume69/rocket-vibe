@@ -17,14 +17,14 @@
  * permises — `db/store.ts` les sert hors file, elles ne bloquent pas.
  */
 
-import type { Depot, EcrituresDepot } from './sync.ts';
+import type { Store, StoreWrites } from './sync.ts';
 
 /**
  * Enveloppe un faux dépôt (fourni SANS `transaction` : c'est le piège qui la
  * définit, on ne peut pas l'oublier) et rend un `Depot` complet qui fait
  * respecter l'invariant file/transaction.
  */
-export function avecPiegeTransaction(nu: Omit<Depot, 'transaction'>): Depot {
+export function withTransactionTrap(nu: Omit<Store, 'transaction'>): Store {
   let enTransaction = false;
 
   const piege = <A extends unknown[], R>(
@@ -44,44 +44,44 @@ export function avecPiegeTransaction(nu: Omit<Depot, 'transaction'>): Depot {
 
   // Ce que `fn` reçoit : les écritures du faux, EN DIRECT — le miroir du
   // `direct` de `db/store.ts`, qui contourne la file.
-  const ecrivainDirect: EcrituresDepot = {
+  const ecrivainDirect: StoreWrites = {
     upsertMessage: (m) => nu.upsertMessage(m),
-    upsertSalon: (s) => nu.upsertSalon(s),
-    upsertAbonnement: (a) => nu.upsertAbonnement(a),
-    supprimerMessage: (id) => nu.supprimerMessage(id),
-    supprimerSalon: (rid) => nu.supprimerSalon(rid),
-    supprimerAbonnement: (rid) => nu.supprimerAbonnement(rid),
-    supprimerParSubId: (subId) => nu.supprimerParSubId(subId),
-    ecrireCurseur: (portee, flux, v) => nu.ecrireCurseur(portee, flux, v),
+    upsertRoom: (s) => nu.upsertRoom(s),
+    upsertSubscription: (a) => nu.upsertSubscription(a),
+    deleteMessage: (id) => nu.deleteMessage(id),
+    deleteRoom: (rid) => nu.deleteRoom(rid),
+    deleteSubscription: (rid) => nu.deleteSubscription(rid),
+    deleteBySubId: (subId) => nu.deleteBySubId(subId),
+    writeCursor: (scope, stream, v) => nu.writeCursor(scope, stream, v),
   };
 
   return {
     // La liste EXACTE des méthodes servies par `enSerie` dans `db/store.ts` —
     // si l'une y entre ou en sort là-bas, elle doit bouger ici aussi.
     upsertMessage: piege('upsertMessage', (m) => nu.upsertMessage(m)),
-    upsertSalon: piege('upsertSalon', (s) => nu.upsertSalon(s)),
-    upsertAbonnement: piege('upsertAbonnement', (a) => nu.upsertAbonnement(a)),
-    supprimerMessage: piege('supprimerMessage', (id) => nu.supprimerMessage(id)),
-    supprimerSalon: piege('supprimerSalon', (rid) => nu.supprimerSalon(rid)),
-    supprimerAbonnement: piege('supprimerAbonnement', (rid) => nu.supprimerAbonnement(rid)),
-    supprimerParSubId: piege('supprimerParSubId', (subId) => nu.supprimerParSubId(subId)),
-    ecrireCurseur: piege('ecrireCurseur', (p, f, v) => nu.ecrireCurseur(p, f, v)),
-    purgerSalonsAbsents: piege('purgerSalonsAbsents', (v, c) => nu.purgerSalonsAbsents(v, c)),
-    appliquerRetention: piege('appliquerRetention', (n) => nu.appliquerRetention(n)),
-    majTexteMessage: piege('majTexteMessage', (id, t, p) => nu.majTexteMessage(id, t, p)),
-    majMarquesMessage: piege('majMarquesMessage', (id, p, e) => nu.majMarquesMessage(id, p, e)),
-    masquerMessagesChiffres: piege('masquerMessagesChiffres', () => nu.masquerMessagesChiffres()),
-    majApercuChiffre: piege('majApercuChiffre', () => nu.majApercuChiffre()),
-    majAvatarUtilisateur: piege('majAvatarUtilisateur', (u, e) => nu.majAvatarUtilisateur(u, e)),
-    majAvatarSalon: piege('majAvatarSalon', (rid, e) => nu.majAvatarSalon(rid, e)),
-    enregistrerIdentite: piege('enregistrerIdentite', (i) => nu.enregistrerIdentite(i)),
+    upsertRoom: piege('upsertSalon', (s) => nu.upsertRoom(s)),
+    upsertSubscription: piege('upsertAbonnement', (a) => nu.upsertSubscription(a)),
+    deleteMessage: piege('supprimerMessage', (id) => nu.deleteMessage(id)),
+    deleteRoom: piege('supprimerSalon', (rid) => nu.deleteRoom(rid)),
+    deleteSubscription: piege('supprimerAbonnement', (rid) => nu.deleteSubscription(rid)),
+    deleteBySubId: piege('supprimerParSubId', (subId) => nu.deleteBySubId(subId)),
+    writeCursor: piege('ecrireCurseur', (p, f, v) => nu.writeCursor(p, f, v)),
+    purgeMissingRooms: piege('purgerSalonsAbsents', (v, c) => nu.purgeMissingRooms(v, c)),
+    applyRetention: piege('appliquerRetention', (n) => nu.applyRetention(n)),
+    updateMessageText: piege('majTexteMessage', (id, t, p) => nu.updateMessageText(id, t, p)),
+    updateMessageMarks: piege('majMarquesMessage', (id, p, e) => nu.updateMessageMarks(id, p, e)),
+    hideEncryptedMessages: piege('masquerMessagesChiffres', () => nu.hideEncryptedMessages()),
+    updateEncryptedPreview: piege('majApercuChiffre', () => nu.updateEncryptedPreview()),
+    updateUserAvatar: piege('majAvatarUtilisateur', (u, e) => nu.updateUserAvatar(u, e)),
+    updateRoomAvatar: piege('majAvatarSalon', (rid, e) => nu.updateRoomAvatar(rid, e)),
+    saveIdentity: piege('enregistrerIdentite', (i) => nu.saveIdentity(i)),
 
     // Lectures : hors file dans `db/store.ts`, donc permises en transaction.
-    listerRidsConnus: () => nu.listerRidsConnus(),
-    lireCurseur: (p, f) => nu.lireCurseur(p, f),
-    dernierMessageMisAJour: (rid) => nu.dernierMessageMisAJour(rid),
-    listerClesSalon: () => nu.listerClesSalon(),
-    messagesADechiffrer: () => nu.messagesADechiffrer(),
+    listKnownRids: () => nu.listKnownRids(),
+    readCursor: (p, f) => nu.readCursor(p, f),
+    lastMessageUpdatedAt: (rid) => nu.lastMessageUpdatedAt(rid),
+    listRoomKeys: () => nu.listRoomKeys(),
+    messagesToDecrypt: () => nu.messagesToDecrypt(),
 
     async transaction(fn) {
       if (enTransaction) {

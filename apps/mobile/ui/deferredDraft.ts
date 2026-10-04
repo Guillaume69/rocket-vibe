@@ -12,11 +12,11 @@
  * prouvée ici, et la glu restante du hook est du ressort d'`exhaustive-deps`.
  */
 
-export type BrouillonDifferre = {
+export type DeferredDraft = {
   /** À chaque frappe : l'écriture part après la pause, la dernière gagne. */
-  sauver(texte: string): void;
+  save(texte: string): void;
   /** À l'envoi : suppression IMMÉDIATE, frappe en pause comprise. */
-  effacer(): void;
+  clear(): void;
   /**
    * Au démontage ou au changement de clé : ce qui est en pause part TOUT DE
    * SUITE. Sans rien en pause (déjà écrit, ou jamais tapé), n'écrit rien —
@@ -25,36 +25,36 @@ export type BrouillonDifferre = {
   flusher(): void;
 };
 
-export const DELAI_BROUILLON_MS = 400;
+export const DRAFT_DELAY_MS = 400;
 
 type Dependances = {
   /** Écrit le brouillon (texte non blanc) sous la clé liée à l'instance. */
-  ecrire: (texte: string) => void;
+  write: (texte: string) => void;
   /** Supprime le brouillon : un texte BLANC vaut suppression, pas écriture. */
-  supprimer: () => void;
-  delaiMs?: number;
+  delete: () => void;
+  timeoutMs?: number;
   /** Horloge injectable — `setTimeout`/`clearTimeout` par défaut. */
-  programmer?: (fn: () => void, ms: number) => unknown;
-  annuler?: (minuterie: unknown) => void;
+  schedule?: (fn: () => void, ms: number) => unknown;
+  cancel?: (minuterie: unknown) => void;
 };
 
-export function creerBrouillonDifferre(dep: Dependances): BrouillonDifferre {
-  const delaiMs = dep.delaiMs ?? DELAI_BROUILLON_MS;
-  const programmer = dep.programmer ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
+export function createDeferredDraft(dep: Dependances): DeferredDraft {
+  const delaiMs = dep.timeoutMs ?? DRAFT_DELAY_MS;
+  const programmer = dep.schedule ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
   const annuler =
-    dep.annuler ?? ((minuterie: unknown) => clearTimeout(minuterie as ReturnType<typeof setTimeout>));
+    dep.cancel ?? ((minuterie: unknown) => clearTimeout(minuterie as ReturnType<typeof setTimeout>));
 
   let minuterie: unknown = null;
   /** Le texte tapé mais pas encore écrit — la matière du flush. */
   let enPause: string | null = null;
 
   const poser = (texte: string): void => {
-    if (texte.trim() === '') dep.supprimer();
-    else dep.ecrire(texte);
+    if (texte.trim() === '') dep.delete();
+    else dep.write(texte);
   };
 
   return {
-    sauver(texte) {
+    save(texte) {
       enPause = texte;
       if (minuterie !== null) annuler(minuterie);
       minuterie = programmer(() => {
@@ -68,7 +68,7 @@ export function creerBrouillonDifferre(dep: Dependances): BrouillonDifferre {
       }, delaiMs);
     },
 
-    effacer() {
+    clear() {
       if (minuterie !== null) annuler(minuterie);
       minuterie = null;
       enPause = null;

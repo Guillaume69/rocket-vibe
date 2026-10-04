@@ -22,89 +22,89 @@ import {
 
 import type { messages } from '../db/schema.ts';
 import {
-  estJointeCitation,
-  PROFONDEUR_MAX_CITATION,
-  sansPrefixeCitation,
+  isQuoteAttachment,
+  MAX_QUOTE_DEPTH,
+  stripQuotePrefix,
 } from '../lib/quote.ts';
-import { chiffrementDeJointe, type ChiffrementFichier } from '../lib/e2e/crypto.ts';
-import { unicodeDeCodeCourt } from '../lib/emojis.ts';
+import { attachmentEncryption, type FileEncryption } from '../lib/e2e/crypto.ts';
+import { unicodeOfShortcode } from '../lib/emojis.ts';
 import { urlEmojiCustom } from '../lib/customEmojis.ts';
-import { arbreDuMessage } from '../lib/markdown.ts';
-import { texteSysteme } from '../lib/systemMessages.ts';
-import { listeReactions, type ReactionAffichee } from '../lib/reactions.ts';
-import { ouvrirFicheProfil } from '../lib/profilePreload.ts';
+import { messageTree } from '../lib/markdown.ts';
+import { systemText } from '../lib/systemMessages.ts';
+import { reactionList, type DisplayedReaction } from '../lib/reactions.ts';
+import { openProfileCard } from '../lib/profilePreload.ts';
 import type { ClientRest } from '../lib/rest.ts';
-import { urlAvatar, urlFichierProtege } from '../lib/upload.ts';
-import { LiensEmbed } from './embedCard.tsx';
-import { ApercusLien } from './linkCard.tsx';
-import { proposerTelechargerOuPartager } from './attachmentActions.ts';
-import { BarreTransfert } from './transferBar.tsx';
-import { fichierDechiffre } from './attachment.ts';
-import { useEtagsAvatars, useIdentites } from './identities.tsx';
-import { useHeure, useT } from './i18n.ts';
-import { TuileAvatar } from './kit.tsx';
-import { LecteurAudio } from './audioPlayer.tsx';
-import { LecteurVideo } from './videoPlayer.tsx';
-import { AppuiLongMessage, CorpsMessage, GardeRendu } from './markdown.tsx';
-import { TexteTappable } from './tappableText.tsx';
+import { urlAvatar, protectedFileUrl } from '../lib/upload.ts';
+import { EmbedLinks } from './embedCard.tsx';
+import { LinkPreviews } from './linkCard.tsx';
+import { offerDownloadOrShare } from './attachmentActions.ts';
+import { TransferBar } from './transferBar.tsx';
+import { decryptedFile } from './attachment.ts';
+import { useEtagsAvatars, useIdentities } from './identities.tsx';
+import { useTimeFormatter, useT } from './i18n.ts';
+import { AvatarTile } from './kit.tsx';
+import { AudioPlayer } from './audioPlayer.tsx';
+import { VideoPlayer } from './videoPlayer.tsx';
+import { MessageLongPress, MessageBody, RenderGuard } from './markdown.tsx';
+import { TappableText } from './tappableText.tsx';
 import {
-  type Couleurs,
-  DELAI_PRESSION_LISTE,
-  degradeAvatar,
-  largeurDispoCorps,
-  POLICES,
-  useCouleurs,
+  type Colors,
+  LIST_PRESS_DELAY,
+  avatarGradient,
+  availableBodyWidth,
+  FONTS,
+  useColors,
 } from './theme.ts';
-import { useVisionneuse } from './imageViewer.tsx';
-import { Appuyable } from './tappable.tsx';
+import { useImageViewer } from './imageViewer.tsx';
+import { Tappable } from './tappable.tsx';
 
-export type LigneDeMessage = typeof messages.$inferSelect;
+export type MessageRowData = typeof messages.$inferSelect;
 
-export const LigneMessage = memo(function LigneMessage({
+export const MessageRow = memo(function LigneMessage({
   c,
   message,
   client,
-  statutEnvoi,
-  surReessayer,
-  surAbandonner,
-  surAppuiLong,
-  surAppui,
-  surOuvrirFil,
-  moi,
-  surReagir,
-  suite,
-  heureRepetee,
+  sendStatus: statutEnvoi,
+  onRetry: surReessayer,
+  onDiscard: surAbandonner,
+  onLongPress: surAppuiLong,
+  onPress: surAppui,
+  onOpenThread: surOuvrirFil,
+  me: moi,
+  onReact: surReagir,
+  continuation: suite,
+  repeatedTime: heureRepetee,
 }: {
-  c: Couleurs;
-  message: LigneDeMessage;
+  c: Colors;
+  message: MessageRowData;
   client: ClientRest;
-  statutEnvoi: 'en-attente' | 'echec' | null;
-  surReessayer: (() => void) | null;
-  surAbandonner: ((id: string) => void) | null;
-  surAppuiLong: ((id: string) => void) | null;
+  sendStatus: 'en-attente' | 'echec' | null;
+  onRetry: (() => void) | null;
+  onDiscard: ((id: string) => void) | null;
+  onLongPress: ((id: string) => void) | null;
   /** Toucher la ligne (liste des épinglés/favoris). Absent dans un flux. */
-  surAppui?: ((id: string) => void) | undefined;
+  onPress?: ((id: string) => void) | undefined;
   /** Ouvre l'écran du fil. `null` dans l'écran fil lui-même. */
-  surOuvrirFil: ((id: string) => void) | null;
+  onOpenThread: ((id: string) => void) | null;
   /** Mon username — marque mes réactions. `null` : rien n'est marqué mien. */
-  moi: string | null;
+  me: string | null;
   /** Pose/retire une réaction. `null` : pastilles en lecture seule (recherche). */
-  surReagir: ((rid: string, id: string, code: string, mettre: boolean) => void) | null;
+  onReact: ((rid: string, id: string, code: string, mettre: boolean) => void) | null;
   /**
    * Continuation du message d'au-dessus (même auteur, sous 5 min — calculé par
    * `ui/messageGrouping`) : ni avatar ni pseudo/heure, le corps seul sur la
    * gouttière — les rafales d'un même auteur ne répètent pas son identité.
    */
-  suite: boolean;
+  continuation: boolean;
   /**
    * Suite dont l'heure affichée (à la minute) est déjà rendue au-dessus
    * (`ui/messageGrouping`, `idsHeuresRepetees`) : la gouttière reste vide —
    * même logique que pour l'avatar, on ne réécrit pas ce qui est à l'écran.
    */
-  heureRepetee: boolean;
+  repeatedTime: boolean;
 }) {
-  const formatHeure = useHeure();
-  const heure = formatHeure(message.horodatage);
+  const formatHeure = useTimeFormatter();
+  const heure = formatHeure(message.ts);
 
   const appuiLong = surAppuiLong === null ? undefined : () => surAppuiLong(message.id);
   // Pseudo à AFFICHER, résolu par UID (`ui/identities`) : `auteurNom` est
@@ -112,13 +112,13 @@ export const LigneMessage = memo(function LigneMessage({
   // renommage (on ne re-télécharge pas l'historique). La table d'identités,
   // tenue à jour, donne le pseudo courant ; on retombe sur l'instantané tant
   // qu'un uid n'y est pas encore connu (premier rendu, hors-ligne).
-  const identites = useIdentites();
+  const identites = useIdentities();
   const etags = useEtagsAvatars();
   const t = useT();
-  const auteur = (identites.get(message.auteurId) ?? message.auteurNom) ?? '?';
+  const auteur = (identites.get(message.authorId) ?? message.authorName) ?? '?';
   // Le pseudo prend la première teinte de sa propre tuile-avatar : nom et
   // avatar s'accordent, la même personne garde sa couleur d'un message à l'autre.
-  const teinteAuteur = degradeAvatar(auteur, c.avatarsDegrades)[0];
+  const teinteAuteur = avatarGradient(auteur, c.avatarGradients)[0];
   // Fiche de l'auteur au tap sur l'avatar ou le pseudo. Pas de fiche pour un
   // auteur sans username (message chiffré indéchiffrable : `auteurNom` null).
   // On ouvre par l'UID (`auteurId`), pas par le pseudo affiché : le pseudo est
@@ -128,22 +128,22 @@ export const LigneMessage = memo(function LigneMessage({
   // `ouvrirFicheProfil` précharge la fiche AVANT d'ouvrir la sheet (hauteur
   // finale dès la première frame, pas de saut) — voir lib/profilePreload.
   const ouvrirProfil =
-    message.auteurNom === null
+    message.authorName === null
       ? undefined
-      : () => void ouvrirFicheProfil({ uid: message.auteurId });
+      : () => void openProfileCard({ uid: message.authorId });
 
   // Les pièces jointes, citations (`message_link`) séparées des fichiers : la
   // citation se rend AU-DESSUS du corps — on lit d'abord ce à quoi on répond —
   // les fichiers restent en dessous.
-  const jointes = useMemo(() => analyserJointes(message.piecesJointes), [message.piecesJointes]);
-  const citations = jointes.filter((j) => estJointeCitation(j));
-  const fichiersJoints = jointes.filter((j) => !estJointeCitation(j));
+  const jointes = useMemo(() => analyserJointes(message.attachments), [message.attachments]);
+  const citations = jointes.filter((j) => isQuoteAttachment(j));
+  const fichiersJoints = jointes.filter((j) => !isQuoteAttachment(j));
 
   // Les réactions, ENFIN lues : la colonne était écrite depuis le premier jour
   // et rafraîchie par le stream, mais aucun rendu ne la projetait — réagir ne
   // changeait rien à l'écran et rien n'était retirable (audit, chantier 11).
   const reactions = useMemo(
-    () => listeReactions(message.reactions, moi),
+    () => reactionList(message.reactions, moi),
     [message.reactions, moi],
   );
 
@@ -159,7 +159,7 @@ export const LigneMessage = memo(function LigneMessage({
       style={[
         styles.message,
         suite && styles.messageSuite,
-        statutEnvoi === 'en-attente' && styles.enAttente,
+        statutEnvoi === 'en-attente' && styles.pending,
       ]}
     >
       {suite && heureRepetee ? (
@@ -173,7 +173,7 @@ export const LigneMessage = memo(function LigneMessage({
         // l'heure anglaise (« 2:05 PM ») déborde 34 px à taille pleine — elle
         // se resserre plutôt que tronquer.
         <Text
-          style={[styles.heureGouttiere, { color: c.texteTertiaire }]}
+          style={[styles.heureGouttiere, { color: c.tertiaryText }]}
           numberOfLines={1}
           adjustsFontSizeToFit
         >
@@ -187,13 +187,13 @@ export const LigneMessage = memo(function LigneMessage({
       <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
         <Pressable
           onPress={ouvrirProfil}
-          unstable_pressDelay={DELAI_PRESSION_LISTE}
+          unstable_pressDelay={LIST_PRESS_DELAY}
           style={({ pressed }) => (pressed && ouvrirProfil !== undefined ? styles.presseAvatar : null)}
         >
-          <TuileAvatar
+          <AvatarTile
             c={c}
-            cle={auteur}
-            initiale={auteur.charAt(0) || '?'}
+            key={auteur}
+            initial={auteur.charAt(0) || '?'}
             // Avatar visé par le username COURANT (`identites`), uid en repli.
             // Par uid seul, l'URI `/avatar/uid/<uid>` ne change JAMAIS : le cache
             // image RN garde l'ancien avatar après un renommage, alors que le
@@ -204,61 +204,61 @@ export const LigneMessage = memo(function LigneMessage({
             // quand la personne change d'avatar : par pseudo si on le connaît,
             // par uid sinon — les deux index pointent la même version.
             uri={urlAvatar(client, {
-              username: identites.get(message.auteurId),
-              uid: message.auteurId,
+              username: identites.get(message.authorId),
+              uid: message.authorId,
               etag:
-                etags.parUsername.get(identites.get(message.auteurId) ?? '') ??
-                etags.parUid.get(message.auteurId),
+                etags.byUsername.get(identites.get(message.authorId) ?? '') ??
+                etags.byUid.get(message.authorId),
             })}
-            taille={34}
-            rayon={12}
+            size={34}
+            radius={12}
           />
         </Pressable>
       </View>
       )}
-      <View style={styles.corps}>
+      <View style={styles.body}>
         {/* Une suite tait le pseudo et l'heure — mais « modifié » et
             « envoi… » restent dus au lecteur : leur ligne ne se rend que
             quand l'un d'eux a quelque chose à dire. */}
-        {(!suite || message.modifieLe !== null || statutEnvoi === 'en-attente') && (
+        {(!suite || message.editedAt !== null || statutEnvoi === 'en-attente') && (
           <View style={styles.enTete}>
             {!suite && (
-              <TexteTappable
-                style={[styles.auteur, { color: teinteAuteur }]}
+              <TappableText
+                style={[styles.author, { color: teinteAuteur }]}
                 numberOfLines={1}
                 onPress={ouvrirProfil}
                 accessibilityLabel={t('ligneMessage.profilDe', { nom: auteur })}
               >
                 {auteur}
-              </TexteTappable>
+              </TappableText>
             )}
-            {!suite && <Text style={[styles.heure, { color: c.texteTertiaire }]}>{heure}</Text>}
-            {message.modifieLe !== null && (
-              <Text style={[styles.heure, { color: c.texteTertiaire }]}>{t('ligneMessage.modifie')}</Text>
+            {!suite && <Text style={[styles.time, { color: c.tertiaryText }]}>{heure}</Text>}
+            {message.editedAt !== null && (
+              <Text style={[styles.time, { color: c.tertiaryText }]}>{t('ligneMessage.modifie')}</Text>
             )}
             {statutEnvoi === 'en-attente' && (
-              <Text style={[styles.heure, { color: c.texteTertiaire }]}>{t('ligneMessage.envoiEnCours')}</Text>
+              <Text style={[styles.time, { color: c.tertiaryText }]}>{t('ligneMessage.envoiEnCours')}</Text>
             )}
           </View>
         )}
         {citations.map((jointe, i) => (
-          <Citation key={i} c={c} jointe={jointe} client={client} surAppuiLong={appuiLong} />
+          <Citation key={i} c={c} attachment={jointe} client={client} onLongPress={appuiLong} />
         ))}
-        <AppuiLongMessage.Provider value={appuiLong}>
+        <MessageLongPress.Provider value={appuiLong}>
           <ContenuMessage c={c} message={message} />
-        </AppuiLongMessage.Provider>
-        {message.typeSysteme === null && (
-          <LiensEmbed c={c} texte={message.texte} urls={message.urls} surAppuiLong={appuiLong} />
+        </MessageLongPress.Provider>
+        {message.systemType === null && (
+          <EmbedLinks c={c} text={message.text} urls={message.urls} onLongPress={appuiLong} />
         )}
-        {message.typeSysteme === null && (
-          <ApercusLien c={c} urls={message.urls} surAppuiLong={appuiLong} />
+        {message.systemType === null && (
+          <LinkPreviews c={c} urls={message.urls} onLongPress={appuiLong} />
         )}
         {fichiersJoints.length > 0 && (
           <PiecesJointes
             c={c}
-            jointes={fichiersJoints}
+            attachments={fichiersJoints}
             client={client}
-            surAppuiLong={appuiLong}
+            onLongPress={appuiLong}
           />
         )}
         {reactions.length > 0 && (
@@ -270,33 +270,33 @@ export const LigneMessage = memo(function LigneMessage({
                 reaction={reaction}
                 // Le tap BASCULE : `chat.react` sait aussi retirer — câbler
                 // `mettre` en dur à `true` rendait la réaction inannulable.
-                surPresser={
+                onPress={
                   surReagir === null
                     ? undefined
-                    : () => surReagir(message.rid, message.id, reaction.code, !reaction.parMoi)
+                    : () => surReagir(message.rid, message.id, reaction.code, !reaction.byMe)
                 }
               />
             ))}
           </View>
         )}
-        {surOuvrirFil !== null && message.filReponses > 0 && (
+        {surOuvrirFil !== null && message.threadCount > 0 && (
           <Pressable
             onPress={() => surOuvrirFil(message.id)}
-            style={[styles.puceFil, { backgroundColor: c.carte, borderColor: c.bordure }]}
+            style={[styles.puceFil, { backgroundColor: c.card, borderColor: c.border }]}
           >
             <Text style={[styles.puceFilTexte, { color: c.cyan }]}>
-              💬 {t('ligneMessage.reponses', { n: message.filReponses })}
-              {message.filDernier !== null && ` · ${formatHeure(message.filDernier)}`}
+              💬 {t('ligneMessage.reponses', { n: message.threadCount })}
+              {message.threadLast !== null && ` · ${formatHeure(message.threadLast)}`}
             </Text>
           </Pressable>
         )}
         {statutEnvoi === 'echec' && (
           <View style={styles.actionsEchec}>
             <Pressable onPress={surReessayer ?? undefined}>
-              <Text style={[styles.heure, { color: c.texteErreur }]}>{t('ligneMessage.echecReessayer')}</Text>
+              <Text style={[styles.time, { color: c.errorText }]}>{t('ligneMessage.echecReessayer')}</Text>
             </Pressable>
             <Pressable onPress={() => surAbandonner?.(message.id)}>
-              <Text style={[styles.heure, { color: c.attenue }]}>{t('ligneMessage.abandonner')}</Text>
+              <Text style={[styles.time, { color: c.dimmed }]}>{t('ligneMessage.abandonner')}</Text>
             </Pressable>
           </View>
         )}
@@ -311,7 +311,7 @@ export const LigneMessage = memo(function LigneMessage({
  * par le contrat 4.3), substitut sobre pour le chiffré et les messages
  * système (leur traduction arrive en 4.4).
  */
-function ContenuMessage({ c, message }: { c: Couleurs; message: LigneDeMessage }) {
+function ContenuMessage({ c, message }: { c: Colors; message: MessageRowData }) {
   const t = useT();
   // Clés = les CHAÎNES, stables à travers le barattage d'objets de
   // `useRequeteVive` (qui défait le memo de LigneMessage) : sans cela, chaque
@@ -319,30 +319,30 @@ function ContenuMessage({ c, message }: { c: Couleurs; message: LigneDeMessage }
   // Un message chiffré DÉCHIFFRÉ (déverrouillé) porte encore `t: 'e2e'` mais a
   // un `texte` : il se rend alors comme un message ordinaire (son `md` est null,
   // `arbreDuMessage` parse le texte clair). Verrouillé, `texte` est null.
-  const chiffreDechiffre = message.typeSysteme === 'e2e' && message.texte !== null;
-  const estOrdinaire = message.typeSysteme === null || chiffreDechiffre;
+  const chiffreDechiffre = message.systemType === 'e2e' && message.text !== null;
+  const estOrdinaire = message.systemType === null || chiffreDechiffre;
   const arbre = useMemo(
-    () => (estOrdinaire ? arbreDuMessage(message.md, message.texte) : null),
-    [estOrdinaire, message.md, message.texte],
+    () => (estOrdinaire ? messageTree(message.md, message.text) : null),
+    [estOrdinaire, message.md, message.text],
   );
 
-  if (message.typeSysteme === 'e2e' && message.texte === null) {
-    return <Substitut c={c} texte={t('ligneMessage.chiffre')} />;
+  if (message.systemType === 'e2e' && message.text === null) {
+    return <Substitut c={c} text={t('ligneMessage.chiffre')} />;
   }
-  if (message.typeSysteme === 'videoconf') {
-    return <CarteAppel c={c} callId={message.appelId} />;
+  if (message.systemType === 'videoconf') {
+    return <CarteAppel c={c} callId={message.callId} />;
   }
-  if (message.typeSysteme !== null && !chiffreDechiffre) {
+  if (message.systemType !== null && !chiffreDechiffre) {
     // La phrase suit le nom de l'auteur affiché juste au-dessus : « bob a
     // rejoint le salon ». `texte` porte le PARAMÈTRE de l'action, pas une
     // phrase — voir lib/systemMessages.ts.
-    return <Substitut c={c} texte={texteSysteme(t, message.typeSysteme, message.texte)} />;
+    return <Substitut c={c} text={systemText(t, message.systemType, message.text)} />;
   }
   if (arbre === null) {
     // Un message d'upload n'a souvent NI texte NI md : ses pièces jointes,
     // rendues à côté, sont tout son contenu — rien à substituer.
-    if (message.piecesJointes !== null) return null;
-    return <Substitut c={c} texte={t('ligneMessage.messageVide')} />;
+    if (message.attachments !== null) return null;
+    return <Substitut c={c} text={t('ligneMessage.messageVide')} />;
   }
   return (
     // Le `md` est en dernier ressort une donnée d'autrui : une forme qui
@@ -351,17 +351,17 @@ function ContenuMessage({ c, message }: { c: Couleurs; message: LigneDeMessage }
     // `casse` restait armé pour toujours et l'édition qui corrige un `md`
     // mal formé laissait le message figé sur son texte nu jusqu'au recyclage
     // de la cellule (le garde-fou était le seul maillon sans réarmement).
-    <GardeRendu
-      key={message.md ?? message.texte ?? ''}
-      repli={<Text style={[styles.texte, { color: c.texte }]}>{message.texte}</Text>}
+    <RenderGuard
+      key={message.md ?? message.text ?? ''}
+      fallback={<Text style={[styles.text, { color: c.text }]}>{message.text}</Text>}
     >
-      <CorpsMessage arbre={arbre} c={c} />
-    </GardeRendu>
+      <MessageBody tree={arbre} c={c} />
+    </RenderGuard>
   );
 }
 
-function Substitut({ c, texte }: { c: Couleurs; texte: string }) {
-  return <Text style={[styles.texte, styles.italique, { color: c.attenue }]}>{texte}</Text>;
+function Substitut({ c, text: texte }: { c: Colors; text: string }) {
+  return <Text style={[styles.text, styles.italic, { color: c.dimmed }]}>{texte}</Text>;
 }
 
 /**
@@ -373,27 +373,27 @@ function Substitut({ c, texte }: { c: Couleurs; texte: string }) {
 function PastilleReaction({
   c,
   reaction,
-  surPresser,
+  onPress: surPresser,
 }: {
-  c: Couleurs;
-  reaction: ReactionAffichee;
-  surPresser: (() => void) | undefined;
+  c: Colors;
+  reaction: DisplayedReaction;
+  onPress: (() => void) | undefined;
 }) {
-  const glyphe = unicodeDeCodeCourt(reaction.code);
+  const glyphe = unicodeOfShortcode(reaction.code);
   const uri = glyphe === null ? urlEmojiCustom(reaction.code) : null;
   return (
     <Pressable
       onPress={surPresser}
       disabled={surPresser === undefined}
-      unstable_pressDelay={DELAI_PRESSION_LISTE}
+      unstable_pressDelay={LIST_PRESS_DELAY}
       accessibilityRole="button"
-      accessibilityState={{ selected: reaction.parMoi }}
+      accessibilityState={{ selected: reaction.byMe }}
       accessibilityLabel={`:${reaction.code}: ${reaction.total}`}
       style={({ pressed }) => [
         styles.pastilleReaction,
         {
-          backgroundColor: c.carte,
-          borderColor: reaction.parMoi ? c.accent : c.bordure,
+          backgroundColor: c.card,
+          borderColor: reaction.byMe ? c.accent : c.border,
           opacity: pressed ? 0.6 : 1,
         },
       ]}
@@ -403,12 +403,12 @@ function PastilleReaction({
       ) : uri !== null ? (
         <Image source={{ uri }} style={styles.reactionImage} resizeMode="contain" />
       ) : (
-        <Text style={[styles.reactionCode, { color: c.attenue }]} numberOfLines={1}>
+        <Text style={[styles.reactionCode, { color: c.dimmed }]} numberOfLines={1}>
           :{reaction.code}:
         </Text>
       )}
       <Text
-        style={[styles.reactionTotal, { color: reaction.parMoi ? c.accent : c.attenue }]}
+        style={[styles.reactionTotal, { color: reaction.byMe ? c.accent : c.dimmed }]}
       >
         {reaction.total}
       </Text>
@@ -427,32 +427,32 @@ function PastilleReaction({
  */
 function Citation({
   c,
-  jointe,
+  attachment: jointe,
   client,
-  surAppuiLong,
-  profondeur = 1,
+  onLongPress: surAppuiLong,
+  depth: profondeur = 1,
 }: {
-  c: Couleurs;
-  jointe: PieceJointe;
+  c: Colors;
+  attachment: PieceJointe;
   client: ClientRest;
-  surAppuiLong: (() => void) | undefined;
-  profondeur?: number;
+  onLongPress: (() => void) | undefined;
+  depth?: number;
 }) {
   const t = useT();
   // Le cité peut être lui-même une réponse : on ne montre que ses mots, pas
   // son permalien de citation — sa citation s'affiche en bloc imbriqué.
-  const texte = sansPrefixeCitation(jointe.text ?? '').trim();
+  const texte = stripQuotePrefix(jointe.text ?? '').trim();
   const auteur = typeof jointe.author_name === 'string' ? jointe.author_name : null;
   const imbriquees = Array.isArray(jointe.attachments) ? jointe.attachments : [];
   const sousCitations =
-    profondeur < PROFONDEUR_MAX_CITATION ? imbriquees.filter((j) => estJointeCitation(j)) : [];
-  const fichiers = imbriquees.filter((j) => !estJointeCitation(j));
+    profondeur < MAX_QUOTE_DEPTH ? imbriquees.filter((j) => isQuoteAttachment(j)) : [];
+  const fichiers = imbriquees.filter((j) => !isQuoteAttachment(j));
   const vide = texte === '' && sousCitations.length === 0 && fichiers.length === 0;
   return (
     <Pressable
       onLongPress={surAppuiLong}
       delayLongPress={350}
-      style={[styles.citation, { borderLeftColor: c.accent, backgroundColor: c.carte }]}
+      style={[styles.quote, { borderLeftColor: c.accent, backgroundColor: c.card }]}
     >
       {auteur !== null && (
         <Text style={[styles.citationAuteur, { color: c.accent }]} numberOfLines={1}>
@@ -463,22 +463,22 @@ function Citation({
         <Citation
           key={i}
           c={c}
-          jointe={sous}
+          attachment={sous}
           client={client}
-          surAppuiLong={surAppuiLong}
-          profondeur={profondeur + 1}
+          onLongPress={surAppuiLong}
+          depth={profondeur + 1}
         />
       ))}
       {texte !== '' && (
-        <Text style={[styles.texte, styles.italique, { color: c.attenue }]} numberOfLines={4}>
+        <Text style={[styles.text, styles.italic, { color: c.dimmed }]} numberOfLines={4}>
           {texte}
         </Text>
       )}
       {fichiers.map((fichier, i) => (
-        <FichierCite key={i} c={c} jointe={fichier} client={client} surAppuiLong={surAppuiLong} />
+        <FichierCite key={i} c={c} attachment={fichier} client={client} onLongPress={surAppuiLong} />
       ))}
       {vide && (
-        <Text style={[styles.texte, styles.italique, { color: c.attenue }]}>
+        <Text style={[styles.text, styles.italic, { color: c.dimmed }]}>
           📎 {t('commun.pieceJointe')}
         </Text>
       )}
@@ -493,35 +493,35 @@ function Citation({
  */
 function FichierCite({
   c,
-  jointe,
+  attachment: jointe,
   client,
-  surAppuiLong,
+  onLongPress: surAppuiLong,
 }: {
-  c: Couleurs;
-  jointe: PieceJointe;
+  c: Colors;
+  attachment: PieceJointe;
   client: ClientRest;
-  surAppuiLong: (() => void) | undefined;
+  onLongPress: (() => void) | undefined;
 }) {
   const t = useT();
   if (typeof jointe.image_url === 'string') {
     // Bornes égales = largeur FIXE : une vignette, pas la pièce plein cadre.
     return (
       <ImageJointe
-        jointe={jointe}
+        attachment={jointe}
         client={client}
-        largeurMin={LARGEUR_IMAGE_CITEE}
-        largeurMax={LARGEUR_IMAGE_CITEE}
-        hauteurMin={72}
-        hauteurMax={200}
+        minWidth={LARGEUR_IMAGE_CITEE}
+        maxWidth={LARGEUR_IMAGE_CITEE}
+        minHeight={72}
+        maxHeight={200}
         style={styles.imageCitee}
-        surAppuiLong={surAppuiLong}
+        onLongPress={surAppuiLong}
       />
     );
   }
   const glyphe =
     typeof jointe.audio_url === 'string' ? '🎵' : typeof jointe.video_url === 'string' ? '🎬' : '📎';
   return (
-    <Text style={[styles.texte, styles.italique, { color: c.attenue }]} numberOfLines={1}>
+    <Text style={[styles.text, styles.italic, { color: c.dimmed }]} numberOfLines={1}>
       {glyphe} {jointe.title ?? t('commun.pieceJointe')}
     </Text>
   );
@@ -550,34 +550,34 @@ const LARGEUR_IMAGE_CITEE = 200;
  * celui de l'original — parfait pour le gabarit ; carré quand il manque.
  */
 function ImageJointe({
-  jointe,
+  attachment: jointe,
   client,
-  largeurMin,
-  largeurMax,
-  hauteurMin,
-  hauteurMax,
+  minWidth: largeurMin,
+  maxWidth: largeurMax,
+  minHeight: hauteurMin,
+  maxHeight: hauteurMax,
   style,
-  surAppuiLong,
+  onLongPress: surAppuiLong,
   local,
 }: {
-  jointe: PieceJointe;
+  attachment: PieceJointe;
   client: ClientRest;
-  largeurMin: number;
-  largeurMax: number;
-  hauteurMin: number;
-  hauteurMax: number;
+  minWidth: number;
+  maxWidth: number;
+  minHeight: number;
+  maxHeight: number;
   /** L'habillage (rayon, marges, fond d'attente) reste à l'appelant. */
   style: StyleProp<ImageStyle>;
-  surAppuiLong: (() => void) | undefined;
+  onLongPress: (() => void) | undefined;
   /** Fichier clair déjà dans le cache (image chiffrée) : affiché tel quel. */
   local?: string;
 }) {
-  const visionneuse = useVisionneuse();
+  const visionneuse = useImageViewer();
   const t = useT();
-  const c = useCouleurs();
+  const c = useColors();
   if (typeof jointe.image_url !== 'string') return null;
   const source = typeof jointe.title_link === 'string' ? jointe.title_link : jointe.image_url;
-  const url = local ?? urlFichierProtege(client, source);
+  const url = local ?? protectedFileUrl(client, source);
   const reelLargeur = jointe.image_dimensions?.width ?? null;
   const reelHauteur = jointe.image_dimensions?.height ?? null;
   const largeur = Math.max(Math.min(reelLargeur ?? largeurMax, largeurMax), largeurMin);
@@ -586,14 +586,14 @@ function ImageJointe({
   return (
     <Pressable
       onPress={() =>
-        visionneuse.ouvrir({
+        visionneuse.open({
           uri: url,
-          largeur: reelLargeur,
-          hauteur: reelHauteur,
-          titre: jointe.title ?? null,
+          width: reelLargeur,
+          height: reelHauteur,
+          title: jointe.title ?? null,
           type: jointe.image_type ?? null,
-          cle: source,
-          taille: jointe.image_size ?? null,
+          key: source,
+          size: jointe.image_size ?? null,
         })
       }
       onLongPress={surAppuiLong}
@@ -606,7 +606,7 @@ function ImageJointe({
         style={[style, { width: largeur, height: hauteur }]}
         resizeMode="cover"
       />
-      <BarreTransfert cle={source} c={c} rayon={10} />
+      <TransferBar key={source} c={c} radius={10} />
     </Pressable>
   );
 }
@@ -617,17 +617,17 @@ function ImageJointe({
  * message d'avant la persistance du bloc, ou bloc illisible — on n'offre pas de
  * jonction, juste l'étiquette : mieux qu'un bouton qui ne saurait où aller.
  */
-function CarteAppel({ c, callId }: { c: Couleurs; callId: string | null }) {
+function CarteAppel({ c, callId }: { c: Colors; callId: string | null }) {
   const routeur = useRouter();
   const t = useT();
   return (
-    <View style={[styles.carteAppel, { backgroundColor: c.carte, borderColor: c.bordure }]}>
-      <Text style={[styles.carteAppelTitre, { color: c.texte }]}>{t('ligneMessage.appelVideo')}</Text>
+    <View style={[styles.carteAppel, { backgroundColor: c.card, borderColor: c.border }]}>
+      <Text style={[styles.carteAppelTitre, { color: c.text }]}>{t('ligneMessage.appelVideo')}</Text>
       {callId !== null && (
-        <Appuyable
+        <Tappable
           onPress={() => routeur.push({ pathname: '/call/[callId]', params: { callId } })}
-          android_ripple={{ color: c.ondulation }}
-          unstable_pressDelay={DELAI_PRESSION_LISTE}
+          android_ripple={{ color: c.ripple }}
+          unstable_pressDelay={LIST_PRESS_DELAY}
           accessibilityRole="button"
           accessibilityLabel={t('ligneMessage.rejoindreAppel')}
           style={({ pressed }) => [
@@ -635,8 +635,8 @@ function CarteAppel({ c, callId }: { c: Couleurs; callId: string | null }) {
             { backgroundColor: c.accent, opacity: pressed ? 0.7 : 1 },
           ]}
         >
-          <Text style={[styles.rejoindreTexte, { color: c.surAccent }]}>{t('ligneMessage.rejoindre')}</Text>
-        </Appuyable>
+          <Text style={[styles.rejoindreTexte, { color: c.onAccent }]}>{t('ligneMessage.rejoindre')}</Text>
+        </Tappable>
       )}
     </View>
   );
@@ -691,32 +691,32 @@ function analyserJointes(brut: string | null): PieceJointe[] {
  */
 function PiecesJointes({
   c,
-  jointes,
+  attachments: jointes,
   client,
-  surAppuiLong,
+  onLongPress: surAppuiLong,
 }: {
-  c: Couleurs;
-  jointes: PieceJointe[];
+  c: Colors;
+  attachments: PieceJointe[];
   client: ClientRest;
-  surAppuiLong: (() => void) | undefined;
+  onLongPress: (() => void) | undefined;
 }) {
   const { width: largeurEcran } = useWindowDimensions();
-  const dispoLargeur = largeurDispoCorps(largeurEcran);
+  const dispoLargeur = availableBodyWidth(largeurEcran);
 
   return (
-    <View style={styles.jointes}>
+    <View style={styles.attachments}>
       {jointes.map((jointe, i) => {
-        const chiffrement = chiffrementDeJointe(jointe);
+        const chiffrement = attachmentEncryption(jointe);
         if (chiffrement !== null) {
           return (
             <JointeChiffree
               key={i}
               c={c}
-              jointe={jointe}
-              chiffrement={chiffrement}
+              attachment={jointe}
+              encryption={chiffrement}
               client={client}
-              largeurMax={dispoLargeur}
-              surAppuiLong={surAppuiLong}
+              maxWidth={dispoLargeur}
+              onLongPress={surAppuiLong}
             />
           );
         }
@@ -724,26 +724,26 @@ function PiecesJointes({
           return (
             <ImageJointe
               key={i}
-              jointe={jointe}
+              attachment={jointe}
               client={client}
-              largeurMin={120}
-              largeurMax={dispoLargeur}
-              hauteurMin={0}
-              hauteurMax={400}
+              minWidth={120}
+              maxWidth={dispoLargeur}
+              minHeight={0}
+              maxHeight={400}
               style={styles.imageJointe}
-              surAppuiLong={surAppuiLong}
+              onLongPress={surAppuiLong}
             />
           );
         }
         if (typeof jointe?.audio_url === 'string') {
-          const url = urlFichierProtege(client, jointe.audio_url);
+          const url = protectedFileUrl(client, jointe.audio_url);
           return (
-            <LecteurAudio
+            <AudioPlayer
               key={i}
               c={c}
               url={url}
-              titre={jointe.title ?? null}
-              surAppuiLong={surAppuiLong}
+              title={jointe.title ?? null}
+              onLongPress={surAppuiLong}
             />
           );
         }
@@ -751,16 +751,16 @@ function PiecesJointes({
           // Une vidéo porte AUSSI `title_link` (l'original) : cette branche doit
           // passer AVANT la branche « fichier » générique, sinon la vidéo n'y
           // serait qu'un lien ouvert dans le navigateur.
-          const url = urlFichierProtege(client, jointe.video_url);
+          const url = protectedFileUrl(client, jointe.video_url);
           return (
-            <LecteurVideo
+            <VideoPlayer
               key={i}
               c={c}
               url={url}
-              titre={jointe.title ?? null}
-              surAppuiLong={surAppuiLong}
-              superposition={
-                <BarreTransfert cle={jointe.title_link ?? jointe.video_url} c={c} rayon={14} />
+              title={jointe.title ?? null}
+              onLongPress={surAppuiLong}
+              overlay={
+                <TransferBar key={jointe.title_link ?? jointe.video_url} c={c} radius={14} />
               }
             />
           );
@@ -771,10 +771,10 @@ function PiecesJointes({
               key={i}
               c={c}
               client={client}
-              chemin={jointe.title_link}
-              titre={jointe.title ?? null}
-              taille={jointe.size ?? null}
-              surAppuiLong={surAppuiLong}
+              path={jointe.title_link}
+              title={jointe.title ?? null}
+              size={jointe.size ?? null}
+              onLongPress={surAppuiLong}
             />
           );
         }
@@ -796,35 +796,35 @@ function PiecesJointes({
 function JointeFichier({
   c,
   client,
-  chemin,
-  titre,
-  taille,
-  surAppuiLong,
-  chiffrement = null,
+  path: chemin,
+  title: titre,
+  size: taille,
+  onLongPress: surAppuiLong,
+  encryption: chiffrement = null,
 }: {
-  c: Couleurs;
+  c: Colors;
   client: ClientRest;
-  chemin: string;
-  titre: string | null;
-  taille: number | null;
-  surAppuiLong: (() => void) | undefined;
-  chiffrement?: ChiffrementFichier | null;
+  path: string;
+  title: string | null;
+  size: number | null;
+  onLongPress: (() => void) | undefined;
+  encryption?: FileEncryption | null;
 }) {
   const t = useT();
   // Pas de MIME : \`attachments\` n'en porte pas pour un fichier (son \`type\`
   // vaut « file »). C'est l'extension du nom qui oriente le système.
   const choisir = () =>
-    proposerTelechargerOuPartager(
-      { cle: chemin, url: urlFichierProtege(client, chemin), titre, type: null, taille, chiffrement },
+    offerDownloadOrShare(
+      { key: chemin, url: protectedFileUrl(client, chemin), title: titre, type: null, size: taille, encryption: chiffrement },
       t,
     );
 
   return (
     <Pressable onPress={choisir} onLongPress={surAppuiLong} delayLongPress={350}>
-      <Text style={[styles.texte, { color: c.accent }]} numberOfLines={2}>
+      <Text style={[styles.text, { color: c.accent }]} numberOfLines={2}>
         📄 {titre ?? t('ligneMessage.fichier')}
       </Text>
-      <BarreTransfert cle={chemin} c={c} />
+      <TransferBar key={chemin} c={c} />
     </Pressable>
   );
 }
@@ -840,18 +840,18 @@ const APERCU_CHIFFRE_MAX = 25 * 1024 * 1024;
  */
 function JointeChiffree({
   c,
-  jointe,
-  chiffrement,
+  attachment: jointe,
+  encryption: chiffrement,
   client,
-  largeurMax,
-  surAppuiLong,
+  maxWidth: largeurMax,
+  onLongPress: surAppuiLong,
 }: {
-  c: Couleurs;
-  jointe: PieceJointe;
-  chiffrement: ChiffrementFichier;
+  c: Colors;
+  attachment: PieceJointe;
+  encryption: FileEncryption;
   client: ClientRest;
-  largeurMax: number;
-  surAppuiLong: (() => void) | undefined;
+  maxWidth: number;
+  onLongPress: (() => void) | undefined;
 }) {
   const t = useT();
   const chemin = jointe.title_link ?? jointe.image_url ?? jointe.video_url ?? jointe.audio_url;
@@ -872,12 +872,12 @@ function JointeChiffree({
   useEffect(() => {
     if (!apercu || chemin === undefined) return;
     let actif = true;
-    fichierDechiffre({
-      url: urlFichierProtege(client, chemin),
-      titre: jointe.title,
+    decryptedFile({
+      url: protectedFileUrl(client, chemin),
+      title: jointe.title,
       type,
-      taille,
-      chiffrement,
+      size: taille,
+      encryption: chiffrement,
     }).then(
       (uri) => {
         if (actif) setLocal(uri);
@@ -897,41 +897,41 @@ function JointeChiffree({
       <JointeFichier
         c={c}
         client={client}
-        chemin={chemin}
-        titre={jointe.title ?? null}
-        taille={taille}
-        surAppuiLong={surAppuiLong}
-        chiffrement={chiffrement}
+        path={chemin}
+        title={jointe.title ?? null}
+        size={taille}
+        onLongPress={surAppuiLong}
+        encryption={chiffrement}
       />
     );
   }
-  if (echec) return <Substitut c={c} texte={t('ligneMessage.fichierIllisible')} />;
+  if (echec) return <Substitut c={c} text={t('ligneMessage.fichierIllisible')} />;
   if (local === null) {
     return (
       <View style={[styles.imageJointe, styles.attenteChiffree]}>
-        <ActivityIndicator color={c.attenue} />
+        <ActivityIndicator color={c.dimmed} />
       </View>
     );
   }
   if (genre === 'image') {
     return (
       <ImageJointe
-        jointe={jointe}
+        attachment={jointe}
         client={client}
-        largeurMin={120}
-        largeurMax={largeurMax}
-        hauteurMin={0}
-        hauteurMax={400}
+        minWidth={120}
+        maxWidth={largeurMax}
+        minHeight={0}
+        maxHeight={400}
         style={styles.imageJointe}
-        surAppuiLong={surAppuiLong}
+        onLongPress={surAppuiLong}
         local={local}
       />
     );
   }
   if (genre === 'audio') {
-    return <LecteurAudio c={c} url={local} titre={jointe.title ?? null} surAppuiLong={surAppuiLong} />;
+    return <AudioPlayer c={c} url={local} title={jointe.title ?? null} onLongPress={surAppuiLong} />;
   }
-  return <LecteurVideo c={c} url={local} titre={jointe.title ?? null} surAppuiLong={surAppuiLong} />;
+  return <VideoPlayer c={c} url={local} title={jointe.title ?? null} onLongPress={surAppuiLong} />;
 }
 
 const styles = StyleSheet.create({
@@ -943,21 +943,21 @@ const styles = StyleSheet.create({
   messageSuite: { paddingTop: 0 },
   heureGouttiere: {
     width: 34,
-    fontFamily: POLICES.corps,
+    fontFamily: FONTS.body,
     fontSize: 9,
     lineHeight: 20,
     textAlign: 'center',
   },
-  corps: { flex: 1, gap: 2 },
-  enAttente: { opacity: 0.55 },
+  body: { flex: 1, gap: 2 },
+  pending: { opacity: 0.55 },
   enTete: { flexDirection: 'row', alignItems: 'baseline', gap: 7 },
   presseAvatar: { opacity: 0.55 },
-  auteur: { fontFamily: POLICES.corpsFort, fontSize: 13.5, flexShrink: 1 },
-  heure: { fontFamily: POLICES.corps, fontSize: 10.5 },
-  texte: { fontFamily: POLICES.corps, fontSize: 14, lineHeight: 20 },
-  italique: { fontStyle: 'italic' },
+  author: { fontFamily: FONTS.corpsFort, fontSize: 13.5, flexShrink: 1 },
+  time: { fontFamily: FONTS.body, fontSize: 10.5 },
+  text: { fontFamily: FONTS.body, fontSize: 14, lineHeight: 20 },
+  italic: { fontStyle: 'italic' },
   actionsEchec: { flexDirection: 'row', gap: 16 },
-  citation: {
+  quote: {
     alignSelf: 'flex-start',
     maxWidth: '100%',
     borderLeftWidth: 3,
@@ -967,7 +967,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
     gap: 1,
   },
-  citationAuteur: { fontFamily: POLICES.corpsGras, fontSize: 12 },
+  citationAuteur: { fontFamily: FONTS.corpsGras, fontSize: 12 },
   // La largeur et la hauteur viennent du gabarit d'`ImageJointe`.
   imageCitee: {
     maxWidth: '100%',
@@ -975,7 +975,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#00000010',
     marginVertical: 2,
   },
-  jointes: { gap: 6, marginTop: 4 },
+  attachments: { gap: 6, marginTop: 4 },
   reactions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
   pastilleReaction: {
     flexDirection: 'row',
@@ -988,8 +988,8 @@ const styles = StyleSheet.create({
   },
   reactionEmoji: { fontSize: 14 },
   reactionImage: { width: 16, height: 16 },
-  reactionCode: { fontFamily: POLICES.corps, fontSize: 11, maxWidth: 90 },
-  reactionTotal: { fontFamily: POLICES.corpsGras, fontSize: 12 },
+  reactionCode: { fontFamily: FONTS.body, fontSize: 11, maxWidth: 90 },
+  reactionTotal: { fontFamily: FONTS.corpsGras, fontSize: 12 },
   imageJointe: { borderRadius: 10, backgroundColor: '#00000010' },
   attenteChiffree: { width: 160, height: 120, alignItems: 'center', justifyContent: 'center' },
   puceFil: {
@@ -1000,7 +1000,7 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     marginTop: 5,
   },
-  puceFilTexte: { fontFamily: POLICES.corpsGras, fontSize: 12 },
+  puceFilTexte: { fontFamily: FONTS.corpsGras, fontSize: 12 },
   carteAppel: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1015,7 +1015,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     marginTop: 4,
   },
-  carteAppelTitre: { fontFamily: POLICES.corpsGras, fontSize: 14, flexShrink: 1 },
+  carteAppelTitre: { fontFamily: FONTS.corpsGras, fontSize: 14, flexShrink: 1 },
   rejoindre: { borderRadius: 999, paddingHorizontal: 16, paddingVertical: 7 },
-  rejoindreTexte: { fontFamily: POLICES.corpsFort, fontSize: 13 },
+  rejoindreTexte: { fontFamily: FONTS.corpsFort, fontSize: 13 },
 });

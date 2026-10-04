@@ -25,18 +25,18 @@ export type WebSocketLike = {
   onerror: ((e: unknown) => void) | null;
 };
 
-export type Evenement = {
+export type DdpEvent = {
   /** Nom du stream, p. ex. `stream-room-messages`. */
   collection: string;
   /** Clé de l'événement : un `rid`, ou `<uid>/subscriptions-changed`. */
-  cleEvenement: string;
+  eventKey: string;
   /** Charge utile. Le premier élément porte l'essentiel. */
   args: unknown[];
 };
 
-export type EtatDdp = 'ferme' | 'connexion' | 'connecte' | 'authentifie';
+export type DdpState = 'ferme' | 'connexion' | 'connecte' | 'authentifie';
 
-export class ErreurDdp extends Error {
+export class DdpError extends Error {
   readonly details?: unknown;
 
   constructor(message: string, details?: unknown) {
@@ -47,22 +47,22 @@ export class ErreurDdp extends Error {
 }
 
 type Attente = {
-  resoudre: (valeur: unknown) => void;
-  rejeter: (raison: unknown) => void;
-  minuterie: ReturnType<typeof setTimeout>;
+  resolve: (valeur: unknown) => void;
+  reject: (raison: unknown) => void;
+  timer: ReturnType<typeof setTimeout>;
 };
 
 export type OptionsDdp = {
-  creerWebSocket?: (url: string) => WebSocketLike;
+  createWebSocket?: (url: string) => WebSocketLike;
   /** Délai au-delà duquel une `method` ou une `sub` est considérée perdue. */
-  delaiMs?: number;
+  timeoutMs?: number;
   /**
    * Silence serveur au-delà duquel la socket est tenue pour suspecte. Voir
    * `SILENCE_MAX_MS`. Réglable pour les tests, pas pour la production.
    */
   silenceMaxMs?: number;
   /** Cadence du chien de garde. Voir `GARDE_MS`. */
-  gardeMs?: number;
+  watchdogMs?: number;
 };
 
 /**
@@ -79,20 +79,20 @@ const SILENCE_MAX_MS = 45_000;
 const GARDE_MS = 15_000;
 
 type SouscriptionDesiree = {
-  nom: string;
-  cleEvenement: string;
+  name: string;
+  eventKey: string;
   /** Nombre d'appelants. La `sub` ne part qu'une fois, l'`unsub` qu'au dernier départ. */
   refs: number;
   /** Identifiant sur le fil, ou `null` si rien n'est établi (socket tombée, pas encore authentifié). */
   id: string | null;
   /** `sub` en cours de négociation sur le fil. */
-  enVol: boolean;
+  inFlight: boolean;
   /**
    * La négociation en cours, vue comme une promesse qui ne rejette JAMAIS :
    * elle retombe sur le `ready` du serveur, sur un `nosub`, ou sur la mort de
    * la socket. C'est ce que `souscriptionsArmees()` attend.
    */
-  pret: Promise<void> | null;
+  ready: Promise<void> | null;
 };
 
 type MessageDdp = {
@@ -112,15 +112,15 @@ type MessageDdp = {
 
 export class ClientDdp {
   readonly url: string;
-  etat: EtatDdp = 'ferme';
+  state: DdpState = 'ferme';
   session: string | null = null;
 
   private ws: WebSocketLike | null = null;
-  private compteur = 0;
-  private fermetureVolontaire = false;
-  private readonly attentes = new Map<string, Attente>();
-  private readonly ecouteurs = new Set<(e: Evenement) => void>();
-  private readonly ecouteursPerte = new Set<() => void>();
+  private counter = 0;
+  private closedOnPurpose = false;
+  private readonly pending = new Map<string, Attente>();
+  private readonly listeners = new Set<(e: DdpEvent) => void>();
+  private readonly lossListeners = new Set<() => void>();
   /**
    * Souscriptions **désirées**, indexées par `nom|clé`. Survivent à une
    * fermeture de socket, pour que l'étape 5.1 puisse les rejouer : c'est le
@@ -130,53 +130,53 @@ export class ClientDdp {
    * doivent produire qu'une seule `sub` sur le fil — sinon le serveur envoie
    * chaque message en double, ce que `ROADMAP.md` reproche à l'app officielle.
    */
-  private readonly desirees = new Map<string, SouscriptionDesiree>();
-  private readonly creerWebSocket: (url: string) => WebSocketLike;
-  private readonly delaiMs: number;
+  private readonly wanted = new Map<string, SouscriptionDesiree>();
+  private readonly createWebSocket: (url: string) => WebSocketLike;
+  private readonly timeoutMs: number;
   /**
    * Rejette la négociation en cours. Elle vit hors de `attentes` (elle n'a pas
    * d'`id` DDP) : sans ce crochet, un `fermer()` pendant `connecter()`
    * laisserait la promesse pendre jusqu'à son délai — dix secondes de zombie
    * à chaque démontage un peu rapide.
    */
-  private annulerNegociation: ((raison: unknown) => void) | null = null;
+  private cancelHandshake: ((raison: unknown) => void) | null = null;
   private readonly silenceMaxMs: number;
-  private readonly gardeMs: number;
+  private readonly watchdogMs: number;
   /** Date du dernier octet reçu du serveur, tous messages confondus. */
-  private dernierTrafic = 0;
-  private garde: ReturnType<typeof setInterval> | null = null;
+  private lastTraffic = 0;
+  private watchdog: ReturnType<typeof setInterval> | null = null;
   /** Une seule sonde à la fois : le chien de garde tique plus vite qu'elle. */
-  private sondeEnCours = false;
+  private probeInFlight = false;
   /**
    * `nettoyer()` a déjà couru sur cette socket. Vrai au départ : un client
    * neuf n'a rien à nettoyer. Remis à faux par `connecter()`.
    */
-  private nettoye = true;
+  private cleanedUp = true;
 
   constructor(url: string, options: OptionsDdp = {}) {
     this.url = url;
-    this.delaiMs = options.delaiMs ?? 10_000;
+    this.timeoutMs = options.timeoutMs ?? 10_000;
     this.silenceMaxMs = options.silenceMaxMs ?? SILENCE_MAX_MS;
-    this.gardeMs = options.gardeMs ?? GARDE_MS;
-    this.creerWebSocket =
-      options.creerWebSocket ?? ((u) => new WebSocket(u) as unknown as WebSocketLike);
+    this.watchdogMs = options.watchdogMs ?? GARDE_MS;
+    this.createWebSocket =
+      options.createWebSocket ?? ((u) => new WebSocket(u) as unknown as WebSocketLike);
   }
 
   /** Souscriptions réellement établies sur le fil — l'écran debug de 3.6 s'en sert. */
-  get nombreSouscriptions(): number {
+  get subscriptionCount(): number {
     let n = 0;
-    for (const s of this.desirees.values()) if (s.id !== null) n++;
+    for (const s of this.wanted.values()) if (s.id !== null) n++;
     return n;
   }
 
   /** Souscriptions demandées, établies ou non. Diffère de la précédente si la socket est tombée. */
-  get nombreSouscriptionsDesirees(): number {
-    return this.desirees.size;
+  get wantedSubscriptionCount(): number {
+    return this.wanted.size;
   }
 
-  surEvenement(ecouteur: (e: Evenement) => void): () => void {
-    this.ecouteurs.add(ecouteur);
-    return () => this.ecouteurs.delete(ecouteur);
+  onEvent(ecouteur: (e: DdpEvent) => void): () => void {
+    this.listeners.add(ecouteur);
+    return () => this.listeners.delete(ecouteur);
   }
 
   /**
@@ -184,9 +184,9 @@ export class ClientDdp {
    * `fermer()`. C'est le signal du pilote de reconnexion (5.1) : notifier une
    * fermeture volontaire déclencherait une reconnexion après la déconnexion.
    */
-  surPerte(ecouteur: () => void): () => void {
-    this.ecouteursPerte.add(ecouteur);
-    return () => this.ecouteursPerte.delete(ecouteur);
+  onLoss(ecouteur: () => void): () => void {
+    this.lossListeners.add(ecouteur);
+    return () => this.lossListeners.delete(ecouteur);
   }
 
   /**
@@ -194,27 +194,27 @@ export class ClientDdp {
    * `authToken` est celui de `POST /api/v1/login` : un seul secret pour les
    * deux transports.
    */
-  async connecter(authToken: string): Promise<void> {
-    if (this.etat !== 'ferme') throw new ErreurDdp('Client déjà connecté.');
-    this.etat = 'connexion';
-    this.fermetureVolontaire = false;
-    this.nettoye = false;
+  async connect(authToken: string): Promise<void> {
+    if (this.state !== 'ferme') throw new DdpError('Client déjà connecté.');
+    this.state = 'connexion';
+    this.closedOnPurpose = false;
+    this.cleanedUp = false;
 
     await new Promise<void>((resoudre, rejeter) => {
       // Le timeout NETTOIE, il ne fait pas que rejeter : sinon l'état reste
       // « connexion » avec une socket ouverte, et toute retentative du pilote
       // de reconnexion échouerait à jamais sur « déjà connecté ».
       const minuterie = setTimeout(() => {
-        const erreur = new ErreurDdp(`Pas de « connected » en ${this.delaiMs} ms.`);
+        const erreur = new DdpError(`Pas de « connected » en ${this.timeoutMs} ms.`);
         this.ws?.close();
-        this.nettoyer(erreur);
+        this.cleanUp(erreur);
         rejeter(erreur);
-      }, this.delaiMs);
-      this.annulerNegociation = (raison) => {
+      }, this.timeoutMs);
+      this.cancelHandshake = (raison) => {
         clearTimeout(minuterie);
-        rejeter(raison instanceof Error ? raison : new ErreurDdp('Connexion interrompue.'));
+        rejeter(raison instanceof Error ? raison : new DdpError('Connexion interrompue.'));
       };
-      const ws = this.creerWebSocket(this.url);
+      const ws = this.createWebSocket(this.url);
       this.ws = ws;
 
       // Le `close` d'une socket abandonnée arrive de façon asynchrone, souvent
@@ -226,19 +226,19 @@ export class ClientDdp {
       ws.onerror = () => {
         if (!estCourante()) return;
         clearTimeout(minuterie);
-        this.nettoyer(new ErreurDdp('Erreur WebSocket.'));
-        rejeter(new ErreurDdp('Erreur WebSocket.'));
+        this.cleanUp(new DdpError('Erreur WebSocket.'));
+        rejeter(new DdpError('Erreur WebSocket.'));
       };
       ws.onclose = () => {
         if (!estCourante()) return;
         clearTimeout(minuterie);
-        this.nettoyer(new ErreurDdp('Socket fermée.'));
+        this.cleanUp(new DdpError('Socket fermée.'));
       };
       ws.onmessage = (e) => {
         if (!estCourante()) return;
         // AVANT tout traitement : ce qui compte pour le chien de garde est
         // qu'un octet soit arrivé, pas qu'il ait été compris.
-        this.dernierTrafic = Date.now();
+        this.lastTraffic = Date.now();
         let m: MessageDdp;
         try {
           m = JSON.parse(String(e.data)) as MessageDdp;
@@ -247,46 +247,46 @@ export class ClientDdp {
         }
         if (m.msg === 'connected') {
           clearTimeout(minuterie);
-          this.annulerNegociation = null;
+          this.cancelHandshake = null;
           this.session = m.session ?? null;
-          this.etat = 'connecte';
+          this.state = 'connecte';
           resoudre();
           return;
         }
         if (m.msg === 'failed') {
           clearTimeout(minuterie);
-          this.annulerNegociation = null;
+          this.cancelHandshake = null;
           // Même exigence que le timeout : laisser le client réutilisable.
-          const erreur = new ErreurDdp('Version DDP refusée par le serveur.');
+          const erreur = new DdpError('Version DDP refusée par le serveur.');
           ws.close();
-          this.nettoyer(erreur);
+          this.cleanUp(erreur);
           rejeter(erreur);
           return;
         }
-        this.recevoir(m);
+        this.receive(m);
       };
       ws.onopen = () => {
-        if (estCourante()) this.envoyer({ msg: 'connect', version: '1', support: ['1'] });
+        if (estCourante()) this.send({ msg: 'connect', version: '1', support: ['1'] });
       };
     });
 
     try {
-      await this.appeler('login', { resume: authToken });
+      await this.call('login', { resume: authToken });
     } catch (e) {
       // Sans cela, la socket reste ouverte et l'état bloqué sur « connecte » :
       // tout `connecter()` ultérieur lèverait « déjà connecté ».
       this.ws?.close();
-      this.nettoyer(e);
+      this.cleanUp(e);
       throw e;
     }
-    this.etat = 'authentifie';
-    this.demarrerGarde();
+    this.state = 'authentifie';
+    this.startWatchdog();
 
     // Rejouer les souscriptions désirées : celles demandées avant
     // l'authentification, et celles d'une socket précédente. C'est ce qui
     // permet à un écran de souscrire sans se soucier de l'état du transport —
     // et c'est le mécanisme que la reconnexion (5.1) réutilisera tel quel.
-    for (const entree of this.desirees.values()) this.etablir(entree);
+    for (const entree of this.wanted.values()) this.establish(entree);
   }
 
   /**
@@ -299,19 +299,19 @@ export class ClientDdp {
    * fil : il meurt avec la socket, et un écran qui s'en servait pour se
    * désabonner après une coupure laissait fuir sa référence pour toujours.
    */
-  souscrire(nom: string, cleEvenement: string): () => void {
+  subscribe(nom: string, cleEvenement: string): () => void {
     const cle = `${nom}|${cleEvenement}`;
-    const entree: SouscriptionDesiree = this.desirees.get(cle) ?? {
-      nom,
-      cleEvenement,
+    const entree: SouscriptionDesiree = this.wanted.get(cle) ?? {
+      name: nom,
+      eventKey: cleEvenement,
       refs: 0,
       id: null,
-      enVol: false,
-      pret: null,
+      inFlight: false,
+      ready: null,
     };
     entree.refs++;
-    this.desirees.set(cle, entree);
-    this.etablir(entree);
+    this.wanted.set(cle, entree);
+    this.establish(entree);
 
     // Idempotente par appelant : un double appel ne doit pas voler la
     // référence d'un autre écran.
@@ -319,7 +319,7 @@ export class ClientDdp {
     return () => {
       if (rendue) return;
       rendue = true;
-      this.relacher(cle);
+      this.release(cle);
     };
   }
 
@@ -331,19 +331,19 @@ export class ClientDdp {
    * `params` reçoit toujours l'objet `{ useCollection: false, args: [] }` en
    * dernier argument : c'est la convention des « streamers » de Rocket.Chat.
    */
-  private etablir(entree: SouscriptionDesiree): void {
-    if (this.etat !== 'authentifie' || entree.id !== null || entree.enVol) return;
-    const cle = `${entree.nom}|${entree.cleEvenement}`;
-    const id = `s${++this.compteur}`;
-    entree.enVol = true;
+  private establish(entree: SouscriptionDesiree): void {
+    if (this.state !== 'authentifie' || entree.id !== null || entree.inFlight) return;
+    const cle = `${entree.name}|${entree.eventKey}`;
+    const id = `s${++this.counter}`;
+    entree.inFlight = true;
 
-    entree.pret = this.attendre(id, `sub ${entree.nom}`)
+    entree.ready = this.waitFor(id, `sub ${entree.name}`)
       .then(() => {
-        entree.enVol = false;
-        if (this.desirees.get(cle) !== entree) {
+        entree.inFlight = false;
+        if (this.wanted.get(cle) !== entree) {
           // Relâchée pendant la négociation : le serveur vient de l'établir,
           // on la coupe aussitôt plutôt que de la laisser fuir.
-          this.envoyer({ msg: 'unsub', id });
+          this.send({ msg: 'unsub', id });
           return;
         }
         entree.id = id;
@@ -351,32 +351,32 @@ export class ClientDdp {
       .catch(() => {
         // `nosub` ou socket morte : `id` reste null. L'entrée reste désirée
         // et sera retentée à la prochaine authentification.
-        entree.enVol = false;
+        entree.inFlight = false;
       });
 
-    this.envoyer({
+    this.send({
       msg: 'sub',
       id,
-      name: entree.nom,
-      params: [entree.cleEvenement, { useCollection: false, args: [] }],
+      name: entree.name,
+      params: [entree.eventKey, { useCollection: false, args: [] }],
     });
   }
 
   /** Ne coupe la souscription sur le fil que lorsque le dernier appelant s'en va. */
-  private relacher(cle: string): void {
-    const entree = this.desirees.get(cle);
+  private release(cle: string): void {
+    const entree = this.wanted.get(cle);
     if (entree === undefined) return;
     if (--entree.refs > 0) return;
-    this.desirees.delete(cle);
+    this.wanted.delete(cle);
     // Si une négociation est en vol, son `.then` verra l'entrée disparue et
     // enverra l'`unsub` lui-même.
-    if (entree.id !== null) this.envoyer({ msg: 'unsub', id: entree.id });
+    if (entree.id !== null) this.send({ msg: 'unsub', id: entree.id });
   }
 
-  fermer(): void {
-    this.fermetureVolontaire = true;
+  close(): void {
+    this.closedOnPurpose = true;
     this.ws?.close();
-    this.nettoyer(new ErreurDdp('Client fermé.'));
+    this.cleanUp(new DdpError('Client fermé.'));
   }
 
   /**
@@ -392,10 +392,10 @@ export class ClientDdp {
    * Ne rejette jamais : une souscription qui échoue reste désirée et sera
    * rejouée à la prochaine authentification.
    */
-  async souscriptionsArmees(): Promise<void> {
+  async armedSubscriptions(): Promise<void> {
     const negociations: Promise<void>[] = [];
-    for (const entree of this.desirees.values()) {
-      if (entree.pret !== null) negociations.push(entree.pret);
+    for (const entree of this.wanted.values()) {
+      if (entree.ready !== null) negociations.push(entree.ready);
     }
     await Promise.all(negociations);
   }
@@ -417,23 +417,23 @@ export class ClientDdp {
    * qu'un ping s'est perdu. On ne coupe pas pour autant — on SONDE, et c'est
    * l'absence de pong qui tranche.
    */
-  private demarrerGarde(): void {
-    this.arreterGarde();
-    this.dernierTrafic = Date.now();
-    this.garde = setInterval(() => {
-      if (this.etat === 'ferme' || this.sondeEnCours) return;
-      if (Date.now() - this.dernierTrafic < this.silenceMaxMs) return;
-      this.sondeEnCours = true;
-      void this.verifierVie().finally(() => {
-        this.sondeEnCours = false;
+  private startWatchdog(): void {
+    this.stopWatchdog();
+    this.lastTraffic = Date.now();
+    this.watchdog = setInterval(() => {
+      if (this.state === 'ferme' || this.probeInFlight) return;
+      if (Date.now() - this.lastTraffic < this.silenceMaxMs) return;
+      this.probeInFlight = true;
+      void this.checkAlive().finally(() => {
+        this.probeInFlight = false;
       });
-    }, this.gardeMs);
+    }, this.watchdogMs);
   }
 
-  private arreterGarde(): void {
-    if (this.garde !== null) {
-      clearInterval(this.garde);
-      this.garde = null;
+  private stopWatchdog(): void {
+    if (this.watchdog !== null) {
+      clearInterval(this.watchdog);
+      this.watchdog = null;
     }
   }
 
@@ -443,7 +443,7 @@ export class ClientDdp {
    * ET ne fermera jamais — on la nettoie nous-mêmes, ce qui notifie
    * `surPerte` et laisse le pilote de reconnexion reprendre la main.
    */
-  async verifierVie(): Promise<boolean> {
+  async checkAlive(): Promise<boolean> {
     // Une NÉGOCIATION en cours ne se sonde pas. Sondé sur le banc 8.5.1 : un
     // `ping` envoyé avant le `connect` reçoit `{msg:'error', reason:'Must
     // connect first', offendingMessage:{id}}`, jamais de `pong`. Le `catch`
@@ -453,80 +453,80 @@ export class ClientDdp {
     //
     // L'état `connecte` (handshake fait, login pas encore répondu) est en
     // revanche bien sondable — même sonde, `pong` reçu.
-    if (this.etat !== 'connecte' && this.etat !== 'authentifie') return false;
-    const id = `v${++this.compteur}`;
+    if (this.state !== 'connecte' && this.state !== 'authentifie') return false;
+    const id = `v${++this.counter}`;
     try {
-      const promesse = this.attendre(id, 'sonde de vie');
-      this.envoyer({ msg: 'ping', id });
+      const promesse = this.waitFor(id, 'sonde de vie');
+      this.send({ msg: 'ping', id });
       await promesse;
       return true;
     } catch {
       // Le cast : TypeScript ne voit pas que `etat` a pu changer pendant
       // l'await (une coupure concurrente a pu déjà nettoyer).
-      if ((this.etat as EtatDdp) !== 'ferme') {
+      if ((this.state as DdpState) !== 'ferme') {
         this.ws?.close();
-        this.nettoyer(new ErreurDdp('Sonde de vie sans réponse : socket morte.'));
+        this.cleanUp(new DdpError('Sonde de vie sans réponse : socket morte.'));
       }
       return false;
     }
   }
 
   /** Seule méthode DDP encore appelée : `login`. Voir l'en-tête du fichier. */
-  private appeler(methode: string, ...params: unknown[]): Promise<unknown> {
-    const id = `m${++this.compteur}`;
-    const promesse = this.attendre(id, `method ${methode}`);
-    this.envoyer({ msg: 'method', id, method: methode, params });
+  private call(methode: string, ...params: unknown[]): Promise<unknown> {
+    const id = `m${++this.counter}`;
+    const promesse = this.waitFor(id, `method ${methode}`);
+    this.send({ msg: 'method', id, method: methode, params });
     return promesse;
   }
 
-  private attendre(id: string, quoi: string): Promise<unknown> {
+  private waitFor(id: string, quoi: string): Promise<unknown> {
     return new Promise((resoudre, rejeter) => {
       const minuterie = setTimeout(() => {
-        this.attentes.delete(id);
-        rejeter(new ErreurDdp(`${quoi} : ni réponse ni erreur en ${this.delaiMs} ms.`));
-      }, this.delaiMs);
-      this.attentes.set(id, { resoudre, rejeter, minuterie });
+        this.pending.delete(id);
+        rejeter(new DdpError(`${quoi} : ni réponse ni erreur en ${this.timeoutMs} ms.`));
+      }, this.timeoutMs);
+      this.pending.set(id, { resolve: resoudre, reject: rejeter, timer: minuterie });
     });
   }
 
-  private terminer(id: string, valeur: unknown, erreur?: unknown): void {
-    const attente = this.attentes.get(id);
+  private finish(id: string, valeur: unknown, erreur?: unknown): void {
+    const attente = this.pending.get(id);
     if (!attente) return;
-    this.attentes.delete(id);
-    clearTimeout(attente.minuterie);
-    erreur === undefined ? attente.resoudre(valeur) : attente.rejeter(erreur);
+    this.pending.delete(id);
+    clearTimeout(attente.timer);
+    erreur === undefined ? attente.resolve(valeur) : attente.reject(erreur);
   }
 
-  private recevoir(m: MessageDdp): void {
+  private receive(m: MessageDdp): void {
     switch (m.msg) {
       case 'ping':
         // Le serveur coupe la socket sans pong. L'`id` n'est présent que si le
         // ping en portait un.
-        this.envoyer(m.id === undefined ? { msg: 'pong' } : { msg: 'pong', id: m.id });
+        this.send(m.id === undefined ? { msg: 'pong' } : { msg: 'pong', id: m.id });
         break;
 
       case 'pong':
         // Réponse à NOTRE ping (sonde de vie).
-        if (m.id !== undefined) this.terminer(m.id, 'pong');
+        if (m.id !== undefined) this.finish(m.id, 'pong');
         break;
 
       case 'result':
         if (m.id !== undefined) {
-          this.terminer(
+          this.finish(
             m.id,
             m.result,
-            m.error === undefined ? undefined : new ErreurDdp('Méthode refusée.', m.error),
+            m.error === undefined ? undefined : new DdpError('Méthode refusée.', m.error),
           );
         }
         break;
 
       case 'ready':
-        for (const id of m.subs ?? []) this.terminer(id, 'ready');
+        for (const id of m.subs ?? []) this.finish(id, 'ready');
         break;
 
       case 'nosub':
         if (m.id !== undefined) {
-          this.terminer(m.id, undefined, new ErreurDdp('Souscription refusée.', m.error));
+          this.finish(m.id, undefined, new DdpError('Souscription refusée.', m.error));
         }
         break;
 
@@ -538,7 +538,7 @@ export class ClientDdp {
         // donc son `id` : on peut rejeter la bonne attente, pas toutes.
         const id = m.offendingMessage?.id;
         if (typeof id === 'string') {
-          this.terminer(id, undefined, new ErreurDdp(`Message refusé : ${m.reason ?? 'sans raison'}`));
+          this.finish(id, undefined, new DdpError(`Message refusé : ${m.reason ?? 'sans raison'}`));
         }
         break;
       }
@@ -548,13 +548,13 @@ export class ClientDdp {
         // `fields.eventName`, la charge utile dans `fields.args`.
         const cleEvenement = m.fields?.eventName;
         if (m.collection === undefined || cleEvenement === undefined) break;
-        const evenement: Evenement = {
+        const evenement: DdpEvent = {
           collection: m.collection,
-          cleEvenement,
+          eventKey: cleEvenement,
           args: m.fields?.args ?? [],
         };
         // Un écouteur qui lève ne doit pas empêcher les autres de recevoir.
-        for (const ecouteur of [...this.ecouteurs]) {
+        for (const ecouteur of [...this.listeners]) {
           try {
             ecouteur(evenement);
           } catch {
@@ -570,7 +570,7 @@ export class ClientDdp {
     }
   }
 
-  private envoyer(objet: unknown): void {
+  private send(objet: unknown): void {
     this.ws?.send(JSON.stringify(objet));
   }
 
@@ -587,10 +587,10 @@ export class ClientDdp {
    * partirait deux fois, et le second passage réémettrait l'événement sur un
    * objet déjà entièrement vidé.
    */
-  private nettoyer(raison: unknown): void {
-    if (this.nettoye) return;
-    this.nettoye = true;
-    this.arreterGarde();
+  private cleanUp(raison: unknown): void {
+    if (this.cleanedUp) return;
+    this.cleanedUp = true;
+    this.stopWatchdog();
     // Détacher les gestionnaires : une socket abandonnée ne doit plus rien dire.
     if (this.ws !== null) {
       this.ws.onopen = null;
@@ -599,20 +599,20 @@ export class ClientDdp {
       this.ws.onerror = null;
     }
     // Une négociation en vol est rejetée tout de suite — pas au bout du délai.
-    this.annulerNegociation?.(raison);
-    this.annulerNegociation = null;
-    for (const [id] of this.attentes) this.terminer(id, undefined, raison);
-    this.attentes.clear();
-    for (const s of this.desirees.values()) {
+    this.cancelHandshake?.(raison);
+    this.cancelHandshake = null;
+    for (const [id] of this.pending) this.finish(id, undefined, raison);
+    this.pending.clear();
+    for (const s of this.wanted.values()) {
       s.id = null;
-      s.enVol = false;
+      s.inFlight = false;
     }
-    this.etat = 'ferme';
+    this.state = 'ferme';
     this.session = null;
     this.ws = null;
 
-    if (!this.fermetureVolontaire) {
-      for (const ecouteur of [...this.ecouteursPerte]) {
+    if (!this.closedOnPurpose) {
+      for (const ecouteur of [...this.lossListeners]) {
         try {
           ecouteur();
         } catch {
@@ -623,7 +623,7 @@ export class ClientDdp {
   }
 
   /** Oublie tout, y compris les souscriptions désirées. À la déconnexion. */
-  reinitialiser(): void {
-    this.desirees.clear();
+  reset(): void {
+    this.wanted.clear();
   }
 }

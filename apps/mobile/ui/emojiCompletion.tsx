@@ -32,15 +32,15 @@ import {
 } from 'react-native';
 
 import {
-  appliquerCompletion,
-  completerEmoji,
-  detecterJetonEmoji,
+  applyCompletion,
+  completeEmoji,
+  detectEmojiToken,
   type SuggestionEmoji,
 } from '../lib/emojiCompletion.ts';
-import { codesEmojiStandard, unicodeDeCodeCourt } from '../lib/emojis.ts';
+import { codesEmojiStandard, unicodeOfShortcode } from '../lib/emojis.ts';
 import { codesEmojiCustom, urlEmojiCustom } from '../lib/customEmojis.ts';
-import { type Couleurs, DELAI_PRESSION_LISTE } from './theme.ts';
-import { Appuyable } from './tappable.tsx';
+import { type Colors, LIST_PRESS_DELAY } from './theme.ts';
+import { Tappable } from './tappable.tsx';
 
 type Selection = { start: number; end: number };
 
@@ -61,12 +61,12 @@ export function useCompletionEmoji(
   setBrouillon: (t: string) => void,
   sauverBrouillon: (t: string) => void,
 ): {
-  curseur: number;
+  cursor: number;
   selection: Selection | undefined;
-  surSelection: (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => void;
-  choisirEmoji: (insertion: string, debut: number) => void;
-  insererAuCurseur: (insertion: string) => void;
-  reinitialiser: () => void;
+  onSelection: (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => void;
+  pickEmoji: (insertion: string, debut: number) => void;
+  insertAtCursor: (insertion: string) => void;
+  reset: () => void;
 } {
   const [curseur, setCurseur] = useState(() => brouillon.length);
   const [selection, setSelection] = useState<Selection | undefined>(undefined);
@@ -83,11 +83,11 @@ export function useCompletionEmoji(
 
   const choisirEmoji = useCallback(
     (insertion: string, debut: number) => {
-      const r = appliquerCompletion(brouillon, debut, curseur, insertion);
-      setBrouillon(r.texte);
-      sauverBrouillon(r.texte);
-      setCurseur(r.curseur);
-      setSelection({ start: r.curseur, end: r.curseur });
+      const r = applyCompletion(brouillon, debut, curseur, insertion);
+      setBrouillon(r.text);
+      sauverBrouillon(r.text);
+      setCurseur(r.cursor);
+      setSelection({ start: r.cursor, end: r.cursor });
     },
     [brouillon, curseur, setBrouillon, sauverBrouillon],
   );
@@ -118,14 +118,14 @@ export function useCompletionEmoji(
     setSelection({ start: 0, end: 0 });
   }, []);
 
-  return { curseur, selection, surSelection, choisirEmoji, insererAuCurseur, reinitialiser };
+  return { cursor: curseur, selection, onSelection: surSelection, pickEmoji: choisirEmoji, insertAtCursor: insererAuCurseur, reset: reinitialiser };
 }
 
 /** Ce qu'on affiche et ce qu'on insère pour une suggestion résolue. */
-export type SuggestionRendue = {
+export type RenderedSuggestion = {
   suggestion: SuggestionEmoji;
   /** Glyphe Unicode (standard) — `null` pour un custom. */
-  glyphe: string | null;
+  glyph: string | null;
   /** URL de l'image (custom) — `null` pour un standard. */
   uri: string | null;
   /** Ce qu'on écrit dans le champ à la sélection : glyphe, ou `:nom:`. */
@@ -138,42 +138,42 @@ export type SuggestionRendue = {
  * avec le navigateur d'emojis (`ui/emojiPicker.tsx`) : un seul endroit qui
  * tranche standard vs custom.
  */
-export function resoudre(s: SuggestionEmoji): SuggestionRendue {
+export function resolve(s: SuggestionEmoji): RenderedSuggestion {
   if (s.type === 'custom') {
-    return { suggestion: s, glyphe: null, uri: urlEmojiCustom(s.code), insertion: `:${s.code}:` };
+    return { suggestion: s, glyph: null, uri: urlEmojiCustom(s.code), insertion: `:${s.code}:` };
   }
-  const glyphe = unicodeDeCodeCourt(s.code);
+  const glyphe = unicodeOfShortcode(s.code);
   // `glyphe` ne devrait jamais être null (le code vient de la table), mais si
   // ça arrivait, `:nom:` reste un repli lisible et envoyable.
-  return { suggestion: s, glyphe, uri: null, insertion: glyphe ?? `:${s.code}:` };
+  return { suggestion: s, glyph: glyphe, uri: null, insertion: glyphe ?? `:${s.code}:` };
 }
 
-export function BandeauCompletionEmoji({
-  texte,
-  curseur,
+export function EmojiCompletionBanner({
+  text: texte,
+  cursor: curseur,
   c,
-  surChoisir,
+  onPick: surChoisir,
 }: {
-  texte: string;
-  curseur: number;
-  c: Couleurs;
+  text: string;
+  cursor: number;
+  c: Colors;
   /** Reçoit le texte à insérer et le `debut` du jeton détecté à ce moment. */
-  surChoisir: (insertion: string, debut: number) => void;
+  onPick: (insertion: string, debut: number) => void;
 }) {
   const resultat = useMemo(() => {
-    const jeton = detecterJetonEmoji(texte, curseur);
+    const jeton = detectEmojiToken(texte, curseur);
     if (jeton === null) return null;
     // Dépend de (texte, curseur) seulement. Un rafraîchissement des customs en
     // pleine frappe (synchro 1×/session, au raccordement) n'est pas reflété tant
     // que la frappe n'a pas repris — angle mort assumé : la synchro tombe avant
     // qu'on compose, et la frappe suivante recalcule.
-    const suggestions = completerEmoji(
-      jeton.requete,
+    const suggestions = completeEmoji(
+      jeton.query,
       codesEmojiStandard(),
       codesEmojiCustom(),
     );
     if (suggestions.length === 0) return null;
-    return { debut: jeton.debut, items: suggestions.map(resoudre) };
+    return { start: jeton.start, items: suggestions.map(resolve) };
   }, [texte, curseur]);
 
   if (resultat === null) return null;
@@ -183,27 +183,27 @@ export function BandeauCompletionEmoji({
       horizontal
       keyboardShouldPersistTaps="always"
       showsHorizontalScrollIndicator={false}
-      style={[styles.bande, { backgroundColor: c.carte, borderTopColor: c.bordure }]}
-      contentContainerStyle={styles.contenu}
+      style={[styles.strip, { backgroundColor: c.card, borderTopColor: c.border }]}
+      contentContainerStyle={styles.content}
     >
-      {resultat.items.map(({ suggestion, glyphe, uri, insertion }) => (
-        <View key={`${suggestion.type}:${suggestion.code}`} style={styles.enveloppePuce}>
-          <Appuyable
-            onPress={() => surChoisir(insertion, resultat.debut)}
-            android_ripple={{ color: c.ondulation, borderless: false }}
-            unstable_pressDelay={DELAI_PRESSION_LISTE}
-            style={styles.puce}
+      {resultat.items.map(({ suggestion, glyph: glyphe, uri, insertion }) => (
+        <View key={`${suggestion.type}:${suggestion.code}`} style={styles.bulletWrapper}>
+          <Tappable
+            onPress={() => surChoisir(insertion, resultat.start)}
+            android_ripple={{ color: c.ripple, borderless: false }}
+            unstable_pressDelay={LIST_PRESS_DELAY}
+            style={styles.bullet}
             accessibilityLabel={`:${suggestion.code}:`}
           >
             {uri !== null ? (
               <Image source={{ uri }} style={styles.image} resizeMode="contain" />
             ) : (
-              <Text style={styles.glyphe}>{glyphe}</Text>
+              <Text style={styles.glyph}>{glyphe}</Text>
             )}
-            <Text style={[styles.code, { color: c.attenue }]} numberOfLines={1}>
+            <Text style={[styles.code, { color: c.dimmed }]} numberOfLines={1}>
               :{suggestion.code}:
             </Text>
-          </Appuyable>
+          </Tappable>
         </View>
       ))}
     </ScrollView>
@@ -212,14 +212,14 @@ export function BandeauCompletionEmoji({
 
 const styles = StyleSheet.create({
   // Hauteur bornée : la bande ne doit pas repousser la liste de moitié d'écran.
-  bande: { maxHeight: 44, borderTopWidth: StyleSheet.hairlineWidth },
-  contenu: { alignItems: 'center', paddingHorizontal: 6, gap: 4 },
+  strip: { maxHeight: 44, borderTopWidth: StyleSheet.hairlineWidth },
+  content: { alignItems: 'center', paddingHorizontal: 6, gap: 4 },
   // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
   // découpe l'ondulation en pilule — borderRadius sur le Pressable est
   // ignoré par le masque du ripple sous Fabric.
-  enveloppePuce: { borderRadius: 999, overflow: 'hidden' },
-  puce: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 6 },
-  glyphe: { fontSize: 20 },
+  bulletWrapper: { borderRadius: 999, overflow: 'hidden' },
+  bullet: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 6 },
+  glyph: { fontSize: 20 },
   image: { width: 22, height: 22 },
   code: { fontSize: 13, maxWidth: 140 },
 });

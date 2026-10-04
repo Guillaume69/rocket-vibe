@@ -7,25 +7,25 @@
 
 import { useSyncExternalStore } from 'react';
 
-export type CibleSaut = {
+export type JumpTarget = {
   id: string;
   /** Pour savoir jusqu'où remonter l'historique quand le message n'est pas en base. */
-  horodatage: number;
+  ts: number;
 };
 
-const cibles = new Map<string, CibleSaut>();
+const cibles = new Map<string, JumpTarget>();
 const abonnes = new Set<() => void>();
 
 function notifier(): void {
   for (const abonne of abonnes) abonne();
 }
 
-export function demanderSaut(rid: string, cible: CibleSaut): void {
+export function requestJump(rid: string, cible: JumpTarget): void {
   cibles.set(rid, cible);
   notifier();
 }
 
-export function consommerSaut(rid: string, id: string): void {
+export function consumeJump(rid: string, id: string): void {
   if (cibles.get(rid)?.id === id && cibles.delete(rid)) notifier();
 }
 
@@ -34,6 +34,6 @@ function abonner(abonne: () => void): () => void {
   return () => void abonnes.delete(abonne);
 }
 
-export function useSaut(rid: string): CibleSaut | null {
+export function useJump(rid: string): JumpTarget | null {
   return useSyncExternalStore(abonner, () => cibles.get(rid) ?? null);
 }

@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { avecPiegeTransaction } from './testStore.ts';
-import { rattraperGlobal, rattraperSalon, reconcilierSalons } from './catchUp.ts';
+import { withTransactionTrap } from './testStore.ts';
+import { catchUpGlobal, catchUpRoom, reconcileRooms } from './catchUp.ts';
 import { ClientRest } from './rest.ts';
-import { MoteurSynchro, type Depot } from './sync.ts';
-import { TraducteurRC } from '../providers/rocketchat/translator.ts';
+import { SyncEngine, type Store } from './sync.ts';
+import { RcTranslator } from '../providers/rocketchat/translator.ts';
 
 function fauxDepotComplet() {
   const curseurs = new Map<string, number>();
@@ -16,7 +16,7 @@ function fauxDepotComplet() {
   const abonnements: string[] = [];
   const messages: string[] = [];
   const supprimesParSubId: string[] = [];
-  const purges: { vivants: string[]; connus: string[] }[] = [];
+  const purges: { alive: string[]; known: string[] }[] = [];
   const identites: { uid: string; username: string; avatarEtag: string | null }[] = [];
   const retentions: number[] = [];
   /** Les rids « déjà en base », mutables : le stream écrit pendant le vol. */
@@ -24,33 +24,33 @@ function fauxDepotComplet() {
   let dernierLocal: number | null = null;
   // Le piège rejoue l'invariant de `db/store.ts` : pendant une transaction,
   // seules les écritures du `tx` reçu passent — celles du dépôt jettent.
-  const depot: Depot = avecPiegeTransaction({
+  const depot: Store = withTransactionTrap({
     upsertMessage: async (m) => void messages.push(m.id),
-    upsertSalon: async (s) => void salons.push(s.rid),
-    upsertAbonnement: async (a) => void abonnements.push(a.rid),
-    supprimerMessage: async (id) => void supprimesMessages.push(id),
-    supprimerSalon: async (rid) => void supprimesSalons.push(rid),
-    supprimerAbonnement: async (rid) => void supprimesAbonnements.push(rid),
-    supprimerParSubId: async (subId) => void supprimesParSubId.push(subId),
-    listerRidsConnus: async () => [...connus],
-    purgerSalonsAbsents: async (vivants, cnx) => void purges.push({ vivants, connus: cnx }),
-    appliquerRetention: async (n) => void retentions.push(n),
-    lireCurseur: async (portee, flux) => curseurs.get(`${portee}|${flux}`) ?? null,
-    ecrireCurseur: async (portee, flux, valeur) => {
+    upsertRoom: async (s) => void salons.push(s.rid),
+    upsertSubscription: async (a) => void abonnements.push(a.rid),
+    deleteMessage: async (id) => void supprimesMessages.push(id),
+    deleteRoom: async (rid) => void supprimesSalons.push(rid),
+    deleteSubscription: async (rid) => void supprimesAbonnements.push(rid),
+    deleteBySubId: async (subId) => void supprimesParSubId.push(subId),
+    listKnownRids: async () => [...connus],
+    purgeMissingRooms: async (vivants, cnx) => void purges.push({ alive: vivants, known: cnx }),
+    applyRetention: async (n) => void retentions.push(n),
+    readCursor: async (portee, flux) => curseurs.get(`${portee}|${flux}`) ?? null,
+    writeCursor: async (portee, flux, valeur) => {
       const cle = `${portee}|${flux}`;
       const courant = curseurs.get(cle);
       if (courant === undefined || valeur > courant) curseurs.set(cle, valeur);
     },
-    dernierMessageMisAJour: async () => dernierLocal,
-    listerClesSalon: async () => [],
-    messagesADechiffrer: async () => [],
-    majTexteMessage: async () => {},
-    majMarquesMessage: async () => {},
-    masquerMessagesChiffres: async () => {},
-    majApercuChiffre: async () => {},
-    majAvatarUtilisateur: async () => {},
-    majAvatarSalon: async () => {},
-    enregistrerIdentite: async (i) => void identites.push(i),
+    lastMessageUpdatedAt: async () => dernierLocal,
+    listRoomKeys: async () => [],
+    messagesToDecrypt: async () => [],
+    updateMessageText: async () => {},
+    updateMessageMarks: async () => {},
+    hideEncryptedMessages: async () => {},
+    updateEncryptedPreview: async () => {},
+    updateUserAvatar: async () => {},
+    updateRoomAvatar: async () => {},
+    saveIdentity: async (i) => void identites.push(i),
   });
   return {
     depot,
@@ -90,7 +90,7 @@ function fauxClient(reponses: Record<string, unknown>, pendantLeVol?: (chemin: s
         headers: { 'Content-Type': 'application/json' },
       });
     },
-    dormir: async () => {},
+    sleep: async () => {},
   });
   return { client, urls };
 }
@@ -98,7 +98,7 @@ function fauxClient(reponses: Record<string, unknown>, pendantLeVol?: (chemin: s
 describe('rattraperGlobal', () => {
   test('sans curseur : chargement complet (pas d’updatedSince), puis curseurs posés', async () => {
     const d = fauxDepotComplet();
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     const { client, urls } = fauxClient({
       'rooms.get': {
         update: [{ _id: 'r1', t: 'c', _updatedAt: { $date: 500 } }],
@@ -110,7 +110,7 @@ describe('rattraperGlobal', () => {
       },
     });
 
-    await rattraperGlobal(client, moteur);
+    await catchUpGlobal(client, moteur);
 
     assert.ok(!urls.some((u) => u.includes('updatedSince')), 'premier passage = complet');
     assert.deepEqual(d.salons, ['r1']);
@@ -122,7 +122,7 @@ describe('rattraperGlobal', () => {
     const d = fauxDepotComplet();
     d.curseurs.set('*|salons', 1000);
     d.curseurs.set('*|abonnements', 1000);
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     const { client, urls } = fauxClient({
       // Projections réelles du serveur 8.5 : `remove[]` de rooms.get porte le
       // `_id` du SALON supprimé ; celui de subscriptions.get porte le `_id`
@@ -131,7 +131,7 @@ describe('rattraperGlobal', () => {
       'subscriptions.get': { update: [], remove: [{ _id: 'sub-quitte' }] },
     });
 
-    await rattraperGlobal(client, moteur);
+    await catchUpGlobal(client, moteur);
 
     const urlSalons = urls.find((u) => u.includes('rooms.get'));
     assert.ok(
@@ -148,21 +148,21 @@ describe('rattraperGlobal', () => {
     // stream ne l'a annoncé. Sans cette lecture, l'ancienne photo resterait
     // affichée jusqu'au prochain changement.
     const d = fauxDepotComplet();
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     const { client } = fauxClient({
       'rooms.get': { update: [], remove: [] },
       'subscriptions.get': { update: [], remove: [] },
       me: { _id: 'u1', username: 'alice', avatarETag: 'etag-frais' },
     });
 
-    await rattraperGlobal(client, moteur);
+    await catchUpGlobal(client, moteur);
 
     assert.deepEqual(d.identites, [{ uid: 'u1', username: 'alice', avatarEtag: 'etag-frais' }]);
   });
 
   test('un `me` en échec ne fait pas échouer le rattrapage', async () => {
     const d = fauxDepotComplet();
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     const client = new ClientRest('http://x', {
       fetch: async (url) => {
         const chemin = new URL(String(url)).pathname.split('/api/v1/')[1];
@@ -172,10 +172,10 @@ describe('rattraperGlobal', () => {
           headers: { 'Content-Type': 'application/json' },
         });
       },
-      dormir: async () => {},
+      sleep: async () => {},
     });
 
-    await rattraperGlobal(client, moteur);
+    await catchUpGlobal(client, moteur);
 
     assert.deepEqual(d.salons, ['r1'], 'les salons passent quand même');
     assert.equal(d.identites.length, 0);
@@ -198,7 +198,7 @@ function clientSequence(reponses: (Record<string, unknown> | number)[]) {
         headers: { 'Content-Type': 'application/json' },
       });
     },
-    dormir: async () => {},
+    sleep: async () => {},
   });
   return { client, urls };
 }
@@ -220,9 +220,9 @@ const msg = (id: string, maj: number) => ({
 describe('rattraperSalon', () => {
   test('sans curseur : ne fait RIEN — repartir de l’origine re-téléchargerait tout', async () => {
     const d = fauxDepotComplet();
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     const { client, urls } = fauxClient({});
-    await rattraperSalon(client, moteur, 'r1');
+    await catchUpRoom(client, moteur, 'r1');
     assert.equal(urls.length, 0);
   });
 
@@ -232,10 +232,10 @@ describe('rattraperSalon', () => {
     // correctif, pas un détail de forme.
     const d = fauxDepotComplet();
     d.curseurs.set('r1|messages', 2000);
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     const { client, urls } = clientSequence([page([msg('m1', 2600)], null)]);
 
-    await rattraperSalon(client, moteur, 'r1');
+    await catchUpRoom(client, moteur, 'r1');
 
     assert.ok(urls[0]?.includes('chat.syncMessages'));
     assert.ok(urls[0]?.includes('roomId=r1'));
@@ -252,16 +252,16 @@ describe('rattraperSalon', () => {
     const d = fauxDepotComplet();
     d.curseurs.set('r1|messages', 1000);
     d.curseurs.set('r1|messages-supprimes', 9_000_000);
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     const vus: (number | undefined)[] = [];
     const { client } = clientSequence([page([msg('m1', 1500)], '2000'), page([msg('m2', 2500)], null)]);
-    const ecrire = d.depot.ecrireCurseur.bind(d.depot);
-    d.depot.ecrireCurseur = async (portee, flux, v) => {
+    const ecrire = d.depot.writeCursor.bind(d.depot);
+    d.depot.writeCursor = async (portee, flux, v) => {
       if (flux === 'messages') vus.push(v);
       await ecrire(portee, flux, v);
     };
 
-    await rattraperSalon(client, moteur, 'r1');
+    await catchUpRoom(client, moteur, 'r1');
 
     // Page 1 : le curseur du SERVEUR (2000), pas le plus grand `_updatedAt`
     // ingéré (1500) — lui seul reprend la pagination, groupes d'ex æquo compris.
@@ -281,11 +281,11 @@ describe('rattraperSalon', () => {
     const d = fauxDepotComplet();
     d.curseurs.set('r1|messages', 1000);
     d.curseurs.set('r1|messages-supprimes', 9_000_000);
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     const { client, urls } = clientSequence([page([msg('m1', 1500)], null)]);
 
-    await rattraperSalon(client, moteur, 'r1');
-    await rattraperSalon(client, moteur, 'r1');
+    await catchUpRoom(client, moteur, 'r1');
+    await catchUpRoom(client, moteur, 'r1');
 
     const majs = urls.filter((u) => u.includes('type=UPDATED'));
     assert.equal(majs.length, 2, 'une requête par ouverture');
@@ -299,7 +299,7 @@ describe('rattraperSalon', () => {
     const d = fauxDepotComplet();
     d.curseurs.set('r1|messages', 1000);
     d.curseurs.set('r1|messages-supprimes', 9_000_000);
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     // Chaque page promet une suite : seul le plafond peut arrêter la boucle.
     const { client, urls } = clientSequence([
       page([msg('m1', 1500)], '2000'),
@@ -307,7 +307,7 @@ describe('rattraperSalon', () => {
       page([msg('m3', 3500)], '4000'),
     ]);
 
-    await rattraperSalon(client, moteur, 'r1');
+    await catchUpRoom(client, moteur, 'r1');
 
     const majs = urls.filter((u) => u.includes('type=UPDATED'));
     assert.equal(majs.length, 2, 'la 3e page ne doit pas être demandée');
@@ -319,10 +319,10 @@ describe('rattraperSalon', () => {
     const d = fauxDepotComplet();
     d.curseurs.set('r1|messages', 5000);
     d.curseurs.set('r1|messages-supprimes', 9_000_000);
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     const { client, urls } = clientSequence([page([], '5000')]);
 
-    await rattraperSalon(client, moteur, 'r1');
+    await catchUpRoom(client, moteur, 'r1');
 
     assert.equal(urls.filter((u) => u.includes('type=UPDATED')).length, 1);
   });
@@ -331,10 +331,10 @@ describe('rattraperSalon', () => {
     // Sinon on redescendrait toute la corbeille du salon depuis l'origine.
     const d = fauxDepotComplet();
     d.curseurs.set('r1|messages', 4000);
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     const { client, urls } = clientSequence([page([], null)]);
 
-    await rattraperSalon(client, moteur, 'r1');
+    await catchUpRoom(client, moteur, 'r1');
 
     assert.equal(urls.filter((u) => u.includes('type=DELETED')).length, 0);
     assert.equal(d.curseurs.get('r1|messages-supprimes'), 4000);
@@ -344,14 +344,14 @@ describe('rattraperSalon', () => {
     const d = fauxDepotComplet();
     d.curseurs.set('r1|messages', 4000);
     d.curseurs.set('r1|messages-supprimes', 4000);
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     const { client, urls } = clientSequence([
       page([], null),
       { result: { deleted: [{ _id: 'm-efface' }], cursor: { next: '5000', previous: '0' } } },
       { result: { deleted: [], cursor: { next: null, previous: '0' } } },
     ]);
 
-    await rattraperSalon(client, moteur, 'r1');
+    await catchUpRoom(client, moteur, 'r1');
 
     const suppr = urls.filter((u) => u.includes('type=DELETED'));
     assert.ok(suppr[0]?.includes('next=4000'));
@@ -365,7 +365,7 @@ describe('rattraperSalon', () => {
     const d = fauxDepotComplet();
     d.curseurs.set('r1|messages', 4000);
     d.curseurs.set('r1|messages-supprimes', 4000);
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     const efface = '2026-07-25T13:12:28.691Z'; // forme relevée sur 8.5
     const { client } = clientSequence([
       page([], null),
@@ -377,7 +377,7 @@ describe('rattraperSalon', () => {
       },
     ]);
 
-    await rattraperSalon(client, moteur, 'r1');
+    await catchUpRoom(client, moteur, 'r1');
 
     assert.deepEqual(d.supprimesMessages, ['m-efface']);
     assert.equal(d.curseurs.get('r1|messages-supprimes'), Date.parse(efface));
@@ -386,9 +386,9 @@ describe('rattraperSalon', () => {
   test('abandonné entre la réponse et l’écriture : rien n’est écrit', async () => {
     const d = fauxDepotComplet();
     d.curseurs.set('r1|messages', 2000);
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     const { client } = clientSequence([page([msg('m1', 2500)], null)]);
-    await rattraperSalon(client, moteur, 'r1', () => true);
+    await catchUpRoom(client, moteur, 'r1', () => true);
     assert.equal(d.messages.length, 0);
   });
 
@@ -398,7 +398,7 @@ describe('rattraperSalon', () => {
     // exactement les mégaoctets qu'on cherche à éviter.
     const d = fauxDepotComplet();
     d.curseurs.set('r1|messages', 1000);
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     const urls: string[] = [];
     const client = new ClientRest('http://x', {
       fetch: async (url) => {
@@ -407,7 +407,7 @@ describe('rattraperSalon', () => {
       },
     });
 
-    await assert.rejects(() => rattraperSalon(client, moteur, 'r1'));
+    await assert.rejects(() => catchUpRoom(client, moteur, 'r1'));
 
     assert.ok(!urls.some((u) => u.includes('lastUpdate')), 'aucun repli sur un timeout');
     assert.equal(d.curseurs.get('r1|messages'), 1000, 'curseur intact : la reprise est exacte');
@@ -420,10 +420,10 @@ describe('rattraperSalon', () => {
       const maintenant = 100 * jour;
       const d = fauxDepotComplet();
       d.curseurs.set('r1|messages', 2 * jour); // 98 jours de retard
-      const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+      const moteur = new SyncEngine(d.depot, new RcTranslator());
       const { client, urls } = clientSequence([400, { result: { updated: [] } }]);
 
-      await rattraperSalon(client, moteur, 'r1', () => false, () => maintenant);
+      await catchUpRoom(client, moteur, 'r1', () => false, () => maintenant);
 
       const attendu = encodeURIComponent(new Date(maintenant - jour).toISOString());
       assert.ok(urls[1]?.includes(`lastUpdate=${attendu}`), `vu ${urls[1]}`);
@@ -432,13 +432,13 @@ describe('rattraperSalon', () => {
     test('une réponse SANS cursor vaut refus — le serveur ignore les paramètres', async () => {
       const d = fauxDepotComplet();
       d.curseurs.set('r1|messages', 2000);
-      const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+      const moteur = new SyncEngine(d.depot, new RcTranslator());
       const { client, urls } = clientSequence([
         { result: { updated: [] } },
         { result: { updated: [msg('m1', 2600)] } },
       ]);
 
-      await rattraperSalon(client, moteur, 'r1', () => false, () => 3000);
+      await catchUpRoom(client, moteur, 'r1', () => false, () => 3000);
 
       assert.ok(urls[1]?.includes('lastUpdate'), `vu ${urls[1]}`);
       assert.deepEqual(d.messages, ['m1']);
@@ -451,7 +451,7 @@ describe('rattraperSalon', () => {
       const d = fauxDepotComplet();
       d.curseurs.set('r1|messages', 1000);
       d.setDernierLocal(9000);
-      const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+      const moteur = new SyncEngine(d.depot, new RcTranslator());
       let premier = true;
       const client = new ClientRest('http://x', {
         fetch: async () => {
@@ -464,10 +464,10 @@ describe('rattraperSalon', () => {
           }
           throw new Error('timeout');
         },
-        dormir: async () => {},
+        sleep: async () => {},
       });
 
-      await assert.rejects(() => rattraperSalon(client, moteur, 'r1'));
+      await assert.rejects(() => catchUpRoom(client, moteur, 'r1'));
       assert.equal(d.curseurs.get('r1|messages'), 9000);
     });
   });
@@ -496,7 +496,7 @@ function clientRetenu(reponses: (Record<string, unknown> | number)[]) {
         headers: { 'Content-Type': 'application/json' },
       });
     },
-    dormir: async () => {},
+    sleep: async () => {},
   });
   /** Laisse les promesses déjà prêtes se dérouler — jamais un délai. */
   const tour = () => new Promise<void>((r) => setImmediate(r));
@@ -526,7 +526,7 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
     const d = fauxDepotComplet();
     d.curseurs.set('r1|messages', 1000);
     d.curseurs.set('r1|messages-supprimes', 9_000_000);
-    return { d, moteur: new MoteurSynchro(d.depot, new TraducteurRC()) };
+    return { d, engine: new SyncEngine(d.depot, new RcTranslator()) };
   }
 
   test('trois demandes concurrentes ne lancent PAS trois paginations', async () => {
@@ -534,13 +534,13 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
     // d'ouverture de l'écran (réveillé par le bump de `generation` que ce même
     // raccordement vient de poser) partaient tous deux sur le MÊME curseur,
     // pour redemander la même tranche.
-    const { d, moteur } = banc();
+    const { d, engine: moteur } = banc();
     const h = clientRetenu([page([], null)]);
 
     const demandes = [
-      rattraperSalon(h.client, moteur, 'r1'),
-      rattraperSalon(h.client, moteur, 'r1'),
-      rattraperSalon(h.client, moteur, 'r1'),
+      catchUpRoom(h.client, moteur, 'r1'),
+      catchUpRoom(h.client, moteur, 'r1'),
+      catchUpRoom(h.client, moteur, 'r1'),
     ];
     await h.tour();
 
@@ -557,12 +557,12 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
     // souscriptions armées — est la seule à garantir que rien n'est tombé
     // entre les deux transports. La refuser laissait un trou définitif : le
     // curseur avait avancé, plus rien ne redemandait cette fenêtre.
-    const { d, moteur } = banc();
+    const { d, engine: moteur } = banc();
     const h = clientRetenu([page([], null)]);
 
-    const p1 = rattraperSalon(h.client, moteur, 'r1');
+    const p1 = catchUpRoom(h.client, moteur, 'r1');
     await h.tour(); // la première pagination est partie
-    const p2 = rattraperSalon(h.client, moteur, 'r1');
+    const p2 = catchUpRoom(h.client, moteur, 'r1');
 
     await h.ouvrirTout();
     await Promise.all([p1, p2]);
@@ -575,12 +575,12 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
   test('la passe chaînée repart du curseur AVANCÉ — pas une seconde fois la même tranche', async () => {
     // C'est ce qui rend la garantie peu coûteuse : la seconde lecture ne
     // repagine pas, elle vérifie. ~92 octets mesurés quand rien n'a bougé.
-    const { d, moteur } = banc();
+    const { d, engine: moteur } = banc();
     const h = clientRetenu([page([msg('m1', 1500)], null)]);
 
-    const p1 = rattraperSalon(h.client, moteur, 'r1');
+    const p1 = catchUpRoom(h.client, moteur, 'r1');
     await h.tour();
-    const p2 = rattraperSalon(h.client, moteur, 'r1');
+    const p2 = catchUpRoom(h.client, moteur, 'r1');
 
     await h.ouvrirTout();
     await Promise.all([p1, p2]);
@@ -592,12 +592,12 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
   });
 
   test('les passes ne s’ENTRELACENT pas : la seconde attend la fin de la première', async () => {
-    const { moteur } = banc();
+    const { engine: moteur } = banc();
     const h = clientRetenu([page([], null)]);
 
-    const p1 = rattraperSalon(h.client, moteur, 'r1');
+    const p1 = catchUpRoom(h.client, moteur, 'r1');
     await h.tour();
-    const p2 = rattraperSalon(h.client, moteur, 'r1');
+    const p2 = catchUpRoom(h.client, moteur, 'r1');
     await h.tour();
 
     assert.equal(h.urls.length, 1, 'la 2e passe n’a rien envoyé tant que la 1re court');
@@ -611,14 +611,14 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
     // un effet rejoué (changement de `generation`) pose `annule = true` sur
     // l'ancien passage juste avant de relancer le nouveau. S'exclure sur le
     // seul premier prédicat rendrait une promesse tenue sans avoir rien lu.
-    const { d, moteur } = banc();
+    const { d, engine: moteur } = banc();
     const h = clientRetenu([page([msg('m1', 1500)], null)]);
 
-    const p1 = rattraperSalon(h.client, moteur, 'r1');
+    const p1 = catchUpRoom(h.client, moteur, 'r1');
     await h.tour();
     let demonte = false;
-    const p2 = rattraperSalon(h.client, moteur, 'r1', () => demonte);
-    const p3 = rattraperSalon(h.client, moteur, 'r1'); // rejoint la passe de p2
+    const p2 = catchUpRoom(h.client, moteur, 'r1', () => demonte);
+    const p3 = catchUpRoom(h.client, moteur, 'r1'); // rejoint la passe de p2
     demonte = true; // l'écran de p2 s'en va, celui de p3 reste
 
     await h.ouvrirTout();
@@ -635,13 +635,13 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
   test('… et elle abandonne bien quand ils ont TOUS lâché', async () => {
     // Preuve par retrait du test précédent : sans ce cas, `every` pourrait
     // n'être qu'un `some` déguisé et personne ne le verrait.
-    const { d, moteur } = banc();
+    const { d, engine: moteur } = banc();
     const h = clientRetenu([page([msg('m1', 1500)], null)]);
 
-    const p1 = rattraperSalon(h.client, moteur, 'r1');
+    const p1 = catchUpRoom(h.client, moteur, 'r1');
     await h.tour();
-    const p2 = rattraperSalon(h.client, moteur, 'r1', () => true);
-    const p3 = rattraperSalon(h.client, moteur, 'r1', () => true);
+    const p2 = catchUpRoom(h.client, moteur, 'r1', () => true);
+    const p3 = catchUpRoom(h.client, moteur, 'r1', () => true);
 
     await h.ouvrirTout();
     await Promise.all([p1, p2, p3]);
@@ -650,12 +650,12 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
   });
 
   test('l’échec d’une passe n’annule pas la demande de la suivante', async () => {
-    const { d, moteur } = banc();
+    const { d, engine: moteur } = banc();
     const h = clientRetenu([0, page([msg('m1', 1500)], null)]);
 
-    const p1 = rattraperSalon(h.client, moteur, 'r1');
+    const p1 = catchUpRoom(h.client, moteur, 'r1');
     await h.tour();
-    const p2 = rattraperSalon(h.client, moteur, 'r1');
+    const p2 = catchUpRoom(h.client, moteur, 'r1');
 
     await h.ouvrirTout();
     await assert.rejects(() => p1, 'l’échec reste l’échec de SON demandeur');
@@ -668,13 +668,13 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
     // Au changement de compte ou de serveur, le client d'avant est rangé et son
     // `estAbandonne` restera vrai à jamais. Se chaîner derrière lui ferait
     // attendre la session neuve pour rien — jusqu'au timeout de 15 s.
-    const { moteur } = banc();
+    const { engine: moteur } = banc();
     const ancienne = clientRetenu([page([], null)]);
     const neuve = clientRetenu([page([], null)]);
 
-    const p1 = rattraperSalon(ancienne.client, moteur, 'r1', () => true);
+    const p1 = catchUpRoom(ancienne.client, moteur, 'r1', () => true);
     await ancienne.tour();
-    const p2 = rattraperSalon(neuve.client, moteur, 'r1');
+    const p2 = catchUpRoom(neuve.client, moteur, 'r1');
     await neuve.tour();
 
     assert.equal(neuve.urls.length, 1, 'la nouvelle session lit tout de suite');
@@ -687,17 +687,17 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
   test('une fois tout retombé, la demande suivante repart d’une passe neuve', async () => {
     // Sinon l'entrée resterait dans la table à vie et chaque ouverture se
     // chaînerait derrière une promesse morte.
-    const { moteur } = banc();
+    const { engine: moteur } = banc();
     const h = clientRetenu([page([], null)]);
 
     await (async () => {
-      const p = rattraperSalon(h.client, moteur, 'r1');
+      const p = catchUpRoom(h.client, moteur, 'r1');
       await h.ouvrirTout();
       await p;
     })();
     const avant = h.urls.length;
 
-    const p2 = rattraperSalon(h.client, moteur, 'r1');
+    const p2 = catchUpRoom(h.client, moteur, 'r1');
     await h.tour();
     assert.ok(h.urls.length > avant, 'elle est partie sans attendre personne');
 
@@ -710,21 +710,21 @@ describe('reconcilierSalons', () => {
   test('purge les rids absents de la liste vivante des abonnements', async () => {
     const d = fauxDepotComplet();
     d.connus.push('r1', 'r2', 'rFantome');
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     const { client, urls } = fauxClient({
       'subscriptions.get': { update: [{ rid: 'r1' }, { rid: 'r2' }] },
     });
-    await reconcilierSalons(client, moteur);
+    await reconcileRooms(client, moteur);
     // Full : pas d'updatedSince — on veut l'état courant, pas un delta.
     assert.match(urls[0], /\/subscriptions\.get(\?|$)/);
     assert.doesNotMatch(urls[0], /updatedSince/);
-    assert.deepEqual(d.purges, [{ vivants: ['r1', 'r2'], connus: ['r1', 'r2', 'rFantome'] }]);
+    assert.deepEqual(d.purges, [{ alive: ['r1', 'r2'], known: ['r1', 'r2', 'rFantome'] }]);
   });
 
   test('l’instantané des connus est relevé AVANT la requête réseau', async () => {
     const d = fauxDepotComplet();
     d.connus.push('r1', 'r2');
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     // Le stream DDP écrit un DM tout neuf pendant l'aller-retour. Il n'est ni
     // dans la réponse du serveur (calculée avant qu'il existe), ni dans
     // l'instantané — donc la purge ne doit pas pouvoir l'atteindre.
@@ -732,25 +732,25 @@ describe('reconcilierSalons', () => {
       { 'subscriptions.get': { update: [{ rid: 'r1' }] } },
       () => void d.connus.push('rNeuf'),
     );
-    await reconcilierSalons(client, moteur);
-    assert.deepEqual(d.purges, [{ vivants: ['r1'], connus: ['r1', 'r2'] }]);
-    assert.ok(!d.purges[0].connus.includes('rNeuf'), 'le DM né en vol est hors de portée');
+    await reconcileRooms(client, moteur);
+    assert.deepEqual(d.purges, [{ alive: ['r1'], known: ['r1', 'r2'] }]);
+    assert.ok(!d.purges[0].known.includes('rNeuf'), 'le DM né en vol est hors de portée');
   });
 
 
   test('une liste vide ne purge RIEN — garde-fou anti-purge-totale', async () => {
     const d = fauxDepotComplet();
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     const { client } = fauxClient({ 'subscriptions.get': { update: [] } });
-    await reconcilierSalons(client, moteur);
+    await reconcileRooms(client, moteur);
     assert.equal(d.purges.length, 0);
   });
 
   test('abandonné en vol : aucune purge', async () => {
     const d = fauxDepotComplet();
-    const moteur = new MoteurSynchro(d.depot, new TraducteurRC());
+    const moteur = new SyncEngine(d.depot, new RcTranslator());
     const { client } = fauxClient({ 'subscriptions.get': { update: [{ rid: 'r1' }] } });
-    await reconcilierSalons(client, moteur, () => true);
+    await reconcileRooms(client, moteur, () => true);
     assert.equal(d.purges.length, 0);
   });
 });

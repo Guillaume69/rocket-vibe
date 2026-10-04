@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { MoteurActivite } from './activity.ts';
+import { ActivityEngine } from './activity.ts';
 
 /** Une promesse qu'on résout à la main, pour tenir un fetch « en vol ». */
 function differee<T = void>() {
@@ -16,70 +16,70 @@ function differee<T = void>() {
 
 describe('MoteurActivite', () => {
   test('la portée est allumée le temps du fetch, éteinte à sa résolution', async () => {
-    const m = new MoteurActivite();
+    const m = new ActivityEngine();
     const d = differee();
 
-    assert.equal(m.actif('global'), false, 'au repos');
-    const suivi = m.suivre('global', d.promesse);
-    assert.equal(m.actif('global'), true, 'allumé dès le lancement (synchrone)');
+    assert.equal(m.active('global'), false, 'au repos');
+    const suivi = m.track('global', d.promesse);
+    assert.equal(m.active('global'), true, 'allumé dès le lancement (synchrone)');
 
     d.resoudre();
     await suivi;
-    assert.equal(m.actif('global'), false, 'éteint à la fin');
+    assert.equal(m.active('global'), false, 'éteint à la fin');
   });
 
   test('un fetch qui échoue éteint quand même la portée, et rejette', async () => {
-    const m = new MoteurActivite();
+    const m = new ActivityEngine();
     const d = differee();
 
-    const suivi = m.suivre('r1', d.promesse);
+    const suivi = m.track('r1', d.promesse);
     d.rejeter(new Error('réseau'));
 
     await assert.rejects(suivi, /réseau/);
-    assert.equal(m.actif('r1'), false, 'pas de compteur bloqué en l’air');
+    assert.equal(m.active('r1'), false, 'pas de compteur bloqué en l’air');
   });
 
   test('deux fetches concurrents : la portée reste allumée tant qu’il en reste un', async () => {
-    const m = new MoteurActivite();
+    const m = new ActivityEngine();
     const a = differee();
     const b = differee();
 
-    const sa = m.suivre('r1', a.promesse);
-    const sb = m.suivre('r1', b.promesse);
-    assert.equal(m.actif('r1'), true);
+    const sa = m.track('r1', a.promesse);
+    const sb = m.track('r1', b.promesse);
+    assert.equal(m.active('r1'), true);
 
     a.resoudre();
     await sa;
-    assert.equal(m.actif('r1'), true, 'il en reste un — toujours allumé');
+    assert.equal(m.active('r1'), true, 'il en reste un — toujours allumé');
 
     b.resoudre();
     await sb;
-    assert.equal(m.actif('r1'), false, 'le dernier éteint');
+    assert.equal(m.active('r1'), false, 'le dernier éteint');
   });
 
   test('les portées sont indépendantes', async () => {
-    const m = new MoteurActivite();
+    const m = new ActivityEngine();
     const d = differee();
-    const suivi = m.suivre('global', d.promesse);
+    const suivi = m.track('global', d.promesse);
 
-    assert.equal(m.actif('global'), true);
-    assert.equal(m.actif('r1'), false, 'une autre portée n’est pas touchée');
+    assert.equal(m.active('global'), true);
+    assert.equal(m.active('r1'), false, 'une autre portée n’est pas touchée');
 
     d.resoudre();
     await suivi;
   });
 
   test('n’avertit qu’aux BASCULES booléennes (0→1, 1→0), pas sur un concurrent', async () => {
-    const m = new MoteurActivite();
+    const m = new ActivityEngine();
     let avis = 0;
-    m.surChangement(() => {
+    m.onChange(() => {
       avis++;
     });
 
     const a = differee();
     const b = differee();
-    m.suivre('r1', a.promesse); // 0→1 : un avis
-    m.suivre('r1', b.promesse); // 1→2 : aucun
+    m.track('r1', a.promesse); // 0→1 : un avis
+    m.track('r1', b.promesse); // 1→2 : aucun
     assert.equal(avis, 1);
 
     a.resoudre();
@@ -94,15 +94,15 @@ describe('MoteurActivite', () => {
   });
 
   test('surChangement rend un désabonnement qui coupe les avis', async () => {
-    const m = new MoteurActivite();
+    const m = new ActivityEngine();
     let avis = 0;
-    const detacher = m.surChangement(() => {
+    const detacher = m.onChange(() => {
       avis++;
     });
     detacher();
 
     const d = differee();
-    const suivi = m.suivre('global', d.promesse);
+    const suivi = m.track('global', d.promesse);
     d.resoudre();
     await suivi;
     assert.equal(avis, 0, 'plus abonné');

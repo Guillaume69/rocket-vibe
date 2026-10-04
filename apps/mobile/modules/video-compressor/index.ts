@@ -8,7 +8,7 @@ import { requireOptionalNativeModule } from 'expo-modules-core';
  * `ui/attachmentQuality.ts`, pur.
  */
 
-export type VideoReduite = {
+export type CompressedVideo = {
   /** `file://…` dans le cache de l'app — supprimable par `supprimerSiTemporaire`. */
   uri: string;
   /** Poids réel du MP4 écrit, en octets. */
@@ -16,7 +16,7 @@ export type VideoReduite = {
 };
 
 type ReducteurVideoNatif = {
-  reduire(uri: string, coteCourtMax: number, bitrateVideo: number): Promise<VideoReduite>;
+  reduire(uri: string, coteCourtMax: number, bitrateVideo: number): Promise<CompressedVideo>;
 };
 
-export const ReducteurVideo = requireOptionalNativeModule<ReducteurVideoNatif>('ReducteurVideo');
+export const VideoCompressor = requireOptionalNativeModule<ReducteurVideoNatif>('ReducteurVideo');

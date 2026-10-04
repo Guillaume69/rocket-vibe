@@ -1,7 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
-import { JetonFcm } from '../modules/fcm-token/index.ts';
+import { FcmToken } from '../modules/fcm-token/index.ts';
 
 /**
  * Obtention du jeton FCM **natif** — pas le jeton Expo Push.
@@ -21,9 +21,9 @@ import { JetonFcm } from '../modules/fcm-token/index.ts';
  * s'affiche jamais.
  */
 
-export type ResultatJeton =
-  | { ok: true; jeton: string }
-  | { ok: false; raison: 'permission-refusee' | 'echec'; detail?: string };
+export type TokenResult =
+  | { ok: true; token: string }
+  | { ok: false; reason: 'permission-refusee' | 'echec'; detail?: string };
 
 /**
  * S'abonne à la ROTATION du jeton FCM et rend de quoi se désabonner.
@@ -36,16 +36,16 @@ export type ResultatJeton =
  * vide ne se propage pas : ce serait remplacer un enregistrement valide par
  * rien.
  */
-export function surRotationJeton(quand: (jeton: string) => void): () => void {
+export function onTokenRotation(quand: (jeton: string) => void): () => void {
   if (Platform.OS === 'ios') {
     // Deux sources : Firebase annonce un nouveau jeton FCM, et un nouveau jeton
     // APNs doit lui être remis pour qu'il en produise un.
-    const fcm = JetonFcm?.addListener('jetonRenouvele', ({ jeton }) => {
+    const fcm = FcmToken?.addListener('jetonRenouvele', ({ jeton }) => {
       if (jeton !== '') quand(jeton);
     });
     const apns = Notifications.addPushTokenListener((jeton) => {
-      if (typeof jeton.data !== 'string' || jeton.data === '' || JetonFcm === null) return;
-      JetonFcm.obtenir(jeton.data).then(quand, () => {});
+      if (typeof jeton.data !== 'string' || jeton.data === '' || FcmToken === null) return;
+      FcmToken.obtenir(jeton.data).then(quand, () => {});
     });
     return () => {
       fcm?.remove();
@@ -58,7 +58,7 @@ export function surRotationJeton(quand: (jeton: string) => void): () => void {
   return () => abonnement.remove();
 }
 
-export async function obtenirJetonFcm(): Promise<ResultatJeton> {
+export async function getFcmToken(): Promise<TokenResult> {
   try {
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', {
@@ -70,19 +70,19 @@ export async function obtenirJetonFcm(): Promise<ResultatJeton> {
 
     const permission = await Notifications.requestPermissionsAsync();
     if (!permission.granted) {
-      return { ok: false, raison: 'permission-refusee' };
+      return { ok: false, reason: 'permission-refusee' };
     }
 
     const { data, type } = await Notifications.getDevicePushTokenAsync();
     if (typeof data !== 'string' || data === '') {
-      return { ok: false, raison: 'echec', detail: `jeton vide (type=${type})` };
+      return { ok: false, reason: 'echec', detail: `jeton vide (type=${type})` };
     }
     if (Platform.OS === 'ios') {
-      if (JetonFcm === null) return { ok: false, raison: 'echec', detail: 'module jeton-fcm absent' };
-      return { ok: true, jeton: await JetonFcm.obtenir(data) };
+      if (FcmToken === null) return { ok: false, reason: 'echec', detail: 'module jeton-fcm absent' };
+      return { ok: true, token: await FcmToken.obtenir(data) };
     }
-    return { ok: true, jeton: data };
+    return { ok: true, token: data };
   } catch (e) {
-    return { ok: false, raison: 'echec', detail: e instanceof Error ? e.message : String(e) };
+    return { ok: false, reason: 'echec', detail: e instanceof Error ? e.message : String(e) };
   }
 }

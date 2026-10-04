@@ -20,38 +20,38 @@
  * tout se teste sous Node.
  */
 
-import type { ContenuChiffre } from './e2e/crypto.ts';
+import type { EncryptedContent } from './e2e/crypto.ts';
 import { mentionsE2E } from './e2e/mentions.ts';
-import { TYPE_CHIFFRE, type MessageLocal } from './normalize.ts';
-import { ErreurRest, type ClientRest } from './rest.ts';
+import { ENCRYPTED_TYPE, type MessageLocal } from './normalize.ts';
+import { RestError, type ClientRest } from './rest.ts';
 
-export type LigneSortie = {
+export type OutboxRow = {
   id: string;
   rid: string;
-  texte: string;
-  filId: string | null;
-  statut: 'en-attente' | 'echec';
-  tentatives: number;
+  text: string;
+  threadId: string | null;
+  status: 'en-attente' | 'echec';
+  attempts: number;
 };
 
-export interface DepotEnvoi {
-  insererSortie(id: string, rid: string, texte: string, filId: string | null): Promise<void>;
-  listerAEnvoyer(): Promise<LigneSortie[]>;
-  marquerEchec(id: string, erreur: string): Promise<void>;
-  supprimerSortie(id: string): Promise<void>;
+export interface OutboxStore {
+  insertOutbox(id: string, rid: string, texte: string, filId: string | null): Promise<void>;
+  listToSend(): Promise<OutboxRow[]>;
+  markFailed(id: string, erreur: string): Promise<void>;
+  deleteOutbox(id: string): Promise<void>;
   upsertMessage(m: MessageLocal): Promise<void>;
   /** N'efface le message que s'il est encore optimiste (jamais livré). */
-  supprimerMessageOptimiste(id: string): Promise<void>;
-  salonChiffre(rid: string): Promise<boolean>;
+  deleteOptimisticMessage(id: string): Promise<void>;
+  roomEncrypted(rid: string): Promise<boolean>;
 }
 
 /** Le chiffrement E2EE d'une charge, ou `null` tant qu'il est impossible (verrouillé, clé absente). */
-export interface ChiffreurEnvoi {
-  chiffrer(rid: string, charge: object): ContenuChiffre | null;
+export interface OutboxEncryptor {
+  encrypt(rid: string, charge: object): EncryptedContent | null;
 }
 
 /** 24 hexadécimaux depuis 12 octets — le format des `_id` Rocket.Chat. */
-export function idDepuisOctets(octets: Uint8Array): string {
+export function idFromBytes(octets: Uint8Array): string {
   return Array.from(octets.slice(0, 12), (o) => o.toString(16).padStart(2, '0')).join('');
 }
 
@@ -60,33 +60,33 @@ type ReponseEnvoi = { message?: Record<string, unknown> };
 /** Verdict de `messageLivre` quand la question n'a pas pu être posée. */
 const INCONNU = Symbol('livraison indéterminée');
 
-export class MoteurEnvoi {
-  private readonly depot: DepotEnvoi;
+export class OutboxEngine {
+  private readonly store: OutboxStore;
   private readonly client: ClientRest;
-  private readonly moi: { id: string; username: string };
-  private readonly genererId: () => string;
-  private readonly maintenant: () => number;
+  private readonly me: { id: string; username: string };
+  private readonly generateId: () => string;
+  private readonly now: () => number;
   /** Réconciliation : le document renvoyé par le serveur repasse par la synchro. */
-  private readonly ingerer: (doc: Record<string, unknown>) => Promise<void>;
-  private readonly chiffreur: ChiffreurEnvoi | null;
-  private enVol = false;
+  private readonly ingest: (doc: Record<string, unknown>) => Promise<void>;
+  private readonly encryptor: OutboxEncryptor | null;
+  private inFlight = false;
 
   constructor(options: {
-    depot: DepotEnvoi;
+    store: OutboxStore;
     client: ClientRest;
-    moi: { id: string; username: string };
-    genererId: () => string;
-    ingerer: (doc: Record<string, unknown>) => Promise<void>;
-    chiffreur?: ChiffreurEnvoi | null;
-    maintenant?: () => number;
+    me: { id: string; username: string };
+    generateId: () => string;
+    ingest: (doc: Record<string, unknown>) => Promise<void>;
+    encryptor?: OutboxEncryptor | null;
+    now?: () => number;
   }) {
-    this.depot = options.depot;
+    this.store = options.store;
     this.client = options.client;
-    this.moi = options.moi;
-    this.genererId = options.genererId;
-    this.ingerer = options.ingerer;
-    this.chiffreur = options.chiffreur ?? null;
-    this.maintenant = options.maintenant ?? (() => Date.now());
+    this.me = options.me;
+    this.generateId = options.generateId;
+    this.ingest = options.ingest;
+    this.encryptor = options.encryptor ?? null;
+    this.now = options.now ?? (() => Date.now());
   }
 
   /**
@@ -97,45 +97,45 @@ export class MoteurEnvoi {
    * reconstruira les vraies pièces jointes depuis le texte, et sa version
    * (misAJourLe réel) écrase celle-ci. RIEN n'en part sur le réseau.
    */
-  async envoyer(
+  async send(
     rid: string,
     texte: string,
     filId: string | null = null,
     jointesLocales: string | null = null,
   ): Promise<string> {
-    const id = this.genererId();
-    const quand = this.maintenant();
-    await this.depot.upsertMessage({
+    const id = this.generateId();
+    const quand = this.now();
+    await this.store.upsertMessage({
       id,
       rid,
-      texte,
-      horodatage: quand,
-      auteurId: this.moi.id,
-      auteurNom: this.moi.username,
-      typeSysteme: (await this.depot.salonChiffre(rid)) ? TYPE_CHIFFRE : null,
-      filId,
-      filReponses: 0,
-      filDernier: null,
-      filAffiche: false,
-      modifieLe: null,
+      text: texte,
+      ts: quand,
+      authorId: this.me.id,
+      authorName: this.me.username,
+      systemType: (await this.store.roomEncrypted(rid)) ? ENCRYPTED_TYPE : null,
+      threadId: filId,
+      threadCount: 0,
+      threadLast: null,
+      threadShown: false,
+      editedAt: null,
       md: null,
-      piecesJointes: jointesLocales,
+      attachments: jointesLocales,
       reactions: null,
       urls: null,
-      appelId: null,
-      chiffreBrut: null,
-      epingle: false,
-      etoiles: null,
+      callId: null,
+      encryptedRaw: null,
+      pinned: false,
+      starred: null,
       // 0 : la version du serveur, quelle qu'elle soit, écrase l'optimiste —
       // et l'optimiste n'écrase jamais un état réel.
-      misAJourLe: 0,
+      updatedAt: 0,
     });
-    await this.depot.insererSortie(id, rid, texte, filId);
-    await this.traiter();
+    await this.store.insertOutbox(id, rid, texte, filId);
+    await this.process();
     return id;
   }
 
-  private repasser = false;
+  private rerun = false;
 
   /**
    * Rejoue tout ce qui attend, dans l'ordre. Ré-entrant sans dégât : une
@@ -143,35 +143,35 @@ export class MoteurEnvoi {
    * est notée puis exécutée à la fin, sinon un message envoyé pendant le
    * flush resterait « ⏳ » jusqu'au prochain déclencheur.
    */
-  async traiter(): Promise<void> {
-    if (this.enVol) {
-      this.repasser = true;
+  async process(): Promise<void> {
+    if (this.inFlight) {
+      this.rerun = true;
       return;
     }
-    this.enVol = true;
+    this.inFlight = true;
     try {
       do {
-        this.repasser = false;
-        if (!(await this.unePasse())) return;
-      } while (this.repasser);
+        this.rerun = false;
+        if (!(await this.runPass())) return;
+      } while (this.rerun);
     } finally {
-      this.enVol = false;
+      this.inFlight = false;
     }
   }
 
   /** Rend `false` si le réseau est injoignable — inutile d'insister. */
-  private async unePasse(): Promise<boolean> {
-    for (const ligne of await this.depot.listerAEnvoyer()) {
-      const message = await this.corpsDuMessage(ligne);
+  private async runPass(): Promise<boolean> {
+    for (const ligne of await this.store.listToSend()) {
+      const message = await this.messageBody(ligne);
       if (message === null) continue;
       try {
         const reponse = await this.client.post<ReponseEnvoi>('chat.sendMessage', {
-          corps: { message },
+          body: { message },
         });
-        await this.depot.supprimerSortie(ligne.id);
-        if (reponse.message !== undefined) await this.ingerer(reponse.message);
+        await this.store.deleteOutbox(ligne.id);
+        if (reponse.message !== undefined) await this.ingest(reponse.message);
       } catch (e) {
-        if (e instanceof ErreurRest && e.statut === 0) {
+        if (e instanceof RestError && e.status === 0) {
           // Injoignable : on n'y peut rien d'ici. La ligne reste telle
           // quelle, le prochain `traiter()` retentera.
           return false;
@@ -181,7 +181,7 @@ export class MoteurEnvoi {
         // undefined (reading 'starred') », vérifié). Aucun doublon n'est
         // créé, mais la réponse ne distingue pas « déjà livré » de
         // « refusé » : on demande au serveur.
-        const livre = await this.messageLivre(ligne.id);
+        const livre = await this.messageDelivered(ligne.id);
         if (livre === INCONNU) {
           // On n'a pas pu trancher. La ligne reste `en-attente` — donc
           // rejouable — et la passe s'arrête : les lignes suivantes
@@ -191,36 +191,36 @@ export class MoteurEnvoi {
         if (livre !== null) {
           // Ingérer le document récupéré : c'est la vraie version (ts du
           // serveur), et son passage par le dépôt réconcilie la sortie.
-          await this.ingerer(livre);
-          await this.depot.supprimerSortie(ligne.id);
+          await this.ingest(livre);
+          await this.store.deleteOutbox(ligne.id);
           continue;
         }
         // `derniere_erreur` est un DIAGNOSTIC (jamais affiché — l'UI montre
         // `ligneMessage.echecReessayer`) : pas une chaîne à traduire.
         const message = e instanceof Error ? e.message : 'Envoi refusé.';
-        await this.depot.marquerEchec(ligne.id, message);
+        await this.store.markFailed(ligne.id, message);
       }
     }
     return true;
   }
 
   /** Le message tel qu'il part, ou `null` s'il doit attendre une clé de salon. */
-  private async corpsDuMessage(ligne: LigneSortie): Promise<Record<string, unknown> | null> {
+  private async messageBody(ligne: OutboxRow): Promise<Record<string, unknown> | null> {
     const base = {
       _id: ligne.id,
       rid: ligne.rid,
-      ...(ligne.filId === null ? {} : { tmid: ligne.filId }),
+      ...(ligne.threadId === null ? {} : { tmid: ligne.threadId }),
     };
-    if (!(await this.depot.salonChiffre(ligne.rid))) return { ...base, msg: ligne.texte };
-    const content = this.chiffreur?.chiffrer(ligne.rid, { msg: ligne.texte }) ?? null;
+    if (!(await this.store.roomEncrypted(ligne.rid))) return { ...base, msg: ligne.text };
+    const content = this.encryptor?.encrypt(ligne.rid, { msg: ligne.text }) ?? null;
     if (content === null) return null;
-    return { ...base, t: TYPE_CHIFFRE, e2e: 'pending', content, e2eMentions: mentionsE2E(ligne.texte) };
+    return { ...base, t: ENCRYPTED_TYPE, e2e: 'pending', content, e2eMentions: mentionsE2E(ligne.text) };
   }
 
   /** Abandon d'un échec définitif : la ligne de sortie ET l'optimiste s'en vont. */
-  async abandonner(id: string): Promise<void> {
-    await this.depot.supprimerSortie(id);
-    await this.depot.supprimerMessageOptimiste(id);
+  async discard(id: string): Promise<void> {
+    await this.store.deleteOutbox(id);
+    await this.store.deleteOptimisticMessage(id);
   }
 
   /**
@@ -232,7 +232,7 @@ export class MoteurEnvoi {
    * `echec` — donc afficher « non envoyé » — sur un message que le serveur
    * avait peut-être accepté. L'utilisateur le retape : il en a deux.
    */
-  private async messageLivre(
+  private async messageDelivered(
     id: string,
   ): Promise<Record<string, unknown> | typeof INCONNU | null> {
     try {
@@ -248,7 +248,7 @@ export class MoteurEnvoi {
       // d'envois l'épuise — après les trois rejeux de `ClientRest`, toutes les
       // vérifications de la passe retombent en 429. Ni l'un ni l'autre n'est
       // un démenti du serveur.
-      if (e instanceof ErreurRest && (e.statut === 0 || e.statut === 429)) return INCONNU;
+      if (e instanceof RestError && (e.status === 0 || e.status === 429)) return INCONNU;
       // Le serveur a parlé (404, droit refusé, message absent) : on tranche.
       return null;
     }

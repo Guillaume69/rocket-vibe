@@ -20,24 +20,24 @@
  */
 
 /** Le message-borne courant et le nombre de pages demandées SUR cette borne. */
-export type BornePagination = { id: string; pages: number };
+export type PaginationBound = { id: string; pages: number };
 
 /** Pages tolérées sur une borne immobile avant de déclarer le passé épuisé. */
-export const PAGES_MAX_SUR_BORNE = 2;
+export const MAX_PAGES_AT_BOUND = 2;
 
 /** À chaque demande de page : même borne → on compte ; borne neuve → repart à 1. */
-export function avancerBorne(
-  precedente: BornePagination | null,
+export function advanceBound(
+  precedente: PaginationBound | null,
   idPlusVieux: string,
-): BornePagination {
+): PaginationBound {
   return precedente !== null && precedente.id === idPlusVieux
     ? { id: idPlusVieux, pages: precedente.pages + 1 }
     : { id: idPlusVieux, pages: 1 };
 }
 
 /** Vrai quand la borne a déjà consommé ses pages : le passé est déclaré épuisé. */
-export function borneImmobile(borne: BornePagination): boolean {
-  return borne.pages > PAGES_MAX_SUR_BORNE;
+export function boundIsStuck(borne: PaginationBound): boolean {
+  return borne.pages > MAX_PAGES_AT_BOUND;
 }
 
 /**
@@ -45,7 +45,7 @@ export function borneImmobile(borne: BornePagination): boolean {
  * strictement plus ancien que la borne demandée. `plusAncienDeLaPage` est
  * `null` pour une page vide.
  */
-export function pageARecule(
+export function pageMovedBack(
   plusAncienDeLaPage: number | null,
   horodatageBorne: number,
 ): boolean {

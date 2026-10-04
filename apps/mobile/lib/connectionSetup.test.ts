@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { raccorder } from './connectionSetup.ts';
+import { hookUp } from './connectionSetup.ts';
 
 /** Promesse dont le test décide quand — et comment — elle retombe. */
 function differee<T>() {
@@ -23,13 +23,13 @@ const laisserTourner = async (tours = 6): Promise<void> => {
  * Banc : un stream et un armement qu'on fait retomber à la main, dans
  * n'importe quel ordre. Aucune horloge — c'est tout l'objet du module.
  */
-function banc(options: { dejaActif?: boolean } = {}) {
+function banc(options: { alreadyActive?: boolean } = {}) {
   const stream = differee<void>();
   const armement = differee<void>();
   const ordre: string[] = [];
   /** Ce que le stream couvrait au DÉMARRAGE de chaque lecture. */
   const couverture: boolean[] = [];
-  let arme = options.dejaActif ?? false;
+  let arme = options.alreadyActive ?? false;
 
   return {
     stream,
@@ -42,17 +42,17 @@ function banc(options: { dejaActif?: boolean } = {}) {
       armement.resoudre();
     },
     options: {
-      streamDejaActif: () => arme,
-      ouvrirStream: () => {
+      streamAlreadyActive: () => arme,
+      openStream: () => {
         ordre.push('stream:demande');
         return stream.promesse;
       },
-      streamArme: () => armement.promesse,
-      rattraper: async () => {
+      streamArmed: () => armement.promesse,
+      catchUp: async () => {
         ordre.push('lecture');
         couverture.push(arme);
       },
-      ensuite: () => ordre.push('ensuite'),
+      then: () => ordre.push('ensuite'),
     },
   };
 }
@@ -60,7 +60,7 @@ function banc(options: { dejaActif?: boolean } = {}) {
 describe('raccorder', () => {
   test('stream instantané : la lecture ne l’attend pas, la seconde la couvre', async () => {
     const b = banc();
-    const fini = raccorder(b.options);
+    const fini = hookUp(b.options);
 
     // La lecture part sans rien attendre — c'est ce que l'utilisateur voit.
     await laisserTourner();
@@ -78,7 +78,7 @@ describe('raccorder', () => {
 
   test('stream très lent : rien ne change — même ordre, mêmes garanties', async () => {
     const b = banc();
-    const fini = raccorder(b.options);
+    const fini = hookUp(b.options);
 
     await laisserTourner();
     assert.deepEqual(b.ordre, ['stream:demande', 'lecture', 'ensuite'], 'lecture déjà faite');
@@ -100,10 +100,10 @@ describe('raccorder', () => {
   });
 
   test('stream déjà actif : une seule lecture, et elle couvre', async () => {
-    const b = banc({ dejaActif: true });
+    const b = banc({ alreadyActive: true });
     b.stream.resoudre(); // socket vivante : `ouvrirStream` ne fait rien
 
-    await raccorder(b.options);
+    await hookUp(b.options);
 
     assert.deepEqual(b.ordre, ['stream:demande', 'lecture', 'ensuite']);
     assert.deepEqual(b.couverture, [true]);
@@ -111,7 +111,7 @@ describe('raccorder', () => {
 
   test("l'échec du stream est relayé — mais après que l'utilisateur a eu ses messages", async () => {
     const b = banc();
-    const fini = raccorder(b.options);
+    const fini = hookUp(b.options);
     const attendu = fini.then(
       () => null,
       (e: unknown) => e,
@@ -132,10 +132,10 @@ describe('raccorder', () => {
   });
 
   test('une lecture qui échoue fait échouer le raccordement (le pilote retentera)', async () => {
-    const b = banc({ dejaActif: true });
+    const b = banc({ alreadyActive: true });
     b.stream.resoudre();
     await assert.rejects(
-      raccorder({ ...b.options, rattraper: () => Promise.reject(new Error('rooms.get: 429')) }),
+      hookUp({ ...b.options, catchUp: () => Promise.reject(new Error('rooms.get: 429')) }),
       /429/,
     );
   });
@@ -143,7 +143,7 @@ describe('raccorder', () => {
   test('session terminée avant la lecture : on ne touche plus à rien', async () => {
     const b = banc();
     b.stream.resoudre();
-    await raccorder({ ...b.options, estAbandonne: () => true });
+    await hookUp({ ...b.options, isDiscarded: () => true });
 
     assert.deepEqual(b.ordre, ['stream:demande']);
   });
@@ -151,13 +151,13 @@ describe('raccorder', () => {
   test('session terminée pendant la lecture : pas de seconde passe', async () => {
     const b = banc();
     let abandonne = false;
-    const fini = raccorder({
+    const fini = hookUp({
       ...b.options,
-      rattraper: async () => {
+      catchUp: async () => {
         b.ordre.push('lecture');
         abandonne = true; // l'utilisateur se déconnecte pendant la lecture
       },
-      estAbandonne: () => abandonne,
+      isDiscarded: () => abandonne,
     });
 
     b.stream.resoudre();

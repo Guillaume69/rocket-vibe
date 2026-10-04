@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import { type Couleurs, POLICES } from './theme.ts';
-import { libelleProgression, useProgression } from './transfers.ts';
+import { type Colors, FONTS } from './theme.ts';
+import { progressLabel, useProgress } from './transfers.ts';
 
 /**
  * Progression d'un transfert de pièce jointe, là où la pièce s'affiche. Deux
@@ -9,17 +9,17 @@ import { libelleProgression, useProgression } from './transfers.ts';
  * superposition sur une image ou une vidéo — un filet au bas de la vignette et
  * une pastille « ⬇ 37 % ». Rien quand aucun transfert n'est en cours.
  */
-export function BarreTransfert({
-  cle,
+export function TransferBar({
+  key: cle,
   c,
-  rayon,
+  radius: rayon,
 }: {
-  cle: string | null;
-  c: Couleurs;
+  key: string | null;
+  c: Colors;
   /** Superposition sur un média, aux coins de ce rayon ; absent = forme ligne. */
-  rayon?: number;
+  radius?: number;
 }) {
-  const p = useProgression(cle);
+  const p = useProgress(cle);
   if (p === undefined) return null;
   const remplissage = (
     <View
@@ -36,28 +36,28 @@ export function BarreTransfert({
 
   if (rayon === undefined) {
     return (
-      <View style={styles.ligne}>
-        <View style={[styles.piste, { backgroundColor: c.surfaceActive }]}>{remplissage}</View>
-        <Text style={[styles.pourcentage, { color: c.texteSecondaire }]}>{libelleProgression(p)}</Text>
+      <View style={styles.row}>
+        <View style={[styles.track, { backgroundColor: c.surfaceActive }]}>{remplissage}</View>
+        <Text style={[styles.percentage, { color: c.secondaryText }]}>{progressLabel(p)}</Text>
       </View>
     );
   }
   return (
     <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: rayon, overflow: 'hidden' }]}>
-      <View style={[styles.pastille, { backgroundColor: c.carte + 'D9' }]}>
-        <Text style={[styles.pastilleTexte, { color: c.texte }]}>⬇ {libelleProgression(p)}</Text>
+      <View style={[styles.badge, { backgroundColor: c.card + 'D9' }]}>
+        <Text style={[styles.badgeText, { color: c.text }]}>⬇ {progressLabel(p)}</Text>
       </View>
-      <View style={[styles.piste, styles.pisteMedia]}>{remplissage}</View>
+      <View style={[styles.track, styles.pisteMedia]}>{remplissage}</View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  ligne: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 6 },
-  piste: { flex: 1, height: 4, borderRadius: 2, overflow: 'hidden' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 6 },
+  track: { flex: 1, height: 4, borderRadius: 2, overflow: 'hidden' },
   remplissage: { height: '100%', borderRadius: 2 },
-  pourcentage: { fontFamily: POLICES.corpsSemi, fontSize: 12, minWidth: 36, textAlign: 'right' },
-  pastille: {
+  percentage: { fontFamily: FONTS.corpsSemi, fontSize: 12, minWidth: 36, textAlign: 'right' },
+  badge: {
     position: 'absolute',
     top: 8,
     right: 8,
@@ -65,7 +65,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 10,
   },
-  pastilleTexte: { fontFamily: POLICES.corpsSemi, fontSize: 12 },
+  badgeText: { fontFamily: FONTS.corpsSemi, fontSize: 12 },
   pisteMedia: {
     position: 'absolute',
     left: 0,

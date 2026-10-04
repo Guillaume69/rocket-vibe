@@ -9,14 +9,14 @@ import {
   View,
 } from 'react-native';
 
-import { versMessage, type MessageLocal } from '../lib/normalize.ts';
+import { toMessage, type MessageLocal } from '../lib/normalize.ts';
 import type { ClientRest } from '../lib/rest.ts';
-import { VueEvitantLeClavier } from '../ui/keyboard.tsx';
+import { KeyboardAvoidingContainer } from '../ui/keyboard.tsx';
 import { useT } from '../ui/i18n.ts';
-import { LigneMessage } from '../ui/messageRow.tsx';
-import { useRechercheDebouncee } from '../ui/debouncedSearch.ts';
+import { MessageRow } from '../ui/messageRow.tsx';
+import { useDebouncedSearch } from '../ui/debouncedSearch.ts';
 import { useSession } from '../ui/session.tsx';
-import { useCouleurs, type Couleurs, POLICES } from '../ui/theme.ts';
+import { useColors, type Colors, FONTS } from '../ui/theme.ts';
 
 /**
  * Recherche de messages dans UN salon (8.5) — `chat.search` exige un
@@ -30,10 +30,10 @@ import { useCouleurs, type Couleurs, POLICES } from '../ui/theme.ts';
 /** Stable (module-level) : une valeur recréée à chaque rendu relancerait l'effet. */
 const AUCUN_MESSAGE: MessageLocal[] = [];
 
-export default function EcranRechercheMessages() {
+export default function MessageSearchScreen() {
   const { rid } = useLocalSearchParams<{ rid: string }>();
-  const { etat } = useSession();
-  const c = useCouleurs();
+  const { state: etat } = useSession();
+  const c = useColors();
   const t = useT();
 
   // Même portier que le salon : un lien profond peut atterrir ici sans session.
@@ -41,7 +41,7 @@ export default function EcranRechercheMessages() {
 
   if (etat.phase !== 'connecte' || typeof rid !== 'string') {
     return (
-      <View style={[styles.centre, { backgroundColor: c.fond }]}>
+      <View style={[styles.center, { backgroundColor: c.background }]}>
         <Stack.Screen options={{ title: t('commun.rechercher') }} />
         <ActivityIndicator />
       </View>
@@ -55,7 +55,7 @@ function RechercheMessages({
   client,
   rid,
 }: {
-  c: Couleurs;
+  c: Colors;
   client: ClientRest;
   rid: string;
 }) {
@@ -72,12 +72,12 @@ function RechercheMessages({
         })
         .then((r) =>
           (r.messages ?? [])
-            .map((brut) => versMessage(brut))
+            .map((brut) => toMessage(brut))
             .filter((m): m is MessageLocal => m !== null),
         ),
     [client, rid],
   );
-  const { resultats, message, repondue } = useRechercheDebouncee(
+  const { results: resultats, message, answered: repondue } = useDebouncedSearch(
     requete,
     AUCUN_MESSAGE,
     chercherMessages,
@@ -87,85 +87,85 @@ function RechercheMessages({
   const cherche = propre !== '' && repondue !== propre;
 
   return (
-    <VueEvitantLeClavier>
+    <KeyboardAvoidingContainer>
       <Stack.Screen options={{ title: t('rechercheMessages.titre') }} />
-      <View style={styles.entete}>
+      <View style={styles.header}>
         <TextInput
           value={requete}
           onChangeText={setRequete}
           placeholder={t('rechercheMessages.placeholder')}
-          placeholderTextColor={c.attenue}
+          placeholderTextColor={c.dimmed}
           autoCapitalize="none"
           autoCorrect={false}
           autoFocus
-          style={[styles.champ, { color: c.texte, borderColor: c.bordure }]}
+          style={[styles.field, { color: c.text, borderColor: c.border }]}
         />
       </View>
       {message !== null && (
-        <Text style={[styles.messageErreur, { color: c.texteErreur }]}>{message}</Text>
+        <Text style={[styles.errorMessage, { color: c.errorText }]}>{message}</Text>
       )}
       <FlatList
         data={resultats}
         keyExtractor={(m) => m.id}
         renderItem={({ item }) => (
-          <View style={styles.resultat}>
-            <LigneMessage
+          <View style={styles.result}>
+            <MessageRow
               c={c}
               // MessageLocal et la ligne SQLite partagent exactement ces
               // champs — c'est le même document serveur normalisé.
               message={item}
               client={client}
-              statutEnvoi={null}
-              surReessayer={null}
-              surAbandonner={null}
+              sendStatus={null}
+              onRetry={null}
+              onDiscard={null}
               // Pas d'actions ici : la feuille lit la base par id, et un
               // résultat ancien n'y est pas forcément — fausse promesse.
-              surAppuiLong={null}
-              surOuvrirFil={null}
+              onLongPress={null}
+              onOpenThread={null}
               // Même raison pour les réactions : lecture seule, rien de marqué.
-              moi={null}
-              surReagir={null}
+              me={null}
+              onReact={null}
               // Des résultats épars, pas un flux : chacun garde son en-tête.
-              suite={false}
-              heureRepetee={false}
+              continuation={false}
+              repeatedTime={false}
             />
           </View>
         )}
         ListEmptyComponent={
           requete.trim() === '' ? null : cherche ? (
-            <View style={styles.centre}>
+            <View style={styles.center}>
               <ActivityIndicator />
             </View>
           ) : (
-            <Text style={[styles.vide, { color: c.attenue }]}>{t('rechercheMessages.aucunMessage')}</Text>
+            <Text style={[styles.empty, { color: c.dimmed }]}>{t('rechercheMessages.aucunMessage')}</Text>
           )
         }
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.contenu}
+        contentContainerStyle={styles.content}
       />
-    </VueEvitantLeClavier>
+    </KeyboardAvoidingContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  entete: { padding: 16 },
-  champ: {
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  header: { padding: 16 },
+  field: {
     borderWidth: StyleSheet.hairlineWidth * 2,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    fontFamily: POLICES.corps,
+    fontFamily: FONTS.body,
     fontSize: 16,
   },
-  contenu: { paddingHorizontal: 16 },
-  resultat: { paddingVertical: 2 },
-  vide: { textAlign: 'center', padding: 24, fontFamily: POLICES.corps, fontSize: 14 },
-  messageErreur: {
+  content: { paddingHorizontal: 16 },
+  result: { paddingVertical: 2 },
+  empty: { textAlign: 'center', padding: 24, fontFamily: FONTS.body, fontSize: 14 },
+  errorMessage: {
     textAlign: 'center',
     paddingHorizontal: 16,
     paddingBottom: 8,
-    fontFamily: POLICES.corps,
+    fontFamily: FONTS.body,
     fontSize: 13,
   },
 });

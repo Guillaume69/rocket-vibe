@@ -24,18 +24,18 @@ import * as Notifications from 'expo-notifications';
 const ridsChiffres = new Set<string>();
 
 /** Ce salon est-il chiffré ? Consulté au moment d'afficher une notification. */
-export function estSalonChiffre(rid: string): boolean {
+export function isRoomEncrypted(rid: string): boolean {
   return ridsChiffres.has(rid);
 }
 
 /** Remplace la liste connue — les salons chiffrés du compte courant. */
-export function poserSalonsChiffres(rids: Iterable<string>): void {
+export function setEncryptedRooms(rids: Iterable<string>): void {
   ridsChiffres.clear();
   for (const rid of rids) ridsChiffres.add(rid);
 }
 
 /** Fin de session / changement de serveur : plus rien de ce compte ne vaut. */
-export function oublierEtatNotifications(): void {
+export function forgetNotificationState(): void {
   ridsChiffres.clear();
   Notifications.setBadgeCountAsync(0).catch(() => {});
 }

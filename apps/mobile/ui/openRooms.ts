@@ -23,17 +23,17 @@
  * session ne doit pas déclarer un salon à la session suivante.
  */
 
-export type PileSalonsOuverts = {
+export type OpenRoomsStack = {
   /** À l'ouverture d'un écran salon. Rend de quoi le retirer en partant. */
-  declarer: (rid: string) => () => void;
+  declare: (rid: string) => () => void;
   /** Le salon du dessus — celui que l'utilisateur regarde. */
-  sommet: () => string | undefined;
+  top: () => string | undefined;
 };
 
-export function creerPileSalonsOuverts(): PileSalonsOuverts {
+export function createOpenRoomsStack(): OpenRoomsStack {
   const pile: { rid: string }[] = [];
   return {
-    declarer: (rid) => {
+    declare: (rid) => {
       const declaration = { rid };
       pile.push(declaration);
       return () => {
@@ -41,6 +41,6 @@ export function creerPileSalonsOuverts(): PileSalonsOuverts {
         if (i !== -1) pile.splice(i, 1);
       };
     },
-    sommet: () => pile[pile.length - 1]?.rid,
+    top: () => pile[pile.length - 1]?.rid,
   };
 }

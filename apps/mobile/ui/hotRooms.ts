@@ -28,20 +28,20 @@
  * que le trou peut alors être de n'importe quelle taille.
  */
 
-import { invaliderJetonSession, jetonSession } from './sessionToken.ts';
+import { invalidateSessionToken, sessionToken } from './sessionToken.ts';
 
 type Relacher = () => void;
 
 const MAX = 3;
 
 /** Ordre d'insertion = ordre LRU (le premier est le plus anciennement quitté). */
-const chauds = new Map<string, { generation: number; relachers: Relacher[] }>();
+const chauds = new Map<string, { generation: number; releases: Relacher[] }>();
 
 /**
  * Ce salon est-il resté écouté sans interruption depuis sa dernière visite ?
  * Si oui, aucune lecture de rattrapage n'est nécessaire à sa réouverture.
  */
-export function salonCouvert(rid: string, generation: number): boolean {
+export function roomCovered(rid: string, generation: number): boolean {
   const entree = chauds.get(rid);
   return entree !== undefined && entree.generation === generation;
 }
@@ -62,38 +62,38 @@ export function salonCouvert(rid: string, generation: number): boolean {
  * « rien à rattraper » à la session suivante, pour un salon que sa socket n'a
  * jamais écouté.
  */
-export function garderAuChaud(
+export function keepWarm(
   rid: string,
   generation: number,
   relachers: Relacher[],
   jeton: number,
 ): void {
-  if (jeton !== jetonSession()) {
+  if (jeton !== sessionToken()) {
     for (const relacher of relachers) relacher();
     return;
   }
   const ancien = chauds.get(rid);
-  if (ancien !== undefined) for (const relacher of ancien.relachers) relacher();
+  if (ancien !== undefined) for (const relacher of ancien.releases) relacher();
   // Réinsertion en fin de Map : ce salon devient le plus récemment quitté.
   chauds.delete(rid);
-  chauds.set(rid, { generation, relachers });
+  chauds.set(rid, { generation, releases: relachers });
 
   while (chauds.size > MAX) {
     const plusAncien = chauds.keys().next().value;
     if (plusAncien === undefined) break;
     const sortant = chauds.get(plusAncien);
-    if (sortant !== undefined) for (const relacher of sortant.relachers) relacher();
+    if (sortant !== undefined) for (const relacher of sortant.releases) relacher();
     chauds.delete(plusAncien);
   }
 }
 
 /** Fin de session / changement de serveur : on ferme tout ce qu'on tenait. */
-export function libererSalonsChauds(): void {
+export function releaseHotRooms(): void {
   for (const entree of chauds.values()) {
-    for (const relacher of entree.relachers) relacher();
+    for (const relacher of entree.releases) relacher();
   }
   chauds.clear();
   // Et plus rien de cette session n'a le droit de repeupler la table : les
   // écrans encore montés vont appeler `garderAuChaud` en se démontant.
-  invaliderJetonSession();
+  invalidateSessionToken();
 }

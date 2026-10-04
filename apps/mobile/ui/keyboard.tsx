@@ -25,10 +25,10 @@ import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useCouleurs } from './theme.ts';
+import { useColors } from './theme.ts';
 
-export function VueEvitantLeClavier({ children }: { children: ReactNode }) {
-  const c = useCouleurs();
+export function KeyboardAvoidingContainer({ children }: { children: ReactNode }) {
+  const c = useColors();
   const insets = useSafeAreaInsets();
   const { height } = useReanimatedKeyboardAnimation();
   const evitement = useAnimatedStyle(() => ({
@@ -37,7 +37,7 @@ export function VueEvitantLeClavier({ children }: { children: ReactNode }) {
   // Racine d'écran par construction : `flex: 1` et le fond vivent ici, pas
   // en triplet de style recopié à chaque point d'appel.
   return (
-    <Animated.View style={[{ flex: 1, backgroundColor: c.fond }, evitement]}>
+    <Animated.View style={[{ flex: 1, backgroundColor: c.background }, evitement]}>
       {children}
     </Animated.View>
   );

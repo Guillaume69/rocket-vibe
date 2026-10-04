@@ -19,13 +19,13 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Asset, requestPermissionsAsync } from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 
-import { dechiffrerFichier, type ChiffrementFichier } from '../lib/e2e/crypto.ts';
-import { fractionTelechargee, telechargerFichierJoint, versGalerie } from '../lib/attachment.ts';
-import { Telechargements } from '../modules/downloads/index.ts';
-import type { Progression } from './transfers.ts';
+import { decryptFile, type FileEncryption } from '../lib/e2e/crypto.ts';
+import { downloadedFraction, downloadAttachment, toGallery } from '../lib/attachment.ts';
+import { Downloads } from '../modules/downloads/index.ts';
+import type { Progress } from './transfers.ts';
 
 /** Levée quand rien ne peut ouvrir le fichier : l'appelant en informe l'écran. */
-export class ErreurOuvertureFichier extends Error {
+export class FileOpenError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'ErreurOuvertureFichier';
@@ -34,13 +34,13 @@ export class ErreurOuvertureFichier extends Error {
 
 type OptionsJointe = {
   url: string;
-  titre: string | null | undefined;
+  title: string | null | undefined;
   type: string | null | undefined;
   /** Poids annoncé par le message, en octets. */
-  taille?: number | null;
+  size?: number | null;
   /** Fichier d'un salon chiffré : on télécharge du chiffré, on garde le clair. */
-  chiffrement?: ChiffrementFichier | null;
-  surProgression?: (p: Progression) => void;
+  encryption?: FileEncryption | null;
+  onProgress?: (p: Progress) => void;
 };
 
 /**
@@ -51,15 +51,15 @@ type OptionsJointe = {
 async function versLeCache(options: OptionsJointe): Promise<string> {
   const dossier = FileSystem.cacheDirectory;
   if (dossier === null) {
-    throw new ErreurOuvertureFichier('Aucun dossier de cache disponible.');
+    throw new FileOpenError('Aucun dossier de cache disponible.');
   }
-  return telechargerFichierJoint({
+  return downloadAttachment({
     ...options,
-    dossier,
-    creerDossier: async (chemin) => {
+    folder: dossier,
+    createFolder: async (chemin) => {
       await FileSystem.makeDirectoryAsync(chemin, { intermediates: true });
     },
-    telecharger: async (url, destination) => {
+    download: async (url, destination) => {
       if ((await FileSystem.getInfoAsync(destination)).exists) return;
       // Un fichier déjà déchiffré dans NOTRE cache (la visionneuse qui
       // enregistre une image chiffrée) : rien à télécharger.
@@ -69,8 +69,8 @@ async function versLeCache(options: OptionsJointe): Promise<string> {
       }
       const partiel = `${destination}.part`;
       const tache = FileSystem.createDownloadResumable(url, partiel, {}, (e) => {
-        options.surProgression?.(
-          fractionTelechargee(e.totalBytesWritten, e.totalBytesExpectedToWrite, options.taille),
+        options.onProgress?.(
+          downloadedFraction(e.totalBytesWritten, e.totalBytesExpectedToWrite, options.size),
         );
       });
       const res = await tache.downloadAsync();
@@ -78,17 +78,17 @@ async function versLeCache(options: OptionsJointe): Promise<string> {
       // partagerait ou enregistrerait le corps JSON de l'erreur.
       if (res === undefined || res.status !== 200) {
         await FileSystem.deleteAsync(partiel, { idempotent: true });
-        throw new ErreurOuvertureFichier(`Téléchargement refusé (HTTP ${res?.status ?? 0}).`);
+        throw new FileOpenError(`Téléchargement refusé (HTTP ${res?.status ?? 0}).`);
       }
-      if (options.chiffrement) {
+      if (options.encryption) {
         const base64 = { encoding: FileSystem.EncodingType.Base64 };
         try {
           const chiffre = Buffer.from(await FileSystem.readAsStringAsync(partiel, base64), 'base64');
-          const clair = dechiffrerFichier(chiffre, options.chiffrement);
+          const clair = decryptFile(chiffre, options.encryption);
           await FileSystem.writeAsStringAsync(partiel, clair.toString('base64'), base64);
         } catch {
           await FileSystem.deleteAsync(partiel, { idempotent: true });
-          throw new ErreurOuvertureFichier('Fichier chiffré illisible.');
+          throw new FileOpenError('Fichier chiffré illisible.');
         }
       }
       await FileSystem.moveAsync({ from: partiel, to: destination });
@@ -102,7 +102,7 @@ const enCours = new Map<string, Promise<string>>();
  * Le fichier clair d'une pièce jointe chiffrée, dans le cache — pour l'afficher.
  * Une même pièce vue deux fois à l'écran ne se télécharge qu'une fois.
  */
-export function fichierDechiffre(options: OptionsJointe): Promise<string> {
+export function decryptedFile(options: OptionsJointe): Promise<string> {
   const existante = enCours.get(options.url);
   if (existante !== undefined) return existante;
   const promesse = versLeCache(options).finally(() => enCours.delete(options.url));
@@ -115,41 +115,41 @@ export function fichierDechiffre(options: OptionsJointe): Promise<string> {
  * L'URL authentifiée ne sort pas du processus : seul le `file://` local est
  * confié au système.
  */
-export async function ouvrirJointeProtegee(options: OptionsJointe): Promise<void> {
+export async function openProtectedAttachment(options: OptionsJointe): Promise<void> {
   if (!(await Sharing.isAvailableAsync())) {
-    throw new ErreurOuvertureFichier('Le partage de fichiers est indisponible.');
+    throw new FileOpenError('Le partage de fichiers est indisponible.');
   }
   const local = await versLeCache(options);
   await Sharing.shareAsync(local, options.type ? { mimeType: options.type } : {});
 }
 
 /** Confie au système un fichier DÉJÀ local (une pièce pas encore envoyée). */
-export async function ouvrirFichierLocal(uri: string, type: string | null): Promise<void> {
+export async function openLocalFile(uri: string, type: string | null): Promise<void> {
   if (!(await Sharing.isAvailableAsync())) {
-    throw new ErreurOuvertureFichier('Le partage de fichiers est indisponible.');
+    throw new FileOpenError('Le partage de fichiers est indisponible.');
   }
   await Sharing.shareAsync(uri, type ? { mimeType: type } : {});
 }
 
-export type LieuEnregistrement = 'galerie' | 'telechargements' | 'partage';
+export type SaveLocation = 'galerie' | 'telechargements' | 'partage';
 
 /**
  * Télécharge la pièce jointe protégée puis l'ENREGISTRE sur l'appareil : photo,
  * vidéo et son dans la galerie, tout autre fichier dans Téléchargements — les
  * deux par MediaStore, sans permission depuis Android 10.
  */
-export async function enregistrerJointeProtegee(options: OptionsJointe): Promise<LieuEnregistrement> {
+export async function saveProtectedAttachment(options: OptionsJointe): Promise<SaveLocation> {
   const local = await versLeCache(options);
   const nom = local.slice(local.lastIndexOf('/') + 1);
 
-  if (versGalerie(nom, options.type)) {
+  if (toGallery(nom, options.type)) {
     try {
       await Asset.create(local);
     } catch {
       // Android 9 et avant : l'écriture dans le stockage partagé exige encore
       // la permission. On la demande, puis on réessaie une fois.
       const permission = await requestPermissionsAsync(true);
-      if (!permission.granted) throw new ErreurOuvertureFichier('Permission refusée.');
+      if (!permission.granted) throw new FileOpenError('Permission refusée.');
       await Asset.create(local);
     }
     return 'galerie';
@@ -157,10 +157,10 @@ export async function enregistrerJointeProtegee(options: OptionsJointe): Promise
 
   // iOS n'a pas de dossier Téléchargements : la feuille de partage propose
   // « Enregistrer dans Fichiers ».
-  if (Telechargements === null) {
+  if (Downloads === null) {
     await Sharing.shareAsync(local, options.type ? { mimeType: options.type } : undefined);
     return 'partage';
   }
-  await Telechargements.enregistrer(local, nom, options.type ?? null);
+  await Downloads.enregistrer(local, nom, options.type ?? null);
   return 'telechargements';
 }

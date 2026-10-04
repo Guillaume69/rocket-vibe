@@ -43,11 +43,11 @@ const MARQUEUR_NPE_ARBRE_DE_VUES = 'dispatchCancelPendingInputEvents';
 const REPRISES_MS = [400, 900, 1600];
 
 /** Ce rejet-là vient de l'arbre de vues Android, pas d'un refus de l'usager. */
-export function estRejetArbreDeVues(e: unknown): boolean {
+export function isViewTreeRejection(e: unknown): boolean {
   return e instanceof Error && e.message.includes(MARQUEUR_NPE_ARBRE_DE_VUES);
 }
 
-export async function lancerSelecteurAvecReprise<T>(
+export async function launchPickerWithRetry<T>(
   lancer: () => Promise<T>,
   attendre: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
 ): Promise<T> {
@@ -55,7 +55,7 @@ export async function lancerSelecteurAvecReprise<T>(
     try {
       return await lancer();
     } catch (e) {
-      if (!estRejetArbreDeVues(e) || essai >= REPRISES_MS.length) throw e;
+      if (!isViewTreeRejection(e) || essai >= REPRISES_MS.length) throw e;
       await attendre(REPRISES_MS[essai]);
     }
   }

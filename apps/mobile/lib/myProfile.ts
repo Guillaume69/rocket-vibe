@@ -15,23 +15,23 @@
  * mot de passe est fait par l'appelant (expo-crypto dans l'app), pas ici.
  */
 
-import type { ClientRest, CodeDeuxFacteurs } from './rest.ts';
+import type { ClientRest, TwoFactorCode } from './rest.ts';
 
 /** Statut CHOISI par l'utilisateur (statusDefault), distinct de la présence live. */
-export type StatutDefaut = 'online' | 'away' | 'busy' | 'offline';
+export type DefaultStatus = 'online' | 'away' | 'busy' | 'offline';
 
-export type MonProfil = {
+export type MyProfile = {
   username: string;
   name: string;
   email: string;
-  status: StatutDefaut;
+  status: DefaultStatus;
   statusText: string;
   bio: string;
 };
 
-const STATUTS: readonly StatutDefaut[] = ['online', 'away', 'busy', 'offline'];
+const STATUTS: readonly DefaultStatus[] = ['online', 'away', 'busy', 'offline'];
 
-function estStatut(v: unknown): v is StatutDefaut {
+function estStatut(v: unknown): v is DefaultStatus {
   return typeof v === 'string' && (STATUTS as readonly string[]).includes(v);
 }
 
@@ -64,7 +64,7 @@ function premierEmail(emails: unknown): string {
     : '';
 }
 
-export function profilDepuisMe(brut: ReponseMe): MonProfil {
+export function profileFromMe(brut: ReponseMe): MyProfile {
   return {
     username: chaine(brut.username),
     name: chaine(brut.name),
@@ -81,8 +81,8 @@ export function profilDepuisMe(brut: ReponseMe): MonProfil {
   };
 }
 
-export function lireMonProfil(client: ClientRest): Promise<MonProfil> {
-  return client.get<ReponseMe>('me').then(profilDepuisMe);
+export function readMyProfile(client: ClientRest): Promise<MyProfile> {
+  return client.get<ReponseMe>('me').then(profileFromMe);
 }
 
 /**
@@ -91,9 +91,9 @@ export function lireMonProfil(client: ClientRest): Promise<MonProfil> {
  * pendant que l'app était fermée — aucun stream n'a pu l'annoncer. `me` la
  * porte sans requête supplémentaire dédiée (vérifié sur 8.5).
  */
-export type MonIdentite = { uid: string; username: string; avatarEtag: string | null };
+export type MyIdentity = { uid: string; username: string; avatarEtag: string | null };
 
-export function identiteDepuisMe(brut: ReponseMe): MonIdentite | null {
+export function identityFromMe(brut: ReponseMe): MyIdentity | null {
   const uid = chaine(brut._id);
   const username = chaine(brut.username);
   if (uid === '' || username === '') return null;
@@ -101,8 +101,8 @@ export function identiteDepuisMe(brut: ReponseMe): MonIdentite | null {
   return { uid, username, avatarEtag: etag === '' ? null : etag };
 }
 
-export function lireMonIdentite(client: ClientRest): Promise<MonIdentite | null> {
-  return client.get<ReponseMe>('me').then(identiteDepuisMe);
+export function readMyIdentity(client: ClientRest): Promise<MyIdentity | null> {
+  return client.get<ReponseMe>('me').then(identityFromMe);
 }
 
 /**
@@ -110,20 +110,20 @@ export function lireMonIdentite(client: ClientRest): Promise<MonIdentite | null>
  * remplace le message par une chaîne vide si on l'omet — poster que le statut
  * effacerait donc le texte, et inversement.
  */
-export function enregistrerStatut(
+export function saveStatus(
   client: ClientRest,
-  valeurs: { status: StatutDefaut; message: string },
+  valeurs: { status: DefaultStatus; message: string },
 ): Promise<void> {
   return client
     .post('users.setStatus', {
-      corps: { status: valeurs.status, message: valeurs.message },
-      rejeuReseau: true,
+      body: { status: valeurs.status, message: valeurs.message },
+      networkReplay: true,
     })
     .then(() => undefined);
 }
 
 /** Champs de `users.updateOwnBasicInfo`. `currentPassword` = SHA-256 du mdp. */
-export type InfosDeBase = {
+export type BasicInfo = {
   name?: string;
   username?: string;
   email?: string;
@@ -131,13 +131,13 @@ export type InfosDeBase = {
   currentPassword?: string;
 };
 
-export function enregistrerInfos(
+export function saveBasicInfo(
   client: ClientRest,
-  data: InfosDeBase,
-  deuxFacteurs?: CodeDeuxFacteurs,
+  data: BasicInfo,
+  deuxFacteurs?: TwoFactorCode,
 ): Promise<void> {
   return client
-    .post('users.updateOwnBasicInfo', { corps: { data }, deuxFacteurs, rejeuReseau: true })
+    .post('users.updateOwnBasicInfo', { body: { data }, twoFactor: deuxFacteurs, networkReplay: true })
     .then(() => undefined);
 }
 
@@ -146,8 +146,8 @@ export function enregistrerInfos(
  * n'est pas dans le profil lu). Un `updateOwnBasicInfo` vide est inutile — et
  * renvoyer l'e-mail inchangé relancerait une vérification côté serveur.
  */
-export function diffInfos(initial: MonProfil, courant: MonProfil): InfosDeBase {
-  const d: InfosDeBase = {};
+export function diffInfos(initial: MyProfile, courant: MyProfile): BasicInfo {
+  const d: BasicInfo = {};
   if (courant.name !== initial.name) d.name = courant.name;
   if (courant.username !== initial.username) d.username = courant.username;
   if (courant.email !== initial.email) d.email = courant.email;
@@ -156,6 +156,6 @@ export function diffInfos(initial: MonProfil, courant: MonProfil): InfosDeBase {
 }
 
 /** Vrai si le diff touche à l'e-mail ou au nom d'utilisateur → mot de passe requis. */
-export function exigeMotDePasse(infos: InfosDeBase): boolean {
+export function requiresPassword(infos: BasicInfo): boolean {
   return infos.email !== undefined || infos.username !== undefined;
 }

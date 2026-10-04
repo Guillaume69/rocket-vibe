@@ -25,7 +25,7 @@ let table: Record<string, string> | null = null;
  * `null` si le code court n'est pas un emoji connu — jamais une chaîne vide,
  * qu'un appelant confondrait avec « emoji sans glyphe ».
  */
-export function unicodeDeCodeCourt(code: string): string | null {
+export function unicodeOfShortcode(code: string): string | null {
   table ??= JSON.parse(CODES_EMOJI) as Record<string, string>;
   // `typeof` et pas `in` : le `md` vient d'autrui, et `:constructor:` est un
   // code court parfaitement légal côté serveur. Il remonterait une fonction
@@ -56,7 +56,7 @@ export function codesEmojiStandard(): readonly string[] {
 }
 
 /** Les huit catégories du navigateur, dans l'ordre canonique JoyPixels. */
-export type CategorieEmoji =
+export type EmojiCategory =
   | 'people'
   | 'nature'
   | 'food'
@@ -66,7 +66,7 @@ export type CategorieEmoji =
   | 'symbols'
   | 'flags';
 
-let categories: Record<CategorieEmoji, readonly string[]> | null = null;
+let categories: Record<EmojiCategory, readonly string[]> | null = null;
 
 /**
  * Les codes de base groupés par catégorie, pour le navigateur d'emojis. Chaque
@@ -74,9 +74,9 @@ let categories: Record<CategorieEmoji, readonly string[]> | null = null;
  * résolubles par `unicodeDeCodeCourt`. Parse unique, mis en cache : le même
  * objet est rendu à chaque appel — ne pas le muter.
  */
-export function emojisParCategorie(): Record<CategorieEmoji, readonly string[]> {
+export function emojisByCategory(): Record<EmojiCategory, readonly string[]> {
   return (categories ??= JSON.parse(EMOJIS_PAR_CATEGORIE) as Record<
-    CategorieEmoji,
+    EmojiCategory,
     readonly string[]
   >);
 }

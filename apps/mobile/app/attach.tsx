@@ -3,15 +3,15 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useT } from '../ui/i18n.ts';
-import type { CleTraduction } from '../ui/messages.ts';
+import type { TranslationKey } from '../ui/messages.ts';
 import {
-  repondreSource,
-  signalerFeuilleDemontee,
-  signalerFeuilleMontee,
-  type SourcePieceJointe,
+  answerSource,
+  reportSheetUnmounted,
+  reportSheetMounted,
+  type AttachmentSource,
 } from '../ui/attachmentSource.ts';
-import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
-import { Appuyable } from '../ui/tappable.tsx';
+import { LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
+import { Tappable } from '../ui/tappable.tsx';
 
 /**
  * Feuille « joindre » : le menu de sources d'une pièce jointe, à la façon de
@@ -29,15 +29,15 @@ import { Appuyable } from '../ui/tappable.tsx';
  * lancement d'activité sous Android.
  */
 
-const OPTIONS: { source: SourcePieceJointe; icone: string; cle: CleTraduction }[] = [
-  { source: 'photo', icone: '📷', cle: 'joindre.photo' },
-  { source: 'video', icone: '🎥', cle: 'joindre.video' },
-  { source: 'bibliotheque', icone: '🖼️', cle: 'joindre.bibliotheque' },
-  { source: 'fichier', icone: '📁', cle: 'joindre.fichier' },
+const OPTIONS: { source: AttachmentSource; icon: string; key: TranslationKey }[] = [
+  { source: 'photo', icon: '📷', key: 'joindre.photo' },
+  { source: 'video', icon: '🎥', key: 'joindre.video' },
+  { source: 'bibliotheque', icon: '🖼️', key: 'joindre.bibliotheque' },
+  { source: 'fichier', icon: '📁', key: 'joindre.fichier' },
 ];
 
-export default function EcranJoindre() {
-  const c = useCouleurs();
+export default function AttachScreen() {
+  const c = useColors();
   const t = useT();
   const insets = useSafeAreaInsets();
 
@@ -51,31 +51,31 @@ export default function EcranJoindre() {
   // Le démontage — balayage, retour matériel, ou le `back()` du composeur —
   // solde de toute façon une demande restée en attente.
   useEffect(() => {
-    signalerFeuilleMontee();
-    return signalerFeuilleDemontee;
+    reportSheetMounted();
+    return reportSheetUnmounted;
   }, []);
 
-  const choisir = (source: SourcePieceJointe) => {
-    repondreSource(source);
+  const choisir = (source: AttachmentSource) => {
+    answerSource(source);
   };
 
   return (
-    <View style={[styles.feuille, { paddingBottom: insets.bottom + 12 }]}>
+    <View style={[styles.sheet, { paddingBottom: insets.bottom + 12 }]}>
       {OPTIONS.map((o) => (
         // Le clip de l'enveloppe (`overflow`) découpe l'ondulation en coins
         // doux : le masque du ripple borné ignore borderRadius sous Fabric.
-        <View key={o.source} style={styles.enveloppeLigne}>
-          <Appuyable
+        <View key={o.source} style={styles.rowWrapper}>
+          <Tappable
             onPress={() => choisir(o.source)}
-            android_ripple={{ color: c.ondulation }}
-            unstable_pressDelay={DELAI_PRESSION_LISTE}
+            android_ripple={{ color: c.ripple }}
+            unstable_pressDelay={LIST_PRESS_DELAY}
             accessibilityRole="button"
-            accessibilityLabel={t(o.cle)}
-            style={({ pressed }) => [styles.ligne, { opacity: pressed ? 0.7 : 1 }]}
+            accessibilityLabel={t(o.key)}
+            style={({ pressed }) => [styles.row, { opacity: pressed ? 0.7 : 1 }]}
           >
-            <Text style={styles.ligneIcone}>{o.icone}</Text>
-            <Text style={[styles.ligneTexte, { color: c.texte }]}>{t(o.cle)}</Text>
-          </Appuyable>
+            <Text style={styles.rowIcon}>{o.icon}</Text>
+            <Text style={[styles.rowText, { color: c.text }]}>{t(o.key)}</Text>
+          </Tappable>
         </View>
       ))}
     </View>
@@ -84,15 +84,15 @@ export default function EcranJoindre() {
 
 const styles = StyleSheet.create({
   // Pas de flex:1 : `fitToContents` mesure la hauteur réelle du contenu.
-  feuille: { paddingHorizontal: 16, paddingTop: 10, gap: 2 },
-  enveloppeLigne: { borderRadius: 12, overflow: 'hidden' },
-  ligne: {
+  sheet: { paddingHorizontal: 16, paddingTop: 10, gap: 2 },
+  rowWrapper: { borderRadius: 12, overflow: 'hidden' },
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
     paddingVertical: 15,
     paddingHorizontal: 8,
   },
-  ligneIcone: { fontSize: 19, width: 24, textAlign: 'center' },
-  ligneTexte: { fontFamily: POLICES.corpsGras, fontSize: 15.5 },
+  rowIcon: { fontSize: 19, width: 24, textAlign: 'center' },
+  rowText: { fontFamily: FONTS.corpsGras, fontSize: 15.5 },
 });

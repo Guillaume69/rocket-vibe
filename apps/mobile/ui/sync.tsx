@@ -24,75 +24,75 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 
 import type { BaseLocale } from '../db/client.ts';
-import { ouvrirBase } from '../db/client.ts';
-import { MoteurActivite } from '../lib/activity.ts';
+import { openDatabase } from '../db/client.ts';
+import { ActivityEngine } from '../lib/activity.ts';
 import {
-  MESSAGES_GARDES_PAR_SALON,
-  creerDepot,
-  creerDepotBrouillons,
-  creerDepotEmojis,
-  creerDepotEnvoi,
-  creerDepotTeleversements,
-  type DepotBrouillons,
+  MESSAGES_KEPT_PER_ROOM,
+  createStore,
+  createDraftStore,
+  createEmojiStore,
+  createOutboxStore,
+  createUploadStore,
+  type DraftStore,
 } from '../db/store.ts';
-import { migrerBase } from '../db/migrate.ts';
-import { MoteurE2E } from '../lib/e2e/engine.ts';
+import { migrateDatabase } from '../db/migrate.ts';
+import { E2EEngine } from '../lib/e2e/engine.ts';
 import {
-  restaurerEmojisCustom,
-  synchroniserEmojisCustom,
-  viderEmojisCustom,
+  restoreCustomEmojis,
+  syncCustomEmojis,
+  clearCustomEmojis,
 } from '../lib/customEmojis.ts';
-import { idDepuisOctets } from '../lib/outbox.ts';
+import { idFromBytes } from '../lib/outbox.ts';
 import type {
-  ActionsFournisseur,
-  Capacites,
-  Fournisseur,
+  ProviderActions,
+  Capabilities,
+  Provider,
   Listener,
   Outbox,
-  OutboxFichiers,
+  FileOutbox,
 } from '../lib/provider.ts';
-import { MoteurPresence } from '../lib/presence.ts';
-import { obtenirJetonFcm, surRotationJeton } from '../lib/push.ts';
-import { raccorder } from '../lib/connectionSetup.ts';
-import { enregistrerJeton } from '../lib/pushToken.ts';
-import { Reconnecteur } from '../lib/reconnect.ts';
-import { MoteurSynchro } from '../lib/sync.ts';
-import { creerFournisseur } from '../providers/index.ts';
+import { PresenceEngine } from '../lib/presence.ts';
+import { getFcmToken, onTokenRotation } from '../lib/push.ts';
+import { hookUp } from '../lib/connectionSetup.ts';
+import { registerToken } from '../lib/pushToken.ts';
+import { Reconnector } from '../lib/reconnect.ts';
+import { SyncEngine } from '../lib/sync.ts';
+import { createProvider } from '../providers/index.ts';
 import {
-  effacerClePriveeE2E,
-  enregistrerClePriveeE2E,
-  lireClePriveeE2E,
-  purgerCleE2EHeritee,
-  retenirJetonPush,
+  clearE2EPrivateKey,
+  saveE2EPrivateKey,
+  readE2EPrivateKey,
+  purgeLegacyE2EKey,
+  rememberPushToken,
 } from '../lib/sessionStore.ts';
-import { oublierDisponibiliteAppel } from '../lib/call.ts';
-import { oublierFichesProfil } from '../lib/profilePreload.ts';
-import { oublierEtatNotifications } from './notificationState.ts';
-import { traduireCourant } from './i18n.ts';
-import { oublierReponses } from './reply.ts';
-import { oublierIdentites } from './identityStore.ts';
-import { poserNotePrivee } from './privateNotes.tsx';
+import { forgetCallAvailability } from '../lib/call.ts';
+import { forgetProfileCards } from '../lib/profilePreload.ts';
+import { forgetNotificationState } from './notificationState.ts';
+import { translateCurrent } from './i18n.ts';
+import { forgetReplies } from './reply.ts';
+import { forgetIdentities } from './identityStore.ts';
+import { setPrivateNote } from './privateNotes.tsx';
 import { useSession } from './session.tsx';
-import { brancherSondeUpload } from './uploadProbe.ts';
-import { oublierFilsCharges } from './loadedThreads.ts';
-import { libererSalonsChauds } from './hotRooms.ts';
-import { oublierSalonsCharges } from './loadedRooms.ts';
-import { creerPileSalonsOuverts } from './openRooms.ts';
-import { chiffrerFichierLocal, empreinteNom } from './fileEncryption.ts';
-import { supprimerSiTemporaire } from './temporaryFiles.ts';
+import { armUploadProbe } from './uploadProbe.ts';
+import { forgetLoadedThreads } from './loadedThreads.ts';
+import { releaseHotRooms } from './hotRooms.ts';
+import { forgetLoadedRooms } from './loadedRooms.ts';
+import { createOpenRoomsStack } from './openRooms.ts';
+import { encryptLocalFile, hashedName } from './fileEncryption.ts';
+import { deleteIfTemporary } from './temporaryFiles.ts';
 import { transportExpo } from './transportUpload.ts';
 
-export type EtatSynchro =
+export type SyncState =
   | { phase: 'inactif' }
   | { phase: 'preparation' }
   | {
       phase: 'pret';
       base: BaseLocale;
       /** Brouillons de composer — dans la file d'écritures, comme le reste. */
-      brouillons: DepotBrouillons;
-      moteur: MoteurSynchro;
-      envoi: Outbox;
-      fichiers: OutboxFichiers;
+      drafts: DraftStore;
+      engine: SyncEngine;
+      outbox: Outbox;
+      files: FileOutbox;
       ddp: Listener;
       /**
        * La façade complète du serveur courant. C'est par elle que les écrans
@@ -100,11 +100,11 @@ export type EtatSynchro =
        * jamais en nommant un endpoint ou un stream Rocket.Chat en direct.
        * `actions`/`capacites`/`ddp` ci-contre n'en sont que des raccourcis.
        */
-      fournisseur: Fournisseur;
+      provider: Provider;
       /** Actions unitaires sur les messages, routées vers le bon serveur. */
-      actions: ActionsFournisseur;
+      actions: ProviderActions;
       /** Ce que le serveur courant sait faire — les écrans masquent le reste. */
-      capacites: Capacites;
+      capabilities: Capabilities;
       /**
        * L'écran salon se déclare à l'ouverture et rend sa déclaration à la
        * fermeture : le rattrapage `chat.syncMessages` — un salon à la fois,
@@ -116,23 +116,23 @@ export type EtatSynchro =
        * arrière posait `null` alors qu'un salon restait affiché, et plus aucun
        * raccordement ne rattrapait quoi que ce soit.
        */
-      declarerSalonOuvert: (rid: string) => () => void;
+      declareOpenRoom: (rid: string) => () => void;
       /** Présence volatile (8.4) — à lire via le hook `usePresence`. */
-      presence: MoteurPresence;
+      presence: PresenceEngine;
       /**
        * Activité réseau de fond — à lire via `useActivite`. Compte les fetches
        * en vol par portée (`'global'`, un `rid`) pour l'indicateur d'en-tête.
        */
-      activite: MoteurActivite;
+      activity: ActivityEngine;
       /** Moteur E2EE — à observer via `souscrire`/`estDeverrouille` (lecture). */
-      e2e: MoteurE2E;
+      e2e: E2EEngine;
       /**
        * Déverrouille les salons chiffrés (mot de passe E2E), puis déchiffre les
        * messages déjà en base. Lève `ErreurE2E` si le mot de passe est faux.
        */
-      deverrouillerE2E: (motDePasse: string) => Promise<void>;
+      unlockE2E: (motDePasse: string) => Promise<void>;
       /** Reverrouille : oublie la clé et re-masque le clair local. */
-      verrouillerE2E: () => Promise<void>;
+      lockE2E: () => Promise<void>;
       /**
        * Incrémentée à chaque raccordement réussi. Un écran qui a raté son
        * chargement initial (ouvert hors ligne) la met dans les deps de son
@@ -142,27 +142,27 @@ export type EtatSynchro =
     }
   | { phase: 'erreur'; message: string };
 
-const Contexte = createContext<EtatSynchro | null>(null);
+const Contexte = createContext<SyncState | null>(null);
 
-export function SynchroProvider({ children }: { children: React.ReactNode }) {
-  const { etat } = useSession();
-  const [synchro, setSynchro] = useState<EtatSynchro>({ phase: 'inactif' });
+export function SyncProvider({ children }: { children: React.ReactNode }) {
+  const { state: etat } = useSession();
+  const [synchro, setSynchro] = useState<SyncState>({ phase: 'inactif' });
 
   useEffect(() => {
     if (etat.phase !== 'connecte') {
       // L'index emoji du serveur quitté ne doit pas servir au prochain.
-      viderEmojisCustom();
+      clearCustomEmojis();
       setSynchro({ phase: 'inactif' });
       return;
     }
     const { session, client } = etat;
     let abandonne = false;
     const estAbandonne = () => abandonne;
-    const fournisseur = creerFournisseur(session, client, () =>
-      idDepuisOctets(Crypto.getRandomBytes(12)),
+    const fournisseur = createProvider(session, client, () =>
+      idFromBytes(Crypto.getRandomBytes(12)),
     );
     const ddp = fournisseur.listener;
-    let reconnecteur: Reconnecteur | null = null;
+    let reconnecteur: Reconnector | null = null;
     let surAbandon: (() => void) | null = null;
 
     // Tout téléversement — pièce jointe COMME photo de profil, même transport —
@@ -173,8 +173,8 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
     // (45 s). La fin d'un upload est un signal EXACT : on sonde tout de suite.
     // Socket saine, ça coûte un ping/pong ; socket morte, la sonde nettoie,
     // `surPerte` part et le pilote reconnecte.
-    brancherSondeUpload(() => {
-      void ddp.verifierVie().catch(() => {});
+    armUploadProbe(() => {
+      void ddp.checkAlive().catch(() => {});
     });
 
     // Rotation du jeton FCM. L'enregistrement plus bas n'a lieu qu'UNE FOIS par
@@ -183,10 +183,10 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
     // part, jusqu'au prochain démarrage à froid. `push.token` est idempotent, et
     // le nouveau jeton est retenu au Keystore comme celui de l'enregistrement :
     // c'est lui que la déconnexion devra dé-enregistrer.
-    const cesserEcouteJeton = surRotationJeton((jeton) => {
+    const cesserEcouteJeton = onTokenRotation((jeton) => {
       if (abandonne) return;
-      void retenirJetonPush(jeton).catch(() => {});
-      void enregistrerJeton(client, jeton, 'gcm').catch(() => {});
+      void rememberPushToken(jeton).catch(() => {});
+      void registerToken(client, jeton, 'gcm').catch(() => {});
     });
 
     (async () => {
@@ -196,8 +196,8 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // effet se rejoue sur un simple renommage (objet `session` neuf pour le
       // même compte) ; la créer ici en fabriquait une seconde, et les deux
       // moteurs s'entrelaçaient (voir db/writeQueue.ts).
-      const { base, brute, fileEcritures } = ouvrirBase(session.baseUrl, session.userId);
-      await migrerBase(session.baseUrl, session.userId);
+      const { base, raw: brute, writeQueue: fileEcritures } = openDatabase(session.baseUrl, session.userId);
+      await migrateDatabase(session.baseUrl, session.userId);
       if (abandonne) return;
       // Moteur E2EE (lecture) : déchiffre au fil de l'ingestion dès qu'une clé
       // de salon est disponible. La clé privée est rangée au Keystore par
@@ -205,36 +205,36 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // même raison : c'est une donnée du compte. Indexée par serveur seul,
       // elle était réimportée pour le compte SUIVANT, qui se croyait alors
       // déverrouillé sans rien pouvoir lire.
-      const e2e = new MoteurE2E({
+      const e2e = new E2EEngine({
         client,
         uid: session.userId, // sel PBKDF2 des clés privées héritées (v1)
-        stockage: {
-          lire: () => lireClePriveeE2E(session.baseUrl, session.userId),
-          enregistrer: (jwk) => enregistrerClePriveeE2E(session.baseUrl, session.userId, jwk),
-          effacer: () => effacerClePriveeE2E(session.baseUrl, session.userId),
+        storage: {
+          read: () => readE2EPrivateKey(session.baseUrl, session.userId),
+          save: (jwk) => saveE2EPrivateKey(session.baseUrl, session.userId, jwk),
+          clear: () => clearE2EPrivateKey(session.baseUrl, session.userId),
         },
       });
       // L'entrée de l'ancien format ne sera plus jamais lue — mais elle porte
       // un JWK RSA DÉCHIFFRÉ, et le Keystore n'énumère pas ses clés : si on ne
       // l'efface pas ici, plus rien ne saura la retrouver. Tir-et-oublie : un
       // Keystore qui refuse une suppression ne doit pas retenir le démarrage.
-      void purgerCleE2EHeritee(session.baseUrl).catch(() => {});
-      const moteur = new MoteurSynchro(
-        creerDepot(brute, fileEcritures),
-        fournisseur.traducteur,
+      void purgeLegacyE2EKey(session.baseUrl).catch(() => {});
+      const moteur = new SyncEngine(
+        createStore(brute, fileEcritures),
+        fournisseur.translator,
         e2e,
       );
-      const depotEnvoi = creerDepotEnvoi(brute, fileEcritures);
-      const fichiers = fournisseur.creerTeleversement(
-        creerDepotTeleversements(brute, fileEcritures),
+      const depotEnvoi = createOutboxStore(brute, fileEcritures);
+      const fichiers = fournisseur.createUploadQueue(
+        createUploadStore(brute, fileEcritures),
         transportExpo,
         async (doc) => {
-          await moteur.ingererMessages([doc]);
+          await moteur.ingestMessages([doc]);
         },
         {
           // Une ligne soldée emporte son fichier de cache — la garde
           // « est-ce bien à nous ? » vit dans `ui/temporaryFiles.ts`.
-          supprimerFichierLocal: supprimerSiTemporaire,
+          deleteLocalFile: deleteIfTemporary,
           // Payé UNIQUEMENT quand un `file_id` déjà persisté oblige à savoir
           // si le message existe et que la base locale ne le sait pas — le
           // redémarrage après kill, sans écran de salon monté, donc sans
@@ -248,37 +248,37 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
           // `chat.syncMessages` avec un jeton mort après la déconnexion, sur
           // une route plafonnée à 10 appels/min, et écrivait dans la base du
           // compte quitté. Elle contaminait en plus toute demande fondue dedans.
-          rafraichirSalon: (rid) => fournisseur.rattraperSalon(moteur, rid, estAbandonne),
-          chiffrement: {
-            salonChiffre: (rid) => depotEnvoi.salonChiffre(rid),
-            chiffrer: (rid, charge) => e2e.chiffrer(rid, charge),
-            chiffrerFichier: chiffrerFichierLocal,
-            empreinteNom,
+          refreshRoom: (rid) => fournisseur.catchUpRoom(moteur, rid, estAbandonne),
+          encryption: {
+            roomEncrypted: (rid) => depotEnvoi.roomEncrypted(rid),
+            encrypt: (rid, charge) => e2e.encrypt(rid, charge),
+            encryptFile: encryptLocalFile,
+            hashedName,
           },
         },
       );
-      const envoi = fournisseur.creerEnvoi(
+      const envoi = fournisseur.createOutbox(
         depotEnvoi,
         async (doc) => {
-          await moteur.ingererMessages([doc]);
+          await moteur.ingestMessages([doc]);
         },
         e2e,
       );
-      const depotEmojis = creerDepotEmojis(brute, fileEcritures);
+      const depotEmojis = createEmojiStore(brute, fileEcritures);
       // Les écrans salon montés : le sommet est celui que l'utilisateur
       // regarde, le seul que le rattrapage vise. Voir `ui/openRooms.ts`.
-      const salonsOuverts = creerPileSalonsOuverts();
+      const salonsOuverts = createOpenRoomsStack();
       let jetonPushEnregistre = false;
       let emojisSynchronises = false;
       let salonsReconcilies = false;
       let retentionAppliquee = false;
-      const presence = new MoteurPresence();
-      const activite = new MoteurActivite();
+      const presence = new PresenceEngine();
+      const activite = new ActivityEngine();
       // Emojis custom : l'index mémoire depuis SQLite AVANT « pret », pour que
       // le premier rendu résolve déjà `:party_parrot:` (offline compris). Le
       // rafraîchissement réseau vient au raccordement. Un échec de lecture ne
       // doit pas retenir l'écran — les customs dégraderaient en `:nom:`.
-      await restaurerEmojisCustom(session.baseUrl, depotEmojis, estAbandonne).catch(() => {});
+      await restoreCustomEmojis(session.baseUrl, depotEmojis, estAbandonne).catch(() => {});
       if (abandonne) return;
 
       // Reprise E2EE silencieuse : si la clé privée est déjà au Keystore
@@ -301,15 +301,15 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       const rafraichirE2E = (): void =>
         setSynchro((s) => (s.phase === 'pret' ? { ...s } : s));
       const deverrouillerE2E = async (motDePasse: string): Promise<void> => {
-        await e2e.deverrouiller(motDePasse); // lève ErreurE2E si faux
-        await moteur.deverrouillageE2E(); // éclaire les messages déjà en base
+        await e2e.unlock(motDePasse); // lève ErreurE2E si faux
+        await moteur.e2eUnlocked(); // éclaire les messages déjà en base
         rafraichirE2E();
-        envoi.traiter().catch(() => {}); // ce qui attendait une clé de salon
-        fichiers.traiter().catch(() => {});
+        envoi.process().catch(() => {}); // ce qui attendait une clé de salon
+        fichiers.process().catch(() => {});
       };
       const verrouillerE2E = async (): Promise<void> => {
-        await e2e.verrouiller();
-        await moteur.reverrouillageE2E(); // re-masque le clair local
+        await e2e.lock();
+        await moteur.e2eRelocked(); // re-masque le clair local
         rafraichirE2E();
       };
 
@@ -318,20 +318,20 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       setSynchro({
         phase: 'pret',
         base,
-        brouillons: creerDepotBrouillons(brute, fileEcritures),
-        moteur,
-        envoi,
-        fichiers,
+        drafts: createDraftStore(brute, fileEcritures),
+        engine: moteur,
+        outbox: envoi,
+        files: fichiers,
         ddp,
-        fournisseur,
+        provider: fournisseur,
         actions: fournisseur.actions,
-        capacites: fournisseur.capacites,
-        declarerSalonOuvert: salonsOuverts.declarer,
+        capabilities: fournisseur.capabilities,
+        declareOpenRoom: salonsOuverts.declare,
         presence,
-        activite,
+        activity: activite,
         e2e,
-        deverrouillerE2E,
-        verrouillerE2E,
+        unlockE2E: deverrouillerE2E,
+        lockE2E: verrouillerE2E,
         generation: 0,
       });
 
@@ -339,7 +339,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // en Keystore, on déchiffre les messages déjà chargés — l'UI (requête
       // vive) se rafraîchit d'elle-même.
       e2e
-        .reprendre()
+        .resume()
         .then(async (ok) => {
           if (!ok) {
             // Verrouillé, et pourtant la base peut porter du clair E2E : celui
@@ -349,23 +349,23 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
             // fois, et l'app affichait alors du clair tout en se déclarant
             // verrouillée. Le `chiffreBrut` est conservé : le masquage est
             // exactement ce que fait le bouton « Verrouiller », donc réversible.
-            await moteur.reverrouillageE2E();
+            await moteur.e2eRelocked();
             if (!abandonne) rafraichirE2E();
             return;
           }
-          await moteur.deverrouillageE2E();
+          await moteur.e2eUnlocked();
           if (!abandonne) rafraichirE2E();
-          envoi.traiter().catch(() => {});
-          fichiers.traiter().catch(() => {});
+          envoi.process().catch(() => {});
+          fichiers.process().catch(() => {});
         })
         .catch(() => {});
 
-      ddp.surEvenement((evenement) => {
+      ddp.onEvent((evenement) => {
         if (abandonne) return;
-        presence.appliquer(evenement);
-        const note = fournisseur.notePrivee(evenement);
-        if (note !== null) poserNotePrivee(note.rid, note.texte);
-        moteur.appliquer(evenement).catch(() => {
+        presence.apply(evenement);
+        const note = fournisseur.privateNote(evenement);
+        if (note !== null) setPrivateNote(note.rid, note.text);
+        moteur.apply(evenement).catch(() => {
           // Une écriture qui échoue ne doit pas tuer l'écouteur ; le
           // rattrapage REST de l'étape 5.2 refera passer le document.
         });
@@ -373,7 +373,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // Déclarées AVANT toute connexion : `souscrire` mémorise l'intention,
       // et chaque `connecter` (première fois comme reconnexion) rejoue tout.
       // Le fournisseur sait quels streams l'intéressent.
-      for (const [nom, cle] of fournisseur.souscriptionsInitiales()) ddp.souscrire(nom, cle);
+      for (const [nom, cle] of fournisseur.initialSubscriptions()) ddp.subscribe(nom, cle);
 
       // Le PREMIER raccordement passe par le même pilote que les reconnexions
       // (backoff 1 s → 30 s avec gigue) : hors ligne au lancement, ça
@@ -385,8 +385,8 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // temps du fetch (`suivre` rejette comme l'original, le backoff du pilote
       // garde sa main).
       const rattraperTout = async (): Promise<void> => {
-        await activite.suivre('global', fournisseur.rattraperGlobal(moteur, estAbandonne));
-        const salonActif = salonsOuverts.sommet();
+        await activite.track('global', fournisseur.catchUpGlobal(moteur, estAbandonne));
+        const salonActif = salonsOuverts.top();
         if (salonActif === undefined) return;
         // Le rattrapage d'UN salon part en TIR-ET-OUBLIE : ni attendu, ni fatal.
         // Chaque page est bornée à 50 documents (`lib/catchUp.ts`), donc plus
@@ -404,7 +404,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         // (celui-ci et l'effet d'ouverture de l'écran) : une pagination à la
         // fois par salon, et aucune demande perdue.
         void activite
-          .suivre(salonActif, fournisseur.rattraperSalon(moteur, salonActif, estAbandonne))
+          .track(salonActif, fournisseur.catchUpRoom(moteur, salonActif, estAbandonne))
           .catch((e: unknown) => console.warn('rattraperSalon: échec ignoré', e));
       };
 
@@ -413,11 +413,11 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       const apresRattrapage = (): void => {
         // Ce qui attendait le réseau part maintenant. Pas d'await : un
         // échec d'envoi ne doit pas compter comme un échec de connexion.
-        envoi.traiter().catch(() => {});
-        fichiers.traiter().catch(() => {});
+        envoi.process().catch(() => {});
+        fichiers.process().catch(() => {});
         // Présence : photo complète à chaque raccordement, puis le stream.
         // Ornement, un échec ne compte jamais comme un échec de raccordement.
-        void presence.charger(client);
+        void presence.load(client);
         // Liste des emojis custom : rafraîchie UNE fois par session (comme le
         // jeton push), pas à chaque flap réseau — c'est un download complet et
         // une réécriture de toute la table. La version SQLite a déjà servi le
@@ -426,7 +426,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         // serveur qu'on a quitté. Échec → non armé, retenté au prochain flap.
         if (!emojisSynchronises) {
           emojisSynchronises = true;
-          synchroniserEmojisCustom(client, depotEmojis, estAbandonne).catch(() => {
+          syncCustomEmojis(client, depotEmojis, estAbandonne).catch(() => {
             emojisSynchronises = false;
           });
         }
@@ -435,7 +435,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         // sera retenté au prochain raccordement.
         if (!jetonPushEnregistre) {
           jetonPushEnregistre = true;
-          obtenirJetonFcm()
+          getFcmToken()
             .then((r) => {
               // `obtenirJetonFcm` ne REJETTE jamais : son échec est un RÉSULTAT
               // (`ok:false`, lib/push.ts). N'écouter que le rejet laissait donc
@@ -445,15 +445,15 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
               // Un refus de permission, lui, ne se réarme pas : ce serait
               // rejouer le prompt système à chaque flap réseau.
               if (!r.ok) {
-                if (r.raison === 'echec') jetonPushEnregistre = false;
+                if (r.reason === 'echec') jetonPushEnregistre = false;
                 return undefined;
               }
               // Retenu au Keystore À L'ENREGISTREMENT : c'est la déconnexion
               // qui en aura besoin, et elle ne doit pas le redemander à FCM —
               // `obtenirJetonFcm` demande la permission système au passage, et
               // ne rend rien sur un appareil sans Play Services.
-              void retenirJetonPush(r.jeton).catch(() => {});
-              return enregistrerJeton(client, r.jeton, 'gcm');
+              void rememberPushToken(r.token).catch(() => {});
+              return registerToken(client, r.token, 'gcm');
             })
             .catch(() => {
               jetonPushEnregistre = false;
@@ -465,7 +465,7 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         // pas à chaque flap réseau. Échec → non armé, retenté au prochain.
         if (!salonsReconcilies) {
           salonsReconcilies = true;
-          fournisseur.reconcilier(moteur, estAbandonne).catch(() => {
+          fournisseur.reconcile(moteur, estAbandonne).catch(() => {
             salonsReconcilies = false;
           });
         }
@@ -480,41 +480,41 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         // reprendra au prochain lancement.
         if (!retentionAppliquee) {
           retentionAppliquee = true;
-          moteur.depotSynchro.appliquerRetention(MESSAGES_GARDES_PAR_SALON).catch(() => {});
+          moteur.syncStore.applyRetention(MESSAGES_KEPT_PER_ROOM).catch(() => {});
         }
         // Réveille les écrans dont le chargement initial a raté hors ligne.
         setSynchro((s) => (s.phase === 'pret' ? { ...s, generation: s.generation + 1 } : s));
       };
 
-      reconnecteur = new Reconnecteur({
-        connecter: async () => {
+      reconnecteur = new Reconnector({
+        connect: async () => {
           if (abandonne) return;
-          await raccorder({
+          await hookUp({
             // « Authentifié » veut dire que les souscriptions désirées ont été
             // rejouées : le stream couvre déjà, la lecture qui suit garantira à
             // elle seule.
-            streamDejaActif: () => ddp.etat === 'authentifie',
+            streamAlreadyActive: () => ddp.state === 'authentifie',
             // Ne reconnecter QUE si la socket est tombée : après un échec du
             // seul rattrapage REST, le DDP est encore authentifié et
             // `connecter` lèverait « déjà connecté » — la retentative ne
             // rejouerait alors jamais le rattrapage.
-            ouvrirStream: () =>
-              ddp.etat === 'ferme' ? ddp.connecter(session.authToken) : Promise.resolve(),
-            streamArme: () => ddp.souscriptionsArmees(),
-            rattraper: rattraperTout,
-            ensuite: apresRattrapage,
-            estAbandonne,
+            openStream: () =>
+              ddp.state === 'ferme' ? ddp.connect(session.authToken) : Promise.resolve(),
+            streamArmed: () => ddp.armedSubscriptions(),
+            catchUp: rattraperTout,
+            then: apresRattrapage,
+            isDiscarded: estAbandonne,
           });
         },
       });
-      ddp.surPerte(() => {
+      ddp.onLoss(() => {
         // La présence ne vit que par le stream : sans socket, ce qu'on en sait
         // fige à l'instant de la coupure. On l'oublie plutôt que d'afficher
         // des pastilles vertes de l'entrée dans le tunnel (`lib/presence.ts`).
-        presence.invalider();
-        reconnecteur?.declencher();
+        presence.invalidate();
+        reconnecteur?.trigger();
       });
-      reconnecteur.declencher();
+      reconnecteur.trigger();
 
       // Cycle de vie de la socket (6.2). En ARRIÈRE-PLAN : fermeture propre
       // et volontaire — l'OS la tuerait de toute façon (Doze), le push prend
@@ -534,17 +534,17 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       const aboAppState = AppState.addEventListener('change', (etatApp) => {
         if (abandonne) return;
         if (etatApp === 'background') {
-          reconnecteur?.suspendre();
-          ddp.fermer();
+          reconnecteur?.suspend();
+          ddp.close();
           // Ce qu'on croit savoir de la présence date de l'instant d'avant :
           // aucun stream ne la corrigera plus tant qu'on est en fond.
-          presence.invalider();
+          presence.invalidate();
           return;
         }
         if (etatApp !== 'active') return;
-        reconnecteur?.reprendre();
-        if (ddp.etat !== 'ferme') ddp.verifierVie().catch(() => {});
-        reconnecteur?.declencher();
+        reconnecteur?.resume();
+        if (ddp.state !== 'ferme') ddp.checkAlive().catch(() => {});
+        reconnecteur?.trigger();
       });
       surAbandon = () => {
         aboAppState.remove();
@@ -561,14 +561,14 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         // les transactions en vol. Tir-et-oublie : un cleanup ne peut pas
         // attendre, et le masquage se rejoue de toute façon au démarrage
         // suivant tant qu'on est verrouillé.
-        void moteur.reverrouillageE2E().catch(() => {});
+        void moteur.e2eRelocked().catch(() => {});
       };
     })().catch((e: unknown) => {
       // Ici, même la base locale n'est pas utilisable : écran d'erreur.
       if (!abandonne) {
         setSynchro({
           phase: 'erreur',
-          message: e instanceof Error ? e.message : traduireCourant('synchro.baseInutilisable'),
+          message: e instanceof Error ? e.message : translateCurrent('synchro.baseInutilisable'),
         });
       }
     });
@@ -577,9 +577,9 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       abandonne = true;
       // L'ordre compte : arrêter le pilote AVANT de fermer, sinon la
       // fermeture pourrait encore programmer une tentative.
-      reconnecteur?.arreter();
+      reconnecteur?.stop();
       surAbandon?.();
-      brancherSondeUpload(null); // plus de sonde vers un client rangé
+      armUploadProbe(null); // plus de sonde vers un client rangé
       cesserEcouteJeton(); // ni de réenregistrement vers un serveur quitté
       // Les caches « ceci a déjà son chargement d'ouverture » sont indexés par
       // génération, dont le compteur repart de zéro à la session suivante :
@@ -587,11 +587,11 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // chargé. Chacune de ces purges invalide aussi le jeton de session, ce
       // qui interdit aux écrans encore montés de les repeupler en se démontant
       // — leur cleanup court APRÈS celui-ci (voir `ui/sessionToken.ts`).
-      oublierSalonsCharges();
-      oublierFilsCharges();
+      forgetLoadedRooms();
+      forgetLoadedThreads();
       // Et les salons qu'on gardait à l'écoute après en être sorti : leurs
       // souscriptions ne valent plus rien sur une socket qu'on ferme.
-      libererSalonsChauds();
+      releaseHotRooms();
       // La règle « tout store de module se purge en fin de session », sans
       // exception cette fois. Chacun de ceux-ci laissait passer une donnée du
       // compte quitté vers le suivant : le permalien d'une citation en suspens
@@ -599,20 +599,20 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
       // — dont un etag périmé fait resservir l'ancienne image par le cache
       // d'Android —, le verdict de disponibilité des appels, la liste des
       // salons chiffrés et le badge d'icône, et les fiches de profil brutes.
-      oublierReponses();
-      oublierIdentites();
-      oublierDisponibiliteAppel();
-      oublierEtatNotifications();
-      oublierFichesProfil();
-      ddp.fermer();
-      ddp.reinitialiser();
+      forgetReplies();
+      forgetIdentities();
+      forgetCallAvailability();
+      forgetNotificationState();
+      forgetProfileCards();
+      ddp.close();
+      ddp.reset();
     };
   }, [etat]);
 
   return <Contexte.Provider value={synchro}>{children}</Contexte.Provider>;
 }
 
-export function useSynchro(): EtatSynchro {
+export function useSync(): SyncState {
   const contexte = useContext(Contexte);
   if (contexte === null) {
     throw new Error('useSynchro appelé hors de <SynchroProvider>.');

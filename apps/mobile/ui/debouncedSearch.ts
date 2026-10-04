@@ -19,14 +19,14 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
  * `useCallback`) : leur identité relance l'effet, et une valeur recréée à
  * chaque rendu bouclerait débounce → réponse → rendu → débounce.
  */
-export function useRechercheDebouncee<T>(
+export function useDebouncedSearch<T>(
   requete: string,
   vide: T,
   chercher: (propre: string) => Promise<T>,
   messageEchec: string,
   delaiMs = 300,
 ): {
-  resultats: T;
+  results: T;
   message: string | null;
   /**
    * Le setter est exposé parce que le bandeau d'erreur est PARTAGÉ avec les
@@ -40,7 +40,7 @@ export function useRechercheDebouncee<T>(
    * état posé par l'effet — sans quoi, pendant le débounce d'une nouvelle
    * frappe, l'écran afficherait un faux « aucun résultat ».
    */
-  repondue: string;
+  answered: string;
 } {
   const [resultats, setResultats] = useState<T>(vide);
   const [message, setMessage] = useState<string | null>(null);
@@ -76,5 +76,5 @@ export function useRechercheDebouncee<T>(
     return () => clearTimeout(minuterie);
   }, [propre, vide, chercher, messageEchec, delaiMs]);
 
-  return { resultats, message, setMessage, repondue };
+  return { results: resultats, message, setMessage, answered: repondue };
 }

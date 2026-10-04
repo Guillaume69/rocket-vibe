@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { hashCodeJava, identifiantNotifSalon } from './notificationId.ts';
+import { hashCodeJava, roomNotificationId } from './notificationId.ts';
 
 /**
  * Les valeurs attendues ne sont pas dérivées de l'implémentation : elles
@@ -46,7 +46,7 @@ describe('hashCodeJava', () => {
 describe('identifiantNotifSalon', () => {
   it('produit la forme que `parseNotificationIdentifier` d’expo sait lire', () => {
     assert.equal(
-      identifiantNotifSalon('GENERAL'),
+      roomNotificationId('GENERAL'),
       'expo-notifications://foreign_notifications?id=637834440',
     );
   });
@@ -55,7 +55,7 @@ describe('identifiantNotifSalon', () => {
     // `Integer.parseInt("-2042430465")` accepte le moins ; tronquer le signe
     // viserait une autre notification.
     assert.equal(
-      identifiantNotifSalon('64c7f9dbd7e0f4b1a2c3d4e5'),
+      roomNotificationId('64c7f9dbd7e0f4b1a2c3d4e5'),
       'expo-notifications://foreign_notifications?id=-2042430465',
     );
   });

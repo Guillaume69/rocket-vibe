@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { apercusDeLien, metasVideo } from './linkPreview.ts';
+import { linkPreviews, metasVideo } from './linkPreview.ts';
 
 // Fixtures calquées sur le relevé réel de `chat.getMessage` (RC 8.5).
 const IMAGE = {
@@ -49,17 +49,17 @@ const json = (arr: unknown[]) => JSON.stringify(arr);
 
 describe('apercusDeLien', () => {
   test('un lien image (content-type image/*) devient un aperçu image', () => {
-    const r = apercusDeLien(json([IMAGE]));
+    const r = linkPreviews(json([IMAGE]));
     assert.deepEqual(r, [{ type: 'image', url: IMAGE.url }]);
   });
 
   test('un lien image sans headers est reconnu par son extension', () => {
-    const r = apercusDeLien(json([{ url: 'https://ex.com/chat.jpg', meta: {} }]));
+    const r = linkPreviews(json([{ url: 'https://ex.com/chat.jpg', meta: {} }]));
     assert.deepEqual(r, [{ type: 'image', url: 'https://ex.com/chat.jpg' }]);
   });
 
   test("l'extension image tolère une query et un fragment", () => {
-    const r = apercusDeLien(json([{ url: 'https://ex.com/p.png?v=2#x', meta: {} }]));
+    const r = linkPreviews(json([{ url: 'https://ex.com/p.png?v=2#x', meta: {} }]));
     assert.equal(r.length, 1);
     assert.equal(r[0]!.type, 'image');
   });
@@ -75,12 +75,12 @@ describe('apercusDeLien', () => {
       'data:image/png;base64,iVBORw0KGgo=',
       'content://media/external/images/1',
     ]) {
-      assert.deepEqual(apercusDeLien(json([{ url: u, meta: { ogTitle: 'Piège' } }])), [], u);
+      assert.deepEqual(linkPreviews(json([{ url: u, meta: { ogTitle: 'Piège' } }])), [], u);
     }
   });
 
   test('une vignette non web est retirée, la carte reste', () => {
-    const r = apercusDeLien(
+    const r = linkPreviews(
       json([{ url: 'https://ex.com/a', meta: { ogTitle: 'Titre', ogImage: 'file:///etc/x.png' } }]),
     );
     assert.equal(r.length, 1);
@@ -88,22 +88,22 @@ describe('apercusDeLien', () => {
   });
 
   test('une carte sans titre dont la vignette est retirée disparaît', () => {
-    const r = apercusDeLien(json([{ url: 'https://ex.com/a', meta: { ogImage: 'file:///x.png' } }]));
+    const r = linkPreviews(json([{ url: 'https://ex.com/a', meta: { ogImage: 'file:///x.png' } }]));
     assert.deepEqual(r, []);
   });
 
   test('un SVG n’est PAS traité comme image (Image RN ne le rend pas)', () => {
     const svg = { url: 'https://ex.com/logo.svg', meta: {}, headers: { contentType: 'image/svg+xml' } };
-    assert.deepEqual(apercusDeLien(json([svg])), []);
+    assert.deepEqual(linkPreviews(json([svg])), []);
   });
 
   test('un article OpenGraph devient une carte, og prioritaire sur pageTitle', () => {
-    const r = apercusDeLien(json([ARTICLE]));
+    const r = linkPreviews(json([ARTICLE]));
     assert.equal(r.length, 1);
     assert.deepEqual(r[0], {
       type: 'carte',
       url: ARTICLE.url,
-      titre: 'GitHub - RocketChat/Rocket.Chat: mission-critical',
+      title: 'GitHub - RocketChat/Rocket.Chat: mission-critical',
       description: 'The Secure CommsOS for mission-critical operations',
       image: ARTICLE.meta.ogImage,
       site: 'GitHub',
@@ -120,29 +120,29 @@ describe('apercusDeLien', () => {
       },
       headers: { contentType: 'text/html' },
     };
-    const r = apercusDeLien(json([tw]));
+    const r = linkPreviews(json([tw]));
     assert.equal(r[0]!.type, 'carte');
-    assert.equal((r[0] as { titre: string }).titre, 'Titre TW');
+    assert.equal((r[0] as { title: string }).title, 'Titre TW');
     assert.equal((r[0] as { image: string }).image, 'https://ex.com/tw.jpg');
   });
 
   test("le nom de site retombe sur l'hôte (sans www) si absent des métas", () => {
     const a = { url: 'https://www.lemonde.fr/article', meta: { ogTitle: 'T' }, headers: { contentType: 'text/html' } };
-    const r = apercusDeLien(json([a]));
+    const r = linkPreviews(json([a]));
     assert.equal((r[0] as { site: string }).site, 'lemonde.fr');
   });
 
   test('un lien vidéo (YouTube) est EXCLU — il a déjà sa carte dédiée', () => {
-    assert.deepEqual(apercusDeLien(json([YOUTUBE])), []);
+    assert.deepEqual(linkPreviews(json([YOUTUBE])), []);
   });
 
   test('un tweet VIVANT rend une carte avec image ET texte (og génériques)', () => {
-    const r = apercusDeLien(json([TWEET_VIVANT]));
+    const r = linkPreviews(json([TWEET_VIVANT]));
     assert.equal(r.length, 1);
     assert.deepEqual(r[0], {
       type: 'carte',
       url: TWEET_VIVANT.url,
-      titre: 'Barack Obama (@BarackObama) on X',
+      title: 'Barack Obama (@BarackObama) on X',
       description: 'Four more years.',
       image: TWEET_VIVANT.meta.ogImage,
       site: 'X (formerly Twitter)',
@@ -150,11 +150,11 @@ describe('apercusDeLien', () => {
   });
 
   test('un lien nu (tweet supprimé, page sans balises) est ignoré', () => {
-    assert.deepEqual(apercusDeLien(json([LIEN_NU])), []);
+    assert.deepEqual(linkPreviews(json([LIEN_NU])), []);
   });
 
   test('mélange réaliste : image + article + tweet, la vidéo et le lien nu sautés', () => {
-    const r = apercusDeLien(json([IMAGE, ARTICLE, YOUTUBE, TWEET_VIVANT, LIEN_NU]));
+    const r = linkPreviews(json([IMAGE, ARTICLE, YOUTUBE, TWEET_VIVANT, LIEN_NU]));
     assert.deepEqual(
       r.map((a) => a.type),
       ['image', 'carte', 'carte'],
@@ -162,7 +162,7 @@ describe('apercusDeLien', () => {
   });
 
   test('déduplique par URL', () => {
-    const r = apercusDeLien(json([IMAGE, IMAGE]));
+    const r = linkPreviews(json([IMAGE, IMAGE]));
     assert.equal(r.length, 1);
   });
 
@@ -172,7 +172,7 @@ describe('apercusDeLien', () => {
       meta: { ogTitle: `T${i}` },
       headers: { contentType: 'text/html' },
     }));
-    assert.equal(apercusDeLien(json(liens), 3).length, 3);
+    assert.equal(linkPreviews(json(liens), 3).length, 3);
   });
 
   test('décode les entités HTML des métas', () => {
@@ -181,20 +181,20 @@ describe('apercusDeLien', () => {
       meta: { ogTitle: 'Tom &amp; Jerry &#39;96&#39;', ogImage: 'https://ex.com/i.jpg' },
       headers: { contentType: 'text/html' },
     };
-    const r = apercusDeLien(json([a]));
-    assert.equal((r[0] as { titre: string }).titre, "Tom & Jerry '96'");
+    const r = linkPreviews(json([a]));
+    assert.equal((r[0] as { title: string }).title, "Tom & Jerry '96'");
   });
 
   test('entrées invalides : null, JSON cassé, non-tableau → []', () => {
-    assert.deepEqual(apercusDeLien(null), []);
-    assert.deepEqual(apercusDeLien(''), []);
-    assert.deepEqual(apercusDeLien('{pas du json'), []);
-    assert.deepEqual(apercusDeLien('{"a":1}'), []);
+    assert.deepEqual(linkPreviews(null), []);
+    assert.deepEqual(linkPreviews(''), []);
+    assert.deepEqual(linkPreviews('{pas du json'), []);
+    assert.deepEqual(linkPreviews('{"a":1}'), []);
   });
 
   test('une entrée sans titre ni image (lien nu) est ignorée', () => {
     const nu = { url: 'https://ex.com/nu', meta: {}, headers: { contentType: 'text/html' } };
-    assert.deepEqual(apercusDeLien(json([nu])), []);
+    assert.deepEqual(linkPreviews(json([nu])), []);
   });
 });
 
@@ -212,8 +212,8 @@ describe('metasVideo', () => {
   test('indexe titre et auteur par id de vidéo, entités décodées', () => {
     const m = metasVideo(json([YT]));
     assert.deepEqual(m.get('dQw4w9WgXcQ'), {
-      titre: 'Rick Astley - Never Gonna Give You Up',
-      auteur: 'Rick Astley & co',
+      title: 'Rick Astley - Never Gonna Give You Up',
+      author: 'Rick Astley & co',
     });
   });
 

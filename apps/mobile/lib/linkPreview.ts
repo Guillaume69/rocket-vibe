@@ -27,15 +27,15 @@
  * carte dédiée (`ui/embedCard.tsx`) — sans quoi le message porterait deux cartes.
  */
 
-import { estLienWeb } from './externalLink.ts';
-import { estLienVideo, idVideo } from './videoLinks.ts';
+import { isWebLink } from './externalLink.ts';
+import { isVideoLink, idVideo } from './videoLinks.ts';
 
-export type ApercuLien =
+export type LinkPreview =
   | { type: 'image'; url: string }
   | {
       type: 'carte';
       url: string;
-      titre: string | null;
+      title: string | null;
       description: string | null;
       /** Vignette (URL publique), ou `null`. */
       image: string | null;
@@ -97,12 +97,12 @@ function premier(meta: Record<string, unknown>, cles: readonly string[]): string
   return null;
 }
 
-function carteDepuisMeta(url: string, meta: Record<string, unknown>): ApercuLien | null {
+function carteDepuisMeta(url: string, meta: Record<string, unknown>): LinkPreview | null {
   const titre = premier(meta, ['ogTitle', 'oembedTitle', 'twitterTitle', 'pageTitle']);
   // La vignette part dans une `<Image>` : un `file://` y ferait lire le disque
   // de l'app, un `data:` y injecterait une image arbitraire. Seul le web.
   const brutImage = premier(meta, ['ogImage', 'twitterImage', 'oembedThumbnailUrl']);
-  const image = estLienWeb(brutImage) ? brutImage : null;
+  const image = isWebLink(brutImage) ? brutImage : null;
   const description = premier(meta, [
     'ogDescription',
     'twitterDescription',
@@ -114,11 +114,11 @@ function carteDepuisMeta(url: string, meta: Record<string, unknown>): ApercuLien
   // Sans titre NI image, il n'y a rien à prévisualiser (ex. tweet dont X a
   // bloqué le scraping, ou lien sans balises) : on laisse le lien en texte.
   if (titre === null && image === null) return null;
-  return { type: 'carte', url, titre, description, image, site };
+  return { type: 'carte', url, title: titre, description, image, site };
 }
 
 /** Ce que le serveur sait d'une vidéo, pour la carte embed. */
-export type MetaVideo = { titre: string | null; auteur: string | null };
+export type MetaVideo = { title: string | null; author: string | null };
 
 /**
  * Les métas des liens VIDÉO de `urls`, indexées par identifiant de vidéo — le
@@ -147,7 +147,7 @@ export function metasVideo(urlsJson: string | null | undefined): Map<string, Met
     const titre = premier(meta, ['oembedTitle', 'ogTitle', 'twitterTitle', 'pageTitle']);
     const auteur = premier(meta, ['oembedAuthorName', 'ogSiteName']);
     if (titre === null && auteur === null) continue;
-    parId.set(id, { titre, auteur });
+    parId.set(id, { title: titre, author: auteur });
   }
   return parId;
 }
@@ -157,7 +157,7 @@ export function metasVideo(urlsJson: string | null | undefined): Map<string, Met
  * Déduplique par URL, saute les liens vidéo (carte dédiée), et plafonne à `max`
  * pour qu'un message truffé de liens ne noie pas le fil.
  */
-export function apercusDeLien(urlsJson: string | null | undefined, max = 3): ApercuLien[] {
+export function linkPreviews(urlsJson: string | null | undefined, max = 3): LinkPreview[] {
   if (urlsJson === null || urlsJson === undefined || urlsJson === '') return [];
   let brut: unknown;
   try {
@@ -167,7 +167,7 @@ export function apercusDeLien(urlsJson: string | null | undefined, max = 3): Ape
   }
   if (!Array.isArray(brut)) return [];
 
-  const apercus: ApercuLien[] = [];
+  const apercus: LinkPreview[] = [];
   const vus = new Set<string>();
 
   for (const item of brut) {
@@ -178,11 +178,11 @@ export function apercusDeLien(urlsJson: string | null | undefined, max = 3): Ape
     // `intent:`). `message.urls` est stocké brut (lib/normalize.ts) et n'a
     // jamais été validé — c'est de la donnée d'autrui.
     const brutUrl = entree?.url;
-    const url = estLienWeb(brutUrl) ? brutUrl : null;
+    const url = isWebLink(brutUrl) ? brutUrl : null;
     if (url === null || vus.has(url)) continue;
-    if (estLienVideo(url)) continue; // déjà rendu par la carte vidéo
+    if (isVideoLink(url)) continue; // déjà rendu par la carte vidéo
 
-    let apercu: ApercuLien | null = null;
+    let apercu: LinkPreview | null = null;
     if (estImage(entree, url)) {
       apercu = { type: 'image', url };
     } else if (entree.meta && typeof entree.meta === 'object') {

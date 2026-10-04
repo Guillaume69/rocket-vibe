@@ -51,7 +51,7 @@ function modularPodfile(podfile) {
   if (podfile.includes("pod 'FirebaseMessaging', :modular_headers => true")) return podfile;
   const anchor = /^(\s*)use_expo_modules!.*$/m;
   const found = podfile.match(anchor);
-  if (!found) throw new Error('with-ios-push : use_expo_modules! introuvable dans le Podfile');
+  if (!found) throw new Error('with-ios-push: use_expo_modules! not found in the Podfile');
   const inset = found[1];
   const rows = MODULAR_PODS.map((pod) => `${inset}pod '${pod}', :modular_headers => true`).join('\n');
   return podfile.replace(anchor, (row) => `${row}\n${rows}`);
@@ -156,7 +156,7 @@ function addTarget(project, { bundleId, team, version, build }) {
 
 function bundleIdOf(config) {
   const bundleId = config.ios?.bundleIdentifier;
-  if (!bundleId) throw new Error('with-ios-push : ios.bundleIdentifier manquant dans app.json');
+  if (!bundleId) throw new Error('with-ios-push: ios.bundleIdentifier missing from app.json');
   return bundleId;
 }
 

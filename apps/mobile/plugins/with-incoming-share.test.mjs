@@ -37,5 +37,5 @@ test('idempotent', () => {
 });
 
 test('refuse un gabarit qu’il ne reconnaît pas', () => {
-  assert.throws(() => neutralize('class MainActivity {}'), /onCreate introuvable/);
+  assert.throws(() => neutralize('class MainActivity {}'), /onCreate not found/);
 });

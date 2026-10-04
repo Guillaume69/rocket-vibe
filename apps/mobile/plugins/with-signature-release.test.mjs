@@ -45,5 +45,5 @@ test('rejouer le prebuild ne double rien', () => {
 });
 
 test('un gabarit qui a changé fait échouer le prebuild', () => {
-  assert.throws(() => sign('android { }'), /signingConfigs\.debug introuvable/);
+  assert.throws(() => sign('android { }'), /signingConfigs\.debug block not found/);
 });

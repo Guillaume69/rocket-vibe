@@ -40,7 +40,7 @@ class VideoCompressorModule : Module() {
     AsyncFunction("compress") { uri: String, maxShortSide: Int, videoBitrate: Int, promise: Promise ->
       val context = appContext.reactContext
       if (context == null) {
-        promise.reject("ERR_CONTEXT", "Contexte Android indisponible.", null)
+        promise.reject("ERR_CONTEXT", "Android context unavailable.", null)
         return@AsyncFunction
       }
       // Les métadonnées se lisent ici, sur le thread de la fonction : c'est de
@@ -51,7 +51,7 @@ class VideoCompressorModule : Module() {
         try {
           startExport(context, uri, effects, videoBitrate, promise)
         } catch (e: Exception) {
-          promise.reject("ERR_COMPRESSION", e.message ?: "Transcodage impossible.", e)
+          promise.reject("ERR_COMPRESSION", e.message ?: "Transcoding failed.", e)
         }
       }
     }
@@ -93,7 +93,7 @@ class VideoCompressorModule : Module() {
           output.delete()
           promise.reject(
             "ERR_COMPRESSION",
-            exportException.message ?: "Transcodage impossible.",
+            exportException.message ?: "Transcoding failed.",
             exportException,
           )
         }

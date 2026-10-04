@@ -31,10 +31,10 @@ gradle.taskGraph.whenReady { graph ->
 function sign(gradle) {
   if (gradle.includes("System.getenv('RV_KEYSTORE')")) return gradle;
   const debug = /(signingConfigs \{\s*\n\s*debug \{[^}]*\})/;
-  if (!debug.test(gradle)) throw new Error('with-signature-release : bloc signingConfigs.debug introuvable');
+  if (!debug.test(gradle)) throw new Error('with-signature-release: signingConfigs.debug block not found');
   let outbox = gradle.replace(debug, `$1${CONFIG_RELEASE}`);
   const release = /(buildTypes \{[\s\S]*?release \{[\s\S]*?)signingConfig signingConfigs\.debug/;
-  if (!release.test(outbox)) throw new Error('with-signature-release : signingConfig du buildType release introuvable');
+  if (!release.test(outbox)) throw new Error('with-signature-release: signingConfig of the release buildType not found');
   outbox = outbox.replace(release, '$1signingConfig signingConfigs.release');
   return outbox + GUARD;
 }

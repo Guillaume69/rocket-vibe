@@ -32,7 +32,7 @@ public class FcmTokenModule: Module {
 
     AsyncFunction("getToken") { (apnsTokenHex: String, promise: Promise) in
       guard let apnsToken = dataFromHex(apnsTokenHex) else {
-        promise.reject("E_APNS_TOKEN", "jeton APNs illisible")
+        promise.reject("E_APNS_TOKEN", "unreadable APNs token")
         return
       }
       let messaging = Messaging.messaging()
@@ -43,7 +43,7 @@ public class FcmTokenModule: Module {
         } else if let token, !token.isEmpty {
           promise.resolve(token)
         } else {
-          promise.reject("E_FCM_TOKEN", "jeton FCM vide")
+          promise.reject("E_FCM_TOKEN", "empty FCM token")
         }
       }
     }

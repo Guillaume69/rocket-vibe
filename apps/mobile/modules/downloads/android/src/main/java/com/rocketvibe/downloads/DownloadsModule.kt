@@ -24,7 +24,7 @@ class DownloadsModule : Module() {
 
     AsyncFunction("save") { source: String, name: String, type: String? ->
       val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
-      val file = File(Uri.parse(source).path ?: throw IOException("Source illisible"))
+      val file = File(Uri.parse(source).path ?: throw IOException("Unreadable source"))
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
@@ -33,9 +33,9 @@ class DownloadsModule : Module() {
           put(MediaStore.Downloads.IS_PENDING, 1)
         }
         val target = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-          ?: throw IOException("Entrée Téléchargements refusée")
+          ?: throw IOException("Downloads entry refused")
         try {
-          val output = resolver.openOutputStream(target) ?: throw IOException("Écriture refusée")
+          val output = resolver.openOutputStream(target) ?: throw IOException("Write refused")
           output.use { out -> file.inputStream().use { it.copyTo(out) } }
           resolver.update(
             target,

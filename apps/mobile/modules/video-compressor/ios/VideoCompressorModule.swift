@@ -17,7 +17,7 @@ public class VideoCompressorModule: Module {
 
     AsyncFunction("compress") { (uri: String, maxShortSide: Int, videoBitrate: Int) async throws -> [String: Any] in
       guard let source = URL(string: uri), let cache = self.appContext?.config.cacheDirectory else {
-        throw CompressionError("URI ou cache indisponible.")
+        throw CompressionError("URI or cache unavailable.")
       }
       let output = cache.appendingPathComponent("compressed-video-\(UUID().uuidString).mp4")
       do {
@@ -40,7 +40,7 @@ final class CompressionError: GenericException<String> {
 private func transcode(source: URL, output: URL, maxShortSide: Int, bitrate: Int) async throws {
   let asset = AVURLAsset(url: source)
   guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
-    throw CompressionError("Aucune piste vidéo.")
+    throw CompressionError("No video track.")
   }
   let audioTrack = try await asset.loadTracks(withMediaType: .audio).first
   let (size, transformation) = try await videoTrack.load(.naturalSize, .preferredTransform)
@@ -110,11 +110,11 @@ private func transcode(source: URL, output: URL, maxShortSide: Int, bitrate: Int
   }
 
   guard reader.startReading() else {
-    throw reader.error ?? CompressionError("Lecture de la vidéo impossible.")
+    throw reader.error ?? CompressionError("Cannot read the video.")
   }
   guard writer.startWriting() else {
     reader.cancelReading()
-    throw writer.error ?? CompressionError("Écriture de la vidéo impossible.")
+    throw writer.error ?? CompressionError("Cannot write the video.")
   }
   writer.startSession(atSourceTime: .zero)
 
@@ -122,11 +122,11 @@ private func transcode(source: URL, output: URL, maxShortSide: Int, bitrate: Int
 
   if reader.status == .failed {
     writer.cancelWriting()
-    throw reader.error ?? CompressionError("Lecture interrompue.")
+    throw reader.error ?? CompressionError("Reading interrupted.")
   }
   await writer.finishWriting()
   guard writer.status == .completed else {
-    throw writer.error ?? CompressionError("Transcodage impossible.")
+    throw writer.error ?? CompressionError("Transcoding failed.")
   }
 }
 

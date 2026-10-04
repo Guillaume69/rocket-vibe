@@ -1223,8 +1223,8 @@ const DEPENDENCIES_BLOCK = /^dependencies\s*\{/m;
 function addDependencies(contents, deps) {
   if (!DEPENDENCIES_BLOCK.test(contents)) {
     throw new Error(
-      "with-fcm-deeplink : aucun bloc `dependencies {` racine dans app/build.gradle — " +
-        'firebase-messaging et work-runtime ne peuvent pas être déclarés.',
+      "with-fcm-deeplink: no top-level `dependencies {` block in app/build.gradle, " +
+        'firebase-messaging and work-runtime cannot be declared.',
     );
   }
   let outbox = contents;
@@ -1301,7 +1301,7 @@ function withServiceFile(config) {
     (config) => {
       const pkg = config.android?.package;
       if (!pkg) {
-        throw new Error('with-fcm-deeplink : android.package manquant dans app.json');
+        throw new Error('with-fcm-deeplink: android.package missing from app.json');
       }
       const dir = path.join(
         config.modRequest.platformProjectRoot,
@@ -1319,7 +1319,7 @@ function withServiceManifest(config) {
   return withAndroidManifest(config, (config) => {
     const application = config.modResults.manifest.application?.[0];
     if (!application) {
-      throw new Error('with-fcm-deeplink : <application> introuvable dans le manifeste');
+      throw new Error('with-fcm-deeplink: <application> not found in the manifest');
     }
     addService(application);
     addReceiver(application);

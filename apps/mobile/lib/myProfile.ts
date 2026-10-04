@@ -29,18 +29,18 @@ export type MyProfile = {
   bio: string;
 };
 
-const STATUTS: readonly DefaultStatus[] = ['online', 'away', 'busy', 'offline'];
+const STATUSES: readonly DefaultStatus[] = ['online', 'away', 'busy', 'offline'];
 
-function estStatut(v: unknown): v is DefaultStatus {
-  return typeof v === 'string' && (STATUTS as readonly string[]).includes(v);
+function isStatus(v: unknown): v is DefaultStatus {
+  return typeof v === 'string' && (STATUSES as readonly string[]).includes(v);
 }
 
 /** Toujours une chaîne : les champs de formulaire ne veulent pas d'`undefined`. */
-function chaine(v: unknown): string {
+function asString(v: unknown): string {
   return typeof v === 'string' ? v : '';
 }
 
-type ReponseMe = {
+type MeResponse = {
   _id?: unknown;
   username?: unknown;
   name?: unknown;
@@ -56,33 +56,33 @@ type ReponseMe = {
 };
 
 /** Premier e-mail du compte (`emails[0].address`), '' s'il n'y en a pas. */
-function premierEmail(emails: unknown): string {
+function firstEmail(emails: unknown): string {
   if (!Array.isArray(emails) || emails.length === 0) return '';
   const p: unknown = emails[0];
   return p !== null && typeof p === 'object' && 'address' in p
-    ? chaine((p as { address?: unknown }).address)
+    ? asString((p as { address?: unknown }).address)
     : '';
 }
 
-export function profileFromMe(brut: ReponseMe): MyProfile {
+export function profileFromMe(raw: MeResponse): MyProfile {
   return {
-    username: chaine(brut.username),
-    name: chaine(brut.name),
-    email: premierEmail(brut.emails),
+    username: asString(raw.username),
+    name: asString(raw.name),
+    email: firstEmail(raw.emails),
     // `statusDefault` (le choix) prime sur `status` (la présence live, qui
     // vaut « offline » à froid tant que la session DDP n'est pas établie).
-    status: estStatut(brut.statusDefault)
-      ? brut.statusDefault
-      : estStatut(brut.status)
-        ? brut.status
+    status: isStatus(raw.statusDefault)
+      ? raw.statusDefault
+      : isStatus(raw.status)
+        ? raw.status
         : 'offline',
-    statusText: chaine(brut.statusText),
-    bio: chaine(brut.bio),
+    statusText: asString(raw.statusText),
+    bio: asString(raw.bio),
   };
 }
 
 export function readMyProfile(client: ClientRest): Promise<MyProfile> {
-  return client.get<ReponseMe>('me').then(profileFromMe);
+  return client.get<MeResponse>('me').then(profileFromMe);
 }
 
 /**
@@ -93,16 +93,16 @@ export function readMyProfile(client: ClientRest): Promise<MyProfile> {
  */
 export type MyIdentity = { uid: string; username: string; avatarEtag: string | null };
 
-export function identityFromMe(brut: ReponseMe): MyIdentity | null {
-  const uid = chaine(brut._id);
-  const username = chaine(brut.username);
+export function identityFromMe(raw: MeResponse): MyIdentity | null {
+  const uid = asString(raw._id);
+  const username = asString(raw.username);
   if (uid === '' || username === '') return null;
-  const etag = chaine(brut.avatarETag);
+  const etag = asString(raw.avatarETag);
   return { uid, username, avatarEtag: etag === '' ? null : etag };
 }
 
 export function readMyIdentity(client: ClientRest): Promise<MyIdentity | null> {
-  return client.get<ReponseMe>('me').then(identityFromMe);
+  return client.get<MeResponse>('me').then(identityFromMe);
 }
 
 /**
@@ -112,11 +112,11 @@ export function readMyIdentity(client: ClientRest): Promise<MyIdentity | null> {
  */
 export function saveStatus(
   client: ClientRest,
-  valeurs: { status: DefaultStatus; message: string },
+  values: { status: DefaultStatus; message: string },
 ): Promise<void> {
   return client
     .post('users.setStatus', {
-      body: { status: valeurs.status, message: valeurs.message },
+      body: { status: values.status, message: values.message },
       networkReplay: true,
     })
     .then(() => undefined);
@@ -134,10 +134,10 @@ export type BasicInfo = {
 export function saveBasicInfo(
   client: ClientRest,
   data: BasicInfo,
-  deuxFacteurs?: TwoFactorCode,
+  twoFactor?: TwoFactorCode,
 ): Promise<void> {
   return client
-    .post('users.updateOwnBasicInfo', { body: { data }, twoFactor: deuxFacteurs, networkReplay: true })
+    .post('users.updateOwnBasicInfo', { body: { data }, twoFactor, networkReplay: true })
     .then(() => undefined);
 }
 
@@ -146,16 +146,16 @@ export function saveBasicInfo(
  * n'est pas dans le profil lu). Un `updateOwnBasicInfo` vide est inutile — et
  * renvoyer l'e-mail inchangé relancerait une vérification côté serveur.
  */
-export function diffInfos(initial: MyProfile, courant: MyProfile): BasicInfo {
+export function diffInfos(initial: MyProfile, current: MyProfile): BasicInfo {
   const d: BasicInfo = {};
-  if (courant.name !== initial.name) d.name = courant.name;
-  if (courant.username !== initial.username) d.username = courant.username;
-  if (courant.email !== initial.email) d.email = courant.email;
-  if (courant.bio !== initial.bio) d.bio = courant.bio;
+  if (current.name !== initial.name) d.name = current.name;
+  if (current.username !== initial.username) d.username = current.username;
+  if (current.email !== initial.email) d.email = current.email;
+  if (current.bio !== initial.bio) d.bio = current.bio;
   return d;
 }
 
 /** Vrai si le diff touche à l'e-mail ou au nom d'utilisateur → mot de passe requis. */
-export function requiresPassword(infos: BasicInfo): boolean {
-  return infos.email !== undefined || infos.username !== undefined;
+export function requiresPassword(info: BasicInfo): boolean {
+  return info.email !== undefined || info.username !== undefined;
 }

@@ -41,20 +41,20 @@ import { useColors, type Colors, FONTS } from '../../ui/theme.ts';
 
 export default function ThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { state: etat } = useSession();
-  const synchro = useSync();
+  const { state } = useSession();
+  const sync = useSync();
   const c = useColors();
 
-  if (etat.phase === 'disconnected') return <Redirect href="/login" />;
+  if (state.phase === 'disconnected') return <Redirect href="/login" />;
 
-  if (synchro.phase === 'error') {
+  if (sync.phase === 'error') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
-        <Text style={[styles.error, { color: c.errorText }]}>{synchro.message}</Text>
+        <Text style={[styles.error, { color: c.errorText }]}>{sync.message}</Text>
       </View>
     );
   }
-  if (typeof id !== 'string' || synchro.phase !== 'ready' || etat.phase !== 'connected') {
+  if (typeof id !== 'string' || sync.phase !== 'ready' || state.phase !== 'connected') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
         <ActivityIndicator />
@@ -63,37 +63,37 @@ export default function ThreadScreen() {
   }
 
   return (
-    <Fil
+    <Thread
       c={c}
       threadId={id}
-      base={synchro.base}
-      drafts={synchro.drafts}
-      engine={synchro.engine}
-      outbox={synchro.outbox}
-      ddp={synchro.ddp}
-      provider={synchro.provider}
-      actions={synchro.actions}
-      client={etat.client}
-      me={etat.session.username}
-      activity={synchro.activity}
-      generation={synchro.generation}
+      base={sync.base}
+      drafts={sync.drafts}
+      engine={sync.engine}
+      outbox={sync.outbox}
+      ddp={sync.ddp}
+      provider={sync.provider}
+      actions={sync.actions}
+      client={state.client}
+      me={state.session.username}
+      activity={sync.activity}
+      generation={sync.generation}
     />
   );
 }
 
-function Fil({
+function Thread({
   c,
-  threadId: filId,
+  threadId,
   base,
-  drafts: brouillons,
-  engine: moteur,
-  outbox: envoi,
+  drafts,
+  engine,
+  outbox: outboxQueue,
   ddp,
-  provider: fournisseur,
+  provider,
   actions,
   client,
-  me: moi,
-  activity: activite,
+  me,
+  activity,
   generation,
 }: {
   c: Colors;
@@ -112,37 +112,37 @@ function Fil({
   generation: number;
 }) {
   const t = useT();
-  const enSynchro = useActivity(filId);
+  const syncing = useActivity(threadId);
   // La racine du fil — elle porte le titre et le `rid`.
-  const { data: lignesRacine } = useCoalescedLiveQuery(
-    base.select().from(messages).where(eq(messages.id, filId)).limit(1),
-    [filId],
+  const { data: rootRows } = useCoalescedLiveQuery(
+    base.select().from(messages).where(eq(messages.id, threadId)).limit(1),
+    [threadId],
   );
-  const racine = lignesRacine?.[0];
+  const root = rootRows?.[0];
 
-  const { data: lignesReponses } = useCoalescedLiveQuery(
+  const { data: replyRows } = useCoalescedLiveQuery(
     base
       .select()
       .from(messages)
-      .where(eq(messages.threadId, filId))
+      .where(eq(messages.threadId, threadId))
       // Clé secondaire `id` (même raison que l'écran salon) : un ex æquo à la
       // milliseconde près est départagé de façon déterministe, pas par l'ordre
       // d'insertion. Ordre ASC ici pour rester cohérent avec le tri DESC du
       // salon — deux messages liés gardent la même relation dans les deux vues.
       .orderBy(asc(messages.ts), asc(messages.id)),
-    [filId],
+    [threadId],
   );
 
   // `rid` : par la racine, ou À DÉFAUT par une réponse (lien direct à froid —
   // `chat.getThreadMessages` ne renvoie jamais la racine, mais chaque réponse
   // porte le rid). Sans ce repli, l'écran ne pourrait ni s'abonner au stream
   // ni répondre tant que la racine n'est pas arrivée.
-  const rid = racine?.rid ?? (lignesReponses ?? [])[0]?.rid;
+  const rid = root?.rid ?? (replyRows ?? [])[0]?.rid;
 
   // Les drapeaux du salon : mêmes interdits que le composer du salon —
   // promettre une réponse dans un salon chiffré ou en lecture seule, c'est
   // promettre un `error-not-allowed`.
-  const { data: lignesSalon } = useCoalescedLiveQuery(
+  const { data: roomRows } = useCoalescedLiveQuery(
     base
       .select()
       .from(rooms)
@@ -150,33 +150,33 @@ function Fil({
       .limit(1),
     [rid],
   );
-  const salon = lignesSalon?.[0];
-  const { data: lignesSortie } = useCoalescedLiveQuery(
-    base.select().from(outbox).where(eq(outbox.threadId, filId)),
-    [filId],
+  const room = roomRows?.[0];
+  const { data: outboxRows } = useCoalescedLiveQuery(
+    base.select().from(outbox).where(eq(outbox.threadId, threadId)),
+    [threadId],
   );
-  const sortieParId = useMemo(
-    () => new Map((lignesSortie ?? []).map((s) => [s.id, s])),
-    [lignesSortie],
+  const outboxById = useMemo(
+    () => new Map((outboxRows ?? []).map((s) => [s.id, s])),
+    [outboxRows],
   );
 
   // Racine en tête, réponses en ordre chronologique — un fil se lit du haut.
-  const donnees = useMemo<MessageRowData[]>(() => {
-    const reponses = lignesReponses ?? [];
-    return racine === undefined ? reponses : [racine, ...reponses];
-  }, [racine, lignesReponses]);
+  const data = useMemo<MessageRowData[]>(() => {
+    const responses = replyRows ?? [];
+    return root === undefined ? responses : [root, ...responses];
+  }, [root, replyRows]);
 
   // Séparateurs de jour puis regroupement des rafales d'un même auteur
   // (`ui/daySeparator`, `ui/messageGrouping`) — données ASC ici, l'inverse
   // de l'écran salon.
-  const donneesListe = useMemo<(MessageRowData | DayRow)[]>(
-    () => insertDaySeparators(donnees, 'oldest-first'),
-    [donnees],
+  const listData = useMemo<(MessageRowData | DayRow)[]>(
+    () => insertDaySeparators(data, 'oldest-first'),
+    [data],
   );
-  const suites = useMemo(() => continuationIds(donneesListe, 'oldest-first'), [donneesListe]);
-  const heuresRepetees = useMemo(
-    () => repeatedTimeIds(donneesListe, 'oldest-first', suites),
-    [donneesListe, suites],
+  const continuations = useMemo(() => continuationIds(listData, 'oldest-first'), [listData]);
+  const repeatedTimes = useMemo(
+    () => repeatedTimeIds(listData, 'oldest-first', continuations),
+    [listData, continuations],
   );
 
   // Le fil complet, depuis le serveur : rejouable, mêmes upserts idempotents.
@@ -184,8 +184,8 @@ function Fil({
   // Un fil déjà chargé sous cette génération n'a pas de premier passage à
   // attendre : sans cet état initial, sauter le fetch laisserait « chargement »
   // affiché à vie (même piège que l'écran salon).
-  const [premierPassageFini, setPremierPassageFini] = useState(() =>
-    threadLoadedUnder(filId, generation),
+  const [firstPassDone, setFirstPassDone] = useState(() =>
+    threadLoadedUnder(threadId, generation),
   );
   useEffect(() => {
     // Ce chargement ne se rejoue QUE si ce fil n'a pas déjà été chargé sous
@@ -193,32 +193,32 @@ function Fil({
     // raccordement — donc chaque retour au premier plan, chaque flap réseau —
     // relançait `chat.getMessage` PUIS toute la pagination du fil, pour
     // ré-ingérer les mêmes documents. Voir `ui/loadedThreads.ts`.
-    if (threadLoadedUnder(filId, generation)) return;
-    let annule = false;
-    const jeton = sessionToken();
+    if (threadLoadedUnder(threadId, generation)) return;
+    let canceled = false;
+    const token = sessionToken();
     // Portée d'activité = le fil lui-même, pas son salon : `rid` n'est pas
     // encore connu quand ce chargement part (fil ouvert par lien direct, la
     // racine n'est pas en base) et il apparaîtrait EN COURS de fetch — la barre
     // écouterait alors une portée que personne n'a alimentée.
     // Le chargement (racine puis pagination défensive des réponses) vit chez
     // le fournisseur — voir `chargerFil` côté Rocket.Chat pour ses quirks.
-    void activite
-      .track(filId, fournisseur.loadThread(moteur, filId, () => annule))
+    void activity
+      .track(threadId, provider.loadThread(engine, threadId, () => canceled))
       .then(() => {
         // Marqué au SUCCÈS seulement : un fil ouvert hors ligne doit repartir
         // au raccordement suivant, pas rester vide.
-        if (!annule) markThreadLoaded(filId, generation, jeton);
+        if (!canceled) markThreadLoaded(threadId, generation, token);
       })
       .catch(() => {
         // Hors ligne : le cache local suffit.
       })
       .finally(() => {
-        if (!annule) setPremierPassageFini(true);
+        if (!canceled) setFirstPassDone(true);
       });
     return () => {
-      annule = true;
+      canceled = true;
     };
-  }, [fournisseur, moteur, filId, generation, activite]);
+  }, [provider, engine, threadId, generation, activity]);
 
   // Les réponses arrivent par le stream du SALON : on s'y abonne aussi d'ici,
   // pour que le fil vive même ouvert par un lien direct (souscription
@@ -230,71 +230,71 @@ function Fil({
   // façade qui ne détaille pas ses clés.
   useEffect(() => {
     if (rid === undefined) return;
-    const relachers = fournisseur
+    const releases = provider
       .roomSubscriptions(rid)
-      .map(([nom, cle]) => ddp.subscribe(nom, cle));
+      .map(([name, key]) => ddp.subscribe(name, key));
     return () => {
-      for (const relacher of relachers) relacher();
+      for (const release of releases) release();
     };
-  }, [ddp, fournisseur, rid]);
+  }, [ddp, provider, rid]);
 
-  const routeur = useRouter();
-  const ouvrirActions = useCallback(
+  const router = useRouter();
+  const openActions = useCallback(
     (idMessage: string) => {
       // « Pop » à l'ouverture de la feuille — confirme que l'appui long a pris.
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       // `fil` : une éventuelle cible de réponse revient au composer de CE fil,
       // pas à celui du salon empilé dessous.
-      routeur.push({ pathname: '/message-actions', params: { id: idMessage, thread: filId } });
+      router.push({ pathname: '/message-actions', params: { id: idMessage, thread: threadId } });
     },
-    [routeur, filId],
+    [router, threadId],
   );
-  const reessayer = useCallback(() => {
-    envoi.process().catch(() => {});
-  }, [envoi]);
-  const abandonner = useCallback(
+  const retry = useCallback(() => {
+    outboxQueue.process().catch(() => {});
+  }, [outboxQueue]);
+  const discard = useCallback(
     (idMessage: string) => {
-      envoi.discard(idMessage).catch(() => {});
+      outboxQueue.discard(idMessage).catch(() => {});
     },
-    [envoi],
+    [outboxQueue],
   );
   // Tir-et-oublie, comme l'écran salon : l'écho du stream réécrit
   // `messages.reactions`, la requête vive re-rend la pastille.
-  const reagir = useCallback(
-    (ridMessage: string, idMessage: string, code: string, mettre: boolean) => {
-      actions.react(ridMessage, idMessage, code, mettre).catch(() => {});
+  const react = useCallback(
+    (ridMessage: string, idMessage: string, code: string, put: boolean) => {
+      actions.react(ridMessage, idMessage, code, put).catch(() => {});
     },
     [actions],
   );
 
-  const rendreLigne = useCallback(
+  const renderRow = useCallback(
     ({ item }: { item: MessageRowData | DayRow }) => {
       if ('day' in item) {
         return <DaySeparator c={c} ts={item.ts} />;
       }
-      const etatEnvoi = sortieParId.get(item.id);
+      const sendState = outboxById.get(item.id);
       return (
         <MessageRow
           c={c}
           message={item}
           client={client}
-          sendStatus={etatEnvoi?.status ?? null}
-          onRetry={etatEnvoi?.status === 'echec' ? reessayer : null}
-          onDiscard={etatEnvoi?.status === 'echec' ? abandonner : null}
-          onLongPress={etatEnvoi === undefined ? ouvrirActions : null}
+          sendStatus={sendState?.status ?? null}
+          onRetry={sendState?.status === 'echec' ? retry : null}
+          onDiscard={sendState?.status === 'echec' ? discard : null}
+          onLongPress={sendState === undefined ? openActions : null}
           // On EST dans le fil : pas d'indicateur « N réponses » sur la racine.
           onOpenThread={null}
-          me={moi}
-          onReact={etatEnvoi === undefined ? reagir : null}
-          continuation={suites.has(item.id)}
-          repeatedTime={heuresRepetees.has(item.id)}
+          me={me}
+          onReact={sendState === undefined ? react : null}
+          continuation={continuations.has(item.id)}
+          repeatedTime={repeatedTimes.has(item.id)}
         />
       );
     },
-    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, moi, reagir, suites, heuresRepetees],
+    [c, client, outboxById, retry, discard, openActions, me, react, continuations, repeatedTimes],
   );
 
-  const liste = useRef<FlashListRef<MessageRowData | DayRow>>(null);
+  const list = useRef<FlashListRef<MessageRowData | DayRow>>(null);
   // La liste s'ouvre sur la RACINE : sans défilement après envoi, la réponse
   // optimiste naît sous le pli et l'envoi semble n'avoir rien fait. On attend
   // l'`_id` rendu par `envoi.envoyer` DANS les données — c'est le rendu qui
@@ -307,26 +307,26 @@ function Fil({
   // `envoyer` résout à l'ÉCRITURE locale, et la projection de cette écriture
   // arrive forcément après (débounce ≥ 48 ms de la requête vive) : la ref est
   // toujours posée avant le changement de `donnees` qui la consomme.
-  const envoiASuivre = useRef<string | null>(null);
-  const apresEnvoi = useCallback((idMessage: string) => {
-    envoiASuivre.current = idMessage;
+  const sendToFollow = useRef<string | null>(null);
+  const afterSend = useCallback((idMessage: string) => {
+    sendToFollow.current = idMessage;
   }, []);
   useEffect(() => {
-    if (envoiASuivre.current === null) return;
-    if (!donnees.some((m) => m.id === envoiASuivre.current)) return;
-    envoiASuivre.current = null;
-    liste.current?.scrollToEnd({ animated: true });
-  }, [donnees]);
+    if (sendToFollow.current === null) return;
+    if (!data.some((m) => m.id === sendToFollow.current)) return;
+    sendToFollow.current = null;
+    list.current?.scrollToEnd({ animated: true });
+  }, [data]);
 
   // Brouillon du fil (8.7), clé `rid:tmid` : isolé du brouillon du salon.
   // `null` tant que le rid n'est pas connu — le composer attend.
-  const persistance = useDraft(brouillons, rid === undefined ? null : `${rid}:${filId}`);
+  const persistence = useDraft(drafts, rid === undefined ? null : `${rid}:${threadId}`);
 
   // Candidats à la mention (@) : ceux du SALON, pas seulement du fil — on
   // mentionne souvent dans un fil quelqu'un qui a parlé dans le flux principal.
   // `rid` encore inconnu → requête sur '' : liste vide, le composer n'est de
   // toute façon pas monté.
-  const candidatsMention = useMentionCandidates(base, rid ?? '');
+  const mentionCandidates = useMentionCandidates(base, rid ?? '');
 
   return (
     <KeyboardAvoidingContainer>
@@ -334,10 +334,10 @@ function Fil({
       {/* L'en-tête est natif ici (pas d'`EnTeteSalon`) : la barre se pose donc
           juste sous lui. Sans elle, le fil se réécrivait intégralement sans
           qu'aucun signal ne l'indique. */}
-      <SyncBar c={c} active={enSynchro} />
-      {donnees.length === 0 ? (
+      <SyncBar c={c} active={syncing} />
+      {data.length === 0 ? (
         <View style={styles.center}>
-          {premierPassageFini ? (
+          {firstPassDone ? (
             <Text style={[styles.empty, { color: c.dimmed }]}>{t('fil.introuvable')}</Text>
           ) : (
             <ActivityIndicator />
@@ -345,15 +345,15 @@ function Fil({
         </View>
       ) : (
         <FlashList
-          ref={liste}
-          data={donneesListe}
+          ref={list}
+          data={listData}
           keyExtractor={(m) => m.id}
           // Trois gabarits (tête avec avatar / suite sans / séparateur de
           // jour) : typés pour que le recyclage de FlashList ne les mélange pas.
           getItemType={(item) =>
-            'day' in item ? 'jour' : suites.has(item.id) ? 'suite' : 'message'
+            'day' in item ? 'day' : continuations.has(item.id) ? 'continuation' : 'message'
           }
-          renderItem={rendreLigne}
+          renderItem={renderRow}
           contentContainerStyle={styles.content}
           // Un fil se LIT depuis sa racine : ouverture en haut — l'idiome
           // INVERSÉ du salon (8.10) n'aurait pas de sens ici. On garde donc
@@ -367,23 +367,23 @@ function Fil({
           lecture seule vivent dedans — dans un salon chiffré, il propose
           désormais le déverrouillage E2E, comme l'écran salon. `fichiers`
           est null : pas de pièces jointes ni de vocal dans un fil. */}
-      {rid !== undefined && salon !== undefined && persistance.initial !== null && (
+      {rid !== undefined && room !== undefined && persistence.initial !== null && (
         <Composer
-          key={`${rid}:${filId}`}
+          key={`${rid}:${threadId}`}
           c={c}
           rid={rid}
-          threadId={filId}
-          outbox={envoi}
+          threadId={threadId}
+          outbox={outboxQueue}
           files={null}
           client={client}
-          mentionCandidates={candidatsMention}
-          readOnly={salon.readOnly}
-          encrypted={salon.encrypted}
+          mentionCandidates={mentionCandidates}
+          readOnly={room.readOnly}
+          encrypted={room.encrypted}
           placeholder={t('fil.repondre')}
-          afterSend={apresEnvoi}
-          initialDraft={persistance.initial}
-          saveDraft={persistance.sauver}
-          clearDraft={persistance.effacer}
+          afterSend={afterSend}
+          initialDraft={persistence.initial}
+          saveDraft={persistence.save}
+          clearDraft={persistence.clear}
         />
       )}
     </KeyboardAvoidingContainer>
@@ -394,5 +394,5 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   content: { paddingHorizontal: 16, paddingVertical: 8 },
   empty: { textAlign: 'center', padding: 24, fontSize: 14 },
-  error: { fontFamily: FONTS.corpsSemi, fontSize: 14, textAlign: 'center' },
+  error: { fontFamily: FONTS.bodySemi, fontSize: 14, textAlign: 'center' },
 });

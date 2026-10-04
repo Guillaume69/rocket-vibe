@@ -23,19 +23,19 @@ import { isQuoteAttachment } from './quote.ts';
 import { attachmentEncryption, type FileEncryption } from './e2e/crypto.ts';
 
 /** Crée un dossier et ses parents. Doit être sans effet s'il existe déjà. */
-export type CreateFolder = (chemin: string) => Promise<void>;
+export type CreateFolder = (path: string) => Promise<void>;
 
 /** Télécharge `url` (authentifiée) vers `destination`, un `file://` local. */
 export type DownloadFile = (url: string, destination: string) => Promise<void>;
 
 /** Ouvre la feuille de partage du système sur un fichier LOCAL. */
-export type ShareFile = (fichierLocal: string, type: string | null) => Promise<void>;
+export type ShareFile = (localFile: string, type: string | null) => Promise<void>;
 
 /** Nom de dernier recours, quand le message n'en propose aucun d'exploitable. */
-const NOM_REPLI = 'fichier';
+const FALLBACK_NAME = 'fichier';
 
 /** Sous-dossier de dernier recours, quand l'URL ne porte pas d'identifiant. */
-const CLE_REPLI = 'divers';
+const FALLBACK_KEY = 'divers';
 
 /**
  * Caractères qu'un nom de fichier ne doit pas porter : contrôles, et ceux que
@@ -48,24 +48,24 @@ const CLE_REPLI = 'divers';
  * que le dernier segment), les points de tête et de queue aussi — donc ni `.`,
  * ni `..`, ni chemin. Le reste des lettres peut vivre.
  */
-const HOSTILES =/[\u0000-\u001f\u007f\\/:*?"<>|]/g;
+const HOSTILE =/[\u0000-\u001f\u007f\\/:*?"<>|]/g;
 
 /** Longueur max d'un nom de fichier — sous la limite ext4 (255 octets). */
-const NOM_MAX = 120;
+const MAX_NAME = 120;
 
-function plafonner(nom: string): string {
-  if (nom.length <= NOM_MAX) return nom;
-  const point = nom.lastIndexOf('.');
+function cap(name: string): string {
+  if (name.length <= MAX_NAME) return name;
+  const dot = name.lastIndexOf('.');
   // Extension conservée seulement si elle en a l'air : c'est elle qui décide de
   // l'application qui s'ouvrira.
-  const ext = point > 0 && nom.length - point <= 12 ? nom.slice(point) : '';
-  return nom.slice(0, NOM_MAX - ext.length) + ext;
+  const ext = dot > 0 && name.length - dot <= 12 ? name.slice(dot) : '';
+  return name.slice(0, MAX_NAME - ext.length) + ext;
 }
 
 /** Segments non vides du CHEMIN d'une URL (query et fragment retirés). */
 function segments(url: string): string[] {
-  const chemin = url.split(/[?#]/)[0] ?? '';
-  return chemin.split('/').filter((s) => s !== '' && s !== '.');
+  const path = url.split(/[?#]/)[0] ?? '';
+  return path.split('/').filter((s) => s !== '' && s !== '.');
 }
 
 function decoder(s: string): string {
@@ -82,14 +82,14 @@ function decoder(s: string): string {
  * message, ou le dernier segment de l'URL). Ne peut jamais désigner autre chose
  * qu'un fichier du dossier de destination.
  */
-export function safeFileName(propose: string | null | undefined): string {
-  const brut = typeof propose === 'string' ? propose : '';
+export function safeFileName(proposed: string | null | undefined): string {
+  const raw = typeof proposed === 'string' ? proposed : '';
   // `../../evil.sh` → `evil.sh` : seul le dernier segment est retenu, ce qui
   // neutralise la remontée de dossier avant même l'assainissement.
-  const parts = brut.split(/[/\\]/).filter((s) => s !== '');
-  const dernier = parts.length > 0 ? parts[parts.length - 1]! : '';
-  const propre = dernier.replace(HOSTILES, '_').replace(/^[.\s]+|[.\s]+$/g, '');
-  return propre === '' ? NOM_REPLI : plafonner(propre);
+  const parts = raw.split(/[/\\]/).filter((s) => s !== '');
+  const last = parts.length > 0 ? parts[parts.length - 1]! : '';
+  const clean = last.replace(HOSTILE, '_').replace(/^[.\s]+|[.\s]+$/g, '');
+  return clean === '' ? FALLBACK_NAME : cap(clean);
 }
 
 /**
@@ -103,12 +103,12 @@ export function safeFileName(propose: string | null | undefined): string {
  */
 export function fileKey(url: string): string {
   const parts = segments(url);
-  const brut = parts.length >= 2 ? parts[parts.length - 2]! : '';
-  const propre = brut.replace(/[^A-Za-z0-9_-]/g, '');
-  return propre === '' ? CLE_REPLI : propre.slice(0, 64);
+  const raw = parts.length >= 2 ? parts[parts.length - 2]! : '';
+  const clean = raw.replace(/[^A-Za-z0-9_-]/g, '');
+  return clean === '' ? FALLBACK_KEY : clean.slice(0, 64);
 }
 
-const EXTENSIONS_PAR_TYPE: Record<string, string> = {
+const EXTENSIONS_BY_TYPE: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
   'image/gif': 'gif',
@@ -126,20 +126,20 @@ const EXTENSIONS_PAR_TYPE: Record<string, string> = {
   'application/pdf': 'pdf',
 };
 
-const A_UNE_EXTENSION = /\.[A-Za-z0-9]{1,8}$/;
+const HAS_EXTENSION = /\.[A-Za-z0-9]{1,8}$/;
 
 /**
  * Complète un nom sans extension d'après le MIME. C'est l'extension qui décide
  * de l'application qui ouvrira le fichier, et de l'endroit où la galerie le
  * range : un `photo` nu y serait classé comme une image quelconque.
  */
-export function withExtension(nom: string, type: string | null | undefined): string {
-  if (A_UNE_EXTENSION.test(nom) || typeof type !== 'string') return nom;
+export function withExtension(name: string, type: string | null | undefined): string {
+  if (HAS_EXTENSION.test(name) || typeof type !== 'string') return name;
   const mime = type.toLowerCase().split(';')[0]!.trim();
-  const connue = EXTENSIONS_PAR_TYPE[mime];
-  if (connue !== undefined) return `${nom}.${connue}`;
-  const sousType = mime.split('/')[1] ?? '';
-  return /^[a-z0-9]{1,8}$/.test(sousType) ? `${nom}.${sousType}` : nom;
+  const known = EXTENSIONS_BY_TYPE[mime];
+  if (known !== undefined) return `${name}.${known}`;
+  const subType = mime.split('/')[1] ?? '';
+  return /^[a-z0-9]{1,8}$/.test(subType) ? `${name}.${subType}` : name;
 }
 
 const EXTENSIONS_MEDIA = new Set([
@@ -152,10 +152,10 @@ const EXTENSIONS_MEDIA = new Set([
  * Photo, vidéo ou son : la galerie (MediaStore) sait les ranger. Tout le
  * reste (PDF, archive…) va dans un dossier choisi par l'utilisateur.
  */
-export function toGallery(nom: string, type: string | null | undefined): boolean {
+export function toGallery(name: string, type: string | null | undefined): boolean {
   if (typeof type === 'string' && /^(image|video|audio)\//i.test(type)) return true;
-  const ext = nom.slice(nom.lastIndexOf('.') + 1).toLowerCase();
-  return nom.includes('.') && EXTENSIONS_MEDIA.has(ext);
+  const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase();
+  return name.includes('.') && EXTENSIONS_MEDIA.has(ext);
 }
 
 /**
@@ -176,28 +176,28 @@ export async function downloadAttachment(options: {
   createFolder: CreateFolder;
   download: DownloadFile;
 }): Promise<string> {
-  const { url, title: titre, type, folder: dossier, createFolder: creerDossier, download: telecharger } = options;
+  const { url, title, type, folder, createFolder, download } = options;
 
-  const racine = dossier.endsWith('/') ? dossier : `${dossier}/`;
-  const sousDossier = `${racine}jointes/${fileKey(url)}/`;
+  const root = folder.endsWith('/') ? folder : `${folder}/`;
+  const subFolder = `${root}jointes/${fileKey(url)}/`;
   // Le `title` d'abord (c'est ce que l'utilisateur voit dans le fil), le dernier
   // segment de l'URL en repli — décodé, sans quoi `mon%20rapport.pdf`
   // s'écrirait avec son `%20`.
-  const depuisUrl = segments(url).at(-1);
-  const nom = withExtension(
+  const fromUrl = segments(url).at(-1);
+  const name = withExtension(
     safeFileName(
-      typeof titre === 'string' && titre.trim() !== ''
-        ? titre
-        : depuisUrl === undefined
+      typeof title === 'string' && title.trim() !== ''
+        ? title
+        : fromUrl === undefined
           ? null
-          : decoder(depuisUrl),
+          : decoder(fromUrl),
     ),
     type,
   );
-  const destination = `${sousDossier}${nom}`;
+  const destination = `${subFolder}${name}`;
 
-  await creerDossier(sousDossier);
-  await telecharger(url, destination);
+  await createFolder(subFolder);
+  await download(url, destination);
   return destination;
 }
 
@@ -215,9 +215,9 @@ export async function openAttachment(options: {
   download: DownloadFile;
   share: ShareFile;
 }): Promise<string> {
-  const { share: partager, ...reste } = options;
-  const destination = await downloadAttachment(reste);
-  await partager(destination, typeof options.type === 'string' && options.type !== '' ? options.type : null);
+  const { share, ...rest } = options;
+  const destination = await downloadAttachment(rest);
+  await share(destination, typeof options.type === 'string' && options.type !== '' ? options.type : null);
   return destination;
 }
 
@@ -232,7 +232,7 @@ export type ShareableAttachment = {
   encryption: FileEncryption | null;
 };
 
-type JointeBrute = {
+type RawAttachment = {
   title?: unknown;
   title_link?: unknown;
   image_url?: unknown;
@@ -247,11 +247,11 @@ type JointeBrute = {
   audio_size?: unknown;
 };
 
-function octets(v: unknown): number | null {
+function bytes(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null;
 }
 
-function chaine(v: unknown): string | null {
+function asString(v: unknown): string | null {
   return typeof v === 'string' && v !== '' ? v : null;
 }
 
@@ -260,26 +260,26 @@ function chaine(v: unknown): string | null {
  * `title_link` d'abord, qui désigne l'original là où `image_url` n'est que la
  * vignette. Les citations sont ignorées : on partage ce que le message porte.
  */
-export function attachmentToShare(piecesJointes: string | null): ShareableAttachment | null {
-  let brut: unknown;
+export function attachmentToShare(attachments: string | null): ShareableAttachment | null {
+  let raw: unknown;
   try {
-    brut = JSON.parse(piecesJointes ?? '[]');
+    raw = JSON.parse(attachments ?? '[]');
   } catch {
     return null;
   }
-  if (!Array.isArray(brut)) return null;
-  for (const jointe of brut as unknown[]) {
-    if (typeof jointe !== 'object' || jointe === null || isQuoteAttachment(jointe)) continue;
-    const j = jointe as JointeBrute;
-    const chemin =
-      chaine(j.title_link) ?? chaine(j.image_url) ?? chaine(j.video_url) ?? chaine(j.audio_url);
-    if (chemin === null) continue;
+  if (!Array.isArray(raw)) return null;
+  for (const attachment of raw as unknown[]) {
+    if (typeof attachment !== 'object' || attachment === null || isQuoteAttachment(attachment)) continue;
+    const j = attachment as RawAttachment;
+    const path =
+      asString(j.title_link) ?? asString(j.image_url) ?? asString(j.video_url) ?? asString(j.audio_url);
+    if (path === null) continue;
     return {
-      path: chemin,
-      title: chaine(j.title),
-      type: chaine(j.image_type) ?? chaine(j.video_type) ?? chaine(j.audio_type),
-      size: octets(j.size) ?? octets(j.image_size) ?? octets(j.video_size) ?? octets(j.audio_size),
-      encryption: attachmentEncryption(jointe),
+      path,
+      title: asString(j.title),
+      type: asString(j.image_type) ?? asString(j.video_type) ?? asString(j.audio_type),
+      size: bytes(j.size) ?? bytes(j.image_size) ?? bytes(j.video_size) ?? bytes(j.audio_size),
+      encryption: attachmentEncryption(attachment),
     };
   }
   return null;
@@ -291,12 +291,12 @@ export function attachmentToShare(piecesJointes: string | null): ShareableAttach
  * message, plafonné à 1. `null` si on ne sait rien du tout.
  */
 export function downloadedFraction(
-  ecrits: number,
-  attendus: number,
-  taille: number | null | undefined,
+  written: number,
+  expected: number,
+  size: number | null | undefined,
 ): number | null {
-  const total = attendus > 0 ? attendus : (taille ?? 0);
-  return total > 0 ? Math.min(ecrits / total, 1) : null;
+  const total = expected > 0 ? expected : (size ?? 0);
+  return total > 0 ? Math.min(written / total, 1) : null;
 }
 
 /**
@@ -305,8 +305,8 @@ export function downloadedFraction(
  * le disque, et le serveur le garde tel quel : une copie de cache (sélecteur,
  * réduction) partirait sous un nom aléatoire. `null` : l'URI porte déjà le bon.
  */
-export function uploadName(uri: string, nom: string): string | null {
-  const voulu = safeFileName(nom);
-  const actuel = decoder(uri.split(/[?#]/)[0]!.split('/').pop() ?? '');
-  return actuel === voulu ? null : voulu;
+export function uploadName(uri: string, name: string): string | null {
+  const wanted = safeFileName(name);
+  const current = decoder(uri.split(/[?#]/)[0]!.split('/').pop() ?? '');
+  return current === wanted ? null : wanted;
 }

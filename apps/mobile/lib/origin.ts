@@ -20,11 +20,11 @@
  * ne doit surtout pas se réduire à `https://serveur`.
  */
 
-const ORIGINE = /^(https?:\/\/[^/?#]+)/i;
+const ORIGIN = /^(https?:\/\/[^/?#]+)/i;
 
 /** Scheme + authority en minuscules, `null` si ce n'est pas une URL web. */
 export function originOf(url: string): string | null {
-  const m = ORIGINE.exec(url);
+  const m = ORIGIN.exec(url);
   return m === null ? null : m[1]!.toLowerCase();
 }
 
@@ -36,7 +36,7 @@ export function originOf(url: string): string | null {
  * compare les deux chaînes entières — la frontière est alors dans la regex, pas
  * dans une arithmétique d'index qu'on peut rater.
  */
-export function sameOrigin(url: string, origine: string): boolean {
-  const sienne = originOf(url);
-  return sienne !== null && sienne === originOf(origine);
+export function sameOrigin(url: string, origin: string): boolean {
+  const theirs = originOf(url);
+  return theirs !== null && theirs === originOf(origin);
 }

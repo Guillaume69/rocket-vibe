@@ -35,9 +35,9 @@ export type OutboxRow = {
 };
 
 export interface OutboxStore {
-  insertOutbox(id: string, rid: string, texte: string, filId: string | null): Promise<void>;
+  insertOutbox(id: string, rid: string, text: string, threadId: string | null): Promise<void>;
   listToSend(): Promise<OutboxRow[]>;
-  markFailed(id: string, erreur: string): Promise<void>;
+  markFailed(id: string, error: string): Promise<void>;
   deleteOutbox(id: string): Promise<void>;
   upsertMessage(m: MessageLocal): Promise<void>;
   /** N'efface le message que s'il est encore optimiste (jamais livré). */
@@ -47,18 +47,18 @@ export interface OutboxStore {
 
 /** Le chiffrement E2EE d'une charge, ou `null` tant qu'il est impossible (verrouillé, clé absente). */
 export interface OutboxEncryptor {
-  encrypt(rid: string, charge: object): EncryptedContent | null;
+  encrypt(rid: string, payload: object): EncryptedContent | null;
 }
 
 /** 24 hexadécimaux depuis 12 octets — le format des `_id` Rocket.Chat. */
-export function idFromBytes(octets: Uint8Array): string {
-  return Array.from(octets.slice(0, 12), (o) => o.toString(16).padStart(2, '0')).join('');
+export function idFromBytes(bytes: Uint8Array): string {
+  return Array.from(bytes.slice(0, 12), (o) => o.toString(16).padStart(2, '0')).join('');
 }
 
-type ReponseEnvoi = { message?: Record<string, unknown> };
+type SendResponse = { message?: Record<string, unknown> };
 
 /** Verdict de `messageLivre` quand la question n'a pas pu être posée. */
-const INCONNU = Symbol('livraison indéterminée');
+const UNKNOWN = Symbol('livraison indéterminée');
 
 export class OutboxEngine {
   private readonly store: OutboxStore;
@@ -99,27 +99,27 @@ export class OutboxEngine {
    */
   async send(
     rid: string,
-    texte: string,
-    filId: string | null = null,
-    jointesLocales: string | null = null,
+    text: string,
+    threadId: string | null = null,
+    localAttachments: string | null = null,
   ): Promise<string> {
     const id = this.generateId();
-    const quand = this.now();
+    const when = this.now();
     await this.store.upsertMessage({
       id,
       rid,
-      text: texte,
-      ts: quand,
+      text,
+      ts: when,
       authorId: this.me.id,
       authorName: this.me.username,
       systemType: (await this.store.roomEncrypted(rid)) ? ENCRYPTED_TYPE : null,
-      threadId: filId,
+      threadId,
       threadCount: 0,
       threadLast: null,
       threadShown: false,
       editedAt: null,
       md: null,
-      attachments: jointesLocales,
+      attachments: localAttachments,
       reactions: null,
       urls: null,
       callId: null,
@@ -130,7 +130,7 @@ export class OutboxEngine {
       // et l'optimiste n'écrase jamais un état réel.
       updatedAt: 0,
     });
-    await this.store.insertOutbox(id, rid, texte, filId);
+    await this.store.insertOutbox(id, rid, text, threadId);
     await this.process();
     return id;
   }
@@ -161,15 +161,15 @@ export class OutboxEngine {
 
   /** Rend `false` si le réseau est injoignable — inutile d'insister. */
   private async runPass(): Promise<boolean> {
-    for (const ligne of await this.store.listToSend()) {
-      const message = await this.messageBody(ligne);
+    for (const row of await this.store.listToSend()) {
+      const message = await this.messageBody(row);
       if (message === null) continue;
       try {
-        const reponse = await this.client.post<ReponseEnvoi>('chat.sendMessage', {
+        const response = await this.client.post<SendResponse>('chat.sendMessage', {
           body: { message },
         });
-        await this.store.deleteOutbox(ligne.id);
-        if (reponse.message !== undefined) await this.ingest(reponse.message);
+        await this.store.deleteOutbox(row.id);
+        if (response.message !== undefined) await this.ingest(response.message);
       } catch (e) {
         if (e instanceof RestError && e.status === 0) {
           // Injoignable : on n'y peut rien d'ici. La ligne reste telle
@@ -181,40 +181,40 @@ export class OutboxEngine {
         // undefined (reading 'starred') », vérifié). Aucun doublon n'est
         // créé, mais la réponse ne distingue pas « déjà livré » de
         // « refusé » : on demande au serveur.
-        const livre = await this.messageDelivered(ligne.id);
-        if (livre === INCONNU) {
+        const delivered = await this.messageDelivered(row.id);
+        if (delivered === UNKNOWN) {
           // On n'a pas pu trancher. La ligne reste `en-attente` — donc
           // rejouable — et la passe s'arrête : les lignes suivantes
           // brûleraient le même quota pour le même verdict.
           return false;
         }
-        if (livre !== null) {
+        if (delivered !== null) {
           // Ingérer le document récupéré : c'est la vraie version (ts du
           // serveur), et son passage par le dépôt réconcilie la sortie.
-          await this.ingest(livre);
-          await this.store.deleteOutbox(ligne.id);
+          await this.ingest(delivered);
+          await this.store.deleteOutbox(row.id);
           continue;
         }
         // `derniere_erreur` est un DIAGNOSTIC (jamais affiché — l'UI montre
         // `ligneMessage.echecReessayer`) : pas une chaîne à traduire.
         const message = e instanceof Error ? e.message : 'Envoi refusé.';
-        await this.store.markFailed(ligne.id, message);
+        await this.store.markFailed(row.id, message);
       }
     }
     return true;
   }
 
   /** Le message tel qu'il part, ou `null` s'il doit attendre une clé de salon. */
-  private async messageBody(ligne: OutboxRow): Promise<Record<string, unknown> | null> {
+  private async messageBody(row: OutboxRow): Promise<Record<string, unknown> | null> {
     const base = {
-      _id: ligne.id,
-      rid: ligne.rid,
-      ...(ligne.threadId === null ? {} : { tmid: ligne.threadId }),
+      _id: row.id,
+      rid: row.rid,
+      ...(row.threadId === null ? {} : { tmid: row.threadId }),
     };
-    if (!(await this.store.roomEncrypted(ligne.rid))) return { ...base, msg: ligne.text };
-    const content = this.encryptor?.encrypt(ligne.rid, { msg: ligne.text }) ?? null;
+    if (!(await this.store.roomEncrypted(row.rid))) return { ...base, msg: row.text };
+    const content = this.encryptor?.encrypt(row.rid, { msg: row.text }) ?? null;
     if (content === null) return null;
-    return { ...base, t: ENCRYPTED_TYPE, e2e: 'pending', content, e2eMentions: mentionsE2E(ligne.text) };
+    return { ...base, t: ENCRYPTED_TYPE, e2e: 'pending', content, e2eMentions: mentionsE2E(row.text) };
   }
 
   /** Abandon d'un échec définitif : la ligne de sortie ET l'optimiste s'en vont. */
@@ -234,13 +234,13 @@ export class OutboxEngine {
    */
   private async messageDelivered(
     id: string,
-  ): Promise<Record<string, unknown> | typeof INCONNU | null> {
+  ): Promise<Record<string, unknown> | typeof UNKNOWN | null> {
     try {
-      const reponse = await this.client.get<{ message?: Record<string, unknown> }>(
+      const response = await this.client.get<{ message?: Record<string, unknown> }>(
         'chat.getMessage',
         { params: { msgId: id } },
       );
-      const doc = reponse.message;
+      const doc = response.message;
       return doc !== undefined && doc._id === id ? doc : null;
     } catch (e) {
       // Statut 0 : personne n'a répondu. 429 : `chat.getMessage` subit la même
@@ -248,7 +248,7 @@ export class OutboxEngine {
       // d'envois l'épuise — après les trois rejeux de `ClientRest`, toutes les
       // vérifications de la passe retombent en 429. Ni l'un ni l'autre n'est
       // un démenti du serveur.
-      if (e instanceof RestError && (e.status === 0 || e.status === 429)) return INCONNU;
+      if (e instanceof RestError && (e.status === 0 || e.status === 429)) return UNKNOWN;
       // Le serveur a parlé (404, droit refusé, message absent) : on tranche.
       return null;
     }

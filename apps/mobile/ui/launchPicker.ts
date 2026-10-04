@@ -33,30 +33,30 @@
  * rejouer un refus réel.
  */
 
-const MARQUEUR_NPE_ARBRE_DE_VUES = 'dispatchCancelPendingInputEvents';
+const VIEW_TREE_NPE_MARKER = 'dispatchCancelPendingInputEvents';
 
 /**
  * Attentes avant chaque reprise, en ms. La fermeture d'une formSheet Android
  * dure ~300 ms ; on part au-delà, puis on laisse deux chances plus larges à
  * une machine chargée avant de rendre les armes.
  */
-const REPRISES_MS = [400, 900, 1600];
+const RETRIES_MS = [400, 900, 1600];
 
 /** Ce rejet-là vient de l'arbre de vues Android, pas d'un refus de l'usager. */
 export function isViewTreeRejection(e: unknown): boolean {
-  return e instanceof Error && e.message.includes(MARQUEUR_NPE_ARBRE_DE_VUES);
+  return e instanceof Error && e.message.includes(VIEW_TREE_NPE_MARKER);
 }
 
 export async function launchPickerWithRetry<T>(
-  lancer: () => Promise<T>,
-  attendre: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  launch: () => Promise<T>,
+  waitFor: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
 ): Promise<T> {
-  for (let essai = 0; ; essai++) {
+  for (let attempt = 0; ; attempt++) {
     try {
-      return await lancer();
+      return await launch();
     } catch (e) {
-      if (!isViewTreeRejection(e) || essai >= REPRISES_MS.length) throw e;
-      await attendre(REPRISES_MS[essai]);
+      if (!isViewTreeRejection(e) || attempt >= RETRIES_MS.length) throw e;
+      await waitFor(RETRIES_MS[attempt]);
     }
   }
 }

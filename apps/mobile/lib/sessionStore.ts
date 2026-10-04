@@ -23,8 +23,8 @@ import type { PendingLogout } from './deferredLogout.ts';
 import { normalizeProviderKind } from './provider.ts';
 
 /** SHA-256 hexadécimal — l'implémentation de `Hacheur` côté application. */
-export function hash(texte: string): Promise<string> {
-  return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, texte);
+export function hash(text: string): Promise<string> {
+  return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, text);
 }
 
 /**
@@ -32,7 +32,7 @@ export function hash(texte: string): Promise<string> {
  * dépendance à `expo`, parce que c'est elle qui décide de l'isolation entre
  * comptes — et que cela se prouve par des tests, pas par une relecture.
  */
-const cle = (baseUrl: string): Promise<string> => sessionStorageKey(baseUrl, hash);
+const key = (baseUrl: string): Promise<string> => sessionStorageKey(baseUrl, hash);
 
 /**
  * iOS : lisible par la Notification Service Extension, qui tourne aussi
@@ -40,19 +40,19 @@ const cle = (baseUrl: string): Promise<string> => sessionStorageKey(baseUrl, has
  * `WHEN_UNLOCKED` la cacherait à chaque push reçu téléphone en poche. Sans
  * effet sous Android.
  */
-const ACCES_EXTENSION_PUSH: SecureStore.SecureStoreOptions = {
+const PUSH_EXTENSION_ACCESS: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
 };
 
 export async function saveSession(session: Session): Promise<void> {
-  await SecureStore.setItemAsync(await cle(session.baseUrl), JSON.stringify(session), ACCES_EXTENSION_PUSH);
+  await SecureStore.setItemAsync(await key(session.baseUrl), JSON.stringify(session), PUSH_EXTENSION_ACCESS);
 }
 
 export async function readSession(baseUrl: string): Promise<Session | null> {
-  const brut = await SecureStore.getItemAsync(await cle(baseUrl));
-  if (brut === null) return null;
+  const raw = await SecureStore.getItemAsync(await key(baseUrl));
+  if (raw === null) return null;
   try {
-    const session = JSON.parse(brut) as Session;
+    const session = JSON.parse(raw) as Session;
     // Un stockage corrompu ou d'une ancienne version ne doit pas faire planter
     // le démarrage : on le traite comme une absence de session.
     if (typeof session?.authToken !== 'string' || typeof session?.userId !== 'string') return null;
@@ -73,7 +73,7 @@ export async function readSession(baseUrl: string): Promise<Session | null> {
 }
 
 export async function clearSession(baseUrl: string): Promise<void> {
-  await SecureStore.deleteItemAsync(await cle(baseUrl));
+  await SecureStore.deleteItemAsync(await key(baseUrl));
 }
 
 /**
@@ -91,24 +91,24 @@ export async function clearSession(baseUrl: string): Promise<void> {
  */
 export async function saveE2EPrivateKey(
   baseUrl: string,
-  utilisateurId: string,
+  userId: string,
   jwkJson: string,
 ): Promise<void> {
-  await SecureStore.setItemAsync(await e2eStorageKey(baseUrl, utilisateurId, hash), jwkJson);
+  await SecureStore.setItemAsync(await e2eStorageKey(baseUrl, userId, hash), jwkJson);
 }
 
 export async function readE2EPrivateKey(
   baseUrl: string,
-  utilisateurId: string,
+  userId: string,
 ): Promise<string | null> {
-  return SecureStore.getItemAsync(await e2eStorageKey(baseUrl, utilisateurId, hash));
+  return SecureStore.getItemAsync(await e2eStorageKey(baseUrl, userId, hash));
 }
 
 export async function clearE2EPrivateKey(
   baseUrl: string,
-  utilisateurId: string,
+  userId: string,
 ): Promise<void> {
-  await SecureStore.deleteItemAsync(await e2eStorageKey(baseUrl, utilisateurId, hash));
+  await SecureStore.deleteItemAsync(await e2eStorageKey(baseUrl, userId, hash));
 }
 
 /**
@@ -153,14 +153,14 @@ export async function purgeAllLegacyE2EKeys(): Promise<void> {
  * condensé d'URL : sans ce pointeur, le démarrage ne saurait pas laquelle
  * reprendre. L'étape 5.3 (multi-serveurs) en fera le « serveur actif ».
  */
-const CLE_DERNIER_SERVEUR = 'dernier-serveur';
+const LAST_SERVER_KEY = 'dernier-serveur';
 
 export async function saveLastServer(baseUrl: string): Promise<void> {
-  await SecureStore.setItemAsync(CLE_DERNIER_SERVEUR, withoutTrailingSlash(baseUrl));
+  await SecureStore.setItemAsync(LAST_SERVER_KEY, withoutTrailingSlash(baseUrl));
 }
 
 export async function readLastServer(): Promise<string | null> {
-  return SecureStore.getItemAsync(CLE_DERNIER_SERVEUR);
+  return SecureStore.getItemAsync(LAST_SERVER_KEY);
 }
 
 /**
@@ -168,24 +168,24 @@ export async function readLastServer(): Promise<string | null> {
  * `expo-secure-store` ne sait PAS énumérer ses clés : sans cette liste,
  * impossible de proposer « repasser sur tel serveur ».
  */
-const CLE_SERVEURS_CONNUS = 'serveurs-connus';
+const KNOWN_SERVERS_KEY = 'serveurs-connus';
 
 export async function listKnownServers(): Promise<string[]> {
-  const brut = await SecureStore.getItemAsync(CLE_SERVEURS_CONNUS);
-  if (brut === null) return [];
+  const raw = await SecureStore.getItemAsync(KNOWN_SERVERS_KEY);
+  if (raw === null) return [];
   try {
-    const liste = JSON.parse(brut) as unknown;
-    return Array.isArray(liste) ? liste.filter((s): s is string => typeof s === 'string') : [];
+    const list = JSON.parse(raw) as unknown;
+    return Array.isArray(list) ? list.filter((s): s is string => typeof s === 'string') : [];
   } catch {
     return [];
   }
 }
 
 export async function saveKnownServer(baseUrl: string): Promise<void> {
-  const propre = withoutTrailingSlash(baseUrl);
-  const liste = await listKnownServers();
-  if (liste.includes(propre)) return;
-  await SecureStore.setItemAsync(CLE_SERVEURS_CONNUS, JSON.stringify([...liste, propre]));
+  const clean = withoutTrailingSlash(baseUrl);
+  const list = await listKnownServers();
+  if (list.includes(clean)) return;
+  await SecureStore.setItemAsync(KNOWN_SERVERS_KEY, JSON.stringify([...list, clean]));
 }
 
 /**
@@ -199,14 +199,14 @@ export async function saveKnownServer(baseUrl: string): Promise<void> {
  * tout, si bien qu'aucun `DELETE` n'était même tenté. Le jeton FCM est propre à
  * l'APPAREIL, pas au serveur : une seule clé suffit.
  */
-const CLE_JETON_PUSH = 'jeton-push-appareil';
+const PUSH_TOKEN_KEY = 'jeton-push-appareil';
 
-export async function rememberPushToken(jeton: string): Promise<void> {
-  await SecureStore.setItemAsync(CLE_JETON_PUSH, jeton);
+export async function rememberPushToken(token: string): Promise<void> {
+  await SecureStore.setItemAsync(PUSH_TOKEN_KEY, token);
 }
 
 export function readRememberedPushToken(): Promise<string | null> {
-  return SecureStore.getItemAsync(CLE_JETON_PUSH);
+  return SecureStore.getItemAsync(PUSH_TOKEN_KEY);
 }
 
 /**
@@ -222,17 +222,17 @@ export function readRememberedPushToken(): Promise<string | null> {
  * Une entrée par serveur, écrasée si elle existe : se déconnecter deux fois du
  * même serveur ne peut pas faire grandir la file.
  */
-const CLE_DECONNEXIONS = 'deconnexions-en-suspens';
+const LOGOUTS_KEY = 'deconnexions-en-suspens';
 
 export async function listPendingLogouts(): Promise<PendingLogout[]> {
-  const brut = await SecureStore.getItemAsync(CLE_DECONNEXIONS);
-  if (brut === null) return [];
+  const raw = await SecureStore.getItemAsync(LOGOUTS_KEY);
+  if (raw === null) return [];
   try {
-    const liste = JSON.parse(brut) as unknown;
-    if (!Array.isArray(liste)) return [];
+    const list = JSON.parse(raw) as unknown;
+    if (!Array.isArray(list)) return [];
     // Parse défensif, comme `lireSession` : une entrée d'une ancienne version
     // ou tronquée ne doit pas faire échouer tout le démarrage.
-    return liste.filter(
+    return list.filter(
       (d): d is PendingLogout =>
         typeof (d as PendingLogout)?.baseUrl === 'string' &&
         typeof (d as PendingLogout)?.authToken === 'string' &&
@@ -243,18 +243,18 @@ export async function listPendingLogouts(): Promise<PendingLogout[]> {
   }
 }
 
-export async function addPendingLogout(entree: PendingLogout): Promise<void> {
-  const propre = { ...entree, baseUrl: withoutTrailingSlash(entree.baseUrl) };
-  const autres = (await listPendingLogouts()).filter((d) => d.baseUrl !== propre.baseUrl);
-  await SecureStore.setItemAsync(CLE_DECONNEXIONS, JSON.stringify([...autres, propre]));
+export async function addPendingLogout(entry: PendingLogout): Promise<void> {
+  const clean = { ...entry, baseUrl: withoutTrailingSlash(entry.baseUrl) };
+  const others = (await listPendingLogouts()).filter((d) => d.baseUrl !== clean.baseUrl);
+  await SecureStore.setItemAsync(LOGOUTS_KEY, JSON.stringify([...others, clean]));
 }
 
 export async function removePendingLogout(baseUrl: string): Promise<void> {
-  const propre = withoutTrailingSlash(baseUrl);
-  const restantes = (await listPendingLogouts()).filter((d) => d.baseUrl !== propre);
-  if (restantes.length === 0) {
-    await SecureStore.deleteItemAsync(CLE_DECONNEXIONS);
+  const clean = withoutTrailingSlash(baseUrl);
+  const remaining = (await listPendingLogouts()).filter((d) => d.baseUrl !== clean);
+  if (remaining.length === 0) {
+    await SecureStore.deleteItemAsync(LOGOUTS_KEY);
     return;
   }
-  await SecureStore.setItemAsync(CLE_DECONNEXIONS, JSON.stringify(restantes));
+  await SecureStore.setItemAsync(LOGOUTS_KEY, JSON.stringify(remaining));
 }

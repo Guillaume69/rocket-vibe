@@ -27,13 +27,13 @@ import { translateCurrent } from './i18n.ts';
 import { useSync } from './sync.tsx';
 
 /** Le salon d'un push, et le serveur d'où il vient (multi-session). */
-type CibleNotification = { rid: string; host: string | null };
+type NotificationTarget = { rid: string; host: string | null };
 
-function cibleDeNotification(contenu: Notifications.NotificationContent): CibleNotification | null {
-  const brut = (contenu.data as { ejson?: unknown } | null)?.ejson;
-  if (typeof brut !== 'string') return null;
+function notificationTarget(content: Notifications.NotificationContent): NotificationTarget | null {
+  const raw = (content.data as { ejson?: unknown } | null)?.ejson;
+  if (typeof raw !== 'string') return null;
   try {
-    const ejson = JSON.parse(brut) as { rid?: unknown; host?: unknown };
+    const ejson = JSON.parse(raw) as { rid?: unknown; host?: unknown };
     if (typeof ejson.rid !== 'string') return null;
     return { rid: ejson.rid, host: typeof ejson.host === 'string' ? ejson.host : null };
   } catch {
@@ -43,8 +43,8 @@ function cibleDeNotification(contenu: Notifications.NotificationContent): CibleN
 
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
-    const cible = cibleDeNotification(notification.request.content);
-    if (cible !== null && isRoomEncrypted(cible.rid)) {
+    const target = notificationTarget(notification.request.content);
+    if (target !== null && isRoomEncrypted(target.rid)) {
       // Ne pas afficher le ciphertext : on republie un texte générique.
       Notifications.scheduleNotificationAsync({
         content: {
@@ -70,8 +70,8 @@ Notifications.setNotificationHandler({
 });
 
 export function NotificationHandler() {
-  const routeur = useRouter();
-  const synchro = useSync();
+  const router = useRouter();
+  const sync = useSync();
 
   // Tap sur une notification : en marche, et au démarrage à froid.
   //
@@ -84,31 +84,31 @@ export function NotificationHandler() {
   useEffect(() => {
     // Une même réponse peut arriver par LES DEUX voies (le listener ET
     // `getLastNotificationResponse` au démarrage) : on ne route qu'une fois.
-    let dejaRoute: string | null = null;
-    const ouvrir = (reponse: Notifications.NotificationResponse) => {
+    let alreadyRouted: string | null = null;
+    const open = (response: Notifications.NotificationResponse) => {
       // « Répondre » sous iOS est traité en natif (modules/notification-reply), app
       // en arrière-plan : naviguer ici poserait le salon sous les yeux au
       // prochain retour dans l'app.
-      if (reponse.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
-      const id = reponse.notification.request.identifier;
-      if (id === dejaRoute) return;
-      dejaRoute = id;
-      const cible = cibleDeNotification(reponse.notification.request.content);
-      if (cible === null) return;
+      if (response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
+      const id = response.notification.request.identifier;
+      if (id === alreadyRouted) return;
+      alreadyRouted = id;
+      const target = notificationTarget(response.notification.request.content);
+      if (target === null) return;
       // Le `host` voyage avec le rid, comme dans le deep-link natif : plusieurs
       // sessions coexistent et poussent toutes les deux. Sans lui, un rid d'un
       // autre serveur atterrissait sur un écran salon sans ligne pour ce rid,
       // donc sur un indicateur d'activité définitif.
-      routeur.push({
+      router.push({
         pathname: '/salon/[rid]',
-        params: cible.host === null ? { rid: cible.rid } : { rid: cible.rid, host: cible.host },
+        params: target.host === null ? { rid: target.rid } : { rid: target.rid, host: target.host },
       });
     };
-    const abo = Notifications.addNotificationResponseReceivedListener(ouvrir);
+    const sub = Notifications.addNotificationResponseReceivedListener(open);
     Notifications.getLastNotificationResponseAsync()
-      .then((derniere) => {
-        if (derniere === null) return;
-        ouvrir(derniere);
+      .then((last) => {
+        if (last === null) return;
+        open(last);
         // IMPÉRATIF (doc expo-notifications) : une fois la route choisie,
         // EFFACER la réponse. Sinon elle persiste et, rejouée à un montage
         // ultérieur — ou par la file `pendingNotificationResponses` de
@@ -117,25 +117,25 @@ export function NotificationHandler() {
         Notifications.clearLastNotificationResponseAsync().catch(() => {});
       })
       .catch(() => {});
-    return () => abo.remove();
-  }, [routeur]);
+    return () => sub.remove();
+  }, [router]);
 
-  if (synchro.phase !== 'ready') return null;
-  return <SuiviBadgeEtChiffre />;
+  if (sync.phase !== 'ready') return null;
+  return <BadgeAndEncryptedTracking />;
 }
 
 /** Vit seulement quand la base est prête : badge, retrait des lus, chiffré. */
-function SuiviBadgeEtChiffre() {
-  const synchro = useSync();
-  const base = synchro.phase === 'ready' ? synchro.base : null;
+function BadgeAndEncryptedTracking() {
+  const sync = useSync();
+  const base = sync.phase === 'ready' ? sync.base : null;
 
-  const { data: lignesAbonnements } = useCoalescedLiveQuery(base!.select().from(subscriptions));
-  const { data: lignesSalons } = useCoalescedLiveQuery(base!.select().from(rooms));
+  const { data: subscriptionRows } = useCoalescedLiveQuery(base!.select().from(subscriptions));
+  const { data: roomRows } = useCoalescedLiveQuery(base!.select().from(rooms));
 
   useEffect(() => {
-    const total = (lignesAbonnements ?? []).reduce((somme, a) => somme + a.unread, 0);
+    const total = (subscriptionRows ?? []).reduce((sum, a) => sum + a.unread, 0);
     Notifications.setBadgeCountAsync(total).catch(() => {});
-  }, [lignesAbonnements]);
+  }, [subscriptionRows]);
 
   // Salon lu ⇒ sa notification s'en va. `setAutoCancel(true)` ne la retire qu'au
   // TAP : lire #general depuis l'icône laissait ses trois messages dans la barre
@@ -149,24 +149,24 @@ function SuiviBadgeEtChiffre() {
   // l'ouverture de l'app, un salon déjà lu ailleurs peut très bien avoir sa
   // notification en attente dans la barre. Retirer une notification absente est
   // un `NotificationManagerCompat.cancel` sur un id inconnu — sans effet.
-  const retirees = useRef(new Set<string>());
+  const removed = useRef(new Set<string>());
   useEffect(() => {
-    const aRetirer: string[] = [];
-    for (const a of lignesAbonnements ?? []) {
+    const toRemove: string[] = [];
+    for (const a of subscriptionRows ?? []) {
       if (a.unread > 0) {
-        retirees.current.delete(a.rid);
+        removed.current.delete(a.rid);
         continue;
       }
-      if (retirees.current.has(a.rid)) continue;
-      retirees.current.add(a.rid);
-      aRetirer.push(a.rid);
+      if (removed.current.has(a.rid)) continue;
+      removed.current.add(a.rid);
+      toRemove.push(a.rid);
     }
-    if (aRetirer.length > 0) retirerNotifsSalons(aRetirer);
-  }, [lignesAbonnements]);
+    if (toRemove.length > 0) removeRoomNotifications(toRemove);
+  }, [subscriptionRows]);
 
   useEffect(() => {
-    setEncryptedRooms((lignesSalons ?? []).filter((s) => s.encrypted).map((s) => s.rid));
-  }, [lignesSalons]);
+    setEncryptedRooms((roomRows ?? []).filter((s) => s.encrypted).map((s) => s.rid));
+  }, [roomRows]);
 
   return null;
 }
@@ -176,19 +176,19 @@ function SuiviBadgeEtChiffre() {
  * push est sa propre notification, groupée par `threadIdentifier` ; on retrouve
  * celles du salon par le `rid` que l'extension a rangé dans `ejson`.
  */
-function retirerNotifsSalons(rids: string[]): void {
+function removeRoomNotifications(rids: string[]): void {
   if (Platform.OS !== 'ios') {
     for (const rid of rids) {
       Notifications.dismissNotificationAsync(roomNotificationId(rid)).catch(() => {});
     }
     return;
   }
-  const cibles = new Set(rids);
+  const targets = new Set(rids);
   Notifications.getPresentedNotificationsAsync()
-    .then((presentes) => {
-      for (const n of presentes) {
-        const cible = cibleDeNotification(n.request.content);
-        if (cible !== null && cibles.has(cible.rid)) {
+    .then((present) => {
+      for (const n of present) {
+        const target = notificationTarget(n.request.content);
+        if (target !== null && targets.has(target.rid)) {
           Notifications.dismissNotificationAsync(n.request.identifier).catch(() => {});
         }
       }

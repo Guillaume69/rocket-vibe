@@ -31,25 +31,25 @@
  */
 export type AttachmentSource = 'photo' | 'video' | 'library' | 'file';
 
-let resolveur: ((source: AttachmentSource | null) => void) | null = null;
-let feuilleMontee = false;
+let resolver: ((source: AttachmentSource | null) => void) | null = null;
+let sheetMounted = false;
 
 export function requestSource(): Promise<AttachmentSource | null> {
-  resolveur?.(null);
+  resolver?.(null);
   return new Promise((resolve) => {
-    resolveur = resolve;
+    resolver = resolve;
   });
 }
 
 export function answerSource(source: AttachmentSource | null): void {
-  const r = resolveur;
-  resolveur = null;
+  const r = resolver;
+  resolver = null;
   r?.(source);
 }
 
 /** La feuille s'annonce à son montage. */
 export function reportSheetMounted(): void {
-  feuilleMontee = true;
+  sheetMounted = true;
 }
 
 /**
@@ -58,11 +58,11 @@ export function reportSheetMounted(): void {
  * attente (feuille fermée sans choix → `null`).
  */
 export function reportSheetUnmounted(): void {
-  feuilleMontee = false;
+  sheetMounted = false;
   answerSource(null);
 }
 
 /** Le composeur n'a le droit de fermer que si la feuille est ENCORE là. */
 export function isSheetMounted(): boolean {
-  return feuilleMontee;
+  return sheetMounted;
 }

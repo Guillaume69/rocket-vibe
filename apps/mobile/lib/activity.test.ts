@@ -4,107 +4,107 @@ import { describe, test } from 'node:test';
 import { ActivityEngine } from './activity.ts';
 
 /** Une promesse qu'on résout à la main, pour tenir un fetch « en vol ». */
-function differee<T = void>() {
-  let resoudre!: (v: T) => void;
-  let rejeter!: (e: unknown) => void;
-  const promesse = new Promise<T>((res, rej) => {
-    resoudre = res;
-    rejeter = rej;
+function deferred<T = void>() {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
   });
-  return { promesse, resoudre, rejeter };
+  return { promise, resolve, reject };
 }
 
 describe('MoteurActivite', () => {
   test('la portée est allumée le temps du fetch, éteinte à sa résolution', async () => {
     const m = new ActivityEngine();
-    const d = differee();
+    const d = deferred();
 
     assert.equal(m.active('global'), false, 'au repos');
-    const suivi = m.track('global', d.promesse);
+    const tracking = m.track('global', d.promise);
     assert.equal(m.active('global'), true, 'allumé dès le lancement (synchrone)');
 
-    d.resoudre();
-    await suivi;
+    d.resolve();
+    await tracking;
     assert.equal(m.active('global'), false, 'éteint à la fin');
   });
 
   test('un fetch qui échoue éteint quand même la portée, et rejette', async () => {
     const m = new ActivityEngine();
-    const d = differee();
+    const d = deferred();
 
-    const suivi = m.track('r1', d.promesse);
-    d.rejeter(new Error('réseau'));
+    const tracking = m.track('r1', d.promise);
+    d.reject(new Error('réseau'));
 
-    await assert.rejects(suivi, /réseau/);
+    await assert.rejects(tracking, /réseau/);
     assert.equal(m.active('r1'), false, 'pas de compteur bloqué en l’air');
   });
 
   test('deux fetches concurrents : la portée reste allumée tant qu’il en reste un', async () => {
     const m = new ActivityEngine();
-    const a = differee();
-    const b = differee();
+    const a = deferred();
+    const b = deferred();
 
-    const sa = m.track('r1', a.promesse);
-    const sb = m.track('r1', b.promesse);
+    const its = m.track('r1', a.promise);
+    const sb = m.track('r1', b.promise);
     assert.equal(m.active('r1'), true);
 
-    a.resoudre();
-    await sa;
+    a.resolve();
+    await its;
     assert.equal(m.active('r1'), true, 'il en reste un — toujours allumé');
 
-    b.resoudre();
+    b.resolve();
     await sb;
     assert.equal(m.active('r1'), false, 'le dernier éteint');
   });
 
   test('les portées sont indépendantes', async () => {
     const m = new ActivityEngine();
-    const d = differee();
-    const suivi = m.track('global', d.promesse);
+    const d = deferred();
+    const tracking = m.track('global', d.promise);
 
     assert.equal(m.active('global'), true);
     assert.equal(m.active('r1'), false, 'une autre portée n’est pas touchée');
 
-    d.resoudre();
-    await suivi;
+    d.resolve();
+    await tracking;
   });
 
   test('n’avertit qu’aux BASCULES booléennes (0→1, 1→0), pas sur un concurrent', async () => {
     const m = new ActivityEngine();
-    let avis = 0;
+    let notices = 0;
     m.onChange(() => {
-      avis++;
+      notices++;
     });
 
-    const a = differee();
-    const b = differee();
-    m.track('r1', a.promesse); // 0→1 : un avis
-    m.track('r1', b.promesse); // 1→2 : aucun
-    assert.equal(avis, 1);
+    const a = deferred();
+    const b = deferred();
+    m.track('r1', a.promise); // 0→1 : un avis
+    m.track('r1', b.promise); // 1→2 : aucun
+    assert.equal(notices, 1);
 
-    a.resoudre();
+    a.resolve();
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(avis, 1, '2→1 : toujours allumé, aucun avis');
+    assert.equal(notices, 1, '2→1 : toujours allumé, aucun avis');
 
-    b.resoudre();
+    b.resolve();
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(avis, 2, '1→0 : un avis d’extinction');
+    assert.equal(notices, 2, '1→0 : un avis d’extinction');
   });
 
   test('surChangement rend un désabonnement qui coupe les avis', async () => {
     const m = new ActivityEngine();
-    let avis = 0;
+    let notices = 0;
     const detacher = m.onChange(() => {
-      avis++;
+      notices++;
     });
     detacher();
 
-    const d = differee();
-    const suivi = m.track('global', d.promesse);
-    d.resoudre();
-    await suivi;
-    assert.equal(avis, 0, 'plus abonné');
+    const d = deferred();
+    const tracking = m.track('global', d.promise);
+    d.resolve();
+    await tracking;
+    assert.equal(notices, 0, 'plus abonné');
   });
 });

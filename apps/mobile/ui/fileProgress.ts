@@ -16,10 +16,10 @@ import { useEffect, useReducer } from 'react';
 
 import type { FileOutbox } from '../lib/provider.ts';
 
-export function useFileProgress(fichiers: FileOutbox): Map<string, number> {
+export function useFileProgress(files: FileOutbox): Map<string, number> {
   // La `Map` est mutée EN PLACE par le moteur : sa référence ne change jamais,
   // donc rien ne déclencherait un rendu. Ce compteur est le signal.
-  const [, redessiner] = useReducer((n: number) => n + 1, 0);
-  useEffect(() => fichiers.subscribe(redessiner), [fichiers]);
-  return fichiers.progress;
+  const [, redraw] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => files.subscribe(redraw), [files]);
+  return files.progress;
 }

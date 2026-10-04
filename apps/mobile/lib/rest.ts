@@ -41,17 +41,17 @@ export class RestError extends Error {
 
   constructor(
     message: string,
-    statut: number,
-    erreur?: string,
+    status: number,
+    error?: string,
     errorType?: string,
-    reponseComprise = false,
+    understoodResponse = false,
   ) {
     super(message);
     this.name = 'ErreurRest';
-    this.status = statut;
-    this.error = erreur;
+    this.status = status;
+    this.error = error;
     this.errorType = errorType;
-    this.understoodResponse = reponseComprise;
+    this.understoodResponse = understoodResponse;
   }
 }
 
@@ -68,9 +68,9 @@ export class TwoFactorError extends RestError {
   readonly generatedCode: boolean;
 
   constructor(
-    methode: TwoFactorMethod,
-    methodesDisponibles: TwoFactorMethod[],
-    codeGenere: boolean,
+    method: TwoFactorMethod,
+    availableMethods: TwoFactorMethod[],
+    generatedCode: boolean,
   ) {
     // `reponseComprise` vaut bien TRUE : un défi 2FA est une réponse
     // Rocket.Chat en bonne et due forme, lue comme telle. Ce qui l'écarte
@@ -78,11 +78,11 @@ export class TwoFactorError extends RestError {
     // qui rend la garde `instanceof` du prédicat portante plutôt que
     // décorative. Le 401 déclaré ici, lui, ne reflète pas le statut HTTP :
     // hors login, 8.5 répond 400.
-    super(`Double authentification requise (${methode})`, 401, undefined, 'totp-required', true);
+    super(`Double authentification requise (${method})`, 401, undefined, 'totp-required', true);
     this.name = 'ErreurDeuxFacteurs';
-    this.method = methode;
-    this.availableMethods = methodesDisponibles;
-    this.generatedCode = codeGenere;
+    this.method = method;
+    this.availableMethods = availableMethods;
+    this.generatedCode = generatedCode;
   }
 }
 
@@ -158,11 +158,11 @@ export type Dependencies = {
   random: () => number;
 };
 
-const DELAI_MS = 15_000;
-const TENTATIVES_429 = 3;
+const TIMEOUT_MS = 15_000;
+const ATTEMPTS_429 = 3;
 /** Un seul rejeu sur échec réseau : une connexion keep-alive morte repart neuve. */
-const TENTATIVES_RESEAU = 1;
-const DELAI_REJEU_RESEAU_MS = 400;
+const NETWORK_ATTEMPTS = 1;
+const NETWORK_RETRY_DELAY_MS = 400;
 /**
  * Dispersion ajoutée au rejeu d'un 429. Sans elle, deux appels concurrents
  * reçoivent le MÊME `x-ratelimit-reset` et se réveillent à la même
@@ -170,9 +170,9 @@ const DELAI_REJEU_RESEAU_MS = 400;
  * de rouvrir, et se reprennent un 429. Même raison que la gigue du pilote de
  * reconnexion (`lib/reconnect.ts`) — un troupeau tonnant, à deux têtes.
  */
-const DISPERSION_429_MS = 500;
+const JITTER_429_MS = 500;
 
-type ReponseRocketChat = {
+type RocketChatResponse = {
   success?: boolean;
   error?: string;
   errorType?: string;
@@ -185,14 +185,14 @@ type ReponseRocketChat = {
   };
 };
 
-const METHODES: readonly TwoFactorMethod[] = ['totp', 'email', 'password'];
+const METHODS: readonly TwoFactorMethod[] = ['totp', 'email', 'password'];
 
-function estMethode(v: unknown): v is TwoFactorMethod {
-  return typeof v === 'string' && (METHODES as readonly string[]).includes(v);
+function isMethod(v: unknown): v is TwoFactorMethod {
+  return typeof v === 'string' && (METHODS as readonly string[]).includes(v);
 }
 
 /** Même forme que l'`AbortError` de `fetch`, sans dépendre de `DOMException`. */
-function erreurAnnulation(): Error {
+function cancelError(): Error {
   const e = new Error('Requête annulée.');
   e.name = 'AbortError';
   return e;
@@ -219,7 +219,7 @@ export class ClientRest {
    * la requête volait). `ClientRest` ne connaît pas la notion de session : il
    * rapporte, il ne décide pas.
    */
-  onTokenRejected: ((jeton: string) => void) | null = null;
+  onTokenRejected: ((token: string) => void) | null = null;
 
   private readonly dep: Dependencies;
 
@@ -244,39 +244,39 @@ export class ClientRest {
    */
   private async cancelableSleep(ms: number, signal?: AbortSignal): Promise<void> {
     if (signal === undefined) return this.dep.sleep(ms);
-    if (signal.aborted) throw erreurAnnulation();
-    let surAbandon: () => void = () => {};
-    const annulation = new Promise<never>((_, rejeter) => {
-      surAbandon = () => rejeter(erreurAnnulation());
-      signal.addEventListener('abort', surAbandon);
+    if (signal.aborted) throw cancelError();
+    let onAbort: () => void = () => {};
+    const cancellation = new Promise<never>((_, reject) => {
+      onAbort = () => reject(cancelError());
+      signal.addEventListener('abort', onAbort);
     });
     try {
-      await Promise.race([this.dep.sleep(ms), annulation]);
+      await Promise.race([this.dep.sleep(ms), cancellation]);
     } finally {
       // Détaché dans tous les cas : sans quoi un `abort()` postérieur au
       // réveil rejetterait une promesse que plus personne n'observe.
-      signal.removeEventListener('abort', surAbandon);
+      signal.removeEventListener('abort', onAbort);
     }
   }
 
-  get<T>(chemin: string, options: RequestOptions = {}): Promise<T> {
-    return this.call<T>('GET', chemin, options);
+  get<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    return this.call<T>('GET', path, options);
   }
 
-  post<T>(chemin: string, options: RequestOptions = {}): Promise<T> {
-    return this.call<T>('POST', chemin, options);
+  post<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    return this.call<T>('POST', path, options);
   }
 
-  delete<T>(chemin: string, options: RequestOptions = {}): Promise<T> {
-    return this.call<T>('DELETE', chemin, options);
+  delete<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    return this.call<T>('DELETE', path, options);
   }
 
-  private buildUrl(chemin: string, options: RequestOptions): string {
-    const prefixe = options.outsideApiV1 === true ? '' : 'api/v1/';
-    const url = new URL(`${this.baseUrl}/${prefixe}${chemin}`);
+  private buildUrl(path: string, options: RequestOptions): string {
+    const prefix = options.outsideApiV1 === true ? '' : 'api/v1/';
+    const url = new URL(`${this.baseUrl}/${prefix}${path}`);
     const params = options.params;
-    for (const [cle, valeur] of Object.entries(params ?? {})) {
-      if (valeur !== undefined) url.searchParams.set(cle, String(valeur));
+    for (const [key, value] of Object.entries(params ?? {})) {
+      if (value !== undefined) url.searchParams.set(key, String(value));
     }
     return url.toString();
   }
@@ -302,53 +302,53 @@ export class ClientRest {
    * La dispersion s'ajoute AVANT le plafond, pour qu'un en-tête aberrant
    * reste borné à 30 s.
    */
-  private delayAfter429(reponse: Response, tentative: number): number {
-    const brut = Number(reponse.headers.get('x-ratelimit-reset'));
-    const attente = Number.isFinite(brut) ? brut - this.dep.now() : 0;
-    const delai = attente > 0 ? attente + 250 : 1000 * 2 ** tentative;
-    return Math.min(delai + this.dep.random() * DISPERSION_429_MS, 30_000);
+  private delayAfter429(response: Response, attempt: number): number {
+    const raw = Number(response.headers.get('x-ratelimit-reset'));
+    const wait = Number.isFinite(raw) ? raw - this.dep.now() : 0;
+    const delay = wait > 0 ? wait + 250 : 1000 * 2 ** attempt;
+    return Math.min(delay + this.dep.random() * JITTER_429_MS, 30_000);
   }
 
   private async call<T>(
-    methode: 'GET' | 'POST' | 'DELETE',
-    chemin: string,
+    method: 'GET' | 'POST' | 'DELETE',
+    path: string,
     options: RequestOptions,
-    tentative = 0,
-    tentativeReseau = 0,
+    attempt = 0,
+    networkAttempt = 0,
   ): Promise<T> {
     // Un signal DÉJÀ avorté ne déclenchera jamais `addEventListener`, et la
     // requête partirait quand même : on le teste avant d'ouvrir la connexion.
     // Ni `AbortSignal.throwIfAborted` ni `DOMException` ne sont garantis sous
     // Hermes, d'où l'erreur construite à la main.
-    if (options.signal?.aborted) throw erreurAnnulation();
+    if (options.signal?.aborted) throw cancelError();
 
     // Le jeton tel qu'il part sur le fil, capturé AVANT la requête. Le relire à
     // la réception rendrait le jeton COURANT : sur une session remplacée
     // pendant le vol, un 401 portant l'ancien jeton se présenterait alors sous
     // le nouveau, et effacerait une session toute neuve.
-    const jetonEnvoye = options.anonymous === true ? null : (this.auth?.authToken ?? null);
+    const sentToken = options.anonymous === true ? null : (this.auth?.authToken ?? null);
 
-    const controleur = new AbortController();
+    const controller = new AbortController();
     let expire = false;
-    const minuterie = setTimeout(() => {
+    const timer = setTimeout(() => {
       expire = true;
-      controleur.abort();
-    }, DELAI_MS);
-    const relayer = () => controleur.abort();
-    options.signal?.addEventListener('abort', relayer);
+      controller.abort();
+    }, TIMEOUT_MS);
+    const relay = () => controller.abort();
+    options.signal?.addEventListener('abort', relay);
 
-    let reponse: Response;
+    let response: Response;
     try {
-      reponse = await this.dep.fetch(this.buildUrl(chemin, options), {
-        method: methode,
+      response = await this.dep.fetch(this.buildUrl(path, options), {
+        method,
         headers: this.headers(options),
         body: options.body === undefined ? undefined : JSON.stringify(options.body),
-        signal: controleur.signal,
+        signal: controller.signal,
       });
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') {
         if (!expire) throw e; // Annulation demandée par l'appelant.
-        throw new RestError(`${chemin} : pas de réponse en ${DELAI_MS / 1000} s.`, 0);
+        throw new RestError(`${path} : pas de réponse en ${TIMEOUT_MS / 1000} s.`, 0);
       }
       // Échec réseau : le `fetch` a rejeté sans réponse HTTP. Sur Android/OkHttp,
       // la PREMIÈRE requête après un temps d'inactivité (ici : le temps de
@@ -357,41 +357,41 @@ export class ClientRest {
       // — le classique « ça passe à la 2e fois ». Rien n'ayant été reçu du
       // serveur, la requête n'a (quasi) jamais été délivrée : la rejouer ne
       // double aucun effet, mais on ne le fait que si l'appelant l'a demandé.
-      if (options.networkReplay && tentativeReseau < TENTATIVES_RESEAU) {
+      if (options.networkReplay && networkAttempt < NETWORK_ATTEMPTS) {
         // Le `finally` ferme minuterie et listener à l'évaluation du `return` ;
         // la récursion en réarme de neufs. Les 400 ms d'attente restent bien en
         // deçà du timeout de 15 s, donc l'ancien timer ne fire pas entre-temps.
-        await this.cancelableSleep(DELAI_REJEU_RESEAU_MS, options.signal);
-        return this.call<T>(methode, chemin, options, tentative, tentativeReseau + 1);
+        await this.cancelableSleep(NETWORK_RETRY_DELAY_MS, options.signal);
+        return this.call<T>(method, path, options, attempt, networkAttempt + 1);
       }
-      throw new RestError(`${chemin} : serveur injoignable.`, 0);
+      throw new RestError(`${path} : serveur injoignable.`, 0);
     } finally {
-      clearTimeout(minuterie);
-      options.signal?.removeEventListener('abort', relayer);
+      clearTimeout(timer);
+      options.signal?.removeEventListener('abort', relay);
     }
 
-    if (reponse.status === 429 && tentative < TENTATIVES_429) {
-      const delai = this.delayAfter429(reponse, tentative);
-      await reponse.body?.cancel();
-      await this.cancelableSleep(delai, options.signal);
-      return this.call<T>(methode, chemin, options, tentative + 1, tentativeReseau);
+    if (response.status === 429 && attempt < ATTEMPTS_429) {
+      const delay = this.delayAfter429(response, attempt);
+      await response.body?.cancel();
+      await this.cancelableSleep(delay, options.signal);
+      return this.call<T>(method, path, options, attempt + 1, networkAttempt);
     }
 
     // Lire le texte avant de parser : un reverse proxy peut renvoyer du HTML
     // avec un code 200, et « JSON invalide » n'est pas « serveur injoignable ».
-    const texte = await reponse.text();
+    const text = await response.text();
 
     // `POST /api/v1/logout` répond 200 avec un corps VIDE — vérifié contre un
     // serveur 8.5. Un succès sans contenu n'est pas une erreur de format.
-    if (texte.trim() === '' && reponse.ok) return {} as T;
+    if (text.trim() === '' && response.ok) return {} as T;
 
-    let json: ReponseRocketChat & Record<string, unknown>;
+    let json: RocketChatResponse & Record<string, unknown>;
     try {
-      json = JSON.parse(texte) as typeof json;
+      json = JSON.parse(text) as typeof json;
     } catch {
       throw new RestError(
-        `${chemin} : réponse non JSON (${reponse.status}, ${texte.length} octets).`,
-        reponse.status,
+        `${path} : réponse non JSON (${response.status}, ${text.length} octets).`,
+        response.status,
       );
     }
 
@@ -401,39 +401,39 @@ export class ClientRest {
     // Vérifié contre un serveur réel. Ne tester que `errorType` laissait la 2FA
     // du login remonter comme une ErreurRest ordinaire.
     if (json.errorType === 'totp-required' || json.error === 'totp-required') {
-      const brutes = json.details?.availableMethods ?? [];
-      const methodeDemandee = estMethode(json.details?.method) ? json.details.method : 'password';
+      const raw = json.details?.availableMethods ?? [];
+      const requestedMethod = isMethod(json.details?.method) ? json.details.method : 'password';
       throw new TwoFactorError(
-        methodeDemandee,
-        brutes.filter(estMethode),
+        requestedMethod,
+        raw.filter(isMethod),
         json.details?.codeGenerated === true,
       );
     }
 
     // Rocket.Chat mélange deux conventions : `success: false` sur /api/v1/* et
     // `status: 'error'` sur /api/v1/login. Les deux valent échec.
-    if (!reponse.ok || json.success === false || json.status === 'error') {
-      const message = json.error ?? json.message ?? `${chemin} a échoué`;
+    if (!response.ok || json.success === false || json.status === 'error') {
+      const message = json.error ?? json.message ?? `${path} a échoué`;
       // « Du JSON » ne suffit pas à dire « du Rocket.Chat ». Une passerelle
       // d'API répond volontiers `{"message":"Unauthorized"}` en 401 : ça parse,
       // et ça ne dit RIEN de notre jeton. On exige donc une marque de
       // l'enveloppe maison — c'est elle que `reponseComprise` certifie.
-      const enveloppeRC =
+      const rcEnvelope =
         typeof json.success === 'boolean' ||
         json.status === 'error' ||
         typeof json.errorType === 'string';
-      const erreur = new RestError(
+      const error = new RestError(
         message,
-        reponse.status,
+        response.status,
         json.error,
         json.errorType,
-        enveloppeRC,
+        rcEnvelope,
       );
       // Placé APRÈS la branche `totp-required` (jamais sur un défi 2FA) et
       // APRÈS le parse (jamais sur un 401 HTML de proxy). Un appel `anonyme`
       // n'a envoyé aucun jeton : son 401 ne dit rien de la session.
-      if (jetonEnvoye !== null && isTokenRejected(erreur)) this.onTokenRejected?.(jetonEnvoye);
-      throw erreur;
+      if (sentToken !== null && isTokenRejected(error)) this.onTokenRejected?.(sentToken);
+      throw error;
     }
 
     return json as T;

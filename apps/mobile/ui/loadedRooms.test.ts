@@ -48,9 +48,9 @@ describe('salonsCharges', () => {
     // Le fetch est parti sous la session d'avant : sa marque vaudrait pour un
     // serveur qu'on a quitté, et ferait sauter l'historique d'ouverture à la
     // session suivante dès que son compteur atteint cette génération.
-    const jeton = sessionToken();
+    const token = sessionToken();
     forgetLoadedRooms();
-    markRoomLoaded('r1', 3, jeton);
+    markRoomLoaded('r1', 3, token);
     assert.equal(roomLoadedUnder('r1', 3), false);
   });
 });

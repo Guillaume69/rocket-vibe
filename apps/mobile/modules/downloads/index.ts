@@ -5,12 +5,12 @@ import { requireOptionalNativeModule } from 'expo-modules-core';
  * seulement : sous iOS le module vaut `null`. Importable QUE dans l'app : sous Node, `requireNativeModule` jette.
  */
 
-type TelechargementsNatif = {
+type NativeDownloads = {
   /**
    * Copie un fichier LOCAL (`file://…`) dans le dossier public Téléchargements.
    * Rend l'URI de l'entrée créée. Un nom déjà pris est suffixé par le système.
    */
-  enregistrer(source: string, nom: string, type: string | null): Promise<string>;
+  enregistrer(source: string, name: string, type: string | null): Promise<string>;
 };
 
-export const Downloads = requireOptionalNativeModule<TelechargementsNatif>('Telechargements');
+export const Downloads = requireOptionalNativeModule<NativeDownloads>('Telechargements');

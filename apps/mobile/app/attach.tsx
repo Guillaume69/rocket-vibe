@@ -55,7 +55,7 @@ export default function AttachScreen() {
     return reportSheetUnmounted;
   }, []);
 
-  const choisir = (source: AttachmentSource) => {
+  const pick = (source: AttachmentSource) => {
     answerSource(source);
   };
 
@@ -66,7 +66,7 @@ export default function AttachScreen() {
         // doux : le masque du ripple borné ignore borderRadius sous Fabric.
         <View key={o.source} style={styles.rowWrapper}>
           <Tappable
-            onPress={() => choisir(o.source)}
+            onPress={() => pick(o.source)}
             android_ripple={{ color: c.ripple }}
             unstable_pressDelay={LIST_PRESS_DELAY}
             accessibilityRole="button"
@@ -94,5 +94,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   rowIcon: { fontSize: 19, width: 24, textAlign: 'center' },
-  rowText: { fontFamily: FONTS.corpsGras, fontSize: 15.5 },
+  rowText: { fontFamily: FONTS.bodyBold, fontSize: 15.5 },
 });

@@ -49,7 +49,7 @@ describe('detecterJetonMention', () => {
 });
 
 describe('completerMention', () => {
-  const candidats: MentionCandidate[] = [
+  const candidates: MentionCandidate[] = [
     { username: 'bob', uid: 'u2' },
     { username: 'alice', uid: 'u1' },
     { username: 'ali', uid: 'u3' },
@@ -58,14 +58,14 @@ describe('completerMention', () => {
 
   test('exact, puis préfixe, puis sous-chaîne', () => {
     assert.deepEqual(
-      completeMention('ali', candidats).map((c) => c.username),
+      completeMention('ali', candidates).map((c) => c.username),
       ['ali', 'alice'],
     );
   });
 
   test('requête vide : tous, dans l’ordre d’arrivée, spéciales à la fin', () => {
     assert.deepEqual(
-      completeMention('', candidats).map((c) => c.username),
+      completeMention('', candidates).map((c) => c.username),
       ['bob', 'alice', 'ali', 'pascal', 'all', 'here'],
     );
   });
@@ -73,7 +73,7 @@ describe('completerMention', () => {
   test('une personne passe avant la mention spéciale à qualité égale', () => {
     // `al` est un préfixe d'`alice`, `ali` ET `all`.
     assert.deepEqual(
-      completeMention('al', candidats).map((c) => c.username),
+      completeMention('al', candidates).map((c) => c.username),
       ['alice', 'ali', 'all', 'pascal'],
     );
   });
@@ -102,14 +102,14 @@ describe('completerMention', () => {
   });
 
   test('respecte la limite', () => {
-    const beaucoup = Array.from({ length: 40 }, (_, i) => ({
+    const many = Array.from({ length: 40 }, (_, i) => ({
       username: `user${i}`,
       uid: `u${i}`,
     }));
-    assert.equal(completeMention('user', beaucoup, 5).length, 5);
+    assert.equal(completeMention('user', many, 5).length, 5);
   });
 
   test('aucune correspondance : liste vide', () => {
-    assert.deepEqual(completeMention('zz', candidats), []);
+    assert.deepEqual(completeMention('zz', candidates), []);
   });
 });

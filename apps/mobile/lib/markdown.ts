@@ -26,9 +26,9 @@ export type { Root };
  * ici, et nulle part ailleurs, qu'on tranche « emoji ou pas » : le rendu s'en
  * sert pour refuser de grossir un `BIG_EMOJI` qui n'en est pas un.
  */
-export function unicodeDEmoji(noeud: unknown): string | null {
-  if (typeof noeud !== 'object' || noeud === null) return null;
-  const n = noeud as { type?: unknown; unicode?: unknown; shortCode?: unknown };
+export function unicodeDEmoji(node: unknown): string | null {
+  if (typeof node !== 'object' || node === null) return null;
+  const n = node as { type?: unknown; unicode?: unknown; shortCode?: unknown };
   if (n.type !== 'EMOJI') return null;
   if (typeof n.unicode === 'string') return n.unicode;
   if (typeof n.shortCode === 'string') return unicodeOfShortcode(n.shortCode);
@@ -36,39 +36,39 @@ export function unicodeDEmoji(noeud: unknown): string | null {
 }
 
 /** Un nœud plausible : un objet avec un `type` chaîne. Le reste est du poison. */
-function noeudPlausible(n: unknown): boolean {
+function plausibleNode(n: unknown): boolean {
   return typeof n === 'object' && n !== null && typeof (n as { type?: unknown }).type === 'string';
 }
 
-export function messageTree(md: string | null, texte: string | null): Root | null {
+export function messageTree(md: string | null, text: string | null): Root | null {
   // Le permalien d'une citation (`[ ](…?msg=…)`) est retiré du corps : la
   // citation se rend à part (pièce jointe `message_link`) — et pour un envoi
   // optimiste, l'aperçu local. Un message qui n'était QUE la citation rend null.
-  const epure = (arbre: Root): Root | null => {
-    const filtre = withoutQuoteLinks(arbre);
-    return filtre.length > 0 ? filtre : null;
+  const stripped = (tree: Root): Root | null => {
+    const filter = withoutQuoteLinks(tree);
+    return filter.length > 0 ? filter : null;
   };
   if (md !== null) {
     try {
-      const arbre = JSON.parse(md) as Root;
+      const tree = JSON.parse(md) as Root;
       // La forme des ÉLÉMENTS compte autant que celle du tableau : un
       // `[null]` ou un nœud sans `type` passerait jusqu'au rendu et
       // planterait l'écran entier — durablement, puisque le `md` est
       // persisté. On préfère re-parser le texte : le contenu survit.
-      if (Array.isArray(arbre) && arbre.length > 0 && arbre.every(noeudPlausible)) {
-        return epure(arbre);
+      if (Array.isArray(tree) && tree.length > 0 && tree.every(plausibleNode)) {
+        return stripped(tree);
       }
     } catch {
       // `md` illisible : on retombe sur le texte, comme s'il n'existait pas.
     }
   }
-  if (texte !== null && texte.trim() !== '') {
+  if (text !== null && text.trim() !== '') {
     try {
-      return epure(parse(texte));
+      return stripped(parse(text));
     } catch {
       // Le parseur (grammaire PEG générée) peut lever sur une entrée qu'il ne
       // consomme pas : le texte brut vaut mieux qu'un écran mort.
-      return [{ type: 'PARAGRAPH', value: [{ type: 'PLAIN_TEXT', value: texte }] }];
+      return [{ type: 'PARAGRAPH', value: [{ type: 'PLAIN_TEXT', value: text }] }];
     }
   }
   return null;
@@ -78,43 +78,43 @@ export function messageTree(md: string | null, texte: string | null): Root | nul
  * Texte brut d'un nœud, récursivement. Sert d'ultime repli : un type de nœud
  * que le rendu ne connaît pas doit afficher son contenu, pas disparaître.
  */
-export function textOf(noeud: unknown): string {
-  if (typeof noeud === 'string') return noeud;
-  if (Array.isArray(noeud)) return noeud.map(textOf).join('');
-  if (typeof noeud === 'object' && noeud !== null) {
-    const objet = noeud as {
+export function textOf(node: unknown): string {
+  if (typeof node === 'string') return node;
+  if (Array.isArray(node)) return node.map(textOf).join('');
+  if (typeof node === 'object' && node !== null) {
+    const obj = node as {
       type?: unknown;
       value?: unknown;
       shortCode?: unknown;
       unicode?: unknown;
       fallback?: unknown;
     };
-    if (objet.type === 'EMOJI') {
-      const glyphe = unicodeDEmoji(objet);
+    if (obj.type === 'EMOJI') {
+      const glyph = unicodeDEmoji(obj);
       // Code court inconnu (emoji personnalisé du serveur, coquille) : le
       // littéral se lit, un carré blanc non.
-      if (glyphe !== null) return glyphe;
-      if (typeof objet.shortCode === 'string') return `:${objet.shortCode}:`;
+      if (glyph !== null) return glyph;
+      if (typeof obj.shortCode === 'string') return `:${obj.shortCode}:`;
     }
-    if (typeof objet.unicode === 'string') return objet.unicode;
-    const parValue = 'value' in objet ? textOf(objet.value) : '';
-    if (parValue !== '') return parValue;
+    if (typeof obj.unicode === 'string') return obj.unicode;
+    const byValue = 'value' in obj ? textOf(obj.value) : '';
+    if (byValue !== '') return byValue;
     // TIMESTAMP (et consorts) : `value` est un objet opaque, mais le parseur
     // fournit `fallback`, un nœud Plain prévu exactement pour ce cas.
-    if ('fallback' in objet) return textOf(objet.fallback);
+    if ('fallback' in obj) return textOf(obj.fallback);
   }
   return '';
 }
 
-function enLigne(noeud: unknown): string {
-  if (Array.isArray(noeud)) return noeud.map(enLigne).join('');
-  if (typeof noeud !== 'object' || noeud === null) return textOf(noeud);
-  const n = noeud as { type?: unknown; value?: unknown };
-  const valeur = n.value as { src?: unknown; label?: unknown } | undefined;
+function online(node: unknown): string {
+  if (Array.isArray(node)) return node.map(online).join('');
+  if (typeof node !== 'object' || node === null) return textOf(node);
+  const n = node as { type?: unknown; value?: unknown };
+  const value = n.value as { src?: unknown; label?: unknown } | undefined;
   switch (n.type) {
     case 'LINK': {
-      const libelle = enLigne(valeur?.label ?? []).trim();
-      return libelle !== '' ? libelle : textOf(valeur?.src);
+      const label = online(value?.label ?? []).trim();
+      return label !== '' ? label : textOf(value?.src);
     }
     case 'MENTION_USER':
       return `@${textOf(n.value)}`;
@@ -122,12 +122,12 @@ function enLigne(noeud: unknown): string {
       return `#${textOf(n.value)}`;
     case 'CODE':
     case 'QUOTE':
-      return Array.isArray(n.value) ? n.value.map(enLigne).join(' ') : textOf(n.value);
+      return Array.isArray(n.value) ? n.value.map(online).join(' ') : textOf(n.value);
     case 'UNORDERED_LIST':
     case 'ORDERED_LIST':
     case 'TASKS':
       return Array.isArray(n.value)
-        ? n.value.map((item) => `• ${enLigne((item as { value?: unknown }).value)}`).join(' ')
+        ? n.value.map((item) => `• ${online((item as { value?: unknown }).value)}`).join(' ')
         : '';
     case 'BIG_EMOJI':
       return Array.isArray(n.value) ? n.value.map(textOf).join(' ') : textOf(n.value);
@@ -135,15 +135,15 @@ function enLigne(noeud: unknown): string {
       return ' ';
     case 'EMOJI':
     case 'PLAIN_TEXT':
-      return textOf(noeud);
+      return textOf(node);
     default:
-      return 'value' in n ? enLigne(n.value) : textOf(noeud);
+      return 'value' in n ? online(n.value) : textOf(node);
   }
 }
 
 /** Un message sur une ligne, sans syntaxe : l'aperçu de la liste des salons. */
-export function textPreview(texte: string): string {
-  const arbre = messageTree(null, texte);
-  if (arbre === null) return texte;
-  return arbre.map(enLigne).join(' ').replace(/\s+/g, ' ').trim();
+export function textPreview(text: string): string {
+  const tree = messageTree(null, text);
+  if (tree === null) return text;
+  return tree.map(online).join(' ').replace(/\s+/g, ' ').trim();
 }

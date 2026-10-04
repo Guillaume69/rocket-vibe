@@ -17,7 +17,7 @@
 
 /** Le sous-ensemble de `WebSocket` dont on dépend. */
 export type WebSocketLike = {
-  send(donnees: string): void;
+  send(data: string): void;
   close(): void;
   onopen: ((e: unknown) => void) | null;
   onmessage: ((e: { data: unknown }) => void) | null;
@@ -46,9 +46,9 @@ export class DdpError extends Error {
   }
 }
 
-type Attente = {
-  resolve: (valeur: unknown) => void;
-  reject: (raison: unknown) => void;
+type Pending = {
+  resolve: (value: unknown) => void;
+  reject: (reason: unknown) => void;
   timer: ReturnType<typeof setTimeout>;
 };
 
@@ -76,9 +76,9 @@ export type OptionsDdp = {
  */
 const SILENCE_MAX_MS = 45_000;
 /** Cadence de vérification : assez fine pour ne pas ajouter au seuil. */
-const GARDE_MS = 15_000;
+const GUARD_MS = 15_000;
 
-type SouscriptionDesiree = {
+type DesiredSubscription = {
   name: string;
   eventKey: string;
   /** Nombre d'appelants. La `sub` ne part qu'une fois, l'`unsub` qu'au dernier départ. */
@@ -118,7 +118,7 @@ export class ClientDdp {
   private ws: WebSocketLike | null = null;
   private counter = 0;
   private closedOnPurpose = false;
-  private readonly pending = new Map<string, Attente>();
+  private readonly pending = new Map<string, Pending>();
   private readonly listeners = new Set<(e: DdpEvent) => void>();
   private readonly lossListeners = new Set<() => void>();
   /**
@@ -130,7 +130,7 @@ export class ClientDdp {
    * doivent produire qu'une seule `sub` sur le fil — sinon le serveur envoie
    * chaque message en double, ce que `ROADMAP.md` reproche à l'app officielle.
    */
-  private readonly wanted = new Map<string, SouscriptionDesiree>();
+  private readonly wanted = new Map<string, DesiredSubscription>();
   private readonly createWebSocket: (url: string) => WebSocketLike;
   private readonly timeoutMs: number;
   /**
@@ -139,7 +139,7 @@ export class ClientDdp {
    * laisserait la promesse pendre jusqu'à son délai — dix secondes de zombie
    * à chaque démontage un peu rapide.
    */
-  private cancelHandshake: ((raison: unknown) => void) | null = null;
+  private cancelHandshake: ((reason: unknown) => void) | null = null;
   private readonly silenceMaxMs: number;
   private readonly watchdogMs: number;
   /** Date du dernier octet reçu du serveur, tous messages confondus. */
@@ -157,7 +157,7 @@ export class ClientDdp {
     this.url = url;
     this.timeoutMs = options.timeoutMs ?? 10_000;
     this.silenceMaxMs = options.silenceMaxMs ?? SILENCE_MAX_MS;
-    this.watchdogMs = options.watchdogMs ?? GARDE_MS;
+    this.watchdogMs = options.watchdogMs ?? GUARD_MS;
     this.createWebSocket =
       options.createWebSocket ?? ((u) => new WebSocket(u) as unknown as WebSocketLike);
   }
@@ -174,9 +174,9 @@ export class ClientDdp {
     return this.wanted.size;
   }
 
-  onEvent(ecouteur: (e: DdpEvent) => void): () => void {
-    this.listeners.add(ecouteur);
-    return () => this.listeners.delete(ecouteur);
+  onEvent(listener: (e: DdpEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   /**
@@ -184,9 +184,9 @@ export class ClientDdp {
    * `fermer()`. C'est le signal du pilote de reconnexion (5.1) : notifier une
    * fermeture volontaire déclencherait une reconnexion après la déconnexion.
    */
-  onLoss(ecouteur: () => void): () => void {
-    this.lossListeners.add(ecouteur);
-    return () => this.lossListeners.delete(ecouteur);
+  onLoss(listener: () => void): () => void {
+    this.lossListeners.add(listener);
+    return () => this.lossListeners.delete(listener);
   }
 
   /**
@@ -200,19 +200,19 @@ export class ClientDdp {
     this.closedOnPurpose = false;
     this.cleanedUp = false;
 
-    await new Promise<void>((resoudre, rejeter) => {
+    await new Promise<void>((resolve, reject) => {
       // Le timeout NETTOIE, il ne fait pas que rejeter : sinon l'état reste
       // « connexion » avec une socket ouverte, et toute retentative du pilote
       // de reconnexion échouerait à jamais sur « déjà connecté ».
-      const minuterie = setTimeout(() => {
-        const erreur = new DdpError(`Pas de « connected » en ${this.timeoutMs} ms.`);
+      const timer = setTimeout(() => {
+        const error = new DdpError(`Pas de « connected » en ${this.timeoutMs} ms.`);
         this.ws?.close();
-        this.cleanUp(erreur);
-        rejeter(erreur);
+        this.cleanUp(error);
+        reject(error);
       }, this.timeoutMs);
-      this.cancelHandshake = (raison) => {
-        clearTimeout(minuterie);
-        rejeter(raison instanceof Error ? raison : new DdpError('Connexion interrompue.'));
+      this.cancelHandshake = (reason) => {
+        clearTimeout(timer);
+        reject(reason instanceof Error ? reason : new DdpError('Connexion interrompue.'));
       };
       const ws = this.createWebSocket(this.url);
       this.ws = ws;
@@ -221,21 +221,21 @@ export class ClientDdp {
       // APRÈS qu'une nouvelle a été ouverte. Sans cette garde d'identité, son
       // `onclose` remettrait `this.ws` à null et l'état à « fermé » sous les
       // pieds de la connexion en cours : le `connect` ne partirait jamais.
-      const estCourante = () => this.ws === ws;
+      const isCurrent = () => this.ws === ws;
 
       ws.onerror = () => {
-        if (!estCourante()) return;
-        clearTimeout(minuterie);
+        if (!isCurrent()) return;
+        clearTimeout(timer);
         this.cleanUp(new DdpError('Erreur WebSocket.'));
-        rejeter(new DdpError('Erreur WebSocket.'));
+        reject(new DdpError('Erreur WebSocket.'));
       };
       ws.onclose = () => {
-        if (!estCourante()) return;
-        clearTimeout(minuterie);
+        if (!isCurrent()) return;
+        clearTimeout(timer);
         this.cleanUp(new DdpError('Socket fermée.'));
       };
       ws.onmessage = (e) => {
-        if (!estCourante()) return;
+        if (!isCurrent()) return;
         // AVANT tout traitement : ce qui compte pour le chien de garde est
         // qu'un octet soit arrivé, pas qu'il ait été compris.
         this.lastTraffic = Date.now();
@@ -246,27 +246,27 @@ export class ClientDdp {
           return; // Le serveur ne devrait pas, mais on ne meurt pas pour autant.
         }
         if (m.msg === 'connected') {
-          clearTimeout(minuterie);
+          clearTimeout(timer);
           this.cancelHandshake = null;
           this.session = m.session ?? null;
           this.state = 'connected';
-          resoudre();
+          resolve();
           return;
         }
         if (m.msg === 'failed') {
-          clearTimeout(minuterie);
+          clearTimeout(timer);
           this.cancelHandshake = null;
           // Même exigence que le timeout : laisser le client réutilisable.
-          const erreur = new DdpError('Version DDP refusée par le serveur.');
+          const error = new DdpError('Version DDP refusée par le serveur.');
           ws.close();
-          this.cleanUp(erreur);
-          rejeter(erreur);
+          this.cleanUp(error);
+          reject(error);
           return;
         }
         this.receive(m);
       };
       ws.onopen = () => {
-        if (estCourante()) this.send({ msg: 'connect', version: '1', support: ['1'] });
+        if (isCurrent()) this.send({ msg: 'connect', version: '1', support: ['1'] });
       };
     });
 
@@ -286,7 +286,7 @@ export class ClientDdp {
     // l'authentification, et celles d'une socket précédente. C'est ce qui
     // permet à un écran de souscrire sans se soucier de l'état du transport —
     // et c'est le mécanisme que la reconnexion (5.1) réutilisera tel quel.
-    for (const entree of this.wanted.values()) this.establish(entree);
+    for (const entry of this.wanted.values()) this.establish(entry);
   }
 
   /**
@@ -299,27 +299,27 @@ export class ClientDdp {
    * fil : il meurt avec la socket, et un écran qui s'en servait pour se
    * désabonner après une coupure laissait fuir sa référence pour toujours.
    */
-  subscribe(nom: string, cleEvenement: string): () => void {
-    const cle = `${nom}|${cleEvenement}`;
-    const entree: SouscriptionDesiree = this.wanted.get(cle) ?? {
-      name: nom,
-      eventKey: cleEvenement,
+  subscribe(name: string, eventKey: string): () => void {
+    const key = `${name}|${eventKey}`;
+    const entry: DesiredSubscription = this.wanted.get(key) ?? {
+      name,
+      eventKey,
       refs: 0,
       id: null,
       inFlight: false,
       ready: null,
     };
-    entree.refs++;
-    this.wanted.set(cle, entree);
-    this.establish(entree);
+    entry.refs++;
+    this.wanted.set(key, entry);
+    this.establish(entry);
 
     // Idempotente par appelant : un double appel ne doit pas voler la
     // référence d'un autre écran.
-    let rendue = false;
+    let rendered = false;
     return () => {
-      if (rendue) return;
-      rendue = true;
-      this.release(cle);
+      if (rendered) return;
+      rendered = true;
+      this.release(key);
     };
   }
 
@@ -331,46 +331,46 @@ export class ClientDdp {
    * `params` reçoit toujours l'objet `{ useCollection: false, args: [] }` en
    * dernier argument : c'est la convention des « streamers » de Rocket.Chat.
    */
-  private establish(entree: SouscriptionDesiree): void {
-    if (this.state !== 'authenticated' || entree.id !== null || entree.inFlight) return;
-    const cle = `${entree.name}|${entree.eventKey}`;
+  private establish(entry: DesiredSubscription): void {
+    if (this.state !== 'authenticated' || entry.id !== null || entry.inFlight) return;
+    const key = `${entry.name}|${entry.eventKey}`;
     const id = `s${++this.counter}`;
-    entree.inFlight = true;
+    entry.inFlight = true;
 
-    entree.ready = this.waitFor(id, `sub ${entree.name}`)
+    entry.ready = this.waitFor(id, `sub ${entry.name}`)
       .then(() => {
-        entree.inFlight = false;
-        if (this.wanted.get(cle) !== entree) {
+        entry.inFlight = false;
+        if (this.wanted.get(key) !== entry) {
           // Relâchée pendant la négociation : le serveur vient de l'établir,
           // on la coupe aussitôt plutôt que de la laisser fuir.
           this.send({ msg: 'unsub', id });
           return;
         }
-        entree.id = id;
+        entry.id = id;
       })
       .catch(() => {
         // `nosub` ou socket morte : `id` reste null. L'entrée reste désirée
         // et sera retentée à la prochaine authentification.
-        entree.inFlight = false;
+        entry.inFlight = false;
       });
 
     this.send({
       msg: 'sub',
       id,
-      name: entree.name,
-      params: [entree.eventKey, { useCollection: false, args: [] }],
+      name: entry.name,
+      params: [entry.eventKey, { useCollection: false, args: [] }],
     });
   }
 
   /** Ne coupe la souscription sur le fil que lorsque le dernier appelant s'en va. */
-  private release(cle: string): void {
-    const entree = this.wanted.get(cle);
-    if (entree === undefined) return;
-    if (--entree.refs > 0) return;
-    this.wanted.delete(cle);
+  private release(key: string): void {
+    const entry = this.wanted.get(key);
+    if (entry === undefined) return;
+    if (--entry.refs > 0) return;
+    this.wanted.delete(key);
     // Si une négociation est en vol, son `.then` verra l'entrée disparue et
     // enverra l'`unsub` lui-même.
-    if (entree.id !== null) this.send({ msg: 'unsub', id: entree.id });
+    if (entry.id !== null) this.send({ msg: 'unsub', id: entry.id });
   }
 
   close(): void {
@@ -393,11 +393,11 @@ export class ClientDdp {
    * rejouée à la prochaine authentification.
    */
   async armedSubscriptions(): Promise<void> {
-    const negociations: Promise<void>[] = [];
-    for (const entree of this.wanted.values()) {
-      if (entree.ready !== null) negociations.push(entree.ready);
+    const negotiations: Promise<void>[] = [];
+    for (const entry of this.wanted.values()) {
+      if (entry.ready !== null) negotiations.push(entry.ready);
     }
-    await Promise.all(negociations);
+    await Promise.all(negotiations);
   }
 
   /**
@@ -456,9 +456,9 @@ export class ClientDdp {
     if (this.state !== 'connected' && this.state !== 'authenticated') return false;
     const id = `v${++this.counter}`;
     try {
-      const promesse = this.waitFor(id, 'sonde de vie');
+      const promise = this.waitFor(id, 'sonde de vie');
       this.send({ msg: 'ping', id });
-      await promesse;
+      await promise;
       return true;
     } catch {
       // Le cast : TypeScript ne voit pas que `etat` a pu changer pendant
@@ -472,29 +472,29 @@ export class ClientDdp {
   }
 
   /** Seule méthode DDP encore appelée : `login`. Voir l'en-tête du fichier. */
-  private call(methode: string, ...params: unknown[]): Promise<unknown> {
+  private call(method: string, ...params: unknown[]): Promise<unknown> {
     const id = `m${++this.counter}`;
-    const promesse = this.waitFor(id, `method ${methode}`);
-    this.send({ msg: 'method', id, method: methode, params });
-    return promesse;
+    const promise = this.waitFor(id, `method ${method}`);
+    this.send({ msg: 'method', id, method, params });
+    return promise;
   }
 
-  private waitFor(id: string, quoi: string): Promise<unknown> {
-    return new Promise((resoudre, rejeter) => {
-      const minuterie = setTimeout(() => {
+  private waitFor(id: string, what: string): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
         this.pending.delete(id);
-        rejeter(new DdpError(`${quoi} : ni réponse ni erreur en ${this.timeoutMs} ms.`));
+        reject(new DdpError(`${what} : ni réponse ni erreur en ${this.timeoutMs} ms.`));
       }, this.timeoutMs);
-      this.pending.set(id, { resolve: resoudre, reject: rejeter, timer: minuterie });
+      this.pending.set(id, { resolve, reject, timer });
     });
   }
 
-  private finish(id: string, valeur: unknown, erreur?: unknown): void {
-    const attente = this.pending.get(id);
-    if (!attente) return;
+  private finish(id: string, value: unknown, error?: unknown): void {
+    const wait = this.pending.get(id);
+    if (!wait) return;
     this.pending.delete(id);
-    clearTimeout(attente.timer);
-    erreur === undefined ? attente.resolve(valeur) : attente.reject(erreur);
+    clearTimeout(wait.timer);
+    error === undefined ? wait.resolve(value) : wait.reject(error);
   }
 
   private receive(m: MessageDdp): void {
@@ -546,17 +546,17 @@ export class ClientDdp {
       case 'changed': {
         // Format des streamers : `collection` = nom du stream, la clé est dans
         // `fields.eventName`, la charge utile dans `fields.args`.
-        const cleEvenement = m.fields?.eventName;
-        if (m.collection === undefined || cleEvenement === undefined) break;
-        const evenement: DdpEvent = {
+        const eventKey = m.fields?.eventName;
+        if (m.collection === undefined || eventKey === undefined) break;
+        const event: DdpEvent = {
           collection: m.collection,
-          eventKey: cleEvenement,
+          eventKey,
           args: m.fields?.args ?? [],
         };
         // Un écouteur qui lève ne doit pas empêcher les autres de recevoir.
-        for (const ecouteur of [...this.listeners]) {
+        for (const listener of [...this.listeners]) {
           try {
-            ecouteur(evenement);
+            listener(event);
           } catch {
             /* ignoré volontairement */
           }
@@ -570,8 +570,8 @@ export class ClientDdp {
     }
   }
 
-  private send(objet: unknown): void {
-    this.ws?.send(JSON.stringify(objet));
+  private send(obj: unknown): void {
+    this.ws?.send(JSON.stringify(obj));
   }
 
   /**
@@ -587,7 +587,7 @@ export class ClientDdp {
    * partirait deux fois, et le second passage réémettrait l'événement sur un
    * objet déjà entièrement vidé.
    */
-  private cleanUp(raison: unknown): void {
+  private cleanUp(reason: unknown): void {
     if (this.cleanedUp) return;
     this.cleanedUp = true;
     this.stopWatchdog();
@@ -599,9 +599,9 @@ export class ClientDdp {
       this.ws.onerror = null;
     }
     // Une négociation en vol est rejetée tout de suite — pas au bout du délai.
-    this.cancelHandshake?.(raison);
+    this.cancelHandshake?.(reason);
     this.cancelHandshake = null;
-    for (const [id] of this.pending) this.finish(id, undefined, raison);
+    for (const [id] of this.pending) this.finish(id, undefined, reason);
     this.pending.clear();
     for (const s of this.wanted.values()) {
       s.id = null;
@@ -612,9 +612,9 @@ export class ClientDdp {
     this.ws = null;
 
     if (!this.closedOnPurpose) {
-      for (const ecouteur of [...this.lossListeners]) {
+      for (const listener of [...this.lossListeners]) {
         try {
-          ecouteur();
+          listener();
         } catch {
           /* un écouteur qui lève ne bloque pas les autres */
         }

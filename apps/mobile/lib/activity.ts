@@ -21,37 +21,37 @@ export class ActivityEngine {
    * bloqué en l'air. Rejette comme la promesse d'origine : l'appelant (le
    * pilote de reconnexion) garde sa gestion d'erreur intacte.
    */
-  async track<T>(cle: string, travail: Promise<T>): Promise<T> {
-    this.adjust(cle, 1);
+  async track<T>(key: string, work: Promise<T>): Promise<T> {
+    this.adjust(key, 1);
     try {
-      return await travail;
+      return await work;
     } finally {
-      this.adjust(cle, -1);
+      this.adjust(key, -1);
     }
   }
 
   /** `true` tant qu'au moins un fetch est en vol pour cette portée. */
-  active(cle: string): boolean {
-    return (this.counters.get(cle) ?? 0) > 0;
+  active(key: string): boolean {
+    return (this.counters.get(key) ?? 0) > 0;
   }
 
-  onChange(relire: () => void): () => void {
-    this.subscribers.add(relire);
+  onChange(reread: () => void): () => void {
+    this.subscribers.add(reread);
     return () => {
-      this.subscribers.delete(relire);
+      this.subscribers.delete(reread);
     };
   }
 
-  private adjust(cle: string, delta: number): void {
-    const avant = this.counters.get(cle) ?? 0;
-    const apres = avant + delta;
-    if (apres <= 0) this.counters.delete(cle);
-    else this.counters.set(cle, apres);
+  private adjust(key: string, delta: number): void {
+    const before = this.counters.get(key) ?? 0;
+    const after = before + delta;
+    if (after <= 0) this.counters.delete(key);
+    else this.counters.set(key, after);
     // Ne notifier que si l'état BOOLÉEN de la portée a basculé : un second
     // fetch concurrent (1→2, 2→1) ne re-rend personne — seuls comptent
     // l'allumage (0→1) et l'extinction (1→0).
-    if (avant > 0 !== apres > 0) {
-      for (const relire of this.subscribers) relire();
+    if (before > 0 !== after > 0) {
+      for (const reread of this.subscribers) reread();
     }
   }
 }

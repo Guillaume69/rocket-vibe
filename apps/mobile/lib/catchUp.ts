@@ -20,7 +20,7 @@ import { readMyIdentity } from './myProfile.ts';
 import { RestError, type ClientRest } from './rest.ts';
 import type { SyncEngine } from './sync.ts';
 
-type ReponseDelta = {
+type DeltaResponse = {
   update?: Record<string, unknown>[];
   remove?: { _id?: string }[];
 };
@@ -29,21 +29,21 @@ const iso = (epochMs: number): string => new Date(epochMs).toISOString();
 
 export async function catchUpGlobal(
   client: ClientRest,
-  moteur: SyncEngine,
-  estAbandonne: () => boolean = () => false,
+  engine: SyncEngine,
+  isDiscarded: () => boolean = () => false,
 ): Promise<void> {
-  const depot = moteur.syncStore;
-  const [depuisSalons, depuisAbonnements] = await Promise.all([
-    depot.readCursor('*', 'salons'),
-    depot.readCursor('*', 'abonnements'),
+  const store = engine.syncStore;
+  const [fromRooms, fromSubscriptions] = await Promise.all([
+    store.readCursor('*', 'salons'),
+    store.readCursor('*', 'abonnements'),
   ]);
 
-  const [salons, abonnements, moi] = await Promise.all([
-    client.get<ReponseDelta>('rooms.get', {
-      params: { updatedSince: depuisSalons === null ? undefined : iso(depuisSalons) },
+  const [rooms, subscriptions, me] = await Promise.all([
+    client.get<DeltaResponse>('rooms.get', {
+      params: { updatedSince: fromRooms === null ? undefined : iso(fromRooms) },
     }),
-    client.get<ReponseDelta>('subscriptions.get', {
-      params: { updatedSince: depuisAbonnements === null ? undefined : iso(depuisAbonnements) },
+    client.get<DeltaResponse>('subscriptions.get', {
+      params: { updatedSince: fromSubscriptions === null ? undefined : iso(fromSubscriptions) },
     }),
     // MA fiche : `me` porte `avatarETag`, seul moyen de rattraper une photo
     // changée pendant que l'app était fermée (aucun stream n'a pu l'annoncer).
@@ -54,28 +54,28 @@ export async function catchUpGlobal(
 
   // Une réponse qui atterrit après la déconnexion n'écrit pas dans la base
   // d'une session terminée.
-  if (estAbandonne()) return;
+  if (isDiscarded()) return;
 
-  if (moi !== null) await depot.saveIdentity(moi);
+  if (me !== null) await store.saveIdentity(me);
 
-  const recentSalons = await moteur.ingestRooms(salons.update ?? []);
-  for (const retire of salons.remove ?? []) {
-    if (typeof retire._id === 'string') await depot.deleteRoom(retire._id);
+  const recentRooms = await engine.ingestRooms(rooms.update ?? []);
+  for (const removed of rooms.remove ?? []) {
+    if (typeof removed._id === 'string') await store.deleteRoom(removed._id);
   }
-  if (recentSalons !== null) await depot.writeCursor('*', 'salons', recentSalons);
+  if (recentRooms !== null) await store.writeCursor('*', 'salons', recentRooms);
 
-  const recentAbonnements = await moteur.ingestSubscriptions(abonnements.update ?? []);
-  for (const retire of abonnements.remove ?? []) {
+  const recentSubscriptions = await engine.ingestSubscriptions(subscriptions.update ?? []);
+  for (const removed of subscriptions.remove ?? []) {
     // Projection serveur `{_id, _deletedAt}` : le `_id` de l'ABONNEMENT est la
     // seule clé (vérifié contre le source 8.5). D'où la colonne `sub_id`.
-    if (typeof retire._id === 'string') await depot.deleteBySubId(retire._id);
+    if (typeof removed._id === 'string') await store.deleteBySubId(removed._id);
   }
-  if (recentAbonnements !== null) {
-    await depot.writeCursor('*', 'abonnements', recentAbonnements);
+  if (recentSubscriptions !== null) {
+    await store.writeCursor('*', 'abonnements', recentSubscriptions);
   }
 }
 
-type ReponseAbonnements = {
+type SubscriptionsResponse = {
   update?: { rid?: unknown }[];
 };
 
@@ -105,30 +105,30 @@ type ReponseAbonnements = {
  */
 export async function reconcileRooms(
   client: ClientRest,
-  moteur: SyncEngine,
-  estAbandonne: () => boolean = () => false,
+  engine: SyncEngine,
+  isDiscarded: () => boolean = () => false,
 ): Promise<void> {
-  const connus = await moteur.syncStore.listKnownRids();
-  const reponse = await client.get<ReponseAbonnements>('subscriptions.get');
-  if (estAbandonne()) return;
+  const known = await engine.syncStore.listKnownRids();
+  const response = await client.get<SubscriptionsResponse>('subscriptions.get');
+  if (isDiscarded()) return;
 
-  const vivants: string[] = [];
-  for (const abonnement of reponse.update ?? []) {
-    if (typeof abonnement.rid === 'string') vivants.push(abonnement.rid);
+  const alive: string[] = [];
+  for (const subscription of response.update ?? []) {
+    if (typeof subscription.rid === 'string') alive.push(subscription.rid);
   }
-  if (vivants.length === 0) return;
+  if (alive.length === 0) return;
 
-  await moteur.syncStore.purgeMissingRooms(vivants, connus);
+  await engine.syncStore.purgeMissingRooms(alive, known);
 }
 
-type ResultatSync = {
+type SyncResult = {
   updated?: Record<string, unknown>[];
   deleted?: { _id?: string; _deletedAt?: unknown }[];
   /** Présent SEULEMENT en mode curseur — c'est notre test de support. */
   cursor?: { next?: string | null; previous?: string | null } | null;
 };
 
-type ReponseSyncMessages = { result?: ResultatSync };
+type SyncMessagesResponse = { result?: SyncResult };
 
 /**
  * Pourquoi la pagination par curseur, et pas une fenêtre de temps.
@@ -188,28 +188,28 @@ const PAGE = 50;
 const PAGES_MAX = 2;
 
 /** Curseur des suppressions : timeline `_deletedAt`, distincte d'`_updatedAt`. */
-const FLUX_SUPPRIMES = 'messages-supprimes';
+const DELETED_STREAM = 'messages-supprimes';
 
 /**
  * Fenêtre du REPLI temporel, pour un serveur antérieur au mode curseur (< 7.5).
  * Voir `rattraperParDate` : c'est le moins mauvais qu'on puisse faire quand le
  * serveur refuse de borner lui-même.
  */
-const FENETRE_MAX_MS = 24 * 60 * 60 * 1000;
+const MAX_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Une page en mode curseur. Rend `null` quand le serveur ne connaît pas ce mode
  * — soit il refuse les paramètres (400), soit il répond sans `cursor`.
  */
-async function pageCurseur(
+async function cursorPage(
   client: ClientRest,
   rid: string,
   type: 'UPDATED' | 'DELETED',
   next: number,
-): Promise<{ result: ResultatSync; next: number | null } | null> {
-  let reponse: ReponseSyncMessages;
+): Promise<{ result: SyncResult; next: number | null } | null> {
+  let response: SyncMessagesResponse;
   try {
-    reponse = await client.get<ReponseSyncMessages>('chat.syncMessages', {
+    response = await client.get<SyncMessagesResponse>('chat.syncMessages', {
       // `lastUpdate` est EXCLU délibérément : présent, il GAGNE sur `type`/`next`
       // et la réponse retombe en mode non borné (vérifié sur 8.5). Le curseur est
       // un epoch ms en clair, donc forgeable depuis celui qu'on a déjà — aucun
@@ -223,14 +223,14 @@ async function pageCurseur(
     if (e instanceof RestError && e.status === 400) return null;
     throw e;
   }
-  const resultat = reponse.result;
-  if (resultat === undefined || resultat.cursor === undefined || resultat.cursor === null) {
+  const result = response.result;
+  if (result === undefined || result.cursor === undefined || result.cursor === null) {
     return null;
   }
-  const brut = Number(resultat.cursor.next);
+  const raw = Number(result.cursor.next);
   return {
-    result: resultat,
-    next: typeof resultat.cursor.next === 'string' && Number.isFinite(brut) ? brut : null,
+    result,
+    next: typeof result.cursor.next === 'string' && Number.isFinite(raw) ? raw : null,
   };
 }
 
@@ -244,33 +244,33 @@ async function pageCurseur(
  * Rend `false` si le serveur refuse le mode curseur dès la PREMIÈRE page
  * (mode inconnu, l'appelant se replie) ; `true` sinon.
  */
-async function paginerCurseur(
+async function paginateCursor(
   client: ClientRest,
-  depot: SyncEngine['syncStore'],
+  store: SyncEngine['syncStore'],
   rid: string,
   type: 'UPDATED' | 'DELETED',
-  flux: string,
-  depuis: number,
-  estAbandonne: () => boolean,
-  appliquer: (resultat: ResultatSync) => Promise<number | null>,
+  stream: string,
+  since: number,
+  isDiscarded: () => boolean,
+  apply: (result: SyncResult) => Promise<number | null>,
 ): Promise<boolean> {
-  let curseur = depuis;
+  let cursor = since;
   for (let page = 0; page < PAGES_MAX; page++) {
-    const reponse = await pageCurseur(client, rid, type, curseur);
+    const response = await cursorPage(client, rid, type, cursor);
     // Refus dès la PREMIÈRE page = serveur sans mode curseur → repli. Plus loin,
     // le mode est déjà prouvé : on garde ce qui a été ingéré, sans se replier.
-    if (reponse === null) return page !== 0;
+    if (response === null) return page !== 0;
     // Une réponse qui atterrit après la déconnexion n'écrit pas dans la base
     // d'une session terminée.
-    if (estAbandonne()) return true;
+    if (isDiscarded()) return true;
 
-    const recent = await appliquer(reponse.result);
+    const recent = await apply(response.result);
 
     // On avance sur le curseur du SERVEUR, pas sur le plus grand horodatage
     // ingéré : lui seul reprend la pagination exactement où elle s'est arrêtée,
     // groupes d'ex æquo compris. `ecrireCurseur` interdit déjà toute régression.
-    const suivant = reponse.next;
-    if (suivant === null || suivant <= curseur) {
+    const next = response.next;
+    if (next === null || next <= cursor) {
       // DERNIÈRE page — et c'est le cas NOMINAL, pas un cas limite : mesuré sur
       // 8.5, le serveur rend `cursor.next = null` dès qu'il ne reste rien après,
       // page PLEINE comprise (50 documents rendus, `next` nul). Un rattrapage
@@ -285,13 +285,13 @@ async function paginerCurseur(
       // On avance donc sur le plus grand horodatage INGÉRÉ. Sûr ici, et
       // seulement ici : le serveur vient d'affirmer qu'il n'y a plus rien
       // au-delà, donc aucun ex æquo ne peut rester en attente derrière ce point.
-      if (recent !== null && recent > curseur) {
-        await depot.writeCursor(rid, flux, recent);
+      if (recent !== null && recent > cursor) {
+        await store.writeCursor(rid, stream, recent);
       }
       return true;
     }
-    curseur = suivant;
-    await depot.writeCursor(rid, flux, curseur);
+    cursor = next;
+    await store.writeCursor(rid, stream, cursor);
   }
   // Jamais en silence : une troncature muette se lirait comme « tout est à jour ».
   console.warn(
@@ -301,59 +301,59 @@ async function paginerCurseur(
 }
 
 /** Rend `false` si le serveur ne sait pas paginer — l'appelant se replie. */
-function rattraperMisAJour(
+function catchUpUpdated(
   client: ClientRest,
-  moteur: SyncEngine,
+  engine: SyncEngine,
   rid: string,
-  depuis: number,
-  estAbandonne: () => boolean,
+  since: number,
+  isDiscarded: () => boolean,
 ): Promise<boolean> {
-  return paginerCurseur(
+  return paginateCursor(
     client,
-    moteur.syncStore,
+    engine.syncStore,
     rid,
     'UPDATED',
     'messages',
-    depuis,
-    estAbandonne,
-    (resultat) => moteur.ingestMessages(resultat.updated ?? []),
+    since,
+    isDiscarded,
+    (result) => engine.ingestMessages(result.updated ?? []),
   );
 }
 
-async function rattraperSupprimes(
+async function catchUpDeleted(
   client: ClientRest,
-  moteur: SyncEngine,
+  engine: SyncEngine,
   rid: string,
-  curseurMessages: number,
-  estAbandonne: () => boolean,
+  messagesCursor: number,
+  isDiscarded: () => boolean,
 ): Promise<void> {
-  const depot = moteur.syncStore;
-  const depuis = await depot.readCursor(rid, FLUX_SUPPRIMES);
-  if (depuis === null) {
+  const store = engine.syncStore;
+  const since = await store.readCursor(rid, DELETED_STREAM);
+  if (since === null) {
     // Premier passage : on ne rapatrie pas l'historique des suppressions depuis
     // l'origine. L'ouverture a chargé l'état COURANT des 50 derniers ; on cale
     // donc la timeline des suppressions sur ce qu'on connaît déjà du salon.
-    await depot.writeCursor(rid, FLUX_SUPPRIMES, curseurMessages);
+    await store.writeCursor(rid, DELETED_STREAM, messagesCursor);
     return;
   }
-  await paginerCurseur(
+  await paginateCursor(
     client,
-    depot,
+    store,
     rid,
     'DELETED',
-    FLUX_SUPPRIMES,
-    depuis,
-    estAbandonne,
-    async (resultat) => {
+    DELETED_STREAM,
+    since,
+    isDiscarded,
+    async (result) => {
       // Le plus grand `_deletedAt` de la page — l'équivalent, sur cette
       // timeline, du `_updatedAt` que rend `ingererMessages` : c'est lui qui
       // clôt la dernière page, sans quoi les MÊMES suppressions se
       // re-joueraient à chaque ouverture, à vie.
       let recent: number | null = null;
-      for (const efface of resultat.deleted ?? []) {
-        if (typeof efface._id === 'string') await depot.deleteMessage(efface._id);
+      for (const erased of result.deleted ?? []) {
+        if (typeof erased._id === 'string') await store.deleteMessage(erased._id);
         const date =
-          typeof efface._deletedAt === 'string' ? Date.parse(efface._deletedAt) : Number.NaN;
+          typeof erased._deletedAt === 'string' ? Date.parse(erased._deletedAt) : Number.NaN;
         if (Number.isFinite(date) && (recent === null || date > recent)) recent = date;
       }
       return recent;
@@ -374,37 +374,37 @@ async function rattraperSupprimes(
  * éditions/suppressions ANCIENNES de l'intervalle, que l'ouverture et la
  * pagination re-téléchargent à jour.
  */
-async function rattraperParDate(
+async function catchUpByDate(
   client: ClientRest,
-  moteur: SyncEngine,
+  engine: SyncEngine,
   rid: string,
-  depuis: number,
-  estAbandonne: () => boolean,
-  maintenant: () => number,
+  since: number,
+  isDiscarded: () => boolean,
+  now: () => number,
 ): Promise<void> {
-  const depot = moteur.syncStore;
+  const store = engine.syncStore;
   // Jamais à rebours du curseur : on ne redemande pas ce qu'on a déjà ingéré.
-  const borne = Math.max(depuis, maintenant() - FENETRE_MAX_MS);
+  const bound = Math.max(since, now() - MAX_WINDOW_MS);
 
-  let reponse: ReponseSyncMessages;
+  let response: SyncMessagesResponse;
   try {
-    reponse = await client.get<ReponseSyncMessages>('chat.syncMessages', {
-      params: { roomId: rid, lastUpdate: iso(borne) },
+    response = await client.get<SyncMessagesResponse>('chat.syncMessages', {
+      params: { roomId: rid, lastUpdate: iso(bound) },
     });
   } catch (e) {
-    if (!estAbandonne()) {
-      const recentLocal = await depot.lastMessageUpdatedAt(rid);
-      if (recentLocal !== null) await depot.writeCursor(rid, 'messages', recentLocal);
+    if (!isDiscarded()) {
+      const recentLocal = await store.lastMessageUpdatedAt(rid);
+      if (recentLocal !== null) await store.writeCursor(rid, 'messages', recentLocal);
     }
     throw e;
   }
-  if (estAbandonne()) return;
+  if (isDiscarded()) return;
 
-  const recent = await moteur.ingestMessages(reponse.result?.updated ?? []);
-  for (const efface of reponse.result?.deleted ?? []) {
-    if (typeof efface._id === 'string') await depot.deleteMessage(efface._id);
+  const recent = await engine.ingestMessages(response.result?.updated ?? []);
+  for (const erased of response.result?.deleted ?? []) {
+    if (typeof erased._id === 'string') await store.deleteMessage(erased._id);
   }
-  if (recent !== null) await depot.writeCursor(rid, 'messages', recent);
+  if (recent !== null) await store.writeCursor(rid, 'messages', recent);
 }
 
 /**
@@ -417,15 +417,15 @@ async function rattraperParDate(
  * Passer par `rattraperSalon` — jamais d'appel direct : c'est le sérialiseur
  * ci-dessous qui garantit qu'une seule pagination court à la fois par salon.
  */
-async function rattraperSalonBrut(
+async function catchUpRawRoom(
   client: ClientRest,
-  moteur: SyncEngine,
+  engine: SyncEngine,
   rid: string,
-  estAbandonne: () => boolean,
-  maintenant: () => number,
+  isDiscarded: () => boolean,
+  now: () => number,
 ): Promise<void> {
-  const depuis = await moteur.syncStore.readCursor(rid, 'messages');
-  if (depuis === null) return;
+  const since = await engine.syncStore.readCursor(rid, 'messages');
+  if (since === null) return;
 
   // En SÉRIE, délibérément. Les deux flux sont indépendants et les paralléliser
   // gagnerait ~0,6 s sur la première ouverture d'un gros salon — mais rendrait
@@ -433,19 +433,19 @@ async function rattraperSalonBrut(
   // vérifier la pagination. Depuis que la réouverture d'un salon resté écouté ne
   // rattrape plus du tout (`ui/hotRooms.ts`), ce chemin ne sert qu'à la
   // PREMIÈRE ouverture, où l'historique se charge de toute façon en parallèle.
-  if (!(await rattraperMisAJour(client, moteur, rid, depuis, estAbandonne))) {
-    await rattraperParDate(client, moteur, rid, depuis, estAbandonne, maintenant);
+  if (!(await catchUpUpdated(client, engine, rid, since, isDiscarded))) {
+    await catchUpByDate(client, engine, rid, since, isDiscarded, now);
     return;
   }
-  if (estAbandonne()) return;
-  await rattraperSupprimes(client, moteur, rid, depuis, estAbandonne);
+  if (isDiscarded()) return;
+  await catchUpDeleted(client, engine, rid, since, isDiscarded);
 }
 
 /**
  * Une passe de rattrapage sur un salon : celle qui court, ou celle déjà
  * programmée derrière elle.
  */
-type Passe = {
+type Pass = {
   /**
    * La session propriétaire. Une passe d'un client rangé (déconnexion,
    * changement de serveur) ne se rejoint pas : elle écrit avec un jeton mort.
@@ -456,14 +456,14 @@ type Passe = {
    * que si CHACUN a lâché — le premier arrivé peut disparaître (effet rejoué,
    * écran démonté) pendant qu'un autre attend toujours cette lecture.
    */
-  abandons: (() => boolean)[];
+  aborts: (() => boolean)[];
   /** Faux tant que la passe attend celle qui la précède. */
   started: boolean;
   end: Promise<void>;
 };
 
 /** Une entrée par salon : la passe la plus récemment PROGRAMMÉE. */
-const passes = new Map<string, Passe>();
+const passes = new Map<string, Pass>();
 
 /**
  * Rattrape UN salon, une pagination à la fois.
@@ -498,44 +498,44 @@ const passes = new Map<string, Passe>();
  */
 export function catchUpRoom(
   client: ClientRest,
-  moteur: SyncEngine,
+  engine: SyncEngine,
   rid: string,
-  estAbandonne: () => boolean = () => false,
-  maintenant: () => number = () => Date.now(),
+  isDiscarded: () => boolean = () => false,
+  now: () => number = () => Date.now(),
 ): Promise<void> {
-  const programmee = passes.get(rid);
-  const memeSession = programmee !== undefined && programmee.client === client;
+  const scheduled = passes.get(rid);
+  const sameSession = scheduled !== undefined && scheduled.client === client;
   // (1) Elle n'a pas encore lu son curseur : ce demandeur-ci se fond dedans.
-  if (memeSession && !programmee.started) {
-    programmee.abandons.push(estAbandonne);
-    return programmee.end;
+  if (sameSession && !scheduled.started) {
+    scheduled.aborts.push(isDiscarded);
+    return scheduled.end;
   }
   // (2) Sinon une passe neuve — derrière celle qui court, jamais à côté.
-  const precedente = memeSession ? programmee.end : null;
-  const passe: Passe = {
+  const previous = sameSession ? scheduled.end : null;
+  const pass: Pass = {
     client,
-    abandons: [estAbandonne],
+    aborts: [isDiscarded],
     started: false,
     end: Promise.resolve(),
   };
-  passe.end = (async () => {
+  pass.end = (async () => {
     // L'échec de la précédente n'annule pas la demande de celle-ci : ses
     // demandeurs attendent une lecture, pas le sort de la lecture d'autrui.
-    if (precedente !== null) await precedente.catch(() => {});
-    passe.started = true;
-    await rattraperSalonBrut(
+    if (previous !== null) await previous.catch(() => {});
+    pass.started = true;
+    await catchUpRawRoom(
       client,
-      moteur,
+      engine,
       rid,
-      () => passe.abandons.every((abandonne) => abandonne()),
-      maintenant,
+      () => pass.aborts.every((discarded) => discarded()),
+      now,
     );
   })().finally(() => {
     // Seulement si personne n'a pris la place derrière : sinon on effacerait
     // l'entrée d'une passe encore à venir, qui deviendrait invisible aux
     // demandes suivantes — et deux paginations repartiraient de front.
-    if (passes.get(rid) === passe) passes.delete(rid);
+    if (passes.get(rid) === pass) passes.delete(rid);
   });
-  passes.set(rid, passe);
-  return passe.end;
+  passes.set(rid, pass);
+  return pass.end;
 }

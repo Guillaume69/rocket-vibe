@@ -62,44 +62,44 @@ export type HookupOptions = {
 
 export async function hookUp(options: HookupOptions): Promise<void> {
   const {
-    streamAlreadyActive: streamDejaActif,
-    openStream: ouvrirStream,
-    streamArmed: streamArme,
-    catchUp: rattraper,
-    then: ensuite,
-    isDiscarded: estAbandonne = () => false,
+    streamAlreadyActive,
+    openStream,
+    streamArmed,
+    catchUp,
+    then,
+    isDiscarded = () => false,
   } = options;
 
   // Lu AVANT d'ouvrir quoi que ce soit : la question est bien « le stream
   // couvrait-il déjà quand la lecture ci-dessous a démarré ? ».
-  const dejaCouvert = streamDejaActif();
+  const alreadyCovered = streamAlreadyActive();
 
   // L'issue du stream est observée TOUT DE SUITE — sans cette absorption, son
   // rejet pendant la lecture remonterait en « unhandled rejection ». L'erreur
   // est conservée comme VALEUR, pour être relevée à la fin.
-  const echecStream = ouvrirStream().then(
+  const streamFailure = openStream().then(
     (): Error | null => null,
     (e: unknown): Error => (e instanceof Error ? e : new Error(String(e))),
   );
 
-  if (estAbandonne()) {
-    await echecStream;
+  if (isDiscarded()) {
+    await streamFailure;
     return;
   }
-  await rattraper();
-  ensuite?.();
+  await catchUp();
+  then?.();
 
-  const erreur = await echecStream;
-  if (erreur !== null) throw erreur;
+  const error = await streamFailure;
+  if (error !== null) throw error;
   // Sans stream, il n'y a pas d'intervalle à couvrir : la prochaine tentative
   // du pilote refera l'ensemble.
-  if (dejaCouvert || estAbandonne()) return;
+  if (alreadyCovered || isDiscarded()) return;
 
   // Le stream vient d'être branché : on attend que le serveur ait ARMÉ nos
   // souscriptions, puis on relit. Cette lecture-là a forcément démarré après
   // l'armement — quelle que soit la latence — donc plus rien ne peut tomber
   // entre les deux transports. Curseurs frais : la réponse est quasi vide.
-  await streamArme();
-  if (estAbandonne()) return;
-  await rattraper();
+  await streamArmed();
+  if (isDiscarded()) return;
+  await catchUp();
 }

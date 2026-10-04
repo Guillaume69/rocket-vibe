@@ -3,101 +3,101 @@ import { describe, test } from 'node:test';
 
 import { TypingEngine, summarizeTyping } from './typing.ts';
 
-const evenement = (rid: string, args: unknown[]) => ({
+const event = (rid: string, args: unknown[]) => ({
   collection: 'stream-notify-room',
   eventKey: `${rid}/user-activity`,
   args,
 });
 
 /** Planificateur manuel : les minuteries se déclenchent à la demande. */
-function fauxTemps() {
-  const enAttente = new Map<number, () => void>();
+function fakeTime() {
+  const pending = new Map<number, () => void>();
   let n = 0;
   return {
     schedule: (fn: () => void) => {
-      enAttente.set(++n, fn);
+      pending.set(++n, fn);
       return n;
     },
-    cancel: (a: unknown) => void enAttente.delete(a as number),
-    declencherTout: () => {
-      for (const fn of [...enAttente.values()]) fn();
-      enAttente.clear();
+    cancel: (a: unknown) => void pending.delete(a as number),
+    fireAll: () => {
+      for (const fn of [...pending.values()]) fn();
+      pending.clear();
     },
-    size: () => enAttente.size,
+    size: () => pending.size,
   };
 }
 
 describe('MoteurSaisie', () => {
   test('taper affiche, s’arrêter efface, et je ne me vois jamais', () => {
-    const temps = fauxTemps();
-    const moteur = new TypingEngine({ rid: 'r1', me: 'alice', ...temps });
+    const time = fakeTime();
+    const engine = new TypingEngine({ rid: 'r1', me: 'alice', ...time });
     let notifications = 0;
-    moteur.onChange(() => notifications++);
+    engine.onChange(() => notifications++);
 
-    moteur.apply(evenement('r1', ['bob', ['user-typing'], {}]));
-    assert.deepEqual(moteur.whoIsTyping(), ['bob']);
+    engine.apply(event('r1', ['bob', ['user-typing'], {}]));
+    assert.deepEqual(engine.whoIsTyping(), ['bob']);
 
-    moteur.apply(evenement('r1', ['alice', ['user-typing'], {}]));
-    assert.deepEqual(moteur.whoIsTyping(), ['bob'], 'ma propre saisie est filtrée');
+    engine.apply(event('r1', ['alice', ['user-typing'], {}]));
+    assert.deepEqual(engine.whoIsTyping(), ['bob'], 'ma propre saisie est filtrée');
 
-    moteur.apply(evenement('r1', ['carol', ['user-typing'], {}]));
-    assert.deepEqual(moteur.whoIsTyping(), ['bob', 'carol']);
+    engine.apply(event('r1', ['carol', ['user-typing'], {}]));
+    assert.deepEqual(engine.whoIsTyping(), ['bob', 'carol']);
 
-    moteur.apply(evenement('r1', ['bob', [], {}]));
-    assert.deepEqual(moteur.whoIsTyping(), ['carol']);
+    engine.apply(event('r1', ['bob', [], {}]));
+    assert.deepEqual(engine.whoIsTyping(), ['carol']);
     assert.ok(notifications >= 3);
   });
 
   test('un autre salon ou une autre clé sont ignorés', () => {
-    const temps = fauxTemps();
-    const moteur = new TypingEngine({ rid: 'r1', me: null, ...temps });
-    moteur.apply(evenement('r2', ['bob', ['user-typing'], {}]));
-    moteur.apply({
+    const time = fakeTime();
+    const engine = new TypingEngine({ rid: 'r1', me: null, ...time });
+    engine.apply(event('r2', ['bob', ['user-typing'], {}]));
+    engine.apply({
       collection: 'stream-notify-room',
       eventKey: 'r1/deleteMessage',
       args: [{ _id: 'x' }],
     });
-    assert.deepEqual(moteur.whoIsTyping(), []);
+    assert.deepEqual(engine.whoIsTyping(), []);
   });
 
   test('sans événement « stop », l’entrée EXPIRE d’elle-même et notifie', () => {
-    const temps = fauxTemps();
-    const moteur = new TypingEngine({ rid: 'r1', me: null, ...temps });
+    const time = fakeTime();
+    const engine = new TypingEngine({ rid: 'r1', me: null, ...time });
     let notifications = 0;
-    moteur.onChange(() => notifications++);
+    engine.onChange(() => notifications++);
 
-    moteur.apply(evenement('r1', ['bob', ['user-typing'], {}]));
-    assert.deepEqual(moteur.whoIsTyping(), ['bob']);
+    engine.apply(event('r1', ['bob', ['user-typing'], {}]));
+    assert.deepEqual(engine.whoIsTyping(), ['bob']);
 
-    temps.declencherTout();
-    assert.deepEqual(moteur.whoIsTyping(), [], 'le « écrit… » fantôme s’éteint seul');
+    time.fireAll();
+    assert.deepEqual(engine.whoIsTyping(), [], 'le « écrit… » fantôme s’éteint seul');
     assert.equal(notifications, 2);
   });
 
   test('re-taper repousse l’échéance (l’ancienne minuterie est annulée)', () => {
-    const temps = fauxTemps();
-    const moteur = new TypingEngine({ rid: 'r1', me: null, ...temps });
-    moteur.apply(evenement('r1', ['bob', ['user-typing'], {}]));
-    moteur.apply(evenement('r1', ['bob', ['user-typing'], {}]));
-    assert.equal(temps.size(), 1, 'une seule minuterie vivante par utilisateur');
-    assert.deepEqual(moteur.whoIsTyping(), ['bob']);
+    const time = fakeTime();
+    const engine = new TypingEngine({ rid: 'r1', me: null, ...time });
+    engine.apply(event('r1', ['bob', ['user-typing'], {}]));
+    engine.apply(event('r1', ['bob', ['user-typing'], {}]));
+    assert.equal(time.size(), 1, 'une seule minuterie vivante par utilisateur');
+    assert.deepEqual(engine.whoIsTyping(), ['bob']);
   });
 
   test('arreter purge tout', () => {
-    const temps = fauxTemps();
-    const moteur = new TypingEngine({ rid: 'r1', me: null, ...temps });
-    moteur.apply(evenement('r1', ['bob', ['user-typing'], {}]));
-    moteur.stop();
-    assert.deepEqual(moteur.whoIsTyping(), []);
-    assert.equal(temps.size(), 0);
+    const time = fakeTime();
+    const engine = new TypingEngine({ rid: 'r1', me: null, ...time });
+    engine.apply(event('r1', ['bob', ['user-typing'], {}]));
+    engine.stop();
+    assert.deepEqual(engine.whoIsTyping(), []);
+    assert.equal(time.size(), 0);
   });
 });
 
 describe('resumerSaisie', () => {
   test('projection : un nom, deux noms, puis le compte seul', () => {
     assert.equal(summarizeTyping([]), null);
-    assert.deepEqual(summarizeTyping(['bob']), { forme: 'one', name: 'bob' });
-    assert.deepEqual(summarizeTyping(['bob', 'carol']), { forme: 'two', a: 'bob', b: 'carol' });
-    assert.deepEqual(summarizeTyping(['a', 'b', 'c']), { forme: 'many', n: 3 });
+    assert.deepEqual(summarizeTyping(['bob']), { form: 'one', name: 'bob' });
+    assert.deepEqual(summarizeTyping(['bob', 'carol']), { form: 'two', a: 'bob', b: 'carol' });
+    assert.deepEqual(summarizeTyping(['a', 'b', 'c']), { form: 'many', n: 3 });
   });
 });

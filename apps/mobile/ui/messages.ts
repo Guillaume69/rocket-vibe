@@ -806,7 +806,7 @@ export const LANGUAGE_NAMES: Record<Language, string> = {
 };
 
 export type TranslationParams = Record<string, string | number>;
-export type TranslateFn = (cle: TranslationKey, params?: TranslationParams) => string;
+export type TranslateFn = (key: TranslationKey, params?: TranslationParams) => string;
 
 /**
  * Langue du téléphone, en PUR JS : Hermes (RN 0.86) embarque `Intl`/ICU adossé
@@ -817,8 +817,8 @@ export type TranslateFn = (cle: TranslationKey, params?: TranslationParams) => s
  */
 export function deviceLanguage(): Language {
   const locale = Intl.DateTimeFormat().resolvedOptions().locale;
-  const sousTag = locale.split(/[-_]/)[0]?.toLowerCase();
-  return sousTag === 'fr' ? 'fr' : 'en';
+  const subTag = locale.split(/[-_]/)[0]?.toLowerCase();
+  return subTag === 'fr' ? 'fr' : 'en';
 }
 
 /**
@@ -829,9 +829,9 @@ export function deviceLanguage(): Language {
  * mémoïser par l'appelant : construire un `Intl.DateTimeFormat` coûte cher,
  * `format` non (cf. `useHeure`, ui/i18n.ts).
  */
-export function timeFormatter(langue: Language): (ms: number) => string {
-  const format = new Intl.DateTimeFormat(langue === 'fr' ? 'fr-FR' : 'en-US', {
-    hour: langue === 'fr' ? '2-digit' : 'numeric',
+export function timeFormatter(language: Language): (ms: number) => string {
+  const format = new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'en-US', {
+    hour: language === 'fr' ? '2-digit' : 'numeric',
     minute: '2-digit',
   });
   return (ms) => format.format(new Date(ms));
@@ -845,20 +845,20 @@ export function timeFormatter(langue: Language): (ms: number) => string {
  * `formateurHeure`. `maintenantMs` est lu à CHAQUE appel (une liste ouverte à
  * travers minuit re-rend « Aujourd'hui » juste) ; injectable pour les tests.
  */
-export function dayFormatter(langue: Language): (ms: number, maintenantMs?: number) => string {
-  const locale = langue === 'fr' ? 'fr-FR' : 'en-US';
-  const memeAnnee = new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long' });
-  const autreAnnee = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric' });
-  return (ms, maintenantMs = Date.now()) => {
-    const maintenant = new Date(maintenantMs);
-    const jour = dayKey(ms);
-    if (jour === dayKey(maintenantMs)) return translate(langue, 'separateurJour.aujourdhui');
-    const hier = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() - 1);
-    if (jour === dayKey(hier.getTime())) return translate(langue, 'separateurJour.hier');
+export function dayFormatter(language: Language): (ms: number, nowMs?: number) => string {
+  const locale = language === 'fr' ? 'fr-FR' : 'en-US';
+  const sameYear = new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long' });
+  const otherYear = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric' });
+  return (ms, nowMs = Date.now()) => {
+    const now = new Date(nowMs);
+    const day = dayKey(ms);
+    if (day === dayKey(nowMs)) return translate(language, 'separateurJour.aujourdhui');
+    const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    if (day === dayKey(yesterday.getTime())) return translate(language, 'separateurJour.hier');
     const date = new Date(ms);
-    return date.getFullYear() === maintenant.getFullYear()
-      ? memeAnnee.format(date)
-      : autreAnnee.format(date);
+    return date.getFullYear() === now.getFullYear()
+      ? sameYear.format(date)
+      : otherYear.format(date);
   };
 }
 
@@ -866,8 +866,8 @@ export function dayFormatter(langue: Language): (ms: number, maintenantMs?: numb
  * Sélection singulier/pluriel. FR : singulier pour 0 et 1 (« 0 membre »,
  * « 1 membre »), pluriel dès 2. EN : singulier pour 1 seulement.
  */
-function estPluriel(langue: Language, n: number): boolean {
-  return langue === 'fr' ? n > 1 : n !== 1;
+function isPlural(language: Language, n: number): boolean {
+  return language === 'fr' ? n > 1 : n !== 1;
 }
 
 /**
@@ -876,19 +876,19 @@ function estPluriel(langue: Language, n: number): boolean {
  * Un `{param}` sans valeur est laissé TEL QUEL — plus parlant qu'un « undefined »
  * en pleine phrase pour repérer un oubli d'argument.
  */
-function interpoler(
-  modele: string,
+function interpolate(
+  template: string,
   params: TranslationParams | undefined,
-  langue: Language,
+  language: Language,
 ): string {
-  let s = modele;
+  let s = template;
   if (s.includes(' | ') && typeof params?.n === 'number') {
-    const [singulier, pluriel] = s.split(' | ');
-    s = (estPluriel(langue, params.n) ? pluriel : singulier) ?? s;
+    const [singular, plural] = s.split(' | ');
+    s = (isPlural(language, params.n) ? plural : singular) ?? s;
   }
   if (params === undefined) return s;
-  return s.replace(/\{(\w+)\}/g, (brut, cle: string) =>
-    cle in params ? String(params[cle]) : brut,
+  return s.replace(/\{(\w+)\}/g, (raw, key: string) =>
+    key in params ? String(params[key]) : raw,
   );
 }
 
@@ -898,10 +898,10 @@ function interpoler(
  * mais un texte français reste préférable à une clé brute affichée.
  */
 export function translate(
-  langue: Language,
-  cle: TranslationKey,
+  language: Language,
+  key: TranslationKey,
   params?: TranslationParams,
 ): string {
-  const modele = CATALOGUES[langue][cle] ?? CATALOGUES.fr[cle];
-  return interpoler(modele, params, langue);
+  const template = CATALOGUES[language][key] ?? CATALOGUES.fr[key];
+  return interpolate(template, params, language);
 }

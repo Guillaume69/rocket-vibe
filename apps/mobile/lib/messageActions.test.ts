@@ -9,7 +9,7 @@ import {
 } from './messageActions.ts';
 import { RestError } from './rest.ts';
 
-const regles = {
+const rules = {
   editAllowed: true,
   editBlockMinutes: 5,
   deleteAllowed: true,
@@ -29,7 +29,7 @@ const base = {
     starred: false,
   },
   me: 'moi',
-  rules: regles,
+  rules,
   permissions: null as string[] | null,
   readOnly: false,
   encrypted: false,
@@ -55,8 +55,8 @@ describe('actionsPossibles', () => {
   test('le DÉLAI d’édition vient des settings, pas des permissions', () => {
     // 6 minutes après, avec BlockEditInMinutes = 5 : plus d'édition —
     // mais la suppression (délai 0 = illimité) reste.
-    const tard = { ...base, now: base.message.ts + 6 * 60_000 };
-    assert.deepEqual(actionsPossibles(tard), ['react', 'reply', 'replyInThread', 'copy', 'share', 'delete', 'pin', 'star']);
+    const late = { ...base, now: base.message.ts + 6 * 60_000 };
+    assert.deepEqual(actionsPossibles(late), ['react', 'reply', 'replyInThread', 'copy', 'share', 'delete', 'pin', 'star']);
   });
 
   test('`bypass-time-limit-edit-and-delete` rouvre l’édition après le délai', () => {
@@ -69,24 +69,24 @@ describe('actionsPossibles', () => {
   });
 
   test('`edit-message` permet de modifier le message d’AUTRUI', () => {
-    const moderateur = {
+    const moderator = {
       ...base,
       message: { ...base.message, authorId: 'lui' },
       permissions: ['edit-message'],
     };
-    assert.ok(actionsPossibles(moderateur).includes('edit'));
+    assert.ok(actionsPossibles(moderator).includes('edit'));
   });
 
   test('le message d’AUTRUI ne se modifie ni ne se supprime (sans permission)', () => {
-    const autrui = { ...base, message: { ...base.message, authorId: 'lui' } };
-    assert.deepEqual(actionsPossibles(autrui), ['react', 'reply', 'replyInThread', 'copy', 'share', 'pin', 'star']);
+    const others = { ...base, message: { ...base.message, authorId: 'lui' } };
+    assert.deepEqual(actionsPossibles(others), ['react', 'reply', 'replyInThread', 'copy', 'share', 'pin', 'star']);
   });
 
   test('lecture seule : ni réaction ni réponse ; message système : rien du tout', () => {
-    const enLectureSeule = actionsPossibles({ ...base, readOnly: true });
-    assert.ok(!enLectureSeule.includes('react'));
-    assert.ok(!enLectureSeule.includes('reply'));
-    assert.ok(!enLectureSeule.includes('replyInThread'));
+    const readOnly = actionsPossibles({ ...base, readOnly: true });
+    assert.ok(!readOnly.includes('react'));
+    assert.ok(!readOnly.includes('reply'));
+    assert.ok(!readOnly.includes('replyInThread'));
     assert.deepEqual(
       actionsPossibles({ ...base, message: { ...base.message, systemType: 'uj' } }),
       [],
@@ -99,15 +99,15 @@ describe('actionsPossibles', () => {
   // retire pas au déchiffrement. Le test affirmait donc « réagir reste » alors
   // que la sortie sèche sur `typeSysteme !== null` rendait un tableau vide.
   test('salon chiffré, message DÉCHIFFRÉ : tout, sauf répondre en citant', () => {
-    const lisible = actionsPossibles({
+    const readable = actionsPossibles({
       ...base,
       encrypted: true,
       message: { ...base.message, systemType: 'e2e', text: 'clair' },
     });
-    assert.deepEqual(lisible, ['react', 'replyInThread', 'copy', 'share', 'edit', 'delete', 'pin', 'star']);
+    assert.deepEqual(readable, ['react', 'replyInThread', 'copy', 'share', 'edit', 'delete', 'pin', 'star']);
     // La carte de citation est bâtie par le serveur depuis le texte, qu'il ne
     // lit pas dans un salon chiffré.
-    assert.ok(!lisible.includes('reply'));
+    assert.ok(!readable.includes('reply'));
   });
 
   test('salon chiffré, message ENCORE OPAQUE : aucune action', () => {
@@ -138,9 +138,9 @@ describe('actionsPossibles', () => {
   });
 
   test('lecture seule : copier et partager restent', () => {
-    const enLectureSeule = actionsPossibles({ ...base, readOnly: true });
-    assert.ok(enLectureSeule.includes('copy'));
-    assert.ok(enLectureSeule.includes('share'));
+    const readOnly = actionsPossibles({ ...base, readOnly: true });
+    assert.ok(readOnly.includes('copy'));
+    assert.ok(readOnly.includes('share'));
   });
 
   test('image sans légende : partager et enregistrer le fichier, mais rien à copier', () => {
@@ -157,11 +157,11 @@ describe('actionsPossibles', () => {
   });
 
   test('sans texte ni fichier, ou citation sans un mot : ni copier ni partager', () => {
-    const lien = '[ ](https://chat.example/channel/general?msg=abc)';
-    for (const texte of [null, '', '   ', lien, `${lien}  `]) {
-      const actions = actionsPossibles({ ...base, message: { ...base.message, text: texte } });
-      assert.ok(!actions.includes('copy'), String(texte));
-      assert.ok(!actions.includes('share'), String(texte));
+    const link = '[ ](https://chat.example/channel/general?msg=abc)';
+    for (const text of [null, '', '   ', link, `${link}  `]) {
+      const actions = actionsPossibles({ ...base, message: { ...base.message, text } });
+      assert.ok(!actions.includes('copy'), String(text));
+      assert.ok(!actions.includes('share'), String(text));
     }
   });
 });
@@ -199,11 +199,11 @@ describe('reglesDepuisReglages', () => {
 });
 
 describe('actionsPossibles — permissions chargées', () => {
-  const autrui = { ...base.message, authorId: 'lui' };
+  const others = { ...base.message, authorId: 'lui' };
 
   test('simple membre : ses messages oui, pas d’épingle', () => {
-    const membre = { ...base, permissions: ['delete-own-message'] };
-    const actions = actionsPossibles(membre);
+    const member = { ...base, permissions: ['delete-own-message'] };
+    const actions = actionsPossibles(member);
     assert.ok(actions.includes('edit') && actions.includes('delete'));
     assert.ok(!actions.includes('pin'));
   });
@@ -213,45 +213,45 @@ describe('actionsPossibles — permissions chargées', () => {
   });
 
   test('modérateur : modifie, supprime et épingle le message d’autrui, dans le délai', () => {
-    const moderateur = {
+    const moderator = {
       ...base,
-      message: autrui,
+      message: others,
       permissions: ['edit-message', 'delete-message', 'pin-message'],
     };
-    const actions = actionsPossibles(moderateur);
+    const actions = actionsPossibles(moderator);
     for (const x of ['edit', 'delete', 'pin'] as const) assert.ok(actions.includes(x), x);
 
-    const tard = actionsPossibles({ ...moderateur, now: base.message.ts + 6 * 60_000 });
-    assert.ok(!tard.includes('edit'), 'le délai vaut aussi pour edit-message');
-    assert.ok(tard.includes('delete'), 'délai de suppression illimité (0)');
+    const late = actionsPossibles({ ...moderator, now: base.message.ts + 6 * 60_000 });
+    assert.ok(!late.includes('edit'), 'le délai vaut aussi pour edit-message');
+    assert.ok(late.includes('delete'), 'délai de suppression illimité (0)');
   });
 
   test('force-delete-message supprime même hors délai et suppression désactivée', () => {
-    const proprio = {
+    const owner = {
       ...base,
-      message: autrui,
-      rules: { ...regles, deleteAllowed: false, deleteBlockMinutes: 1 },
+      message: others,
+      rules: { ...rules, deleteAllowed: false, deleteBlockMinutes: 1 },
       now: base.message.ts + 60 * 60_000,
       permissions: ['force-delete-message'],
     };
-    assert.ok(actionsPossibles(proprio).includes('delete'));
+    assert.ok(actionsPossibles(owner).includes('delete'));
   });
 });
 
 describe('actionsPossibles — épingler, étoiler', () => {
   test('un message épinglé propose Désépingler, un message étoilé par moi Retirer des favoris', () => {
-    const marque = { ...base, message: { ...base.message, pinned: true, starred: true } };
-    const actions = actionsPossibles(marque);
+    const mark = { ...base, message: { ...base.message, pinned: true, starred: true } };
+    const actions = actionsPossibles(mark);
     assert.ok(actions.includes('unpin') && !actions.includes('pin'));
     assert.ok(actions.includes('unstar') && !actions.includes('star'));
   });
 
   test('réglages fermés : ni épingle ni étoile', () => {
-    const ferme = {
+    const closed = {
       ...base,
-      rules: { ...regles, pinAllowed: false, starAllowed: false },
+      rules: { ...rules, pinAllowed: false, starAllowed: false },
     };
-    const actions = actionsPossibles(ferme);
+    const actions = actionsPossibles(closed);
     for (const a of ['pin', 'unpin', 'star', 'unstar'] as const) {
       assert.ok(!actions.includes(a), a);
     }
@@ -274,10 +274,10 @@ describe('messageDisparuDuServeur', () => {
   });
 
   test('statut 0 (réseau) ou 429 (rate limit) : on ne conclut PAS à la disparition', async () => {
-    const horsLigne = client(() => Promise.reject(new RestError('injoignable', 0)));
-    assert.equal(await messageGoneFromServer(horsLigne, 'm1'), false);
-    const limite = client(() => Promise.reject(new RestError('too many requests', 429)));
-    assert.equal(await messageGoneFromServer(limite, 'm1'), false);
+    const offline = client(() => Promise.reject(new RestError('injoignable', 0)));
+    assert.equal(await messageGoneFromServer(offline, 'm1'), false);
+    const limit = client(() => Promise.reject(new RestError('too many requests', 429)));
+    assert.equal(await messageGoneFromServer(limit, 'm1'), false);
   });
 
   test('une erreur qui n’est pas une ErreurRest ne conclut pas non plus', async () => {

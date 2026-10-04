@@ -29,29 +29,29 @@ import {
 } from './profilePreload.ts';
 import type { ClientRest } from './rest.ts';
 
-const UTILISATEUR = { _id: 'u1', username: 'alice' };
+const USER = { _id: 'u1', username: 'alice' };
 
-function differee<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
-  let resoudre!: (v: T) => void;
-  const promesse = new Promise<T>((r) => {
-    resoudre = r;
+function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
   });
-  return { promise: promesse, resolve: resoudre };
+  return { promise, resolve };
 }
 
-function fauxClient(poignees: {
+function fakeClient(handles: {
   usersInfo: () => Promise<unknown>;
   capabilities: () => Promise<unknown>;
 }): ClientRest {
   return {
     baseUrl: 'http://banc.local',
-    get: (chemin: string) =>
-      chemin === 'users.info' ? poignees.usersInfo() : poignees.capabilities(),
+    get: (path: string) =>
+      path === 'users.info' ? handles.usersInfo() : handles.capabilities(),
   } as unknown as ClientRest;
 }
 
 /** Assez de tours pour épuiser les chaînes de `then`/`await` du module. */
-async function drainer(): Promise<void> {
+async function drain(): Promise<void> {
   for (let i = 0; i < 25; i++) await Promise.resolve();
 }
 
@@ -68,27 +68,27 @@ describe('ouvrirFicheProfil', () => {
   test('réponse rapide : fiche en cache, navigation, indicateur jamais montré', async (t: TestContext) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
     setProfileClient(
-      fauxClient({
-        usersInfo: () => Promise.resolve({ user: UTILISATEUR }),
+      fakeClient({
+        usersInfo: () => Promise.resolve({ user: USER }),
         capabilities: () => Promise.resolve({}),
       }),
     );
     const busy: boolean[] = [];
-    const desabonner = subscribeProfileOpening((v) => busy.push(v));
+    const unsubscribe = subscribeProfileOpening((v) => busy.push(v));
 
-    const fin = openProfileCard({ username: 'alice' });
-    await drainer();
-    await fin;
+    const end = openProfileCard({ username: 'alice' });
+    await drain();
+    await end;
 
     assert.deepEqual(navigations, [{ username: 'alice' }]);
     assert.deepEqual(readPreloadedProfile({ username: 'alice' }), {
-      user: UTILISATEUR,
+      user: USER,
       error: null,
     });
     // `sabonnerOuvertureProfil` rejoue l'état courant (false) à l'abonnement ;
     // rien d'autre ne doit s'être affiché sous le seuil.
     assert.deepEqual(busy, [false]);
-    desabonner();
+    unsubscribe();
   });
 
   test("la sonde d'appel participe au plafond : elle traîne, on ouvre à 2 s sans fiche", async (t: TestContext) => {
@@ -96,20 +96,20 @@ describe('ouvrirFicheProfil', () => {
     // `users.info` répond tout de suite — c'est la SONDE qui pend : le
     // `Promise.all` ne doit pas résoudre, et seul le plafond ouvre.
     setProfileClient(
-      fauxClient({
-        usersInfo: () => Promise.resolve({ user: UTILISATEUR }),
-        capabilities: () => differee<unknown>().promise,
+      fakeClient({
+        usersInfo: () => Promise.resolve({ user: USER }),
+        capabilities: () => deferred<unknown>().promise,
       }),
     );
 
-    const fin = openProfileCard({ username: 'alice' });
-    await drainer();
+    const end = openProfileCard({ username: 'alice' });
+    await drain();
     assert.deepEqual(navigations, [], 'rien ne doit ouvrir avant le plafond');
 
     t.mock.timers.tick(450); // l'indicateur, à SON heure (voir l'en-tête)
     t.mock.timers.tick(1550); // puis le plafond
-    await drainer();
-    await fin;
+    await drain();
+    await end;
 
     assert.deepEqual(navigations, [{ username: 'alice' }]);
     // Plafond dépassé : l'entrée est PURGÉE — l'écran refera son chargement,
@@ -120,86 +120,86 @@ describe('ouvrirFicheProfil', () => {
   test("tout traîne : l'indicateur s'affiche à 450 ms et s'éteint à l'ouverture", async (t: TestContext) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
     setProfileClient(
-      fauxClient({
-        usersInfo: () => differee<unknown>().promise,
-        capabilities: () => differee<unknown>().promise,
+      fakeClient({
+        usersInfo: () => deferred<unknown>().promise,
+        capabilities: () => deferred<unknown>().promise,
       }),
     );
     const busy: boolean[] = [];
-    const desabonner = subscribeProfileOpening((v) => busy.push(v));
+    const unsubscribe = subscribeProfileOpening((v) => busy.push(v));
 
-    const fin = openProfileCard({ username: 'alice' });
-    await drainer();
+    const end = openProfileCard({ username: 'alice' });
+    await drain();
     t.mock.timers.tick(450);
-    await drainer();
+    await drain();
     assert.deepEqual(busy, [false, true], 'le seuil passé, la pastille est là');
 
     t.mock.timers.tick(1550);
-    await drainer();
-    await fin;
+    await drain();
+    await end;
 
     // Affichée depuis 1 550 ms > minimum 400 : extinction immédiate, ouverture.
     assert.deepEqual(busy, [false, true, false]);
     assert.deepEqual(navigations, [{ username: 'alice' }]);
-    desabonner();
+    unsubscribe();
   });
 
   test('anti-flash : une réponse juste après le seuil retient la pastille 400 ms', async (t: TestContext) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
-    const fiche = differee<unknown>();
+    const card = deferred<unknown>();
     setProfileClient(
-      fauxClient({
-        usersInfo: () => fiche.promise,
+      fakeClient({
+        usersInfo: () => card.promise,
         capabilities: () => Promise.resolve({}),
       }),
     );
     const busy: boolean[] = [];
-    const desabonner = subscribeProfileOpening((v) => busy.push(v));
+    const unsubscribe = subscribeProfileOpening((v) => busy.push(v));
 
-    const fin = openProfileCard({ username: 'alice' });
-    await drainer();
+    const end = openProfileCard({ username: 'alice' });
+    await drain();
     t.mock.timers.tick(450);
     t.mock.timers.tick(50);
-    fiche.resolve({ user: UTILISATEUR });
-    await drainer();
+    card.resolve({ user: USER });
+    await drain();
 
     // Réponse à 500 ms, pastille née à 450 : elle doit tenir jusqu'à 850.
     assert.deepEqual(busy, [false, true]);
     assert.deepEqual(navigations, [], "l'ouverture attend la fin de la pastille");
 
     t.mock.timers.tick(349);
-    await drainer();
+    await drain();
     assert.deepEqual(busy, [false, true]);
 
     t.mock.timers.tick(1);
-    await drainer();
-    await fin;
+    await drain();
+    await end;
     assert.deepEqual(busy, [false, true, false]);
     assert.deepEqual(navigations, [{ username: 'alice' }]);
-    desabonner();
+    unsubscribe();
   });
 
   test('réentrance : même cible fondue dans le vol en cours, autre cible non bloquée', async (t: TestContext) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
-    const fiche = differee<unknown>();
+    const card = deferred<unknown>();
     setProfileClient(
-      fauxClient({
-        usersInfo: () => fiche.promise,
+      fakeClient({
+        usersInfo: () => card.promise,
         capabilities: () => Promise.resolve({}),
       }),
     );
 
-    const premiere = openProfileCard({ username: 'alice' });
-    await drainer();
+    const first = openProfileCard({ username: 'alice' });
+    await drain();
     // Second tap sur la MÊME fiche pendant le vol : absorbé par la garde.
-    const doublon = openProfileCard({ username: 'alice' });
+    const duplicate = openProfileCard({ username: 'alice' });
     // Un tap sur une AUTRE fiche, lui, part — un verrou global l'avalerait.
-    const autre = openProfileCard({ username: 'bob' });
-    await drainer();
+    const other = openProfileCard({ username: 'bob' });
+    await drain();
 
-    fiche.resolve({ user: UTILISATEUR });
-    await drainer();
-    await Promise.all([premiere, doublon, autre]);
+    card.resolve({ user: USER });
+    await drain();
+    await Promise.all([first, duplicate, other]);
 
     // Alice d'abord : sa chaîne s'est abonnée la première à la fiche partagée —
     // l'ordre suit les microtâches, pas la « prise de main » de la garde.
@@ -207,7 +207,7 @@ describe('ouvrirFicheProfil', () => {
 
     // Le vol fini, la garde est rendue : rouvrir navigue à nouveau.
     await openProfileCard({ username: 'alice' });
-    await drainer();
+    await drain();
     assert.equal(navigations.length, 3);
   });
 });

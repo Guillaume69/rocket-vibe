@@ -164,7 +164,7 @@ export default function RootLayout() {
                   <ProfileOpeningIndicator />
                   <ToastHost />
                   {/* Redirige vers l'écran de partage dès qu'un intent arrive. */}
-                  <GardePartage />
+                  <ShareGuard />
                 </ImageViewerProvider>
               </SyncProvider>
             </SessionProvider>
@@ -187,19 +187,19 @@ export default function RootLayout() {
  * pour le partage suivant — sans dépendre du pathname, donc sans re-pousser
  * `/share` par-dessus le salon où l'on vient d'envoyer.
  */
-function GardePartage() {
+function ShareGuard() {
   const { hasShareIntent } = useShareIntentContext();
-  const routeur = useRouter();
-  const traite = useRef(false);
+  const appRouter = useRouter();
+  const handled = useRef(false);
 
   useEffect(() => {
-    if (hasShareIntent && !traite.current) {
-      traite.current = true;
-      routeur.push('/share');
+    if (hasShareIntent && !handled.current) {
+      handled.current = true;
+      appRouter.push('/share');
     } else if (!hasShareIntent) {
-      traite.current = false;
+      handled.current = false;
     }
-  }, [hasShareIntent, routeur]);
+  }, [hasShareIntent, appRouter]);
 
   return null;
 }

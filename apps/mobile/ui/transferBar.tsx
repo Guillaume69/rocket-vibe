@@ -10,21 +10,21 @@ import { progressLabel, useProgress } from './transfers.ts';
  * une pastille « ⬇ 37 % ». Rien quand aucun transfert n'est en cours.
  */
 export function TransferBar({
-  key: cle,
+  key,
   c,
-  radius: rayon,
+  radius,
 }: {
   key: string | null;
   c: Colors;
   /** Superposition sur un média, aux coins de ce rayon ; absent = forme ligne. */
   radius?: number;
 }) {
-  const p = useProgress(cle);
+  const p = useProgress(key);
   if (p === undefined) return null;
-  const remplissage = (
+  const padding = (
     <View
       style={[
-        styles.remplissage,
+        styles.padding,
         {
           width: p === null ? '100%' : `${Math.max(p * 100, 3)}%`,
           backgroundColor: c.accent,
@@ -34,20 +34,20 @@ export function TransferBar({
     />
   );
 
-  if (rayon === undefined) {
+  if (radius === undefined) {
     return (
       <View style={styles.row}>
-        <View style={[styles.track, { backgroundColor: c.surfaceActive }]}>{remplissage}</View>
+        <View style={[styles.track, { backgroundColor: c.surfaceActive }]}>{padding}</View>
         <Text style={[styles.percentage, { color: c.secondaryText }]}>{progressLabel(p)}</Text>
       </View>
     );
   }
   return (
-    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: rayon, overflow: 'hidden' }]}>
+    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: radius, overflow: 'hidden' }]}>
       <View style={[styles.badge, { backgroundColor: c.card + 'D9' }]}>
         <Text style={[styles.badgeText, { color: c.text }]}>⬇ {progressLabel(p)}</Text>
       </View>
-      <View style={[styles.track, styles.pisteMedia]}>{remplissage}</View>
+      <View style={[styles.track, styles.mediaTrack]}>{padding}</View>
     </View>
   );
 }
@@ -55,8 +55,8 @@ export function TransferBar({
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 6 },
   track: { flex: 1, height: 4, borderRadius: 2, overflow: 'hidden' },
-  remplissage: { height: '100%', borderRadius: 2 },
-  percentage: { fontFamily: FONTS.corpsSemi, fontSize: 12, minWidth: 36, textAlign: 'right' },
+  padding: { height: '100%', borderRadius: 2 },
+  percentage: { fontFamily: FONTS.bodySemi, fontSize: 12, minWidth: 36, textAlign: 'right' },
   badge: {
     position: 'absolute',
     top: 8,
@@ -65,8 +65,8 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 10,
   },
-  badgeText: { fontFamily: FONTS.corpsSemi, fontSize: 12 },
-  pisteMedia: {
+  badgeText: { fontFamily: FONTS.bodySemi, fontSize: 12 },
+  mediaTrack: {
     position: 'absolute',
     left: 0,
     right: 0,

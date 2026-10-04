@@ -36,21 +36,21 @@ type Groupable = {
  * grouperait les messages sous leur SUIVANT, pas leur précédent.
  */
 export function continuationIds(
-  lignes: readonly (Groupable | { id: string })[],
-  ordre: 'newest-first' | 'oldest-first',
+  rows: readonly (Groupable | { id: string })[],
+  order: 'newest-first' | 'oldest-first',
 ): Set<string> {
-  const suites = new Set<string>();
-  for (let i = 0; i < lignes.length; i++) {
-    const courant = lignes[i];
-    const precedent = lignes[ordre === 'newest-first' ? i + 1 : i - 1];
-    if (precedent === undefined) continue;
-    if (!estMessage(courant) || !estMessage(precedent)) continue;
-    if (!seGroupe(courant) || !seGroupe(precedent)) continue;
-    if (courant.authorId !== precedent.authorId) continue;
-    if (courant.ts - precedent.ts > GROUP_WINDOW_MS) continue;
-    suites.add(courant.id);
+  const continuations = new Set<string>();
+  for (let i = 0; i < rows.length; i++) {
+    const current = rows[i];
+    const prev = rows[order === 'newest-first' ? i + 1 : i - 1];
+    if (prev === undefined) continue;
+    if (!isMessage(current) || !isMessage(prev)) continue;
+    if (!groups(current) || !groups(prev)) continue;
+    if (current.authorId !== prev.authorId) continue;
+    if (current.ts - prev.ts > GROUP_WINDOW_MS) continue;
+    continuations.add(current.id);
   }
-  return suites;
+  return continuations;
 }
 
 /**
@@ -62,21 +62,21 @@ export function continuationIds(
  * chaîne (« même minute » est transitive).
  */
 export function repeatedTimeIds(
-  lignes: readonly (Groupable | { id: string })[],
-  ordre: 'newest-first' | 'oldest-first',
-  suites: ReadonlySet<string>,
+  rows: readonly (Groupable | { id: string })[],
+  order: 'newest-first' | 'oldest-first',
+  continuations: ReadonlySet<string>,
 ): Set<string> {
-  const repetees = new Set<string>();
-  for (let i = 0; i < lignes.length; i++) {
-    const courant = lignes[i];
-    if (!suites.has(courant.id)) continue;
-    const precedent = lignes[ordre === 'newest-first' ? i + 1 : i - 1];
-    if (precedent === undefined || !estMessage(courant) || !estMessage(precedent)) continue;
-    if (minuteAffichee(courant.ts) === minuteAffichee(precedent.ts)) {
-      repetees.add(courant.id);
+  const repeated = new Set<string>();
+  for (let i = 0; i < rows.length; i++) {
+    const current = rows[i];
+    if (!continuations.has(current.id)) continue;
+    const prev = rows[order === 'newest-first' ? i + 1 : i - 1];
+    if (prev === undefined || !isMessage(current) || !isMessage(prev)) continue;
+    if (shownMinute(current.ts) === shownMinute(prev.ts)) {
+      repeated.add(current.id);
     }
   }
-  return repetees;
+  return repeated;
 }
 
 /**
@@ -86,15 +86,15 @@ export function repeatedTimeIds(
  * de minute epoch reste donc une frontière de minute locale. Comparer cette
  * valeur équivaut à comparer la chaîne rendue, sans dépendre du formateur.
  */
-function minuteAffichee(ms: number): number {
+function shownMinute(ms: number): number {
   return Math.floor(ms / 60_000);
 }
 
-function seGroupe(m: Groupable): boolean {
+function groups(m: Groupable): boolean {
   return m.systemType === null || m.systemType === 'e2e';
 }
 
 /** Un message, par opposition aux lignes insérées (barre de non-lus, séparateur de jour). */
-function estMessage(l: Groupable | { id: string }): l is Groupable {
+function isMessage(l: Groupable | { id: string }): l is Groupable {
   return typeof (l as Groupable).authorId === 'string';
 }

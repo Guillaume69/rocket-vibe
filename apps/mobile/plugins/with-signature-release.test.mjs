@@ -8,9 +8,9 @@ import { createRequire } from 'node:module';
 import { test } from 'node:test';
 
 const require = createRequire(import.meta.url);
-const { signer } = require('./with-signature-release.js');
+const { sign } = require('./with-signature-release.js');
 
-const GABARIT = `android {
+const TEMPLATE = `android {
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
@@ -32,18 +32,18 @@ const GABARIT = `android {
 `;
 
 test('le release signe avec la clé de l’app, le debug garde la sienne', () => {
-  const sortie = signer(GABARIT);
-  assert.match(sortie, /release \{\s*\n\s*if \(System\.getenv\('RV_KEYSTORE'\)\)/);
-  assert.match(sortie, /release \{\s*\n\s*signingConfig signingConfigs\.release/);
-  assert.match(sortie, /debug \{\s*\n\s*signingConfig signingConfigs\.debug/);
-  assert.match(sortie, /throw new GradleException/);
+  const outbox = sign(TEMPLATE);
+  assert.match(outbox, /release \{\s*\n\s*if \(System\.getenv\('RV_KEYSTORE'\)\)/);
+  assert.match(outbox, /release \{\s*\n\s*signingConfig signingConfigs\.release/);
+  assert.match(outbox, /debug \{\s*\n\s*signingConfig signingConfigs\.debug/);
+  assert.match(outbox, /throw new GradleException/);
 });
 
 test('rejouer le prebuild ne double rien', () => {
-  const une = signer(GABARIT);
-  assert.equal(signer(une), une);
+  const one = sign(TEMPLATE);
+  assert.equal(sign(one), one);
 });
 
 test('un gabarit qui a changé fait échouer le prebuild', () => {
-  assert.throws(() => signer('android { }'), /signingConfigs\.debug introuvable/);
+  assert.throws(() => sign('android { }'), /signingConfigs\.debug introuvable/);
 });

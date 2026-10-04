@@ -51,20 +51,20 @@ import { Tappable } from '../ui/tappable.tsx';
 const PRESENCES: readonly DefaultStatus[] = ['online', 'away', 'busy', 'offline'];
 
 /** Les clés `commun.presence*` sont en minuscule ; ici, entrées d'un sélecteur. */
-const capitaliser = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+const capitalize = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
-type Bandeau = { type: 'success' | 'error' | 'info'; text: string };
+type Banner = { type: 'success' | 'error' | 'info'; text: string };
 
 export default function MyProfileScreen() {
-  const { state: etat } = useSession();
+  const { state } = useSession();
   const c = useColors();
   // Atteint depuis Paramètres ; un état déconnecté (déconnexion en cours)
   // renvoie au login plutôt que de crasher sur `client`.
-  if (etat.phase !== 'connected') return <Redirect href="/login" />;
-  return <FormMonProfil c={c} client={etat.client} username={etat.session.username} />;
+  if (state.phase !== 'connected') return <Redirect href="/login" />;
+  return <MyProfileForm c={c} client={state.client} username={state.session.username} />;
 }
 
-function FormMonProfil({
+function MyProfileForm({
   c,
   client,
   username,
@@ -74,89 +74,89 @@ function FormMonProfil({
   username: string;
 }) {
   const t = useT();
-  const routeur = useRouter();
-  const { updateSessionProfile: majProfilSession } = useSession();
-  const synchro = useSync();
+  const router = useRouter();
+  const { updateSessionProfile } = useSession();
+  const sync = useSync();
   // Le dépôt local, pour y ranger la version de ma photo après l'avoir changée.
   // `null` tant que la base n'est pas prête — l'enregistrement marche quand même,
   // le rattrapage du prochain raccordement (`me`) posera l'etag.
-  const depot = synchro.phase === 'ready' ? synchro.engine.syncStore : null;
+  const store = sync.phase === 'ready' ? sync.engine.syncStore : null;
   const etags = useEtagsAvatars();
   // `initial` = référence lue au chargement ; `form` = valeurs en cours d'édition.
   // Le diff des deux décide quels endpoints appeler. Après un enregistrement
   // réussi, `form` DEVIENT la nouvelle référence (le diff repart à zéro).
   const [initial, setInitial] = useState<MyProfile | null>(null);
   const [form, setForm] = useState<MyProfile | null>(null);
-  const [chargeErreur, setChargeErreur] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [avatarLocal, setAvatarLocal] = useState<FileToSend | null>(null);
-  const [motDePasse, setMotDePasse] = useState('');
-  const [occupe, setOccupe] = useState(false);
-  const [bandeau, setBandeau] = useState<Bandeau | null>(null);
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [banner, setBanner] = useState<Banner | null>(null);
 
   // Second facteur demandé par `users.updateOwnBasicInfo` (e-mail/pseudo).
-  const [demande2FA, setDemande2FA] = useState<TwoFactorError | null>(null);
+  const [twoFactorRequest, setTwoFactorRequest] = useState<TwoFactorError | null>(null);
   const [code, setCode] = useState('');
 
   // Garde de réentrance en ref (pas dans `occupe`) : deux events d'une même
   // frame liraient tous deux l'ancienne valeur — même raison qu'au login.
-  const enVol = useRef(false);
+  const inFlight = useRef(false);
 
   useEffect(() => {
-    let vivant = true;
+    let alive = true;
     readMyProfile(client)
       .then((p) => {
-        if (!vivant) return;
+        if (!alive) return;
         setInitial(p);
         setForm(p);
       })
       .catch((e: unknown) => {
-        if (vivant) setChargeErreur(e instanceof Error ? e.message : translateCurrent('monProfil.profilIllisible'));
+        if (alive) setLoadError(e instanceof Error ? e.message : translateCurrent('monProfil.profilIllisible'));
       });
     return () => {
-      vivant = false;
+      alive = false;
     };
   }, [client]);
 
-  const majChamp = useCallback((champ: keyof MyProfile, valeur: string) => {
-    setBandeau(null);
-    setForm((f) => (f === null ? f : { ...f, [champ]: valeur }));
+  const updateField = useCallback((field: keyof MyProfile, value: string) => {
+    setBanner(null);
+    setForm((f) => (f === null ? f : { ...f, [field]: value }));
   }, []);
 
-  const choisirPhoto = useCallback(async () => {
+  const pickPhoto = useCallback(async () => {
     try {
       const f = await pickAvatar();
       if (f !== null) {
         setAvatarLocal(f);
-        setBandeau(null);
+        setBanner(null);
       }
     } catch (e) {
-      setBandeau({ type: 'error', text: e instanceof Error ? e.message : t('monProfil.selectionImpossible') });
+      setBanner({ type: 'error', text: e instanceof Error ? e.message : t('monProfil.selectionImpossible') });
     }
   }, [t]);
 
-  const enregistrer = useCallback(
-    async (deuxFacteurs?: TwoFactorCode) => {
-      if (form === null || initial === null || enVol.current) return;
+  const save = useCallback(
+    async (twoFactor?: TwoFactorCode) => {
+      if (form === null || initial === null || inFlight.current) return;
 
-      const infos = diffInfos(initial, form);
-      const statutChange = form.status !== initial.status || form.statusText !== initial.statusText;
+      const info = diffInfos(initial, form);
+      const statusChanged = form.status !== initial.status || form.statusText !== initial.statusText;
       const avatarChange = avatarLocal !== null;
-      if (Object.keys(infos).length === 0 && !statutChange && !avatarChange) {
-        setBandeau({ type: 'info', text: t('monProfil.rienAEnregistrer') });
+      if (Object.keys(info).length === 0 && !statusChanged && !avatarChange) {
+        setBanner({ type: 'info', text: t('monProfil.rienAEnregistrer') });
         return;
       }
-      if (requiresPassword(infos) && motDePasse.trim() === '') {
-        setBandeau({
+      if (requiresPassword(info) && password.trim() === '') {
+        setBanner({
           type: 'error',
           text: t('monProfil.mdpRequis'),
         });
         return;
       }
 
-      enVol.current = true;
-      setOccupe(true);
-      setBandeau(null);
+      inFlight.current = true;
+      setBusy(true);
+      setBanner(null);
       try {
         // Chaque étape réussie devient ACQUISE sur-le-champ (`initial` mis à
         // jour champ par champ, `avatarLocal` vidé dès la photo posée) : une
@@ -170,18 +170,18 @@ function FormMonProfil({
         // Les infos de base EN PREMIER : seul appel susceptible d'exiger la 2FA.
         // S'il la réclame, il lève AVANT tout effet de bord (statut, avatar) —
         // on prompte, puis on rejoue toute la fonction avec le code.
-        if (Object.keys(infos).length > 0) {
-          const data: BasicInfo = { ...infos };
-          if (requiresPassword(infos)) data.currentPassword = await hash(motDePasse);
-          await saveBasicInfo(client, data, deuxFacteurs);
-          setInitial((i) => (i === null ? i : { ...i, ...infos }));
-          setMotDePasse('');
+        if (Object.keys(info).length > 0) {
+          const data: BasicInfo = { ...info };
+          if (requiresPassword(info)) data.currentPassword = await hash(password);
+          await saveBasicInfo(client, data, twoFactor);
+          setInitial((i) => (i === null ? i : { ...i, ...info }));
+          setPassword('');
           // Le pseudo est porté par la session (Paramètres, avatar de cet
           // écran) : le rafraîchir tout de suite, sinon il resterait à
           // l'ancienne valeur jusqu'à une reconnexion.
-          if (infos.username !== undefined) await majProfilSession({ username: infos.username });
+          if (info.username !== undefined) await updateSessionProfile({ username: info.username });
         }
-        if (statutChange) {
+        if (statusChanged) {
           await saveStatus(client, { status: form.status, message: form.statusText });
           setInitial((i) =>
             i === null ? i : { ...i, status: form.status, statusText: form.statusText },
@@ -199,54 +199,54 @@ function FormMonProfil({
         // `updateAvatar` le dirait aussi, mais on ne fait pas dépendre le retour
         // visuel d'une socket qui peut être tombée. Best-effort : la photo est
         // déjà enregistrée côté serveur, l'échec ici ne remet rien en cause.
-        if ((avatarChange || infos.username !== undefined) && depot !== null) {
-          const moi = await readMyIdentity(client).catch(() => null);
-          if (moi !== null) await depot.saveIdentity(moi).catch(() => {});
+        if ((avatarChange || info.username !== undefined) && store !== null) {
+          const me = await readMyIdentity(client).catch(() => null);
+          if (me !== null) await store.saveIdentity(me).catch(() => {});
         }
 
-        setDemande2FA(null);
+        setTwoFactorRequest(null);
         setCode('');
-        setBandeau({ type: 'success', text: t('monProfil.profilEnregistre') });
+        setBanner({ type: 'success', text: t('monProfil.profilEnregistre') });
       } catch (e) {
         if (e instanceof TwoFactorError) {
           // Le serveur veut un second facteur — ou refuse celui qu'on vient
           // d'envoyer, auquel cas il relève la même erreur.
-          if (deuxFacteurs !== undefined) setBandeau({ type: 'error', text: t('monProfil.codeRefuse') });
+          if (twoFactor !== undefined) setBanner({ type: 'error', text: t('monProfil.codeRefuse') });
           setCode('');
-          setDemande2FA(e);
+          setTwoFactorRequest(e);
         } else {
-          setBandeau({
+          setBanner({
             type: 'error',
             text: e instanceof Error ? e.message : t('monProfil.enregistrementImpossible'),
           });
         }
       } finally {
-        enVol.current = false;
-        setOccupe(false);
+        inFlight.current = false;
+        setBusy(false);
       }
     },
-    [form, initial, avatarLocal, motDePasse, client, depot, majProfilSession, t],
+    [form, initial, avatarLocal, password, client, store, updateSessionProfile, t],
   );
 
-  const validerCode = useCallback(async () => {
-    if (demande2FA === null || code.trim() === '') return;
+  const submitCode = useCallback(async () => {
+    if (twoFactorRequest === null || code.trim() === '') return;
     try {
-      const prepare = await prepareTwoFactorCode(demande2FA, code, hash);
-      await enregistrer(prepare);
+      const prepare = await prepareTwoFactorCode(twoFactorRequest, code, hash);
+      await save(prepare);
     } catch (e) {
-      setBandeau({
+      setBanner({
         type: 'error',
         text: e instanceof Error ? e.message : t('monProfil.preparationCodeImpossible'),
       });
     }
-  }, [demande2FA, code, enregistrer, t]);
+  }, [twoFactorRequest, code, save, t]);
 
-  if (chargeErreur !== null) {
+  if (loadError !== null) {
     return (
       <KeyboardAvoidingContainer>
         <Stack.Screen options={{ title: t('monProfil.titre') }} />
         <View style={styles.center}>
-          <Text style={[styles.erreurCharge, { color: c.errorText }]}>{chargeErreur}</Text>
+          <Text style={[styles.loadError, { color: c.errorText }]}>{loadError}</Text>
         </View>
       </KeyboardAvoidingContainer>
     );
@@ -263,7 +263,7 @@ function FormMonProfil({
     );
   }
 
-  const besoinMdp = form.email !== initial?.email || form.username !== initial?.username;
+  const needsPassword = form.email !== initial?.email || form.username !== initial?.username;
   const avatarUri =
     avatarLocal?.uri ?? urlAvatar(client, { username, etag: etags.byUsername.get(username) });
 
@@ -272,9 +272,9 @@ function FormMonProfil({
       <Stack.Screen options={{ title: t('monProfil.titre') }} />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {/* Avatar — tap pour changer. Aperçu immédiat de la photo choisie. */}
-        <View style={styles.avatarBloc}>
+        <View style={styles.avatarBlock}>
           <Pressable
-            onPress={() => void choisirPhoto()}
+            onPress={() => void pickPhoto()}
             accessibilityRole="button"
             accessibilityLabel={t('monProfil.changerPhotoLabel')}
             style={({ pressed }) => pressed && styles.pressed}
@@ -287,12 +287,12 @@ function FormMonProfil({
               radius={30}
               uri={avatarUri}
             />
-            <View style={[styles.crayon, { backgroundColor: c.accent, borderColor: c.background }]}>
-              <Text style={styles.crayonGlyphe}>✎</Text>
+            <View style={[styles.pencil, { backgroundColor: c.accent, borderColor: c.background }]}>
+              <Text style={styles.pencilGlyph}>✎</Text>
             </View>
           </Pressable>
-          <Pressable onPress={() => void choisirPhoto()} hitSlop={8}>
-            <Text style={[styles.changerPhoto, { color: c.cyan }]}>{t('monProfil.changerPhoto')}</Text>
+          <Pressable onPress={() => void pickPhoto()} hitSlop={8}>
+            <Text style={[styles.changePhoto, { color: c.cyan }]}>{t('monProfil.changerPhoto')}</Text>
           </Pressable>
         </View>
 
@@ -300,22 +300,22 @@ function FormMonProfil({
         <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('monProfil.sectionPresence')}</Text>
         <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
           {PRESENCES.map((p, i) => {
-            const actif = form.status === p;
-            const libelle = capitaliser(t(PRESENCE_KEYS[p]));
+            const active = form.status === p;
+            const label = capitalize(t(PRESENCE_KEYS[p]));
             return (
-              <View key={p} style={styles.enveloppePresence}>
+              <View key={p} style={styles.presenceWrapper}>
                 <Tappable
                   onPress={() => {
-                    setBandeau(null);
+                    setBanner(null);
                     setForm((f) => (f === null ? f : { ...f, status: p }));
                   }}
                   android_ripple={{ color: c.ripple }}
                   unstable_pressDelay={LIST_PRESS_DELAY}
                   accessibilityRole="radio"
-                  accessibilityState={{ selected: actif }}
-                  accessibilityLabel={libelle}
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={label}
                   style={[
-                    styles.presenceLigne,
+                    styles.presenceRow,
                     i > 0 && {
                       borderTopColor: c.softBorder,
                       borderTopWidth: StyleSheet.hairlineWidth,
@@ -325,15 +325,15 @@ function FormMonProfil({
                   <View style={[styles.badge, { backgroundColor: presenceColors(c)[p] }]} />
                   <Text
                     style={[
-                      styles.presenceTexte,
-                      { color: actif ? c.text : c.secondaryText },
-                      actif && styles.presenceTexteActif,
+                      styles.presenceText,
+                      { color: active ? c.text : c.secondaryText },
+                      active && styles.presenceTextActive,
                     ]}
                   >
-                    {libelle}
+                    {label}
                   </Text>
-                  <View style={[styles.radio, { borderColor: actif ? c.accent : c.border }]}>
-                    {actif && <View style={[styles.radioDot, { backgroundColor: c.accent }]} />}
+                  <View style={[styles.radio, { borderColor: active ? c.accent : c.border }]}>
+                    {active && <View style={[styles.radioDot, { backgroundColor: c.accent }]} />}
                   </View>
                 </Tappable>
               </View>
@@ -345,7 +345,7 @@ function FormMonProfil({
           c={c}
           label={t('monProfil.etiquetteStatut')}
           value={form.statusText}
-          onChangeText={(v) => majChamp('statusText', v)}
+          onChangeText={(v) => updateField('statusText', v)}
           placeholder={t('monProfil.placeholderStatut')}
           autoCapitalize="sentences"
           maxLength={120}
@@ -357,7 +357,7 @@ function FormMonProfil({
           c={c}
           label={t('monProfil.etiquetteNom')}
           value={form.name}
-          onChangeText={(v) => majChamp('name', v)}
+          onChangeText={(v) => updateField('name', v)}
           placeholder={t('monProfil.placeholderNom')}
           autoCapitalize="words"
         />
@@ -365,7 +365,7 @@ function FormMonProfil({
           c={c}
           label={t('monProfil.etiquetteBio')}
           value={form.bio}
-          onChangeText={(v) => majChamp('bio', v)}
+          onChangeText={(v) => updateField('bio', v)}
           placeholder={t('monProfil.placeholderBio')}
           autoCapitalize="sentences"
           maxLength={260}
@@ -379,7 +379,7 @@ function FormMonProfil({
           c={c}
           label={t('monProfil.etiquetteEmail')}
           value={form.email}
-          onChangeText={(v) => majChamp('email', v)}
+          onChangeText={(v) => updateField('email', v)}
           placeholder={t('monProfil.placeholderEmail')}
           keyboardType="email-address"
           autoComplete="email"
@@ -389,53 +389,53 @@ function FormMonProfil({
           label={t('monProfil.etiquetteUsername')}
           value={form.username}
           icon="@"
-          onChangeText={(v) => majChamp('username', v)}
+          onChangeText={(v) => updateField('username', v)}
           placeholder={t('monProfil.placeholderUsername')}
         />
-        {besoinMdp && (
+        {needsPassword && (
           <PillField
             c={c}
             label={t('monProfil.etiquetteMdp')}
-            value={motDePasse}
+            value={password}
             icon="🔒"
-            onChangeText={setMotDePasse}
+            onChangeText={setPassword}
             placeholder="••••••••"
             autoComplete="current-password"
             secureTextEntry
           />
         )}
 
-        {demande2FA !== null && (
-          <View style={[styles.carte2FA, { backgroundColor: c.card, borderColor: c.purple }]}>
-            <Text style={[styles.titre2FA, { color: c.text }]}>{t('monProfil.verificationRequise')}</Text>
-            <Text style={[styles.help, { color: c.dimmed }]}>{t(etiquette2FA(demande2FA.method))}</Text>
+        {twoFactorRequest !== null && (
+          <View style={[styles.twoFactorCard, { backgroundColor: c.card, borderColor: c.purple }]}>
+            <Text style={[styles.twoFactorTitle, { color: c.text }]}>{t('monProfil.verificationRequise')}</Text>
+            <Text style={[styles.help, { color: c.dimmed }]}>{t(twoFactorLabel(twoFactorRequest.method))}</Text>
             <PillField
               c={c}
               label={t('monProfil.etiquetteCode')}
               value={code}
-              large={demande2FA.method !== 'password'}
+              large={twoFactorRequest.method !== 'password'}
               onChangeText={setCode}
-              onSubmitEditing={() => void validerCode()}
-              placeholder={demande2FA.method === 'password' ? '••••••••' : '123456'}
-              keyboardType={demande2FA.method === 'password' ? 'default' : 'number-pad'}
-              autoComplete={demande2FA.method === 'password' ? 'current-password' : 'one-time-code'}
-              secureTextEntry={demande2FA.method === 'password'}
+              onSubmitEditing={() => void submitCode()}
+              placeholder={twoFactorRequest.method === 'password' ? '••••••••' : '123456'}
+              keyboardType={twoFactorRequest.method === 'password' ? 'default' : 'number-pad'}
+              autoComplete={twoFactorRequest.method === 'password' ? 'current-password' : 'one-time-code'}
+              secureTextEntry={twoFactorRequest.method === 'password'}
               autoFocus
             />
-            <PrimaryButton c={c} busy={occupe} onPress={() => void validerCode()} title={t('monProfil.validerCode')} />
+            <PrimaryButton c={c} busy={busy} onPress={() => void submitCode()} title={t('monProfil.validerCode')} />
           </View>
         )}
 
-        {bandeau !== null && (
+        {banner !== null && (
           <View
             style={[
               styles.banner,
               {
-                backgroundColor: bandeau.type === 'error' ? c.errorCard : c.card,
+                backgroundColor: banner.type === 'error' ? c.errorCard : c.card,
                 borderColor:
-                  bandeau.type === 'error'
+                  banner.type === 'error'
                     ? c.danger
-                    : bandeau.type === 'success'
+                    : banner.type === 'success'
                       ? c.online
                       : c.border,
               },
@@ -443,30 +443,30 @@ function FormMonProfil({
           >
             <Text
               style={[
-                styles.bandeauTexte,
+                styles.bannerText,
                 {
                   color:
-                    bandeau.type === 'error'
+                    banner.type === 'error'
                       ? c.errorText
-                      : bandeau.type === 'success'
+                      : banner.type === 'success'
                         ? c.online
                         : c.secondaryText,
                 },
               ]}
             >
-              {bandeau.text}
+              {banner.text}
             </Text>
           </View>
         )}
 
         <PrimaryButton
           c={c}
-          busy={occupe}
-          onPress={() => void enregistrer()}
+          busy={busy}
+          onPress={() => void save()}
           title={t('commun.enregistrer')}
           style={styles.save}
         />
-        <Pressable onPress={() => routeur.back()} hitSlop={8}>
+        <Pressable onPress={() => router.back()} hitSlop={8}>
           <Text style={[styles.cancel, { color: c.dimmed }]}>{t('commun.annuler')}</Text>
         </Pressable>
       </ScrollView>
@@ -475,19 +475,19 @@ function FormMonProfil({
 }
 
 /** Sous-titre du bloc 2FA selon la méthode réclamée par le serveur. */
-function etiquette2FA(methode: TwoFactorError['method']): TranslationKey {
-  if (methode === 'totp') return 'monProfil.aide2faTotp';
-  if (methode === 'email') return 'monProfil.aide2faEmail';
+function twoFactorLabel(method: TwoFactorError['method']): TranslationKey {
+  if (method === 'totp') return 'monProfil.aide2faTotp';
+  if (method === 'email') return 'monProfil.aide2faEmail';
   return 'monProfil.aide2faMdp';
 }
 
 const styles = StyleSheet.create({
   content: { padding: 20, gap: 12, paddingBottom: 40 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  erreurCharge: { fontFamily: FONTS.corpsGras, fontSize: 14, textAlign: 'center' },
-  avatarBloc: { alignItems: 'center', gap: 10, paddingVertical: 8 },
+  loadError: { fontFamily: FONTS.bodyBold, fontSize: 14, textAlign: 'center' },
+  avatarBlock: { alignItems: 'center', gap: 10, paddingVertical: 8 },
   pressed: { opacity: 0.7 },
-  crayon: {
+  pencil: {
     position: 'absolute',
     right: -2,
     bottom: -2,
@@ -498,10 +498,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  crayonGlyphe: { fontSize: 14, color: '#FFFFFF' },
-  changerPhoto: { fontFamily: FONTS.corpsGras, fontSize: 14 },
+  pencilGlyph: { fontSize: 14, color: '#FFFFFF' },
+  changePhoto: { fontFamily: FONTS.bodyBold, fontSize: 14 },
   sectionTitle: {
-    fontFamily: FONTS.corpsFort,
+    fontFamily: FONTS.bodyStrong,
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
@@ -512,16 +512,16 @@ const styles = StyleSheet.create({
   // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
   // découpe l'ondulation — borderRadius sur le Pressable est ignoré par le
   // masque du ripple sous Fabric. Invisible au repos (pas de fond).
-  enveloppePresence: { borderRadius: 12, overflow: 'hidden' },
-  presenceLigne: {
+  presenceWrapper: { borderRadius: 12, overflow: 'hidden' },
+  presenceRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingVertical: 14,
   },
   badge: { width: 11, height: 11, borderRadius: 6 },
-  presenceTexte: { fontFamily: FONTS.corpsGras, fontSize: 15, flex: 1 },
-  presenceTexteActif: { fontFamily: FONTS.corpsFort },
+  presenceText: { fontFamily: FONTS.bodyBold, fontSize: 15, flex: 1 },
+  presenceTextActive: { fontFamily: FONTS.bodyStrong },
   radio: {
     width: 22,
     height: 22,
@@ -532,10 +532,10 @@ const styles = StyleSheet.create({
   },
   radioDot: { width: 10, height: 10, borderRadius: 5 },
   help: { fontFamily: FONTS.body, fontSize: 13, lineHeight: 18, marginLeft: 4 },
-  carte2FA: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 10, marginTop: 4 },
-  titre2FA: { fontFamily: FONTS.title, fontSize: 17 },
+  twoFactorCard: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 10, marginTop: 4 },
+  twoFactorTitle: { fontFamily: FONTS.title, fontSize: 17 },
   banner: { borderRadius: 14, borderWidth: 1, padding: 14 },
-  bandeauTexte: { fontFamily: FONTS.corpsGras, fontSize: 14 },
+  bannerText: { fontFamily: FONTS.bodyBold, fontSize: 14 },
   save: { marginTop: 8 },
-  cancel: { fontFamily: FONTS.corpsGras, fontSize: 14, textAlign: 'center', paddingVertical: 12 },
+  cancel: { fontFamily: FONTS.bodyBold, fontSize: 14, textAlign: 'center', paddingVertical: 12 },
 });

@@ -19,14 +19,14 @@
  * charger — la logique vit donc ici, où elle se teste pour de vrai.
  */
 
-let sonde: (() => void) | null = null;
+let probe: (() => void) | null = null;
 
 /** Branchée par `ui/sync.tsx`. `null` pour débrancher, au démontage. */
-export function armUploadProbe(nouvelle: (() => void) | null): void {
-  sonde = nouvelle;
+export function armUploadProbe(next: (() => void) | null): void {
+  probe = next;
 }
 
 /** Sans sonde branchée (tests, session fermée) : sans effet, jamais d'erreur. */
 export function reportUploadEnd(): void {
-  sonde?.();
+  probe?.();
 }

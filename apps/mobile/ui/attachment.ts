@@ -32,7 +32,7 @@ export class FileOpenError extends Error {
   }
 }
 
-type OptionsJointe = {
+type AttachmentOptions = {
   url: string;
   title: string | null | undefined;
   type: string | null | undefined;
@@ -48,66 +48,66 @@ type OptionsJointe = {
  * `.part` renommé à la fin, donc un fichier présent sous son vrai nom est
  * COMPLET. Partager après avoir enregistré ne retélécharge rien.
  */
-async function versLeCache(options: OptionsJointe): Promise<string> {
-  const dossier = FileSystem.cacheDirectory;
-  if (dossier === null) {
+async function toCache(options: AttachmentOptions): Promise<string> {
+  const folder = FileSystem.cacheDirectory;
+  if (folder === null) {
     throw new FileOpenError('Aucun dossier de cache disponible.');
   }
   return downloadAttachment({
     ...options,
-    folder: dossier,
-    createFolder: async (chemin) => {
-      await FileSystem.makeDirectoryAsync(chemin, { intermediates: true });
+    folder,
+    createFolder: async (path) => {
+      await FileSystem.makeDirectoryAsync(path, { intermediates: true });
     },
     download: async (url, destination) => {
       if ((await FileSystem.getInfoAsync(destination)).exists) return;
       // Un fichier déjà déchiffré dans NOTRE cache (la visionneuse qui
       // enregistre une image chiffrée) : rien à télécharger.
-      if (url.startsWith(dossier)) {
+      if (url.startsWith(folder)) {
         await FileSystem.copyAsync({ from: url, to: destination });
         return;
       }
-      const partiel = `${destination}.part`;
-      const tache = FileSystem.createDownloadResumable(url, partiel, {}, (e) => {
+      const partial = `${destination}.part`;
+      const task = FileSystem.createDownloadResumable(url, partial, {}, (e) => {
         options.onProgress?.(
           downloadedFraction(e.totalBytesWritten, e.totalBytesExpectedToWrite, options.size),
         );
       });
-      const res = await tache.downloadAsync();
+      const res = await task.downloadAsync();
       // Un 401/403/404 s'écrit quand même sur le disque : sans ce contrôle, on
       // partagerait ou enregistrerait le corps JSON de l'erreur.
       if (res === undefined || res.status !== 200) {
-        await FileSystem.deleteAsync(partiel, { idempotent: true });
+        await FileSystem.deleteAsync(partial, { idempotent: true });
         throw new FileOpenError(`Téléchargement refusé (HTTP ${res?.status ?? 0}).`);
       }
       if (options.encryption) {
         const base64 = { encoding: FileSystem.EncodingType.Base64 };
         try {
-          const chiffre = Buffer.from(await FileSystem.readAsStringAsync(partiel, base64), 'base64');
-          const clair = decryptFile(chiffre, options.encryption);
-          await FileSystem.writeAsStringAsync(partiel, clair.toString('base64'), base64);
+          const encrypted = Buffer.from(await FileSystem.readAsStringAsync(partial, base64), 'base64');
+          const plain = decryptFile(encrypted, options.encryption);
+          await FileSystem.writeAsStringAsync(partial, plain.toString('base64'), base64);
         } catch {
-          await FileSystem.deleteAsync(partiel, { idempotent: true });
+          await FileSystem.deleteAsync(partial, { idempotent: true });
           throw new FileOpenError('Fichier chiffré illisible.');
         }
       }
-      await FileSystem.moveAsync({ from: partiel, to: destination });
+      await FileSystem.moveAsync({ from: partial, to: destination });
     },
   });
 }
 
-const enCours = new Map<string, Promise<string>>();
+const inProgress = new Map<string, Promise<string>>();
 
 /**
  * Le fichier clair d'une pièce jointe chiffrée, dans le cache — pour l'afficher.
  * Une même pièce vue deux fois à l'écran ne se télécharge qu'une fois.
  */
-export function decryptedFile(options: OptionsJointe): Promise<string> {
-  const existante = enCours.get(options.url);
-  if (existante !== undefined) return existante;
-  const promesse = versLeCache(options).finally(() => enCours.delete(options.url));
-  enCours.set(options.url, promesse);
-  return promesse;
+export function decryptedFile(options: AttachmentOptions): Promise<string> {
+  const existing = inProgress.get(options.url);
+  if (existing !== undefined) return existing;
+  const promise = toCache(options).finally(() => inProgress.delete(options.url));
+  inProgress.set(options.url, promise);
+  return promise;
 }
 
 /**
@@ -115,11 +115,11 @@ export function decryptedFile(options: OptionsJointe): Promise<string> {
  * L'URL authentifiée ne sort pas du processus : seul le `file://` local est
  * confié au système.
  */
-export async function openProtectedAttachment(options: OptionsJointe): Promise<void> {
+export async function openProtectedAttachment(options: AttachmentOptions): Promise<void> {
   if (!(await Sharing.isAvailableAsync())) {
     throw new FileOpenError('Le partage de fichiers est indisponible.');
   }
-  const local = await versLeCache(options);
+  const local = await toCache(options);
   await Sharing.shareAsync(local, options.type ? { mimeType: options.type } : {});
 }
 
@@ -138,11 +138,11 @@ export type SaveLocation = 'gallery' | 'downloads' | 'share';
  * vidéo et son dans la galerie, tout autre fichier dans Téléchargements — les
  * deux par MediaStore, sans permission depuis Android 10.
  */
-export async function saveProtectedAttachment(options: OptionsJointe): Promise<SaveLocation> {
-  const local = await versLeCache(options);
-  const nom = local.slice(local.lastIndexOf('/') + 1);
+export async function saveProtectedAttachment(options: AttachmentOptions): Promise<SaveLocation> {
+  const local = await toCache(options);
+  const name = local.slice(local.lastIndexOf('/') + 1);
 
-  if (toGallery(nom, options.type)) {
+  if (toGallery(name, options.type)) {
     try {
       await Asset.create(local);
     } catch {
@@ -161,6 +161,6 @@ export async function saveProtectedAttachment(options: OptionsJointe): Promise<S
     await Sharing.shareAsync(local, options.type ? { mimeType: options.type } : undefined);
     return 'share';
   }
-  await Downloads.enregistrer(local, nom, options.type ?? null);
+  await Downloads.enregistrer(local, name, options.type ?? null);
   return 'downloads';
 }

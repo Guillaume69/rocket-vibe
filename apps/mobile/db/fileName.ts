@@ -8,10 +8,10 @@
  * directs de l'autre. Le même serveur écrit avec ou sans schéma, avec ou sans
  * barre finale, donne la même base.
  */
-export function databaseFileName(baseUrl: string, utilisateurId?: string): string {
-  const sansSchema = baseUrl.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-  const slug = sansSchema.replace(/[^a-z0-9]+/gi, '_');
-  const suffixe =
-    utilisateurId === undefined ? '' : `-${utilisateurId.replace(/[^a-z0-9]+/gi, '_')}`;
-  return `rocket-vibe-${slug}${suffixe}.db`;
+export function databaseFileName(baseUrl: string, userId?: string): string {
+  const withoutScheme = baseUrl.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  const slug = withoutScheme.replace(/[^a-z0-9]+/gi, '_');
+  const suffix =
+    userId === undefined ? '' : `-${userId.replace(/[^a-z0-9]+/gi, '_')}`;
+  return `rocket-vibe-${slug}${suffix}.db`;
 }

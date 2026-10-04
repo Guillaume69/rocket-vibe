@@ -9,25 +9,25 @@ describe('avancerBorne / borneImmobile', () => {
   });
 
   test('même borne : on compte ; borne neuve : on repart à 1', () => {
-    const deux = advanceBound({ id: 'm1', pages: 1 }, 'm1');
-    assert.deepEqual(deux, { id: 'm1', pages: 2 });
-    assert.deepEqual(advanceBound(deux, 'm0'), { id: 'm0', pages: 1 });
+    const two = advanceBound({ id: 'm1', pages: 1 }, 'm1');
+    assert.deepEqual(two, { id: 'm1', pages: 2 });
+    assert.deepEqual(advanceBound(two, 'm0'), { id: 'm0', pages: 1 });
   });
 
   test(`le filet tolère ${MAX_PAGES_AT_BOUND} pages immobiles, la suivante déclare l'épuisement`, () => {
-    let borne = advanceBound(null, 'm1');
-    assert.equal(boundIsStuck(borne), false, 'première page : on demande');
-    borne = advanceBound(borne, 'm1');
-    assert.equal(boundIsStuck(borne), false, 'deuxième page sur la même borne : encore permis');
-    borne = advanceBound(borne, 'm1');
-    assert.equal(boundIsStuck(borne), true, 'troisième : la pagination n’avance plus, on coupe');
+    let bound = advanceBound(null, 'm1');
+    assert.equal(boundIsStuck(bound), false, 'première page : on demande');
+    bound = advanceBound(bound, 'm1');
+    assert.equal(boundIsStuck(bound), false, 'deuxième page sur la même borne : encore permis');
+    bound = advanceBound(bound, 'm1');
+    assert.equal(boundIsStuck(bound), true, 'troisième : la pagination n’avance plus, on coupe');
   });
 
   test('une borne qui progresse ne déclenche jamais le filet', () => {
-    let borne = advanceBound(null, 'm3');
-    borne = advanceBound(borne, 'm2');
-    borne = advanceBound(borne, 'm1');
-    assert.equal(boundIsStuck(borne), false);
+    let bound = advanceBound(null, 'm3');
+    bound = advanceBound(bound, 'm2');
+    bound = advanceBound(bound, 'm1');
+    assert.equal(boundIsStuck(bound), false);
   });
 });
 

@@ -36,26 +36,26 @@ export type TokenResult =
  * vide ne se propage pas : ce serait remplacer un enregistrement valide par
  * rien.
  */
-export function onTokenRotation(quand: (jeton: string) => void): () => void {
+export function onTokenRotation(when: (token: string) => void): () => void {
   if (Platform.OS === 'ios') {
     // Deux sources : Firebase annonce un nouveau jeton FCM, et un nouveau jeton
     // APNs doit lui être remis pour qu'il en produise un.
-    const fcm = FcmToken?.addListener('jetonRenouvele', ({ jeton }) => {
-      if (jeton !== '') quand(jeton);
+    const fcm = FcmToken?.addListener('jetonRenouvele', ({ jeton: token }) => {
+      if (token !== '') when(token);
     });
-    const apns = Notifications.addPushTokenListener((jeton) => {
-      if (typeof jeton.data !== 'string' || jeton.data === '' || FcmToken === null) return;
-      FcmToken.obtenir(jeton.data).then(quand, () => {});
+    const apns = Notifications.addPushTokenListener((token) => {
+      if (typeof token.data !== 'string' || token.data === '' || FcmToken === null) return;
+      FcmToken.obtenir(token.data).then(when, () => {});
     });
     return () => {
       fcm?.remove();
       apns.remove();
     };
   }
-  const abonnement = Notifications.addPushTokenListener((jeton) => {
-    if (typeof jeton.data === 'string' && jeton.data !== '') quand(jeton.data);
+  const subscription = Notifications.addPushTokenListener((token) => {
+    if (typeof token.data === 'string' && token.data !== '') when(token.data);
   });
-  return () => abonnement.remove();
+  return () => subscription.remove();
 }
 
 export async function getFcmToken(): Promise<TokenResult> {

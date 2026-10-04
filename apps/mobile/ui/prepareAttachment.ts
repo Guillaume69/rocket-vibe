@@ -25,7 +25,7 @@ import { deleteIfTemporary } from './temporaryFiles.ts';
 import { imageCompressible, videoCompressible } from './attachmentQuality.ts';
 
 /** Côté court maximal d'une vidéo réduite, en pixels (720p). */
-const VIDEO_COTE_COURT_MAX = 720;
+const VIDEO_MAX_SHORT_SIDE = 720;
 /** Bitrate vidéo du réencodage — l'ordre de grandeur des messageries. */
 const VIDEO_BITRATE = 2_000_000;
 
@@ -38,13 +38,13 @@ const VIDEO_BITRATE = 2_000_000;
  * une fois la ligne soldée il n'en reste qu'un dossier vide, que l'OS purge.
  * En échec, l'URI d'origine : un nom moche part — l'envoi vaut mieux que lui.
  */
-async function renommerReduit(uri: string, nom: string): Promise<string> {
+async function renameCompressed(uri: string, name: string): Promise<string> {
   const cache = FileSystem.cacheDirectory;
   if (cache === null) return uri;
   try {
-    const dossier = `${cache}reduites-${Date.now().toString(36)}/`;
-    await FileSystem.makeDirectoryAsync(dossier, { intermediates: true });
-    const destination = `${dossier}${encodeURIComponent(nom)}`;
+    const folder = `${cache}reduites-${Date.now().toString(36)}/`;
+    await FileSystem.makeDirectoryAsync(folder, { intermediates: true });
+    const destination = `${folder}${encodeURIComponent(name)}`;
     await FileSystem.moveAsync({ from: uri, to: destination });
     return destination;
   } catch {
@@ -53,58 +53,58 @@ async function renommerReduit(uri: string, nom: string): Promise<string> {
 }
 
 export async function compressImageIfUseful(
-  fichier: PendingFile,
+  file: PendingFile,
 ): Promise<PendingFile> {
-  if (!imageCompressible(fichier)) return fichier;
+  if (!imageCompressible(file)) return file;
   try {
-    const reduite = await ImageManipulator.manipulateAsync(
-      fichier.uri,
+    const compressed = await ImageManipulator.manipulateAsync(
+      file.uri,
       [{ resize: { width: 1920 } }],
       { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
     );
     // `taille: null` — on ne connaît plus le poids exact du JPEG réécrit ; la
     // validation d'envoi ne s'appuiera que sur le type, ce qui suffit.
-    const nom = `${fichier.name.replace(/\.\w+$/, '')}.jpg`;
+    const name = `${file.name.replace(/\.\w+$/, '')}.jpg`;
     return {
-      uri: await renommerReduit(reduite.uri, nom),
-      name: nom,
+      uri: await renameCompressed(compressed.uri, name),
+      name,
       type: 'image/jpeg',
       size: null,
     };
   } catch {
     // Compression impossible : on garde l'original tel quel.
-    return fichier;
+    return file;
   }
 }
 
 export async function compressVideoIfPossible(
-  fichier: PendingFile,
+  file: PendingFile,
 ): Promise<PendingFile> {
-  if (VideoCompressor === null || !videoCompressible(fichier)) return fichier;
+  if (VideoCompressor === null || !videoCompressible(file)) return file;
   try {
-    const sortie = await VideoCompressor.reduire(fichier.uri, VIDEO_COTE_COURT_MAX, VIDEO_BITRATE);
+    const outbox = await VideoCompressor.reduire(file.uri, VIDEO_MAX_SHORT_SIDE, VIDEO_BITRATE);
     // Une vidéo déjà modeste peut ressortir plus lourde du réencodage : dans
     // ce cas l'original part, et le MP4 réécrit s'efface.
-    if (fichier.size !== null && sortie.taille >= fichier.size) {
-      void deleteIfTemporary(sortie.uri);
-      return fichier;
+    if (file.size !== null && outbox.taille >= file.size) {
+      void deleteIfTemporary(outbox.uri);
+      return file;
     }
-    const nom = `${fichier.name.replace(/\.\w+$/, '')}.mp4`;
+    const name = `${file.name.replace(/\.\w+$/, '')}.mp4`;
     return {
-      uri: await renommerReduit(sortie.uri, nom),
-      name: nom,
+      uri: await renameCompressed(outbox.uri, name),
+      name,
       type: 'video/mp4',
-      size: sortie.taille,
+      size: outbox.taille,
     };
   } catch {
     // Transcodage impossible (codec exotique, fichier tronqué…) : l'original
     // part tel quel — comme pour l'image, un envoi lourd vaut mieux qu'un échec.
-    return fichier;
+    return file;
   }
 }
 
 /** L'aiguillage appelé par le composeur à l'envoi, quand « Réduite » est choisi. */
-export function compressAttachment(fichier: PendingFile): Promise<PendingFile> {
-  if (fichier.type.startsWith('video/')) return compressVideoIfPossible(fichier);
-  return compressImageIfUseful(fichier);
+export function compressAttachment(file: PendingFile): Promise<PendingFile> {
+  if (file.type.startsWith('video/')) return compressVideoIfPossible(file);
+  return compressImageIfUseful(file);
 }

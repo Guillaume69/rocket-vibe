@@ -7,10 +7,10 @@ import { requireOptionalNativeModule, type EventSubscription } from 'expo-module
  * l'app : sous Node, expo-modules-core ne se charge pas.
  */
 
-type JetonFcmNatif = {
+type NativeFcmToken = {
   /** Remet le jeton APNs (hexadécimal, tel que rendu par expo) à Firebase et rend le jeton FCM. */
-  obtenir(jetonApnsHex: string): Promise<string>;
-  addListener(evenement: 'jetonRenouvele', quand: (e: { jeton: string }) => void): EventSubscription;
+  obtenir(apnsTokenHex: string): Promise<string>;
+  addListener(event: 'jetonRenouvele', when: (e: { jeton: string }) => void): EventSubscription;
 };
 
-export const FcmToken = requireOptionalNativeModule<JetonFcmNatif>('JetonFcm');
+export const FcmToken = requireOptionalNativeModule<NativeFcmToken>('JetonFcm');

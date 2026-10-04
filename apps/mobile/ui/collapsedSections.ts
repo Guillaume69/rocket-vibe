@@ -14,32 +14,32 @@ import {
   readCollapsedSections,
 } from './homeSections.ts';
 
-const CLE = 'sections-repliees';
+const KEY = 'sections-repliees';
 
-function lire(): ReadonlySet<SectionKey> {
+function read(): ReadonlySet<SectionKey> {
   try {
-    return readCollapsedSections(SecureStore.getItem(CLE));
+    return readCollapsedSections(SecureStore.getItem(KEY));
   } catch {
     return new Set();
   }
 }
 
-let repliees = lire();
-const ecouteurs = new Set<() => void>();
+let collapsed = read();
+const listeners = new Set<() => void>();
 
-export function toggleCollapsedSection(cle: SectionKey): void {
-  repliees = toggleSection(repliees, cle);
-  void SecureStore.setItemAsync(CLE, writeCollapsedSections(repliees)).catch(() => {});
-  for (const e of ecouteurs) e();
+export function toggleCollapsedSection(key: SectionKey): void {
+  collapsed = toggleSection(collapsed, key);
+  void SecureStore.setItemAsync(KEY, writeCollapsedSections(collapsed)).catch(() => {});
+  for (const e of listeners) e();
 }
 
-function sabonner(cb: () => void): () => void {
-  ecouteurs.add(cb);
+function subscribe(cb: () => void): () => void {
+  listeners.add(cb);
   return () => {
-    ecouteurs.delete(cb);
+    listeners.delete(cb);
   };
 }
 
 export function useCollapsedSections(): ReadonlySet<SectionKey> {
-  return useSyncExternalStore(sabonner, () => repliees);
+  return useSyncExternalStore(subscribe, () => collapsed);
 }

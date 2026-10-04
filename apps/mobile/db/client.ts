@@ -21,14 +21,14 @@ export type BaseLocale = ReturnType<typeof drizzle<typeof schema>>;
 
 export { databaseFileName };
 
-type Connexion = { raw: SQLiteDatabase; base: BaseLocale; writeQueue: WriteQueue };
+type Connection = { raw: SQLiteDatabase; base: BaseLocale; writeQueue: WriteQueue };
 
 /**
  * Les connexions ouvertes vivent pour la durée du PROCESS : rien n'appelle
  * `fermerBase` sur le chemin nominal, et c'est délibéré (voir sa doc). Chaque
  * couple (serveur, compte) visité y laisse donc une entrée.
  */
-const ouvertes = new Map<string, Connexion>();
+const open = new Map<string, Connection>();
 
 /**
  * Idempotent : deux écrans qui demandent la même base partagent la connexion —
@@ -39,24 +39,24 @@ const ouvertes = new Map<string, Connexion>();
  * simple renommage (objet `session` neuf pour le même compte), fabriquait une
  * seconde file, et les deux moteurs s'entrelaçaient sur un seul SQLite.
  */
-export function openDatabase(baseUrl: string, utilisateurId?: string): Connexion {
-  const nom = databaseFileName(baseUrl, utilisateurId);
-  const existante = ouvertes.get(nom);
-  if (existante) return existante;
+export function openDatabase(baseUrl: string, userId?: string): Connection {
+  const name = databaseFileName(baseUrl, userId);
+  const existing = open.get(name);
+  if (existing) return existing;
 
-  const brute = openDatabaseSync(nom, { enableChangeListener: true });
+  const raw = openDatabaseSync(name, { enableChangeListener: true });
   // WAL : une lecture de l'UI ne bloque pas une écriture du moteur de synchro.
   // Pas de `PRAGMA foreign_keys` : le schéma n'en déclare aucune, volontairement.
   // Un message peut arriver par le WebSocket avant le salon qui le contient.
-  brute.execSync('PRAGMA journal_mode = WAL;');
+  raw.execSync('PRAGMA journal_mode = WAL;');
 
-  const connexion: Connexion = {
-    raw: brute,
-    base: drizzle(brute, { schema }),
+  const connection: Connection = {
+    raw,
+    base: drizzle(raw, { schema }),
     writeQueue: createWriteQueue(),
   };
-  ouvertes.set(nom, connexion);
-  return connexion;
+  open.set(name, connection);
+  return connection;
 }
 
 /**
@@ -66,10 +66,10 @@ export function openDatabase(baseUrl: string, utilisateurId?: string): Connexion
  * Gardée pour les tests et un éventuel effacement de compte, où l'on sait que
  * plus rien n'écrit.
  */
-export function closeDatabase(baseUrl: string, utilisateurId?: string): void {
-  const nom = databaseFileName(baseUrl, utilisateurId);
-  const paire = ouvertes.get(nom);
-  if (!paire) return;
-  paire.raw.closeSync();
-  ouvertes.delete(nom);
+export function closeDatabase(baseUrl: string, userId?: string): void {
+  const name = databaseFileName(baseUrl, userId);
+  const pair = open.get(name);
+  if (!pair) return;
+  pair.raw.closeSync();
+  open.delete(name);
 }

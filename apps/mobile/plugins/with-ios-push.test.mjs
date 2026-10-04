@@ -9,9 +9,9 @@ import { createRequire } from 'node:module';
 import { test } from 'node:test';
 
 const require = createRequire(import.meta.url);
-const { podfileModulaire, groupeTrousseau } = require('./with-ios-push.js').chirurgie;
+const { modularPodfile, keychainGroup } = require('./with-ios-push.js').internals;
 
-const GABARIT = `platform :ios, podfile_properties['ios.deploymentTarget'] || '16.4'
+const TEMPLATE = `platform :ios, podfile_properties['ios.deploymentTarget'] || '16.4'
 
 target 'rocketvibe' do
   use_expo_modules!
@@ -21,22 +21,22 @@ end
 `;
 
 test('les pods Firebase passent en modular_headers, dans la cible, après use_expo_modules!', () => {
-  const sortie = podfileModulaire(GABARIT);
-  assert.match(sortie, /use_expo_modules!\n  pod 'FirebaseCore', :modular_headers => true\n/);
+  const outbox = modularPodfile(TEMPLATE);
+  assert.match(outbox, /use_expo_modules!\n  pod 'FirebaseCore', :modular_headers => true\n/);
   for (const pod of ['FirebaseCoreInternal', 'FirebaseMessaging', 'GoogleUtilities']) {
-    assert.match(sortie, new RegExp(`^  pod '${pod}', :modular_headers => true$`, 'm'));
+    assert.match(outbox, new RegExp(`^  pod '${pod}', :modular_headers => true$`, 'm'));
   }
 });
 
 test('rejouer la retouche ne duplique rien', () => {
-  const une = podfileModulaire(GABARIT);
-  assert.equal(podfileModulaire(une), une);
+  const one = modularPodfile(TEMPLATE);
+  assert.equal(modularPodfile(one), one);
 });
 
 test('un Podfile sans use_expo_modules! arrête le prebuild', () => {
-  assert.throws(() => podfileModulaire("target 'x' do\nend\n"), /use_expo_modules!/);
+  assert.throws(() => modularPodfile("target 'x' do\nend\n"), /use_expo_modules!/);
 });
 
 test("le groupe de trousseau est préfixé par l'équipe, résolu par Xcode", () => {
-  assert.equal(groupeTrousseau('com.rocketvibe.app'), '$(AppIdentifierPrefix)com.rocketvibe.app');
+  assert.equal(keychainGroup('com.rocketvibe.app'), '$(AppIdentifierPrefix)com.rocketvibe.app');
 });

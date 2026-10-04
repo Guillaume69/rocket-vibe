@@ -4,136 +4,136 @@ import { describe, test } from 'node:test';
 import { hookUp } from './connectionSetup.ts';
 
 /** Promesse dont le test décide quand — et comment — elle retombe. */
-function differee<T>() {
-  let resoudre!: (v: T) => void;
-  let rejeter!: (e: unknown) => void;
-  const promesse = new Promise<T>((res, rej) => {
-    resoudre = res;
-    rejeter = rej;
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
   });
-  return { promesse, resoudre, rejeter };
+  return { promise, resolve, reject };
 }
 
 /** Rend la main aux microtâches en attente, sans dormir. */
-const laisserTourner = async (tours = 6): Promise<void> => {
-  for (let i = 0; i < tours; i++) await Promise.resolve();
+const letRun = async (turns = 6): Promise<void> => {
+  for (let i = 0; i < turns; i++) await Promise.resolve();
 };
 
 /**
  * Banc : un stream et un armement qu'on fait retomber à la main, dans
  * n'importe quel ordre. Aucune horloge — c'est tout l'objet du module.
  */
-function banc(options: { alreadyActive?: boolean } = {}) {
-  const stream = differee<void>();
-  const armement = differee<void>();
-  const ordre: string[] = [];
+function bench(options: { alreadyActive?: boolean } = {}) {
+  const stream = deferred<void>();
+  const arming = deferred<void>();
+  const order: string[] = [];
   /** Ce que le stream couvrait au DÉMARRAGE de chaque lecture. */
-  const couverture: boolean[] = [];
-  let arme = options.alreadyActive ?? false;
+  const coverage: boolean[] = [];
+  let armed = options.alreadyActive ?? false;
 
   return {
     stream,
-    armement,
-    ordre,
-    couverture,
+    arming,
+    order,
+    coverage,
     /** Le serveur a armé les souscriptions : à partir d'ici, le fil couvre. */
     armer() {
-      arme = true;
-      armement.resoudre();
+      armed = true;
+      arming.resolve();
     },
     options: {
-      streamAlreadyActive: () => arme,
+      streamAlreadyActive: () => armed,
       openStream: () => {
-        ordre.push('stream:demande');
-        return stream.promesse;
+        order.push('stream:demande');
+        return stream.promise;
       },
-      streamArmed: () => armement.promesse,
+      streamArmed: () => arming.promise,
       catchUp: async () => {
-        ordre.push('lecture');
-        couverture.push(arme);
+        order.push('lecture');
+        coverage.push(armed);
       },
-      then: () => ordre.push('ensuite'),
+      then: () => order.push('ensuite'),
     },
   };
 }
 
 describe('raccorder', () => {
   test('stream instantané : la lecture ne l’attend pas, la seconde la couvre', async () => {
-    const b = banc();
-    const fini = hookUp(b.options);
+    const b = bench();
+    const done = hookUp(b.options);
 
     // La lecture part sans rien attendre — c'est ce que l'utilisateur voit.
-    await laisserTourner();
-    assert.deepEqual(b.ordre, ['stream:demande', 'lecture', 'ensuite']);
+    await letRun();
+    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite']);
 
-    b.stream.resoudre();
+    b.stream.resolve();
     b.armer();
-    await fini;
+    await done;
 
-    assert.deepEqual(b.ordre, ['stream:demande', 'lecture', 'ensuite', 'lecture']);
+    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite', 'lecture']);
     // La première a lu avant l'armement, la seconde après : c'est elle qui
     // garantit qu'aucun intervalle n'échappe aux deux transports.
-    assert.deepEqual(b.couverture, [false, true]);
+    assert.deepEqual(b.coverage, [false, true]);
   });
 
   test('stream très lent : rien ne change — même ordre, mêmes garanties', async () => {
-    const b = banc();
-    const fini = hookUp(b.options);
+    const b = bench();
+    const done = hookUp(b.options);
 
-    await laisserTourner();
-    assert.deepEqual(b.ordre, ['stream:demande', 'lecture', 'ensuite'], 'lecture déjà faite');
+    await letRun();
+    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite'], 'lecture déjà faite');
 
     // Le stream met « longtemps » — ici, un nombre arbitraire de tours de
     // boucle. Aucune constante de temps ne s'applique : rien ne se décide
     // pendant ce laps.
-    await laisserTourner(50);
-    assert.deepEqual(b.ordre, ['stream:demande', 'lecture', 'ensuite']);
+    await letRun(50);
+    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite']);
 
-    b.stream.resoudre();
-    await laisserTourner();
+    b.stream.resolve();
+    await letRun();
     // Toujours pas de seconde lecture : les souscriptions ne sont pas armées.
-    assert.deepEqual(b.ordre, ['stream:demande', 'lecture', 'ensuite']);
+    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite']);
 
     b.armer();
-    await fini;
-    assert.deepEqual(b.couverture, [false, true], 'la seconde lecture couvre');
+    await done;
+    assert.deepEqual(b.coverage, [false, true], 'la seconde lecture couvre');
   });
 
   test('stream déjà actif : une seule lecture, et elle couvre', async () => {
-    const b = banc({ alreadyActive: true });
-    b.stream.resoudre(); // socket vivante : `ouvrirStream` ne fait rien
+    const b = bench({ alreadyActive: true });
+    b.stream.resolve(); // socket vivante : `ouvrirStream` ne fait rien
 
     await hookUp(b.options);
 
-    assert.deepEqual(b.ordre, ['stream:demande', 'lecture', 'ensuite']);
-    assert.deepEqual(b.couverture, [true]);
+    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite']);
+    assert.deepEqual(b.coverage, [true]);
   });
 
   test("l'échec du stream est relayé — mais après que l'utilisateur a eu ses messages", async () => {
-    const b = banc();
-    const fini = hookUp(b.options);
-    const attendu = fini.then(
+    const b = bench();
+    const done = hookUp(b.options);
+    const expected = done.then(
       () => null,
       (e: unknown) => e,
     );
 
-    await laisserTourner();
-    assert.deepEqual(b.ordre, ['stream:demande', 'lecture', 'ensuite'], 'la lecture a eu lieu');
+    await letRun();
+    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite'], 'la lecture a eu lieu');
 
-    b.stream.rejeter(new Error('pas de « connected » en 10000 ms'));
-    const erreur = await attendu;
+    b.stream.reject(new Error('pas de « connected » en 10000 ms'));
+    const error = await expected;
 
     // Relayé pour que le pilote de reconnexion garde son backoff…
-    assert.ok(erreur instanceof Error);
-    assert.match(erreur.message, /connected/);
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /connected/);
     // …et sans seconde lecture : sans stream, il n'y a pas d'intervalle à
     // couvrir, et la prochaine tentative refera l'ensemble.
-    assert.deepEqual(b.couverture, [false]);
+    assert.deepEqual(b.coverage, [false]);
   });
 
   test('une lecture qui échoue fait échouer le raccordement (le pilote retentera)', async () => {
-    const b = banc({ alreadyActive: true });
-    b.stream.resoudre();
+    const b = bench({ alreadyActive: true });
+    b.stream.resolve();
     await assert.rejects(
       hookUp({ ...b.options, catchUp: () => Promise.reject(new Error('rooms.get: 429')) }),
       /429/,
@@ -141,29 +141,29 @@ describe('raccorder', () => {
   });
 
   test('session terminée avant la lecture : on ne touche plus à rien', async () => {
-    const b = banc();
-    b.stream.resoudre();
+    const b = bench();
+    b.stream.resolve();
     await hookUp({ ...b.options, isDiscarded: () => true });
 
-    assert.deepEqual(b.ordre, ['stream:demande']);
+    assert.deepEqual(b.order, ['stream:demande']);
   });
 
   test('session terminée pendant la lecture : pas de seconde passe', async () => {
-    const b = banc();
-    let abandonne = false;
-    const fini = hookUp({
+    const b = bench();
+    let discarded = false;
+    const done = hookUp({
       ...b.options,
       catchUp: async () => {
-        b.ordre.push('lecture');
-        abandonne = true; // l'utilisateur se déconnecte pendant la lecture
+        b.order.push('lecture');
+        discarded = true; // l'utilisateur se déconnecte pendant la lecture
       },
-      isDiscarded: () => abandonne,
+      isDiscarded: () => discarded,
     });
 
-    b.stream.resoudre();
+    b.stream.resolve();
     b.armer();
-    await fini;
+    await done;
 
-    assert.deepEqual(b.ordre, ['stream:demande', 'lecture', 'ensuite']);
+    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite']);
   });
 });

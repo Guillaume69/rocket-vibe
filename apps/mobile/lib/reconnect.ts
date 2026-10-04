@@ -51,8 +51,8 @@ export class Reconnector {
   /** Prochain délai : 0 pour la première tentative, puis 1 s, 2 s… plafonné à 30 s. */
   private delay(): number {
     if (this.attempt === 0) return 0;
-    const plein = Math.min(this.maxDelayMs, this.minDelayMs * 2 ** (this.attempt - 1));
-    return plein / 2 + this.random() * (plein / 2);
+    const full = Math.min(this.maxDelayMs, this.minDelayMs * 2 ** (this.attempt - 1));
+    return full / 2 + this.random() * (full / 2);
   }
 
   /**

@@ -5,7 +5,7 @@ import { type TranslateFn, translate } from '../ui/messages.ts';
 import { systemPreview, systemText } from './systemMessages.ts';
 
 /** Traducteur réel en français : on teste les VRAIES phrases, pas un stub. */
-const t: TranslateFn = (cle, params) => translate('fr', cle, params);
+const t: TranslateFn = (key, params) => translate('fr', key, params);
 
 describe('texteSysteme', () => {
   test('les événements d’adhésion se passent de paramètre', () => {
@@ -35,7 +35,7 @@ describe('texteSysteme', () => {
   });
 
   test('la même clé bascule en anglais selon le traducteur injecté', () => {
-    const en: TranslateFn = (cle, params) => translate('en', cle, params);
+    const en: TranslateFn = (key, params) => translate('en', key, params);
     assert.equal(systemText(en, 'uj', null), 'joined the channel');
     assert.equal(systemText(en, 'au', 'bob'), 'added bob to the channel');
   });

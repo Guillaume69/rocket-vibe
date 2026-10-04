@@ -12,51 +12,51 @@ import {
 } from './auth.ts';
 import { ClientRest, TwoFactorError } from './rest.ts';
 
-const hacher = async (t: string) => createHash('sha256').update(t).digest('hex');
+const hash = async (t: string) => createHash('sha256').update(t).digest('hex');
 
-let serveur: Server;
+let server: Server;
 let base: string;
-let poignee: (req: IncomingMessage, res: ServerResponse, corps: string) => void;
-let recues: { url: string; body: unknown; headers: Record<string, string | string[] | undefined> }[] =
+let handle: (req: IncomingMessage, res: ServerResponse, body: string) => void;
+let received: { url: string; body: unknown; headers: Record<string, string | string[] | undefined> }[] =
   [];
 
 before(async () => {
-  serveur = createServer((req, res) => {
-    let brut = '';
-    req.on('data', (c) => (brut += c));
+  server = createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c) => (raw += c));
     req.on('end', () => {
-      recues.push({
+      received.push({
         url: req.url ?? '',
-        body: brut === '' ? null : (JSON.parse(brut) as unknown),
+        body: raw === '' ? null : (JSON.parse(raw) as unknown),
         headers: req.headers,
       });
-      poignee(req, res, brut);
+      handle(req, res, raw);
     });
   });
-  await new Promise<void>((r) => serveur.listen(0, '127.0.0.1', r));
-  const a = serveur.address();
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const a = server.address();
   if (typeof a === 'string' || a === null) throw new Error('adresse inattendue');
   base = `http://127.0.0.1:${a.port}`;
 });
 
-after(() => serveur.close());
+after(() => server.close());
 beforeEach(() => {
-  recues = [];
+  received = [];
 });
 
-function json(res: ServerResponse, statut: number, corps: unknown) {
-  res.writeHead(statut, { 'content-type': 'application/json' });
-  res.end(JSON.stringify(corps));
+function json(res: ServerResponse, status: number, body: unknown) {
+  res.writeHead(status, { 'content-type': 'application/json' });
+  res.end(JSON.stringify(body));
 }
 
-const SUCCES_LOGIN = {
+const LOGIN_SUCCESS = {
   status: 'success',
   data: { authToken: 'jeton-abc', userId: 'u1', me: { username: 'alice' } },
 };
 
 describe('auth', () => {
   test('un login sans 2FA renvoie une session', async () => {
-    poignee = (_q, res) => json(res, 200, SUCCES_LOGIN);
+    handle = (_q, res) => json(res, 200, LOGIN_SUCCESS);
     const s = await logIn(new ClientRest(base), {
       user: 'alice',
       password: 'secret',
@@ -71,19 +71,19 @@ describe('auth', () => {
       // depuis son sondage avant de persister.
       siteUrl: null,
     });
-    assert.deepEqual(recues[0].body, { user: 'alice', password: 'secret' });
+    assert.deepEqual(received[0].body, { user: 'alice', password: 'secret' });
   });
 
   test("le login n'envoie pas d'en-têtes d'authentification", async () => {
-    poignee = (_q, res) => json(res, 200, SUCCES_LOGIN);
+    handle = (_q, res) => json(res, 200, LOGIN_SUCCESS);
     const c = new ClientRest(base);
     c.auth = { authToken: 'ancien', userId: 'vieux' };
     await logIn(c, { user: 'alice', password: 'secret' });
-    assert.equal(recues[0].headers['x-auth-token'], undefined);
+    assert.equal(received[0].headers['x-auth-token'], undefined);
   });
 
   test('une 2FA requise lève ErreurDeuxFacteurs avec sa méthode', async () => {
-    poignee = (_q, res) =>
+    handle = (_q, res) =>
       json(res, 401, {
         success: false,
         errorType: 'totp-required',
@@ -100,40 +100,40 @@ describe('auth', () => {
   });
 
   test('un code TOTP est transmis tel quel', async () => {
-    const erreur = new TwoFactorError('totp', ['totp'], false);
-    const code = await prepareTwoFactorCode(erreur, ' 123456 ', hacher);
+    const error = new TwoFactorError('totp', ['totp'], false);
+    const code = await prepareTwoFactorCode(error, ' 123456 ', hash);
     assert.deepEqual(code, { method: 'totp', code: '123456' });
   });
 
   test("pour la méthode `password`, c'est le SHA-256 qui part, pas le clair", async () => {
-    const erreur = new TwoFactorError('password', [], false);
-    const code = await prepareTwoFactorCode(erreur, 'mon-mot-de-passe', hacher);
+    const error = new TwoFactorError('password', [], false);
+    const code = await prepareTwoFactorCode(error, 'mon-mot-de-passe', hash);
     assert.equal(code.method, 'password');
-    assert.equal(code.code, await hacher('mon-mot-de-passe'));
+    assert.equal(code.code, await hash('mon-mot-de-passe'));
     assert.notEqual(code.code, 'mon-mot-de-passe');
     assert.match(code.code, /^[0-9a-f]{64}$/);
   });
 
   test('le rejeu avec le code envoie les en-têtes 2FA', async () => {
-    poignee = (_q, res) => json(res, 200, SUCCES_LOGIN);
+    handle = (_q, res) => json(res, 200, LOGIN_SUCCESS);
     await logIn(
       new ClientRest(base),
       { user: 'alice', password: 's' },
       { code: '123456', method: 'totp' },
     );
-    assert.equal(recues[0].headers['x-2fa-code'], '123456');
-    assert.equal(recues[0].headers['x-2fa-method'], 'totp');
+    assert.equal(received[0].headers['x-2fa-code'], '123456');
+    assert.equal(received[0].headers['x-2fa-method'], 'totp');
   });
 
   test('reprendreSession envoie `resume`, pas de mot de passe', async () => {
-    poignee = (_q, res) => json(res, 200, SUCCES_LOGIN);
+    handle = (_q, res) => json(res, 200, LOGIN_SUCCESS);
     const s = await resumeSession(new ClientRest(base), 'jeton-stocke');
-    assert.deepEqual(recues[0].body, { resume: 'jeton-stocke' });
+    assert.deepEqual(received[0].body, { resume: 'jeton-stocke' });
     assert.equal(s.userId, 'u1');
   });
 
   test('une réponse de login sans jeton est rejetée proprement', async () => {
-    poignee = (_q, res) => json(res, 200, { status: 'success', data: { me: {} } });
+    handle = (_q, res) => json(res, 200, { status: 'success', data: { me: {} } });
     await assert.rejects(
       logIn(new ClientRest(base), { user: 'a', password: 'b' }),
       /Réponse de login invalide/,
@@ -143,7 +143,7 @@ describe('auth', () => {
   test('un login à 200 sans corps ne produit pas de TypeError brute', async () => {
     // `ClientRest` rend `{}` sur un 200 vide (nécessaire pour /logout) : sans
     // garde, `reponse.data.authToken` lèverait un TypeError incompréhensible.
-    poignee = (_q, res) => {
+    handle = (_q, res) => {
       res.writeHead(200);
       res.end();
     };
@@ -158,7 +158,7 @@ describe('auth', () => {
   });
 
   test('seDeconnecter est best-effort : un 401 ne rejette pas', async () => {
-    poignee = (_q, res) => json(res, 401, { success: false, error: 'invalid' });
+    handle = (_q, res) => json(res, 401, { success: false, error: 'invalid' });
     const c = new ClientRest(base);
     c.auth = { authToken: 'x', userId: 'y' };
     await logOut(c); // ne doit pas lever

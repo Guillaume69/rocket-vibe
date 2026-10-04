@@ -37,11 +37,11 @@ type Complement = {
   members: number | null;
 };
 
-function chaine(v: unknown): string | null {
+function asString(v: unknown): string | null {
   return typeof v === 'string' && v !== '' ? v : null;
 }
 
-const PHRASE_TYPE: Record<string, TranslationKey> = {
+const TYPE_SENTENCE: Record<string, TranslationKey> = {
   c: 'salonInfo.typeCanalPublic',
   p: 'salonInfo.typeGroupePrive',
   d: 'salonInfo.typeMessageDirect',
@@ -49,22 +49,22 @@ const PHRASE_TYPE: Record<string, TranslationKey> = {
 
 export default function RoomInfoScreen() {
   const { rid } = useLocalSearchParams<{ rid: string }>();
-  const { state: etat } = useSession();
-  const synchro = useSync();
+  const { state } = useSession();
+  const sync = useSync();
   const c = useColors();
 
   // L'écran ne s'ouvre que depuis un salon affiché : session et synchro sont
   // forcément là. La garde (avant tout hook du contenu, qui déréférence la
   // base) couvre un démontage pendant une déconnexion.
-  if (etat.phase !== 'connected' || synchro.phase !== 'ready' || typeof rid !== 'string') {
+  if (state.phase !== 'connected' || sync.phase !== 'ready' || typeof rid !== 'string') {
     return null;
   }
   return (
-    <ContenuSalonInfo rid={rid} base={synchro.base} client={etat.client} e2e={synchro.e2e} c={c} />
+    <RoomInfoContent rid={rid} base={sync.base} client={state.client} e2e={sync.e2e} c={c} />
   );
 }
 
-function ContenuSalonInfo({
+function RoomInfoContent({
   rid,
   base,
   client,
@@ -77,114 +77,114 @@ function ContenuSalonInfo({
   e2e: E2EEngine;
   c: ReturnType<typeof useColors>;
 }) {
-  const margeBas = useSheetBottomMargin();
+  const bottomMargin = useSheetBottomMargin();
   const t = useT();
-  const deverrouille = useE2EUnlocked(e2e);
-  const { data: lignes } = useCoalescedLiveQuery(
+  const unlocked = useE2EUnlocked(e2e);
+  const { data: rows } = useCoalescedLiveQuery(
     base.select().from(rooms).where(eq(rooms.rid, rid)),
     [rid],
   );
-  const salon = (lignes ?? [])[0];
-  const { data: lignesAbonnement } = useCoalescedLiveQuery(
+  const room = (rows ?? [])[0];
+  const { data: subscriptionRows } = useCoalescedLiveQuery(
     base.select().from(subscriptions).where(eq(subscriptions.rid, rid)),
     [rid],
   );
-  const favori = (lignesAbonnement ?? [])[0]?.favorite === true;
-  const [basculeFavori, setBasculeFavori] = useState(false);
-  const [erreurFavori, setErreurFavori] = useState(false);
+  const favorite = (subscriptionRows ?? [])[0]?.favorite === true;
+  const [favoriteToggle, setFavoriteToggle] = useState(false);
+  const [favoriteError, setFavoriteError] = useState(false);
   // Le serveur d'abord : la ligne locale ne change qu'une fois l'étoile posée,
   // le flux des abonnements confirmera de lui-même.
-  const basculerFavori = (): void => {
-    if (basculeFavori) return;
-    setBasculeFavori(true);
-    setErreurFavori(false);
+  const toggleFavorite = (): void => {
+    if (favoriteToggle) return;
+    setFavoriteToggle(true);
+    setFavoriteError(false);
     void client
-      .post('rooms.favorite', { body: { roomId: rid, favorite: !favori } })
-      .then(() => base.update(subscriptions).set({ favorite: !favori }).where(eq(subscriptions.rid, rid)))
-      .catch(() => setErreurFavori(true))
-      .finally(() => setBasculeFavori(false));
+      .post('rooms.favorite', { body: { roomId: rid, favorite: !favorite } })
+      .then(() => base.update(subscriptions).set({ favorite: !favorite }).where(eq(subscriptions.rid, rid)))
+      .catch(() => setFavoriteError(true))
+      .finally(() => setFavoriteToggle(false));
   };
 
   const [complement, setComplement] = useState<Complement | null>(null);
-  const [erreur, setErreur] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let vivant = true;
+    let alive = true;
     void client
       .get<{ room?: Record<string, unknown> }>('rooms.info', { params: { roomId: rid } })
       .then((r) => {
-        if (!vivant) return;
+        if (!alive) return;
         setComplement({
-          description: chaine(r.room?.description),
-          topic: chaine(r.room?.topic),
-          announcement: chaine(r.room?.announcement),
+          description: asString(r.room?.description),
+          topic: asString(r.room?.topic),
+          announcement: asString(r.room?.announcement),
           members: typeof r.room?.usersCount === 'number' ? r.room.usersCount : null,
         });
       })
       .catch((e: unknown) => {
         // La base locale a déjà rempli l'essentiel : l'échec ne coûte que les
         // sections complémentaires.
-        if (vivant) setErreur(e instanceof Error ? e.message : translateCurrent('salonInfo.detailsIndisponibles'));
+        if (alive) setError(e instanceof Error ? e.message : translateCurrent('salonInfo.detailsIndisponibles'));
       });
     return () => {
-      vivant = false;
+      alive = false;
     };
   }, [client, rid]);
 
-  const nom = salon?.displayName ?? salon?.name ?? '?';
-  const cleType = PHRASE_TYPE[salon?.type ?? ''];
-  const sousTitre = [
-    cleType !== undefined ? t(cleType) : null,
+  const name = room?.displayName ?? room?.name ?? '?';
+  const typeKey = TYPE_SENTENCE[room?.type ?? ''];
+  const subtitle = [
+    typeKey !== undefined ? t(typeKey) : null,
     complement?.members !== null && complement !== null
       ? t('salonInfo.membres', { n: complement.members })
       : null,
-    salon?.encrypted === true ? t('salonInfo.chiffre') : null,
-    salon?.readOnly === true ? t('salonInfo.lectureSeule') : null,
+    room?.encrypted === true ? t('salonInfo.chiffre') : null,
+    room?.readOnly === true ? t('salonInfo.lectureSeule') : null,
   ]
     .filter((x): x is string => x !== null)
     .join(' · ');
 
   return (
-    <View style={[styles.sheet, { backgroundColor: c.deepCard, paddingBottom: margeBas }]}>
+    <View style={[styles.sheet, { backgroundColor: c.deepCard, paddingBottom: bottomMargin }]}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
         <RoomAvatar
           c={c}
-          name={nom}
-          type={salon?.type}
-          encrypted={salon?.encrypted ?? false}
-          encryptedUnlocked={deverrouille}
-          rid={salon?.rid}
-          dmOtherUid={salon?.dmOtherUid}
-          avatarEtag={salon?.avatarEtag}
+          name={name}
+          type={room?.type}
+          encrypted={room?.encrypted ?? false}
+          encryptedUnlocked={unlocked}
+          rid={room?.rid}
+          dmOtherUid={room?.dmOtherUid}
+          avatarEtag={room?.avatarEtag}
           client={client}
           size={72}
           radius={22}
         />
         <View style={styles.identity}>
           <Text style={[styles.name, { color: c.text }]} numberOfLines={2}>
-            {salon?.encrypted === true && <Text style={styles.encryptedBadge}>🔒 </Text>}
-            {salon?.type === 'c' ? '#' : ''}
-            {nom}
+            {room?.encrypted === true && <Text style={styles.encryptedBadge}>🔒 </Text>}
+            {room?.type === 'c' ? '#' : ''}
+            {name}
           </Text>
-          {sousTitre !== '' && (
-            <Text style={[styles.subtitle, { color: c.dimmed }]}>{sousTitre}</Text>
+          {subtitle !== '' && (
+            <Text style={[styles.subtitle, { color: c.dimmed }]}>{subtitle}</Text>
           )}
         </View>
       </View>
 
       <Tappable
-        onPress={basculerFavori}
-        disabled={basculeFavori}
+        onPress={toggleFavorite}
+        disabled={favoriteToggle}
         accessibilityRole="button"
         android_ripple={{ color: c.ripple }}
         style={[styles.favorite, { backgroundColor: c.card }]}
       >
-        <Text style={[styles.favoriTexte, { color: c.text }]}>
-          {favori ? '★ ' + t('salonInfo.retirerFavori') : '☆ ' + t('salonInfo.ajouterFavori')}
+        <Text style={[styles.favoriteText, { color: c.text }]}>
+          {favorite ? '★ ' + t('salonInfo.retirerFavori') : '☆ ' + t('salonInfo.ajouterFavori')}
         </Text>
       </Tappable>
-      {erreurFavori && (
+      {favoriteError && (
         <Text style={[styles.empty, { color: c.errorText }]}>{t('salonInfo.favoriEchec')}</Text>
       )}
 
@@ -205,15 +205,15 @@ function ContenuSalonInfo({
             {t('salonInfo.rienARenseigner')}
           </Text>
         )}
-      {erreur !== null && <Text style={[styles.empty, { color: c.errorText }]}>{erreur}</Text>}
+      {error !== null && <Text style={[styles.empty, { color: c.errorText }]}>{error}</Text>}
     </View>
   );
 }
 
 function Section({
   c,
-  title: titre,
-  text: texte,
+  title,
+  text,
 }: {
   c: ReturnType<typeof useColors>;
   title: string;
@@ -221,8 +221,8 @@ function Section({
 }) {
   return (
     <View style={styles.section}>
-      <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{titre}</Text>
-      <Text style={[styles.sectionTexte, { color: c.text }]}>{texte}</Text>
+      <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{title}</Text>
+      <Text style={[styles.sectionText, { color: c.text }]}>{text}</Text>
     </View>
   );
 }
@@ -238,9 +238,9 @@ const styles = StyleSheet.create({
   encryptedBadge: { fontSize: 14 },
   subtitle: { fontFamily: FONTS.body, fontSize: 13 },
   section: { gap: 3 },
-  sectionTitle: { fontFamily: FONTS.corpsFort, fontSize: 12, textTransform: 'uppercase' },
-  sectionTexte: { fontFamily: FONTS.body, fontSize: 15 },
+  sectionTitle: { fontFamily: FONTS.bodyStrong, fontSize: 12, textTransform: 'uppercase' },
+  sectionText: { fontFamily: FONTS.body, fontSize: 15 },
   empty: { fontFamily: FONTS.body, fontSize: 13, fontStyle: 'italic' },
   favorite: { borderRadius: 14, paddingVertical: 12, paddingHorizontal: 16, alignItems: 'center' },
-  favoriTexte: { fontFamily: FONTS.corpsFort, fontSize: 15 },
+  favoriteText: { fontFamily: FONTS.bodyStrong, fontSize: 15 },
 });

@@ -26,11 +26,11 @@ import type { Buffer as BufferEmbarque } from '@craftzdog/react-native-buffer';
 /** Le module que Metro sert quand `crypto.ts` importe `crypto`. */
 type ModuleQuickCrypto = typeof import('react-native-quick-crypto');
 /** Le module que Metro sert quand `crypto.ts` importe `buffer`. */
-type ModuleBufferEmbarque = typeof import('@craftzdog/react-native-buffer');
+type BundledBufferModule = typeof import('@craftzdog/react-native-buffer');
 
 declare const qc: ModuleQuickCrypto;
-declare const moduleBuffer: ModuleBufferEmbarque;
-declare const octets: BufferEmbarque;
+declare const moduleBuffer: BundledBufferModule;
+declare const bytes: BufferEmbarque;
 
 /**
  * Le JWK RSA privé tel que Rocket.Chat le livre réellement (WebCrypto
@@ -69,53 +69,53 @@ export function surfaceUsedByCryptoTs(): void {
   void concat.toString('utf8');
 
   // dechiffrerGcm : GCM à taille de clé variable, tag séparé via setAuthTag, update/final → Buffer.
-  const chiffre: string = `aes-${octets.length * 8}-gcm`;
-  const gcm = qc.createDecipheriv(chiffre, octets, octets);
-  gcm.setAuthTag(octets);
-  const clairGcm: BufferEmbarque = moduleBuffer.Buffer.concat([gcm.update(octets), gcm.final()]);
-  void clairGcm;
+  const encrypted: string = `aes-${bytes.length * 8}-gcm`;
+  const gcm = qc.createDecipheriv(encrypted, bytes, bytes);
+  gcm.setAuthTag(bytes);
+  const gcmPlain: BufferEmbarque = moduleBuffer.Buffer.concat([gcm.update(bytes), gcm.final()]);
+  void gcmPlain;
 
   // dechiffrerCbc : CBC à taille de clé variable, remplissage vérifié par final.
-  const cbc = qc.createDecipheriv(chiffre, octets, octets);
-  const clairCbc: BufferEmbarque = moduleBuffer.Buffer.concat([cbc.update(octets), cbc.final()]);
-  void clairCbc;
+  const cbc = qc.createDecipheriv(encrypted, bytes, bytes);
+  const cbcPlain: BufferEmbarque = moduleBuffer.Buffer.concat([cbc.update(bytes), cbc.final()]);
+  void cbcPlain;
 
   // dechiffrerClePrivee : PBKDF2-SHA256 → 32 octets de clé maître.
-  const cleMaitre: BufferEmbarque = qc.pbkdf2Sync(utf8, utf8, 1000, 32, 'sha256');
-  void cleMaitre;
+  const masterKey: BufferEmbarque = qc.pbkdf2Sync(utf8, utf8, 1000, 32, 'sha256');
+  void masterKey;
 
   // importerClePriveeRSA : import JWK natif.
-  const clePrivee = qc.createPrivateKey({ key: jwk, format: 'jwk' });
+  const privateKey = qc.createPrivateKey({ key: jwk, format: 'jwk' });
 
   // dechiffrerCleSalon : RSA-OAEP/SHA-256 avec la constante de remplissage.
-  const remplissage: number = qc.constants.RSA_PKCS1_OAEP_PADDING;
-  const jwkSalon: BufferEmbarque = qc.privateDecrypt(
-    { key: clePrivee, padding: remplissage, oaepHash: 'sha256' },
-    octets,
+  const padding: number = qc.constants.RSA_PKCS1_OAEP_PADDING;
+  const roomJwk: BufferEmbarque = qc.privateDecrypt(
+    { key: privateKey, padding, oaepHash: 'sha256' },
+    bytes,
   );
-  void jwkSalon.toString('utf8');
+  void roomJwk.toString('utf8');
 
   // chiffrerMessage : IV aléatoire, CBC 128 ou GCM 256 (tag lu après final).
   const iv: BufferEmbarque = qc.randomBytes(16);
-  const versCbc = qc.createCipheriv('aes-128-cbc', octets, iv);
-  const chiffreCbc: BufferEmbarque = moduleBuffer.Buffer.concat([versCbc.update(octets), versCbc.final()]);
-  void chiffreCbc.toString('base64');
-  const versGcm = qc.createCipheriv('aes-256-gcm', octets, iv);
-  const chiffreGcm: BufferEmbarque = moduleBuffer.Buffer.concat([
-    versGcm.update(octets),
-    versGcm.final(),
-    versGcm.getAuthTag(),
+  const toCbc = qc.createCipheriv('aes-128-cbc', bytes, iv);
+  const cbcCiphertext: BufferEmbarque = moduleBuffer.Buffer.concat([toCbc.update(bytes), toCbc.final()]);
+  void cbcCiphertext.toString('base64');
+  const toGcm = qc.createCipheriv('aes-256-gcm', bytes, iv);
+  const gcmCiphertext: BufferEmbarque = moduleBuffer.Buffer.concat([
+    toGcm.update(bytes),
+    toGcm.final(),
+    toGcm.getAuthTag(),
   ]);
-  void chiffreGcm;
+  void gcmCiphertext;
 
   // dechiffrerFichier : AES-CTR à taille de clé variable, empreinte SHA-256 en hexadécimal.
-  const ctr = qc.createDecipheriv(`aes-${octets.length * 8}-ctr`, octets, iv);
-  const fichier: BufferEmbarque = moduleBuffer.Buffer.concat([ctr.update(octets), ctr.final()]);
-  const empreinte: string = qc.createHash('sha256').update(fichier).digest('hex');
-  void empreinte;
+  const ctr = qc.createDecipheriv(`aes-${bytes.length * 8}-ctr`, bytes, iv);
+  const file: BufferEmbarque = moduleBuffer.Buffer.concat([ctr.update(bytes), ctr.final()]);
+  const fingerprint: string = qc.createHash('sha256').update(file).digest('hex');
+  void fingerprint;
 
   // chiffrerFichier : AES-256-CTR, clé et compteur aléatoires.
-  const versCtr = qc.createCipheriv('aes-256-ctr', qc.randomBytes(32), iv);
-  const chiffreCtr: BufferEmbarque = moduleBuffer.Buffer.concat([versCtr.update(octets), versCtr.final()]);
-  void chiffreCtr;
+  const toCtr = qc.createCipheriv('aes-256-ctr', qc.randomBytes(32), iv);
+  const ctrCiphertext: BufferEmbarque = moduleBuffer.Buffer.concat([toCtr.update(bytes), toCtr.final()]);
+  void ctrCiphertext;
 }

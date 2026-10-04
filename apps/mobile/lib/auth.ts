@@ -35,14 +35,14 @@ export type Session = {
 };
 
 /** SHA-256 hexadécimal, en minuscules. */
-export type Hasher = (texte: string) => Promise<string>;
+export type Hasher = (text: string) => Promise<string>;
 
 export type Credentials = {
   user: string;
   password: string;
 };
 
-type ReponseLogin = {
+type LoginResponse = {
   status?: string;
   data: {
     authToken: string;
@@ -58,14 +58,14 @@ type ReponseLogin = {
  * - `password` : c'est le mot de passe qu'il faut hacher, pas le code saisi.
  */
 export async function prepareTwoFactorCode(
-  erreur: TwoFactorError,
-  saisie: string,
-  hacher: Hasher,
+  error: TwoFactorError,
+  input: string,
+  hash: Hasher,
 ): Promise<TwoFactorCode> {
-  if (erreur.method === 'password') {
-    return { method: 'password', code: await hacher(saisie) };
+  if (error.method === 'password') {
+    return { method: 'password', code: await hash(input) };
   }
-  return { method: erreur.method, code: saisie.trim() };
+  return { method: error.method, code: input.trim() };
 }
 
 /**
@@ -76,14 +76,14 @@ export async function prepareTwoFactorCode(
 export async function logIn(
   client: ClientRest,
   credentials: Credentials,
-  deuxFacteurs?: TwoFactorCode,
+  twoFactor?: TwoFactorCode,
 ): Promise<Session> {
-  const reponse = await client.post<ReponseLogin>('login', {
+  const response = await client.post<LoginResponse>('login', {
     anonymous: true,
-    twoFactor: deuxFacteurs,
+    twoFactor,
     body: { user: credentials.user, password: credentials.password },
   });
-  return sessionDepuis(client.baseUrl, reponse);
+  return sessionFrom(client.baseUrl, response);
 }
 
 /**
@@ -92,14 +92,14 @@ export async function logIn(
  * l'accepte tel quel.
  */
 export async function resumeSession(client: ClientRest, authToken: string): Promise<Session> {
-  const reponse = await client.post<ReponseLogin>('login', {
+  const response = await client.post<LoginResponse>('login', {
     anonymous: true,
     body: { resume: authToken },
   });
-  return sessionDepuis(client.baseUrl, reponse);
+  return sessionFrom(client.baseUrl, response);
 }
 
-class ErreurLogin extends Error {
+class LoginError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'ErreurLogin';
@@ -111,16 +111,16 @@ class ErreurLogin extends Error {
  * `/logout`. Un `/login` répondant ainsi donnerait `reponse.data === undefined`
  * et une `TypeError` brute : on garde donc avant de déstructurer.
  */
-function sessionDepuis(baseUrl: string, reponse: ReponseLogin | undefined): Session {
-  const donnees = reponse?.data;
-  if (!donnees?.authToken || !donnees.userId) {
-    throw new ErreurLogin('Réponse de login invalide : ni jeton ni identifiant.');
+function sessionFrom(baseUrl: string, response: LoginResponse | undefined): Session {
+  const data = response?.data;
+  if (!data?.authToken || !data.userId) {
+    throw new LoginError('Réponse de login invalide : ni jeton ni identifiant.');
   }
   return {
     baseUrl,
-    authToken: donnees.authToken,
-    userId: donnees.userId,
-    username: donnees.me?.username ?? '',
+    authToken: data.authToken,
+    userId: data.userId,
+    username: data.me?.username ?? '',
     genre: 'rocketchat',
     // `/login` ne connaît pas `Site_Url` : c'est l'écran de connexion qui le
     // complète depuis son sondage (`ProfilServeur.siteUrl`) avant de persister.
@@ -137,9 +137,9 @@ function sessionDepuis(baseUrl: string, reponse: ReponseLogin | undefined): Sess
  * Ne prend que l'identifiant : exiger `Credentials` obligerait à garder le mot
  * de passe en mémoire pour rien.
  */
-export function requestEmailCode(client: ClientRest, emailOuNom: string): Promise<void> {
+export function requestEmailCode(client: ClientRest, emailOrName: string): Promise<void> {
   return client
-    .post('users.2fa.sendEmailCode', { anonymous: true, body: { emailOrUsername: emailOuNom } })
+    .post('users.2fa.sendEmailCode', { anonymous: true, body: { emailOrUsername: emailOrName } })
     .then(() => undefined);
 }
 

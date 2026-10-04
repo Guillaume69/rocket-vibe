@@ -4,9 +4,9 @@
 //   node e2e/harness/check-server.mjs <texte> [--fichier]
 
 const BASE = process.env.ROOT_URL ?? 'http://localhost:3000';
-const texte = process.argv[2];
-const exigeFichier = process.argv.includes('--fichier');
-if (!texte) {
+const text = process.argv[2];
+const requireFile = process.argv.includes('--fichier');
+if (!text) {
   console.error('usage: check-server.mjs <texte> [--fichier]');
   process.exit(1);
 }
@@ -18,20 +18,20 @@ const r = await fetch(`${BASE}/api/v1/login`, {
 });
 const alice = (await r.json()).data;
 
-const canal = await fetch(`${BASE}/api/v1/channels.info?roomName=test-public`, {
+const channel = await fetch(`${BASE}/api/v1/channels.info?roomName=test-public`, {
   headers: { 'X-User-Id': alice.userId, 'X-Auth-Token': alice.authToken },
 });
-const rid = (await canal.json()).channel._id;
+const rid = (await channel.json()).channel._id;
 
 const h = await fetch(`${BASE}/api/v1/channels.history?roomId=${rid}&count=20`, {
   headers: { 'X-User-Id': alice.userId, 'X-Auth-Token': alice.authToken },
 });
 const messages = (await h.json()).messages ?? [];
-const trouve = messages.find(
-  (m) => m.msg === texte && (!exigeFichier || typeof m.file?.name === 'string'),
+const found = messages.find(
+  (m) => m.msg === text && (!requireFile || typeof m.file?.name === 'string'),
 );
-if (!trouve) {
-  console.error(`ABSENT DU SERVEUR : « ${texte} »${exigeFichier ? ' (avec fichier)' : ''}`);
+if (!found) {
+  console.error(`ABSENT DU SERVEUR : « ${text} »${requireFile ? ' (avec fichier)' : ''}`);
   process.exit(1);
 }
-console.log(`serveur ok : « ${texte} »${exigeFichier ? ` + fichier ${trouve.file.name}` : ''}`);
+console.log(`serveur ok : « ${text} »${requireFile ? ` + fichier ${found.file.name}` : ''}`);

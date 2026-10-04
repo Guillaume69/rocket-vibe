@@ -48,16 +48,16 @@ export interface Store {
    * salon, abonnement, messages, mais aussi files d'envoi, brouillons et
    * curseurs. Ne fait RIEN sur une liste vide (garde-fou anti-purge-totale).
    */
-  purgeMissingRooms(ridsVivants: string[], ridsConnus: string[]): Promise<void>;
+  purgeMissingRooms(aliveRids: string[], knownRids: string[]): Promise<void>;
   /**
    * Rétention : ne garder que les `nbMax` messages les plus récents de CHAQUE
    * salon, en épargnant les optimistes et les racines de fil référencées.
    */
   applyRetention(nbMax: number): Promise<void>;
   /** Curseurs de rattrapage. `lireCurseur` rend null si jamais écrit. */
-  readCursor(portee: string, flux: string): Promise<number | null>;
+  readCursor(scope: string, stream: string): Promise<number | null>;
   /** N'avance jamais à rebours (garanti par le SQL). */
-  writeCursor(portee: string, flux: string, misAJourDepuis: number): Promise<void>;
+  writeCursor(scope: string, stream: string, updatedSince: number): Promise<void>;
   /**
    * Le plus grand `_updatedAt` déjà ingéré pour un salon (null si aucun message
    * local). Sert à ré-ancrer le curseur quand `chat.syncMessages` échoue sur un
@@ -69,9 +69,9 @@ export interface Store {
   /** Messages chiffrés encore illisibles (`chiffre_brut` présent, `texte` null). */
   messagesToDecrypt(): Promise<{ id: string; rid: string; encryptedRaw: string }[]>;
   /** Pose le clair d'un message (et ses pièces jointes) après déchiffrement au déverrouillage. */
-  updateMessageText(id: string, texte: string, piecesJointes: string | null): Promise<void>;
+  updateMessageText(id: string, text: string, attachments: string | null): Promise<void>;
   /** Épinglage et étoiles posés localement après un geste réussi (`lib/marks.ts`). */
-  updateMessageMarks(id: string, epingle: boolean, etoiles: string | null): Promise<void>;
+  updateMessageMarks(id: string, pinned: boolean, starred: string | null): Promise<void>;
   /**
    * Pose la version d'avatar (`avatarETag`) d'un utilisateur, désigné par son
    * PSEUDO — c'est la seule clé que porte le stream. Sans effet sur un pseudo
@@ -86,7 +86,7 @@ export interface Store {
    * utilisateur qui n'a encore posté aucun message — mon propre compte, le
    * plus souvent.
    */
-  saveIdentity(identite: {
+  saveIdentity(identity: {
     uid: string;
     username: string;
     avatarEtag: string | null;
@@ -152,10 +152,10 @@ export class SyncEngine {
   /** Déchiffreur E2EE, ou `null` : un message chiffré reste alors au placeholder. */
   private decryptor: E2EDecryptor | null;
 
-  constructor(depot: Store, traducteur: Translator, dechiffreur: E2EDecryptor | null = null) {
-    this.store = depot;
-    this.translator = traducteur;
-    this.decryptor = dechiffreur;
+  constructor(store: Store, translator: Translator, decryptor: E2EDecryptor | null = null) {
+    this.store = store;
+    this.translator = translator;
+    this.decryptor = decryptor;
   }
 
   /**
@@ -177,9 +177,9 @@ export class SyncEngine {
       } catch {
         continue;
       }
-      const clair = this.decryptor.decryptContent(m.rid, content);
-      if (clair !== null) {
-        await this.store.updateMessageText(m.id, clair.text, clair.attachments);
+      const plain = this.decryptor.decryptContent(m.rid, content);
+      if (plain !== null) {
+        await this.store.updateMessageText(m.id, plain.text, plain.attachments);
         n++;
       }
     }
@@ -208,10 +208,10 @@ export class SyncEngine {
     } catch {
       return;
     }
-    const clair = this.decryptor.decryptContent(message.rid, content);
-    if (clair === null) return;
-    message.text = clair.text;
-    if (clair.attachments !== null) message.attachments = clair.attachments;
+    const plain = this.decryptor.decryptContent(message.rid, content);
+    if (plain === null) return;
+    message.text = plain.text;
+    if (plain.attachments !== null) message.attachments = plain.attachments;
   }
 
   /**
@@ -220,57 +220,57 @@ export class SyncEngine {
    * inattendu) est **comptée, jamais planquée** ; un `silence` attendu
    * (`user-activity`) ne compte pas.
    */
-  async apply(evenement: DdpEvent): Promise<void> {
-    const traduction = this.translator.translateEvent(evenement);
-    if (traduction.kind === 'silence') return;
-    if (traduction.kind === 'ignore') {
+  async apply(event: DdpEvent): Promise<void> {
+    const translation = this.translator.translateEvent(event);
+    if (translation.kind === 'silence') return;
+    if (translation.kind === 'ignore') {
       this.stats.ignores++;
       return;
     }
-    await this.applyChange(traduction.change);
+    await this.applyChange(translation.change);
   }
 
   /** Écrit un changement déjà normalisé dans le dépôt. Le seul chemin d'écriture. */
-  private async applyChange(changement: SyncChange): Promise<void> {
-    switch (changement.type) {
+  private async applyChange(change: SyncChange): Promise<void> {
+    switch (change.type) {
       case 'message':
-        this.decrypt(changement.doc);
-        await this.store.upsertMessage(changement.doc);
+        this.decrypt(change.doc);
+        await this.store.upsertMessage(change.doc);
         this.stats.messages++;
         // Un message chiffré déchiffré en direct rafraîchit l'aperçu de liste.
-        if (changement.doc.encryptedRaw !== null && changement.doc.text !== null) {
+        if (change.doc.encryptedRaw !== null && change.doc.text !== null) {
           await this.store.updateEncryptedPreview();
         }
         return;
       case 'room':
-        await this.store.upsertRoom(changement.doc);
+        await this.store.upsertRoom(change.doc);
         this.stats.rooms++;
         return;
       case 'subscription':
-        this.decryptor?.saveRoomKey(changement.doc.rid, changement.doc.e2eKey);
-        await this.store.upsertSubscription(changement.doc);
+        this.decryptor?.saveRoomKey(change.doc.rid, change.doc.e2eKey);
+        await this.store.upsertSubscription(change.doc);
         this.stats.subscriptions++;
         return;
       case 'message-deleted':
-        await this.store.deleteMessage(changement.id);
+        await this.store.deleteMessage(change.id);
         this.stats.deletions++;
         return;
       case 'room-deleted':
-        await this.store.deleteRoom(changement.rid);
+        await this.store.deleteRoom(change.rid);
         this.stats.deletions++;
         return;
       case 'subscription-deleted-by-sub':
-        await this.store.deleteBySubId(changement.subId);
+        await this.store.deleteBySubId(change.subId);
         this.stats.deletions++;
         return;
       case 'avatar':
         // Ni compté ni ignoré : ce n'est pas un document, juste la version
         // d'une photo. Une cible sans pseudo NI rid n'existe pas côté serveur.
-        if (changement.username !== null) {
-          await this.store.updateUserAvatar(changement.username, changement.etag);
+        if (change.username !== null) {
+          await this.store.updateUserAvatar(change.username, change.etag);
         }
-        if (changement.rid !== null) {
-          await this.store.updateRoomAvatar(changement.rid, changement.etag);
+        if (change.rid !== null) {
+          await this.store.updateRoomAvatar(change.rid, change.etag);
         }
         return;
     }
@@ -283,11 +283,11 @@ export class SyncEngine {
    * Rend le plus grand `_updatedAt` ingéré (ou null) : c'est la matière des
    * curseurs de rattrapage — un curseur bâti sur l'horloge locale mentirait.
    */
-  async ingestMessages(bruts: Record<string, unknown>[]): Promise<number | null> {
-    let plusRecent: number | null = null;
+  async ingestMessages(rawItems: Record<string, unknown>[]): Promise<number | null> {
+    let latest: number | null = null;
     await this.store.transaction(async (tx) => {
-      for (const brut of bruts) {
-        const message = this.translator.toMessage(brut);
+      for (const raw of rawItems) {
+        const message = this.translator.toMessage(raw);
         if (message === null) {
           this.stats.ignores++;
           continue;
@@ -295,51 +295,51 @@ export class SyncEngine {
         this.decrypt(message);
         await tx.upsertMessage(message);
         this.stats.messages++;
-        if (plusRecent === null || message.updatedAt > plusRecent) {
-          plusRecent = message.updatedAt;
+        if (latest === null || message.updatedAt > latest) {
+          latest = message.updatedAt;
         }
       }
     });
-    return plusRecent;
+    return latest;
   }
 
-  async ingestRooms(bruts: Record<string, unknown>[]): Promise<number | null> {
-    let plusRecent: number | null = null;
+  async ingestRooms(rawItems: Record<string, unknown>[]): Promise<number | null> {
+    let latest: number | null = null;
     await this.store.transaction(async (tx) => {
-      for (const brut of bruts) {
-        const salon = this.translator.toRoom(brut);
-        if (salon === null) {
+      for (const raw of rawItems) {
+        const room = this.translator.toRoom(raw);
+        if (room === null) {
           this.stats.ignores++;
           continue;
         }
-        await tx.upsertRoom(salon);
+        await tx.upsertRoom(room);
         this.stats.rooms++;
-        if (plusRecent === null || salon.updatedAt > plusRecent) {
-          plusRecent = salon.updatedAt;
+        if (latest === null || room.updatedAt > latest) {
+          latest = room.updatedAt;
         }
       }
     });
-    return plusRecent;
+    return latest;
   }
 
-  async ingestSubscriptions(bruts: Record<string, unknown>[]): Promise<number | null> {
-    let plusRecent: number | null = null;
+  async ingestSubscriptions(rawItems: Record<string, unknown>[]): Promise<number | null> {
+    let latest: number | null = null;
     await this.store.transaction(async (tx) => {
-      for (const brut of bruts) {
-        const abonnement = this.translator.toSubscription(brut);
-        if (abonnement === null) {
+      for (const raw of rawItems) {
+        const subscription = this.translator.toSubscription(raw);
+        if (subscription === null) {
           this.stats.ignores++;
           continue;
         }
-        this.decryptor?.saveRoomKey(abonnement.rid, abonnement.e2eKey);
-        await tx.upsertSubscription(abonnement);
+        this.decryptor?.saveRoomKey(subscription.rid, subscription.e2eKey);
+        await tx.upsertSubscription(subscription);
         this.stats.subscriptions++;
-        if (plusRecent === null || abonnement.updatedAt > plusRecent) {
-          plusRecent = abonnement.updatedAt;
+        if (latest === null || subscription.updatedAt > latest) {
+          latest = subscription.updatedAt;
         }
       }
     });
-    return plusRecent;
+    return latest;
   }
 
   /** Accès au dépôt pour le rattrapage (curseurs, suppressions). */

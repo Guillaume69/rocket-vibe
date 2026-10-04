@@ -8,15 +8,15 @@ describe('arbreDuMessage', () => {
     const md = JSON.stringify([
       { type: 'PARAGRAPH', value: [{ type: 'PLAIN_TEXT', value: 'serveur' }] },
     ]);
-    const arbre = messageTree(md, 'texte ignoré');
-    assert.equal(textOf(arbre), 'serveur');
+    const tree = messageTree(md, 'texte ignoré');
+    assert.equal(textOf(tree), 'serveur');
   });
 
   test('un VIEUX message sans `md` est parsé localement — le repli du contrat 4.3', () => {
-    const arbre = messageTree(null, '**gras** et _italique_');
-    assert.ok(arbre !== null);
-    assert.equal(arbre[0].type, 'PARAGRAPH');
-    assert.equal(textOf(arbre), 'gras et italique');
+    const tree = messageTree(null, '**gras** et _italique_');
+    assert.ok(tree !== null);
+    assert.equal(tree[0].type, 'PARAGRAPH');
+    assert.equal(textOf(tree), 'gras et italique');
   });
 
   test('un `md` corrompu en base retombe sur le texte au lieu de planter', () => {
@@ -41,18 +41,18 @@ describe('arbreDuMessage', () => {
 
 describe('texteDe', () => {
   test('aplatit les nœuds imbriqués', () => {
-    const arbre = messageTree(null, '**gras _et italique_** `code`');
-    assert.equal(textOf(arbre), 'gras et italique code');
+    const tree = messageTree(null, '**gras _et italique_** `code`');
+    assert.equal(textOf(tree), 'gras et italique code');
   });
 
   test('un code court connu rend son caractère', () => {
-    const arbre = messageTree(null, ':smile: bonjour');
-    assert.equal(textOf(arbre), '😄 bonjour');
+    const tree = messageTree(null, ':smile: bonjour');
+    assert.equal(textOf(tree), '😄 bonjour');
   });
 
   test('un code court inconnu reste littéral — un emoji personnalisé se lit encore', () => {
-    const arbre = messageTree(null, 'bravo :shipit: !');
-    assert.equal(textOf(arbre), 'bravo :shipit: !');
+    const tree = messageTree(null, 'bravo :shipit: !');
+    assert.equal(textOf(tree), 'bravo :shipit: !');
   });
 
   test('un nœud inconnu rend une chaîne vide, pas un plantage', () => {
@@ -63,8 +63,8 @@ describe('texteDe', () => {
   test('un TIMESTAMP rend son `fallback`, pas une chaîne vide', () => {
     // `<t:…:F>` produit un nœud dont `value` est un objet opaque ; le parseur
     // fournit `fallback` exactement pour l'affichage de secours.
-    const arbre = messageTree(null, 'rdv <t:1720000000:F> ok');
-    assert.match(textOf(arbre), /rdv <t:1720000000:F> ok/);
+    const tree = messageTree(null, 'rdv <t:1720000000:F> ok');
+    assert.match(textOf(tree), /rdv <t:1720000000:F> ok/);
   });
 
   test('un emoji unicode rend son caractère', () => {
@@ -84,12 +84,12 @@ describe('unicodeDEmoji', () => {
   test('un BIG_EMOJI peut n’en contenir aucun — le parseur ne valide pas', () => {
     // La preuve, prise sur le serveur 8.5 : `:pas_un_emoji:` seul sur sa ligne
     // ressort en BIG_EMOJI. Sans ce `null`, l'écran l'afficherait en 36 px.
-    const arbre = messageTree(null, ':pas_un_emoji:');
-    assert.ok(arbre !== null);
-    assert.equal(arbre[0].type, 'BIG_EMOJI');
-    const noeuds = (arbre[0] as { value: unknown[] }).value;
-    assert.deepEqual(noeuds.map(unicodeDEmoji), [null]);
-    assert.equal(textOf(arbre), ':pas_un_emoji:');
+    const tree = messageTree(null, ':pas_un_emoji:');
+    assert.ok(tree !== null);
+    assert.equal(tree[0].type, 'BIG_EMOJI');
+    const nodes = (tree[0] as { value: unknown[] }).value;
+    assert.deepEqual(nodes.map(unicodeDEmoji), [null]);
+    assert.equal(textOf(tree), ':pas_un_emoji:');
   });
 
   test('ce qui n’est pas un nœud EMOJI vaut `null`', () => {

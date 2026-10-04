@@ -235,17 +235,17 @@ export const lightColors: Colors = {
  *
  * `titre*` = Baloo 2 (arrondie, pour les titres) ; le reste = Nunito (corps).
  */
-const police = (fichier: string, postScript: string): string =>
-  Platform.OS === 'ios' ? postScript : fichier;
+const fonts = (file: string, postScript: string): string =>
+  Platform.OS === 'ios' ? postScript : file;
 
 export const FONTS = {
-  titreSemi: police('Baloo2_600SemiBold', 'Baloo2-SemiBold'),
-  title: police('Baloo2_700Bold', 'Baloo2-Bold'),
-  titreFort: police('Baloo2_800ExtraBold', 'Baloo2-ExtraBold'),
-  body: police('Nunito_400Regular', 'Nunito-Regular'),
-  corpsSemi: police('Nunito_600SemiBold', 'Nunito-SemiBold'),
-  corpsGras: police('Nunito_700Bold', 'Nunito-Bold'),
-  corpsFort: police('Nunito_800ExtraBold', 'Nunito-ExtraBold'),
+  titleSemi: fonts('Baloo2_600SemiBold', 'Baloo2-SemiBold'),
+  title: fonts('Baloo2_700Bold', 'Baloo2-Bold'),
+  titleStrong: fonts('Baloo2_800ExtraBold', 'Baloo2-ExtraBold'),
+  body: fonts('Nunito_400Regular', 'Nunito-Regular'),
+  bodySemi: fonts('Nunito_600SemiBold', 'Nunito-SemiBold'),
+  bodyBold: fonts('Nunito_700Bold', 'Nunito-Bold'),
+  bodyStrong: fonts('Nunito_800ExtraBold', 'Nunito-ExtraBold'),
 } as const;
 
 /**
@@ -268,8 +268,8 @@ export const LIST_PRESS_DELAY = 120;
  * aperçus de lien (`ui/linkCard.tsx`), qui doivent s'aligner — le calcul
  * était recopié dans les deux.
  */
-export function availableBodyWidth(largeurEcran: number): number {
-  return Math.min(largeurEcran - 92, 380);
+export function availableBodyWidth(screenWidth: number): number {
+  return Math.min(screenWidth - 92, 380);
 }
 
 /**
@@ -277,11 +277,11 @@ export function availableBodyWidth(largeurEcran: number): number {
  * garde sa cutie-mark d'un écran à l'autre. Somme des points de code modulo la
  * taille de la palette — déterministe, sans dépendance.
  */
-export function avatarGradient(cle: string, palette: readonly Gradient[]): Gradient {
+export function avatarGradient(key: string, palette: readonly Gradient[]): Gradient {
   // Hash polynomial (×31), sensible à l'ORDRE : deux anagrammes (« bob » / « obb »)
   // ne tombent plus sur la même teinte. `| 0` borne à 32 bits signés.
   let h = 0;
-  for (let i = 0; i < cle.length; i++) h = (h * 31 + cle.charCodeAt(i)) | 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
   return palette[Math.abs(h) % palette.length]!;
 }
 

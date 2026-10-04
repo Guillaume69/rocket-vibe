@@ -24,11 +24,11 @@ export type EmojiCustom = { name: string; extension: string; aliases: string[] }
 /** Persistance des emojis custom. Implémentée sur SQLite (`db/store.ts`). */
 export interface EmojiStore {
   /** Remplace TOUTE la table par `entrees` (la liste serveur est complète). */
-  replace(entrees: EmojiCustom[]): Promise<void>;
+  replace(entries: EmojiCustom[]): Promise<void>;
   list(): Promise<EmojiCustom[]>;
 }
 
-type Cible = { name: string; extension: string };
+type Target = { name: string; extension: string };
 
 /** Un `unknown` (réseau ou JSON de la base) vers une liste d'alias propre. */
 export function filterAliases(v: unknown): string[] {
@@ -41,15 +41,15 @@ export function filterAliases(v: unknown): string[] {
  * JAMAIS être masqué par l'alias homonyme d'une autre entrée, quel que soit
  * l'ordre du serveur. Entre deux entrées valides, la première posée gagne.
  */
-export function buildIndex(entrees: EmojiCustom[]): Map<string, Cible> {
-  const index = new Map<string, Cible>();
-  const valides = entrees.filter(
+export function buildIndex(entries: EmojiCustom[]): Map<string, Target> {
+  const index = new Map<string, Target>();
+  const valid = entries.filter(
     (e) => typeof e?.name === 'string' && typeof e.extension === 'string',
   );
-  for (const e of valides) {
+  for (const e of valid) {
     if (!index.has(e.name)) index.set(e.name, { name: e.name, extension: e.extension });
   }
-  for (const e of valides) {
+  for (const e of valid) {
     for (const alias of e.aliases ?? []) {
       if (typeof alias === 'string' && !index.has(alias)) {
         index.set(alias, { name: e.name, extension: e.extension });
@@ -59,8 +59,8 @@ export function buildIndex(entrees: EmojiCustom[]): Map<string, Cible> {
   return index;
 }
 
-let index = new Map<string, Cible>();
-let baseActive: string | null = null;
+let index = new Map<string, Target>();
+let activeBase: string | null = null;
 // Cache de `codesEmojiCustom()` : rebâti seulement quand l'index change, pas à
 // chaque frappe du composer. Invalidé partout où `index` est réassigné.
 let codesCache: readonly string[] | null = null;
@@ -71,34 +71,34 @@ let codesCache: readonly string[] | null = null;
 // `synchroniserEmojisCustom` court APRÈS le montage et l'onglet ⭐ n'existait
 // pas. `surChangementEmojisCustom` + `codesEmojiCustom` forment le contrat
 // `useSyncExternalStore` : le cache gelé ci-dessus EST l'instantané stable.
-const abonnes = new Set<() => void>();
+const subscribers = new Set<() => void>();
 
-function notifierChangement(): void {
-  for (const abonne of [...abonnes]) abonne();
+function notifyChange(): void {
+  for (const subscriber of [...subscribers]) subscriber();
 }
 
 /** S'abonner aux réassignations de l'index — rend le désabonnement. */
-export function onCustomEmojisChange(abonne: () => void): () => void {
-  abonnes.add(abonne);
+export function onCustomEmojisChange(subscriber: () => void): () => void {
+  subscribers.add(subscriber);
   return () => {
-    abonnes.delete(abonne);
+    subscribers.delete(subscriber);
   };
 }
 
 /** Pose l'index du serveur actif. Appelé au démarrage puis après un fetch. */
-export function setCustomEmojis(baseUrl: string, entrees: EmojiCustom[]): void {
-  baseActive = baseUrl.replace(/\/+$/, '');
-  index = buildIndex(entrees);
+export function setCustomEmojis(baseUrl: string, entries: EmojiCustom[]): void {
+  activeBase = baseUrl.replace(/\/+$/, '');
+  index = buildIndex(entries);
   codesCache = null;
-  notifierChangement();
+  notifyChange();
 }
 
 /** À la déconnexion : un index survivant servirait les emojis de l'ancien serveur. */
 export function clearCustomEmojis(): void {
   index = new Map();
-  baseActive = null;
+  activeBase = null;
   codesCache = null;
-  notifierChangement();
+  notifyChange();
 }
 
 /**
@@ -106,9 +106,9 @@ export function clearCustomEmojis(): void {
  * un. `Map.get` ne remonte pas le prototype d'`Object` — pas de garde à ajouter.
  */
 export function urlEmojiCustom(shortCode: string): string | null {
-  const cible = index.get(shortCode);
-  if (cible === undefined || baseActive === null) return null;
-  return `${baseActive}/emoji-custom/${encodeURIComponent(cible.name)}.${encodeURIComponent(cible.extension)}`;
+  const target = index.get(shortCode);
+  if (target === undefined || activeBase === null) return null;
+  return `${activeBase}/emoji-custom/${encodeURIComponent(target.name)}.${encodeURIComponent(target.extension)}`;
 }
 
 /**
@@ -122,20 +122,20 @@ export function codesEmojiCustom(): readonly string[] {
 }
 
 /** Un `unknown` du réseau vers une entrée propre, ou `null` si inexploitable. */
-export function normalizeEntry(brut: unknown): EmojiCustom | null {
-  if (typeof brut !== 'object' || brut === null) return null;
-  const o = brut as { name?: unknown; extension?: unknown; aliases?: unknown };
+export function normalizeEntry(raw: unknown): EmojiCustom | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const o = raw as { name?: unknown; extension?: unknown; aliases?: unknown };
   if (typeof o.name !== 'string' || typeof o.extension !== 'string') return null;
   return { name: o.name, extension: o.extension, aliases: filterAliases(o.aliases) };
 }
 
-type ReponseListe = { emojis?: { update?: unknown[] } };
+type ListResponse = { emojis?: { update?: unknown[] } };
 
 /** Le sous-ensemble de `ClientRest` dont on a besoin — pour tester sans lui. */
-type ClientLecture = {
+type ReadClient = {
   baseUrl: string;
   get: <T>(
-    chemin: string,
+    path: string,
     options?: { params?: Record<string, string | number | boolean | undefined> },
   ) => Promise<T>;
 };
@@ -157,26 +157,26 @@ type ClientLecture = {
  * les images de A dans l'UI de B, et une requête non authentifiée vers A).
  */
 export async function syncCustomEmojis(
-  client: ClientLecture,
-  depot: EmojiStore,
-  estAbandonne: () => boolean = () => false,
+  client: ReadClient,
+  store: EmojiStore,
+  isDiscarded: () => boolean = () => false,
 ): Promise<void> {
-  const reponse = await client.get<ReponseListe>('emoji-custom.list');
-  const brut = reponse.emojis?.update;
-  if (!Array.isArray(brut)) return;
-  const entrees = brut.map(normalizeEntry).filter((e): e is EmojiCustom => e !== null);
-  await depot.replace(entrees);
-  if (estAbandonne()) return;
-  setCustomEmojis(client.baseUrl, entrees);
+  const response = await client.get<ListResponse>('emoji-custom.list');
+  const raw = response.emojis?.update;
+  if (!Array.isArray(raw)) return;
+  const entries = raw.map(normalizeEntry).filter((e): e is EmojiCustom => e !== null);
+  await store.replace(entries);
+  if (isDiscarded()) return;
+  setCustomEmojis(client.baseUrl, entries);
 }
 
 /** Au démarrage : la table SQLite (offline) vers l'index mémoire. */
 export async function restoreCustomEmojis(
   baseUrl: string,
-  depot: EmojiStore,
-  estAbandonne: () => boolean = () => false,
+  store: EmojiStore,
+  isDiscarded: () => boolean = () => false,
 ): Promise<void> {
-  const entrees = await depot.list();
-  if (estAbandonne()) return;
-  setCustomEmojis(baseUrl, entrees);
+  const entries = await store.list();
+  if (isDiscarded()) return;
+  setCustomEmojis(baseUrl, entries);
 }

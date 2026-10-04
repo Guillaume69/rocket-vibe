@@ -289,7 +289,7 @@ export const RID_BY_SUB_ID = `SELECT rid FROM abonnements WHERE sub_id = ?`;
  * Rocket.Chat ne contient jamais de `:`, la coupe est donc sans ambiguïté.
  * `instr` rend 0 quand il n'y a pas de séparateur — d'où le `CASE`.
  */
-const RID_DU_BROUILLON = `substr(cle, 1, CASE WHEN instr(cle, ':') = 0 THEN length(cle) ELSE instr(cle, ':') - 1 END)`;
+const DRAFT_RID = `substr(cle, 1, CASE WHEN instr(cle, ':') = 0 THEN length(cle) ELSE instr(cle, ':') - 1 END)`;
 
 /**
  * Tous les `rid` que la base connaît, quelle que soit la table qui les porte —
@@ -317,7 +317,7 @@ UNION SELECT rid FROM messages
 UNION SELECT rid FROM sortie
 UNION SELECT rid FROM televersements
 UNION SELECT portee FROM etat_synchro WHERE portee <> '*'
-UNION SELECT ${RID_DU_BROUILLON} FROM brouillons
+UNION SELECT ${DRAFT_RID} FROM brouillons
 `;
 
 /**
@@ -343,7 +343,7 @@ export const PURGE_MISSING_SUBSCRIPTIONS = `DELETE FROM abonnements WHERE rid IN
 export const PURGE_MISSING_MESSAGES = `DELETE FROM messages WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
 export const PURGE_MISSING_OUTBOX = `DELETE FROM sortie WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
 export const PURGE_MISSING_UPLOADS = `DELETE FROM televersements WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
-export const PURGE_MISSING_DRAFTS = `DELETE FROM brouillons WHERE ${RID_DU_BROUILLON} IN (SELECT value FROM json_each(?)) AND ${RID_DU_BROUILLON} NOT IN (SELECT value FROM json_each(?))`;
+export const PURGE_MISSING_DRAFTS = `DELETE FROM brouillons WHERE ${DRAFT_RID} IN (SELECT value FROM json_each(?)) AND ${DRAFT_RID} NOT IN (SELECT value FROM json_each(?))`;
 /**
  * `portee <> '*'` est INDISPENSABLE : les curseurs globaux (`salons`,
  * `abonnements`) ne sont pas des rids et ne doivent jamais tomber — les perdre
@@ -360,7 +360,7 @@ export const PURGE_MISSING_CURSORS = `DELETE FROM etat_synchro WHERE portee <> '
  */
 export const DELETE_ROOM_OUTBOX = `DELETE FROM sortie WHERE rid = ?`;
 export const DELETE_ROOM_UPLOADS = `DELETE FROM televersements WHERE rid = ?`;
-export const DELETE_ROOM_DRAFTS = `DELETE FROM brouillons WHERE ${RID_DU_BROUILLON} = ?`;
+export const DELETE_ROOM_DRAFTS = `DELETE FROM brouillons WHERE ${DRAFT_RID} = ?`;
 export const DELETE_ROOM_CURSORS = `DELETE FROM etat_synchro WHERE portee = ?`;
 
 /**

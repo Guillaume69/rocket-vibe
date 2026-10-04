@@ -164,7 +164,7 @@ export const outbox = sqliteTable(
     threadId: text('fil_id'),
     status: text('statut').$type<OutboxStatus>().notNull().default('en-attente'),
     attempts: integer('tentatives').notNull().default(0),
-    derniereErreur: text('derniere_erreur'),
+    lastError: text('derniere_erreur'),
     createdAt: integer('cree_le').notNull(),
   },
   (t) => [index('idx_sortie_statut').on(t.status)],
@@ -208,7 +208,7 @@ export const uploads = sqliteTable(
       .$type<'en-attente' | 'envoi' | 'echec'>()
       .notNull()
       .default('en-attente'),
-    derniereErreur: text('derniere_erreur'),
+    lastError: text('derniere_erreur'),
     /** Rendu par `rooms.media`. Non nul = les octets sont déjà chez le serveur. */
     fileId: text('file_id'),
     createdAt: integer('cree_le').notNull(),
@@ -284,7 +284,7 @@ export const cursors = sqliteTable(
     /** `rid`, ou `*` pour les curseurs globaux (`subscriptions.get?updatedSince`). */
     scope: text('portee').notNull(),
     stream: text('flux').notNull(),
-    misAJourDepuis: integer('mis_a_jour_depuis').notNull(),
+    updatedSince: integer('mis_a_jour_depuis').notNull(),
   },
   (t) => [primaryKey({ columns: [t.scope, t.stream] })],
 );

@@ -31,13 +31,13 @@ export type TypeEmoji = 'standard' | 'custom';
 export type SuggestionEmoji = { code: string; type: TypeEmoji };
 
 /** Un code court n'est fait que de ces caractères (`+1`, `-1`, `party_parrot`…). */
-const CODE_VALIDE = /^[A-Za-z0-9_+-]*$/;
+const VALID_CODE = /^[A-Za-z0-9_+-]*$/;
 /**
  * Une lettre ou un chiffre Unicode — accents COMPRIS. Le `:` ne doit ouvrir un
  * jeton que s'il commence un mot ; `é`, `à`… sont des lettres au même titre que
  * `a`. Sans `\p{L}`, `résumé:tl` (sans espace) ouvrirait le bandeau à tort.
  */
-const LETTRE_OU_CHIFFRE = /[\p{L}\p{N}]/u;
+const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
 
 /**
  * Le jeton `:xxx` en cours de frappe juste avant le curseur, ou `null`.
@@ -49,18 +49,18 @@ const LETTRE_OU_CHIFFRE = /[\p{L}\p{N}]/u;
  * requête est vide.
  */
 export function detectEmojiToken(
-  texte: string,
-  curseur: number,
+  text: string,
+  cursor: number,
 ): { start: number; query: string } | null {
-  const c = Math.max(0, Math.min(curseur, texte.length));
-  const avant = texte.slice(0, c);
-  const colon = avant.lastIndexOf(':');
+  const c = Math.max(0, Math.min(cursor, text.length));
+  const before = text.slice(0, c);
+  const colon = before.lastIndexOf(':');
   if (colon === -1) return null;
   // `charAt` renvoie toujours une chaîne ('' hors bornes) : pas de garde d'index.
-  if (colon > 0 && LETTRE_OU_CHIFFRE.test(avant.charAt(colon - 1))) return null;
-  const requete = avant.slice(colon + 1);
-  if (!CODE_VALIDE.test(requete) || requete.length < MIN_QUERY) return null;
-  return { start: colon, query: requete.toLowerCase() };
+  if (colon > 0 && LETTER_OR_DIGIT.test(before.charAt(colon - 1))) return null;
+  const query = before.slice(colon + 1);
+  if (!VALID_CODE.test(query) || query.length < MIN_QUERY) return null;
+  return { start: colon, query: query.toLowerCase() };
 }
 
 // Le `Set` des codes standard est construit UNE fois : `codesEmojiStandard()`
@@ -69,7 +69,7 @@ export function detectEmojiToken(
 // 6222 entrées sur le chemin chaud du composer.
 let refStandard: readonly string[] | null = null;
 let setStandard: Set<string> | null = null;
-function ensembleStandard(codes: readonly string[]): Set<string> {
+function standardSet(codes: readonly string[]): Set<string> {
   if (codes !== refStandard) {
     refStandard = codes;
     setStandard = new Set(codes);
@@ -94,40 +94,40 @@ function ensembleStandard(codes: readonly string[]): Set<string> {
  * la suggestion doit insérer le glyphe — on le traite en standard.
  */
 export function completeEmoji(
-  requete: string,
+  query: string,
   codesStandard: readonly string[],
   codesCustom: readonly string[],
-  limite = SUGGESTION_LIMIT,
+  limit = SUGGESTION_LIMIT,
 ): SuggestionEmoji[] {
-  const q = requete.toLowerCase();
+  const q = query.toLowerCase();
   if (q.length < MIN_QUERY) return [];
 
-  const candidats: { s: SuggestionEmoji; rank: number }[] = [];
-  const ajouter = (code: string, type: TypeEmoji): void => {
+  const candidates: { s: SuggestionEmoji; rank: number }[] = [];
+  const add = (code: string, type: TypeEmoji): void => {
     // Standard : déjà minuscule. Custom : minusculé pour la comparaison seule.
-    const foin = type === 'custom' ? code.toLowerCase() : code;
-    const i = foin.indexOf(q);
+    const haystack = type === 'custom' ? code.toLowerCase() : code;
+    const i = haystack.indexOf(q);
     if (i === -1) return;
-    const correspondance = foin === q ? 0 : i === 0 ? 1 : 2;
+    const match = haystack === q ? 0 : i === 0 ? 1 : 2;
     // custom (0) avant standard (1) à correspondance égale.
-    const rang = correspondance * 2 + (type === 'custom' ? 0 : 1);
-    candidats.push({ s: { code, type }, rank: rang });
+    const rank = match * 2 + (type === 'custom' ? 0 : 1);
+    candidates.push({ s: { code, type }, rank });
   };
 
-  const standard = ensembleStandard(codesStandard);
+  const standard = standardSet(codesStandard);
   for (const code of codesCustom) {
     if (standard.has(code.toLowerCase())) continue; // le glyphe standard l'emporte au rendu
-    ajouter(code, 'custom');
+    add(code, 'custom');
   }
-  for (const code of codesStandard) ajouter(code, 'standard');
+  for (const code of codesStandard) add(code, 'standard');
 
-  candidats.sort(
+  candidates.sort(
     (a, b) =>
       a.rank - b.rank ||
       a.s.code.length - b.s.code.length ||
       (a.s.code < b.s.code ? -1 : a.s.code > b.s.code ? 1 : 0),
   );
-  return candidats.slice(0, limite).map((x) => x.s);
+  return candidates.slice(0, limit).map((x) => x.s);
 }
 
 /**
@@ -138,14 +138,14 @@ export function completeEmoji(
  * revient pile après ce qu'on vient d'écrire, jamais dans la suite du texte.
  */
 export function applyCompletion(
-  texte: string,
-  debut: number,
-  curseur: number,
+  text: string,
+  start: number,
+  cursor: number,
   insertion: string,
 ): { text: string; cursor: number } {
-  const c = Math.max(debut, Math.min(curseur, texte.length));
-  const avant = texte.slice(0, debut);
-  const apres = texte.slice(c);
-  const bloc = insertion + (/^\s/.test(apres) ? '' : ' ');
-  return { text: avant + bloc + apres, cursor: (avant + bloc).length };
+  const c = Math.max(start, Math.min(cursor, text.length));
+  const before = text.slice(0, start);
+  const after = text.slice(c);
+  const block = insertion + (/^\s/.test(after) ? '' : ' ');
+  return { text: before + block + after, cursor: (before + block).length };
 }

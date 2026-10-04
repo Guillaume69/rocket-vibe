@@ -31,16 +31,16 @@ export type OpenRoomsStack = {
 };
 
 export function createOpenRoomsStack(): OpenRoomsStack {
-  const pile: { rid: string }[] = [];
+  const stack: { rid: string }[] = [];
   return {
     declare: (rid) => {
       const declaration = { rid };
-      pile.push(declaration);
+      stack.push(declaration);
       return () => {
-        const i = pile.indexOf(declaration);
-        if (i !== -1) pile.splice(i, 1);
+        const i = stack.indexOf(declaration);
+        if (i !== -1) stack.splice(i, 1);
       };
     },
-    top: () => pile[pile.length - 1]?.rid,
+    top: () => stack[stack.length - 1]?.rid,
   };
 }

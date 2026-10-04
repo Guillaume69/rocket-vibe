@@ -15,8 +15,8 @@ export type CompressedVideo = {
   taille: number;
 };
 
-type ReducteurVideoNatif = {
-  reduire(uri: string, coteCourtMax: number, bitrateVideo: number): Promise<CompressedVideo>;
+type NativeVideoCompressor = {
+  reduire(uri: string, maxShortSide: number, videoBitrate: number): Promise<CompressedVideo>;
 };
 
-export const VideoCompressor = requireOptionalNativeModule<ReducteurVideoNatif>('ReducteurVideo');
+export const VideoCompressor = requireOptionalNativeModule<NativeVideoCompressor>('ReducteurVideo');

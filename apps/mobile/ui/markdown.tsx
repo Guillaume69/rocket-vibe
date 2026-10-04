@@ -28,12 +28,12 @@ import { openExternalLink } from './externalLink.ts';
 import { TappableText } from './tappableText.tsx';
 import { type Colors, FONTS } from './theme.ts';
 
-const POLICE_MONO = Platform.select({ android: 'monospace', default: 'Menlo' });
+const MONO_FONT = Platform.select({ android: 'monospace', default: 'Menlo' });
 
 // La garde qui vivait ici (« uniquement le web : `javascript:`, `intent:`,
 // `file:` restent lettre morte ») est passée dans `ui/externalLink.ts`, pour que
 // les cartes d'aperçu et d'embed en héritent au lieu de s'en passer.
-const ouvrirLien = openExternalLink;
+const openLink = openExternalLink;
 
 /**
  * Fiche de l'utilisateur mentionné. `ouvrirFicheProfil` (précharge + navigation)
@@ -41,7 +41,7 @@ const ouvrirLien = openExternalLink;
  * fonctions, pas des composants — le client vient du singleton posé par la
  * session. `@all` / `@here` ne désignent personne — pas de fiche.
  */
-function ouvrirProfil(username: string): void {
+function openProfile(username: string): void {
   if (username === '' || username === 'all' || username === 'here') return;
   void openProfileCard({ username });
 }
@@ -81,44 +81,44 @@ export class RenderGuard extends Component<
  */
 export const MessageLongPress = createContext<(() => void) | undefined>(undefined);
 
-function Lien({ url, label: etiquette, c }: { url: string; label: string; c: Colors }) {
-  const appuiLong = useContext(MessageLongPress);
+function Link({ url, label, c }: { url: string; label: string; c: Colors }) {
+  const longPress = useContext(MessageLongPress);
   return (
-    <Text style={[styles.link, { color: c.accent }]} onPress={() => ouvrirLien(url)} onLongPress={appuiLong}>
-      {etiquette !== '' ? etiquette : url}
+    <Text style={[styles.link, { color: c.accent }]} onPress={() => openLink(url)} onLongPress={longPress}>
+      {label !== '' ? label : url}
     </Text>
   );
 }
 
 function Mention({ username, c }: { username: string; c: Colors }) {
-  const appuiLong = useContext(MessageLongPress);
+  const longPress = useContext(MessageLongPress);
   return (
     <TappableText
       style={[styles.mention, { color: c.accent }]}
-      onPress={() => ouvrirProfil(username)}
-      onLongPress={appuiLong}
+      onPress={() => openProfile(username)}
+      onLongPress={longPress}
     >
       @{username}
     </TappableText>
   );
 }
 
-export function MessageBody({ tree: arbre, c }: { tree: Root; c: Colors }) {
+export function MessageBody({ tree, c }: { tree: Root; c: Colors }) {
   return (
     <View style={styles.body}>
-      {arbre.map((bloc, i) => (
-        <Bloc key={i} block={bloc} c={c} />
+      {tree.map((block, i) => (
+        <Block key={i} block={block} c={c} />
       ))}
     </View>
   );
 }
 
-function Bloc({ block: bloc, c }: { block: Paragraph | Blocks | BigEmoji; c: Colors }) {
-  switch (bloc.type) {
+function Block({ block, c }: { block: Paragraph | Blocks | BigEmoji; c: Colors }) {
+  switch (block.type) {
     case 'PARAGRAPH':
       return (
-        <Text style={[styles.paragraphe, { color: c.text }]}>
-          {rendreInlines(bloc.value, c)}
+        <Text style={[styles.paragraph, { color: c.text }]}>
+          {renderInlines(block.value, c)}
         </Text>
       );
 
@@ -127,76 +127,76 @@ function Bloc({ block: bloc, c }: { block: Paragraph | Blocks | BigEmoji; c: Col
         <Text
           style={[
             styles.title,
-            { color: c.text, fontSize: 22 - bloc.level * 2 },
+            { color: c.text, fontSize: 22 - block.level * 2 },
           ]}
         >
-          {textOf(bloc.value)}
+          {textOf(block.value)}
         </Text>
       );
 
     case 'QUOTE':
       return (
         <View style={[styles.quote, { borderLeftColor: c.border }]}>
-          {(Array.isArray(bloc.value) ? bloc.value : []).map((p, i) => (
-            <Bloc key={i} block={p} c={c} />
+          {(Array.isArray(block.value) ? block.value : []).map((p, i) => (
+            <Block key={i} block={p} c={c} />
           ))}
         </View>
       );
 
     case 'CODE':
       return (
-        <View style={[styles.blocCode, { backgroundColor: c.card }]}>
+        <View style={[styles.codeBlock, { backgroundColor: c.card }]}>
           <Text style={[styles.code, { color: c.text }]}>
-            {(Array.isArray(bloc.value) ? bloc.value : []).map((l) => textOf(l)).join('\n')}
+            {(Array.isArray(block.value) ? block.value : []).map((l) => textOf(l)).join('\n')}
           </Text>
         </View>
       );
 
     case 'UNORDERED_LIST':
-      return <Liste c={c} items={bloc.value} bullet={() => '•'} />;
+      return <List c={c} items={block.value} bullet={() => '•'} />;
 
     case 'ORDERED_LIST':
-      return <Liste c={c} items={bloc.value} bullet={(item, i) => `${item.number ?? i + 1}.`} />;
+      return <List c={c} items={block.value} bullet={(item, i) => `${item.number ?? i + 1}.`} />;
 
     case 'TASKS':
-      return <Liste c={c} items={bloc.value} bullet={(t) => (t.status === true ? '☑' : '☐')} />;
+      return <List c={c} items={block.value} bullet={(t) => (t.status === true ? '☑' : '☐')} />;
 
     case 'BIG_EMOJI': {
       // Le parseur ne VALIDE aucun code court : `:pas_un_emoji:` seul sur sa
       // ligne sort du serveur en `BIG_EMOJI`, exactement comme `:smile:`. On
       // ne grossit donc que si CHAQUE nœud se résout — en glyphe Unicode OU en
       // image custom ; sinon, paragraphe littéral.
-      const noeuds = Array.isArray(bloc.value) ? bloc.value : [];
-      const rendus = noeuds.map((e, i) => rendreEmoji(e, i, 'large'));
-      if (rendus.length > 0 && rendus.every((r) => r !== null)) {
-        const contenu: ReactNode[] = [];
-        rendus.forEach((r, i) => {
-          contenu.push(r);
-          if (i < rendus.length - 1) contenu.push(' ');
+      const nodes = Array.isArray(block.value) ? block.value : [];
+      const rendered = nodes.map((e, i) => renderEmoji(e, i, 'large'));
+      if (rendered.length > 0 && rendered.every((r) => r !== null)) {
+        const content: ReactNode[] = [];
+        rendered.forEach((r, i) => {
+          content.push(r);
+          if (i < rendered.length - 1) content.push(' ');
         });
-        return <Text style={styles.grosEmoji}>{contenu}</Text>;
+        return <Text style={styles.bigEmoji}>{content}</Text>;
       }
       return (
-        <Text style={[styles.paragraphe, { color: c.text }]}>
-          {noeuds.map((e) => textOf(e)).join(' ')}
+        <Text style={[styles.paragraph, { color: c.text }]}>
+          {nodes.map((e) => textOf(e)).join(' ')}
         </Text>
       );
     }
 
     case 'LINE_BREAK':
-      return <View style={styles.sautDeLigne} />;
+      return <View style={styles.lineBreak} />;
 
     default:
       // Nœud non pris en charge (KaTeX…) : son texte plutôt que rien.
-      return <Text style={[styles.paragraphe, { color: c.text }]}>{textOf(bloc)}</Text>;
+      return <Text style={[styles.paragraph, { color: c.text }]}>{textOf(block)}</Text>;
   }
 }
 
 /** Couvre listes à puces, numérotées et tâches : seuls le marqueur diffère. */
-function Liste<T extends { value: Inlines[] }>({
+function List<T extends { value: Inlines[] }>({
   c,
   items,
-  bullet: puce,
+  bullet,
 }: {
   c: Colors;
   items: T[];
@@ -205,10 +205,10 @@ function Liste<T extends { value: Inlines[] }>({
   return (
     <View style={styles.list}>
       {(Array.isArray(items) ? items : []).map((item, i) => (
-        <View key={i} style={styles.itemListe}>
-          <Text style={{ color: c.dimmed }}>{puce(item, i)}</Text>
-          <Text style={[styles.paragraphe, styles.texteItem, { color: c.text }]}>
-            {rendreInlines(item.value, c)}
+        <View key={i} style={styles.listItem}>
+          <Text style={{ color: c.dimmed }}>{bullet(item, i)}</Text>
+          <Text style={[styles.paragraph, styles.itemText, { color: c.text }]}>
+            {renderInlines(item.value, c)}
           </Text>
         </View>
       ))}
@@ -216,70 +216,70 @@ function Liste<T extends { value: Inlines[] }>({
   );
 }
 
-function rendreInlines(noeuds: Inlines[], c: Colors): React.ReactNode[] {
+function renderInlines(nodes: Inlines[], c: Colors): React.ReactNode[] {
   // Un `md` corrompu peut mettre autre chose qu'un tableau ici : son texte,
   // plutôt qu'un TypeError qui coûterait tout l'écran.
-  if (!Array.isArray(noeuds)) return [textOf(noeuds)];
-  return noeuds.map((noeud, i) => rendreInline(noeud, i, c));
+  if (!Array.isArray(nodes)) return [textOf(nodes)];
+  return nodes.map((node, i) => renderInline(node, i, c));
 }
 
-function rendreInline(noeud: Inlines, cle: number, c: Colors): React.ReactNode {
-  switch (noeud.type) {
+function renderInline(node: Inlines, key: number, c: Colors): React.ReactNode {
+  switch (node.type) {
     case 'PLAIN_TEXT':
-      return noeud.value;
+      return node.value;
 
     case 'BOLD':
       return (
-        <Text key={cle} style={styles.gras}>
-          {rendreInlines(noeud.value, c)}
+        <Text key={key} style={styles.gras}>
+          {renderInlines(node.value, c)}
         </Text>
       );
 
     case 'ITALIC':
       return (
-        <Text key={cle} style={styles.italic}>
-          {rendreInlines(noeud.value, c)}
+        <Text key={key} style={styles.italic}>
+          {renderInlines(node.value, c)}
         </Text>
       );
 
     case 'STRIKE':
       return (
-        <Text key={cle} style={styles.bar}>
-          {rendreInlines(noeud.value, c)}
+        <Text key={key} style={styles.bar}>
+          {renderInlines(node.value, c)}
         </Text>
       );
 
     case 'INLINE_CODE':
       return (
-        <Text key={cle} style={[styles.code, { backgroundColor: c.card, color: c.text }]}>
-          {textOf(noeud.value)}
+        <Text key={key} style={[styles.code, { backgroundColor: c.card, color: c.text }]}>
+          {textOf(node.value)}
         </Text>
       );
 
     case 'LINK':
       return (
-        <Lien key={cle} url={textOf(noeud.value.src)} label={textOf(noeud.value.label)} c={c} />
+        <Link key={key} url={textOf(node.value.src)} label={textOf(node.value.label)} c={c} />
       );
 
     case 'MENTION_USER':
-      return <Mention key={cle} username={textOf(noeud.value)} c={c} />;
+      return <Mention key={key} username={textOf(node.value)} c={c} />;
 
     case 'MENTION_CHANNEL':
       return (
-        <Text key={cle} style={[styles.mention, { color: c.accent }]}>
-          #{textOf(noeud.value)}
+        <Text key={key} style={[styles.mention, { color: c.accent }]}>
+          #{textOf(node.value)}
         </Text>
       );
 
     case 'EMOJI': {
       // Glyphe Unicode, sinon image custom, sinon `:nom:` littéral.
-      const rendu = rendreEmoji(noeud, cle, 'inline');
-      return rendu ?? textOf(noeud);
+      const rendered = renderEmoji(node, key, 'inline');
+      return rendered ?? textOf(node);
     }
 
     default:
       // TIMESTAMP, COLOR, IMAGE, KaTeX inline… : le texte, plutôt que rien.
-      return textOf(noeud);
+      return textOf(node);
   }
 }
 
@@ -291,25 +291,25 @@ function rendreInline(noeud: Inlines, cle: number, c: Colors): React.ReactNode {
  * `BIG_EMOJI` non résolu). L'image s'imbrique nativement dans le texte, aucun
  * calcul de layout côté JS.
  */
-function rendreEmoji(
-  noeud: unknown,
-  cle: number,
-  taille: 'inline' | 'large',
+function renderEmoji(
+  node: unknown,
+  key: number,
+  size: 'inline' | 'large',
 ): string | ReactElement | null {
-  const glyphe = unicodeDEmoji(noeud);
-  if (glyphe !== null) return glyphe;
+  const glyph = unicodeDEmoji(node);
+  if (glyph !== null) return glyph;
   const shortCode =
-    typeof noeud === 'object' && noeud !== null && 'shortCode' in noeud
-      ? (noeud as { shortCode?: unknown }).shortCode
+    typeof node === 'object' && node !== null && 'shortCode' in node
+      ? (node as { shortCode?: unknown }).shortCode
       : undefined;
   if (typeof shortCode !== 'string') return null;
   const uri = urlEmojiCustom(shortCode);
   if (uri === null) return null;
   return (
     <Image
-      key={cle}
+      key={key}
       source={{ uri }}
-      style={taille === 'large' ? styles.emojiCustomGrand : styles.emojiCustomInline}
+      style={size === 'large' ? styles.largeCustomEmoji : styles.emojiCustomInline}
       // `contain` : un emoji non carré (bannière, mascotte large) doit tenir
       // entier dans sa boîte, pas être rogné par le `cover` par défaut.
       resizeMode="contain"
@@ -325,23 +325,23 @@ const styles = StyleSheet.create({
   // sans famille, le corps sortirait en police système à côté du reste de
   // l'app en Nunito. Et une famille PAR graisse, jamais de `fontWeight`
   // (faux-gras synthétique d'Android — voir POLICES, ui/theme.ts).
-  paragraphe: { fontFamily: FONTS.body, fontSize: 15, lineHeight: 21 },
+  paragraph: { fontFamily: FONTS.body, fontSize: 15, lineHeight: 21 },
   title: { fontFamily: FONTS.title, lineHeight: 26 },
   quote: { borderLeftWidth: 3, paddingLeft: 10, marginVertical: 2, gap: 2 },
-  blocCode: { borderRadius: 8, padding: 10, marginVertical: 2 },
-  code: { fontFamily: POLICE_MONO, fontSize: 13, lineHeight: 18, borderRadius: 4 },
+  codeBlock: { borderRadius: 8, padding: 10, marginVertical: 2 },
+  code: { fontFamily: MONO_FONT, fontSize: 13, lineHeight: 18, borderRadius: 4 },
   list: { gap: 2 },
-  itemListe: { flexDirection: 'row', gap: 8 },
-  texteItem: { fontFamily: FONTS.body, flexShrink: 1 },
-  grosEmoji: { fontSize: 36, lineHeight: 44 },
+  listItem: { flexDirection: 'row', gap: 8 },
+  itemText: { fontFamily: FONTS.body, flexShrink: 1 },
+  bigEmoji: { fontSize: 36, lineHeight: 44 },
   // Emojis custom : au fil du texte (aligné sur la hauteur de ligne) et en
   // grand pour un BIG_EMOJI. `<Image>` inline dans `<Text>` = alignement natif.
   emojiCustomInline: { width: 18, height: 18 },
-  emojiCustomGrand: { width: 36, height: 36 },
-  sautDeLigne: { height: 8 },
-  gras: { fontFamily: FONTS.corpsGras },
+  largeCustomEmoji: { width: 36, height: 36 },
+  lineBreak: { height: 8 },
+  gras: { fontFamily: FONTS.bodyBold },
   italic: { fontStyle: 'italic' },
   bar: { textDecorationLine: 'line-through' },
   link: { textDecorationLine: 'underline' },
-  mention: { fontFamily: FONTS.corpsSemi },
+  mention: { fontFamily: FONTS.bodySemi },
 });

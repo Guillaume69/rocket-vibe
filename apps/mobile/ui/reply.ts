@@ -35,37 +35,37 @@ export type ReplyTarget = {
   previewImage: string | null;
 };
 
-const cibles = new Map<string, ReplyTarget>();
-const abonnes = new Set<() => void>();
+const targets = new Map<string, ReplyTarget>();
+const subscribers = new Set<() => void>();
 
-function notifier(): void {
-  for (const abonne of abonnes) abonne();
+function notify(): void {
+  for (const subscriber of subscribers) subscriber();
 }
 
-export function requestReply(cle: string, cible: ReplyTarget): void {
-  cibles.set(cle, cible);
-  notifier();
+export function requestReply(key: string, target: ReplyTarget): void {
+  targets.set(key, target);
+  notify();
 }
 
-export function cancelReply(cle: string): void {
-  if (cibles.delete(cle)) notifier();
+export function cancelReply(key: string): void {
+  if (targets.delete(key)) notify();
 }
 
 /** Fin de session / changement de serveur : aucune citation ne traverse. */
 export function forgetReplies(): void {
-  if (cibles.size === 0) return;
-  cibles.clear();
-  notifier();
+  if (targets.size === 0) return;
+  targets.clear();
+  notify();
 }
 
-function souscrire(relire: () => void): () => void {
-  abonnes.add(relire);
+function subscribe(reread: () => void): () => void {
+  subscribers.add(reread);
   return () => {
-    abonnes.delete(relire);
+    subscribers.delete(reread);
   };
 }
 
 /** La cible armée pour cette clé, `null` sinon. Se met à jour toute seule. */
-export function useReply(cle: string): ReplyTarget | null {
-  return useSyncExternalStore(souscrire, () => cibles.get(cle) ?? null);
+export function useReply(key: string): ReplyTarget | null {
+  return useSyncExternalStore(subscribe, () => targets.get(key) ?? null);
 }

@@ -33,7 +33,7 @@ import {
 
 /** Le strict nécessaire de `ClientRest` — pour tester le moteur sans réseau. */
 export interface ClientE2E {
-  get<T>(chemin: string, options?: { params?: Record<string, unknown> }): Promise<T>;
+  get<T>(path: string, options?: { params?: Record<string, unknown> }): Promise<T>;
 }
 
 /** Accès au Keystore, injecté (pour tester sans `expo-secure-store`). */
@@ -43,7 +43,7 @@ export interface E2EKeyStorage {
   clear(): Promise<void>;
 }
 
-type ReponseFetchMyKeys = { public_key?: string; private_key?: string };
+type FetchMyKeysResponse = { public_key?: string; private_key?: string };
 
 export class E2EEngine {
   private readonly client: ClientE2E;
@@ -69,9 +69,9 @@ export class E2EEngine {
   }
 
   /** Observe les transitions verrouillé ↔ déverrouillé (pour useSyncExternalStore). */
-  subscribe(ecouteur: () => void): () => void {
-    this.listeners.add(ecouteur);
-    return () => this.listeners.delete(ecouteur);
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   private notifier(): void {
@@ -101,13 +101,13 @@ export class E2EEngine {
    * Déverrouille avec le mot de passe E2E : récupère la clé privée chiffrée,
    * la déchiffre, la persiste. Lève `ErreurE2E` si le mot de passe est faux.
    */
-  async unlock(motDePasse: string): Promise<void> {
-    const rep = await this.client.get<ReponseFetchMyKeys>('e2e.fetchMyKeys');
-    if (typeof rep.private_key !== 'string') {
+  async unlock(password: string): Promise<void> {
+    const res = await this.client.get<FetchMyKeysResponse>('e2e.fetchMyKeys');
+    if (typeof res.private_key !== 'string') {
       throw new E2EError('aucune clé E2E sur ce compte');
     }
     // `dechiffrerClePrivee` détecte le schéma (v1/v2) ; le uid sert de sel v1.
-    const jwk = decryptPrivateKey(rep.private_key, motDePasse, this.uid); // lève ErreurE2E si faux
+    const jwk = decryptPrivateKey(res.private_key, password, this.uid); // lève ErreurE2E si faux
     this.privateKey = importRsaPrivateKey(jwk);
     await this.storage.save(jwk);
     // Les clés de salon connues peuvent maintenant se recalculer à la demande.
@@ -137,9 +137,9 @@ export class E2EEngine {
    */
   saveRoomKey(rid: string, e2eKey: string | null): void {
     if (e2eKey === null || e2eKey === '') return;
-    const ancienne = this.e2eKeys.get(rid);
+    const old = this.e2eKeys.get(rid);
     this.e2eKeys.set(rid, e2eKey);
-    if (ancienne !== undefined && ancienne !== e2eKey) this.roomKeys.delete(rid);
+    if (old !== undefined && old !== e2eKey) this.roomKeys.delete(rid);
     if (this.privateKey === null || this.roomKeys.has(rid)) return;
     try {
       this.roomKeys.set(rid, decryptRoomKey(e2eKey, this.privateKey));
@@ -163,10 +163,10 @@ export class E2EEngine {
    * déverrouillage.
    */
   decryptContent(rid: string, content: EncryptedContent): { text: string; attachments: string | null } | null {
-    const cle = this.roomKey(rid);
-    if (cle === null) return null;
+    const key = this.roomKey(rid);
+    if (key === null) return null;
     try {
-      const { msg, attachments } = decryptPayload(content, cle);
+      const { msg, attachments } = decryptPayload(content, key);
       return { text: msg, attachments: attachments === null ? null : JSON.stringify(attachments) };
     } catch {
       return null;
@@ -178,12 +178,12 @@ export class E2EEngine {
    * keyID. Rend `null` si verrouillé ou si la clé du salon manque : l'envoi
    * attend alors, il ne part jamais en clair.
    */
-  encrypt(rid: string, charge: object): EncryptedContent | null {
-    const cle = this.roomKey(rid);
+  encrypt(rid: string, payload: object): EncryptedContent | null {
+    const key = this.roomKey(rid);
     const kid = this.roomKeyId(rid);
-    if (cle === null || kid === null) return null;
+    if (key === null || kid === null) return null;
     try {
-      return encryptMessage(charge, cle, kid);
+      return encryptMessage(payload, key, kid);
     } catch {
       return null;
     }
@@ -191,15 +191,15 @@ export class E2EEngine {
 
   private roomKey(rid: string): Buffer | null {
     if (this.privateKey === null) return null;
-    const connue = this.roomKeys.get(rid);
-    if (connue !== undefined) return connue;
+    const known = this.roomKeys.get(rid);
+    if (known !== undefined) return known;
     // Pas encore en cache : tenter depuis l'`E2EKey` connu.
     const e2eKey = this.e2eKeys.get(rid);
     if (e2eKey === undefined) return null;
     try {
-      const cle = decryptRoomKey(e2eKey, this.privateKey);
-      this.roomKeys.set(rid, cle);
-      return cle;
+      const key = decryptRoomKey(e2eKey, this.privateKey);
+      this.roomKeys.set(rid, key);
+      return key;
     } catch {
       return null;
     }

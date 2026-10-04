@@ -53,9 +53,9 @@ describe('la table générée', () => {
     const codes = Object.keys(JSON.parse(CODES_EMOJI) as Record<string, string>);
     assert.equal(codes.length, 6222);
     for (const code of codes) {
-      const glyphe = unicodeOfShortcode(code);
+      const glyph = unicodeOfShortcode(code);
       assert.ok(
-        glyphe !== null && glyphe.length > 0,
+        glyph !== null && glyph.length > 0,
         `le code court « ${code} » ne se décode pas`,
       );
     }

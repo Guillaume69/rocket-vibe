@@ -9,13 +9,13 @@ import {
   onBackToLatestSwipe,
 } from './backToLatest.ts';
 
-const HAUTEUR = 700;
+const HEIGHT = 700;
 
 describe('retour au plus récent', () => {
   test('visible au-delà d’un écran de remontée, pas en deçà', () => {
-    assert.equal(farFromLatest(0, HAUTEUR), false);
-    assert.equal(farFromLatest(HAUTEUR, HAUTEUR), false);
-    assert.equal(farFromLatest(HAUTEUR + 1, HAUTEUR), true);
+    assert.equal(farFromLatest(0, HEIGHT), false);
+    assert.equal(farFromLatest(HEIGHT, HEIGHT), false);
+    assert.equal(farFromLatest(HEIGHT + 1, HEIGHT), true);
   });
 
   test('hauteur pas encore mesurée : jamais visible', () => {
@@ -23,25 +23,25 @@ describe('retour au plus récent', () => {
   });
 
   test('le défilement allume puis éteint le bouton', () => {
-    const loin = onBackToLatestScroll(INITIAL_BACK_TO_LATEST_STATE, 1_500, HAUTEUR);
-    assert.deepEqual(loin, { visible: true, backInProgress: false });
-    assert.equal(onBackToLatestScroll(loin, 1_600, HAUTEUR), loin);
-    assert.deepEqual(onBackToLatestScroll(loin, 100, HAUTEUR), INITIAL_BACK_TO_LATEST_STATE);
+    const far = onBackToLatestScroll(INITIAL_BACK_TO_LATEST_STATE, 1_500, HEIGHT);
+    assert.deepEqual(far, { visible: true, backInProgress: false });
+    assert.equal(onBackToLatestScroll(far, 1_600, HEIGHT), far);
+    assert.deepEqual(onBackToLatestScroll(far, 100, HEIGHT), INITIAL_BACK_TO_LATEST_STATE);
   });
 
   test('après un appui, l’animation de retour ne rallume pas le bouton', () => {
-    let etat = onBackToLatestPress();
-    assert.equal(etat.visible, false);
-    etat = onBackToLatestScroll(etat, 1_200, HAUTEUR);
-    assert.deepEqual(etat, { visible: false, backInProgress: true });
-    etat = onBackToLatestScroll(etat, 300, HAUTEUR);
-    assert.deepEqual(etat, INITIAL_BACK_TO_LATEST_STATE);
-    assert.equal(onBackToLatestScroll(etat, 1_200, HAUTEUR).visible, true);
+    let state = onBackToLatestPress();
+    assert.equal(state.visible, false);
+    state = onBackToLatestScroll(state, 1_200, HEIGHT);
+    assert.deepEqual(state, { visible: false, backInProgress: true });
+    state = onBackToLatestScroll(state, 300, HEIGHT);
+    assert.deepEqual(state, INITIAL_BACK_TO_LATEST_STATE);
+    assert.equal(onBackToLatestScroll(state, 1_200, HEIGHT).visible, true);
   });
 
   test('un glissé pendant le retour rend la main au défilement', () => {
-    const etat = onBackToLatestSwipe(onBackToLatestPress());
-    assert.deepEqual(etat, INITIAL_BACK_TO_LATEST_STATE);
-    assert.equal(onBackToLatestScroll(etat, 1_200, HAUTEUR).visible, true);
+    const state = onBackToLatestSwipe(onBackToLatestPress());
+    assert.deepEqual(state, INITIAL_BACK_TO_LATEST_STATE);
+    assert.equal(onBackToLatestScroll(state, 1_200, HEIGHT).visible, true);
   });
 });

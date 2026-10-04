@@ -8,26 +8,26 @@ import { useCallback, useSyncExternalStore } from 'react';
 
 import { useSync } from './sync.tsx';
 
-const RIEN = () => {};
+const NOTHING = () => {};
 
 /**
  * `true` tant qu'un fetch de fond est en vol pour cette portée : `'global'`
  * pour le rattrapage à l'ouverture de l'app, un `rid` pour l'historique d'un
  * salon. `false` hors phase « pret » — l'écran plein de chargement couvre ce cas.
  */
-export function useActivity(cle: string): boolean {
-  const synchro = useSync();
-  const activite = synchro.phase === 'ready' ? synchro.activity : null;
+export function useActivity(key: string): boolean {
+  const sync = useSync();
+  const activity = sync.phase === 'ready' ? sync.activity : null;
 
   // Identités STABLES (cf. usePresence) : un `subscribe` recréé à chaque rendu
   // ferait désabonner/réabonner l'en-tête à chaque re-rendu.
-  const abonner = useCallback(
-    (relire: () => void) => (activite === null ? RIEN : activite.onChange(relire)),
-    [activite],
+  const subscribe = useCallback(
+    (reread: () => void) => (activity === null ? NOTHING : activity.onChange(reread)),
+    [activity],
   );
-  const lire = useCallback(
-    () => (activite === null ? false : activite.active(cle)),
-    [activite, cle],
+  const read = useCallback(
+    () => (activity === null ? false : activity.active(key)),
+    [activity, key],
   );
-  return useSyncExternalStore(abonner, lire);
+  return useSyncExternalStore(subscribe, read);
 }

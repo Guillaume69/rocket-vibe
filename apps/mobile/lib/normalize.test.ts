@@ -75,19 +75,19 @@ describe('versEpoch — les trois formes que le serveur envoie', () => {
 });
 
 describe('versSalon — le DM et son correspondant', () => {
-  const MOI = 'guillaume';
-  const MON_UID = 'uMoi';
+  const ME = 'guillaume';
+  const MY_UID = 'uMoi';
   const dm = (o: Record<string, unknown> = {}) => ({
     _id: 'r1',
     t: 'd',
     _updatedAt: { $date: 100 },
-    uids: [MON_UID, 'uBob'],
-    usernames: [MOI, 'bob'],
+    uids: [MY_UID, 'uBob'],
+    usernames: [ME, 'bob'],
     ...o,
   });
 
   test('le correspondant est celui des deux qui n’est pas moi', () => {
-    const s = toRoom(dm(), MOI, MON_UID);
+    const s = toRoom(dm(), ME, MY_UID);
     assert.equal(s?.dmOtherUid, 'uBob');
     assert.equal(s?.dmOtherUsername, 'bob');
     assert.equal(s?.displayName, 'bob');
@@ -96,7 +96,7 @@ describe('versSalon — le DM et son correspondant', () => {
   test('uids et usernames NE SONT PAS alignés : l’appariement n’est pas par index', () => {
     // Vérifié sur 8.5. Un appariement positionnel rendrait ici « guillaume »
     // pour l'uid de Bob — donc MON pseudo, et mon avatar, collés sur lui.
-    const s = toRoom(dm({ uids: [MON_UID, 'uBob'], usernames: ['bob', MOI] }), MOI, MON_UID);
+    const s = toRoom(dm({ uids: [MY_UID, 'uBob'], usernames: ['bob', ME] }), ME, MY_UID);
     assert.equal(s?.dmOtherUid, 'uBob');
     assert.equal(s?.dmOtherUsername, 'bob');
   });
@@ -106,47 +106,47 @@ describe('versSalon — le DM et son correspondant', () => {
     // Sans preuve que je figure dans `usernames`, exclure « celui qui n'est pas
     // moi » retient le PREMIER venu — moi une fois sur deux — et ce pseudo part
     // en base sous l'uid de l'autre, SANS garde d'horodatage.
-    const s = toRoom(dm({ usernames: ['ancien-pseudo', 'bob'] }), MOI, MON_UID);
+    const s = toRoom(dm({ usernames: ['ancien-pseudo', 'bob'] }), ME, MY_UID);
     assert.equal(s?.dmOtherUid, 'uBob', 'l’uid, lui, reste sûr');
     assert.equal(s?.dmOtherUsername, null, 'aucune identité inventée');
   });
 
   test('session sans pseudo (username vide) : même prudence', () => {
-    assert.equal(toRoom(dm(), '', MON_UID)?.dmOtherUsername, null);
-    assert.equal(toRoom(dm(), null, MON_UID)?.dmOtherUsername, null);
-    assert.equal(toRoom(dm(), undefined, MON_UID)?.dmOtherUsername, null);
+    assert.equal(toRoom(dm(), '', MY_UID)?.dmOtherUsername, null);
+    assert.equal(toRoom(dm(), null, MY_UID)?.dmOtherUsername, null);
+    assert.equal(toRoom(dm(), undefined, MY_UID)?.dmOtherUsername, null);
   });
 
   test('DM avec soi-même : je suis mon propre correspondant', () => {
-    const s = toRoom(dm({ uids: [MON_UID], usernames: [MOI] }), MOI, MON_UID);
-    assert.equal(s?.dmOtherUid, MON_UID);
-    assert.equal(s?.dmOtherUsername, MOI);
-    assert.equal(s?.displayName, MOI);
+    const s = toRoom(dm({ uids: [MY_UID], usernames: [ME] }), ME, MY_UID);
+    assert.equal(s?.dmOtherUid, MY_UID);
+    assert.equal(s?.dmOtherUsername, ME);
+    assert.equal(s?.displayName, ME);
   });
 
   test('DM de GROUPE : pas UNE présence à montrer, donc pas de correspondant', () => {
-    const s = toRoom(dm({ uids: [MON_UID, 'uBob', 'uCarol'], usernames: [MOI, 'bob', 'carol'] }), MOI, MON_UID);
+    const s = toRoom(dm({ uids: [MY_UID, 'uBob', 'uCarol'], usernames: [ME, 'bob', 'carol'] }), ME, MY_UID);
     assert.equal(s?.dmOtherUid, null);
     assert.equal(s?.dmOtherUsername, null);
     assert.equal(s?.displayName, 'bob, carol');
   });
 
   test('sans mon uid, aucun correspondant n’est dérivé', () => {
-    assert.equal(toRoom(dm(), MOI)?.dmOtherUid, null);
-    assert.equal(toRoom(dm(), MOI)?.dmOtherUsername, null);
+    assert.equal(toRoom(dm(), ME)?.dmOtherUid, null);
+    assert.equal(toRoom(dm(), ME)?.dmOtherUsername, null);
   });
 
   test('fname l’emporte sur le nom dérivé des usernames', () => {
-    assert.equal(toRoom(dm({ fname: 'Bob Martin' }), MOI, MON_UID)?.displayName, 'Bob Martin');
+    assert.equal(toRoom(dm({ fname: 'Bob Martin' }), ME, MY_UID)?.displayName, 'Bob Martin');
   });
 });
 
 describe('versSalon — aperçu du dernier message', () => {
-  const salon = (lastMessage?: Record<string, unknown>, o: Record<string, unknown> = {}) =>
+  const room = (lastMessage?: Record<string, unknown>, o: Record<string, unknown> = {}) =>
     toRoom({ _id: 'r1', t: 'c', _updatedAt: { $date: 100 }, ...o, ...(lastMessage ? { lastMessage } : {}) });
 
   test('le texte du message', () => {
-    const s = salon({ _id: 'm1', msg: 'coucou', ts: { $date: 50 } });
+    const s = room({ _id: 'm1', msg: 'coucou', ts: { $date: 50 } });
     assert.equal(s?.lastMessage, 'coucou');
     assert.equal(s?.lastMessageType, null);
     assert.equal(s?.lastMessageTs, 50);
@@ -155,12 +155,12 @@ describe('versSalon — aperçu du dernier message', () => {
   test('un message qui n’est QU’une pièce jointe retombe sur sa légende, sinon son nom', () => {
     // `msg: ''` est la forme d'un upload sondée sur 8.5.
     assert.equal(
-      salon({ _id: 'm1', msg: '', attachments: [{ title: 'note.pdf', description: 'le compte-rendu' }] })
+      room({ _id: 'm1', msg: '', attachments: [{ title: 'note.pdf', description: 'le compte-rendu' }] })
         ?.lastMessage,
       'le compte-rendu',
     );
     assert.equal(
-      salon({ _id: 'm1', msg: '', attachments: [{ title: 'note.pdf' }] })?.lastMessage,
+      room({ _id: 'm1', msg: '', attachments: [{ title: 'note.pdf' }] })?.lastMessage,
       'note.pdf',
     );
   });
@@ -168,7 +168,7 @@ describe('versSalon — aperçu du dernier message', () => {
   test('APPEL VIDÉO : pas de texte, mais un type — la ligne ne sera pas vide', () => {
     // Son contenu vit dans `blocks`. Sans le type, l'aperçu tombait à null et
     // le salon remontait en tête de liste avec une ligne blanche.
-    const s = salon({ _id: 'm1', msg: '', t: 'videoconf', ts: { $date: 50 } });
+    const s = room({ _id: 'm1', msg: '', t: 'videoconf', ts: { $date: 50 } });
     assert.equal(s?.lastMessage, null);
     assert.equal(s?.lastMessageType, 'videoconf');
   });
@@ -176,21 +176,21 @@ describe('versSalon — aperçu du dernier message', () => {
   test('salon VIDÉ : plus de lastMessage du tout, les deux à null', () => {
     // La seule façon d'apprendre qu'un salon a été vidé — à ne pas confondre
     // avec « dernier message sans texte à montrer ».
-    const s = salon(undefined, { lm: { $date: 40 } });
+    const s = room(undefined, { lm: { $date: 40 } });
     assert.equal(s?.lastMessage, null);
     assert.equal(s?.lastMessageType, null);
     assert.equal(s?.lastMessageTs, 40, 'lm survit à la suppression');
   });
 
   test('salon CHIFFRÉ : ni aperçu ni type, le serveur ne détient que du ciphertext', () => {
-    const s = salon({ _id: 'm1', msg: 'AAAAbase64==', t: 'e2e', ts: { $date: 50 } }, { encrypted: true });
+    const s = room({ _id: 'm1', msg: 'AAAAbase64==', t: 'e2e', ts: { $date: 50 } }, { encrypted: true });
     assert.equal(s?.encrypted, true);
     assert.equal(s?.lastMessage, null);
     assert.equal(s?.lastMessageType, null);
   });
 
   test('avatarETag ABSENT vaut null — « rien à dire », pas « efface »', () => {
-    assert.equal(salon()?.avatarEtag, null);
+    assert.equal(room()?.avatarEtag, null);
     assert.equal(toRoom({ _id: 'r1', t: 'c', avatarETag: 'abc' })?.avatarEtag, 'abc');
   });
 

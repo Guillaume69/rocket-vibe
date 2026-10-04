@@ -35,7 +35,7 @@ const WEB = /^https?:\/\//i;
  * externe exotique qui contiendrait littéralement `rc_token=` que laisser
  * passer une forme à laquelle on n'aurait pas pensé.
  */
-const IDENTIFIANTS = /\brc_(token|uid)=/i;
+const CREDENTIALS = /\brc_(token|uid)=/i;
 
 /** Vrai si `url` est une chaîne `http(s)://…`. */
 export function isWebLink(url: unknown): url is string {
@@ -44,7 +44,7 @@ export function isWebLink(url: unknown): url is string {
 
 /** Vrai si l'URL transporte `rc_uid` ou `rc_token`. */
 export function carriesCredentials(url: string): boolean {
-  return IDENTIFIANTS.test(url);
+  return CREDENTIALS.test(url);
 }
 
 /**

@@ -24,23 +24,23 @@ import { type Colors, FONTS, useColors } from '../ui/theme.ts';
  * (`ui/messageJump.ts`) ; une réponse de fil ouvre son fil.
  */
 
-type Onglet = 'pinned' | 'starred';
+type Tab = 'pinned' | 'starred';
 
-type EtatListe =
+type ListState =
   | { phase: 'loading' }
   | { phase: 'ready'; messages: MessageLocal[] }
   | { phase: 'error' };
 
 export default function MarkedMessagesScreen() {
   const { rid } = useLocalSearchParams<{ rid: string }>();
-  const { state: etat } = useSession();
-  const synchro = useSync();
+  const { state } = useSession();
+  const sync = useSync();
   const c = useColors();
   const t = useT();
 
-  if (etat.phase === 'disconnected') return <Redirect href="/login" />;
+  if (state.phase === 'disconnected') return <Redirect href="/login" />;
 
-  if (etat.phase !== 'connected' || synchro.phase !== 'ready' || typeof rid !== 'string') {
+  if (state.phase !== 'connected' || sync.phase !== 'ready' || typeof rid !== 'string') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
         <Stack.Screen options={{ title: t('marques.titre') }} />
@@ -49,22 +49,22 @@ export default function MarkedMessagesScreen() {
     );
   }
   return (
-    <MessagesMarques
+    <MarkedMessages
       c={c}
-      client={etat.client}
-      actions={synchro.actions}
+      client={state.client}
+      actions={sync.actions}
       rid={rid}
-      me={etat.session.username}
+      me={state.session.username}
     />
   );
 }
 
-function MessagesMarques({
+function MarkedMessages({
   c,
   client,
   actions,
   rid,
-  me: moi,
+  me,
 }: {
   c: Colors;
   client: ClientRest;
@@ -73,86 +73,86 @@ function MessagesMarques({
   me: string;
 }) {
   const t = useT();
-  const routeur = useRouter();
-  const [onglet, setOnglet] = useState<Onglet>('pinned');
-  const [listes, setListes] = useState<Partial<Record<Onglet, EtatListe>>>({});
+  const router = useRouter();
+  const [tab, setTab] = useState<Tab>('pinned');
+  const [lists, setLists] = useState<Partial<Record<Tab, ListState>>>({});
 
-  const courante = listes[onglet];
-  const demandes = useRef(new Set<Onglet>());
+  const current = lists[tab];
+  const requests = useRef(new Set<Tab>());
   useEffect(() => {
-    if (demandes.current.has(onglet)) return;
-    demandes.current.add(onglet);
-    const quel = onglet;
-    (quel === 'pinned' ? actions.listPinned(rid) : actions.listStarred(rid)).then(
-      (messages) => setListes((l) => ({ ...l, [quel]: { phase: 'ready', messages } })),
-      () => setListes((l) => ({ ...l, [quel]: { phase: 'error' } })),
+    if (requests.current.has(tab)) return;
+    requests.current.add(tab);
+    const which = tab;
+    (which === 'pinned' ? actions.listPinned(rid) : actions.listStarred(rid)).then(
+      (messages) => setLists((l) => ({ ...l, [which]: { phase: 'ready', messages } })),
+      () => setLists((l) => ({ ...l, [which]: { phase: 'error' } })),
     );
-  }, [onglet, courante, actions, rid]);
+  }, [tab, current, actions, rid]);
 
-  const ouvrir = useCallback(
+  const open = useCallback(
     (m: MessageLocal) => {
-      routeur.back();
+      router.back();
       if (m.threadId !== null && !m.threadShown) {
-        routeur.push({ pathname: '/thread/[id]', params: { id: m.threadId } });
+        router.push({ pathname: '/thread/[id]', params: { id: m.threadId } });
         return;
       }
       requestJump(rid, { id: m.id, ts: m.ts });
     },
-    [routeur, rid],
+    [router, rid],
   );
 
-  const recharger = useCallback(() => {
-    demandes.current.delete(onglet);
-    setListes((l) => ({ ...l, [onglet]: { phase: 'loading' } }));
-  }, [onglet]);
+  const reload = useCallback(() => {
+    requests.current.delete(tab);
+    setLists((l) => ({ ...l, [tab]: { phase: 'loading' } }));
+  }, [tab]);
 
   return (
     <View style={[styles.full, { backgroundColor: c.background }]}>
       <Stack.Screen options={{ title: t('marques.titre') }} />
       <View style={styles.tabs} accessibilityRole="tablist">
         {(['pinned', 'starred'] as const).map((o) => {
-          const actif = o === onglet;
+          const active = o === tab;
           return (
             <Tappable
               key={o}
-              onPress={() => setOnglet(o)}
+              onPress={() => setTab(o)}
               accessibilityRole="tab"
-              accessibilityState={{ selected: actif }}
+              accessibilityState={{ selected: active }}
               android_ripple={{ color: c.ripple, borderless: false }}
               style={[
                 styles.tab,
                 {
-                  borderColor: actif ? c.accent : c.border,
-                  backgroundColor: actif ? c.surfaceActive : 'transparent',
+                  borderColor: active ? c.accent : c.border,
+                  backgroundColor: active ? c.surfaceActive : 'transparent',
                 },
               ]}
             >
-              <Text style={[styles.ongletTexte, { color: actif ? c.text : c.dimmed }]}>
+              <Text style={[styles.tabText, { color: active ? c.text : c.dimmed }]}>
                 {t(o === 'pinned' ? 'marques.epingles' : 'marques.favoris')}
               </Text>
             </Tappable>
           );
         })}
       </View>
-      {courante === undefined || courante.phase === 'loading' ? (
+      {current === undefined || current.phase === 'loading' ? (
         <View style={styles.center}>
           <ActivityIndicator />
         </View>
-      ) : courante.phase === 'error' ? (
+      ) : current.phase === 'error' ? (
         <View style={styles.center}>
           <Text style={[styles.empty, { color: c.errorText }]}>{t('marques.chargementImpossible')}</Text>
-          <Tappable onPress={recharger} hitSlop={8}>
+          <Tappable onPress={reload} hitSlop={8}>
             <Text style={[styles.retry, { color: c.accent }]}>{t('commun.reessayer')}</Text>
           </Tappable>
         </View>
       ) : (
         <FlatList
-          data={courante.messages}
+          data={current.messages}
           keyExtractor={(m) => m.id}
           renderItem={({ item, index }) => (
             <View style={styles.result}>
               {(index === 0 ||
-                dayKey(courante.messages[index - 1].ts) !== dayKey(item.ts)) && (
+                dayKey(current.messages[index - 1].ts) !== dayKey(item.ts)) && (
                 <DaySeparator c={c} ts={item.ts} />
               )}
               <MessageRow
@@ -163,9 +163,9 @@ function MessagesMarques({
                 onRetry={null}
                 onDiscard={null}
                 onLongPress={null}
-                onPress={() => ouvrir(item)}
+                onPress={() => open(item)}
                 onOpenThread={null}
-                me={moi}
+                me={me}
                 onReact={null}
                 continuation={false}
                 repeatedTime={false}
@@ -174,7 +174,7 @@ function MessagesMarques({
           )}
           ListEmptyComponent={
             <Text style={[styles.empty, { color: c.dimmed }]}>
-              {t(onglet === 'pinned' ? 'marques.aucunEpingle' : 'marques.aucunFavori')}
+              {t(tab === 'pinned' ? 'marques.aucunEpingle' : 'marques.aucunFavori')}
             </Text>
           }
           contentContainerStyle={styles.content}
@@ -195,9 +195,9 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     overflow: 'hidden',
   },
-  ongletTexte: { fontFamily: FONTS.corpsSemi, fontSize: 13.5 },
+  tabText: { fontFamily: FONTS.bodySemi, fontSize: 13.5 },
   content: { paddingHorizontal: 8, paddingBottom: 24 },
   result: { paddingHorizontal: 8, paddingVertical: 4 },
   empty: { textAlign: 'center', padding: 24, fontFamily: FONTS.body, fontSize: 14 },
-  retry: { fontFamily: FONTS.corpsGras, fontSize: 14 },
+  retry: { fontFamily: FONTS.bodyBold, fontSize: 14 },
 });

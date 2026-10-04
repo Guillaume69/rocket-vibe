@@ -24,16 +24,16 @@ export const TYPING_ACTIVITY = 'user-typing';
 
 const EXPIRATION_MS = 15_000;
 
-type Annulation = unknown;
+type Cancellation = unknown;
 
 export class TypingEngine {
   private readonly rid: string;
   private readonly me: string | null;
   private readonly expirationMs: number;
-  private readonly schedule: (fn: () => void, ms: number) => Annulation;
-  private readonly cancel: (a: Annulation) => void;
+  private readonly schedule: (fn: () => void, ms: number) => Cancellation;
+  private readonly cancel: (a: Cancellation) => void;
 
-  private timers = new Map<string, Annulation>();
+  private timers = new Map<string, Cancellation>();
   private listeners = new Set<() => void>();
   /** Figé entre deux notifications : `useSyncExternalStore` compare par référence. */
   private snapshot: string[] = [];
@@ -43,8 +43,8 @@ export class TypingEngine {
     /** Mon username : ma propre saisie ne s'affiche pas chez moi. */
     me: string | null;
     expirationMs?: number;
-    schedule?: (fn: () => void, ms: number) => Annulation;
-    cancel?: (a: Annulation) => void;
+    schedule?: (fn: () => void, ms: number) => Cancellation;
+    cancel?: (a: Cancellation) => void;
   }) {
     this.rid = options.rid;
     this.me = options.me;
@@ -57,29 +57,29 @@ export class TypingEngine {
     return this.snapshot;
   }
 
-  onChange(ecouteur: () => void): () => void {
-    this.listeners.add(ecouteur);
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener);
     return () => {
-      this.listeners.delete(ecouteur);
+      this.listeners.delete(listener);
     };
   }
 
-  apply(evenement: DdpEvent): void {
+  apply(event: DdpEvent): void {
     if (
-      evenement.collection !== STREAM_NOTIFY_ROOM_TYPING ||
-      evenement.eventKey !== `${this.rid}/user-activity`
+      event.collection !== STREAM_NOTIFY_ROOM_TYPING ||
+      event.eventKey !== `${this.rid}/user-activity`
     ) {
       return;
     }
-    const username = evenement.args[0];
-    const activites = evenement.args[1];
+    const username = event.args[0];
+    const activities = event.args[1];
     if (typeof username !== 'string' || username === '' || username === this.me) return;
-    const tape = Array.isArray(activites) && activites.includes(TYPING_ACTIVITY);
+    const typing = Array.isArray(activities) && activities.includes(TYPING_ACTIVITY);
 
-    const existante = this.timers.get(username);
-    if (existante !== undefined) this.cancel(existante);
+    const existing = this.timers.get(username);
+    if (existing !== undefined) this.cancel(existing);
 
-    if (tape) {
+    if (typing) {
       this.timers.set(
         username,
         this.schedule(() => {
@@ -95,24 +95,24 @@ export class TypingEngine {
 
   /** À la fermeture de l'écran : plus aucune minuterie ne doit survivre. */
   stop(): void {
-    for (const minuterie of this.timers.values()) this.cancel(minuterie);
+    for (const timer of this.timers.values()) this.cancel(timer);
     this.timers.clear();
     this.snapshot = [];
   }
 
   private notifier(): void {
-    const nouveau = [...this.timers.keys()].sort();
+    const next = [...this.timers.keys()].sort();
     // Ne notifier QUE sur changement réel : Rocket.Chat ré-émet
     // « user-typing » en battement de cœur pendant toute la frappe — chaque
     // battement re-rendrait sinon l'écran salon entier pour rien.
     if (
-      nouveau.length === this.snapshot.length &&
-      nouveau.every((nom, i) => nom === this.snapshot[i])
+      next.length === this.snapshot.length &&
+      next.every((name, i) => name === this.snapshot[i])
     ) {
       return;
     }
-    this.snapshot = nouveau;
-    for (const ecouteur of this.listeners) ecouteur();
+    this.snapshot = next;
+    for (const listener of this.listeners) listener();
   }
 }
 
@@ -122,14 +122,14 @@ export class TypingEngine {
  * ce module, pur et testé sous Node, n'embarque aucune langue.
  */
 export type TypingSummary =
-  | { forme: 'one'; name: string }
-  | { forme: 'two'; a: string; b: string }
-  | { forme: 'many'; n: number };
+  | { form: 'one'; name: string }
+  | { form: 'two'; a: string; b: string }
+  | { form: 'many'; n: number };
 
 /** null si personne n'écrit. */
-export function summarizeTyping(noms: string[]): TypingSummary | null {
-  if (noms.length === 0) return null;
-  if (noms.length === 1) return { forme: 'one', name: noms[0] };
-  if (noms.length === 2) return { forme: 'two', a: noms[0], b: noms[1] };
-  return { forme: 'many', n: noms.length };
+export function summarizeTyping(names: string[]): TypingSummary | null {
+  if (names.length === 0) return null;
+  if (names.length === 1) return { form: 'one', name: names[0] };
+  if (names.length === 2) return { form: 'two', a: names[0], b: names[1] };
+  return { form: 'many', n: names.length };
 }

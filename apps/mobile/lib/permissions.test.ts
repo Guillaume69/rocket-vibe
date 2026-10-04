@@ -8,19 +8,19 @@ import {
   sourcesPermissions,
 } from './permissions.ts';
 
-function fauxClient(echecs = 0) {
-  const appels: string[] = [];
-  let restants = echecs;
+function fakeClient(failures = 0) {
+  const calls: string[] = [];
+  let remaining = failures;
   const client = {
     baseUrl: 'http://x',
     auth: { userId: 'u1', authToken: 't' },
-    get: async <T>(chemin: string): Promise<T> => {
-      appels.push(chemin);
-      if (restants > 0) {
-        restants--;
+    get: async <T>(path: string): Promise<T> => {
+      calls.push(path);
+      if (remaining > 0) {
+        remaining--;
         throw new Error('hors ligne');
       }
-      if (chemin === 'me') return { roles: ['user'] } as T;
+      if (path === 'me') return { roles: ['user'] } as T;
       return {
         update: [
           { _id: 'pin-message', roles: ['owner', 'moderator', 'admin'] },
@@ -32,12 +32,12 @@ function fauxClient(echecs = 0) {
       } as T;
     },
   };
-  return { client, appels };
+  return { client, calls };
 }
 
 describe('permissions', () => {
   test('accordée quand un rôle global OU du salon la porte', async () => {
-    const sources = await readPermissionSources(fauxClient().client);
+    const sources = await readPermissionSources(fakeClient().client);
     assert.deepEqual(grantedPermissions(sources, []).sort(), ['delete-own-message']);
     assert.deepEqual(grantedPermissions(sources, ['owner']).sort(), [
       'delete-own-message',
@@ -54,10 +54,10 @@ describe('permissions', () => {
   });
 
   test('une lecture par compte, et un échec n’est pas retenu', async () => {
-    const { client, appels } = fauxClient(1);
+    const { client, calls } = fakeClient(1);
     await assert.rejects(sourcesPermissions(client));
     await sourcesPermissions(client);
     await sourcesPermissions(client);
-    assert.equal(appels.filter((a) => a === 'permissions.listAll').length, 2);
+    assert.equal(calls.filter((a) => a === 'permissions.listAll').length, 2);
   });
 });

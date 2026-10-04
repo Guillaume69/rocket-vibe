@@ -94,7 +94,7 @@ const ANDROIDX_WORK = 'androidx.work:work-runtime:2.10.1';
  */
 
 const SERVICE_CLASS = 'RocketVibeMessagingService';
-const RECEPTEUR_CLASS = 'ReponseNotifReceiver';
+const RECEIVER_CLASS = 'ReponseNotifReceiver';
 
 /**
  * Les chaînes vues par l'utilisateur sur la voie native. `en` est la
@@ -766,7 +766,7 @@ private fun actionRepondre(
   tmid: String?,
 ): NotificationCompat.Action {
   val libelle = chaine(ctx, R.string.rv_push_repondre, "Reply")
-  val intent = Intent(ctx, ${RECEPTEUR_CLASS}::class.java)
+  val intent = Intent(ctx, ${RECEIVER_CLASS}::class.java)
     .putExtra(EXTRA_RID, rid)
     .putExtra(EXTRA_HOST, host)
   if (tmid != null) intent.putExtra(EXTRA_TMID, tmid)
@@ -985,7 +985,7 @@ private const val TIMEOUT_REPONSE_MS = 4000
  * (même garde d'origine). La notification est toujours reposée ensuite : tant
  * qu'on ne le fait pas, Android laisse tourner l'indicateur d'envoi.
  */
-class ${RECEPTEUR_CLASS} : BroadcastReceiver() {
+class ${RECEIVER_CLASS} : BroadcastReceiver() {
   override fun onReceive(ctx: Context, intent: Intent) {
     val texte = RemoteInput.getResultsFromIntent(intent)
       ?.getCharSequence(CLE_REPONSE)
@@ -1006,7 +1006,7 @@ class ${RECEPTEUR_CLASS} : BroadcastReceiver() {
         journal(appContext, "réponse depuis la notif (rid=" + rid + ") : " + (if (envoye) "OK" else "ÉCHEC"))
         reposerApresReponse(appContext, rid, host, tmid, texte, envoye)
       } catch (e: Exception) {
-        Log.w(TAG, "${RECEPTEUR_CLASS}", e)
+        Log.w(TAG, "${RECEIVER_CLASS}", e)
       } finally {
         fin.finish()
       }
@@ -1190,7 +1190,7 @@ private fun sansSlashFinal(u: String): String = u.trimEnd('/')
 
 // ---------------------------------------------------------------------------
 // Chirurgie de configuration — la partie PURE du plugin, celle qui n'a besoin
-// ni d'Expo ni d'un build pour être jugée. Exportée (`chirurgie`) et couverte
+// ni d'Expo ni d'un build pour être jugée. Exportée (`internals`) et couverte
 // par `plugins/with-fcm-deeplink.test.mjs` : le Kotlin ci-dessus ne se vérifie
 // qu'en compilant, mais ceci est du JS ordinaire, et deux de ses propriétés
 // sont porteuses — la priorité `1` du service (sans elle, FCM route vers le
@@ -1206,7 +1206,7 @@ private fun sansSlashFinal(u: String): String = u.trimEnd('/')
  * imbriqué (`buildscript { dependencies { … } }`, un `subprojects`) aurait reçu
  * nos artefacts, où ils ne compilent pas le module app.
  */
-const BLOC_DEPENDANCES = /^dependencies\s*\{/m;
+const DEPENDENCIES_BLOCK = /^dependencies\s*\{/m;
 
 /**
  * Ajoute les artefacts manquants au bloc `dependencies` racine.
@@ -1220,20 +1220,20 @@ const BLOC_DEPENDANCES = /^dependencies\s*\{/m;
  * compilation échouerait bien plus loin, sur une classe Kotlin introuvable, et
  * la cause serait à retrouver.
  */
-function ajouterDependances(contents, deps) {
-  if (!BLOC_DEPENDANCES.test(contents)) {
+function addDependencies(contents, deps) {
+  if (!DEPENDENCIES_BLOCK.test(contents)) {
     throw new Error(
       "with-fcm-deeplink : aucun bloc `dependencies {` racine dans app/build.gradle — " +
         'firebase-messaging et work-runtime ne peuvent pas être déclarés.',
     );
   }
-  let sortie = contents;
+  let outbox = contents;
   for (const dep of deps) {
-    const artefact = dep.substring(0, dep.lastIndexOf(':'));
-    if (sortie.includes(artefact)) continue;
-    sortie = sortie.replace(BLOC_DEPENDANCES, (m) => `${m}\n    implementation("${dep}")`);
+    const artifact = dep.substring(0, dep.lastIndexOf(':'));
+    if (outbox.includes(artifact)) continue;
+    outbox = outbox.replace(DEPENDENCIES_BLOCK, (m) => `${m}\n    implementation("${dep}")`);
   }
-  return sortie;
+  return outbox;
 }
 
 /**
@@ -1244,12 +1244,12 @@ function ajouterDependances(contents, deps) {
  * plus basse rendrait tout le Kotlin de ce fichier inatteignable, sans erreur
  * de build ni message — juste des notifications qui redeviennent celles d'expo.
  */
-function ajouterService(application, nomService = `.${SERVICE_CLASS}`) {
+function addService(application, serviceName = `.${SERVICE_CLASS}`) {
   application.service = application.service || [];
-  const deja = application.service.some((s) => s.$?.['android:name'] === nomService);
-  if (!deja) {
+  const already = application.service.some((s) => s.$?.['android:name'] === serviceName);
+  if (!already) {
     application.service.push({
-      $: { 'android:name': nomService, 'android:exported': 'false' },
+      $: { 'android:name': serviceName, 'android:exported': 'false' },
       'intent-filter': [
         {
           $: { 'android:priority': '1' },
@@ -1265,28 +1265,28 @@ function ajouterService(application, nomService = `.${SERVICE_CLASS}`) {
  * Déclare le récepteur de l'action « Répondre ». Non exporté : seul notre
  * PendingIntent, explicite, peut l'atteindre.
  */
-function ajouterRecepteur(application, nom = `.${RECEPTEUR_CLASS}`) {
+function addReceiver(application, name = `.${RECEIVER_CLASS}`) {
   application.receiver = application.receiver || [];
-  const deja = application.receiver.some((r) => r.$?.['android:name'] === nom);
-  if (!deja) {
-    application.receiver.push({ $: { 'android:name': nom, 'android:exported': 'false' } });
+  const already = application.receiver.some((r) => r.$?.['android:name'] === name);
+  if (!already) {
+    application.receiver.push({ $: { 'android:name': name, 'android:exported': 'false' } });
   }
   return application;
 }
 
 /** Le `strings.xml` d'une langue donnée, tel qu'écrit dans `res/values-<lg>/`. */
-function stringsXml(langue) {
-  const lignes = Object.entries(CHAINES).map(
-    ([nom, formes]) => `    <string name="${nom}">${echapperXml(formes[langue])}</string>`,
+function stringsXml(language) {
+  const rows = Object.entries(CHAINES).map(
+    ([name, forms]) => `    <string name="${name}">${escapeXml(forms[language])}</string>`,
   );
-  return `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n${lignes.join('\n')}\n</resources>\n`;
+  return `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n${rows.join('\n')}\n</resources>\n`;
 }
 
 /**
  * Échappement Android : les entités XML, plus l'apostrophe, que le compilateur
  * de ressources traite comme un délimiteur et refuse non échappée.
  */
-function echapperXml(s) {
+function escapeXml(s) {
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -1321,15 +1321,15 @@ function withServiceManifest(config) {
     if (!application) {
       throw new Error('with-fcm-deeplink : <application> introuvable dans le manifeste');
     }
-    ajouterService(application);
-    ajouterRecepteur(application);
+    addService(application);
+    addReceiver(application);
     return config;
   });
 }
 
 function withNativeDeps(config) {
   return withAppBuildGradle(config, (config) => {
-    config.modResults.contents = ajouterDependances(config.modResults.contents, [
+    config.modResults.contents = addDependencies(config.modResults.contents, [
       FIREBASE_MESSAGING,
       ANDROIDX_WORK,
     ]);
@@ -1343,11 +1343,11 @@ function withNativeDeps(config) {
  * `values-fr/` est un dossier que nous sommes seuls à peupler, donc écrit tel
  * quel.
  */
-function withChainesNatives(config) {
+function withNativeStrings(config) {
   config = withStringsXml(config, (config) => {
-    for (const [nom, formes] of Object.entries(CHAINES)) {
+    for (const [name, forms] of Object.entries(CHAINES)) {
       config.modResults = AndroidConfig.Strings.setStringItem(
-        [AndroidConfig.Resources.buildResourceItem({ name: nom, value: formes.en })],
+        [AndroidConfig.Resources.buildResourceItem({ name, value: forms.en })],
         config.modResults,
       );
     }
@@ -1371,18 +1371,18 @@ module.exports = function withFcmDeeplink(config) {
   config = withServiceFile(config);
   config = withServiceManifest(config);
   config = withNativeDeps(config);
-  config = withChainesNatives(config);
+  config = withNativeStrings(config);
   return config;
 };
 
 // Pour les tests (`plugins/with-fcm-deeplink.test.mjs`) — pas pour l'app.
-module.exports.chirurgie = {
+module.exports.internals = {
   SERVICE_CLASS,
-  RECEPTEUR_CLASS,
-  ajouterDependances,
-  ajouterRecepteur,
-  ajouterService,
-  echapperXml,
+  RECEIVER_CLASS,
+  addDependencies,
+  addReceiver,
+  addService,
+  escapeXml,
   stringsXml,
   CHAINES,
 };

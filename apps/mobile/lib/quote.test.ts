@@ -80,8 +80,8 @@ describe('sansPrefixeCitation', () => {
 
 describe('sansLiensDeCitation', () => {
   test('retire le nœud LINK du permalien et l’espace de syntaxe qui le suit', () => {
-    const arbre = withoutQuoteLinks(parse('[ ](https://s/channel/g?msg=abc) salut'));
-    assert.equal(textOf(arbre), 'salut');
+    const tree = withoutQuoteLinks(parse('[ ](https://s/channel/g?msg=abc) salut'));
+    assert.equal(textOf(tree), 'salut');
   });
 
   test('un message qui n’est QUE la citation devient un arbre vide', () => {
@@ -89,20 +89,20 @@ describe('sansLiensDeCitation', () => {
   });
 
   test('rend la MÊME référence quand il n’y a rien à retirer', () => {
-    const arbre = parse('un message **ordinaire**');
-    assert.equal(withoutQuoteLinks(arbre), arbre);
+    const tree = parse('un message **ordinaire**');
+    assert.equal(withoutQuoteLinks(tree), tree);
   });
 
   test('épargne un lien à étiquette réelle, même vers un `?msg=` (même référence)', () => {
-    const brut = parse('[voir ce message](https://s/channel/g?msg=abc)');
-    assert.equal(withoutQuoteLinks(brut), brut);
+    const raw = parse('[voir ce message](https://s/channel/g?msg=abc)');
+    assert.equal(withoutQuoteLinks(raw), raw);
   });
 });
 
 describe('jointeCitationLocale', () => {
   test('reprend les pièces du message cité — son image s’affiche dans le bloc', () => {
     const image = { title: 'chat.jpg', image_url: '/file-upload/x/chat.jpg' };
-    const jointes = JSON.parse(
+    const attachments = JSON.parse(
       localQuoteAttachment({
         permalink: 'https://s/channel/g?msg=a',
         author: 'bob',
@@ -110,16 +110,16 @@ describe('jointeCitationLocale', () => {
         attachments: JSON.stringify([image]),
       }),
     ) as { message_link: string; author_name?: string; text: string; attachments: unknown[] }[];
-    assert.equal(jointes.length, 1);
-    assert.equal(jointes[0]!.message_link, 'https://s/channel/g?msg=a');
-    assert.equal(jointes[0]!.author_name, 'bob');
-    assert.deepEqual(jointes[0]!.attachments, [image]);
+    assert.equal(attachments.length, 1);
+    assert.equal(attachments[0]!.message_link, 'https://s/channel/g?msg=a');
+    assert.equal(attachments[0]!.author_name, 'bob');
+    assert.deepEqual(attachments[0]!.attachments, [image]);
   });
 
   test('citer une citation : le niveau 2 reste, SES citations (niveau 3) tombent, ses fichiers restent', () => {
     // Le message cité est lui-même une réponse : sa citation porte un fichier
     // ET une citation plus profonde — la même taille que le serveur (limite 2).
-    const citationDuCite = {
+    const quoteOfQuoted = {
       message_link: 'https://s/channel/g?msg=racine',
       author_name: 'alice',
       text: 'le début',
@@ -128,35 +128,35 @@ describe('jointeCitationLocale', () => {
         { message_link: 'https://s/channel/g?msg=plus-vieux', text: 'trop profond' },
       ],
     };
-    const jointes = JSON.parse(
+    const attachments = JSON.parse(
       localQuoteAttachment({
         permalink: 'https://s/channel/g?msg=b',
         author: 'bob',
         text: 'je cite une citation',
-        attachments: JSON.stringify([citationDuCite]),
+        attachments: JSON.stringify([quoteOfQuoted]),
       }),
     ) as { attachments: { message_link?: string; attachments?: unknown[] }[] }[];
-    const niveau2 = jointes[0]!.attachments[0]!;
-    assert.equal(niveau2.message_link, 'https://s/channel/g?msg=racine');
-    assert.deepEqual(niveau2.attachments, [{ title: 'piece.png', image_url: '/file-upload/y/piece.png' }]);
+    const level2 = attachments[0]!.attachments[0]!;
+    assert.equal(level2.message_link, 'https://s/channel/g?msg=racine');
+    assert.deepEqual(level2.attachments, [{ title: 'piece.png', image_url: '/file-upload/y/piece.png' }]);
   });
 
   test('sans pièces ni auteur : la citation minimale', () => {
-    const jointes = JSON.parse(
+    const attachments = JSON.parse(
       localQuoteAttachment({ permalink: 'https://s/direct/d?msg=c', author: null, text: null, attachments: null }),
     ) as Record<string, unknown>[];
-    assert.deepEqual(jointes, [{ message_link: 'https://s/direct/d?msg=c', text: '', attachments: [] }]);
+    assert.deepEqual(attachments, [{ message_link: 'https://s/direct/d?msg=c', text: '', attachments: [] }]);
   });
 });
 
 describe('premiereImageDesJointes', () => {
   test('trouve la première image, en ignorant les citations imbriquées', () => {
-    const jointes = JSON.stringify([
+    const attachments = JSON.stringify([
       { message_link: 'https://s/c?msg=a', attachments: [{ image_url: '/file-upload/cite.png' }] },
       { title: 'doc.pdf', title_link: '/file-upload/doc.pdf' },
       { title: 'photo.jpg', image_url: '/file-upload/photo.jpg' },
     ]);
-    assert.equal(firstAttachmentImage(jointes), '/file-upload/photo.jpg');
+    assert.equal(firstAttachmentImage(attachments), '/file-upload/photo.jpg');
     assert.equal(firstAttachmentImage(null), null);
     assert.equal(firstAttachmentImage('pas du json'), null);
   });

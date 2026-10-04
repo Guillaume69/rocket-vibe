@@ -18,13 +18,13 @@ import { useColors } from './theme.ts';
 
 export function ProfileOpeningIndicator() {
   const c = useColors();
-  const [actif, setActif] = useState(false);
+  const [active, setActive] = useState(false);
 
-  useEffect(() => subscribeProfileOpening(setActif), []);
+  useEffect(() => subscribeProfileOpening(setActive), []);
 
-  if (!actif) return null;
+  if (!active) return null;
   return (
-    <View style={styles.couche} pointerEvents="none">
+    <View style={styles.layer} pointerEvents="none">
       <View style={[styles.badge, { backgroundColor: c.deepCard }]}>
         <ActivityIndicator color={c.accent} />
       </View>
@@ -33,7 +33,7 @@ export function ProfileOpeningIndicator() {
 }
 
 const styles = StyleSheet.create({
-  couche: {
+  layer: {
     position: 'absolute',
     top: 0,
     left: 0,

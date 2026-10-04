@@ -35,8 +35,8 @@ import { Tappable } from '../ui/tappable.tsx';
  * n'est cochée jusqu'au premier choix, ce qui est honnête plutôt que trompeur.
  */
 
-type NiveauPush = 'all' | 'mention' | 'nothing';
-const OPTIONS_PUSH: { value: NiveauPush; key: TranslationKey }[] = [
+type PushLevel = 'all' | 'mention' | 'nothing';
+const OPTIONS_PUSH: { value: PushLevel; key: TranslationKey }[] = [
   { value: 'all', key: 'parametres.pushTous' },
   { value: 'mention', key: 'parametres.pushMentions' },
   { value: 'nothing', key: 'parametres.pushAucune' },
@@ -44,21 +44,21 @@ const OPTIONS_PUSH: { value: NiveauPush; key: TranslationKey }[] = [
 
 export default function SettingsScreen() {
   const c = useColors();
-  const { state: etat } = useSession();
+  const { state } = useSession();
   // Atteint depuis l'accueil connecté ; en garde-fou, un état déconnecté
   // (déconnexion en cours) renvoie au login plutôt que de crasher sur `client`.
-  if (etat.phase !== 'connected') return <Redirect href="/login" />;
+  if (state.phase !== 'connected') return <Redirect href="/login" />;
   return (
-    <Parametres
+    <Settings
       c={c}
-      client={etat.client}
-      username={etat.session.username}
-      baseUrl={etat.session.baseUrl}
+      client={state.client}
+      username={state.session.username}
+      baseUrl={state.session.baseUrl}
     />
   );
 }
 
-type ReponseMe = { settings?: { preferences?: { pushNotifications?: string } } };
+type MeResponse = { settings?: { preferences?: { pushNotifications?: string } } };
 
 /**
  * Lit et écrit la préférence de push. `valeur === null` = encore en train de
@@ -67,23 +67,23 @@ type ReponseMe = { settings?: { preferences?: { pushNotifications?: string } } }
  * réseau.
  */
 function usePreferencePush(client: ClientRest) {
-  const [valeur, setValeur] = useState<string | null>(null);
+  const [value, setValue] = useState<string | null>(null);
   // L'erreur est stockée comme CLÉ de traduction, pas comme phrase : le
   // composant la traduit au rendu, dans la langue courante.
-  const [erreur, setErreur] = useState<TranslationKey | null>(null);
+  const [error, setError] = useState<TranslationKey | null>(null);
 
   useEffect(() => {
-    let vivant = true;
+    let alive = true;
     client
-      .get<ReponseMe>('me')
+      .get<MeResponse>('me')
       .then((r) => {
-        if (vivant) setValeur(r.settings?.preferences?.pushNotifications ?? 'default');
+        if (alive) setValue(r.settings?.preferences?.pushNotifications ?? 'default');
       })
       .catch(() => {
-        if (vivant) setErreur('parametres.pushIntrouvable');
+        if (alive) setError('parametres.pushIntrouvable');
       });
     return () => {
-      vivant = false;
+      alive = false;
     };
   }, [client]);
 
@@ -92,29 +92,29 @@ function usePreferencePush(client: ClientRest) {
   // choix — l'UI affichait un niveau que le serveur ne porte pas. Seul le
   // DERNIER choix garde le droit de rollback et de message d'erreur.
   const sequence = useRef(0);
-  const definir = useCallback(
-    async (nouvelle: NiveauPush) => {
+  const set = useCallback(
+    async (next: PushLevel) => {
       const n = ++sequence.current;
-      const precedente = valeur;
-      setValeur(nouvelle);
-      setErreur(null);
+      const previous = value;
+      setValue(next);
+      setError(null);
       try {
         await client.post('users.setPreferences', {
-          body: { data: { pushNotifications: nouvelle } },
+          body: { data: { pushNotifications: next } },
         });
       } catch {
         if (sequence.current !== n) return;
-        setValeur(precedente);
-        setErreur('parametres.enregistrementImpossible');
+        setValue(previous);
+        setError('parametres.enregistrementImpossible');
       }
     },
-    [client, valeur],
+    [client, value],
   );
 
-  return { valeur, erreur, definir };
+  return { value, error, set };
 }
 
-function Parametres({
+function Settings({
   c,
   client,
   username,
@@ -125,24 +125,24 @@ function Parametres({
   username: string;
   baseUrl: string;
 }) {
-  const routeur = useRouter();
+  const router = useRouter();
   const t = useT();
-  const { logOut: deconnecter } = useSession();
+  const { logOut } = useSession();
   const push = usePreferencePush(client);
-  const [deconnexion, setDeconnexion] = useState(false);
+  const [logout, setLogout] = useState(false);
   // Version de MA photo : sans elle, la carte de profil garderait l'ancienne
   // image même après l'avoir changée dans « Mon profil » (cache image figé).
   const etags = useEtagsAvatars();
 
-  const seDeconnecter = useCallback(() => {
-    if (deconnexion) return;
-    setDeconnexion(true);
+  const handleLogOut = useCallback(() => {
+    if (logout) return;
+    setLogout(true);
     // `deconnecter` bascule la session en « deconnecte » de façon synchrone
     // (avant son premier await) : l'accueil, révélé par le back, redirige alors
     // vers /connexion. Le logout réseau finit best-effort en arrière-plan.
-    void deconnecter();
-    routeur.back();
-  }, [deconnexion, deconnecter, routeur]);
+    void logOut();
+    router.back();
+  }, [logout, logOut, router]);
 
   return (
     <ScrollView
@@ -153,13 +153,13 @@ function Parametres({
       <Stack.Screen options={{ title: t('parametres.titre') }} />
 
       <Tappable
-        onPress={() => routeur.push('/my-profile')}
+        onPress={() => router.push('/my-profile')}
         android_ripple={{ color: c.ripple }}
         unstable_pressDelay={LIST_PRESS_DELAY}
         accessibilityRole="button"
         accessibilityLabel={t('parametres.modifierProfil')}
         style={({ pressed }) => [
-          styles.carteProfil,
+          styles.profileCard,
           { backgroundColor: c.deepCard, borderColor: c.border, opacity: pressed ? 0.7 : 1 },
         ]}
       >
@@ -169,64 +169,64 @@ function Parametres({
           initial={username.charAt(0)}
           uri={urlAvatar(client, { username, etag: etags.byUsername.get(username) })}
         />
-        <View style={styles.profilTextes}>
-          <Text style={[styles.profilNom, { color: c.text }]} numberOfLines={1}>
+        <View style={styles.profileTexts}>
+          <Text style={[styles.profileName, { color: c.text }]} numberOfLines={1}>
             @{username}
           </Text>
-          <Text style={[styles.profilLien, { color: c.cyan }]}>{t('parametres.modifierProfil')}</Text>
+          <Text style={[styles.profileLink, { color: c.cyan }]}>{t('parametres.modifierProfil')}</Text>
         </View>
         <Text style={[styles.chevron, { color: c.dimmed }]}>›</Text>
       </Tappable>
 
       <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('parametres.sectionNotifications')}</Text>
       <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-        <Text style={[styles.reglageTitre, { color: c.text }]}>{t('parametres.push')}</Text>
-        <Text style={[styles.reglageAide, { color: c.dimmed }]}>{t('parametres.pushAide')}</Text>
-        <ChoixNotification c={c} push={push} />
-        {push.erreur !== null && (
-          <Text style={[styles.error, { color: c.errorText }]}>{t(push.erreur)}</Text>
+        <Text style={[styles.settingTitle, { color: c.text }]}>{t('parametres.push')}</Text>
+        <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('parametres.pushAide')}</Text>
+        <NotificationChoice c={c} push={push} />
+        {push.error !== null && (
+          <Text style={[styles.error, { color: c.errorText }]}>{t(push.error)}</Text>
         )}
       </View>
 
       <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('parametres.sectionLangue')}</Text>
       <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-        <Text style={[styles.reglageAide, { color: c.dimmed }]}>{t('parametres.langueAide')}</Text>
-        <SelecteurLangue c={c} t={t} />
+        <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('parametres.langueAide')}</Text>
+        <LanguagePicker c={c} t={t} />
       </View>
 
       <SectionE2E c={c} t={t} />
 
       <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('parametres.sectionCompte')}</Text>
       <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-        <Paire c={c} key={t('parametres.connecte')} value={`@${username}`} />
-        <Paire c={c} key={t('parametres.serveur')} value={baseUrl} />
+        <Pair c={c} key={t('parametres.connecte')} value={`@${username}`} />
+        <Pair c={c} key={t('parametres.serveur')} value={baseUrl} />
       </View>
 
       <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('parametres.sectionDiagnostic')}</Text>
-      <SectionJetonFcm c={c} t={t} />
+      <FcmTokenSection c={c} t={t} />
 
       <Link href="/login?change=1" style={[styles.link, { color: c.cyan }]}>
         {t('parametres.changerServeur')}
       </Link>
 
       <Tappable
-        onPress={seDeconnecter}
-        disabled={deconnexion}
+        onPress={handleLogOut}
+        disabled={logout}
         android_ripple={{ color: c.ripple }}
         unstable_pressDelay={LIST_PRESS_DELAY}
         style={({ pressed }) => [
           styles.button,
-          { backgroundColor: c.errorCard, opacity: pressed || deconnexion ? 0.6 : 1 },
+          { backgroundColor: c.errorCard, opacity: pressed || logout ? 0.6 : 1 },
         ]}
       >
-        <Text style={[styles.texteBoutonSecondaire, { color: c.errorText }]}>{t('parametres.seDeconnecter')}</Text>
+        <Text style={[styles.secondaryButtonText, { color: c.errorText }]}>{t('parametres.seDeconnecter')}</Text>
       </Tappable>
     </ScrollView>
   );
 }
 
 /** Liste radio des trois niveaux de notification. Rien de coché tant qu'on lit. */
-function ChoixNotification({
+function NotificationChoice({
   c,
   push,
 }: {
@@ -234,9 +234,9 @@ function ChoixNotification({
   push: ReturnType<typeof usePreferencePush>;
 }) {
   const t = useT();
-  if (push.valeur === null && push.erreur === null) {
+  if (push.value === null && push.error === null) {
     return (
-      <View style={styles.charge}>
+      <View style={styles.loading}>
         <ActivityIndicator color={c.accent} />
       </View>
     );
@@ -244,34 +244,34 @@ function ChoixNotification({
   return (
     <View style={styles.options}>
       {OPTIONS_PUSH.map((o, i) => {
-        const actif = push.valeur === o.value;
-        const libelle = t(o.key);
+        const active = push.value === o.value;
+        const label = t(o.key);
         return (
-          <View key={o.value} style={styles.enveloppeOption}>
+          <View key={o.value} style={styles.optionWrapper}>
             <Tappable
-              onPress={() => void push.definir(o.value)}
-              disabled={push.valeur === null}
+              onPress={() => void push.set(o.value)}
+              disabled={push.value === null}
               android_ripple={{ color: c.ripple }}
               unstable_pressDelay={LIST_PRESS_DELAY}
               accessibilityRole="radio"
-              accessibilityState={{ selected: actif }}
-              accessibilityLabel={libelle}
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={label}
               style={[
-                styles.optionLigne,
+                styles.optionRow,
                 i > 0 && { borderTopColor: c.softBorder, borderTopWidth: StyleSheet.hairlineWidth },
               ]}
             >
-            <View style={[styles.radio, { borderColor: actif ? c.accent : c.border }]}>
-              {actif && <View style={[styles.radioDot, { backgroundColor: c.accent }]} />}
+            <View style={[styles.radio, { borderColor: active ? c.accent : c.border }]}>
+              {active && <View style={[styles.radioDot, { backgroundColor: c.accent }]} />}
             </View>
               <Text
                 style={[
-                  styles.optionTexte,
-                  { color: actif ? c.text : c.secondaryText },
-                  actif && styles.optionTexteActif,
+                  styles.optionText,
+                  { color: active ? c.text : c.secondaryText },
+                  active && styles.optionTextActive,
                 ]}
               >
-                {libelle}
+                {label}
               </Text>
             </Tappable>
           </View>
@@ -287,7 +287,7 @@ function ChoixNotification({
  * (`definirLangue` pousse dans le store abonnable) : tout l'écran, titre compris,
  * se re-rend dans la nouvelle langue sans rechargement.
  */
-function SelecteurLangue({ c, t }: { c: Colors; t: TranslateFn }) {
+function LanguagePicker({ c, t }: { c: Colors; t: TranslateFn }) {
   const preference = useLanguagePreference();
   const options: { pref: LanguagePreference; label: string; help?: string }[] = [
     { pref: 'auto', label: t('langue.auto'), help: t('langue.autoAide') },
@@ -296,36 +296,36 @@ function SelecteurLangue({ c, t }: { c: Colors; t: TranslateFn }) {
   return (
     <View style={styles.options}>
       {options.map((o, i) => {
-        const actif = preference === o.pref;
+        const active = preference === o.pref;
         return (
-          <View key={o.pref} style={styles.enveloppeOption}>
+          <View key={o.pref} style={styles.optionWrapper}>
             <Tappable
               onPress={() => setLanguage(o.pref)}
               android_ripple={{ color: c.ripple }}
               unstable_pressDelay={LIST_PRESS_DELAY}
               accessibilityRole="radio"
-              accessibilityState={{ selected: actif }}
+              accessibilityState={{ selected: active }}
               accessibilityLabel={o.label}
               style={[
-                styles.optionLigne,
+                styles.optionRow,
                 i > 0 && { borderTopColor: c.softBorder, borderTopWidth: StyleSheet.hairlineWidth },
               ]}
             >
-            <View style={[styles.radio, { borderColor: actif ? c.accent : c.border }]}>
-              {actif && <View style={[styles.radioDot, { backgroundColor: c.accent }]} />}
+            <View style={[styles.radio, { borderColor: active ? c.accent : c.border }]}>
+              {active && <View style={[styles.radioDot, { backgroundColor: c.accent }]} />}
             </View>
-              <View style={styles.optionTextes}>
+              <View style={styles.optionTexts}>
                 <Text
                   style={[
-                    styles.optionTexte,
-                    { color: actif ? c.text : c.secondaryText },
-                    actif && styles.optionTexteActif,
+                    styles.optionText,
+                    { color: active ? c.text : c.secondaryText },
+                    active && styles.optionTextActive,
                   ]}
                 >
                   {o.label}
                 </Text>
                 {o.help !== undefined && (
-                  <Text style={[styles.optionAide, { color: c.tertiaryText }]}>{o.help}</Text>
+                  <Text style={[styles.optionHelp, { color: c.tertiaryText }]}>{o.help}</Text>
                 )}
               </View>
             </Tappable>
@@ -337,18 +337,18 @@ function SelecteurLangue({ c, t }: { c: Colors; t: TranslateFn }) {
 }
 
 /** Diagnostic push : prouve l'obtention du jeton FCM natif. Déplacé de l'accueil. */
-function SectionJetonFcm({ c, t }: { c: Colors; t: TranslateFn }) {
-  const [jeton, setJeton] = useState<string | null>(null);
-  const [erreur, setErreur] = useState<string | null>(null);
+function FcmTokenSection({ c, t }: { c: Colors; t: TranslateFn }) {
+  const [token, setToken] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const demander = useCallback(async () => {
-    setErreur(null);
+  const ask = useCallback(async () => {
+    setError(null);
     const r = await getFcmToken();
     if (r.ok) {
-      setJeton(r.token);
+      setToken(r.token);
       console.log('JETON_FCM', r.token);
     } else {
-      setErreur(`${r.reason}${r.detail ? ` — ${r.detail}` : ''}`);
+      setError(`${r.reason}${r.detail ? ` — ${r.detail}` : ''}`);
       console.log('JETON_FCM_ECHEC', r.reason, r.detail ?? '');
     }
   }, []);
@@ -356,7 +356,7 @@ function SectionJetonFcm({ c, t }: { c: Colors; t: TranslateFn }) {
   return (
     <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
       <Tappable
-        onPress={demander}
+        onPress={ask}
         // Lien texte : vague ronde `borderless` — le masque du ripple borné
         // ignore borderRadius sous Fabric, un rayon calibré fait le travail.
         android_ripple={{ color: c.ripple, borderless: true, radius: 24 }}
@@ -364,12 +364,12 @@ function SectionJetonFcm({ c, t }: { c: Colors; t: TranslateFn }) {
       >
         <Text style={[styles.action, { color: c.cyan }]}>{t('parametres.obtenirJeton')}</Text>
       </Tappable>
-      {jeton !== null && (
+      {token !== null && (
         <Text style={[styles.help, { color: c.text }]} selectable numberOfLines={3}>
-          {jeton}
+          {token}
         </Text>
       )}
-      {erreur !== null && <Text style={[styles.help, { color: c.errorText }]}>{erreur}</Text>}
+      {error !== null && <Text style={[styles.help, { color: c.errorText }]}>{error}</Text>}
     </View>
   );
 }
@@ -380,47 +380,47 @@ function SectionJetonFcm({ c, t }: { c: Colors; t: TranslateFn }) {
  * la clé (re-masque le clair local).
  */
 function SectionE2E({ c, t }: { c: Colors; t: TranslateFn }) {
-  const routeur = useRouter();
-  const synchro = useSync();
-  const e2e = synchro.phase === 'ready' ? synchro.e2e : null;
-  const deverrouille = useE2EUnlocked(e2e);
-  const [occupe, setOccupe] = useState(false);
+  const router = useRouter();
+  const sync = useSync();
+  const e2e = sync.phase === 'ready' ? sync.e2e : null;
+  const unlocked = useE2EUnlocked(e2e);
+  const [busy, setBusy] = useState(false);
 
-  const verrouiller = (): void => {
-    if (synchro.phase !== 'ready' || occupe) return;
-    setOccupe(true);
-    void synchro.lockE2E().finally(() => setOccupe(false));
+  const lock = (): void => {
+    if (sync.phase !== 'ready' || busy) return;
+    setBusy(true);
+    void sync.lockE2E().finally(() => setBusy(false));
   };
 
   return (
     <>
       <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('parametres.e2eTitre')}</Text>
       <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-        <Text style={[styles.reglageAide, { color: c.dimmed }]}>
-          {t(deverrouille ? 'parametres.e2eDeverrouille' : 'parametres.e2eVerrouille')}
+        <Text style={[styles.settingHelp, { color: c.dimmed }]}>
+          {t(unlocked ? 'parametres.e2eDeverrouille' : 'parametres.e2eVerrouille')}
         </Text>
-        {deverrouille ? (
+        {unlocked ? (
           <Tappable
-            onPress={verrouiller}
-            disabled={occupe}
+            onPress={lock}
+            disabled={busy}
             android_ripple={{ color: c.ripple, borderless: true, radius: 24 }}
             unstable_pressDelay={LIST_PRESS_DELAY}
             accessibilityRole="button"
-            style={({ pressed }) => ({ opacity: pressed || occupe ? 0.6 : 1, paddingVertical: 6 })}
+            style={({ pressed }) => ({ opacity: pressed || busy ? 0.6 : 1, paddingVertical: 6 })}
           >
-            <Text style={[styles.profilLien, { color: c.errorText }]}>
+            <Text style={[styles.profileLink, { color: c.errorText }]}>
               {t('parametres.e2eVerrouiller')}
             </Text>
           </Tappable>
         ) : (
           <Tappable
-            onPress={() => routeur.push('/unlock-e2e')}
+            onPress={() => router.push('/unlock-e2e')}
             android_ripple={{ color: c.ripple, borderless: true, radius: 24 }}
             unstable_pressDelay={LIST_PRESS_DELAY}
             accessibilityRole="button"
             style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, paddingVertical: 6 })}
           >
-            <Text style={[styles.profilLien, { color: c.cyan }]}>
+            <Text style={[styles.profileLink, { color: c.cyan }]}>
               {t('parametres.e2eDeverrouiller')}
             </Text>
           </Tappable>
@@ -430,12 +430,12 @@ function SectionE2E({ c, t }: { c: Colors; t: TranslateFn }) {
   );
 }
 
-function Paire({ c, key: cle, value: valeur }: { c: Colors; key: string; value: string }) {
+function Pair({ c, key, value }: { c: Colors; key: string; value: string }) {
   return (
-    <View style={styles.paire}>
-      <Text style={[styles.key, { color: c.dimmed }]}>{cle}</Text>
+    <View style={styles.pair}>
+      <Text style={[styles.key, { color: c.dimmed }]}>{key}</Text>
       <Text style={[styles.value, { color: c.text }]} selectable>
-        {valeur}
+        {value}
       </Text>
     </View>
   );
@@ -443,7 +443,7 @@ function Paire({ c, key: cle, value: valeur }: { c: Colors; key: string; value: 
 
 const styles = StyleSheet.create({
   content: { padding: 20, gap: 12, paddingBottom: 40 },
-  carteProfil: {
+  profileCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
@@ -451,12 +451,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 14,
   },
-  profilTextes: { flex: 1, gap: 2 },
-  profilNom: { fontFamily: FONTS.title, fontSize: 17 },
-  profilLien: { fontFamily: FONTS.corpsGras, fontSize: 13 },
+  profileTexts: { flex: 1, gap: 2 },
+  profileName: { fontFamily: FONTS.title, fontSize: 17 },
+  profileLink: { fontFamily: FONTS.bodyBold, fontSize: 13 },
   chevron: { fontFamily: FONTS.title, fontSize: 24 },
   sectionTitle: {
-    fontFamily: FONTS.corpsFort,
+    fontFamily: FONTS.bodyStrong,
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
@@ -464,14 +464,14 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   card: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 10 },
-  reglageTitre: { fontFamily: FONTS.title, fontSize: 16 },
-  reglageAide: { fontFamily: FONTS.body, fontSize: 13, lineHeight: 18 },
+  settingTitle: { fontFamily: FONTS.title, fontSize: 16 },
+  settingHelp: { fontFamily: FONTS.body, fontSize: 13, lineHeight: 18 },
   options: { marginTop: 2 },
   // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
   // découpe l'ondulation — borderRadius sur le Pressable est ignoré par le
   // masque du ripple sous Fabric. Invisible au repos (pas de fond).
-  enveloppeOption: { borderRadius: 12, overflow: 'hidden' },
-  optionLigne: {
+  optionWrapper: { borderRadius: 12, overflow: 'hidden' },
+  optionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -487,18 +487,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   radioDot: { width: 10, height: 10, borderRadius: 5 },
-  optionTextes: { flex: 1, gap: 1 },
-  optionTexte: { fontFamily: FONTS.corpsGras, fontSize: 15, flexShrink: 1 },
-  optionTexteActif: { fontFamily: FONTS.corpsFort },
-  optionAide: { fontFamily: FONTS.body, fontSize: 12 },
-  charge: { paddingVertical: 18, alignItems: 'center' },
-  error: { fontFamily: FONTS.corpsGras, fontSize: 13 },
-  paire: { flexDirection: 'row', justifyContent: 'space-between', gap: 16 },
+  optionTexts: { flex: 1, gap: 1 },
+  optionText: { fontFamily: FONTS.bodyBold, fontSize: 15, flexShrink: 1 },
+  optionTextActive: { fontFamily: FONTS.bodyStrong },
+  optionHelp: { fontFamily: FONTS.body, fontSize: 12 },
+  loading: { paddingVertical: 18, alignItems: 'center' },
+  error: { fontFamily: FONTS.bodyBold, fontSize: 13 },
+  pair: { flexDirection: 'row', justifyContent: 'space-between', gap: 16 },
   key: { fontFamily: FONTS.body, fontSize: 13 },
-  value: { fontFamily: FONTS.corpsGras, fontSize: 13, flexShrink: 1, textAlign: 'right' },
-  action: { fontFamily: FONTS.corpsGras, fontSize: 13 },
+  value: { fontFamily: FONTS.bodyBold, fontSize: 13, flexShrink: 1, textAlign: 'right' },
+  action: { fontFamily: FONTS.bodyBold, fontSize: 13 },
   help: { fontFamily: FONTS.body, fontSize: 12, opacity: 0.9 },
-  link: { fontFamily: FONTS.corpsGras, fontSize: 15, paddingVertical: 12, textAlign: 'center' },
+  link: { fontFamily: FONTS.bodyBold, fontSize: 15, paddingVertical: 12, textAlign: 'center' },
   button: {
     borderRadius: 14,
     paddingVertical: 14,
@@ -506,5 +506,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 50,
   },
-  texteBoutonSecondaire: { fontFamily: FONTS.corpsGras, fontSize: 16 },
+  secondaryButtonText: { fontFamily: FONTS.bodyBold, fontSize: 16 },
 });

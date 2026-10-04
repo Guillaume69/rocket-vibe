@@ -29,20 +29,20 @@ export const UNREAD_BAR_ID = 'barre-nouveaux';
  * d'un de MES messages — comportement en place, consigné par les tests.
  */
 export function insertUnreadBar<M extends { id: string; ts: number; authorId: string }>(
-  donneesDesc: M[],
-  luJusquA: number | null | undefined,
-  moiUid: string | undefined,
+  dataDesc: M[],
+  lastSeen: number | null | undefined,
+  myUid: string | undefined,
 ): (M | BarRow)[] {
-  if (typeof luJusquA !== 'number') return donneesDesc;
-  let premierNonLu = -1;
-  for (let i = 0; i < donneesDesc.length; i++) {
-    const m = donneesDesc[i];
-    if (m.ts > luJusquA && m.authorId !== moiUid) premierNonLu = i;
+  if (typeof lastSeen !== 'number') return dataDesc;
+  let firstUnread = -1;
+  for (let i = 0; i < dataDesc.length; i++) {
+    const m = dataDesc[i];
+    if (m.ts > lastSeen && m.authorId !== myUid) firstUnread = i;
   }
-  if (premierNonLu === -1) return donneesDesc;
+  if (firstUnread === -1) return dataDesc;
   return [
-    ...donneesDesc.slice(0, premierNonLu + 1),
+    ...dataDesc.slice(0, firstUnread + 1),
     { bar: true, id: UNREAD_BAR_ID },
-    ...donneesDesc.slice(premierNonLu + 1),
+    ...dataDesc.slice(firstUnread + 1),
   ];
 }

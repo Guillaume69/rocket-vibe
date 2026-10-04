@@ -29,7 +29,7 @@ import {
   translate,
 } from './messages.ts';
 
-const CLE = 'langue-preferee';
+const KEY = 'langue-preferee';
 
 /**
  * `SecureStore.getItem` est SYNCHRONE (SDK 50+) : on lit la préférence avant le
@@ -37,22 +37,22 @@ const CLE = 'langue-preferee';
  * retombe sur « automatique » ; un accès qui échoue au démarrage ne doit jamais
  * briquer l'app, d'où le `try`.
  */
-function lirePreference(): LanguagePreference {
+function readPreference(): LanguagePreference {
   try {
-    const brut = SecureStore.getItem(CLE);
-    return brut === 'fr' || brut === 'en' ? brut : 'auto';
+    const raw = SecureStore.getItem(KEY);
+    return raw === 'fr' || raw === 'en' ? raw : 'auto';
   } catch {
     return 'auto';
   }
 }
 
-function resoudre(pref: LanguagePreference): Language {
+function resolve(pref: LanguagePreference): Language {
   return pref === 'auto' ? deviceLanguage() : pref;
 }
 
-let preference: LanguagePreference = lirePreference();
-let langueActive: Language = resoudre(preference);
-const ecouteurs = new Set<() => void>();
+let preference: LanguagePreference = readPreference();
+let activeLanguage: Language = resolve(preference);
+const listeners = new Set<() => void>();
 
 /**
  * Change la langue. `'auto'` EFFACE la clé (on retombe sur la langue du
@@ -61,28 +61,28 @@ const ecouteurs = new Set<() => void>();
  */
 export function setLanguage(pref: LanguagePreference): void {
   preference = pref;
-  langueActive = resoudre(pref);
-  if (pref === 'auto') void SecureStore.deleteItemAsync(CLE);
+  activeLanguage = resolve(pref);
+  if (pref === 'auto') void SecureStore.deleteItemAsync(KEY);
   // iOS : lue aussi par la Notification Service Extension, écran verrouillé.
-  else void SecureStore.setItemAsync(CLE, pref, { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK });
-  for (const e of ecouteurs) e();
+  else void SecureStore.setItemAsync(KEY, pref, { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK });
+  for (const e of listeners) e();
 }
 
-function sabonner(cb: () => void): () => void {
-  ecouteurs.add(cb);
+function subscribe(cb: () => void): () => void {
+  listeners.add(cb);
   return () => {
-    ecouteurs.delete(cb);
+    listeners.delete(cb);
   };
 }
 
 /** La langue RÉSOLUE ('fr' | 'en'). Re-rend l'appelant à chaque bascule. */
 export function useLanguage(): Language {
-  return useSyncExternalStore(sabonner, () => langueActive);
+  return useSyncExternalStore(subscribe, () => activeLanguage);
 }
 
 /** La PRÉFÉRENCE ('fr' | 'en' | 'auto'), pour cocher la bonne option du sélecteur. */
 export function useLanguagePreference(): LanguagePreference {
-  return useSyncExternalStore(sabonner, () => preference);
+  return useSyncExternalStore(subscribe, () => preference);
 }
 
 /**
@@ -91,8 +91,8 @@ export function useLanguagePreference(): LanguagePreference {
  * les invalide qu'à une vraie bascule.
  */
 export function useT(): TranslateFn {
-  const langue = useLanguage();
-  return useCallback((cle, params) => translate(langue, cle, params), [langue]);
+  const language = useLanguage();
+  return useCallback((key, params) => translate(language, key, params), [language]);
 }
 
 /**
@@ -101,14 +101,14 @@ export function useT(): TranslateFn {
  * pas à chaque ligne de message rendue.
  */
 export function useTimeFormatter(): (ms: number) => string {
-  const langue = useLanguage();
-  return useMemo(() => timeFormatter(langue), [langue]);
+  const language = useLanguage();
+  return useMemo(() => timeFormatter(language), [language]);
 }
 
 /** Le libellé des séparateurs de jour (« Aujourd'hui », « Hier », la date). */
 export function useDayFormatter(): (ms: number) => string {
-  const langue = useLanguage();
-  return useMemo(() => dayFormatter(langue), [langue]);
+  const language = useLanguage();
+  return useMemo(() => dayFormatter(language), [language]);
 }
 
 /**
@@ -117,6 +117,6 @@ export function useDayFormatter(): (ms: number) => string {
  * courant de l'utilisateur — à préférer à `traduire(langueAppareil(), …)`, qui
  * ignorerait une langue explicitement sélectionnée dans les paramètres.
  */
-export function translateCurrent(cle: TranslationKey, params?: TranslationParams): string {
-  return translate(langueActive, cle, params);
+export function translateCurrent(key: TranslationKey, params?: TranslationParams): string {
+  return translate(activeLanguage, key, params);
 }

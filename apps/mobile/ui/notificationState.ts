@@ -21,21 +21,21 @@
 
 import * as Notifications from 'expo-notifications';
 
-const ridsChiffres = new Set<string>();
+const encryptedRids = new Set<string>();
 
 /** Ce salon est-il chiffré ? Consulté au moment d'afficher une notification. */
 export function isRoomEncrypted(rid: string): boolean {
-  return ridsChiffres.has(rid);
+  return encryptedRids.has(rid);
 }
 
 /** Remplace la liste connue — les salons chiffrés du compte courant. */
 export function setEncryptedRooms(rids: Iterable<string>): void {
-  ridsChiffres.clear();
-  for (const rid of rids) ridsChiffres.add(rid);
+  encryptedRids.clear();
+  for (const rid of rids) encryptedRids.add(rid);
 }
 
 /** Fin de session / changement de serveur : plus rien de ce compte ne vaut. */
 export function forgetNotificationState(): void {
-  ridsChiffres.clear();
+  encryptedRids.clear();
   Notifications.setBadgeCountAsync(0).catch(() => {});
 }

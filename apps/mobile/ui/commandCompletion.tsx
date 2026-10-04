@@ -32,46 +32,46 @@ export function useCommands(
   client: ClientRest,
   rid: string,
 ): { commands: Command[]; granted: string[] | null } {
-  const synchro = useSync();
-  const base = synchro.phase === 'ready' ? synchro.base : null;
-  const langue = useLanguage();
-  const [etat, setEtat] = useState<{ raw: unknown; granted: string[] | null }>({
+  const sync = useSync();
+  const base = sync.phase === 'ready' ? sync.base : null;
+  const language = useLanguage();
+  const [state, setState] = useState<{ raw: unknown; granted: string[] | null }>({
     raw: null,
     granted: null,
   });
 
   useEffect(() => {
-    let annule = false;
+    let canceled = false;
     void (async () => {
-      const [brute, sources, lignes] = await Promise.all([
+      const [raw, sources, rows] = await Promise.all([
         rawList(client).catch(() => null),
         sourcesPermissions(client).catch(() => null),
         base === null
           ? Promise.resolve([])
           : base.select({ roles: subscriptions.roles }).from(subscriptions).where(eq(subscriptions.rid, rid)).limit(1),
       ]);
-      if (annule) return;
-      setEtat({
-        raw: brute,
-        granted: sources === null ? null : grantedPermissions(sources, roomRoles(lignes[0]?.roles)),
+      if (canceled) return;
+      setState({
+        raw,
+        granted: sources === null ? null : grantedPermissions(sources, roomRoles(rows[0]?.roles)),
       });
     })();
     return () => {
-      annule = true;
+      canceled = true;
     };
   }, [client, base, rid]);
 
-  const commandes = useMemo(() => readCommands(etat.raw, langue), [etat.raw, langue]);
-  return { commands: commandes, granted: etat.granted };
+  const commands = useMemo(() => readCommands(state.raw, language), [state.raw, language]);
+  return { commands, granted: state.granted };
 }
 
 export function CommandCompletionBanner({
-  text: texte,
-  cursor: curseur,
-  commands: commandes,
-  granted: accordees,
+  text,
+  cursor,
+  commands,
+  granted,
   c,
-  onPick: surChoisir,
+  onPick,
 }: {
   text: string;
   cursor: number;
@@ -79,12 +79,12 @@ export function CommandCompletionBanner({
   granted: readonly string[] | null;
   c: Colors;
   /** Reçoit le texte à insérer (`/nom`) et le `debut` du jeton (toujours 0). */
-  onPick: (insertion: string, debut: number) => void;
+  onPick: (insertion: string, start: number) => void;
 }) {
   const items = useMemo(() => {
-    const jeton = detectCommandToken(texte, curseur);
-    return jeton === null ? [] : completeCommand(commandes, jeton.query, accordees);
-  }, [texte, curseur, commandes, accordees]);
+    const token = detectCommandToken(text, cursor);
+    return token === null ? [] : completeCommand(commands, token.query, granted);
+  }, [text, cursor, commands, granted]);
 
   if (items.length === 0) return null;
 
@@ -95,24 +95,24 @@ export function CommandCompletionBanner({
       keyboardShouldPersistTaps="always"
       style={[styles.strip, { backgroundColor: c.card, borderTopColor: c.border }]}
     >
-      {items.map((commande) => (
-        <View key={commande.name}>
+      {items.map((command) => (
+        <View key={command.name}>
           <Tappable
-            onPress={() => surChoisir(`/${commande.name}`, 0)}
+            onPress={() => onPick(`/${command.name}`, 0)}
             android_ripple={{ color: c.ripple, borderless: false }}
             unstable_pressDelay={LIST_PRESS_DELAY}
             style={styles.row}
-            accessibilityLabel={`/${commande.name}`}
+            accessibilityLabel={`/${command.name}`}
           >
             <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
-              /{commande.name}
-              {commande.params !== '' && (
-                <Text style={[styles.params, { color: c.dimmed }]}>  {commande.params}</Text>
+              /{command.name}
+              {command.params !== '' && (
+                <Text style={[styles.params, { color: c.dimmed }]}>  {command.params}</Text>
               )}
             </Text>
-            {commande.description !== '' && (
+            {command.description !== '' && (
               <Text style={[styles.description, { color: c.dimmed }]} numberOfLines={1}>
-                {commande.description}
+                {command.description}
               </Text>
             )}
           </Tappable>

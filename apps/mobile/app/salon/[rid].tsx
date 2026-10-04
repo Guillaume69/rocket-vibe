@@ -100,10 +100,10 @@ import { type Colors, FONTS, useColors } from '../../ui/theme.ts';
 
 const PAGE = 50;
 /** Sous ce défilement (px depuis le bas), un entrant nous ramène au bas. */
-const PRES_DU_BAS_PX = 120;
+const NEAR_BOTTOM_PX = 120;
 
 /** Regroupe la rafale d'entrants avant de marquer lu. */
-const DEBOUNCE_LU_MS = 1_500;
+const READ_DEBOUNCE_MS = 1_500;
 /**
  * Cadence PLANCHER de `marquerLu` : le débounce seul ne borne que l'écart entre
  * deux appels, pas leur nombre — un message toutes les 2 s produisait 30
@@ -112,30 +112,30 @@ const DEBOUNCE_LU_MS = 1_500;
  * idempotent. Rien n'est perdu à espacer : l'appel marque tout lu jusqu'à
  * MAINTENANT, le suivant englobe les précédents.
  */
-const PLANCHER_LU_MS = 10_000;
+const READ_FLOOR_MS = 10_000;
 
 export default function RoomScreen() {
   // `host` vient du deep-link d'une notification (natif comme expo) : il dit de
   // QUEL serveur ce message parle. Absent pour toute navigation interne — le
   // comportement est alors exactement celui d'avant.
   const { rid, host } = useLocalSearchParams<{ rid: string; host?: string }>();
-  const { state: etat } = useSession();
-  const synchro = useSync();
+  const { state } = useSession();
+  const sync = useSync();
   const c = useColors();
 
   // Ce garde est le pendant de celui d'index.tsx : un lien profond (le tap
   // sur une notification, étape 6.2) peut atterrir ici sans session.
-  if (etat.phase === 'disconnected') return <Redirect href="/login" />;
+  if (state.phase === 'disconnected') return <Redirect href="/login" />;
 
-  if (synchro.phase === 'error') {
+  if (sync.phase === 'error') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
-        <Text style={[styles.error, { color: c.errorText }]}>{synchro.message}</Text>
+        <Text style={[styles.error, { color: c.errorText }]}>{sync.message}</Text>
       </View>
     );
   }
 
-  if (typeof rid !== 'string' || synchro.phase !== 'ready' || etat.phase !== 'connected') {
+  if (typeof rid !== 'string' || sync.phase !== 'ready' || state.phase !== 'connected') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
         <ActivityIndicator />
@@ -155,28 +155,28 @@ export default function RoomScreen() {
   // pas un serveur Rocket.Chat — on l'ignore, et le comportement redevient
   // exactement celui d'avant plutôt que d'afficher au premier plan un texte
   // arbitraire de longueur arbitraire.
-  const origineHote = typeof host === 'string' ? originOf(host) : null;
-  if (origineHote !== null && !sameOrigin(host!, etat.session.baseUrl)) {
-    return <AutreServeur c={c} host={origineHote} rid={rid} />;
+  const hostOrigin = typeof host === 'string' ? originOf(host) : null;
+  if (hostOrigin !== null && !sameOrigin(host!, state.session.baseUrl)) {
+    return <OtherServer c={c} host={hostOrigin} rid={rid} />;
   }
 
   return (
-    <Salon
+    <Room
       c={c}
       rid={rid}
-      base={synchro.base}
-      drafts={synchro.drafts}
-      engine={synchro.engine}
-      outbox={synchro.outbox}
-      files={synchro.files}
-      ddp={synchro.ddp}
-      provider={synchro.provider}
-      actions={synchro.actions}
-      client={etat.client}
-      me={etat.session.username}
-      declareOpenRoom={synchro.declareOpenRoom}
-      activity={synchro.activity}
-      generation={synchro.generation}
+      base={sync.base}
+      drafts={sync.drafts}
+      engine={sync.engine}
+      outbox={sync.outbox}
+      files={sync.files}
+      ddp={sync.ddp}
+      provider={sync.provider}
+      actions={sync.actions}
+      client={state.client}
+      me={state.session.username}
+      declareOpenRoom={sync.declareOpenRoom}
+      activity={sync.activity}
+      generation={sync.generation}
     />
   );
 }
@@ -188,50 +188,50 @@ export default function RoomScreen() {
  * notification ne doit pas emporter ça sans qu'on le demande. Geste explicite,
  * donc, et le libellé dit où l'on va.
  */
-function AutreServeur({ c, host: hote, rid }: { c: Colors; host: string; rid: string }) {
+function OtherServer({ c, host, rid }: { c: Colors; host: string; rid: string }) {
   const t = useT();
-  const routeur = useRouter();
-  const { switchServer: changerDeServeur } = useSession();
-  const [occupe, setOccupe] = useState(false);
-  const [echec, setEchec] = useState(false);
+  const router = useRouter();
+  const { switchServer } = useSession();
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState(false);
 
-  const basculer = useCallback(() => {
-    setOccupe(true);
-    setEchec(false);
-    changerDeServeur(hote).then(
+  const toggle = useCallback(() => {
+    setBusy(true);
+    setFailure(false);
+    switchServer(host).then(
       (ok) => {
         // Succès : `replace` retire le `host` de l'URL. Le laisser rejouerait ce
         // même écran si l'utilisateur repassait plus tard sur l'autre serveur.
         // Aucun `setState` sur ce chemin : l'écran est déjà en train de partir.
-        if (ok) routeur.replace({ pathname: '/salon/[rid]', params: { rid } });
+        if (ok) router.replace({ pathname: '/salon/[rid]', params: { rid } });
         else {
-          setOccupe(false);
-          setEchec(true);
+          setBusy(false);
+          setFailure(true);
         }
       },
       () => {
-        setOccupe(false);
-        setEchec(true);
+        setBusy(false);
+        setFailure(true);
       },
     );
-  }, [changerDeServeur, hote, rid, routeur]);
+  }, [switchServer, host, rid, router]);
 
   return (
     <View style={[styles.center, { backgroundColor: c.background }]}>
       <Stack.Screen options={{ title: t('salon.autreServeurTitre') }} />
       <Text style={[styles.error, { color: c.text }]}>{t('salon.autreServeurTitre')}</Text>
-      <Text style={[styles.autreServeurHote, { color: c.secondaryText }]}>
-        {t('salon.autreServeurCorps', { hote })}
+      <Text style={[styles.otherServerHost, { color: c.secondaryText }]}>
+        {t('salon.autreServeurCorps', { hote: host })}
       </Text>
       <PrimaryButton
         c={c}
         title={t('salon.autreServeurBouton')}
-        onPress={basculer}
-        busy={occupe}
-        style={styles.autreServeurBouton}
+        onPress={toggle}
+        busy={busy}
+        style={styles.otherServerButton}
       />
-      {echec ? (
-        <Text style={[styles.autreServeurHote, { color: c.errorText }]}>
+      {failure ? (
+        <Text style={[styles.otherServerHost, { color: c.errorText }]}>
           {t('salon.autreServeurEchec')}
         </Text>
       ) : null}
@@ -239,21 +239,21 @@ function AutreServeur({ c, host: hote, rid }: { c: Colors; host: string; rid: st
   );
 }
 
-function Salon({
+function Room({
   c,
   rid,
   base,
-  drafts: brouillons,
-  engine: moteur,
-  outbox: envoi,
-  files: fichiers,
+  drafts,
+  engine,
+  outbox: outboxQueue,
+  files,
   ddp,
-  provider: fournisseur,
+  provider,
   actions,
   client,
-  me: moi,
-  declareOpenRoom: declarerSalonOuvert,
-  activity: activite,
+  me,
+  declareOpenRoom,
+  activity,
   generation,
 }: {
   c: Colors;
@@ -274,27 +274,27 @@ function Salon({
   generation: number;
 }) {
   const t = useT();
-  const [limite, setLimite] = useState(PAGE);
+  const [limit, setLimit] = useState(PAGE);
   // Tant que le premier passage d'historique n'est pas retombé, une base
   // vide signifie « chargement », pas « salon vide ».
   // Un salon déjà chargé sous cette génération n'a pas de premier passage à
   // attendre : sans cet état initial, sauter le fetch laisserait « chargement »
   // affiché à vie (rien ne viendrait plus poser le drapeau).
-  const [premierPassageFini, setPremierPassageFini] = useState(() =>
+  const [firstPassDone, setFirstPassDone] = useState(() =>
     roomLoadedUnder(rid, generation),
   );
 
-  const { data: lignesSalon } = useCoalescedLiveQuery(
+  const { data: roomRows } = useCoalescedLiveQuery(
     base.select().from(rooms).where(eq(rooms.rid, rid)).limit(1),
     [rid],
   );
-  const salon = lignesSalon?.[0];
+  const room = roomRows?.[0];
   const insets = useSafeAreaInsets();
   // Sous-titre d'en-tête HONNÊTE : le nombre de membres en ligne n'est pas dans
   // le schéma, mais la présence du correspondant d'un DM, si — sinon, rien.
-  const statutDM = usePresence(salon?.dmOtherUid ?? null);
+  const dmStatus = usePresence(room?.dmOtherUid ?? null);
 
-  const { data: brutes } = useCoalescedLiveQuery(
+  const { data: raw } = useCoalescedLiveQuery(
     base
       .select()
       .from(messages)
@@ -312,13 +312,13 @@ function Salon({
       // (Rocket.Chat n'expose aucun signal sous la milliseconde : l'ordre exact
       // d'un vrai ex æquo reste indécidable, mais au moins il est stable.)
       .orderBy(desc(messages.ts), desc(messages.id))
-      .limit(limite),
-    [rid, limite],
+      .limit(limit),
+    [rid, limit],
   );
   // Statuts d'envoi (en-attente / échec) : table séparée, requête vive
   // séparée — même raison que la liste des salons, `useRequeteVive` n'écoute
   // que la table du FROM.
-  const { data: lignesSortie } = useCoalescedLiveQuery(
+  const { data: outboxRows } = useCoalescedLiveQuery(
     base.select().from(outbox).where(eq(outbox.rid, rid)),
     [rid],
   );
@@ -329,43 +329,43 @@ function Salon({
   // l'aperçu, le brouillon et la citation se vident — et l'écran ne montrait
   // RIEN. La photo disparaissait sans le moindre signe ; l'utilisateur la
   // renvoyait, il en avait deux.
-  const { data: lignesTeleversements } = useCoalescedLiveQuery(
+  const { data: uploadRows } = useCoalescedLiveQuery(
     base.select().from(uploads).where(eq(uploads.rid, rid)),
     [rid],
   );
-  const fichiersEnCours = lignesTeleversements ?? [];
+  const filesInProgress = uploadRows ?? [];
   // La fraction d'avancement ne vit qu'en mémoire du moteur : aucune écriture
   // SQLite ne la porte, donc `useRequeteVive` ne la verrait jamais bouger.
-  const progressions = useFileProgress(fichiers);
+  const progressions = useFileProgress(files);
   // Les décisions (pagination) se prennent sur la valeur FRAÎCHE ; seul
   // l'affichage est lissé.
-  const fraiches = useMemo(() => brutes ?? [], [brutes]);
+  const fresh = useMemo(() => raw ?? [], [raw]);
   // Lissage des entrants (200 ms) : à l'offset 0, l'inversion absorbe les
   // prepends nativement, mais une rafale re-rendrait l'écran à chaque
   // écriture — et REMONTÉ dans l'historique, chaque prepend décale le
   // contenu de sa hauteur (mVCP coupé, voir l'en-tête) : autant grouper la
   // rafale en un seul décalage. On lisse la projection, pas la base.
-  const donnees = useSmoothedData(fraiches, 200);
+  const data = useSmoothedData(fresh, 200);
 
   // Non-lus (8.1). La barre « nouveaux messages » se place sur un INSTANTANÉ
   // de `ls` pris au montage : si elle suivait la valeur vive, le
   // `subscriptions.read` qui suit l'effacerait avant qu'on l'ait vue.
-  const [luJusquA, setLuJusquA] = useState<number | null | undefined>(undefined);
+  const [lastSeen, setLastSeen] = useState<number | null | undefined>(undefined);
   useEffect(() => {
-    let annule = false;
+    let canceled = false;
     base
       .select()
       .from(subscriptions)
       .where(eq(subscriptions.rid, rid))
       .limit(1)
-      .then((lignes) => {
-        if (!annule) setLuJusquA(lignes[0]?.lastSeen ?? null);
+      .then((rows) => {
+        if (!canceled) setLastSeen(rows[0]?.lastSeen ?? null);
       })
       .catch(() => {
-        if (!annule) setLuJusquA(null);
+        if (!canceled) setLastSeen(null);
       });
     return () => {
-      annule = true;
+      canceled = true;
     };
   }, [base, rid]);
 
@@ -378,105 +378,105 @@ function Salon({
   // qu'on ne repousse jamais ne peut pas être affamé par un flot continu
   // (l'ancien débounce réarmé à chaque entrant, PIRE que la cadence : sous un
   // message/seconde il ne partait JAMAIS).
-  const dernierIdRecu = fraiches[0]?.id;
-  const luProgramme = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dernierLu = useRef(0);
+  const lastReceivedId = fresh[0]?.id;
+  const readTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRead = useRef(0);
   useEffect(() => {
-    if (dernierIdRecu === undefined) return;
-    if (luProgramme.current !== null) return;
-    const restant = dernierLu.current + PLANCHER_LU_MS - Date.now();
-    luProgramme.current = setTimeout(() => {
-      luProgramme.current = null;
-      dernierLu.current = Date.now();
+    if (lastReceivedId === undefined) return;
+    if (readTimer.current !== null) return;
+    const rest = lastRead.current + READ_FLOOR_MS - Date.now();
+    readTimer.current = setTimeout(() => {
+      readTimer.current = null;
+      lastRead.current = Date.now();
       actions.markRead(rid).catch(() => {});
-    }, Math.max(DEBOUNCE_LU_MS, restant));
-  }, [actions, rid, dernierIdRecu]);
+    }, Math.max(READ_DEBOUNCE_MS, rest));
+  }, [actions, rid, lastReceivedId]);
 
   // L'appel EN ATTENTE part tout de suite quand l'écran se ferme ou que l'app
   // passe en arrière-plan : différé par le plancher, il serait sinon perdu (le
   // démontage l'annule, l'arrière-plan gèle les timers JS) et le salon
   // resterait « non lu » sur les autres appareils. Rien en attente → rien à
   // envoyer : la sortie d'un salon déjà marqué ne coûte aucune requête.
-  const flusherLu = useCallback(() => {
-    if (luProgramme.current === null) return;
-    clearTimeout(luProgramme.current);
-    luProgramme.current = null;
-    dernierLu.current = Date.now();
+  const flushRead = useCallback(() => {
+    if (readTimer.current === null) return;
+    clearTimeout(readTimer.current);
+    readTimer.current = null;
+    lastRead.current = Date.now();
     actions.markRead(rid).catch(() => {});
   }, [actions, rid]);
   useEffect(() => {
-    const abonnement = AppState.addEventListener('change', (suivant) => {
-      if (suivant !== 'active') flusherLu();
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next !== 'active') flushRead();
     });
     return () => {
-      abonnement.remove();
-      flusherLu();
+      subscription.remove();
+      flushRead();
     };
-  }, [flusherLu]);
+  }, [flushRead]);
 
   // Les données de la liste : la barre « nouveaux messages » puis les
   // séparateurs de jour, insérés par les projections de `ui/` (testées sous
   // Node). L'ordre compte : les séparateurs se posent au-dessus de la barre.
-  type LigneListe = MessageRowData | BarRow | DayRow;
-  const donneesAvecBarre = useMemo(
-    () => insertUnreadBar(donnees, luJusquA, client.auth?.userId),
-    [donnees, luJusquA, client],
+  type ListRow = MessageRowData | BarRow | DayRow;
+  const dataWithBar = useMemo(
+    () => insertUnreadBar(data, lastSeen, client.auth?.userId),
+    [data, lastSeen, client],
   );
-  const donneesListe = useMemo<LigneListe[]>(
-    () => insertDaySeparators(donneesAvecBarre, 'newest-first'),
-    [donneesAvecBarre],
+  const listData = useMemo<ListRow[]>(
+    () => insertDaySeparators(dataWithBar, 'newest-first'),
+    [dataWithBar],
   );
 
   // Regroupement des rafales d'un même auteur (`ui/messageGrouping`) : calculé
   // APRÈS les insertions — barre et séparateur rompent les groupes. Données DESC.
-  const suites = useMemo(() => continuationIds(donneesListe, 'newest-first'), [donneesListe]);
-  const heuresRepetees = useMemo(
-    () => repeatedTimeIds(donneesListe, 'newest-first', suites),
-    [donneesListe, suites],
+  const continuations = useMemo(() => continuationIds(listData, 'newest-first'), [listData]);
+  const repeatedTimes = useMemo(
+    () => repeatedTimeIds(listData, 'newest-first', continuations),
+    [listData, continuations],
   );
 
   // Suivi des entrants (idiome duogo) : à l'offset 0, un nouveau `data[0]`
   // s'affiche tout seul — natif. Légèrement remonté, on snappe au bas si le
   // message est de moi ou qu'on était près du bas ; en pleine lecture
   // d'historique, on ne bouge pas. Refs : le défilement ne re-rend rien.
-  const liste = useRef<FlashListRef<LigneListe>>(null);
-  const presDuBas = useRef(true);
-  const dernierSuivi = useRef<{ id: string; ts: number } | null>(null);
-  const hauteurListe = useRef(0);
-  const etatRetour = useRef<BackToLatestState>(INITIAL_BACK_TO_LATEST_STATE);
-  const [retourVisible, setRetourVisible] = useState(false);
-  const appliquerRetour = useCallback((suivant: BackToLatestState) => {
-    etatRetour.current = suivant;
-    setRetourVisible(suivant.visible);
+  const list = useRef<FlashListRef<ListRow>>(null);
+  const nearBottom = useRef(true);
+  const lastTracked = useRef<{ id: string; ts: number } | null>(null);
+  const listHeight = useRef(0);
+  const returnState = useRef<BackToLatestState>(INITIAL_BACK_TO_LATEST_STATE);
+  const [backVisible, setBackVisible] = useState(false);
+  const applyReturn = useCallback((next: BackToLatestState) => {
+    returnState.current = next;
+    setBackVisible(next.visible);
   }, []);
-  const surDefilement = useCallback(
+  const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const decalage = e.nativeEvent.contentOffset.y;
-      presDuBas.current = decalage <= PRES_DU_BAS_PX;
-      appliquerRetour(onBackToLatestScroll(etatRetour.current, decalage, hauteurListe.current));
+      const offset = e.nativeEvent.contentOffset.y;
+      nearBottom.current = offset <= NEAR_BOTTOM_PX;
+      applyReturn(onBackToLatestScroll(returnState.current, offset, listHeight.current));
     },
-    [appliquerRetour],
+    [applyReturn],
   );
-  const allerAuPlusRecent = useCallback(() => {
-    appliquerRetour(onBackToLatestPress());
-    liste.current?.scrollToOffset({ offset: 0, animated: true });
-  }, [appliquerRetour]);
-  const plusRecent = donnees[0];
+  const goToLatest = useCallback(() => {
+    applyReturn(onBackToLatestPress());
+    list.current?.scrollToOffset({ offset: 0, animated: true });
+  }, [applyReturn]);
+  const latest = data[0];
   useEffect(() => {
-    if (plusRecent === undefined || dernierSuivi.current?.id === plusRecent.id) return;
-    const precedent = dernierSuivi.current;
-    dernierSuivi.current = { id: plusRecent.id, ts: plusRecent.ts };
+    if (latest === undefined || lastTracked.current?.id === latest.id) return;
+    const prev = lastTracked.current;
+    lastTracked.current = { id: latest.id, ts: latest.ts };
     // Premier remplissage : la liste inversée naît déjà calée en bas.
-    if (precedent === null) return;
+    if (prev === null) return;
     // Un head PLUS ANCIEN que le précédent n'est pas un entrant : c'est la
     // SUPPRESSION du plus récent (stream deleteMessage, abandon d'un envoi).
     // Snapper là-dessus arracherait le lecteur à l'historique.
-    if (plusRecent.ts < precedent.ts) return;
-    const deMoi = plusRecent.authorId === client.auth?.userId;
-    if (deMoi || presDuBas.current) {
-      liste.current?.scrollToOffset({ offset: 0, animated: true });
+    if (latest.ts < prev.ts) return;
+    const fromMe = latest.authorId === client.auth?.userId;
+    if (fromMe || nearBottom.current) {
+      list.current?.scrollToOffset({ offset: 0, animated: true });
     }
-  }, [plusRecent, client]);
+  }, [latest, client]);
 
   // La génération au moment de la SORTIE, lue par le cleanup. En dépendance de
   // l'effet ci-dessous, elle le rejouerait à chaque raccordement — pour rien,
@@ -501,61 +501,61 @@ function Salon({
     // références appartiennent. Le provider peut être démonté AVANT cet
     // écran — son cleanup court en premier — et les relâcheurs pointeraient
     // alors sur un client déjà rangé. Voir `ui/sessionToken.ts`.
-    const jeton = sessionToken();
+    const token = sessionToken();
     // Les streams et leurs clés sont l'affaire du fournisseur — on arme ce
     // qu'il déclare, sans en connaître le format.
-    const relachers = fournisseur
+    const releases = provider
       .roomSubscriptions(rid)
-      .map(([nom, cle]) => ddp.subscribe(nom, cle));
+      .map(([name, key]) => ddp.subscribe(name, key));
     // Le rattrapage (`chat.syncMessages`, un salon à la fois) vise le salon
     // que l'utilisateur regarde : on se déclare, et on rend la déclaration en
     // partant — jamais un `null` global, qui effacerait l'écran salon resté
     // dessous quand on dépile celui du dessus.
-    const rendreDeclaration = declarerSalonOuvert(rid);
+    const renderDeclaration = declareOpenRoom(rid);
     return () => {
-      rendreDeclaration();
-      keepWarm(rid, generationRef.current, relachers, jeton);
+      renderDeclaration();
+      keepWarm(rid, generationRef.current, releases, token);
     };
-  }, [ddp, fournisseur, rid, declarerSalonOuvert]);
+  }, [ddp, provider, rid, declareOpenRoom]);
 
   // Indicateur de saisie (8.6) : volatil, propre à l'écran — écoute seule,
   // voir lib/typing.ts pour l'écart consigné sur l'émission.
-  const saisie = useMemo(() => new TypingEngine({ rid, me: moi }), [rid, moi]);
+  const typingEngine = useMemo(() => new TypingEngine({ rid, me }), [rid, me]);
   useEffect(() => {
-    const detacher = ddp.onEvent((evenement) => saisie.apply(evenement));
+    const detacher = ddp.onEvent((event) => typingEngine.apply(event));
     return () => {
       detacher();
-      saisie.stop();
+      typingEngine.stop();
     };
-  }, [ddp, saisie]);
-  const quiTape = useSyncExternalStore(
-    useCallback((relire) => saisie.onChange(relire), [saisie]),
-    useCallback(() => saisie.whoIsTyping(), [saisie]),
+  }, [ddp, typingEngine]);
+  const whoIsTyping = useSyncExternalStore(
+    useCallback((reread) => typingEngine.onChange(reread), [typingEngine]),
+    useCallback(() => typingEngine.whoIsTyping(), [typingEngine]),
   );
-  const resumeQuiTape = summarizeTyping(quiTape);
-  const phraseQuiTape =
-    resumeQuiTape === null
+  const typingSummary = summarizeTyping(whoIsTyping);
+  const typingSentence =
+    typingSummary === null
       ? null
-      : resumeQuiTape.forme === 'one'
-        ? t('salon.saisieUn', { nom: resumeQuiTape.name })
-        : resumeQuiTape.forme === 'two'
-          ? t('salon.saisieDeux', { a: resumeQuiTape.a, b: resumeQuiTape.b })
-          : t('salon.saisieN', { n: resumeQuiTape.n });
+      : typingSummary.form === 'one'
+        ? t('salon.saisieUn', { nom: typingSummary.name })
+        : typingSummary.form === 'two'
+          ? t('salon.saisieDeux', { a: typingSummary.a, b: typingSummary.b })
+          : t('salon.saisieN', { n: typingSummary.n });
 
   // Brouillon persistant (8.7) — le hook vit ICI : le composer ne monte
   // qu'une fois la valeur initiale lue.
-  const persistance = useDraft(brouillons, rid);
+  const persistence = useDraft(drafts, rid);
 
   // Candidats à la mention (@) : le hook vit ICI, où `base` est en scope — le
   // composer reçoit la liste toute prête, comme le brouillon.
-  const candidatsMention = useMentionCandidates(base, rid);
+  const mentionCandidates = useMentionCandidates(base, rid);
 
   // Le chargement lui-même (endpoint, quirks de pagination, naissance du
   // curseur de rattrapage) vit chez le fournisseur — l'écran ne garde que le
   // critère de recul (`plusAncien`) pour sa pagination.
-  const chargerHistorique = useCallback(
-    (type: string, latest?: string) => fournisseur.loadHistory(moteur, rid, type, latest),
-    [fournisseur, moteur, rid],
+  const loadHistory = useCallback(
+    (type: string, latest?: string) => provider.loadHistory(engine, rid, type, latest),
+    [provider, engine, rid],
   );
 
   // Ouverture du salon. Deux travaux de nature différente, tous deux
@@ -580,34 +580,34 @@ function Salon({
   //    fait retomber la garde (le trou peut être de n'importe quelle taille,
   //    au-delà de ce que les 100 messages de `rattraperSalon` couvrent).
   //    Voir `ui/loadedRooms.ts`.
-  const type = salon?.type;
+  const type = room?.type;
   useEffect(() => {
     if (type === undefined) return;
-    let annule = false;
-    const jeton = sessionToken();
+    let canceled = false;
+    const token = sessionToken();
     // Rattrapage SAUTÉ quand le salon est resté écouté sans interruption : rien
     // n'a pu être manqué, et la lecture coûterait plusieurs secondes pour zéro
     // document sur un gros salon.
     if (!roomCovered(rid, generation)) {
-      void activite
-        .track(rid, fournisseur.catchUpRoom(moteur, rid, () => annule))
+      void activity
+        .track(rid, provider.catchUpRoom(engine, rid, () => canceled))
         .catch((e: unknown) => console.warn('rattraperSalon (ouverture): échec ignoré', e));
     }
 
     if (roomLoadedUnder(rid, generation)) {
       return () => {
-        annule = true;
+        canceled = true;
       };
     }
     // Enveloppé dans `activite` : l'en-tête allume sa barre de synchro le temps
     // du fetch, même quand le cache local remplit déjà la liste (rien ne
     // signalait sinon qu'on la rafraîchit).
-    activite
-      .track(rid, chargerHistorique(type))
+    activity
+      .track(rid, loadHistory(type))
       .then(() => {
         // Marqué au SUCCÈS seulement. Un échec (hors ligne) laisse la garde
         // ouverte : la prochaine génération refera partir le chargement.
-        if (!annule) markRoomLoaded(rid, generation, jeton);
+        if (!canceled) markRoomLoaded(rid, generation, token);
       })
       .catch((e: unknown) => {
         // Hors ligne : le cache local suffit. Mais pas en silence — un échec
@@ -615,227 +615,227 @@ function Salon({
         console.warn('salon: historique initial échoué', e);
       })
       .finally(() => {
-        if (!annule) setPremierPassageFini(true);
+        if (!canceled) setFirstPassDone(true);
       });
     return () => {
-      annule = true;
+      canceled = true;
     };
-  }, [type, chargerHistorique, generation, activite, rid, fournisseur, moteur]);
+  }, [type, loadHistory, generation, activity, rid, provider, engine]);
 
   // Remonter vers le passé : élargir la fenêtre locale, et si elle est déjà
   // épuisée, demander la page plus ancienne au serveur (pagination keyset sur
   // `latest`, jamais d'offset).
-  const enVol = useRef(false);
+  const inFlight = useRef(false);
   // `onEndReached` (FlashList v2) se réarme à CHAQUE changement de data, pas
   // seulement au défilement : passé épuisé et utilisateur garé au haut
   // visuel, chaque entrant redemanderait la même page vide au REST
   // rate-limité. Ce verrou s'arme à la première page vide et ne se relâche
   // plus — le passé d'un salon ne repousse pas.
-  const passeEpuise = useRef(false);
+  const passExhausted = useRef(false);
   // Filet : si le message-borne n'a pas changé après deux pages consécutives,
   // la pagination n'avance plus — quoi qu'en dise le contenu des réponses.
-  const bornePrecedente = useRef<{ id: string; pages: number } | null>(null);
-  const chargerPlus = useCallback(() => {
-    const epuise = fraiches.length < limite;
-    if (!epuise) {
-      setLimite((l) => l + PAGE);
+  const previousBound = useRef<{ id: string; pages: number } | null>(null);
+  const loadMore = useCallback(() => {
+    const exhausted = fresh.length < limit;
+    if (!exhausted) {
+      setLimit((l) => l + PAGE);
       return;
     }
-    if (passeEpuise.current || enVol.current || type === undefined || fraiches.length === 0) {
+    if (passExhausted.current || inFlight.current || type === undefined || fresh.length === 0) {
       return;
     }
-    const plusVieux = fraiches[fraiches.length - 1];
+    const older = fresh[fresh.length - 1];
     // Prédicats extraits dans `ui/roomPagination.ts`, testés sous Node — ils
     // encodent les deux leçons payées en 429 (ex æquo, borne immobile).
-    bornePrecedente.current = advanceBound(bornePrecedente.current, plusVieux.id);
-    if (boundIsStuck(bornePrecedente.current)) {
-      passeEpuise.current = true;
-      console.warn(`salon ${rid}: pagination immobile sur ${plusVieux.id}, passé déclaré épuisé`);
+    previousBound.current = advanceBound(previousBound.current, older.id);
+    if (boundIsStuck(previousBound.current)) {
+      passExhausted.current = true;
+      console.warn(`salon ${rid}: pagination immobile sur ${older.id}, passé déclaré épuisé`);
       return;
     }
-    enVol.current = true;
-    chargerHistorique(type, new Date(plusVieux.ts).toISOString())
-      .then(({ oldest: plusAncien }) => {
-        if (pageMovedBack(plusAncien, plusVieux.ts)) {
-          setLimite((l) => l + PAGE);
+    inFlight.current = true;
+    loadHistory(type, new Date(older.ts).toISOString())
+      .then(({ oldest }) => {
+        if (pageMovedBack(oldest, older.ts)) {
+          setLimit((l) => l + PAGE);
         } else {
-          passeEpuise.current = true;
+          passExhausted.current = true;
         }
       })
       .catch((e: unknown) => console.warn('salon: page d’historique échouée', e))
       .finally(() => {
-        enVol.current = false;
+        inFlight.current = false;
       });
-  }, [fraiches, limite, type, chargerHistorique, rid]);
+  }, [fresh, limit, type, loadHistory, rid]);
 
   // Saut vers un message choisi dans les épinglés/favoris (`ui/messageJump.ts`) :
   // l'amener dans la fenêtre (`ui/bringMessage.ts`), attendre qu'il figure
   // dans les données de la liste, défiler jusqu'à lui et le surligner.
-  const cibleSaut = useJump(rid);
-  const [sautVise, setSautVise] = useState<string | null>(null);
+  const jumpTarget = useJump(rid);
+  const [targetJump, setTargetJump] = useState<string | null>(null);
   useEffect(() => {
-    if (cibleSaut === null || type === undefined) return;
-    let annule = false;
-    const cible = cibleSaut;
-    const fluxPrincipal = and(
+    if (jumpTarget === null || type === undefined) return;
+    let canceled = false;
+    const target = jumpTarget;
+    const mainStream = and(
       eq(messages.rid, rid),
       or(isNull(messages.threadId), eq(messages.threadShown, true)),
     );
-    const echouer = () => {
-      if (annule) return;
-      consumeJump(rid, cible.id);
+    const fail = () => {
+      if (canceled) return;
+      consumeJump(rid, target.id);
       notify(t('salon.sautImpossible'));
     };
     bringMessage({
-      ts: cible.ts,
+      ts: target.ts,
       rank: async () => {
-        const trouve = await base
+        const found = await base
           .select({ ts: messages.ts })
           .from(messages)
-          .where(and(eq(messages.id, cible.id), fluxPrincipal))
+          .where(and(eq(messages.id, target.id), mainStream))
           .limit(1);
-        if (trouve.length === 0) return null;
-        const [plusRecents] = await base
+        if (found.length === 0) return null;
+        const [latest] = await base
           .select({ n: count() })
           .from(messages)
-          .where(and(fluxPrincipal, gt(messages.ts, trouve[0].ts)));
-        return plusRecents?.n ?? 0;
+          .where(and(mainStream, gt(messages.ts, found[0].ts)));
+        return latest?.n ?? 0;
       },
       older: async () => {
-        const [ligne] = await base
+        const [row] = await base
           .select({ h: min(messages.ts) })
           .from(messages)
           .where(eq(messages.rid, rid));
-        return ligne?.h ?? null;
+        return row?.h ?? null;
       },
       loadPage: (latest) =>
-        activite.track(rid, chargerHistorique(type, new Date(latest).toISOString())),
-    }).then((rang) => {
-      if (annule) return;
-      if (rang === null) {
-        echouer();
+        activity.track(rid, loadHistory(type, new Date(latest).toISOString())),
+    }).then((rank) => {
+      if (canceled) return;
+      if (rank === null) {
+        fail();
         return;
       }
-      consumeJump(rid, cible.id);
-      setLimite((l) => Math.max(l, rang + PAGE));
-      setSautVise(cible.id);
-    }, echouer);
+      consumeJump(rid, target.id);
+      setLimit((l) => Math.max(l, rank + PAGE));
+      setTargetJump(target.id);
+    }, fail);
     return () => {
-      annule = true;
+      canceled = true;
     };
-  }, [cibleSaut, type, base, rid, activite, chargerHistorique, t]);
-  const indexSaut = useMemo(
+  }, [jumpTarget, type, base, rid, activity, loadHistory, t]);
+  const jumpIndex = useMemo(
     () =>
-      sautVise === null
+      targetJump === null
         ? -1
-        : donneesListe.findIndex((l) => !('bar' in l) && !('day' in l) && l.id === sautVise),
-    [sautVise, donneesListe],
+        : listData.findIndex((l) => !('bar' in l) && !('day' in l) && l.id === targetJump),
+    [targetJump, listData],
   );
-  const dejaDefile = useRef<string | null>(null);
+  const alreadyScrolled = useRef<string | null>(null);
   useEffect(() => {
-    if (sautVise === null || indexSaut < 0) return;
-    const defiler = () =>
-      liste.current?.scrollToIndex({ index: indexSaut, animated: true, viewPosition: 0.5 });
-    let recaler: ReturnType<typeof setTimeout> | undefined;
-    if (dejaDefile.current !== sautVise) {
-      dejaDefile.current = sautVise;
-      defiler();
+    if (targetJump === null || jumpIndex < 0) return;
+    const scroll = () =>
+      list.current?.scrollToIndex({ index: jumpIndex, animated: true, viewPosition: 0.5 });
+    let realign: ReturnType<typeof setTimeout> | undefined;
+    if (alreadyScrolled.current !== targetJump) {
+      alreadyScrolled.current = targetJump;
+      scroll();
       // Les hauteurs au-delà de la zone rendue sont estimées : le premier
       // défilement tombe à peu près, le second, lignes mesurées, juste.
-      recaler = setTimeout(defiler, 450);
+      realign = setTimeout(scroll, 450);
     }
-    const eteindre = setTimeout(() => {
-      dejaDefile.current = null;
-      setSautVise(null);
+    const turnOff = setTimeout(() => {
+      alreadyScrolled.current = null;
+      setTargetJump(null);
     }, 2_500);
     return () => {
-      clearTimeout(recaler);
-      clearTimeout(eteindre);
+      clearTimeout(realign);
+      clearTimeout(turnOff);
     };
-  }, [sautVise, indexSaut]);
+  }, [targetJump, jumpIndex]);
 
-  const routeur = useRouter();
-  const ouvrirActions = useCallback(
+  const router = useRouter();
+  const openActions = useCallback(
     (id: string) => {
       // « Pop » à l'ouverture de la feuille — confirme que l'appui long a pris.
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      routeur.push({ pathname: '/message-actions', params: { id } });
+      router.push({ pathname: '/message-actions', params: { id } });
     },
-    [routeur],
+    [router],
   );
-  const ouvrirFil = useCallback(
+  const openThread = useCallback(
     (id: string) => {
-      routeur.push({ pathname: '/thread/[id]', params: { id } });
+      router.push({ pathname: '/thread/[id]', params: { id } });
     },
-    [routeur],
+    [router],
   );
 
-  const reessayer = useCallback(() => {
-    envoi.process().catch(() => {});
-  }, [envoi]);
-  const abandonner = useCallback(
+  const retry = useCallback(() => {
+    outboxQueue.process().catch(() => {});
+  }, [outboxQueue]);
+  const discard = useCallback(
     (id: string) => {
-      envoi.discard(id).catch(() => {});
+      outboxQueue.discard(id).catch(() => {});
     },
-    [envoi],
+    [outboxQueue],
   );
   // Tir-et-oublie : l'écho du stream réécrit `messages.reactions`, et la
   // requête vive re-rend la pastille — pas d'état optimiste à tenir ici.
-  const reagir = useCallback(
-    (ridMessage: string, id: string, code: string, mettre: boolean) => {
-      actions.react(ridMessage, id, code, mettre).catch(() => {});
+  const react = useCallback(
+    (ridMessage: string, id: string, code: string, put: boolean) => {
+      actions.react(ridMessage, id, code, put).catch(() => {});
     },
     [actions],
   );
 
-  const sortieParId = useMemo(
-    () => new Map((lignesSortie ?? []).map((s) => [s.id, s])),
-    [lignesSortie],
+  const outboxById = useMemo(
+    () => new Map((outboxRows ?? []).map((s) => [s.id, s])),
+    [outboxRows],
   );
-  const surligne = indexSaut >= 0 ? sautVise : null;
-  const rendreLigne = useCallback(
-    ({ item }: { item: LigneListe }) => {
+  const highlighted = jumpIndex >= 0 ? targetJump : null;
+  const renderRow = useCallback(
+    ({ item }: { item: ListRow }) => {
       if ('bar' in item) {
         return (
-          <View style={styles.barreNouveaux}>
-            <View style={[styles.traitNouveaux, { backgroundColor: c.accent }]} />
-            <Text style={[styles.texteNouveaux, { color: c.accent }]}>{t('salon.nouveauxMessages')}</Text>
-            <View style={[styles.traitNouveaux, { backgroundColor: c.accent }]} />
+          <View style={styles.newMessagesBar}>
+            <View style={[styles.newMessagesLine, { backgroundColor: c.accent }]} />
+            <Text style={[styles.newMessagesText, { color: c.accent }]}>{t('salon.nouveauxMessages')}</Text>
+            <View style={[styles.newMessagesLine, { backgroundColor: c.accent }]} />
           </View>
         );
       }
       if ('day' in item) {
         return <DaySeparator c={c} ts={item.ts} />;
       }
-      const etatEnvoi = sortieParId.get(item.id);
+      const sendState = outboxById.get(item.id);
       return (
         <View
           style={[
-            styles.ligneSurlignable,
-            item.id === surligne && { backgroundColor: c.surfaceActive },
+            styles.highlightableRow,
+            item.id === highlighted && { backgroundColor: c.surfaceActive },
           ]}
         >
           <MessageRow
             c={c}
             message={item}
             client={client}
-            sendStatus={etatEnvoi?.status ?? null}
-            onRetry={etatEnvoi?.status === 'echec' ? reessayer : null}
-            onDiscard={etatEnvoi?.status === 'echec' ? abandonner : null}
+            sendStatus={sendState?.status ?? null}
+            onRetry={sendState?.status === 'echec' ? retry : null}
+            onDiscard={sendState?.status === 'echec' ? discard : null}
             // Pas d'actions sur une ligne d'outbox : son `_id` client n'a pas
             // été accepté par le serveur — `chat.delete`/`chat.update` dessus ne
             // peuvent qu'échouer. Ses vraies actions sont réessayer/abandonner.
-            onLongPress={etatEnvoi === undefined ? ouvrirActions : null}
-            onOpenThread={ouvrirFil}
-            me={moi}
-            onReact={etatEnvoi === undefined ? reagir : null}
-            continuation={suites.has(item.id)}
-            repeatedTime={heuresRepetees.has(item.id)}
+            onLongPress={sendState === undefined ? openActions : null}
+            onOpenThread={openThread}
+            me={me}
+            onReact={sendState === undefined ? react : null}
+            continuation={continuations.has(item.id)}
+            repeatedTime={repeatedTimes.has(item.id)}
           />
         </View>
       );
     },
-    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil, t, moi, reagir, suites, heuresRepetees, surligne],
+    [c, client, outboxById, retry, discard, openActions, openThread, t, me, react, continuations, repeatedTimes, highlighted],
   );
 
   return (
@@ -844,22 +844,22 @@ function Salon({
       <RoomHeader
         c={c}
         rid={rid}
-        room={salon}
+        room={room}
         client={client}
-        dmStatus={statutDM}
+        dmStatus={dmStatus}
         insetTop={insets.top}
         // Repli si le salon est la RACINE (deep-link à froid) : `back()` n'a
         // alors aucune cible et laisserait l'utilisateur coincé.
-        onBack={() => (routeur.canGoBack() ? routeur.back() : routeur.replace('/'))}
-        onSearch={() => routeur.push({ pathname: '/message-search', params: { rid } })}
-        onMarked={() => routeur.push({ pathname: '/marked-messages', params: { rid } })}
+        onBack={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+        onSearch={() => router.push({ pathname: '/message-search', params: { rid } })}
+        onMarked={() => router.push({ pathname: '/marked-messages', params: { rid } })}
       />
-      {donneesListe.length === 0 ? (
+      {listData.length === 0 ? (
         // Vide : indicateur, puis mention explicite. (L'ancien piège mVCP
         // « viewport sous le contenu » a disparu avec l'inversion ; attendre
         // le premier lot reste la bonne UX — une liste qui clignote non.)
         <View style={styles.center}>
-          {premierPassageFini ? (
+          {firstPassDone ? (
             <Text style={[styles.empty, { color: c.dimmed }]}>{t('salon.aucunMessage')}</Text>
           ) : (
             <ActivityIndicator />
@@ -869,16 +869,16 @@ function Salon({
         <View
           style={styles.full}
           onLayout={(e) => {
-            hauteurListe.current = e.nativeEvent.layout.height;
+            listHeight.current = e.nativeEvent.layout.height;
           }}
         >
           <FlashList
-            ref={liste}
+            ref={list}
             inverted
             onScrollBeginDrag={() => {
-              etatRetour.current = onBackToLatestSwipe(etatRetour.current);
+              returnState.current = onBackToLatestSwipe(returnState.current);
             }}
-            data={donneesListe}
+            data={listData}
             // Coupé : à l'offset 0, un prepend s'affiche de lui-même, et le
             // recalage natif partait avant le snap JS et l'écrasait.
             maintainVisibleContentPosition={{ disabled: true }}
@@ -888,31 +888,31 @@ function Salon({
             // de FlashList mélange les gabarits.
             getItemType={(item) =>
               'bar' in item
-                ? 'barre'
+                ? 'bar'
                 : 'day' in item
-                  ? 'jour'
-                  : suites.has(item.id)
-                    ? 'suite'
+                  ? 'day'
+                  : continuations.has(item.id)
+                    ? 'continuation'
                     : 'message'
             }
-            renderItem={rendreLigne}
-            extraData={surligne}
-            onScroll={surDefilement}
+            renderItem={renderRow}
+            extraData={highlighted}
+            onScroll={onScroll}
             scrollEventThrottle={16}
             // Inversé : la fin des DONNÉES est le haut visuel — le passé.
-            onEndReached={chargerPlus}
+            onEndReached={loadMore}
             onEndReachedThreshold={0.4}
             contentContainerStyle={styles.content}
           />
-          {retourVisible && (
+          {backVisible && (
             <Tappable
-              onPress={allerAuPlusRecent}
+              onPress={goToLatest}
               android_ripple={{ color: c.ripple, borderless: true }}
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel={t('salon.allerAuPlusRecent')}
               style={[
-                styles.retourPlusRecent,
+                styles.backToLatest,
                 {
                   backgroundColor: c.card,
                   borderColor: c.border,
@@ -920,39 +920,39 @@ function Salon({
                 },
               ]}
             >
-              <Text style={[styles.retourPlusRecentFleche, { color: c.accent }]}>↓</Text>
+              <Text style={[styles.backToLatestArrow, { color: c.accent }]}>↓</Text>
             </Tappable>
           )}
         </View>
       )}
-      {fichiersEnCours.map((tele) => {
-        const enEchec = tele.status === 'echec';
-        const libelle = enEchec
-          ? t('salon.fichierNonEnvoye', { nom: tele.name })
-          : tele.status === 'envoi'
+      {filesInProgress.map((upload) => {
+        const failed = upload.status === 'echec';
+        const label = failed
+          ? t('salon.fichierNonEnvoye', { nom: upload.name })
+          : upload.status === 'envoi'
             ? t('salon.fichierEnvoi', {
-                nom: tele.name,
-                pourcent: String(Math.round((progressions.get(tele.id) ?? 0) * 100)),
+                nom: upload.name,
+                pourcent: String(Math.round((progressions.get(upload.id) ?? 0) * 100)),
               })
-            : t('salon.fichierEnAttente', { nom: tele.name });
+            : t('salon.fichierEnAttente', { nom: upload.name });
         return (
-          <View key={tele.id} style={styles.bandeEchecFichier}>
+          <View key={upload.id} style={styles.fileFailureBand}>
             <Text
-              style={[styles.time, { color: enEchec ? c.errorText : c.dimmed }]}
+              style={[styles.time, { color: failed ? c.errorText : c.dimmed }]}
               numberOfLines={1}
             >
-              {libelle}
+              {label}
             </Text>
             {/* « Réessayer » n'a de sens que sur un échec — et il lui faut
                 l'id : le rejeu automatique ne voit plus les lignes en échec,
                 un simple `traiter()` passerait à côté. Une ligne `en-attente`
                 ou `envoi`, elle, part déjà toute seule. */}
-            {enEchec && (
-              <Pressable onPress={() => void fichiers.retry(tele.id)}>
+            {failed && (
+              <Pressable onPress={() => void files.retry(upload.id)}>
                 <Text style={[styles.time, { color: c.accent }]}>{t('salon.reessayer')}</Text>
               </Pressable>
             )}
-            <Pressable onPress={() => void fichiers.discard(tele.id, tele.uri)}>
+            <Pressable onPress={() => void files.discard(upload.id, upload.uri)}>
               <Text style={[styles.time, { color: c.dimmed }]}>{t('salon.abandonner')}</Text>
             </Pressable>
           </View>
@@ -961,22 +961,22 @@ function Salon({
       {/* Une réponse de FIL refusée n'a aucune ligne dans ce flux (filtrée par
           fil_id) : sans ce bandeau, son échec ne serait visible qu'en
           rouvrant le fil exact — silencieusement jamais, en pratique. */}
-      {(lignesSortie ?? [])
+      {(outboxRows ?? [])
         .filter((s) => s.status === 'echec' && s.threadId !== null)
         .map((s) => (
-          <View key={s.id} style={styles.bandeEchecFichier}>
+          <View key={s.id} style={styles.fileFailureBand}>
             <Pressable
               style={styles.full}
-              onPress={() => routeur.push({ pathname: '/thread/[id]', params: { id: s.threadId ?? '' } })}
+              onPress={() => router.push({ pathname: '/thread/[id]', params: { id: s.threadId ?? '' } })}
             >
               <Text style={[styles.time, { color: c.errorText }]} numberOfLines={1}>
                 {t('salon.reponseFilNonEnvoyee')}
               </Text>
             </Pressable>
-            <Pressable onPress={reessayer}>
+            <Pressable onPress={retry}>
               <Text style={[styles.time, { color: c.accent }]}>{t('salon.reessayer')}</Text>
             </Pressable>
-            <Pressable onPress={() => abandonner(s.id)}>
+            <Pressable onPress={() => discard(s.id)}>
               <Text style={[styles.time, { color: c.dimmed }]}>{t('salon.abandonner')}</Text>
             </Pressable>
           </View>
@@ -985,29 +985,29 @@ function Salon({
           s'ouvre par un ressort (voir `IndicateurSaisie`) et, la liste étant
           `flex: 1`, ce gain comprime la liste et fait remonter nativement le
           dernier message au lieu de le masquer. Replié à 0, aucune bande morte. */}
-      <View style={styles.basComposer}>
-        <TypingIndicator c={c} phrase={phraseQuiTape} />
+      <View style={styles.composerBottom}>
+        <TypingIndicator c={c} phrase={typingSentence} />
         {/* Tant que la ligne du salon n'est pas là (lien profond vers un salon
             pas encore synchronisé), on ne promet pas un envoi : `chiffre` et
             `lectureSeule` sont peut-être vrais. */}
         {/* `key={rid}` + attente du brouillon chargé : le composer naît avec
             son état initial déjà juste — ni restauration après coup, ni fuite
             du texte d'un salon vers un autre. */}
-        {salon !== undefined && persistance.initial !== null && (
+        {room !== undefined && persistence.initial !== null && (
           <Composer
             key={rid}
             c={c}
             rid={rid}
-            outbox={envoi}
-            files={fichiers}
+            outbox={outboxQueue}
+            files={files}
             client={client}
-            mentionCandidates={candidatsMention}
-            readOnly={salon.readOnly}
-            encrypted={salon.encrypted}
+            mentionCandidates={mentionCandidates}
+            readOnly={room.readOnly}
+            encrypted={room.encrypted}
             placeholder={t('salon.messagePlaceholder')}
-            initialDraft={persistance.initial}
-            saveDraft={persistance.sauver}
-            clearDraft={persistance.effacer}
+            initialDraft={persistence.initial}
+            saveDraft={persistence.save}
+            clearDraft={persistence.clear}
           />
         )}
       </View>
@@ -1020,9 +1020,9 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   content: { paddingHorizontal: 16, paddingVertical: 8 },
   time: { fontSize: 11 },
-  basComposer: { position: 'relative' },
-  ligneSurlignable: { borderRadius: 12, marginHorizontal: -8, paddingHorizontal: 8 },
-  retourPlusRecent: {
+  composerBottom: { position: 'relative' },
+  highlightableRow: { borderRadius: 12, marginHorizontal: -8, paddingHorizontal: 8 },
+  backToLatest: {
     position: 'absolute',
     right: 16,
     bottom: 12,
@@ -1033,25 +1033,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  retourPlusRecentFleche: { fontFamily: FONTS.titreFort, fontSize: 22, lineHeight: 26 },
+  backToLatestArrow: { fontFamily: FONTS.titleStrong, fontSize: 22, lineHeight: 26 },
   empty: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: FONTS.body },
-  error: { fontFamily: FONTS.corpsGras, fontSize: 14, textAlign: 'center' },
-  autreServeurHote: {
+  error: { fontFamily: FONTS.bodyBold, fontSize: 14, textAlign: 'center' },
+  otherServerHost: {
     fontFamily: FONTS.body,
     fontSize: 13,
     textAlign: 'center',
     marginTop: 8,
   },
-  autreServeurBouton: { marginTop: 20, alignSelf: 'stretch' },
-  barreNouveaux: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
-  traitNouveaux: { flex: 1, height: 2, borderRadius: 2, opacity: 0.5 },
-  texteNouveaux: {
-    fontFamily: FONTS.corpsFort,
+  otherServerButton: { marginTop: 20, alignSelf: 'stretch' },
+  newMessagesBar: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
+  newMessagesLine: { flex: 1, height: 2, borderRadius: 2, opacity: 0.5 },
+  newMessagesText: {
+    fontFamily: FONTS.bodyStrong,
     fontSize: 10.5,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  bandeEchecFichier: {
+  fileFailureBand: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,

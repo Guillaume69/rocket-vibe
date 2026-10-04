@@ -11,26 +11,26 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FONTS, useColors } from './theme.ts';
 
-const DUREE_MS = 2000;
+const DURATION_MS = 2000;
 
-let courant: { id: number; message: string } | null = null;
-let minuterie: ReturnType<typeof setTimeout> | null = null;
-const ecouteurs = new Set<() => void>();
+let current: { id: number; message: string } | null = null;
+let timer: ReturnType<typeof setTimeout> | null = null;
+const listeners = new Set<() => void>();
 
-function notifier(): void {
-  for (const e of ecouteurs) e();
+function emit(): void {
+  for (const e of listeners) e();
 }
 
 export function showToast(message: string): void {
-  courant = { id: (courant?.id ?? 0) + 1, message };
-  if (minuterie !== null) clearTimeout(minuterie);
-  minuterie = setTimeout(() => {
-    courant = null;
-    minuterie = null;
-    notifier();
-  }, DUREE_MS);
+  current = { id: (current?.id ?? 0) + 1, message };
+  if (timer !== null) clearTimeout(timer);
+  timer = setTimeout(() => {
+    current = null;
+    timer = null;
+    emit();
+  }, DURATION_MS);
   AccessibilityInfo.announceForAccessibility(message);
-  notifier();
+  emit();
 }
 
 /** Le toast de la plateforme : `ToastAndroid` sur Android, le nôtre ailleurs. */
@@ -39,14 +39,14 @@ export function notify(message: string): void {
   else showToast(message);
 }
 
-function abonner(e: () => void): () => void {
-  ecouteurs.add(e);
-  return () => ecouteurs.delete(e);
+function subscribe(e: () => void): () => void {
+  listeners.add(e);
+  return () => listeners.delete(e);
 }
 
 /** Monté une fois, au-dessus de la pile (app/_layout.tsx). */
 export function ToastHost() {
-  const toast = useSyncExternalStore(abonner, () => courant);
+  const toast = useSyncExternalStore(subscribe, () => current);
   const c = useColors();
   const insets = useSafeAreaInsets();
   if (toast === null) return null;
@@ -73,5 +73,5 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.45)',
   },
-  text: { fontFamily: FONTS.corpsSemi, fontSize: 14, textAlign: 'center' },
+  text: { fontFamily: FONTS.bodySemi, fontSize: 14, textAlign: 'center' },
 });

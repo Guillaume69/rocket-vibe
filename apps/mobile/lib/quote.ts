@@ -37,34 +37,34 @@ export function messagePermalink(options: {
   msgId: string;
 }): string {
   const base = (options.siteUrl ?? options.baseUrl).replace(/\/+$/, '');
-  const chemin =
+  const path =
     options.type === 'c'
       ? `channel/${encodeURIComponent(options.name ?? options.rid)}`
       : options.type === 'p'
         ? `group/${encodeURIComponent(options.name ?? options.rid)}`
         : `direct/${encodeURIComponent(options.rid)}`;
-  return `${base}/${chemin}?msg=${encodeURIComponent(options.msgId)}`;
+  return `${base}/${path}?msg=${encodeURIComponent(options.msgId)}`;
 }
 
 /** Le texte à envoyer : le permalien invisible devant, la réponse derrière. */
-export function quote(permalien: string, texte: string): string {
-  return texte === '' ? `[ ](${permalien})` : `[ ](${permalien}) ${texte}`;
+export function quote(permalink: string, text: string): string {
+  return text === '' ? `[ ](${permalink})` : `[ ](${permalink}) ${text}`;
 }
 
 /** Un lien `[ ](…?msg=…)` en TÊTE de texte — répété pour les chaînes de citations. */
-const PREFIXE_CITATION = /^\s*\[ ?\]\(https?:\/\/[^)\s]+[?&]msg=[^)\s]*\)\s*/;
+const QUOTE_PREFIX = /^\s*\[ ?\]\(https?:\/\/[^)\s]+[?&]msg=[^)\s]*\)\s*/;
 
 /**
  * Retire le(s) permalien(s) de citation en tête d'un texte BRUT — pour
  * l'extrait affiché (bandeau de réponse, bloc de citation) : le message cité
  * peut lui-même être une réponse, on ne veut montrer que ses mots.
  */
-export function stripQuotePrefix(texte: string): string {
-  let restant = texte;
+export function stripQuotePrefix(text: string): string {
+  let rest = text;
   for (;;) {
-    const suivant = restant.replace(PREFIXE_CITATION, '');
-    if (suivant === restant) return restant;
-    restant = suivant;
+    const next = rest.replace(QUOTE_PREFIX, '');
+    if (next === rest) return rest;
+    rest = next;
   }
 }
 
@@ -73,11 +73,11 @@ export function stripQuotePrefix(texte: string): string {
  * `message_link` est une citation. Tout le reste (image, audio, fichier) n'en
  * est pas.
  */
-export function isQuoteAttachment(jointe: unknown): boolean {
+export function isQuoteAttachment(attachment: unknown): boolean {
   return (
-    typeof jointe === 'object' &&
-    jointe !== null &&
-    typeof (jointe as { message_link?: unknown }).message_link === 'string'
+    typeof attachment === 'object' &&
+    attachment !== null &&
+    typeof (attachment as { message_link?: unknown }).message_link === 'string'
   );
 }
 
@@ -100,27 +100,27 @@ export function localQuoteAttachment(options: {
   /** `piecesJointes` (JSON) du message cité, tel que stocké. */
   attachments: string | null;
 }): string {
-  let imbriquees: unknown[] = [];
+  let nested: unknown[] = [];
   try {
-    const brut = JSON.parse(options.attachments ?? '[]') as unknown;
-    if (Array.isArray(brut)) imbriquees = brut;
+    const raw = JSON.parse(options.attachments ?? '[]') as unknown;
+    if (Array.isArray(raw)) nested = raw;
   } catch {
     // Illisible : citation sans pièces, le texte reste.
   }
-  const nettoyees = imbriquees.map((jointe) => {
-    if (!isQuoteAttachment(jointe)) return jointe;
-    const { attachments, ...reste } = jointe as Record<string, unknown>;
-    const fichiers = Array.isArray(attachments)
+  const cleaned = nested.map((attachment) => {
+    if (!isQuoteAttachment(attachment)) return attachment;
+    const { attachments, ...rest } = attachment as Record<string, unknown>;
+    const files = Array.isArray(attachments)
       ? attachments.filter((a) => !isQuoteAttachment(a))
       : [];
-    return fichiers.length > 0 ? { ...reste, attachments: fichiers } : reste;
+    return files.length > 0 ? { ...rest, attachments: files } : rest;
   });
   return JSON.stringify([
     {
       message_link: options.permalink,
       ...(options.author === null ? {} : { author_name: options.author }),
       text: options.text ?? '',
-      attachments: nettoyees,
+      attachments: cleaned,
     },
   ]);
 }
@@ -130,13 +130,13 @@ export function localQuoteAttachment(options: {
  * bandeau « Réponse à … ». Les citations imbriquées sont ignorées : on montre
  * ce que la personne citée a POSTÉ, pas ce qu'elle citait.
  */
-export function firstAttachmentImage(piecesJointes: string | null): string | null {
+export function firstAttachmentImage(attachments: string | null): string | null {
   try {
-    const brut = JSON.parse(piecesJointes ?? '[]') as unknown;
-    if (!Array.isArray(brut)) return null;
-    for (const jointe of brut) {
-      if (isQuoteAttachment(jointe)) continue;
-      const image = (jointe as { image_url?: unknown } | null)?.image_url;
+    const raw = JSON.parse(attachments ?? '[]') as unknown;
+    if (!Array.isArray(raw)) return null;
+    for (const attachment of raw) {
+      if (isQuoteAttachment(attachment)) continue;
+      const image = (attachment as { image_url?: unknown } | null)?.image_url;
       if (typeof image === 'string') return image;
     }
   } catch {
@@ -145,27 +145,27 @@ export function firstAttachmentImage(piecesJointes: string | null): string | nul
   return null;
 }
 
-type NoeudInline = { type?: unknown; value?: unknown };
+type InlineNode = { type?: unknown; value?: unknown };
 
 /** Aplatissement local minimal (éviter d'importer markdown.ts : il nous importe). */
-function plat(noeud: unknown): string {
-  if (typeof noeud === 'string') return noeud;
-  if (Array.isArray(noeud)) return noeud.map(plat).join('');
-  if (typeof noeud === 'object' && noeud !== null && 'value' in noeud) {
-    return plat((noeud as NoeudInline).value);
+function flatText(node: unknown): string {
+  if (typeof node === 'string') return node;
+  if (Array.isArray(node)) return node.map(flatText).join('');
+  if (typeof node === 'object' && node !== null && 'value' in node) {
+    return flatText((node as InlineNode).value);
   }
   return '';
 }
 
 /** Un nœud LINK dont le label est vide/blanc et la cible porte `msg=` : le
  *  permalien d'une citation — il ne rend qu'un espace souligné, du bruit. */
-function estLienDeCitation(noeud: unknown): boolean {
-  if (typeof noeud !== 'object' || noeud === null) return false;
-  const n = noeud as { type?: unknown; value?: { src?: unknown; label?: unknown } };
+function isQuoteLink(node: unknown): boolean {
+  if (typeof node !== 'object' || node === null) return false;
+  const n = node as { type?: unknown; value?: { src?: unknown; label?: unknown } };
   if (n.type !== 'LINK') return false;
-  const src = plat(n.value?.src);
+  const src = flatText(n.value?.src);
   if (!/[?&]msg=/.test(src)) return false;
-  return plat(n.value?.label).trim() === '';
+  return flatText(n.value?.label).trim() === '';
 }
 
 /**
@@ -175,34 +175,34 @@ function estLienDeCitation(noeud: unknown): boolean {
  * INCHANGÉ (même référence) quand il n'y a rien à retirer — le cas de presque
  * tous les messages, aucun coût.
  */
-export function withoutQuoteLinks(arbre: Root): Root {
-  if (!arbre.some((bloc) => estParagrapheAvecCitation(bloc))) return arbre;
+export function withoutQuoteLinks(tree: Root): Root {
+  if (!tree.some((block) => isParagraphWithQuote(block))) return tree;
 
   // `Root` est un tuple-union (`[BigEmoji] | …`) : on construit sur le type
   // d'ÉLÉMENT. Un arbre `[BigEmoji]` n'a jamais de citation — jamais mappé ici.
-  const blocs: Root[number][] = [];
-  for (const bloc of arbre) {
-    if (!estParagrapheAvecCitation(bloc)) {
-      blocs.push(bloc);
+  const blocks: Root[number][] = [];
+  for (const block of tree) {
+    if (!isParagraphWithQuote(block)) {
+      blocks.push(block);
       continue;
     }
-    const paragraphe = bloc as Paragraph;
-    const restants = paragraphe.value.filter((n) => !estLienDeCitation(n));
+    const paragraph = block as Paragraph;
+    const remaining = paragraph.value.filter((n) => !isQuoteLink(n));
     // L'espace qui suivait le permalien appartient à la syntaxe, pas au message.
-    const premier = restants[0] as NoeudInline | undefined;
-    if (premier !== undefined && premier.type === 'PLAIN_TEXT' && typeof premier.value === 'string') {
-      const ajuste = premier.value.replace(/^\s+/, '');
-      if (ajuste === '') restants.shift();
-      else restants[0] = { ...premier, value: ajuste } as Paragraph['value'][number];
+    const first = remaining[0] as InlineNode | undefined;
+    if (first !== undefined && first.type === 'PLAIN_TEXT' && typeof first.value === 'string') {
+      const adjusted = first.value.replace(/^\s+/, '');
+      if (adjusted === '') remaining.shift();
+      else remaining[0] = { ...first, value: adjusted } as Paragraph['value'][number];
     }
     // Un message qui n'était QUE le permalien : le paragraphe disparaît.
-    if (restants.length > 0) blocs.push({ ...paragraphe, value: restants });
+    if (remaining.length > 0) blocks.push({ ...paragraph, value: remaining });
   }
-  return blocs as Root;
+  return blocks as Root;
 }
 
-function estParagrapheAvecCitation(bloc: unknown): boolean {
-  if (typeof bloc !== 'object' || bloc === null) return false;
-  const b = bloc as { type?: unknown; value?: unknown };
-  return b.type === 'PARAGRAPH' && Array.isArray(b.value) && b.value.some(estLienDeCitation);
+function isParagraphWithQuote(block: unknown): boolean {
+  if (typeof block !== 'object' || block === null) return false;
+  const b = block as { type?: unknown; value?: unknown };
+  return b.type === 'PARAGRAPH' && Array.isArray(b.value) && b.value.some(isQuoteLink);
 }

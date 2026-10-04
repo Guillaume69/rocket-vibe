@@ -22,23 +22,23 @@ export function starredIds(starred: unknown): string | null {
   return ids.length === 0 ? null : JSON.stringify(ids);
 }
 
-function lire(etoiles: string | null): string[] {
-  if (etoiles === null) return [];
+function read(starred: string | null): string[] {
+  if (starred === null) return [];
   try {
-    const v: unknown = JSON.parse(etoiles);
+    const v: unknown = JSON.parse(starred);
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
   } catch {
     return [];
   }
 }
 
-export function starredBy(etoiles: string | null, uid: string): boolean {
-  return lire(etoiles).includes(uid);
+export function starredBy(starred: string | null, uid: string): boolean {
+  return read(starred).includes(uid);
 }
 
 /** La colonne `etoiles` après que `uid` a (dés)étoilé le message. */
-export function starredAfter(etoiles: string | null, uid: string, mettre: boolean): string | null {
-  const autres = lire(etoiles).filter((x) => x !== uid);
-  const ids = mettre ? [...autres, uid] : autres;
+export function starredAfter(starred: string | null, uid: string, put: boolean): string | null {
+  const others = read(starred).filter((x) => x !== uid);
+  const ids = put ? [...others, uid] : others;
   return ids.length === 0 ? null : JSON.stringify(ids);
 }

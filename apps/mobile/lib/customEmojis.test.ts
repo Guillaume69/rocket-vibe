@@ -15,7 +15,7 @@ import {
   type EmojiCustom,
 } from './customEmojis.ts';
 
-function depotFactice(initial: EmojiCustom[] = []): EmojiStore & { content: EmojiCustom[] } {
+function fakeStore(initial: EmojiCustom[] = []): EmojiStore & { content: EmojiCustom[] } {
   const d = {
     content: initial,
     async replace(e: EmojiCustom[]) {
@@ -101,16 +101,16 @@ describe('surChangementEmojisCustom', () => {
     // notification, le panneau — qui ne se démonte JAMAIS — garderait la liste
     // vide de la première installation pour toute la session.
     let notifications = 0;
-    const desabonner = onCustomEmojisChange(() => notifications++);
-    const avant = codesEmojiCustom();
+    const unsubscribe = onCustomEmojisChange(() => notifications++);
+    const before = codesEmojiCustom();
     setCustomEmojis('https://chat.exemple.fr', [PARROT]);
     assert.equal(notifications, 1);
-    const apres = codesEmojiCustom();
-    assert.notEqual(avant, apres);
-    assert.ok(apres.includes('party_parrot'));
+    const after = codesEmojiCustom();
+    assert.notEqual(before, after);
+    assert.ok(after.includes('party_parrot'));
     clearCustomEmojis();
     assert.equal(notifications, 2);
-    desabonner();
+    unsubscribe();
   });
 
   test('l’instantané est STABLE entre deux changements (exigence useSyncExternalStore)', () => {
@@ -130,37 +130,37 @@ describe('synchroniserEmojisCustom', () => {
   afterEach(clearCustomEmojis);
 
   test('remplit la table et l’index depuis une liste serveur', async () => {
-    const depot = depotFactice();
+    const store = fakeStore();
     const client = {
       baseUrl: 'https://chat.exemple.fr',
       get: async <T>(): Promise<T> =>
         ({ emojis: { update: [{ name: 'dino', extension: 'gif', aliases: ['trex'] }] } }) as T,
     };
-    await syncCustomEmojis(client, depot);
-    assert.equal(depot.content.length, 1);
+    await syncCustomEmojis(client, store);
+    assert.equal(store.content.length, 1);
     assert.equal(urlEmojiCustom('trex'), 'https://chat.exemple.fr/emoji-custom/dino.gif');
   });
 
   test('un appel raté (pas d’`update`) NE vide PAS le cache — la clé du bug count=0', async () => {
-    const depot = depotFactice([{ name: 'dino', extension: 'gif', aliases: [] }]);
+    const store = fakeStore([{ name: 'dino', extension: 'gif', aliases: [] }]);
     // Le serveur a répondu `success:false` : ni `emojis`, ni `update`.
     const client = {
       baseUrl: 'https://chat.exemple.fr',
       get: async <T>(): Promise<T> => ({ success: false }) as T,
     };
-    await syncCustomEmojis(client, depot);
-    assert.deepEqual(depot.content.map((e) => e.name), ['dino'], 'le cache offline survit');
+    await syncCustomEmojis(client, store);
+    assert.deepEqual(store.content.map((e) => e.name), ['dino'], 'le cache offline survit');
   });
 
   test('un fetch résolu APRÈS abandon ne réarme pas l’index (fuite cross-serveur)', async () => {
-    const depot = depotFactice();
+    const store = fakeStore();
     const clientA = {
       baseUrl: 'https://serveur-a.fr',
       get: async <T>(): Promise<T> =>
         ({ emojis: { update: [{ name: 'propre_a_A', extension: 'png', aliases: [] }] } }) as T,
     };
     // La session A est déjà tournée quand la réponse arrive.
-    await syncCustomEmojis(clientA, depot, () => true);
+    await syncCustomEmojis(clientA, store, () => true);
     // La base (de A) est écrite — inoffensif —, mais l'index mémoire GLOBAL,
     // lui, ne doit pas se remplir des emojis de A après le passage à B.
     assert.equal(urlEmojiCustom('propre_a_A'), null);

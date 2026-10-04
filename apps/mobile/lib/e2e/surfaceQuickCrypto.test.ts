@@ -14,16 +14,16 @@ import { describe, test } from 'node:test';
  * les vecteurs de `crypto.test.ts` contre lui ici.
  */
 
-type ContexteResolution = {
-  resolveRequest: (contexte: ContexteResolution, module: string, plateforme: string | null) => unknown;
+type ResolutionContext = {
+  resolveRequest: (context: ResolutionContext, module: string, platform: string | null) => unknown;
 };
 
-type ConfigMetro = {
+type MetroConfig = {
   resolver: {
     resolveRequest?: (
-      contexte: ContexteResolution,
+      context: ResolutionContext,
       module: string,
-      plateforme: string | null,
+      platform: string | null,
     ) => unknown;
     sourceExts: string[];
   };
@@ -32,42 +32,42 @@ type ConfigMetro = {
 // `metro.config.js` est du CommonJS : l'interop ESM le sert sous `default`.
 // Son chargement exécute `getDefaultConfig(__dirname)` — le vrai, celui
 // d'expo — donc ce test casse aussi si la config devient inchargeable.
-const config = (await import('../../metro.config.js')).default as ConfigMetro;
+const config = (await import('../../metro.config.js')).default as MetroConfig;
 
-function resoudre(module: string): { requests: string[]; rendered: unknown } {
-  const demandes: string[] = [];
-  const sentinelle = { type: 'sourceFile' };
-  const contexte: ContexteResolution = {
-    resolveRequest: (_ctx, nom) => {
-      demandes.push(nom);
-      return sentinelle;
+function resolve(module: string): { requests: string[]; rendered: unknown } {
+  const requests: string[] = [];
+  const sentinel = { type: 'sourceFile' };
+  const context: ResolutionContext = {
+    resolveRequest: (_ctx, name) => {
+      requests.push(name);
+      return sentinel;
     },
   };
   assert.notEqual(config.resolver.resolveRequest, undefined);
-  const rendu = config.resolver.resolveRequest?.(contexte, module, 'android');
-  return { requests: demandes, rendered: rendu === sentinelle ? 'sentinelle' : rendu };
+  const rendered = config.resolver.resolveRequest?.(context, module, 'android');
+  return { requests, rendered: rendered === sentinel ? 'sentinelle' : rendered };
 }
 
 describe('alias Metro de la crypto embarquée', () => {
   test('`crypto` se résout vers react-native-quick-crypto', () => {
-    const { requests: demandes, rendered: rendu } = resoudre('crypto');
-    assert.deepEqual(demandes, ['react-native-quick-crypto']);
+    const { requests, rendered } = resolve('crypto');
+    assert.deepEqual(requests, ['react-native-quick-crypto']);
     // Le résultat du résolveur standard est bien RENDU, pas avalé.
-    assert.equal(rendu, 'sentinelle');
+    assert.equal(rendered, 'sentinelle');
   });
 
   test('`buffer` se résout vers l’implémentation feuille, PAS le barrel quick-crypto', () => {
     // L'aliaser vers le barrel créerait un cycle de require — voir le
     // commentaire de metro.config.js. La cible exacte fait partie du contrat.
-    const { requests: demandes } = resoudre('buffer');
-    assert.deepEqual(demandes, ['@craftzdog/react-native-buffer']);
+    const { requests } = resolve('buffer');
+    assert.deepEqual(requests, ['@craftzdog/react-native-buffer']);
   });
 
   test('les deux cibles de l’alias sont installées', () => {
     // Un `npm prune` ou une migration qui retire l'une d'elles rendrait
     // l'alias pointé sur du vide — Metro n'échouerait qu'au build.
-    for (const paquet of ['react-native-quick-crypto', '@craftzdog/react-native-buffer']) {
-      assert.doesNotThrow(() => import.meta.resolve(paquet), `${paquet} introuvable`);
+    for (const pkg of ['react-native-quick-crypto', '@craftzdog/react-native-buffer']) {
+      assert.doesNotThrow(() => import.meta.resolve(pkg), `${pkg} introuvable`);
     }
   });
 

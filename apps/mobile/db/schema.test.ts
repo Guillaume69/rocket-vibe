@@ -10,19 +10,19 @@ import { fileURLToPath } from 'node:url';
  * valides : on les applique pour de vrai, sur un SQLite en mémoire.
  * `db/migrations/*.sql` utilise `--> statement-breakpoint` comme séparateur.
  */
-const DOSSIER = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
+const FOLDER = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
 
-function baseMigree(): DatabaseSync {
+function migratedDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
-  const fichiers = readdirSync(DOSSIER)
+  const files = readdirSync(FOLDER)
     .filter((f) => f.endsWith('.sql'))
     .sort();
-  assert.ok(fichiers.length > 0, 'aucune migration générée');
-  for (const fichier of fichiers) {
-    for (const requete of readFileSync(join(DOSSIER, fichier), 'utf8').split(
+  assert.ok(files.length > 0, 'aucune migration générée');
+  for (const file of files) {
+    for (const query of readFileSync(join(FOLDER, file), 'utf8').split(
       '--> statement-breakpoint',
     )) {
-      const sql = requete.trim();
+      const sql = query.trim();
       if (sql !== '') db.exec(sql);
     }
   }
@@ -38,17 +38,17 @@ function tables(db: DatabaseSync): string[] {
 }
 
 /** Applique les migrations dont l'index numérique est < `avant`, dans l'ordre. */
-function baseMigreeAvant(avant: number): DatabaseSync {
+function migratedDbBefore(before: number): DatabaseSync {
   const db = new DatabaseSync(':memory:');
-  const fichiers = readdirSync(DOSSIER)
+  const files = readdirSync(FOLDER)
     .filter((f) => f.endsWith('.sql'))
     .sort();
-  for (const fichier of fichiers) {
-    if (parseInt(fichier.slice(0, 4), 10) >= avant) continue;
-    for (const requete of readFileSync(join(DOSSIER, fichier), 'utf8').split(
+  for (const file of files) {
+    if (parseInt(file.slice(0, 4), 10) >= before) continue;
+    for (const query of readFileSync(join(FOLDER, file), 'utf8').split(
       '--> statement-breakpoint',
     )) {
-      const sql = requete.trim();
+      const sql = query.trim();
       if (sql !== '') db.exec(sql);
     }
   }
@@ -56,11 +56,11 @@ function baseMigreeAvant(avant: number): DatabaseSync {
 }
 
 /** Applique les statements d'UN fichier de migration (par son index). */
-function appliquerMigration(db: DatabaseSync, index: number): void {
-  const fichier = readdirSync(DOSSIER).find((f) => parseInt(f.slice(0, 4), 10) === index);
-  assert.ok(fichier !== undefined, `migration ${index} absente`);
-  for (const requete of readFileSync(join(DOSSIER, fichier), 'utf8').split('--> statement-breakpoint')) {
-    const sql = requete.trim();
+function applyMigration(db: DatabaseSync, index: number): void {
+  const file = readdirSync(FOLDER).find((f) => parseInt(f.slice(0, 4), 10) === index);
+  assert.ok(file !== undefined, `migration ${index} absente`);
+  for (const query of readFileSync(join(FOLDER, file), 'utf8').split('--> statement-breakpoint')) {
+    const sql = query.trim();
     if (sql !== '') db.exec(sql);
   }
 }
@@ -68,7 +68,7 @@ function appliquerMigration(db: DatabaseSync, index: number): void {
 describe('backfill des identités (0009)', () => {
   test('sème utilisateurs depuis les messages EXISTANTS : pseudo le plus récent par uid', () => {
     // Une base d'AVANT la table d'identités, avec un historique déjà là.
-    const db = baseMigreeAvant(9);
+    const db = migratedDbBefore(9);
     const ins =
       'INSERT INTO messages (id, rid, horodatage, auteur_id, auteur_nom, mis_a_jour_le) VALUES (?, ?, ?, ?, ?, ?)';
     // u1 : ancien pseudo (100) puis renommé (200). u2 : un seul message. u3 :
@@ -78,13 +78,13 @@ describe('backfill des identités (0009)', () => {
     db.prepare(ins).run('m3', 'r1', 3, 'u2', 'bob', 150);
     db.prepare(ins).run('m4', 'r1', 4, 'u3', null, 300);
 
-    appliquerMigration(db, 9);
+    applyMigration(db, 9);
 
-    const lignes = db
+    const rows = db
       .prepare('SELECT uid, username, mis_a_jour_le FROM utilisateurs ORDER BY uid')
       .all()
       .map((l) => ({ ...(l as Record<string, unknown>) }));
-    assert.deepEqual(lignes, [
+    assert.deepEqual(rows, [
       { uid: 'u1', username: 'alice-neuve', mis_a_jour_le: 200 },
       { uid: 'u2', username: 'bob', mis_a_jour_le: 150 },
     ]);
@@ -94,7 +94,7 @@ describe('backfill des identités (0009)', () => {
 
 describe('migrations', () => {
   test('le SQL généré s’applique sur une base vierge', () => {
-    const db = baseMigree();
+    const db = migratedDb();
     assert.deepEqual(tables(db), [
       'abonnements',
       'brouillons',
@@ -110,7 +110,7 @@ describe('migrations', () => {
   });
 
   test('les index qui portent les requêtes chaudes existent', () => {
-    const db = baseMigree();
+    const db = migratedDb();
     const index = db
       .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'")
       .all()
@@ -127,7 +127,7 @@ describe('migrations', () => {
   });
 
   test('la requête de l’écran salon utilise bien son index', () => {
-    const db = baseMigree();
+    const db = migratedDb();
     // `WHERE rid = ? ORDER BY horodatage DESC` est LA requête de l'étape 4.2 :
     // si elle passe par un balayage complet, la liste ramera dès 10 000 messages.
     const plan = db
@@ -145,62 +145,62 @@ describe('migrations', () => {
     // (rowid) — donc À L'ENVERS après une pagination d'historique (insérée du
     // plus récent au plus ancien). On départage par `id` : l'ordre doit être le
     // MÊME quel que soit l'ordre d'insertion. C'est la requête de l'écran salon.
-    const REQUETE =
+    const QUERY =
       'SELECT id FROM messages WHERE rid = ? ORDER BY horodatage DESC, id DESC LIMIT 50';
-    const inserer = (db: DatabaseSync, ids: string[]) => {
+    const insert = (db: DatabaseSync, ids: string[]) => {
       const stmt = db.prepare(
         'INSERT INTO messages (id, rid, horodatage, auteur_id) VALUES (?, ?, ?, ?)',
       );
       for (const id of ids) stmt.run(id, 'rid-1', 1000, 'u1');
     };
-    const lire = (db: DatabaseSync) =>
-      (db.prepare(REQUETE).all('rid-1') as { id: string }[]).map((r) => r.id);
+    const read = (db: DatabaseSync) =>
+      (db.prepare(QUERY).all('rid-1') as { id: string }[]).map((r) => r.id);
 
-    const croissant = baseMigree();
-    inserer(croissant, ['a', 'b', 'c']);
-    const decroissant = baseMigree();
-    inserer(decroissant, ['c', 'b', 'a']); // ordre d'insertion inverse (pagination)
+    const growing = migratedDb();
+    insert(growing, ['a', 'b', 'c']);
+    const descending = migratedDb();
+    insert(descending, ['c', 'b', 'a']); // ordre d'insertion inverse (pagination)
 
-    assert.deepEqual(lire(croissant), ['c', 'b', 'a']);
+    assert.deepEqual(read(growing), ['c', 'b', 'a']);
     // L'invariant clé : insertion inverse → MÊME ordre affiché (avant le
     // correctif, ceci rendait ['a', 'b', 'c']).
-    assert.deepEqual(lire(decroissant), lire(croissant));
-    croissant.close();
-    decroissant.close();
+    assert.deepEqual(read(descending), read(growing));
+    growing.close();
+    descending.close();
   });
 
   test('`id` déduplique les messages : une seconde insertion est refusée', () => {
-    const db = baseMigree();
-    const inserer = db.prepare(
+    const db = migratedDb();
+    const insert = db.prepare(
       'INSERT INTO messages (id, rid, horodatage, auteur_id) VALUES (?, ?, ?, ?)',
     );
-    inserer.run('msg-1', 'rid-1', 1000, 'u1');
-    assert.throws(() => inserer.run('msg-1', 'rid-1', 1000, 'u1'), /UNIQUE/);
+    insert.run('msg-1', 'rid-1', 1000, 'u1');
+    assert.throws(() => insert.run('msg-1', 'rid-1', 1000, 'u1'), /UNIQUE/);
     db.close();
   });
 
   test('`etat_synchro` est bien à clé composite (portée, flux)', () => {
-    const db = baseMigree();
-    const inserer = db.prepare(
+    const db = migratedDb();
+    const insert = db.prepare(
       'INSERT INTO etat_synchro (portee, flux, mis_a_jour_depuis) VALUES (?, ?, ?)',
     );
-    inserer.run('rid-1', 'messages', 1);
-    inserer.run('rid-1', 'abonnements', 1); // même portée, autre flux : accepté
-    inserer.run('*', 'messages', 1); // curseur global
-    assert.throws(() => inserer.run('rid-1', 'messages', 2), /UNIQUE/);
+    insert.run('rid-1', 'messages', 1);
+    insert.run('rid-1', 'abonnements', 1); // même portée, autre flux : accepté
+    insert.run('*', 'messages', 1); // curseur global
+    assert.throws(() => insert.run('rid-1', 'messages', 2), /UNIQUE/);
     db.close();
   });
 
   test('les valeurs par défaut évitent les colonnes nulles inattendues', () => {
-    const db = baseMigree();
+    const db = migratedDb();
     db.prepare('INSERT INTO salons (rid, type) VALUES (?, ?)').run('r1', 'c');
-    const salon = db.prepare('SELECT * FROM salons WHERE rid = ?').get('r1') as Record<
+    const room = db.prepare('SELECT * FROM salons WHERE rid = ?').get('r1') as Record<
       string,
       unknown
     >;
-    assert.equal(salon.chiffre, 0);
-    assert.equal(salon.lecture_seule, 0);
-    assert.equal(salon.mis_a_jour_le, 0);
+    assert.equal(room.chiffre, 0);
+    assert.equal(room.lecture_seule, 0);
+    assert.equal(room.mis_a_jour_le, 0);
 
     db.prepare('INSERT INTO sortie (id, rid, texte, cree_le) VALUES (?, ?, ?, ?)').run(
       's1',
@@ -208,12 +208,12 @@ describe('migrations', () => {
       'coucou',
       42,
     );
-    const envoi = db.prepare('SELECT * FROM sortie WHERE id = ?').get('s1') as Record<
+    const outbox = db.prepare('SELECT * FROM sortie WHERE id = ?').get('s1') as Record<
       string,
       unknown
     >;
-    assert.equal(envoi.statut, 'en-attente');
-    assert.equal(envoi.tentatives, 0);
+    assert.equal(outbox.statut, 'en-attente');
+    assert.equal(outbox.tentatives, 0);
     db.close();
   });
 });
@@ -227,13 +227,13 @@ describe('migrations', () => {
  */
 describe('ajout de file_id à la file de téléversements (0013)', () => {
   test('une base d’AVANT, avec des lignes, gagne la colonne sans rien perdre', () => {
-    const db = baseMigreeAvant(13);
+    const db = migratedDbBefore(13);
 
     db.prepare(
       'INSERT INTO televersements (id, rid, uri, nom, type, legende, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?)',
     ).run('t1', 'r1', 'file:///vieux.png', 'vieux.png', 'image/png', 'ma légende', 1000);
 
-    appliquerMigration(db, 13);
+    applyMigration(db, 13);
 
     const l = db.prepare('SELECT * FROM televersements WHERE id = ?').get('t1') as Record<
       string,
@@ -246,11 +246,11 @@ describe('ajout de file_id à la file de téléversements (0013)', () => {
 
     // Et elle est écrivable — c'est tout l'objet de la migration.
     db.prepare('UPDATE televersements SET file_id = ? WHERE id = ?').run('abc123', 't1');
-    const apres = db.prepare('SELECT file_id FROM televersements WHERE id = ?').get('t1') as Record<
+    const after = db.prepare('SELECT file_id FROM televersements WHERE id = ?').get('t1') as Record<
       string,
       unknown
     >;
-    assert.equal(apres.file_id, 'abc123');
+    assert.equal(after.file_id, 'abc123');
     db.close();
   });
 
@@ -259,35 +259,35 @@ describe('ajout de file_id à la file de téléversements (0013)', () => {
     // journal n'a pas sa clé `m00NN` dans le migrations.js généré. Le test
     // attrape l'oubli d'un `npm run db:generate`, qui ne se voit qu'au
     // lancement réel.
-    const journal = JSON.parse(readFileSync(join(DOSSIER, 'meta', '_journal.json'), 'utf8')) as {
+    const log = JSON.parse(readFileSync(join(FOLDER, 'meta', '_journal.json'), 'utf8')) as {
       entries: { idx: number; tag: string }[];
     };
-    const bundle = readFileSync(join(DOSSIER, 'migrations.js'), 'utf8');
-    const fichiers = readdirSync(DOSSIER).filter((f) => f.endsWith('.sql'));
-    assert.equal(journal.entries.length, fichiers.length, 'un .sql par entrée de journal');
-    for (const e of journal.entries) {
-      const cle = `m${String(e.idx).padStart(4, '0')}`;
-      assert.ok(bundle.includes(`${cle} from './${e.tag}.sql'`), `${cle} absent du bundle`);
-      assert.ok(fichiers.includes(`${e.tag}.sql`), `${e.tag}.sql absent du dossier`);
+    const bundle = readFileSync(join(FOLDER, 'migrations.js'), 'utf8');
+    const files = readdirSync(FOLDER).filter((f) => f.endsWith('.sql'));
+    assert.equal(log.entries.length, files.length, 'un .sql par entrée de journal');
+    for (const e of log.entries) {
+      const key = `m${String(e.idx).padStart(4, '0')}`;
+      assert.ok(bundle.includes(`${key} from './${e.tag}.sql'`), `${key} absent du bundle`);
+      assert.ok(files.includes(`${e.tag}.sql`), `${e.tag}.sql absent du dossier`);
     }
   });
 });
 
 describe('rôles des abonnements (0015)', () => {
   test('ajoute la colonne et oublie le curseur des abonnements, pas les autres', () => {
-    const db = baseMigreeAvant(15);
+    const db = migratedDbBefore(15);
     const ins = 'INSERT INTO etat_synchro (portee, flux, mis_a_jour_depuis) VALUES (?, ?, ?)';
     db.prepare(ins).run('*', 'abonnements', 100);
     db.prepare(ins).run('*', 'salons', 100);
     db.prepare(ins).run('r1', 'messages', 100);
 
-    appliquerMigration(db, 15);
+    applyMigration(db, 15);
 
-    const curseurs = db
+    const cursors = db
       .prepare('SELECT portee, flux FROM etat_synchro ORDER BY portee, flux')
       .all()
       .map((l) => ({ ...(l as Record<string, unknown>) }));
-    assert.deepEqual(curseurs, [
+    assert.deepEqual(cursors, [
       { portee: '*', flux: 'salons' },
       { portee: 'r1', flux: 'messages' },
     ]);

@@ -39,15 +39,15 @@ export type ServerProfile = {
 };
 
 /** Le champ `value` de `settings.public` est hétérogène : on ne le contraint pas. */
-type ReglagePublic = { _id: string; value: unknown };
+type PublicSetting = { _id: string; value: unknown };
 
 export class ServerError extends Error {
   readonly origin?: unknown;
 
-  constructor(message: string, origine?: unknown) {
+  constructor(message: string, origin?: unknown) {
     super(message);
     this.name = 'ErreurServeur';
-    this.origin = origine;
+    this.origin = origin;
   }
 }
 
@@ -58,32 +58,32 @@ export class ServerError extends Error {
  * Le **sous-chemin est conservé** : un Rocket.Chat servi derrière un reverse
  * proxy vit souvent sous `/chat`, et `new URL(…).origin` le supprimerait.
  */
-export function normalizeUrl(entree: string): string {
-  const brut = entree.trim();
-  if (brut === '') throw new ServerError('Adresse vide.');
-  const avecSchema = /^https?:\/\//i.test(brut) ? brut : `https://${brut}`;
+export function normalizeUrl(entry: string): string {
+  const raw = entry.trim();
+  if (raw === '') throw new ServerError('Adresse vide.');
+  const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
   let url: URL;
   try {
-    url = new URL(avecSchema);
+    url = new URL(withScheme);
   } catch (e) {
-    throw new ServerError(`Adresse invalide : ${brut}`, e);
+    throw new ServerError(`Adresse invalide : ${raw}`, e);
   }
   return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
 }
 
-function indexerReglages(charge: unknown): Map<string, unknown> {
-  const settings = (charge as { settings?: unknown } | null)?.settings;
+function indexSettings(payload: unknown): Map<string, unknown> {
+  const settings = (payload as { settings?: unknown } | null)?.settings;
   if (!Array.isArray(settings)) {
     throw new ServerError('`settings.public` ne contient pas de tableau `settings`.');
   }
   const index = new Map<string, unknown>();
-  for (const brut of settings as ReglagePublic[]) {
-    if (typeof brut?._id === 'string') index.set(brut._id, brut.value);
+  for (const raw of settings as PublicSetting[]) {
+    if (typeof raw?._id === 'string') index.set(raw._id, raw.value);
   }
   return index;
 }
 
-const vraiSi = (v: unknown): boolean => v === true;
+const trueIf = (v: unknown): boolean => v === true;
 
 /**
  * `/api/info` vit hors de `/api/v1/`, d'où `horsApiV1` — mais il hérite ainsi
@@ -91,84 +91,84 @@ const vraiSi = (v: unknown): boolean => v === true;
  * défensif. Non authentifié, il rend `{version: '8.5', success: true}` sur
  * 8.5.1 : la version MINEURE seulement, affichée à la connexion.
  */
-async function recupererVersion(
+async function fetchVersion(
   client: ClientRest,
   signal?: AbortSignal,
 ): Promise<string> {
-  const charge = await client.get<{ version?: unknown }>('api/info', {
+  const payload = await client.get<{ version?: unknown }>('api/info', {
     anonymous: true,
     outsideApiV1: true,
     signal,
   });
-  if (typeof charge.version !== 'string') {
+  if (typeof payload.version !== 'string') {
     throw new ServerError("La réponse ne ressemble pas à celle d'un Rocket.Chat.");
   }
-  return charge.version;
+  return payload.version;
 }
 
 export async function probeServer(
-  entree: string,
+  entry: string,
   signal?: AbortSignal,
   /** Même seam que `ClientRest` : les tests éprouvent la borne sans dormir. */
   dep?: Partial<Dependencies>,
 ): Promise<ServerProfile> {
-  const base = normalizeUrl(entree);
+  const base = normalizeUrl(entry);
   const client = new ClientRest(base, dep);
 
-  const controleur = new AbortController();
-  const relayer = () => controleur.abort();
-  signal?.addEventListener('abort', relayer);
-  if (signal?.aborted) controleur.abort();
+  const controller = new AbortController();
+  const relay = () => controller.abort();
+  signal?.addEventListener('abort', relay);
+  if (signal?.aborted) controller.abort();
 
   try {
     // Les deux appels sont indépendants : les enchaîner doublerait la latence.
     // `count=0` désactive la pagination, sans quoi on n'obtient qu'une page.
-    const pVersion = recupererVersion(client, controleur.signal);
-    const pReglages = client.get<unknown>('settings.public', {
+    const pVersion = fetchVersion(client, controller.signal);
+    const settingsPromise = client.get<unknown>('settings.public', {
       params: { count: 0 },
       anonymous: true,
-      signal: controleur.signal,
+      signal: controller.signal,
     });
     pVersion.catch(() => {});
-    pReglages.catch(() => {});
+    settingsPromise.catch(() => {});
 
     let version: string;
-    let brutReglages: unknown;
+    let rawSettings: unknown;
     try {
-      [version, brutReglages] = await Promise.all([pVersion, pReglages]);
+      [version, rawSettings] = await Promise.all([pVersion, settingsPromise]);
     } catch (e) {
-      controleur.abort(); // Ne pas laisser la requête sœur traîner.
+      controller.abort(); // Ne pas laisser la requête sœur traîner.
       if (e instanceof ServerError) throw e;
       if (e instanceof RestError) throw new ServerError(e.message, e);
       if (e instanceof Error && e.name === 'AbortError') throw e;
       throw new ServerError('Serveur injoignable.', e);
     }
 
-    const reglages = indexerReglages(brutReglages);
+    const settings = indexSettings(rawSettings);
 
-    const oauth = [...reglages.entries()]
-      .filter(([cle, valeur]) => cle.startsWith('Accounts_OAuth_') && valeur === true)
-      .map(([cle]) => cle.replace('Accounts_OAuth_', ''));
+    const oauth = [...settings.entries()]
+      .filter(([key, value]) => key.startsWith('Accounts_OAuth_') && value === true)
+      .map(([key]) => key.replace('Accounts_OAuth_', ''));
 
-    const siteUrl = reglages.get('Site_Url');
+    const siteUrl = settings.get('Site_Url');
 
     return {
       baseUrl: base,
       version,
       siteUrl: typeof siteUrl === 'string' ? siteUrl : null,
-      loginForm: vraiSi(reglages.get('Accounts_ShowFormLogin')),
+      loginForm: trueIf(settings.get('Accounts_ShowFormLogin')),
       twoFactor: {
-        active: vraiSi(reglages.get('Accounts_TwoFactorAuthentication_Enabled')),
-        totp: vraiSi(reglages.get('Accounts_TwoFactorAuthentication_By_TOTP_Enabled')),
-        email: vraiSi(reglages.get('Accounts_TwoFactorAuthentication_By_Email_Enabled')),
+        active: trueIf(settings.get('Accounts_TwoFactorAuthentication_Enabled')),
+        totp: trueIf(settings.get('Accounts_TwoFactorAuthentication_By_TOTP_Enabled')),
+        email: trueIf(settings.get('Accounts_TwoFactorAuthentication_By_Email_Enabled')),
       },
-      ldap: vraiSi(reglages.get('LDAP_Enable')),
+      ldap: trueIf(settings.get('LDAP_Enable')),
       oauth,
-      e2eeEnabled: vraiSi(reglages.get('E2E_Enable')),
-      filesProtected: vraiSi(reglages.get('FileUpload_ProtectFiles')),
-      avatarsProtected: vraiSi(reglages.get('Accounts_AvatarBlockUnauthenticatedAccess')),
+      e2eeEnabled: trueIf(settings.get('E2E_Enable')),
+      filesProtected: trueIf(settings.get('FileUpload_ProtectFiles')),
+      avatarsProtected: trueIf(settings.get('Accounts_AvatarBlockUnauthenticatedAccess')),
     };
   } finally {
-    signal?.removeEventListener('abort', relayer);
+    signal?.removeEventListener('abort', relay);
   }
 }

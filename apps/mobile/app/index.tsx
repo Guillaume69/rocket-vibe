@@ -33,10 +33,10 @@ import { Tappable } from '../ui/tappable.tsx';
  * liste se rafraîchit, aucun des deux ne connaît l'autre.
  */
 export default function HomeScreen() {
-  const { state: etat } = useSession();
+  const { state } = useSession();
   const c = useColors();
 
-  if (etat.phase === 'starting') {
+  if (state.phase === 'starting') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
         <ActivityIndicator color={c.accent} />
@@ -44,7 +44,7 @@ export default function HomeScreen() {
     );
   }
 
-  if (etat.phase === 'disconnected') return <Redirect href="/login" />;
+  if (state.phase === 'disconnected') return <Redirect href="/login" />;
 
   return (
     // Pas de saisie sur cet écran ; s'il en gagne une, passer à
@@ -53,61 +53,61 @@ export default function HomeScreen() {
       {/* En-tête à logo dessiné par l'écran : l'en-tête natif ne sait pas
           rendre le wordmark dégradé. */}
       <Stack.Screen options={{ headerShown: false }} />
-      <EnTeteListe c={c} />
-      <ListeSalons c={c} client={etat.client} />
+      <ListHeader c={c} />
+      <RoomList c={c} client={state.client} />
     </SafeAreaView>
   );
 }
 
 /** Bandeau supérieur : licorne + logotype dégradé, roue des réglages. */
-function EnTeteListe({ c }: { c: Colors }) {
-  const routeur = useRouter();
+function ListHeader({ c }: { c: Colors }) {
+  const router = useRouter();
   const t = useT();
   // Le rattrapage global (ouverture de l'app, retour au premier plan) allume
   // la barre — le cache est déjà là, ceci dit qu'on le rafraîchit.
-  const enSynchro = useActivity('global');
+  const syncing = useActivity('global');
   return (
     <View style={[styles.header, { borderBottomColor: c.softBorder }]}>
-      <View style={styles.enteteMarque}>
-        <Text style={styles.enteteLicorne}>🦄</Text>
+      <View style={styles.headerBrand}>
+        <Text style={styles.headerUnicorn}>🦄</Text>
         <Brand c={c} size={23} />
       </View>
       <Tappable
-        onPress={() => routeur.push('/settings')}
+        onPress={() => router.push('/settings')}
         android_ripple={{ color: c.ripple, borderless: true, radius: 22 }}
         hitSlop={8}
         accessibilityRole="button"
         accessibilityLabel={t('accueil.parametres')}
-        style={({ pressed }) => [styles.enteteRoue, { opacity: pressed ? 0.55 : 1 }]}
+        style={({ pressed }) => [styles.headerWheel, { opacity: pressed ? 0.55 : 1 }]}
       >
-        <Text style={styles.enteteRoueGlyphe}>⚙️</Text>
+        <Text style={styles.headerWheelGlyph}>⚙️</Text>
       </Tappable>
-      <SyncBar c={c} active={enSynchro} />
+      <SyncBar c={c} active={syncing} />
     </View>
   );
 }
 
-function ListeSalons({ c, client }: { c: Colors; client: ClientRest }) {
-  const synchro = useSync();
+function RoomList({ c, client }: { c: Colors; client: ClientRest }) {
+  const sync = useSync();
 
-  if (synchro.phase === 'error') {
+  if (sync.phase === 'error') {
     return (
       <View style={styles.center}>
-        <Text style={[styles.errorMessage, { color: c.errorText }]}>{synchro.message}</Text>
+        <Text style={[styles.errorMessage, { color: c.errorText }]}>{sync.message}</Text>
       </View>
     );
   }
-  if (synchro.phase !== 'ready') {
+  if (sync.phase !== 'ready') {
     return (
       <View style={styles.center}>
         <ActivityIndicator color={c.accent} />
       </View>
     );
   }
-  return <Salons c={c} base={synchro.base} client={client} e2e={synchro.e2e} />;
+  return <Rooms c={c} base={sync.base} client={client} e2e={sync.e2e} />;
 }
 
-function Salons({
+function Rooms({
   c,
   base,
   client,
@@ -119,7 +119,7 @@ function Salons({
   e2e: E2EEngine;
 }) {
   const t = useT();
-  const deverrouille = useE2EUnlocked(e2e);
+  const unlocked = useE2EUnlocked(e2e);
   // Deux requêtes vives, une PAR TABLE : `useRequeteVive` n'écoute
   // que la table du FROM. Avec une jointure, une écriture qui ne touche que
   // `abonnements` (lecture sur un autre appareil, salon masqué) ne
@@ -128,44 +128,44 @@ function Salons({
   // La requête ordonne déjà par récence décroissante (les `null` en dernier).
   // Les `filter` de regroupement ci-dessous PRÉSERVENT cet ordre : chaque
   // section reste du plus récent au plus ancien sans re-tri explicite.
-  const { data: lignesSalons } = useCoalescedLiveQuery(
+  const { data: roomRows } = useCoalescedLiveQuery(
     base.select().from(rooms).orderBy(desc(rooms.lastMessageTs)),
   );
-  const { data: lignesAbonnements } = useCoalescedLiveQuery(base.select().from(subscriptions));
+  const { data: subscriptionRows } = useCoalescedLiveQuery(base.select().from(subscriptions));
 
   // Fusion, masquage, remontée des non-lus, répartition, sections vides
   // retirées : la projection vit dans `ui/homeSections.ts`, testée sous
   // Node.
-  const repliees = useCollapsedSections();
-  const sections: SectionSalons[] = collapseSections(
-    buildSections(lignesSalons, lignesAbonnements, {
+  const collapsed = useCollapsedSections();
+  const sections: RoomsSection[] = collapseSections(
+    buildSections(roomRows, subscriptionRows, {
       nonLus: t('accueil.sectionNonLus'),
       favoris: t('accueil.sectionFavoris'),
       salons: t('accueil.sectionSalons'),
       messagesPrives: t('accueil.sectionMessagesPrives'),
     }),
-    repliees,
+    collapsed,
   );
 
   return (
-    <SectionList<EntreeSalon, SectionSalons>
+    <SectionList<RoomEntry, RoomsSection>
       sections={sections}
       keyExtractor={(item) => item.room.rid}
       renderItem={({ item }) => (
-        <LigneSalon
+        <RoomRow
           c={c}
           room={item.room}
           subscription={item.subscription}
           client={client}
-          unlocked={deverrouille}
+          unlocked={unlocked}
         />
       )}
       // Un en-tête isolé (une seule section peuplée) n'apprend rien : on le tait.
       renderSectionHeader={({ section }) =>
-        sections.length > 1 ? <EnTeteSection c={c} section={section} /> : null
+        sections.length > 1 ? <SectionHeader c={c} section={section} /> : null
       }
       stickySectionHeadersEnabled={false}
-      ListHeaderComponent={<LigneNouvelleConversation c={c} />}
+      ListHeaderComponent={<NewConversationRow c={c} />}
       ListEmptyComponent={
         <Text style={[styles.empty, { color: c.dimmed }]}>{t('accueil.listeVide')}</Text>
       }
@@ -174,39 +174,39 @@ function Salons({
   );
 }
 
-type LigneDeSalon = typeof rooms.$inferSelect;
-type LigneDAbonnement = typeof subscriptions.$inferSelect;
-type EntreeSalon = HomeEntry<LigneDeSalon, LigneDAbonnement>;
-type SectionSalons = DisplayedSection<EntreeSalon>;
+type RoomRecord = typeof rooms.$inferSelect;
+type SubscriptionRow = typeof subscriptions.$inferSelect;
+type RoomEntry = HomeEntry<RoomRecord, SubscriptionRow>;
+type RoomsSection = DisplayedSection<RoomEntry>;
 
 /**
  * Titre de section de la liste : « Non lus », « Salons », « Messages privés ».
  * Un appui la replie ; repliée, elle affiche son effectif.
  */
-function EnTeteSection({ c, section }: { c: Colors; section: SectionSalons }) {
+function SectionHeader({ c, section }: { c: Colors; section: RoomsSection }) {
   const t = useT();
-  const effectif = t('accueil.sectionConversations', { n: section.total });
+  const count = t('accueil.sectionConversations', { n: section.total });
   return (
     <Tappable
       onPress={() => toggleCollapsedSection(section.key)}
       android_ripple={{ color: c.ripple }}
       accessibilityRole="button"
-      accessibilityLabel={section.collapsed ? `${section.title}, ${effectif}` : section.title}
+      accessibilityLabel={section.collapsed ? `${section.title}, ${count}` : section.title}
       accessibilityState={{ expanded: !section.collapsed }}
-      style={[styles.enteteSection, { backgroundColor: c.background }]}
+      style={[styles.sectionHeader, { backgroundColor: c.background }]}
     >
       <Text
         style={[
-          styles.enteteSectionChevron,
+          styles.sectionHeaderChevron,
           { color: c.dimmed },
-          !section.collapsed && styles.enteteSectionChevronOuvert,
+          !section.collapsed && styles.sectionHeaderChevronOpen,
         ]}
       >
         ›
       </Text>
-      <Text style={[styles.enteteSectionTexte, { color: c.dimmed }]}>{section.title}</Text>
+      <Text style={[styles.sectionHeaderText, { color: c.dimmed }]}>{section.title}</Text>
       {section.collapsed && (
-        <Text style={[styles.enteteSectionEffectif, { color: c.tertiaryText }]}>
+        <Text style={[styles.sectionHeaderCount, { color: c.tertiaryText }]}>
           {section.total}
         </Text>
       )}
@@ -214,29 +214,29 @@ function EnTeteSection({ c, section }: { c: Colors; section: SectionSalons }) {
   );
 }
 
-function LigneSalon({
+function RoomRow({
   c,
-  room: salon,
-  subscription: abonnement,
+  room,
+  subscription,
   client,
-  unlocked: deverrouille,
+  unlocked,
 }: {
   c: Colors;
-  room: LigneDeSalon;
-  subscription: LigneDAbonnement | null;
+  room: RoomRecord;
+  subscription: SubscriptionRow | null;
   client: ClientRest;
   /** E2EE déverrouillé sur l'appareil — pilote l'aperçu et l'icône cadenas. */
   unlocked: boolean;
 }) {
-  const routeur = useRouter();
+  const router = useRouter();
   const t = useT();
   // Pastille de présence (8.4), DM à deux seulement (`dm_autre_uid` est null
   // ailleurs). Statut inconnu, ou diffusion coupée côté serveur
   // (Presence_broadcast_disabled) : rien — l'UI n'en dépend jamais.
-  const statut = usePresence(salon.dmOtherUid);
-  const nom = salon.displayName ?? salon.name ?? salon.rid;
-  const nonLus = abonnement?.unread ?? 0;
-  const enAlerte = abonnement?.alert === true || nonLus > 0;
+  const status = usePresence(room.dmOtherUid);
+  const name = room.displayName ?? room.name ?? room.rid;
+  const unread = subscription?.unread ?? 0;
+  const alerting = subscription?.alert === true || unread > 0;
   // Salon chiffré : tant qu'aucun message n'est déchiffré (`dernier_message`
   // null — le ciphertext n'est jamais stocké), le placeholder cadenas. Une fois
   // déverrouillé, `majApercuChiffre` y a posé le dernier message clair.
@@ -245,11 +245,11 @@ function LigneSalon({
   // vidé — rien à écrire —, ou dernier message sans texte à montrer, auquel cas
   // `dernier_message_type` dit lequel et le libellé se traduit ICI, au rendu :
   // la langue est commutable à chaud, une phrase figée en base y résisterait.
-  const apercu =
-    salon.encrypted && salon.lastMessage === null
+  const preview =
+    room.encrypted && room.lastMessage === null
       ? t('accueil.messagesChiffres')
-      : ((salon.lastMessage !== null ? textPreview(salon.lastMessage) : null) ??
-        systemPreview(t, salon.lastMessageType) ??
+      : ((room.lastMessage !== null ? textPreview(room.lastMessage) : null) ??
+        systemPreview(t, room.lastMessageType) ??
         ' ');
 
   return (
@@ -258,7 +258,7 @@ function LigneSalon({
     // Fabric (vérifié sur l'émulateur), seul le clip d'un PARENT le découpe.
     <View style={styles.rowWrapper}>
       <Tappable
-        onPress={() => routeur.push({ pathname: '/salon/[rid]', params: { rid: salon.rid } })}
+        onPress={() => router.push({ pathname: '/salon/[rid]', params: { rid: room.rid } })}
         android_ripple={{ color: c.ripple }}
         unstable_pressDelay={LIST_PRESS_DELAY}
         style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
@@ -266,20 +266,20 @@ function LigneSalon({
       <View>
         <RoomAvatar
           c={c}
-          name={nom}
-          type={salon.type}
-          encrypted={salon.encrypted}
-          encryptedUnlocked={deverrouille}
-          rid={salon.rid}
-          dmOtherUid={salon.dmOtherUid}
-          avatarEtag={salon.avatarEtag}
+          name={name}
+          type={room.type}
+          encrypted={room.encrypted}
+          encryptedUnlocked={unlocked}
+          rid={room.rid}
+          dmOtherUid={room.dmOtherUid}
+          avatarEtag={room.avatarEtag}
           client={client}
         />
-        {statut !== null && (
+        {status !== null && (
           <View
             style={[
               styles.badge,
-              { backgroundColor: presenceColors(c)[statut], borderColor: c.background },
+              { backgroundColor: presenceColors(c)[status], borderColor: c.background },
             ]}
           />
         )}
@@ -288,37 +288,37 @@ function LigneSalon({
       <View style={styles.rowBody}>
         <Text
           style={[
-            styles.nomSalon,
-            { color: enAlerte ? c.text : c.secondaryText },
-            enAlerte && styles.nomEnAlerte,
+            styles.roomName,
+            { color: alerting ? c.text : c.secondaryText },
+            alerting && styles.alertingName,
           ]}
           numberOfLines={1}
         >
-          {salon.encrypted && <Text style={styles.encryptedBadge}>🔒 </Text>}
-          {nom}
+          {room.encrypted && <Text style={styles.encryptedBadge}>🔒 </Text>}
+          {name}
         </Text>
         <Text
-          style={[styles.preview, { color: c.dimmed }, salon.encrypted && styles.apercuChiffre]}
+          style={[styles.preview, { color: c.dimmed }, room.encrypted && styles.encryptedPreview]}
           numberOfLines={1}
         >
-          {apercu}
+          {preview}
         </Text>
       </View>
 
-        <UnreadBadge c={c} n={nonLus} />
+        <UnreadBadge c={c} n={unread} />
       </Tappable>
     </View>
   );
 }
 
 /** Première ligne, fixe en tête de liste : démarrer une conversation. */
-function LigneNouvelleConversation({ c }: { c: Colors }) {
-  const routeur = useRouter();
+function NewConversationRow({ c }: { c: Colors }) {
+  const router = useRouter();
   const t = useT();
   return (
     <View style={styles.rowWrapper}>
       <Tappable
-        onPress={() => routeur.push('/search')}
+        onPress={() => router.push('/search')}
         android_ripple={{ color: c.ripple }}
         unstable_pressDelay={LIST_PRESS_DELAY}
         style={[styles.row, { borderBottomColor: c.softBorder, borderBottomWidth: 1 }]}
@@ -326,9 +326,9 @@ function LigneNouvelleConversation({ c }: { c: Colors }) {
         <AvatarTile
           c={c}
           deg={[c.accent, c.yellow] as const}
-          child={<Text style={[styles.plus, { color: c.onAccent }]}>＋</Text>}
+          child={<Text style={[styles.more, { color: c.onAccent }]}>＋</Text>}
         />
-        <Text style={[styles.nouvelle, { color: c.accent }]}>
+        <Text style={[styles.next, { color: c.accent }]}>
           {t('accueil.nouvelleConversation')}
         </Text>
       </Tappable>
@@ -347,10 +347,10 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
   },
-  enteteMarque: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  enteteLicorne: { fontSize: 22 },
-  enteteRoue: { padding: 4 },
-  enteteRoueGlyphe: { fontSize: 21 },
+  headerBrand: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  headerUnicorn: { fontSize: 22 },
+  headerWheel: { padding: 4 },
+  headerWheelGlyph: { fontSize: 21 },
   content: { paddingBottom: 8 },
   // Le rayon vit sur l'ENVELOPPE : c'est son clip (`overflow`) qui découpe
   // l'ondulation — borderRadius sur le Pressable lui-même est ignoré par le
@@ -363,7 +363,7 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     gap: 12,
   },
-  plus: { fontFamily: FONTS.titreFort, fontSize: 24 },
+  more: { fontFamily: FONTS.titleStrong, fontSize: 24 },
   badge: {
     position: 'absolute',
     bottom: -2,
@@ -374,14 +374,14 @@ const styles = StyleSheet.create({
     borderWidth: 2.5,
   },
   rowBody: { flex: 1, gap: 2 },
-  nomSalon: { fontFamily: FONTS.corpsGras, fontSize: 15 },
-  nomEnAlerte: { fontFamily: FONTS.corpsFort },
+  roomName: { fontFamily: FONTS.bodyBold, fontSize: 15 },
+  alertingName: { fontFamily: FONTS.bodyStrong },
   preview: { fontFamily: FONTS.body, fontSize: 12.5 },
-  apercuChiffre: { fontStyle: 'italic' },
+  encryptedPreview: { fontStyle: 'italic' },
   /** Petit cadenas devant le nom d'un salon chiffré : « ce salon est E2EE ». */
   encryptedBadge: { fontSize: 12 },
-  nouvelle: { fontFamily: FONTS.title, fontSize: 15.5 },
-  enteteSection: {
+  next: { fontFamily: FONTS.title, fontSize: 15.5 },
+  sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -389,15 +389,15 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 6,
   },
-  enteteSectionChevron: { fontFamily: FONTS.title, fontSize: 16, lineHeight: 16, width: 10 },
-  enteteSectionChevronOuvert: { transform: [{ rotate: '90deg' }] },
-  enteteSectionEffectif: { fontFamily: FONTS.corpsFort, fontSize: 11 },
-  enteteSectionTexte: {
-    fontFamily: FONTS.corpsFort,
+  sectionHeaderChevron: { fontFamily: FONTS.title, fontSize: 16, lineHeight: 16, width: 10 },
+  sectionHeaderChevronOpen: { transform: [{ rotate: '90deg' }] },
+  sectionHeaderCount: { fontFamily: FONTS.bodyStrong, fontSize: 11 },
+  sectionHeaderText: {
+    fontFamily: FONTS.bodyStrong,
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
   empty: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: FONTS.body },
-  errorMessage: { fontFamily: FONTS.corpsGras, fontSize: 14, textAlign: 'center' },
+  errorMessage: { fontFamily: FONTS.bodyBold, fontSize: 14, textAlign: 'center' },
 });

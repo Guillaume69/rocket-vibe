@@ -21,7 +21,7 @@
 
 import { invalidateSessionToken, sessionToken } from './sessionToken.ts';
 
-const charges = new Map<string, number>();
+const payloads = new Map<string, number>();
 
 /**
  * Après un chargement de fil ABOUTI — jamais sur un échec réseau, sinon un fil
@@ -30,17 +30,17 @@ const charges = new Map<string, number>();
  * `jeton` : capturé au lancement du chargement, refusé s'il a changé depuis.
  * Voir [[jetonSession]].
  */
-export function markThreadLoaded(filId: string, generation: number, jeton: number): void {
-  if (jeton !== sessionToken()) return;
-  charges.set(filId, generation);
+export function markThreadLoaded(threadId: string, generation: number, token: number): void {
+  if (token !== sessionToken()) return;
+  payloads.set(threadId, generation);
 }
 
-export function threadLoadedUnder(filId: string, generation: number): boolean {
-  return charges.get(filId) === generation;
+export function threadLoadedUnder(threadId: string, generation: number): boolean {
+  return payloads.get(threadId) === generation;
 }
 
 /** Fin de session / changement de serveur : plus rien de ce cache ne vaut. */
 export function forgetLoadedThreads(): void {
-  charges.clear();
+  payloads.clear();
   invalidateSessionToken();
 }

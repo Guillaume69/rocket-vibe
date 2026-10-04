@@ -15,9 +15,9 @@ import { FONTS, type Colors } from './theme.ts';
 
 export function ReplyBanner({
   c,
-  target: cible,
+  target,
   client,
-  onCancel: surAnnuler,
+  onCancel,
 }: {
   c: Colors;
   target: ReplyTarget;
@@ -26,27 +26,27 @@ export function ReplyBanner({
   onCancel: () => void;
 }) {
   const t = useT();
-  const apercu = cible.preview?.trim() ?? '';
+  const preview = target.preview?.trim() ?? '';
   return (
     <View style={[styles.banner, { borderTopColor: c.softBorder }]}>
-      <View style={[styles.trait, { backgroundColor: c.accent }]} />
-      {cible.previewImage !== null && (
+      <View style={[styles.bar, { backgroundColor: c.accent }]} />
+      {target.previewImage !== null && (
         <Image
-          source={{ uri: protectedFileUrl(client, cible.previewImage) }}
+          source={{ uri: protectedFileUrl(client, target.previewImage) }}
           style={styles.thumbnail}
           resizeMode="cover"
         />
       )}
       <View style={styles.body}>
         <Text style={[styles.title, { color: c.accent }]} numberOfLines={1}>
-          {t('salon.reponseA', { nom: cible.author ?? '?' })}
+          {t('salon.reponseA', { nom: target.author ?? '?' })}
         </Text>
-        <Text style={[styles.extrait, { color: c.dimmed }]} numberOfLines={1}>
-          {apercu !== '' ? apercu : t('commun.pieceJointe')}
+        <Text style={[styles.excerpt, { color: c.dimmed }]} numberOfLines={1}>
+          {preview !== '' ? preview : t('commun.pieceJointe')}
         </Text>
       </View>
       <Pressable
-        onPress={surAnnuler}
+        onPress={onCancel}
         hitSlop={10}
         accessibilityRole="button"
         accessibilityLabel={t('salon.annulerReponse')}
@@ -68,11 +68,11 @@ const styles = StyleSheet.create({
     paddingBottom: 2,
     borderTopWidth: 1,
   },
-  trait: { width: 3, alignSelf: 'stretch', borderRadius: 2 },
+  bar: { width: 3, alignSelf: 'stretch', borderRadius: 2 },
   thumbnail: { width: 34, height: 34, borderRadius: 6, backgroundColor: '#00000010' },
   body: { flex: 1, minWidth: 0, gap: 1 },
-  title: { fontFamily: FONTS.corpsGras, fontSize: 12.5 },
-  extrait: { fontFamily: FONTS.body, fontSize: 13, fontStyle: 'italic' },
+  title: { fontFamily: FONTS.bodyBold, fontSize: 12.5 },
+  excerpt: { fontFamily: FONTS.body, fontSize: 13, fontStyle: 'italic' },
   close: { padding: 4 },
   cross: { fontSize: 15 },
 });

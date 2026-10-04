@@ -16,10 +16,10 @@ import { createRcProvider } from './rocketchat/index.ts';
 export function createProvider(
   session: Session,
   client: ClientRest,
-  genererId: () => string,
+  generateId: () => string,
 ): Provider {
   switch (session.genre) {
     case 'rocketchat':
-      return createRcProvider(session, client, genererId);
+      return createRcProvider(session, client, generateId);
   }
 }

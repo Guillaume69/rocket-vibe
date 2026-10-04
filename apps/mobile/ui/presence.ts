@@ -10,7 +10,7 @@ import type { TranslationKey } from './messages.ts';
 import { useSync } from './sync.tsx';
 import type { Colors } from './theme.ts';
 
-const RIEN = () => {};
+const NOTHING = () => {};
 
 /**
  * Pastilles de présence, alimentées par les JETONS DU THÈME — la seule table
@@ -39,23 +39,23 @@ export const PRESENCE_KEYS: Record<PresenceStatus, TranslationKey> = {
  * diffuser, et l'UI ne doit jamais en dépendre).
  */
 export function usePresence(uid: string | null): PresenceStatus | null {
-  const synchro = useSync();
-  const presence = synchro.phase === 'ready' ? synchro.presence : null;
+  const sync = useSync();
+  const presence = sync.phase === 'ready' ? sync.presence : null;
 
   // Identités STABLES : un `subscribe` recréé à chaque rendu ferait
   // désabonner/réabonner chaque ligne à chaque re-rendu de la liste. Et une
   // ligne sans uid (canal) ne s'abonne pas du tout — sinon chaque événement
   // de présence réveillerait toutes les lignes visibles.
-  const abonner = useCallback(
-    (relire: () => void) =>
-      presence === null || uid === null ? RIEN : presence.onChange(relire),
+  const subscribe = useCallback(
+    (reread: () => void) =>
+      presence === null || uid === null ? NOTHING : presence.onChange(reread),
     [presence, uid],
   );
-  const lire = useCallback(
+  const read = useCallback(
     () => (uid === null || presence === null ? null : presence.statusOf(uid)),
     [presence, uid],
   );
-  return useSyncExternalStore(abonner, lire);
+  return useSyncExternalStore(subscribe, read);
 }
 
 // L'AUTRE participant d'un DM ne se DÉRIVE PAS du rid : sur 8.5 le rid d'un

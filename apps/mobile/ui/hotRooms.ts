@@ -30,20 +30,20 @@
 
 import { invalidateSessionToken, sessionToken } from './sessionToken.ts';
 
-type Relacher = () => void;
+type Release = () => void;
 
 const MAX = 3;
 
 /** Ordre d'insertion = ordre LRU (le premier est le plus anciennement quitté). */
-const chauds = new Map<string, { generation: number; releases: Relacher[] }>();
+const hot = new Map<string, { generation: number; releases: Release[] }>();
 
 /**
  * Ce salon est-il resté écouté sans interruption depuis sa dernière visite ?
  * Si oui, aucune lecture de rattrapage n'est nécessaire à sa réouverture.
  */
 export function roomCovered(rid: string, generation: number): boolean {
-  const entree = chauds.get(rid);
-  return entree !== undefined && entree.generation === generation;
+  const entry = hot.get(rid);
+  return entry !== undefined && entry.generation === generation;
 }
 
 /**
@@ -65,34 +65,34 @@ export function roomCovered(rid: string, generation: number): boolean {
 export function keepWarm(
   rid: string,
   generation: number,
-  relachers: Relacher[],
-  jeton: number,
+  releases: Release[],
+  token: number,
 ): void {
-  if (jeton !== sessionToken()) {
-    for (const relacher of relachers) relacher();
+  if (token !== sessionToken()) {
+    for (const release of releases) release();
     return;
   }
-  const ancien = chauds.get(rid);
-  if (ancien !== undefined) for (const relacher of ancien.releases) relacher();
+  const old = hot.get(rid);
+  if (old !== undefined) for (const release of old.releases) release();
   // Réinsertion en fin de Map : ce salon devient le plus récemment quitté.
-  chauds.delete(rid);
-  chauds.set(rid, { generation, releases: relachers });
+  hot.delete(rid);
+  hot.set(rid, { generation, releases });
 
-  while (chauds.size > MAX) {
-    const plusAncien = chauds.keys().next().value;
-    if (plusAncien === undefined) break;
-    const sortant = chauds.get(plusAncien);
-    if (sortant !== undefined) for (const relacher of sortant.releases) relacher();
-    chauds.delete(plusAncien);
+  while (hot.size > MAX) {
+    const oldest = hot.keys().next().value;
+    if (oldest === undefined) break;
+    const outgoing = hot.get(oldest);
+    if (outgoing !== undefined) for (const release of outgoing.releases) release();
+    hot.delete(oldest);
   }
 }
 
 /** Fin de session / changement de serveur : on ferme tout ce qu'on tenait. */
 export function releaseHotRooms(): void {
-  for (const entree of chauds.values()) {
-    for (const relacher of entree.releases) relacher();
+  for (const entry of hot.values()) {
+    for (const release of entry.releases) release();
   }
-  chauds.clear();
+  hot.clear();
   // Et plus rien de cette session n'a le droit de repeupler la table : les
   // écrans encore montés vont appeler `garderAuChaud` en se démontant.
   invalidateSessionToken();

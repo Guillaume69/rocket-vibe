@@ -14,18 +14,18 @@ export type SendQuality = 'reduced' | 'original';
 /** Sous ce poids, réduire une image n'apporte rien — elle part telle quelle. */
 export const IMAGE_COMPRESSION_THRESHOLD_BYTES = 500_000;
 
-type PieceMedia = { type: string; size: number | null };
+type MediaAttachment = { type: string; size: number | null };
 
 /**
  * Image assez lourde pour mériter le JPEG 1920 px. Le GIF est exclu (le JPEG
  * tuerait l'animation), et un poids inconnu passe tel quel — on ne sait pas si
  * la réduction paierait.
  */
-export function imageCompressible(fichier: PieceMedia): boolean {
+export function imageCompressible(file: MediaAttachment): boolean {
   return (
-    fichier.type.startsWith('image/') &&
-    fichier.type !== 'image/gif' &&
-    (fichier.size ?? 0) > IMAGE_COMPRESSION_THRESHOLD_BYTES
+    file.type.startsWith('image/') &&
+    file.type !== 'image/gif' &&
+    (file.size ?? 0) > IMAGE_COMPRESSION_THRESHOLD_BYTES
   );
 }
 
@@ -35,11 +35,11 @@ export function imageCompressible(fichier: PieceMedia): boolean {
  * réencodage divise. Le garde-fou est APRÈS coup : si la sortie n'est pas plus
  * légère que l'entrée, `reduireVideoSiPossible` rend l'original.
  */
-export function videoCompressible(fichier: PieceMedia): boolean {
-  return fichier.type.startsWith('video/');
+export function videoCompressible(file: MediaAttachment): boolean {
+  return file.type.startsWith('video/');
 }
 
 /** Les pastilles Réduite/Originale ne s'affichent que si le choix a un effet. */
-export function compressionOffered(fichier: PieceMedia): boolean {
-  return imageCompressible(fichier) || videoCompressible(fichier);
+export function compressionOffered(file: MediaAttachment): boolean {
+  return imageCompressible(file) || videoCompressible(file);
 }

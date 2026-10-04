@@ -20,11 +20,11 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
  * chaque rendu bouclerait débounce → réponse → rendu → débounce.
  */
 export function useDebouncedSearch<T>(
-  requete: string,
-  vide: T,
-  chercher: (propre: string) => Promise<T>,
-  messageEchec: string,
-  delaiMs = 300,
+  query: string,
+  empty: T,
+  search: (clean: string) => Promise<T>,
+  failureMessage: string,
+  timeoutMs = 300,
 ): {
   results: T;
   message: string | null;
@@ -42,39 +42,39 @@ export function useDebouncedSearch<T>(
    */
   answered: string;
 } {
-  const [resultats, setResultats] = useState<T>(vide);
+  const [results, setResults] = useState<T>(empty);
   const [message, setMessage] = useState<string | null>(null);
-  const [repondue, setRepondue] = useState('');
+  const [answered, setAnswered] = useState('');
   const sequence = useRef(0);
-  const propre = requete.trim();
+  const clean = query.trim();
 
   useEffect(() => {
     const n = ++sequence.current;
-    const minuterie = setTimeout(
+    const timer = setTimeout(
       () => {
-        if (propre === '') {
-          setResultats(vide);
+        if (clean === '') {
+          setResults(empty);
           setMessage(null);
-          setRepondue('');
+          setAnswered('');
           return;
         }
-        chercher(propre)
+        search(clean)
           .then((r) => {
             if (sequence.current !== n) return;
-            setResultats(r);
+            setResults(r);
             setMessage(null);
-            setRepondue(propre);
+            setAnswered(clean);
           })
           .catch(() => {
             if (sequence.current !== n) return;
-            setMessage(messageEchec);
-            setRepondue(propre);
+            setMessage(failureMessage);
+            setAnswered(clean);
           });
       },
-      propre === '' ? 0 : delaiMs,
+      clean === '' ? 0 : timeoutMs,
     );
-    return () => clearTimeout(minuterie);
-  }, [propre, vide, chercher, messageEchec, delaiMs]);
+    return () => clearTimeout(timer);
+  }, [clean, empty, search, failureMessage, timeoutMs]);
 
-  return { results: resultats, message, setMessage, answered: repondue };
+  return { results, message, setMessage, answered };
 }

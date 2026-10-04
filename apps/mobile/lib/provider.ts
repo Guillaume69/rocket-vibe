@@ -45,7 +45,7 @@ export type SyncChange =
  */
 export type ProviderKind = 'rocketchat';
 
-const GENRES: readonly ProviderKind[] = ['rocketchat'];
+const KINDS: readonly ProviderKind[] = ['rocketchat'];
 
 /**
  * Ramène une valeur stockée à un `Genre` connu. Les sessions d'avant l'ajout du
@@ -53,9 +53,9 @@ const GENRES: readonly ProviderKind[] = ['rocketchat'];
  * possible à l'époque). Migration sans écriture — la valeur se corrige à la
  * lecture. Défaut `rocketchat` pour toute valeur inconnue.
  */
-export function normalizeProviderKind(valeur: unknown): ProviderKind {
-  return typeof valeur === 'string' && (GENRES as readonly string[]).includes(valeur)
-    ? (valeur as ProviderKind)
+export function normalizeProviderKind(value: unknown): ProviderKind {
+  return typeof value === 'string' && (KINDS as readonly string[]).includes(value)
+    ? (value as ProviderKind)
     : 'rocketchat';
 }
 
@@ -70,7 +70,7 @@ export type Capabilities = {
   presence: boolean;
   push: boolean;
   e2ee: boolean;
-  emojisCustom: boolean;
+  customEmojis: boolean;
   videoCall: boolean;
   search: boolean;
   threadTemplate: 'tmid' | 'root_id';
@@ -88,10 +88,10 @@ export interface Listener {
   readonly state: DdpState;
   connect(authToken: string): Promise<void>;
   /** Enregistre une souscription désirée ; rend la fonction de relâche. Rejouée à chaque (re)connexion. */
-  subscribe(nom: string, cleEvenement: string): () => void;
+  subscribe(name: string, eventKey: string): () => void;
   /** Rend la fonction de désabonnement. */
-  onEvent(ecouteur: (evenement: DdpEvent) => void): () => void;
-  onLoss(ecouteur: () => void): () => void;
+  onEvent(listener: (event: DdpEvent) => void): () => void;
+  onLoss(listener: () => void): () => void;
   close(): void;
   checkAlive(): Promise<boolean>;
   /**
@@ -123,11 +123,11 @@ export type Translation =
  */
 export interface Translator {
   /** Flux temps réel : un `Evenement` du `Listener` → un changement, une anomalie, ou un silence. */
-  translateEvent(evenement: DdpEvent): Translation;
+  translateEvent(event: DdpEvent): Translation;
   /** Lots REST (rattrapage, historique) : document brut → ligne locale, ou null si irrécupérable. */
-  toMessage(brut: Record<string, unknown>): MessageLocal | null;
-  toRoom(brut: Record<string, unknown>): LocalRoom | null;
-  toSubscription(brut: Record<string, unknown>): LocalSubscription | null;
+  toMessage(raw: Record<string, unknown>): MessageLocal | null;
+  toRoom(raw: Record<string, unknown>): LocalRoom | null;
+  toSubscription(raw: Record<string, unknown>): LocalSubscription | null;
 }
 
 /**
@@ -140,13 +140,13 @@ export interface Translator {
  * ne définit pas à l'avance.
  */
 export interface ProviderActions {
-  react(rid: string, mid: string, emoji: string, mettre: boolean): Promise<void>;
+  react(rid: string, mid: string, emoji: string, put: boolean): Promise<void>;
   /** `chiffreur` : le message est chiffré, sa nouvelle version aussi. */
-  edit(rid: string, mid: string, texte: string, chiffreur?: OutboxEncryptor): Promise<void>;
+  edit(rid: string, mid: string, text: string, encryptor?: OutboxEncryptor): Promise<void>;
   delete(rid: string, mid: string): Promise<void>;
   pin(rid: string, mid: string): Promise<void>;
   unpin(rid: string, mid: string): Promise<void>;
-  star(rid: string, mid: string, mettre: boolean): Promise<void>;
+  star(rid: string, mid: string, put: boolean): Promise<void>;
   /** Les messages épinglés d'un salon, les plus récents d'abord. Une requête par appel. */
   listPinned(rid: string): Promise<MessageLocal[]>;
   /** Mes messages favoris dans un salon, les plus récents d'abord. */
@@ -167,7 +167,7 @@ export const ROCKETCHAT_CAPABILITIES: Capabilities = {
   presence: true,
   push: true,
   e2ee: true,
-  emojisCustom: true,
+  customEmojis: true,
   videoCall: true,
   search: true,
   threadTemplate: 'tmid',
@@ -183,9 +183,9 @@ export interface Outbox {
    *  (aperçu d'une citation) — jamais envoyées, écrasées par l'écho serveur. */
   send(
     rid: string,
-    texte: string,
-    filId?: string | null,
-    jointesLocales?: string | null,
+    text: string,
+    threadId?: string | null,
+    localAttachments?: string | null,
   ): Promise<string>;
   process(): Promise<void>;
   discard(id: string): Promise<void>;
@@ -195,13 +195,13 @@ export interface Outbox {
 export interface FileOutbox {
   readonly progress: Map<string, number>;
   /** S'abonner aux changements de `progression` — rend le désabonnement. */
-  subscribe(auditeur: () => void): () => void;
+  subscribe(listener: () => void): () => void;
   /** Rejette (`ErreurValidation`) une pièce que le serveur refuserait — sans rien envoyer. */
-  validate(fichier: { type: string; size: number | null }, rid?: string): Promise<void>;
+  validate(file: { type: string; size: number | null }, rid?: string): Promise<void>;
   send(
     rid: string,
-    fichier: FileToSend & { size: number | null },
-    legende?: string,
+    file: FileToSend & { size: number | null },
+    caption?: string,
   ): Promise<void>;
   process(): Promise<void>;
   /**
@@ -243,7 +243,7 @@ export interface Provider {
    * Ce qu'un événement du transport me dit à moi seul dans un salon (la
    * réponse d'une commande slash), ou `null` s'il ne s'agit pas de cela.
    */
-  privateNote(evenement: DdpEvent): { rid: string; text: string } | null;
+  privateNote(event: DdpEvent): { rid: string; text: string } | null;
   /**
    * Une page d'historique du salon (les plus récents d'abord), ingérée dans le
    * moteur. `type` : le type du salon tel que stocké (`salons.type`) ; `latest` :
@@ -251,7 +251,7 @@ export interface Provider {
    * horodatage de la page : le critère de recul de la pagination de l'écran.
    */
   loadHistory(
-    moteur: SyncEngine,
+    engine: SyncEngine,
     rid: string,
     type: string,
     latest?: string,
@@ -260,19 +260,19 @@ export interface Provider {
    * Le fil `filId` en entier (racine comprise), ingéré dans le moteur.
    * Rejouable — mêmes upserts idempotents que le reste de la synchro.
    */
-  loadThread(moteur: SyncEngine, filId: string, estAbandonne: () => boolean): Promise<void>;
-  createOutbox(depot: OutboxStore, ingerer: Ingest, chiffreur?: OutboxEncryptor): Outbox;
+  loadThread(engine: SyncEngine, threadId: string, isDiscarded: () => boolean): Promise<void>;
+  createOutbox(store: OutboxStore, ingest: Ingest, encryptor?: OutboxEncryptor): Outbox;
   createUploadQueue(
-    depot: UploadStore,
+    store: UploadStore,
     transport: TransportUpload,
-    ingerer: Ingest,
+    ingest: Ingest,
     /**
      * Deux crochets qui ne peuvent pas vivre dans `lib/` : le premier touche
      * `expo-file-system`, le second le rattrapage REST. Optionnels — sans eux
      * le moteur reste correct, seulement moins bon (cache qui enfle, doublon
      * possible sur un `mediaConfirm` perdu).
      */
-    crochets?: {
+    hooks?: {
       deleteLocalFile?: (uri: string) => Promise<void>;
       refreshRoom?: (rid: string) => Promise<void>;
       /** Envoi dans un salon chiffré : sans lui, un fichier y attend indéfiniment. */
@@ -280,9 +280,9 @@ export interface Provider {
     },
   ): FileOutbox;
   /** Rattrapage REST global (salons + abonnements delta). */
-  catchUpGlobal(moteur: SyncEngine, estAbandonne: () => boolean): Promise<void>;
+  catchUpGlobal(engine: SyncEngine, isDiscarded: () => boolean): Promise<void>;
   /** Rattrapage d'UN salon (l'ouvert). Rate-limité, non borné côté RC : voir `ui/sync.tsx`. */
-  catchUpRoom(moteur: SyncEngine, rid: string, estAbandonne: () => boolean): Promise<void>;
+  catchUpRoom(engine: SyncEngine, rid: string, isDiscarded: () => boolean): Promise<void>;
   /** Réconciliation anti-fantômes (une fois par session). */
-  reconcile(moteur: SyncEngine, estAbandonne: () => boolean): Promise<void>;
+  reconcile(engine: SyncEngine, isDiscarded: () => boolean): Promise<void>;
 }

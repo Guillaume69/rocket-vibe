@@ -36,16 +36,16 @@ function urlWebSocket(baseUrl: string): string {
 export function createRcProvider(
   session: Session,
   client: ClientRest,
-  genererId: () => string,
+  generateId: () => string,
 ): Provider {
   const listener = new ClientDdp(urlWebSocket(session.baseUrl));
-  const traducteur = new RcTranslator(session.username, session.userId);
+  const translator = new RcTranslator(session.username, session.userId);
   const actions = new ActionsRC(client);
 
   return {
     capabilities: ROCKETCHAT_CAPABILITIES,
     listener,
-    translator: traducteur,
+    translator,
     actions,
     initialSubscriptions(): readonly (readonly [string, string])[] {
       return [
@@ -60,10 +60,10 @@ export function createRcProvider(
         [STREAM_NOTIFY_LOGGED, AVATAR_EVENT],
       ];
     },
-    privateNote(evenement) {
-      const cle = `${session.userId}/${PRIVATE_MESSAGE_EVENT}`;
-      if (evenement.collection !== STREAM_NOTIFY_USER || evenement.eventKey !== cle) return null;
-      return privateMessage(evenement.args);
+    privateNote(event) {
+      const key = `${session.userId}/${PRIVATE_MESSAGE_EVENT}`;
+      if (event.collection !== STREAM_NOTIFY_USER || event.eventKey !== key) return null;
+      return privateMessage(event.args);
     },
     roomSubscriptions(rid: string): readonly (readonly [string, string])[] {
       // Le format « rid » / « rid/sujet » est CELUI de Rocket.Chat : fabriqué
@@ -74,43 +74,43 @@ export function createRcProvider(
         [STREAM_NOTIFY_ROOM, `${rid}/user-activity`],
       ];
     },
-    loadHistory: (moteur, rid, type, latest) =>
-      loadHistory(client, moteur, rid, type, latest),
-    loadThread: (moteur, filId, estAbandonne) => loadThread(client, moteur, filId, estAbandonne),
-    createOutbox(depot: OutboxStore, ingerer: Ingest, chiffreur?: OutboxEncryptor): Outbox {
+    loadHistory: (engine, rid, type, latest) =>
+      loadHistory(client, engine, rid, type, latest),
+    loadThread: (engine, threadId, isDiscarded) => loadThread(client, engine, threadId, isDiscarded),
+    createOutbox(store: OutboxStore, ingest: Ingest, encryptor?: OutboxEncryptor): Outbox {
       return new OutboxEngine({
-        store: depot,
+        store,
         client,
         me: { id: session.userId, username: session.username },
-        generateId: genererId,
-        ingest: ingerer,
-        encryptor: chiffreur,
+        generateId,
+        ingest,
+        encryptor,
       });
     },
     createUploadQueue(
-      depot: UploadStore,
+      store: UploadStore,
       transport: TransportUpload,
-      ingerer: Ingest,
-      crochets?: {
+      ingest: Ingest,
+      hooks?: {
         deleteLocalFile?: (uri: string) => Promise<void>;
         refreshRoom?: (rid: string) => Promise<void>;
         encryption?: UploadEncryption;
       },
     ): FileOutbox {
       return new UploadEngine({
-        store: depot,
+        store,
         client,
         transport,
-        generateId: genererId,
-        ingest: ingerer,
-        deleteLocalFile: crochets?.deleteLocalFile,
-        refreshRoom: crochets?.refreshRoom,
-        encryption: crochets?.encryption,
+        generateId,
+        ingest,
+        deleteLocalFile: hooks?.deleteLocalFile,
+        refreshRoom: hooks?.refreshRoom,
+        encryption: hooks?.encryption,
       });
     },
-    catchUpGlobal: (moteur, estAbandonne) => catchUpGlobal(client, moteur, estAbandonne),
-    catchUpRoom: (moteur, rid, estAbandonne) =>
-      catchUpRoom(client, moteur, rid, estAbandonne),
-    reconcile: (moteur, estAbandonne) => reconcileRooms(client, moteur, estAbandonne),
+    catchUpGlobal: (engine, isDiscarded) => catchUpGlobal(client, engine, isDiscarded),
+    catchUpRoom: (engine, rid, isDiscarded) =>
+      catchUpRoom(client, engine, rid, isDiscarded),
+    reconcile: (engine, isDiscarded) => reconcileRooms(client, engine, isDiscarded),
   };
 }

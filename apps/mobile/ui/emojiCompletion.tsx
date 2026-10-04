@@ -57,23 +57,23 @@ type Selection = { start: number; end: number };
  * donc que quand c'est nous qui bougeons le caret.
  */
 export function useCompletionEmoji(
-  brouillon: string,
-  setBrouillon: (t: string) => void,
-  sauverBrouillon: (t: string) => void,
+  draft: string,
+  setDraft: (t: string) => void,
+  saveDraft: (t: string) => void,
 ): {
   cursor: number;
   selection: Selection | undefined;
   onSelection: (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => void;
-  pickEmoji: (insertion: string, debut: number) => void;
+  pickEmoji: (insertion: string, start: number) => void;
   insertAtCursor: (insertion: string) => void;
   reset: () => void;
 } {
-  const [curseur, setCurseur] = useState(() => brouillon.length);
+  const [cursor, setCursor] = useState(() => draft.length);
   const [selection, setSelection] = useState<Selection | undefined>(undefined);
 
-  const surSelection = useCallback(
+  const onSelection = useCallback(
     (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
-      setCurseur(e.nativeEvent.selection.start);
+      setCursor(e.nativeEvent.selection.start);
       // Relâche : le natif reprend la main sur le caret. `undefined` → `undefined`
       // est un no-op côté React, donc aucun rendu de trop pendant la frappe.
       setSelection(undefined);
@@ -81,15 +81,15 @@ export function useCompletionEmoji(
     [],
   );
 
-  const choisirEmoji = useCallback(
-    (insertion: string, debut: number) => {
-      const r = applyCompletion(brouillon, debut, curseur, insertion);
-      setBrouillon(r.text);
-      sauverBrouillon(r.text);
-      setCurseur(r.cursor);
+  const pickEmoji = useCallback(
+    (insertion: string, start: number) => {
+      const r = applyCompletion(draft, start, cursor, insertion);
+      setDraft(r.text);
+      saveDraft(r.text);
+      setCursor(r.cursor);
       setSelection({ start: r.cursor, end: r.cursor });
     },
-    [brouillon, curseur, setBrouillon, sauverBrouillon],
+    [draft, cursor, setDraft, saveDraft],
   );
 
   /**
@@ -99,26 +99,26 @@ export function useCompletionEmoji(
    * Le champ peut être défocalisé (panneau ouvert) : `curseur` garde la dernière
    * position connue, et `selection` replace le caret au retour au clavier.
    */
-  const insererAuCurseur = useCallback(
+  const insertAtCursor = useCallback(
     (insertion: string) => {
-      const c = Math.max(0, Math.min(curseur, brouillon.length));
-      const texte = brouillon.slice(0, c) + insertion + brouillon.slice(c);
-      const suivant = c + insertion.length;
-      setBrouillon(texte);
-      sauverBrouillon(texte);
-      setCurseur(suivant);
-      setSelection({ start: suivant, end: suivant });
+      const c = Math.max(0, Math.min(cursor, draft.length));
+      const text = draft.slice(0, c) + insertion + draft.slice(c);
+      const next = c + insertion.length;
+      setDraft(text);
+      saveDraft(text);
+      setCursor(next);
+      setSelection({ start: next, end: next });
     },
-    [brouillon, curseur, setBrouillon, sauverBrouillon],
+    [draft, cursor, setDraft, saveDraft],
   );
 
   // À l'envoi (champ vidé) : caret au début, imposé une fois.
-  const reinitialiser = useCallback(() => {
-    setCurseur(0);
+  const reset = useCallback(() => {
+    setCursor(0);
     setSelection({ start: 0, end: 0 });
   }, []);
 
-  return { cursor: curseur, selection, onSelection: surSelection, pickEmoji: choisirEmoji, insertAtCursor: insererAuCurseur, reset: reinitialiser };
+  return { cursor, selection, onSelection, pickEmoji, insertAtCursor, reset };
 }
 
 /** Ce qu'on affiche et ce qu'on insère pour une suggestion résolue. */
@@ -142,41 +142,41 @@ export function resolve(s: SuggestionEmoji): RenderedSuggestion {
   if (s.type === 'custom') {
     return { suggestion: s, glyph: null, uri: urlEmojiCustom(s.code), insertion: `:${s.code}:` };
   }
-  const glyphe = unicodeOfShortcode(s.code);
+  const glyph = unicodeOfShortcode(s.code);
   // `glyphe` ne devrait jamais être null (le code vient de la table), mais si
   // ça arrivait, `:nom:` reste un repli lisible et envoyable.
-  return { suggestion: s, glyph: glyphe, uri: null, insertion: glyphe ?? `:${s.code}:` };
+  return { suggestion: s, glyph, uri: null, insertion: glyph ?? `:${s.code}:` };
 }
 
 export function EmojiCompletionBanner({
-  text: texte,
-  cursor: curseur,
+  text,
+  cursor,
   c,
-  onPick: surChoisir,
+  onPick,
 }: {
   text: string;
   cursor: number;
   c: Colors;
   /** Reçoit le texte à insérer et le `debut` du jeton détecté à ce moment. */
-  onPick: (insertion: string, debut: number) => void;
+  onPick: (insertion: string, start: number) => void;
 }) {
-  const resultat = useMemo(() => {
-    const jeton = detectEmojiToken(texte, curseur);
-    if (jeton === null) return null;
+  const result = useMemo(() => {
+    const token = detectEmojiToken(text, cursor);
+    if (token === null) return null;
     // Dépend de (texte, curseur) seulement. Un rafraîchissement des customs en
     // pleine frappe (synchro 1×/session, au raccordement) n'est pas reflété tant
     // que la frappe n'a pas repris — angle mort assumé : la synchro tombe avant
     // qu'on compose, et la frappe suivante recalcule.
     const suggestions = completeEmoji(
-      jeton.query,
+      token.query,
       codesEmojiStandard(),
       codesEmojiCustom(),
     );
     if (suggestions.length === 0) return null;
-    return { start: jeton.start, items: suggestions.map(resolve) };
-  }, [texte, curseur]);
+    return { start: token.start, items: suggestions.map(resolve) };
+  }, [text, cursor]);
 
-  if (resultat === null) return null;
+  if (result === null) return null;
 
   return (
     <ScrollView
@@ -186,10 +186,10 @@ export function EmojiCompletionBanner({
       style={[styles.strip, { backgroundColor: c.card, borderTopColor: c.border }]}
       contentContainerStyle={styles.content}
     >
-      {resultat.items.map(({ suggestion, glyph: glyphe, uri, insertion }) => (
+      {result.items.map(({ suggestion, glyph, uri, insertion }) => (
         <View key={`${suggestion.type}:${suggestion.code}`} style={styles.bulletWrapper}>
           <Tappable
-            onPress={() => surChoisir(insertion, resultat.start)}
+            onPress={() => onPick(insertion, result.start)}
             android_ripple={{ color: c.ripple, borderless: false }}
             unstable_pressDelay={LIST_PRESS_DELAY}
             style={styles.bullet}
@@ -198,7 +198,7 @@ export function EmojiCompletionBanner({
             {uri !== null ? (
               <Image source={{ uri }} style={styles.image} resizeMode="contain" />
             ) : (
-              <Text style={styles.glyph}>{glyphe}</Text>
+              <Text style={styles.glyph}>{glyph}</Text>
             )}
             <Text style={[styles.code, { color: c.dimmed }]} numberOfLines={1}>
               :{suggestion.code}:

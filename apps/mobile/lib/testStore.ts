@@ -24,75 +24,75 @@ import type { Store, StoreWrites } from './sync.ts';
  * définit, on ne peut pas l'oublier) et rend un `Depot` complet qui fait
  * respecter l'invariant file/transaction.
  */
-export function withTransactionTrap(nu: Omit<Store, 'transaction'>): Store {
-  let enTransaction = false;
+export function withTransactionTrap(bare: Omit<Store, 'transaction'>): Store {
+  let inTransaction = false;
 
-  const piege = <A extends unknown[], R>(
-    nom: string,
-    methode: (...args: A) => Promise<R>,
+  const trap = <A extends unknown[], R>(
+    name: string,
+    method: (...args: A) => Promise<R>,
   ): ((...args: A) => Promise<R>) => {
     return (...args: A) => {
-      if (enTransaction) {
+      if (inTransaction) {
         throw new Error(
-          `${nom}: écriture hors file pendant une transaction — ` +
+          `${name}: écriture hors file pendant une transaction — ` +
             `interblocage sur l'appareil (utiliser le \`tx\` reçu par le callback)`,
         );
       }
-      return methode(...args);
+      return method(...args);
     };
   };
 
   // Ce que `fn` reçoit : les écritures du faux, EN DIRECT — le miroir du
   // `direct` de `db/store.ts`, qui contourne la file.
-  const ecrivainDirect: StoreWrites = {
-    upsertMessage: (m) => nu.upsertMessage(m),
-    upsertRoom: (s) => nu.upsertRoom(s),
-    upsertSubscription: (a) => nu.upsertSubscription(a),
-    deleteMessage: (id) => nu.deleteMessage(id),
-    deleteRoom: (rid) => nu.deleteRoom(rid),
-    deleteSubscription: (rid) => nu.deleteSubscription(rid),
-    deleteBySubId: (subId) => nu.deleteBySubId(subId),
-    writeCursor: (scope, stream, v) => nu.writeCursor(scope, stream, v),
+  const directWriter: StoreWrites = {
+    upsertMessage: (m) => bare.upsertMessage(m),
+    upsertRoom: (s) => bare.upsertRoom(s),
+    upsertSubscription: (a) => bare.upsertSubscription(a),
+    deleteMessage: (id) => bare.deleteMessage(id),
+    deleteRoom: (rid) => bare.deleteRoom(rid),
+    deleteSubscription: (rid) => bare.deleteSubscription(rid),
+    deleteBySubId: (subId) => bare.deleteBySubId(subId),
+    writeCursor: (scope, stream, v) => bare.writeCursor(scope, stream, v),
   };
 
   return {
     // La liste EXACTE des méthodes servies par `enSerie` dans `db/store.ts` —
     // si l'une y entre ou en sort là-bas, elle doit bouger ici aussi.
-    upsertMessage: piege('upsertMessage', (m) => nu.upsertMessage(m)),
-    upsertRoom: piege('upsertRoom', (s) => nu.upsertRoom(s)),
-    upsertSubscription: piege('upsertSubscription', (a) => nu.upsertSubscription(a)),
-    deleteMessage: piege('deleteMessage', (id) => nu.deleteMessage(id)),
-    deleteRoom: piege('deleteRoom', (rid) => nu.deleteRoom(rid)),
-    deleteSubscription: piege('deleteSubscription', (rid) => nu.deleteSubscription(rid)),
-    deleteBySubId: piege('deleteBySubId', (subId) => nu.deleteBySubId(subId)),
-    writeCursor: piege('writeCursor', (p, f, v) => nu.writeCursor(p, f, v)),
-    purgeMissingRooms: piege('purgerSalonsAbsents', (v, c) => nu.purgeMissingRooms(v, c)),
-    applyRetention: piege('appliquerRetention', (n) => nu.applyRetention(n)),
-    updateMessageText: piege('majTexteMessage', (id, t, p) => nu.updateMessageText(id, t, p)),
-    updateMessageMarks: piege('majMarquesMessage', (id, p, e) => nu.updateMessageMarks(id, p, e)),
-    hideEncryptedMessages: piege('masquerMessagesChiffres', () => nu.hideEncryptedMessages()),
-    updateEncryptedPreview: piege('majApercuChiffre', () => nu.updateEncryptedPreview()),
-    updateUserAvatar: piege('majAvatarUtilisateur', (u, e) => nu.updateUserAvatar(u, e)),
-    updateRoomAvatar: piege('majAvatarSalon', (rid, e) => nu.updateRoomAvatar(rid, e)),
-    saveIdentity: piege('enregistrerIdentite', (i) => nu.saveIdentity(i)),
+    upsertMessage: trap('upsertMessage', (m) => bare.upsertMessage(m)),
+    upsertRoom: trap('upsertRoom', (s) => bare.upsertRoom(s)),
+    upsertSubscription: trap('upsertSubscription', (a) => bare.upsertSubscription(a)),
+    deleteMessage: trap('deleteMessage', (id) => bare.deleteMessage(id)),
+    deleteRoom: trap('deleteRoom', (rid) => bare.deleteRoom(rid)),
+    deleteSubscription: trap('deleteSubscription', (rid) => bare.deleteSubscription(rid)),
+    deleteBySubId: trap('deleteBySubId', (subId) => bare.deleteBySubId(subId)),
+    writeCursor: trap('writeCursor', (p, f, v) => bare.writeCursor(p, f, v)),
+    purgeMissingRooms: trap('purgerSalonsAbsents', (v, c) => bare.purgeMissingRooms(v, c)),
+    applyRetention: trap('appliquerRetention', (n) => bare.applyRetention(n)),
+    updateMessageText: trap('majTexteMessage', (id, t, p) => bare.updateMessageText(id, t, p)),
+    updateMessageMarks: trap('majMarquesMessage', (id, p, e) => bare.updateMessageMarks(id, p, e)),
+    hideEncryptedMessages: trap('masquerMessagesChiffres', () => bare.hideEncryptedMessages()),
+    updateEncryptedPreview: trap('majApercuChiffre', () => bare.updateEncryptedPreview()),
+    updateUserAvatar: trap('majAvatarUtilisateur', (u, e) => bare.updateUserAvatar(u, e)),
+    updateRoomAvatar: trap('majAvatarSalon', (rid, e) => bare.updateRoomAvatar(rid, e)),
+    saveIdentity: trap('enregistrerIdentite', (i) => bare.saveIdentity(i)),
 
     // Lectures : hors file dans `db/store.ts`, donc permises en transaction.
-    listKnownRids: () => nu.listKnownRids(),
-    readCursor: (p, f) => nu.readCursor(p, f),
-    lastMessageUpdatedAt: (rid) => nu.lastMessageUpdatedAt(rid),
-    listRoomKeys: () => nu.listRoomKeys(),
-    messagesToDecrypt: () => nu.messagesToDecrypt(),
+    listKnownRids: () => bare.listKnownRids(),
+    readCursor: (p, f) => bare.readCursor(p, f),
+    lastMessageUpdatedAt: (rid) => bare.lastMessageUpdatedAt(rid),
+    listRoomKeys: () => bare.listRoomKeys(),
+    messagesToDecrypt: () => bare.messagesToDecrypt(),
 
     async transaction(fn) {
-      if (enTransaction) {
+      if (inTransaction) {
         // `enSerie` dans `enSerie` : le vrai dépôt s'y interbloque aussi.
         throw new Error('transaction: transaction imbriquée — interblocage sur l’appareil');
       }
-      enTransaction = true;
+      inTransaction = true;
       try {
-        await fn(ecrivainDirect);
+        await fn(directWriter);
       } finally {
-        enTransaction = false;
+        inTransaction = false;
       }
     },
   };

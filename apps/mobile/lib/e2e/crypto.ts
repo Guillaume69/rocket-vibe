@@ -75,26 +75,26 @@ export class E2EError extends Error {
   }
 }
 
-const TAILLE_TAG_GCM = 16;
+const GCM_TAG_SIZE = 16;
 /** IV AES-CBC = 16 octets (l'IV GCM, lui, fait 12). Ici l'IV CBC de la v1. */
-const TAILLE_IV_CBC = 16;
+const CBC_IV_SIZE = 16;
 /**
  * Un `E2EKey` = keyID + base64(clé de salon chiffrée RSA-OAEP). La sortie
  * RSA-2048 fait 256 octets = 344 caractères base64. Le keyID est donc le
  * PRÉFIXE restant : 36 (UUID, schéma v2) ou 12 (schéma v1). On le CALCULE au
  * lieu de le coder en dur — un compte peut mêler les deux selon l'ancienneté.
  */
-const LONGUEUR_RSA_B64 = 344;
+const RSA_B64_LENGTH = 344;
 function longueurKeyId(e2eKey: string): number {
-  return Math.max(0, e2eKey.length - LONGUEUR_RSA_B64);
+  return Math.max(0, e2eKey.length - RSA_B64_LENGTH);
 }
 
-function base64VersOctets(b64: string): Buffer {
+function base64ToBytes(b64: string): Buffer {
   return Buffer.from(b64, 'base64');
 }
 
 /** base64url (JWK) → octets. */
-function base64urlVersOctets(s: string): Buffer {
+function base64urlToBytes(s: string): Buffer {
   let b = s.replace(/-/g, '+').replace(/_/g, '/');
   while (b.length % 4 !== 0) b += '=';
   return Buffer.from(b, 'base64');
@@ -104,8 +104,8 @@ function base64urlVersOctets(s: string): Buffer {
  * Le chiffre AES qui correspond à la taille de la clé : une clé de salon créée
  * par l'ancien client web est un JWK `A128CBC` de 16 octets, pas 32.
  */
-function bitsAes(cle: Buffer): 128 | 192 | 256 | null {
-  const bits = cle.length * 8;
+function bitsAes(key: Buffer): 128 | 192 | 256 | null {
+  const bits = key.length * 8;
   return bits === 128 || bits === 192 || bits === 256 ? bits : null;
 }
 
@@ -114,27 +114,27 @@ function bitsAes(cle: Buffer): 128 | 192 | 256 | null {
  * (convention WebCrypto). Rend `null` si l'authentification échoue — la seule
  * façon fiable de détecter un mauvais mot de passe / une clé fausse.
  */
-function dechiffrerGcm(cle: Buffer, iv: Buffer, ctAvecTag: Buffer): Buffer | null {
-  const bits = bitsAes(cle);
-  if (bits === null || ctAvecTag.length < TAILLE_TAG_GCM) return null;
-  const corps = ctAvecTag.subarray(0, ctAvecTag.length - TAILLE_TAG_GCM);
-  const tag = ctAvecTag.subarray(ctAvecTag.length - TAILLE_TAG_GCM);
+function decryptGcm(key: Buffer, iv: Buffer, ctWithTag: Buffer): Buffer | null {
+  const bits = bitsAes(key);
+  if (bits === null || ctWithTag.length < GCM_TAG_SIZE) return null;
+  const body = ctWithTag.subarray(0, ctWithTag.length - GCM_TAG_SIZE);
+  const tag = ctWithTag.subarray(ctWithTag.length - GCM_TAG_SIZE);
   try {
-    const dechiffreur = createDecipheriv(`aes-${bits}-gcm`, cle, iv);
-    dechiffreur.setAuthTag(tag);
-    return Buffer.concat([dechiffreur.update(corps), dechiffreur.final()]);
+    const decryptor = createDecipheriv(`aes-${bits}-gcm`, key, iv);
+    decryptor.setAuthTag(tag);
+    return Buffer.concat([decryptor.update(body), decryptor.final()]);
   } catch {
     return null;
   }
 }
 
 /** Déchiffre un bloc AES-CBC (remplissage PKCS#7 vérifié par `final`). */
-function dechiffrerCbc(cle: Buffer, iv: Buffer, ct: Buffer): Buffer | null {
-  const bits = bitsAes(cle);
+function decryptCbc(key: Buffer, iv: Buffer, ct: Buffer): Buffer | null {
+  const bits = bitsAes(key);
   if (bits === null) return null;
   try {
-    const dechiffreur = createDecipheriv(`aes-${bits}-cbc`, cle, iv);
-    return Buffer.concat([dechiffreur.update(ct), dechiffreur.final()]);
+    const decryptor = createDecipheriv(`aes-${bits}-cbc`, key, iv);
+    return Buffer.concat([decryptor.update(ct), decryptor.final()]);
   } catch {
     return null;
   }
@@ -150,30 +150,30 @@ function dechiffrerCbc(cle: Buffer, iv: Buffer, ct: Buffer): Buffer | null {
  *     itérations, SHA-256) → AES-CBC. Le `uid` sert de sel — d'où le paramètre.
  * Lève `ErreurE2E` si le mot de passe ne déchiffre pas.
  */
-export function decryptPrivateKey(privateKey: string, motDePasse: string, uid: string): string {
-  const brut = privateKey.trim();
-  if (brut.startsWith('{')) {
+export function decryptPrivateKey(privateKey: string, password: string, uid: string): string {
+  const raw = privateKey.trim();
+  if (raw.startsWith('{')) {
     let obj: Record<string, unknown> | null = null;
     try {
-      obj = JSON.parse(brut) as Record<string, unknown>;
+      obj = JSON.parse(raw) as Record<string, unknown>;
     } catch {
       obj = null;
     }
     // v2 : enveloppe complète.
     if (obj !== null && typeof obj.iterations === 'number' && typeof obj.salt === 'string') {
       const env = obj as unknown as PrivateKeyEnvelope;
-      const cleMaitre = pbkdf2Sync(Buffer.from(motDePasse, 'utf8'), Buffer.from(env.salt, 'utf8'), env.iterations, 32, 'sha256');
-      const clair = dechiffrerGcm(cleMaitre, base64VersOctets(env.iv), base64VersOctets(env.ciphertext));
-      if (clair === null) throw new E2EError('mot de passe E2E invalide');
-      return clair.toString('utf8');
+      const masterKey = pbkdf2Sync(Buffer.from(password, 'utf8'), Buffer.from(env.salt, 'utf8'), env.iterations, 32, 'sha256');
+      const plain = decryptGcm(masterKey, base64ToBytes(env.iv), base64ToBytes(env.ciphertext));
+      if (plain === null) throw new E2EError('mot de passe E2E invalide');
+      return plain.toString('utf8');
     }
     // v1 emballé en binaire EJSON.
     if (obj !== null && typeof obj.$binary === 'string') {
-      return dechiffrerClePriveeV1(base64VersOctets(obj.$binary), motDePasse, uid);
+      return decryptPrivateKeyV1(base64ToBytes(obj.$binary), password, uid);
     }
   }
   // v1 en base64 nu.
-  return dechiffrerClePriveeV1(base64VersOctets(brut), motDePasse, uid);
+  return decryptPrivateKeyV1(base64ToBytes(raw), password, uid);
 }
 
 /**
@@ -183,17 +183,17 @@ export function decryptPrivateKey(privateKey: string, motDePasse: string, uid: s
  * passe par hasard, le clair n'est pas un JWK valide → `JSON.parse` lève, qu'on
  * assimile à un mot de passe faux.
  */
-function dechiffrerClePriveeV1(octets: Buffer, motDePasse: string, uid: string): string {
-  const cleMaitre = pbkdf2Sync(Buffer.from(motDePasse, 'utf8'), Buffer.from(uid, 'utf8'), 1000, 32, 'sha256');
-  const clair = dechiffrerCbc(cleMaitre, octets.subarray(0, TAILLE_IV_CBC), octets.subarray(TAILLE_IV_CBC));
-  if (clair === null) throw new E2EError('mot de passe E2E invalide');
-  const texte = clair.toString('utf8');
+function decryptPrivateKeyV1(bytes: Buffer, password: string, uid: string): string {
+  const masterKey = pbkdf2Sync(Buffer.from(password, 'utf8'), Buffer.from(uid, 'utf8'), 1000, 32, 'sha256');
+  const plain = decryptCbc(masterKey, bytes.subarray(0, CBC_IV_SIZE), bytes.subarray(CBC_IV_SIZE));
+  if (plain === null) throw new E2EError('mot de passe E2E invalide');
+  const text = plain.toString('utf8');
   try {
-    JSON.parse(texte);
+    JSON.parse(text);
   } catch {
     throw new E2EError('mot de passe E2E invalide');
   }
-  return texte;
+  return text;
 }
 
 /** JWK JSON → objet clé privée RSA. `createPrivateKey` importe le JWK nativement. */
@@ -212,20 +212,20 @@ export function keyIdOfE2EKey(e2eKey: string): string {
  * car. en v2, 12 en v1 — calculé), RSA-OAEP/SHA-256 avec la clé privée → JWK
  * AES, dont on rend le `k` brut.
  */
-export function decryptRoomKey(e2eKey: string, clePrivee: RsaPrivateKey): Buffer {
-  const chiffre = base64VersOctets(e2eKey.substring(longueurKeyId(e2eKey)));
+export function decryptRoomKey(e2eKey: string, privateKey: RsaPrivateKey): Buffer {
+  const encrypted = base64ToBytes(e2eKey.substring(longueurKeyId(e2eKey)));
   let jwkJson: string;
   try {
     jwkJson = privateDecrypt(
-      { key: clePrivee, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' },
-      chiffre,
+      { key: privateKey, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' },
+      encrypted,
     ).toString('utf8');
   } catch {
     throw new E2EError('déchiffrement de la clé de salon échoué');
   }
   const jwk = JSON.parse(jwkJson) as { k?: string };
   if (typeof jwk.k !== 'string') throw new E2EError('clé de salon sans champ k');
-  return base64urlVersOctets(jwk.k);
+  return base64urlToBytes(jwk.k);
 }
 
 /**
@@ -235,8 +235,8 @@ export function decryptRoomKey(e2eKey: string, clePrivee: RsaPrivateKey): Buffer
 export type PlainPayload = { msg: string; attachments: unknown[] | null };
 
 /** Objet `content` + clé de salon (octets) → texte clair du message. */
-export function decryptMessage(contenu: EncryptedContent, cleSalonOctets: Buffer): string {
-  return decryptPayload(contenu, cleSalonOctets).msg;
+export function decryptMessage(content: EncryptedContent, roomKeyBytes: Buffer): string {
+  return decryptPayload(content, roomKeyBytes).msg;
 }
 
 /**
@@ -244,25 +244,25 @@ export function decryptMessage(contenu: EncryptedContent, cleSalonOctets: Buffer
  * `{"msg": "...", "attachments": [...]}` (parfois `text`). Lève `ErreurE2E` si
  * l'auth échoue.
  */
-export function decryptPayload(contenu: EncryptedContent, cleSalonOctets: Buffer): PlainPayload {
-  let clair: Buffer | null;
-  if (typeof contenu.iv === 'string' && contenu.iv !== '') {
+export function decryptPayload(content: EncryptedContent, roomKeyBytes: Buffer): PlainPayload {
+  let plain: Buffer | null;
+  if (typeof content.iv === 'string' && content.iv !== '') {
     // Structure moderne : iv et ciphertext séparés. IV de 12 octets → GCM
     // (tag collé en fin) ; de 16 → CBC (le schéma de ce compte ancien).
-    const iv = base64VersOctets(contenu.iv);
-    const ct = base64VersOctets(contenu.ciphertext);
-    clair = iv.length === 12 ? dechiffrerGcm(cleSalonOctets, iv, ct) : dechiffrerCbc(cleSalonOctets, iv, ct);
+    const iv = base64ToBytes(content.iv);
+    const ct = base64ToBytes(content.ciphertext);
+    plain = iv.length === 12 ? decryptGcm(roomKeyBytes, iv, ct) : decryptCbc(roomKeyBytes, iv, ct);
   } else {
     // Structure héritée rc.v1 : ciphertext = keyID(12) + base64(IV(16) || CBC).
-    const blob = base64VersOctets(contenu.ciphertext.substring(12));
-    clair = dechiffrerCbc(cleSalonOctets, blob.subarray(0, TAILLE_IV_CBC), blob.subarray(TAILLE_IV_CBC));
+    const blob = base64ToBytes(content.ciphertext.substring(12));
+    plain = decryptCbc(roomKeyBytes, blob.subarray(0, CBC_IV_SIZE), blob.subarray(CBC_IV_SIZE));
   }
-  if (clair === null) throw new E2EError('déchiffrement du message échoué');
-  const texte = clair.toString('utf8');
+  if (plain === null) throw new E2EError('déchiffrement du message échoué');
+  const text = plain.toString('utf8');
   // Le clair est en général un JSON `{"msg": "..."}` ; certains messages
   // hérités portent le texte brut — on retombe dessus.
   try {
-    const obj = JSON.parse(texte) as { msg?: unknown; text?: unknown; attachments?: unknown };
+    const obj = JSON.parse(text) as { msg?: unknown; text?: unknown; attachments?: unknown };
     const attachments = Array.isArray(obj.attachments) ? obj.attachments : null;
     if (typeof obj.msg === 'string') return { msg: obj.msg, attachments };
     if (typeof obj.text === 'string') return { msg: obj.text, attachments };
@@ -270,7 +270,7 @@ export function decryptPayload(contenu: EncryptedContent, cleSalonOctets: Buffer
   } catch {
     // pas du JSON : texte brut.
   }
-  return { msg: texte, attachments: null };
+  return { msg: text, attachments: null };
 }
 
 /**
@@ -280,18 +280,18 @@ export function decryptPayload(contenu: EncryptedContent, cleSalonOctets: Buffer
  * l'`alg` de son JWK : `A128CBC` (16 octets) → CBC, IV de 16 ; `A256GCM` (32)
  * → GCM, IV de 12, tag collé en fin de `ciphertext`.
  */
-export function encryptMessage(charge: object, cleSalonOctets: Buffer, kid: string): EncryptedContent {
-  const clair = Buffer.from(JSON.stringify(charge), 'utf8');
+export function encryptMessage(payload: object, roomKeyBytes: Buffer, kid: string): EncryptedContent {
+  const plain = Buffer.from(JSON.stringify(payload), 'utf8');
   let iv: Buffer;
   let ct: Buffer;
-  if (cleSalonOctets.length === 16) {
-    iv = randomBytes(TAILLE_IV_CBC);
-    const chiffreur = createCipheriv('aes-128-cbc', cleSalonOctets, iv);
-    ct = Buffer.concat([chiffreur.update(clair), chiffreur.final()]);
-  } else if (cleSalonOctets.length === 32) {
+  if (roomKeyBytes.length === 16) {
+    iv = randomBytes(CBC_IV_SIZE);
+    const encryptor = createCipheriv('aes-128-cbc', roomKeyBytes, iv);
+    ct = Buffer.concat([encryptor.update(plain), encryptor.final()]);
+  } else if (roomKeyBytes.length === 32) {
     iv = randomBytes(12);
-    const chiffreur = createCipheriv('aes-256-gcm', cleSalonOctets, iv);
-    ct = Buffer.concat([chiffreur.update(clair), chiffreur.final(), chiffreur.getAuthTag()]);
+    const encryptor = createCipheriv('aes-256-gcm', roomKeyBytes, iv);
+    ct = Buffer.concat([encryptor.update(plain), encryptor.final(), encryptor.getAuthTag()]);
   } else {
     throw new E2EError('clé de salon de taille inattendue');
   }
@@ -306,9 +306,9 @@ export function encryptMessage(charge: object, cleSalonOctets: Buffer, kid: stri
 export type FileEncryption = { key: { k: string }; iv: string; sha256: string | null };
 
 /** La description de chiffrement d'une pièce jointe, ou `null` si elle n'est pas chiffrée. */
-export function attachmentEncryption(jointe: unknown): FileEncryption | null {
-  if (typeof jointe !== 'object' || jointe === null) return null;
-  const { encryption, hashes } = jointe as { encryption?: unknown; hashes?: unknown };
+export function attachmentEncryption(attachment: unknown): FileEncryption | null {
+  if (typeof attachment !== 'object' || attachment === null) return null;
+  const { encryption, hashes } = attachment as { encryption?: unknown; hashes?: unknown };
   if (typeof encryption !== 'object' || encryption === null) return null;
   const { key, iv } = encryption as { key?: unknown; iv?: unknown };
   const k = typeof key === 'object' && key !== null ? (key as { k?: unknown }).k : undefined;
@@ -323,22 +323,22 @@ export function attachmentEncryption(jointe: unknown): FileEncryption | null {
  * donc une clé fausse rend du bruit sans erreur — c'est l'empreinte SHA-256
  * qui tranche, quand l'expéditeur l'a fournie. Lève `ErreurE2E` sinon.
  */
-export function decryptFile(octets: Buffer, chiffrement: FileEncryption): Buffer {
-  const cle = base64urlVersOctets(chiffrement.key.k);
-  const bits = bitsAes(cle);
-  const iv = base64VersOctets(chiffrement.iv);
+export function decryptFile(bytes: Buffer, encryption: FileEncryption): Buffer {
+  const key = base64urlToBytes(encryption.key.k);
+  const bits = bitsAes(key);
+  const iv = base64ToBytes(encryption.iv);
   if (bits === null || iv.length !== 16) throw new E2EError('chiffrement de fichier illisible');
-  const dechiffreur = createDecipheriv(`aes-${bits}-ctr`, cle, iv);
-  const clair = Buffer.concat([dechiffreur.update(octets), dechiffreur.final()]);
-  if (chiffrement.sha256 !== null && sha256Digest(clair) !== chiffrement.sha256.toLowerCase()) {
+  const decryptor = createDecipheriv(`aes-${bits}-ctr`, key, iv);
+  const plain = Buffer.concat([decryptor.update(bytes), decryptor.final()]);
+  if (encryption.sha256 !== null && sha256Digest(plain) !== encryption.sha256.toLowerCase()) {
     throw new E2EError('fichier altéré ou clé fausse');
   }
-  return clair;
+  return plain;
 }
 
 /** SHA-256 en hexadécimal, la forme des `hashes.sha256` de Rocket.Chat. */
-export function sha256Digest(octets: Buffer): string {
-  return createHash('sha256').update(octets).digest('hex');
+export function sha256Digest(bytes: Buffer): string {
+  return createHash('sha256').update(bytes).digest('hex');
 }
 
 /** La clé d'un fichier envoyé, sous la forme JWK que le client web réimporte (AES-CTR, extractible). */
@@ -349,23 +349,23 @@ export type FileJwk = { kty: 'oct'; alg: 'A256CTR'; k: string; ext: true; key_op
  * 256 neuve, un compteur initial de 16 octets, l'empreinte SHA-256 du clair —
  * ce que le client web met dans la pièce jointe.
  */
-export function encryptFile(clair: Buffer): {
+export function encryptFile(plain: Buffer): {
   encrypted: Buffer;
   key: FileJwk;
   iv: string;
   sha256: string;
 } {
-  const cle = randomBytes(32);
+  const key = randomBytes(32);
   const iv = randomBytes(16);
-  const chiffreur = createCipheriv('aes-256-ctr', cle, iv);
+  const encryptor = createCipheriv('aes-256-ctr', key, iv);
   return {
-    encrypted: Buffer.concat([chiffreur.update(clair), chiffreur.final()]),
-    key: { kty: 'oct', alg: 'A256CTR', k: versBase64url(cle), ext: true, key_ops: ['encrypt', 'decrypt'] },
+    encrypted: Buffer.concat([encryptor.update(plain), encryptor.final()]),
+    key: { kty: 'oct', alg: 'A256CTR', k: toBase64url(key), ext: true, key_ops: ['encrypt', 'decrypt'] },
     iv: iv.toString('base64'),
-    sha256: sha256Digest(clair),
+    sha256: sha256Digest(plain),
   };
 }
 
-function versBase64url(octets: Buffer): string {
-  return octets.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+function toBase64url(bytes: Buffer): string {
+  return bytes.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }

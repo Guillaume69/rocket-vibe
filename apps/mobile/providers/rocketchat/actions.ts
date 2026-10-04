@@ -25,9 +25,9 @@ export class ActionsRC implements ProviderActions {
    * refuse l'unicode brut (« Invalid emoji provided ») et veut `:code:`.
    * `mettre` mappe sur `shouldReact` — poser ou retirer sans ambiguïté de bascule.
    */
-  async react(_rid: string, mid: string, emoji: string, mettre: boolean): Promise<void> {
+  async react(_rid: string, mid: string, emoji: string, put: boolean): Promise<void> {
     await this.client.post('chat.react', {
-      body: { messageId: mid, emoji: `:${emoji}:`, shouldReact: mettre },
+      body: { messageId: mid, emoji: `:${emoji}:`, shouldReact: put },
     });
   }
 
@@ -35,15 +35,15 @@ export class ActionsRC implements ProviderActions {
    * Un message chiffré se modifie par `content`, que le serveur n'accepte que
    * sur un message `e2e` — et un `text` y serait refusé.
    */
-  async edit(rid: string, mid: string, texte: string, chiffreur?: OutboxEncryptor): Promise<void> {
-    if (chiffreur === undefined) {
-      await this.client.post('chat.update', { body: { roomId: rid, msgId: mid, text: texte } });
+  async edit(rid: string, mid: string, text: string, encryptor?: OutboxEncryptor): Promise<void> {
+    if (encryptor === undefined) {
+      await this.client.post('chat.update', { body: { roomId: rid, msgId: mid, text } });
       return;
     }
-    const content = chiffreur.encrypt(rid, { msg: texte });
+    const content = encryptor.encrypt(rid, { msg: text });
     if (content === null) throw new Error('chat.update: clé du salon indisponible');
     await this.client.post('chat.update', {
-      body: { roomId: rid, msgId: mid, content, e2eMentions: mentionsE2E(texte) },
+      body: { roomId: rid, msgId: mid, content, e2eMentions: mentionsE2E(text) },
     });
   }
 
@@ -59,8 +59,8 @@ export class ActionsRC implements ProviderActions {
     await this.client.post('chat.unPinMessage', { body: { messageId: mid } });
   }
 
-  async star(_rid: string, mid: string, mettre: boolean): Promise<void> {
-    await this.client.post(mettre ? 'chat.starMessage' : 'chat.unStarMessage', {
+  async star(_rid: string, mid: string, put: boolean): Promise<void> {
+    await this.client.post(put ? 'chat.starMessage' : 'chat.unStarMessage', {
       body: { messageId: mid },
     });
   }
@@ -73,12 +73,12 @@ export class ActionsRC implements ProviderActions {
     return this.list('chat.getStarredMessages', rid);
   }
 
-  private async list(chemin: string, rid: string): Promise<MessageLocal[]> {
-    const reponse = await this.client.get<{ messages?: Record<string, unknown>[] }>(chemin, {
+  private async list(path: string, rid: string): Promise<MessageLocal[]> {
+    const response = await this.client.get<{ messages?: Record<string, unknown>[] }>(path, {
       params: { roomId: rid, count: 50 },
     });
-    return (reponse.messages ?? [])
-      .map((brut) => toMessage(brut))
+    return (response.messages ?? [])
+      .map((raw) => toMessage(raw))
       .filter((m): m is MessageLocal => m !== null)
       .sort((a, b) => b.ts - a.ts);
   }
@@ -90,16 +90,16 @@ export class ActionsRC implements ProviderActions {
   async openOrCreateDm(
     username: string,
   ): Promise<{ rid: string; rawRoom: Record<string, unknown> }> {
-    const reponse = await this.client.post<{ room?: Record<string, unknown> }>('im.create', {
+    const response = await this.client.post<{ room?: Record<string, unknown> }>('im.create', {
       body: { username },
     });
-    const salonBrut = reponse.room;
-    const rid = salonBrut?._id;
+    const rawRoom = response.room;
+    const rid = rawRoom?._id;
     // Un 200 sans salon est anormal (proxy, réponse tronquée) : message de
     // DIAGNOSTIC, pas une phrase d'écran — l'appelant met en phrase s'il veut.
-    if (salonBrut === undefined || typeof rid !== 'string') {
+    if (rawRoom === undefined || typeof rid !== 'string') {
       throw new Error('im.create: réponse sans salon');
     }
-    return { rid, rawRoom: salonBrut };
+    return { rid, rawRoom };
   }
 }

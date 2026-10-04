@@ -38,48 +38,48 @@ type Phase =
     };
 
 export default function LoginScreen() {
-  const { state: etat, connect: connecter, switchServer: changerDeServeur } = useSession();
-  const { change: changer } = useLocalSearchParams<{ change?: string }>();
-  const routeur = useRouter();
+  const { state, connect, switchServer } = useSession();
+  const { change } = useLocalSearchParams<{ change?: string }>();
+  const router = useRouter();
   const c = useColors();
   const t = useT();
   const insets = useSafeAreaInsets();
 
   const [phase, setPhase] = useState<Phase>({ name: 'server' });
-  const [adresse, setAdresse] = useState(DEFAULT_SERVER);
-  const [utilisateur, setUtilisateur] = useState('');
-  const [motDePasse, setMotDePasse] = useState('');
+  const [address, setAddress] = useState(DEFAULT_SERVER);
+  const [user, setUser] = useState('');
+  const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
-  const [occupe, setOccupe] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   // Garde de réentrance dans une ref, pas dans `occupe` : deux événements de
   // la même frame (Entrée clavier + tape sur le bouton) liraient tous deux
   // l'ancienne valeur de l'état et enverraient deux logins — dont deux
   // consommations du même code TOTP à usage unique.
-  const enVol = useRef(false);
-  const requete = useRef<AbortController | null>(null);
-  useEffect(() => () => requete.current?.abort(), []);
+  const inFlight = useRef(false);
+  const query = useRef<AbortController | null>(null);
+  useEffect(() => () => query.current?.abort(), []);
 
   // Pré-remplir avec le dernier serveur utilisé, sans écraser une saisie déjà
   // commencée — et charger le registre des serveurs connus (5.3).
-  const [serveursConnus, setServeursConnus] = useState<string[]>([]);
+  const [knownServers, setKnownServers] = useState<string[]>([]);
   useEffect(() => {
-    let abandonne = false;
+    let discarded = false;
     readLastServer()
-      .then((dernier) => {
-        if (!abandonne && dernier !== null) {
-          setAdresse((courante) => (courante === DEFAULT_SERVER ? dernier : courante));
+      .then((last) => {
+        if (!discarded && last !== null) {
+          setAddress((current) => (current === DEFAULT_SERVER ? last : current));
         }
       })
       .catch(() => {});
     listKnownServers()
-      .then((liste) => {
-        if (!abandonne) setServeursConnus(liste);
+      .then((list) => {
+        if (!discarded) setKnownServers(list);
       })
       .catch(() => {});
     return () => {
-      abandonne = true;
+      discarded = true;
     };
   }, []);
 
@@ -87,83 +87,83 @@ export default function LoginScreen() {
   // de serveur ne déconnecte personne. Réentrance gardée : deux taps rapides
   // sur deux serveurs feraient courir deux bascules dont les écritures
   // s'entrelacent.
-  const basculer = useCallback(
+  const toggle = useCallback(
     async (url: string) => {
-      if (enVol.current) return;
-      enVol.current = true;
-      setOccupe(true);
+      if (inFlight.current) return;
+      inFlight.current = true;
+      setBusy(true);
       try {
-        const sessionExistante = await changerDeServeur(url);
-        if (sessionExistante) {
-          routeur.replace('/');
+        const existingSession = await switchServer(url);
+        if (existingSession) {
+          router.replace('/');
         } else {
           // Pas de session là-bas : on reste connecté ici, le formulaire se
           // pré-remplit simplement.
-          setAdresse(url);
+          setAddress(url);
           setMessage(null);
           setPhase({ name: 'server' });
         }
       } finally {
-        enVol.current = false;
-        setOccupe(false);
+        inFlight.current = false;
+        setBusy(false);
       }
     },
-    [changerDeServeur, routeur],
+    [switchServer, router],
   );
 
-  const validerServeur = useCallback(async () => {
-    if (enVol.current) return;
-    enVol.current = true;
-    requete.current?.abort();
-    const controleur = new AbortController();
-    requete.current = controleur;
-    setOccupe(true);
+  const submitServer = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    query.current?.abort();
+    const controller = new AbortController();
+    query.current = controller;
+    setBusy(true);
     setMessage(null);
     try {
-      const profil = await probeServer(adresse, controleur.signal);
-      if (controleur.signal.aborted) return;
-      if (!profil.loginForm) {
+      const profile = await probeServer(address, controller.signal);
+      if (controller.signal.aborted) return;
+      if (!profile.loginForm) {
         // `Accounts_ShowFormLogin = false` : le serveur ne propose que du SSO.
         // L'API accepte parfois quand même un login direct — on prévient sans
         // bloquer.
         setMessage(t('connexion.sansMotDePasse'));
       }
-      setPhase({ name: 'credentials', profile: profil, client: new ClientRest(profil.baseUrl) });
+      setPhase({ name: 'credentials', profile, client: new ClientRest(profile.baseUrl) });
     } catch (e) {
-      if (!controleur.signal.aborted) {
+      if (!controller.signal.aborted) {
         setMessage(e instanceof Error ? e.message : t('connexion.serveurInjoignable'));
       }
     } finally {
-      enVol.current = false;
-      if (!controleur.signal.aborted) setOccupe(false);
+      inFlight.current = false;
+      if (!controller.signal.aborted) setBusy(false);
     }
-  }, [adresse, t]);
+  }, [address, t]);
 
-  const tenterConnexion = useCallback(
-    async (deuxFacteurs?: TwoFactorCode) => {
-      if (enVol.current || phase.name === 'server') return;
-      enVol.current = true;
-      setOccupe(true);
+  const tryLogin = useCallback(
+    async (twoFactor?: TwoFactorCode) => {
+      if (inFlight.current || phase.name === 'server') return;
+      inFlight.current = true;
+      setBusy(true);
       setMessage(null);
       try {
         const session = await logIn(
           phase.client,
-          { user: utilisateur.trim(), password: motDePasse },
-          deuxFacteurs,
+          { user: user.trim(), password },
+          twoFactor,
         );
         // `Site_Url` vient du sondage, pas du login : c'est ICI qu'il entre
         // dans la session persistée — voir `Session.siteUrl` (lib/auth.ts).
-        await connecter({ ...session, siteUrl: phase.profile.siteUrl });
+        await connect({ ...session, siteUrl: phase.profile.siteUrl });
         // Navigation explicite : le <Redirect> en tête de rendu couvre la
         // reprise de session, mais il est neutralisé quand on est venu par
         // « changer de serveur » (`?changer=1`) — sans ceci, un login réussi
         // depuis ce chemin laisserait l'utilisateur planté ici.
-        routeur.replace('/');
+        router.replace('/');
       } catch (e) {
         if (e instanceof TwoFactorError) {
           // Le serveur veut un second facteur — ou refuse celui qu'on vient
           // d'envoyer, auquel cas il relève la même erreur.
-          const memeMethode = phase.name === 'twoFactor' && phase.error.method === e.method;
+          const sameMethod = phase.name === 'twoFactor' && phase.error.method === e.method;
           setCode('');
           setPhase({
             name: 'twoFactor',
@@ -172,9 +172,9 @@ export default function LoginScreen() {
             error: e,
             // Un code email déjà parti ne « repart » pas parce que le serveur
             // relève l'erreur avec `codeGenerated: false` (renvoi limité).
-            codeSent: e.generatedCode || (memeMethode && phase.codeSent),
+            codeSent: e.generatedCode || (sameMethod && phase.codeSent),
           });
-          if (deuxFacteurs !== undefined && memeMethode) setMessage(t('connexion.codeRefuse'));
+          if (twoFactor !== undefined && sameMethod) setMessage(t('connexion.codeRefuse'));
         } else if (
           e instanceof RestError &&
           (e.error === 'totp-invalid' || e.errorType === 'totp-invalid')
@@ -187,42 +187,42 @@ export default function LoginScreen() {
           setMessage(e instanceof Error ? e.message : t('connexion.connexionImpossible'));
         }
       } finally {
-        enVol.current = false;
-        setOccupe(false);
+        inFlight.current = false;
+        setBusy(false);
       }
     },
-    [phase, utilisateur, motDePasse, connecter, routeur, t],
+    [phase, user, password, connect, router, t],
   );
 
-  const validerCode = useCallback(async () => {
+  const submitCode = useCallback(async () => {
     if (phase.name !== 'twoFactor' || code.trim() === '') return;
     try {
       const prepare = await prepareTwoFactorCode(phase.error, code, hash);
-      await tenterConnexion(prepare);
+      await tryLogin(prepare);
     } catch (e) {
       // Un `hacher` qui échoue ne doit pas rendre le bouton muet.
       setMessage(e instanceof Error ? e.message : t('connexion.preparationCodeImpossible'));
     }
-  }, [phase, code, tenterConnexion, t]);
+  }, [phase, code, tryLogin, t]);
 
-  const envoyerCodeEmail = useCallback(async () => {
-    if (enVol.current || phase.name !== 'twoFactor') return;
-    enVol.current = true;
-    setOccupe(true);
+  const sendEmailCode = useCallback(async () => {
+    if (inFlight.current || phase.name !== 'twoFactor') return;
+    inFlight.current = true;
+    setBusy(true);
     setMessage(null);
     try {
-      await requestEmailCode(phase.client, utilisateur.trim());
+      await requestEmailCode(phase.client, user.trim());
       setPhase({ ...phase, codeSent: true });
     } catch (e) {
       setMessage(e instanceof Error ? e.message : t('connexion.envoiCodeImpossible'));
     } finally {
-      enVol.current = false;
-      setOccupe(false);
+      inFlight.current = false;
+      setBusy(false);
     }
-  }, [phase, utilisateur, t]);
+  }, [phase, user, t]);
 
-  const revenirAuServeur = useCallback(() => {
-    setMotDePasse('');
+  const backToServer = useCallback(() => {
+    setPassword('');
     setCode('');
     setMessage(null);
     setPhase({ name: 'server' });
@@ -230,37 +230,37 @@ export default function LoginScreen() {
 
   // Déjà connecté (reprise au démarrage, ou login qui vient d'aboutir) : cet
   // écran n'a rien à montrer — SAUF si on vient exprès changer de serveur.
-  if (etat.phase === 'connected' && changer !== '1') return <Redirect href="/" />;
+  if (state.phase === 'connected' && change !== '1') return <Redirect href="/" />;
 
-  const surServeur = phase.name === 'server';
+  const onServer = phase.name === 'server';
   // Route « changer de serveur » (poussée depuis l'accueil) : on GARDE l'en-tête
   // natif — son bouton retour est la seule sortie vers l'app, et il porte le
   // titre accessible. Le login racine, lui, reste sans en-tête (logo plein).
-  const routeChangement = changer === '1';
+  const changeRoute = change === '1';
 
   return (
     <KeyboardAvoidingContainer>
-      <Stack.Screen options={{ headerShown: routeChangement, title: t('connexion.titre') }} />
-      <CielEtoile c={c} />
+      <Stack.Screen options={{ headerShown: changeRoute, title: t('connexion.titre') }} />
+      <StarrySky c={c} />
       <ScrollView
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: routeChangement ? 20 : insets.top + 20,
-            justifyContent: surServeur ? 'center' : 'flex-start',
+            paddingTop: changeRoute ? 20 : insets.top + 20,
+            justifyContent: onServer ? 'center' : 'flex-start',
           },
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        {surServeur ? (
-          <EnTeteMarque c={c} />
+        {onServer ? (
+          <BrandHeader c={c} />
         ) : (
-          <RetourConnexion c={c} onBack={revenirAuServeur} busy={occupe} />
+          <LoginResult c={c} onBack={backToServer} busy={busy} />
         )}
 
         {phase.name !== 'server' && (
-          <View style={[styles.chipServeur, { backgroundColor: c.card, borderColor: c.border }]}>
-            <Text style={[styles.chipTexte, { color: c.dimmed }]}>
+          <View style={[styles.serverChip, { backgroundColor: c.card, borderColor: c.border }]}>
+            <Text style={[styles.chipText, { color: c.dimmed }]}>
               {phase.client.baseUrl} · Rocket.Chat {phase.profile.version}
             </Text>
           </View>
@@ -272,22 +272,22 @@ export default function LoginScreen() {
               c={c}
               label={t('connexion.adresseServeur')}
               icon="🌐"
-              value={adresse}
-              onChangeText={setAdresse}
-              onSubmitEditing={validerServeur}
+              value={address}
+              onChangeText={setAddress}
+              onSubmitEditing={submitServer}
               keyboardType="url"
               inputMode="url"
               placeholder="chat.exemple.fr"
               autoComplete="url"
             />
-            <PrimaryButton c={c} busy={occupe} onPress={() => void validerServeur()} title={t('connexion.continuer')} />
+            <PrimaryButton c={c} busy={busy} onPress={() => void submitServer()} title={t('connexion.continuer')} />
 
-            {serveursConnus.length > 0 && (
+            {knownServers.length > 0 && (
               <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-                <Text style={[styles.surtitre, { color: c.dimmed }]}>{t('connexion.serveursConnus')}</Text>
-                {serveursConnus.map((url) => (
-                  <Pressable key={url} onPress={() => void basculer(url)} disabled={occupe}>
-                    <Text style={[styles.lienServeur, { color: c.cyan }]}>{url}</Text>
+                <Text style={[styles.overline, { color: c.dimmed }]}>{t('connexion.serveursConnus')}</Text>
+                {knownServers.map((url) => (
+                  <Pressable key={url} onPress={() => void toggle(url)} disabled={busy}>
+                    <Text style={[styles.serverLink, { color: c.cyan }]}>{url}</Text>
                   </Pressable>
                 ))}
               </View>
@@ -300,8 +300,8 @@ export default function LoginScreen() {
             <PillField
               c={c}
               label={t('connexion.identifiantOuEmail')}
-              value={utilisateur}
-              onChangeText={setUtilisateur}
+              value={user}
+              onChangeText={setUser}
               placeholder={t('connexion.exempleIdentifiant')}
               autoComplete="username"
               autoFocus
@@ -309,32 +309,32 @@ export default function LoginScreen() {
             <PillField
               c={c}
               label={t('connexion.motDePasse')}
-              value={motDePasse}
-              onChangeText={setMotDePasse}
-              onSubmitEditing={() => void tenterConnexion()}
+              value={password}
+              onChangeText={setPassword}
+              onSubmitEditing={() => void tryLogin()}
               placeholder="••••••••"
               autoComplete="current-password"
               secureTextEntry
             />
             <PrimaryButton
               c={c}
-              busy={occupe}
-              onPress={() => void tenterConnexion()}
+              busy={busy}
+              onPress={() => void tryLogin()}
               title={t('connexion.seConnecter')}
             />
           </>
         )}
 
         {phase.name === 'twoFactor' && (
-          <SectionDeuxFacteurs
+          <TwoFactorSection
             c={c}
             error={phase.error}
             codeSent={phase.codeSent}
             code={code}
-            busy={occupe}
+            busy={busy}
             onChangeCode={setCode}
-            onSubmit={() => void validerCode()}
-            onSendEmail={() => void envoyerCodeEmail()}
+            onSubmit={() => void submitCode()}
+            onSendEmail={() => void sendEmailCode()}
           />
         )}
 
@@ -348,7 +348,7 @@ export default function LoginScreen() {
         )}
 
         {phase.name !== 'server' && (
-          <Pressable onPress={revenirAuServeur} disabled={occupe}>
+          <Pressable onPress={backToServer} disabled={busy}>
             <Text style={[styles.link, { color: c.cyan }]}>{t('connexion.changerServeur')}</Text>
           </Pressable>
         )}
@@ -358,14 +358,14 @@ export default function LoginScreen() {
 }
 
 /** En-tête de la marque : licorne, barres arc-en-ciel, logotype, sous-titre. */
-function EnTeteMarque({ c }: { c: Colors }) {
+function BrandHeader({ c }: { c: Colors }) {
   const t = useT();
   return (
-    <View style={styles.marque}>
-      <Text style={styles.licorne}>🦄</Text>
+    <View style={styles.mark}>
+      <Text style={styles.unicorn}>🦄</Text>
       <View style={styles.bars}>
-        {[c.accent, c.yellow, c.cyan, c.purple].map((couleur, i) => (
-          <View key={i} style={[styles.bar, { backgroundColor: couleur }]} />
+        {[c.accent, c.yellow, c.cyan, c.purple].map((color, i) => (
+          <View key={i} style={[styles.bar, { backgroundColor: color }]} />
         ))}
       </View>
       <Brand c={c} />
@@ -375,10 +375,10 @@ function EnTeteMarque({ c }: { c: Colors }) {
 }
 
 /** Retour vers l'étape serveur, en tête des phases identifiants / 2FA. */
-function RetourConnexion({
+function LoginResult({
   c,
-  onBack: onRetour,
-  busy: occupe,
+  onBack,
+  busy,
 }: {
   c: Colors;
   onBack: () => void;
@@ -386,22 +386,22 @@ function RetourConnexion({
 }) {
   const t = useT();
   return (
-    <Pressable onPress={onRetour} disabled={occupe} style={styles.back} hitSlop={10}>
+    <Pressable onPress={onBack} disabled={busy} style={styles.back} hitSlop={10}>
       <Text style={[styles.chevron, { color: c.purple }]}>‹</Text>
-      <Text style={[styles.retourTitre, { color: c.text }]}>{t('connexion.titre')}</Text>
+      <Text style={[styles.backTitle, { color: c.text }]}>{t('connexion.titre')}</Text>
     </Pressable>
   );
 }
 
-function SectionDeuxFacteurs({
+function TwoFactorSection({
   c,
-  error: erreur,
-  codeSent: codeEnvoye,
+  error,
+  codeSent,
   code,
-  busy: occupe,
+  busy,
   onChangeCode,
-  onSubmit: onValider,
-  onSendEmail: onEnvoyerEmail,
+  onSubmit,
+  onSendEmail,
 }: {
   c: Colors;
   error: TwoFactorError;
@@ -413,50 +413,50 @@ function SectionDeuxFacteurs({
   onSendEmail: () => void;
 }) {
   const t = useT();
-  if (erreur.method === 'email' && !codeEnvoye) {
+  if (error.method === 'email' && !codeSent) {
     // `codeGenerated: false` : aucun code n'est encore parti, il faut le
     // demander explicitement avant d'afficher un champ de saisie.
     return (
       <>
-        <BlasonDeuxFacteurs c={c} subtitle={t('connexion.introEmail')} />
-        <PrimaryButton c={c} busy={occupe} onPress={onEnvoyerEmail} title={t('connexion.envoyerLeCode')} />
+        <TwoFactorCrest c={c} subtitle={t('connexion.introEmail')} />
+        <PrimaryButton c={c} busy={busy} onPress={onSendEmail} title={t('connexion.envoyerLeCode')} />
       </>
     );
   }
 
-  const etiquette =
-    erreur.method === 'totp'
+  const label =
+    error.method === 'totp'
       ? t('connexion.etiquetteTotp')
-      : erreur.method === 'email'
+      : error.method === 'email'
         ? t('connexion.etiquetteEmail')
         : t('connexion.etiquettePassword');
 
   return (
     <>
-      <BlasonDeuxFacteurs
+      <TwoFactorCrest
         c={c}
         subtitle={
-          erreur.method === 'password'
+          error.method === 'password'
             ? t('connexion.introPassword')
             : t('connexion.introTotp')
         }
       />
       <PillField
         c={c}
-        label={etiquette}
+        label={label}
         value={code}
-        large={erreur.method !== 'password'}
+        large={error.method !== 'password'}
         onChangeText={onChangeCode}
-        onSubmitEditing={onValider}
-        placeholder={erreur.method === 'password' ? '••••••••' : '123456'}
-        keyboardType={erreur.method === 'password' ? 'default' : 'number-pad'}
-        autoComplete={erreur.method === 'password' ? 'current-password' : 'one-time-code'}
-        secureTextEntry={erreur.method === 'password'}
+        onSubmitEditing={onSubmit}
+        placeholder={error.method === 'password' ? '••••••••' : '123456'}
+        keyboardType={error.method === 'password' ? 'default' : 'number-pad'}
+        autoComplete={error.method === 'password' ? 'current-password' : 'one-time-code'}
+        secureTextEntry={error.method === 'password'}
         autoFocus
       />
-      <PrimaryButton c={c} busy={occupe} onPress={onValider} title={t('connexion.valider')} />
-      {erreur.method === 'email' && (
-        <Pressable onPress={onEnvoyerEmail} disabled={occupe}>
+      <PrimaryButton c={c} busy={busy} onPress={onSubmit} title={t('connexion.valider')} />
+      {error.method === 'email' && (
+        <Pressable onPress={onSendEmail} disabled={busy}>
           <Text style={[styles.link, { color: c.cyan }]}>{t('connexion.renvoyerCode')}</Text>
         </Pressable>
       )}
@@ -465,19 +465,19 @@ function SectionDeuxFacteurs({
 }
 
 /** Blason « Vérification magique » : icône bouclier en dégradé + sous-titre. */
-function BlasonDeuxFacteurs({ c, subtitle: sousTitre }: { c: Colors; subtitle: string }) {
+function TwoFactorCrest({ c, subtitle }: { c: Colors; subtitle: string }) {
   const t = useT();
   return (
-    <View style={styles.blason}>
+    <View style={styles.crest}>
       <AvatarTile
         c={c}
         deg={[c.purple, c.cyan] as const}
         size={70}
         radius={22}
-        child={<Text style={styles.bouclierGlyphe}>🛡️</Text>}
+        child={<Text style={styles.shieldGlyph}>🛡️</Text>}
       />
-      <Text style={[styles.blasonTitre, { color: c.text }]}>{t('connexion.verificationMagique')}</Text>
-      <Text style={[styles.blasonSousTitre, { color: c.dimmed }]}>{sousTitre}</Text>
+      <Text style={[styles.crestTitle, { color: c.text }]}>{t('connexion.verificationMagique')}</Text>
+      <Text style={[styles.crestSubtitle, { color: c.dimmed }]}>{subtitle}</Text>
     </View>
   );
 }
@@ -486,8 +486,8 @@ function BlasonDeuxFacteurs({ c, subtitle: sousTitre }: { c: Colors; subtitle: s
  * Ciel étoilé décoratif, en fond d'écran. Purement ornemental. `memo` car `c`
  * est stable (palette forcée) : inutile de le re-rendre à chaque frappe.
  */
-const CielEtoile = memo(function CielEtoile({ c }: { c: Colors }) {
-  const etoiles: { top: number; left: number; size: number; color: string; opacity: number }[] = [
+const StarrySky = memo(function StarrySky({ c }: { c: Colors }) {
+  const starred: { top: number; left: number; size: number; color: string; opacity: number }[] = [
     { top: 90, left: 44, size: 10, color: '#FFFFFF', opacity: 0.5 },
     { top: 150, left: 300, size: 12, color: c.yellow, opacity: 0.7 },
     { top: 250, left: 70, size: 9, color: c.cyan, opacity: 0.6 },
@@ -498,7 +498,7 @@ const CielEtoile = memo(function CielEtoile({ c }: { c: Colors }) {
   ];
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      {etoiles.map((e, i) => (
+      {starred.map((e, i) => (
         <Text
           key={i}
           style={{
@@ -519,24 +519,24 @@ const CielEtoile = memo(function CielEtoile({ c }: { c: Colors }) {
 
 const styles = StyleSheet.create({
   content: { flexGrow: 1, padding: 26, paddingBottom: 32, gap: 16 },
-  marque: { alignItems: 'center', gap: 4, marginBottom: 10 },
-  licorne: { fontSize: 46, lineHeight: 52 },
+  mark: { alignItems: 'center', gap: 4, marginBottom: 10 },
+  unicorn: { fontSize: 46, lineHeight: 52 },
   bars: { flexDirection: 'row', gap: 5, marginVertical: 8 },
   bar: { width: 26, height: 5, borderRadius: 3 },
   subtitle: { fontFamily: FONTS.body, fontSize: 13, marginTop: 2 },
   back: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   chevron: { fontSize: 26, fontFamily: FONTS.title },
-  retourTitre: { fontFamily: FONTS.title, fontSize: 17 },
-  chipServeur: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12 },
-  chipTexte: { fontFamily: FONTS.corpsSemi, fontSize: 12.5 },
-  blason: { alignItems: 'center', gap: 4, marginTop: 6, marginBottom: 4 },
-  bouclierGlyphe: { fontSize: 34 },
-  blasonTitre: { fontFamily: FONTS.title, fontSize: 21, marginTop: 12 },
-  blasonSousTitre: { fontFamily: FONTS.body, fontSize: 13, textAlign: 'center', lineHeight: 19 },
+  backTitle: { fontFamily: FONTS.title, fontSize: 17 },
+  serverChip: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12 },
+  chipText: { fontFamily: FONTS.bodySemi, fontSize: 12.5 },
+  crest: { alignItems: 'center', gap: 4, marginTop: 6, marginBottom: 4 },
+  shieldGlyph: { fontSize: 34 },
+  crestTitle: { fontFamily: FONTS.title, fontSize: 21, marginTop: 12 },
+  crestSubtitle: { fontFamily: FONTS.body, fontSize: 13, textAlign: 'center', lineHeight: 19 },
   card: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 9 },
-  surtitre: { fontFamily: FONTS.corpsFort, fontSize: 11.5, letterSpacing: 0.4, textTransform: 'uppercase' },
-  lienServeur: { fontFamily: FONTS.corpsGras, fontSize: 14, paddingVertical: 3 },
-  errorMessage: { fontFamily: FONTS.corpsGras, fontSize: 14 },
+  overline: { fontFamily: FONTS.bodyStrong, fontSize: 11.5, letterSpacing: 0.4, textTransform: 'uppercase' },
+  serverLink: { fontFamily: FONTS.bodyBold, fontSize: 14, paddingVertical: 3 },
+  errorMessage: { fontFamily: FONTS.bodyBold, fontSize: 14 },
   help: { fontFamily: FONTS.body, fontSize: 13, lineHeight: 18 },
-  link: { fontFamily: FONTS.corpsGras, fontSize: 14, paddingVertical: 12, textAlign: 'center' },
+  link: { fontFamily: FONTS.bodyBold, fontSize: 14, paddingVertical: 12, textAlign: 'center' },
 });

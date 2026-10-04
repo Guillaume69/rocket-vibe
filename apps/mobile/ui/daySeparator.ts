@@ -29,31 +29,31 @@ export function dayKey(ms: number): number {
  * re-rend pas pour rien.
  */
 export function insertDaySeparators<L extends { id: string }>(
-  lignes: L[],
-  ordre: 'newest-first' | 'oldest-first',
+  rows: L[],
+  order: 'newest-first' | 'oldest-first',
 ): (L | DayRow)[] {
-  const resultat: (L | DayRow)[] = [];
-  let precedent: { ts: number } | null = null;
-  for (const ligne of lignes) {
-    if (estMessage(ligne)) {
-      if (precedent !== null && dayKey(ligne.ts) !== dayKey(precedent.ts)) {
+  const result: (L | DayRow)[] = [];
+  let prev: { ts: number } | null = null;
+  for (const row of rows) {
+    if (isMessage(row)) {
+      if (prev !== null && dayKey(row.ts) !== dayKey(prev.ts)) {
         // Le séparateur titre le jour du message le plus RÉCENT de la
         // frontière : celui déjà poussé en DESC, celui qui arrive en ASC.
-        const recent = ordre === 'newest-first' ? precedent : ligne;
-        resultat.push({
+        const recent = order === 'newest-first' ? prev : row;
+        result.push({
           day: true,
           id: `jour-${dayKey(recent.ts)}`,
           ts: recent.ts,
         });
       }
-      precedent = ligne;
+      prev = row;
     }
-    resultat.push(ligne);
+    result.push(row);
   }
-  return resultat.length === lignes.length ? lignes : resultat;
+  return result.length === rows.length ? rows : result;
 }
 
 /** Un message, par opposition aux lignes déjà insérées (barre de non-lus). */
-function estMessage<L extends { id: string }>(l: L): l is L & { ts: number } {
+function isMessage<L extends { id: string }>(l: L): l is L & { ts: number } {
   return typeof (l as { ts?: unknown }).ts === 'number';
 }

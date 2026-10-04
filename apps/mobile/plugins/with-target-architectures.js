@@ -14,14 +14,14 @@ const { withGradleProperties } = require('expo/config-plugins');
  */
 const ARCHITECTURES = 'arm64-v8a,x86_64';
 
-module.exports = function withArchitecturesCibles(config) {
+module.exports = function withTargetArchitectures(config) {
   return withGradleProperties(config, (config) => {
     const props = config.modResults;
-    const existante = props.find(
+    const existing = props.find(
       (p) => p.type === 'property' && p.key === 'reactNativeArchitectures',
     );
-    if (existante) {
-      existante.value = ARCHITECTURES;
+    if (existing) {
+      existing.value = ARCHITECTURES;
     } else {
       props.push({ type: 'property', key: 'reactNativeArchitectures', value: ARCHITECTURES });
     }

@@ -14,7 +14,7 @@
 
 export type DeferredDraft = {
   /** À chaque frappe : l'écriture part après la pause, la dernière gagne. */
-  save(texte: string): void;
+  save(text: string): void;
   /** À l'envoi : suppression IMMÉDIATE, frappe en pause comprise. */
   clear(): void;
   /**
@@ -27,60 +27,60 @@ export type DeferredDraft = {
 
 export const DRAFT_DELAY_MS = 400;
 
-type Dependances = {
+type Dependencies = {
   /** Écrit le brouillon (texte non blanc) sous la clé liée à l'instance. */
-  write: (texte: string) => void;
+  write: (text: string) => void;
   /** Supprime le brouillon : un texte BLANC vaut suppression, pas écriture. */
   delete: () => void;
   timeoutMs?: number;
   /** Horloge injectable — `setTimeout`/`clearTimeout` par défaut. */
   schedule?: (fn: () => void, ms: number) => unknown;
-  cancel?: (minuterie: unknown) => void;
+  cancel?: (timer: unknown) => void;
 };
 
-export function createDeferredDraft(dep: Dependances): DeferredDraft {
-  const delaiMs = dep.timeoutMs ?? DRAFT_DELAY_MS;
-  const programmer = dep.schedule ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
-  const annuler =
-    dep.cancel ?? ((minuterie: unknown) => clearTimeout(minuterie as ReturnType<typeof setTimeout>));
+export function createDeferredDraft(dep: Dependencies): DeferredDraft {
+  const timeoutMs = dep.timeoutMs ?? DRAFT_DELAY_MS;
+  const schedule = dep.schedule ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
+  const cancel =
+    dep.cancel ?? ((timer: unknown) => clearTimeout(timer as ReturnType<typeof setTimeout>));
 
-  let minuterie: unknown = null;
+  let timer: unknown = null;
   /** Le texte tapé mais pas encore écrit — la matière du flush. */
-  let enPause: string | null = null;
+  let paused: string | null = null;
 
-  const poser = (texte: string): void => {
-    if (texte.trim() === '') dep.delete();
-    else dep.write(texte);
+  const set = (text: string): void => {
+    if (text.trim() === '') dep.delete();
+    else dep.write(text);
   };
 
   return {
-    save(texte) {
-      enPause = texte;
-      if (minuterie !== null) annuler(minuterie);
-      minuterie = programmer(() => {
+    save(text) {
+      paused = text;
+      if (timer !== null) cancel(timer);
+      timer = schedule(() => {
         // Remise à zéro AVANT l'écriture : un flush qui suivrait le tir ne
         // doit pas rejouer un texte déjà parti. Redondant avec le garde
         // `minuterie === null` de `flusher` — c'est voulu, chacun des deux
         // suffit seul, et la preuve par retrait doit les retirer ENSEMBLE.
-        minuterie = null;
-        enPause = null;
-        poser(texte);
-      }, delaiMs);
+        timer = null;
+        paused = null;
+        set(text);
+      }, timeoutMs);
     },
 
     clear() {
-      if (minuterie !== null) annuler(minuterie);
-      minuterie = null;
-      enPause = null;
-      poser('');
+      if (timer !== null) cancel(timer);
+      timer = null;
+      paused = null;
+      set('');
     },
 
     flusher() {
-      if (minuterie === null) return;
-      annuler(minuterie);
-      minuterie = null;
-      if (enPause !== null) poser(enPause);
-      enPause = null;
+      if (timer === null) return;
+      cancel(timer);
+      timer = null;
+      if (paused !== null) set(paused);
+      paused = null;
     },
   };
 }

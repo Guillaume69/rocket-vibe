@@ -35,9 +35,9 @@ describe('filsCharges', () => {
   });
 
   test('un chargement qui ABOUTIT après la fin de session ne repeuple rien', () => {
-    const jeton = sessionToken();
+    const token = sessionToken();
     forgetLoadedThreads();
-    markThreadLoaded('f1', 3, jeton);
+    markThreadLoaded('f1', 3, token);
     assert.equal(threadLoadedUnder('f1', 3), false);
   });
 });

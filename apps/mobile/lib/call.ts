@@ -24,10 +24,10 @@
 import { RestError, isTokenRejected } from './rest.ts';
 import type { ClientRest } from './rest.ts';
 
-const chaine = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
+const asString = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
 
-type ReponseStart = { data?: { callId?: unknown } };
-type ReponseJoin = { url?: unknown };
+type StartResponse = { data?: { callId?: unknown } };
+type JoinResponse = { url?: unknown };
 
 /**
  * Démarre une conférence dans le salon `roomId` et renvoie son `callId`. C'est
@@ -36,8 +36,8 @@ type ReponseJoin = { url?: unknown };
  * sonnerie mobile (`VideoConf_Mobile_Ringing`) est désactivée sur la cible.
  */
 export async function startConference(client: ClientRest, roomId: string): Promise<string> {
-  const r = await client.post<ReponseStart>('video-conference.start', { body: { roomId } });
-  const callId = chaine(r.data?.callId);
+  const r = await client.post<StartResponse>('video-conference.start', { body: { roomId } });
+  const callId = asString(r.data?.callId);
   if (callId === null) throw new RestError("Le serveur n'a pas renvoyé d'identifiant d'appel.", 0);
   return callId;
 }
@@ -50,12 +50,12 @@ export async function startConference(client: ClientRest, roomId: string): Promi
 export async function joinConference(
   client: ClientRest,
   callId: string,
-  etat?: { cam?: boolean; mic?: boolean },
+  state?: { cam?: boolean; mic?: boolean },
 ): Promise<string> {
-  const r = await client.post<ReponseJoin>('video-conference.join', {
-    body: etat === undefined ? { callId } : { callId, state: etat },
+  const r = await client.post<JoinResponse>('video-conference.join', {
+    body: state === undefined ? { callId } : { callId, state },
   });
-  const url = chaine(r.url);
+  const url = asString(r.url);
   if (url === null) throw new RestError("Le serveur n'a pas renvoyé d'URL d'appel.", 0);
   return url;
 }
@@ -72,21 +72,21 @@ export async function joinConference(
  * « Par session » n'était pas tenu : le store est au niveau module, donc c'était
  * par PROCESS. D'où `oublierDisponibiliteAppel`, appelé en fin de session.
  */
-const dispoParServeur = new Map<string, boolean>();
+const availabilityByServer = new Map<string, boolean>();
 
 export async function probeCallAvailable(client: ClientRest): Promise<boolean> {
-  const memo = dispoParServeur.get(client.baseUrl);
+  const memo = availabilityByServer.get(client.baseUrl);
   if (memo !== undefined) return memo;
   try {
     await client.get('video-conference.capabilities');
-    dispoParServeur.set(client.baseUrl, true);
+    availabilityByServer.set(client.baseUrl, true);
     return true;
   } catch (e) {
     // Un 401 ne dit rien de la visioconférence — il dit que la session est
     // finie. Le mémoïser éteignait le bouton 📞 pour la vie du process, y
     // compris après une reconnexion réussie, et aucun geste n'en sortait.
     if (e instanceof RestError && e.status !== 0 && !isTokenRejected(e)) {
-      dispoParServeur.set(client.baseUrl, false);
+      availabilityByServer.set(client.baseUrl, false);
     }
     return false;
   }
@@ -94,7 +94,7 @@ export async function probeCallAvailable(client: ClientRest): Promise<boolean> {
 
 /** Fin de session / changement de serveur : le verdict est celui d'un compte. */
 export function forgetCallAvailability(): void {
-  dispoParServeur.clear();
+  availabilityByServer.clear();
 }
 
 /**
@@ -103,5 +103,5 @@ export function forgetCallAvailability(): void {
  * dès la première frame quand la sonde a déjà tourné (fiche préchargée).
  */
 export function memoizedCallAvailable(client: ClientRest): boolean {
-  return dispoParServeur.get(client.baseUrl) ?? false;
+  return availabilityByServer.get(client.baseUrl) ?? false;
 }

@@ -54,20 +54,20 @@ export type LogoutQueue = {
  */
 export async function finishPendingLogouts(
   file: LogoutQueue,
-  creerClient: (entree: PendingLogout) => ClientRest,
+  createClient: (entry: PendingLogout) => ClientRest,
 ): Promise<void> {
-  const entrees = await file.list();
-  for (const entree of entrees) {
-    const client = creerClient(entree);
-    let echecReseau = false;
+  const entries = await file.list();
+  for (const entry of entries) {
+    const client = createClient(entry);
+    let networkFailure = false;
     // Séquentiel et non `Promise.all` : `logout` invalide le jeton dont le
     // `DELETE` a besoin. L'ordre est le même qu'à la déconnexion nominale.
-    const jetonPush = entree.jetonPush;
-    if (jetonPush !== null) {
-      echecReseau = !(await tenter(() => unregisterToken(client, jetonPush)));
+    const pushToken = entry.jetonPush;
+    if (pushToken !== null) {
+      networkFailure = !(await attempt(() => unregisterToken(client, pushToken)));
     }
-    if (!(await tenter(() => client.post('logout')))) echecReseau = true;
-    if (!echecReseau) await file.remove(entree.baseUrl);
+    if (!(await attempt(() => client.post('logout')))) networkFailure = true;
+    if (!networkFailure) await file.remove(entry.baseUrl);
   }
 }
 
@@ -75,9 +75,9 @@ export async function finishPendingLogouts(
  * Vrai si le geste est SOLDÉ — abouti, ou définitivement sans objet. Faux
  * seulement si le retenter a un sens.
  */
-async function tenter(geste: () => Promise<unknown>): Promise<boolean> {
+async function attempt(gesture: () => Promise<unknown>): Promise<boolean> {
   try {
-    await geste();
+    await gesture();
     return true;
   } catch (e) {
     return isTokenRejected(e);

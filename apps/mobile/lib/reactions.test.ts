@@ -13,39 +13,39 @@ describe('listeReactions', () => {
   });
 
   it('projette codes (sans deux-points), totaux et appartenance, dans l’ordre du serveur', () => {
-    const brut = JSON.stringify({
+    const raw = JSON.stringify({
       ':+1:': { usernames: ['alice', 'bob'] },
       ':party_parrot:': { usernames: ['bob'] },
     });
-    assert.deepEqual(reactionList(brut, 'alice'), [
+    assert.deepEqual(reactionList(raw, 'alice'), [
       { code: '+1', total: 2, byMe: true },
       { code: 'party_parrot', total: 1, byMe: false },
     ]);
   });
 
   it('`moi` null : les pastilles s’affichent, aucune n’est marquée mienne', () => {
-    const brut = JSON.stringify({ ':heart:': { usernames: ['alice'] } });
-    assert.deepEqual(reactionList(brut, null), [{ code: 'heart', total: 1, byMe: false }]);
+    const raw = JSON.stringify({ ':heart:': { usernames: ['alice'] } });
+    assert.deepEqual(reactionList(raw, null), [{ code: 'heart', total: 1, byMe: false }]);
   });
 
   it('ignore une entrée sans username exploitable, sans jeter le reste', () => {
-    const brut = JSON.stringify({
+    const raw = JSON.stringify({
       ':tada:': { usernames: [] },
       ':joy:': {},
       ':pray:': null,
       ':heart:': { usernames: [42, 'bob', null] },
     });
     // Les non-chaînes sont filtrées : `heart` ne compte que bob.
-    assert.deepEqual(reactionList(brut, 'bob'), [{ code: 'heart', total: 1, byMe: true }]);
+    assert.deepEqual(reactionList(raw, 'bob'), [{ code: 'heart', total: 1, byMe: true }]);
   });
 
   it('tolère une clé sans deux-points (défensif : elle reste telle quelle)', () => {
-    const brut = JSON.stringify({ '+1': { usernames: ['alice'] } });
-    assert.deepEqual(reactionList(brut, 'alice'), [{ code: '+1', total: 1, byMe: true }]);
+    const raw = JSON.stringify({ '+1': { usernames: ['alice'] } });
+    assert.deepEqual(reactionList(raw, 'alice'), [{ code: '+1', total: 1, byMe: true }]);
   });
 
   it('ne confond pas un username qui CONTIENT le mien', () => {
-    const brut = JSON.stringify({ ':+1:': { usernames: ['alice-bis'] } });
-    assert.equal(reactionList(brut, 'alice')[0]?.byMe, false);
+    const raw = JSON.stringify({ ':+1:': { usernames: ['alice-bis'] } });
+    assert.equal(reactionList(raw, 'alice')[0]?.byMe, false);
   });
 });

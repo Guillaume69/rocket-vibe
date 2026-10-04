@@ -57,71 +57,71 @@ export type ImageTarget = {
   local?: boolean;
 };
 
-type ContexteVisionneuse = {
+type ViewerContext = {
   /** Ouvre l'image en plein écran. */
-  open: (cible: ImageTarget) => void;
+  open: (target: ImageTarget) => void;
 };
 
-const Contexte = createContext<ContexteVisionneuse | null>(null);
+const Context = createContext<ViewerContext | null>(null);
 
 const ZOOM_MAX = 5;
 const ZOOM_DOUBLE_TAP = 2.5;
 /** Glisser au-delà de ce seuil (non zoomé) ferme la visionneuse. */
-const SEUIL_FERMETURE = 120;
+const CLOSE_THRESHOLD = 120;
 
 export function ImageViewerProvider({ children }: { children: React.ReactNode }) {
-  const [cible, setCible] = useState<ImageTarget | null>(null);
-  const ouvrir = useCallback((c: ImageTarget) => setCible(c), []);
-  const fermer = useCallback(() => setCible(null), []);
-  const valeur = useMemo(() => ({ open: ouvrir }), [ouvrir]);
+  const [target, setTarget] = useState<ImageTarget | null>(null);
+  const open = useCallback((c: ImageTarget) => setTarget(c), []);
+  const close = useCallback(() => setTarget(null), []);
+  const value = useMemo(() => ({ open }), [open]);
 
   return (
-    <Contexte.Provider value={valeur}>
+    <Context.Provider value={value}>
       {children}
-      <ModaleImage target={cible} onClose={fermer} />
-    </Contexte.Provider>
+      <ImageModal target={target} onClose={close} />
+    </Context.Provider>
   );
 }
 
-export function useImageViewer(): ContexteVisionneuse {
-  const contexte = useContext(Contexte);
-  if (contexte === null) {
+export function useImageViewer(): ViewerContext {
+  const context = useContext(Context);
+  if (context === null) {
     throw new Error('useVisionneuse appelé hors de <VisionneuseImageProvider>.');
   }
-  return contexte;
+  return context;
 }
 
-function serrer(valeur: number, min: number, max: number): number {
+function tighten(value: number, min: number, max: number): number {
   'worklet';
-  return Math.min(Math.max(valeur, min), max);
+  return Math.min(Math.max(value, min), max);
 }
 
-function ModaleImage({ target: cible, onClose: onFermer }: { target: ImageTarget | null; onClose: () => void }) {
+function ImageModal({ target, onClose }: { target: ImageTarget | null; onClose: () => void }) {
   const t = useT();
   const c = useColors();
   const insets = useSafeAreaInsets();
-  const [charge, setCharge] = useState(false);
-  const cleTransfert = cible === null ? null : (cible.key ?? cible.uri);
-  const progression = useProgress(cleTransfert);
+  const [loaded, setLoaded] = useState(false);
+  const transferKey = target === null ? null : (target.key ?? target.uri);
+  const progress = useProgress(transferKey);
 
-  const enregistrer = () => {
-    if (cible === null || cleTransfert === null) return;
+  const save = () => {
+    if (target === null || transferKey === null) return;
     saveInBackground(
       {
-        key: cleTransfert,
-        url: cible.uri,
-        title: cible.title ?? null,
+        key: transferKey,
+        url: target.uri,
+        title: target.title ?? null,
         // Une visionneuse ne montre que des images : faute de MIME, le fichier
         // part quand même vers la galerie.
-        type: cible.type ?? 'image/jpeg',
-        size: cible.size ?? null,
+        type: target.type ?? 'image/jpeg',
+        size: target.size ?? null,
       },
       t,
     );
   };
 
-  const echelle = useSharedValue(1);
-  const echelleMem = useSharedValue(1);
+  const scale = useSharedValue(1);
+  const savedScale = useSharedValue(1);
   const x = useSharedValue(0);
   const y = useSharedValue(0);
   const xMem = useSharedValue(0);
@@ -130,37 +130,37 @@ function ModaleImage({ target: cible, onClose: onFermer }: { target: ImageTarget
   // La Modal est réutilisée d'une image à l'autre : on remet le zoom à plat à
   // chaque ouverture, sinon la suivante s'afficherait déjà zoomée/décalée.
   useEffect(() => {
-    if (cible !== null) {
-      echelle.value = 1;
-      echelleMem.value = 1;
+    if (target !== null) {
+      scale.value = 1;
+      savedScale.value = 1;
       x.value = 0;
       y.value = 0;
       xMem.value = 0;
       yMem.value = 0;
-      setCharge(false);
+      setLoaded(false);
     }
-  }, [cible, echelle, echelleMem, x, y, xMem, yMem]);
+  }, [target, scale, savedScale, x, y, xMem, yMem]);
 
-  const remettreAPlat = useCallback(() => {
+  const flatten = useCallback(() => {
     'worklet';
-    echelle.value = withTiming(1);
-    echelleMem.value = 1;
+    scale.value = withTiming(1);
+    savedScale.value = 1;
     x.value = withTiming(0);
     y.value = withTiming(0);
     xMem.value = 0;
     yMem.value = 0;
-  }, [echelle, echelleMem, x, y, xMem, yMem]);
+  }, [scale, savedScale, x, y, xMem, yMem]);
 
-  const pincer = Gesture.Pinch()
+  const pinch = Gesture.Pinch()
     .onUpdate((e) => {
-      echelle.value = serrer(echelleMem.value * e.scale, 0.9, ZOOM_MAX);
+      scale.value = tighten(savedScale.value * e.scale, 0.9, ZOOM_MAX);
     })
     .onEnd(() => {
-      if (echelle.value <= 1) remettreAPlat();
-      else echelleMem.value = echelle.value;
+      if (scale.value <= 1) flatten();
+      else savedScale.value = scale.value;
     });
 
-  const deplacer = Gesture.Pan()
+  const move = Gesture.Pan()
     .onUpdate((e) => {
       x.value = xMem.value + e.translationX;
       y.value = yMem.value + e.translationY;
@@ -168,9 +168,9 @@ function ModaleImage({ target: cible, onClose: onFermer }: { target: ImageTarget
     .onEnd((e) => {
       // Non zoomé : un franc glissé vers le bas ferme ; sinon on revient au
       // centre. Zoomé : le déplacement est conservé.
-      if (echelle.value <= 1) {
-        if (e.translationY > SEUIL_FERMETURE) {
-          runOnJS(onFermer)();
+      if (scale.value <= 1) {
+        if (e.translationY > CLOSE_THRESHOLD) {
+          runOnJS(onClose)();
         } else {
           x.value = withTiming(0);
           y.value = withTiming(0);
@@ -184,11 +184,11 @@ function ModaleImage({ target: cible, onClose: onFermer }: { target: ImageTarget
   const doubleTap = Gesture.Tap()
     .numberOfTaps(2)
     .onEnd(() => {
-      if (echelle.value > 1) {
-        remettreAPlat();
+      if (scale.value > 1) {
+        flatten();
       } else {
-        echelle.value = withTiming(ZOOM_DOUBLE_TAP);
-        echelleMem.value = ZOOM_DOUBLE_TAP;
+        scale.value = withTiming(ZOOM_DOUBLE_TAP);
+        savedScale.value = ZOOM_DOUBLE_TAP;
       }
     });
 
@@ -196,46 +196,46 @@ function ModaleImage({ target: cible, onClose: onFermer }: { target: ImageTarget
     .numberOfTaps(1)
     .onEnd(() => {
       // Zoomé, un simple tap dézoome ; sinon il ferme.
-      if (echelle.value > 1) remettreAPlat();
-      else runOnJS(onFermer)();
+      if (scale.value > 1) flatten();
+      else runOnJS(onClose)();
     });
 
-  const gestes = Gesture.Race(
-    Gesture.Simultaneous(pincer, deplacer),
+  const gestures = Gesture.Race(
+    Gesture.Simultaneous(pinch, move),
     Gesture.Exclusive(doubleTap, simpleTap),
   );
 
   const styleImage = useAnimatedStyle(() => ({
-    transform: [{ translateX: x.value }, { translateY: y.value }, { scale: echelle.value }],
+    transform: [{ translateX: x.value }, { translateY: y.value }, { scale: scale.value }],
   }));
 
   return (
     <Modal
-      visible={cible !== null}
+      visible={target !== null}
       transparent
       animationType="fade"
       statusBarTranslucent
-      onRequestClose={onFermer}
+      onRequestClose={onClose}
     >
       {/* La Modal est une fenêtre native séparée : son propre root de gestes. */}
       <GestureHandlerRootView style={styles.root}>
         <View style={[styles.background, { backgroundColor: c.fullScreenBackground }]}>
-          {cible !== null && (
+          {target !== null && (
             <>
-              {!charge && (
+              {!loaded && (
                 <ActivityIndicator color={c.accent} size="large" style={StyleSheet.absoluteFill} />
               )}
-              <GestureDetector gesture={gestes}>
-                <Animated.View style={[styles.cadre, styleImage]}>
+              <GestureDetector gesture={gestures}>
+                <Animated.View style={[styles.frame, styleImage]}>
                   <Image
-                    source={{ uri: cible.uri }}
+                    source={{ uri: target.uri }}
                     style={styles.image}
                     resizeMode="contain"
                     // Décodage pleine résolution puis mise à l'échelle GPU : le
                     // zoom révèle le vrai détail. Sans risque — une seule image.
                     resizeMethod="scale"
-                    onLoadEnd={() => setCharge(true)}
-                    accessibilityLabel={cible.title ?? t('visionneuse.image')}
+                    onLoadEnd={() => setLoaded(true)}
+                    accessibilityLabel={target.title ?? t('visionneuse.image')}
                   />
                 </Animated.View>
               </GestureDetector>
@@ -245,7 +245,7 @@ function ModaleImage({ target: cible, onClose: onFermer }: { target: ImageTarget
 
         {/* Croix de fermeture, au-dessus des gestes, avec sa propre cible. */}
         <Pressable
-          onPress={onFermer}
+          onPress={onClose}
           hitSlop={12}
           style={[styles.close, { top: insets.top + 8, backgroundColor: c.card + 'D9' }]}
           accessibilityRole="button"
@@ -254,29 +254,29 @@ function ModaleImage({ target: cible, onClose: onFermer }: { target: ImageTarget
           <Text style={[styles.cross, { color: c.text }]}>✕</Text>
         </Pressable>
 
-        {cible?.local !== true && (
+        {target?.local !== true && (
           <Pressable
-            onPress={enregistrer}
-            disabled={progression !== undefined}
+            onPress={save}
+            disabled={progress !== undefined}
             hitSlop={12}
             style={[styles.save, { top: insets.top + 8, backgroundColor: c.card + 'D9' }]}
             accessibilityRole="button"
             accessibilityLabel={t('actionsMessage.enregistrer')}
           >
-            {progression === undefined ? (
+            {progress === undefined ? (
               <Text style={[styles.cross, { color: c.text }]}>⤓</Text>
             ) : (
               <Text style={[styles.percentage, { color: c.text }]}>
-                {progressLabel(progression)}
+                {progressLabel(progress)}
               </Text>
             )}
           </Pressable>
         )}
 
-        {cible?.title != null && cible.title !== '' && (
+        {target?.title != null && target.title !== '' && (
           <View style={[styles.caption, { bottom: insets.bottom + 12 }]} pointerEvents="none">
             <Text style={[styles.captionText, { color: c.text }]} numberOfLines={2}>
-              {cible.title}
+              {target.title}
             </Text>
           </View>
         )}
@@ -293,7 +293,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cadre: { width: '100%', height: '100%' },
+  frame: { width: '100%', height: '100%' },
   image: { width: '100%', height: '100%' },
   close: {
     position: 'absolute',
@@ -313,8 +313,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  percentage: { fontFamily: FONTS.corpsSemi, fontSize: 11 },
-  cross: { fontFamily: FONTS.corpsFort, fontSize: 17, lineHeight: 20 },
+  percentage: { fontFamily: FONTS.bodySemi, fontSize: 11 },
+  cross: { fontFamily: FONTS.bodyStrong, fontSize: 17, lineHeight: 20 },
   caption: {
     position: 'absolute',
     left: 16,

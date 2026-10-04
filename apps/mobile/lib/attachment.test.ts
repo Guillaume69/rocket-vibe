@@ -16,36 +16,36 @@ import {
   type DownloadFile,
 } from './attachment.ts';
 
-const URL_PROTEGEE =
+const PROTECTED_URL =
   'https://chat.barrut.me/file-upload/BsN3iJPmA9pdCTNq7/rapport.pdf?rc_uid=uid-alice&rc_token=jeton-alice';
 
-type Journal = {
+type Log = {
   folders: string[];
   downloaded: [string, string][];
   shared: [string, string | null][];
 };
 
 /** Enregistre ce que chaque capacité native a reçu. */
-function banc(): {
-  log: Journal;
+function bench(): {
+  log: Log;
   natives: {
     createFolder: CreateFolder;
     download: DownloadFile;
     share: ShareFile;
   };
 } {
-  const journal: Journal = { folders: [], downloaded: [], shared: [] };
+  const log: Log = { folders: [], downloaded: [], shared: [] };
   return {
-    log: journal,
+    log,
     natives: {
-      createFolder: async (chemin) => {
-        journal.folders.push(chemin);
+      createFolder: async (path) => {
+        log.folders.push(path);
       },
       download: async (url, destination) => {
-        journal.downloaded.push([url, destination]);
+        log.downloaded.push([url, destination]);
       },
-      share: async (fichier, type) => {
-        journal.shared.push([fichier, type]);
+      share: async (file, type) => {
+        log.shared.push([file, type]);
       },
     },
   };
@@ -88,21 +88,21 @@ describe('nomDeFichierSur', () => {
   });
 
   test('un nom démesuré est plafonné, extension conservée', () => {
-    const nom = safeFileName('a'.repeat(400) + '.pdf');
-    assert.equal(nom.length, 120);
-    assert.ok(nom.endsWith('.pdf'), 'c’est l’extension qui choisit l’application');
+    const name = safeFileName('a'.repeat(400) + '.pdf');
+    assert.equal(name.length, 120);
+    assert.ok(name.endsWith('.pdf'), 'c’est l’extension qui choisit l’application');
   });
 
   test('un plafonnement sans extension plausible ne fabrique pas de suffixe', () => {
-    const nom = safeFileName('b'.repeat(200));
-    assert.equal(nom.length, 120);
-    assert.ok(!nom.includes('.'));
+    const name = safeFileName('b'.repeat(200));
+    assert.equal(name.length, 120);
+    assert.ok(!name.includes('.'));
   });
 });
 
 describe('cleDeFichier', () => {
   test('l’identifiant Rocket.Chat sert de sous-dossier', () => {
-    assert.equal(fileKey(URL_PROTEGEE), 'BsN3iJPmA9pdCTNq7');
+    assert.equal(fileKey(PROTECTED_URL), 'BsN3iJPmA9pdCTNq7');
     assert.equal(fileKey('/file-upload/abc123/photo.jpg'), 'abc123');
   });
 
@@ -126,9 +126,9 @@ describe('cleDeFichier', () => {
 
 describe('ouvrirFichierJoint', () => {
   test('le jeton va au téléchargement, JAMAIS au partage', async () => {
-    const b = banc();
+    const b = bench();
     await openAttachment({
-      url: URL_PROTEGEE,
+      url: PROTECTED_URL,
       title: 'rapport.pdf',
       type: 'application/pdf',
       folder: 'file:///cache/',
@@ -136,20 +136,20 @@ describe('ouvrirFichierJoint', () => {
     });
 
     assert.equal(b.log.downloaded.length, 1);
-    assert.equal(b.log.downloaded[0]![0], URL_PROTEGEE, 'la requête reste dans le processus');
+    assert.equal(b.log.downloaded[0]![0], PROTECTED_URL, 'la requête reste dans le processus');
 
     assert.equal(b.log.shared.length, 1);
-    const [partage, type] = b.log.shared[0]!;
-    assert.ok(!partage.includes('rc_token'), 'aucun jeton dans ce qui sort');
-    assert.ok(!partage.includes('rc_uid'));
-    assert.ok(partage.startsWith('file:///cache/'), 'c’est un fichier local qui est partagé');
+    const [shared, type] = b.log.shared[0]!;
+    assert.ok(!shared.includes('rc_token'), 'aucun jeton dans ce qui sort');
+    assert.ok(!shared.includes('rc_uid'));
+    assert.ok(shared.startsWith('file:///cache/'), 'c’est un fichier local qui est partagé');
     assert.equal(type, 'application/pdf');
   });
 
   test('le fichier atterrit dans un sous-dossier par identifiant', async () => {
-    const b = banc();
+    const b = bench();
     const destination = await openAttachment({
-      url: URL_PROTEGEE,
+      url: PROTECTED_URL,
       title: 'rapport.pdf',
       type: null,
       folder: 'file:///cache/',
@@ -160,7 +160,7 @@ describe('ouvrirFichierJoint', () => {
   });
 
   test('un dossier de cache sans barre finale ne colle pas les segments', async () => {
-    const b = banc();
+    const b = bench();
     const destination = await openAttachment({
       url: '/file-upload/id1/x.pdf',
       title: 'x.pdf',
@@ -172,9 +172,9 @@ describe('ouvrirFichierJoint', () => {
   });
 
   test('un titre forgé ne peut pas écrire hors du dossier', async () => {
-    const b = banc();
+    const b = bench();
     const destination = await openAttachment({
-      url: URL_PROTEGEE,
+      url: PROTECTED_URL,
       title: '../../../../data/data/com.rocketvibe.app/files/SQLite/base.db',
       type: null,
       folder: 'file:///cache/',
@@ -185,7 +185,7 @@ describe('ouvrirFichierJoint', () => {
   });
 
   test('sans titre, le nom vient de l’URL — décodé, et sans la query', async () => {
-    const b = banc();
+    const b = bench();
     const destination = await openAttachment({
       url: 'https://h/file-upload/id1/mon%20rapport.pdf?rc_uid=u&rc_token=t',
       title: null,
@@ -197,7 +197,7 @@ describe('ouvrirFichierJoint', () => {
   });
 
   test('un titre blanc bascule sur le nom de l’URL', async () => {
-    const b = banc();
+    const b = bench();
     const destination = await openAttachment({
       url: 'https://h/file-upload/id1/vrai-nom.pdf',
       title: '   ',
@@ -209,9 +209,9 @@ describe('ouvrirFichierJoint', () => {
   });
 
   test('un type vide est passé en null, pas en chaîne vide', async () => {
-    const b = banc();
+    const b = bench();
     await openAttachment({
-      url: URL_PROTEGEE,
+      url: PROTECTED_URL,
       title: 'x.pdf',
       type: '',
       folder: 'file:///cache/',
@@ -221,10 +221,10 @@ describe('ouvrirFichierJoint', () => {
   });
 
   test('un téléchargement en échec ne partage rien', async () => {
-    const b = banc();
+    const b = bench();
     await assert.rejects(
       openAttachment({
-        url: URL_PROTEGEE,
+        url: PROTECTED_URL,
         title: 'x.pdf',
         type: null,
         folder: 'file:///cache/',
@@ -240,29 +240,29 @@ describe('ouvrirFichierJoint', () => {
   });
 
   test('l’ordre est dossier → téléchargement → partage', async () => {
-    const ordre: string[] = [];
+    const order: string[] = [];
     await openAttachment({
-      url: URL_PROTEGEE,
+      url: PROTECTED_URL,
       title: 'x.pdf',
       type: null,
       folder: 'file:///cache/',
       createFolder: async () => {
-        ordre.push('dossier');
+        order.push('dossier');
       },
       download: async () => {
-        ordre.push('telecharge');
+        order.push('telecharge');
       },
       share: async () => {
-        ordre.push('partage');
+        order.push('partage');
       },
     });
-    assert.deepEqual(ordre, ['dossier', 'telecharge', 'partage']);
+    assert.deepEqual(order, ['dossier', 'telecharge', 'partage']);
   });
 });
 
 describe('jointeAPartager', () => {
   test('image : l’ORIGINAL (`title_link`), pas la vignette, avec son MIME', () => {
-    const jointes = JSON.stringify([
+    const attachments = JSON.stringify([
       {
         title: 'photo.jpg',
         title_link: '/file-upload/orig/photo.jpg',
@@ -270,7 +270,7 @@ describe('jointeAPartager', () => {
         image_type: 'image/jpeg',
       },
     ]);
-    assert.deepEqual(attachmentToShare(jointes), {
+    assert.deepEqual(attachmentToShare(attachments), {
       path: '/file-upload/orig/photo.jpg',
       title: 'photo.jpg',
       type: 'image/jpeg',
@@ -280,10 +280,10 @@ describe('jointeAPartager', () => {
   });
 
   test('vidéo sans `title_link` : repli sur `video_url`', () => {
-    const jointes = JSON.stringify([
+    const attachments = JSON.stringify([
       { video_url: '/file-upload/v1/clip.mp4', video_type: 'video/mp4', video_size: 5_000_000 },
     ]);
-    assert.deepEqual(attachmentToShare(jointes), {
+    assert.deepEqual(attachmentToShare(attachments), {
       path: '/file-upload/v1/clip.mp4',
       title: null,
       type: 'video/mp4',
@@ -293,7 +293,7 @@ describe('jointeAPartager', () => {
   });
 
   test('fichier d’un salon chiffré : sa clé suit, pour le rendre en clair', () => {
-    const jointes = JSON.stringify([
+    const attachments = JSON.stringify([
       {
         title: 'rapport.pdf',
         title_link: '/file-upload/f1/5f2b.bin',
@@ -301,17 +301,17 @@ describe('jointeAPartager', () => {
         hashes: { sha256: 'abc' },
       },
     ]);
-    assert.deepEqual(attachmentToShare(jointes)?.encryption, { key: { k: 'Y2xl' }, iv: 'aXY=', sha256: 'abc' });
+    assert.deepEqual(attachmentToShare(attachments)?.encryption, { key: { k: 'Y2xl' }, iv: 'aXY=', sha256: 'abc' });
   });
 
   test('une citation n’est pas un fichier du message', () => {
-    const citation = {
+    const quote = {
       message_link: 'https://chat.example/channel/general?msg=abc',
       image_url: '/file-upload/x/cite.jpg',
     };
-    assert.equal(attachmentToShare(JSON.stringify([citation])), null);
-    const apres = JSON.stringify([citation, { title_link: '/file-upload/d1/doc.pdf', title: 'doc.pdf' }]);
-    assert.equal(attachmentToShare(apres)?.path, '/file-upload/d1/doc.pdf');
+    assert.equal(attachmentToShare(JSON.stringify([quote])), null);
+    const after = JSON.stringify([quote, { title_link: '/file-upload/d1/doc.pdf', title: 'doc.pdf' }]);
+    assert.equal(attachmentToShare(after)?.path, '/file-upload/d1/doc.pdf');
   });
 
   test('rien d’exploitable : null', () => {

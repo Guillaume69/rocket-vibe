@@ -26,11 +26,11 @@ export function isImage(type: string): boolean {
  * Le format court d'une pièce (« PNG », « PDF », « M4A ») : l'extension du nom
  * quand il en a une, sinon le sous-type MIME débarrassé de ses préfixes.
  */
-export function shortFormat(nom: string, type: string): string | null {
-  const point = nom.lastIndexOf('.');
-  const extension = point > 0 ? nom.slice(point + 1) : '';
+export function shortFormat(name: string, type: string): string | null {
+  const dot = name.lastIndexOf('.');
+  const extension = dot > 0 ? name.slice(dot + 1) : '';
   if (/^[a-z0-9]{1,5}$/i.test(extension)) return extension.toUpperCase();
-  const sous = type.split('/')[1]?.split(';')[0]?.split('+')[0] ?? '';
-  const dernier = sous.split('.').pop()?.replace(/^x-/, '') ?? '';
-  return dernier === '' || dernier === 'octet-stream' ? null : dernier.toUpperCase();
+  const sub = type.split('/')[1]?.split(';')[0]?.split('+')[0] ?? '';
+  const last = sub.split('.').pop()?.replace(/^x-/, '') ?? '';
+  return last === '' || last === 'octet-stream' ? null : last.toUpperCase();
 }

@@ -27,27 +27,27 @@ export type DisplayedReaction = {
  * qui vient d'autrui : un JSON illisible ou une forme inattendue rend `[]`,
  * jamais une exception. L'ordre du serveur est préservé.
  */
-export function reactionList(brut: string | null, moi: string | null): DisplayedReaction[] {
-  if (brut === null) return [];
-  let racine: unknown;
+export function reactionList(raw: string | null, me: string | null): DisplayedReaction[] {
+  if (raw === null) return [];
+  let root: unknown;
   try {
-    racine = JSON.parse(brut);
+    root = JSON.parse(raw);
   } catch {
     return [];
   }
-  if (typeof racine !== 'object' || racine === null || Array.isArray(racine)) return [];
-  const sorties: DisplayedReaction[] = [];
-  for (const [cle, valeur] of Object.entries(racine as Record<string, unknown>)) {
-    const brutUsernames = (valeur as { usernames?: unknown } | null)?.usernames;
-    const usernames = Array.isArray(brutUsernames)
-      ? brutUsernames.filter((u): u is string => typeof u === 'string')
+  if (typeof root !== 'object' || root === null || Array.isArray(root)) return [];
+  const out: DisplayedReaction[] = [];
+  for (const [key, value] of Object.entries(root as Record<string, unknown>)) {
+    const rawUsernames = (value as { usernames?: unknown } | null)?.usernames;
+    const usernames = Array.isArray(rawUsernames)
+      ? rawUsernames.filter((u): u is string => typeof u === 'string')
       : [];
     if (usernames.length === 0) continue;
-    sorties.push({
-      code: cle.replace(/^:/, '').replace(/:$/, ''),
+    out.push({
+      code: key.replace(/^:/, '').replace(/:$/, ''),
       total: usernames.length,
-      byMe: moi !== null && usernames.includes(moi),
+      byMe: me !== null && usernames.includes(me),
     });
   }
-  return sorties;
+  return out;
 }

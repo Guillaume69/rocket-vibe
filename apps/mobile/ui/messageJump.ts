@@ -13,27 +13,27 @@ export type JumpTarget = {
   ts: number;
 };
 
-const cibles = new Map<string, JumpTarget>();
-const abonnes = new Set<() => void>();
+const targets = new Map<string, JumpTarget>();
+const subscribers = new Set<() => void>();
 
-function notifier(): void {
-  for (const abonne of abonnes) abonne();
+function notify(): void {
+  for (const subscriber of subscribers) subscriber();
 }
 
-export function requestJump(rid: string, cible: JumpTarget): void {
-  cibles.set(rid, cible);
-  notifier();
+export function requestJump(rid: string, target: JumpTarget): void {
+  targets.set(rid, target);
+  notify();
 }
 
 export function consumeJump(rid: string, id: string): void {
-  if (cibles.get(rid)?.id === id && cibles.delete(rid)) notifier();
+  if (targets.get(rid)?.id === id && targets.delete(rid)) notify();
 }
 
-function abonner(abonne: () => void): () => void {
-  abonnes.add(abonne);
-  return () => void abonnes.delete(abonne);
+function subscribe(subscriber: () => void): () => void {
+  subscribers.add(subscriber);
+  return () => void subscribers.delete(subscriber);
 }
 
 export function useJump(rid: string): JumpTarget | null {
-  return useSyncExternalStore(abonner, () => cibles.get(rid) ?? null);
+  return useSyncExternalStore(subscribe, () => targets.get(rid) ?? null);
 }

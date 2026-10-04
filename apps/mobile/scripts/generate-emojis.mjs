@@ -26,26 +26,26 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
-const RACINE = dirname(dirname(fileURLToPath(import.meta.url)));
-const SORTIE = join(RACINE, 'lib', 'emojis.generated.ts');
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const OUTPUT = join(ROOT, 'lib', 'emojis.generated.ts');
 
 const emojis = require('emoji-toolkit/emoji.json');
 const version = require('emoji-toolkit/package.json').version;
 
 // `order` croissant, pour que le vainqueur d'une collision de code court ne
 // dépende pas de l'ordre des clés du JSON.
-const entrees = Object.entries(emojis).sort((a, b) => (a[1].order ?? 0) - (b[1].order ?? 0));
+const entries = Object.entries(emojis).sort((a, b) => (a[1].order ?? 0) - (b[1].order ?? 0));
 
 const table = new Map();
 let collisions = 0;
-for (const [hex, e] of entrees) {
+for (const [hex, e] of entries) {
   // `display: 0` = retiré du sélecteur amont (doublons, codes obsolètes).
   if (e.display !== 1) continue;
   // `fully_qualified` et pas la clé : `:heart:` est `2764-fe0f`, avec le
   // sélecteur de variante. Sans lui, la police rend un ❤ noir de texte.
   const points = e.code_points?.fully_qualified || e.code_points?.base || hex;
-  for (const nom of [e.shortname, ...(e.shortname_alternates ?? [])]) {
-    const code = nom.slice(1, -1); // `:smile:` → `smile`
+  for (const name of [e.shortname, ...(e.shortname_alternates ?? [])]) {
+    const code = name.slice(1, -1); // `:smile:` → `smile`
     if (table.has(code)) {
       if (table.get(code) !== points) collisions++;
       continue;
@@ -54,7 +54,7 @@ for (const [hex, e] of entrees) {
   }
 }
 
-const trie = [...table].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+const sorted = [...table].sort((a, b) => (a[0] < b[0] ? -1 : 1));
 
 // Échappe tout hors ASCII imprimable en `\uXXXX`, au niveau du JSON pour que
 // `JSON.parse` le restitue. Ce n'est pas de la coquetterie :
@@ -66,13 +66,13 @@ const trie = [...table].sort((a, b) => (a[0] < b[0] ? -1 : 1));
 // +399 968 o) — les 6222 clés ASCII payaient le double à cause des emojis. En
 // hexadécimal et sans le moindre octet haut (`piñata` compris), elle tombe à
 // 275 018 o. Le décodage coûte 236 ns par emoji rendu.
-const enAscii = (obj) =>
+const toAscii = (obj) =>
   JSON.stringify(obj).replace(
     /[^\x20-\x7e]/g,
     (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`,
   );
 
-const json = enAscii(Object.fromEntries(trie));
+const json = toAscii(Object.fromEntries(sorted));
 if (!/^[\x00-\x7f]*$/.test(json)) throw new Error('la table doit rester ASCII pure');
 
 // Index des CATÉGORIES pour le navigateur d'emojis : codes de base (hors
@@ -92,21 +92,21 @@ const CATEGORIES = [
   'symbols',
   'flags',
 ];
-const parCategorie = Object.fromEntries(CATEGORIES.map((cat) => [cat, []]));
-const baseOrdonnee = Object.values(emojis)
+const byCategory = Object.fromEntries(CATEGORIES.map((cat) => [cat, []]));
+const orderedBase = Object.values(emojis)
   .filter(
     (e) => e.display === 1 && CATEGORIES.includes(e.category) && !/_tone\d/.test(e.shortname),
   )
   .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-for (const e of baseOrdonnee) {
+for (const e of orderedBase) {
   const code = e.shortname.slice(1, -1);
-  if (table.has(code)) parCategorie[e.category].push(code);
+  if (table.has(code)) byCategory[e.category].push(code);
 }
-const jsonCategories = enAscii(parCategorie);
+const jsonCategories = toAscii(byCategory);
 if (!/^[\x00-\x7f]*$/.test(jsonCategories)) throw new Error('les catégories doivent rester ASCII pures');
-const nbBase = Object.values(parCategorie).reduce((n, l) => n + l.length, 0);
+const baseCount = Object.values(byCategory).reduce((n, l) => n + l.length, 0);
 
-const fichier = `// ⚠️ GÉNÉRÉ par \`npm run emojis:generate\` — ne pas éditer à la main.
+const file = `// ⚠️ GÉNÉRÉ par \`npm run emojis:generate\` — ne pas éditer à la main.
 //
 // ${table.size} codes courts Rocket.Chat → points de code, extraits de
 // emoji-toolkit ${version} (JoyPixels), dont le JSON est sous licence MIT.
@@ -122,16 +122,16 @@ const fichier = `// ⚠️ GÉNÉRÉ par \`npm run emojis:generate\` — ne pas 
 
 export const CODES_EMOJI = ${JSON.stringify(json)};
 
-// Catégories du navigateur d'emojis : ${nbBase} codes de BASE (hors variantes de
+// Catégories du navigateur d'emojis : ${baseCount} codes de BASE (hors variantes de
 // teinte), groupés et ordonnés comme JoyPixels. Une chaîne \`JSON.parse\`-ée à la
 // demande, tout ASCII, pour la même raison que ci-dessus. On ne stocke que des
 // NOMS (pas les glyphes) : le rendu les résout via \`unicodeDeCodeCourt\`.
 export const EMOJIS_PAR_CATEGORIE = ${JSON.stringify(jsonCategories)};
 `;
 
-writeFileSync(SORTIE, fichier);
-const octets = new TextEncoder().encode(fichier).length;
+writeFileSync(OUTPUT, file);
+const bytes = new TextEncoder().encode(file).length;
 console.log(
-  `lib/emojis.generated.ts : ${table.size} codes courts + ${nbBase} de base classés, ${octets} octets ` +
+  `lib/emojis.generated.ts : ${table.size} codes courts + ${baseCount} de base classés, ${bytes} octets ` +
     `(emoji-toolkit ${version}, ${collisions} collision(s) divergente(s) écartée(s))`,
 );

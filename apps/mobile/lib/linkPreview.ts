@@ -43,7 +43,7 @@ export type LinkPreview =
       site: string | null;
     };
 
-type EntreeUrl = {
+type UrlEntry = {
   url?: unknown;
   meta?: Record<string, unknown>;
   headers?: { contentType?: unknown };
@@ -52,14 +52,14 @@ type EntreeUrl = {
 /** Extensions traitées comme image (SVG exclu : `Image` RN ne le rend pas). */
 const EXT_IMAGE = /\.(jpe?g|png|gif|webp|avif|bmp)$/i;
 
-const chaine = (v: unknown): string | null => {
+const asString = (v: unknown): string | null => {
   if (typeof v !== 'string') return null;
-  const t = decoderEntites(v).trim();
+  const t = decodeEntities(v).trim();
   return t === '' ? null : t;
 };
 
 /** Décodage minimal des entités HTML que le serveur laisse parfois dans les métas. */
-function decoderEntites(s: string): string {
+function decodeEntities(s: string): string {
   if (!s.includes('&')) return s;
   return s
     .replace(/&amp;/g, '&')
@@ -71,16 +71,16 @@ function decoderEntites(s: string): string {
     .replace(/&nbsp;/g, ' ');
 }
 
-function estImage(entree: EntreeUrl, url: string): boolean {
-  const ct = typeof entree.headers?.contentType === 'string' ? entree.headers.contentType : '';
+function isImage(entry: UrlEntry, url: string): boolean {
+  const ct = typeof entry.headers?.contentType === 'string' ? entry.headers.contentType : '';
   if (ct.startsWith('image/') && !ct.includes('svg')) return true;
   // Repli sur l'extension : le serveur ne peut pas toujours charger l'image
   // (hôte qui bloque son bot) et ne renvoie alors ni headers ni meta.
-  const chemin = url.split(/[?#]/)[0]!;
-  return EXT_IMAGE.test(chemin);
+  const path = url.split(/[?#]/)[0]!;
+  return EXT_IMAGE.test(path);
 }
 
-function hote(url: string): string | null {
+function host(url: string): string | null {
   try {
     return new URL(url).hostname.replace(/^www\./, '');
   } catch {
@@ -89,32 +89,32 @@ function hote(url: string): string | null {
 }
 
 /** Un premier des candidats non vide, `null` si tous vides. */
-function premier(meta: Record<string, unknown>, cles: readonly string[]): string | null {
-  for (const cle of cles) {
-    const v = chaine(meta[cle]);
+function first(meta: Record<string, unknown>, keys: readonly string[]): string | null {
+  for (const key of keys) {
+    const v = asString(meta[key]);
     if (v !== null) return v;
   }
   return null;
 }
 
-function carteDepuisMeta(url: string, meta: Record<string, unknown>): LinkPreview | null {
-  const titre = premier(meta, ['ogTitle', 'oembedTitle', 'twitterTitle', 'pageTitle']);
+function cardFromMeta(url: string, meta: Record<string, unknown>): LinkPreview | null {
+  const title = first(meta, ['ogTitle', 'oembedTitle', 'twitterTitle', 'pageTitle']);
   // La vignette part dans une `<Image>` : un `file://` y ferait lire le disque
   // de l'app, un `data:` y injecterait une image arbitraire. Seul le web.
-  const brutImage = premier(meta, ['ogImage', 'twitterImage', 'oembedThumbnailUrl']);
-  const image = isWebLink(brutImage) ? brutImage : null;
-  const description = premier(meta, [
+  const rawImage = first(meta, ['ogImage', 'twitterImage', 'oembedThumbnailUrl']);
+  const image = isWebLink(rawImage) ? rawImage : null;
+  const description = first(meta, [
     'ogDescription',
     'twitterDescription',
     'description',
     'oembedAuthorName',
   ]);
-  const site = premier(meta, ['ogSiteName', 'oembedProviderName']) ?? hote(url);
+  const site = first(meta, ['ogSiteName', 'oembedProviderName']) ?? host(url);
 
   // Sans titre NI image, il n'y a rien à prévisualiser (ex. tweet dont X a
   // bloqué le scraping, ou lien sans balises) : on laisse le lien en texte.
-  if (titre === null && image === null) return null;
-  return { type: 'card', url, title: titre, description, image, site };
+  if (title === null && image === null) return null;
+  return { type: 'card', url, title, description, image, site };
 }
 
 /** Ce que le serveur sait d'une vidéo, pour la carte embed. */
@@ -128,28 +128,28 @@ export type MetaVideo = { title: string | null; author: string | null };
  * `oembedAuthorName`), les autres par OpenGraph.
  */
 export function metasVideo(urlsJson: string | null | undefined): Map<string, MetaVideo> {
-  const parId = new Map<string, MetaVideo>();
-  let brut: unknown;
+  const byId = new Map<string, MetaVideo>();
+  let raw: unknown;
   try {
-    brut = JSON.parse(urlsJson ?? '');
+    raw = JSON.parse(urlsJson ?? '');
   } catch {
-    return parId;
+    return byId;
   }
-  if (!Array.isArray(brut)) return parId;
+  if (!Array.isArray(raw)) return byId;
 
-  for (const item of brut) {
-    const entree = item as EntreeUrl;
-    if (typeof entree?.url !== 'string') continue;
-    const id = idVideo(entree.url);
-    if (id === null || parId.has(id)) continue;
-    const meta = entree.meta;
+  for (const item of raw) {
+    const entry = item as UrlEntry;
+    if (typeof entry?.url !== 'string') continue;
+    const id = idVideo(entry.url);
+    if (id === null || byId.has(id)) continue;
+    const meta = entry.meta;
     if (!meta || typeof meta !== 'object') continue;
-    const titre = premier(meta, ['oembedTitle', 'ogTitle', 'twitterTitle', 'pageTitle']);
-    const auteur = premier(meta, ['oembedAuthorName', 'ogSiteName']);
-    if (titre === null && auteur === null) continue;
-    parId.set(id, { title: titre, author: auteur });
+    const title = first(meta, ['oembedTitle', 'ogTitle', 'twitterTitle', 'pageTitle']);
+    const author = first(meta, ['oembedAuthorName', 'ogSiteName']);
+    if (title === null && author === null) continue;
+    byId.set(id, { title, author });
   }
-  return parId;
+  return byId;
 }
 
 /**
@@ -159,39 +159,39 @@ export function metasVideo(urlsJson: string | null | undefined): Map<string, Met
  */
 export function linkPreviews(urlsJson: string | null | undefined, max = 3): LinkPreview[] {
   if (urlsJson === null || urlsJson === undefined || urlsJson === '') return [];
-  let brut: unknown;
+  let raw: unknown;
   try {
-    brut = JSON.parse(urlsJson);
+    raw = JSON.parse(urlsJson);
   } catch {
     return [];
   }
-  if (!Array.isArray(brut)) return [];
+  if (!Array.isArray(raw)) return [];
 
-  const apercus: LinkPreview[] = [];
-  const vus = new Set<string>();
+  const previews: LinkPreview[] = [];
+  const seen = new Set<string>();
 
-  for (const item of brut) {
-    if (apercus.length >= max) break;
-    const entree = item as EntreeUrl;
+  for (const item of raw) {
+    if (previews.length >= max) break;
+    const entry = item as UrlEntry;
     // Filtré ICI, à la source : ce qui n'est pas du web ne doit ni s'afficher
     // (`file:///…jpg` dans une `<Image>`) ni devenir tapable (`javascript:`,
     // `intent:`). `message.urls` est stocké brut (lib/normalize.ts) et n'a
     // jamais été validé — c'est de la donnée d'autrui.
-    const brutUrl = entree?.url;
-    const url = isWebLink(brutUrl) ? brutUrl : null;
-    if (url === null || vus.has(url)) continue;
+    const rawUrl = entry?.url;
+    const url = isWebLink(rawUrl) ? rawUrl : null;
+    if (url === null || seen.has(url)) continue;
     if (isVideoLink(url)) continue; // déjà rendu par la carte vidéo
 
-    let apercu: LinkPreview | null = null;
-    if (estImage(entree, url)) {
-      apercu = { type: 'image', url };
-    } else if (entree.meta && typeof entree.meta === 'object') {
-      apercu = carteDepuisMeta(url, entree.meta);
+    let preview: LinkPreview | null = null;
+    if (isImage(entry, url)) {
+      preview = { type: 'image', url };
+    } else if (entry.meta && typeof entry.meta === 'object') {
+      preview = cardFromMeta(url, entry.meta);
     }
-    if (apercu !== null) {
-      vus.add(url);
-      apercus.push(apercu);
+    if (preview !== null) {
+      seen.add(url);
+      previews.push(preview);
     }
   }
-  return apercus;
+  return previews;
 }

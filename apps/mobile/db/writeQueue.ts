@@ -26,11 +26,11 @@ export function createWriteQueue(): WriteQueue {
   return (job) => {
     // `tour` porte le rejet au demandeur ; la file, elle, l'avale pour ne
     // jamais se bloquer sur un échec passé.
-    const tour = queue.then(job);
-    queue = tour.then(
+    const turn = queue.then(job);
+    queue = turn.then(
       () => {},
       () => {},
     );
-    return tour;
+    return turn;
   };
 }

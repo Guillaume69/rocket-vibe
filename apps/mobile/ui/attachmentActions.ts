@@ -25,12 +25,12 @@ export type AttachmentToTransfer = {
   encryption?: FileEncryption | null;
 };
 
-export function saveInBackground(jointe: AttachmentToTransfer, t: TranslateFn): void {
-  void transfer(jointe.key, async (surProgression) => {
+export function saveInBackground(attachment: AttachmentToTransfer, t: TranslateFn): void {
+  void transfer(attachment.key, async (onProgress) => {
     try {
-      const lieu = await saveProtectedAttachment({ ...jointe, onProgress: surProgression });
-      if (lieu !== 'share') {
-        toast(t(lieu === 'gallery' ? 'enregistrement.galerie' : 'enregistrement.telechargements'));
+      const place = await saveProtectedAttachment({ ...attachment, onProgress });
+      if (place !== 'share') {
+        toast(t(place === 'gallery' ? 'enregistrement.galerie' : 'enregistrement.telechargements'));
       }
     } catch {
       toast(t('enregistrement.echec'));
@@ -38,10 +38,10 @@ export function saveInBackground(jointe: AttachmentToTransfer, t: TranslateFn): 
   });
 }
 
-export function shareInBackground(jointe: AttachmentToTransfer, t: TranslateFn): void {
-  void transfer(jointe.key, async (surProgression) => {
+export function shareInBackground(attachment: AttachmentToTransfer, t: TranslateFn): void {
+  void transfer(attachment.key, async (onProgress) => {
     try {
-      await openProtectedAttachment({ ...jointe, onProgress: surProgression });
+      await openProtectedAttachment({ ...attachment, onProgress });
     } catch {
       toast(t('ligneMessage.fichierOuvertureEchouee'));
     }
@@ -49,14 +49,14 @@ export function shareInBackground(jointe: AttachmentToTransfer, t: TranslateFn):
 }
 
 /** Le choix au toucher d'un fichier : télécharger ou partager, avant tout téléchargement. */
-export function offerDownloadOrShare(jointe: AttachmentToTransfer, t: TranslateFn): void {
+export function offerDownloadOrShare(attachment: AttachmentToTransfer, t: TranslateFn): void {
   Alert.alert(
-    jointe.title ?? t('ligneMessage.fichier'),
+    attachment.title ?? t('ligneMessage.fichier'),
     undefined,
     [
       { text: t('commun.annuler'), style: 'cancel' },
-      { text: t('actionsMessage.partager'), onPress: () => shareInBackground(jointe, t) },
-      { text: t('actionsMessage.enregistrer'), onPress: () => saveInBackground(jointe, t) },
+      { text: t('actionsMessage.partager'), onPress: () => shareInBackground(attachment, t) },
+      { text: t('actionsMessage.enregistrer'), onPress: () => saveInBackground(attachment, t) },
     ],
     { cancelable: true },
   );

@@ -27,15 +27,15 @@ export function TappableText({
   accessibilityLabel?: string;
   children: React.ReactNode;
 }) {
-  const [presse, setPresse] = useState(false);
+  const [pressed, setPressed] = useState(false);
   return (
     <Text
-      style={[style, presse && styles.pressed]}
+      style={[style, pressed && styles.pressed]}
       numberOfLines={numberOfLines}
       onPress={onPress}
       onLongPress={onLongPress}
-      onPressIn={onPress === undefined ? undefined : () => setPresse(true)}
-      onPressOut={onPress === undefined ? undefined : () => setPresse(false)}
+      onPressIn={onPress === undefined ? undefined : () => setPressed(true)}
+      onPressOut={onPress === undefined ? undefined : () => setPressed(false)}
       suppressHighlighting
       accessibilityRole={onPress === undefined ? undefined : 'button'}
       accessibilityLabel={accessibilityLabel}

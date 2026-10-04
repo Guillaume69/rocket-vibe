@@ -11,7 +11,7 @@
 
 import type { ClientRest } from './rest.ts';
 
-type Langue = 'fr' | 'en';
+type Language = 'fr' | 'en';
 
 export type Command = {
   name: string;
@@ -25,7 +25,7 @@ export type Command = {
 export const COMMAND_SUGGESTION_LIMIT = 8;
 
 /** (clé, français, anglais) des descriptions et paramètres des commandes du cœur. */
-const MOTS: readonly (readonly [string, string, string])[] = [
+const WORDS: readonly (readonly [string, string, string])[] = [
   ['Archive', 'Archiver le salon', 'Archive the room'],
   ['Unarchive', 'Désarchiver le salon', 'Unarchive the room'],
   ['Ban_user_from_room', "Bannir quelqu'un du salon", 'Ban someone from the room'],
@@ -69,46 +69,46 @@ const MOTS: readonly (readonly [string, string, string])[] = [
  * web a son catalogue : le nôtre couvre les commandes du cœur, et la clé
  * d'une app se lit au moins comme des mots.
  */
-export function words(cle: string, langue: Langue): string {
-  const connu = MOTS.find(([k]) => k === cle);
-  if (connu !== undefined) return langue === 'fr' ? connu[1] : connu[2];
-  const ressembleACle = !/\s/.test(cle) && cle.includes('_') && /[A-Z]/.test(cle);
-  return ressembleACle ? cle.replaceAll('_', ' ') : cle;
+export function words(key: string, language: Language): string {
+  const known = WORDS.find(([k]) => k === key);
+  if (known !== undefined) return language === 'fr' ? known[1] : known[2];
+  const looksLikeKey = !/\s/.test(key) && key.includes('_') && /[A-Z]/.test(key);
+  return looksLikeKey ? key.replaceAll('_', ' ') : key;
 }
 
-const chaine = (v: unknown): string => (typeof v === 'string' ? v : '');
+const asString = (v: unknown): string => (typeof v === 'string' ? v : '');
 
 /** Les commandes que rend `commands.list`, leurs clés i18n mises en mots. */
-export function readCommands(reponse: unknown, langue: Langue): Command[] {
-  const liste = (reponse as { commands?: unknown } | null)?.commands;
-  if (!Array.isArray(liste)) return [];
-  const commandes: Command[] = [];
-  for (const brute of liste as Record<string, unknown>[]) {
-    const nom = chaine(brute.command);
-    if (nom === '') continue;
-    const p = brute.permission;
+export function readCommands(response: unknown, language: Language): Command[] {
+  const list = (response as { commands?: unknown } | null)?.commands;
+  if (!Array.isArray(list)) return [];
+  const commands: Command[] = [];
+  for (const raw of list as Record<string, unknown>[]) {
+    const name = asString(raw.command);
+    if (name === '') continue;
+    const p = raw.permission;
     const permissions =
       typeof p === 'string' ? [p] : Array.isArray(p) ? p.filter((x): x is string => typeof x === 'string') : [];
-    commandes.push({
-      name: nom,
-      params: words(chaine(brute.params), langue),
-      description: words(chaine(brute.description), langue),
+    commands.push({
+      name,
+      params: words(asString(raw.params), language),
+      description: words(asString(raw.description), language),
       permissions,
     });
   }
-  return commandes;
+  return commands;
 }
 
 /**
  * Le nom de commande en cours de frappe : le brouillon commence par `/` et
  * le curseur n'a pas quitté son premier mot.
  */
-export function detectCommandToken(texte: string, curseur: number): { query: string } | null {
-  const avant = texte.slice(0, Math.max(0, Math.min(curseur, texte.length)));
-  if (!avant.startsWith('/')) return null;
-  const requete = avant.slice(1);
-  if (/\s/.test(requete) || requete.includes('/')) return null;
-  return { query: requete };
+export function detectCommandToken(text: string, cursor: number): { query: string } | null {
+  const before = text.slice(0, Math.max(0, Math.min(cursor, text.length)));
+  if (!before.startsWith('/')) return null;
+  const query = before.slice(1);
+  if (/\s/.test(query) || query.includes('/')) return null;
+  return { query };
 }
 
 /**
@@ -117,31 +117,31 @@ export function detectCommandToken(texte: string, curseur: number): { query: str
  * trancher), triées par nom.
  */
 export function completeCommand(
-  commandes: readonly Command[],
-  requete: string,
-  accordees: readonly string[] | null,
-  limite = COMMAND_SUGGESTION_LIMIT,
+  commands: readonly Command[],
+  query: string,
+  granted: readonly string[] | null,
+  limit = COMMAND_SUGGESTION_LIMIT,
 ): Command[] {
-  const q = requete.toLowerCase();
-  return commandes
+  const q = query.toLowerCase();
+  return commands
     .filter((c) => c.name.toLowerCase().startsWith(q))
-    .filter((c) => accordees === null || c.permissions.length === 0 || c.permissions.some((p) => accordees.includes(p)))
+    .filter((c) => granted === null || c.permissions.length === 0 || c.permissions.some((p) => granted.includes(p)))
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-    .slice(0, limite);
+    .slice(0, limit);
 }
 
 /**
  * (nom, paramètres) d'un brouillon qui se lit comme une commande : `/nom` en
  * tête, puis ce qui suit. L'appelant vérifie que le serveur connaît ce nom.
  */
-export function splitCommand(texte: string): { name: string; params: string } | null {
-  const reste = texte.trimStart();
-  if (!reste.startsWith('/')) return null;
-  const corps = reste.slice(1);
-  const blanc = corps.search(/\s/);
-  const nom = blanc === -1 ? corps : corps.slice(0, blanc);
-  if (nom === '' || nom.includes('/')) return null;
-  return { name: nom, params: blanc === -1 ? '' : corps.slice(blanc).trim() };
+export function splitCommand(text: string): { name: string; params: string } | null {
+  const rest = text.trimStart();
+  if (!rest.startsWith('/')) return null;
+  const body = rest.slice(1);
+  const firstSpace = body.search(/\s/);
+  const name = firstSpace === -1 ? body : body.slice(0, firstSpace);
+  if (name === '' || name.includes('/')) return null;
+  return { name, params: firstSpace === -1 ? '' : body.slice(firstSpace).trim() };
 }
 
 /** Clé d'événement des messages privés, sur `stream-notify-user`. */
@@ -150,23 +150,23 @@ export const PRIVATE_MESSAGE_EVENT = 'message';
 /** `<uid>/message` args : `[{ rid, msg, private: true, … }]` → (rid, texte). */
 export function privateMessage(args: readonly unknown[]): { rid: string; text: string } | null {
   const m = args[0] as { rid?: unknown; msg?: unknown } | undefined;
-  const rid = chaine(m?.rid);
-  const texte = chaine(m?.msg).trim();
-  if (rid === '' || texte === '') return null;
-  return { rid, text: texte };
+  const rid = asString(m?.rid);
+  const text = asString(m?.msg).trim();
+  if (rid === '' || text === '') return null;
+  return { rid, text };
 }
 
-const enCache = new Map<string, Promise<unknown>>();
+const cached = new Map<string, Promise<unknown>>();
 
 /** `commands.list`, lu une fois par session et par compte ; un échec n'est pas retenu. */
 export function rawList(client: Pick<ClientRest, 'get' | 'baseUrl' | 'auth'>): Promise<unknown> {
-  const cle = `${client.baseUrl}|${client.auth?.userId ?? ''}`;
-  const connue = enCache.get(cle);
-  if (connue !== undefined) return connue;
-  const lecture = client.get<unknown>('commands.list', { params: { count: 0 } });
-  enCache.set(cle, lecture);
-  lecture.catch(() => enCache.delete(cle));
-  return lecture;
+  const key = `${client.baseUrl}|${client.auth?.userId ?? ''}`;
+  const known = cached.get(key);
+  if (known !== undefined) return known;
+  const request = client.get<unknown>('commands.list', { params: { count: 0 } });
+  cached.set(key, request);
+  request.catch(() => cached.delete(key));
+  return request;
 }
 
 /**
@@ -176,25 +176,25 @@ export function rawList(client: Pick<ClientRest, 'get' | 'baseUrl' | 'auth'>): P
 export async function runCommand(
   client: Pick<ClientRest, 'get' | 'post' | 'baseUrl' | 'auth'>,
   rid: string,
-  texte: string,
-  filId: string | null,
+  text: string,
+  threadId: string | null,
 ): Promise<boolean> {
-  const decoupe = splitCommand(texte);
-  if (decoupe === null) return false;
-  let connues: Command[];
+  const split = splitCommand(text);
+  if (split === null) return false;
+  let known: Command[];
   try {
-    connues = readCommands(await rawList(client), 'en');
+    known = readCommands(await rawList(client), 'en');
   } catch {
     return false;
   }
-  if (!connues.some((c) => c.name === decoupe.name)) return false;
-  const corps: Record<string, string> = {
-    command: decoupe.name,
+  if (!known.some((c) => c.name === split.name)) return false;
+  const body: Record<string, string> = {
+    command: split.name,
     roomId: rid,
-    params: decoupe.params,
+    params: split.params,
     triggerId: Math.random().toString(36).slice(2) + Date.now().toString(36),
   };
-  if (filId !== null) corps.tmid = filId;
-  await client.post('commands.run', { body: corps });
+  if (threadId !== null) body.tmid = threadId;
+  await client.post('commands.run', { body });
   return true;
 }

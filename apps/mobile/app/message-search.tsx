@@ -28,18 +28,18 @@ import { useColors, type Colors, FONTS } from '../ui/theme.ts';
  */
 
 /** Stable (module-level) : une valeur recréée à chaque rendu relancerait l'effet. */
-const AUCUN_MESSAGE: MessageLocal[] = [];
+const NO_MESSAGE: MessageLocal[] = [];
 
 export default function MessageSearchScreen() {
   const { rid } = useLocalSearchParams<{ rid: string }>();
-  const { state: etat } = useSession();
+  const { state } = useSession();
   const c = useColors();
   const t = useT();
 
   // Même portier que le salon : un lien profond peut atterrir ici sans session.
-  if (etat.phase === 'disconnected') return <Redirect href="/login" />;
+  if (state.phase === 'disconnected') return <Redirect href="/login" />;
 
-  if (etat.phase !== 'connected' || typeof rid !== 'string') {
+  if (state.phase !== 'connected' || typeof rid !== 'string') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
         <Stack.Screen options={{ title: t('commun.rechercher') }} />
@@ -47,10 +47,10 @@ export default function MessageSearchScreen() {
       </View>
     );
   }
-  return <RechercheMessages c={c} client={etat.client} rid={rid} />;
+  return <MessageSearch c={c} client={state.client} rid={rid} />;
 }
 
-function RechercheMessages({
+function MessageSearch({
   c,
   client,
   rid,
@@ -60,39 +60,39 @@ function RechercheMessages({
   rid: string;
 }) {
   const t = useT();
-  const [requete, setRequete] = useState('');
+  const [query, setQuery] = useState('');
 
   // Les résultats sont normalisés dès la réponse (`versMessage`, comme tout
   // document serveur) — jamais écrits en base, voir l'en-tête du fichier.
-  const chercherMessages = useCallback(
-    (propre: string) =>
+  const searchMessages = useCallback(
+    (clean: string) =>
       client
         .get<{ messages?: Record<string, unknown>[] }>('chat.search', {
-          params: { roomId: rid, searchText: propre, count: 50 },
+          params: { roomId: rid, searchText: clean, count: 50 },
         })
         .then((r) =>
           (r.messages ?? [])
-            .map((brut) => toMessage(brut))
+            .map((raw) => toMessage(raw))
             .filter((m): m is MessageLocal => m !== null),
         ),
     [client, rid],
   );
-  const { results: resultats, message, answered: repondue } = useDebouncedSearch(
-    requete,
-    AUCUN_MESSAGE,
-    chercherMessages,
+  const { results, message, answered } = useDebouncedSearch(
+    query,
+    NO_MESSAGE,
+    searchMessages,
     t('rechercheMessages.rechercheImpossible'),
   );
-  const propre = requete.trim();
-  const cherche = propre !== '' && repondue !== propre;
+  const clean = query.trim();
+  const searching = clean !== '' && answered !== clean;
 
   return (
     <KeyboardAvoidingContainer>
       <Stack.Screen options={{ title: t('rechercheMessages.titre') }} />
       <View style={styles.header}>
         <TextInput
-          value={requete}
-          onChangeText={setRequete}
+          value={query}
+          onChangeText={setQuery}
           placeholder={t('rechercheMessages.placeholder')}
           placeholderTextColor={c.dimmed}
           autoCapitalize="none"
@@ -105,7 +105,7 @@ function RechercheMessages({
         <Text style={[styles.errorMessage, { color: c.errorText }]}>{message}</Text>
       )}
       <FlatList
-        data={resultats}
+        data={results}
         keyExtractor={(m) => m.id}
         renderItem={({ item }) => (
           <View style={styles.result}>
@@ -132,7 +132,7 @@ function RechercheMessages({
           </View>
         )}
         ListEmptyComponent={
-          requete.trim() === '' ? null : cherche ? (
+          query.trim() === '' ? null : searching ? (
             <View style={styles.center}>
               <ActivityIndicator />
             </View>

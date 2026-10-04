@@ -29,18 +29,18 @@ export type FileToSend = {
  */
 export type TransportUpload = (
   url: string,
-  entetes: Record<string, string>,
-  fichier: FileToSend,
-  surProgression?: (fraction: number) => void,
+  headers: Record<string, string>,
+  file: FileToSend,
+  onProgress?: (fraction: number) => void,
   /**
    * Appelé UNE fois, dès que la tâche existe, avec de quoi l'interrompre.
    * Sans cela « Abandonner » ne faisait qu'un DELETE en base : les octets
    * continuaient de monter et le fichier finissait par apparaître dans le
    * salon, après que l'utilisateur l'avait explicitement abandonné.
    */
-  surAnnulable?: (annuler: () => Promise<void>) => void,
+  onCancelable?: (cancel: () => Promise<void>) => void,
   /** Champs texte ajoutés au multipart (le `content` chiffré d'un fichier de salon chiffré). */
-  champs?: Record<string, string>,
+  fields?: Record<string, string>,
 ) => Promise<{ status: number; body: string }>;
 
 export class UploadError extends Error {
@@ -50,8 +50,8 @@ export class UploadError extends Error {
   }
 }
 
-type ReponseMedia = { file?: { _id?: string; url?: string } };
-type ReponseConfirm = { message?: Record<string, unknown> };
+type MediaResponse = { file?: { _id?: string; url?: string } };
+type ConfirmResponse = { message?: Record<string, unknown> };
 
 /**
  * **Premier temps : les octets.** Rend le `fileId` du serveur — à PERSISTER
@@ -72,35 +72,35 @@ export async function uploadBytes(options: {
   rid: string;
   file: FileToSend;
   onProgress?: (fraction: number) => void;
-  onCancelable?: (annuler: () => Promise<void>) => void;
+  onCancelable?: (cancel: () => Promise<void>) => void;
   fields?: Record<string, string>;
 }): Promise<string> {
-  const { client, transport, rid, file: fichier, onProgress: surProgression, onCancelable: surAnnulable, fields: champs } = options;
+  const { client, transport, rid, file, onProgress, onCancelable, fields } = options;
 
-  const entetes: Record<string, string> = {};
+  const headers: Record<string, string> = {};
   if (client.auth !== null) {
-    entetes['X-Auth-Token'] = client.auth.authToken;
-    entetes['X-User-Id'] = client.auth.userId;
+    headers['X-Auth-Token'] = client.auth.authToken;
+    headers['X-User-Id'] = client.auth.userId;
   }
 
-  const { status: statut, body: corps } = await transport(
+  const { status, body } = await transport(
     `${client.baseUrl}/api/v1/rooms.media/${rid}`,
-    entetes,
-    fichier,
-    surProgression,
-    surAnnulable,
-    champs,
+    headers,
+    file,
+    onProgress,
+    onCancelable,
+    fields,
   );
 
-  let media: ReponseMedia & { success?: boolean; error?: string };
+  let media: MediaResponse & { success?: boolean; error?: string };
   try {
-    media = JSON.parse(corps) as typeof media;
+    media = JSON.parse(body) as typeof media;
   } catch {
-    throw new UploadError(`rooms.media : réponse non JSON (${statut}).`);
+    throw new UploadError(`rooms.media : réponse non JSON (${status}).`);
   }
   const fileId = media.file?._id;
-  if (statut >= 400 || media.success === false || typeof fileId !== 'string') {
-    throw new UploadError(media.error ?? `rooms.media a échoué (${statut}).`);
+  if (status >= 400 || media.success === false || typeof fileId !== 'string') {
+    throw new UploadError(media.error ?? `rooms.media a échoué (${status}).`);
   }
   return fileId;
 }
@@ -122,7 +122,7 @@ export async function confirmerMedia(options: {
   body?: Record<string, unknown>;
 }): Promise<Record<string, unknown>> {
   const { client, rid, fileId, message } = options;
-  const confirmation = await client.post<ReponseConfirm>(`rooms.mediaConfirm/${rid}/${fileId}`, {
+  const confirmation = await client.post<ConfirmResponse>(`rooms.mediaConfirm/${rid}/${fileId}`, {
     body: options.body ?? (message === undefined || message === '' ? {} : { msg: message }),
   });
   if (confirmation.message === undefined) {
@@ -143,28 +143,28 @@ export async function setAvatar(options: {
   transport: TransportUpload;
   file: FileToSend;
 }): Promise<void> {
-  const { client, transport, file: fichier } = options;
+  const { client, transport, file } = options;
 
-  const entetes: Record<string, string> = {};
+  const headers: Record<string, string> = {};
   if (client.auth !== null) {
-    entetes['X-Auth-Token'] = client.auth.authToken;
-    entetes['X-User-Id'] = client.auth.userId;
+    headers['X-Auth-Token'] = client.auth.authToken;
+    headers['X-User-Id'] = client.auth.userId;
   }
 
-  const { status: statut, body: corps } = await transport(
+  const { status, body } = await transport(
     `${client.baseUrl}/api/v1/users.setAvatar`,
-    entetes,
-    fichier,
+    headers,
+    file,
   );
 
   let json: { success?: boolean; error?: string };
   try {
-    json = JSON.parse(corps) as typeof json;
+    json = JSON.parse(body) as typeof json;
   } catch {
-    throw new UploadError(`users.setAvatar : réponse non JSON (${statut}).`);
+    throw new UploadError(`users.setAvatar : réponse non JSON (${status}).`);
   }
-  if (statut >= 400 || json.success === false) {
-    throw new UploadError(json.error ?? `users.setAvatar a échoué (${statut}).`);
+  if (status >= 400 || json.success === false) {
+    throw new UploadError(json.error ?? `users.setAvatar a échoué (${status}).`);
   }
 }
 
@@ -181,12 +181,12 @@ export async function setAvatar(options: {
  * sans un geste de l'utilisateur. Hors origine, on rend l'URL nue : le fichier
  * ne s'affichera pas s'il était protégé, ce qui est le bon échec.
  */
-export function protectedFileUrl(client: ClientRest, chemin: string): string {
-  const absolu = chemin.startsWith('http') ? chemin : `${client.baseUrl}${chemin}`;
-  if (client.auth === null) return absolu;
-  if (!sameOrigin(absolu, client.baseUrl)) return absolu;
-  const separateur = absolu.includes('?') ? '&' : '?';
-  return `${absolu}${separateur}rc_uid=${encodeURIComponent(client.auth.userId)}&rc_token=${encodeURIComponent(client.auth.authToken)}`;
+export function protectedFileUrl(client: ClientRest, path: string): string {
+  const absolute = path.startsWith('http') ? path : `${client.baseUrl}${path}`;
+  if (client.auth === null) return absolute;
+  if (!sameOrigin(absolute, client.baseUrl)) return absolute;
+  const separator = absolute.includes('?') ? '&' : '?';
+  return `${absolute}${separator}rc_uid=${encodeURIComponent(client.auth.userId)}&rc_token=${encodeURIComponent(client.auth.authToken)}`;
 }
 
 /**
@@ -225,26 +225,26 @@ export const AVATAR_NO_PHOTO = 'sans-photo';
  */
 export function urlAvatar(
   client: ClientRest,
-  cible: {
+  target: {
     uid?: string | null;
     username?: string | null;
     rid?: string | null;
     etag?: string | null;
   },
 ): string | null {
-  const { uid, username, rid, etag } = cible;
-  let chemin: string;
+  const { uid, username, rid, etag } = target;
+  let path: string;
   if (typeof username === 'string' && username !== '') {
-    chemin = `/avatar/${encodeURIComponent(username)}`;
+    path = `/avatar/${encodeURIComponent(username)}`;
   } else if (typeof uid === 'string' && uid !== '') {
-    chemin = `/avatar/uid/${encodeURIComponent(uid)}`;
+    path = `/avatar/uid/${encodeURIComponent(uid)}`;
   } else if (typeof rid === 'string' && rid !== '') {
-    chemin = `/avatar/room/${encodeURIComponent(rid)}`;
+    path = `/avatar/room/${encodeURIComponent(rid)}`;
   } else {
     return null;
   }
   if (typeof etag === 'string' && etag !== '') {
-    chemin += `?etag=${encodeURIComponent(etag)}`;
+    path += `?etag=${encodeURIComponent(etag)}`;
   }
-  return protectedFileUrl(client, chemin);
+  return protectedFileUrl(client, path);
 }

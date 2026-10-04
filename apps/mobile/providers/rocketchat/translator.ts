@@ -39,37 +39,37 @@ export class RcTranslator implements Translator {
   private readonly me: string | null;
   private readonly myUid: string | null;
 
-  constructor(moi: string | null = null, moiUid: string | null = null) {
-    this.me = moi;
-    this.myUid = moiUid;
+  constructor(me: string | null = null, myUid: string | null = null) {
+    this.me = me;
+    this.myUid = myUid;
   }
 
-  toMessage(brut: Record<string, unknown>): MessageLocal | null {
-    return toMessage(brut);
+  toMessage(raw: Record<string, unknown>): MessageLocal | null {
+    return toMessage(raw);
   }
 
-  toRoom(brut: Record<string, unknown>): LocalRoom | null {
-    return toRoom(brut, this.me, this.myUid);
+  toRoom(raw: Record<string, unknown>): LocalRoom | null {
+    return toRoom(raw, this.me, this.myUid);
   }
 
-  toSubscription(brut: Record<string, unknown>): LocalSubscription | null {
-    return toSubscription(brut);
+  toSubscription(raw: Record<string, unknown>): LocalSubscription | null {
+    return toSubscription(raw);
   }
 
-  translateEvent(evenement: DdpEvent): Translation {
-    switch (evenement.collection) {
+  translateEvent(event: DdpEvent): Translation {
+    switch (event.collection) {
       case STREAM_MESSAGES: {
         // Ici, et ici seulement, `args[0]` est directement le document.
-        const document = objetOuNull(evenement.args[0]);
+        const document = objectOrNull(event.args[0]);
         if (document === null) return IGNORE;
         const message = toMessage(document);
         return message === null ? IGNORE : { kind: 'change', change: { type: 'message', doc: message } };
       }
 
       case STREAM_NOTIFY_USER: {
-        const sujet = sujetDe(evenement.eventKey);
-        if (sujet === 'subscriptions-changed') return this.translateSubscription(evenement);
-        if (sujet === 'rooms-changed') return this.translateRoom(evenement);
+        const topic = topicOf(event.eventKey);
+        if (topic === 'subscriptions-changed') return this.translateSubscription(event);
+        if (topic === 'rooms-changed') return this.translateRoom(event);
         return IGNORE;
       }
 
@@ -77,19 +77,19 @@ export class RcTranslator implements Translator {
         // La présence transite par le MÊME stream, mais elle est volatile et
         // traitée par `MoteurPresence` : silence, pas anomalie — sinon chaque
         // aller-retour d'un contact gonflerait le compteur d'ignorés.
-        if (evenement.eventKey === PRESENCE_EVENT) return SILENCE;
-        if (evenement.eventKey !== AVATAR_EVENT) return IGNORE;
-        return traduireAvatar(evenement);
+        if (event.eventKey === PRESENCE_EVENT) return SILENCE;
+        if (event.eventKey !== AVATAR_EVENT) return IGNORE;
+        return translateAvatar(event);
       }
 
       case STREAM_NOTIFY_ROOM: {
-        const sujet = sujetDe(evenement.eventKey);
+        const topic = topicOf(event.eventKey);
         // `user-activity` est ATTENDU (l'écran salon s'y abonne pour la saisie)
         // mais traité ailleurs : le compter en anomalie noierait le compteur
         // sous des battements de frappe.
-        if (sujet === 'user-activity') return SILENCE;
-        if (sujet !== 'deleteMessage') return IGNORE;
-        const document = objetOuNull(evenement.args[0]);
+        if (topic === 'user-activity') return SILENCE;
+        if (topic !== 'deleteMessage') return IGNORE;
+        const document = objectOrNull(event.args[0]);
         const id = typeof document?._id === 'string' ? document._id : null;
         return id === null ? IGNORE : { kind: 'change', change: { type: 'message-deleted', id } };
       }
@@ -105,26 +105,26 @@ export class RcTranslator implements Translator {
    * l'ABONNEMENT — de quoi le retrouver, pas de quoi le reconstruire. Sans ce
    * cas, un upsert maintiendrait un salon supprimé en FANTÔME.
    */
-  private translateSubscription(evenement: DdpEvent): Translation {
-    const document = documentDeNotification(evenement);
+  private translateSubscription(event: DdpEvent): Translation {
+    const document = notificationDocument(event);
     if (document === null) return IGNORE;
-    if (actionDeNotification(evenement) === 'removed') {
+    if (notificationAction(event) === 'removed') {
       const subId = typeof document._id === 'string' ? document._id : null;
       return subId === null ? IGNORE : { kind: 'change', change: { type: 'subscription-deleted-by-sub', subId } };
     }
-    const abonnement = toSubscription(document);
-    return abonnement === null ? IGNORE : { kind: 'change', change: { type: 'subscription', doc: abonnement } };
+    const subscription = toSubscription(document);
+    return subscription === null ? IGNORE : { kind: 'change', change: { type: 'subscription', doc: subscription } };
   }
 
-  private translateRoom(evenement: DdpEvent): Translation {
-    const document = documentDeNotification(evenement);
+  private translateRoom(event: DdpEvent): Translation {
+    const document = notificationDocument(event);
     if (document === null) return IGNORE;
-    if (actionDeNotification(evenement) === 'removed') {
+    if (notificationAction(event) === 'removed') {
       const rid = typeof document._id === 'string' ? document._id : null;
       return rid === null ? IGNORE : { kind: 'change', change: { type: 'room-deleted', rid } };
     }
-    const salon = toRoom(document, this.me, this.myUid);
-    return salon === null ? IGNORE : { kind: 'change', change: { type: 'room', doc: salon } };
+    const room = toRoom(document, this.me, this.myUid);
+    return room === null ? IGNORE : { kind: 'change', change: { type: 'room', doc: room } };
   }
 }
 
@@ -133,8 +133,8 @@ export class RcTranslator implements Translator {
  * signale un avatar RETIRÉ (`users.resetAvatar`) — on pose alors le marqueur
  * `AVATAR_SANS_PHOTO` plutôt que rien, pour que l'URI change quand même.
  */
-function traduireAvatar(evenement: DdpEvent): Translation {
-  const document = objetOuNull(evenement.args[0]);
+function translateAvatar(event: DdpEvent): Translation {
+  const document = objectOrNull(event.args[0]);
   if (document === null) return IGNORE;
   const username = typeof document.username === 'string' ? document.username : null;
   const rid = typeof document.rid === 'string' ? document.rid : null;
@@ -146,13 +146,13 @@ function traduireAvatar(evenement: DdpEvent): Translation {
   };
 }
 
-function objetOuNull(v: unknown): Record<string, unknown> | null {
+function objectOrNull(v: unknown): Record<string, unknown> | null {
   return typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null;
 }
 
 /** `<uid>/subscriptions-changed` -> `subscriptions-changed`. */
-function sujetDe(cleEvenement: string): string {
-  return cleEvenement.split('/').slice(1).join('/');
+function topicOf(eventKey: string): string {
+  return eventKey.split('/').slice(1).join('/');
 }
 
 /**
@@ -160,12 +160,12 @@ function sujetDe(cleEvenement: string): string {
  * document est le SECOND argument quand le premier est une action. Certaines
  * versions envoient directement le document — on accepte les deux formes.
  */
-function documentDeNotification(evenement: DdpEvent): Record<string, unknown> | null {
-  if (typeof evenement.args[0] === 'string') return objetOuNull(evenement.args[1]);
-  return objetOuNull(evenement.args[0]);
+function notificationDocument(event: DdpEvent): Record<string, unknown> | null {
+  if (typeof event.args[0] === 'string') return objectOrNull(event.args[1]);
+  return objectOrNull(event.args[0]);
 }
 
 /** L'ACTION d'une notification `[action, document]`, ou null si le document vient directement. */
-function actionDeNotification(evenement: DdpEvent): string | null {
-  return typeof evenement.args[0] === 'string' ? evenement.args[0] : null;
+function notificationAction(event: DdpEvent): string | null {
+  return typeof event.args[0] === 'string' ? event.args[0] : null;
 }

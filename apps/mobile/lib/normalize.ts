@@ -8,17 +8,17 @@
 import { starredIds } from './marks.ts';
 
 /** Le serveur envoie soit `{"$date": epochMs}` (EJSON), soit une chaîne ISO. */
-export function toEpoch(valeur: unknown): number | null {
-  if (typeof valeur === 'number' && Number.isFinite(valeur)) return valeur;
-  if (typeof valeur === 'string') {
-    const t = Date.parse(valeur);
+export function toEpoch(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const t = Date.parse(value);
     return Number.isNaN(t) ? null : t;
   }
-  if (typeof valeur === 'object' && valeur !== null) {
-    const brut = (valeur as { $date?: unknown }).$date;
-    if (typeof brut === 'number' && Number.isFinite(brut)) return brut;
-    if (typeof brut === 'string') {
-      const t = Date.parse(brut);
+  if (typeof value === 'object' && value !== null) {
+    const raw = (value as { $date?: unknown }).$date;
+    if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+    if (typeof raw === 'string') {
+      const t = Date.parse(raw);
       return Number.isNaN(t) ? null : t;
     }
   }
@@ -108,10 +108,10 @@ export type LocalSubscription = {
   updatedAt: number;
 };
 
-const chaine = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
-const entier = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-const booleen = (v: unknown): boolean => v === true;
-const jsonOuNull = (v: unknown): string | null =>
+const asString = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
+const asInt = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+const boolean = (v: unknown): boolean => v === true;
+const jsonOrNull = (v: unknown): string | null =>
   v === undefined || v === null ? null : JSON.stringify(v);
 
 /** Un message chiffré n'est pas déchiffrable ici : on n'expose jamais le blob. */
@@ -126,58 +126,58 @@ export const CALL_TYPE = 'videoconf';
  * source RC). On extrait le premier bloc de ce type ; le reste des `blocks`
  * (UI-kit générique) ne nous sert pas et n'est pas conservé.
  */
-function callIdDuBloc(blocks: unknown): string | null {
+function blockCallId(blocks: unknown): string | null {
   if (!Array.isArray(blocks)) return null;
   for (const b of blocks) {
     if (b !== null && typeof b === 'object') {
-      const bloc = b as { type?: unknown; callId?: unknown };
-      if (bloc.type === 'video_conf') return chaine(bloc.callId);
+      const block = b as { type?: unknown; callId?: unknown };
+      if (block.type === 'video_conf') return asString(block.callId);
     }
   }
   return null;
 }
 
-export function toMessage(brut: Record<string, unknown>): MessageLocal | null {
-  const id = chaine(brut._id);
-  const rid = chaine(brut.rid);
-  const horodatage = toEpoch(brut.ts);
-  const auteur = brut.u as { _id?: unknown; username?: unknown } | undefined;
-  const auteurId = chaine(auteur?._id);
-  if (id === null || rid === null || horodatage === null || auteurId === null) return null;
+export function toMessage(raw: Record<string, unknown>): MessageLocal | null {
+  const id = asString(raw._id);
+  const rid = asString(raw.rid);
+  const ts = toEpoch(raw.ts);
+  const author = raw.u as { _id?: unknown; username?: unknown } | undefined;
+  const authorId = asString(author?._id);
+  if (id === null || rid === null || ts === null || authorId === null) return null;
 
-  const typeSysteme = chaine(brut.t);
+  const systemType = asString(raw.t);
   // `msg` d'un message chiffré contient du base64 opaque. Le stocker inviterait
   // à l'afficher un jour par accident.
-  const chiffre = typeSysteme === ENCRYPTED_TYPE;
+  const encrypted = systemType === ENCRYPTED_TYPE;
 
   return {
     id,
     rid,
-    text: chiffre ? null : chaine(brut.msg),
-    ts: horodatage,
-    authorId: auteurId,
-    authorName: chaine(auteur?.username),
-    systemType: typeSysteme,
-    threadId: chaine(brut.tmid),
-    threadCount: entier(brut.tcount),
-    threadLast: toEpoch(brut.tlm),
-    threadShown: booleen(brut.tshow),
-    editedAt: toEpoch(brut.editedAt),
-    md: chiffre ? null : jsonOuNull(brut.md),
-    attachments: chiffre ? null : jsonOuNull(brut.attachments),
-    reactions: jsonOuNull(brut.reactions),
+    text: encrypted ? null : asString(raw.msg),
+    ts,
+    authorId,
+    authorName: asString(author?.username),
+    systemType,
+    threadId: asString(raw.tmid),
+    threadCount: asInt(raw.tcount),
+    threadLast: toEpoch(raw.tlm),
+    threadShown: boolean(raw.tshow),
+    editedAt: toEpoch(raw.editedAt),
+    md: encrypted ? null : jsonOrNull(raw.md),
+    attachments: encrypted ? null : jsonOrNull(raw.attachments),
+    reactions: jsonOrNull(raw.reactions),
     // Rien à prévisualiser pour un salon chiffré ; sinon on garde `urls` brut,
     // parsé au rendu (`lib/linkPreview.ts`).
-    urls: chiffre ? null : jsonOuNull(brut.urls),
-    callId: typeSysteme === CALL_TYPE ? callIdDuBloc(brut.blocks) : null,
+    urls: encrypted ? null : jsonOrNull(raw.urls),
+    callId: systemType === CALL_TYPE ? blockCallId(raw.blocks) : null,
     // Le `content` chiffré est conservé pour un déchiffrement différé ; le `msg`
     // opaque, lui, ne l'est jamais (voir `texte`).
-    encryptedRaw: chiffre ? jsonOuNull(brut.content) : null,
-    pinned: booleen(brut.pinned),
-    starred: starredIds(brut.starred),
+    encryptedRaw: encrypted ? jsonOrNull(raw.content) : null,
+    pinned: boolean(raw.pinned),
+    starred: starredIds(raw.starred),
     // `_updatedAt` est l'horloge du serveur : c'est elle qui arbitre les
     // conflits entre le WebSocket et un rattrapage REST plus lent.
-    updatedAt: toEpoch(brut._updatedAt) ?? horodatage,
+    updatedAt: toEpoch(raw._updatedAt) ?? ts,
   };
 }
 
@@ -198,64 +198,64 @@ export function toMessage(brut: Record<string, unknown>): MessageLocal | null {
  * `msg: ''`, contenu dans `blocks`), qui faisait remonter le salon en tête de
  * liste avec un aperçu vide.
  */
-function apercuDuDernier(dernier: Record<string, unknown> | undefined): string | null {
-  const texte = chaine(dernier?.msg);
-  if (texte !== null) return texte;
-  if (!Array.isArray(dernier?.attachments)) return null;
-  for (const jointe of dernier.attachments) {
-    if (jointe === null || typeof jointe !== 'object') continue;
-    const j = jointe as { description?: unknown; title?: unknown };
-    const libelle = chaine(j.description) ?? chaine(j.title);
-    if (libelle !== null) return libelle;
+function lastMessagePreview(last: Record<string, unknown> | undefined): string | null {
+  const text = asString(last?.msg);
+  if (text !== null) return text;
+  if (!Array.isArray(last?.attachments)) return null;
+  for (const attachment of last.attachments) {
+    if (attachment === null || typeof attachment !== 'object') continue;
+    const j = attachment as { description?: unknown; title?: unknown };
+    const label = asString(j.description) ?? asString(j.title);
+    if (label !== null) return label;
   }
   return null;
 }
 
 /**
- * @param moi — nom d'utilisateur du compte courant. Un message direct n'a ni
+ * @param me — nom d'utilisateur du compte courant. Un message direct n'a ni
  * `name` ni `fname` dans `rooms.get` : son nom d'affichage se dérive de
  * `usernames`, en s'excluant soi-même. Sans `moi`, le DM resterait sans nom.
- * @param moiUid — uid du compte courant, pour extraire l'AUTRE participant
+ * @param myUid — uid du compte courant, pour extraire l'AUTRE participant
  * d'un DM depuis `uids` (présence, 8.4). `uids` et `usernames` ne sont PAS
  * alignés entre eux (vérifié sur 8.5) : seul le filtrage par uid est sûr.
  */
 export function toRoom(
-  brut: Record<string, unknown>,
-  moi?: string | null,
-  moiUid?: string | null,
+  raw: Record<string, unknown>,
+  me?: string | null,
+  myUid?: string | null,
 ): LocalRoom | null {
-  const rid = chaine(brut._id);
-  const type = chaine(brut.t);
+  const rid = asString(raw._id);
+  const type = asString(raw.t);
   if (rid === null || type === null) return null;
 
-  const chiffre = booleen(brut.encrypted);
-  const dernier = brut.lastMessage as Record<string, unknown> | undefined;
+  const encrypted = boolean(raw.encrypted);
+  const last = raw.lastMessage as Record<string, unknown> | undefined;
 
   // `moi` est FIGÉ à la construction du traducteur (`session.username`) : après
   // un renommage depuis le web, ou pour une session dont le pseudo est vide
   // (`lib/auth.ts`), il ne figure plus dans `usernames`. S'exclure « par
   // différence » sans le vérifier retient alors le PREMIER nom venu — le mien
   // une fois sur deux. On ne s'exclut donc que si l'exclusion est prouvée.
-  const nomsDM = Array.isArray(brut.usernames)
-    ? brut.usernames.filter((u): u is string => typeof u === 'string' && u !== '')
+  const dmNames = Array.isArray(raw.usernames)
+    ? raw.usernames.filter((u): u is string => typeof u === 'string' && u !== '')
     : [];
-  const jeSuisDedans = typeof moi === 'string' && moi !== '' && nomsDM.includes(moi);
+  const iAmIn = typeof me === 'string' && me !== '' && dmNames.includes(me);
 
-  let nomAffiche = chaine(brut.fname) ?? chaine(brut.name);
-  if (nomAffiche === null && type === 'd' && Array.isArray(brut.usernames)) {
+  let displayName = asString(raw.fname) ?? asString(raw.name);
+  if (displayName === null && type === 'd' && Array.isArray(raw.usernames)) {
     // Sans exclusion prouvée, on n'a rien de mieux à proposer que la liste
     // entière — mieux vaut un nom de trop qu'un correspondant sous mon pseudo.
-    const autres = jeSuisDedans ? nomsDM.filter((u) => u !== moi) : nomsDM;
+    const others = iAmIn ? dmNames.filter((u) => u !== me) : dmNames;
     // Un DM avec soi-même a `usernames: [moi]` : `autres` est vide, on garde moi.
-    nomAffiche = autres.length > 0 ? autres.join(', ') : (moi ?? null);
+    displayName = others.length > 0 ? others.join(', ') : (me ?? null);
   }
 
-  let dmAutreUid: string | null = null;
-  if (type === 'd' && typeof moiUid === 'string' && Array.isArray(brut.uids)) {
-    const uids = brut.uids.filter((u): u is string => typeof u === 'string' && u !== '');
+  let dmOtherUid: string | null = null;
+  if (type === 'd' && typeof myUid === 'string' && Array.isArray(raw.uids)) {
+    const uids = raw.uids.filter((u): u is string => typeof u === 'string' && u !== '');
     // À deux seulement : un DM de groupe n'a pas UNE présence à montrer.
-    if (uids.length <= 2 && uids.includes(moiUid)) {
-      dmAutreUid = uids.find((u) => u !== moiUid) ?? moiUid;
+    if (uids.length <= 2 && uids.includes(myUid)) {
+      dmOtherUid = uids.find((u) => u !== myUid) ?? myUid;
     }
   }
 
@@ -268,21 +268,21 @@ export function toRoom(
   // d'horodatage) : se tromper y colle MON pseudo — et donc mon avatar — sur
   // Bob, jusqu'à ce qu'il poste. On préfère donc ne rien dire : `UPSERT_SALON`
   // n'écrit rien sur un `null`, et le premier message de l'autre le posera.
-  let dmAutreUsername: string | null = null;
-  if (dmAutreUid !== null && nomsDM.length <= 2) {
-    if (nomsDM.length === 1) dmAutreUsername = nomsDM[0]!;
-    else if (jeSuisDedans) dmAutreUsername = nomsDM.find((u) => u !== moi) ?? null;
+  let dmOtherUsername: string | null = null;
+  if (dmOtherUid !== null && dmNames.length <= 2) {
+    if (dmNames.length === 1) dmOtherUsername = dmNames[0]!;
+    else if (iAmIn) dmOtherUsername = dmNames.find((u) => u !== me) ?? null;
   }
 
   return {
     rid,
     type,
-    name: chaine(brut.name),
-    displayName: nomAffiche,
-    encrypted: chiffre,
-    readOnly: booleen(brut.ro),
-    dmOtherUid: dmAutreUid,
-    dmOtherUsername: dmAutreUsername,
+    name: asString(raw.name),
+    displayName,
+    encrypted,
+    readOnly: boolean(raw.ro),
+    dmOtherUid,
+    dmOtherUsername,
     // L'aperçu d'un salon chiffré est du ciphertext : jamais affiché. Le sien
     // est posé localement, après déchiffrement (`MAJ_APERCU_CHIFFRE`) — d'où
     // le `null` ici, que l'UPSERT sait ne pas prendre pour un effacement.
@@ -291,39 +291,39 @@ export function toRoom(
     // message d'un salon est supprimé, le document Room perd complètement son
     // `lastMessage` (sondé sur 8.5, stream ET `rooms.get`). C'est la seule
     // façon d'apprendre qu'un salon a été vidé.
-    lastMessage: chiffre ? null : apercuDuDernier(dernier),
+    lastMessage: encrypted ? null : lastMessagePreview(last),
     // Null pour un salon chiffré, comme l'aperçu : là-bas c'est la base locale
     // qui désigne le dernier message (`MAJ_APERCU_CHIFFRE`), et elle écarte les
     // messages système — garder le `t` du serveur ferait décrire un message par
     // le type d'un AUTRE.
-    lastMessageType: chiffre ? null : chaine(dernier?.t),
-    lastMessageTs: toEpoch(dernier?.ts) ?? toEpoch(brut.lm),
+    lastMessageType: encrypted ? null : asString(last?.t),
+    lastMessageTs: toEpoch(last?.ts) ?? toEpoch(raw.lm),
     // Absent tant que le salon n'a pas de photo, et absent des documents
     // partiels : `null` veut dire « rien à dire », jamais « efface » (le
     // COALESCE de `UPSERT_SALON` le garantit).
-    avatarEtag: chaine(brut.avatarETag),
-    updatedAt: toEpoch(brut._updatedAt) ?? 0,
+    avatarEtag: asString(raw.avatarETag),
+    updatedAt: toEpoch(raw._updatedAt) ?? 0,
   };
 }
 
-export function toSubscription(brut: Record<string, unknown>): LocalSubscription | null {
-  const rid = chaine(brut.rid);
+export function toSubscription(raw: Record<string, unknown>): LocalSubscription | null {
+  const rid = asString(raw.rid);
   if (rid === null) return null;
   return {
     rid,
-    subId: chaine(brut._id),
-    unread: entier(brut.unread),
-    mentions: entier(brut.userMentions),
-    groupMentions: entier(brut.groupMentions),
-    alert: booleen(brut.alert),
-    open: booleen(brut.open),
-    favorite: booleen(brut.f),
-    lastSeen: toEpoch(brut.ls),
-    e2eKey: chaine(brut.E2EKey),
-    e2eKeyId: chaine(brut.e2eKeyId),
-    roles: Array.isArray(brut.roles)
-      ? JSON.stringify(brut.roles.filter((r): r is string => typeof r === 'string'))
+    subId: asString(raw._id),
+    unread: asInt(raw.unread),
+    mentions: asInt(raw.userMentions),
+    groupMentions: asInt(raw.groupMentions),
+    alert: boolean(raw.alert),
+    open: boolean(raw.open),
+    favorite: boolean(raw.f),
+    lastSeen: toEpoch(raw.ls),
+    e2eKey: asString(raw.E2EKey),
+    e2eKeyId: asString(raw.e2eKeyId),
+    roles: Array.isArray(raw.roles)
+      ? JSON.stringify(raw.roles.filter((r): r is string => typeof r === 'string'))
       : null,
-    updatedAt: toEpoch(brut._updatedAt) ?? 0,
+    updatedAt: toEpoch(raw._updatedAt) ?? 0,
   };
 }

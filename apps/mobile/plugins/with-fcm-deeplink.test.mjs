@@ -23,15 +23,15 @@ import { describe, it } from 'node:test';
 import plugin from './with-fcm-deeplink.js';
 
 const {
-  ajouterDependances,
-  ajouterRecepteur,
-  ajouterService,
-  echapperXml,
+  addDependencies,
+  addReceiver,
+  addService,
+  escapeXml,
   stringsXml,
   CHAINES,
-  RECEPTEUR_CLASS,
+  RECEIVER_CLASS,
   SERVICE_CLASS,
-} = plugin.chirurgie;
+} = plugin.internals;
 
 const DEPS = ['com.google.firebase:firebase-messaging:25.0.1', 'androidx.work:work-runtime:2.10.1'];
 
@@ -61,52 +61,52 @@ apply plugin: 'com.google.gms.google-services'
 
 describe('ajouterDependances', () => {
   it('injecte dans le bloc `dependencies` RACINE, pas dans un bloc imbriqué', () => {
-    const sortie = ajouterDependances(GRADLE, DEPS);
-    const posRacine = sortie.search(/^dependencies \{/m);
-    const posImbrique = sortie.indexOf('nothing "here"');
+    const outbox = addDependencies(GRADLE, DEPS);
+    const rootPos = outbox.search(/^dependencies \{/m);
+    const nestedPos = outbox.indexOf('nothing "here"');
     for (const dep of DEPS) {
-      const pos = sortie.indexOf(`implementation("${dep}")`);
-      assert.ok(pos > posRacine, `${dep} devrait suivre le bloc racine`);
-      assert.ok(pos > posImbrique, `${dep} ne doit pas être tombé dans le bloc imbriqué`);
+      const pos = outbox.indexOf(`implementation("${dep}")`);
+      assert.ok(pos > rootPos, `${dep} devrait suivre le bloc racine`);
+      assert.ok(pos > nestedPos, `${dep} ne doit pas être tombé dans le bloc imbriqué`);
     }
   });
 
   it('déclare chacun des deux artefacts exactement une fois', () => {
-    const sortie = ajouterDependances(GRADLE, DEPS);
+    const outbox = addDependencies(GRADLE, DEPS);
     for (const dep of DEPS) {
-      assert.equal(sortie.split(`implementation("${dep}")`).length - 1, 1);
+      assert.equal(outbox.split(`implementation("${dep}")`).length - 1, 1);
     }
   });
 
   it("n'ajoute rien à un second passage (prebuild sans --clean)", () => {
-    const une = ajouterDependances(GRADLE, DEPS);
-    assert.equal(ajouterDependances(une, DEPS), une);
+    const one = addDependencies(GRADLE, DEPS);
+    assert.equal(addDependencies(one, DEPS), one);
   });
 
   it("laisse tranquille un artefact déjà présent dans une AUTRE version", () => {
     // En déclarer une seconde ferait diverger la résolution de version.
-    const avec = GRADLE.replace(
+    const withValue = GRADLE.replace(
       /^dependencies \{/m,
       'dependencies {\n    implementation("androidx.work:work-runtime:2.9.0")',
     );
-    const sortie = ajouterDependances(avec, DEPS);
-    assert.ok(sortie.includes('androidx.work:work-runtime:2.9.0'));
-    assert.ok(!sortie.includes('androidx.work:work-runtime:2.10.1'));
+    const outbox = addDependencies(withValue, DEPS);
+    assert.ok(outbox.includes('androidx.work:work-runtime:2.9.0'));
+    assert.ok(!outbox.includes('androidx.work:work-runtime:2.10.1'));
   });
 
   it('LÈVE si le gradle n’a aucun bloc `dependencies` racine', () => {
     // Le laisser intact renvoyait le diagnostic bien plus loin : une erreur de
     // compilation Kotlin sur une classe Firebase introuvable.
-    const sansBloc = GRADLE.replace(/^dependencies \{[\s\S]*?^\}$/m, '');
-    assert.ok(!/^dependencies \{/m.test(sansBloc), 'la fixture doit vraiment être privée du bloc');
-    assert.throws(() => ajouterDependances(sansBloc, DEPS), /dependencies/);
+    const withoutBlock = GRADLE.replace(/^dependencies \{[\s\S]*?^\}$/m, '');
+    assert.ok(!/^dependencies \{/m.test(withoutBlock), 'la fixture doit vraiment être privée du bloc');
+    assert.throws(() => addDependencies(withoutBlock, DEPS), /dependencies/);
   });
 });
 
 describe('ajouterService', () => {
   it('déclare le service avec la priorité 1 et l’action FCM', () => {
     const application = {};
-    ajouterService(application);
+    addService(application);
     assert.equal(application.service.length, 1);
     const service = application.service[0];
     assert.equal(service.$['android:name'], `.${SERVICE_CLASS}`);
@@ -121,15 +121,15 @@ describe('ajouterService', () => {
 
   it('ne le déclare pas deux fois', () => {
     const application = {};
-    ajouterService(application);
-    ajouterService(application);
+    addService(application);
+    addService(application);
     assert.equal(application.service.length, 1);
   });
 
   it('préserve les services déjà déclarés (celui d’expo)', () => {
     const expo = { $: { 'android:name': 'expo.modules.notifications.service.NotificationsService' } };
     const application = { service: [expo] };
-    ajouterService(application);
+    addService(application);
     assert.equal(application.service.length, 2);
     assert.equal(application.service[0], expo);
   });
@@ -137,27 +137,27 @@ describe('ajouterService', () => {
 
 describe('ajouterRecepteur', () => {
   it('déclare le récepteur de « Répondre », non exporté, une seule fois', () => {
-    const autre = { $: { 'android:name': 'expo.Autre' } };
-    const application = { receiver: [autre] };
-    ajouterRecepteur(application);
-    ajouterRecepteur(application);
+    const other = { $: { 'android:name': 'expo.Autre' } };
+    const application = { receiver: [other] };
+    addReceiver(application);
+    addReceiver(application);
     assert.equal(application.receiver.length, 2);
-    assert.equal(application.receiver[0], autre);
-    assert.equal(application.receiver[1].$['android:name'], `.${RECEPTEUR_CLASS}`);
+    assert.equal(application.receiver[0], other);
+    assert.equal(application.receiver[1].$['android:name'], `.${RECEIVER_CLASS}`);
     assert.equal(application.receiver[1].$['android:exported'], 'false');
   });
 });
 
 describe('stringsXml', () => {
   it('rend les trois chaînes de la voie native dans les deux langues', () => {
-    for (const langue of ['fr', 'en']) {
-      const xml = stringsXml(langue);
-      for (const [nom, formes] of Object.entries(CHAINES)) {
+    for (const language of ['fr', 'en']) {
+      const xml = stringsXml(language);
+      for (const [name, forms] of Object.entries(CHAINES)) {
         assert.ok(
-          xml.includes(`<string name="${nom}">`),
-          `${nom} manque en ${langue}`,
+          xml.includes(`<string name="${name}">`),
+          `${name} manque en ${language}`,
         );
-        assert.ok(xml.includes(formes[langue]), `la forme ${langue} de ${nom} manque`);
+        assert.ok(xml.includes(forms[language]), `la forme ${language} de ${name} manque`);
       }
     }
   });
@@ -167,12 +167,12 @@ describe('stringsXml', () => {
     // n'a d'apostrophe aujourd'hui, donc l'assertion sur `stringsXml` passerait
     // même sans échappement — un test vide. La règle vaut pour la PROCHAINE
     // chaîne (« Nouveau message d'Alice » ferait échouer aapt2 au build).
-    assert.equal(echapperXml("Message d'Alice"), "Message d\\'Alice");
+    assert.equal(escapeXml("Message d'Alice"), "Message d\\'Alice");
   });
 
   it('échappe les entités XML', () => {
-    assert.equal(echapperXml('Alice & <b>Bob</b>'), 'Alice &amp; &lt;b&gt;Bob&lt;/b&gt;');
-    assert.equal(echapperXml('dit "oui"'), 'dit &quot;oui&quot;');
+    assert.equal(escapeXml('Alice & <b>Bob</b>'), 'Alice &amp; &lt;b&gt;Bob&lt;/b&gt;');
+    assert.equal(escapeXml('dit "oui"'), 'dit &quot;oui&quot;');
   });
 
   it('ne laisse aucune apostrophe nue dans le rendu', () => {

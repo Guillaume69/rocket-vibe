@@ -52,10 +52,10 @@ describe('peutSortirDuProcessus', () => {
   test('AUCUNE URL portant le jeton ne sort — c’est l’invariant du chantier', () => {
     // La forme exacte que produisait `urlFichierProtege` avant la correction :
     // elle partait dans un intent VIEW, donc dans Chrome et son historique.
-    const fuite =
+    const leak =
       'https://chat.barrut.me/file-upload/BsN3iJ/rapport.pdf?rc_uid=uid-alice&rc_token=jeton-alice';
-    assert.equal(isWebLink(fuite), true, 'c’est bien du web…');
-    assert.equal(canLeaveProcess(fuite), false, '…et pourtant elle ne sort pas');
+    assert.equal(isWebLink(leak), true, 'c’est bien du web…');
+    assert.equal(canLeaveProcess(leak), false, '…et pourtant elle ne sort pas');
   });
 
   test('un schéma non web ne sort pas non plus', () => {

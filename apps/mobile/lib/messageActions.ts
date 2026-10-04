@@ -71,14 +71,14 @@ export type ActionMessage =
   | 'star'
   | 'unstar';
 
-function dansLeDelai(contexte: ActionContext, minutes: number): boolean {
+function withinDelay(context: ActionContext, minutes: number): boolean {
   if (minutes <= 0) return true; // 0 = illimité
-  return contexte.now - contexte.message.ts <= minutes * 60_000;
+  return context.now - context.message.ts <= minutes * 60_000;
 }
 
-export function actionsPossibles(contexte: ActionContext): ActionMessage[] {
+export function actionsPossibles(context: ActionContext): ActionMessage[] {
   const actions: ActionMessage[] = [];
-  const { message, me: moi, rules: regles, permissions, readOnly: lectureSeule, encrypted: chiffre, inThread: dansUnFil } = contexte;
+  const { message, me, rules, permissions, readOnly, encrypted, inThread } = context;
 
   // Un message système ne se modifie pas, ne s'épingle pas, ne se commente
   // pas d'un emoji.
@@ -89,58 +89,58 @@ export function actionsPossibles(contexte: ActionContext): ActionMessage[] {
   // ui/messageRow.tsx le rend comme n'importe quel autre message ; la sortie
   // sèche ci-dessous ouvrait donc une feuille d'actions VIDE sur la totalité
   // d'un salon chiffré.
-  const chiffreLisible = message.systemType === ENCRYPTED_TYPE && message.text !== null;
-  if (message.systemType !== null && !chiffreLisible) return actions;
+  const readableEncrypted = message.systemType === ENCRYPTED_TYPE && message.text !== null;
+  if (message.systemType !== null && !readableEncrypted) return actions;
 
-  if (!lectureSeule) actions.push('react');
+  if (!readOnly) actions.push('react');
   // Répondre en citant (`lib/quote.ts`) : n'importe quel message d'autrui ou
   // de soi, tant qu'on PEUT poster dans le salon.
-  if (!lectureSeule && !chiffre) actions.push('reply');
-  if (!lectureSeule && !dansUnFil) actions.push('replyInThread');
-  const texte = textToCopy(message.text) !== null;
-  if (texte) actions.push('copy');
-  const fichier = attachmentToShare(message.attachments) !== null;
-  if (texte || fichier) actions.push('share');
-  if (fichier) actions.push('save');
+  if (!readOnly && !encrypted) actions.push('reply');
+  if (!readOnly && !inThread) actions.push('replyInThread');
+  const text = textToCopy(message.text) !== null;
+  if (text) actions.push('copy');
+  const file = attachmentToShare(message.attachments) !== null;
+  if (text || file) actions.push('share');
+  if (file) actions.push('save');
 
-  const mien = message.authorId === moi;
+  const mine = message.authorId === me;
   // Inconnues : ses propres messages et l'épingle restent proposés, rien de plus.
-  const a = (permission: string, siInconnue: boolean): boolean =>
-    permissions === null ? siInconnue : permissions.includes(permission);
+  const a = (permission: string, ifUnknown: boolean): boolean =>
+    permissions === null ? ifUnknown : permissions.includes(permission);
   // `bypass-time-limit-edit-and-delete` lève les délais (édition ET
   // suppression) ; `edit-message` et `delete-message` ouvrent les messages
   // d'autrui, DANS le délai ; `force-delete-message` supprime sans condition.
-  const sansDelai = a('bypass-time-limit-edit-and-delete', false);
+  const immediate = a('bypass-time-limit-edit-and-delete', false);
   if (
-    (a('edit-message', false) || (mien && regles.editAllowed)) &&
-    (sansDelai || dansLeDelai(contexte, regles.editBlockMinutes))
+    (a('edit-message', false) || (mine && rules.editAllowed)) &&
+    (immediate || withinDelay(context, rules.editBlockMinutes))
   ) {
     actions.push('edit');
   }
   if (
     a('force-delete-message', false) ||
-    (regles.deleteAllowed &&
-      (a('delete-message', false) || (mien && a('delete-own-message', true))) &&
-      (sansDelai || dansLeDelai(contexte, regles.deleteBlockMinutes)))
+    (rules.deleteAllowed &&
+      (a('delete-message', false) || (mine && a('delete-own-message', true))) &&
+      (immediate || withinDelay(context, rules.deleteBlockMinutes)))
   ) {
     actions.push('delete');
   }
-  if (regles.pinAllowed && a('pin-message', true)) {
+  if (rules.pinAllowed && a('pin-message', true)) {
     actions.push(message.pinned ? 'unpin' : 'pin');
   }
-  if (regles.starAllowed) actions.push(message.starred ? 'unstar' : 'star');
+  if (rules.starAllowed) actions.push(message.starred ? 'unstar' : 'star');
 
   return actions;
 }
 
 /** Le texte que « Copier » et « Partager » emportent : sans le permalien de citation. */
-export function textToCopy(texte: string | null): string | null {
-  const mots = stripQuotePrefix(texte ?? '').trim();
-  return mots === '' ? null : mots;
+export function textToCopy(text: string | null): string | null {
+  const words = stripQuotePrefix(text ?? '').trim();
+  return words === '' ? null : words;
 }
 
-type LecteurMessage = {
-  get(chemin: string, options?: { params?: Record<string, unknown> }): Promise<unknown>;
+type MessageReader = {
+  get(path: string, options?: { params?: Record<string, unknown> }): Promise<unknown>;
 };
 
 /**
@@ -156,7 +156,7 @@ type LecteurMessage = {
  * vaut « on ne sait pas » : l'erreur d'origine reste la bonne réponse.
  */
 export async function messageGoneFromServer(
-  client: LecteurMessage,
+  client: MessageReader,
   msgId: string,
 ): Promise<boolean> {
   try {
@@ -167,24 +167,24 @@ export async function messageGoneFromServer(
   }
 }
 
-type ReglagePublic = { _id?: string; value?: unknown };
+type PublicSetting = { _id?: string; value?: unknown };
 
 /** À croiser avec la lecture `count=0` de settings.public (le `query` est mort en 7.0). */
-export function rulesFromSettings(reglages: ReglagePublic[]): MessageRules {
-  const valeurs = new Map<string, unknown>();
-  for (const r of reglages) {
-    if (typeof r._id === 'string') valeurs.set(r._id, r.value);
+export function rulesFromSettings(settings: PublicSetting[]): MessageRules {
+  const values = new Map<string, unknown>();
+  for (const r of settings) {
+    if (typeof r._id === 'string') values.set(r._id, r.value);
   }
-  const nombre = (cle: string): number => {
-    const v = valeurs.get(cle);
+  const count = (key: string): number => {
+    const v = values.get(key);
     return typeof v === 'number' && Number.isFinite(v) ? v : 0;
   };
   return {
-    editAllowed: valeurs.get('Message_AllowEditing') !== false,
-    editBlockMinutes: nombre('Message_AllowEditing_BlockEditInMinutes'),
-    deleteAllowed: valeurs.get('Message_AllowDeleting') !== false,
-    deleteBlockMinutes: nombre('Message_AllowDeleting_BlockDeleteInMinutes'),
-    pinAllowed: valeurs.get('Message_AllowPinning') !== false,
-    starAllowed: valeurs.get('Message_AllowStarring') !== false,
+    editAllowed: values.get('Message_AllowEditing') !== false,
+    editBlockMinutes: count('Message_AllowEditing_BlockEditInMinutes'),
+    deleteAllowed: values.get('Message_AllowDeleting') !== false,
+    deleteBlockMinutes: count('Message_AllowDeleting_BlockDeleteInMinutes'),
+    pinAllowed: values.get('Message_AllowPinning') !== false,
+    starAllowed: values.get('Message_AllowStarring') !== false,
   };
 }

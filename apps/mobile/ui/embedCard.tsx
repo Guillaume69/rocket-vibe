@@ -28,9 +28,9 @@ import { type Colors, FONTS } from './theme.ts';
 /** Rend une carte par lien vidéo détecté dans `texte` (rien si aucun). */
 export function EmbedLinks({
   c,
-  text: texte,
+  text,
   urls,
-  onLongPress: surAppuiLong,
+  onLongPress,
 }: {
   c: Colors;
   text: string | null;
@@ -38,29 +38,29 @@ export function EmbedLinks({
   urls: string | null;
   onLongPress?: (() => void) | undefined;
 }) {
-  const liens = useMemo(() => detectVideoLinks(texte), [texte]);
+  const links = useMemo(() => detectVideoLinks(text), [text]);
   const metas = useMemo(() => metasVideo(urls), [urls]);
-  if (liens.length === 0) return null;
+  if (links.length === 0) return null;
   return (
     <View style={styles.list}>
-      {liens.map((lien, i) => (
-        <CarteEmbed
-          key={`${lien.provider}:${lien.id}:${i}`}
+      {links.map((link, i) => (
+        <EmbedCard
+          key={`${link.provider}:${link.id}:${i}`}
           c={c}
-          link={lien}
-          meta={metas.get(lien.id) ?? null}
-          onLongPress={surAppuiLong}
+          link={link}
+          meta={metas.get(link.id) ?? null}
+          onLongPress={onLongPress}
         />
       ))}
     </View>
   );
 }
 
-function CarteEmbed({
+function EmbedCard({
   c,
-  link: lien,
+  link,
   meta,
-  onLongPress: surAppuiLong,
+  onLongPress,
 }: {
   c: Colors;
   link: VideoLink;
@@ -69,27 +69,27 @@ function CarteEmbed({
   onLongPress?: (() => void) | undefined;
 }) {
   const t = useT();
-  const [erreurVignette, setErreurVignette] = useState(false);
-  const montreVignette = lien.thumbnail !== null && !erreurVignette;
+  const [thumbnailError, setThumbnailError] = useState(false);
+  const showsThumbnail = link.thumbnail !== null && !thumbnailError;
 
-  const titre = meta?.title ?? null;
+  const title = meta?.title ?? null;
 
   return (
     <Pressable
-      onPress={() => openExternalLink(lien.url)}
-      onLongPress={surAppuiLong}
+      onPress={() => openExternalLink(link.url)}
+      onLongPress={onLongPress}
       delayLongPress={350}
       style={[styles.card, { borderColor: c.border, backgroundColor: c.pendingImageBackground }]}
       accessibilityRole="button"
-      accessibilityLabel={t('carteEmbed.ouvrir', { nom: titre ?? lien.name })}
+      accessibilityLabel={t('carteEmbed.ouvrir', { nom: title ?? link.name })}
     >
       <View style={styles.media}>
-      {montreVignette ? (
+      {showsThumbnail ? (
         <Image
-          source={{ uri: lien.thumbnail! }}
+          source={{ uri: link.thumbnail! }}
           style={StyleSheet.absoluteFill}
           resizeMode="cover"
-          onError={() => setErreurVignette(true)}
+          onError={() => setThumbnailError(true)}
         />
       ) : (
         <LinearGradient
@@ -115,15 +115,15 @@ function CarteEmbed({
       </View>
 
       <View style={[styles.footer, { backgroundColor: c.card }]}>
-        {titre !== null && (
+        {title !== null && (
           <Text style={[styles.title, { color: c.text }]} numberOfLines={2}>
-            {titre}
+            {title}
           </Text>
         )}
-        <View style={styles.ligneSource}>
+        <View style={styles.sourceRow}>
           <View style={[styles.triangleMini, { borderLeftColor: c.tertiaryText }]} />
           <Text style={[styles.name, { color: c.tertiaryText }]} numberOfLines={1}>
-            {meta?.author != null ? `${lien.name} · ${meta.author}` : lien.name}
+            {meta?.author != null ? `${link.name} · ${meta.author}` : link.name}
           </Text>
         </View>
       </View>
@@ -160,8 +160,8 @@ const styles = StyleSheet.create({
     marginLeft: 4, // recentrage optique du triangle
   },
   footer: { paddingHorizontal: 10, paddingVertical: 8, gap: 4 },
-  ligneSource: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  title: { fontFamily: FONTS.corpsSemi, fontSize: 13, lineHeight: 17 },
+  sourceRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  title: { fontFamily: FONTS.bodySemi, fontSize: 13, lineHeight: 17 },
   triangleMini: {
     width: 0,
     height: 0,

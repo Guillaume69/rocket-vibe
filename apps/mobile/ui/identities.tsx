@@ -43,19 +43,19 @@ export {
  * pile (monté dans `_layout`), il ne rend rien : il pousse dans le store.
  */
 export function IdentityTracker() {
-  const synchro = useSync();
-  if (synchro.phase !== 'ready') return null;
-  return <Alimente />;
+  const sync = useSync();
+  if (sync.phase !== 'ready') return null;
+  return <Feed />;
 }
 
-function Alimente() {
-  const synchro = useSync();
-  const { state: etat } = useSession();
-  const base = synchro.phase === 'ready' ? synchro.base : null;
+function Feed() {
+  const sync = useSync();
+  const { state } = useSession();
+  const base = sync.phase === 'ready' ? sync.base : null;
   // La session porte MON pseudo courant, rafraîchi à l'édition/à la reprise plus
   // tôt qu'un message ré-ingéré : on la superpose à la table (autoritaire pour moi).
-  const moiUid = etat.phase === 'connected' ? etat.session.userId : null;
-  const moiUsername = etat.phase === 'connected' ? etat.session.username : null;
+  const myUid = state.phase === 'connected' ? state.session.userId : null;
+  const myUsername = state.phase === 'connected' ? state.session.username : null;
 
   const { data } = useCoalescedLiveQuery(
     base!
@@ -69,18 +69,18 @@ function Alimente() {
 
   useEffect(() => {
     const m = new Map<string, string>();
-    const parUid = new Map<string, string>();
-    const parUsername = new Map<string, string>();
+    const byUid = new Map<string, string>();
+    const byUsername = new Map<string, string>();
     for (const u of data ?? []) {
       if (u.username !== null) m.set(u.uid, u.username);
       if (u.avatarEtag === null) continue;
-      parUid.set(u.uid, u.avatarEtag);
-      if (u.username !== null) parUsername.set(u.username, u.avatarEtag);
+      byUid.set(u.uid, u.avatarEtag);
+      if (u.username !== null) byUsername.set(u.username, u.avatarEtag);
     }
-    if (moiUid !== null && moiUsername !== null) m.set(moiUid, moiUsername);
+    if (myUid !== null && myUsername !== null) m.set(myUid, myUsername);
     setIdentities(m);
-    setEtags({ byUid: parUid, byUsername: parUsername });
-  }, [data, moiUid, moiUsername]);
+    setEtags({ byUid, byUsername });
+  }, [data, myUid, myUsername]);
 
   return null;
 }

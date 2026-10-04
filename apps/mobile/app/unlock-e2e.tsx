@@ -18,41 +18,41 @@ import { Tappable } from '../ui/tappable.tsx';
 import { useSheetBottomMargin } from '../ui/sheetMargin.ts';
 
 export default function UnlockE2EScreen() {
-  const margeBas = useSheetBottomMargin();
-  const synchro = useSync();
+  const bottomMargin = useSheetBottomMargin();
+  const sync = useSync();
   const c = useColors();
-  const routeur = useRouter();
+  const router = useRouter();
   const t = useT();
 
-  const [motDePasse, setMotDePasse] = useState('');
-  const [occupe, setOccupe] = useState(false);
-  const [erreur, setErreur] = useState<string | null>(null);
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const deverrouiller =
-    synchro.phase === 'ready' ? synchro.unlockE2E : null;
+  const unlock =
+    sync.phase === 'ready' ? sync.unlockE2E : null;
 
-  const soumettre = (): void => {
-    if (deverrouiller === null || occupe || motDePasse === '') return;
-    setOccupe(true);
-    setErreur(null);
+  const submit = (): void => {
+    if (unlock === null || busy || password === '') return;
+    setBusy(true);
+    setError(null);
     void (async () => {
       try {
-        await deverrouiller(motDePasse);
-        routeur.back(); // succès : la sheet se ferme, les messages s'éclairent
+        await unlock(password);
+        router.back(); // succès : la sheet se ferme, les messages s'éclairent
       } catch (e) {
         // Un mot de passe faux échoue à l'authentification GCM (ErreurE2E) ;
         // tout le reste (réseau, clé absente) est générique.
-        setErreur(t(e instanceof E2EError ? 'e2e.erreurMotDePasse' : 'e2e.erreurGenerique'));
-        setOccupe(false);
+        setError(t(e instanceof E2EError ? 'e2e.erreurMotDePasse' : 'e2e.erreurGenerique'));
+        setBusy(false);
       }
     })();
   };
 
   return (
-    <View style={[styles.sheet, { backgroundColor: c.deepCard, paddingBottom: margeBas }]}>
+    <View style={[styles.sheet, { backgroundColor: c.deepCard, paddingBottom: bottomMargin }]}>
       <Stack.Screen options={{ headerShown: false }} />
       <Text style={[styles.title, { color: c.text }]}>{t('e2e.titre')}</Text>
-      <Text style={[styles.explication, { color: c.dimmed }]}>{t('e2e.explication')}</Text>
+      <Text style={[styles.explanation, { color: c.dimmed }]}>{t('e2e.explication')}</Text>
 
       <TextInput
         style={[styles.field, { color: c.text, backgroundColor: c.card, borderColor: c.border }]}
@@ -67,31 +67,31 @@ export default function UnlockE2EScreen() {
         autoComplete="password"
         textContentType="password"
         importantForAutofill="yes"
-        value={motDePasse}
+        value={password}
         onChangeText={(v) => {
-          setMotDePasse(v);
-          if (erreur !== null) setErreur(null);
+          setPassword(v);
+          if (error !== null) setError(null);
         }}
-        onSubmitEditing={soumettre}
-        editable={!occupe}
+        onSubmitEditing={submit}
+        editable={!busy}
       />
 
-      {erreur !== null && <Text style={[styles.error, { color: c.errorText }]}>{erreur}</Text>}
+      {error !== null && <Text style={[styles.error, { color: c.errorText }]}>{error}</Text>}
 
       <Tappable
-        onPress={soumettre}
-        disabled={occupe || motDePasse === '' || deverrouiller === null}
+        onPress={submit}
+        disabled={busy || password === '' || unlock === null}
         android_ripple={{ color: c.ripple }}
         unstable_pressDelay={LIST_PRESS_DELAY}
         style={[
           styles.button,
           { backgroundColor: c.accent },
-          (occupe || motDePasse === '') && styles.inactive,
+          (busy || password === '') && styles.inactive,
         ]}
         accessibilityRole="button"
         accessibilityLabel={t('e2e.deverrouiller')}
       >
-        {occupe ? (
+        {busy ? (
           <ActivityIndicator size="small" color="#FFFFFF" />
         ) : (
           <Text style={styles.buttonText}>{t('e2e.deverrouiller')}</Text>
@@ -104,7 +104,7 @@ export default function UnlockE2EScreen() {
 const styles = StyleSheet.create({
   sheet: { padding: 20, paddingBottom: 28, gap: 14 },
   title: { fontFamily: FONTS.title, fontSize: 20 },
-  explication: { fontFamily: FONTS.body, fontSize: 14, lineHeight: 20 },
+  explanation: { fontFamily: FONTS.body, fontSize: 14, lineHeight: 20 },
   field: {
     fontFamily: FONTS.body,
     fontSize: 16,
@@ -122,5 +122,5 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   inactive: { opacity: 0.6 },
-  buttonText: { fontFamily: FONTS.corpsFort, fontSize: 15, color: '#FFFFFF' },
+  buttonText: { fontFamily: FONTS.bodyStrong, fontSize: 15, color: '#FFFFFF' },
 });

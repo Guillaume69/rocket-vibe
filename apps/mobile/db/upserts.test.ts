@@ -64,20 +64,20 @@ import {
   userParams,
 } from './upserts.ts';
 
-const DOSSIER = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
+const FOLDER = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
 
 /**
  * `node:sqlite` renvoie des objets à prototype `null`, que `assert.deepEqual`
  * en mode strict refuse de comparer à un littéral. On les remet à plat.
  */
-function ligne(v: unknown): Record<string, unknown> {
+function row(v: unknown): Record<string, unknown> {
   return { ...(v as Record<string, unknown>) };
 }
 
-function baseMigree(): DatabaseSync {
+function migratedDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
-  for (const f of readdirSync(DOSSIER).filter((x) => x.endsWith('.sql')).sort()) {
-    for (const r of readFileSync(join(DOSSIER, f), 'utf8').split('--> statement-breakpoint')) {
+  for (const f of readdirSync(FOLDER).filter((x) => x.endsWith('.sql')).sort()) {
+    for (const r of readFileSync(join(FOLDER, f), 'utf8').split('--> statement-breakpoint')) {
       if (r.trim() !== '') db.exec(r.trim());
     }
   }
@@ -115,7 +115,7 @@ function msg(o: Partial<MessageLocal> & { id: string; updatedAt: number }) {
   });
 }
 
-function salon(o: Partial<LocalRoom> & { rid: string; updatedAt: number }) {
+function room(o: Partial<LocalRoom> & { rid: string; updatedAt: number }) {
   return roomParams({
     type: 'c',
     name: 'nom',
@@ -132,7 +132,7 @@ function salon(o: Partial<LocalRoom> & { rid: string; updatedAt: number }) {
   });
 }
 
-function abo(o: Partial<LocalSubscription> & { rid: string; updatedAt: number }) {
+function sub(o: Partial<LocalSubscription> & { rid: string; updatedAt: number }) {
   return subscriptionParams({
     subId: null,
     unread: 0,
@@ -151,7 +151,7 @@ function abo(o: Partial<LocalSubscription> & { rid: string; updatedAt: number })
 
 let db: DatabaseSync;
 beforeEach(() => {
-  db = baseMigree();
+  db = migratedDb();
 });
 
 describe('upserts idempotents', () => {
@@ -167,7 +167,7 @@ describe('upserts idempotents', () => {
   test('un événement plus récent met bien à jour le message', () => {
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'v1', updatedAt: 100 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'v2', updatedAt: 200 }));
-    const m = ligne(db.prepare('SELECT texte, mis_a_jour_le FROM messages WHERE id = ?').get('m1'));
+    const m = row(db.prepare('SELECT texte, mis_a_jour_le FROM messages WHERE id = ?').get('m1'));
     assert.deepEqual(m, { texte: 'v2', mis_a_jour_le: 200 });
   });
 
@@ -176,7 +176,7 @@ describe('upserts idempotents', () => {
     // version d'un message que le WebSocket a déjà mise à jour depuis.
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'récent', updatedAt: 200 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'ancien', updatedAt: 100 }));
-    const m = ligne(db.prepare('SELECT texte, mis_a_jour_le FROM messages WHERE id = ?').get('m1'));
+    const m = row(db.prepare('SELECT texte, mis_a_jour_le FROM messages WHERE id = ?').get('m1'));
     assert.deepEqual(m, { texte: 'récent', mis_a_jour_le: 200 }, 'le passé ne doit pas gagner');
   });
 
@@ -195,7 +195,7 @@ describe('upserts idempotents', () => {
         updatedAt: 100,
       }),
     );
-    const m = ligne(
+    const m = row(
       db
         .prepare(
           'SELECT fil_id, fil_reponses, fil_dernier, fil_affiche, modifie_le FROM messages WHERE id = ?',
@@ -217,7 +217,7 @@ describe('upserts idempotents', () => {
     db.prepare(UPSERT_MESSAGE).run(
       ...msg({ id: 'm1', systemType: 'videoconf', callId: 'call-xyz', updatedAt: 100 }),
     );
-    const m = ligne(
+    const m = row(
       db.prepare('SELECT type_systeme, appel_id FROM messages WHERE id = ?').get('m1'),
     );
     assert.deepEqual(m, { type_systeme: 'videoconf', appel_id: 'call-xyz' });
@@ -227,30 +227,30 @@ describe('upserts idempotents', () => {
     db.prepare(UPSERT_MESSAGE).run(
       ...msg({ id: 'm1', pinned: true, starred: '["u1"]', updatedAt: 100 }),
     );
-    const lire = () =>
-      ligne(db.prepare('SELECT epingle, etoiles, mis_a_jour_le FROM messages WHERE id = ?').get('m1'));
-    assert.deepEqual(lire(), { epingle: 1, etoiles: '["u1"]', mis_a_jour_le: 100 });
+    const read = () =>
+      row(db.prepare('SELECT epingle, etoiles, mis_a_jour_le FROM messages WHERE id = ?').get('m1'));
+    assert.deepEqual(read(), { epingle: 1, etoiles: '["u1"]', mis_a_jour_le: 100 });
 
     db.prepare(UPDATE_MESSAGE_MARKS).run(0, null, 'm1');
-    assert.deepEqual(lire(), { epingle: 0, etoiles: null, mis_a_jour_le: 100 });
+    assert.deepEqual(read(), { epingle: 0, etoiles: null, mis_a_jour_le: 100 });
 
     db.prepare(UPSERT_MESSAGE).run(
       ...msg({ id: 'm1', pinned: true, starred: '["u2"]', updatedAt: 101 }),
     );
-    assert.deepEqual(lire(), { epingle: 1, etoiles: '["u2"]', mis_a_jour_le: 101 });
+    assert.deepEqual(read(), { epingle: 1, etoiles: '["u2"]', mis_a_jour_le: 101 });
   });
 
   test('un événement de même horodatage est appliqué (rejeu idempotent)', () => {
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'a', updatedAt: 100 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'b', updatedAt: 100 }));
-    const m = ligne(db.prepare('SELECT texte FROM messages WHERE id = ?').get('m1'));
+    const m = row(db.prepare('SELECT texte FROM messages WHERE id = ?').get('m1'));
     assert.deepEqual(m, { texte: 'b' }, '>= et non > : deux écritures dans la même ms');
   });
 
   test('les salons suivent la même règle d’antériorité', () => {
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'r1', name: 'récent', updatedAt: 200 }));
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'r1', name: 'ancien', updatedAt: 100 }));
-    const s = ligne(db.prepare('SELECT nom FROM salons WHERE rid = ?').get('r1'));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', name: 'récent', updatedAt: 200 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', name: 'ancien', updatedAt: 100 }));
+    const s = row(db.prepare('SELECT nom FROM salons WHERE rid = ?').get('r1'));
     assert.deepEqual(s, { nom: 'récent' });
   });
 
@@ -260,7 +260,7 @@ describe('upserts idempotents', () => {
     // le nom dérivé d'un DM doit survivre. Idem pour l'horodatage, qui pilote
     // le tri de la liste.
     db.prepare(UPSERT_ROOM).run(
-      ...salon({
+      ...room({
         rid: 'r1',
         displayName: 'bob',
         lastMessage: 'salut',
@@ -269,7 +269,7 @@ describe('upserts idempotents', () => {
       }),
     );
     db.prepare(UPSERT_ROOM).run(
-      ...salon({
+      ...room({
         rid: 'r1',
         displayName: null,
         lastMessage: 'salut',
@@ -277,7 +277,7 @@ describe('upserts idempotents', () => {
         updatedAt: 200,
       }),
     );
-    const s = ligne(
+    const s = row(
       db
         .prepare(
           'SELECT nom_affiche, horodatage_dernier_message, mis_a_jour_le FROM salons WHERE rid = ?',
@@ -297,10 +297,10 @@ describe('upserts idempotents', () => {
     // et `rooms.get`). Le préserver figeait à vie le message supprimé dans la
     // liste : aucun rattrapage ne pouvait plus le déloger.
     db.prepare(UPSERT_ROOM).run(
-      ...salon({ rid: 'r1', lastMessage: 'le dernier', updatedAt: 100 }),
+      ...room({ rid: 'r1', lastMessage: 'le dernier', updatedAt: 100 }),
     );
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'r1', lastMessage: null, updatedAt: 200 }));
-    const s = ligne(db.prepare('SELECT dernier_message FROM salons WHERE rid = ?').get('r1'));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', lastMessage: null, updatedAt: 200 }));
+    const s = row(db.prepare('SELECT dernier_message FROM salons WHERE rid = ?').get('r1'));
     assert.deepEqual(s, { dernier_message: null });
   });
 
@@ -310,42 +310,42 @@ describe('upserts idempotents', () => {
     // messages déchiffrés localement — un `rooms-changed` ne doit pas le
     // balayer au passage.
     db.prepare(UPSERT_ROOM).run(
-      ...salon({ rid: 'r1', encrypted: true, lastMessage: 'clair local', updatedAt: 100 }),
+      ...room({ rid: 'r1', encrypted: true, lastMessage: 'clair local', updatedAt: 100 }),
     );
     db.prepare(UPSERT_ROOM).run(
-      ...salon({ rid: 'r1', encrypted: true, lastMessage: null, updatedAt: 200 }),
+      ...room({ rid: 'r1', encrypted: true, lastMessage: null, updatedAt: 200 }),
     );
-    const s = ligne(db.prepare('SELECT dernier_message FROM salons WHERE rid = ?').get('r1'));
+    const s = row(db.prepare('SELECT dernier_message FROM salons WHERE rid = ?').get('r1'));
     assert.deepEqual(s, { dernier_message: 'clair local' });
   });
 
   test('un nom non-null plus récent remplace bien l’ancien', () => {
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'r1', displayName: 'avant', updatedAt: 100 }));
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'r1', displayName: 'après', updatedAt: 200 }));
-    const s = ligne(db.prepare('SELECT nom_affiche FROM salons WHERE rid = ?').get('r1'));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', displayName: 'avant', updatedAt: 100 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', displayName: 'après', updatedAt: 200 }));
+    const s = row(db.prepare('SELECT nom_affiche FROM salons WHERE rid = ?').get('r1'));
     assert.deepEqual(s, { nom_affiche: 'après' });
   });
 
   test('les abonnements aussi : des non-lus remis à zéro ne réapparaissent pas', () => {
-    db.prepare(UPSERT_SUBSCRIPTION).run(...abo({ rid: 'r1', unread: 0, updatedAt: 200 })); // je viens de lire
-    db.prepare(UPSERT_SUBSCRIPTION).run(...abo({ rid: 'r1', unread: 7, updatedAt: 100 })); // rattrapage
-    const a = ligne(db.prepare('SELECT non_lus FROM abonnements WHERE rid = ?').get('r1'));
+    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'r1', unread: 0, updatedAt: 200 })); // je viens de lire
+    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'r1', unread: 7, updatedAt: 100 })); // rattrapage
+    const a = row(db.prepare('SELECT non_lus FROM abonnements WHERE rid = ?').get('r1'));
     assert.deepEqual(a, { non_lus: 0 });
   });
 
   test('rôles du salon : un document sans rôles les garde, une liste vide les retire', () => {
-    const lire = () => ligne(db.prepare('SELECT roles FROM abonnements WHERE rid = ?').get('r1'));
-    db.prepare(UPSERT_SUBSCRIPTION).run(...abo({ rid: 'r1', roles: '["owner"]', updatedAt: 100 }));
-    db.prepare(UPSERT_SUBSCRIPTION).run(...abo({ rid: 'r1', roles: null, updatedAt: 200 }));
-    assert.deepEqual(lire(), { roles: '["owner"]' });
-    db.prepare(UPSERT_SUBSCRIPTION).run(...abo({ rid: 'r1', roles: '[]', updatedAt: 300 }));
-    assert.deepEqual(lire(), { roles: '[]' });
+    const read = () => row(db.prepare('SELECT roles FROM abonnements WHERE rid = ?').get('r1'));
+    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'r1', roles: '["owner"]', updatedAt: 100 }));
+    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'r1', roles: null, updatedAt: 200 }));
+    assert.deepEqual(read(), { roles: '["owner"]' });
+    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'r1', roles: '[]', updatedAt: 300 }));
+    assert.deepEqual(read(), { roles: '[]' });
   });
 
   test('un curseur de rattrapage ne recule jamais', () => {
     db.prepare(UPSERT_CURSOR).run('r1', 'messages', 500);
     db.prepare(UPSERT_CURSOR).run('r1', 'messages', 300);
-    const c = ligne(
+    const c = row(
       db
         .prepare('SELECT mis_a_jour_depuis FROM etat_synchro WHERE portee = ? AND flux = ?')
         .get('r1', 'messages'),
@@ -353,7 +353,7 @@ describe('upserts idempotents', () => {
     assert.deepEqual(c, { mis_a_jour_depuis: 500 }, 'un curseur qui régresse re-télécharge tout');
 
     db.prepare(UPSERT_CURSOR).run('r1', 'messages', 700);
-    const d = ligne(
+    const d = row(
       db
         .prepare('SELECT mis_a_jour_depuis FROM etat_synchro WHERE portee = ? AND flux = ?')
         .get('r1', 'messages'),
@@ -381,18 +381,18 @@ describe('upserts idempotents', () => {
     // doit gagner, et l'optimiste ne doit jamais écraser une version réelle.
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'optimiste', updatedAt: 0 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'serveur', updatedAt: 5 }));
-    let m = ligne(db.prepare('SELECT texte FROM messages WHERE id = ?').get('m1'));
+    let m = row(db.prepare('SELECT texte FROM messages WHERE id = ?').get('m1'));
     assert.deepEqual(m, { texte: 'serveur' });
 
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'optimiste-rejoué', updatedAt: 0 }));
-    m = ligne(db.prepare('SELECT texte FROM messages WHERE id = ?').get('m1'));
+    m = row(db.prepare('SELECT texte FROM messages WHERE id = ?').get('m1'));
     assert.deepEqual(m, { texte: 'serveur' }, "l'optimiste ne régresse jamais le réel");
   });
 
   test('le `ts` du serveur corrige l’horodatage optimiste (horloge locale suspecte)', () => {
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', ts: 9999, updatedAt: 0 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', ts: 5000, updatedAt: 7 }));
-    const m = ligne(db.prepare('SELECT horodatage FROM messages WHERE id = ?').get('m1'));
+    const m = row(db.prepare('SELECT horodatage FROM messages WHERE id = ?').get('m1'));
     assert.deepEqual(m, { horodatage: 5000 }, 'sans cela, le tri resterait faux pour toujours');
   });
 
@@ -415,15 +415,15 @@ describe('file d’envoi (outbox)', () => {
   test('le cycle en-attente → échec → renvoi → supprimé', () => {
     db.prepare(INSERT_OUTBOX).run('a'.repeat(24), 'r1', 'bonjour', null, 1000);
 
-    let attente = db.prepare(LIST_OUTBOX_TO_SEND).all().map(ligne);
-    assert.equal(attente.length, 1);
-    assert.equal(attente[0].statut, 'en-attente');
+    let wait = db.prepare(LIST_OUTBOX_TO_SEND).all().map(row);
+    assert.equal(wait.length, 1);
+    assert.equal(wait[0].statut, 'en-attente');
 
     db.prepare(MARK_OUTBOX_FAILED).run('500 oups', 'a'.repeat(24));
-    attente = db.prepare(LIST_OUTBOX_TO_SEND).all().map(ligne);
-    assert.equal(attente.length, 1, 'un échec reste candidat au rejeu');
-    assert.equal(attente[0].statut, 'echec');
-    assert.equal(attente[0].tentatives, 1);
+    wait = db.prepare(LIST_OUTBOX_TO_SEND).all().map(row);
+    assert.equal(wait.length, 1, 'un échec reste candidat au rejeu');
+    assert.equal(wait[0].statut, 'echec');
+    assert.equal(wait[0].tentatives, 1);
 
     db.prepare(DELETE_OUTBOX).run('a'.repeat(24));
     assert.equal(db.prepare(LIST_OUTBOX_TO_SEND).all().length, 0);
@@ -432,8 +432,8 @@ describe('file d’envoi (outbox)', () => {
   test('le rejeu liste dans l’ordre de création', () => {
     db.prepare(INSERT_OUTBOX).run('b'.repeat(24), 'r1', 'deuxième', null, 2000);
     db.prepare(INSERT_OUTBOX).run('c'.repeat(24), 'r1', 'premier', null, 1000);
-    const ordres = db.prepare(LIST_OUTBOX_TO_SEND).all().map((l) => ligne(l).texte);
-    assert.deepEqual(ordres, ['premier', 'deuxième']);
+    const orders = db.prepare(LIST_OUTBOX_TO_SEND).all().map((l) => row(l).texte);
+    assert.deepEqual(orders, ['premier', 'deuxième']);
   });
 });
 
@@ -447,7 +447,7 @@ describe('file d’envoi (outbox)', () => {
  * le même ordre — un décalage entre l'ordre des colonnes et l'ordre des
  * valeurs fait échouer ces tests au lieu de corrompre la base.
  */
-function televersement(o: Partial<Record<string, unknown>> & { id: string }) {
+function upload(o: Partial<Record<string, unknown>> & { id: string }) {
   const v = { rid: 'r1', uri: 'file:///a.png', name: 'a.png', type: 'image/png', caption: null, createdAt: 1000, ...o };
   return [v.id, v.rid, v.uri, v.name, v.type, v.caption, v.createdAt] as const;
 }
@@ -455,13 +455,13 @@ function televersement(o: Partial<Record<string, unknown>> & { id: string }) {
 describe('file de téléversements', () => {
   test('les colonnes relues sont EXACTEMENT celles du type `LigneTeleversement`', () => {
     db.prepare(INSERT_UPLOAD).run(
-      ...televersement({ id: 't1', caption: 'ma légende', uri: 'file:///photo.jpg' }),
+      ...upload({ id: 't1', caption: 'ma légende', uri: 'file:///photo.jpg' }),
     );
-    const lignes = db.prepare(LIST_UPLOADS_TO_SEND).all().map(ligne);
-    assert.equal(lignes.length, 1);
+    const rows = db.prepare(LIST_UPLOADS_TO_SEND).all().map(row);
+    assert.equal(rows.length, 1);
     // deepEqual et non une série d'`equal` : une colonne EN TROP la fait
     // échouer aussi. C'est le seul garde-fou contre le cast de db/store.ts.
-    assert.deepEqual(lignes[0], {
+    assert.deepEqual(rows[0], {
       id: 't1',
       rid: 'r1',
       uri: 'file:///photo.jpg',
@@ -476,8 +476,8 @@ describe('file de téléversements', () => {
   });
 
   test('une légende absente reste NULL, pas la chaîne « null »', () => {
-    db.prepare(INSERT_UPLOAD).run(...televersement({ id: 't1' }));
-    const l = ligne(db.prepare(LIST_UPLOADS_TO_SEND).all()[0]);
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 't1' }));
+    const l = row(db.prepare(LIST_UPLOADS_TO_SEND).all()[0]);
     assert.equal(l.legende, null, 'le moteur passe `legende ?? undefined` au confirm');
   });
 
@@ -486,7 +486,7 @@ describe('file de téléversements', () => {
    * test qui interdit de revenir à `statut IN ('en-attente','echec')`.
    */
   test('un échec sort du rejeu automatique et n’y revient que par « Réessayer »', () => {
-    db.prepare(INSERT_UPLOAD).run(...televersement({ id: 't1' }));
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 't1' }));
     assert.equal(db.prepare(LIST_UPLOADS_TO_SEND).all().length, 1);
 
     db.prepare(MARK_UPLOAD_FAILED).run('413 trop gros', 't1');
@@ -496,30 +496,30 @@ describe('file de téléversements', () => {
       'sinon la vidéo refusée repousse tous ses octets à chaque raccordement',
     );
     // La ligne EXISTE toujours : c'est elle que le bandeau affiche.
-    const restee = ligne(db.prepare('SELECT statut, derniere_erreur FROM televersements WHERE id = ?').get('t1'));
-    assert.equal(restee.statut, 'echec');
-    assert.equal(restee.derniere_erreur, '413 trop gros', "le motif est gardé pour l'UI");
+    const stayed = row(db.prepare('SELECT statut, derniere_erreur FROM televersements WHERE id = ?').get('t1'));
+    assert.equal(stayed.statut, 'echec');
+    assert.equal(stayed.derniere_erreur, '413 trop gros', "le motif est gardé pour l'UI");
 
     db.prepare(REARM_UPLOAD).run('t1');
-    const rearmee = db.prepare(LIST_UPLOADS_TO_SEND).all().map(ligne);
-    assert.equal(rearmee.length, 1, '« Réessayer » la remet dans la file');
-    assert.equal(rearmee[0].statut, 'en-attente');
-    const apres = ligne(db.prepare('SELECT derniere_erreur FROM televersements WHERE id = ?').get('t1'));
-    assert.equal(apres.derniere_erreur, null, 'une erreur périmée ne doit pas rester affichée');
+    const rearmed = db.prepare(LIST_UPLOADS_TO_SEND).all().map(row);
+    assert.equal(rearmed.length, 1, '« Réessayer » la remet dans la file');
+    assert.equal(rearmed[0].statut, 'en-attente');
+    const after = row(db.prepare('SELECT derniere_erreur FROM televersements WHERE id = ?').get('t1'));
+    assert.equal(after.derniere_erreur, null, 'une erreur périmée ne doit pas rester affichée');
 
     db.prepare(DELETE_UPLOAD).run('t1');
     assert.equal(db.prepare(LIST_UPLOADS_TO_SEND).all().length, 0);
   });
 
   test('une ligne prise en charge (`envoi`) sort du listage — jamais deux uploads du même fichier', () => {
-    db.prepare(INSERT_UPLOAD).run(...televersement({ id: 't1' }));
-    const pris = db.prepare(MARK_UPLOAD_IN_FLIGHT).run('t1');
-    assert.equal(pris.changes, 1);
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 't1' }));
+    const taken = db.prepare(MARK_UPLOAD_IN_FLIGHT).run('t1');
+    assert.equal(taken.changes, 1);
     assert.equal(db.prepare(LIST_UPLOADS_TO_SEND).all().length, 0);
   });
 
   test('deux passes concurrentes : la seconde prise en charge ne change AUCUNE ligne', () => {
-    db.prepare(INSERT_UPLOAD).run(...televersement({ id: 't1' }));
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 't1' }));
     assert.equal(db.prepare(MARK_UPLOAD_IN_FLIGHT).run('t1').changes, 1);
     assert.equal(
       db.prepare(MARK_UPLOAD_IN_FLIGHT).run('t1').changes,
@@ -529,16 +529,16 @@ describe('file de téléversements', () => {
   });
 
   test('un `envoi` orphelin d’un processus tué est ré-armé, pas perdu', () => {
-    db.prepare(INSERT_UPLOAD).run(...televersement({ id: 't1' }));
-    db.prepare(INSERT_UPLOAD).run(...televersement({ id: 't2' }));
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 't1' }));
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 't2' }));
     db.prepare(MARK_UPLOAD_IN_FLIGHT).run('t1');
     db.prepare(MARK_UPLOAD_FAILED).run('refusé', 't2');
 
     db.prepare(REARM_IN_FLIGHT_UPLOADS).run(JSON.stringify([]));
 
-    const ids = db.prepare(LIST_UPLOADS_TO_SEND).all().map((l) => ligne(l).id);
+    const ids = db.prepare(LIST_UPLOADS_TO_SEND).all().map((l) => row(l).id);
     assert.deepEqual(ids, ['t1'], 'le kill est réparé…');
-    const t2 = ligne(db.prepare('SELECT statut FROM televersements WHERE id = ?').get('t2'));
+    const t2 = row(db.prepare('SELECT statut FROM televersements WHERE id = ?').get('t2'));
     assert.equal(t2.statut, 'echec', '…sans ressusciter les échecs, qui restent un terminus');
   });
 
@@ -549,33 +549,33 @@ describe('file de téléversements', () => {
    * deux confirms, et le serveur poste bien DEUX messages (sondé sur 8.5).
    */
   test('une ligne encore en vol dans CE runtime n’est PAS ré-armée', () => {
-    db.prepare(INSERT_UPLOAD).run(...televersement({ id: 'enVol' }));
-    db.prepare(INSERT_UPLOAD).run(...televersement({ id: 'orphelin' }));
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 'enVol' }));
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 'orphelin' }));
     db.prepare(MARK_UPLOAD_IN_FLIGHT).run('enVol');
     db.prepare(MARK_UPLOAD_IN_FLIGHT).run('orphelin');
 
     db.prepare(REARM_IN_FLIGHT_UPLOADS).run(JSON.stringify(['enVol']));
 
-    const ids = db.prepare(LIST_UPLOADS_TO_SEND).all().map((l) => ligne(l).id);
+    const ids = db.prepare(LIST_UPLOADS_TO_SEND).all().map((l) => row(l).id);
     assert.deepEqual(ids, ['orphelin'], 'seul l’orphelin repart');
-    const survivant = ligne(db.prepare('SELECT statut FROM televersements WHERE id = ?').get('enVol'));
-    assert.equal(survivant.statut, 'envoi', 'la ligne en vol garde sa prise en charge');
+    const survivor = row(db.prepare('SELECT statut FROM televersements WHERE id = ?').get('enVol'));
+    assert.equal(survivor.statut, 'envoi', 'la ligne en vol garde sa prise en charge');
   });
 
   test('l’ordre de rejeu départage les créations de la même milliseconde', () => {
     // `app/share.tsx` insère N pièces dans une boucle serrée : `Date.now()`
     // peut rendre la même valeur pour plusieurs.
-    db.prepare(INSERT_UPLOAD).run(...televersement({ id: 'b', name: 'deux', createdAt: 7 }));
-    db.prepare(INSERT_UPLOAD).run(...televersement({ id: 'a', name: 'un', createdAt: 7 }));
-    db.prepare(INSERT_UPLOAD).run(...televersement({ id: 'c', name: 'trois', createdAt: 8 }));
-    const noms = db.prepare(LIST_UPLOADS_TO_SEND).all().map((l) => ligne(l).nom);
-    assert.deepEqual(noms, ['un', 'deux', 'trois'], 'ordre total, jamais indéfini');
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 'b', name: 'deux', createdAt: 7 }));
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 'a', name: 'un', createdAt: 7 }));
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 'c', name: 'trois', createdAt: 8 }));
+    const names = db.prepare(LIST_UPLOADS_TO_SEND).all().map((l) => row(l).nom);
+    assert.deepEqual(names, ['un', 'deux', 'trois'], 'ordre total, jamais indéfini');
   });
 
   test('le `file_id` de `rooms.media` est persisté et relu', () => {
-    db.prepare(INSERT_UPLOAD).run(...televersement({ id: 't1' }));
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 't1' }));
     db.prepare(RECORD_FILE_ID).run('abc123', 't1');
-    const l = ligne(db.prepare(LIST_UPLOADS_TO_SEND).all()[0]);
+    const l = row(db.prepare(LIST_UPLOADS_TO_SEND).all()[0]);
     assert.equal(l.file_id, 'abc123', 'sans lui, les octets repartiraient au rejeu');
   });
 
@@ -609,10 +609,10 @@ describe('file de téléversements', () => {
   });
 
   test('le rejeu liste dans l’ordre de création, pas dans celui de l’id', () => {
-    db.prepare(INSERT_UPLOAD).run(...televersement({ id: 'zzz', name: 'premier', createdAt: 1000 }));
-    db.prepare(INSERT_UPLOAD).run(...televersement({ id: 'aaa', name: 'second', createdAt: 2000 }));
-    const noms = db.prepare(LIST_UPLOADS_TO_SEND).all().map((l) => ligne(l).nom);
-    assert.deepEqual(noms, ['premier', 'second']);
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 'zzz', name: 'premier', createdAt: 1000 }));
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 'aaa', name: 'second', createdAt: 2000 }));
+    const names = db.prepare(LIST_UPLOADS_TO_SEND).all().map((l) => row(l).nom);
+    assert.deepEqual(names, ['premier', 'second']);
   });
 
   test('marquer en échec une ligne inconnue ne crée rien', () => {
@@ -629,9 +629,9 @@ describe('emojis custom', () => {
     db.prepare(INSERT_CUSTOM_EMOJI).run(
       ...paramsEmojiCustom({ name: 'shipit', extension: 'png', aliases: [], updatedAt: 10 }),
     );
-    const lignes = db.prepare(LIST_CUSTOM_EMOJIS).all().map(ligne);
-    assert.equal(lignes.length, 2);
-    const parrot = lignes.find((l) => l.nom === 'party_parrot');
+    const rows = db.prepare(LIST_CUSTOM_EMOJIS).all().map(row);
+    assert.equal(rows.length, 2);
+    const parrot = rows.find((l) => l.nom === 'party_parrot');
     assert.equal(parrot?.extension, 'gif');
     assert.deepEqual(JSON.parse(parrot?.aliases as string), ['parrot']);
   });
@@ -654,9 +654,9 @@ describe('purge des salons fantômes (réconciliation)', () => {
     (db.prepare(`SELECT id FROM ${table} ORDER BY id`).all() as { id: string }[]).map((l) => l.id);
 
   /** Les sept DELETE, dans l'ordre où le dépôt les joue. */
-  function purger(connus: string[], vivants: string[]): void {
-    const c = JSON.stringify(connus);
-    const v = JSON.stringify(vivants);
+  function purge(known: string[], alive: string[]): void {
+    const c = JSON.stringify(known);
+    const v = JSON.stringify(alive);
     for (const sql of [
       PURGE_MISSING_ROOMS,
       PURGE_MISSING_SUBSCRIPTIONS,
@@ -672,11 +672,11 @@ describe('purge des salons fantômes (réconciliation)', () => {
 
   test('efface salon, abonnement ET messages dont le rid n’est plus vivant', () => {
     for (const rid of ['r1', 'r2', 'r3']) {
-      db.prepare(UPSERT_ROOM).run(...salon({ rid, updatedAt: 100 }));
-      db.prepare(UPSERT_SUBSCRIPTION).run(...abo({ rid, updatedAt: 100 }));
+      db.prepare(UPSERT_ROOM).run(...room({ rid, updatedAt: 100 }));
+      db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid, updatedAt: 100 }));
       db.prepare(UPSERT_MESSAGE).run(...msg({ id: `m-${rid}`, rid, updatedAt: 100 }));
     }
-    purger(['r1', 'r2', 'r3'], ['r1']);
+    purge(['r1', 'r2', 'r3'], ['r1']);
 
     assert.deepEqual(rids('salons'), ['r1'], 'seul le salon vivant reste');
     assert.deepEqual(rids('abonnements'), ['r1']);
@@ -685,24 +685,24 @@ describe('purge des salons fantômes (réconciliation)', () => {
 
   test('garde plusieurs rids vivants, purge le reste', () => {
     for (const rid of ['r1', 'r2', 'r3', 'r4']) {
-      db.prepare(UPSERT_ROOM).run(...salon({ rid, updatedAt: 100 }));
+      db.prepare(UPSERT_ROOM).run(...room({ rid, updatedAt: 100 }));
     }
-    purger(['r1', 'r2', 'r3', 'r4'], ['r1', 'r3']);
+    purge(['r1', 'r2', 'r3', 'r4'], ['r1', 'r3']);
     assert.deepEqual(rids('salons'), ['r1', 'r3']);
   });
 
   test('un salon CRÉÉ pendant la requête réseau n’est pas effacé', () => {
     // L'instantané est pris avant l'aller-retour : il ne connaît que r1 et r2.
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'r1', updatedAt: 100 }));
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'r2', updatedAt: 100 }));
-    const connus = ['r1', 'r2'];
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', updatedAt: 100 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r2', updatedAt: 100 }));
+    const known = ['r1', 'r2'];
     // …puis le stream DDP écrit un DM tout neuf pendant le vol. Il n'est ni
     // dans les vivants (le serveur avait déjà répondu), ni dans les connus.
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'r3', updatedAt: 200 }));
-    db.prepare(UPSERT_SUBSCRIPTION).run(...abo({ rid: 'r3', updatedAt: 200 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r3', updatedAt: 200 }));
+    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'r3', updatedAt: 200 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm-r3', rid: 'r3', updatedAt: 200 }));
 
-    purger(connus, ['r1']);
+    purge(known, ['r1']);
 
     assert.deepEqual(rids('salons'), ['r1', 'r3'], 'le DM arrivé en vol survit');
     assert.deepEqual(rids('abonnements'), ['r3']);
@@ -711,7 +711,7 @@ describe('purge des salons fantômes (réconciliation)', () => {
 
   test('la purge emporte AUSSI sortie, téléversements, brouillons et curseurs', () => {
     for (const rid of ['r1', 'r2']) {
-      db.prepare(UPSERT_ROOM).run(...salon({ rid, updatedAt: 100 }));
+      db.prepare(UPSERT_ROOM).run(...room({ rid, updatedAt: 100 }));
       db.prepare(INSERT_OUTBOX).run(`${rid}-sortie`, rid, 'coucou', null, 1000);
       db.prepare(INSERT_UPLOAD).run(
         `${rid}-tlv`, rid, 'file:///a.jpg', 'a.jpg', 'image/jpeg', null, 1000,
@@ -722,36 +722,36 @@ describe('purge des salons fantômes (réconciliation)', () => {
     }
     db.prepare(UPSERT_CURSOR).run('*', 'salons', 7000);
 
-    purger(['r1', 'r2'], ['r1']);
+    purge(['r1', 'r2'], ['r1']);
 
     assert.deepEqual(ids('sortie'), ['r1-sortie'], 'la ligne zombie ne sera plus rejouée');
     assert.deepEqual(ids('televersements'), ['r1-tlv']);
-    const cles = (db.prepare('SELECT cle FROM brouillons ORDER BY cle').all() as { cle: string }[])
+    const keys = (db.prepare('SELECT cle FROM brouillons ORDER BY cle').all() as { cle: string }[])
       .map((l) => l.cle);
-    assert.deepEqual(cles, ['r1', 'r1:tmid'], 'le brouillon de FIL suit son salon');
-    const portees = (
+    assert.deepEqual(keys, ['r1', 'r1:tmid'], 'le brouillon de FIL suit son salon');
+    const scopes = (
       db.prepare('SELECT portee FROM etat_synchro ORDER BY portee').all() as { portee: string }[]
     ).map((l) => l.portee);
-    assert.deepEqual(portees, ['*', 'r1'], 'le curseur GLOBAL ne tombe jamais');
+    assert.deepEqual(scopes, ['*', 'r1'], 'le curseur GLOBAL ne tombe jamais');
   });
 
   test('une file d’envoi orpheline (salon déjà purgé) est reprise', () => {
     // Le zombie laissé par une purge d'avant ce correctif : plus de salon, plus
     // d'abonnement, plus de message — seulement la ligne de sortie.
     db.prepare(INSERT_OUTBOX).run('z'.repeat(24), 'rZombie', 'jamais parti', null, 1000);
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'r1', updatedAt: 100 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', updatedAt: 100 }));
 
-    const connus = (db.prepare(LIST_KNOWN_RIDS).all() as { rid: string }[]).map((l) => l.rid);
-    assert.ok(connus.includes('rZombie'), 'l’instantané voit une table à rid, pas que les salons');
+    const known = (db.prepare(LIST_KNOWN_RIDS).all() as { rid: string }[]).map((l) => l.rid);
+    assert.ok(known.includes('rZombie'), 'l’instantané voit une table à rid, pas que les salons');
 
-    purger(connus, ['r1']);
+    purge(known, ['r1']);
     assert.deepEqual(ids('sortie'), []);
   });
 
   test('un instantané VIDE n’efface rien — premier lancement', () => {
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'r1', updatedAt: 100 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', updatedAt: 100 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', rid: 'r1', updatedAt: 100 }));
-    purger([], ['rAutre']);
+    purge([], ['rAutre']);
     assert.deepEqual(rids('salons'), ['r1']);
     assert.deepEqual(ids('messages'), ['m1']);
   });
@@ -759,8 +759,8 @@ describe('purge des salons fantômes (réconciliation)', () => {
   test('l’instantané ne compte pas les curseurs globaux comme des rids', () => {
     db.prepare(UPSERT_CURSOR).run('*', 'salons', 7000);
     db.prepare(UPSERT_CURSOR).run('r1', 'messages', 5000);
-    const connus = (db.prepare(LIST_KNOWN_RIDS).all() as { rid: string }[]).map((l) => l.rid);
-    assert.deepEqual(connus.sort(), ['r1']);
+    const known = (db.prepare(LIST_KNOWN_RIDS).all() as { rid: string }[]).map((l) => l.rid);
+    assert.deepEqual(known.sort(), ['r1']);
   });
 });
 
@@ -782,15 +782,15 @@ describe('départ d’un salon : les tables satellites partent avec lui', () => 
     db.prepare(DELETE_ROOM_DRAFTS).run('r1');
     db.prepare(DELETE_ROOM_CURSORS).run('r1');
 
-    const un = (sql: string): unknown[] => db.prepare(sql).all();
-    assert.equal(un(`SELECT id FROM sortie WHERE rid = 'r1'`).length, 0);
-    assert.equal(un(`SELECT id FROM televersements WHERE rid = 'r1'`).length, 0);
-    assert.equal(un(`SELECT cle FROM brouillons WHERE cle LIKE 'r1%'`).length, 0);
-    assert.equal(un(`SELECT portee FROM etat_synchro WHERE portee = 'r1'`).length, 0);
+    const allRows = (sql: string): unknown[] => db.prepare(sql).all();
+    assert.equal(allRows(`SELECT id FROM sortie WHERE rid = 'r1'`).length, 0);
+    assert.equal(allRows(`SELECT id FROM televersements WHERE rid = 'r1'`).length, 0);
+    assert.equal(allRows(`SELECT cle FROM brouillons WHERE cle LIKE 'r1%'`).length, 0);
+    assert.equal(allRows(`SELECT portee FROM etat_synchro WHERE portee = 'r1'`).length, 0);
 
-    assert.equal(un(`SELECT id FROM sortie WHERE rid = 'r2'`).length, 1, 'r2 est intact');
-    assert.equal(un(`SELECT cle FROM brouillons WHERE cle LIKE 'r2%'`).length, 2);
-    assert.equal(un(`SELECT portee FROM etat_synchro WHERE portee = '*'`).length, 1);
+    assert.equal(allRows(`SELECT id FROM sortie WHERE rid = 'r2'`).length, 1, 'r2 est intact');
+    assert.equal(allRows(`SELECT cle FROM brouillons WHERE cle LIKE 'r2%'`).length, 2);
+    assert.equal(allRows(`SELECT portee FROM etat_synchro WHERE portee = '*'`).length, 1);
   });
 
   test('un curseur effacé au départ ne ressuscite pas à la réintégration', () => {
@@ -882,19 +882,19 @@ describe('rétention : les N derniers messages par salon', () => {
 describe('identités (uid → pseudo courant)', () => {
   const q = 'SELECT username, mis_a_jour_le FROM utilisateurs WHERE uid = ?';
 
-  function util(uid: string, username: string, misAJourLe: number) {
-    return userParams({ uid, username, updatedAt: misAJourLe });
+  function util(uid: string, username: string, updatedAt: number) {
+    return userParams({ uid, username, updatedAt });
   }
 
   test('insère une identité inconnue', () => {
     db.prepare(UPSERT_USER).run(...util('u1', 'alice', 100));
-    assert.deepEqual(ligne(db.prepare(q).get('u1')), { username: 'alice', mis_a_jour_le: 100 });
+    assert.deepEqual(row(db.prepare(q).get('u1')), { username: 'alice', mis_a_jour_le: 100 });
   });
 
   test('un renommage plus récent gagne', () => {
     db.prepare(UPSERT_USER).run(...util('u1', 'alice', 100));
     db.prepare(UPSERT_USER).run(...util('u1', 'alice2', 200));
-    assert.deepEqual(ligne(db.prepare(q).get('u1')), { username: 'alice2', mis_a_jour_le: 200 });
+    assert.deepEqual(row(db.prepare(q).get('u1')), { username: 'alice2', mis_a_jour_le: 200 });
   });
 
   test('un message PLUS ANCIEN ne rétrograde pas le pseudo', () => {
@@ -903,7 +903,7 @@ describe('identités (uid → pseudo courant)', () => {
     db.prepare(UPSERT_USER).run(...util('u1', 'alice2', 200));
     db.prepare(UPSERT_USER).run(...util('u1', 'alice', 100));
     assert.deepEqual(
-      ligne(db.prepare(q).get('u1')),
+      row(db.prepare(q).get('u1')),
       { username: 'alice2', mis_a_jour_le: 200 },
       'le passé ne doit pas gagner',
     );
@@ -915,7 +915,7 @@ describe('identités (uid → pseudo courant)', () => {
     db.prepare(UPSERT_USER).run(...util('u1', 'alice', 100));
     db.prepare(UPSERT_USER).run(...util('u1', 'alice', 500));
     assert.deepEqual(
-      ligne(db.prepare(q).get('u1')),
+      row(db.prepare(q).get('u1')),
       { username: 'alice', mis_a_jour_le: 100 },
       'horodatage figé : aucune écriture, donc aucun événement de changement',
     );
@@ -926,18 +926,18 @@ describe('identités (uid → pseudo courant)', () => {
     // reproduit la double écriture pour prouver le contrat de bout en bout.
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', authorId: 'u9', authorName: 'bob', updatedAt: 300 }));
     db.prepare(UPSERT_USER).run(...util('u9', 'bob', 300));
-    assert.deepEqual(ligne(db.prepare(q).get('u9')), { username: 'bob', mis_a_jour_le: 300 });
+    assert.deepEqual(row(db.prepare(q).get('u9')), { username: 'bob', mis_a_jour_le: 300 });
   });
 });
 
 describe('versions d’avatar', () => {
-  const lireUtil = 'SELECT username, avatar_etag FROM utilisateurs WHERE uid = ?';
-  const lireSalon = 'SELECT avatar_etag FROM salons WHERE rid = ?';
+  const readUser = 'SELECT username, avatar_etag FROM utilisateurs WHERE uid = ?';
+  const readRoom = 'SELECT avatar_etag FROM salons WHERE rid = ?';
 
   test('le stream pose la version par PSEUDO, pas par uid', () => {
     db.prepare(UPSERT_USER).run(...userParams({ uid: 'u1', username: 'alice', updatedAt: 1 }));
     db.prepare(UPDATE_USER_AVATAR).run('e1', 'alice', 'e1');
-    assert.deepEqual(ligne(db.prepare(lireUtil).get('u1')), {
+    assert.deepEqual(row(db.prepare(readUser).get('u1')), {
       username: 'alice',
       avatar_etag: 'e1',
     });
@@ -951,7 +951,7 @@ describe('versions d’avatar', () => {
 
   test('l’identité autoritaire CRÉE la ligne (mon compte, qui n’a rien posté)', () => {
     db.prepare(UPSERT_IDENTITY).run(...identityParams({ uid: 'moi', username: 'guy', avatarEtag: 'e7' }));
-    assert.deepEqual(ligne(db.prepare(lireUtil).get('moi')), { username: 'guy', avatar_etag: 'e7' });
+    assert.deepEqual(row(db.prepare(readUser).get('moi')), { username: 'guy', avatar_etag: 'e7' });
   });
 
   test('`users.info` SANS avatarETag n’efface pas la version connue', () => {
@@ -960,50 +960,50 @@ describe('versions d’avatar', () => {
     // d'origine, que le cache image sert avec l'ANCIENNE photo.
     db.prepare(UPSERT_IDENTITY).run(...identityParams({ uid: 'u1', username: 'alice', avatarEtag: 'e1' }));
     db.prepare(UPSERT_IDENTITY).run(...identityParams({ uid: 'u1', username: 'alice', avatarEtag: null }));
-    assert.deepEqual(ligne(db.prepare(lireUtil).get('u1')), { username: 'alice', avatar_etag: 'e1' });
+    assert.deepEqual(row(db.prepare(readUser).get('u1')), { username: 'alice', avatar_etag: 'e1' });
   });
 
   test('un salon garde sa version quand le document Rooms ne la porte pas', () => {
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'r1', updatedAt: 100, avatarEtag: 'e1' }));
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'r1', updatedAt: 200 }));
-    assert.deepEqual(ligne(db.prepare(lireSalon).get('r1')), { avatar_etag: 'e1' });
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', updatedAt: 100, avatarEtag: 'e1' }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', updatedAt: 200 }));
+    assert.deepEqual(row(db.prepare(readRoom).get('r1')), { avatar_etag: 'e1' });
   });
 
   test('le stream met à jour la version d’un salon', () => {
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'r1', updatedAt: 100, avatarEtag: 'e1' }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', updatedAt: 100, avatarEtag: 'e1' }));
     db.prepare(UPDATE_ROOM_AVATAR).run('e2', 'r1', 'e2');
-    assert.deepEqual(ligne(db.prepare(lireSalon).get('r1')), { avatar_etag: 'e2' });
+    assert.deepEqual(row(db.prepare(readRoom).get('r1')), { avatar_etag: 'e2' });
   });
 
   test('une version INCHANGÉE ne touche pas la ligne', () => {
     // Sans cette garde, chaque rediffusion réveillerait toutes les requêtes
     // vives assises sur la table — donc re-rendrait la liste entière.
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'r1', updatedAt: 100, avatarEtag: 'e1' }));
-    const compter = () => (db.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
-    const avant = compter();
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', updatedAt: 100, avatarEtag: 'e1' }));
+    const count = () => (db.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
+    const before = count();
     db.prepare(UPDATE_ROOM_AVATAR).run('e1', 'r1', 'e1');
-    assert.equal(compter(), avant, 'aucune écriture');
+    assert.equal(count(), before, 'aucune écriture');
   });
 });
 
 describe('aperçu de liste d’un salon chiffré', () => {
-  const lire = 'SELECT dernier_message FROM salons WHERE rid = ?';
-  const compter = () => (db.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
+  const read = 'SELECT dernier_message FROM salons WHERE rid = ?';
+  const count = () => (db.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
 
   test('l’aperçu suit le dernier message déchiffré', () => {
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'un', ts: 10, updatedAt: 1 }));
     db.prepare(UPSERT_MESSAGE).run(
       ...msg({ id: 'm2', text: 'deux', ts: 20, updatedAt: 2 }),
     );
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
-    assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), { dernier_message: 'deux' });
+    assert.deepEqual(row(db.prepare(read).get('rid-1')), { dernier_message: 'deux' });
   });
 
   test('supprimer le dernier message fait RECULER l’aperçu sur le précédent', () => {
     // Le serveur ne peut pas nous l'apprendre ici : il ne détient que du
     // ciphertext. Seule la base locale sait quel message reste.
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'un', ts: 10, updatedAt: 1 }));
     db.prepare(UPSERT_MESSAGE).run(
       ...msg({ id: 'm2', text: 'deux', ts: 20, updatedAt: 2 }),
@@ -1012,30 +1012,30 @@ describe('aperçu de liste d’un salon chiffré', () => {
 
     db.prepare(DELETE_MESSAGE).run('m2');
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
-    assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), { dernier_message: 'un' });
+    assert.deepEqual(row(db.prepare(read).get('rid-1')), { dernier_message: 'un' });
   });
 
   test('salon chiffré VIDÉ : l’aperçu retombe au placeholder', () => {
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'seul', ts: 10, updatedAt: 1 }));
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
 
     db.prepare(DELETE_MESSAGE).run('m1');
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
-    assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), { dernier_message: null });
+    assert.deepEqual(row(db.prepare(read).get('rid-1')), { dernier_message: null });
   });
 
   test('un aperçu INCHANGÉ ne touche pas la ligne', () => {
     // `supprimerMessage` rejoue ce SQL à CHAQUE suppression, dans n'importe
     // quel salon : sans cette garde, il réveillerait la liste entière à chaque
     // fois — y compris sur un compte sans aucun salon chiffré.
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'un', ts: 10, updatedAt: 1 }));
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
 
-    const avant = compter();
+    const before = count();
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
-    assert.equal(compter(), avant, 'aucune écriture');
+    assert.equal(count(), before, 'aucune écriture');
   });
 
   test('un message DÉCHIFFRÉ compte, alors qu’il porte t: e2e', () => {
@@ -1043,28 +1043,28 @@ describe('aperçu de liste d’un salon chiffré', () => {
     // `t: 'e2e'`. Un filtre « pas de message système » écrit naïvement
     // (`type_systeme IS NULL`) viderait donc l'aperçu de tous les salons
     // chiffrés — c'est-à-dire la seule chose que cette requête calcule.
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
     db.prepare(UPSERT_MESSAGE).run(
       ...msg({ id: 'm1', text: 'clair', systemType: 'e2e', ts: 10, updatedAt: 1 }),
     );
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
-    assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), { dernier_message: 'clair' });
+    assert.deepEqual(row(db.prepare(read).get('rid-1')), { dernier_message: 'clair' });
   });
 
   test('une réponse de FIL invisible dans le salon ne devient pas l’aperçu', () => {
     // Le flux du salon l'écarte (`fil_id IS NULL OR fil_affiche`) : l'annoncer
     // en liste ferait promettre un message introuvable en ouvrant le salon.
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'visible', ts: 10, updatedAt: 1 }));
     db.prepare(UPSERT_MESSAGE).run(
       ...msg({ id: 'm2', text: 'dans le fil', threadId: 'm1', ts: 20, updatedAt: 2 }),
     );
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
-    assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), { dernier_message: 'visible' });
+    assert.deepEqual(row(db.prepare(read).get('rid-1')), { dernier_message: 'visible' });
   });
 
   test('une réponse de fil COCHÉE « aussi dans le salon » compte, elle', () => {
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'visible', ts: 10, updatedAt: 1 }));
     db.prepare(UPSERT_MESSAGE).run(
       ...msg({
@@ -1077,7 +1077,7 @@ describe('aperçu de liste d’un salon chiffré', () => {
       }),
     );
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
-    assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), {
+    assert.deepEqual(row(db.prepare(read).get('rid-1')), {
       dernier_message: 'dans le fil ET dans le salon',
     });
   });
@@ -1085,42 +1085,42 @@ describe('aperçu de liste d’un salon chiffré', () => {
   test('un message SYSTÈME ne devient pas l’aperçu — son texte n’est qu’un paramètre', () => {
     // Le fil rend « alice » + « a rejoint le salon » ; le `texte` seul, mis en
     // aperçu, n'affichait que « alice ».
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'vrai message', ts: 10, updatedAt: 1 }));
     db.prepare(UPSERT_MESSAGE).run(
       ...msg({ id: 'm2', text: 'alice', systemType: 'uj', ts: 20, updatedAt: 2 }),
     );
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
-    assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), { dernier_message: 'vrai message' });
+    assert.deepEqual(row(db.prepare(read).get('rid-1')), { dernier_message: 'vrai message' });
   });
 
   test('deux messages à la MÊME milliseconde : même gagnant que le flux', () => {
     // Le flux départage par `id DESC`. Sans la même clé secondaire ici,
     // l'aperçu et la première ligne du salon désignaient deux messages
     // différents, au gré de l'ordre d'insertion (rowid).
-    db.prepare(UPSERT_ROOM).run(...salon({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'mb', text: 'B', ts: 10, updatedAt: 1 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'ma', text: 'A', ts: 10, updatedAt: 2 }));
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
-    assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), { dernier_message: 'B' });
+    assert.deepEqual(row(db.prepare(read).get('rid-1')), { dernier_message: 'B' });
   });
 
   test('un salon EN CLAIR n’est jamais touché par cette passe', () => {
     // Son aperçu vient du serveur (`lastMessage`), et l'historique local est
     // partiel : le recalculer ici l'écraserait avec ce qu'on a sous la main.
     db.prepare(UPSERT_ROOM).run(
-      ...salon({ rid: 'rid-1', encrypted: false, lastMessage: 'du serveur', updatedAt: 100 }),
+      ...room({ rid: 'rid-1', encrypted: false, lastMessage: 'du serveur', updatedAt: 100 }),
     );
     db.prepare(UPSERT_MESSAGE).run(
       ...msg({ id: 'm1', text: 'local', ts: 10, updatedAt: 1 }),
     );
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
-    assert.deepEqual(ligne(db.prepare(lire).get('rid-1')), { dernier_message: 'du serveur' });
+    assert.deepEqual(row(db.prepare(read).get('rid-1')), { dernier_message: 'du serveur' });
   });
 });
 
 describe('verrouillage E2EE : masquer sans réécrire ce qui l’est déjà', () => {
-  const compter = () => (db.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
+  const count = () => (db.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
 
   test('le masquage efface le clair et laisse le ciphertext', () => {
     db.prepare(UPSERT_MESSAGE).run(
@@ -1128,7 +1128,7 @@ describe('verrouillage E2EE : masquer sans réécrire ce qui l’est déjà', ()
     );
     db.prepare(HIDE_ENCRYPTED_MESSAGES).run();
     assert.deepEqual(
-      ligne(db.prepare('SELECT texte, chiffre_brut FROM messages WHERE id = ?').get('m1')),
+      row(db.prepare('SELECT texte, chiffre_brut FROM messages WHERE id = ?').get('m1')),
       { texte: null, chiffre_brut: '{"ciphertext":"x"}' },
     );
   });
@@ -1142,29 +1142,29 @@ describe('verrouillage E2EE : masquer sans réécrire ce qui l’est déjà', ()
     );
     db.prepare(HIDE_ENCRYPTED_MESSAGES).run();
 
-    const avant = compter();
+    const before = count();
     db.prepare(HIDE_ENCRYPTED_MESSAGES).run();
-    assert.equal(compter(), avant, 'aucune écriture');
+    assert.equal(count(), before, 'aucune écriture');
   });
 
   test('l’aperçu chiffré déjà masqué n’est pas réécrit non plus', () => {
     db.prepare(UPSERT_ROOM).run(
-      ...salon({ rid: 'rid-1', encrypted: true, lastMessage: 'clair', updatedAt: 100 }),
+      ...room({ rid: 'rid-1', encrypted: true, lastMessage: 'clair', updatedAt: 100 }),
     );
     db.prepare(HIDE_ENCRYPTED_PREVIEW).run();
     assert.deepEqual(
-      ligne(db.prepare('SELECT dernier_message FROM salons WHERE rid = ?').get('rid-1')),
+      row(db.prepare('SELECT dernier_message FROM salons WHERE rid = ?').get('rid-1')),
       { dernier_message: null },
     );
 
-    const avant = compter();
+    const before = count();
     db.prepare(HIDE_ENCRYPTED_PREVIEW).run();
-    assert.equal(compter(), avant, 'aucune écriture');
+    assert.equal(count(), before, 'aucune écriture');
   });
 });
 
 describe('aperçu de liste : le type du dernier message', () => {
-  const lire = 'SELECT dernier_message, dernier_message_type FROM salons WHERE rid = ?';
+  const read = 'SELECT dernier_message, dernier_message_type FROM salons WHERE rid = ?';
 
   test('un appel vidéo n’a pas de texte, mais laisse son type', () => {
     // Sans quoi le salon remonte en tête de liste avec une ligne VIDE : c'est
@@ -1176,29 +1176,29 @@ describe('aperçu de liste : le type du dernier message', () => {
       lastMessage: { _id: 'm1', msg: '', t: 'videoconf', ts: { $date: 50 } },
     });
     db.prepare(UPSERT_ROOM).run(...roomParams(s!));
-    assert.deepEqual(ligne(db.prepare(lire).get('r1')), {
+    assert.deepEqual(row(db.prepare(read).get('r1')), {
       dernier_message: null,
       dernier_message_type: 'videoconf',
     });
   });
 
   test('un message ORDINAIRE qui suit remet le type à null', () => {
-    const appel = toRoom({
+    const call = toRoom({
       _id: 'r1',
       t: 'c',
       _updatedAt: { $date: 100 },
       lastMessage: { _id: 'm1', msg: '', t: 'videoconf', ts: { $date: 50 } },
     });
-    db.prepare(UPSERT_ROOM).run(...roomParams(appel!));
+    db.prepare(UPSERT_ROOM).run(...roomParams(call!));
 
-    const apres = toRoom({
+    const after = toRoom({
       _id: 'r1',
       t: 'c',
       _updatedAt: { $date: 200 },
       lastMessage: { _id: 'm2', msg: 'coucou', ts: { $date: 60 } },
     });
-    db.prepare(UPSERT_ROOM).run(...roomParams(apres!));
-    assert.deepEqual(ligne(db.prepare(lire).get('r1')), {
+    db.prepare(UPSERT_ROOM).run(...roomParams(after!));
+    assert.deepEqual(row(db.prepare(read).get('r1')), {
       dernier_message: 'coucou',
       dernier_message_type: null,
     });
@@ -1208,17 +1208,17 @@ describe('aperçu de liste : le type du dernier message', () => {
     // Le document Rooms perd complètement son `lastMessage` — c'est la seule
     // façon d'apprendre qu'un salon a été vidé, et il faut la distinguer de
     // « dernier message sans texte ».
-    const plein = toRoom({
+    const full = toRoom({
       _id: 'r1',
       t: 'c',
       _updatedAt: { $date: 100 },
       lastMessage: { _id: 'm1', msg: 'coucou', ts: { $date: 50 } },
     });
-    db.prepare(UPSERT_ROOM).run(...roomParams(plein!));
+    db.prepare(UPSERT_ROOM).run(...roomParams(full!));
 
-    const vide = toRoom({ _id: 'r1', t: 'c', _updatedAt: { $date: 200 } });
-    db.prepare(UPSERT_ROOM).run(...roomParams(vide!));
-    assert.deepEqual(ligne(db.prepare(lire).get('r1')), {
+    const empty = toRoom({ _id: 'r1', t: 'c', _updatedAt: { $date: 200 } });
+    db.prepare(UPSERT_ROOM).run(...roomParams(empty!));
+    assert.deepEqual(row(db.prepare(read).get('r1')), {
       dernier_message: null,
       dernier_message_type: null,
     });
@@ -1236,7 +1236,7 @@ describe('aperçu de liste : le type du dernier message', () => {
       lastMessage: { _id: 'm1', msg: 'alice', t: 'uj', ts: { $date: 50 } },
     });
     db.prepare(UPSERT_ROOM).run(...roomParams(s!));
-    assert.deepEqual(ligne(db.prepare(lire).get('r1')), {
+    assert.deepEqual(row(db.prepare(read).get('r1')), {
       dernier_message: null,
       dernier_message_type: null,
     });
@@ -1250,64 +1250,64 @@ describe('aperçu de liste : le type du dernier message', () => {
  * documents que le serveur envoie vraiment — c'est là que le bug vivait.
  */
 describe('aperçu de liste : les documents réels du serveur', () => {
-  const AUTEUR = { _id: 'a8Lu', username: 'alice', name: 'Alice Martin' };
-  const lire = 'SELECT dernier_message FROM salons WHERE rid = ?';
+  const AUTHOR = { _id: 'a8Lu', username: 'alice', name: 'Alice Martin' };
+  const read = 'SELECT dernier_message FROM salons WHERE rid = ?';
 
   /** Le document Room tel que `rooms-changed` le livre, sans son `lastMessage`. */
-  const room = (misAJourLe: number) => ({
+  const room = (updatedAt: number) => ({
     _id: 'r1',
     fname: 'sonde',
     name: 'sonde',
     t: 'c',
-    u: AUTEUR,
+    u: AUTHOR,
     ro: false,
     sysMes: true,
     lm: { $date: 1784958551573 },
-    _updatedAt: { $date: misAJourLe },
+    _updatedAt: { $date: updatedAt },
   });
 
-  const ingerer = (brut: Record<string, unknown>) => {
-    const s = toRoom(brut, 'alice', 'a8Lu');
+  const ingest = (raw: Record<string, unknown>) => {
+    const s = toRoom(raw, 'alice', 'a8Lu');
     assert.notEqual(s, null, 'le document doit se normaliser');
     db.prepare(UPSERT_ROOM).run(...roomParams(s as LocalRoom));
   };
 
   test('supprimer le DERNIER message d’un salon en efface l’aperçu', () => {
-    ingerer({
+    ingest({
       ...room(1784958546377),
       msgs: 1,
-      lastMessage: { _id: 'm1', msg: 'PREMIER', ts: { $date: 1784958546341 }, u: AUTEUR },
+      lastMessage: { _id: 'm1', msg: 'PREMIER', ts: { $date: 1784958546341 }, u: AUTHOR },
     });
-    assert.deepEqual(ligne(db.prepare(lire).get('r1')), { dernier_message: 'PREMIER' });
+    assert.deepEqual(row(db.prepare(read).get('r1')), { dernier_message: 'PREMIER' });
 
     // Le salon vidé : le serveur n'envoie PLUS de `lastMessage` du tout.
-    ingerer({ ...room(1784958558296), msgs: 0 });
+    ingest({ ...room(1784958558296), msgs: 0 });
     assert.deepEqual(
-      ligne(db.prepare(lire).get('r1')),
+      row(db.prepare(read).get('r1')),
       { dernier_message: null },
       'le message supprimé ne doit plus figurer dans la liste',
     );
   });
 
   test('une pièce jointe sans légende ne laisse pas l’aperçu précédent', () => {
-    ingerer({
+    ingest({
       ...room(1784958546377),
-      lastMessage: { _id: 'm1', msg: 'PREMIER', ts: { $date: 1784958546341 }, u: AUTEUR },
+      lastMessage: { _id: 'm1', msg: 'PREMIER', ts: { $date: 1784958546341 }, u: AUTHOR },
     });
-    ingerer({
+    ingest({
       ...room(1784958549011),
       lastMessage: {
         _id: 'm2',
         msg: '',
         ts: { $date: 1784958548985 },
-        u: AUTEUR,
+        u: AUTHOR,
         file: { _id: 'f1', name: 'note.txt', type: 'text/plain' },
         attachments: [
           { title: 'note.txt', title_link: '/file-upload/f1/note.txt', type: 'file', format: 'TXT' },
         ],
       },
     });
-    assert.deepEqual(ligne(db.prepare(lire).get('r1')), { dernier_message: 'note.txt' });
+    assert.deepEqual(row(db.prepare(read).get('r1')), { dernier_message: 'note.txt' });
   });
 });
 
@@ -1319,12 +1319,12 @@ describe('aperçu de liste : les documents réels du serveur', () => {
 describe('brouillons', () => {
   let db: DatabaseSync;
   beforeEach(() => {
-    db = baseMigree();
+    db = migratedDb();
   });
 
   test('écrit puis relit un brouillon', () => {
     db.prepare(UPSERT_DRAFT).run('r1', 'salut', 1000);
-    assert.deepEqual(ligne(db.prepare(READ_DRAFT).get('r1')), { texte: 'salut' });
+    assert.deepEqual(row(db.prepare(READ_DRAFT).get('r1')), { texte: 'salut' });
   });
 
   test('une clé absente ne rend rien', () => {
@@ -1336,14 +1336,14 @@ describe('brouillons', () => {
     // Horodatage PLUS ANCIEN : contrairement aux upserts venus du réseau, il ne
     // doit rien bloquer — la seule source est la frappe, la dernière gagne.
     db.prepare(UPSERT_DRAFT).run('r1', 'second', 1000);
-    assert.deepEqual(ligne(db.prepare(READ_DRAFT).get('r1')), { texte: 'second' });
+    assert.deepEqual(row(db.prepare(READ_DRAFT).get('r1')), { texte: 'second' });
   });
 
   test('le brouillon d’un fil ne touche pas celui du salon', () => {
     db.prepare(UPSERT_DRAFT).run('r1', 'du salon', 1000);
     db.prepare(UPSERT_DRAFT).run('r1:m9', 'du fil', 1000);
-    assert.deepEqual(ligne(db.prepare(READ_DRAFT).get('r1')), { texte: 'du salon' });
-    assert.deepEqual(ligne(db.prepare(READ_DRAFT).get('r1:m9')), { texte: 'du fil' });
+    assert.deepEqual(row(db.prepare(READ_DRAFT).get('r1')), { texte: 'du salon' });
+    assert.deepEqual(row(db.prepare(READ_DRAFT).get('r1:m9')), { texte: 'du fil' });
   });
 
   test('la suppression ne vise que sa clé', () => {
@@ -1351,7 +1351,7 @@ describe('brouillons', () => {
     db.prepare(UPSERT_DRAFT).run('r2', 'ailleurs', 1000);
     db.prepare(DELETE_DRAFT).run('r1');
     assert.equal(db.prepare(READ_DRAFT).get('r1'), undefined);
-    assert.deepEqual(ligne(db.prepare(READ_DRAFT).get('r2')), { texte: 'ailleurs' });
+    assert.deepEqual(row(db.prepare(READ_DRAFT).get('r2')), { texte: 'ailleurs' });
   });
 
   test('supprimer une clé absente ne lève pas', () => {
@@ -1360,36 +1360,36 @@ describe('brouillons', () => {
 });
 
 describe('pièces jointes d’un fichier chiffré', () => {
-  const lire = 'SELECT texte, pieces_jointes FROM messages WHERE id = ?';
-  const jointes = JSON.stringify([{ title: 'photo.jpg', encryption: { iv: 'aXY=' } }]);
-  const chiffre = { systemType: 'e2e', text: null, encryptedRaw: '{"ciphertext":"x"}' } as const;
+  const read = 'SELECT texte, pieces_jointes FROM messages WHERE id = ?';
+  const attachments = JSON.stringify([{ title: 'photo.jpg', encryption: { iv: 'aXY=' } }]);
+  const encrypted = { systemType: 'e2e', text: null, encryptedRaw: '{"ciphertext":"x"}' } as const;
 
   test('posées au déchiffrement, gardées par une resynchro sans clé', () => {
-    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', ...chiffre, updatedAt: 1 }));
-    db.prepare(UPDATE_MESSAGE_TEXT).run('', jointes, 'm1');
-    assert.deepEqual(ligne(db.prepare(lire).get('m1')), { texte: '', pieces_jointes: jointes });
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', ...encrypted, updatedAt: 1 }));
+    db.prepare(UPDATE_MESSAGE_TEXT).run('', attachments, 'm1');
+    assert.deepEqual(row(db.prepare(read).get('m1')), { texte: '', pieces_jointes: attachments });
 
-    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', ...chiffre, updatedAt: 2 }));
-    assert.deepEqual(ligne(db.prepare(lire).get('m1')), { texte: '', pieces_jointes: jointes });
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', ...encrypted, updatedAt: 2 }));
+    assert.deepEqual(row(db.prepare(read).get('m1')), { texte: '', pieces_jointes: attachments });
   });
 
   test('un texte déchiffré sans pièce jointe ne les efface pas', () => {
-    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', ...chiffre, updatedAt: 1 }));
-    db.prepare(UPDATE_MESSAGE_TEXT).run('', jointes, 'm1');
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', ...encrypted, updatedAt: 1 }));
+    db.prepare(UPDATE_MESSAGE_TEXT).run('', attachments, 'm1');
     db.prepare(UPDATE_MESSAGE_TEXT).run('légende', null, 'm1');
-    assert.deepEqual(ligne(db.prepare(lire).get('m1')), { texte: 'légende', pieces_jointes: jointes });
+    assert.deepEqual(row(db.prepare(read).get('m1')), { texte: 'légende', pieces_jointes: attachments });
   });
 
   test('effacées au verrouillage : elles portent la clé du fichier', () => {
-    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', ...chiffre, updatedAt: 1 }));
-    db.prepare(UPDATE_MESSAGE_TEXT).run('', jointes, 'm1');
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', ...encrypted, updatedAt: 1 }));
+    db.prepare(UPDATE_MESSAGE_TEXT).run('', attachments, 'm1');
     db.prepare(HIDE_ENCRYPTED_MESSAGES).run();
-    assert.deepEqual(ligne(db.prepare(lire).get('m1')), { texte: null, pieces_jointes: null });
+    assert.deepEqual(row(db.prepare(read).get('m1')), { texte: null, pieces_jointes: null });
   });
 
   test('un message ordinaire suit toujours le serveur', () => {
-    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', attachments: jointes, updatedAt: 1 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', attachments, updatedAt: 1 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', attachments: null, updatedAt: 2 }));
-    assert.deepEqual(ligne(db.prepare(lire).get('m1')), { texte: 'bonjour', pieces_jointes: null });
+    assert.deepEqual(row(db.prepare(read).get('m1')), { texte: 'bonjour', pieces_jointes: null });
   });
 });

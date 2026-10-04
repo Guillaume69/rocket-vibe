@@ -27,17 +27,17 @@ export const MAX_PAGES_AT_BOUND = 2;
 
 /** À chaque demande de page : même borne → on compte ; borne neuve → repart à 1. */
 export function advanceBound(
-  precedente: PaginationBound | null,
-  idPlusVieux: string,
+  previous: PaginationBound | null,
+  oldestId: string,
 ): PaginationBound {
-  return precedente !== null && precedente.id === idPlusVieux
-    ? { id: idPlusVieux, pages: precedente.pages + 1 }
-    : { id: idPlusVieux, pages: 1 };
+  return previous !== null && previous.id === oldestId
+    ? { id: oldestId, pages: previous.pages + 1 }
+    : { id: oldestId, pages: 1 };
 }
 
 /** Vrai quand la borne a déjà consommé ses pages : le passé est déclaré épuisé. */
-export function boundIsStuck(borne: PaginationBound): boolean {
-  return borne.pages > MAX_PAGES_AT_BOUND;
+export function boundIsStuck(bound: PaginationBound): boolean {
+  return bound.pages > MAX_PAGES_AT_BOUND;
 }
 
 /**
@@ -46,8 +46,8 @@ export function boundIsStuck(borne: PaginationBound): boolean {
  * `null` pour une page vide.
  */
 export function pageMovedBack(
-  plusAncienDeLaPage: number | null,
+  pageOldest: number | null,
   horodatageBorne: number,
 ): boolean {
-  return plusAncienDeLaPage !== null && plusAncienDeLaPage < horodatageBorne;
+  return pageOldest !== null && pageOldest < horodatageBorne;
 }

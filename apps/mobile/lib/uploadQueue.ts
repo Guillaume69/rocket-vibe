@@ -37,19 +37,19 @@ export type UploadRow = {
 };
 
 export interface UploadStore {
-  insert(ligne: Omit<UploadRow, 'status' | 'fileId'>): Promise<void>;
+  insert(row: Omit<UploadRow, 'status' | 'fileId'>): Promise<void>;
   /** Les `en-attente` seulement, dans l'ordre de création. */
   listToSend(): Promise<UploadRow[]>;
   /** Saisit la ligne (`en-attente` → `envoi`). `false` si une autre passe l'a prise. */
   claim(id: string): Promise<boolean>;
   /** Rend au rejeu les `envoi` orphelins d'un processus tué, SAUF ceux encore en vol ici. */
-  rearmInFlight(enVolIci: string[]): Promise<void>;
+  rearmInFlight(inFlightHere: string[]): Promise<void>;
   /** Le geste « Réessayer » : un échec redevient candidat. */
   rearm(id: string): Promise<void>;
   recordFileId(id: string, fileId: string): Promise<void>;
   /** Le message portant ce fichier est-il DÉJÀ en base ? Local, jamais réseau. */
   fileAlreadyPosted(rid: string, fileId: string): Promise<boolean>;
-  markFailed(id: string, erreur: string): Promise<void>;
+  markFailed(id: string, error: string): Promise<void>;
   delete(id: string): Promise<void>;
 }
 
@@ -68,14 +68,14 @@ export type EncryptedFile = { uri: string; key: FileJwk; iv: string; sha256: str
 export interface UploadEncryption {
   roomEncrypted(rid: string): Promise<boolean>;
   /** Contenu chiffré pour ce salon, `null` sans clé (verrouillé). */
-  encrypt(rid: string, charge: object): EncryptedContent | null;
+  encrypt(rid: string, payload: object): EncryptedContent | null;
   encryptFile(uri: string): Promise<EncryptedFile>;
   /** Empreinte SHA-256 (hexadécimal) d'un texte : le nom sous lequel le fichier part. */
-  hashedName(nom: string): string;
+  hashedName(name: string): string;
 }
 
 /** La clé du salon manque : la ligne attend le déverrouillage, elle n'échoue pas. */
-class AttenteCle extends Error {}
+class KeyWait extends Error {}
 
 /**
  * La pièce jointe d'un fichier chiffré, telle que le client web la bâtit et la
@@ -92,9 +92,9 @@ export function encryptedFileAttachment(options: {
   iv: string;
   sha256: string;
 }): Record<string, unknown> {
-  const { fileId, url, name: nom, type, size: taille } = options;
+  const { fileId, url, name, type, size } = options;
   const base = {
-    title: nom,
+    title: name,
     type: 'file',
     title_link: url,
     title_link_download: true,
@@ -102,15 +102,15 @@ export function encryptedFileAttachment(options: {
     hashes: { sha256: options.sha256 },
     fileId,
   };
-  const genre = /^(image|audio|video)\//.exec(type)?.[1];
-  if (genre !== undefined) {
-    return { ...base, [`${genre}_url`]: url, [`${genre}_type`]: type, [`${genre}_size`]: taille };
+  const kind = /^(image|audio|video)\//.exec(type)?.[1];
+  if (kind !== undefined) {
+    return { ...base, [`${kind}_url`]: url, [`${kind}_type`]: type, [`${kind}_size`]: size };
   }
-  const point = nom.lastIndexOf('.');
-  return { ...base, size: taille, format: point > 0 ? nom.slice(point + 1).toLowerCase() : '' };
+  const dot = name.lastIndexOf('.');
+  return { ...base, size, format: dot > 0 ? name.slice(dot + 1).toLowerCase() : '' };
 }
 
-type ReglagePublic = { _id?: string; value?: unknown };
+type PublicSetting = { _id?: string; value?: unknown };
 
 /**
  * Lit les deux réglages qui gouvernent l'upload. Mémoïsé par l'appelant.
@@ -122,26 +122,26 @@ type ReglagePublic = { _id?: string; value?: unknown };
  * filtre côté client.
  */
 export async function readUploadRules(client: ClientRest): Promise<UploadRules> {
-  const reponse = await client.get<{ settings?: ReglagePublic[] }>('settings.public', {
+  const response = await client.get<{ settings?: PublicSetting[] }>('settings.public', {
     params: { count: 0 },
   });
-  let tailleMax: number | null = null;
-  let typesAcceptes: string[] | null = null;
-  let fichiersChiffres = false;
-  for (const reglage of reponse.settings ?? []) {
-    if (reglage._id === 'E2E_Enable_Encrypt_Files') fichiersChiffres = reglage.value === true;
-    if (reglage._id === 'FileUpload_MaxFileSize' && typeof reglage.value === 'number') {
-      tailleMax = reglage.value > 0 ? reglage.value : null;
+  let maxSize: number | null = null;
+  let acceptedTypes: string[] | null = null;
+  let encryptedFiles = false;
+  for (const setting of response.settings ?? []) {
+    if (setting._id === 'E2E_Enable_Encrypt_Files') encryptedFiles = setting.value === true;
+    if (setting._id === 'FileUpload_MaxFileSize' && typeof setting.value === 'number') {
+      maxSize = setting.value > 0 ? setting.value : null;
     }
-    if (reglage._id === 'FileUpload_MediaTypeWhiteList' && typeof reglage.value === 'string') {
-      const liste = reglage.value
+    if (setting._id === 'FileUpload_MediaTypeWhiteList' && typeof setting.value === 'string') {
+      const list = setting.value
         .split(',')
         .map((t) => t.trim())
         .filter((t) => t !== '');
-      typesAcceptes = liste.length > 0 ? liste : null;
+      acceptedTypes = list.length > 0 ? list : null;
     }
   }
-  return { maxSize: tailleMax, acceptedTypes: typesAcceptes, encryptedFiles: fichiersChiffres };
+  return { maxSize, acceptedTypes, encryptedFiles };
 }
 
 /**
@@ -151,7 +151,7 @@ export async function readUploadRules(client: ClientRest): Promise<UploadRules> 
  * pour le même compte), et les deux partagent la même connexion SQLite. C'est
  * la seule portée où « en vol ici » a un sens.
  */
-const EN_VOL_ICI = new Set<string>();
+const IN_FLIGHT_HERE = new Set<string>();
 
 /**
  * Un refus de validation porte une DONNÉE (code + paramètres), pas une phrase :
@@ -182,23 +182,23 @@ export class ValidationError extends Error {
 
 /** `image/*` dans la liste blanche accepte `image/png`, etc. */
 export function validateFile(
-  regles: UploadRules,
-  fichier: { type: string; size: number | null },
-  salonChiffre = false,
+  rules: UploadRules,
+  file: { type: string; size: number | null },
+  roomEncrypted = false,
 ): void {
-  if (salonChiffre && !regles.encryptedFiles) throw new ValidationError({ code: 'encrypted' });
-  if (regles.maxSize !== null && fichier.size !== null && fichier.size > regles.maxSize) {
-    const mo = (regles.maxSize / 1024 / 1024).toFixed(1);
+  if (roomEncrypted && !rules.encryptedFiles) throw new ValidationError({ code: 'encrypted' });
+  if (rules.maxSize !== null && file.size !== null && file.size > rules.maxSize) {
+    const mo = (rules.maxSize / 1024 / 1024).toFixed(1);
     throw new ValidationError({ code: 'size', maxMb: mo });
   }
-  if (regles.acceptedTypes !== null) {
-    const accepte = regles.acceptedTypes.some((motif) => {
-      if (motif === fichier.type) return true;
-      const [famille, sous] = motif.split('/');
-      return sous === '*' && fichier.type.startsWith(`${famille}/`);
+  if (rules.acceptedTypes !== null) {
+    const accepted = rules.acceptedTypes.some((pattern) => {
+      if (pattern === file.type) return true;
+      const [family, sub] = pattern.split('/');
+      return sub === '*' && file.type.startsWith(`${family}/`);
     });
-    if (!accepte) {
-      throw new ValidationError({ code: 'type', type: fichier.type });
+    if (!accepted) {
+      throw new ValidationError({ code: 'type', type: file.type });
     }
   }
 }
@@ -268,21 +268,21 @@ export class UploadEngine {
    * barre du bandeau. Un `useRequeteVive` ne suffit pas : la fraction ne vit
    * qu'en mémoire, aucune écriture SQLite ne la porte.
    */
-  subscribe(auditeur: () => void): () => void {
-    this.observers.add(auditeur);
-    return () => void this.observers.delete(auditeur);
+  subscribe(listener: () => void): () => void {
+    this.observers.add(listener);
+    return () => void this.observers.delete(listener);
   }
 
   private publish(): void {
-    for (const auditeur of this.observers) auditeur();
+    for (const listener of this.observers) listener();
   }
 
   private async uploadRules(): Promise<UploadRules> {
     if (this.rules !== null) return this.rules;
     try {
-      const regles = await readUploadRules(this.client);
-      this.rules = regles; // seul un SUCCÈS est mémoïsé —
-      return regles;
+      const rules = await readUploadRules(this.client);
+      this.rules = rules; // seul un SUCCÈS est mémoïsé —
+      return rules;
     } catch {
       // — un repli permissif mis en cache après un passage hors ligne
       // désactiverait la validation pour toute la session.
@@ -295,27 +295,27 @@ export class UploadEngine {
    * dès qu'on la pose, pas au moment d'envoyer. `envoyer` revalide de toute
    * façon — la pièce a pu être réduite entre-temps.
    */
-  async validate(fichier: { type: string; size: number | null }, rid?: string): Promise<void> {
-    const chiffre = rid !== undefined && (await this.encryption?.roomEncrypted(rid)) === true;
-    validateFile(await this.uploadRules(), fichier, chiffre);
+  async validate(file: { type: string; size: number | null }, rid?: string): Promise<void> {
+    const encrypted = rid !== undefined && (await this.encryption?.roomEncrypted(rid)) === true;
+    validateFile(await this.uploadRules(), file, encrypted);
   }
 
   /** Valide (7.3) PUIS persiste l'intention PUIS tente l'envoi. */
   async send(
     rid: string,
-    fichier: FileToSend & { size: number | null },
-    legende?: string,
+    file: FileToSend & { size: number | null },
+    caption?: string,
   ): Promise<void> {
-    const chiffre = (await this.encryption?.roomEncrypted(rid)) === true;
-    validateFile(await this.uploadRules(), fichier, chiffre);
+    const encrypted = (await this.encryption?.roomEncrypted(rid)) === true;
+    validateFile(await this.uploadRules(), file, encrypted);
 
     await this.store.insert({
       id: this.generateId(),
       rid,
-      uri: fichier.uri,
-      name: fichier.name,
-      type: fichier.type,
-      caption: legende ?? null,
+      uri: file.uri,
+      name: file.name,
+      type: file.type,
+      caption: caption ?? null,
     });
     await this.process();
   }
@@ -334,7 +334,7 @@ export class UploadEngine {
       // listage à vie et le fichier ne partirait jamais.
       if (!this.rearmed) {
         this.rearmed = true;
-        await this.store.rearmInFlight([...EN_VOL_ICI]);
+        await this.store.rearmInFlight([...IN_FLIGHT_HERE]);
       }
       do {
         this.rerun = false;
@@ -352,38 +352,38 @@ export class UploadEngine {
   }
 
   private async runPass(): Promise<boolean> {
-    for (const ligne of await this.store.listToSend()) {
+    for (const row of await this.store.listToSend()) {
       // Saisie atomique : si une autre passe l'a déjà prise, on la laisse.
-      if (!(await this.store.claim(ligne.id))) continue;
-      EN_VOL_ICI.add(ligne.id);
+      if (!(await this.store.claim(row.id))) continue;
+      IN_FLIGHT_HERE.add(row.id);
       try {
-        this.progress.set(ligne.id, 0);
+        this.progress.set(row.id, 0);
         this.publish();
-        if (!(await this.post(ligne))) return false;
+        if (!(await this.post(row))) return false;
       } catch (e) {
-        if (this.discarded.has(ligne.id)) {
+        if (this.discarded.has(row.id)) {
           // L'annulation a fait échouer la tâche, c'est le résultat voulu :
           // la ligne est déjà supprimée, il n'y a rien à marquer.
           continue;
         }
-        if (e instanceof AttenteCle) {
-          await this.store.rearm(ligne.id);
+        if (e instanceof KeyWait) {
+          await this.store.rearm(row.id);
           continue;
         }
         if (e instanceof RestError && e.status === 0) {
           // Injoignable. La ligne doit REDEVENIR `en-attente` : la laisser en
           // `envoi` la sortirait du listage jusqu'au prochain lancement.
-          await this.store.rearm(ligne.id);
+          await this.store.rearm(row.id);
           return false;
         }
         // `derniere_erreur` est un DIAGNOSTIC (jamais affiché — l'UI montre
         // `ligneMessage.echecReessayer`) : pas une chaîne à traduire.
-        await this.store.markFailed(ligne.id, e instanceof Error ? e.message : 'Envoi refusé.');
+        await this.store.markFailed(row.id, e instanceof Error ? e.message : 'Envoi refusé.');
       } finally {
-        EN_VOL_ICI.delete(ligne.id);
-        this.progress.delete(ligne.id);
-        this.cancellations.delete(ligne.id);
-        this.discarded.delete(ligne.id);
+        IN_FLIGHT_HERE.delete(row.id);
+        this.progress.delete(row.id);
+        this.cancellations.delete(row.id);
+        this.discarded.delete(row.id);
         this.publish();
       }
     }
@@ -394,44 +394,44 @@ export class UploadEngine {
    * Une ligne, en deux temps séparés par une écriture. Rend `false` quand le
    * réseau est mort et qu'il faut arrêter la passe.
    */
-  private async post(ligne: UploadRow): Promise<boolean> {
-    if ((await this.encryption?.roomEncrypted(ligne.rid)) === true) {
-      return this.postEncrypted(ligne, this.encryption as UploadEncryption);
+  private async post(row: UploadRow): Promise<boolean> {
+    if ((await this.encryption?.roomEncrypted(row.rid)) === true) {
+      return this.postEncrypted(row, this.encryption as UploadEncryption);
     }
-    let fileId = ligne.fileId;
+    let fileId = row.fileId;
 
     if (fileId === null) {
       fileId = await uploadBytes({
         client: this.client,
         transport: this.transport,
-        rid: ligne.rid,
-        file: { uri: ligne.uri, name: ligne.name, type: ligne.type },
-        onProgress: (fraction) => this.recordProgress(ligne.id, fraction),
-        onCancelable: (annuler) => void this.cancellations.set(ligne.id, annuler),
+        rid: row.rid,
+        file: { uri: row.uri, name: row.name, type: row.type },
+        onProgress: (fraction) => this.recordProgress(row.id, fraction),
+        onCancelable: (cancel) => void this.cancellations.set(row.id, cancel),
       });
       // AVANT le confirm : c'est tout l'objet de la colonne.
-      await this.store.recordFileId(ligne.id, fileId);
-    } else if (await this.alreadyPosted(ligne.rid, fileId)) {
+      await this.store.recordFileId(row.id, fileId);
+    } else if (await this.alreadyPosted(row.rid, fileId)) {
       // Les octets étaient déjà partis ET le message est là : le confirm avait
       // abouti, seule sa réponse s'est perdue. Re-confirmer posterait un
       // doublon. On solde la ligne, sans rien envoyer.
-      await this.solder(ligne);
+      await this.solder(row);
       return true;
     }
 
     // Dernière fenêtre où « Abandonner » peut encore empêcher le message
     // d'exister : après le confirm, le serveur l'a créé et le stream DDP le
     // livrera de toute façon — on ne peut plus le dé-poster.
-    if (this.discarded.has(ligne.id)) return true;
+    if (this.discarded.has(row.id)) return true;
 
     const message = await confirmerMedia({
       client: this.client,
-      rid: ligne.rid,
+      rid: row.rid,
       fileId,
-      message: ligne.caption ?? undefined,
+      message: row.caption ?? undefined,
     });
-    await this.solder(ligne);
-    if (!this.discarded.has(ligne.id)) await this.ingest(message);
+    await this.solder(row);
+    if (!this.discarded.has(row.id)) await this.ingest(message);
     return true;
   }
 
@@ -440,82 +440,82 @@ export class UploadEngine {
    * clé du salon manque : ni les octets, ni le message.
    */
   private async postEncrypted(
-    ligne: UploadRow,
-    chiffrement: UploadEncryption,
+    row: UploadRow,
+    encryption: UploadEncryption,
   ): Promise<boolean> {
-    if (chiffrement.encrypt(ligne.rid, {}) === null) throw new AttenteCle();
-    let fileId = ligne.fileId;
-    let fichier = this.encrypted.get(ligne.id);
+    if (encryption.encrypt(row.rid, {}) === null) throw new KeyWait();
+    let fileId = row.fileId;
+    let file = this.encrypted.get(row.id);
 
-    if (fileId !== null && fichier === undefined) {
-      if (await this.alreadyPosted(ligne.rid, fileId)) {
-        await this.solder(ligne);
+    if (fileId !== null && file === undefined) {
+      if (await this.alreadyPosted(row.rid, fileId)) {
+        await this.solder(row);
         return true;
       }
       fileId = null;
     }
 
     const meta = (f: EncryptedFile) => ({
-      type: ligne.type,
-      typeGroup: ligne.type.split('/')[0],
-      name: ligne.name,
+      type: row.type,
+      typeGroup: row.type.split('/')[0],
+      name: row.name,
       encryption: { key: f.key, iv: f.iv },
       hashes: { sha256: f.sha256 },
     });
 
-    if (fileId === null || fichier === undefined) {
-      const chiffre = await chiffrement.encryptFile(ligne.uri);
-      fichier = { ...chiffre, hashedName: chiffrement.hashedName(ligne.name) };
-      const contenuFichier = chiffrement.encrypt(ligne.rid, meta(fichier));
-      if (contenuFichier === null) throw new AttenteCle();
+    if (fileId === null || file === undefined) {
+      const encrypted = await encryption.encryptFile(row.uri);
+      file = { ...encrypted, hashedName: encryption.hashedName(row.name) };
+      const encryptedContent = encryption.encrypt(row.rid, meta(file));
+      if (encryptedContent === null) throw new KeyWait();
       try {
         fileId = await uploadBytes({
           client: this.client,
           transport: this.transport,
-          rid: ligne.rid,
-          file: { uri: fichier.uri, name: fichier.hashedName, type: 'application/octet-stream' },
-          onProgress: (fraction) => this.recordProgress(ligne.id, fraction),
-          onCancelable: (annuler) => void this.cancellations.set(ligne.id, annuler),
-          fields: { content: JSON.stringify(contenuFichier) },
+          rid: row.rid,
+          file: { uri: file.uri, name: file.hashedName, type: 'application/octet-stream' },
+          onProgress: (fraction) => this.recordProgress(row.id, fraction),
+          onCancelable: (cancel) => void this.cancellations.set(row.id, cancel),
+          fields: { content: JSON.stringify(encryptedContent) },
         });
       } finally {
-        await this.deleteLocalFile?.(fichier.uri).catch(() => {});
+        await this.deleteLocalFile?.(file.uri).catch(() => {});
       }
-      this.encrypted.set(ligne.id, fichier);
-      await this.store.recordFileId(ligne.id, fileId);
+      this.encrypted.set(row.id, file);
+      await this.store.recordFileId(row.id, fileId);
     }
 
-    if (this.discarded.has(ligne.id)) return true;
+    if (this.discarded.has(row.id)) return true;
 
-    const piece = { _id: fileId, name: ligne.name, type: ligne.type, size: fichier.size };
-    const jointe = encryptedFileAttachment({
+    const plainAttachment = { _id: fileId, name: row.name, type: row.type, size: file.size };
+    const attachment = encryptedFileAttachment({
       fileId,
-      url: `/file-upload/${fileId}/${fichier.hashedName}`,
-      name: ligne.name,
-      type: ligne.type,
-      size: fichier.size,
-      key: fichier.key,
-      iv: fichier.iv,
-      sha256: fichier.sha256,
+      url: `/file-upload/${fileId}/${file.hashedName}`,
+      name: row.name,
+      type: row.type,
+      size: file.size,
+      key: file.key,
+      iv: file.iv,
+      sha256: file.sha256,
     });
-    const content = chiffrement.encrypt(ligne.rid, {
-      msg: ligne.caption ?? '',
-      attachments: [jointe],
-      files: [piece],
-      file: piece,
+    const content = encryption.encrypt(row.rid, {
+      msg: row.caption ?? '',
+      attachments: [attachment],
+      files: [plainAttachment],
+      file: plainAttachment,
     });
-    const fileContent = chiffrement.encrypt(ligne.rid, meta(fichier));
-    if (content === null || fileContent === null) throw new AttenteCle();
+    const fileContent = encryption.encrypt(row.rid, meta(file));
+    if (content === null || fileContent === null) throw new KeyWait();
 
     const message = await confirmerMedia({
       client: this.client,
-      rid: ligne.rid,
+      rid: row.rid,
       fileId,
       body: { msg: '', t: 'e2e', content, fileContent },
     });
-    this.encrypted.delete(ligne.id);
-    await this.solder(ligne);
-    if (!this.discarded.has(ligne.id)) await this.ingest(message);
+    this.encrypted.delete(row.id);
+    await this.solder(row);
+    if (!this.discarded.has(row.id)) await this.ingest(message);
     return true;
   }
 
@@ -549,9 +549,9 @@ export class UploadEngine {
   }
 
   /** Ligne soldée : plus de file, plus de fichier temporaire. */
-  private async solder(ligne: UploadRow): Promise<void> {
-    await this.store.delete(ligne.id);
-    await this.deleteLocalFile?.(ligne.uri).catch(() => {});
+  private async solder(row: UploadRow): Promise<void> {
+    await this.store.delete(row.id);
+    await this.deleteLocalFile?.(row.uri).catch(() => {});
   }
 
   /**
@@ -560,9 +560,9 @@ export class UploadEngine {
    * plus cher que le téléversement lui-même.
    */
   private recordProgress(id: string, fraction: number): void {
-    const avant = this.progress.get(id) ?? 0;
+    const before = this.progress.get(id) ?? 0;
     this.progress.set(id, fraction);
-    if (Math.floor(fraction * 100) !== Math.floor(avant * 100)) this.publish();
+    if (Math.floor(fraction * 100) !== Math.floor(before * 100)) this.publish();
   }
 
   /**
@@ -578,8 +578,8 @@ export class UploadEngine {
     this.discarded.add(id);
     this.encrypted.delete(id);
     await this.store.delete(id);
-    const annuler = this.cancellations.get(id);
-    if (annuler !== undefined) await annuler().catch(() => {});
+    const cancel = this.cancellations.get(id);
+    if (cancel !== undefined) await cancel().catch(() => {});
     if (uri !== undefined) await this.deleteLocalFile?.(uri).catch(() => {});
     this.progress.delete(id);
     this.publish();

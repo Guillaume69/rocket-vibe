@@ -33,7 +33,7 @@ import { type Colors, FONTS, useColors } from '../../ui/theme.ts';
  * (ci-dessous) pour que l'invite apparaisse avant l'écran d'appel, pas au milieu.
  */
 
-async function demanderCameraMicro(): Promise<void> {
+async function requestCameraMic(): Promise<void> {
   if (Platform.OS !== 'android') return;
   try {
     await PermissionsAndroid.requestMultiple([
@@ -53,10 +53,10 @@ async function demanderCameraMicro(): Promise<void> {
  * dans le hash de l'URL, supprime l'interstitiel — la conférence se charge
  * directement dans la WebView. Un Jitsi auto-hébergé sans deep-link l'ignore.
  */
-function sansInterstitielJitsi(url: string): string {
+function withoutJitsiInterstitial(url: string): string {
   if (url.includes('disableDeepLinking')) return url;
-  const drapeau = 'config.disableDeepLinking=true';
-  return url.includes('#') ? `${url}&${drapeau}` : `${url}#${drapeau}`;
+  const flag = 'config.disableDeepLinking=true';
+  return url.includes('#') ? `${url}&${flag}` : `${url}#${flag}`;
 }
 
 /**
@@ -90,72 +90,72 @@ const UA_MOBILE =
 
 export default function CallScreen() {
   const c = useColors();
-  const { state: etat } = useSession();
-  const { callId, title: titre } = useLocalSearchParams<{ callId: string; title?: string }>();
+  const { state } = useSession();
+  const { callId, title } = useLocalSearchParams<{ callId: string; title?: string }>();
   const t = useT();
   // Atteint depuis un salon connecté ; un état déconnecté (session expirée)
   // renvoie au login plutôt que de crasher sur `client`.
-  if (etat.phase !== 'connected') return <Redirect href="/login" />;
-  return <Appel c={c} client={etat.client} callId={callId} title={titre ?? t('appel.appelVideo')} />;
+  if (state.phase !== 'connected') return <Redirect href="/login" />;
+  return <Call c={c} client={state.client} callId={callId} title={title ?? t('appel.appelVideo')} />;
 }
 
-function Appel({
+function Call({
   c,
   client,
   callId,
-  title: titre,
+  title,
 }: {
   c: Colors;
   client: ClientRest;
   callId: string;
   title: string;
 }) {
-  const routeur = useRouter();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const t = useT();
   const [url, setUrl] = useState<string | null>(null);
-  const [erreur, setErreur] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   // Incrémenté par « Réessayer » : relance l'effet de chargement sans dupliquer
   // sa logique dans un handler.
-  const [essai, setEssai] = useState(0);
+  const [attempt, setAttempt] = useState(0);
 
   // Le `join` (URL du fournisseur) et la demande de permissions vivent DANS
   // l'effet : `setState` n'y arrive qu'après un `await`, jamais synchrone (sinon
   // cascades de rendus). `vivant` neutralise une réponse qui arrive après démontage.
   useEffect(() => {
-    let vivant = true;
+    let alive = true;
     void (async () => {
       try {
-        await demanderCameraMicro();
+        await requestCameraMic();
         const u = await joinConference(client, callId);
         // Une URL de conférence sans origine lisible (schéma exotique, réponse
         // tronquée) ne donnerait pas de verrou à poser sur la WebView : on
         // refuse plutôt que de charger sans garde.
-        if (vivant) {
-          if (originOf(u) === null) setErreur(t('appel.impossibleRejoindre'));
+        if (alive) {
+          if (originOf(u) === null) setError(t('appel.impossibleRejoindre'));
           else setUrl(u);
         }
       } catch {
-        if (vivant) setErreur(t('appel.impossibleRejoindre'));
+        if (alive) setError(t('appel.impossibleRejoindre'));
       }
     })();
     return () => {
-      vivant = false;
+      alive = false;
     };
-  }, [client, callId, essai, t]);
+  }, [client, callId, attempt, t]);
 
   // Handler (hors effet) : y remettre l'état à zéro est légitime.
-  const reessayer = useCallback(() => {
-    setErreur(null);
+  const retry = useCallback(() => {
+    setError(null);
     setUrl(null);
-    setEssai((n) => n + 1);
+    setAttempt((n) => n + 1);
   }, []);
 
-  const terminer = useCallback(() => routeur.back(), [routeur]);
+  const finish = useCallback(() => router.back(), [router]);
 
   // Non nulle dès que `url` l'est : l'effet ci-dessus refuse une URL dont
   // l'origine ne se lit pas. Le rendu le revérifie quand même — c'est le verrou.
-  const origine = useMemo(() => (url === null ? null : originOf(url)), [url]);
+  const origin = useMemo(() => (url === null ? null : originOf(url)), [url]);
 
   return (
     <View style={[styles.full, { backgroundColor: '#000', paddingTop: insets.top }]}>
@@ -163,10 +163,10 @@ function Appel({
 
       <View style={[styles.bar, { borderBottomColor: c.softBorder }]}>
         <Text style={[styles.title, { color: c.text }]} numberOfLines={1}>
-          {titre}
+          {title}
         </Text>
         <Pressable
-          onPress={terminer}
+          onPress={finish}
           hitSlop={10}
           accessibilityRole="button"
           accessibilityLabel={t('appel.terminerAppel')}
@@ -175,25 +175,25 @@ function Appel({
             { backgroundColor: c.errorCard, opacity: pressed ? 0.7 : 1 },
           ]}
         >
-          <Text style={[styles.terminerTexte, { color: c.errorText }]}>{t('appel.terminer')}</Text>
+          <Text style={[styles.finishText, { color: c.errorText }]}>{t('appel.terminer')}</Text>
         </Pressable>
       </View>
 
-      {erreur !== null ? (
+      {error !== null ? (
         <View style={styles.center}>
-          <Text style={[styles.errorMessage, { color: c.errorText }]}>{erreur}</Text>
-          <Pressable onPress={reessayer} style={styles.retry}>
-            <Text style={[styles.reessayerTexte, { color: c.cyan }]}>{t('commun.reessayer')}</Text>
+          <Text style={[styles.errorMessage, { color: c.errorText }]}>{error}</Text>
+          <Pressable onPress={retry} style={styles.retry}>
+            <Text style={[styles.retryText, { color: c.cyan }]}>{t('commun.reessayer')}</Text>
           </Pressable>
         </View>
-      ) : url === null || origine === null ? (
+      ) : url === null || origin === null ? (
         <View style={styles.center}>
           <ActivityIndicator color={c.accent} size="large" />
-          <Text style={[styles.chargeTexte, { color: c.dimmed }]}>{t('appel.connexion')}</Text>
+          <Text style={[styles.loadingText, { color: c.dimmed }]}>{t('appel.connexion')}</Text>
         </View>
       ) : (
         <WebView
-          source={{ uri: sansInterstitielJitsi(url) }}
+          source={{ uri: withoutJitsiInterstitial(url) }}
           style={styles.full}
           userAgent={UA_MOBILE}
           // Jitsi lance l'audio/vidéo sans geste explicite de l'utilisateur.
@@ -202,14 +202,14 @@ function Appel({
           // iOS : accorde caméra/micro sans redemander à chaque fois (no-op Android).
           mediaCapturePermissionGrantType="grant"
           domStorageEnabled
-          originWhitelist={[origine]}
+          originWhitelist={[origin]}
           // Un lien Jitsi en target=_blank reste dans la WebView au lieu d'ouvrir
           // une fenêtre fantôme qu'on ne verrait jamais.
           setSupportMultipleWindows={false}
           // Fond noir + spinner pendant le chargement : pas d'éclair blanc.
           startInLoadingState
           renderLoading={() => (
-            <View style={styles.voile}>
+            <View style={styles.veil}>
               <ActivityIndicator color={c.accent} size="large" />
             </View>
           )}
@@ -218,14 +218,14 @@ function Appel({
           // et un https quelconque hériterait de caméra et micro sans invite —
           // voir `origineDe` en tête de fichier.
           onShouldStartLoadWithRequest={(req) =>
-            req.url === 'about:blank' || sameOrigin(req.url, origine)
+            req.url === 'about:blank' || sameOrigin(req.url, origin)
           }
           onNavigationStateChange={(nav) => {
             // Raccrocher mène Jitsi vers une page « close » : on rend la main au
             // salon. Le bouton « Terminer » reste la sortie garantie.
-            if (/\/close\d*(\.html)?/.test(nav.url)) terminer();
+            if (/\/close\d*(\.html)?/.test(nav.url)) finish();
           }}
-          onError={() => setErreur(t('appel.chargementEchoue'))}
+          onError={() => setError(t('appel.chargementEchoue'))}
         />
       )}
     </View>
@@ -234,7 +234,7 @@ function Appel({
 
 const styles = StyleSheet.create({
   full: { flex: 1 },
-  voile: {
+  veil: {
     position: 'absolute',
     top: 0,
     left: 0,
@@ -256,9 +256,9 @@ const styles = StyleSheet.create({
   },
   title: { fontFamily: FONTS.title, fontSize: 16, flexShrink: 1 },
   finish: { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
-  terminerTexte: { fontFamily: FONTS.corpsFort, fontSize: 14 },
-  chargeTexte: { fontFamily: FONTS.body, fontSize: 14 },
-  errorMessage: { fontFamily: FONTS.corpsGras, fontSize: 15, textAlign: 'center' },
+  finishText: { fontFamily: FONTS.bodyStrong, fontSize: 14 },
+  loadingText: { fontFamily: FONTS.body, fontSize: 14 },
+  errorMessage: { fontFamily: FONTS.bodyBold, fontSize: 15, textAlign: 'center' },
   retry: { paddingVertical: 8, paddingHorizontal: 16 },
-  reessayerTexte: { fontFamily: FONTS.corpsGras, fontSize: 15 },
+  retryText: { fontFamily: FONTS.bodyBold, fontSize: 15 },
 });

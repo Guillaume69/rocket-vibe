@@ -54,37 +54,37 @@ import Animated, {
 import { useT } from './i18n.ts';
 import { type Colors, FONTS } from './theme.ts';
 
-const NB_BARRES = 28;
+const BAR_COUNT = 28;
 const H_MAX = 30;
 const H_MIN = 3;
 
 // --- FFT (Cooley-Tukey itérative, radix-2) -----------------------------------
 
-const TAILLE_FFT = 512;
-const DEMI_FFT = TAILLE_FFT / 2;
+const FFT_SIZE = 512;
+const HALF_FFT = FFT_SIZE / 2;
 
 /** Fenêtre de Hann : atténue les fuites spectrales des bords du buffer. */
-const FENETRE = new Float64Array(TAILLE_FFT);
-for (let n = 0; n < TAILLE_FFT; n++) {
-  FENETRE[n] = 0.5 - 0.5 * Math.cos((2 * Math.PI * n) / (TAILLE_FFT - 1));
+const WINDOW = new Float64Array(FFT_SIZE);
+for (let n = 0; n < FFT_SIZE; n++) {
+  WINDOW[n] = 0.5 - 0.5 * Math.cos((2 * Math.PI * n) / (FFT_SIZE - 1));
 }
 
 /** Permutation par inversion de bits (préalable au papillon en place). */
-const RENVERSE = new Uint16Array(TAILLE_FFT);
+const BIT_REVERSE = new Uint16Array(FFT_SIZE);
 {
   let j = 0;
-  for (let i = 0; i < TAILLE_FFT; i++) {
-    RENVERSE[i] = j;
-    let bit = TAILLE_FFT >> 1;
+  for (let i = 0; i < FFT_SIZE; i++) {
+    BIT_REVERSE[i] = j;
+    let bit = FFT_SIZE >> 1;
     for (; j & bit; bit >>= 1) j ^= bit;
     j ^= bit;
   }
 }
 
-const COS = new Float64Array(DEMI_FFT);
-const SIN = new Float64Array(DEMI_FFT);
-for (let i = 0; i < DEMI_FFT; i++) {
-  const a = (-2 * Math.PI * i) / TAILLE_FFT;
+const COS = new Float64Array(HALF_FFT);
+const SIN = new Float64Array(HALF_FFT);
+for (let i = 0; i < HALF_FFT; i++) {
+  const a = (-2 * Math.PI * i) / FFT_SIZE;
   COS[i] = Math.cos(a);
   SIN[i] = Math.sin(a);
 }
@@ -96,11 +96,11 @@ for (let i = 0; i < DEMI_FFT; i++) {
  */
 const BIN_MIN = 2; // on saute le DC (bin 0-1)
 const BIN_MAX = 100;
-const BANDES: [number, number][] = [];
-for (let b = 0; b < NB_BARRES; b++) {
-  const lo = Math.floor(BIN_MIN * Math.pow(BIN_MAX / BIN_MIN, b / NB_BARRES));
-  const hi = Math.max(lo + 1, Math.floor(BIN_MIN * Math.pow(BIN_MAX / BIN_MIN, (b + 1) / NB_BARRES)));
-  BANDES.push([lo, Math.min(hi, DEMI_FFT)]);
+const BANDS: [number, number][] = [];
+for (let b = 0; b < BAR_COUNT; b++) {
+  const lo = Math.floor(BIN_MIN * Math.pow(BIN_MAX / BIN_MIN, b / BAR_COUNT));
+  const hi = Math.max(lo + 1, Math.floor(BIN_MIN * Math.pow(BIN_MAX / BIN_MIN, (b + 1) / BAR_COUNT)));
+  BANDS.push([lo, Math.min(hi, HALF_FFT)]);
 }
 
 /**
@@ -108,18 +108,18 @@ for (let b = 0; b < NB_BARRES; b++) {
  * sans compensation, seules les barres de gauche bougent. On relève donc
  * progressivement les hautes bandes — pente douce, le rendu reste fidèle.
  */
-const POIDS = new Float64Array(NB_BARRES);
-for (let b = 0; b < NB_BARRES; b++) POIDS[b] = 1 + 2.2 * (b / (NB_BARRES - 1));
+const WEIGHTS = new Float64Array(BAR_COUNT);
+for (let b = 0; b < BAR_COUNT; b++) WEIGHTS[b] = 1 + 2.2 * (b / (BAR_COUNT - 1));
 
 // Buffers de travail réutilisés : un seul lecteur échantillonne à la fois
 // (coordinateur), et chaque appel est synchrone — pas de réentrance.
-const RE = new Float64Array(TAILLE_FFT);
-const IM = new Float64Array(TAILLE_FFT);
+const RE = new Float64Array(FFT_SIZE);
+const IM = new Float64Array(FFT_SIZE);
 
 /** FFT en place : RE contient l'entrée (déjà fenêtrée), IM vaut 0. */
 function fft(): void {
-  for (let i = 0; i < TAILLE_FFT; i++) {
-    const j = RENVERSE[i]!;
+  for (let i = 0; i < FFT_SIZE; i++) {
+    const j = BIT_REVERSE[i]!;
     if (j > i) {
       const tr = RE[i]!;
       RE[i] = RE[j]!;
@@ -129,16 +129,16 @@ function fft(): void {
       IM[j] = ti;
     }
   }
-  for (let taille = 2; taille <= TAILLE_FFT; taille <<= 1) {
-    const demi = taille >> 1;
-    const pas = TAILLE_FFT / taille;
-    for (let debut = 0; debut < TAILLE_FFT; debut += taille) {
-      for (let k = 0; k < demi; k++) {
+  for (let size = 2; size <= FFT_SIZE; size <<= 1) {
+    const half = size >> 1;
+    const pas = FFT_SIZE / size;
+    for (let start = 0; start < FFT_SIZE; start += size) {
+      for (let k = 0; k < half; k++) {
         const idx = k * pas;
         const wr = COS[idx]!;
         const wi = SIN[idx]!;
-        const a = debut + k;
-        const b = a + demi;
+        const a = start + k;
+        const b = a + half;
         const xr = RE[b]!;
         const xi = IM[b]!;
         const tr = wr * xr - wi * xi;
@@ -154,38 +154,38 @@ function fft(): void {
 
 // --- Divers ------------------------------------------------------------------
 
-let lecteurActif: { pause: () => void } | null = null;
+let activePlayer: { pause: () => void } | null = null;
 
-function mmss(secondes: number): string {
-  const s = Number.isFinite(secondes) && secondes > 0 ? Math.floor(secondes) : 0;
+function mmss(seconds: number): string {
+  const s = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-function canaux(hex: string): [number, number, number] {
+function channels(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
-function melanger(a: string, b: string, t: number): string {
-  const [ar, ag, ab] = canaux(a);
-  const [br, bg, bb] = canaux(b);
+function mix(a: string, b: string, t: number): string {
+  const [ar, ag, ab] = channels(a);
+  const [br, bg, bb] = channels(b);
   const m = (x: number, y: number) => Math.round(x + (y - x) * t);
   return `rgb(${m(ar, br)}, ${m(ag, bg)}, ${m(ab, bb)})`;
 }
 /** `n` couleurs interpolées le long des `arrets` (la comète : rose→violet→cyan). */
-function repartirArcEnCiel(arrets: readonly string[], n: number): string[] {
-  const sorties: string[] = [];
+function spreadRainbow(stops: readonly string[], n: number): string[] {
+  const out: string[] = [];
   for (let i = 0; i < n; i++) {
-    const p = (i / Math.max(n - 1, 1)) * (arrets.length - 1);
-    const idx = Math.min(Math.floor(p), arrets.length - 2);
-    sorties.push(melanger(arrets[idx]!, arrets[idx + 1]!, p - idx));
+    const p = (i / Math.max(n - 1, 1)) * (stops.length - 1);
+    const idx = Math.min(Math.floor(p), stops.length - 2);
+    out.push(mix(stops[idx]!, stops[idx + 1]!, p - idx));
   }
-  return sorties;
+  return out;
 }
 
-function Barre({
-  levels: niveaux,
+function Bar({
+  levels,
   index,
-  color: couleur,
+  color,
 }: {
   levels: SharedValue<number[]>;
   index: number;
@@ -195,41 +195,41 @@ function Barre({
   const style = useAnimatedStyle(() => ({
     // Tween court et LINÉAIRE : entre deux échantillons (~16 ms), un pont
     // continu et net — pas de mollesse d'ease-out en fin de course.
-    height: withTiming(H_MIN + (niveaux.value[index] ?? 0) * (H_MAX - H_MIN), {
+    height: withTiming(H_MIN + (levels.value[index] ?? 0) * (H_MAX - H_MIN), {
       duration: 45,
       easing: Easing.linear,
     }),
   }));
-  return <Animated.View style={[styles.bar, { backgroundColor: couleur }, style]} />;
+  return <Animated.View style={[styles.bar, { backgroundColor: color }, style]} />;
 }
 
-type PropsLecteur = {
+type PlayerProps = {
   c: Colors;
   url: string;
   title?: string | null;
   onLongPress?: (() => void) | undefined;
 };
 
-export function AudioPlayer({ c, url, title: titre, onLongPress: surAppuiLong }: PropsLecteur) {
+export function AudioPlayer({ c, url, title, onLongPress }: PlayerProps) {
   const t = useT();
-  const [actif, setActif] = useState(false);
-  const couleurs = useMemo(() => repartirArcEnCiel(c.brandGradient, NB_BARRES), [c.brandGradient]);
+  const [active, setActive] = useState(false);
+  const colors = useMemo(() => spreadRainbow(c.brandGradient, BAR_COUNT), [c.brandGradient]);
 
-  if (actif) {
-    return <LecteurAudioActif c={c} url={url} title={titre} onLongPress={surAppuiLong} />;
+  if (active) {
+    return <ActiveAudioPlayer c={c} url={url} title={title} onLongPress={onLongPress} />;
   }
 
   // La carte AU REPOS : même gabarit que la carte active (le montage du player
   // ne fait pas bouger la ligne d'un pixel), barres à plat, aucun natif.
-  const activer = () => setActif(true);
+  const activate = () => setActive(true);
   return (
     <View
       style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
-      accessibilityLabel={titre ?? t('lecteurAudio.messageVocal')}
+      accessibilityLabel={title ?? t('lecteurAudio.messageVocal')}
     >
       <Pressable
-        onPress={activer}
-        onLongPress={surAppuiLong}
+        onPress={activate}
+        onLongPress={onLongPress}
         delayLongPress={350}
         hitSlop={6}
         accessibilityRole="button"
@@ -247,13 +247,13 @@ export function AudioPlayer({ c, url, title: titre, onLongPress: surAppuiLong }:
 
       <Pressable
         style={styles.center}
-        onPress={activer}
-        onLongPress={surAppuiLong}
+        onPress={activate}
+        onLongPress={onLongPress}
         delayLongPress={350}
       >
         <View style={styles.bars}>
-          {couleurs.map((couleur, i) => (
-            <View key={i} style={[styles.bar, styles.barreRepos, { backgroundColor: couleur }]} />
+          {colors.map((color, i) => (
+            <View key={i} style={[styles.bar, styles.idleBar, { backgroundColor: color }]} />
           ))}
         </View>
         <View style={[styles.track, { backgroundColor: c.border }]} />
@@ -261,22 +261,22 @@ export function AudioPlayer({ c, url, title: titre, onLongPress: surAppuiLong }:
 
       {/* La durée n'est pas connue sans player (l'attachement ne la porte pas) :
           l'emplacement reste réservé pour que le montage ne décale rien. */}
-      <Text style={[styles.temps, { color: c.dimmed }]} />
+      <Text style={[styles.time, { color: c.dimmed }]} />
     </View>
   );
 }
 
-function LecteurAudioActif({ c, url, title: titre, onLongPress: surAppuiLong }: PropsLecteur) {
+function ActiveAudioPlayer({ c, url, title, onLongPress }: PlayerProps) {
   const t = useT();
   const player = useAudioPlayer(url);
   const status = useAudioPlayerStatus(player);
-  const niveaux = useSharedValue<number[]>(new Array(NB_BARRES).fill(0));
-  const largeur = useRef(0);
-  const dernierEch = useRef(0);
-  const plafond = useRef(1e-4); // contrôle de gain automatique, par lecteur
-  const lissees = useRef(new Float64Array(NB_BARRES)); // état de lissage temporel
-  const moi = useRef<{ pause: () => void }>({ pause: () => {} });
-  moi.current.pause = () => {
+  const levels = useSharedValue<number[]>(new Array(BAR_COUNT).fill(0));
+  const width = useRef(0);
+  const lastSample = useRef(0);
+  const ceiling = useRef(1e-4); // contrôle de gain automatique, par lecteur
+  const smoothed = useRef(new Float64Array(BAR_COUNT)); // état de lissage temporel
+  const me = useRef<{ pause: () => void }>({ pause: () => {} });
+  me.current.pause = () => {
     try {
       player.pause();
     } catch {
@@ -284,7 +284,7 @@ function LecteurAudioActif({ c, url, title: titre, onLongPress: surAppuiLong }: 
     }
   };
 
-  const couleurs = useMemo(() => repartirArcEnCiel(c.brandGradient, NB_BARRES), [c.brandGradient]);
+  const colors = useMemo(() => spreadRainbow(c.brandGradient, BAR_COUNT), [c.brandGradient]);
 
   // Monté = « lire » vient d'être touché : lecture immédiate, en prenant le
   // relais du lecteur en cours — même coordinateur que `basculer`.
@@ -293,100 +293,100 @@ function LecteurAudioActif({ c, url, title: titre, onLongPress: surAppuiLong }: 
   // `useAudioSampleListener` le fait déjà, APRÈS avoir vérifié
   // `isAudioSamplingSupported` — ce que notre appel ne faisait pas.)
   useEffect(() => {
-    if (lecteurActif !== null && lecteurActif !== moi.current) lecteurActif.pause();
-    lecteurActif = moi.current;
+    if (activePlayer !== null && activePlayer !== me.current) activePlayer.pause();
+    activePlayer = me.current;
     player.play();
   }, [player]);
 
-  useAudioSampleListener(player, (echantillon) => {
-    const frames = echantillon.channels?.[0]?.frames;
+  useAudioSampleListener(player, (sample) => {
+    const frames = sample.channels?.[0]?.frames;
     if (!frames || frames.length === 0) return;
-    const maintenant = Date.now();
-    if (maintenant - dernierEch.current < 16) return; // jusqu'à ~60 Hz : fluidité
-    dernierEch.current = maintenant;
+    const now = Date.now();
+    if (now - lastSample.current < 16) return; // jusqu'à ~60 Hz : fluidité
+    lastSample.current = now;
 
     // Derniers TAILLE_FFT frames, fenêtrés (zéro-pad si le buffer est court).
-    const dispo = Math.min(frames.length, TAILLE_FFT);
-    const depart = frames.length - dispo;
-    for (let n = 0; n < TAILLE_FFT; n++) {
-      RE[n] = n < dispo ? frames[depart + n]! * FENETRE[n]! : 0;
+    const available = Math.min(frames.length, FFT_SIZE);
+    const start = frames.length - available;
+    for (let n = 0; n < FFT_SIZE; n++) {
+      RE[n] = n < available ? frames[start + n]! * WINDOW[n]! : 0;
       IM[n] = 0;
     }
     fft();
 
     // Magnitude moyenne par bande, et pic de la trame pour le gain auto.
-    const brut = new Array<number>(NB_BARRES);
-    let maxi = 0;
-    for (let b = 0; b < NB_BARRES; b++) {
-      const [lo, hi] = BANDES[b]!;
-      let somme = 0;
-      for (let k = lo; k < hi; k++) somme += Math.sqrt(RE[k]! * RE[k]! + IM[k]! * IM[k]!);
+    const raw = new Array<number>(BAR_COUNT);
+    let peak = 0;
+    for (let b = 0; b < BAR_COUNT; b++) {
+      const [lo, hi] = BANDS[b]!;
+      let sum = 0;
+      for (let k = lo; k < hi; k++) sum += Math.sqrt(RE[k]! * RE[k]! + IM[k]! * IM[k]!);
       // Pondération d'aigu : compense la pente naturelle basse-lourde.
-      const moy = (somme / Math.max(hi - lo, 1)) * POIDS[b]!;
-      brut[b] = moy;
-      if (moy > maxi) maxi = moy;
+      const avg = (sum / Math.max(hi - lo, 1)) * WEIGHTS[b]!;
+      raw[b] = avg;
+      if (avg > peak) peak = avg;
     }
     // Plafond adaptatif : bondit sur un pic, redescend doucement (~0,5 s). Le
     // pic ≈ pleine hauteur, les passages calmes restent bas — plus de clipping.
-    plafond.current = Math.max(maxi, plafond.current * 0.93, 1e-4);
+    ceiling.current = Math.max(peak, ceiling.current * 0.93, 1e-4);
 
     // Lissage TEMPOREL par bande : attaque instantanée sur un pic, chute douce
     // (~0,2 s). C'est le mouvement d'analyseur de spectre — lisible, au lieu
     // d'un fourmillement. Racine : étale les faibles amplitudes.
-    const liss = lissees.current;
-    for (let b = 0; b < NB_BARRES; b++) {
-      const cible = Math.sqrt(Math.min(1, brut[b]! / plafond.current));
+    const smooth = smoothed.current;
+    for (let b = 0; b < BAR_COUNT; b++) {
+      const target = Math.sqrt(Math.min(1, raw[b]! / ceiling.current));
       // Attaque instantanée, chute assez vive (~90 ms) : nerveux, pas mou.
-      liss[b] = cible > liss[b]! ? cible : liss[b]! * 0.68 + cible * 0.32;
+      smooth[b] = target > smooth[b]! ? target : smooth[b]! * 0.68 + target * 0.32;
     }
     // Lissage SPATIAL léger : lie juste assez les voisines pour une forme
     // cohérente, sans écraser les pics (sinon ça retombe dans le mou).
-    const arr = niveaux.value.slice();
-    for (let b = 0; b < NB_BARRES; b++) {
-      const g = b > 0 ? liss[b - 1]! : liss[b]!;
-      const d = b < NB_BARRES - 1 ? liss[b + 1]! : liss[b]!;
-      arr[b] = 0.13 * g + 0.74 * liss[b]! + 0.13 * d;
+    const arr = levels.value.slice();
+    for (let b = 0; b < BAR_COUNT; b++) {
+      const g = b > 0 ? smooth[b - 1]! : smooth[b]!;
+      const d = b < BAR_COUNT - 1 ? smooth[b + 1]! : smooth[b]!;
+      arr[b] = 0.13 * g + 0.74 * smooth[b]! + 0.13 * d;
     }
-    niveaux.value = arr;
+    levels.value = arr;
   });
 
   // À l'arrêt, les barres retombent (le lissage anime la descente).
   useEffect(() => {
     if (!status.playing) {
-      niveaux.value = new Array(NB_BARRES).fill(0);
-      plafond.current = 1e-4;
-      lissees.current.fill(0);
+      levels.value = new Array(BAR_COUNT).fill(0);
+      ceiling.current = 1e-4;
+      smoothed.current.fill(0);
     }
-  }, [status.playing, niveaux]);
+  }, [status.playing, levels]);
 
   useEffect(() => {
-    const self = moi.current;
+    const self = me.current;
     return () => {
-      if (lecteurActif === self) lecteurActif = null;
+      if (activePlayer === self) activePlayer = null;
     };
   }, []);
 
-  const basculer = useCallback(() => {
+  const toggle = useCallback(() => {
     if (status.playing) {
       player.pause();
-      if (lecteurActif === moi.current) lecteurActif = null;
+      if (activePlayer === me.current) activePlayer = null;
       return;
     }
     if (status.didJustFinish || (status.duration > 0 && status.currentTime >= status.duration - 0.05)) {
       void player.seekTo(0);
     }
-    if (lecteurActif && lecteurActif !== moi.current) lecteurActif.pause();
-    lecteurActif = moi.current;
+    if (activePlayer && activePlayer !== me.current) activePlayer.pause();
+    activePlayer = me.current;
     player.play();
   }, [status.playing, status.didJustFinish, status.currentTime, status.duration, player]);
 
-  const surLayout = useCallback((e: LayoutChangeEvent) => {
-    largeur.current = e.nativeEvent.layout.width;
+  const onLayout = useCallback((e: LayoutChangeEvent) => {
+    width.current = e.nativeEvent.layout.width;
   }, []);
 
-  const surSeek = useCallback(
+  const onSeek = useCallback(
     (e: { nativeEvent: { locationX: number } }) => {
-      const w = largeur.current;
+      const w = width.current;
       if (w <= 0 || status.duration <= 0) return;
       const frac = Math.min(1, Math.max(0, e.nativeEvent.locationX / w));
       void player.seekTo(frac * status.duration);
@@ -394,18 +394,18 @@ function LecteurAudioActif({ c, url, title: titre, onLongPress: surAppuiLong }: 
     [status.duration, player],
   );
 
-  const progres = status.duration > 0 ? status.currentTime / status.duration : 0;
-  const tempsAffiche = status.playing || status.currentTime > 0 ? status.currentTime : status.duration;
-  const occupe = status.isBuffering && status.playing;
+  const progress = status.duration > 0 ? status.currentTime / status.duration : 0;
+  const shownTime = status.playing || status.currentTime > 0 ? status.currentTime : status.duration;
+  const busy = status.isBuffering && status.playing;
 
   return (
     <View
       style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
-      accessibilityLabel={titre ?? t('lecteurAudio.messageVocal')}
+      accessibilityLabel={title ?? t('lecteurAudio.messageVocal')}
     >
       <Pressable
-        onPress={basculer}
-        onLongPress={surAppuiLong}
+        onPress={toggle}
+        onLongPress={onLongPress}
         delayLongPress={350}
         hitSlop={6}
         accessibilityRole="button"
@@ -419,12 +419,12 @@ function LecteurAudioActif({ c, url, title: titre, onLongPress: surAppuiLong }: 
         >
           {/* Icônes DESSINÉES, pas des emojis : un « ⏸ » emoji s'affiche
               toujours en orange sur Android, sourd à la couleur du thème. */}
-          {occupe ? (
+          {busy ? (
             <ActivityIndicator color={c.onAccent} size="small" />
           ) : status.playing ? (
-            <View style={styles.iconePause}>
-              <View style={[styles.barrePause, { backgroundColor: c.onAccent }]} />
-              <View style={[styles.barrePause, { backgroundColor: c.onAccent }]} />
+            <View style={styles.pauseIcon}>
+              <View style={[styles.pauseBar, { backgroundColor: c.onAccent }]} />
+              <View style={[styles.pauseBar, { backgroundColor: c.onAccent }]} />
             </View>
           ) : (
             <View style={[styles.playIcon, { borderLeftColor: c.onAccent }]} />
@@ -434,21 +434,21 @@ function LecteurAudioActif({ c, url, title: titre, onLongPress: surAppuiLong }: 
 
       <Pressable
         style={styles.center}
-        onPress={surSeek}
-        onLongPress={surAppuiLong}
+        onPress={onSeek}
+        onLongPress={onLongPress}
         delayLongPress={350}
       >
-        <View style={styles.bars} onLayout={surLayout}>
-          {couleurs.map((couleur, i) => (
-            <Barre key={i} levels={niveaux} index={i} color={couleur} />
+        <View style={styles.bars} onLayout={onLayout}>
+          {colors.map((color, i) => (
+            <Bar key={i} levels={levels} index={i} color={color} />
           ))}
         </View>
         <View style={[styles.track, { backgroundColor: c.border }]}>
-          <View style={[styles.pisteRemplie, { backgroundColor: c.accent, width: `${progres * 100}%` }]} />
+          <View style={[styles.filledTrack, { backgroundColor: c.accent, width: `${progress * 100}%` }]} />
         </View>
       </Pressable>
 
-      <Text style={[styles.temps, { color: c.dimmed }]}>{mmss(tempsAffiche)}</Text>
+      <Text style={[styles.time, { color: c.dimmed }]}>{mmss(shownTime)}</Text>
     </View>
   );
 }
@@ -481,8 +481,8 @@ const styles = StyleSheet.create({
     borderBottomColor: 'transparent',
     marginLeft: 3, // recentrage optique du triangle
   },
-  iconePause: { flexDirection: 'row', gap: 4 },
-  barrePause: { width: 4, height: 15, borderRadius: 1.5 },
+  pauseIcon: { flexDirection: 'row', gap: 4 },
+  pauseBar: { width: 4, height: 15, borderRadius: 1.5 },
   center: { flex: 1, gap: 5 },
   bars: {
     flexDirection: 'row',
@@ -491,10 +491,10 @@ const styles = StyleSheet.create({
     height: H_MAX,
   },
   bar: { width: 3, borderRadius: 2 },
-  barreRepos: { height: H_MIN },
+  idleBar: { height: H_MIN },
   track: { height: 3, borderRadius: 2, overflow: 'hidden' },
-  pisteRemplie: { height: 3, borderRadius: 2 },
-  temps: {
+  filledTrack: { height: 3, borderRadius: 2 },
+  time: {
     fontFamily: FONTS.body,
     fontSize: 11,
     minWidth: 34,

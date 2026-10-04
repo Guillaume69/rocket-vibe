@@ -17,12 +17,12 @@ beforeEach(() => {
 
 describe('sourcePieceJointe', () => {
   test('la feuille répond AU TAP, sans se fermer — c’est tout l’enjeu', async () => {
-    const attente = requestSource();
+    const wait = requestSource();
     reportSheetMounted();
 
     answerSource('library'); // le tap
 
-    assert.equal(await attente, 'library');
+    assert.equal(await wait, 'library');
     assert.equal(
       isSheetMounted(),
       true,
@@ -31,12 +31,12 @@ describe('sourcePieceJointe', () => {
   });
 
   test('fermée sans choix (balayage, retour matériel) : la demande est soldée à null', async () => {
-    const attente = requestSource();
+    const wait = requestSource();
     reportSheetMounted();
 
     reportSheetUnmounted();
 
-    assert.equal(await attente, null);
+    assert.equal(await wait, null);
     assert.equal(isSheetMounted(), false);
   });
 
@@ -52,23 +52,23 @@ describe('sourcePieceJointe', () => {
   });
 
   test('le démontage qui SUIT un choix ne réécrit rien — repondreSource est idempotent', async () => {
-    const attente = requestSource();
+    const wait = requestSource();
     reportSheetMounted();
 
     answerSource('photo');
     reportSheetUnmounted(); // le back() du composeur, une fois le sélecteur revenu
 
-    assert.equal(await attente, 'photo', 'le choix survit au démontage');
+    assert.equal(await wait, 'photo', 'le choix survit au démontage');
   });
 
   test('une nouvelle demande solde la précédente, restée en attente', async () => {
-    const premiere = requestSource();
-    const seconde = requestSource();
+    const first = requestSource();
+    const second = requestSource();
 
     answerSource('file');
 
-    assert.equal(await premiere, null);
-    assert.equal(await seconde, 'file');
+    assert.equal(await first, null);
+    assert.equal(await second, 'file');
   });
 
   test('répondre sans demande en cours ne jette pas', () => {

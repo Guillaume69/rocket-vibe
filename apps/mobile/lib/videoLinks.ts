@@ -27,7 +27,7 @@ export type VideoLink = {
   thumbnail: string | null;
 };
 
-type Motif = {
+type Pattern = {
   provider: VideoProvider;
   name: string;
   re: RegExp;
@@ -35,7 +35,7 @@ type Motif = {
   thumbnail: (id: string) => string | null;
 };
 
-const vignetteYouTube = (id: string) => `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+const youTubeThumbnail = (id: string) => `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
 const urlYouTube = (id: string) => `https://www.youtube.com/watch?v=${id}`;
 
 /**
@@ -46,35 +46,35 @@ const urlYouTube = (id: string) => `https://www.youtube.com/watch?v=${id}`;
  * (son `urls` reste vide, la carte n'aurait même pas de titre). Non capturant :
  * le groupe 1 reste l'identifiant.
  */
-const DEBUT = String.raw`(?:^|[^\w@.-])`;
+const START = String.raw`(?:^|[^\w@.-])`;
 /** Le schéma et le sous-domaine sont optionnels — un lien se poste souvent nu. */
-const HOTE = String.raw`(?:https?:\/\/)?(?:www\.|m\.)?`;
+const HOST = String.raw`(?:https?:\/\/)?(?:www\.|m\.)?`;
 
-const MOTIFS: readonly Motif[] = [
+const PATTERNS: readonly Pattern[] = [
   // youtu.be/ID, youtube.com/shorts|embed|live|v/ID
   {
     provider: 'youtube',
     name: 'YouTube',
     re: new RegExp(
-      `${DEBUT}${HOTE}(?:youtu\\.be\\/|youtube\\.com\\/(?:shorts|embed|live|v)\\/)([A-Za-z0-9_-]{11})`,
+      `${START}${HOST}(?:youtu\\.be\\/|youtube\\.com\\/(?:shorts|embed|live|v)\\/)([A-Za-z0-9_-]{11})`,
       'gi',
     ),
     url: urlYouTube,
-    thumbnail: vignetteYouTube,
+    thumbnail: youTubeThumbnail,
   },
   // youtube.com/watch?...v=ID (le v= n'est pas forcément le premier paramètre)
   {
     provider: 'youtube',
     name: 'YouTube',
-    re: new RegExp(`${DEBUT}${HOTE}youtube\\.com\\/watch\\?[^\\s"'<>]*v=([A-Za-z0-9_-]{11})`, 'gi'),
+    re: new RegExp(`${START}${HOST}youtube\\.com\\/watch\\?[^\\s"'<>]*v=([A-Za-z0-9_-]{11})`, 'gi'),
     url: urlYouTube,
-    thumbnail: vignetteYouTube,
+    thumbnail: youTubeThumbnail,
   },
   // dailymotion.com/video/ID, dai.ly/ID
   {
     provider: 'dailymotion',
     name: 'Dailymotion',
-    re: new RegExp(`${DEBUT}${HOTE}(?:dailymotion\\.com\\/video\\/|dai\\.ly\\/)([A-Za-z0-9]+)`, 'gi'),
+    re: new RegExp(`${START}${HOST}(?:dailymotion\\.com\\/video\\/|dai\\.ly\\/)([A-Za-z0-9]+)`, 'gi'),
     url: (id) => `https://www.dailymotion.com/video/${id}`,
     thumbnail: (id) => `https://www.dailymotion.com/thumbnail/video/${id}`,
   },
@@ -82,7 +82,7 @@ const MOTIFS: readonly Motif[] = [
   {
     provider: 'vimeo',
     name: 'Vimeo',
-    re: new RegExp(`${DEBUT}${HOTE}vimeo\\.com\\/(\\d+)`, 'gi'),
+    re: new RegExp(`${START}${HOST}vimeo\\.com\\/(\\d+)`, 'gi'),
     url: (id) => `https://vimeo.com/${id}`,
     thumbnail: () => null,
   },
@@ -93,20 +93,20 @@ const MOTIFS: readonly Motif[] = [
  * doublon (même fournisseur + même id), plafonnés à `max` pour qu'un message
  * truffé de liens ne noie pas le fil.
  */
-export function detectVideoLinks(texte: string | null | undefined, max = 3): VideoLink[] {
-  if (texte === null || texte === undefined || texte === '') return [];
-  const trouves: { pos: number; link: VideoLink }[] = [];
-  const vus = new Set<string>();
+export function detectVideoLinks(text: string | null | undefined, max = 3): VideoLink[] {
+  if (text === null || text === undefined || text === '') return [];
+  const found: { pos: number; link: VideoLink }[] = [];
+  const seen = new Set<string>();
 
-  for (const m of MOTIFS) {
+  for (const m of PATTERNS) {
     m.re.lastIndex = 0; // regex partagée + drapeau `g` : réarmer avant chaque balayage
     let r: RegExpExecArray | null;
-    while ((r = m.re.exec(texte)) !== null) {
+    while ((r = m.re.exec(text)) !== null) {
       const id = r[1]!;
-      const cle = `${m.provider}:${id}`;
-      if (vus.has(cle)) continue;
-      vus.add(cle);
-      trouves.push({
+      const key = `${m.provider}:${id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      found.push({
         pos: r.index,
         link: {
           provider: m.provider,
@@ -119,8 +119,8 @@ export function detectVideoLinks(texte: string | null | undefined, max = 3): Vid
     }
   }
 
-  trouves.sort((a, b) => a.pos - b.pos);
-  return trouves.slice(0, max).map((t) => t.link);
+  found.sort((a, b) => a.pos - b.pos);
+  return found.slice(0, max).map((t) => t.link);
 }
 
 /**
@@ -138,7 +138,7 @@ export function isVideoLink(url: string): boolean {
  * playlist et ses `utm_*`) de la carte détectée dans le texte.
  */
 export function idVideo(url: string): string | null {
-  for (const m of MOTIFS) {
+  for (const m of PATTERNS) {
     m.re.lastIndex = 0; // regex partagée + drapeau `g` : réarmer avant chaque test
     const r = m.re.exec(url);
     if (r !== null) return r[1]!;

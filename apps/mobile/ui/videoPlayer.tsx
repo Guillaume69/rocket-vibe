@@ -29,9 +29,9 @@ import { type Colors, FONTS } from './theme.ts';
 export function VideoPlayer({
   c,
   url,
-  title: titre,
-  onLongPress: surAppuiLong,
-  overlay: superposition,
+  title,
+  onLongPress,
+  overlay,
 }: {
   c: Colors;
   url: string;
@@ -41,17 +41,17 @@ export function VideoPlayer({
   overlay?: React.ReactNode;
 }) {
   const t = useT();
-  const [ouvert, setOuvert] = useState(false);
+  const [open, setOpen] = useState(false);
 
   return (
     <>
       <Pressable
-        onPress={() => setOuvert(true)}
-        onLongPress={surAppuiLong}
+        onPress={() => setOpen(true)}
+        onLongPress={onLongPress}
         delayLongPress={350}
         style={[styles.card, { borderColor: c.border }]}
         accessibilityRole="button"
-        accessibilityLabel={titre ? t('lecteurVideo.lireAvecTitre', { titre }) : t('lecteurVideo.lire')}
+        accessibilityLabel={title ? t('lecteurVideo.lireAvecTitre', { titre: title }) : t('lecteurVideo.lire')}
       >
         {/* Aurore comète, tamisée par un voile sombre : un rappel de couleur
             sans que la carte crie. */}
@@ -75,13 +75,13 @@ export function VideoPlayer({
 
         <View style={styles.footer}>
           <Text style={[styles.label, { color: c.text }]} numberOfLines={1}>
-            {titre ?? t('lecteurVideo.video')}
+            {title ?? t('lecteurVideo.video')}
           </Text>
         </View>
-        {superposition}
+        {overlay}
       </Pressable>
 
-      {ouvert && <VideoModal c={c} url={url} title={titre ?? null} onClose={() => setOuvert(false)} />}
+      {open && <VideoModal c={c} url={url} title={title ?? null} onClose={() => setOpen(false)} />}
     </>
   );
 }
@@ -89,8 +89,8 @@ export function VideoPlayer({
 export function VideoModal({
   c,
   url,
-  title: titre,
-  onClose: onFermer,
+  title,
+  onClose,
 }: {
   c: Colors;
   url: string;
@@ -112,7 +112,7 @@ export function VideoModal({
       transparent
       animationType="fade"
       statusBarTranslucent
-      onRequestClose={onFermer}
+      onRequestClose={onClose}
       supportedOrientations={['portrait', 'landscape']}
     >
       <View style={[styles.background, { backgroundColor: c.fullScreenBackground }]}>
@@ -127,7 +127,7 @@ export function VideoModal({
 
       {/* Croix de fermeture, sa propre cible au-dessus du lecteur. */}
       <Pressable
-        onPress={onFermer}
+        onPress={onClose}
         hitSlop={12}
         style={[styles.close, { top: insets.top + 8, backgroundColor: c.card + 'D9' }]}
         accessibilityRole="button"
@@ -136,10 +136,10 @@ export function VideoModal({
         <Text style={[styles.cross, { color: c.text }]}>✕</Text>
       </Pressable>
 
-      {titre != null && titre !== '' && (
+      {title != null && title !== '' && (
         <View style={[styles.caption, { bottom: insets.bottom + 12 }]} pointerEvents="none">
           <Text style={[styles.captionText, { color: c.text }]} numberOfLines={2}>
-            {titre}
+            {title}
           </Text>
         </View>
       )}
@@ -181,7 +181,7 @@ const styles = StyleSheet.create({
     right: 10,
     bottom: 8,
   },
-  label: { fontFamily: FONTS.corpsSemi, fontSize: 12 },
+  label: { fontFamily: FONTS.bodySemi, fontSize: 12 },
   // La couleur (`fondPleinEcran`) vient du thème, posée au rendu.
   background: {
     flex: 1,
@@ -198,7 +198,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cross: { fontFamily: FONTS.corpsFort, fontSize: 17, lineHeight: 20 },
+  cross: { fontFamily: FONTS.bodyStrong, fontSize: 17, lineHeight: 20 },
   caption: { position: 'absolute', left: 16, right: 16, alignItems: 'center' },
   captionText: { fontFamily: FONTS.body, fontSize: 13, textAlign: 'center' },
 });

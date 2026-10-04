@@ -38,16 +38,16 @@ import { useEtagsAvatars } from './identities.tsx';
 import { useDayFormatter } from './i18n.ts';
 import { type Colors, avatarGradient, type Gradient, FONTS } from './theme.ts';
 
-const DEBUT = { x: 0, y: 0 } as const;
-const FIN = { x: 1, y: 0 } as const;
-const FIN_DIAG = { x: 1, y: 1 } as const;
+const START = { x: 0, y: 0 } as const;
+const END = { x: 1, y: 0 } as const;
+const DIAG_END = { x: 1, y: 1 } as const;
 
 /** Bouton d'action principale : fond en dégradé, texte Baloo 2. */
 export function PrimaryButton({
   c,
-  title: titre,
+  title,
   onPress,
-  busy: occupe = false,
+  busy = false,
   style,
 }: {
   c: Colors;
@@ -59,19 +59,19 @@ export function PrimaryButton({
   return (
     <Pressable
       onPress={onPress}
-      disabled={occupe}
+      disabled={busy}
       style={({ pressed }) => [
-        styles.ctaEnveloppe,
+        styles.ctaWrapper,
         // Halo rose diffus sous le bouton (New Arch : `boxShadow` natif).
-        { boxShadow: `0px 10px 24px -6px ${c.accent}99`, opacity: pressed || occupe ? 0.75 : 1 },
+        { boxShadow: `0px 10px 24px -6px ${c.accent}99`, opacity: pressed || busy ? 0.75 : 1 },
         style,
       ]}
     >
-      <LinearGradient colors={c.ctaGradient} start={DEBUT} end={FIN} style={styles.cta}>
-        {occupe ? (
+      <LinearGradient colors={c.ctaGradient} start={START} end={END} style={styles.cta}>
+        {busy ? (
           <ActivityIndicator color={c.onAccent} />
         ) : (
-          <Text style={[styles.ctaTexte, { color: c.onAccent }]}>{titre}</Text>
+          <Text style={[styles.ctaText, { color: c.onAccent }]}>{title}</Text>
         )}
       </LinearGradient>
     </Pressable>
@@ -81,19 +81,19 @@ export function PrimaryButton({
 /** Logotype « rocket-vibe » rempli par le dégradé de marque (texte masqué). */
 export function Brand({
   c,
-  size: taille = 32,
-  text: texte = 'rocket-vibe',
+  size = 32,
+  text = 'rocket-vibe',
 }: {
   c: Colors;
   size?: number;
   text?: string;
 }) {
-  const styleTexte: TextStyle = { fontFamily: FONTS.titreFort, fontSize: taille, lineHeight: taille * 1.15 };
+  const textStyle: TextStyle = { fontFamily: FONTS.titleStrong, fontSize: size, lineHeight: size * 1.15 };
   return (
-    <MaskedView maskElement={<Text style={styleTexte}>{texte}</Text>}>
-      <LinearGradient colors={c.brandGradient} start={DEBUT} end={FIN}>
+    <MaskedView maskElement={<Text style={textStyle}>{text}</Text>}>
+      <LinearGradient colors={c.brandGradient} start={START} end={END}>
         {/* Le texte transparent donne sa taille au dégradé sous le masque. */}
-        <Text style={[styleTexte, styles.invisible]}>{texte}</Text>
+        <Text style={[textStyle, styles.invisible]}>{text}</Text>
       </LinearGradient>
     </MaskedView>
   );
@@ -111,14 +111,14 @@ export function Brand({
  */
 export function AvatarTile({
   c,
-  key: cle,
-  initial: initiale,
-  size: taille = 44,
-  radius: rayon = 15,
-  neutral: neutre = false,
+  key,
+  initial,
+  size = 44,
+  radius = 15,
+  neutral = false,
   deg,
-  textColor: couleurTexte,
-  child: enfant,
+  textColor,
+  child,
   uri,
   style,
 }: {
@@ -138,44 +138,44 @@ export function AvatarTile({
   style?: StyleProp<ViewStyle>;
 }) {
   const gradient: Gradient =
-    deg ?? (neutre ? c.neutralGradient : avatarGradient(cle ?? '', c.avatarGradients));
+    deg ?? (neutral ? c.neutralGradient : avatarGradient(key ?? '', c.avatarGradients));
 
   // Une photo échouée (SVG placeholder, réseau) fait retomber sur la tuile. On
   // réarme à chaque changement d'`uri` — lignes de liste recyclées — via le
   // motif « ajuster l'état pendant le rendu » (React docs), pas un effet.
-  const [photoKO, setPhotoKO] = useState(false);
-  const [uriSuivie, setUriSuivie] = useState(uri);
-  if (uri !== uriSuivie) {
-    setUriSuivie(uri);
-    setPhotoKO(false);
+  const [photoFailed, setPhotoFailed] = useState(false);
+  const [trackedUri, setTrackedUri] = useState(uri);
+  if (uri !== trackedUri) {
+    setTrackedUri(uri);
+    setPhotoFailed(false);
   }
-  const photo = typeof uri === 'string' && uri !== '' && !photoKO ? uri : null;
+  const photo = typeof uri === 'string' && uri !== '' && !photoFailed ? uri : null;
 
   return (
     <LinearGradient
       colors={gradient}
-      start={DEBUT}
-      end={FIN_DIAG}
-      style={[{ width: taille, height: taille, borderRadius: rayon }, styles.center, style]}
+      start={START}
+      end={DIAG_END}
+      style={[{ width: size, height: size, borderRadius: radius }, styles.center, style]}
     >
-      {enfant ?? (
+      {child ?? (
         <Text
           style={{
-            fontFamily: FONTS.titreFort,
-            fontSize: taille * 0.4,
-            color: couleurTexte ?? c.onAvatarGradient,
+            fontFamily: FONTS.titleStrong,
+            fontSize: size * 0.4,
+            color: textColor ?? c.onAvatarGradient,
           }}
           numberOfLines={1}
         >
-          {(initiale ?? '?').toUpperCase()}
+          {(initial ?? '?').toUpperCase()}
         </Text>
       )}
       {photo !== null && (
         <Image
           source={{ uri: photo }}
-          onError={() => setPhotoKO(true)}
+          onError={() => setPhotoFailed(true)}
           resizeMode="cover"
-          style={[StyleSheet.absoluteFill, { borderRadius: rayon }]}
+          style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
         />
       )}
     </LinearGradient>
@@ -189,16 +189,16 @@ export function AvatarTile({
  */
 export function RoomAvatar({
   c,
-  name: nom,
+  name,
   type,
-  encrypted: chiffre,
-  encryptedUnlocked: chiffreDeverrouille = false,
+  encrypted,
+  encryptedUnlocked = false,
   rid,
-  dmOtherUid: dmAutreUid,
+  dmOtherUid,
   avatarEtag,
   client,
-  size: taille = 44,
-  radius: rayon = 15,
+  size = 44,
+  radius = 15,
 }: {
   c: Colors;
   name: string;
@@ -229,42 +229,42 @@ export function RoomAvatar({
   // Déverrouillé : on retombe sur le rendu ORDINAIRE (tuile colorée, `#` ou
   // avatar) — le salon est lisible, il ressemble à un salon lisible. `🔓` vs
   // `🔒` seuls étaient trop proches à cette taille pour signaler l'état.
-  if (chiffre && !chiffreDeverrouille) {
+  if (encrypted && !encryptedUnlocked) {
     return (
       <AvatarTile
         c={c}
         neutral
-        size={taille}
-        radius={rayon}
-        child={<Text style={{ fontSize: Math.round(taille * 0.42) }}>🔒</Text>}
+        size={size}
+        radius={radius}
+        child={<Text style={{ fontSize: Math.round(size * 0.42) }}>🔒</Text>}
       />
     );
   }
-  const estDM = type === 'd';
+  const isDM = type === 'd';
   // DM : la photo de l'autre par uid (on n'a pas son pseudo) ; canal/groupe :
   // l'avatar de salon. Absent → SVG côté serveur → repli sur la tuile.
   const uri = urlAvatar(
     client,
-    estDM
+    isDM
       ? {
-          uid: dmAutreUid,
-          etag: typeof dmAutreUid === 'string' ? etags.byUid.get(dmAutreUid) : null,
+          uid: dmOtherUid,
+          etag: typeof dmOtherUid === 'string' ? etags.byUid.get(dmOtherUid) : null,
         }
       : { rid, etag: avatarEtag },
   );
   return (
     <AvatarTile
       c={c}
-      key={nom}
-      initial={estDM ? nom.charAt(0) || '?' : '#'}
+      key={name}
+      initial={isDM ? name.charAt(0) || '?' : '#'}
       uri={uri}
-      size={taille}
-      radius={rayon}
+      size={size}
+      radius={radius}
     />
   );
 }
 
-const COMETE_LARGEUR = 120;
+const COMET_WIDTH = 120;
 
 /**
  * Barre de synchro : une fine comète au dégradé de marque balaie le bord bas
@@ -278,18 +278,18 @@ const COMETE_LARGEUR = 120;
  * fournit `actif` (via `useActivite`) : allumage → balayage en boucle + fondu
  * d'entrée ; extinction → fondu de sortie, puis la boucle est coupée.
  */
-export function SyncBar({ c, active: actif }: { c: Colors; active: boolean }) {
+export function SyncBar({ c, active }: { c: Colors; active: boolean }) {
   // Largeur réelle mesurée (onLayout) : le balayage va de tout-à-gauche
   // (hors piste) à tout-à-droite, indépendant de la taille d'écran.
-  const largeur = useSharedValue(0);
-  const progression = useSharedValue(0);
-  const opacite = useSharedValue(0);
+  const width = useSharedValue(0);
+  const progress = useSharedValue(0);
+  const opacity = useSharedValue(0);
 
   useEffect(() => {
-    if (actif) {
-      opacite.value = withTiming(1, { duration: 220 });
-      progression.value = 0;
-      progression.value = withRepeat(
+    if (active) {
+      opacity.value = withTiming(1, { duration: 220 });
+      progress.value = 0;
+      progress.value = withRepeat(
         withTiming(1, { duration: 1100, easing: Easing.inOut(Easing.quad) }),
         -1,
         false,
@@ -297,32 +297,32 @@ export function SyncBar({ c, active: actif }: { c: Colors; active: boolean }) {
     } else {
       // Fondu de sortie d'abord ; la boucle est coupée une fois invisible —
       // la figer en pleine course ne se voit pas derrière l'opacité nulle.
-      opacite.value = withTiming(0, { duration: 320 });
-      cancelAnimation(progression);
+      opacity.value = withTiming(0, { duration: 320 });
+      cancelAnimation(progress);
     }
-  }, [actif, opacite, progression]);
+  }, [active, opacity, progress]);
 
-  const styleComete = useAnimatedStyle(() => ({
-    opacity: opacite.value,
+  const cometStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
     transform: [
-      { translateX: -COMETE_LARGEUR + progression.value * (largeur.value + COMETE_LARGEUR) },
+      { translateX: -COMET_WIDTH + progress.value * (width.value + COMET_WIDTH) },
     ],
   }));
 
-  const degradeComete: Gradient = [c.accent + '00', c.accent, c.purple, c.cyan, c.cyan + '00'];
+  const cometGradient: Gradient = [c.accent + '00', c.accent, c.purple, c.cyan, c.cyan + '00'];
 
   return (
     <View
-      style={styles.pisteSynchro}
+      style={styles.syncTrack}
       onLayout={(e) => {
-        largeur.value = e.nativeEvent.layout.width;
+        width.value = e.nativeEvent.layout.width;
       }}
     >
-      <Animated.View style={[styles.comete, styleComete]}>
+      <Animated.View style={[styles.comet, cometStyle]}>
         <LinearGradient
-          colors={degradeComete}
-          start={DEBUT}
-          end={FIN}
+          colors={cometGradient}
+          start={START}
+          end={END}
           style={StyleSheet.absoluteFill}
         />
       </Animated.View>
@@ -347,47 +347,47 @@ export function SyncBar({ c, active: actif }: { c: Colors; active: boolean }) {
  * pouvoir jouer le repli quand `phrase` repasse à `null`.
  */
 export function TypingIndicator({ c, phrase }: { c: Colors; phrase: string | null }) {
-  const actif = phrase !== null;
+  const active = phrase !== null;
   // Retenir la dernière phrase le temps du repli : le texte ne doit pas
   // s'effacer d'un coup avant que la pastille se soit résorbée. Ajusté PENDANT
   // le rendu (comme `TuileAvatar` ci-dessus), pas dans un effet — un
   // `setState` synchrone en effet déclenche des rendus en cascade (react-hooks).
-  const [derniere, setDerniere] = useState(phrase);
-  if (phrase !== null && phrase !== derniere) setDerniere(phrase);
+  const [last, setLast] = useState(phrase);
+  if (phrase !== null && phrase !== last) setLast(phrase);
 
   // Hauteur naturelle mesurée du contenu (robuste au grossissement des polices,
   // plus sûr qu'une constante en dur). Tant qu'elle vaut 0, l'enveloppe n'impose
   // pas de hauteur : le contenu absolu se mesure quand même, puis on la fige.
-  const [hauteur, setHauteur] = useState(0);
-  const ouverture = useSharedValue(0);
+  const [height, setHeight] = useState(0);
+  const opening = useSharedValue(0);
   useEffect(() => {
     // Ressort tendu mais amorti : l'ouverture « liquide », sans rebond mou.
-    ouverture.value = withSpring(actif ? 1 : 0, { damping: 20, mass: 0.7, stiffness: 220 });
-  }, [actif, ouverture]);
+    opening.value = withSpring(active ? 1 : 0, { damping: 20, mass: 0.7, stiffness: 220 });
+  }, [active, opening]);
 
-  const styleEnveloppe = useAnimatedStyle(() => ({
-    height: ouverture.value * hauteur,
-    opacity: ouverture.value,
+  const wrapperStyle = useAnimatedStyle(() => ({
+    height: opening.value * height,
+    opacity: opening.value,
   }));
 
   // Les points animés REMPLACENT le « … » final des clés `salon.saisieUn/Deux/N`.
-  const texte = (phrase ?? derniere ?? '').replace(/…$/u, '');
+  const text = (phrase ?? last ?? '').replace(/…$/u, '');
 
   return (
     <Animated.View
-      style={[styles.saisieEnveloppe, hauteur > 0 && styleEnveloppe]}
+      style={[styles.inputWrapper, height > 0 && wrapperStyle]}
       pointerEvents="none"
     >
       <View
         onLayout={(e: LayoutChangeEvent) => {
           const h = e.nativeEvent.layout.height;
-          if (h > 0 && h !== hauteur) setHauteur(h);
+          if (h > 0 && h !== height) setHeight(h);
         }}
-        style={styles.saisieContenu}
+        style={styles.inputContent}
       >
         <View
           style={[
-            styles.saisiePastille,
+            styles.typingChip,
             {
               backgroundColor: c.card,
               borderColor: c.border,
@@ -395,13 +395,13 @@ export function TypingIndicator({ c, phrase }: { c: Colors; phrase: string | nul
             },
           ]}
         >
-          <Text style={[styles.saisieTexte, { color: c.secondaryText }]} numberOfLines={1}>
-            {texte}
+          <Text style={[styles.inputText, { color: c.secondaryText }]} numberOfLines={1}>
+            {text}
           </Text>
-          <View style={styles.saisiePoints}>
-            <PointSaisie c={c} rank={0} />
-            <PointSaisie c={c} rank={1} />
-            <PointSaisie c={c} rank={2} />
+          <View style={styles.typingDots}>
+            <TypingDot c={c} rank={0} />
+            <TypingDot c={c} rank={1} />
+            <TypingDot c={c} rank={2} />
           </View>
         </View>
       </View>
@@ -410,22 +410,22 @@ export function TypingIndicator({ c, phrase }: { c: Colors; phrase: string | nul
 }
 
 /** Un point de l'indicateur : pulse opacité + petit saut, en boucle. */
-function PointSaisie({ c, rank: rang }: { c: Colors; rank: number }) {
+function TypingDot({ c, rank }: { c: Colors; rank: number }) {
   const v = useSharedValue(0);
   useEffect(() => {
     // Décalage initial UNE fois, HORS de la boucle : les trois points gardent
     // leur phase — l'onde reste régulière au lieu de dériver à chaque cycle.
     v.value = withDelay(
-      rang * 150,
+      rank * 150,
       withRepeat(withTiming(1, { duration: 480, easing: Easing.inOut(Easing.quad) }), -1, true),
     );
     return () => cancelAnimation(v);
-  }, [v, rang]);
+  }, [v, rank]);
   const style = useAnimatedStyle(() => ({
     opacity: 0.3 + v.value * 0.7,
     transform: [{ translateY: -v.value * 2.5 }],
   }));
-  return <Animated.View style={[styles.saisiePoint, { backgroundColor: c.accent }, style]} />;
+  return <Animated.View style={[styles.typingDot, { backgroundColor: c.accent }, style]} />;
 }
 
 /**
@@ -441,8 +441,8 @@ function PointSaisie({ c, rank: rang }: { c: Colors; rank: number }) {
 export function UnreadBadge({ c, n }: { c: Colors; n: number }) {
   if (n < 1) return null;
   return (
-    <View style={[styles.badgeNonLus, { backgroundColor: c.yellow }]}>
-      <Text style={[styles.badgeNonLusTexte, { color: c.onYellow }]}>{n > 99 ? '99+' : n}</Text>
+    <View style={[styles.unreadBadge, { backgroundColor: c.yellow }]}>
+      <Text style={[styles.unreadBadgeText, { color: c.onYellow }]}>{n > 99 ? '99+' : n}</Text>
     </View>
   );
 }
@@ -453,13 +453,13 @@ export function UnreadBadge({ c, n }: { c: Colors; n: number }) {
  * silhouette que la barre « nouveaux messages » du salon, mais aux couleurs
  * discrètes : c'est un repère, pas une alerte.
  */
-export function DaySeparator({ c, ts: horodatage }: { c: Colors; ts: number }) {
-  const formatJour = useDayFormatter();
+export function DaySeparator({ c, ts }: { c: Colors; ts: number }) {
+  const formatDay = useDayFormatter();
   return (
-    <View style={styles.separateurJour}>
-      <View style={[styles.traitJour, { backgroundColor: c.border }]} />
-      <Text style={[styles.texteJour, { color: c.dimmed }]}>{formatJour(horodatage)}</Text>
-      <View style={[styles.traitJour, { backgroundColor: c.border }]} />
+    <View style={styles.daySeparator}>
+      <View style={[styles.dayLine, { backgroundColor: c.border }]} />
+      <Text style={[styles.dayText, { color: c.dimmed }]}>{formatDay(ts)}</Text>
+      <View style={[styles.dayLine, { backgroundColor: c.border }]} />
     </View>
   );
 }
@@ -479,39 +479,39 @@ export type PillFieldProps = {
  * Champ en pilule : contour cyan et anneau au focus, comme le design. Partagé
  * par la connexion et l'écran « Mon profil » — une seule source pour le style.
  */
-export function PillField({ c, label: etiquette, value: valeur, icon: icone, large: grand, multiline: multiligne, ...props }: PillFieldProps) {
+export function PillField({ c, label, value, icon, large, multiline, ...props }: PillFieldProps) {
   const [focus, setFocus] = useState(false);
-  const champ = useRef<TextInput>(null);
+  const field = useRef<TextInput>(null);
   return (
-    <View style={styles.groupeChamp}>
-      <Text style={[styles.champEtiquette, { color: c.dimmed }]}>{etiquette}</Text>
+    <View style={styles.fieldGroup}>
+      <Text style={[styles.fieldLabel, { color: c.dimmed }]}>{label}</Text>
       {/* Pressable : taper N'IMPORTE OÙ dans la pilule (padding, icône) focalise
           le champ — le padding vit sur l'enveloppe, pas sur l'input lui-même. */}
       <Pressable
-        onPress={() => champ.current?.focus()}
+        onPress={() => field.current?.focus()}
         style={[
-          styles.pilule,
-          multiligne === true && styles.piluleMultiligne,
+          styles.pill,
+          multiline === true && styles.pillMultiline,
           { backgroundColor: c.card, borderColor: focus ? c.cyan : c.border },
           // Anneau diffus au focus, DÉRIVÉ du token (`24` hex ≈ 14 % d'opacité).
           focus && { boxShadow: `0px 0px 0px 3px ${c.cyan}24` },
         ]}
       >
-        {icone !== undefined && <Text style={styles.champIcone}>{icone}</Text>}
+        {icon !== undefined && <Text style={styles.fieldIcon}>{icon}</Text>}
         <TextInput
-          ref={champ}
-          value={valeur}
+          ref={field}
+          value={value}
           autoCapitalize="none"
           autoCorrect={false}
-          returnKeyType={multiligne === true ? 'default' : 'go'}
+          returnKeyType={multiline === true ? 'default' : 'go'}
           placeholderTextColor={c.tertiaryText}
-          multiline={multiligne}
+          multiline={multiline}
           {...props}
           onFocus={() => setFocus(true)}
           onBlur={() => setFocus(false)}
           style={[
-            grand === true ? styles.saisieGrande : styles.saisie,
-            multiligne === true && styles.saisieMultiligne,
+            large === true ? styles.inputLarge : styles.input,
+            multiline === true && styles.inputMultiline,
             { color: c.text },
           ]}
         />
@@ -521,12 +521,12 @@ export function PillField({ c, label: etiquette, value: valeur, icon: icone, lar
 }
 
 const styles = StyleSheet.create({
-  ctaEnveloppe: { borderRadius: 16, overflow: 'hidden' },
+  ctaWrapper: { borderRadius: 16, overflow: 'hidden' },
   cta: { paddingVertical: 15, paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center', minHeight: 52 },
-  ctaTexte: { fontFamily: FONTS.title, fontSize: 16 },
+  ctaText: { fontFamily: FONTS.title, fontSize: 16 },
   invisible: { opacity: 0 },
   center: { alignItems: 'center', justifyContent: 'center' },
-  pisteSynchro: {
+  syncTrack: {
     position: 'absolute',
     left: 0,
     right: 0,
@@ -535,13 +535,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     pointerEvents: 'none',
   },
-  comete: { position: 'absolute', top: 0, bottom: 0, width: COMETE_LARGEUR },
+  comet: { position: 'absolute', top: 0, bottom: 0, width: COMET_WIDTH },
   // Enveloppe en FLUX (pas en absolu) : sa hauteur animée pousse la liste.
   // `overflow: hidden` clippe le contenu ancré en bas → effet d'émergence.
-  saisieEnveloppe: { width: '100%', overflow: 'hidden' },
+  inputWrapper: { width: '100%', overflow: 'hidden' },
   // Ancré au bas de l'enveloppe : quand elle s'ouvre de 0 à sa hauteur, la
   // pastille se dévoile du bas vers le haut, comme sortant du composer.
-  saisieContenu: {
+  inputContent: {
     position: 'absolute',
     left: 0,
     right: 0,
@@ -550,7 +550,7 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
     alignItems: 'flex-start',
   },
-  saisiePastille: {
+  typingChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -560,10 +560,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     maxWidth: '100%',
   },
-  saisieTexte: { fontFamily: FONTS.body, fontSize: 12, fontStyle: 'italic' },
-  saisiePoints: { flexDirection: 'row', alignItems: 'flex-end', gap: 3, paddingBottom: 2 },
-  saisiePoint: { width: 5, height: 5, borderRadius: 3 },
-  badgeNonLus: {
+  inputText: { fontFamily: FONTS.body, fontSize: 12, fontStyle: 'italic' },
+  typingDots: { flexDirection: 'row', alignItems: 'flex-end', gap: 3, paddingBottom: 2 },
+  typingDot: { width: 5, height: 5, borderRadius: 3 },
+  unreadBadge: {
     minWidth: 22,
     height: 22,
     borderRadius: 11,
@@ -573,13 +573,13 @@ const styles = StyleSheet.create({
   },
   // `lineHeight` explicite : sans lui, Android ajoute au Text le padding de
   // police de Nunito, asymétrique, et le chiffre se pose bas dans la capsule.
-  badgeNonLusTexte: { fontFamily: FONTS.corpsFort, fontSize: 12, lineHeight: 14 },
-  separateurJour: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
-  traitJour: { flex: 1, height: 1, borderRadius: 1 },
-  texteJour: { fontFamily: FONTS.corpsSemi, fontSize: 11.5 },
-  groupeChamp: { gap: 6 },
-  champEtiquette: { fontFamily: FONTS.corpsGras, fontSize: 12.5, paddingLeft: 4 },
-  pilule: {
+  unreadBadgeText: { fontFamily: FONTS.bodyStrong, fontSize: 12, lineHeight: 14 },
+  daySeparator: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
+  dayLine: { flex: 1, height: 1, borderRadius: 1 },
+  dayText: { fontFamily: FONTS.bodySemi, fontSize: 11.5 },
+  fieldGroup: { gap: 6 },
+  fieldLabel: { fontFamily: FONTS.bodyBold, fontSize: 12.5, paddingLeft: 4 },
+  pill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -588,11 +588,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingVertical: 13,
   },
-  piluleMultiligne: { alignItems: 'flex-start' },
-  champIcone: { fontSize: 14 },
-  saisie: { flex: 1, fontFamily: FONTS.corpsSemi, fontSize: 15, padding: 0 },
-  saisieMultiligne: { minHeight: 76, textAlignVertical: 'top', lineHeight: 21 },
-  saisieGrande: {
+  pillMultiline: { alignItems: 'flex-start' },
+  fieldIcon: { fontSize: 14 },
+  input: { flex: 1, fontFamily: FONTS.bodySemi, fontSize: 15, padding: 0 },
+  inputMultiline: { minHeight: 76, textAlignVertical: 'top', lineHeight: 21 },
+  inputLarge: {
     flex: 1,
     fontFamily: FONTS.title,
     fontSize: 26,

@@ -11,7 +11,7 @@ import {
   words,
 } from './commands.ts';
 
-const LISTE = {
+const LIST = {
   commands: [
     { command: 'shrug', params: 'your_message_optional', description: 'Slash_Shrug_Description', clientOnly: true },
     { command: 'kick', params: '@username', description: 'Remove_someone_from_room', permission: 'remove-user' },
@@ -23,7 +23,7 @@ const LISTE = {
 
 describe('lireCommandes', () => {
   test('lit la liste et met ses clés en mots', () => {
-    const c = readCommands(LISTE, 'en');
+    const c = readCommands(LIST, 'en');
     assert.equal(c.length, 4);
     assert.equal(c[0]!.params, 'your message (optional)');
     assert.equal(c[0]!.description, 'Puts ¯\\_(ツ)_/¯ after your message');
@@ -35,7 +35,7 @@ describe('lireCommandes', () => {
   });
 
   test('en français', () => {
-    assert.equal(readCommands(LISTE, 'fr')[1]!.description, "Retirer quelqu'un du salon");
+    assert.equal(readCommands(LIST, 'fr')[1]!.description, "Retirer quelqu'un du salon");
     assert.equal(words('Slash_Topic_Params', 'fr'), 'sujet');
   });
 
@@ -58,17 +58,17 @@ describe('detecterJetonCommande', () => {
 });
 
 describe('completerCommande', () => {
-  const commandes = readCommands(LISTE, 'en');
-  const noms = (c: { name: string }[]) => c.map((x) => x.name);
+  const commands = readCommands(LIST, 'en');
+  const names = (c: { name: string }[]) => c.map((x) => x.name);
 
   test('triées par nom, filtrées par préfixe', () => {
-    assert.deepEqual(noms(completeCommand(commandes, '', null)), ['kick', 'leave', 'poll', 'shrug']);
-    assert.deepEqual(noms(completeCommand(commandes, 'K', null)), ['kick']);
-    assert.equal(completeCommand(commandes, '', null, 2).length, 2);
+    assert.deepEqual(names(completeCommand(commands, '', null)), ['kick', 'leave', 'poll', 'shrug']);
+    assert.deepEqual(names(completeCommand(commands, 'K', null)), ['kick']);
+    assert.equal(completeCommand(commands, '', null, 2).length, 2);
   });
 
   test('seulement celles que je peux lancer, quand on le sait', () => {
-    assert.deepEqual(noms(completeCommand(commandes, '', ['leave-p'])), ['leave', 'poll', 'shrug']);
+    assert.deepEqual(names(completeCommand(commands, '', ['leave-p'])), ['leave', 'poll', 'shrug']);
   });
 });
 
@@ -97,15 +97,15 @@ describe('messagePrive', () => {
 });
 
 describe('lancerCommande', () => {
-  function fauxClient() {
+  function fakeClient() {
     const posts: { path: string; body: unknown }[] = [];
-    let utilisateur = 0;
+    let user = 0;
     const client = {
       baseUrl: 'http://x',
-      auth: { userId: `u${++utilisateur}-${Math.random()}`, authToken: 't' },
-      get: async <T>(): Promise<T> => LISTE as T,
-      post: async <T>(chemin: string, options: { body?: unknown } = {}): Promise<T> => {
-        posts.push({ path: chemin, body: options.body });
+      auth: { userId: `u${++user}-${Math.random()}`, authToken: 't' },
+      get: async <T>(): Promise<T> => LIST as T,
+      post: async <T>(path: string, options: { body?: unknown } = {}): Promise<T> => {
+        posts.push({ path, body: options.body });
         return { success: true } as T;
       },
     };
@@ -113,27 +113,27 @@ describe('lancerCommande', () => {
   }
 
   test('lance une commande connue, dans le fil le cas échéant', async () => {
-    const { client, posts } = fauxClient();
+    const { client, posts } = fakeClient();
     assert.equal(await runCommand(client, 'R1', '/shrug lol', 'F1'), true);
     assert.equal(posts.length, 1);
-    const corps = posts[0]!.body as Record<string, string>;
+    const body = posts[0]!.body as Record<string, string>;
     assert.equal(posts[0]!.path, 'commands.run');
-    assert.equal(corps.command, 'shrug');
-    assert.equal(corps.params, 'lol');
-    assert.equal(corps.roomId, 'R1');
-    assert.equal(corps.tmid, 'F1');
-    assert.ok(corps.triggerId !== undefined && corps.triggerId.length > 0);
+    assert.equal(body.command, 'shrug');
+    assert.equal(body.params, 'lol');
+    assert.equal(body.roomId, 'R1');
+    assert.equal(body.tmid, 'F1');
+    assert.ok(body.triggerId !== undefined && body.triggerId.length > 0);
   });
 
   test('un nom inconnu ou du texte reste un message', async () => {
-    const { client, posts } = fauxClient();
+    const { client, posts } = fakeClient();
     assert.equal(await runCommand(client, 'R1', '/inconnue', null), false);
     assert.equal(await runCommand(client, 'R1', 'bonjour', null), false);
     assert.equal(posts.length, 0);
   });
 
   test('un refus du serveur remonte', async () => {
-    const { client } = fauxClient();
+    const { client } = fakeClient();
     client.post = async () => {
       throw new Error('refusée');
     };

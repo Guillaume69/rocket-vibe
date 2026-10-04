@@ -28,26 +28,26 @@ import { Tappable } from '../ui/tappable.tsx';
  * immédiatement — la navigation n'attend pas le stream.
  */
 
-type Utilisateur = { _id: string; username?: string; name?: string };
-type SalonPublic = { _id: string; name?: string; t?: string };
-type ReponseSpotlight = { users?: Utilisateur[]; rooms?: SalonPublic[] };
+type User = { _id: string; username?: string; name?: string };
+type PublicRoom = { _id: string; name?: string; t?: string };
+type SpotlightResponse = { users?: User[]; rooms?: PublicRoom[] };
 
 /** Stable (module-level) : une valeur recréée à chaque rendu relancerait l'effet. */
-const AUCUN_RESULTAT: ReponseSpotlight = {};
+const NO_RESULT: SpotlightResponse = {};
 
 export default function SearchScreen() {
-  const { state: etat } = useSession();
-  const synchro = useSync();
+  const { state } = useSession();
+  const sync = useSync();
   const c = useColors();
 
-  if (synchro.phase === 'error') {
+  if (sync.phase === 'error') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
-        <Text style={[styles.errorMessage, { color: c.errorText }]}>{synchro.message}</Text>
+        <Text style={[styles.errorMessage, { color: c.errorText }]}>{sync.message}</Text>
       </View>
     );
   }
-  if (etat.phase !== 'connected' || synchro.phase !== 'ready') {
+  if (state.phase !== 'connected' || sync.phase !== 'ready') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
         <ActivityIndicator />
@@ -55,14 +55,14 @@ export default function SearchScreen() {
     );
   }
   return (
-    <Recherche c={c} client={etat.client} engine={synchro.engine} actions={synchro.actions} />
+    <Search c={c} client={state.client} engine={sync.engine} actions={sync.actions} />
   );
 }
 
-function Recherche({
+function Search({
   c,
   client,
-  engine: moteur,
+  engine,
   actions,
 }: {
   c: Colors;
@@ -70,78 +70,78 @@ function Recherche({
   engine: SyncEngine;
   actions: ProviderActions;
 }) {
-  const routeur = useRouter();
+  const router = useRouter();
   const t = useT();
-  const [requete, setRequete] = useState('');
-  const [occupe, setOccupe] = useState(false);
-  const enVol = useRef(false);
+  const [query, setQuery] = useState('');
+  const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
 
-  const chercherSpotlight = useCallback(
-    (propre: string) => client.get<ReponseSpotlight>('spotlight', { params: { query: propre } }),
+  const searchSpotlight = useCallback(
+    (clean: string) => client.get<SpotlightResponse>('spotlight', { params: { query: clean } }),
     [client],
   );
-  const { results: resultats, message, setMessage } = useDebouncedSearch(
-    requete,
-    AUCUN_RESULTAT,
-    chercherSpotlight,
+  const { results, message, setMessage } = useDebouncedSearch(
+    query,
+    NO_RESULT,
+    searchSpotlight,
     t('recherche.rechercheImpossible'),
   );
 
-  const ouvrirSalon = useCallback(
-    async (brut: Record<string, unknown> | undefined, rid: string | undefined) => {
+  const openRoom = useCallback(
+    async (raw: Record<string, unknown> | undefined, rid: string | undefined) => {
       if (rid === undefined) return;
-      if (brut !== undefined) await moteur.ingestRooms([brut]);
-      routeur.replace({ pathname: '/salon/[rid]', params: { rid } });
+      if (raw !== undefined) await engine.ingestRooms([raw]);
+      router.replace({ pathname: '/salon/[rid]', params: { rid } });
     },
-    [moteur, routeur],
+    [engine, router],
   );
 
-  const demarrerDm = useCallback(
-    async (utilisateur: Utilisateur) => {
-      if (enVol.current || utilisateur.username === undefined) return;
-      enVol.current = true;
-      setOccupe(true);
+  const startDm = useCallback(
+    async (user: User) => {
+      if (inFlight.current || user.username === undefined) return;
+      inFlight.current = true;
+      setBusy(true);
       setMessage(null);
       try {
-        const { rid, rawRoom: salonBrut } = await actions.openOrCreateDm(utilisateur.username);
-        await ouvrirSalon(salonBrut, rid);
+        const { rid, rawRoom } = await actions.openOrCreateDm(user.username);
+        await openRoom(rawRoom, rid);
       } catch (e) {
         setMessage(e instanceof Error ? e.message : t('recherche.conversationImpossible'));
       } finally {
-        enVol.current = false;
-        setOccupe(false);
+        inFlight.current = false;
+        setBusy(false);
       }
     },
-    [actions, ouvrirSalon, setMessage, t],
+    [actions, openRoom, setMessage, t],
   );
 
-  const rejoindreCanal = useCallback(
-    async (salon: SalonPublic) => {
-      if (enVol.current) return;
-      enVol.current = true;
-      setOccupe(true);
+  const joinChannel = useCallback(
+    async (room: PublicRoom) => {
+      if (inFlight.current) return;
+      inFlight.current = true;
+      setBusy(true);
       setMessage(null);
       try {
-        const reponse = await client.post<{ channel?: Record<string, unknown> }>('channels.join', {
-          body: { roomId: salon._id },
+        const response = await client.post<{ channel?: Record<string, unknown> }>('channels.join', {
+          body: { roomId: room._id },
         });
-        await ouvrirSalon(reponse.channel, salon._id);
+        await openRoom(response.channel, room._id);
       } catch (e) {
         setMessage(e instanceof Error ? e.message : t('recherche.rejoindreImpossible'));
       } finally {
-        enVol.current = false;
-        setOccupe(false);
+        inFlight.current = false;
+        setBusy(false);
       }
     },
-    [client, ouvrirSalon, setMessage, t],
+    [client, openRoom, setMessage, t],
   );
 
-  type Ligne =
-    | { type: 'user'; user: Utilisateur }
-    | { type: 'channel'; room: SalonPublic };
-  const lignes: Ligne[] = [
-    ...(resultats.users ?? []).map((utilisateur) => ({ type: 'user', user: utilisateur }) as Ligne),
-    ...(resultats.rooms ?? []).map((salon) => ({ type: 'channel', room: salon }) as Ligne),
+  type Row =
+    | { type: 'user'; user: User }
+    | { type: 'channel'; room: PublicRoom };
+  const rows: Row[] = [
+    ...(results.users ?? []).map((user) => ({ type: 'user', user }) as Row),
+    ...(results.rooms ?? []).map((room) => ({ type: 'channel', room }) as Row),
   ];
 
   return (
@@ -149,8 +149,8 @@ function Recherche({
       <Stack.Screen options={{ title: t('recherche.titre') }} />
       <View style={styles.header}>
         <TextInput
-          value={requete}
-          onChangeText={setRequete}
+          value={query}
+          onChangeText={setQuery}
           placeholder={t('recherche.placeholder')}
           placeholderTextColor={c.dimmed}
           autoCapitalize="none"
@@ -163,19 +163,19 @@ function Recherche({
         <Text style={[styles.errorMessage, { color: c.errorText }]}>{message}</Text>
       )}
       <FlatList
-        data={lignes}
+        data={rows}
         keyExtractor={(l) => (l.type === 'user' ? `u-${l.user._id}` : `c-${l.room._id}`)}
         renderItem={({ item }) =>
           item.type === 'user' ? (
             <View style={styles.rowWrapper}>
               <Tappable
-                onPress={() => void demarrerDm(item.user)}
-                disabled={occupe}
+                onPress={() => void startDm(item.user)}
+                disabled={busy}
                 android_ripple={{ color: c.ripple }}
                 unstable_pressDelay={LIST_PRESS_DELAY}
                 style={styles.row}
               >
-                <Text style={[styles.prefixe, { color: c.dimmed }]}>@</Text>
+                <Text style={[styles.prefix, { color: c.dimmed }]}>@</Text>
                 <View>
                   <Text style={[styles.name, { color: c.text }]}>{item.user.username}</Text>
                   {item.user.name !== undefined && (
@@ -187,20 +187,20 @@ function Recherche({
           ) : (
             <View style={styles.rowWrapper}>
               <Tappable
-                onPress={() => void rejoindreCanal(item.room)}
-                disabled={occupe}
+                onPress={() => void joinChannel(item.room)}
+                disabled={busy}
                 android_ripple={{ color: c.ripple }}
                 unstable_pressDelay={LIST_PRESS_DELAY}
                 style={styles.row}
               >
-                <Text style={[styles.prefixe, { color: c.dimmed }]}>#</Text>
+                <Text style={[styles.prefix, { color: c.dimmed }]}>#</Text>
                 <Text style={[styles.name, { color: c.text }]}>{item.room.name}</Text>
               </Tappable>
             </View>
           )
         }
         ListEmptyComponent={
-          requete.trim() === '' ? null : (
+          query.trim() === '' ? null : (
             <Text style={[styles.empty, { color: c.dimmed }]}>{t('recherche.aucunResultat')}</Text>
           )
         }
@@ -232,7 +232,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  prefixe: { fontFamily: FONTS.corpsSemi, fontSize: 20, width: 24, textAlign: 'center' },
+  prefix: { fontFamily: FONTS.bodySemi, fontSize: 20, width: 24, textAlign: 'center' },
   name: { fontFamily: FONTS.body, fontSize: 16 },
   detail: { fontFamily: FONTS.body, fontSize: 13 },
   empty: { textAlign: 'center', padding: 24, fontFamily: FONTS.body, fontSize: 14 },

@@ -24,11 +24,11 @@
  * jamais chronologique, comme `generation` elle-même.
  */
 
-let jeton = 0;
+let token = 0;
 
 /** À capturer au MONTAGE, à rendre au démontage — jamais relu entre les deux. */
 export function sessionToken(): number {
-  return jeton;
+  return token;
 }
 
 /**
@@ -37,5 +37,5 @@ export function sessionToken(): number {
  * et l'oubli d'un des deux gestes ferait retomber le défaut.
  */
 export function invalidateSessionToken(): void {
-  jeton += 1;
+  token += 1;
 }

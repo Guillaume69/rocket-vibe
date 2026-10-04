@@ -106,8 +106,8 @@ describe('completerEmoji', () => {
   });
 
   test('respecte le plafond', () => {
-    const beaucoup = Array.from({ length: 100 }, (_, i) => `test${i}`);
-    assert.equal(completeEmoji('test', beaucoup, [], 5).length, 5);
+    const many = Array.from({ length: 100 }, (_, i) => `test${i}`);
+    assert.equal(completeEmoji('test', many, [], 5).length, 5);
   });
 
   test('une seule lettre suffit désormais à classer', () => {

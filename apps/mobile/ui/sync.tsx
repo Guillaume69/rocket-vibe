@@ -130,7 +130,7 @@ export type SyncState =
        * Déverrouille les salons chiffrés (mot de passe E2E), puis déchiffre les
        * messages déjà en base. Lève `ErreurE2E` si le mot de passe est faux.
        */
-      unlockE2E: (motDePasse: string) => Promise<void>;
+      unlockE2E: (password: string) => Promise<void>;
       /** Reverrouille : oublie la clé et re-masque le clair local. */
       lockE2E: () => Promise<void>;
       /**
@@ -142,28 +142,28 @@ export type SyncState =
     }
   | { phase: 'error'; message: string };
 
-const Contexte = createContext<SyncState | null>(null);
+const Context = createContext<SyncState | null>(null);
 
 export function SyncProvider({ children }: { children: React.ReactNode }) {
-  const { state: etat } = useSession();
-  const [synchro, setSynchro] = useState<SyncState>({ phase: 'idle' });
+  const { state } = useSession();
+  const [sync, setSync] = useState<SyncState>({ phase: 'idle' });
 
   useEffect(() => {
-    if (etat.phase !== 'connected') {
+    if (state.phase !== 'connected') {
       // L'index emoji du serveur quitté ne doit pas servir au prochain.
       clearCustomEmojis();
-      setSynchro({ phase: 'idle' });
+      setSync({ phase: 'idle' });
       return;
     }
-    const { session, client } = etat;
-    let abandonne = false;
-    const estAbandonne = () => abandonne;
-    const fournisseur = createProvider(session, client, () =>
+    const { session, client } = state;
+    let discarded = false;
+    const isDiscarded = () => discarded;
+    const provider = createProvider(session, client, () =>
       idFromBytes(Crypto.getRandomBytes(12)),
     );
-    const ddp = fournisseur.listener;
-    let reconnecteur: Reconnector | null = null;
-    let surAbandon: (() => void) | null = null;
+    const ddp = provider.listener;
+    let reconnector: Reconnector | null = null;
+    let onAbort: (() => void) | null = null;
 
     // Tout téléversement — pièce jointe COMME photo de profil, même transport —
     // peut faire tomber la socket DDP sans que le WebSocket n'appelle jamais
@@ -183,22 +183,22 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     // part, jusqu'au prochain démarrage à froid. `push.token` est idempotent, et
     // le nouveau jeton est retenu au Keystore comme celui de l'enregistrement :
     // c'est lui que la déconnexion devra dé-enregistrer.
-    const cesserEcouteJeton = onTokenRotation((jeton) => {
-      if (abandonne) return;
-      void rememberPushToken(jeton).catch(() => {});
-      void registerToken(client, jeton, 'gcm').catch(() => {});
+    const stopTokenListener = onTokenRotation((token) => {
+      if (discarded) return;
+      void rememberPushToken(token).catch(() => {});
+      void registerToken(client, token, 'gcm').catch(() => {});
     });
 
     (async () => {
-      setSynchro({ phase: 'preparing' });
+      setSync({ phase: 'preparing' });
       // La file d'écritures vient AVEC la connexion : elle sérialise les
       // transactions d'un SQLite, donc elle doit être unique par SQLite. Cet
       // effet se rejoue sur un simple renommage (objet `session` neuf pour le
       // même compte) ; la créer ici en fabriquait une seconde, et les deux
       // moteurs s'entrelaçaient (voir db/writeQueue.ts).
-      const { base, raw: brute, writeQueue: fileEcritures } = openDatabase(session.baseUrl, session.userId);
+      const { base, raw, writeQueue } = openDatabase(session.baseUrl, session.userId);
       await migrateDatabase(session.baseUrl, session.userId);
-      if (abandonne) return;
+      if (discarded) return;
       // Moteur E2EE (lecture) : déchiffre au fil de l'ingestion dès qu'une clé
       // de salon est disponible. La clé privée est rangée au Keystore par
       // (SERVEUR, COMPTE) — comme la base SQLite juste au-dessus, et pour la
@@ -219,17 +219,17 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       // l'efface pas ici, plus rien ne saura la retrouver. Tir-et-oublie : un
       // Keystore qui refuse une suppression ne doit pas retenir le démarrage.
       void purgeLegacyE2EKey(session.baseUrl).catch(() => {});
-      const moteur = new SyncEngine(
-        createStore(brute, fileEcritures),
-        fournisseur.translator,
+      const engine = new SyncEngine(
+        createStore(raw, writeQueue),
+        provider.translator,
         e2e,
       );
-      const depotEnvoi = createOutboxStore(brute, fileEcritures);
-      const fichiers = fournisseur.createUploadQueue(
-        createUploadStore(brute, fileEcritures),
+      const outboxStore = createOutboxStore(raw, writeQueue);
+      const files = provider.createUploadQueue(
+        createUploadStore(raw, writeQueue),
         transportExpo,
         async (doc) => {
-          await moteur.ingestMessages([doc]);
+          await engine.ingestMessages([doc]);
         },
         {
           // Une ligne soldée emporte son fichier de cache — la garde
@@ -248,38 +248,38 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
           // `chat.syncMessages` avec un jeton mort après la déconnexion, sur
           // une route plafonnée à 10 appels/min, et écrivait dans la base du
           // compte quitté. Elle contaminait en plus toute demande fondue dedans.
-          refreshRoom: (rid) => fournisseur.catchUpRoom(moteur, rid, estAbandonne),
+          refreshRoom: (rid) => provider.catchUpRoom(engine, rid, isDiscarded),
           encryption: {
-            roomEncrypted: (rid) => depotEnvoi.roomEncrypted(rid),
-            encrypt: (rid, charge) => e2e.encrypt(rid, charge),
+            roomEncrypted: (rid) => outboxStore.roomEncrypted(rid),
+            encrypt: (rid, payload) => e2e.encrypt(rid, payload),
             encryptFile: encryptLocalFile,
             hashedName,
           },
         },
       );
-      const envoi = fournisseur.createOutbox(
-        depotEnvoi,
+      const outbox = provider.createOutbox(
+        outboxStore,
         async (doc) => {
-          await moteur.ingestMessages([doc]);
+          await engine.ingestMessages([doc]);
         },
         e2e,
       );
-      const depotEmojis = createEmojiStore(brute, fileEcritures);
+      const emojiStore = createEmojiStore(raw, writeQueue);
       // Les écrans salon montés : le sommet est celui que l'utilisateur
       // regarde, le seul que le rattrapage vise. Voir `ui/openRooms.ts`.
-      const salonsOuverts = createOpenRoomsStack();
-      let jetonPushEnregistre = false;
-      let emojisSynchronises = false;
-      let salonsReconcilies = false;
-      let retentionAppliquee = false;
+      const openRooms = createOpenRoomsStack();
+      let registeredPushToken = false;
+      let syncedEmojis = false;
+      let reconciledRooms = false;
+      let retentionApplied = false;
       const presence = new PresenceEngine();
-      const activite = new ActivityEngine();
+      const activity = new ActivityEngine();
       // Emojis custom : l'index mémoire depuis SQLite AVANT « pret », pour que
       // le premier rendu résolve déjà `:party_parrot:` (offline compris). Le
       // rafraîchissement réseau vient au raccordement. Un échec de lecture ne
       // doit pas retenir l'écran — les customs dégraderaient en `:nom:`.
-      await restoreCustomEmojis(session.baseUrl, depotEmojis, estAbandonne).catch(() => {});
-      if (abandonne) return;
+      await restoreCustomEmojis(session.baseUrl, emojiStore, isDiscarded).catch(() => {});
+      if (discarded) return;
 
       // Reprise E2EE silencieuse : si la clé privée est déjà au Keystore
       // (déverrouillé lors d'une session passée), on réimporte sans mot de
@@ -298,40 +298,40 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       // la clé est au Keystore, le seul `e2e.reprendre()` relançait un
       // `channels.history` complet PLUS un `chat.syncMessages` — 3 à 4 s sur un
       // gros salon pour rapporter zéro document.
-      const rafraichirE2E = (): void =>
-        setSynchro((s) => (s.phase === 'ready' ? { ...s } : s));
-      const deverrouillerE2E = async (motDePasse: string): Promise<void> => {
-        await e2e.unlock(motDePasse); // lève ErreurE2E si faux
-        await moteur.e2eUnlocked(); // éclaire les messages déjà en base
-        rafraichirE2E();
-        envoi.process().catch(() => {}); // ce qui attendait une clé de salon
-        fichiers.process().catch(() => {});
+      const refreshE2E = (): void =>
+        setSync((s) => (s.phase === 'ready' ? { ...s } : s));
+      const unlockE2E = async (password: string): Promise<void> => {
+        await e2e.unlock(password); // lève ErreurE2E si faux
+        await engine.e2eUnlocked(); // éclaire les messages déjà en base
+        refreshE2E();
+        outbox.process().catch(() => {}); // ce qui attendait une clé de salon
+        files.process().catch(() => {});
       };
-      const verrouillerE2E = async (): Promise<void> => {
+      const lockE2E = async (): Promise<void> => {
         await e2e.lock();
-        await moteur.e2eRelocked(); // re-masque le clair local
-        rafraichirE2E();
+        await engine.e2eRelocked(); // re-masque le clair local
+        refreshE2E();
       };
 
       // « pret » dès la base disponible : l'UI montre le cache local sans
       // attendre le réseau.
-      setSynchro({
+      setSync({
         phase: 'ready',
         base,
-        drafts: createDraftStore(brute, fileEcritures),
-        engine: moteur,
-        outbox: envoi,
-        files: fichiers,
+        drafts: createDraftStore(raw, writeQueue),
+        engine,
+        outbox,
+        files,
         ddp,
-        provider: fournisseur,
-        actions: fournisseur.actions,
-        capabilities: fournisseur.capabilities,
-        declareOpenRoom: salonsOuverts.declare,
+        provider,
+        actions: provider.actions,
+        capabilities: provider.capabilities,
+        declareOpenRoom: openRooms.declare,
         presence,
-        activity: activite,
+        activity,
         e2e,
-        unlockE2E: deverrouillerE2E,
-        lockE2E: verrouillerE2E,
+        unlockE2E,
+        lockE2E,
         generation: 0,
       });
 
@@ -349,23 +349,23 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
             // fois, et l'app affichait alors du clair tout en se déclarant
             // verrouillée. Le `chiffreBrut` est conservé : le masquage est
             // exactement ce que fait le bouton « Verrouiller », donc réversible.
-            await moteur.e2eRelocked();
-            if (!abandonne) rafraichirE2E();
+            await engine.e2eRelocked();
+            if (!discarded) refreshE2E();
             return;
           }
-          await moteur.e2eUnlocked();
-          if (!abandonne) rafraichirE2E();
-          envoi.process().catch(() => {});
-          fichiers.process().catch(() => {});
+          await engine.e2eUnlocked();
+          if (!discarded) refreshE2E();
+          outbox.process().catch(() => {});
+          files.process().catch(() => {});
         })
         .catch(() => {});
 
-      ddp.onEvent((evenement) => {
-        if (abandonne) return;
-        presence.apply(evenement);
-        const note = fournisseur.privateNote(evenement);
+      ddp.onEvent((event) => {
+        if (discarded) return;
+        presence.apply(event);
+        const note = provider.privateNote(event);
         if (note !== null) setPrivateNote(note.rid, note.text);
-        moteur.apply(evenement).catch(() => {
+        engine.apply(event).catch(() => {
           // Une écriture qui échoue ne doit pas tuer l'écouteur ; le
           // rattrapage REST de l'étape 5.2 refera passer le document.
         });
@@ -373,7 +373,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       // Déclarées AVANT toute connexion : `souscrire` mémorise l'intention,
       // et chaque `connecter` (première fois comme reconnexion) rejoue tout.
       // Le fournisseur sait quels streams l'intéressent.
-      for (const [nom, cle] of fournisseur.initialSubscriptions()) ddp.subscribe(nom, cle);
+      for (const [name, key] of provider.initialSubscriptions()) ddp.subscribe(name, key);
 
       // Le PREMIER raccordement passe par le même pilote que les reconnexions
       // (backoff 1 s → 30 s avec gigue) : hors ligne au lancement, ça
@@ -384,10 +384,10 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       // `activite` : l'en-tête (liste / salon) allume sa barre de synchro le
       // temps du fetch (`suivre` rejette comme l'original, le backoff du pilote
       // garde sa main).
-      const rattraperTout = async (): Promise<void> => {
-        await activite.track('global', fournisseur.catchUpGlobal(moteur, estAbandonne));
-        const salonActif = salonsOuverts.top();
-        if (salonActif === undefined) return;
+      const catchUpAll = async (): Promise<void> => {
+        await activity.track('global', provider.catchUpGlobal(engine, isDiscarded));
+        const activeRoom = openRooms.top();
+        if (activeRoom === undefined) return;
         // Le rattrapage d'UN salon part en TIR-ET-OUBLIE : ni attendu, ni fatal.
         // Chaque page est bornée à 50 documents (`lib/catchUp.ts`), donc plus
         // rien ne peut y timeouter sur un gros backlog ; mais l'attendre
@@ -403,18 +403,18 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         // `lib/catchUp.ts`, au seul point où TOUS les chemins se rejoignent
         // (celui-ci et l'effet d'ouverture de l'écran) : une pagination à la
         // fois par salon, et aucune demande perdue.
-        void activite
-          .track(salonActif, fournisseur.catchUpRoom(moteur, salonActif, estAbandonne))
+        void activity
+          .track(activeRoom, provider.catchUpRoom(engine, activeRoom, isDiscarded))
           .catch((e: unknown) => console.warn('rattraperSalon: échec ignoré', e));
       };
 
       // Ce qui suit le rattrapage sans dépendre du stream. Joué une fois par
       // raccordement, même si la socket a échoué : ces travaux sont du REST.
-      const apresRattrapage = (): void => {
+      const afterCatchUp = (): void => {
         // Ce qui attendait le réseau part maintenant. Pas d'await : un
         // échec d'envoi ne doit pas compter comme un échec de connexion.
-        envoi.process().catch(() => {});
-        fichiers.process().catch(() => {});
+        outbox.process().catch(() => {});
+        files.process().catch(() => {});
         // Présence : photo complète à chaque raccordement, puis le stream.
         // Ornement, un échec ne compte jamais comme un échec de raccordement.
         void presence.load(client);
@@ -424,17 +424,17 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         // premier rendu ; les nouveaux emojis apparaissent au rendu suivant.
         // `estAbandonne` empêche un fetch tardif de réarmer l'index d'un
         // serveur qu'on a quitté. Échec → non armé, retenté au prochain flap.
-        if (!emojisSynchronises) {
-          emojisSynchronises = true;
-          syncCustomEmojis(client, depotEmojis, estAbandonne).catch(() => {
-            emojisSynchronises = false;
+        if (!syncedEmojis) {
+          syncedEmojis = true;
+          syncCustomEmojis(client, emojiStore, isDiscarded).catch(() => {
+            syncedEmojis = false;
           });
         }
         // Cycle de vie du jeton push (6.1) : enregistré au premier
         // raccordement de la session. Idempotent côté serveur ; un échec
         // sera retenté au prochain raccordement.
-        if (!jetonPushEnregistre) {
-          jetonPushEnregistre = true;
+        if (!registeredPushToken) {
+          registeredPushToken = true;
           getFcmToken()
             .then((r) => {
               // `obtenirJetonFcm` ne REJETTE jamais : son échec est un RÉSULTAT
@@ -445,7 +445,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
               // Un refus de permission, lui, ne se réarme pas : ce serait
               // rejouer le prompt système à chaque flap réseau.
               if (!r.ok) {
-                if (r.reason === 'failed') jetonPushEnregistre = false;
+                if (r.reason === 'failed') registeredPushToken = false;
                 return undefined;
               }
               // Retenu au Keystore À L'ENREGISTREMENT : c'est la déconnexion
@@ -456,17 +456,17 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
               return registerToken(client, r.token, 'gcm');
             })
             .catch(() => {
-              jetonPushEnregistre = false;
+              registeredPushToken = false;
             });
         }
         // Réconciliation anti-fantômes (une fois par session, comme les
         // emojis) : purge les salons supprimés côté serveur dont l'événement
         // 'removed' a été raté. Full `subscriptions.get` — on ne le refait
         // pas à chaque flap réseau. Échec → non armé, retenté au prochain.
-        if (!salonsReconcilies) {
-          salonsReconcilies = true;
-          fournisseur.reconcile(moteur, estAbandonne).catch(() => {
-            salonsReconcilies = false;
+        if (!reconciledRooms) {
+          reconciledRooms = true;
+          provider.reconcile(engine, isDiscarded).catch(() => {
+            reconciledRooms = false;
           });
         }
         // Rétention (une fois par session, comme au-dessus) : au-delà de 500
@@ -478,17 +478,17 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         // rattrapage — couper avant l'aurait fait re-télécharger dans la
         // foulée. Un échec n'a pas à réarmer quoi que ce soit : la place se
         // reprendra au prochain lancement.
-        if (!retentionAppliquee) {
-          retentionAppliquee = true;
-          moteur.syncStore.applyRetention(MESSAGES_KEPT_PER_ROOM).catch(() => {});
+        if (!retentionApplied) {
+          retentionApplied = true;
+          engine.syncStore.applyRetention(MESSAGES_KEPT_PER_ROOM).catch(() => {});
         }
         // Réveille les écrans dont le chargement initial a raté hors ligne.
-        setSynchro((s) => (s.phase === 'ready' ? { ...s, generation: s.generation + 1 } : s));
+        setSync((s) => (s.phase === 'ready' ? { ...s, generation: s.generation + 1 } : s));
       };
 
-      reconnecteur = new Reconnector({
+      reconnector = new Reconnector({
         connect: async () => {
-          if (abandonne) return;
+          if (discarded) return;
           await hookUp({
             // « Authentifié » veut dire que les souscriptions désirées ont été
             // rejouées : le stream couvre déjà, la lecture qui suit garantira à
@@ -501,9 +501,9 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
             openStream: () =>
               ddp.state === 'closed' ? ddp.connect(session.authToken) : Promise.resolve(),
             streamArmed: () => ddp.armedSubscriptions(),
-            catchUp: rattraperTout,
-            then: apresRattrapage,
-            isDiscarded: estAbandonne,
+            catchUp: catchUpAll,
+            then: afterCatchUp,
+            isDiscarded,
           });
         },
       });
@@ -512,9 +512,9 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         // fige à l'instant de la coupure. On l'oublie plutôt que d'afficher
         // des pastilles vertes de l'entrée dans le tunnel (`lib/presence.ts`).
         presence.invalidate();
-        reconnecteur?.trigger();
+        reconnector?.trigger();
       });
-      reconnecteur.trigger();
+      reconnector.trigger();
 
       // Cycle de vie de la socket (6.2). En ARRIÈRE-PLAN : fermeture propre
       // et volontaire — l'OS la tuerait de toute façon (Doze), le push prend
@@ -531,23 +531,23 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       // rate-limité, et tuées par Doze, ce qui redéclenchait `surPerte`.
       // D'où la suspension, réversible, AVANT la fermeture : sinon la perte
       // constatée entre les deux réarmerait le pilote qu'on vient de calmer.
-      const aboAppState = AppState.addEventListener('change', (etatApp) => {
-        if (abandonne) return;
-        if (etatApp === 'background') {
-          reconnecteur?.suspend();
+      const appStateSub = AppState.addEventListener('change', (appState) => {
+        if (discarded) return;
+        if (appState === 'background') {
+          reconnector?.suspend();
           ddp.close();
           // Ce qu'on croit savoir de la présence date de l'instant d'avant :
           // aucun stream ne la corrigera plus tant qu'on est en fond.
           presence.invalidate();
           return;
         }
-        if (etatApp !== 'active') return;
-        reconnecteur?.resume();
+        if (appState !== 'active') return;
+        reconnector?.resume();
         if (ddp.state !== 'closed') ddp.checkAlive().catch(() => {});
-        reconnecteur?.trigger();
+        reconnector?.trigger();
       });
-      surAbandon = () => {
-        aboAppState.remove();
+      onAbort = () => {
+        appStateSub.remove();
         // Le clair E2E ne survit pas à la fin de session. `deverrouillageE2E`
         // écrit le texte déchiffré dans la colonne `texte` (lib/sync.ts), et le
         // projet reconnaît déjà que ce clair doit pouvoir disparaître — c'est
@@ -561,12 +561,12 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         // les transactions en vol. Tir-et-oublie : un cleanup ne peut pas
         // attendre, et le masquage se rejoue de toute façon au démarrage
         // suivant tant qu'on est verrouillé.
-        void moteur.e2eRelocked().catch(() => {});
+        void engine.e2eRelocked().catch(() => {});
       };
     })().catch((e: unknown) => {
       // Ici, même la base locale n'est pas utilisable : écran d'erreur.
-      if (!abandonne) {
-        setSynchro({
+      if (!discarded) {
+        setSync({
           phase: 'error',
           message: e instanceof Error ? e.message : translateCurrent('synchro.baseInutilisable'),
         });
@@ -574,13 +574,13 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => {
-      abandonne = true;
+      discarded = true;
       // L'ordre compte : arrêter le pilote AVANT de fermer, sinon la
       // fermeture pourrait encore programmer une tentative.
-      reconnecteur?.stop();
-      surAbandon?.();
+      reconnector?.stop();
+      onAbort?.();
       armUploadProbe(null); // plus de sonde vers un client rangé
-      cesserEcouteJeton(); // ni de réenregistrement vers un serveur quitté
+      stopTokenListener(); // ni de réenregistrement vers un serveur quitté
       // Les caches « ceci a déjà son chargement d'ouverture » sont indexés par
       // génération, dont le compteur repart de zéro à la session suivante :
       // sans purge, un salon d'un AUTRE serveur pourrait passer pour déjà
@@ -607,15 +607,15 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       ddp.close();
       ddp.reset();
     };
-  }, [etat]);
+  }, [state]);
 
-  return <Contexte.Provider value={synchro}>{children}</Contexte.Provider>;
+  return <Context.Provider value={sync}>{children}</Context.Provider>;
 }
 
 export function useSync(): SyncState {
-  const contexte = useContext(Contexte);
-  if (contexte === null) {
+  const context = useContext(Context);
+  if (context === null) {
     throw new Error('useSynchro appelé hors de <SynchroProvider>.');
   }
-  return contexte;
+  return context;
 }

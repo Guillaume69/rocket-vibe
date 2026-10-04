@@ -31,66 +31,66 @@ export function buildSections<
   S extends { rid: string; type: string },
   A extends { rid: string; unread: number; alert: boolean; open: boolean; favorite: boolean },
 >(
-  lignesSalons: S[] | undefined,
-  lignesAbonnements: A[] | undefined,
-  titres: SectionTitles,
+  roomRows: S[] | undefined,
+  subscriptionRows: A[] | undefined,
+  titles: SectionTitles,
 ): HomeSection<HomeEntry<S, A>>[] {
-  const abonnementParRid = new Map((lignesAbonnements ?? []).map((a) => [a.rid, a]));
-  const visibles: HomeEntry<S, A>[] = (lignesSalons ?? [])
-    .filter((s) => abonnementParRid.get(s.rid)?.open !== false)
-    .map((s) => ({ room: s, subscription: abonnementParRid.get(s.rid) ?? null }));
+  const subscriptionByRid = new Map((subscriptionRows ?? []).map((a) => [a.rid, a]));
+  const visible: HomeEntry<S, A>[] = (roomRows ?? [])
+    .filter((s) => subscriptionByRid.get(s.rid)?.open !== false)
+    .map((s) => ({ room: s, subscription: subscriptionByRid.get(s.rid) ?? null }));
 
-  const aUnMessage = (e: HomeEntry<S, A>): boolean =>
+  const hasMessage = (e: HomeEntry<S, A>): boolean =>
     (e.subscription?.unread ?? 0) > 0 || e.subscription?.alert === true;
-  const nonLus = visibles.filter(aUnMessage);
-  const favoris = visibles.filter((e) => !aUnMessage(e) && e.subscription?.favorite === true);
-  const lus = visibles.filter((e) => !aUnMessage(e) && e.subscription?.favorite !== true);
+  const unread = visible.filter(hasMessage);
+  const favorites = visible.filter((e) => !hasMessage(e) && e.subscription?.favorite === true);
+  const read = visible.filter((e) => !hasMessage(e) && e.subscription?.favorite !== true);
 
   const sections: HomeSection<HomeEntry<S, A>>[] = [
-    { key: 'nonLus', title: titres.nonLus, data: nonLus },
-    { key: 'favoris', title: titres.favoris, data: favoris },
-    { key: 'salons', title: titres.salons, data: lus.filter((e) => e.room.type !== 'd') },
+    { key: 'nonLus', title: titles.nonLus, data: unread },
+    { key: 'favoris', title: titles.favoris, data: favorites },
+    { key: 'salons', title: titles.salons, data: read.filter((e) => e.room.type !== 'd') },
     {
       key: 'messagesPrives',
-      title: titres.messagesPrives,
-      data: lus.filter((e) => e.room.type === 'd'),
+      title: titles.messagesPrives,
+      data: read.filter((e) => e.room.type === 'd'),
     },
   ];
   return sections.filter((s) => s.data.length > 0);
 }
 
-const CLES_SECTIONS: readonly SectionKey[] = ['nonLus', 'favoris', 'salons', 'messagesPrives'];
+const SECTION_KEYS: readonly SectionKey[] = ['nonLus', 'favoris', 'salons', 'messagesPrives'];
 
 /**
  * Relit les sections repliées persistées. Tout ce qui n'est pas un tableau de
  * clés connues (absence, stockage corrompu, clé d'une version future) est
  * ignoré : au pire, une section se redéplie.
  */
-export function readCollapsedSections(brut: string | null): ReadonlySet<SectionKey> {
-  if (brut === null) return new Set();
-  let valeur: unknown;
+export function readCollapsedSections(raw: string | null): ReadonlySet<SectionKey> {
+  if (raw === null) return new Set();
+  let value: unknown;
   try {
-    valeur = JSON.parse(brut);
+    value = JSON.parse(raw);
   } catch {
     return new Set();
   }
-  if (!Array.isArray(valeur)) return new Set();
-  const cles: unknown[] = valeur;
-  return new Set(CLES_SECTIONS.filter((cle) => cles.includes(cle)));
+  if (!Array.isArray(value)) return new Set();
+  const keys: unknown[] = value;
+  return new Set(SECTION_KEYS.filter((key) => keys.includes(key)));
 }
 
-export function writeCollapsedSections(repliees: ReadonlySet<SectionKey>): string {
-  return JSON.stringify(CLES_SECTIONS.filter((cle) => repliees.has(cle)));
+export function writeCollapsedSections(collapsedKeys: ReadonlySet<SectionKey>): string {
+  return JSON.stringify(SECTION_KEYS.filter((key) => collapsedKeys.has(key)));
 }
 
 export function toggleSection(
-  repliees: ReadonlySet<SectionKey>,
-  cle: SectionKey,
+  collapsedKeys: ReadonlySet<SectionKey>,
+  key: SectionKey,
 ): ReadonlySet<SectionKey> {
-  const suivantes = new Set(repliees);
-  if (suivantes.has(cle)) suivantes.delete(cle);
-  else suivantes.add(cle);
-  return suivantes;
+  const following = new Set(collapsedKeys);
+  if (following.has(key)) following.delete(key);
+  else following.add(key);
+  return following;
 }
 
 export type DisplayedSection<E> = HomeSection<E> & { collapsed: boolean; total: number };
@@ -102,11 +102,11 @@ export type DisplayedSection<E> = HomeSection<E> & { collapsed: boolean; total: 
  */
 export function collapseSections<E>(
   sections: HomeSection<E>[],
-  repliees: ReadonlySet<SectionKey>,
+  collapsedKeys: ReadonlySet<SectionKey>,
 ): DisplayedSection<E>[] {
-  const repliable = sections.length > 1;
+  const collapsible = sections.length > 1;
   return sections.map((s) => {
-    const repliee = repliable && repliees.has(s.key);
-    return { ...s, data: repliee ? [] : s.data, collapsed: repliee, total: s.data.length };
+    const collapsed = collapsible && collapsedKeys.has(s.key);
+    return { ...s, data: collapsed ? [] : s.data, collapsed, total: s.data.length };
   });
 }

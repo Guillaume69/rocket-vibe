@@ -4,11 +4,11 @@ import { describe, test } from 'node:test';
 import { GROUP_WINDOW_MS, repeatedTimeIds, continuationIds } from './messageGrouping.ts';
 
 /** Un message minimal, ordinaire par défaut (`typeSysteme: null`). */
-const m = (id: string, horodatage: number, auteurId: string, typeSysteme: string | null = null) => ({
+const m = (id: string, ts: number, authorId: string, systemType: string | null = null) => ({
   id,
-  ts: horodatage,
-  authorId: auteurId,
-  systemType: typeSysteme,
+  ts,
+  authorId,
+  systemType,
 });
 
 describe('idsSuites', () => {
@@ -29,10 +29,10 @@ describe('idsSuites', () => {
   });
 
   test('la fenêtre de temps : exactement 5 min groupe encore, une ms de plus non', () => {
-    const juste = [m('m2', GROUP_WINDOW_MS, 'bob'), m('m1', 0, 'bob')];
-    assert.deepEqual(continuationIds(juste, 'newest-first'), new Set(['m2']));
-    const trop = [m('m2', GROUP_WINDOW_MS + 1, 'bob'), m('m1', 0, 'bob')];
-    assert.deepEqual(continuationIds(trop, 'newest-first'), new Set());
+    const justBefore = [m('m2', GROUP_WINDOW_MS, 'bob'), m('m1', 0, 'bob')];
+    assert.deepEqual(continuationIds(justBefore, 'newest-first'), new Set(['m2']));
+    const tooFar = [m('m2', GROUP_WINDOW_MS + 1, 'bob'), m('m1', 0, 'bob')];
+    assert.deepEqual(continuationIds(tooFar, 'newest-first'), new Set());
   });
 
   test('la barre « nouveaux messages » rompt : le premier non-lu garde son en-tête', () => {
@@ -71,23 +71,23 @@ describe('idsSuites', () => {
 
 describe('idsHeuresRepetees', () => {
   /** Projette comme les écrans : les suites d'abord, puis les heures répétées. */
-  const projeter = (
-    lignes: Parameters<typeof continuationIds>[0],
-    ordre: 'newest-first' | 'oldest-first',
-  ) => repeatedTimeIds(lignes, ordre, continuationIds(lignes, ordre));
+  const project = (
+    rows: Parameters<typeof continuationIds>[0],
+    order: 'newest-first' | 'oldest-first',
+  ) => repeatedTimeIds(rows, order, continuationIds(rows, order));
 
   test("une suite dans la MÊME minute que le message d'au-dessus tait son heure — dans les deux ordres", () => {
     // 0 ms et 59 999 ms : même minute affichée, l'heure de m2 est redondante.
     const desc = [m('m2', 59_999, 'bob'), m('m1', 0, 'bob')];
-    assert.deepEqual(projeter(desc, 'newest-first'), new Set(['m2']));
+    assert.deepEqual(project(desc, 'newest-first'), new Set(['m2']));
     const asc = [m('m1', 0, 'bob'), m('m2', 59_999, 'bob')];
-    assert.deepEqual(projeter(asc, 'oldest-first'), new Set(['m2']));
+    assert.deepEqual(project(asc, 'oldest-first'), new Set(['m2']));
   });
 
   test('une suite dans la minute SUIVANTE garde son heure, même à une seconde près', () => {
     // 59 999 ms puis 60 000 ms : 1 ms d'écart mais deux minutes affichées.
     const desc = [m('m2', 60_000, 'bob'), m('m1', 59_999, 'bob')];
-    assert.deepEqual(projeter(desc, 'newest-first'), new Set());
+    assert.deepEqual(project(desc, 'newest-first'), new Set());
   });
 
   test("une chaîne : chaque rupture de minute réaffiche l'heure, les répétitions se taisent", () => {
@@ -100,13 +100,13 @@ describe('idsHeuresRepetees', () => {
       m('m2', 3 * 60_000 + 40_000, 'bob'),
       m('m1', 3 * 60_000, 'bob'),
     ];
-    assert.deepEqual(projeter(desc, 'newest-first'), new Set(['m2', 'm4']));
+    assert.deepEqual(project(desc, 'newest-first'), new Set(['m2', 'm4']));
   });
 
   test("une NON-suite n'est jamais concernée : l'en-tête réaffiché porte déjà l'heure", () => {
     // Même minute mais auteurs différents : m2 n'est pas une suite, son
     // en-tête (pseudo + heure) se rend entier — rien à taire.
     const desc = [m('m2', 30_000, 'alice'), m('m1', 0, 'bob')];
-    assert.deepEqual(projeter(desc, 'newest-first'), new Set());
+    assert.deepEqual(project(desc, 'newest-first'), new Set());
   });
 });

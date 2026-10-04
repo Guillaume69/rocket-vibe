@@ -12,24 +12,24 @@ export type BackToLatestState = { visible: boolean; backInProgress: boolean };
 
 export const INITIAL_BACK_TO_LATEST_STATE: BackToLatestState = { visible: false, backInProgress: false };
 
-export function farFromLatest(decalage: number, hauteurVue: number): boolean {
-  return hauteurVue > 0 && decalage > hauteurVue;
+export function farFromLatest(offset: number, viewHeight: number): boolean {
+  return viewHeight > 0 && offset > viewHeight;
 }
 
 export function onBackToLatestScroll(
-  etat: BackToLatestState,
-  decalage: number,
-  hauteurVue: number,
+  state: BackToLatestState,
+  offset: number,
+  viewHeight: number,
 ): BackToLatestState {
-  const loin = farFromLatest(decalage, hauteurVue);
-  if (etat.backInProgress) return loin ? etat : INITIAL_BACK_TO_LATEST_STATE;
-  return etat.visible === loin ? etat : { visible: loin, backInProgress: false };
+  const far = farFromLatest(offset, viewHeight);
+  if (state.backInProgress) return far ? state : INITIAL_BACK_TO_LATEST_STATE;
+  return state.visible === far ? state : { visible: far, backInProgress: false };
 }
 
 export function onBackToLatestPress(): BackToLatestState {
   return { visible: false, backInProgress: true };
 }
 
-export function onBackToLatestSwipe(etat: BackToLatestState): BackToLatestState {
-  return etat.backInProgress ? { ...etat, backInProgress: false } : etat;
+export function onBackToLatestSwipe(state: BackToLatestState): BackToLatestState {
+  return state.backInProgress ? { ...state, backInProgress: false } : state;
 }

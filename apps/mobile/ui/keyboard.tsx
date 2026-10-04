@@ -31,13 +31,13 @@ export function KeyboardAvoidingContainer({ children }: { children: ReactNode })
   const c = useColors();
   const insets = useSafeAreaInsets();
   const { height } = useReanimatedKeyboardAnimation();
-  const evitement = useAnimatedStyle(() => ({
+  const avoidance = useAnimatedStyle(() => ({
     paddingBottom: Math.max(insets.bottom, -height.value),
   }));
   // Racine d'écran par construction : `flex: 1` et le fond vivent ici, pas
   // en triplet de style recopié à chaque point d'appel.
   return (
-    <Animated.View style={[{ flex: 1, backgroundColor: c.background }, evitement]}>
+    <Animated.View style={[{ flex: 1, backgroundColor: c.background }, avoidance]}>
       {children}
     </Animated.View>
   );

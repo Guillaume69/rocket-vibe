@@ -9,31 +9,31 @@ const { withMainActivity } = require('expo/config-plugins');
  * partage : on lui substitue l'intent MAIN du lanceur, avant super.onCreate où
  * lit le listener de la bibliothèque.
  */
-const MARQUEUR = 'rocket-vibe: partage-non-rejoue';
+const MARKER = 'rocket-vibe: partage-non-rejoue';
 
-const GARDE = `    // ${MARQUEUR}
+const GUARD = `    // ${MARKER}
     if ((savedInstanceState != null || (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) &&
         (intent.action == Intent.ACTION_SEND || intent.action == Intent.ACTION_SEND_MULTIPLE)) {
       intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setComponent(componentName)
     }
 `;
 
-function neutraliser(source) {
-  if (source.includes(MARQUEUR)) return source;
-  const ancre = /override fun onCreate\(savedInstanceState: Bundle\?\) \{\n/;
-  if (!ancre.test(source)) throw new Error('with-partage-entrant : MainActivity.onCreate introuvable');
-  let sortie = source.replace(ancre, (debut) => debut + GARDE);
-  if (!/^import android\.content\.Intent$/m.test(sortie)) {
-    sortie = sortie.replace('import android.os.Bundle', 'import android.content.Intent\nimport android.os.Bundle');
+function neutralize(source) {
+  if (source.includes(MARKER)) return source;
+  const anchor = /override fun onCreate\(savedInstanceState: Bundle\?\) \{\n/;
+  if (!anchor.test(source)) throw new Error('with-partage-entrant : MainActivity.onCreate introuvable');
+  let outbox = source.replace(anchor, (start) => start + GUARD);
+  if (!/^import android\.content\.Intent$/m.test(outbox)) {
+    outbox = outbox.replace('import android.os.Bundle', 'import android.content.Intent\nimport android.os.Bundle');
   }
-  return sortie;
+  return outbox;
 }
 
-module.exports = function withPartageEntrant(config) {
+module.exports = function withIncomingShare(config) {
   return withMainActivity(config, (config) => {
-    config.modResults.contents = neutraliser(config.modResults.contents);
+    config.modResults.contents = neutralize(config.modResults.contents);
     return config;
   });
 };
 
-module.exports.neutraliser = neutraliser;
+module.exports.neutralize = neutralize;

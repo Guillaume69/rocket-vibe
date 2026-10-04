@@ -27,15 +27,15 @@ export type TokenType = 'gcm' | 'apn';
 
 export function registerToken(
   client: ClientRest,
-  jeton: string,
+  token: string,
   type: TokenType,
 ): Promise<unknown> {
-  return client.post('push.token', { body: { type, value: jeton, appName: APP_NAME } });
+  return client.post('push.token', { body: { type, value: token, appName: APP_NAME } });
 }
 
-export async function unregisterToken(client: ClientRest, jeton: string): Promise<void> {
+export async function unregisterToken(client: ClientRest, token: string): Promise<void> {
   try {
-    await client.delete('push.token', { body: { token: jeton } });
+    await client.delete('push.token', { body: { token } });
   } catch (e) {
     // On teste le statut, pas le texte du message, qui peut être reformulé.
     if (e instanceof RestError && e.status === 404) return;

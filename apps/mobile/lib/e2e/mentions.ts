@@ -5,16 +5,16 @@
  * web : un `@` ou un `#` en début de texte ou après un blanc.
  */
 
-const NOM = '[0-9a-zA-Z-_.]+';
-const UTILISATEUR = new RegExp(`(?:^|\\s)(@${NOM}(?:@${NOM})?)`, 'g');
-const SALON = new RegExp(`(?:^|\\s)(#${NOM}(?:@${NOM})?)`, 'g');
+const NAME = '[0-9a-zA-Z-_.]+';
+const USER = new RegExp(`(?:^|\\s)(@${NAME}(?:@${NAME})?)`, 'g');
+const ROOM = new RegExp(`(?:^|\\s)(#${NAME}(?:@${NAME})?)`, 'g');
 
 export type MentionsE2E = { e2eUserMentions: string[]; e2eChannelMentions: string[] };
 
-function extraire(texte: string, motif: RegExp): string[] {
-  return [...new Set(Array.from(texte.matchAll(motif), (m) => m[1].replace(/[.-]+$/, '')))];
+function extract(text: string, pattern: RegExp): string[] {
+  return [...new Set(Array.from(text.matchAll(pattern), (m) => m[1].replace(/[.-]+$/, '')))];
 }
 
-export function mentionsE2E(texte: string): MentionsE2E {
-  return { e2eUserMentions: extraire(texte, UTILISATEUR), e2eChannelMentions: extraire(texte, SALON) };
+export function mentionsE2E(text: string): MentionsE2E {
+  return { e2eUserMentions: extract(text, USER), e2eChannelMentions: extract(text, ROOM) };
 }

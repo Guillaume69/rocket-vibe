@@ -16,43 +16,43 @@ import { MessageBody, RenderGuard } from './markdown.tsx';
 import { type Colors, FONTS } from './theme.ts';
 
 const notes = new Map<string, string>();
-const ecouteurs = new Set<() => void>();
+const listeners = new Set<() => void>();
 
-function notifier(): void {
-  for (const e of ecouteurs) e();
+function notify(): void {
+  for (const e of listeners) e();
 }
 
-export function setPrivateNote(rid: string, texte: string): void {
-  notes.set(rid, texte);
-  notifier();
+export function setPrivateNote(rid: string, text: string): void {
+  notes.set(rid, text);
+  notify();
 }
 
 export function closePrivateNote(rid: string): void {
-  if (notes.delete(rid)) notifier();
+  if (notes.delete(rid)) notify();
 }
 
-function abonner(e: () => void): () => void {
-  ecouteurs.add(e);
-  return () => ecouteurs.delete(e);
+function subscribe(e: () => void): () => void {
+  listeners.add(e);
+  return () => listeners.delete(e);
 }
 
 export function usePrivateNote(rid: string): string | null {
-  const lire = useCallback(() => notes.get(rid) ?? null, [rid]);
-  return useSyncExternalStore(abonner, lire);
+  const read = useCallback(() => notes.get(rid) ?? null, [rid]);
+  return useSyncExternalStore(subscribe, read);
 }
 
-export function PrivateNote({ c, rid, text: texte }: { c: Colors; rid: string; text: string }) {
+export function PrivateNote({ c, rid, text }: { c: Colors; rid: string; text: string }) {
   const t = useT();
-  const arbre = useMemo(() => messageTree(null, texte), [texte]);
+  const tree = useMemo(() => messageTree(null, text), [text]);
   return (
     <View style={[styles.note, { backgroundColor: c.card, borderLeftColor: c.accent }]}>
       <View style={styles.body}>
         <Text style={[styles.title, { color: c.accent }]}>{t('salon.notePrivee')}</Text>
-        {arbre === null ? (
-          <Text style={{ color: c.text }}>{texte}</Text>
+        {tree === null ? (
+          <Text style={{ color: c.text }}>{text}</Text>
         ) : (
-          <RenderGuard key={texte} fallback={<Text style={{ color: c.text }}>{texte}</Text>}>
-            <MessageBody tree={arbre} c={c} />
+          <RenderGuard key={text} fallback={<Text style={{ color: c.text }}>{text}</Text>}>
+            <MessageBody tree={tree} c={c} />
           </RenderGuard>
         )}
       </View>

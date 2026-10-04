@@ -13,18 +13,18 @@ import {
 import { ClientRest } from './rest.ts';
 
 /** Client qui enregistre chaque appel et répond ce qu'on lui donne par chemin. */
-function clientEspion(reponses: Record<string, unknown> = {}) {
-  const appels: { method: string; path: string; body: unknown; headers: Headers }[] = [];
+function spyClient(responses: Record<string, unknown> = {}) {
+  const calls: { method: string; path: string; body: unknown; headers: Headers }[] = [];
   const client = new ClientRest('http://x', {
     fetch: async (url, init) => {
-      const chemin = String(url).split('/api/v1/')[1] ?? '';
-      appels.push({
+      const path = String(url).split('/api/v1/')[1] ?? '';
+      calls.push({
         method: init?.method ?? 'GET',
-        path: chemin,
+        path,
         body: init?.body === undefined ? undefined : JSON.parse(String(init.body)),
         headers: new Headers(init?.headers),
       });
-      return new Response(JSON.stringify(reponses[chemin] ?? { success: true }), {
+      return new Response(JSON.stringify(responses[path] ?? { success: true }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -32,7 +32,7 @@ function clientEspion(reponses: Record<string, unknown> = {}) {
     sleep: async () => {},
   });
   client.auth = { authToken: 'jeton-alice', userId: 'uid-alice' };
-  return { client, appels };
+  return { client, calls };
 }
 
 describe('profilDepuisMe', () => {
@@ -88,10 +88,10 @@ describe('profilDepuisMe', () => {
 
 describe('lireMonProfil', () => {
   test('lit GET me et normalise', async () => {
-    const { client, appels } = clientEspion({ me: { username: 'alice', status: 'online' } });
+    const { client, calls } = spyClient({ me: { username: 'alice', status: 'online' } });
     const p = await readMyProfile(client);
-    assert.equal(appels[0]?.path, 'me');
-    assert.equal(appels[0]?.method, 'GET');
+    assert.equal(calls[0]?.path, 'me');
+    assert.equal(calls[0]?.method, 'GET');
     assert.equal(p.username, 'alice');
     assert.equal(p.status, 'online');
   });
@@ -99,27 +99,27 @@ describe('lireMonProfil', () => {
 
 describe('enregistrerStatut', () => {
   test('poste status ET message ensemble', async () => {
-    const { client, appels } = clientEspion();
+    const { client, calls } = spyClient();
     await saveStatus(client, { status: 'away', message: 'Déjeuner' });
-    assert.equal(appels[0]?.path, 'users.setStatus');
-    assert.deepEqual(appels[0]?.body, { status: 'away', message: 'Déjeuner' });
+    assert.equal(calls[0]?.path, 'users.setStatus');
+    assert.deepEqual(calls[0]?.body, { status: 'away', message: 'Déjeuner' });
   });
 });
 
 describe('enregistrerInfos', () => {
   test('poste { data } sans en-tête 2FA quand aucun code', async () => {
-    const { client, appels } = clientEspion();
+    const { client, calls } = spyClient();
     await saveBasicInfo(client, { name: 'Alice M.' });
-    assert.equal(appels[0]?.path, 'users.updateOwnBasicInfo');
-    assert.deepEqual(appels[0]?.body, { data: { name: 'Alice M.' } });
-    assert.equal(appels[0]?.headers.get('x-2fa-code'), null);
+    assert.equal(calls[0]?.path, 'users.updateOwnBasicInfo');
+    assert.deepEqual(calls[0]?.body, { data: { name: 'Alice M.' } });
+    assert.equal(calls[0]?.headers.get('x-2fa-code'), null);
   });
 
   test('ajoute les en-têtes x-2fa-* quand un code est fourni', async () => {
-    const { client, appels } = clientEspion();
+    const { client, calls } = spyClient();
     await saveBasicInfo(client, { email: 'neuf@x.fr' }, { code: '123456', method: 'totp' });
-    assert.equal(appels[0]?.headers.get('x-2fa-code'), '123456');
-    assert.equal(appels[0]?.headers.get('x-2fa-method'), 'totp');
+    assert.equal(calls[0]?.headers.get('x-2fa-code'), '123456');
+    assert.equal(calls[0]?.headers.get('x-2fa-method'), 'totp');
   });
 });
 

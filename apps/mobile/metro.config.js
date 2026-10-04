@@ -8,7 +8,7 @@ config.resolver.sourceExts.push('sql');
 // E2EE : `lib/e2e/crypto.ts` importe l'API `node:crypto`. Dans le bundle RN,
 // on la résout vers `react-native-quick-crypto` (module natif Nitro, même API
 // OpenSSL). Sous Node (tests) l'alias ne s'applique pas → `node:crypto` natif.
-const resolveurStandard = config.resolver.resolveRequest;
+const standardResolver = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   // `buffer` pointe vers l'implé feuille (@craftzdog/react-native-buffer), PAS
   // vers le barrel quick-crypto : ce dernier importe lui-même `buffer` à
@@ -20,7 +20,7 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (moduleName === 'buffer') {
     return context.resolveRequest(context, '@craftzdog/react-native-buffer', platform);
   }
-  return (resolveurStandard ?? context.resolveRequest)(context, moduleName, platform);
+  return (standardResolver ?? context.resolveRequest)(context, moduleName, platform);
 };
 
 module.exports = config;

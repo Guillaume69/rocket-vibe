@@ -11,24 +11,24 @@ import { totp } from './totp.mjs';
 
 const BASE = process.env.ROOT_URL ?? 'http://localhost:3000';
 const action = process.argv[2];
-const secretFourni = process.argv[3];
+const givenSecret = process.argv[3];
 
 // Rocket.Chat REFUSE la réutilisation d'un code déjà consommé (le flow vient
 // d'en utiliser un), et n'accepte que ±1 fenêtre : selon l'alignement, une
 // seule tentative peut tomber pile sur le code consommé. On essaie donc
 // plusieurs fenêtres jusqu'à succès.
-const FENETRES_MS = [30_000, 0, -30_000, 60_000];
-async function essayerFenetres(secret, tenter) {
-  let derniere;
-  for (const decalage of FENETRES_MS) {
+const WINDOWS_MS = [30_000, 0, -30_000, 60_000];
+async function tryWindows(secret, attempt) {
+  let last;
+  for (const offset of WINDOWS_MS) {
     try {
-      return await tenter(totp(secret, Date.now() + decalage));
+      return await attempt(totp(secret, Date.now() + offset));
     } catch (e) {
-      derniere = e;
-      console.error(`  fenêtre ${decalage / 1000}s refusée : ${String(e?.message ?? e).slice(0, 80)}`);
+      last = e;
+      console.error(`  fenêtre ${offset / 1000}s refusée : ${String(e?.message ?? e).slice(0, 80)}`);
     }
   }
-  throw derniere;
+  throw last;
 }
 
 // Si la 2FA est DÉJÀ active (nettoyage après un run interrompu), le login
@@ -39,17 +39,17 @@ async function loginBob() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user: 'bob', password: 'bob-dev-2026' }),
   });
-  const corps = await simple.json();
-  if (corps.data) return corps.data;
+  const body = await simple.json();
+  if (body.data) return body.data;
   // `/login` met le code d'erreur dans `error` (pas `errorType`).
-  if ((corps.error === 'totp-required' || corps.errorType === 'totp-required') && secretFourni) {
-    return essayerFenetres(secretFourni, async (code) => {
-      const avecCode = await fetch(`${BASE}/api/v1/login`, {
+  if ((body.error === 'totp-required' || body.errorType === 'totp-required') && givenSecret) {
+    return tryWindows(givenSecret, async (code) => {
+      const withCode = await fetch(`${BASE}/api/v1/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user: 'bob', password: 'bob-dev-2026', code }),
       });
-      const c = await avecCode.json();
+      const c = await withCode.json();
       if (!c.data) throw new Error(c.error ?? 'code refusé');
       return c.data;
     });
@@ -65,11 +65,11 @@ if (!bob) {
 
 const ws = new WebSocket(`${BASE.replace(/^http/i, 'ws')}/websocket`);
 let id = 0;
-const attentes = new Map();
-const appeler = (method, ...params) =>
-  new Promise((resoudre, rejeter) => {
+const pending = new Map();
+const call = (method, ...params) =>
+  new Promise((resolve, reject) => {
     const mid = `m${++id}`;
-    attentes.set(mid, { resoudre, rejeter });
+    pending.set(mid, { resolve, reject });
     ws.send(JSON.stringify({ msg: 'method', method, id: mid, params }));
   });
 
@@ -77,17 +77,17 @@ ws.onmessage = async (e) => {
   const m = JSON.parse(e.data);
   if (m.msg === 'ping') return ws.send(JSON.stringify({ msg: 'pong' }));
   if (m.msg === 'connected') {
-    await appeler('login', { resume: bob.authToken });
+    await call('login', { resume: bob.authToken });
     try {
       if (action === 'enable') {
-        const { secret } = await appeler('2fa:enable');
-        await appeler('2fa:validateTempToken', totp(secret));
+        const { secret } = await call('2fa:enable');
+        await call('2fa:validateTempToken', totp(secret));
         // `process.exit` n'attend pas les écritures asynchrones sur un tube :
         // le secret serait parfois TRONQUÉ dans `$(...)` — et perdu.
         await new Promise((r) => process.stdout.write(`${secret}\n`, () => r()));
       } else if (action === 'disable') {
-        if (!secretFourni) throw new Error('disable exige le secret');
-        await essayerFenetres(secretFourni, (code) => appeler('2fa:disable', code));
+        if (!givenSecret) throw new Error('disable exige le secret');
+        await tryWindows(givenSecret, (code) => call('2fa:disable', code));
         console.log('ok');
       } else {
         throw new Error('usage: two-factor.mjs enable | disable <SECRET>');
@@ -99,11 +99,11 @@ ws.onmessage = async (e) => {
     }
   }
   if (m.msg === 'result') {
-    const attente = attentes.get(m.id);
-    if (!attente) return;
-    attentes.delete(m.id);
-    if (m.error) attente.rejeter(new Error(m.error.message ?? 'méthode refusée'));
-    else attente.resoudre(m.result);
+    const wait = pending.get(m.id);
+    if (!wait) return;
+    pending.delete(m.id);
+    if (m.error) wait.reject(new Error(m.error.message ?? 'méthode refusée'));
+    else wait.resolve(m.result);
   }
 };
 ws.onopen = () => ws.send(JSON.stringify({ msg: 'connect', version: '1', support: ['1'] }));

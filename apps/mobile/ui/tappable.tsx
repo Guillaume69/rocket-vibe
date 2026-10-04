@@ -13,11 +13,11 @@ export function Tappable({ style, android_ripple, ...props }: PressableProps) {
   return (
     <Pressable
       {...props}
-      style={(etat) => [typeof style === 'function' ? style(etat) : style, etat.pressed && styles.appuye]}
+      style={(state) => [typeof style === 'function' ? style(state) : style, state.pressed && styles.pressed]}
     />
   );
 }
 
 const styles = StyleSheet.create({
-  appuye: { opacity: 0.55 },
+  pressed: { opacity: 0.55 },
 });

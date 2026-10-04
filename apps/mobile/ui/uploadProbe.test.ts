@@ -10,24 +10,24 @@ beforeEach(() => {
 
 describe('sonde de fin de téléversement', () => {
   test('une fois branchée, CHAQUE fin d’upload la déclenche', () => {
-    let appels = 0;
-    armUploadProbe(() => appels++);
+    let calls = 0;
+    armUploadProbe(() => calls++);
 
     reportUploadEnd();
     reportUploadEnd();
 
-    assert.equal(appels, 2, 'pas seulement le premier téléversement');
+    assert.equal(calls, 2, 'pas seulement le premier téléversement');
   });
 
   test('débranchée, plus rien ne part vers une session rangée', () => {
-    let appels = 0;
-    armUploadProbe(() => appels++);
+    let calls = 0;
+    armUploadProbe(() => calls++);
     reportUploadEnd();
 
     armUploadProbe(null);
     reportUploadEnd();
 
-    assert.equal(appels, 1, 'le signal d’après le débranchement est ignoré');
+    assert.equal(calls, 1, 'le signal d’après le débranchement est ignoré');
   });
 
   test('sans sonde branchée, signaler ne jette pas', () => {
@@ -35,14 +35,14 @@ describe('sonde de fin de téléversement', () => {
   });
 
   test('une nouvelle session remplace la sonde de l’ancienne', () => {
-    let ancienne = 0;
-    let nouvelle = 0;
-    armUploadProbe(() => ancienne++);
-    armUploadProbe(() => nouvelle++);
+    let old = 0;
+    let next = 0;
+    armUploadProbe(() => old++);
+    armUploadProbe(() => next++);
 
     reportUploadEnd();
 
-    assert.equal(ancienne, 0, 'l’ancien client ne doit plus être sondé');
-    assert.equal(nouvelle, 1);
+    assert.equal(old, 0, 'l’ancien client ne doit plus être sondé');
+    assert.equal(next, 1);
   });
 });

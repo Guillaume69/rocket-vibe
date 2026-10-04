@@ -21,7 +21,7 @@ import type { TranslateFn } from '../ui/messages.ts';
  * (`{p}`) le reçoivent à l'appel ; les cas où un `msg` VIDE change la phrase
  * (sujet effacé, bienvenue anonyme) sont traités à part dans `texteSysteme`.
  */
-const CLES = {
+const KEYS = {
   uj: 'sys.uj',
   ujt: 'sys.ujt',
   ul: 'sys.ul',
@@ -56,7 +56,7 @@ const CLES = {
 } as const satisfies Record<string, Parameters<TranslateFn>[0]>;
 
 /** Types dont un `msg` VIDE efface la partie « : … » — traités hors table. */
-const AVEC_CAS_VIDE = {
+const WITH_EMPTY_CASE = {
   room_changed_topic: { removed: 'sys.topicRetire', full: 'sys.topic' },
   room_changed_announcement: { removed: 'sys.annonceRetire', full: 'sys.annonce' },
   room_changed_description: { removed: 'sys.descriptionRetire', full: 'sys.description' },
@@ -66,17 +66,17 @@ const AVEC_CAS_VIDE = {
  * Phrase d'un message système, dans la langue portée par `t`. `parametre` est
  * le `msg` brut du message — vide pour les actions qui n'en ont pas.
  */
-export function systemText(t: TranslateFn, type: string, parametre: string | null): string {
-  const p = parametre ?? '';
+export function systemText(t: TranslateFn, type: string, param: string | null): string {
+  const p = param ?? '';
 
   // Bienvenue : `msg` vide = accueil anonyme (« bienvenue ! »), sinon nominatif.
   if (type === 'wm') return p === '' ? t('sys.wmVide') : t('sys.wm', { p });
 
-  const cas = AVEC_CAS_VIDE[type as keyof typeof AVEC_CAS_VIDE];
-  if (cas !== undefined) return p === '' ? t(cas.removed) : t(cas.full, { p });
+  const cases = WITH_EMPTY_CASE[type as keyof typeof WITH_EMPTY_CASE];
+  if (cases !== undefined) return p === '' ? t(cases.removed) : t(cases.full, { p });
 
-  const cle = CLES[type as keyof typeof CLES];
-  if (cle !== undefined) return t(cle, { p });
+  const key = KEYS[type as keyof typeof KEYS];
+  if (key !== undefined) return t(key, { p });
 
   // Type inconnu : phrase générique. Le deux-points ne pend pas quand `msg` est vide.
   return p === '' ? t('sys.inconnu', { type }) : t('sys.inconnuParam', { type, p });

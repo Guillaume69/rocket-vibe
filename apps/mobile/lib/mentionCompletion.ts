@@ -46,13 +46,13 @@ export const SPECIAL_MENTIONS: readonly string[] = ['all', 'here'];
  * ferme le jeton — taper `@alice bonjour` ne doit pas garder le bandeau ouvert
  * sur la requête `alice bonjour`.
  */
-const USERNAME_VALIDE = /^[A-Za-z0-9._-]*$/;
+const VALID_USERNAME = /^[A-Za-z0-9._-]*$/;
 /**
  * Une lettre ou un chiffre Unicode — accents compris. Le `@` ne doit ouvrir un
  * jeton que s'il commence un mot : au milieu de `nom@domaine` (adresse email),
  * il ne déclenche pas.
  */
-const LETTRE_OU_CHIFFRE = /[\p{L}\p{N}]/u;
+const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
 
 /**
  * Le jeton `@xxx` en cours de frappe juste avant le curseur, ou `null`.
@@ -62,18 +62,18 @@ const LETTRE_OU_CHIFFRE = /[\p{L}\p{N}]/u;
  * requête doit rester dans le jeu de caractères d'un username.
  */
 export function detectMentionToken(
-  texte: string,
-  curseur: number,
+  text: string,
+  cursor: number,
 ): { start: number; query: string } | null {
-  const c = Math.max(0, Math.min(curseur, texte.length));
-  const avant = texte.slice(0, c);
-  const arobase = avant.lastIndexOf('@');
-  if (arobase === -1) return null;
+  const c = Math.max(0, Math.min(cursor, text.length));
+  const before = text.slice(0, c);
+  const atSign = before.lastIndexOf('@');
+  if (atSign === -1) return null;
   // `charAt` renvoie '' hors bornes : pas de garde d'index nécessaire.
-  if (arobase > 0 && LETTRE_OU_CHIFFRE.test(avant.charAt(arobase - 1))) return null;
-  const requete = avant.slice(arobase + 1);
-  if (!USERNAME_VALIDE.test(requete) || requete.length < MIN_MENTION_QUERY) return null;
-  return { start: arobase, query: requete.toLowerCase() };
+  if (atSign > 0 && LETTER_OR_DIGIT.test(before.charAt(atSign - 1))) return null;
+  const query = before.slice(atSign + 1);
+  if (!VALID_USERNAME.test(query) || query.length < MIN_MENTION_QUERY) return null;
+  return { start: atSign, query: query.toLowerCase() };
 }
 
 /**
@@ -88,29 +88,29 @@ export function detectMentionToken(
  * mentions spéciales.
  */
 export function completeMention(
-  requete: string,
-  candidats: readonly MentionCandidate[],
-  limite = MENTION_SUGGESTION_LIMIT,
+  query: string,
+  candidates: readonly MentionCandidate[],
+  limit = MENTION_SUGGESTION_LIMIT,
 ): MentionCandidate[] {
-  const q = requete.toLowerCase();
+  const q = query.toLowerCase();
 
-  const retenus: { c: MentionCandidate; rank: number; order: number }[] = [];
-  const vus = new Set<string>();
-  const ajouter = (c: MentionCandidate, speciale: boolean): void => {
-    const nom = c.username.toLowerCase();
-    if (vus.has(nom)) return;
-    const i = q === '' ? 0 : nom.indexOf(q);
+  const kept: { c: MentionCandidate; rank: number; order: number }[] = [];
+  const seen = new Set<string>();
+  const add = (c: MentionCandidate, special: boolean): void => {
+    const name = c.username.toLowerCase();
+    if (seen.has(name)) return;
+    const i = q === '' ? 0 : name.indexOf(q);
     if (i === -1) return;
-    const correspondance = q === '' ? 2 : nom === q ? 0 : i === 0 ? 1 : 2;
-    vus.add(nom);
-    retenus.push({ c, rank: correspondance * 2 + (speciale ? 1 : 0), order: retenus.length });
+    const match = q === '' ? 2 : name === q ? 0 : i === 0 ? 1 : 2;
+    seen.add(name);
+    kept.push({ c, rank: match * 2 + (special ? 1 : 0), order: kept.length });
   };
 
-  for (const c of candidats) ajouter(c, false);
-  for (const nom of SPECIAL_MENTIONS) ajouter({ username: nom, uid: null }, true);
+  for (const c of candidates) add(c, false);
+  for (const name of SPECIAL_MENTIONS) add({ username: name, uid: null }, true);
 
   // Tri STABLE requis (l'ordre d'arrivée départage) : garanti par ECMAScript
   // depuis ES2019, mais `ordre` le rend explicite et indépendant du moteur.
-  retenus.sort((a, b) => a.rank - b.rank || a.order - b.order);
-  return retenus.slice(0, limite).map((x) => x.c);
+  kept.sort((a, b) => a.rank - b.rank || a.order - b.order);
+  return kept.slice(0, limit).map((x) => x.c);
 }

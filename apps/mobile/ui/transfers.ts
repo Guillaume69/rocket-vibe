@@ -10,28 +10,28 @@ import { useCallback, useSyncExternalStore } from 'react';
 /** Fraction 0..1, ou `null` tant que la taille totale est inconnue. */
 export type Progress = number | null;
 
-let enCours = new Map<string, Progress>();
-const abonnes = new Set<() => void>();
+let inProgress = new Map<string, Progress>();
+const subscribers = new Set<() => void>();
 
-function publier(cle: string, valeur: Progress | undefined): void {
-  const suivant = new Map(enCours);
-  if (valeur === undefined) suivant.delete(cle);
-  else suivant.set(cle, valeur);
-  enCours = suivant;
-  for (const abonne of abonnes) abonne();
+function publish(key: string, value: Progress | undefined): void {
+  const next = new Map(inProgress);
+  if (value === undefined) next.delete(key);
+  else next.set(key, value);
+  inProgress = next;
+  for (const subscriber of subscribers) subscriber();
 }
 
-function abonner(abonne: () => void): () => void {
-  abonnes.add(abonne);
+function subscribe(subscriber: () => void): () => void {
+  subscribers.add(subscriber);
   return () => {
-    abonnes.delete(abonne);
+    subscribers.delete(subscriber);
   };
 }
 
 /** `undefined` : aucun transfert en cours pour ce fichier. */
-export function useProgress(cle: string | null): Progress | undefined {
-  const lire = useCallback(() => (cle === null ? undefined : enCours.get(cle)), [cle]);
-  return useSyncExternalStore(abonner, lire);
+export function useProgress(key: string | null): Progress | undefined {
+  const read = useCallback(() => (key === null ? undefined : inProgress.get(key)), [key]);
+  return useSyncExternalStore(subscribe, read);
 }
 
 /**
@@ -40,15 +40,15 @@ export function useProgress(cle: string | null): Progress | undefined {
  * Rend `false` dans ce cas.
  */
 export async function transfer(
-  cle: string,
-  travail: (surProgression: (p: Progress) => void) => Promise<void>,
+  key: string,
+  work: (onProgress: (p: Progress) => void) => Promise<void>,
 ): Promise<boolean> {
-  if (enCours.has(cle)) return false;
-  publier(cle, null);
+  if (inProgress.has(key)) return false;
+  publish(key, null);
   try {
-    await travail((p) => publier(cle, p));
+    await work((p) => publish(key, p));
   } finally {
-    publier(cle, undefined);
+    publish(key, undefined);
   }
   return true;
 }

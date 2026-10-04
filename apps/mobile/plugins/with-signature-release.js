@@ -19,7 +19,7 @@ const CONFIG_RELEASE = `
             }
         }`;
 
-const GARDE = `
+const GUARD = `
 gradle.taskGraph.whenReady { graph ->
     if (graph.allTasks.any { it.name.contains('Release') } && !System.getenv('RV_KEYSTORE')) {
         throw new GradleException(
@@ -28,22 +28,22 @@ gradle.taskGraph.whenReady { graph ->
 }
 `;
 
-function signer(gradle) {
+function sign(gradle) {
   if (gradle.includes("System.getenv('RV_KEYSTORE')")) return gradle;
   const debug = /(signingConfigs \{\s*\n\s*debug \{[^}]*\})/;
   if (!debug.test(gradle)) throw new Error('with-signature-release : bloc signingConfigs.debug introuvable');
-  let sortie = gradle.replace(debug, `$1${CONFIG_RELEASE}`);
+  let outbox = gradle.replace(debug, `$1${CONFIG_RELEASE}`);
   const release = /(buildTypes \{[\s\S]*?release \{[\s\S]*?)signingConfig signingConfigs\.debug/;
-  if (!release.test(sortie)) throw new Error('with-signature-release : signingConfig du buildType release introuvable');
-  sortie = sortie.replace(release, '$1signingConfig signingConfigs.release');
-  return sortie + GARDE;
+  if (!release.test(outbox)) throw new Error('with-signature-release : signingConfig du buildType release introuvable');
+  outbox = outbox.replace(release, '$1signingConfig signingConfigs.release');
+  return outbox + GUARD;
 }
 
 module.exports = function withSignatureRelease(config) {
   return withAppBuildGradle(config, (config) => {
-    config.modResults.contents = signer(config.modResults.contents);
+    config.modResults.contents = sign(config.modResults.contents);
     return config;
   });
 };
 
-module.exports.signer = signer;
+module.exports.sign = sign;

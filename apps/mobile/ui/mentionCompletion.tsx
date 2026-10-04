@@ -38,7 +38,7 @@ import { Tappable } from './tappable.tsx';
  * Assez de lignes pour couvrir tous les auteurs actifs d'un salon vivant, assez
  * peu pour que la requête réactive reste bon marché à chaque message entrant.
  */
-const FENETRE_MESSAGES = 400;
+const MESSAGES_WINDOW = 400;
 
 /**
  * Les auteurs récents du salon, dédupliqués par username, plus récent d'abord.
@@ -50,36 +50,36 @@ const FENETRE_MESSAGES = 400;
  * clause SQL.
  */
 export function useMentionCandidates(base: BaseLocale, rid: string): MentionCandidate[] {
-  const { data: lignes } = useCoalescedLiveQuery(
+  const { data: rows } = useCoalescedLiveQuery(
     base
       .select({ username: messages.authorName, uid: messages.authorId })
       .from(messages)
       .where(and(eq(messages.rid, rid), isNotNull(messages.authorName)))
       .orderBy(desc(messages.ts))
-      .limit(FENETRE_MESSAGES),
+      .limit(MESSAGES_WINDOW),
     [rid],
   );
 
   return useMemo(() => {
-    const vus = new Set<string>();
-    const candidats: MentionCandidate[] = [];
-    for (const l of lignes ?? []) {
+    const seen = new Set<string>();
+    const candidates: MentionCandidate[] = [];
+    for (const l of rows ?? []) {
       // `isNotNull` en SQL garantit le username ; la garde rassure le typage.
-      if (l.username === null || vus.has(l.username)) continue;
-      vus.add(l.username);
-      candidats.push({ username: l.username, uid: l.uid });
+      if (l.username === null || seen.has(l.username)) continue;
+      seen.add(l.username);
+      candidates.push({ username: l.username, uid: l.uid });
     }
-    return candidats;
-  }, [lignes]);
+    return candidates;
+  }, [rows]);
 }
 
 export function MentionCompletionBanner({
-  text: texte,
-  cursor: curseur,
-  candidates: candidats,
+  text,
+  cursor,
+  candidates,
   client,
   c,
-  onPick: surChoisir,
+  onPick,
 }: {
   text: string;
   cursor: number;
@@ -87,18 +87,18 @@ export function MentionCompletionBanner({
   client: ClientRest;
   c: Colors;
   /** Reçoit le texte à insérer (`@username`) et le `debut` du jeton détecté. */
-  onPick: (insertion: string, debut: number) => void;
+  onPick: (insertion: string, start: number) => void;
 }) {
   const etags = useEtagsAvatars();
-  const resultat = useMemo(() => {
-    const jeton = detectMentionToken(texte, curseur);
-    if (jeton === null) return null;
-    const suggestions = completeMention(jeton.query, candidats);
+  const result = useMemo(() => {
+    const token = detectMentionToken(text, cursor);
+    if (token === null) return null;
+    const suggestions = completeMention(token.query, candidates);
     if (suggestions.length === 0) return null;
-    return { start: jeton.start, items: suggestions };
-  }, [texte, curseur, candidats]);
+    return { start: token.start, items: suggestions };
+  }, [text, cursor, candidates]);
 
-  if (resultat === null) return null;
+  if (result === null) return null;
 
   return (
     <ScrollView
@@ -110,10 +110,10 @@ export function MentionCompletionBanner({
       style={[styles.strip, { backgroundColor: c.card, borderTopColor: c.border }]}
       contentContainerStyle={styles.content}
     >
-      {resultat.items.map(({ username, uid }) => (
+      {result.items.map(({ username, uid }) => (
         <View key={username} style={styles.bulletWrapper}>
           <Tappable
-            onPress={() => surChoisir(`@${username}`, resultat.start)}
+            onPress={() => onPick(`@${username}`, result.start)}
             android_ripple={{ color: c.ripple, borderless: false }}
             unstable_pressDelay={LIST_PRESS_DELAY}
             style={styles.bullet}
@@ -121,7 +121,7 @@ export function MentionCompletionBanner({
           >
             {uid === null ? (
               // Mention spéciale (@all, @here) : mégaphone, pas de photo.
-              <Text style={styles.glypheSpecial}>📣</Text>
+              <Text style={styles.specialGlyph}>📣</Text>
             ) : (
               <AvatarTile
                 c={c}
@@ -152,6 +152,6 @@ const styles = StyleSheet.create({
   // ignoré par le masque du ripple sous Fabric.
   bulletWrapper: { borderRadius: 999, overflow: 'hidden' },
   bullet: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 6 },
-  glypheSpecial: { fontSize: 18 },
+  specialGlyph: { fontSize: 18 },
   name: { fontSize: 13, maxWidth: 140 },
 });

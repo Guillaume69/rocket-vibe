@@ -67,24 +67,24 @@ const CODES_REACTION = ['+1', 'heart', 'joy', 'tada', 'open_mouth', 'pray'];
  * l'ancien au nouveau). L'échec n'est jamais mémoïsé : hors ligne, on retombe
  * sur des règles permissives le temps de l'ouverture — le serveur tranchera.
  */
-const reglesParServeur = new Map<string, MessageRules>();
-async function lireRegles(client: ClientRest): Promise<MessageRules> {
-  const enCache = reglesParServeur.get(client.baseUrl);
-  if (enCache !== undefined) return enCache;
+const rulesByServer = new Map<string, MessageRules>();
+async function readRules(client: ClientRest): Promise<MessageRules> {
+  const cached = rulesByServer.get(client.baseUrl);
+  if (cached !== undefined) return cached;
   try {
-    const reponse = await client.get<{ settings?: { _id?: string; value?: unknown }[] }>(
+    const response = await client.get<{ settings?: { _id?: string; value?: unknown }[] }>(
       'settings.public',
       { params: { count: 0 } },
     );
-    const regles = rulesFromSettings(reponse.settings ?? []);
-    reglesParServeur.set(client.baseUrl, regles);
-    return regles;
+    const rules = rulesFromSettings(response.settings ?? []);
+    rulesByServer.set(client.baseUrl, rules);
+    return rules;
   } catch {
     return rulesFromSettings([]);
   }
 }
 
-type Charge = {
+type Payload = {
   message: {
     id: string;
     rid: string;
@@ -106,261 +106,261 @@ type Charge = {
 export default function MessageActionsScreen() {
   // `fil` : présent quand la feuille est ouverte DEPUIS l'écran d'un fil — la
   // cible de réponse est alors adressée au composer de ce fil, pas du salon.
-  const { id, thread: fil } = useLocalSearchParams<{ id: string; thread?: string }>();
-  const { state: etat } = useSession();
-  const synchro = useSync();
-  const routeur = useRouter();
+  const { id, thread } = useLocalSearchParams<{ id: string; thread?: string }>();
+  const { state } = useSession();
+  const sync = useSync();
+  const router = useRouter();
   const c = useColors();
   const t = useT();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   // Plafond de la sheet : au-delà, le contenu (le champ d'édition) défile.
-  const hauteurMax = Math.round(height * 0.8);
+  const maxHeight = Math.round(height * 0.8);
   // Marge basse : sous la barre de gestes, plus une respiration.
-  const bas = insets.bottom + 12;
+  const bottom = insets.bottom + 12;
 
   // Message et actions calculées naissent du même chargement : UN état, pour
   // qu'ils ne puissent pas se désynchroniser.
-  const [charge, setCharge] = useState<Charge | null>(null);
-  const [edition, setEdition] = useState<string | null>(null);
-  const [erreur, setErreur] = useState<string | null>(null);
-  const [occupe, setOccupe] = useState(false);
+  const [payload, setPayload] = useState<Payload | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const pret = synchro.phase === 'ready' && etat.phase === 'connected' && typeof id === 'string';
-  const base = synchro.phase === 'ready' ? synchro.base : null;
-  const moteur = synchro.phase === 'ready' ? synchro.engine : null;
-  const actionneur = synchro.phase === 'ready' ? synchro.actions : null;
-  const e2e = synchro.phase === 'ready' ? synchro.e2e : null;
-  const client = etat.phase === 'connected' ? etat.client : null;
-  const moi = etat.phase === 'connected' ? etat.session.userId : null;
-  const siteUrl = etat.phase === 'connected' ? etat.session.siteUrl : null;
+  const ready = sync.phase === 'ready' && state.phase === 'connected' && typeof id === 'string';
+  const base = sync.phase === 'ready' ? sync.base : null;
+  const engine = sync.phase === 'ready' ? sync.engine : null;
+  const trigger = sync.phase === 'ready' ? sync.actions : null;
+  const e2e = sync.phase === 'ready' ? sync.e2e : null;
+  const client = state.phase === 'connected' ? state.client : null;
+  const me = state.phase === 'connected' ? state.session.userId : null;
+  const siteUrl = state.phase === 'connected' ? state.session.siteUrl : null;
   // Les réactions se jugent au USERNAME (le serveur ne stocke que les pseudos),
   // là où `actionsPossibles` raisonne par uid — les deux identités servent.
-  const monUsername = etat.phase === 'connected' ? etat.session.username : null;
+  const myUsername = state.phase === 'connected' ? state.session.username : null;
 
   useEffect(() => {
-    if (!pret || base === null || client === null || moi === null) return;
-    let annule = false;
+    if (!ready || base === null || client === null || me === null) return;
+    let canceled = false;
     (async () => {
       // Les règles ne dépendent de rien de local : la requête part tout de
       // suite, en parallèle des lectures SQLite.
-      const promesseRegles = lireRegles(client);
+      const rulesPromise = readRules(client);
       // Hors ligne ou refusées : `null`, les droits d'un simple membre.
-      const promesseSources = sourcesPermissions(client).catch(() => null);
-      const lignes = await base.select().from(messages).where(eq(messages.id, id)).limit(1);
-      const brut = lignes[0];
-      if (annule) return;
-      if (brut === undefined) {
+      const sourcesPromise = sourcesPermissions(client).catch(() => null);
+      const rows = await base.select().from(messages).where(eq(messages.id, id)).limit(1);
+      const raw = rows[0];
+      if (canceled) return;
+      if (raw === undefined) {
         // Supprimé entre l'appui long et l'ouverture (stream deleteMessage).
-        setErreur(t('actionsMessage.messageIntrouvable'));
+        setError(t('actionsMessage.messageIntrouvable'));
         return;
       }
-      const [lignesSalon, lignesAbonnement, regles, sources] = await Promise.all([
-        base.select().from(rooms).where(eq(rooms.rid, brut.rid)).limit(1),
+      const [roomRows, subscriptionRows, rules, sources] = await Promise.all([
+        base.select().from(rooms).where(eq(rooms.rid, raw.rid)).limit(1),
         base
           .select({ roles: subscriptions.roles })
           .from(subscriptions)
-          .where(eq(subscriptions.rid, brut.rid))
+          .where(eq(subscriptions.rid, raw.rid))
           .limit(1),
-        promesseRegles,
-        promesseSources,
+        rulesPromise,
+        sourcesPromise,
       ]);
-      if (annule) return;
-      setCharge({
+      if (canceled) return;
+      setPayload({
         message: {
-          id: brut.id,
-          rid: brut.rid,
-          threadId: brut.threadId,
-          systemType: brut.systemType,
-          text: brut.text,
-          authorName: brut.authorName,
-          attachments: brut.attachments,
-          reactions: brut.reactions,
-          pinned: brut.pinned,
-          starred: brut.starred,
+          id: raw.id,
+          rid: raw.rid,
+          threadId: raw.threadId,
+          systemType: raw.systemType,
+          text: raw.text,
+          authorName: raw.authorName,
+          attachments: raw.attachments,
+          reactions: raw.reactions,
+          pinned: raw.pinned,
+          starred: raw.starred,
         },
         // Ligne de salon absente (lien profond avant synchro) : repli `c`/rid —
         // le serveur ne lit de toute façon que le `?msg=` du permalien.
-        room: { type: lignesSalon[0]?.type ?? 'c', name: lignesSalon[0]?.name ?? null },
+        room: { type: roomRows[0]?.type ?? 'c', name: roomRows[0]?.name ?? null },
         actions: actionsPossibles({
           message: {
-            authorId: brut.authorId,
-            ts: brut.ts,
-            systemType: brut.systemType,
-            text: brut.text,
-            attachments: brut.attachments,
-            pinned: brut.pinned,
-            starred: starredBy(brut.starred, moi),
+            authorId: raw.authorId,
+            ts: raw.ts,
+            systemType: raw.systemType,
+            text: raw.text,
+            attachments: raw.attachments,
+            pinned: raw.pinned,
+            starred: starredBy(raw.starred, me),
           },
-          me: moi,
-          rules: regles,
+          me,
+          rules,
           permissions:
             sources === null
               ? null
-              : grantedPermissions(sources, roomRoles(lignesAbonnement[0]?.roles)),
-          readOnly: lignesSalon[0]?.readOnly === true,
-          encrypted: lignesSalon[0]?.encrypted === true,
-          inThread: typeof fil === 'string',
+              : grantedPermissions(sources, roomRoles(subscriptionRows[0]?.roles)),
+          readOnly: roomRows[0]?.readOnly === true,
+          encrypted: roomRows[0]?.encrypted === true,
+          inThread: typeof thread === 'string',
           now: Date.now(),
         }),
       });
     })().catch(() => {
-      if (!annule) setErreur(t('actionsMessage.chargementImpossible'));
+      if (!canceled) setError(t('actionsMessage.chargementImpossible'));
     });
     return () => {
-      annule = true;
+      canceled = true;
     };
-  }, [pret, id, fil, base, client, moi, t]);
+  }, [ready, id, thread, base, client, me, t]);
 
   // Mes réactions déjà posées sur ce message : contour accentué, et le tap
   // RETIRE au lieu d'ajouter — `chat.react` sait faire les deux, le câblage en
   // dur à `mettre: true` rendait toute réaction inannulable.
-  const mesReactions = useMemo(
+  const myReactions = useMemo(
     () =>
       new Set(
-        reactionList(charge?.message.reactions ?? null, monUsername)
+        reactionList(payload?.message.reactions ?? null, myUsername)
           .filter((r) => r.byMe)
           .map((r) => r.code),
       ),
-    [charge, monUsername],
+    [payload, myUsername],
   );
 
   // Garde de réentrance dans une ref : l'état React d'un rendu passé
   // laisserait un double-tap déclencher l'action deux fois — et deux
   // `routeur.back()`, dont le second éjecte du salon.
-  const enVol = useRef(false);
-  const agir = useCallback(
+  const inFlight = useRef(false);
+  const act = useCallback(
     async (action: () => Promise<unknown>) => {
-      if (enVol.current) return;
-      enVol.current = true;
+      if (inFlight.current) return;
+      inFlight.current = true;
       // Tick de sélection à la confirmation de l'action (réaction, épingler,
       // supprimer, enregistrer) — retour haptique léger.
       void Haptics.selectionAsync();
-      setOccupe(true);
-      setErreur(null);
+      setBusy(true);
+      setError(null);
       try {
         await action();
-        routeur.back();
+        router.back();
       } catch (e) {
-        setErreur(e instanceof Error ? e.message : t('actionsMessage.actionRefusee'));
+        setError(e instanceof Error ? e.message : t('actionsMessage.actionRefusee'));
       } finally {
-        enVol.current = false;
-        setOccupe(false);
+        inFlight.current = false;
+        setBusy(false);
       }
     },
-    [routeur, t],
+    [router, t],
   );
 
-  if (!pret || client === null || moteur === null || actionneur === null || charge === null) {
+  if (!ready || client === null || engine === null || trigger === null || payload === null) {
     return (
-      <View style={[styles.sheet, styles.center, { paddingBottom: bas }]}>
-        {erreur !== null ? (
-          <Text style={[styles.error, { color: c.errorText }]}>{erreur}</Text>
+      <View style={[styles.sheet, styles.center, { paddingBottom: bottom }]}>
+        {error !== null ? (
+          <Text style={[styles.error, { color: c.errorText }]}>{error}</Text>
         ) : (
           <ActivityIndicator color={c.accent} />
         )}
       </View>
     );
   }
-  const { message, room: salon, actions } = charge;
-  const enEdition = edition !== null;
+  const { message, room, actions } = payload;
+  const isEditing = editing !== null;
 
   // Arme la cible de réponse pour le composer d'origine (salon ou fil) puis se
   // referme — l'envoi lui-même se joue là-bas, avec le texte tapé ensuite.
-  const repondre = () => {
+  const reply = () => {
     void Haptics.selectionAsync();
-    const permalien = messagePermalink({
+    const permalink = messagePermalink({
       baseUrl: client.baseUrl,
       siteUrl,
-      type: salon.type,
-      name: salon.name,
+      type: room.type,
+      name: room.name,
       rid: message.rid,
       msgId: message.id,
     });
-    requestReply(typeof fil === 'string' ? `${message.rid}:${fil}` : message.rid, {
+    requestReply(typeof thread === 'string' ? `${message.rid}:${thread}` : message.rid, {
       id: message.id,
       author: message.authorName,
       preview: stripQuotePrefix(message.text ?? '').trim() || null,
-      permalink: permalien,
+      permalink,
       localAttachment: localQuoteAttachment({
-        permalink: permalien,
+        permalink,
         author: message.authorName,
         text: message.text,
         attachments: message.attachments,
       }),
       previewImage: firstAttachmentImage(message.attachments),
     });
-    routeur.back();
+    router.back();
   };
 
   // Un fichier joint part COMME fichier ; sinon le texte. La légende d'une
   // image reste à « Copier ». Le fichier se télécharge EN FOND : la feuille se
   // referme tout de suite, la progression s'affiche sur le message.
-  const jointe = attachmentToShare(message.attachments);
-  const aTransferer =
-    jointe === null
+  const attachment = attachmentToShare(message.attachments);
+  const toForward =
+    attachment === null
       ? null
       : {
-          key: jointe.path,
-          url: protectedFileUrl(client, jointe.path),
-          title: jointe.title,
-          type: jointe.type,
-          size: jointe.size,
-          encryption: jointe.encryption,
+          key: attachment.path,
+          url: protectedFileUrl(client, attachment.path),
+          title: attachment.title,
+          type: attachment.type,
+          size: attachment.size,
+          encryption: attachment.encryption,
         };
-  const partager = async () => {
-    if (aTransferer === null) {
+  const share = async () => {
+    if (toForward === null) {
       await Share.share({ message: textToCopy(message.text) ?? '' });
       return;
     }
-    shareInBackground(aTransferer, t);
+    shareInBackground(toForward, t);
   };
-  const enregistrer = async () => {
-    if (aTransferer !== null) saveInBackground(aTransferer, t);
+  const save = async () => {
+    if (toForward !== null) saveInBackground(toForward, t);
   };
 
   // Le serveur ne rediffuse pas toujours le message marqué (voir
   // `lib/marks.ts`) : l'état local se pose ici, après le succès.
-  const epingler = async (mettre: boolean) => {
-    if (mettre) await actionneur.pin(message.rid, message.id);
-    else await actionneur.unpin(message.rid, message.id);
-    await moteur.syncStore.updateMessageMarks(message.id, mettre, message.starred);
+  const pin = async (put: boolean) => {
+    if (put) await trigger.pin(message.rid, message.id);
+    else await trigger.unpin(message.rid, message.id);
+    await engine.syncStore.updateMessageMarks(message.id, put, message.starred);
   };
-  const etoiler = async (mettre: boolean) => {
-    await actionneur.star(message.rid, message.id, mettre);
-    if (moi === null) return;
-    await moteur.syncStore.updateMessageMarks(
+  const star = async (put: boolean) => {
+    await trigger.star(message.rid, message.id, put);
+    if (me === null) return;
+    await engine.syncStore.updateMessageMarks(
       message.id,
       message.pinned,
-      starredAfter(message.starred, moi, mettre),
+      starredAfter(message.starred, me, put),
     );
   };
 
   return (
-    <View style={[styles.sheet, { maxHeight: hauteurMax, paddingBottom: bas }]}>
-      {!enEdition && actions.includes('react') && (
-        <View style={styles.rangeeEmojis}>
+    <View style={[styles.sheet, { maxHeight, paddingBottom: bottom }]}>
+      {!isEditing && actions.includes('react') && (
+        <View style={styles.emojiRow}>
           {CODES_REACTION.map((code) => {
-            const dejaPosee = mesReactions.has(code);
+            const alreadySet = myReactions.has(code);
             return (
               <Tappable
                 key={code}
-                disabled={occupe}
+                disabled={busy}
                 android_ripple={{ color: c.ripple, borderless: true }}
                 unstable_pressDelay={LIST_PRESS_DELAY}
-                accessibilityState={{ selected: dejaPosee }}
+                accessibilityState={{ selected: alreadySet }}
                 style={({ pressed }) => [
-                  styles.pastilleEmoji,
+                  styles.emojiChip,
                   {
                     backgroundColor: c.surfaceActive,
                     opacity: pressed ? 0.6 : 1,
                     // Toujours une bordure (transparente au repos) : son
                     // apparition ne doit pas faire bouger la rangée d'un pixel.
-                    borderColor: dejaPosee ? c.accent : 'transparent',
+                    borderColor: alreadySet ? c.accent : 'transparent',
                   },
                 ]}
                 onPress={() =>
-                  void agir(() => actionneur.react(message.rid, message.id, code, !dejaPosee))
+                  void act(() => trigger.react(message.rid, message.id, code, !alreadySet))
                 }
               >
                 <Text style={styles.emoji}>{unicodeOfShortcode(code) ?? `:${code}:`}</Text>
@@ -370,164 +370,164 @@ export default function MessageActionsScreen() {
         </View>
       )}
 
-      {enEdition ? (
-        <View style={styles.blocEdition}>
+      {isEditing ? (
+        <View style={styles.editBlock}>
           <TextInput
-            value={edition}
-            onChangeText={setEdition}
+            value={editing}
+            onChangeText={setEditing}
             multiline
             autoFocus
             placeholderTextColor={c.tertiaryText}
             style={[styles.field, { color: c.text, backgroundColor: c.card, borderColor: c.border }]}
           />
-          <View style={styles.rangeeEdition}>
+          <View style={styles.editRow}>
             <Pressable
-              disabled={occupe}
-              onPress={() => setEdition(null)}
-              style={({ pressed }) => [styles.boutonSecondaire, { opacity: pressed ? 0.6 : 1 }]}
+              disabled={busy}
+              onPress={() => setEditing(null)}
+              style={({ pressed }) => [styles.secondaryButton, { opacity: pressed ? 0.6 : 1 }]}
             >
-              <Text style={[styles.boutonSecondaireTexte, { color: c.dimmed }]}>{t('commun.annuler')}</Text>
+              <Text style={[styles.secondaryButtonText, { color: c.dimmed }]}>{t('commun.annuler')}</Text>
             </Pressable>
             <Pressable
-              disabled={occupe}
+              disabled={busy}
               onPress={() =>
-                void agir(() =>
-                  actionneur.edit(
+                void act(() =>
+                  trigger.edit(
                     message.rid,
                     message.id,
-                    edition ?? '',
+                    editing ?? '',
                     message.systemType === ENCRYPTED_TYPE ? (e2e ?? undefined) : undefined,
                   ),
                 )
               }
               style={({ pressed }) => [
-                styles.boutonPrincipal,
-                { backgroundColor: c.accent, opacity: pressed || occupe ? 0.7 : 1 },
+                styles.primaryButton,
+                { backgroundColor: c.accent, opacity: pressed || busy ? 0.7 : 1 },
               ]}
             >
-              <Text style={[styles.boutonPrincipalTexte, { color: c.onAccent }]}>{t('commun.enregistrer')}</Text>
+              <Text style={[styles.primaryButtonText, { color: c.onAccent }]}>{t('commun.enregistrer')}</Text>
             </Pressable>
           </View>
         </View>
       ) : (
-        <View style={styles.listeActions}>
+        <View style={styles.actionList}>
           {/* Aucune action possible (message système : arrivée, départ,
               renommage) : le dire. Sans ce repli la feuille montait sur une
               bande de 30 px sans un mot, et l'appui long avait vibré pour
               rien — l'utilisateur croit à un bug d'affichage. */}
           {actions.length === 0 && (
-            <Text style={[styles.aucuneAction, { color: c.dimmed }]}>
+            <Text style={[styles.noAction, { color: c.dimmed }]}>
               {t('actionsMessage.aucuneAction')}
             </Text>
           )}
           {actions.includes('reply') && (
-            <ActionLigne
+            <ActionRow
               c={c}
-              disabled={occupe}
+              disabled={busy}
               icon="↩️"
               label={t('actionsMessage.repondre')}
-              onPress={repondre}
+              onPress={reply}
             />
           )}
           {actions.includes('replyInThread') && (
-            <ActionLigne
+            <ActionRow
               c={c}
-              disabled={occupe}
+              disabled={busy}
               icon="🧵"
               label={t('actionsMessage.repondreFil')}
               onPress={() => {
                 void Haptics.selectionAsync();
-                routeur.back();
-                routeur.push({ pathname: '/thread/[id]', params: { id: message.threadId ?? message.id } });
+                router.back();
+                router.push({ pathname: '/thread/[id]', params: { id: message.threadId ?? message.id } });
               }}
             />
           )}
           {actions.includes('copy') && (
-            <ActionLigne
+            <ActionRow
               c={c}
-              disabled={occupe}
+              disabled={busy}
               icon="📋"
               label={t('actionsMessage.copier')}
-              onPress={() => void agir(() => Clipboard.setStringAsync(textToCopy(message.text) ?? ''))}
+              onPress={() => void act(() => Clipboard.setStringAsync(textToCopy(message.text) ?? ''))}
             />
           )}
           {actions.includes('share') && (
-            <ActionLigne
+            <ActionRow
               c={c}
-              disabled={occupe}
+              disabled={busy}
               icon="📤"
               label={t('actionsMessage.partager')}
-              onPress={() => void agir(partager)}
+              onPress={() => void act(share)}
             />
           )}
           {actions.includes('save') && (
-            <ActionLigne
+            <ActionRow
               c={c}
-              disabled={occupe}
+              disabled={busy}
               icon="⬇️"
               label={t('actionsMessage.enregistrer')}
-              onPress={() => void agir(enregistrer)}
+              onPress={() => void act(save)}
             />
           )}
           {actions.includes('edit') && (
-            <ActionLigne
+            <ActionRow
               c={c}
-              disabled={occupe}
+              disabled={busy}
               icon="✏️"
               label={t('actionsMessage.modifier')}
               onPress={() => {
                 void Haptics.selectionAsync();
-                setEdition(message.text ?? '');
+                setEditing(message.text ?? '');
               }}
             />
           )}
           {actions.includes('pin') && (
-            <ActionLigne
+            <ActionRow
               c={c}
-              disabled={occupe}
+              disabled={busy}
               icon="📌"
               label={t('actionsMessage.epingler')}
-              onPress={() => void agir(() => epingler(true))}
+              onPress={() => void act(() => pin(true))}
             />
           )}
           {actions.includes('unpin') && (
-            <ActionLigne
+            <ActionRow
               c={c}
-              disabled={occupe}
+              disabled={busy}
               icon="📌"
               label={t('actionsMessage.desepingler')}
-              onPress={() => void agir(() => epingler(false))}
+              onPress={() => void act(() => pin(false))}
             />
           )}
           {actions.includes('star') && (
-            <ActionLigne
+            <ActionRow
               c={c}
-              disabled={occupe}
+              disabled={busy}
               icon="⭐"
               label={t('actionsMessage.etoiler')}
-              onPress={() => void agir(() => etoiler(true))}
+              onPress={() => void act(() => star(true))}
             />
           )}
           {actions.includes('unstar') && (
-            <ActionLigne
+            <ActionRow
               c={c}
-              disabled={occupe}
+              disabled={busy}
               icon="⭐"
               label={t('actionsMessage.desetoiler')}
-              onPress={() => void agir(() => etoiler(false))}
+              onPress={() => void act(() => star(false))}
             />
           )}
           {actions.includes('delete') && (
-            <ActionLigne
+            <ActionRow
               c={c}
-              disabled={occupe}
+              disabled={busy}
               icon="🗑"
               label={t('commun.supprimer')}
               destructive
               onPress={() =>
-                void agir(async () => {
+                void act(async () => {
                   try {
-                    await actionneur.delete(message.rid, message.id);
+                    await trigger.delete(message.rid, message.id);
                     // La ligne locale tombera par le stream `deleteMessage`.
                   } catch (e) {
                     // Fantôme : déjà supprimé d'un AUTRE client pendant que
@@ -535,7 +535,7 @@ export default function MessageActionsScreen() {
                     // seule la ligne locale reste. La purger EST la
                     // suppression demandée ; toute autre erreur reste fatale.
                     if (!(await messageGoneFromServer(client, message.id))) throw e;
-                    await moteur.syncStore.deleteMessage(message.id);
+                    await engine.syncStore.deleteMessage(message.id);
                   }
                 })
               }
@@ -544,21 +544,21 @@ export default function MessageActionsScreen() {
         </View>
       )}
 
-      {erreur !== null && (
-        <Text style={[styles.error, { color: c.errorText }]}>{erreur}</Text>
+      {error !== null && (
+        <Text style={[styles.error, { color: c.errorText }]}>{error}</Text>
       )}
     </View>
   );
 }
 
 /** Une ligne d'action pleine largeur : icône + libellé, ondulation Android. */
-function ActionLigne({
+function ActionRow({
   c,
-  icon: icone,
-  label: libelle,
+  icon,
+  label,
   onPress,
   disabled,
-  destructive: destructif = false,
+  destructive = false,
 }: {
   c: ReturnType<typeof useColors>;
   icon: string;
@@ -578,9 +578,9 @@ function ActionLigne({
         unstable_pressDelay={LIST_PRESS_DELAY}
         style={({ pressed }) => [styles.row, { opacity: pressed ? 0.7 : 1 }]}
       >
-        <Text style={styles.rowIcon}>{icone}</Text>
-        <Text style={[styles.rowText, { color: destructif ? c.errorText : c.text }]}>
-          {libelle}
+        <Text style={styles.rowIcon}>{icon}</Text>
+        <Text style={[styles.rowText, { color: destructive ? c.errorText : c.text }]}>
+          {label}
         </Text>
       </Tappable>
     </View>
@@ -591,13 +591,13 @@ const styles = StyleSheet.create({
   // Pas de flex:1 : `fitToContents` mesure la hauteur réelle du contenu.
   sheet: { paddingHorizontal: 16, paddingTop: 10, gap: 6 },
   center: { minHeight: 96, alignItems: 'center', justifyContent: 'center' },
-  rangeeEmojis: {
+  emojiRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: 6,
     paddingBottom: 10,
   },
-  pastilleEmoji: {
+  emojiChip: {
     width: 48,
     height: 48,
     borderRadius: 24,
@@ -606,8 +606,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   emoji: { fontSize: 26 },
-  listeActions: { gap: 2 },
-  aucuneAction: {
+  actionList: { gap: 2 },
+  noAction: {
     fontFamily: FONTS.body,
     fontSize: 13.5,
     textAlign: 'center',
@@ -622,8 +622,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   rowIcon: { fontSize: 19, width: 24, textAlign: 'center' },
-  rowText: { fontFamily: FONTS.corpsGras, fontSize: 15.5 },
-  blocEdition: { gap: 12 },
+  rowText: { fontFamily: FONTS.bodyBold, fontSize: 15.5 },
+  editBlock: { gap: 12 },
   field: {
     borderRadius: 14,
     borderWidth: 1,
@@ -634,10 +634,10 @@ const styles = StyleSheet.create({
     // Plafond du champ : au-delà, il défile en interne (la sheet ne s'emballe pas).
     maxHeight: 200,
   },
-  rangeeEdition: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
-  boutonSecondaire: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12 },
-  boutonSecondaireTexte: { fontFamily: FONTS.corpsGras, fontSize: 15 },
-  boutonPrincipal: { paddingVertical: 12, paddingHorizontal: 22, borderRadius: 12 },
-  boutonPrincipalTexte: { fontFamily: FONTS.title, fontSize: 15 },
+  editRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
+  secondaryButton: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12 },
+  secondaryButtonText: { fontFamily: FONTS.bodyBold, fontSize: 15 },
+  primaryButton: { paddingVertical: 12, paddingHorizontal: 22, borderRadius: 12 },
+  primaryButtonText: { fontFamily: FONTS.title, fontSize: 15 },
   error: { fontFamily: FONTS.body, fontSize: 13, paddingTop: 8 },
 });

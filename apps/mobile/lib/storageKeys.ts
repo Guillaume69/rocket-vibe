@@ -35,8 +35,8 @@ import type { Hasher } from './auth.ts';
 export const withoutTrailingSlash = (baseUrl: string): string => baseUrl.replace(/\/+$/, '');
 
 /** Clé de la session d'un serveur. Volontairement indépendante du compte. */
-export async function sessionStorageKey(baseUrl: string, hacher: Hasher): Promise<string> {
-  return `session-${(await hacher(withoutTrailingSlash(baseUrl))).slice(0, 32)}`;
+export async function sessionStorageKey(baseUrl: string, hash: Hasher): Promise<string> {
+  return `session-${(await hash(withoutTrailingSlash(baseUrl))).slice(0, 32)}`;
 }
 
 /**
@@ -48,11 +48,11 @@ export async function sessionStorageKey(baseUrl: string, hacher: Hasher): Promis
  */
 export async function e2eStorageKey(
   baseUrl: string,
-  utilisateurId: string,
-  hacher: Hasher,
+  userId: string,
+  hash: Hasher,
 ): Promise<string> {
-  const empreinte = await hacher(`${withoutTrailingSlash(baseUrl)}|${utilisateurId}`);
-  return `e2e-${empreinte.slice(0, 32)}`;
+  const fingerprint = await hash(`${withoutTrailingSlash(baseUrl)}|${userId}`);
+  return `e2e-${fingerprint.slice(0, 32)}`;
 }
 
 /**
@@ -64,6 +64,6 @@ export async function e2eStorageKey(
  * de l'app, et `expo-secure-store` ne sait pas énumérer ses clés — sans cette
  * dérivation, plus rien au monde ne pourrait la retrouver pour la supprimer.
  */
-export async function legacyE2eStorageKey(baseUrl: string, hacher: Hasher): Promise<string> {
-  return `e2e-${(await hacher(withoutTrailingSlash(baseUrl))).slice(0, 32)}`;
+export async function legacyE2eStorageKey(baseUrl: string, hash: Hasher): Promise<string> {
+  return `e2e-${(await hash(withoutTrailingSlash(baseUrl))).slice(0, 32)}`;
 }

@@ -37,15 +37,15 @@ describe('catalogue', () => {
   test('les deux langues ont EXACTEMENT les mêmes clés', () => {
     // Le type l'impose déjà à la compilation ; ce test le prouve à l'exécution
     // et attrape une éventuelle divergence introduite par un cast forcé.
-    const clesFr = Object.keys(CATALOGUES.fr).sort();
-    const clesEn = Object.keys(CATALOGUES.en).sort();
-    assert.deepEqual(clesEn, clesFr);
+    const frKeys = Object.keys(CATALOGUES.fr).sort();
+    const enKeys = Object.keys(CATALOGUES.en).sort();
+    assert.deepEqual(enKeys, frKeys);
   });
 
   test('aucune valeur vide', () => {
-    for (const langue of LANGUAGES) {
-      for (const [cle, valeur] of Object.entries(CATALOGUES[langue])) {
-        assert.notEqual(valeur.trim(), '', `${langue}/${cle} est vide`);
+    for (const language of LANGUAGES) {
+      for (const [key, value] of Object.entries(CATALOGUES[language])) {
+        assert.notEqual(value.trim(), '', `${language}/${key} est vide`);
       }
     }
   });
@@ -65,20 +65,20 @@ describe('formateurHeure', () => {
 describe('formateurJour', () => {
   // Dates construites en HEURE LOCALE (midi : loin des bords de jour) et
   // `maintenant` injecté : rien ne dépend du fuseau ni de l'horloge du runner.
-  const maintenant = new Date(2026, 7, 1, 12).getTime(); // samedi 1ᵉʳ août 2026
+  const now = new Date(2026, 7, 1, 12).getTime(); // samedi 1ᵉʳ août 2026
 
   test("aujourd'hui et hier passent par le catalogue, pas par la date", () => {
-    assert.equal(dayFormatter('fr')(maintenant, maintenant), "Aujourd'hui");
-    assert.equal(dayFormatter('fr')(new Date(2026, 6, 31, 9).getTime(), maintenant), 'Hier');
-    assert.equal(dayFormatter('en')(maintenant, maintenant), 'Today');
-    assert.equal(dayFormatter('en')(new Date(2026, 6, 31, 9).getTime(), maintenant), 'Yesterday');
+    assert.equal(dayFormatter('fr')(now, now), "Aujourd'hui");
+    assert.equal(dayFormatter('fr')(new Date(2026, 6, 31, 9).getTime(), now), 'Hier');
+    assert.equal(dayFormatter('en')(now, now), 'Today');
+    assert.equal(dayFormatter('en')(new Date(2026, 6, 31, 9).getTime(), now), 'Yesterday');
   });
 
   test("l'année courante porte le jour de semaine, une autre année porte l'année", () => {
-    assert.equal(dayFormatter('fr')(new Date(2026, 6, 30, 12).getTime(), maintenant), 'jeudi 30 juillet');
-    assert.equal(dayFormatter('fr')(new Date(2025, 6, 30, 12).getTime(), maintenant), '30 juillet 2025');
-    assert.equal(dayFormatter('en')(new Date(2026, 6, 30, 12).getTime(), maintenant), 'Thursday, July 30');
-    assert.equal(dayFormatter('en')(new Date(2025, 6, 30, 12).getTime(), maintenant), 'July 30, 2025');
+    assert.equal(dayFormatter('fr')(new Date(2026, 6, 30, 12).getTime(), now), 'jeudi 30 juillet');
+    assert.equal(dayFormatter('fr')(new Date(2025, 6, 30, 12).getTime(), now), '30 juillet 2025');
+    assert.equal(dayFormatter('en')(new Date(2026, 6, 30, 12).getTime(), now), 'Thursday, July 30');
+    assert.equal(dayFormatter('en')(new Date(2025, 6, 30, 12).getTime(), now), 'July 30, 2025');
   });
 });
 

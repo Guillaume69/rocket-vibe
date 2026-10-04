@@ -29,18 +29,18 @@ import { databaseFileName } from './fileName.ts';
 export const DEFAULT_SERVER =
   typeof __DEV__ !== 'undefined' && __DEV__ ? 'http://localhost:3000' : 'https://chat.barrut.me';
 
-const enCours = new Map<string, Promise<void>>();
+const inProgress = new Map<string, Promise<void>>();
 
-export function migrateDatabase(baseUrl: string, utilisateurId?: string): Promise<void> {
-  const nom = databaseFileName(baseUrl, utilisateurId);
-  const existante = enCours.get(nom);
-  if (existante !== undefined) return existante;
+export function migrateDatabase(baseUrl: string, userId?: string): Promise<void> {
+  const name = databaseFileName(baseUrl, userId);
+  const existing = inProgress.get(name);
+  if (existing !== undefined) return existing;
 
-  const promesse = (async () => {
-    await migrate(openDatabase(baseUrl, utilisateurId).base, migrations);
+  const promise = (async () => {
+    await migrate(openDatabase(baseUrl, userId).base, migrations);
   })();
-  enCours.set(nom, promesse);
+  inProgress.set(name, promise);
   // Un échec ne doit pas rester mémoïsé : le prochain appel retente.
-  promesse.catch(() => enCours.delete(nom));
-  return promesse;
+  promise.catch(() => inProgress.delete(name));
+  return promise;
 }

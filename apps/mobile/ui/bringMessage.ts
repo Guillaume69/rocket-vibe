@@ -24,16 +24,16 @@ export async function bringMessage(options: {
   pagesMax?: number;
 }): Promise<number | null> {
   const pagesMax = options.pagesMax ?? MAX_JUMP_PAGES;
-  let rang = await options.rank();
-  for (let page = 0; rang === null && page < pagesMax; page++) {
-    const borne = await options.older();
+  let rank = await options.rank();
+  for (let page = 0; rank === null && page < pagesMax; page++) {
+    const bound = await options.older();
     // Déjà remonté au-delà de la cible sans la trouver : elle n'est pas dans
     // le flux principal (réponse de fil, message supprimé). Charger plus n'y
     // changerait rien.
-    if (borne === null || borne < options.ts) return null;
-    const { oldest: plusAncien } = await options.loadPage(borne);
-    rang = await options.rank();
-    if (rang === null && !pageMovedBack(plusAncien, borne)) return null;
+    if (bound === null || bound < options.ts) return null;
+    const { oldest } = await options.loadPage(bound);
+    rank = await options.rank();
+    if (rank === null && !pageMovedBack(oldest, bound)) return null;
   }
-  return rang;
+  return rank;
 }

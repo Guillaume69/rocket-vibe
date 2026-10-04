@@ -43,7 +43,7 @@ export type RawProfile = { user: Record<string, unknown> | undefined; error: Pro
  * traîne), on ouvre quand même — l'écran retombe sur son chargement async, avec
  * son squelette. Mieux vaut un tap qui répond qu'un tap qui semble mort.
  */
-const PLAFOND_MS = 2000;
+const CAP_MS = 2000;
 
 /**
  * Anti-clignotement de l'indicateur, en deux temps :
@@ -57,17 +57,17 @@ const PLAFOND_MS = 2000;
  *   après le seuil ferait apparaître la pastille pour la masquer aussitôt — le
  *   flash. Un loader qui clignote fait plus « cassé » que « lent ».
  */
-const SEUIL_INDICATEUR_MS = 450;
-const DUREE_MIN_VISIBLE_MS = 400;
+const INDICATOR_THRESHOLD_MS = 450;
+const MIN_VISIBLE_MS = 400;
 
-let clientActif: ClientRest | null = null;
+let activeClient: ClientRest | null = null;
 
 /** Posé par `SessionProvider` à chaque changement de session. */
 export function setProfileClient(client: ClientRest | null): void {
-  clientActif = client;
+  activeClient = client;
 }
 
-let navigateurActif: ((p: ProfileParams) => void) | null = null;
+let activeBrowser: ((p: ProfileParams) => void) | null = null;
 
 /**
  * Posé par le layout racine (`app/_layout.tsx`) : c'est LUI qui sait pousser
@@ -76,34 +76,34 @@ let navigateurActif: ((p: ProfileParams) => void) | null = null;
  * l'app montée), l'ouverture est un no-op silencieux.
  */
 export function setProfileNavigator(nav: ((p: ProfileParams) => void) | null): void {
-  navigateurActif = nav;
+  activeBrowser = nav;
 }
 
 // --- Indicateur d'ouverture (différé) --------------------------------------
 // Store minimal, hors React (ce module est du `lib/`) : l'UI s'y abonne via
 // `ui/openingIndicator`. `poserBusy` ne notifie que sur changement réel.
-type EcouteurBusy = (actif: boolean) => void;
-const ecouteurs = new Set<EcouteurBusy>();
+type BusyListener = (active: boolean) => void;
+const listeners = new Set<BusyListener>();
 let busy = false;
 
-function poserBusy(v: boolean): void {
+function setBusy(v: boolean): void {
   if (busy === v) return;
   busy = v;
-  for (const e of ecouteurs) e(v);
+  for (const e of listeners) e(v);
 }
 
 /** Abonne un écouteur à l'état « ouverture en cours » ; renvoie le désabonnement. */
-export function subscribeProfileOpening(cb: EcouteurBusy): () => void {
-  ecouteurs.add(cb);
+export function subscribeProfileOpening(cb: BusyListener): () => void {
+  listeners.add(cb);
   cb(busy);
   return () => {
-    ecouteurs.delete(cb);
+    listeners.delete(cb);
   };
 }
 
 const cache = new Map<string, RawProfile>();
 
-function cle(p: ProfileParams): string {
+function key(p: ProfileParams): string {
   return typeof p.username === 'string' && p.username !== ''
     ? `u:${p.username}`
     : `i:${p.uid ?? ''}`;
@@ -111,7 +111,7 @@ function cle(p: ProfileParams): string {
 
 /** Fiche préchargée pour ces params, ou `undefined` si l'écran doit charger lui-même. */
 export function readPreloadedProfile(p: ProfileParams): RawProfile | undefined {
-  return cache.get(cle(p));
+  return cache.get(key(p));
 }
 
 /**
@@ -126,13 +126,13 @@ export function readPreloadedProfile(p: ProfileParams): RawProfile | undefined {
  */
 export function forgetProfileCards(): void {
   cache.clear();
-  cleEnCours = null;
+  currentKey = null;
 }
 
-const delai = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /** La CIBLE dont l'ouverture est en vol — voir la garde de `ouvrirFicheProfil`. */
-let cleEnCours: string | null = null;
+let currentKey: string | null = null;
 
 /**
  * Précharge la fiche puis ouvre `/profile`. À utiliser à la place d'un
@@ -154,27 +154,27 @@ let cleEnCours: string | null = null;
  * donc le comportement d'avant.
  */
 export async function openProfileCard(p: ProfileParams): Promise<void> {
-  const k = cle(p);
-  if (cleEnCours === k) return;
-  cleEnCours = k;
+  const k = key(p);
+  if (currentKey === k) return;
+  currentKey = k;
   try {
-    await prechargerPuisOuvrir(p);
+    await preloadThenOpen(p);
   } finally {
     // Une ouverture plus récente a pris la main : ne pas effacer SA clé.
-    if (cleEnCours === k) cleEnCours = null;
+    if (currentKey === k) currentKey = null;
   }
 }
 
-async function prechargerPuisOuvrir(p: ProfileParams): Promise<void> {
-  const client = clientActif;
-  const k = cle(p);
+async function preloadThenOpen(p: ProfileParams): Promise<void> {
+  const client = activeClient;
+  const k = key(p);
 
   // Sans client (cas improbable : avant que la session soit posée) — on ouvre
   // directement, l'écran fera l'appel. On purge toute entrée d'une ouverture
   // précédente pour ne pas servir du périmé.
   if (client === null) {
     cache.delete(k);
-    navigateurActif?.(p);
+    activeBrowser?.(p);
     return;
   }
 
@@ -184,7 +184,7 @@ async function prechargerPuisOuvrir(p: ProfileParams): Promise<void> {
       : { uid: p.uid ?? '' };
   const rest = params.username !== undefined ? { username: params.username } : { userId: params.uid };
 
-  const fetchBrut = client
+  const rawFetch = client
     .get<{ user?: Record<string, unknown> }>('users.info', { params: rest })
     .then<RawProfile>((r) => ({
       user: r.user,
@@ -197,36 +197,36 @@ async function prechargerPuisOuvrir(p: ProfileParams): Promise<void> {
 
   // Indicateur différé : ne s'affiche QUE si l'attente dépasse le seuil, et
   // reste alors visible un minimum (anti-flash — voir les constantes).
-  let afficheA: number | null = null;
-  const minuteur = setTimeout(() => {
-    poserBusy(true);
-    afficheA = Date.now();
-  }, SEUIL_INDICATEUR_MS);
+  let shownAt: number | null = null;
+  const timer = setTimeout(() => {
+    setBusy(true);
+    shownAt = Date.now();
+  }, INDICATOR_THRESHOLD_MS);
   // On attend AUSSI la sonde d'appel (mémoïsée par serveur) : c'est elle qui
   // décide de la présence du bouton « Appeler », donc de la hauteur finale.
-  let brut: RawProfile | null;
+  let raw: RawProfile | null;
   try {
-    brut = await Promise.race<RawProfile | null>([
-      Promise.all([fetchBrut, probeCallAvailable(client)]).then(([b]) => b),
-      delai(PLAFOND_MS).then(() => null),
+    raw = await Promise.race<RawProfile | null>([
+      Promise.all([rawFetch, probeCallAvailable(client)]).then(([b]) => b),
+      delay(CAP_MS).then(() => null),
     ]);
   } finally {
-    clearTimeout(minuteur);
-    if (afficheA !== null) {
+    clearTimeout(timer);
+    if (shownAt !== null) {
       // Pastille affichée : la maintenir jusqu'à son minimum avant de masquer
       // et d'ouvrir — sinon flash. On ouvre donc pile quand elle disparaît.
-      const reste = DUREE_MIN_VISIBLE_MS - (Date.now() - afficheA);
-      if (reste > 0) await delai(reste);
+      const remainingMs = MIN_VISIBLE_MS - (Date.now() - shownAt);
+      if (remainingMs > 0) await delay(remainingMs);
     }
-    poserBusy(false);
+    setBusy(false);
   }
 
-  if (brut !== null) {
-    cache.set(k, brut);
+  if (raw !== null) {
+    cache.set(k, raw);
   } else {
     // Plafond dépassé : ouvrir sans servir une entrée périmée d'avant — l'écran
     // relira un miss et fera son propre chargement async.
     cache.delete(k);
   }
-  navigateurActif?.(p);
+  activeBrowser?.(p);
 }

@@ -37,13 +37,13 @@ import { addDatabaseChangeListener } from 'expo-sqlite';
 import { useEffect, useState, type DependencyList } from 'react';
 
 /** Silence à attendre après la dernière écriture avant de rafraîchir. */
-const FENETRE_MS = 48;
+const WINDOW_MS = 48;
 /** …mais on rafraîchit au moins aussi souvent si les écritures ne cessent pas. */
-const ATTENTE_MAX_MS = 400;
+const MAX_WAIT_MS = 400;
 
 /** Dernier segment d'un chemin — `…/rv_chat.barrut.me_abc.db` → `rv_chat.barrut.me_abc.db`. */
-function nomDeFichier(chemin: string): string {
-  return chemin.slice(chemin.lastIndexOf('/') + 1);
+function fileName(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1);
 }
 
 /**
@@ -68,24 +68,24 @@ function nomDeFichier(chemin: string): string {
  *   reçu    `/data/data/com.rocketvibe.app/files/SQLite/rocket-vibe-10_0_2_2_3300-6a5615….db`
  *   `databaseName` = `main` — d'où le choix de `databaseFilePath`.
  */
-function fichierDeLaRequete(requete: unknown): string | null {
-  const chemin = (requete as { session?: { client?: { databasePath?: unknown } } }).session?.client
+function queryFile(query: unknown): string | null {
+  const path = (query as { session?: { client?: { databasePath?: unknown } } }).session?.client
     ?.databasePath;
-  return typeof chemin === 'string' && chemin !== '' ? nomDeFichier(chemin) : null;
+  return typeof path === 'string' && path !== '' ? fileName(path) : null;
 }
 
 export function useCoalescedLiveQuery<L>(
-  requete: PromiseLike<L[]>,
+  query: PromiseLike<L[]>,
   deps: DependencyList = [],
 ): { data: L[] } {
   const [data, setData] = useState<L[]>([]);
 
   useEffect(() => {
-    let annule = false;
-    const relire = () => {
-      requete.then(
-        (lignes) => {
-          if (!annule) setData(lignes);
+    let canceled = false;
+    const reread = () => {
+      query.then(
+        (rows) => {
+          if (!canceled) setData(rows);
         },
         () => {
           // Un échec de lecture (base fermée en plein démontage) ne doit pas
@@ -95,44 +95,44 @@ export function useCoalescedLiveQuery<L>(
       );
     };
     // Premier remplissage, comme `useLiveQuery`.
-    relire();
+    reread();
 
     // La table écoutée est extraite de la requête SELECT (`.config.table`),
     // comme le fait drizzle en interne. Requête sans table identifiable → on
     // écoute tout (repli sûr).
-    const table = (requete as { config?: { table?: unknown } }).config?.table;
-    const nomTable = is(table, SQLiteTable) ? getTableConfig(table).name : null;
-    const fichier = fichierDeLaRequete(requete);
+    const table = (query as { config?: { table?: unknown } }).config?.table;
+    const watchedTable = is(table, SQLiteTable) ? getTableConfig(table).name : null;
+    const file = queryFile(query);
 
-    let minuterie: ReturnType<typeof setTimeout> | null = null;
-    let debutRafale = 0;
-    const rafraichir = () => {
-      minuterie = null;
-      debutRafale = 0;
-      relire();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let burstStart = 0;
+    const refresh = () => {
+      timer = null;
+      burstStart = 0;
+      reread();
     };
     const sub = addDatabaseChangeListener(({ tableName, databaseFilePath }) => {
-      if (nomTable !== null && tableName !== nomTable) return;
+      if (watchedTable !== null && tableName !== watchedTable) return;
       // `databaseName` de l'événement ne discrimine RIEN : c'est le nom SQLite
       // interne du schéma attaché, donc `main` pour toutes nos bases. Le fichier
       // est le seul champ qui distingue deux comptes.
-      if (fichier !== null && typeof databaseFilePath === 'string' && databaseFilePath !== '') {
-        if (nomDeFichier(databaseFilePath) !== fichier) return;
+      if (file !== null && typeof databaseFilePath === 'string' && databaseFilePath !== '') {
+        if (fileName(databaseFilePath) !== file) return;
       }
-      const maintenant = Date.now();
-      if (debutRafale === 0) debutRafale = maintenant;
-      if (minuterie !== null) clearTimeout(minuterie);
+      const now = Date.now();
+      if (burstStart === 0) burstStart = now;
+      if (timer !== null) clearTimeout(timer);
       // Debounce : attendre le silence (`FENETRE_MS`) — SANS jamais rendre
       // pendant la rafale, pour ne pas la ralentir — mais sans dépasser
       // `ATTENTE_MAX_MS` depuis son début, pour ne pas figer l'affichage sous un
       // flot continu.
-      const resteAvantPlafond = ATTENTE_MAX_MS - (maintenant - debutRafale);
-      minuterie = setTimeout(rafraichir, Math.max(0, Math.min(FENETRE_MS, resteAvantPlafond)));
+      const leftBeforeCap = MAX_WAIT_MS - (now - burstStart);
+      timer = setTimeout(refresh, Math.max(0, Math.min(WINDOW_MS, leftBeforeCap)));
     });
 
     return () => {
-      annule = true;
-      if (minuterie !== null) clearTimeout(minuterie);
+      canceled = true;
+      if (timer !== null) clearTimeout(timer);
       sub.remove();
     };
     // `requete` change de référence à chaque rendu ; comme `useLiveQuery`, ce

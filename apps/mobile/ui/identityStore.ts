@@ -15,24 +15,24 @@
 
 import { useSyncExternalStore } from 'react';
 
-let identites: ReadonlyMap<string, string> = new Map();
-const ecouteurs = new Set<() => void>();
+let identities: ReadonlyMap<string, string> = new Map();
+const listeners = new Set<() => void>();
 
-export function setIdentities(nouvelle: ReadonlyMap<string, string>): void {
-  identites = nouvelle;
-  for (const e of ecouteurs) e();
+export function setIdentities(next: ReadonlyMap<string, string>): void {
+  identities = next;
+  for (const e of listeners) e();
 }
 
-function sabonner(cb: () => void): () => void {
-  ecouteurs.add(cb);
+function subscribe(cb: () => void): () => void {
+  listeners.add(cb);
   return () => {
-    ecouteurs.delete(cb);
+    listeners.delete(cb);
   };
 }
 
 /** Map `uid → pseudo courant`. Re-rend l'appelant quand une identité change. */
 export function useIdentities(): ReadonlyMap<string, string> {
-  return useSyncExternalStore(sabonner, () => identites);
+  return useSyncExternalStore(subscribe, () => identities);
 }
 
 /**
@@ -45,13 +45,13 @@ export type EtagsAvatars = {
   byUsername: ReadonlyMap<string, string>;
 };
 
-const AUCUN_ETAG: EtagsAvatars = { byUid: new Map(), byUsername: new Map() };
-let etags: EtagsAvatars = AUCUN_ETAG;
-const ecouteursEtags = new Set<() => void>();
+const NO_ETAG: EtagsAvatars = { byUid: new Map(), byUsername: new Map() };
+let etags: EtagsAvatars = NO_ETAG;
+const etagListeners = new Set<() => void>();
 
-function memeMap(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>): boolean {
+function sameMap(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>): boolean {
   if (a.size !== b.size) return false;
-  for (const [cle, valeur] of a) if (b.get(cle) !== valeur) return false;
+  for (const [key, value] of a) if (b.get(key) !== value) return false;
   return true;
 }
 
@@ -60,18 +60,18 @@ function memeMap(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>)
  * chaque écriture dans `utilisateurs` — un simple message ingéré, donc — et
  * chaque notification re-rendrait tous les avatars montés à l'écran.
  */
-export function setEtags(nouveaux: EtagsAvatars): void {
-  if (memeMap(etags.byUid, nouveaux.byUid) && memeMap(etags.byUsername, nouveaux.byUsername)) {
+export function setEtags(added: EtagsAvatars): void {
+  if (sameMap(etags.byUid, added.byUid) && sameMap(etags.byUsername, added.byUsername)) {
     return;
   }
-  etags = nouveaux;
-  for (const e of ecouteursEtags) e();
+  etags = added;
+  for (const e of etagListeners) e();
 }
 
-function sabonnerEtags(cb: () => void): () => void {
-  ecouteursEtags.add(cb);
+function subscribeEtags(cb: () => void): () => void {
+  etagListeners.add(cb);
   return () => {
-    ecouteursEtags.delete(cb);
+    etagListeners.delete(cb);
   };
 }
 
@@ -82,7 +82,7 @@ function sabonnerEtags(cb: () => void): () => void {
  * query reste valable.
  */
 export function useEtagsAvatars(): EtagsAvatars {
-  return useSyncExternalStore(sabonnerEtags, () => etags);
+  return useSyncExternalStore(subscribeEtags, () => etags);
 }
 
 /**
@@ -98,5 +98,5 @@ export function useEtagsAvatars(): EtagsAvatars {
  */
 export function forgetIdentities(): void {
   setIdentities(new Map());
-  setEtags(AUCUN_ETAG);
+  setEtags(NO_ETAG);
 }

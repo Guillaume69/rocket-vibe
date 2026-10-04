@@ -32,22 +32,22 @@ export type PendingFile = {
   size: number | null;
 };
 
-export function formatSize(octets: number | null, t: TranslateFn): string | null {
-  if (octets === null || octets <= 0) return null;
-  if (octets < 1024) return t('apercuPieceJointe.octets', { taille: octets });
-  if (octets < 1024 * 1024) return t('apercuPieceJointe.kilooctets', { taille: Math.round(octets / 1024) });
-  return t('apercuPieceJointe.megaoctets', { taille: (octets / 1024 / 1024).toFixed(1) });
+export function formatSize(bytes: number | null, t: TranslateFn): string | null {
+  if (bytes === null || bytes <= 0) return null;
+  if (bytes < 1024) return t('apercuPieceJointe.octets', { taille: bytes });
+  if (bytes < 1024 * 1024) return t('apercuPieceJointe.kilooctets', { taille: Math.round(bytes / 1024) });
+  return t('apercuPieceJointe.megaoctets', { taille: (bytes / 1024 / 1024).toFixed(1) });
 }
 
 export function AttachmentPreview({
   c,
-  file: fichier,
-  onRemove: onRetirer,
-  busy: occupe = false,
-  horizontalInset: retraitHorizontal = 12,
-  verticalInset: retraitVertical,
-  quality: qualite = null,
-  onQuality: surQualite,
+  file,
+  onRemove,
+  busy = false,
+  horizontalInset = 12,
+  verticalInset,
+  quality = null,
+  onQuality,
 }: {
   c: Colors;
   file: PendingFile;
@@ -60,7 +60,7 @@ export function AttachmentPreview({
    * La réduction elle-même se fait à l'ENVOI, chez l'appelant.
    */
   quality?: SendQuality | null;
-  onQuality?: (qualite: SendQuality) => void;
+  onQuality?: (quality: SendQuality) => void;
   /**
    * Retrait horizontal de la carte. 12 par défaut : dans le composeur du salon,
    * le parent n'a pas de padding, la carte s'inset donc elle-même. Quand
@@ -77,9 +77,9 @@ export function AttachmentPreview({
   verticalInset?: number;
 }) {
   const t = useT();
-  const enImage = isImage(fichier.type);
-  const estAudio = fichier.type.startsWith('audio/');
-  const taille = formatSize(fichier.size, t);
+  const isImageFile = isImage(file.type);
+  const isAudio = file.type.startsWith('audio/');
+  const size = formatSize(file.size, t);
 
   return (
     <Animated.View
@@ -87,22 +87,22 @@ export function AttachmentPreview({
       exiting={FadeOutDown.duration(140)}
       style={[
         styles.host,
-        { paddingHorizontal: retraitHorizontal },
-        retraitVertical !== undefined && { paddingVertical: retraitVertical },
+        { paddingHorizontal: horizontalInset },
+        verticalInset !== undefined && { paddingVertical: verticalInset },
       ]}
     >
-      {estAudio ? (
+      {isAudio ? (
         // Le vocal se réécoute AVANT d'envoyer : le vrai lecteur, pas une icône.
         <View style={styles.row}>
           <View style={styles.full}>
-            <AudioPlayer c={c} url={fichier.uri} title={t('lecteurAudio.messageVocal')} />
+            <AudioPlayer c={c} url={file.uri} title={t('lecteurAudio.messageVocal')} />
           </View>
-          <BoutonRetirer c={c} onRemove={onRetirer} busy={occupe} />
+          <RemoveButton c={c} onRemove={onRemove} busy={busy} />
         </View>
       ) : (
         <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
-          {enImage ? (
-            <Image source={{ uri: fichier.uri }} style={styles.thumbnail} resizeMode="cover" />
+          {isImageFile ? (
+            <Image source={{ uri: file.uri }} style={styles.thumbnail} resizeMode="cover" />
           ) : (
             <LinearGradient
               colors={c.neutralGradient}
@@ -110,33 +110,33 @@ export function AttachmentPreview({
               end={{ x: 1, y: 1 }}
               style={styles.thumbnail}
             >
-              <Text style={styles.emoji}>{fileEmoji(fichier.type)}</Text>
+              <Text style={styles.emoji}>{fileEmoji(file.type)}</Text>
             </LinearGradient>
           )}
-          <View style={styles.infos}>
+          <View style={styles.info}>
             <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
-              {fichier.name}
+              {file.name}
             </Text>
             <Text style={[styles.meta, { color: c.dimmed }]} numberOfLines={1}>
-              {enImage ? t('apercuPieceJointe.image') : fichier.type || t('apercuPieceJointe.fichier')}
-              {taille !== null ? ` · ${taille}` : ''}
+              {isImageFile ? t('apercuPieceJointe.image') : file.type || t('apercuPieceJointe.fichier')}
+              {size !== null ? ` · ${size}` : ''}
             </Text>
-            {qualite !== null && surQualite !== undefined && (
+            {quality !== null && onQuality !== undefined && (
               <View style={styles.qualities}>
                 {(['reduced', 'original'] as const).map((q) => (
                   <QualityBadge
                     key={q}
                     c={c}
                     which={q}
-                    chosen={qualite === q}
-                    busy={occupe}
-                    onPick={surQualite}
+                    chosen={quality === q}
+                    busy={busy}
+                    onPick={onQuality}
                   />
                 ))}
               </View>
             )}
           </View>
-          <BoutonRetirer c={c} onRemove={onRetirer} busy={occupe} />
+          <RemoveButton c={c} onRemove={onRemove} busy={busy} />
         </View>
       )}
     </Animated.View>
@@ -150,53 +150,53 @@ export function AttachmentPreview({
  */
 export function QualityBadge({
   c,
-  which: quelle,
-  chosen: choisie,
-  busy: occupe,
-  onPick: surChoisir,
+  which,
+  chosen,
+  busy,
+  onPick,
 }: {
   c: Colors;
   which: SendQuality;
   chosen: boolean;
   busy: boolean;
-  onPick: (qualite: SendQuality) => void;
+  onPick: (quality: SendQuality) => void;
 }) {
   const t = useT();
   return (
     <Pressable
-      onPress={() => surChoisir(quelle)}
-      disabled={occupe}
+      onPress={() => onPick(which)}
+      disabled={busy}
       hitSlop={6}
       accessibilityRole="button"
-      accessibilityState={{ selected: choisie }}
+      accessibilityState={{ selected: chosen }}
       accessibilityLabel={t(
-        quelle === 'reduced'
+        which === 'reduced'
           ? 'apercuPieceJointe.envoyerReduite'
           : 'apercuPieceJointe.envoyerOriginale',
       )}
       style={[
         styles.badge,
         {
-          borderColor: choisie ? c.accent : c.border,
-          backgroundColor: choisie ? c.surfaceActive : 'transparent',
-          opacity: occupe ? 0.5 : 1,
+          borderColor: chosen ? c.accent : c.border,
+          backgroundColor: chosen ? c.surfaceActive : 'transparent',
+          opacity: busy ? 0.5 : 1,
         },
       ]}
     >
       <Text
-        style={[styles.badgeText, { color: choisie ? c.text : c.dimmed }]}
+        style={[styles.badgeText, { color: chosen ? c.text : c.dimmed }]}
         numberOfLines={1}
       >
-        {t(quelle === 'reduced' ? 'apercuPieceJointe.reduite' : 'apercuPieceJointe.originale')}
+        {t(which === 'reduced' ? 'apercuPieceJointe.reduite' : 'apercuPieceJointe.originale')}
       </Text>
     </Pressable>
   );
 }
 
-function BoutonRetirer({
+function RemoveButton({
   c,
-  onRemove: onRetirer,
-  busy: occupe,
+  onRemove,
+  busy,
 }: {
   c: Colors;
   onRemove: () => void;
@@ -205,8 +205,8 @@ function BoutonRetirer({
   const t = useT();
   return (
     <Pressable
-      onPress={onRetirer}
-      disabled={occupe}
+      onPress={onRemove}
+      disabled={busy}
       hitSlop={8}
       accessibilityRole="button"
       accessibilityLabel={t('apercuPieceJointe.retirer')}
@@ -215,7 +215,7 @@ function BoutonRetirer({
         {
           backgroundColor: c.surfaceActive,
           borderColor: c.border,
-          opacity: occupe ? 0.4 : pressed ? 0.6 : 1,
+          opacity: busy ? 0.4 : pressed ? 0.6 : 1,
         },
       ]}
     >
@@ -245,8 +245,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#00000010',
   },
   emoji: { fontSize: 26 },
-  infos: { flex: 1, minWidth: 0, gap: 2 },
-  name: { fontFamily: FONTS.corpsGras, fontSize: 13.5 },
+  info: { flex: 1, minWidth: 0, gap: 2 },
+  name: { fontFamily: FONTS.bodyBold, fontSize: 13.5 },
   meta: { fontFamily: FONTS.body, fontSize: 11 },
   qualities: { flexDirection: 'row', gap: 6, marginTop: 3 },
   badge: {
@@ -255,7 +255,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 2,
   },
-  badgeText: { fontFamily: FONTS.corpsSemi, fontSize: 11 },
+  badgeText: { fontFamily: FONTS.bodySemi, fontSize: 11 },
   remove: {
     width: 30,
     height: 30,
@@ -264,5 +264,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  removeGlyph: { fontFamily: FONTS.corpsSemi, fontSize: 20, lineHeight: 22 },
+  removeGlyph: { fontFamily: FONTS.bodySemi, fontSize: 20, lineHeight: 22 },
 });

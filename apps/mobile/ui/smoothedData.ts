@@ -17,37 +17,37 @@ import { useEffect, useRef, useState } from 'react';
  * n'importe quel délai, donc la première valeur passe immédiatement.
  */
 export function smoothingDecision(
-  dernierRenduMs: number,
-  maintenantMs: number,
-  delaiMs: number,
+  lastRenderMs: number,
+  nowMs: number,
+  timeoutMs: number,
 ): { immediate: true } | { immediate: false; waitMs: number } {
-  const ecoule = maintenantMs - dernierRenduMs;
-  if (ecoule >= delaiMs) return { immediate: true };
-  return { immediate: false, waitMs: delaiMs - ecoule };
+  const elapsed = nowMs - lastRenderMs;
+  if (elapsed >= timeoutMs) return { immediate: true };
+  return { immediate: false, waitMs: timeoutMs - elapsed };
 }
 
 export function useSmoothedData<T>(
-  valeur: T,
-  delaiMs: number,
+  value: T,
+  timeoutMs: number,
   /** Horloge injectable — les tests du hook restent possibles sans attendre. */
-  maintenant: () => number = Date.now,
+  now: () => number = Date.now,
 ): T {
-  const [lisse, setLisse] = useState(valeur);
-  const dernierRendu = useRef(0);
+  const [smoothed, setSmoothed] = useState(value);
+  const lastRender = useRef(0);
 
   useEffect(() => {
-    const decision = smoothingDecision(dernierRendu.current, maintenant(), delaiMs);
+    const decision = smoothingDecision(lastRender.current, now(), timeoutMs);
     if (decision.immediate) {
-      dernierRendu.current = maintenant();
-      setLisse(valeur);
+      lastRender.current = now();
+      setSmoothed(value);
       return;
     }
-    const minuterie = setTimeout(() => {
-      dernierRendu.current = maintenant();
-      setLisse(valeur);
+    const timer = setTimeout(() => {
+      lastRender.current = now();
+      setSmoothed(value);
     }, decision.waitMs);
-    return () => clearTimeout(minuterie);
-  }, [valeur, delaiMs, maintenant]);
+    return () => clearTimeout(timer);
+  }, [value, timeoutMs, now]);
 
-  return lisse;
+  return smoothed;
 }

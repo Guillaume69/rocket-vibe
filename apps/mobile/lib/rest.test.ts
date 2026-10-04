@@ -4,36 +4,36 @@ import { after, before, beforeEach, describe, test } from 'node:test';
 
 import { ClientRest, TwoFactorError, RestError, isTokenRejected } from './rest.ts';
 
-type Poignee = (req: IncomingMessage, res: ServerResponse) => void;
+type Handle = (req: IncomingMessage, res: ServerResponse) => void;
 
-let serveur: Server;
+let server: Server;
 let base: string;
-let poignee: Poignee;
+let handle: Handle;
 /** Requêtes reçues, pour vérifier les en-têtes réellement envoyés. */
-let recues: { url: string; method: string; headers: Record<string, string | string[] | undefined> }[] = [];
+let received: { url: string; method: string; headers: Record<string, string | string[] | undefined> }[] = [];
 
 before(async () => {
-  serveur = createServer((req, res) => {
-    recues.push({ url: req.url ?? '', method: req.method ?? '', headers: req.headers });
-    poignee(req, res);
+  server = createServer((req, res) => {
+    received.push({ url: req.url ?? '', method: req.method ?? '', headers: req.headers });
+    handle(req, res);
   });
-  await new Promise<void>((r) => serveur.listen(0, '127.0.0.1', r));
-  const adresse = serveur.address();
-  if (typeof adresse === 'string' || adresse === null) throw new Error('adresse inattendue');
-  base = `http://127.0.0.1:${adresse.port}`;
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const address = server.address();
+  if (typeof address === 'string' || address === null) throw new Error('adresse inattendue');
+  base = `http://127.0.0.1:${address.port}`;
 });
 
-after(() => serveur.close());
+after(() => server.close());
 
 // Sans cela, `recues[0]` pointerait sur la requête d'un autre test dès qu'on en
 // ajoute un avant, et l'échec serait incompréhensible.
 beforeEach(() => {
-  recues = [];
+  received = [];
 });
 
-function repondre(res: ServerResponse, statut: number, corps: unknown, enTetes: object = {}) {
-  res.writeHead(statut, { 'content-type': 'application/json', ...enTetes });
-  res.end(typeof corps === 'string' ? corps : JSON.stringify(corps));
+function reply(res: ServerResponse, status: number, body: unknown, headers: object = {}) {
+  res.writeHead(status, { 'content-type': 'application/json', ...headers });
+  res.end(typeof body === 'string' ? body : JSON.stringify(body));
 }
 
 /**
@@ -41,10 +41,10 @@ function repondre(res: ServerResponse, statut: number, corps: unknown, enTetes: 
  * nulle — les délais restent donc des nombres exacts, et c'est le test dédié
  * ci-dessous qui éprouve la dispersion.
  */
-function client(dormirs: number[] = []) {
+function client(sleeps: number[] = []) {
   return new ClientRest(base, {
     sleep: async (ms) => {
-      dormirs.push(ms);
+      sleeps.push(ms);
     },
     now: () => 1_000_000,
     random: () => 0,
@@ -53,46 +53,46 @@ function client(dormirs: number[] = []) {
 
 describe('ClientRest', () => {
   test('un GET réussi renvoie le JSON', async () => {
-    poignee = (_q, res) => repondre(res, 200, { success: true, version: '8.5' });
+    handle = (_q, res) => reply(res, 200, { success: true, version: '8.5' });
     const r = await client().get<{ version: string }>('info');
     assert.equal(r.version, '8.5');
-    assert.equal(recues[0].url, '/api/v1/info');
+    assert.equal(received[0].url, '/api/v1/info');
   });
 
   test('les paramètres de requête sont encodés, `undefined` est omis', async () => {
-    poignee = (_q, res) => repondre(res, 200, { success: true });
+    handle = (_q, res) => reply(res, 200, { success: true });
     await client().get('channels.history', {
       params: { roomId: 'a b&c', count: 100, absent: undefined },
     });
-    assert.equal(recues[0].url, '/api/v1/channels.history?roomId=a+b%26c&count=100');
+    assert.equal(received[0].url, '/api/v1/channels.history?roomId=a+b%26c&count=100');
   });
 
   test("les en-têtes d'authentification sont envoyés, sauf en anonyme", async () => {
-    poignee = (_q, res) => repondre(res, 200, { success: true });
+    handle = (_q, res) => reply(res, 200, { success: true });
     const c = client();
     c.auth = { authToken: 'jeton', userId: 'moi' };
 
     await c.get('me');
-    assert.equal(recues[0].headers['x-auth-token'], 'jeton');
-    assert.equal(recues[0].headers['x-user-id'], 'moi');
+    assert.equal(received[0].headers['x-auth-token'], 'jeton');
+    assert.equal(received[0].headers['x-user-id'], 'moi');
 
     await c.post('login', { anonymous: true, body: {} });
-    assert.equal(recues[1].headers['x-auth-token'], undefined);
+    assert.equal(received[1].headers['x-auth-token'], undefined);
   });
 
   test('les en-têtes 2FA sont envoyés quand un code est fourni', async () => {
-    poignee = (_q, res) => repondre(res, 200, { success: true });
+    handle = (_q, res) => reply(res, 200, { success: true });
     await client().post('settings/Push_enable', {
       body: { value: true },
       twoFactor: { code: 'abcdef', method: 'password' },
     });
-    assert.equal(recues[0].headers['x-2fa-code'], 'abcdef');
-    assert.equal(recues[0].headers['x-2fa-method'], 'password');
+    assert.equal(received[0].headers['x-2fa-code'], 'abcdef');
+    assert.equal(received[0].headers['x-2fa-method'], 'password');
   });
 
   test('`totp-required` lève une ErreurDeuxFacteurs, même quand la méthode est `password`', async () => {
-    poignee = (_q, res) =>
-      repondre(res, 401, {
+    handle = (_q, res) =>
+      reply(res, 401, {
         success: false,
         errorType: 'totp-required',
         details: { method: 'password', availableMethods: [], codeGenerated: false },
@@ -108,8 +108,8 @@ describe('ClientRest', () => {
 
   test('la forme 2FA de /login (`error`, sans `errorType`) est reconnue', async () => {
     // Relevé tel quel sur un serveur 8.5 : /api/v1/login ne pose PAS errorType.
-    poignee = (_q, res) =>
-      repondre(res, 401, {
+    handle = (_q, res) =>
+      reply(res, 401, {
         success: false,
         error: 'totp-required',
         status: 'error',
@@ -125,8 +125,8 @@ describe('ClientRest', () => {
   });
 
   test('une méthode 2FA inconnue retombe sur `password` sans planter', async () => {
-    poignee = (_q, res) =>
-      repondre(res, 401, {
+    handle = (_q, res) =>
+      reply(res, 401, {
         success: false,
         errorType: 'totp-required',
         details: { method: 'sms-du-futur', availableMethods: ['totp', 'martien'] },
@@ -140,7 +140,7 @@ describe('ClientRest', () => {
   });
 
   test('un 401 ordinaire lève une ErreurRest portant le statut', async () => {
-    poignee = (_q, res) => repondre(res, 401, { success: false, error: 'unauthorized' });
+    handle = (_q, res) => reply(res, 401, { success: false, error: 'unauthorized' });
     await assert.rejects(client().get('me'), (e: unknown) => {
       assert.ok(e instanceof RestError);
       assert.equal(e.status, 401);
@@ -150,52 +150,52 @@ describe('ClientRest', () => {
   });
 
   test("`status: 'error'` de /login est traité comme un échec malgré le code 200", async () => {
-    poignee = (_q, res) => repondre(res, 200, { status: 'error', message: 'Unauthorized' });
+    handle = (_q, res) => reply(res, 200, { status: 'error', message: 'Unauthorized' });
     await assert.rejects(client().post('login', { anonymous: true }), RestError);
   });
 
   test('un 429 est rejoué en honorant `x-ratelimit-reset`', async () => {
-    const dormirs: number[] = [];
-    let appels = 0;
-    poignee = (_q, res) => {
-      appels++;
-      if (appels <= 2) {
+    const sleeps: number[] = [];
+    let calls = 0;
+    handle = (_q, res) => {
+      calls++;
+      if (calls <= 2) {
         // maintenant() est figé à 1_000_000 : reset dans 2 s.
-        repondre(res, 429, { success: false }, { 'x-ratelimit-reset': '1002000' });
+        reply(res, 429, { success: false }, { 'x-ratelimit-reset': '1002000' });
       } else {
-        repondre(res, 200, { success: true, ok: 1 });
+        reply(res, 200, { success: true, ok: 1 });
       }
     };
-    const r = await client(dormirs).get<{ ok: number }>('chat.postMessage');
+    const r = await client(sleeps).get<{ ok: number }>('chat.postMessage');
     assert.equal(r.ok, 1);
-    assert.equal(appels, 3);
-    assert.deepEqual(dormirs, [2250, 2250], 'délai = reset - maintenant + 250 ms');
+    assert.equal(calls, 3);
+    assert.deepEqual(sleeps, [2250, 2250], 'délai = reset - maintenant + 250 ms');
   });
 
   test('sans en-tête de réinitialisation, le repli est exponentiel', async () => {
-    const dormirs: number[] = [];
-    let appels = 0;
-    poignee = (_q, res) => {
-      appels++;
-      appels <= 2 ? repondre(res, 429, { success: false }) : repondre(res, 200, { success: true });
+    const sleeps: number[] = [];
+    let calls = 0;
+    handle = (_q, res) => {
+      calls++;
+      calls <= 2 ? reply(res, 429, { success: false }) : reply(res, 200, { success: true });
     };
-    await client(dormirs).get('chat.postMessage');
-    assert.deepEqual(dormirs, [1000, 2000]);
+    await client(sleeps).get('chat.postMessage');
+    assert.deepEqual(sleeps, [1000, 2000]);
   });
 
   test('après 3 rejeux, le 429 remonte comme erreur', async () => {
-    const dormirs: number[] = [];
-    poignee = (_q, res) => repondre(res, 429, { success: false, error: 'too-many' });
-    await assert.rejects(client(dormirs).get('chat.postMessage'), (e: unknown) => {
+    const sleeps: number[] = [];
+    handle = (_q, res) => reply(res, 429, { success: false, error: 'too-many' });
+    await assert.rejects(client(sleeps).get('chat.postMessage'), (e: unknown) => {
       assert.ok(e instanceof RestError);
       assert.equal(e.status, 429);
       return true;
     });
-    assert.equal(dormirs.length, 3);
+    assert.equal(sleeps.length, 3);
   });
 
   test('un corps HTML avec un code 200 ne devient pas « serveur injoignable »', async () => {
-    poignee = (_q, res) => {
+    handle = (_q, res) => {
       res.writeHead(200, { 'content-type': 'text/html' });
       res.end('<html>502 Bad Gateway</html>');
     };
@@ -208,7 +208,7 @@ describe('ClientRest', () => {
 
   test('un 200 au corps vide est un succès, pas un « JSON invalide »', async () => {
     // `POST /api/v1/logout` se comporte exactement ainsi sur un serveur 8.5.
-    poignee = (_q, res) => {
+    handle = (_q, res) => {
       res.writeHead(200);
       res.end();
     };
@@ -216,7 +216,7 @@ describe('ClientRest', () => {
   });
 
   test('un corps vide avec un code 4xx reste une erreur', async () => {
-    poignee = (_q, res) => {
+    handle = (_q, res) => {
       res.writeHead(502);
       res.end();
     };
@@ -224,12 +224,12 @@ describe('ClientRest', () => {
   });
 
   test("une annulation par l'appelant propage AbortError, pas une ErreurRest", async () => {
-    poignee = () => {
+    handle = () => {
       /* jamais de réponse */
     };
-    const controleur = new AbortController();
-    const p = client().get('info', { signal: controleur.signal });
-    controleur.abort();
+    const controller = new AbortController();
+    const p = client().get('info', { signal: controller.signal });
+    controller.abort();
     await assert.rejects(p, (e: unknown) => {
       assert.ok(e instanceof Error);
       assert.equal(e.name, 'AbortError');
@@ -238,31 +238,31 @@ describe('ClientRest', () => {
   });
 
   test('un signal déjà avorté empêche la requête de partir', async () => {
-    poignee = (_q, res) => repondre(res, 200, { success: true });
-    const controleur = new AbortController();
-    controleur.abort();
-    await assert.rejects(client().get('info', { signal: controleur.signal }), (e: unknown) => {
+    handle = (_q, res) => reply(res, 200, { success: true });
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(client().get('info', { signal: controller.signal }), (e: unknown) => {
       assert.ok(e instanceof Error);
       assert.equal(e.name, 'AbortError');
       return true;
     });
-    assert.equal(recues.length, 0, 'aucune requête ne doit atteindre le serveur');
+    assert.equal(received.length, 0, 'aucune requête ne doit atteindre le serveur');
   });
 
   test('rejeuReseau : un échec réseau ponctuel est rejoué une fois puis réussit', async () => {
     // Reproduit la connexion keep-alive morte au 1er envoi : le `fetch` rejette
     // une fois (aucune réponse HTTP), le rejeu repart sur le vrai serveur.
-    poignee = (_q, res) => repondre(res, 200, { success: true, ok: 1 });
-    let appels = 0;
-    const dormirs: number[] = [];
+    handle = (_q, res) => reply(res, 200, { success: true, ok: 1 });
+    let calls = 0;
+    const sleeps: number[] = [];
     const c = new ClientRest(base, {
       fetch: async (url, init) => {
-        appels += 1;
-        if (appels === 1) throw new TypeError('Network request failed');
+        calls += 1;
+        if (calls === 1) throw new TypeError('Network request failed');
         return globalThis.fetch(url, init);
       },
       sleep: async (ms) => {
-        dormirs.push(ms);
+        sleeps.push(ms);
       },
       now: () => 1_000_000,
     });
@@ -271,15 +271,15 @@ describe('ClientRest', () => {
       networkReplay: true,
     });
     assert.equal(r.ok, 1);
-    assert.equal(appels, 2, 'un échec puis un rejeu');
-    assert.equal(dormirs.length, 1, 'une seule attente de rejeu');
+    assert.equal(calls, 2, 'un échec puis un rejeu');
+    assert.equal(sleeps.length, 1, 'une seule attente de rejeu');
   });
 
   test('rejeuReseau : deux échecs de suite remontent « serveur injoignable »', async () => {
-    let appels = 0;
+    let calls = 0;
     const c = new ClientRest(base, {
       fetch: async () => {
-        appels += 1;
+        calls += 1;
         throw new TypeError('Network request failed');
       },
       sleep: async () => {},
@@ -291,16 +291,16 @@ describe('ClientRest', () => {
       assert.match(e.message, /injoignable/);
       return true;
     });
-    assert.equal(appels, 2, "l'appel d'origine plus un seul rejeu");
+    assert.equal(calls, 2, "l'appel d'origine plus un seul rejeu");
   });
 
   test('sans rejeuReseau, un échec réseau lève tout de suite (aucun rejeu)', async () => {
     // `chat.sendMessage` n'active pas le rejeu : la ligne reste « en-attente »
     // dans lib/outbox, seul lieu où sa déduplication est sûre.
-    let appels = 0;
+    let calls = 0;
     const c = new ClientRest(base, {
       fetch: async () => {
-        appels += 1;
+        calls += 1;
         throw new TypeError('Network request failed');
       },
       sleep: async () => {},
@@ -311,57 +311,57 @@ describe('ClientRest', () => {
       assert.equal(e.status, 0);
       return true;
     });
-    assert.equal(appels, 1, 'aucun rejeu sans le drapeau');
+    assert.equal(calls, 1, 'aucun rejeu sans le drapeau');
   });
 
   test('le rejeu 429 est DISPERSÉ, et la dispersion reste bornée', async () => {
     // Deux appels concurrents reçoivent le MÊME `x-ratelimit-reset` : sans
     // dispersion ils repartent à la même milliseconde sur une fenêtre qui
     // n'en admet que dix, et se reprennent un 429.
-    const releve = async (alea: number) => {
-      const dormirs: number[] = [];
-      let appels = 0;
-      poignee = (_q, res) => {
-        appels++;
-        if (appels === 1) {
-          repondre(res, 429, { success: false }, { 'x-ratelimit-reset': '1002000' });
+    const measure = async (random: number) => {
+      const sleeps: number[] = [];
+      let calls = 0;
+      handle = (_q, res) => {
+        calls++;
+        if (calls === 1) {
+          reply(res, 429, { success: false }, { 'x-ratelimit-reset': '1002000' });
         } else {
-          repondre(res, 200, { success: true });
+          reply(res, 200, { success: true });
         }
       };
       const c = new ClientRest(base, {
         sleep: async (ms) => {
-          dormirs.push(ms);
+          sleeps.push(ms);
         },
         now: () => 1_000_000,
-        random: () => alea,
+        random: () => random,
       });
       await c.get('chat.postMessage');
-      return dormirs[0];
+      return sleeps[0];
     };
 
-    const [bas, milieu, haut] = [await releve(0), await releve(0.5), await releve(1)];
-    assert.ok(bas < milieu && milieu < haut, `l’aléa doit moduler : ${bas}/${milieu}/${haut}`);
+    const [bottom, middle, top] = [await measure(0), await measure(0.5), await measure(1)];
+    assert.ok(bottom < middle && middle < top, `l’aléa doit moduler : ${bottom}/${middle}/${top}`);
     // Encadrement : jamais AVANT le reset annoncé, jamais plus d'une
     // demi-seconde après — sinon la dispersion coûterait plus qu'elle ne rend.
-    for (const d of [bas, milieu, haut]) {
+    for (const d of [bottom, middle, top]) {
       assert.ok(d >= 2250 && d <= 2750, `hors bornes : ${d}`);
     }
   });
 
   test('un en-tête de réinitialisation aberrant reste plafonné, dispersion comprise', async () => {
-    const dormirs: number[] = [];
-    poignee = (_q, res) =>
-      repondre(res, 429, { success: false }, { 'x-ratelimit-reset': '9999999999999' });
+    const sleeps: number[] = [];
+    handle = (_q, res) =>
+      reply(res, 429, { success: false }, { 'x-ratelimit-reset': '9999999999999' });
     const c = new ClientRest(base, {
       sleep: async (ms) => {
-        dormirs.push(ms);
+        sleeps.push(ms);
       },
       now: () => 1_000_000,
       random: () => 1,
     });
     await assert.rejects(c.get('chat.postMessage'), RestError);
-    assert.deepEqual(dormirs, [30_000, 30_000, 30_000], 'le plafond tient malgré la dispersion');
+    assert.deepEqual(sleeps, [30_000, 30_000, 30_000], 'le plafond tient malgré la dispersion');
   });
 
   test('un abort() PENDANT le sommeil de rejeu est constaté TOUT DE SUITE', async () => {
@@ -369,25 +369,25 @@ describe('ClientRest', () => {
     // l'abandon n'était vu qu'au retour de récursion, jusqu'à 30 s plus tard.
     // Ici le sommeil ne se termine JAMAIS de lui-même — seule l'annulation
     // peut débloquer, donc le test ne peut pas passer par accident.
-    poignee = (_q, res) =>
-      repondre(res, 429, { success: false }, { 'x-ratelimit-reset': '1030000' });
-    let dortMaintenant: () => void = () => {};
-    const sommeilEntame = new Promise<void>((r) => {
-      dortMaintenant = r;
+    handle = (_q, res) =>
+      reply(res, 429, { success: false }, { 'x-ratelimit-reset': '1030000' });
+    let sleepsNow: () => void = () => {};
+    const sleepStarted = new Promise<void>((r) => {
+      sleepsNow = r;
     });
     const c = new ClientRest(base, {
       sleep: () =>
         new Promise<void>(() => {
-          dortMaintenant();
+          sleepsNow();
         }),
       now: () => 1_000_000,
       random: () => 0,
     });
 
-    const controleur = new AbortController();
-    const p = c.get('chat.postMessage', { signal: controleur.signal });
-    await sommeilEntame; // on SAIT qu'on dort — pas de délai arbitraire
-    controleur.abort();
+    const controller = new AbortController();
+    const p = c.get('chat.postMessage', { signal: controller.signal });
+    await sleepStarted; // on SAIT qu'on dort — pas de délai arbitraire
+    controller.abort();
 
     // Le chien de garde n'est PAS une synchronisation : le chemin correct
     // répond immédiatement. Il est là pour que la régression se lise comme un
@@ -410,31 +410,31 @@ describe('ClientRest', () => {
     // La fenêtre est étroite mais réelle : `appeler` retire son relais dans
     // son `finally`, puis `await reponse.body?.cancel()` rend la main. On
     // avorte exactement là, en fournissant nous-mêmes le corps de la réponse.
-    let dodos = 0;
-    const controleur = new AbortController();
+    let naps = 0;
+    const controller = new AbortController();
     const c = new ClientRest(base, {
       fetch: async () =>
         new Response(
           new ReadableStream({
             cancel() {
-              controleur.abort();
+              controller.abort();
             },
           }),
           { status: 429, headers: { 'x-ratelimit-reset': '1030000' } },
         ),
       sleep: async () => {
-        dodos++;
+        naps++;
       },
       now: () => 1_000_000,
       random: () => 0,
     });
 
-    await assert.rejects(c.get('chat.postMessage', { signal: controleur.signal }), (e: unknown) => {
+    await assert.rejects(c.get('chat.postMessage', { signal: controller.signal }), (e: unknown) => {
       assert.ok(e instanceof Error);
       assert.equal(e.name, 'AbortError');
       return true;
     });
-    assert.equal(dodos, 0, 'aucun sommeil entamé : 30 s économisées');
+    assert.equal(naps, 0, 'aucun sommeil entamé : 30 s économisées');
   });
 
   test('la barre finale de baseUrl est normalisée', () => {
@@ -452,12 +452,12 @@ describe('ClientRest', () => {
  */
 describe('estJetonRefuse', () => {
   /** Ce que `ClientRest` construit quand il a LU l'enveloppe Rocket.Chat. */
-  const duServeur = (statut: number, erreur?: string, errorType?: string) =>
-    new RestError(erreur ?? 'x', statut, erreur, errorType, true);
+  const fromServer = (status: number, error?: string, errorType?: string) =>
+    new RestError(error ?? 'x', status, error, errorType, true);
 
   test('un 401 du serveur applicatif est un jeton refusé', () => {
     // Le corps exact d'un jeton révoqué par `logout`, relevé sur 8.5.
-    assert.equal(isTokenRejected(duServeur(401, 'You must be logged in to do this.')), true);
+    assert.equal(isTokenRejected(fromServer(401, 'You must be logged in to do this.')), true);
   });
 
   test('un défi 2FA n’est PAS un jeton refusé', () => {
@@ -475,8 +475,8 @@ describe('estJetonRefuse', () => {
   });
 
   test('une erreur d’un autre transport (DDP) n’est PAS un jeton refusé', () => {
-    class ErreurDdp extends Error {}
-    assert.equal(isTokenRejected(new ErreurDdp('Message refusé')), false);
+    class DdpError extends Error {}
+    assert.equal(isTokenRejected(new DdpError('Message refusé')), false);
     assert.equal(isTokenRejected(new Error('boum')), false);
     assert.equal(isTokenRejected('401'), false);
     assert.equal(isTokenRejected(null), false);
@@ -494,19 +494,19 @@ describe('estJetonRefuse', () => {
     // Relevés un par un sur le banc. Chacun survient en session parfaitement
     // valide, et chacun aurait éjecté l'utilisateur si on s'était contenté de
     // « le serveur a dit non ».
-    assert.equal(isTokenRejected(duServeur(403, 'User does not have the permissions required for this action [error-unauthorized]')), false);
-    assert.equal(isTokenRejected(duServeur(400, 'Not allowed [error-not-allowed]', 'error-not-allowed')), false);
-    assert.equal(isTokenRejected(duServeur(400, 'does not match any channel [error-room-not-found]', 'error-room-not-found')), false);
-    assert.equal(isTokenRejected(duServeur(404, 'Not Found')), false);
-    assert.equal(isTokenRejected(duServeur(429, 'too many requests')), false);
-    assert.equal(isTokenRejected(duServeur(500, 'boum')), false);
+    assert.equal(isTokenRejected(fromServer(403, 'User does not have the permissions required for this action [error-unauthorized]')), false);
+    assert.equal(isTokenRejected(fromServer(400, 'Not allowed [error-not-allowed]', 'error-not-allowed')), false);
+    assert.equal(isTokenRejected(fromServer(400, 'does not match any channel [error-room-not-found]', 'error-room-not-found')), false);
+    assert.equal(isTokenRejected(fromServer(404, 'Not Found')), false);
+    assert.equal(isTokenRejected(fromServer(429, 'too many requests')), false);
+    assert.equal(isTokenRejected(fromServer(500, 'boum')), false);
   });
 });
 
 describe('ClientRest — signalement du jeton refusé', () => {
   test('un 401 du serveur signale le jeton RÉELLEMENT envoyé', async () => {
-    poignee = (_req, res) =>
-      repondre(res, 401, {
+    handle = (_req, res) =>
+      reply(res, 401, {
         success: false,
         error: 'You must be logged in to do this.',
         status: 'error',
@@ -514,11 +514,11 @@ describe('ClientRest — signalement du jeton refusé', () => {
       });
     const c = client();
     c.auth = { authToken: 'jeton-a', userId: 'u1' };
-    const signales: string[] = [];
-    c.onTokenRejected = (j) => signales.push(j);
+    const reported: string[] = [];
+    c.onTokenRejected = (j) => reported.push(j);
 
     await assert.rejects(c.get('chat.syncMessages'));
-    assert.deepEqual(signales, ['jeton-a']);
+    assert.deepEqual(reported, ['jeton-a']);
   });
 
   test('le jeton signalé est celui du DÉPART, pas celui de l’arrivée', async () => {
@@ -526,34 +526,34 @@ describe('ClientRest — signalement du jeton refusé', () => {
     // volait. Signaler le jeton courant ferait effacer la session TOUTE NEUVE.
     const c = client();
     c.auth = { authToken: 'ancien', userId: 'u1' };
-    poignee = (_req, res) => {
+    handle = (_req, res) => {
       c.auth = { authToken: 'tout-neuf', userId: 'u1' };
-      repondre(res, 401, { success: false, error: 'You must be logged in to do this.' });
+      reply(res, 401, { success: false, error: 'You must be logged in to do this.' });
     };
-    const signales: string[] = [];
-    c.onTokenRejected = (j) => signales.push(j);
+    const reported: string[] = [];
+    c.onTokenRejected = (j) => reported.push(j);
 
     await assert.rejects(c.get('me'));
-    assert.deepEqual(signales, ['ancien'], 'l’appelant doit pouvoir reconnaître un 401 périmé');
+    assert.deepEqual(reported, ['ancien'], 'l’appelant doit pouvoir reconnaître un 401 périmé');
   });
 
   test('un appel ANONYME ne signale rien : il n’a pas envoyé de jeton', async () => {
     // `settings.public`, `/api/info`, le login lui-même. Leur 401 ne dit rien
     // de la session — et au login il n'y en a même pas encore.
-    poignee = (_req, res) => repondre(res, 401, { success: false, error: 'unauthorized' });
+    handle = (_req, res) => reply(res, 401, { success: false, error: 'unauthorized' });
     const c = client();
     c.auth = { authToken: 'jeton-a', userId: 'u1' };
-    let signale = 0;
-    c.onTokenRejected = () => signale++;
+    let reported = 0;
+    c.onTokenRejected = () => reported++;
 
     await assert.rejects(c.get('settings.public', { anonymous: true }));
-    assert.equal(signale, 0);
+    assert.equal(reported, 0);
   });
 
   test('un défi 2FA en cours de session ne signale rien', async () => {
     // Sondé sur 8.5 : `users.update` sans code répond **400** `totp-required`.
-    poignee = (_req, res) =>
-      repondre(res, 400, {
+    handle = (_req, res) =>
+      reply(res, 400, {
         success: false,
         error: 'TOTP Required [totp-required]',
         errorType: 'totp-required',
@@ -561,29 +561,29 @@ describe('ClientRest — signalement du jeton refusé', () => {
       });
     const c = client();
     c.auth = { authToken: 'jeton-a', userId: 'u1' };
-    let signale = 0;
-    c.onTokenRejected = () => signale++;
+    let reported = 0;
+    c.onTokenRejected = () => reported++;
 
     await assert.rejects(c.post('users.update'), (e: unknown) => e instanceof TwoFactorError);
-    assert.equal(signale, 0, 'changer son mot de passe ne doit pas déconnecter');
+    assert.equal(reported, 0, 'changer son mot de passe ne doit pas déconnecter');
   });
 
   test('un 401 JSON qui n’est PAS du Rocket.Chat ne signale rien', async () => {
     // Une passerelle d'API répond volontiers `{"message":"Unauthorized"}` :
     // ça parse, donc « on a lu du JSON » ne prouve rien. Ce qu'il faut, c'est
     // la marque de l'enveloppe maison — `success`, `status`, `errorType`.
-    poignee = (_req, res) => repondre(res, 401, { message: 'Unauthorized' });
+    handle = (_req, res) => reply(res, 401, { message: 'Unauthorized' });
     const c = client();
     c.auth = { authToken: 'jeton-a', userId: 'u1' };
-    let signale = 0;
-    c.onTokenRejected = () => signale++;
+    let reported = 0;
+    c.onTokenRejected = () => reported++;
 
     await assert.rejects(c.get('me'), (e: unknown) => {
       assert.ok(e instanceof RestError);
       assert.equal(e.understoodResponse, false);
       return true;
     });
-    assert.equal(signale, 0);
+    assert.equal(reported, 0);
   });
 
   test('un 401 de LOGIN porte bien l’enveloppe — mais l’appel est anonyme', async () => {
@@ -591,26 +591,26 @@ describe('ClientRest — signalement du jeton refusé', () => {
     // `{"success":false,"error":"Unauthorized","status":"error"}` en 401. C'est
     // une enveloppe Rocket.Chat parfaitement valide : seule la garde `anonyme`
     // empêche une saisie ratée de détruire la session en cours.
-    poignee = (_req, res) =>
-      repondre(res, 401, { success: false, error: 'Unauthorized', status: 'error' });
+    handle = (_req, res) =>
+      reply(res, 401, { success: false, error: 'Unauthorized', status: 'error' });
     const c = client();
     c.auth = { authToken: 'jeton-a', userId: 'u1' };
-    let signale = 0;
-    c.onTokenRejected = () => signale++;
+    let reported = 0;
+    c.onTokenRejected = () => reported++;
 
     await assert.rejects(c.post('login', { anonymous: true, body: { user: 'x', password: 'y' } }));
-    assert.equal(signale, 0);
+    assert.equal(reported, 0);
   });
 
   test('un 401 en HTML (proxy) ne signale rien', async () => {
-    poignee = (_req, res) => {
+    handle = (_req, res) => {
       res.writeHead(401, { 'content-type': 'text/html' });
       res.end('<html><body>401 Authorization Required</body></html>');
     };
     const c = client();
     c.auth = { authToken: 'jeton-a', userId: 'u1' };
-    let signale = 0;
-    c.onTokenRejected = () => signale++;
+    let reported = 0;
+    c.onTokenRejected = () => reported++;
 
     await assert.rejects(c.get('me'), (e: unknown) => {
       assert.ok(e instanceof RestError);
@@ -618,30 +618,30 @@ describe('ClientRest — signalement du jeton refusé', () => {
       assert.equal(e.understoodResponse, false, '…mais il ne vient pas du serveur applicatif');
       return true;
     });
-    assert.equal(signale, 0);
+    assert.equal(reported, 0);
   });
 
   test('une session saine ne signale jamais rien', async () => {
     // Les trois refus légitimes de 8.5, joués contre un vrai serveur HTTP.
-    const cas = [
+    const cases = [
       [403, { success: false, error: 'User does not have the permissions required for this action [error-unauthorized]' }],
       [400, { success: false, error: 'Not allowed [error-not-allowed]', errorType: 'error-not-allowed' }],
       [500, { success: false, error: 'boum' }],
     ] as const;
     const c = client();
     c.auth = { authToken: 'jeton-a', userId: 'u1' };
-    let signale = 0;
-    c.onTokenRejected = () => signale++;
+    let reported = 0;
+    c.onTokenRejected = () => reported++;
 
-    for (const [statut, corps] of cas) {
-      poignee = (_req, res) => repondre(res, statut, corps);
+    for (const [status, body] of cases) {
+      handle = (_req, res) => reply(res, status, body);
       await assert.rejects(c.get('quelque.chose'));
     }
-    assert.equal(signale, 0);
+    assert.equal(reported, 0);
   });
 
   test('sans abonné, un 401 reste une erreur ordinaire', async () => {
-    poignee = (_req, res) => repondre(res, 401, { success: false, error: 'You must be logged in to do this.' });
+    handle = (_req, res) => reply(res, 401, { success: false, error: 'You must be logged in to do this.' });
     const c = client();
     c.auth = { authToken: 'jeton-a', userId: 'u1' };
     await assert.rejects(c.get('me'), (e: unknown) => {

@@ -91,7 +91,7 @@ struct RoomInfoView: View {
                     ProgressView()
                 }
                 if model.supportsRoomManagement { NativeRoomControls(model: model, details: management, refreshed: { fresh in management = fresh; details = fresh.info }) }
-                if app.native?.cryptoSettingsSupported() == true { CryptoRoomSection(room: model.room.id) }
+            if app.native?.cryptoSettingsSupported() == true { CryptoRoomSection(room: model.room.rid) }
             }
             .formStyle(.grouped)
         }

@@ -108,5 +108,10 @@ cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --target-dir tar
 ```
 
 Suite : politique d'historique des appareils révoqués, réadmission après retrait,
-refus définitifs / nouvelles opérations, archive / fichiers, pont Android et
+transitions incertaines, archive / fichiers, pont Android et
 fournisseurs des interfaces existantes, revue crypto et qualifications natives.
+
+[L'abandon définitif](SETTLEMENT.md) d'un message personnel est maintenant
+checkpoint : reçu original si accepté, sinon marqueur terminal et document
+privé récupérable. La génération reste consommée ; l'ancienne opération ne
+peut être réutilisée et aucune position de journal n'est avancée.

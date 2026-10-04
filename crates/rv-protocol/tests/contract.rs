@@ -1,6 +1,36 @@
 use rv_protocol::{Contract, SendMessage};
 
 #[test]
+fn terminal_message_decisions_distinguish_delivered_positions_from_personal_abandonment() {
+    use rv_protocol::e2ee::ApplicationSettlement;
+    let fixture: Contract =
+        serde_json::from_str(include_str!("../../../docs/protocol/v1.fixture.json")).unwrap();
+    let value = serde_json::to_value(fixture.parity.e2ee_application_settlement.unwrap()).unwrap();
+    assert_eq!(value["kind"], "cancelled");
+    assert!(value["data"].get("position").is_none());
+    assert!(value["data"].get("message_id").is_none());
+    for field in [
+        "plaintext",
+        "ciphertext",
+        "private_key",
+        "position",
+        "message_id",
+    ] {
+        let mut invalid = value.clone();
+        invalid["data"][field] = "forbidden".into();
+        assert!(serde_json::from_value::<ApplicationSettlement>(invalid).is_err());
+    }
+    let accepted = serde_json::json!({"kind":"accepted","data":fixture.parity.e2ee_application_receipt.unwrap()});
+    let ApplicationSettlement::Accepted(receipt) = serde_json::from_value(accepted).unwrap() else {
+        panic!("wrong decision")
+    };
+    assert_eq!(receipt.position, "9007199254740995");
+    let mut unknown = value;
+    unknown["kind"] = "missing".into();
+    assert!(serde_json::from_value::<ApplicationSettlement>(unknown).is_err());
+}
+
+#[test]
 fn opaque_delivery_preserves_exact_positions_and_excludes_private_or_cleartext_fields() {
     use rv_protocol::e2ee::{ApplicationSubmission, DeliveryPage};
     let fixture: Contract =

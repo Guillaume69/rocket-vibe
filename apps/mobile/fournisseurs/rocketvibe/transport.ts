@@ -48,6 +48,9 @@ export class NativeTransport {
   cryptoMessageOperation(room:string,operation:string):Promise<NativeTypes['ApplicationReceipt']> {
     return this.request('ApplicationReceipt',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/message-operations/${encodeURIComponent(operation)}`);
   }
+  cancelCryptoMessage(room:string,input:NativeTypes['ApplicationSubmission']):Promise<NativeTypes['ApplicationSettlement']> {
+    return this.request('ApplicationSettlement',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/message-operations/${encodeURIComponent(input.operation_id)}/cancel`,input);
+  }
   /** Opaque delivery only. The native crypto engine validates and opens each frame. */
   async cryptoDelivery(room:string,after:string,through?:string):Promise<NativeTypes['DeliveryPage']> {
     for(const position of [after,...(through===undefined?[]:[through])]) {

@@ -68,6 +68,36 @@ impl MessageSubmission {
 pub struct MessagePending {
     pub header: packet::Header,
     pub fingerprint: Fingerprint,
+    pub cancelling: bool,
+}
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MessageCancellation {
+    pub header: packet::Header,
+    pub fingerprint: Fingerprint,
+}
+impl MessageCancellation {
+    pub fn matches(&self, proof: &packet::Proof) -> Result<()> {
+        self.header.validate()?;
+        if self.header != proof.header || self.fingerprint != proof.fingerprint()? {
+            return Err(Error::Receipt);
+        }
+        Ok(())
+    }
+}
+pub enum MessageSettlement {
+    Accepted(packet::Receipt),
+    Cancelled(MessageCancellation),
+}
+/// Recoverable own document; abandonment never rewinds an MLS generation.
+pub struct CancelledMessage {
+    pub cancellation: MessageCancellation,
+    payload: Zeroizing<Vec<u8>>,
+}
+impl CancelledMessage {
+    pub fn message(&self) -> Result<SendMessage> {
+        decode(&self.payload, &self.cancellation.header)
+    }
 }
 /// Only returned after the protected checkpoint. No Debug/Clone/serialization.
 pub struct ClearMessage {
@@ -177,12 +207,29 @@ fn receipt_hash(receipt: &packet::Receipt) -> Result<String> {
     receipt.validate()?;
     Ok(HEXLOWER.encode(&fingerprint("rocketvibe-message-receipt-v1", receipt)?))
 }
+fn cancellation(proof: &packet::Proof) -> Result<MessageCancellation> {
+    Ok(MessageCancellation {
+        header: proof.header.clone(),
+        fingerprint: proof.fingerprint()?,
+    })
+}
+fn cancellation_hash(receipt: &MessageCancellation) -> Result<String> {
+    receipt.header.validate()?;
+    if receipt.fingerprint == [0; 32] {
+        return Err(Error::Receipt);
+    }
+    Ok(HEXLOWER.encode(&fingerprint("rocketvibe-message-cancellation-v1", receipt)?))
+}
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Seen {
     packet: String,
     intent: Option<String>,
     receipt: Option<String>,
+    #[serde(default)]
+    cancelled: Option<String>,
+    #[serde(default)]
+    cancelling: bool,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -245,7 +292,12 @@ impl Coordinator {
                 || !valid_hash(&seen.packet)
                 || seen.intent.as_ref().is_some_and(|s| !valid_hash(s))
                 || seen.receipt.as_ref().is_some_and(|s| !valid_hash(s))
+                || seen.cancelled.as_ref().is_some_and(|s| !valid_hash(s))
+                || seen.cancelled.is_some() && (seen.intent.is_none() || seen.receipt.is_some())
+                || seen.cancelling
+                    && (seen.intent.is_none() || seen.receipt.is_some() || seen.cancelled.is_some())
                 || seen.receipt.is_none()
+                    && seen.cancelled.is_none()
                     && (seen.intent.is_none() || !ledger.cache.contains_key(id))
             {
                 return Err(Error::Changed);
@@ -279,6 +331,11 @@ impl Coordinator {
                 return Err(Error::Changed);
             }
             decode(&entry.plaintext, header)?;
+            if let Some(expected) = &seen.cancelled
+                && cancellation_hash(&cancellation(&proof)?)? != *expected
+            {
+                return Err(Error::Receipt);
+            }
             match (&entry.receipt, &seen.receipt) {
                 (Some(receipt), Some(expected)) if receipt_hash(receipt)? == *expected => {
                     receipt.matches(&proof)?
@@ -387,8 +444,11 @@ impl Coordinator {
                 if seen.intent.as_deref() != Some(&intent) {
                     return Err(Error::Conflict);
                 }
-                if seen.receipt.is_some() {
+                if seen.receipt.is_some() || seen.cancelled.is_some() {
                     return Err(Error::MessageNotPending);
+                }
+                if seen.cancelling {
+                    return Err(Error::MessageCancelling);
                 }
                 let entry = ledger.cache.get(&id).ok_or(Error::MessageNotRetained)?;
                 current_packet(&entry.proof()?.header, observation, &context)?;
@@ -436,6 +496,8 @@ impl Coordinator {
                     packet: HEXLOWER.encode(&proof.fingerprint()?),
                     intent: Some(intent.clone()),
                     receipt: None,
+                    cancelled: None,
+                    cancelling: false,
                 },
             );
             ledger.cache.insert(
@@ -470,8 +532,11 @@ impl Coordinator {
             let ledger = self.message_ledger(records)?;
             ledger_clock(&ledger, now)?;
             let seen = ledger.seen.get(&id).ok_or(Error::MessageNotPending)?;
-            if seen.intent.is_none() || seen.receipt.is_some() {
+            if seen.intent.is_none() || seen.receipt.is_some() || seen.cancelled.is_some() {
                 return Err(Error::MessageNotPending);
+            }
+            if seen.cancelling {
+                return Err(Error::MessageCancelling);
             }
             let entry = ledger.cache.get(&id).ok_or(Error::MessageNotRetained)?;
             let proof = entry.submission.verified(now)?;
@@ -484,7 +549,10 @@ impl Coordinator {
         self.inspect(|_, records| {
             let ledger = self.message_ledger(records)?;
             let seen = ledger.seen.get(&id).ok_or(Error::MessageNotPending)?;
-            if seen.intent.is_none() || seen.receipt.is_some() {
+            if seen.cancelled.is_some() {
+                return Err(Error::MessageCancelled);
+            }
+            if seen.intent.is_none() || seen.receipt.is_some() || seen.cancelled.is_some() {
                 return Err(Error::MessageNotPending);
             }
             let entry = ledger.cache.get(&id).ok_or(Error::MessageNotRetained)?;
@@ -492,6 +560,7 @@ impl Coordinator {
             Ok(MessagePending {
                 fingerprint: proof.fingerprint()?,
                 header: proof.header,
+                cancelling: seen.cancelling,
             })
         })
     }
@@ -503,6 +572,7 @@ impl Coordinator {
             ledger_clock(&ledger, now)?;
             let seen = ledger.seen.get_mut(&id).ok_or(Error::MessageNotPending)?;
             if seen.intent.is_none()
+                || seen.cancelled.is_some()
                 || receipt.header.author != ledger.scope.user
                 || receipt.header.device != ledger.scope.device
                 || HEXLOWER.encode(&receipt.header.incarnation) != ledger.scope.incarnation
@@ -519,8 +589,114 @@ impl Coordinator {
             let entry = ledger.cache.get_mut(&id).ok_or(Error::MessageNotRetained)?;
             receipt.matches(&entry.proof()?)?;
             seen.receipt = Some(hash.clone());
+            seen.cancelling = false;
             entry.receipt = Some(receipt.clone());
             ledger.clock = now;
+            save_ledger(records, &ledger)
+        })
+    }
+    /// Original opaque intention for terminal reconciliation, even after expiry,
+    /// removal, head changes or an already recorded local settlement. Never sends.
+    pub fn settlement_submission(&self, id: &str, now: u64) -> Result<MessageSubmission> {
+        let id = operation(&self.manager.scope().user, id)?;
+        self.inspect(|_, records| {
+            let ledger = self.message_ledger(records)?;
+            ledger_clock(&ledger, now)?;
+            let seen = ledger.seen.get(&id).ok_or(Error::MessageNotPending)?;
+            if seen.intent.is_none() {
+                return Err(Error::MessageNotPending);
+            }
+            Ok(ledger
+                .cache
+                .get(&id)
+                .ok_or(Error::MessageNotRetained)?
+                .submission
+                .clone())
+        })
+    }
+    /// Checkpoint abandonment intent before HTTP. Restart may only reconcile
+    /// cancellation/acceptance, never silently resume publication of this ID.
+    pub fn request_cancellation(&self, id: &str, now: u64) -> Result<MessageSubmission> {
+        let id = operation(&self.manager.scope().user, id)?;
+        self.transact(|_, records| {
+            let mut ledger = self.message_ledger(records)?;
+            ledger_clock(&ledger, now)?;
+            let seen = ledger.seen.get_mut(&id).ok_or(Error::MessageNotPending)?;
+            if seen.intent.is_none() {
+                return Err(Error::MessageNotPending);
+            }
+            let submission = ledger
+                .cache
+                .get(&id)
+                .ok_or(Error::MessageNotRetained)?
+                .submission
+                .clone();
+            if seen.receipt.is_none() && seen.cancelled.is_none() {
+                seen.cancelling = true;
+            }
+            ledger.clock = now;
+            save_ledger(records, &ledger)?;
+            Ok(submission)
+        })
+    }
+    pub fn confirm_cancellation(&self, receipt: &MessageCancellation, now: u64) -> Result<()> {
+        let hash = cancellation_hash(receipt)?;
+        let id = operation(&receipt.header.author, &receipt.header.operation)?;
+        self.transact(|_, records| {
+            let mut ledger = self.message_ledger(records)?;
+            ledger_clock(&ledger, now)?;
+            let seen = ledger.seen.get_mut(&id).ok_or(Error::MessageNotPending)?;
+            if seen.intent.is_none()
+                || seen.receipt.is_some()
+                || receipt.header.author != ledger.scope.user
+                || receipt.header.device != ledger.scope.device
+                || HEXLOWER.encode(&receipt.header.incarnation) != ledger.scope.incarnation
+            {
+                return Err(Error::Receipt);
+            }
+            if let Some(original) = &seen.cancelled {
+                return if original == &hash {
+                    Ok(())
+                } else {
+                    Err(Error::Receipt)
+                };
+            }
+            let entry = ledger.cache.get(&id).ok_or(Error::MessageNotRetained)?;
+            receipt.matches(&entry.proof()?)?;
+            seen.cancelled = Some(hash.clone());
+            seen.cancelling = false;
+            ledger.clock = now;
+            save_ledger(records, &ledger)
+        })
+    }
+    pub fn cancelled_message(&self, id: &str) -> Result<CancelledMessage> {
+        let id = operation(&self.manager.scope().user, id)?;
+        self.inspect(|_, records| {
+            let ledger = self.message_ledger(records)?;
+            let seen = ledger.seen.get(&id).ok_or(Error::MessageNotRetained)?;
+            let entry = ledger.cache.get(&id).ok_or(Error::MessageNotRetained)?;
+            let cancellation = cancellation(&entry.proof()?)?;
+            if seen.cancelled.as_ref() != Some(&cancellation_hash(&cancellation)?) {
+                return Err(Error::Receipt);
+            }
+            Ok(CancelledMessage {
+                cancellation,
+                payload: Zeroizing::new(entry.plaintext.to_vec()),
+            })
+        })
+    }
+    /// Release the private cached body only after the caller has recovered it.
+    /// The terminal operation tombstone remains and the old ID cannot be reused.
+    pub fn forget_cancelled_message(&self, receipt: &MessageCancellation) -> Result<()> {
+        let id = operation(&self.manager.scope().user, &receipt.header.operation)?;
+        let hash = cancellation_hash(receipt)?;
+        self.transact(|_, records| {
+            let mut ledger = self.message_ledger(records)?;
+            let seen = ledger.seen.get(&id).ok_or(Error::MessageNotRetained)?;
+            if seen.cancelled.as_ref() != Some(&hash) {
+                return Err(Error::Receipt);
+            }
+            ledger.cache.remove(&id);
             save_ledger(records, &ledger)
         })
     }
@@ -563,6 +739,9 @@ impl Coordinator {
         let mut ledger = self.message_ledger(records)?;
         ledger_clock(&ledger, now)?;
         if let Some(seen) = ledger.seen.get_mut(&id) {
+            if seen.cancelled.is_some() {
+                return Err(Error::Receipt);
+            }
             let entry = ledger.cache.get_mut(&id).ok_or(Error::MessageNotRetained)?;
             if entry.submission != *submission || entry.grant != grant {
                 return Err(Error::Conflict);
@@ -576,6 +755,7 @@ impl Coordinator {
                 return Err(Error::Receipt);
             }
             seen.receipt = Some(received_hash.clone());
+            seen.cancelling = false;
             entry.receipt = Some(receipt.clone());
             let clear = ClearMessage {
                 receipt: receipt.clone(),
@@ -658,6 +838,8 @@ impl Coordinator {
                 packet: HEXLOWER.encode(&proof.fingerprint()?),
                 intent: None,
                 receipt: Some(received_hash.clone()),
+                cancelled: None,
+                cancelling: false,
             },
         );
         ledger.cache.insert(
@@ -709,7 +891,12 @@ impl Coordinator {
     pub(super) fn pending_messages(&self, records: &Records, scope: &Scope) -> Result<bool> {
         let ledger = self.message_ledger(records)?;
         for entry in ledger.cache.values() {
-            if entry.receipt.is_none() && entry.proof()?.header.scope == *scope {
+            let header = entry.proof()?.header;
+            let id = operation(&header.author, &header.operation)?;
+            if entry.receipt.is_none()
+                && ledger.seen.get(&id).is_some_and(|s| s.cancelled.is_none())
+                && header.scope == *scope
+            {
                 return Ok(true);
             }
         }

@@ -52,11 +52,14 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
     let package_posts = packages.clone();
     let group_posts = transitions.clone();
     let message_posts = applications.clone();
+    let cancellation_posts = Arc::new(AtomicUsize::new(0));
+    let cancellations = cancellation_posts.clone();
     let router = crate::http::router(app.clone()).layer(middleware::from_fn(
         move |request: Request, next: Next| {
             let packages = package_posts.clone();
             let transitions = group_posts.clone();
             let applications = message_posts.clone();
+            let cancellations = cancellations.clone();
             async move {
                 let package = request.method() == axum::http::Method::POST
                     && request.uri().path() == "/api/v1/e2ee/key-packages";
@@ -65,8 +68,12 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
                 let message = request.method() == axum::http::Method::POST
                     && request.uri().path().starts_with("/api/v1/e2ee/rooms/")
                     && request.uri().path().ends_with("/messages");
-                let lose =
-                    (package && packages.fetch_add(1, Ordering::SeqCst) == 0) || group || message;
+                let cancellation = request.method() == axum::http::Method::POST
+                    && request.uri().path().ends_with("/cancel");
+                let lose = (package && packages.fetch_add(1, Ordering::SeqCst) == 0)
+                    || group
+                    || message
+                    || (cancellation && cancellations.fetch_add(1, Ordering::SeqCst) == 0);
                 if group {
                     transitions.fetch_add(1, Ordering::SeqCst);
                 }
@@ -131,8 +138,8 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
     );
     assert_eq!(
         applications.load(Ordering::SeqCst),
-        6,
-        "a message was posted twice after losing its ACK"
+        7,
+        "expected six accepted sends and one explicitly fenced late abandoned POST"
     );
     let opaque: i64 =
         sqlx::query_scalar("SELECT count(*) FROM e2ee_application_messages WHERE room_id=$1")
@@ -141,6 +148,14 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
             .await
             .unwrap();
     assert_eq!(opaque, 6);
+    assert_eq!(cancellation_posts.load(Ordering::SeqCst), 3);
+    let abandoned: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM e2ee_message_cancellations WHERE user_id=$1")
+            .bind(&alice.id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!(abandoned, 1);
     let delivered: i64 = sqlx::query_scalar("SELECT count(*) FROM e2ee_delivery WHERE room_id=$1")
         .bind(&room.id)
         .fetch_one(&app.pool)

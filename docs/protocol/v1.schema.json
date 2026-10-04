@@ -59,6 +59,35 @@
       ],
       "type": "object"
     },
+    "ApplicationCancellation": {
+      "additionalProperties": false,
+      "description": "Durable personal abandonment of the exact original opaque intention.\nNo message ID/position: this is not a delivered message or a room event.",
+      "properties": {
+        "fingerprint": {
+          "type": "string"
+        },
+        "header": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "room_id",
+        "operation_id",
+        "header",
+        "fingerprint"
+      ],
+      "type": "object"
+    },
     "ApplicationMessage": {
       "additionalProperties": false,
       "properties": {
@@ -115,6 +144,44 @@
         "position"
       ],
       "type": "object"
+    },
+    "ApplicationSettlement": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/ApplicationReceipt"
+            },
+            "kind": {
+              "const": "accepted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/ApplicationCancellation"
+            },
+            "kind": {
+              "const": "cancelled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "ApplicationSubmission": {
       "additionalProperties": false,
@@ -2905,6 +2972,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/ApplicationReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_application_settlement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApplicationSettlement"
             },
             {
               "type": "null"

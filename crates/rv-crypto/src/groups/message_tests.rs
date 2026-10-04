@@ -2,6 +2,191 @@ use super::*;
 use rv_crypto_public::messages as packet;
 use rv_protocol::{SendMessage, cards::IntegrationCard, parity::QuoteReference};
 
+#[test]
+fn terminal_abandonment_keeps_the_document_and_never_rewinds_or_reuses_the_operation() {
+    let (alice, bob, _) = incoming_commits::fixture(false);
+    let observation = observation(&alice);
+    let doc = message("cancel-private-original");
+    let original = alice
+        .coordinator()
+        .prepare_message(&observation, &doc, NOW)
+        .unwrap();
+    let proof = original.verified(NOW).unwrap();
+    let cancellation = MessageCancellation {
+        header: proof.header.clone(),
+        fingerprint: proof.fingerprint().unwrap(),
+    };
+    let mut wrong = cancellation.clone();
+    wrong.fingerprint[0] ^= 1;
+    assert!(
+        alice
+            .coordinator()
+            .confirm_cancellation(&wrong, NOW)
+            .is_err()
+    );
+    assert!(alice.reopened().pending_message(&doc.operation_id).is_ok());
+    alice
+        .coordinator()
+        .confirm_cancellation(&cancellation, NOW)
+        .unwrap();
+    assert!(alice.reopened().pending_message(&doc.operation_id).is_err());
+    assert!(
+        alice
+            .coordinator()
+            .retry_message(&observation, &doc.operation_id, NOW)
+            .is_err()
+    );
+    assert!(
+        alice
+            .coordinator()
+            .prepare_message(&observation, &doc, NOW)
+            .is_err()
+    );
+    let ack = ack(&original, 1);
+    assert!(alice.coordinator().confirm_message(&ack, NOW).is_err());
+    assert!(
+        alice
+            .coordinator()
+            .receive_message(&observation, &original, &ack, NOW)
+            .is_err()
+    );
+    let retained = alice
+        .reopened()
+        .cancelled_message(&doc.operation_id)
+        .unwrap();
+    assert!(
+        serde_json::to_value(retained.message().unwrap()).unwrap()
+            == serde_json::to_value(&doc).unwrap()
+    );
+    // Consume the next actual sender generation: the peer can skip the one
+    // permanently abandoned generation without any ratchet rollback.
+    let mut next = doc.clone();
+    next.operation_id = "cancel-private-new-operation".into();
+    let submission = alice
+        .coordinator()
+        .prepare_message(&observation, &next, NOW)
+        .unwrap();
+    let clear = bob
+        .coordinator()
+        .receive_message(
+            &super::application_messages::observation(&bob),
+            &submission,
+            &super::application_messages::ack(&submission, 2),
+            NOW,
+        )
+        .unwrap();
+    assert!(
+        serde_json::to_value(clear.message().unwrap()).unwrap()
+            == serde_json::to_value(next).unwrap()
+    );
+    alice
+        .coordinator()
+        .forget_cancelled_message(&cancellation)
+        .unwrap();
+    assert!(
+        alice
+            .reopened()
+            .cancelled_message(&doc.operation_id)
+            .is_err()
+    );
+    assert!(
+        alice
+            .reopened()
+            .prepare_message(&observation, &doc, NOW)
+            .is_err()
+    );
+}
+
+#[test]
+fn cancellation_checkpoint_loss_recovers_a_terminal_marker_after_certificate_expiry() {
+    let (alice, _, _) = incoming_commits::fixture(false);
+    let doc = message("cancel-private-checkpoint");
+    let original = alice
+        .coordinator()
+        .prepare_message(&observation(&alice), &doc, NOW)
+        .unwrap();
+    let proof = original.verified(NOW).unwrap();
+    let cancellation = MessageCancellation {
+        header: proof.header.clone(),
+        fingerprint: proof.fingerprint().unwrap(),
+    };
+    let at = NOW + 3601;
+    assert!(
+        alice
+            .coordinator()
+            .settlement_submission(&doc.operation_id, at)
+            .unwrap()
+            == original
+    );
+    alice.keystore.fail_at.store(
+        alice.keystore.writes.load(Ordering::SeqCst) + 1,
+        Ordering::SeqCst,
+    );
+    assert!(matches!(
+        alice.coordinator().confirm_cancellation(&cancellation, at),
+        Err(Error::Storage(_))
+    ));
+    let reopened = alice.reopened();
+    reopened.confirm_cancellation(&cancellation, at).unwrap();
+    assert!(reopened.pending_message(&doc.operation_id).is_err());
+    assert!(
+        reopened
+            .cancelled_message(&doc.operation_id)
+            .unwrap()
+            .message()
+            .unwrap()
+            .text
+            == doc.text
+    );
+    assert!(
+        reopened
+            .confirm_cancellation(&cancellation, at - 1)
+            .is_err()
+    );
+}
+
+#[test]
+fn cancellation_intent_checkpoint_loss_forbids_publication_before_any_network_request() {
+    let (alice, _, _) = incoming_commits::fixture(false);
+    let doc = message("cancel-intent-checkpoint");
+    let observation = observation(&alice);
+    let original = alice
+        .coordinator()
+        .prepare_message(&observation, &doc, NOW)
+        .unwrap();
+    alice.keystore.fail_at.store(
+        alice.keystore.writes.load(Ordering::SeqCst) + 1,
+        Ordering::SeqCst,
+    );
+    assert!(matches!(
+        alice
+            .coordinator()
+            .request_cancellation(&doc.operation_id, NOW),
+        Err(Error::Storage(_))
+    ));
+    let coordinator = alice.reopened();
+    assert!(
+        coordinator
+            .pending_message(&doc.operation_id)
+            .unwrap()
+            .cancelling
+    );
+    assert!(matches!(
+        coordinator.retry_message(&observation, &doc.operation_id, NOW),
+        Err(Error::MessageCancelling)
+    ));
+    assert!(matches!(
+        coordinator.prepare_message(&observation, &doc, NOW),
+        Err(Error::MessageCancelling)
+    ));
+    assert!(
+        coordinator
+            .request_cancellation(&doc.operation_id, NOW)
+            .unwrap()
+            == original
+    );
+}
+
 pub(super) fn observation(account: &Account) -> MessageObservation {
     account
         .manager

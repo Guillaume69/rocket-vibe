@@ -11,16 +11,22 @@ struct CheckedMessage {
     proof_bytes: Vec<u8>,
     ciphertext: Vec<u8>,
 }
-fn check_message(input: wire::ApplicationSubmission) -> Result<CheckedMessage> {
+fn check_message(input: wire::ApplicationSubmission, historical: bool) -> Result<CheckedMessage> {
     let proof_bytes = decode(&input.proof, packet::PROOF_LIMIT)?;
     let ciphertext = decode(&input.ciphertext, packet::CIPHERTEXT_LIMIT)?;
     if B64.encode(&proof_bytes) != input.proof || B64.encode(&ciphertext) != input.ciphertext {
         return Err(proof());
     }
     let claim = packet::Proof::from_bytes(&proof_bytes).map_err(|_| proof())?;
-    claim
-        .verify(Utc::now().timestamp() as u64, &ciphertext)
-        .map_err(|_| proof())?;
+    let now = Utc::now().timestamp() as u64;
+    if historical {
+        claim.authenticate(&ciphertext).map_err(|_| proof())?;
+        if now < claim.certificate.device.issued_at {
+            return Err(proof());
+        }
+    } else {
+        claim.verify(now, &ciphertext).map_err(|_| proof())?;
+    }
     if claim.header.scope.instance != input.scope.instance_id
         || claim.header.scope.data_epoch != input.scope.data_epoch
         || claim.header.operation != input.operation_id
@@ -46,6 +52,32 @@ async fn saved_message(
         Some(_) => Err(Error::conflict()),
         None => Ok(None),
     }
+}
+fn cancelled() -> Error {
+    Error::new(StatusCode::CONFLICT, "crypto_message_cancelled")
+}
+async fn saved_cancellation(
+    tx: &mut Transaction<'_, Postgres>,
+    actor: &Account,
+    operation: &str,
+    expected: &str,
+) -> Result<Option<wire::ApplicationCancellation>> {
+    let row: Option<(String, Json<wire::ApplicationCancellation>)> = sqlx::query_as(
+        "SELECT fingerprint,receipt FROM e2ee_message_cancellations WHERE user_id=$1 AND operation_id=$2")
+        .bind(&actor.id).bind(operation).fetch_optional(&mut **tx).await?;
+    match row {
+        Some((original, receipt)) if original == expected => Ok(Some(receipt.0)),
+        Some(_) => Err(Error::conflict()),
+        None => Ok(None),
+    }
+}
+async fn ordinary_operation_used(
+    tx: &mut Transaction<'_, Postgres>,
+    actor: &Account,
+    operation: &str,
+) -> Result<bool> {
+    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM messages WHERE author_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM room_creation_requests WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM message_actions WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM room_commands WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM uploads WHERE user_id=$1 AND operation_id=$2)")
+        .bind(&actor.id).bind(operation).fetch_one(&mut **tx).await?)
 }
 async fn message_budget(
     tx: &mut Transaction<'_, Postgres>,
@@ -124,6 +156,12 @@ pub async fn submit(
     let mut tx = app.pool.begin().await?;
     let (device, _) = lock_scope(&mut tx, actor, &input.scope).await?;
     let previous = saved_message(&mut tx, actor, &input.operation_id, &fingerprint).await?;
+    if saved_cancellation(&mut tx, actor, &input.operation_id, &fingerprint)
+        .await?
+        .is_some()
+    {
+        return Err(cancelled());
+    }
     if previous.is_none() {
         room_lock(&mut tx, actor, room, false).await?;
     }
@@ -133,13 +171,19 @@ pub async fn submit(
     }
     let scope = input.scope.clone();
     let operation = input.operation_id.clone();
-    let checked = verify(app, move || check_message(input)).await?;
+    let checked = verify(app, move || check_message(input, false)).await?;
     let header = &checked.proof.header;
     if header.scope.room != room || header.author != actor.id || header.device != device {
         return Err(proof());
     }
     let mut tx = app.pool.begin().await?;
     let (device, _) = lock_scope(&mut tx, actor, &scope).await?;
+    if saved_cancellation(&mut tx, actor, &operation, &fingerprint)
+        .await?
+        .is_some()
+    {
+        return Err(cancelled());
+    }
     if let Some(receipt) = saved_message(&mut tx, actor, &operation, &fingerprint).await? {
         tx.commit().await?;
         return Ok(receipt);
@@ -182,9 +226,7 @@ pub async fn submit(
             .fetch_one(&mut *tx)
             .await?;
     roster(&mut tx, &plan, &authority, now).await?;
-    let used: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM messages WHERE author_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM room_creation_requests WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM message_actions WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM room_commands WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM uploads WHERE user_id=$1 AND operation_id=$2)")
-        .bind(&actor.id).bind(&operation).fetch_one(&mut *tx).await?;
-    if used {
+    if ordinary_operation_used(&mut tx, actor, &operation).await? {
         return Err(Error::conflict());
     }
     if let Some(root) = &header.thread {
@@ -233,6 +275,76 @@ pub async fn submit(
     Ok(receipt)
 }
 
+/// Explicit abandonment is a terminal decision, not an inference from a 404
+/// or a transient error. Author serialization fences any late original POST.
+/// An accepted send always wins and is returned unchanged, even after withdrawal.
+pub async fn cancel(
+    app: &App,
+    actor: &Account,
+    room: &str,
+    operation: &str,
+    input: wire::ApplicationSubmission,
+) -> Result<wire::ApplicationSettlement> {
+    validate_scope(&input.scope, &input.operation_id)?;
+    if !auth::identifier(room)
+        || input.operation_id != operation
+        || input.proof.len() > packet::PROOF_LIMIT.div_ceil(3) * 4
+        || input.ciphertext.len() > packet::CIPHERTEXT_LIMIT.div_ceil(3) * 4
+    {
+        return Err(Error::invalid());
+    }
+    let fingerprint = intent("application_message", &(room, &input))?;
+    let scope = input.scope.clone();
+    let mut tx = app.pool.begin().await?;
+    lock_scope(&mut tx, actor, &scope).await?;
+    if let Some(receipt) = saved_message(&mut tx, actor, operation, &fingerprint).await? {
+        tx.commit().await?;
+        return Ok(wire::ApplicationSettlement::Accepted(receipt));
+    }
+    if let Some(receipt) = saved_cancellation(&mut tx, actor, operation, &fingerprint).await? {
+        tx.commit().await?;
+        return Ok(wire::ApplicationSettlement::Cancelled(receipt));
+    }
+    tx.commit().await?;
+    // No certificate lifetime/room access is granted by authentication here:
+    // cancellation changes only this HTTP account's own operation namespace.
+    let checked = verify(app, move || check_message(input, true)).await?;
+    if checked.proof.header.author != actor.id || checked.proof.header.scope.room != room {
+        return Err(proof());
+    }
+    let mut tx = app.pool.begin().await?;
+    lock_scope(&mut tx, actor, &scope).await?;
+    if let Some(receipt) = saved_message(&mut tx, actor, operation, &fingerprint).await? {
+        tx.commit().await?;
+        return Ok(wire::ApplicationSettlement::Accepted(receipt));
+    }
+    if let Some(receipt) = saved_cancellation(&mut tx, actor, operation, &fingerprint).await? {
+        tx.commit().await?;
+        return Ok(wire::ApplicationSettlement::Cancelled(receipt));
+    }
+    if ordinary_operation_used(&mut tx, actor, operation).await? {
+        return Err(Error::conflict());
+    }
+    let recent: i64 = sqlx::query_scalar("SELECT count(*) FROM e2ee_message_cancellations WHERE user_id=$1 AND created_at>clock_timestamp()-interval '1 minute'")
+        .bind(&actor.id).fetch_one(&mut *tx).await?;
+    if recent >= 600 {
+        return Err(Error::throttled("crypto_cancellation_limit", 60));
+    }
+    let receipt = wire::ApplicationCancellation {
+        scope,
+        room_id: room.into(),
+        operation_id: operation.into(),
+        header: B64
+            .encode(&serde_json::to_vec(&checked.proof.header).map_err(|_| Error::internal())?),
+        fingerprint: hex(&checked.proof.fingerprint().map_err(|_| proof())?),
+    };
+    sqlx::query("INSERT INTO e2ee_message_cancellations(user_id,operation_id,fingerprint,receipt) VALUES($1,$2,$3,$4)")
+        .bind(&actor.id).bind(operation).bind(fingerprint).bind(Json(&receipt)).execute(&mut *tx).await?;
+    auth::lock_active(&mut tx, actor).await?;
+    tx.commit().await?;
+    Ok(wire::ApplicationSettlement::Cancelled(receipt))
+}
+
 /// Personal historical ACK: room withdrawal or certificate expiry cannot turn
 /// an accepted own operation into an uncertain send. No ciphertext is returned.
 pub async fn operation(
@@ -256,7 +368,24 @@ pub async fn operation(
     lock_scope(&mut tx, actor, &scope).await?;
     let row: Option<Json<wire::ApplicationReceipt>> = sqlx::query_scalar("SELECT receipt FROM e2ee_application_messages WHERE user_id=$1 AND operation_id=$2 AND room_id=$3")
         .bind(&actor.id).bind(operation).bind(room).fetch_optional(&mut *tx).await?;
-    let receipt = row.ok_or_else(Error::missing)?.0;
+    let Some(row) = row else {
+        let cancellation: Option<Json<wire::ApplicationCancellation>> = sqlx::query_scalar(
+            "SELECT receipt FROM e2ee_message_cancellations WHERE user_id=$1 AND operation_id=$2",
+        )
+        .bind(&actor.id)
+        .bind(operation)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if cancellation.is_some_and(|r| {
+            r.0.room_id == room
+                && r.0.scope.instance_id == scope.instance_id
+                && r.0.scope.data_epoch == scope.data_epoch
+        }) {
+            return Err(cancelled());
+        }
+        return Err(Error::missing());
+    };
+    let receipt = row.0;
     if receipt.scope.instance_id != scope.instance_id
         || receipt.scope.data_epoch != scope.data_epoch
     {

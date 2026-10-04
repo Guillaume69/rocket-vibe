@@ -492,8 +492,28 @@ impl Worker {
             })
             .await?;
         let room = &pending.header.scope.room;
+        if pending.cancelling {
+            return match self.cancel_message_inner(operation).await? {
+                groups::MessageSettlement::Accepted(receipt) => Ok(receipt),
+                groups::MessageSettlement::Cancelled(_) => {
+                    Err(groups::Error::MessageCancelled.into())
+                }
+            };
+        }
         let receipt = match self.client.crypto_message_operation(room, operation).await {
             Ok(receipt) => receipt,
+            Err(rv_client::Error::Server {
+                status: 409,
+                ref code,
+                ..
+            }) if code == "crypto_message_cancelled" => {
+                return match self.cancel_message_inner(operation).await? {
+                    groups::MessageSettlement::Accepted(receipt) => Ok(receipt),
+                    groups::MessageSettlement::Cancelled(_) => {
+                        Err(groups::Error::MessageCancelled.into())
+                    }
+                };
+            }
             Err(rv_client::Error::Server { status: 404, .. }) => {
                 self.gate().await?;
                 let observation = self.message_observation(room).await?;
@@ -518,6 +538,53 @@ impl Worker {
         self.owned(move |manager, root, now| {
             groups::Coordinator::new(manager, root)?.confirm_message(&receipt, now)?;
             Ok(receipt)
+        })
+        .await
+    }
+    /// Explicitly abandon an unresolved original intention. A server-side
+    /// acceptance wins the race; otherwise its tombstone fences all late POSTs.
+    /// The private document remains recoverable until separately released.
+    pub async fn cancel_message(&self, operation: &str) -> Result<groups::MessageSettlement> {
+        let _dispatch = self.dispatch.lock().await;
+        self.scope().await?;
+        self.cancel_message_inner(operation).await
+    }
+    async fn cancel_message_inner(&self, operation: &str) -> Result<groups::MessageSettlement> {
+        let id = operation.to_owned();
+        let submission = self
+            .owned(move |manager, root, now| {
+                Ok(groups::Coordinator::new(manager, root)?
+                    .request_cancellation(&id, now)?
+                    .to_wire()?)
+            })
+            .await?;
+        let proof = groups::MessageSubmission::from_wire(&submission)?;
+        let room = rv_crypto_public::messages::Proof::from_bytes(&proof.proof)
+            .map_err(groups::Error::from)?
+            .header
+            .scope
+            .room;
+        let settlement = self
+            .network(self.client.cancel_crypto_message(&room, &submission).await)
+            .await?;
+        self.owned(move |manager, root, now| {
+            let coordinator = groups::Coordinator::new(manager, root)?;
+            let proof = rv_crypto_public::messages::Proof::from_bytes(&proof.proof)
+                .map_err(groups::Error::from)?;
+            match settlement {
+                http::ApplicationSettlement::Accepted(value) => {
+                    let receipt = groups::wire::message_receipt(&value)?;
+                    receipt.matches(&proof).map_err(groups::Error::from)?;
+                    coordinator.confirm_message(&receipt, now)?;
+                    Ok(groups::MessageSettlement::Accepted(receipt))
+                }
+                http::ApplicationSettlement::Cancelled(value) => {
+                    let receipt = groups::wire::message_cancellation(&value)?;
+                    receipt.matches(&proof)?;
+                    coordinator.confirm_cancellation(&receipt, now)?;
+                    Ok(groups::MessageSettlement::Cancelled(receipt))
+                }
+            }
         })
         .await
     }

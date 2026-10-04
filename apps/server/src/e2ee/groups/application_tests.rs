@@ -1,6 +1,8 @@
 use super::*;
 use delivery::messages;
 use rv_crypto_public::messages as packet;
+#[path = "settlement_tests.rs"]
+mod settlements;
 
 async fn genesis(
     app: &App,

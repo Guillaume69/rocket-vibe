@@ -70,20 +70,49 @@ fn bound_scope(value: &http::Scope, room: &str) -> Result<()> {
 
 /// Canonical public receipt only. Its authenticity and ownership are checked
 /// against the original protected outbox or MLS packet by the coordinator.
-pub fn message_receipt(value: &http::ApplicationReceipt) -> Result<packet::Receipt> {
-    bound_scope(&value.scope, &value.room_id)?;
-    let bytes = decoded(&value.header, packet::PROOF_LIMIT)?;
+fn message_header(
+    scope: &http::Scope,
+    room: &str,
+    operation: &str,
+    encoded: &str,
+) -> Result<packet::Header> {
+    bound_scope(scope, room)?;
+    let bytes = decoded(encoded, packet::PROOF_LIMIT)?;
     let header: packet::Header = serde_json::from_slice(&bytes).map_err(|_| Error::Receipt)?;
     header.validate()?;
     if serde_json::to_vec(&header).map_err(|_| Error::Receipt)? != bytes
-        || !same_scope(&value.scope, &header.scope)
-        || value.room_id != header.scope.room
-        || value.operation_id != header.operation
+        || !same_scope(scope, &header.scope)
+        || room != header.scope.room
+        || operation != header.operation
     {
         return Err(Error::Receipt);
     }
-    let receipt = packet::Receipt {
+    Ok(header)
+}
+pub fn message_cancellation(value: &http::ApplicationCancellation) -> Result<MessageCancellation> {
+    let header = message_header(
+        &value.scope,
+        &value.room_id,
+        &value.operation_id,
+        &value.header,
+    )?;
+    let fingerprint = hex(&value.fingerprint)?;
+    if fingerprint == [0; 32] {
+        return Err(Error::Receipt);
+    }
+    Ok(MessageCancellation {
         header,
+        fingerprint,
+    })
+}
+pub fn message_receipt(value: &http::ApplicationReceipt) -> Result<packet::Receipt> {
+    let receipt = packet::Receipt {
+        header: message_header(
+            &value.scope,
+            &value.room_id,
+            &value.operation_id,
+            &value.header,
+        )?,
         fingerprint: hex(&value.fingerprint)?,
         message: value.message_id.clone(),
         position: decimal(&value.position, true)?,

@@ -9,6 +9,29 @@ const registration=decodeNative('RegisterDevice',fixture.parity.e2ee_register_de
 const receipt=decodeNative('OperationReceipt',fixture.parity.e2ee_operation_receipt);
 const directory=decodeNative('Directory',fixture.parity.e2ee_directory);
 
+test('terminal abandonment retries the original opaque intention and retains both outcomes',async()=>{
+  const input=decodeNative('ApplicationSubmission',fixture.parity.e2ee_application_submission);
+  const cancelled=decodeNative('ApplicationSettlement',fixture.parity.e2ee_application_settlement);
+  const accepted=decodeNative('ApplicationSettlement',{kind:'accepted',data:fixture.parity.e2ee_application_receipt});
+  const requests:{url:string;options?:RequestInit}[]=[];
+  const transport=new NativeTransport('https://example.org',async(url,options)=>{
+    requests.push({url:String(url),options});
+    if(requests.length===1)throw new TypeError('Lost terminal response');
+    return Response.json(requests.length===2?cancelled:accepted);
+  });
+  transport.restore('saved-token');
+  await assert.rejects(transport.cancelCryptoMessage('fixture-room',input));
+  assert.deepEqual(await transport.cancelCryptoMessage('fixture-room',input),cancelled);
+  assert.deepEqual(await transport.cancelCryptoMessage('fixture-room',input),accepted);
+  assert.equal(requests[0].options?.body,requests[1].options?.body);
+  assert.equal(new URL(requests[1].url).pathname,`/api/v1/e2ee/rooms/fixture-room/message-operations/${input.operation_id}/cancel`);
+  assert.equal(requests[1].options?.method,'POST');
+  for(const field of ['plaintext','ciphertext','position','message_id']) {
+    assert.throws(()=>decodeNative('ApplicationSettlement',{kind:'cancelled',data:{...fixture.parity.e2ee_application_settlement.data,[field]:'forbidden'}}));
+  }
+  assert.throws(()=>decodeNative('ApplicationSettlement',{kind:'missing',data:cancelled.data}));
+});
+
 test('opaque message delivery retries original bytes and preserves the fixed large watermark',async()=>{
   const input=decodeNative('ApplicationSubmission',fixture.parity.e2ee_application_submission);
   const receipt=decodeNative('ApplicationReceipt',fixture.parity.e2ee_application_receipt);

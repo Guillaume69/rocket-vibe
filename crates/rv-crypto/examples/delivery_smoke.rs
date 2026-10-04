@@ -325,6 +325,17 @@ async fn exchange(
         .pending_message(&root.operation_id)?;
     author.stop();
     let root_ack = alice.worker()?.resume_message(&root.operation_id).await?;
+    if phase == 1 {
+        let groups::MessageSettlement::Accepted(settled) =
+            alice.worker()?.cancel_message(&root.operation_id).await?
+        else {
+            panic!("accepted message was abandoned")
+        };
+        assert!(
+            settled == root_ack,
+            "terminal decision changed original receipt"
+        );
+    }
     assert!(
         root_ack.header == pending.header && root_ack.fingerprint == pending.fingerprint,
         "original message changed during reconciliation"
@@ -453,6 +464,48 @@ async fn run(input: Input) -> Result<()> {
         alice.secret(&input.room)? == bob.secret(&input.room)?,
         "initial peer epoch secrets differ"
     );
+    // Prepare a genuine private intention without POSTing it. Lose the first
+    // durable cancellation response, reopen, recover the exact document, then
+    // prove the peer can receive the next sender generation normally.
+    let abandoned = rv_protocol::SendMessage {
+        operation_id: HEXLOWER.encode(&random::<32>()),
+        text: "protected-worker-abandoned-private-body".into(),
+        quotes: vec![],
+        cards: vec![],
+        reply_to: None,
+    };
+    let observation = groups::MessageObservation::from_wire(
+        &alice.client.crypto_group_roster(&input.room).await?,
+        &alice.client.crypto_group_state(&input.room).await?,
+    )?;
+    let original = groups::Coordinator::new(alice.manager.clone(), alice.root.clone())?
+        .prepare_message(&observation, &abandoned, now())?;
+    let worker = alice.worker()?;
+    lost(worker.cancel_message(&abandoned.operation_id).await);
+    worker.stop();
+    let groups::MessageSettlement::Cancelled(receipt) = alice
+        .worker()?
+        .cancel_message(&abandoned.operation_id)
+        .await?
+    else {
+        panic!("unsent message was accepted")
+    };
+    let coordinator = groups::Coordinator::new(alice.manager.clone(), alice.root.clone())?;
+    let recovered = coordinator.cancelled_message(&abandoned.operation_id)?;
+    assert!(
+        recovered.cancellation == receipt
+            && serde_json::to_vec(&recovered.message()?)? == serde_json::to_vec(&abandoned)?,
+        "abandoned document changed"
+    );
+    let late = alice
+        .client
+        .submit_crypto_message(&input.room, &original.to_wire()?)
+        .await;
+    assert!(
+        matches!(late,Err(rv_client::Error::Server{status:409,ref code,..}) if code=="crypto_message_cancelled"),
+        "late original POST was not fenced"
+    );
+    coordinator.forget_cancelled_message(&receipt)?;
     let position = exchange(&alice, &bob, &input.room, 1, "0").await?;
     rotate(&alice, &bob, &input.room).await?;
     let position = exchange(&alice, &bob, &input.room, 2, &position).await?;

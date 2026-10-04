@@ -127,6 +127,10 @@ pub fn router(app: App) -> Router {
             get(crypto_message_operation),
         )
         .route(
+            "/api/v1/e2ee/rooms/{room}/message-operations/{operation}/cancel",
+            post(cancel_crypto_message).layer(DefaultBodyLimit::max(256 * 1024)),
+        )
+        .route(
             "/api/v1/e2ee/rooms/{room}/operations/{operation}",
             get(crypto_group_operation),
         )
@@ -891,6 +895,17 @@ async fn submit_crypto_message(
     let actor = account(&app, &headers).await?;
     Ok(secret_session(
         crate::e2ee::messages::submit(&app, &actor, &room, crypto_body(input)?).await?,
+    ))
+}
+async fn cancel_crypto_message(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path((room, operation)): Path<(String, String)>,
+    input: Input<rv_protocol::e2ee::ApplicationSubmission>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::e2ee::messages::cancel(&app, &actor, &room, &operation, body(input)?).await?,
     ))
 }
 async fn crypto_message_operation(

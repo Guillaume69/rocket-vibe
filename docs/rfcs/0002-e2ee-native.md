@@ -308,7 +308,8 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    banc combiné contre PostgreSQL vérifiant publication réelle de packages,
    genèse / admission / deux rotations et réponses perdues sans POST
    supplémentaire réussi. Checkpoint externe simulé dans ce banc ;
-   planification dans les fournisseurs et réconciliation des refus ouvertes.
+   planification dans les fournisseurs et réconciliation des transitions
+   incertaines ouvertes.
    Coordinateur privé de messages applicatifs ajouté : routage / auteur MLS
    authentifiés, ratchet et ciphertext original avec contenu riche privé / reçu
    conservés avant checkpoint, échos exacts et dernière position reçue monotone.
@@ -323,7 +324,10 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    Authentification des feuilles / transitions / messages expirés sur la même
    admission ajoutée, avec lecteur renouvelé, pins / révocations courants et
    interdiction des certificats futurs. Les vérificateurs courants du serveur
-   et des nouveaux envois restent requis. Réadmission, historique après
+   et des nouveaux envois restent requis. [Règlement des envois personnels](../../crates/rv-crypto/SETTLEMENT.md)
+   ajouté : intention d'abandon checkpoint avant HTTP, reçu accepté gagnant ou
+   marqueur serveur interdisant le POST tardif, document privé conservé et
+   nouvelle opération obligatoire. Réadmission, historique après
    révocation et projection des apps restent ouverts ;
    aucune capacité activée.
 5. Pont mobile et intégration aux fournisseurs actuels ; archive / fichiers,

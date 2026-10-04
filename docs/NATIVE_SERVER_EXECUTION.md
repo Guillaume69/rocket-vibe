@@ -14,15 +14,17 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 | J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées et signatures historiques | Messages dans les apps, réadmission / historique après révocation, ponts / interfaces, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison (`6d9fa60`) passe la CI `37181015422` : suites crypto Linux,
-Windows / macOS et banc HTTP / PostgreSQL. Les contrôles généraux et bancs des
-apps existantes passent pour `7eaf0cd` dans la CI `37179473580` ; ils sont ignorés
-pour le lot privé de journal. Le journal serveur passe ses neuf scénarios
+La dernière livraison qualifiée (`451f053`) passe les neuf jobs de la CI
+`37182941341` : contrôles généraux, suites crypto Linux / Windows / macOS,
+banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
+Le journal serveur passe ses neuf scénarios
 PostgreSQL / HTTP / MLS et les contrats communs ; aucune capacité E2EE n'est
 activée. Le worker privé checkpoint maintenant les pages communes aux messages
 et transitions, avec curseur durable et rattrapage de plusieurs époques sur la
 même admission. Authentification des signatures expirées sur cette admission
-ajoutée ; réadmissions, refus d'outbox et fournisseurs des apps constituent les
+ajoutée ; abandon durable des envois personnels ajouté ensuite avec intention
+privée checkpoint avant HTTP et document récupérable. Réadmissions,
+transitions incertaines et fournisseurs des apps constituent les
 étapes suivantes.
 Les critères externes encore ouverts restent des critères de sortie de la RFC.
 
@@ -337,6 +339,38 @@ Le parcours mobile pilote et les tests sans appareil ne ferment pas J1 : il exig
 les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
+
+- P19 / J4, règlement définitif des envois personnels (4 octobre 2026) : route
+  d'abandon reprenant les octets originaux, verrou de compte commun aux envois
+  et trace personnelle durable. Un message accepté gagne et conserve son reçu ;
+  sinon les POSTs tardifs et la réutilisation de l'opération sont refusés,
+  y compris dans les espaces ordinaires / uploads. Aucune position de journal,
+  projection claire ou copie du ciphertext n'est créée par l'abandon.
+  Le worker checkpoint l'intention avant HTTP et reprend cette décision après
+  coupure avant arrivée serveur, réponse perdue, réouverture ou certificat
+  expiré. Un statut d'abandon depuis une autre session provoque récupération
+  du reçu exact contre la preuve protégée. Marqueur terminal et document privé
+  récupérable, libération explicite du corps, ancienne génération consommée
+  et nouvelle opération obligatoire. Les messages abandonnés ne bloquent plus
+  une rotation ; les transitions préparées restent un règlement distinct.
+  Vérifications locales : quatre nouveaux cas PostgreSQL, dont courses entre
+  vrais paquets MLS / abandon, retrait / expiry / nouvelle session, namespaces,
+  quota persistant et substitutions. Les treize cas de livraison serveur passent
+  en 5,82 s ; le workspace natif complet passe ensuite ses 313 tests, avec le
+  banc privé ignoré exercé explicitement. Formatage et Clippy strict passent.
+  Trois nouveaux cas privés de checkpoint / corps / générations et trois HTTP
+  d'abandon sont ajoutés : 14 cas HTTP passent en 3,34 s, dix journaux en 7,06 s.
+  La suite de messagerie avant le dernier ajout d'intention persistante passe
+  ses 14 cas en 154,29 s ; les cas modifiés sont ensuite revérifiés directement.
+  Sept tests du transport mobile, typecheck, lint et génération du contrat
+  passent. Banc privé réel HTTP / PostgreSQL : confirmation d'abandon perdue,
+  réouverture et récupération exacte, POST tardif refusé, six messages acceptés
+  / neuf trames sur trois époques, sept tentatives POST dont une abandonnée,
+  un seul marqueur personnel et aucun document clair dans SQL, en 33,09 s.
+  Suite crypto complète multi-OS suivie par la CI du lot ; interfaces inchangées,
+  aucune capacité activée. Réadmission, projection / ponts des apps, rotations
+  après grands sauts de génération, archives / fichiers, revue et qualification
+  sur appareils restent ouverts. [Règlement privé](../crates/rv-crypto/SETTLEMENT.md).
 
 - P19 / J4, authentification historique (4 octobre 2026) : vérification
   cryptographique de certificat / transition / paquet séparée de sa validité

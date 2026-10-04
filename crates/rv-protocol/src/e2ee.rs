@@ -176,6 +176,28 @@ pub struct ApplicationReceipt {
     pub message_id: String,
     pub position: String,
 }
+/// Durable personal abandonment of the exact original opaque intention.
+/// No message ID/position: this is not a delivered message or a room event.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ApplicationCancellation {
+    pub scope: Scope,
+    pub room_id: String,
+    pub operation_id: String,
+    pub header: String,
+    pub fingerprint: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    content = "data",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum ApplicationSettlement {
+    Accepted(ApplicationReceipt),
+    Cancelled(ApplicationCancellation),
+}
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ApplicationMessage {

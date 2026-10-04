@@ -146,6 +146,24 @@ impl NativeClient {
         ))
         .await
     }
+    /// Serialize abandonment with any concurrent submission of these exact bytes.
+    pub async fn cancel_crypto_message(
+        &self,
+        room: &str,
+        input: &rv_protocol::e2ee::ApplicationSubmission,
+    ) -> Result<rv_protocol::e2ee::ApplicationSettlement, Error> {
+        if !path_segment(room) || !path_segment(&input.operation_id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(
+            &format!(
+                "/api/v1/e2ee/rooms/{room}/message-operations/{}/cancel",
+                input.operation_id
+            ),
+            input,
+        )
+        .await
+    }
     /// Complete ordered crypto pages; this transport grants no MLS permission.
     pub async fn crypto_delivery(
         &self,

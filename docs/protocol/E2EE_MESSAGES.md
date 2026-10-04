@@ -19,6 +19,7 @@ Routes sous `/api/v1/e2ee/rooms/{room}`, session HTTP obligatoire et
 |---|---|
 | `POST /messages` | `ApplicationSubmission` : portée, opération, preuve canonique et ciphertext MLS en base64url sans padding ; reçu durable |
 | `GET /message-operations/{operation}` | Reçu personnel d'une opération acceptée dans ce salon, sans ciphertext |
+| `POST /message-operations/{operation}/cancel` | Intention opaque originale ; décision durable `accepted` ou `cancelled` |
 | `GET /delivery?after={position}&through={position}` | `DeliveryPage` : transitions et messages opaques dans un ordre commun, Welcome ciblé sur cet appareil |
 
 Un nouvel envoi exige la session / l'appareil certifié de l'auteur, l'adhésion
@@ -34,6 +35,48 @@ après retrait du salon ou expiration du certificat. Le GET de reçu appartient
 admise en crypto. Il ne donne aucun ciphertext et n'accorde aucun droit d'envoi.
 La portée de données courante reste obligatoire. Un autre utilisateur ou salon
 ne retrouve pas ce reçu. Une intention divergente retourne `operation_conflict`.
+
+### Abandon définitif et confirmation perdue
+
+L'abandon est une demande explicite, jamais une déduction d'un `404`, d'un
+timeout, d'un quota ou d'un changement de groupe. Il reprend exactement
+`ApplicationSubmission`, y compris preuve et ciphertext originaux ; l'opération
+du chemin doit être identique. Le verrou de compte commun aux envois et aux
+autres opérations sérialise les deux issues :
+
+- `accepted` contient le reçu original si le message a déjà été accepté,
+  même après retrait du salon ou expiration du certificat ;
+- `cancelled` contient portée, salon, opération, Header canonique et empreinte
+  publique. Aucun ID de message ni position n'est alloué. La trace personnelle
+  persistante interdit tous les POSTs tardifs de cette intention.
+
+Un rejeu exact retourne la même décision après redémarrage. Une réutilisation
+divergente de l'opération, y compris dans un autre salon ou une opération
+ordinaire / upload, reste interdite. La migration 0041 conserve uniquement
+l'empreinte de l'intention et le reçu d'abandon : aucun document clair, aucune
+preuve complète ni copie du ciphertext. Un abandon nouveau est limité à
+600 par minute et compte ; les décisions déjà enregistrées restent accessibles.
+
+Une session HTTP active du propriétaire suffit pour demander l'abandon, y
+compris depuis un autre appareil de son compte. Une preuve inconnue doit être
+cryptographiquement valide, liée à ce propriétaire et à cette portée / route ;
+un certificat expiré est authentifié historiquement, un certificat futur est
+refusé. Cette vérification ne réadmet aucun appareil et n'accorde aucun droit
+de lecture ou d'envoi. Les nouvelles publications gardent leurs vérifications
+de certificat / roster actuels. Les reçus restent des décisions du serveur
+authentifié, sans preuve cryptographique d'exhaustivité ou de non-acceptation
+face à un serveur malveillant.
+
+Le worker checkpoint la décision contre son intention protégée avant de la
+publier au fournisseur. Une confirmation d'abandon perdue laisse l'outbox
+incertaine jusqu'à son rejeu exact. Le document privé reste récupérable ; une
+reprise exige une nouvelle opération et les droits / clés actuels. La génération
+MLS originale reste consommée. Le journal n'est jamais avancé par un abandon.
+L'intention d'abandon est elle-même checkpoint avant HTTP : après redémarrage,
+la reprise règle cette décision et ne republie jamais l'ancienne intention.
+Le GET personnel retourne `409 crypto_message_cancelled` pour ce propriétaire
+et ce salon quand un abandon existe. Ce statut pousse le worker à récupérer
+le reçu exact ; aucun abandon ne repose sur le seul code d'erreur.
 
 La limite persistante est de 600 nouveaux messages par minute et appareil.
 Les confirmations et retries exacts restent disponibles pendant cette limite.
@@ -116,10 +159,11 @@ Le backfill exact de la migration est exercé sur de vraies transitions.
 Les fixtures communes et le transport TypeScript contrôlent types, retries,
 watermarks, absence de champs privés / clairs et limites avant JSON.
 
-Ce journal ne résout pas à lui seul la validation historique dans le coffre :
-transitions intermédiaires manquées, certificats anciens, retrait propre,
-confirmation de messages concurrents à une rotation et progression d'un préfixe
-complet restent à intégrer au worker. Une dernière position de message déchiffré
-ne vaut pas preuve d'une plage complète. Stockage public opaque, récupération
-privée de la projection, ponts desktop / Android, interfaces de confiance,
-archives, fichiers et revue crypto indépendante restent des critères de J4.
+Le worker privé valide maintenant les préfixes multi-époques sur une même
+admission, l'authentification historique des certificats et les rotations
+concurrentes aux envois. Il checkpoint aussi l'abandon définitif des messages
+personnels. Une dernière position de message déchiffré ne vaut pas preuve
+d'une plage complète. Réadmission après retrait, règlement des transitions de
+groupe incertaines, projection privée durable, ponts desktop / Android,
+interfaces de confiance, archives, fichiers et revue crypto indépendante
+restent des critères de J4.

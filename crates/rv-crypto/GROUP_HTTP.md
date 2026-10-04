@@ -110,6 +110,11 @@ confirme l'opération sans nouvel envoi, même après expiration du certificat,
 changement de roster ou pendant un cooldown de POST. Un 404 seulement permet
 un retry original, après nouveau contrôle de tête, droits, pins et expiration.
 Un refus ne libère pas silencieusement l'outbox ni ne rechiffre son document.
+`cancel_message(operation)` règle explicitement l'intention originale : une
+acceptation antérieure gagne, sinon le serveur interdit tout POST tardif et le
+coffre conserve le document avec un marqueur terminal. Rejeu exact, certificat
+expiré et perte de confirmation sont traités sans nouveau chiffrement.
+[Règlement définitif](SETTLEMENT.md).
 
 `receive_message(ApplicationMessage)` observe le groupe courant, convertit la
 trame et appelle le coordinateur dans une tâche possédée. Le vrai auteur / AAD,

@@ -149,6 +149,10 @@ struct Book {
     limited: bool,
     message_submissions: BTreeMap<String, http::ApplicationSubmission>,
     message_receipts: BTreeMap<String, http::ApplicationReceipt>,
+    message_cancellations: BTreeMap<String, (Vec<u8>, http::ApplicationCancellation)>,
+    cancellation_drop_once: bool,
+    cancellation_drop_before: bool,
+    cancellation_wrong_ack: bool,
     message_attempts: Vec<Vec<u8>>,
     message_drop_before: bool,
     message_drop_after: bool,
@@ -171,6 +175,10 @@ fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex
         limited: false,
         message_submissions: BTreeMap::new(),
         message_receipts: BTreeMap::new(),
+        message_cancellations: BTreeMap::new(),
+        cancellation_drop_once: false,
+        cancellation_drop_before: false,
+        cancellation_wrong_ack: false,
         message_attempts: vec![],
         message_drop_before: false,
         message_drop_after: false,
@@ -236,9 +244,52 @@ fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex
         if request.path.contains("/key-packages/") {
             return json(&book.package);
         }
+        if request.path.ends_with("/cancel") && request.method == "POST" {
+            if book.cancellation_drop_before {
+                book.cancellation_drop_before = false;
+                return None;
+            }
+            let input: http::ApplicationSubmission = serde_json::from_slice(&request.body).unwrap();
+            let submission = MessageSubmission::from_wire(&input).unwrap();
+            let proof = rv_crypto_public::messages::Proof::from_bytes(&submission.proof).unwrap();
+            proof.authenticate(&submission.ciphertext).unwrap();
+            assert_eq!(proof.header.author, user);
+            if let Some(stored) = book.message_receipts.get(&input.operation_id) {
+                assert!(
+                    serde_json::to_vec(book.message_submissions.get(&input.operation_id).unwrap())
+                        .unwrap()
+                        == request.body
+                );
+                return json(&http::ApplicationSettlement::Accepted(stored.clone()));
+            }
+            if let Some((body, _)) = book.message_cancellations.get(&input.operation_id) {
+                assert!(*body == request.body);
+            }
+            let receipt = http::ApplicationCancellation {
+                scope: input.scope,
+                room_id: proof.header.scope.room.clone(),
+                operation_id: input.operation_id.clone(),
+                header: B64.encode(&serde_json::to_vec(&proof.header).unwrap()),
+                fingerprint: HEXLOWER.encode(&proof.fingerprint().unwrap()),
+            };
+            book.message_cancellations
+                .insert(input.operation_id, (request.body, receipt.clone()));
+            if book.cancellation_drop_once {
+                book.cancellation_drop_once = false;
+                return None;
+            }
+            let mut receipt = receipt;
+            if book.cancellation_wrong_ack {
+                receipt.fingerprint = HEXLOWER.encode(&[7; 32]);
+            }
+            return json(&http::ApplicationSettlement::Cancelled(receipt));
+        }
         if request.path.contains("/message-operations/") {
             let operation = request.path.rsplit('/').next().unwrap();
             let Some(stored) = book.message_receipts.get(operation) else {
+                if book.message_cancellations.contains_key(operation) {
+                    return error(409, "crypto_message_cancelled", None);
+                }
                 return error(404, "not_found", None);
             };
             let mut stored = stored.clone();
@@ -263,6 +314,9 @@ fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex
             let input: http::ApplicationSubmission = serde_json::from_slice(&request.body).unwrap();
             let submission = MessageSubmission::from_wire(&input).unwrap();
             let proof = submission.verified(NOW).unwrap();
+            if book.message_cancellations.contains_key(&input.operation_id) {
+                return error(409, "crypto_message_cancelled", None);
+            }
             assert_eq!(proof.header.author, user);
             assert_eq!(proof.header.device, device);
             let fingerprint = proof.fingerprint().unwrap();
@@ -537,6 +591,164 @@ fn delivered(book: &Mutex<Book>, operation: &str) -> http::ApplicationMessage {
 }
 fn late() -> std::result::Result<u64, delivery::Error> {
     Ok(NOW + 3601)
+}
+
+#[tokio::test]
+async fn cancellation_lost_ack_reopens_after_expiry_without_resending_or_observing_the_roster() {
+    let (alice, bob) = accounts();
+    let (server, book) = server(&alice, &bob, false);
+    let (author, _) = joined_workers(&server, &alice, &bob).await;
+    book.lock().unwrap().message_drop_before = true;
+    let doc = private_message("worker-cancel-private");
+    assert!(author.send_message("room", doc.clone()).await.is_err());
+    let reads = book.lock().unwrap().message_roster_reads;
+    book.lock().unwrap().cancellation_wrong_ack = true;
+    assert!(matches!(
+        author.cancel_message(&doc.operation_id).await,
+        Err(delivery::Error::Group(Error::Receipt))
+    ));
+    assert!(alice.reopened().pending_message(&doc.operation_id).is_ok());
+    book.lock().unwrap().cancellation_wrong_ack = false;
+    book.lock().unwrap().cancellation_drop_once = true;
+    assert!(author.cancel_message(&doc.operation_id).await.is_err());
+    author.stop();
+    let worker = server.worker(&alice).with_clock(late);
+    let MessageSettlement::Cancelled(cancellation) =
+        worker.cancel_message(&doc.operation_id).await.unwrap()
+    else {
+        panic!("unexpected send")
+    };
+    assert_eq!(book.lock().unwrap().message_roster_reads, reads);
+    assert_eq!(book.lock().unwrap().message_attempts.len(), 1);
+    assert!(book.lock().unwrap().message_receipts.is_empty());
+    assert!(alice.reopened().pending_message(&doc.operation_id).is_err());
+    assert!(matches!(
+        worker.resume_message(&doc.operation_id).await,
+        Err(delivery::Error::Group(Error::MessageCancelled))
+    ));
+    let body = alice
+        .reopened()
+        .cancelled_message(&doc.operation_id)
+        .unwrap();
+    assert!(body.cancellation == cancellation);
+    assert!(
+        serde_json::to_value(body.message().unwrap()).unwrap()
+            == serde_json::to_value(doc).unwrap()
+    );
+}
+
+#[tokio::test]
+async fn cancellation_recovers_an_already_accepted_original_and_unblocks_rotation() {
+    let (alice, bob) = accounts();
+    let (server, book) = server(&alice, &bob, false);
+    let (author, peer) = joined_workers(&server, &alice, &bob).await;
+    book.lock().unwrap().message_drop_after = true;
+    let doc = private_message("worker-cancel-accepted");
+    assert!(author.send_message("room", doc.clone()).await.is_err());
+    let MessageSettlement::Accepted(receipt) =
+        author.cancel_message(&doc.operation_id).await.unwrap()
+    else {
+        panic!("accepted send abandoned")
+    };
+    assert_eq!(receipt.position, 9007199254740993);
+    assert!(alice.reopened().pending_message(&doc.operation_id).is_err());
+    assert!(
+        alice
+            .reopened()
+            .cancelled_message(&doc.operation_id)
+            .is_err()
+    );
+    assert_eq!(
+        peer.receive_message(delivered(&book, &doc.operation_id))
+            .await
+            .unwrap()
+            .message()
+            .unwrap()
+            .text,
+        doc.text
+    );
+    assert!(
+        author
+            .preview_change("room", "rotation-after-settlement".into(), vec![], vec![])
+            .await
+            .is_ok()
+    );
+    assert_eq!(book.lock().unwrap().message_attempts.len(), 1);
+}
+
+#[tokio::test]
+async fn cancellation_intent_survives_a_pre_server_cut_and_resume_never_republishes() {
+    let (alice, bob) = accounts();
+    let (server, book) = server(&alice, &bob, false);
+    let (author, _) = joined_workers(&server, &alice, &bob).await;
+    book.lock().unwrap().message_drop_before = true;
+    let doc = private_message("worker-cancel-before-server");
+    assert!(author.send_message("room", doc.clone()).await.is_err());
+    book.lock().unwrap().cancellation_drop_before = true;
+    assert!(author.cancel_message(&doc.operation_id).await.is_err());
+    assert!(book.lock().unwrap().message_cancellations.is_empty());
+    assert!(
+        alice
+            .reopened()
+            .pending_message(&doc.operation_id)
+            .unwrap()
+            .cancelling
+    );
+    let reads = book.lock().unwrap().message_roster_reads;
+    author.stop();
+    assert!(matches!(
+        server
+            .worker(&alice)
+            .resume_message(&doc.operation_id)
+            .await,
+        Err(delivery::Error::Group(Error::MessageCancelled))
+    ));
+    assert!(
+        alice
+            .reopened()
+            .cancelled_message(&doc.operation_id)
+            .unwrap()
+            .message()
+            .unwrap()
+            .text
+            == doc.text
+    );
+    assert_eq!(book.lock().unwrap().message_roster_reads, reads);
+    assert_eq!(book.lock().unwrap().message_attempts.len(), 1);
+    assert!(
+        server
+            .worker(&alice)
+            .preview_change("room", "rotation-after-abandonment".into(), vec![], vec![])
+            .await
+            .is_ok()
+    );
+    // A different active session of the owner can settle the original. A 409
+    // status only prompts retrieval and validation of the exact decision.
+    let worker = server.worker(&alice);
+    book.lock().unwrap().message_drop_before = true;
+    let doc = private_message("worker-cancel-other-session");
+    assert!(worker.send_message("room", doc.clone()).await.is_err());
+    let input = alice
+        .coordinator()
+        .settlement_submission(&doc.operation_id, NOW)
+        .unwrap()
+        .to_wire()
+        .unwrap();
+    let client = NativeClient::new(&server.url).unwrap();
+    client.update_token("alice-token".into());
+    client.cancel_crypto_message("room", &input).await.unwrap();
+    assert!(
+        !alice
+            .reopened()
+            .pending_message(&doc.operation_id)
+            .unwrap()
+            .cancelling
+    );
+    assert!(matches!(
+        worker.resume_message(&doc.operation_id).await,
+        Err(delivery::Error::Group(Error::MessageCancelled))
+    ));
+    assert_eq!(book.lock().unwrap().message_attempts.len(), 2);
 }
 
 #[tokio::test]

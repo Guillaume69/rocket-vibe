@@ -18,6 +18,9 @@ export type GroupTransport={
 type Pending={operation:string;fingerprint:string;cancelling:boolean;superseded:boolean};
 type Local={accepted:GroupReceipt|null;participants:CryptoParticipant[];pending:Pending|null};
 export type CryptoGroupView=Local & {roster:GroupRoster;eligible:{user:string;device:string;incarnation:string}[];event:GroupEvent|null};
+export type CryptoRoomAction<T>=(rpc:(input:unknown)=>Promise<unknown>,roster:GroupRoster,
+  peers:()=>Promise<CryptoGroupView['eligible']>,scope:CryptoAccount,
+  call:<R>(fn:()=>Promise<R>,mutation?:boolean)=>Promise<R>)=>Promise<T>;
 const fp=(v:unknown):v is string=>typeof v==='string' && /^[0-9a-f]{64}$/.test(v);
 const id=(v:unknown):v is string=>typeof v==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(v);
 function integrity():never {throw new NativeError(0,'crypto_integrity_failed');}
@@ -63,15 +66,15 @@ export class CryptoGroupAccess {
     this.identity=identity;this.bridge=bridge;this.remote=remote;this.room=room;this.guard=guard;
   }
   close():Promise<void> {return this.identity.close();}
-  private run<T>(mutation:boolean,action:(rpc:(input:unknown)=>Promise<unknown>,roster:GroupRoster,
-    peers:()=>Promise<CryptoGroupView['eligible']>,scope:CryptoAccount,call:<R>(fn:()=>Promise<R>,mutation?:boolean)=>Promise<R>)=>Promise<T>):Promise<T> {
+  get isClosed():boolean {return this.identity.isClosed;}
+  withRoom<T>(mutation:boolean,nativeRPC:(handle:string,directory:string,input:string)=>Promise<string>,action:CryptoRoomAction<T>):Promise<T> {
     return this.identity.withIdentity(async(handle,own,read,check,scope)=>{
       const gate=async()=>{await check();await this.guard(mutation);};
       const call=async<R>(fn:()=>Promise<R>,write=false):Promise<R>=>{await gate();if(write)await this.guard(true);const v=await fn();await gate();return v;};
       const rpc=async(input:unknown):Promise<unknown>=>{
         // Fresh own withdrawal observations precede every native mutation/ACK.
         const directory=await read(scope.user);
-        const result=await call(()=>this.bridge.groupAction(handle,directory,JSON.stringify(input)));
+        const result=await call(()=>nativeRPC(handle,directory,JSON.stringify(input)));
         if(typeof result!=='string' || result.length>8*1024*1024)integrity();return JSON.parse(result) as unknown;
       };
       const roster=decodeNative('GroupRoster',await call(()=>this.remote.cryptoGroupRoster(this.room)));
@@ -91,6 +94,9 @@ export class CryptoGroupAccess {
       };
       return action(rpc,roster,peers,scope,call);
     });
+  }
+  private run<T>(mutation:boolean,action:CryptoRoomAction<T>):Promise<T> {
+    return this.withRoom(mutation,(handle,directory,input)=>this.bridge.groupAction(handle,directory,input),action);
   }
   read():Promise<CryptoGroupView> {return this.run(false,async(rpc,roster,peers,scope,call)=>{
     const value=local(await rpc({action:'view',roster}),this.room,scope);

@@ -80,6 +80,7 @@ export const LigneMessage = memo(function LigneMessage({
   surReagir,
   suite,
   heureRepetee,
+  libelleEchec,
 }: {
   c: Couleurs;
   message: LigneDeMessage;
@@ -108,6 +109,7 @@ export const LigneMessage = memo(function LigneMessage({
    * même logique que pour l'avatar, on ne réécrit pas ce qui est à l'écran.
    */
   heureRepetee: boolean;
+  libelleEchec?: string;
 }) {
   const formatHeure = useHeure();
   const heure = formatHeure(message.horodatage);
@@ -297,11 +299,11 @@ export const LigneMessage = memo(function LigneMessage({
         {statutEnvoi === 'echec' && (
           <View style={styles.actionsEchec}>
             <Pressable onPress={surReessayer ?? undefined}>
-              <Text style={[styles.heure, { color: c.texteErreur }]}>{t('ligneMessage.echecReessayer')}</Text>
+              <Text style={[styles.heure, { color: c.texteErreur }]}>{libelleEchec ?? t('ligneMessage.echecReessayer')}</Text>
             </Pressable>
-            <Pressable onPress={() => surAbandonner?.(message.id)}>
+            {surAbandonner && <Pressable onPress={() => surAbandonner(message.id)}>
               <Text style={[styles.heure, { color: c.attenue }]}>{t('ligneMessage.abandonner')}</Text>
-            </Pressable>
+            </Pressable>}
           </View>
         )}
       </View>

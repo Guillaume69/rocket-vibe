@@ -95,6 +95,8 @@ export function Composer({
   sauverBrouillon,
   effacerBrouillon,
   surSaisie,
+  nativeEncryptedReady = false,
+  citationsDisponibles = true,
 }: {
   c: Couleurs;
   rid: string;
@@ -118,6 +120,8 @@ export function Composer({
   sauverBrouillon: (texte: string) => void;
   effacerBrouillon: () => void;
   surSaisie?: (active:boolean)=>void;
+  nativeEncryptedReady?: boolean;
+  citationsDisponibles?: boolean;
 }) {
   const synchro = useSynchro();
   useEffect(()=>()=>surSaisie?.(false),[surSaisie]);
@@ -141,7 +145,7 @@ export function Composer({
   // de la première, et tout part au ➤ — rien ne part dès le choix.
   const cleParking = `${rid}:${filId ?? ''}`;
   const [parquees] = useState(() => {
-    const p = piecesParquees.get(cleParking);
+    const p = nativeEncryptedReady ? undefined : piecesParquees.get(cleParking);
     piecesParquees.delete(cleParking);
     return p;
   });
@@ -219,7 +223,8 @@ export function Composer({
   // salon — voir `ui/reponse.ts`. Déclaré APRÈS le gestionnaire de pièce
   // jointe : inscrit en dernier, le back referme d'abord le bandeau de réponse.
   const cleReponse = filId === null ? rid : `${rid}:${filId}`;
-  const reponse = useReponse(cleReponse);
+  const reponseObservee = useReponse(cleReponse);
+  const reponse = citationsDisponibles ? reponseObservee : null;
   const [envoiNatif, setEnvoiNatif] = useState(false);
   useEffect(() => {
     const native = synchro.phase === 'pret' ? synchro.fournisseur.native : undefined;
@@ -580,7 +585,7 @@ export function Composer({
 
   // Salon chiffré verrouillé : sans clé, rien ne peut partir — on propose de
   // déverrouiller. Déverrouillé, c'est le composer ordinaire, et l'outbox chiffre.
-  if (chiffre && !deverrouille) {
+  if (chiffre && !nativeEncryptedReady && !deverrouille) {
     return <ComposerVerrouille c={c} />;
   }
   if (lectureSeule) {

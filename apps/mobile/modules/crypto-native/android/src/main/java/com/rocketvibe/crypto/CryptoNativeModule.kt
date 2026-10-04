@@ -81,6 +81,9 @@ class CryptoNativeModule : Module() {
     AsyncFunction("groupAction") { handle: String, directory: String, input: String -> synchronized(lock) {
       view(handle).groupAction(directory, input)
     } }
+    AsyncFunction("conversationAction") { handle: String, directory: String, input: String -> synchronized(lock) {
+      view(handle).conversationAction(directory, input)
+    } }
     AsyncFunction("identityBegin") { handle: String, directory: String, expectedRoot: String -> synchronized(lock) {
       identityDto(view(handle).identityBegin(directory, expectedRoot))
     } }

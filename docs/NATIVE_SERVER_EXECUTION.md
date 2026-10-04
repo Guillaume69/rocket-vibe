@@ -63,20 +63,38 @@ tests privés sont synthétiques. Les 1291 tests mobiles, typecheck / lint,
 Clippy strict et les deux ABI passent ; l'export Hermes passe aussi.
 Conversations mobiles, iOS et parcours GUI complet restent ouverts.
 
+Conversations Android de texte raccordées à la liste et au composeur existants :
+projection privée du journal retenu, ordre exact en chaînes décimales, brouillons
+par fil / grant / admission et sauvegarde locale à chaque frappe. Le journal
+opaque est rattrapé à l'ouverture, à la reprise et toutes les dix secondes quand
+la vue est active ; aucun texte, brouillon ou paquet privé ne rejoint la SQL
+ordinaire. Reprise par reçu avant POST original, abandon checkpointé avant HTTP
+et restauration d'un document abandonné dans un brouillon vide. Un changement
+d'admission, retrait ou fermeture du runner ferme la vue ; la projection n'est
+pas lissée après fermeture. Les heures affichées sont les observations locales ;
+la fenêtre est le cache privé retenu (64 messages), pas une archive complète.
+Les 1297 tests mobiles passent, ainsi que typecheck / lint. Huit tests du pont
+Rust et cinq instrumentations Android passent ; ces dernières utilisent le vrai
+Keystore / ABI et couvrent maintenant brouillons / messages privés, original
+réouvert et reçu substitué. Leurs reçus restent synthétiques. Fils visibles,
+citations / actions / recherche, archives et fichiers privés restent ouverts,
+ainsi que les essais des applications installées et la qualification physique.
+Aucun masque E2EE activé. La livraison iOS est hors périmètre de RFC 0001.
+
 | Jalon | Développement livré | Travail restant pour le fermer |
 |---|---|---|
 | J0 | Contrats, fixtures communes, inventaire et backlog de parité | Conditions opérateur / export et décisions crypto liées aux jalons suivants |
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes Android | Renouvellement / récupération / révocation visibles, fin des actions privées, parcours GUI E2EE complet, raccordement conversations mobile, iOS, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android | Renouvellement / récupération / révocation visibles, fin des fils / actions / recherche privés, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison qui passe toutes les CI existantes (`ed57f96`) passe les neuf jobs de la CI
-`37222881384` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison qui passe toutes les CI existantes (`a41ea44`) passe les neuf jobs de la CI
+`37225596519` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
-Le job Android `37222881418` passe aussi les deux ABI, le vrai Keystore, la
-cérémonie d'association et les contrôles de confiance sur émulateur.
+Le job Android `37225596505` passe aussi les deux ABI, le vrai Keystore, la
+cérémonie d'association, les contrôles de confiance et les groupes sur émulateur.
 L'application macOS du lot conversations `220ffc5` passe sa compilation, son packaging et son
 démarrage (`37211906510`). Groupes, projection et composeur dans les interfaces
 existantes compilent et passent ces régressions. Le parcours GUI E2EE complet

@@ -14,6 +14,16 @@ struct Draft {
     text: String,
 }
 impl Coordinator {
+    /// Bind a retained conversation to the protected admission before any
+    /// journal, draft or outgoing operation, including after readmission.
+    pub fn current_admission(&self, roster: &Roster, now: u64) -> Result<Fingerprint> {
+        self.inspect(|_, records| {
+            let (_, grant) = self.draft_binding(records, roster, &None, now)?;
+            let state = read(records, &roster.scope.room)?.ok_or(Error::NotReady)?;
+            let active = state.active.as_ref().ok_or(Error::NotReady)?;
+            self.admission_witness(&active.transition.plan, &grant)
+        })
+    }
     pub(super) fn draft_binding(
         &self,
         records: &Records,

@@ -39,6 +39,9 @@ import type { ClientRest } from '../../lib/rest.ts';
 import { MoteurSaisie, resumerSaisie } from '../../lib/saisie.ts';
 import { amenerMessage } from '../../ui/amenerMessage.ts';
 import { useBrouillon } from '../../ui/brouillons.ts';
+import {useConversationChiffree} from '../../ui/conversationChiffree.ts';
+import {lignesPrivees} from '../../fournisseurs/rocketvibe/cryptoProjection.ts';
+import {CryptoNative} from '../../modules/crypto-native/index.ts';
 import {BorneAdhesionSalon} from '../../ui/adhesionSalon.tsx';
 import { useProgressionFichiers } from '../../ui/progressionFichiers.ts';
 import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
@@ -297,8 +300,15 @@ function Salon({
   const t = useT();
   const [limite, setLimite] = useState(PAGE);
   const native=fournisseur.identite.genre==='rocketvibe';
+  const { data: lignesSalon } = useRequeteVive(
+    base.select().from(salons).where(eq(salons.rid, rid)).limit(1), [rid],
+  );
+  const salon = lignesSalon?.[0];
+  const protege=native && salon?.chiffre===true;
   const routeur=useRouter();
   const nativeChat=fournisseur.native?.chat;
+  const cryptoDisponible=!!CryptoNative && nativeChat?.capabilities?.e2ee===true && nativeChat.capabilities.device_sessions===true;
+  const conversation=useConversationChiffree(nativeChat,rid,membership,protege && cryptoDisponible);
   const online=useSyncExternalStore(useCallback(fn=>nativeChat?.subscribe(fn)??(()=>{}),[nativeChat]),()=>nativeChat?.status.online??true);
   const lienConsomme=useRef<RoomLink|null>(null);
   useEffect(()=>{
@@ -330,7 +340,7 @@ function Salon({
   const lecture=useMemo(()=>new LectureObservee(async messageId=>{
     if(membership!=null)await actions.marquerLu(rid,{messageId,adhesion:membership});
   }),[actions,rid,membership]);
-  const lecturesNatives=native && fournisseur.capacites.lecturesSalon===true && typeof positionOuverture==='string' && membership!=null;
+  const lecturesNatives=native && !protege && fournisseur.capacites.lecturesSalon===true && typeof positionOuverture==='string' && membership!=null;
   useEffect(()=>()=>lecture.fermer(),[lecture]);
   useFocusEffect(useCallback(()=>{
     focused.current=true;lecture.activer(lecturesNatives && AppState.currentState==='active');
@@ -357,11 +367,6 @@ function Salon({
     salonChargeSous(rid, generation),
   );
 
-  const { data: lignesSalon } = useRequeteVive(
-    base.select().from(salons).where(eq(salons.rid, rid)).limit(1),
-    [rid],
-  );
-  const salon = lignesSalon?.[0];
   const {data:droitsNatifs}=useRequeteVive(base.select().from(nativeRoomAccess).where(eq(nativeRoomAccess.rid,rid)).limit(1),[rid]);
   const revisionDroits=droitsNatifs?.[0]?.revision;
   const peutEcrire=droitsNatifs?.[0]?.canSend;
@@ -424,13 +429,14 @@ function Salon({
   const progressions = useProgressionFichiers(fichiers);
   // Les décisions (pagination) se prennent sur la valeur FRAÎCHE ; seul
   // l'affichage est lissé.
-  const fraiches = useMemo(() => brutes ?? [], [brutes]);
+  const fraiches = useMemo(() => protege ? lignesPrivees(conversation.view,rid) : brutes ?? [], [protege,conversation.view,rid,brutes]);
   // Lissage des entrants (200 ms) : à l'offset 0, l'inversion absorbe les
   // prepends nativement, mais une rafale re-rendrait l'écran à chaque
   // écriture — et REMONTÉ dans l'historique, chaque prepend décale le
   // contenu de sa hauteur (mVCP coupé, voir l'en-tête) : autant grouper la
   // rafale en un seul décalage. On lisse la projection, pas la base.
-  const donnees = useDonneesLissees(fraiches, 200);
+  const donneesOrdinaire = useDonneesLissees(brutes ?? [], 200);
+  const donnees = protege ? fraiches : donneesOrdinaire;
 
   // Non-lus (8.1). La barre « nouveaux messages » se place sur un INSTANTANÉ
   // de `ls` pris au montage : si elle suivait la valeur vive, le
@@ -505,8 +511,8 @@ function Salon({
   // séparateurs de jour, insérés par les projections de `ui/` (testées sous
   // Node). L'ordre compte : les séparateurs se posent au-dessus de la barre.
   const donneesAvecBarre = useMemo(
-    () => native?insererBarreNonLusNative(donnees,positionOuverture,positions,fournisseur.identite.compteId):insererBarreNonLus(donnees, luJusquA, client.identifiants?.userId),
-    [donnees, luJusquA, client,native,positionOuverture,positions,fournisseur.identite.compteId],
+    () => protege ? donnees : native?insererBarreNonLusNative(donnees,positionOuverture,positions,fournisseur.identite.compteId):insererBarreNonLus(donnees, luJusquA, client.identifiants?.userId),
+    [donnees, luJusquA, client,native,positionOuverture,positions,fournisseur.identite.compteId,protege],
   );
   const donneesListe = useMemo<LigneListe[]>(
     () => insererSeparateursJour(donneesAvecBarre, 'recent-en-tete'),
@@ -647,14 +653,18 @@ function Salon({
   // qu'une fois la valeur initiale lue.
   const depotObserve=useMemo(()=>fournisseur.native && membership!==undefined?fournisseur.native.chat.store.drafts({room:rid,membership}):brouillons,[fournisseur,brouillons,rid,membership]);
   const envoiObserve=useMemo<Outbox>(()=>{
+    if(protege)return conversation.outbox;
     const chat=fournisseur.native?.chat;
     if(!chat || membership===undefined)return envoi;
     return {reessayer:envoi.reessayer?.bind(envoi),traiter:()=>envoi.traiter(),abandonner:id=>envoi.abandonner(id),envoyer:(target,text,thread,_jointes,citations=[])=>{
       if(target!==rid || thread)throw new Error('Room unavailable in this composer');
       return chat.send(target,text,{membership},citations);
     }};
-  },[envoi,fournisseur,rid,membership]);
-  const persistance = useBrouillon(depotObserve, rid);
+  },[envoi,fournisseur,rid,membership,protege,conversation.outbox]);
+  const persistanceOrdinaire = useBrouillon(depotObserve, protege ? null : rid);
+  const sauverPrive=conversation.save;
+  const effacerPrive=useCallback(()=>sauverPrive(''),[sauverPrive]);
+  const persistance = protege ? {initial:conversation.initial,sauver:conversation.save,effacer:effacerPrive} : persistanceOrdinaire;
 
   // Candidats à la mention (@) : le hook vit ICI, où `base` est en scope — le
   // composer reçoit la liste toute prête, comme le brouillon.
@@ -692,7 +702,7 @@ function Salon({
   //    Voir `ui/salonsCharges.ts`.
   const type = salon?.type;
   useEffect(() => {
-    if (type === undefined) return;
+    if (type === undefined || protege) return;
     let annule = false;
     const jeton = jetonSession();
     // Rattrapage SAUTÉ quand le salon est resté écouté sans interruption : rien
@@ -730,7 +740,7 @@ function Salon({
     return () => {
       annule = true;
     };
-  }, [type, chargerHistorique, generation, activite, rid, fournisseur, moteur]);
+  }, [type, chargerHistorique, generation, activite, rid, fournisseur, moteur,protege]);
 
   // Remonter vers le passé : élargir la fenêtre locale, et si elle est déjà
   // épuisée, demander la page plus ancienne au serveur (pagination keyset sur
@@ -746,6 +756,7 @@ function Salon({
   // la pagination n'avance plus — quoi qu'en dise le contenu des réponses.
   const bornePrecedente = useRef<{ id: string; pages: number } | null>(null);
   const chargerPlus = useCallback(() => {
+    if(protege)return;
     const epuise = fraiches.length < limite;
     if (!epuise) {
       setLimite((l) => l + PAGE);
@@ -776,7 +787,7 @@ function Salon({
       .finally(() => {
         enVol.current = false;
       });
-  }, [fraiches, limite, type, chargerHistorique, rid]);
+  }, [fraiches, limite, type, chargerHistorique, rid,protege]);
 
   // Saut vers un message choisi dans les épinglés/favoris (`ui/sautMessage.ts`) :
   // l'amener dans la fenêtre (`ui/amenerMessage.ts`), attendre qu'il figure
@@ -888,13 +899,13 @@ function Salon({
   );
 
   const reessayer = useCallback((id?: string) => {
-    (id && envoi.reessayer ? envoi.reessayer(id) : envoi.traiter()).catch(() => {});
-  }, [envoi]);
+    (id && envoiObserve.reessayer ? envoiObserve.reessayer(id) : envoiObserve.traiter()).catch(() => {});
+  }, [envoiObserve]);
   const abandonner = useCallback(
     (id: string) => {
-      envoi.abandonner(id).catch(() => {});
+      envoiObserve.abandonner(id).catch(() => {});
     },
-    [envoi],
+    [envoiObserve],
   );
   // Tir-et-oublie : l'écho du stream réécrit `messages.reactions`, et la
   // requête vive re-rend la pastille — pas d'état optimiste à tenir ici.
@@ -925,6 +936,8 @@ function Salon({
         return <SeparateurJour c={c} horodatage={item.horodatage} />;
       }
       const etatEnvoi = sortieParId.get(item.id);
+      const prive=protege?conversation.view?.messages.find(row=>row.id===item.id):undefined;
+      const interrompu=prive && ['pending','cancelling','cancelled'].includes(prive.status);
       return (
         <View
           style={[
@@ -936,23 +949,24 @@ function Salon({
             c={c}
             message={item}
             client={client}
-            statutEnvoi={etatEnvoi?.statut ?? null}
-            surReessayer={etatEnvoi?.statut === 'echec' ? () => reessayer(item.id) : null}
-            surAbandonner={etatEnvoi?.statut === 'echec' ? abandonner : null}
+            statutEnvoi={protege ? interrompu ? 'echec' : prive?.status==='accepted' ? 'en-attente' : null : etatEnvoi?.statut ?? null}
+            libelleEchec={interrompu?t(prive.status==='cancelled'?'conversation.cancelled':'conversation.pending'):undefined}
+            surReessayer={(protege ? interrompu && !conversation.busy : etatEnvoi?.statut === 'echec') ? () => reessayer(item.id) : null}
+            surAbandonner={(protege ? interrompu && prive.status!=='cancelled' && !conversation.busy : etatEnvoi?.statut === 'echec') ? abandonner : null}
             // Pas d'actions sur une ligne d'outbox : son `_id` client n'a pas
             // été accepté par le serveur — `chat.delete`/`chat.update` dessus ne
             // peuvent qu'échouer. Ses vraies actions sont réessayer/abandonner.
-            surAppuiLong={etatEnvoi === undefined ? ouvrirActions : null}
-            surOuvrirFil={fournisseur.capacites.fils === false ? null : ouvrirFil}
+            surAppuiLong={!protege && etatEnvoi === undefined ? ouvrirActions : null}
+            surOuvrirFil={protege || fournisseur.capacites.fils === false ? null : ouvrirFil}
             moi={moi}
-            surReagir={etatEnvoi === undefined && fournisseur.capacites.reactions !== false ? reagir : null}
+            surReagir={!protege && etatEnvoi === undefined && fournisseur.capacites.reactions !== false ? reagir : null}
             suite={suites.has(item.id)}
             heureRepetee={heuresRepetees.has(item.id)}
           />
         </View>
       );
     },
-    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil, t, moi, reagir, suites, heuresRepetees, surligne, fournisseur],
+    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, ouvrirFil, t, moi, reagir, suites, heuresRepetees, surligne, fournisseur,protege,conversation.view,conversation.busy],
   );
 
   return (
@@ -971,13 +985,20 @@ function Salon({
         onRetour={() => (routeur.canGoBack() ? routeur.back() : routeur.replace('/'))}
         onRecherche={() => routeur.push({ pathname: '/recherche-messages', params: { rid } })}
         onMarques={() => routeur.push({ pathname: '/messages-marques', params: { rid } })}
+        actionsMessagesDisponibles={!protege}
       />
+      {protege && <View style={styles.avisPrive}>
+        <Text style={[styles.textePrive,{color:c.attenue}]}>{t(conversation.failed || !cryptoDisponible?'conversation.failed':'conversation.observed')}</Text>
+        <Appuyable onPress={conversation.reload} disabled={conversation.busy || !cryptoDisponible} accessibilityRole="button">
+          <Text style={{color:c.cyan}}>{t('devices.refresh')}</Text>
+        </Appuyable>
+      </View>}
       {donneesListe.length === 0 ? (
         // Vide : indicateur, puis mention explicite. (L'ancien piège mVCP
         // « viewport sous le contenu » a disparu avec l'inversion ; attendre
         // le premier lot reste la bonne UX — une liste qui clignote non.)
         <View style={styles.centre}>
-          {premierPassageFini ? (
+          {(protege ? conversation.view!==null || conversation.failed || !cryptoDisponible : premierPassageFini) ? (
             <Text style={[styles.vide, { color: c.attenue }]}>{t('salon.aucunMessage')}</Text>
           ) : (
             <ActivityIndicator />
@@ -997,8 +1018,8 @@ function Salon({
               etatRetour.current = surGlisseRetour(etatRetour.current);
             }}
             data={donneesListe}
-            onViewableItemsChanged={native?onNativeViewables:undefined}
-            viewabilityConfig={native?nativeViewability:undefined}
+            onViewableItemsChanged={lecturesNatives?onNativeViewables:undefined}
+            viewabilityConfig={lecturesNatives?nativeViewability:undefined}
             // Coupé : à l'offset 0, un prepend s'affiche de lui-même, et le
             // recalage natif partait avant le snap JS et l'écrasait.
             maintainVisibleContentPosition={{ disabled: true }}
@@ -1115,15 +1136,17 @@ function Salon({
             du texte d'un salon vers un autre. */}
         {salon !== undefined && persistance.initial !== null && (
           <Composer
-            key={rid}
+            key={protege?`${rid}:${conversation.view?.admission}:${conversation.composer}`:rid}
             c={c}
             rid={rid}
             envoi={envoiObserve}
-            fichiers={fournisseur.capacites.fichiers === false ? null : fichiers}
+            fichiers={protege || fournisseur.capacites.fichiers === false ? null : fichiers}
             client={client}
             candidatsMention={candidatsMention}
-            lectureSeule={fournisseur.native && fournisseur.capacites.infosSalon ? peutEcrire!==true : salon.lectureSeule}
+            lectureSeule={protege ? peutEcrire!==true || conversation.view?.can_send!==true : fournisseur.native && fournisseur.capacites.infosSalon ? peutEcrire!==true : salon.lectureSeule}
             chiffre={salon.chiffre}
+            nativeEncryptedReady={protege && conversation.view!==null}
+            citationsDisponibles={!protege}
             placeholder={t('salon.messagePlaceholder')}
             brouillonInitial={persistance.initial}
             sauverBrouillon={persistance.sauver}
@@ -1137,6 +1160,8 @@ function Salon({
 }
 
 const styles = StyleSheet.create({
+  avisPrive: {paddingHorizontal:16,paddingVertical:8,flexDirection:'row',alignItems:'center',gap:10},
+  textePrive: {flex:1,fontSize:11,fontFamily:POLICES.corps},
   plein: { flex: 1 },
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   contenu: { paddingHorizontal: 16, paddingVertical: 8 },

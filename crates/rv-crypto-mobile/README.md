@@ -54,8 +54,8 @@ Ces contrôles ne publient aucun package et n'admettent aucun membre de groupe.
 
 `Ready` signifie **stockage prêt**. Aucune identité ou groupe n'est créé, aucun
 appareil n'est enregistré et aucun masque E2EE de production n'est activé.
-Le renouvellement des appareils et les conversations mobiles restent à
-raccorder aux contrôleurs partagés et aux écrans existants.
+Le renouvellement des appareils et les actions privées restent à raccorder
+aux contrôleurs partagés et aux écrans existants.
 
 Les informations du salon, et la fiche du correspondant ouverte depuis un DM,
 portent maintenant les contrôles de groupe : publication explicite de packages,
@@ -78,6 +78,40 @@ leur reçu, avant de retenter un bundle éventuellement expiré. Aucun texte,
 brouillon privé ou ratchet ne rejoint la SQL ordinaire par ce raccordement.
 
 ## Build et qualification
+
+`conversationAction` raccorde la liste et le composeur Android existants aux
+coordinateurs de journal, brouillons et messages. Les pages, transitions MLS et
+messages sont vérifiés puis checkpointés ensemble avant projection. Un viewer
+est lié au grant personnel et au témoin privé d'admission avant toute commande ;
+une réadmission ne peut réutiliser une ancienne vue. Les positions restent des
+chaînes décimales, y compris au-delà de la précision entière JavaScript.
+
+La projection transitoire comprend le préfixe retenu dans le cache privé (64
+messages maximum) et les intentions personnelles en attente. Elle ne rejoint
+aucune table de messages / outbox / brouillons ordinaire. Les heures exposées
+sont les observations locales, pas une date certifiée de l'auteur. Lecture /
+reprise HTTP revérifient scope, annuaires, roster et droits. La frappe locale
+utilise uniquement le dernier binding public vérifié : Rust contrôle encore son
+identité, son grant, son admission protégée et l'horloge, sans HTTP ni nouveau
+destinataire. Ces écritures sont sérialisées et leur handle devient terminal
+avec la session ; elles ne permettent aucune soumission au serveur.
+
+Les envois sont préparés avant HTTP, reprennent par GET du reçu et ne POSTent
+l'original qu'après un `404 not_found` compris et un droit d'envoi frais. Un
+résultat incertain garde le même ciphertext. L'abandon est checkpointé avant
+HTTP ; son document reste récupérable dans un brouillon vide. La projection est
+disposée au blur, à la suspension et à la fermeture du runner, sans lissage du
+clair. Le journal opaque est interrogé à l'ouverture, à la reprise, après les
+actions et toutes les dix secondes quand la vue est active / en ligne.
+
+Les parcours Rust à deux acteurs couvrent réouverture de l'original, annulation,
+rotation reçue par le journal, brouillons distincts, page altérée sans progression,
+positions exactes et retrait signé persistant après omission. L'instrumentation
+Android exerce le vrai Keystore / ABI / coffre, avec brouillons et messages
+privés, réouverture et reçu substitué ; ses reçus sont synthétiques. Cela ne
+qualifie pas encore le parcours complet de l'application installée contre HTTP.
+Fils visibles, citations / actions / recherche, archive et fichiers restent
+ouverts, ainsi que la qualification physique et la revue. Aucun masque activé.
 
 Prérequis : Rust 1.97, cibles `aarch64-linux-android` et `x86_64-linux-android`,
 Node 24, JDK 17 et NDK 27.1.12297006. Le `preBuild` du module lance

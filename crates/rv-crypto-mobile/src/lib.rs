@@ -10,6 +10,7 @@ use std::{
     },
 };
 use zeroize::Zeroizing;
+mod conversations;
 mod groups;
 mod identity;
 mod peers;
@@ -109,6 +110,7 @@ pub struct CryptoInstallation {
     peer_review: Mutex<Option<(String, rv_crypto::account::peers::View)>>,
     peer_approval: Mutex<Option<(String, rv_crypto::account::peers::Approval)>>,
     group_preview: Mutex<Option<groups::Staged>>,
+    conversation_bindings: Mutex<std::collections::BTreeMap<String, conversations::Binding>>,
 }
 impl CryptoInstallation {
     fn check(&self) -> Result<()> {
@@ -181,6 +183,7 @@ impl CryptoInstallation {
             peer_review: Mutex::new(None),
             peer_approval: Mutex::new(None),
             group_preview: Mutex::new(None),
+            conversation_bindings: Mutex::new(std::collections::BTreeMap::new()),
         }))
     }
     pub fn stop(&self) {
@@ -196,6 +199,9 @@ impl CryptoInstallation {
         }
         if let Ok(mut preview) = self.group_preview.lock() {
             *preview = None;
+        }
+        if let Ok(mut bindings) = self.conversation_bindings.lock() {
+            bindings.clear();
         }
     }
     pub fn is_closed(&self) -> bool {

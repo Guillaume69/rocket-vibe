@@ -7,6 +7,19 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Conversations chiffrées RocketVibe sur Android
+
+- Lecture et envoi de texte dans la liste et le composeur existants, avec
+  historique conservé dans le coffre Rust et ordre exact du journal privé.
+- Brouillons privés distincts par fil / admission, sauvegardés à chaque frappe
+  sans requête réseau ni écriture dans les tables ordinaires. Suspension,
+  déconnexion et changement d'adhésion ferment la vue et masquent son contenu.
+- Reprise de l'intention originale par reçu après réponse perdue, abandon
+  durable et restauration du document abandonné dans un brouillon vide.
+- Les heures sont des observations locales ; l'historique est celui retenu
+  dans le coffre. Les actions, citations, fils visibles, recherche, archives et
+  fichiers privés restent à raccorder. Aucun masque E2EE de production activé.
+
 ### Groupes chiffrés RocketVibe sur Android
 
 - Informations du salon et fiche du correspondant d'un DM raccordées au même

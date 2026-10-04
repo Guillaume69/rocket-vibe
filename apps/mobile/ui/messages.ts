@@ -16,6 +16,10 @@
 import { cleJour } from './separateurJour.ts';
 
 const fr = {
+  'conversation.failed': 'Conversation indisponible. Vérifiez votre connexion et l’admission de cet appareil dans les informations du salon, puis actualisez.',
+  'conversation.pending': 'Envoi interrompu — reprendre',
+  'conversation.cancelled': 'Envoi abandonné — restaurer le brouillon',
+  'conversation.observed': 'Historique conservé sur cet appareil · heures de réception locales.',
   'group.title': 'Groupe chiffré',
   'group.empty': 'Aucun groupe chiffré créé pour ce salon.',
   'group.notAdmitted': 'Cet appareil doit encore rejoindre le groupe.',
@@ -664,6 +668,10 @@ export type CleTraduction = keyof typeof fr;
  * casse la compilation. Garder le MÊME ordre que `fr` facilite la relecture.
  */
 const en: Record<CleTraduction, string> = {
+  'conversation.failed': 'Conversation unavailable. Check your connection and this device’s admission in room information, then refresh.',
+  'conversation.pending': 'Interrupted send — resume',
+  'conversation.cancelled': 'Cancelled send — restore draft',
+  'conversation.observed': 'History retained on this device · local receipt times.',
   'group.title': 'Encrypted group',
   'group.empty': 'No encrypted group has been created for this room.',
   'group.notAdmitted': 'This device still needs to join the group.',

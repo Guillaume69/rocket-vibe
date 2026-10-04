@@ -125,7 +125,11 @@ fn room(value: &str) -> Result<()> {
     }
     Ok(())
 }
-fn roster(value: &http::GroupRoster, manager: &protected::Manager, root: &Root) -> Result<()> {
+pub(super) fn roster(
+    value: &http::GroupRoster,
+    manager: &protected::Manager,
+    root: &Root,
+) -> Result<()> {
     room(&value.room_id)?;
     if value.scope.instance_id != manager.scope().instance
         || value.scope.data_epoch != manager.scope().data_epoch

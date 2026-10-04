@@ -40,6 +40,7 @@ export function EnTeteSalon({
   onRetour,
   onRecherche,
   onMarques,
+  actionsMessagesDisponibles = true,
 }: {
   c: Couleurs;
   rid: string;
@@ -52,6 +53,7 @@ export function EnTeteSalon({
   onRecherche: () => void;
   /** Ouvre les messages épinglés et favoris du salon. */
   onMarques: () => void;
+  actionsMessagesDisponibles?: boolean;
 }) {
   const nom = salon ? (salon.nomAffiche ?? salon.nom ?? salon.rid) : '…';
   const estDM = salon?.type === 'd';
@@ -167,7 +169,7 @@ export function EnTeteSalon({
       )}
       <Appuyable
         onPress={onMarques}
-        disabled={capacites?.marques === false}
+        disabled={!actionsMessagesDisponibles || capacites?.marques === false}
         hitSlop={8}
         android_ripple={{ color: c.ondulation, borderless: true }}
         accessibilityRole="button"
@@ -177,7 +179,7 @@ export function EnTeteSalon({
       </Appuyable>
       <Appuyable
         onPress={onRecherche}
-        disabled={capacites?.recherche === false}
+        disabled={!actionsMessagesDisponibles || capacites?.recherche === false}
         hitSlop={8}
         android_ripple={{ color: c.ondulation, borderless: true }}
       >

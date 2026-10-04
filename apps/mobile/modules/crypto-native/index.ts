@@ -59,4 +59,7 @@ export type CryptoGroupPreview = {id:string;kind:'genesis'|'change'|'admission'|
 export type CryptoGroupBridge = CryptoPeerBridge & {
   groupAction:(handle:string,ownDirectory:string,input:string)=>Promise<string>;
 };
-export const CryptoNative = requireOptionalNativeModule<CryptoGroupBridge>('CryptoNative');
+export type CryptoConversationBridge = CryptoGroupBridge & {
+  conversationAction:(handle:string,ownDirectory:string,input:string)=>Promise<string>;
+};
+export const CryptoNative = requireOptionalNativeModule<CryptoConversationBridge>('CryptoNative');

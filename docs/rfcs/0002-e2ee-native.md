@@ -381,8 +381,18 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    abandon durable. Sept tests du pont Rust (dont deux acteurs MLS), cinq
    instrumentations du vrai Keystore / ABI et les régressions HTTP mobiles
    qualifient ce raccordement ; les reçus des tests privés sont synthétiques.
-   Renouvellement, récupération / révocation visibles, actions privées et
-   raccordement conversations mobile restent ouverts ; archive / fichiers,
+   Les conversations Android de texte utilisent maintenant le journal retenu
+   et les brouillons privés dans la liste / le composeur existants, avec reprise
+   par reçu, abandon durable et restauration du document abandonné. Aucun clair
+   ne rejoint les tables ordinaires. L'admission est vérifiée avant chaque
+   commande ; blur / suspension / fermeture du runner disposent la projection.
+   Les heures sont des observations locales ; le cache privé de 64 messages
+   reste distinct d'une archive complète. Huit tests du pont Rust couvrent aussi
+   le journal à deux acteurs, rotation, page altérée, positions exactes et retrait
+   signé mémorisé ; l'instrumentation Android exerce brouillons / messages privés
+   et réouverture avec le vrai Keystore / ABI, sur reçus synthétiques.
+   Renouvellement, récupération / révocation visibles, fils / actions / recherche
+   privés et qualification GUI complète restent ouverts ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.
 6. Revue indépendante du protocole applicatif / stockage et qualification des
    trousseaux, Android / Hermes, GTK / SwiftUI. Activation seulement après preuve.

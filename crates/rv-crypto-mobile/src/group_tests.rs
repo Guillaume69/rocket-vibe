@@ -99,6 +99,507 @@ fn receipt(packet: &http::GroupSubmission, room: &str) -> http::GroupReceipt {
         fingerprint: HEXLOWER.encode(&transition.fingerprint().unwrap()),
     }
 }
+fn conversation(
+    c: &CryptoInstallation,
+    own: &http::Directory,
+    roster: &http::GroupRoster,
+    state: &http::GroupState,
+    thread: Option<&str>,
+    command: Value,
+) -> Value {
+    serde_json::from_str(
+        &c.conversation_action(
+            serde_json::to_string(own).unwrap(),
+            json!({"roster":roster,"state":state,"thread":thread,"command":command}).to_string(),
+        )
+        .unwrap(),
+    )
+    .unwrap()
+}
+#[test]
+fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reopen() {
+    let path = tempfile::tempdir().unwrap();
+    let key = Arc::new(Keystore::default());
+    let (alice, own) = registered(path.path(), account(), key.clone());
+    let mut bob_account = account();
+    bob_account.user = "bob".into();
+    bob_account.device = "bob-phone".into();
+    let (bob, peer) = registered(path.path(), bob_account, key.clone());
+    approve(&alice, &own, &peer);
+    approve(&bob, &peer, &own);
+    let available = packages(&bob, &peer);
+    let mut roster = http::GroupRoster {
+        scope: own.scope.clone(),
+        room_id: "room".into(),
+        authority_version: "authority".into(),
+        members: vec![
+            http::GroupMember {
+                user_id: "alice".into(),
+                access_version: "alice-access".into(),
+                activation_version: "alice-active".into(),
+            },
+            http::GroupMember {
+                user_id: "bob".into(),
+                access_version: "bob-access".into(),
+                activation_version: "bob-active".into(),
+            },
+        ],
+        group: None,
+    };
+    let preview = call(
+        &alice,
+        &own,
+        json!({"action":"preview","roster":roster,"packages":[available[0]],"removals":[],"event":null}),
+    );
+    call(
+        &alice,
+        &own,
+        json!({"action":"confirm","roster":roster,"id":preview["id"],"fingerprint":preview["fingerprint"]}),
+    );
+    let group: http::GroupSubmission =
+        serde_json::from_value(call(&alice, &own, json!({"action":"retry","room":"room"})))
+            .unwrap();
+    let ack = receipt(&group, "room");
+    call(
+        &alice,
+        &own,
+        json!({"action":"acknowledge","room":"room","receipt":ack}),
+    );
+    roster.group = Some(ack.clone());
+    let welcome = http::GroupEvent {
+        receipt: ack.clone(),
+        transition: group.transition.clone(),
+        commit: group.commit.clone(),
+        welcome: Some(group.welcomes[0].clone()),
+    };
+    let preview = call(
+        &bob,
+        &peer,
+        json!({"action":"preview","roster":roster,"packages":[],"removals":[],"event":welcome}),
+    );
+    call(
+        &bob,
+        &peer,
+        json!({"action":"confirm","roster":roster,"id":preview["id"],"fingerprint":preview["fingerprint"]}),
+    );
+    let state = http::GroupState {
+        receipt: ack.clone(),
+        needs_rekey: false,
+        transition: group.transition.clone(),
+        tree: group.tree,
+    };
+    let genesis = http::GroupEvent {
+        welcome: None,
+        ..welcome.clone()
+    };
+    let mut bootstrap = http::DeliveryPage {
+        scope: own.scope.clone(),
+        room_id: "room".into(),
+        incarnation: ack.incarnation.clone(),
+        after: "0".into(),
+        through: "1".into(),
+        events: vec![http::DeliveryEvent {
+            position: "1".into(),
+            content: http::DeliveryContent::Group(genesis),
+        }],
+        next: None,
+    };
+    conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"receive","page":bootstrap}),
+    );
+    bootstrap.events[0].content = http::DeliveryContent::Group(welcome);
+    conversation(
+        &bob,
+        &peer,
+        &roster,
+        &state,
+        None,
+        json!({"action":"receive","page":bootstrap}),
+    );
+    let view = conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"view","before":null,"limit":200}),
+    );
+    assert_eq!(view["can_send"], true);
+    assert_eq!(view["messages"].as_array().unwrap().len(), 0);
+    conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"draft","text":"private original"}),
+    );
+    conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        Some("root"),
+        json!({"action":"draft","text":"separate private thread"}),
+    );
+    let prepared = conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"prepare","text":"private original"}),
+    );
+    let operation = prepared["operation"].as_str().unwrap();
+    let original = conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"retry","operation":operation}),
+    );
+    assert!(!original.to_string().contains("private original"));
+    alice.stop();
+    drop(alice);
+    let alice =
+        CryptoInstallation::open(path.path().to_string_lossy().into(), account(), key.clone())
+            .unwrap();
+    assert_eq!(
+        original,
+        conversation(
+            &alice,
+            &own,
+            &roster,
+            &state,
+            None,
+            json!({"action":"retry","operation":operation})
+        )
+    );
+    assert_eq!(
+        conversation(
+            &alice,
+            &own,
+            &roster,
+            &state,
+            Some("root"),
+            json!({"action":"draft","text":null})
+        ),
+        "separate private thread"
+    );
+    let packet: http::ApplicationSubmission = serde_json::from_value(original).unwrap();
+    let proof = rv_crypto_public::messages::Proof::from_bytes(
+        &B64.decode(packet.proof.as_bytes()).unwrap(),
+    )
+    .unwrap();
+    let receipt = http::ApplicationReceipt {
+        scope: own.scope.clone(),
+        room_id: "room".into(),
+        operation_id: operation.into(),
+        header: B64.encode(&serde_json::to_vec(&proof.header).unwrap()),
+        fingerprint: HEXLOWER.encode(&proof.fingerprint().unwrap()),
+        message_id: "first-message".into(),
+        position: "9007199254740993".into(),
+    };
+    let mut wrong = receipt.clone();
+    wrong.fingerprint = "00".repeat(32);
+    assert!(
+        alice
+            .conversation_action(
+                serde_json::to_string(&own).unwrap(),
+                json!({"roster":roster,"state":state,"thread":null,
+        "command":{"action":"acknowledge","receipt":wrong}})
+                .to_string()
+            )
+            .is_err()
+    );
+    conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"draft","text":"newer authored draft"}),
+    );
+    conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"acknowledge","receipt":receipt}),
+    );
+    assert_eq!(
+        conversation(
+            &alice,
+            &own,
+            &roster,
+            &state,
+            None,
+            json!({"action":"draft","text":null})
+        ),
+        "newer authored draft"
+    );
+    let mut page = http::DeliveryPage {
+        scope: own.scope.clone(),
+        room_id: "room".into(),
+        incarnation: ack.incarnation.clone(),
+        after: "1".into(),
+        through: receipt.position.clone(),
+        events: vec![http::DeliveryEvent {
+            position: receipt.position.clone(),
+            content: http::DeliveryContent::Message(http::ApplicationMessage {
+                receipt: receipt.clone(),
+                proof: packet.proof.clone(),
+                ciphertext: packet.ciphertext.clone(),
+            }),
+        }],
+        next: None,
+    };
+    if let http::DeliveryContent::Message(message) = &mut page.events[0].content {
+        message.ciphertext = "YWJj".into();
+    }
+    assert!(
+        bob.conversation_action(
+            serde_json::to_string(&peer).unwrap(),
+            json!({"roster":roster,"state":state,"thread":null,
+        "command":{"action":"receive","page":page}})
+            .to_string()
+        )
+        .is_err()
+    );
+    assert_eq!(
+        conversation(
+            &bob,
+            &peer,
+            &roster,
+            &state,
+            None,
+            json!({"action":"journal_request"})
+        )["after"],
+        "1"
+    );
+    if let http::DeliveryContent::Message(message) = &mut page.events[0].content {
+        message.ciphertext = packet.ciphertext;
+    }
+    for (actor, directory) in [(&*alice, &own), (&*bob, &peer)] {
+        conversation(
+            actor,
+            directory,
+            &roster,
+            &state,
+            None,
+            json!({"action":"receive","page":page}),
+        );
+        let view = conversation(
+            actor,
+            directory,
+            &roster,
+            &state,
+            None,
+            json!({"action":"view","before":null,"limit":200}),
+        );
+        assert_eq!(view["messages"].as_array().unwrap().len(), 1);
+        assert_eq!(view["messages"][0]["document"]["text"], "private original");
+        assert_eq!(view["messages"][0]["position"], "9007199254740993");
+        assert_eq!(view["messages"][0]["status"], "journaled");
+    }
+    let rotation = call(
+        &alice,
+        &own,
+        json!({"action":"preview","roster":roster,"packages":[],"removals":[],"event":null}),
+    );
+    call(
+        &alice,
+        &own,
+        json!({"action":"confirm","roster":roster,"id":rotation["id"],"fingerprint":rotation["fingerprint"]}),
+    );
+    let rotation: http::GroupSubmission =
+        serde_json::from_value(call(&alice, &own, json!({"action":"retry","room":"room"})))
+            .unwrap();
+    let rotated = self::receipt(&rotation, "room");
+    call(
+        &alice,
+        &own,
+        json!({"action":"acknowledge","room":"room","receipt":rotated}),
+    );
+    roster.group = Some(rotated.clone());
+    let state = http::GroupState {
+        receipt: rotated.clone(),
+        needs_rekey: false,
+        transition: rotation.transition.clone(),
+        tree: rotation.tree,
+    };
+    let rotation = http::GroupEvent {
+        receipt: rotated,
+        transition: rotation.transition,
+        commit: rotation.commit,
+        welcome: None,
+    };
+    let page = http::DeliveryPage {
+        scope: own.scope.clone(),
+        room_id: "room".into(),
+        incarnation: ack.incarnation.clone(),
+        after: "9007199254740993".into(),
+        through: "9007199254740994".into(),
+        events: vec![http::DeliveryEvent {
+            position: "9007199254740994".into(),
+            content: http::DeliveryContent::Group(rotation),
+        }],
+        next: None,
+    };
+    for (actor, directory) in [(&*alice, &own), (&*bob, &peer)] {
+        conversation(
+            actor,
+            directory,
+            &roster,
+            &state,
+            None,
+            json!({"action":"receive","page":page}),
+        );
+        let rotated_view = conversation(
+            actor,
+            directory,
+            &roster,
+            &state,
+            None,
+            json!({"action":"view","before":null,"limit":200}),
+        );
+        if directory.identity.as_ref().unwrap().user_id == "alice" {
+            assert_eq!(rotated_view["admission"], view["admission"]);
+        }
+        assert_eq!(
+            rotated_view["messages"][0]["document"]["text"],
+            "private original"
+        );
+    }
+    assert_eq!(
+        conversation(
+            &alice,
+            &own,
+            &roster,
+            &state,
+            Some("root"),
+            json!({"action":"draft","text":null})
+        ),
+        "separate private thread"
+    );
+    let pending = conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"prepare","text":"recover abandoned document"}),
+    );
+    let pending = pending["operation"].as_str().unwrap();
+    let original = conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"cancel","operation":pending}),
+    );
+    let packet: http::ApplicationSubmission = serde_json::from_value(original).unwrap();
+    let proof = rv_crypto_public::messages::Proof::from_bytes(
+        &B64.decode(packet.proof.as_bytes()).unwrap(),
+    )
+    .unwrap();
+    let decision = http::ApplicationSettlement::Cancelled(http::ApplicationCancellation {
+        scope: own.scope.clone(),
+        room_id: "room".into(),
+        operation_id: pending.into(),
+        header: B64.encode(&serde_json::to_vec(&proof.header).unwrap()),
+        fingerprint: HEXLOWER.encode(&proof.fingerprint().unwrap()),
+    });
+    conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"settle","operation":pending,"settlement":decision}),
+    );
+    conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"draft","text":""}),
+    );
+    conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"restore","operation":pending}),
+    );
+    assert_eq!(
+        conversation(
+            &alice,
+            &own,
+            &roster,
+            &state,
+            None,
+            json!({"action":"draft","text":null})
+        ),
+        "recover abandoned document"
+    );
+    let mut changed = roster.clone();
+    changed.members[0].activation_version = "new-activation".into();
+    assert!(
+        alice
+            .conversation_action(
+                serde_json::to_string(&own).unwrap(),
+                json!({"roster":changed,"state":state,"thread":null,
+        "command":{"action":"view","before":null,"limit":200}})
+                .to_string()
+            )
+            .is_err()
+    );
+    let manager = alice.slot.load().unwrap().unwrap();
+    let signed = manager
+        .inspect(|_, records| {
+            let issuer = rv_crypto::identity::Issuer::load(records, "instance", "alice").unwrap();
+            let incarnation = HEXLOWER
+                .decode(own.devices[0].incarnation.as_bytes())
+                .unwrap()
+                .try_into()
+                .unwrap();
+            Ok(issuer.revoke("android", incarnation).unwrap())
+        })
+        .unwrap();
+    let mut withdrawn = own.clone();
+    withdrawn.revocations.push(http::Revocation {
+        position: "9007199254740993".into(),
+        signed: B64.encode(&serde_json::to_vec(&signed).unwrap()),
+    });
+    let request=json!({"roster":roster,"state":state,"thread":null,"command":{"action":"draft","text":"late authoring"}}).to_string();
+    assert!(
+        alice
+            .conversation_action(serde_json::to_string(&withdrawn).unwrap(), request.clone())
+            .is_err()
+    );
+    assert!(alice.is_closed());
+    alice.stop();
+    drop(alice);
+    let reopened =
+        CryptoInstallation::open(path.path().to_string_lossy().into(), account(), key).unwrap();
+    assert!(
+        reopened
+            .conversation_action(serde_json::to_string(&own).unwrap(), request)
+            .is_err()
+    );
+    assert!(reopened.is_closed());
+}
 #[test]
 fn two_native_actors_create_join_rotate_reopen_original_and_cancel_without_exporting_private_state()
 {

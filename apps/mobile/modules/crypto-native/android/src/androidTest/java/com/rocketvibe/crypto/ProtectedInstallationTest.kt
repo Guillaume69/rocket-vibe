@@ -54,7 +54,7 @@ class ProtectedInstallationTest {
     return wire.toString()
   }
 
-  @Test fun actualMlsGroupKeepsOriginalAcrossReopenAndRequiresFreshMembershipConsent() {
+  @Test fun actualMlsGroupAndPrivateConversationKeepOriginalsAcrossReopen() {
     val context = InstrumentationRegistry.getInstrumentation().targetContext
     val root = AndroidProtectedKeystore.privateDirectory(File(context.noBackupFilesDir, "crypto-group-test-" + UUID.randomUUID()))
     val directory = AndroidProtectedKeystore.privateDirectory(File(root, "coffer"))
@@ -99,6 +99,53 @@ class ProtectedInstallationTest {
       call(command("acknowledge").put("room", "room").put("receipt", receipt))
       roster.put("group", receipt)
       assertEquals(receipt.getString("fingerprint"), JSONObject(call(command("view").put("roster", roster))).getJSONObject("accepted").getString("fingerprint"))
+      val state = JSONObject().put("receipt", receipt).put("needs_rekey", false)
+        .put("transition", packet.getString("transition")).put("tree", packet.getString("tree"))
+      fun conversation(action: JSONObject, thread: String? = null): String = installation.conversationAction(own,
+        JSONObject().put("roster", roster).put("state", state).put("thread", thread ?: JSONObject.NULL).put("command", action).toString())
+      val genesis = JSONObject().put("receipt", receipt).put("transition", packet.getString("transition"))
+        .put("commit", JSONObject.NULL).put("welcome", JSONObject.NULL)
+      val page = JSONObject().put("scope", scope).put("room_id", "room").put("incarnation", incarnation)
+        .put("after", "0").put("through", "1").put("next", JSONObject.NULL)
+        .put("events", JSONArray().put(JSONObject().put("position", "1").put("content", JSONObject().put("kind", "group").put("data", genesis))))
+      conversation(command("receive").put("page", page))
+      assertTrue(JSONObject(conversation(command("view").put("before", JSONObject.NULL).put("limit", 200))).getBoolean("can_send"))
+      conversation(command("draft").put("text", "private Android draft"))
+      conversation(command("draft").put("text", "private thread draft"), "root")
+      val prepared = JSONObject(conversation(command("prepare").put("text", "private Android draft")))
+      val operation = prepared.getString("operation")
+      val originalMessage = conversation(command("retry").put("operation", operation))
+      assertFalse(originalMessage.contains("private Android draft"))
+      installation.stop(); installation.destroy()
+      installation = CryptoInstallation.open(directory.absolutePath, account, AndroidProtectedKeystore(platform))
+      assertEquals(originalMessage, conversation(command("retry").put("operation", operation)))
+      assertEquals("\"private Android draft\"", conversation(command("draft").put("text", JSONObject.NULL)))
+      assertEquals("\"private thread draft\"", conversation(command("draft").put("text", JSONObject.NULL), "root"))
+      val message = JSONObject(originalMessage)
+      val proofBytes = Base64.decode(message.getString("proof"), flags)
+      val proof = JSONObject(String(proofBytes, Charsets.UTF_8))
+      val digest = java.security.MessageDigest.getInstance("SHA-256")
+      digest.update("rocketvibe-mls-application-fingerprint-v1\u0000".toByteArray(Charsets.UTF_8))
+      val messageFingerprint = digest.digest(proofBytes).joinToString("") { "%02x".format(it.toInt() and 255) }
+      val header = Base64.encodeToString(proof.getJSONObject("header").toString().toByteArray(Charsets.UTF_8), flags)
+      val messageReceipt = JSONObject().put("scope", scope).put("room_id", "room").put("operation_id", operation)
+        .put("header", header).put("fingerprint", messageFingerprint).put("message_id", "android-message").put("position", "9007199254740993")
+      refused { conversation(command("acknowledge").put("receipt", JSONObject(messageReceipt.toString()).put("fingerprint", "00".repeat(32)))) }
+      conversation(command("acknowledge").put("receipt", messageReceipt))
+      assertEquals("\"\"", conversation(command("draft").put("text", JSONObject.NULL)))
+      val delivered = JSONObject().put("receipt", messageReceipt).put("proof", message.getString("proof")).put("ciphertext", message.getString("ciphertext"))
+      page.put("after", "1").put("through", "9007199254740993")
+        .put("events", JSONArray().put(JSONObject().put("position", "9007199254740993").put("content", JSONObject().put("kind", "message").put("data", delivered))))
+      conversation(command("receive").put("page", page))
+      val projected = JSONObject(conversation(command("view").put("before", JSONObject.NULL).put("limit", 200)))
+      assertEquals(1, projected.getJSONArray("messages").length())
+      assertEquals("private Android draft", projected.getJSONArray("messages").getJSONObject(0).getJSONObject("document").getString("text"))
+      assertEquals("9007199254740993", projected.getJSONArray("messages").getJSONObject(0).getString("position"))
+      // Private plaintext is present only in the protected coffer, not in its
+      // ciphertext or the platform's encrypted small records.
+      root.walkTopDown().filter { it.isFile && !it.name.endsWith(".lock") }.forEach {
+        assertFalse(it.readBytes().toString(Charsets.ISO_8859_1).contains("private Android draft"))
+      }
       consent = preview(); assertEquals("change", consent.getString("kind")); confirm(consent)
       val cancellation = JSONObject(call(command("cancel").put("room", "room")))
       val cancelling = JSONObject(call(command("pending").put("room", "room")))

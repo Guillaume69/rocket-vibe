@@ -248,8 +248,16 @@ PostgreSQL, expiration du corps et tête périmée après changement d'époque.
 Le parcours SDK construit sa preuve avec les versions réellement obtenues par
 HTTP ; refus anonymes et succès portent aussi `no-store`.
 
+Le [lot privé messages](../../crates/rv-crypto/MESSAGES.md) ajoute ratchets
+applicatifs, outbox originale, réception / écho persistants et reçu exact dans
+le checkpoint protégé. Preuve de routage externe et auteur / AAD MLS sont
+vérifiés séparément, avec document riche borné. Un résultat conservé est repris
+après réouverture ; un refus tardif ne consomme ni génération ni position.
+La dernière position reçue ne vaut pas validation d'une page complète du journal.
+Ce lot isolé ne fournit aucune route HTTP de messages et n'active aucune capacité.
+
 Restent ouverts : suite du coordinateur de groupe dans le coffre, cérémonie de
-consentement et politique vérifiées dans les apps, outbox de messages / réception persistantes, journal et
+consentement et politique vérifiées dans les apps, journal et
 livraison des messages chiffrés, pont Android, écrans existants, archives /
 fichiers / historique importé et revue crypto indépendante. Ce lot ne ferme
 pas J4 et n'autorise pas la bascule J5.

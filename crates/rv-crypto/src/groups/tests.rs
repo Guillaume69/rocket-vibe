@@ -598,6 +598,8 @@ fn oversized_observations_are_refused_before_intent_serialization() {
 #[path = "admission_tests.rs"]
 mod admission;
 
+#[path = "message_tests.rs"]
+mod application_messages;
 #[path = "changes_tests.rs"]
 mod changes;
 #[cfg(feature = "native-http")]

@@ -285,6 +285,10 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    genèse / admission / deux rotations et réponses perdues sans POST
    supplémentaire réussi. Checkpoint externe simulé dans ce banc ;
    planification dans les fournisseurs et réconciliation des refus ouvertes.
+   Coordinateur privé de messages applicatifs ajouté : routage / auteur MLS
+   authentifiés, ratchet et ciphertext original avec contenu riche privé / reçu
+   conservés avant checkpoint, échos exacts et dernière position reçue monotone.
+   Journal / transport des messages et projection des apps restent à livrer.
    Rattrapage complet à travers les adhésions et livraison des messages
    chiffrés restent ouverts ;
    aucune capacité activée.

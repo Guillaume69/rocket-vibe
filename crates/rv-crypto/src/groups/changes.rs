@@ -198,7 +198,7 @@ impl Coordinator {
         self.inspect(|provider, records| {
             let state = read(records, &request.roster.scope.room)?.ok_or(Error::NotReady)?;
             check_clock(Some(&state), now)?;
-            if state.pending.is_some() {
+            if state.pending.is_some() || self.pending_messages(records, &state.scope)? {
                 return Err(Error::Pending);
             }
             let context = self.context(records, now)?;
@@ -245,6 +245,9 @@ impl Coordinator {
         self.transact(|provider, records| {
             let mut state = read(records, &request.roster.scope.room)?.ok_or(Error::NotReady)?;
             check_clock(Some(&state), now)?;
+            if self.pending_messages(records, &state.scope)? {
+                return Err(Error::Pending);
+            }
             if let Some(pending) = &state.pending {
                 if pending.intent != intent || pending.submission.operation != request.operation {
                     return Err(Error::Conflict);

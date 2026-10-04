@@ -172,9 +172,14 @@ rotations contre le vrai serveur Rust / PostgreSQL, avec réponses perdues et
 réconciliation sans POST supplémentaire. Son checkpoint externe est simulé ;
 la planification dans les apps et les qualifications physiques restent ouvertes.
 
-Réception des messages, rattrapage complet
-et politique de chaque envoi, transport et ponts vers les apps restent ouverts ; E2EE demeure
-désactivé. Voir le [contrat de livraison](../../docs/protocol/E2EE_GROUPS.md).
+Le [coordinateur de messages applicatifs](MESSAGES.md) conserve maintenant
+ratchets MLS, ciphertext original / outbox, contenu privé et reçu / dernière
+position de réception dans le même checkpoint. Routage, vrai auteur MLS et
+document riche sont authentifiés ; les renvois / échos utilisent les octets
+protégés exacts et une rotation locale attend les ACK de messages en attente.
+Journal / HTTP des messages, rattrapage complet et projection dans les apps
+restent ouverts ; E2EE demeure désactivé. Voir le
+[contrat de livraison](../../docs/protocol/E2EE_GROUPS.md).
 
 ## Vérifications
 

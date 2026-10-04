@@ -6,6 +6,11 @@ publish = false
 
 [workspace]
 
+# Avoid unoptimized curve arithmetic dominating durable crypto tests. The
+# coordinator and its debug assertions retain the normal test profile.
+[profile.test.package.curve25519-dalek]
+opt-level = 3
+
 [features]
 system-keystore = ["dep:keyring"]
 native-http = ["dep:rv-client", "dep:tokio"]

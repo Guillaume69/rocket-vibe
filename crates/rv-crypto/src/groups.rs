@@ -26,7 +26,9 @@ mod incoming;
 pub use incoming::Commit;
 mod changes;
 pub use changes::Change;
+mod messages;
 pub mod wire;
+pub use messages::{ClearMessage, MessageObservation, MessagePending, MessageSubmission};
 
 const SUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 const STATE_LIMIT: usize = 8 * 1024 * 1024;
@@ -57,6 +59,10 @@ pub enum Error {
     Mls,
     #[error("crypto_group_limit")]
     Limit,
+    #[error("crypto_message_not_pending")]
+    MessageNotPending,
+    #[error("crypto_message_not_retained")]
+    MessageNotRetained,
 }
 type Result<T> = std::result::Result<T, Error>;
 

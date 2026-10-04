@@ -3,6 +3,24 @@
 Date de lancement : 30 septembre 2026. Branche : `feature/rocketvibe-server`.
 Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 
+## État synthétique au 4 octobre 2026
+
+| Jalon | Développement livré | Travail restant pour le fermer |
+|---|---|---|
+| J0 | Contrats, fixtures communes, inventaire et backlog de parité | Conditions opérateur / export et décisions crypto liées aux jalons suivants |
+| J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
+| J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
+| J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
+| J4 | Appels raccordés, identités / coffre crypto, packages et transitions MLS, worker testé sur HTTP / PostgreSQL | Messages chiffrés et leur livraison, ponts / interfaces, archives / fichiers, revue crypto et essais Jitsi réels |
+| J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
+
+La dernière livraison de transitions crypto (`46377b8`) passe toute la CI
+`37170184356`, dont le banc combiné HTTP / PostgreSQL et les suites Linux,
+Windows et macOS. Le noyau privé des messages passe les vérifications locales ;
+aucune capacité E2EE n'est activée. Sa prochaine étape est le journal opaque et le
+transport de messages, avant le raccordement aux fournisseurs des apps actuelles.
+Les critères externes encore ouverts restent des critères de sortie de la RFC.
+
 ## Premier incrément : socle serveur et transports pilotes
 
 - [x] Workspace Rust natif indépendant du bureau, `rv-server`, `rv-protocol`, `rv-client`.
@@ -314,6 +332,32 @@ Le parcours mobile pilote et les tests sans appareil ne ferment pas J1 : il exig
 les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
+
+- P19 / J4, messages applicatifs protégés (4 octobre 2026) : vrai ciphertext
+  MLS avec AAD de routage et preuve d'appareil externe, auteur MLS / certificat
+  comparés à la liste active et document riche canonique (Markdown, fil,
+  citations à révisions exactes, cartes). Ratchet d'envoi / réception, outbox
+  originale, contenu privé, reçu exact et dernière position reçue partagent le
+  checkpoint. Écho propre accepté seulement depuis les octets privés originaux ;
+  refus tardif sans consommation, retry sans rechiffrement et ACK historique
+  sans droit d'envoi. Une rotation attend les messages préparés, même si son
+  consentement précède leur préparation ; une transition préparée bloque les
+  nouveaux messages. Cache de 64 contenus / 4 Mio, retrait explicite après reçu,
+  identités et reçus retenus pour empêcher la réutilisation d'une opération.
+  Dix scénarios couvrent échange / réouverture, checkpoints perdus, substituts
+  d'AAD / auteur, bornes, vrai commit en attente, ordre et libération du cache.
+  Suite privée complète : 111 succès en 164,33 s, avec le scénario enfant
+  ignoré exécuté par le parent de crash ; aucun cas filtré. Avant optimisation
+  de l'arithmétique de courbe du profil test, les dix scénarios ciblés seuls
+  prenaient 271,45 s. Les assertions du coordinateur restent actives ; encodage
+  canonique et authentification de signature restent deux étapes distinctes.
+  Formatage / Clippy strict passent ; trois régressions publiques et les
+  15 scénarios de groupe serveur, dont le worker combiné actuel, passent
+  (17,14 s pour ce dernier ensemble). Journal / HTTP / worker de messages,
+  projection dans les apps, rattrapage à travers retraits / réadmissions,
+  refus définitifs, politique de purge / archive, fichiers, pont Android et
+  revue restent ouverts. [Contrat privé](../crates/rv-crypto/MESSAGES.md).
+  Le lot reste isolé, sans capacité E2EE activée ni fermeture de J4.
 
 - P19 / J4, banc combiné du worker privé (4 octobre 2026) : binaire séparé
   `delivery_smoke` appelé par le vrai serveur de test Rust / PostgreSQL,

@@ -26,6 +26,7 @@ mod incoming;
 pub use incoming::Commit;
 mod changes;
 pub use changes::Change;
+pub mod wire;
 
 const SUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 const STATE_LIMIT: usize = 8 * 1024 * 1024;

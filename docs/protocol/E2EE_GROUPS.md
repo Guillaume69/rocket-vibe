@@ -191,10 +191,19 @@ nonces courants, véritable renouvellement de certificat de feuille et outbox
 originale protégée jusqu'au reçu. Onze scénarios supplémentaires exercent ce
 parcours, y compris rotation d'un singleton à l'époque zéro puis admission.
 Suite privée complète : 90 tests réussis. Rattrapage complet,
-messages et raccordement HTTP / fournisseurs restent ouverts ; ce n'est pas encore un
+messages et ordonnanceur connecté / fournisseurs restent ouverts ; ce n'est pas encore un
 parcours utilisateur connecté. Aucune capacité E2EE n'est activée.
 
 ## Limites et preuves exécutées
+
+La [frontière cliente HTTP](../../crates/rv-crypto/GROUP_HTTP.md) convertit les
+observations, packages, préparations, reçus et événements vers le coordinateur
+privé sans exporter ses clés. Métadonnées de packages comparées au vrai TLS,
+hex / base64url / décimaux canoniques, digests et révisions / parents consécutifs
+de pages sont contrôlés. Le vrai MLS et les pins restent vérifiés dans le coffre.
+Le SDK Rust refuse également succès et erreurs crypto dépassant 4 Mio, avant
+JSON et même en chunks. Six tests de conversion, quatre tests réseau de limite
+et les 14 scénarios de routes PostgreSQL passent. Suite privée : 96 réussis.
 
 Les limites se cumulent : 128 membres, 256 appareils, index MLS ≤ 4 095,
 preuve ≤ 256 Kio, arbre / commit / Welcome individuel ≤ 1 Mio, charges opaques

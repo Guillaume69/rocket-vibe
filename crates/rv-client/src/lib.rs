@@ -24,6 +24,8 @@ pub enum Error {
     UnsupportedProtocol,
     #[error("invalid or oversized native snapshot")]
     InvalidSnapshot,
+    #[error("invalid or oversized native crypto response")]
+    InvalidCrypto,
     #[error("invalid or oversized native avatar")]
     InvalidAvatar,
     #[error("invalid native emoji catalogue or image")]
@@ -279,6 +281,9 @@ impl NativeClient {
             request = request.json(input);
         }
         let response = request.send().await?;
+        if path.starts_with("/api/v1/e2ee/") {
+            return self.crypto_json(response, budget, sent).await;
+        }
         let mut response = self.accepted(response, budget, sent).await?;
         if path == "/api/v1/sync/snapshots" || path.starts_with("/api/v1/sync/snapshots/") {
             // Bound page bodies before parsing, including chunked responses.
@@ -308,38 +313,77 @@ impl NativeClient {
             let status = response.status().as_u16();
             let retry = retry_after(&response);
             let error: ApiError = response.json().await?;
-            if status == 401
-                && error.code == "session_rejected"
-                && sent.is_some()
-                && sent != self.saved_token()
-            {
-                return Err(Error::Server {
-                    status: 409,
-                    code: "delivery_revalidate".into(),
-                    request_id: Some(error.request_id),
-                    retry_after: None,
-                });
-            }
-            if status == 429
-                && let Some(key) = budget
-            {
-                self.cooldowns.lock().expect("native cooldown lock").insert(
-                    key,
-                    Cooldown {
-                        until: Instant::now() + Duration::from_secs(retry.unwrap_or(1)),
-                        code: error.code.clone(),
-                        request_id: error.request_id.clone(),
-                    },
-                );
-            }
-            return Err(Error::Server {
-                status,
-                code: error.code,
-                request_id: Some(error.request_id),
-                retry_after: retry,
-            });
+            return Err(self.server_error(status, retry, budget, sent, error));
         }
         Ok(response)
+    }
+
+    fn server_error(
+        &self,
+        status: u16,
+        retry: Option<u64>,
+        budget: Option<&'static str>,
+        sent: Option<String>,
+        error: ApiError,
+    ) -> Error {
+        if status == 401
+            && error.code == "session_rejected"
+            && sent.is_some()
+            && sent != self.saved_token()
+        {
+            return Error::Server {
+                status: 409,
+                code: "delivery_revalidate".into(),
+                request_id: Some(error.request_id),
+                retry_after: None,
+            };
+        }
+        if status == 429
+            && let Some(key) = budget
+        {
+            self.cooldowns.lock().expect("native cooldown lock").insert(
+                key,
+                Cooldown {
+                    until: Instant::now() + Duration::from_secs(retry.unwrap_or(1)),
+                    code: error.code.clone(),
+                    request_id: error.request_id.clone(),
+                },
+            );
+        }
+        Error::Server {
+            status,
+            code: error.code,
+            request_id: Some(error.request_id),
+            retry_after: retry,
+        }
+    }
+
+    async fn crypto_json<T: DeserializeOwned>(
+        &self,
+        mut response: reqwest::Response,
+        budget: Option<&'static str>,
+        sent: Option<String>,
+    ) -> Result<T, Error> {
+        // The largest group page is ~3 MiB after base64. Bound the body before
+        // Serde, including chunked input and error responses from a peer server.
+        const LIMIT: usize = 4 * 1024 * 1024;
+        let status = response.status();
+        let retry = retry_after(&response);
+        if response.content_length().is_some_and(|n| n > LIMIT as u64) {
+            return Err(Error::InvalidCrypto);
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            if chunk.len() > LIMIT - bytes.len() {
+                return Err(Error::InvalidCrypto);
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        if !status.is_success() {
+            let error = serde_json::from_slice(&bytes).map_err(|_| Error::InvalidCrypto)?;
+            return Err(self.server_error(status.as_u16(), retry, budget, sent, error));
+        }
+        serde_json::from_slice(&bytes).map_err(|_| Error::InvalidCrypto)
     }
 
     fn budget(path: &str, method: &Method) -> Option<&'static str> {
@@ -1579,3 +1623,6 @@ fn path_segment(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
 }
+
+#[cfg(test)]
+mod crypto_tests;

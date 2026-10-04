@@ -145,8 +145,8 @@ bounds et historique de références plein, puis rotation d'un singleton à
 l'époque zéro avant admission. La suite complète compte 90 tests réussis,
 plus l'enfant de crash exécuté par son parent.
 
-Conversion des événements HTTP vers le moteur et ordonnanceur réseau restent
-à livrer. Cette réception
+Les [conversions HTTP contrôlées](GROUP_HTTP.md) sont désormais livrées.
+Ordonnanceur réseau et réconciliation des refus restent à intégrer. Cette réception
 vise un successeur correspondant aux versions observées ; le rattrapage complet
 de pages à travers des changements d'adhésion, Welcome initial ancien, retrait
 local / retour et nouvelles incarnations reste ouvert. L'outbox et l'inbox des

@@ -13,5 +13,8 @@ sha2 = "0.10"
 thiserror = "2"
 url = "2"
 
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+
 [lints.rust]
 unsafe_code = "forbid"

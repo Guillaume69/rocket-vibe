@@ -602,3 +602,5 @@ mod admission;
 mod changes;
 #[path = "incoming_tests.rs"]
 mod incoming_commits;
+#[path = "wire_tests.rs"]
+mod wire_tests;

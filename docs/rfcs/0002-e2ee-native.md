@@ -271,6 +271,10 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    commit local concurrent livrés. Préparation publique de rotations / ajouts /
    retraits / remplacements atomiques, renouvellement du vrai certificat de
    feuille et outbox conservant le commit original jusqu'au reçu exact livrés.
+   Conversions HTTP contrôlées via DTOs partagés, en-têtes / métadonnées de
+   packages reliés au vrai TLS, encodages / entiers canoniques et pages chaînées
+   livrés ; réponses du SDK bornées avant le JSON. Ordonnanceur connecté et
+   réconciliation des refus encore ouverts.
    Rattrapage complet à travers les adhésions et livraison des messages
    chiffrés restent ouverts ;
    aucune capacité activée.

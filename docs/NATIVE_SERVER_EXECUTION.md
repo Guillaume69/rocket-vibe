@@ -315,6 +315,24 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P19 / J4, frontière HTTP du coordinateur (4 octobre 2026) : les DTOs partagés
+  portent maintenant genèse / changement, packages, préparation originale,
+  reçu et événement vers / depuis le coffre. Scope / roster / nonces contrôlés,
+  métadonnées comparées au vrai KeyPackage TLS et sa référence, encodages
+  canoniques / grands entiers exacts, preuve / digests / Welcome ciblé et
+  chaînage des pages vérifiés. Aucune approbation implicite. Le SDK borne
+  succès et erreurs crypto à 4 Mio avant JSON, y compris chunks, en conservant
+  le `Retry-After` et les GET disponibles. Six nouveaux scénarios MLS / DTOs,
+  quatre tests HTTP du SDK et les 14 scénarios PostgreSQL passent ; suite
+  complète du coffre : 96 réussis, plus enfant de crash exécuté par son parent,
+  en 43,66 secondes. Chaînage final revérifié par les six tests ciblés ; fmt /
+  Clippy strict passent. La CI de préparation `37165856413` est entièrement
+  verte sur les trois OS ; CI de ce lot suivie après publication.
+  Ordonnanceur connecté / refus / rattrapage complet, retrait local / retour,
+  messages chiffrés, pont Android / apps, archives / fichiers / import et
+  qualifications / revue restent ouverts. Capacité E2EE désactivée.
+  [Frontière privée](../crates/rv-crypto/GROUP_HTTP.md).
+
 - P19 / J4, préparation cliente des successeurs (4 octobre 2026) :
   `preview_change` / `prepare_change` vérifient la tête serveur observée et
   l'ancien arbre MLS, puis préparent rotation / ajout / retrait / remplacement
@@ -328,7 +346,7 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   bornes et références dépensées. Suite complète : 90 tests réussis, plus
   enfant de crash exécuté par son parent, en 38,48 secondes. Formatage et
   Clippy strict passent. La CI de réception `37164702081` est entièrement
-  verte sur les trois OS ; CI du présent lot suivie après publication.
+  verte sur les trois OS ; sa CI `37165856413` est également entièrement verte.
   Conversion HTTP / ordonnanceur, rattrapage complet / retrait local,
   messages chiffrés, pont Android / apps existantes, archives / fichiers /
   import, qualifications et revue demeurent ouverts. Aucune capacité activée.

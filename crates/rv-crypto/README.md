@@ -157,6 +157,12 @@ admission initiale ; une réadmission exige un vrai package frais. Un certificat
 local renouvelé modifie la véritable feuille MLS. Voir les
 [transitions protégées](GROUP_COMMITS.md).
 
+La [frontière HTTP](GROUP_HTTP.md) convertit maintenant roster / packages /
+préparations / reçus / admissions / successeurs via les DTOs partagés, avec
+encodages canoniques, révisions exactes, digests et chaînage des pages vérifiés.
+Les conversions n'accordent aucune confiance ni permission d'envoyer. Le SDK
+borne les réponses crypto avant le JSON ; l'ordonnanceur connecté reste à intégrer.
+
 Réception des messages, rattrapage complet
 et politique de chaque envoi, transport et ponts vers les apps restent ouverts ; E2EE demeure
 désactivé. Voir le [contrat de livraison](../../docs/protocol/E2EE_GROUPS.md).

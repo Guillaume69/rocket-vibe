@@ -73,7 +73,7 @@ pub(super) fn commit_aad(plan: &Plan) -> Result<Vec<u8>> {
     aad.extend(payload);
     Ok(aad)
 }
-fn checked(commit: &Commit) -> Result<(Transition, Fingerprint)> {
+pub(super) fn checked(commit: &Commit) -> Result<(Transition, Fingerprint)> {
     if commit.transition.len() > public::WIRE_LIMIT
         || commit.commit.is_empty()
         || commit.commit.len() > PAYLOAD_LIMIT

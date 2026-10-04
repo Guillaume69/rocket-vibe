@@ -1,121 +1,120 @@
-# rocket-vibe — instructions permanentes
+# rocket-vibe: standing instructions
 
-Clients **Rocket.Chat** tiers, en monorepo. Ce fichier est rechargé à chaque session. Il porte ce qui coûte cher à redécouvrir.
+Third-party **Rocket.Chat** clients, in a monorepo. This file is reloaded every session. It holds what is expensive to rediscover.
 
-- `apps/mobile/` — l'app mobile, Android d'abord, en Expo / React Native. **Ses commandes (`npm`, `npx`) se lancent depuis `apps/mobile/`.**
-- `apps/desktop/` — l'app bureau, en Rust (cœur sans UI `rv-core`, interface GTK 4 + libadwaita `rv-gtk`). **Tout build dans le conteneur Fedora de `apps/desktop/docker/`** via `apps/desktop/scripts/build.sh` (fmt, clippy `-D warnings`, tests) ; `scripts/smoke.sh` et `scripts/e2e*.sh` la font tourner sous Xvfb contre le serveur de test. Sa parité avec le mobile : voir « La parité » ci-dessous.
-- `docker/`, `scripts/` — le serveur Rocket.Chat de test et ses données, partagés par les apps.
-- **Une version par app** : `apps/mobile/app.json` (avec `package.json` et `android.versionCode` = majeur×10000 + mineur×100 + patch) et `apps/desktop/Cargo.toml` ; `node scripts/version.mjs mobile|desktop` les lit et les vérifie. La CI (`.github/workflows/`) ne vérifie une app que si ses fichiers changent, et n'en construit les paquets (APK, archives, installeurs) que sur un tag ou un `workflow_dispatch` ; un tag `mobile-vX.Y.Z` / `desktop-vX.Y.Z` publie la release, avec pour notes la section de la version dans `apps/<app>/CHANGELOG.md` (Keep a Changelog, obligatoire : `node scripts/changelog.mjs`). Tout changement visible d'une app s'ajoute à sa section « Non publié » / « Unreleased ».
+- `apps/mobile/`: the mobile app, Android first, in Expo / React Native. **Its commands (`npm`, `npx`) run from `apps/mobile/`.**
+- `apps/desktop/`: the desktop app, in Rust (UI-free core `rv-core`, GTK 4 + libadwaita interface `rv-gtk`). **Every build runs in the Fedora container of `apps/desktop/docker/`** through `apps/desktop/scripts/build.sh` (fmt, clippy `-D warnings`, tests); `scripts/smoke.sh` and `scripts/e2e*.sh` run it under Xvfb against the test server. Its parity with mobile: see "Parity" below.
+- `docker/`, `scripts/`: the test Rocket.Chat server and its data, shared by the apps.
+- **One version per app**: `apps/mobile/app.json` (with `package.json` and `android.versionCode` = major×10000 + minor×100 + patch) and `apps/desktop/Cargo.toml`; `node scripts/version.mjs mobile|desktop` reads and checks them. CI (`.github/workflows/`) checks an app only when its files change, and builds its packages (APK, archives, installers) only on a tag or a `workflow_dispatch`; a `mobile-vX.Y.Z` / `desktop-vX.Y.Z` tag publishes the release, with the version's section of `apps/<app>/CHANGELOG.md` as notes (Keep a Changelog, required: `node scripts/changelog.mjs`). Every visible change to an app goes into its "Unreleased" section, in English.
 
-- `ROADMAP.md` — les décisions et leur justification. Bouge rarement.
-- `apps/mobile/CHANTIERS.md` — la dette relevée par l'audit du 25/07/2026, à cocher au fur et à mesure. **Source de vérité sur « qu'est-ce qu'on corrige ensuite ».**
-- `apps/mobile/EXECUTION.md` — la checklist de CONSTRUCTION du produit, remise d'accord avec le code le 2026-07-31 (chantier 16) : la construction y est gelée, et sa section « Après la checklist » résume ce qui a été livré en continu depuis.
-- `apps/mobile/docs/AUDIT.md` — le relevé daté de l'audit : mécanisme, scénario d'échec et correction de chaque constat. Figé, on n'y touche plus.
-- `docs/DEV.md` — l'environnement et le relevé du serveur cible.
-- `brain/` : la base de connaissance, voir « Le brain » ci-dessous.
+- `ROADMAP.md`: the decisions and their justification. Rarely moves.
+- `apps/mobile/WORKSTREAMS.md`: the debt found by the 2026-07-25 audit, ticked off as it goes. **Source of truth for "what do we fix next".**
+- `apps/mobile/EXECUTION.md`: the product CONSTRUCTION checklist, brought back in line with the code on 2026-07-31 (workstream 16): construction is frozen there, and its "After the checklist" section summarises what shipped continuously since.
+- `apps/mobile/docs/AUDIT.md`: the dated audit record: mechanism, failure scenario and fix of each finding. Content-frozen, no longer edited.
+- `docs/DEV.md`: the environment and the survey of the target server.
+- `brain/`: the knowledge base, see "The brain" below.
 
-## Le brain (base de connaissance)
+## The brain (knowledge base)
 
-`brain/` décrit comment marchent les deux apps (architecture, fonctionnalités côté mobile et côté bureau, contrat Rocket.Chat, décisions, glossaire du vocabulaire français du code), pour qu'un développeur ou une IA les comprenne **sans lire le source**. Point d'entrée : `brain/BRAIN.md`, qui mène aux index `brain/architecture/index.md` et `brain/features/index.md`, puis aux fiches. Le lire avant de chercher où vit quelque chose, et naviguer par les index plutôt que par un grep de tout l'arbre. Le skill `brain` porte la marche à suivre.
+`brain/` describes how both apps work (architecture, features on the mobile and desktop sides, the Rocket.Chat contract, decisions, glossary of the project vocabulary), so that a developer or an AI understands them **without reading the source**. Entry point: `brain/BRAIN.md`, which leads to the indexes `brain/architecture/index.md` and `brain/features/index.md`, then to the pages. Read it before searching where something lives, and navigate by the indexes rather than by grepping the whole tree. The `brain` skill carries the procedure.
 
-- Il est porteur : il doit rester VRAI. Un changement qui rend une fiche fausse corrige la fiche dans la même branche (couche `docs(brain): …` après le comportement et ses tests).
-- Le code fait foi. Si le brain le contredit, on corrige le brain.
-- Nouvelle fonctionnalité → `brain/features/<nom>.md` (sections `## Mobile` et `## Desktop`), une ligne dans `brain/features/index.md` et dans le catalogue de `brain/BRAIN.md`, ses lignes dans `brain/parity.md`. Nouveau sous-système → un `brain/architecture/*.md`.
-- Le pourquoi va dans `brain/decisions.md`, les termes nouveaux dans `brain/glossary.md`. Les faits serveur sondés restent d'abord ici (« Faits sur Rocket.Chat ») ; `brain/architecture/rocket-chat.md` y renvoie.
-- En anglais, dense, sans tiret cadratin, des chemins de source plutôt que du code recopié ; chaque fiche finit par `## Sources`.
+- It is load-bearing: it must stay TRUE. A change that makes a page wrong fixes the page in the same branch (a `docs(brain): …` layer after the behaviour and its tests).
+- The code is the source of truth. If the brain contradicts it, fix the brain.
+- New feature → `brain/features/<name>.md` (`## Mobile` and `## Desktop` sections), a line in `brain/features/index.md` and in the catalogue of `brain/BRAIN.md`, its rows in `brain/parity.md`. New subsystem → a `brain/architecture/*.md`.
+- The why goes into `brain/decisions.md`, new terms into `brain/glossary.md`. Probed server facts stay here first ("Rocket.Chat facts"); `brain/architecture/rocket-chat.md` points to them.
+- In English, dense, no em-dash, source paths rather than copied code; each page ends with `## Sources`.
 
-## La parité
+## Parity
 
-Les trois apps (Android, GTK, SwiftUI) visent les mêmes fonctionnalités, et aucune n'est la référence : ce qu'une app fait en premier, les autres le doivent. `brain/parity.md` en tient le compte, ligne par ligne, avec le statut de chaque app (`done`, `partial`, `missing`, `mapped`, `n/a`) et la dette de chacune.
+The three apps (Android, GTK, SwiftUI) aim at the same features, and none is the reference: what one app does first, the others owe. `brain/parity.md` keeps the count, row by row, with each app's status (`done`, `partial`, `missing`, `mapped`, `n/a`) and each one's debt.
 
-- Toute fonctionnalité visible arrive dans les trois apps, ou bien sa ligne dans `brain/parity.md` dit quelle app la doit (`missing` ou `partial`, avec ce qui manque). L'un ou l'autre, jamais rien.
-- La ligne bouge dans la même branche que le changement qui la fait bouger (couche `docs(brain): …`), dans les deux sens : une app qui rattrape passe sa case à `done`, une fonctionnalité nouvelle ajoute sa ligne avec le statut des trois.
-- `mapped` seulement quand la plateforme répond au même besoin autrement (le partage Android contre le glisser-déposer du bureau), et la note dit comment. Une différence de comportement qui n'est pas voulue est une dette, pas un `mapped`.
-- Le statut se vérifie dans le code des trois apps, pas dans le changelog ni dans la mémoire.
+- Every visible feature reaches all three apps, or its row in `brain/parity.md` says which app owes it (`missing` or `partial`, with what is missing). One or the other, never nothing.
+- The row moves in the same branch as the change that moves it (a `docs(brain): …` layer), both ways: an app that catches up sets its cell to `done`, a new feature adds its row with the status of all three.
+- `mapped` only when the platform meets the same need another way (Android sharing versus desktop drag and drop), and the note says how. An unintended difference in behaviour is debt, not `mapped`.
+- The status is checked in the code of the three apps, not in the changelog or in memory.
 
-## La boucle de travail
+## The work loop
 
-**Version de base acceptable atteinte (juillet 2026) : la cérémonie par sous-étape est levée.** On travaille désormais léger :
+**Acceptable base version reached (July 2026): the per-step ceremony is lifted.** We now work light:
 
-1. Implémenter.
-2. Garder le réflexe de vérifier que ça tient — `npx tsc --noEmit` (dans `apps/mobile/`) et un lancement réel quand le changement touche au code — mais ce n'est plus un critère de sortie formel qui bloque.
-3. Commiter (message conventionnel) et `git push origin master`.
+1. Implement.
+2. Keep the reflex of checking that it holds (`npx tsc --noEmit` in `apps/mobile/` and a real launch when the change touches code), but it is no longer a formal exit criterion that blocks.
+3. Commit (conventional message) and `git push origin master`.
 
-- **Plus de `/code-review` systématique.** La revue ne se lance plus que sur demande explicite.
-- Plus d'obligation de case cochée/datée dans `apps/mobile/EXECUTION.md` ni de trailer `Étape: N.M`. On peut toujours mettre `EXECUTION.md` à jour quand ça éclaire l'état, mais ce n'est plus un passage obligé.
+- **No more systematic `/code-review`.** Review only runs on explicit request.
+- No more obligation of a ticked/dated box in `apps/mobile/EXECUTION.md` nor of an `Étape: N.M` trailer (the keyword the history carries). `EXECUTION.md` can still be updated when it clarifies the state, but it is no longer mandatory.
 
-Branche principale : **`master`**. Commits directs, pas de PR.
+Main branch: **`master`**. Direct commits, no PR.
 
-> Pourquoi « prouver en exécutant » reste un bon réflexe même sans l'imposer : ça a déjà attrapé un `env.sh` cassé que je croyais testé, et un `docker compose` qui créait un compte admin **sans mot de passe** sur un serveur exposé au LAN. Relire du code jamais exécuté, c'est relire une intention.
+> Why "prove it by running it" remains a good reflex even without enforcing it: it has already caught a broken `env.sh` I thought was tested, and a `docker compose` that created an admin account **with no password** on a server exposed to the LAN. Rereading code never run is rereading an intention.
 
-## Le shell est zsh — trois pièges à échec silencieux
+## The shell is zsh: three silent-failure traps
 
-1. **Un glob sans correspondance est fatal.** `for d in /usr/lib/jvm/*17*` avorte toute la boucle si le motif ne correspond à rien, y compris les autres candidats. Un `?` non quoté dans une URL aussi : toujours `curl "…/settings.public?count=0"`. Passer les motifs à `find -name "…"`, jamais au shell.
-2. **Une variable non quotée n'est pas découpée en mots.** `for id in $IDS` itère **une seule fois** avec toute la chaîne. Les `$(…)` le sont, eux. Pour boucler sur une liste : `bash -s <<'BASH'`.
+1. **A glob with no match is fatal.** `for d in /usr/lib/jvm/*17*` aborts the whole loop if the pattern matches nothing, other candidates included. An unquoted `?` in a URL too: always `curl "…/settings.public?count=0"`. Pass patterns to `find -name "…"`, never to the shell.
+2. **An unquoted variable is not word-split.** `for id in $IDS` iterates **once** with the whole string. `$(…)` is split. To loop over a list: `bash -s <<'BASH'`.
+3. **A pipe hides the exit code.** `./gradlew … | tail` returns `tail`'s status (0), not the build's. It happened: a failed `assembleRelease` reported as "successful", a nonexistent APK installed on trust. For a build: redirect to a file and test `$?`, or `set -o pipefail`.
 
-3. **Un pipe masque le code de sortie.** `./gradlew … | tail` rend le statut de `tail` (0), pas celui du build — vécu : un `assembleRelease` en échec déclaré « réussi », APK inexistant installé de confiance. Pour un build : rediriger vers un fichier et tester `$?`, ou `set -o pipefail`.
+Distrust an assertion that passes while no side-effect line was printed: that is an empty test, not a green test.
 
-Se méfier d'une assertion qui passe alors qu'aucune ligne d'effet de bord ne s'est affichée : c'est un test vide, pas un test vert.
-
-## Environnement
+## Environment
 
 ```sh
 source apps/mobile/scripts/env.sh     # JAVA_HOME, ANDROID_HOME, PATH, ROOT_URL
 cd docker && docker compose up -d     # Rocket.Chat 8.5.1 + MongoDB 8.0 (replica set rs0)
-node scripts/seed.mjs                 # données de test, idempotent
+node scripts/seed.mjs                 # test data, idempotent
 ```
 
-- Linux, Node 24, **Temurin JDK 17.0.19** (suffisant : RN 0.86 fixe `sourceCompatibility 17`, Gradle 9.3.1 accepte 17→24). **JDK 21 non requis.**
-- SDK Android complet : build-tools 36.0.0, `platforms/android-36`, NDK 27.1.12297006 — exactement ce qu'exige le template RN 0.86.
-- AVD `duogo_test` (Pixel 7, android-36, image `google_apis` : **les Google Play Services y sont**, donc FCM y fonctionne).
-- **Aucun téléphone physique branché.** Le critère binaire du *kill gate* push (étape 2.5b) l'exige.
-- Builds Android **100 % locaux** : `expo prebuild` + `./gradlew`. **Jamais d'EAS.** iOS plus tard, sur un Mac.
+- Linux, Node 24, **Temurin JDK 17.0.19** (enough: RN 0.86 pins `sourceCompatibility 17`, Gradle 9.3.1 accepts 17→24). **JDK 21 not required.**
+- Full Android SDK: build-tools 36.0.0, `platforms/android-36`, NDK 27.1.12297006, exactly what the RN 0.86 template requires.
+- AVD `duogo_test` (Pixel 7, android-36, `google_apis` image: **Google Play Services are there**, so FCM works on it).
+- **No physical phone connected.** The binary criterion of the push *kill gate* (step 2.5b) requires one.
+- Android builds **100 % local**: `expo prebuild` + `./gradlew`. **Never EAS.** iOS later, on a Mac.
 
-## Contraintes non négociables
+## Non-negotiable constraints
 
-- **Composants natifs par défaut.** Interdits fermes : tout kit UI (NativeBase, Tamagui, gluestack, RN Paper), toute **WebView** — une seule exception, bornée : l'écran d'appel Jitsi (`apps/mobile/app/appel/[callId].tsx`), origine verrouillée, consignée dans `ROADMAP.md` §4.2 —, `react-native-markdown-display`, et **`@gorhom/bottom-sheet`** — les bottom sheets sont natifs via `react-native-screens` (`presentation: 'formSheet'`). Toute dépendance UI se justifie dans le commit, contre `ROADMAP.md` §4.2.
-- **Modules natifs par défaut, pas de polyfill pur JS.** Pour tout calcul lourd (crypto, compression, image), préférer un module natif (JSI/Nitro) à une implé pur JS. L'E2EE passe par `react-native-quick-crypto` (API `node:crypto` native OpenSSL) : `apps/mobile/lib/e2e/crypto.ts` importe `crypto`/`buffer`, Metro les alias vers quick-crypto (`apps/mobile/metro.config.js`) — mêmes imports résolus vers `node:crypto` sous les tests Node. Un module natif exige un **rebuild du dev-client** (`expo prebuild` + `./gradlew`) — un simple reload Metro ne suffit pas.
-- `android/` et `ios/` sont **gitignorés** (CNG). Toute personnalisation native passe par un config plugin : en SDK 57, `expo prebuild` efface et régénère par défaut.
-- **Aucun secret dans le dépôt.** `.env`, `.env.local`, `google-services.json`, JSON de compte de service. Des `.example` les documentent.
-- TypeScript strict, zéro `any` implicite. `npx tsc --noEmit` fait partie de chaque critère de sortie `[code]`.
-- **New Architecture obligatoire** depuis RN 0.82 : `newArchEnabled=false` n'a plus aucun effet. Ne pas la présenter comme un filet.
+- **Native components by default.** Firmly forbidden: any UI kit (NativeBase, Tamagui, gluestack, RN Paper), any **WebView** (one single bounded exception: the Jitsi call screen, `apps/mobile/app/call/[callId].tsx`, locked origin, recorded in `ROADMAP.md` §4.2), `react-native-markdown-display`, and **`@gorhom/bottom-sheet`**: bottom sheets are native through `react-native-screens` (`presentation: 'formSheet'`). Every UI dependency is justified in its commit, against `ROADMAP.md` §4.2.
+- **Native modules by default, no pure-JS polyfill.** For any heavy computation (crypto, compression, image), prefer a native module (JSI/Nitro) to a pure-JS implementation. E2EE goes through `react-native-quick-crypto` (native OpenSSL `node:crypto` API): `apps/mobile/lib/e2e/crypto.ts` imports `crypto`/`buffer`, Metro aliases them to quick-crypto (`apps/mobile/metro.config.js`), the same imports resolving to `node:crypto` under the Node tests. A native module requires a **dev-client rebuild** (`expo prebuild` + `./gradlew`); a simple Metro reload is not enough.
+- `android/` and `ios/` are **gitignored** (CNG). Every native customisation goes through a config plugin: in SDK 57, `expo prebuild` wipes and regenerates by default.
+- **No secret in the repo.** `.env`, `.env.local`, `google-services.json`, service-account JSON. `.example` files document them.
+- Strict TypeScript, zero implicit `any`. `npx tsc --noEmit` is part of every `[code]` exit criterion.
+- **New Architecture mandatory** since RN 0.82: `newArchEnabled=false` no longer has any effect. Do not present it as a safety net.
 
-## Faits sur Rocket.Chat qu'un résumé ne doit pas perdre
+## Rocket.Chat facts a summary must not lose
 
-Serveur cible : `https://chat.barrut.me`, **version 8.5** (LTS). Le Docker local est épinglé dessus, pas sur la 8.6.
+Target server: `https://chat.barrut.me`, **version 8.5** (LTS). The local Docker is pinned to it, not to 8.6.
 
-- **`POST /api/v1/rooms.upload` a été SUPPRIMÉ en 8.0.0.** L'upload se fait en deux temps : `rooms.media/:rid` puis `rooms.mediaConfirm/:rid/:fileId`. `rooms.media` seul ne poste aucun message — l'oublier laisse un fichier orphelin.
-- **Rejouer `rooms.mediaConfirm` sur le même `fileId` est INDÉTERMINÉ — et les deux issues sont mauvaises** (sondé sur le banc 8.5, 29/07/2026, deux fois, résultats opposés) :
-  - **rejeu immédiat** → le serveur poste un SECOND message (l'historique en porte bien deux) mais répond **200 en rendant le PREMIER**, légende comprise. Un client qui se fie à la réponse croit à une confirmation idempotente alors qu'il vient de créer un doublon ;
-  - **rejeu différé** (quelques minutes) → **`[invalid-file]`**, un refus franc. Traité comme un échec ordinaire, il affiche « non envoyé » sur un fichier pourtant livré.
+- **`POST /api/v1/rooms.upload` was REMOVED in 8.0.0.** Upload happens in two steps: `rooms.media/:rid` then `rooms.mediaConfirm/:rid/:fileId`. `rooms.media` alone posts no message; forgetting the second step leaves an orphaned file.
+- **Replaying `rooms.mediaConfirm` on the same `fileId` is UNDEFINED, and both outcomes are bad** (probed on the 8.5 bench, 2026-07-29, twice, opposite results):
+  - **immediate replay** → the server posts a SECOND message (the history does carry two) but answers **200 returning the FIRST**, caption included. A client trusting the response believes in an idempotent confirmation while it has just created a duplicate;
+  - **delayed replay** (a few minutes) → **`[invalid-file]`**, a clean refusal. Treated as an ordinary failure, it shows "not sent" on a file that was in fact delivered.
 
-  Il n'existe donc AUCUNE réponse serveur exploitable : la déduplication doit être entièrement locale, sur le `file_id` persisté (`televersements.file_id`, chantier 7), et le client doit s'assurer que sa base SAIT avant de trancher — d'où le rattrapage ciblé du salon quand elle est muette. Et comme `mediaConfirm` refuse toute clé en trop (`additionalProperties: false`), un `_id` client est exclu.
-- **Les appels de méthodes DDP sont dépréciés** (8.0), retrait en 9.0. **REST pour agir, DDP pour écouter.** Notre client DDP maison n'a besoin que de `connect`, `login`, `sub`, `unsub` et du routage des événements. Pas de `call`.
-- **Un message DDP hors séquence reçoit `msg: 'error'`, JAMAIS la réponse attendue** (sondé sur 8.5.1 pour `ping`, `sub` et `method`) : `{"msg":"error","reason":"Must connect first","offendingMessage":{"msg":"ping","id":"v1"}}`. `offendingMessage` **porte l'`id` fautif**, donc on peut rejeter la bonne attente — sans ce cas, elle pend jusqu'à son délai et son échec est mis sur le compte de la socket (c'est ce qui rendait la sonde de vie prématurée destructrice, chantier 8). En revanche l'état **`connecte`** — handshake fait, `login` pas encore répondu — **répond bien un `pong`** : il est sondable.
-- **Un 401 veut dire « non authentifié », et RIEN D'AUTRE** (sondé sur 8.5.1, 30/07/2026). C'est ce qui autorise une déconnexion automatique sur 401 sans éjecter l'utilisateur à tort. Tout le reste passe par d'autres statuts : **permission manquante → 403** (`error-unauthorized`) ; **exclu du salon ou salon inexistant → 400** (`error-not-allowed`, `error-room-not-found`) ; **2FA exigée → 400** (`totp-required`) ; **code 2FA faux → 400** (`totp-invalid`, et non 401 — sans quoi une faute de frappe détruirait la session). Corps exact d'un jeton révoqué : `{"success":false,"error":"You must be logged in to do this.","status":"error"}`.
-  - **Exception : `/api/v1/login` mappe TOUS ses échecs sur 401**, avec une enveloppe Rocket.Chat parfaite et le même `error: "Unauthorized"` — jeton de reprise bidon, corps vide, utilisateur inexistant, mot de passe faux sont indistinguables. Un client qui révoque sur 401 DOIT donc écarter les appels anonymes (le login, mais aussi `reprendreSession`, dont le jeton voyage dans le corps), sinon une saisie ratée efface la session en cours.
-  - **« Du JSON » ne prouve pas « du Rocket.Chat »** : un reverse-proxy ou une passerelle répond volontiers `401 {"message":"Unauthorized"}` ou du HTML. Exiger une marque de l'enveloppe (`success`, `status`, `errorType`) avant de croire au statut — voir `reponseComprise` dans `apps/mobile/lib/rest.ts`.
-- **Trois formes internes d'expo dont dépend la voie push native** (lues dans le code d'expo, jamais devinées — elles n'ont aucune garantie d'API) :
-  - `Notifications.dismissNotificationAsync` accepte l'identifiant `expo-notifications://foreign_notifications?[tag=…&]id=<entier>`, que `ExpoPresentationDelegate.parseNotificationIdentifier` traduit en `NotificationManagerCompat.cancel(tag, id)`. C'est le SEUL pont pour retirer depuis JS une notification postée par notre Kotlin — dont l'id est `rid.hashCode()`, sans tag (`apps/mobile/lib/notificationId.ts`) ;
-  - expo-secure-store range ses entrées dans les SharedPreferences `SecureStore` sous la clé `"<keychainService>-<clé>"`, `keychainService` valant `key_v1` par défaut (`SecureStoreModule.createKeychainAwareKey`) : le natif lit donc `key_v1-langue-preferee` comme il lit `key_v1-session-<condensé>` ;
-  - expo-router FUSIONNE les query params d'un lien profond dans les params de route (`getStateFromPath-forks.parseQueryParams`) : `rocketvibe://salon/<rid>?host=…` arrive tel quel dans `useLocalSearchParams`. C'est ce qui porte le deep-link multi-serveur.
-- **`GET /api/info` non authentifié rend la version MINEURE seulement** (`{"version":"8.5", …, "success":true}` sur un serveur 8.5.1), dans un corps d'environ 15 Ko dont l'essentiel est un JWT `supportedVersions`. Il vit **hors de `/api/v1/`** : `ClientRest` l'atteint par l'option `horsApiV1`, ce qui lui donne le délai maximal — sans quoi une requête pendante bloque l'écran de connexion à vie.
-- `@rocket.chat/ddp-client` est techniquement parfait mais livré **sans champ `license`**, avec un `LICENSE` Enterprise Edition. On écrit le nôtre, depuis la spec DDP. **Ne pas recopier son code.** `@rocket.chat/message-parser` est MIT, lui.
-- `MONGO_OPLOG_URL` **n'existe plus** depuis 8.0.0 (change streams). Le replica set reste obligatoire.
-- **Push** : le gateway officiel ne route que vers les app-ids officielles. Sur un bundle serveur d'origine, il faut `Push_enable_gateway=false` (le choix est global : les applis officielles perdent alors leur push) ; le bundle patché par `docker/patch-push.mjs` route par `appName` et permet de laisser le gateway à `true`, branche pas encore vérifiée sur `chat.barrut.me` (`docs/PUSH.md`). Dans les deux cas, le JSON d'un compte de service Firebase dans `Push_google_api_credentials`. Rocket.Chat parle **FCM HTTP v1** seulement (`Push_UseLegacy` survit en 8.5 comme réglage caché que rien ne lit, voir `docs/PUSH.md`). Le workspace cible **est enregistré sur RC Cloud** (`cloudWorkspaceId` présent).
-- **Piège du spike push** : Rocket.Chat ne notifie **que les utilisateurs hors ligne**, et par défaut **uniquement sur DM ou mention**. Un message de canal ordinaire ne déclenche rien, quelle que soit la configuration.
-- **Indicateur de saisie** : `stream-notify-room/<rid>/user-activity`. Pas `/typing`, qui est déprécié.
-- `chat.syncMessages` traite **un salon à la fois** et le REST est rate-limité (**10 appels/min**, mesuré : le 11ᵉ répond 429 et notre client dort jusqu'au reset, plafonné à 30 s). Ne pas boucler sur tous les salons à la reconnexion. Le mode curseur exige `type` : `UPDATED` et `DELETED` sont **deux requêtes**, le serveur refuse de les combiner (`error-param-required`).
-- **`chat.syncMessages?type=UPDATED` est LENT sur un gros salon** : 3 à 4 s mesurées sur `chat.barrut.me` pour répondre « rien de neuf » (0 document), contre 22 ms sur le banc à 3 000 messages. L'index est `{rid, ts, _updatedAt}` : filtrer sur `_updatedAt` seul oblige le serveur à trier tout le salon. Rien côté client ne l'accélère — la seule issue est de ne pas l'appeler (voir `apps/mobile/ui/salonChaud.ts`).
-- **Un seul stream couvre TOUS les salons : `stream-room-messages` avec la clé `__my_messages__`** (vérifié sur le banc 8.5, et présent dans le bundle serveur comme dans les types de `@rocket.chat/ddp-client`). C'est ce que fait l'app officielle. Il livre les **nouveaux messages ET les éditions** (`editedAt`) de tous les salons de l'utilisateur, sans en ouvrir aucun — mais **pas les suppressions**, qui restent sur `stream-notify-room/<rid>/deleteMessage`, un abonnement PAR salon. Le bureau s'y abonne (`MY_MESSAGES`, `apps/desktop/crates/rv-core/src/session.rs`). Côté mobile, piste non retenue à ce jour : elle remplacerait le LRU de `apps/mobile/ui/salonChaud.ts` par une ligne dans `souscriptionsInitiales`, au prix de recevoir en continu le trafic des 25 salons (batterie, données).
-- **Rejouer un `_id` client déjà accepté sur `chat.sendMessage` répond 400** (`Cannot read properties of undefined (reading 'starred')`), pas un succès idempotent — vérifié sur 8.5. Aucun doublon n'est créé, mais la réponse ne distingue pas « déjà livré » de « refusé » : confirmer par `chat.getMessage` avant de déclarer l'échec (voir `apps/mobile/lib/envoi.ts`).
-- **Avatars : l'URL ne bouge que si on la fait bouger.** `/avatar/<pseudo>` répond `Cache-Control: public, max-age=3600` et **aucun `ETag` HTTP** (sondé sur 8.5) ; le cache image d'Android (Fresco) fige donc l'URI à vie. La version de la photo vit dans `avatarETag`, qu'il faut ajouter EN QUERY (le serveur ignore le paramètre) — sinon une photo changée ne s'affiche jamais. Sources, dans l'ordre de fraîcheur : `stream-notify-logged` / **`updateAvatar`** → `args: [{username, etag}]` pour un utilisateur (jamais l'uid !), `[{rid, etag}]` pour un salon ; `me` (au raccordement, porte `avatarETag`) ; `users.info` et le document Rooms (`avatarETag`, ABSENT s'il n'y a pas de photo — ne jamais l'écraser par null). À la SUPPRESSION (`users.resetAvatar`), l'événement arrive **sans etag** : poser un marqueur (`AVATAR_SANS_PHOTO`), sans quoi l'URL retombe sur sa forme d'avant, celle que le cache sert avec l'ancienne photo.
-- **`/file-upload/…` répond sans `Content-Length`** (transfert chunked, constaté sur `chat.barrut.me` le 2026-09-23) : une progression de téléchargement n'a aucun total côté réponse. Le poids est dans la pièce jointe du message — `size` (fichier), `image_size`, `video_size`, `audio_size` (lus dans le code d'envoi 8.5) — voir `fractionTelechargee` dans `apps/mobile/lib/fichierJoint.ts`.
-- **Un changement de `name` (nom affiché) n'est PAS diffusé** : ni `Users:NameChanged`, ni `rooms-changed` sur 8.5 (sondé). Seuls l'avatar et le pseudo se propagent en direct.
+  So there is NO usable server answer: deduplication must be entirely local, on the persisted `file_id` (`uploads.file_id`, workstream 7), and the client must make sure its database KNOWS before deciding, hence the targeted room catch-up when it is silent. And since `mediaConfirm` refuses any extra key (`additionalProperties: false`), a client `_id` is ruled out.
+- **DDP method calls are deprecated** (8.0), removal in 9.0. **REST to act, DDP to listen.** Our home-made DDP client only needs `connect`, `login`, `sub`, `unsub` and event routing. No `call`.
+- **An out-of-sequence DDP message gets `msg: 'error'`, NEVER the expected answer** (probed on 8.5.1 for `ping`, `sub` and `method`): `{"msg":"error","reason":"Must connect first","offendingMessage":{"msg":"ping","id":"v1"}}`. `offendingMessage` **carries the offending `id`**, so the right pending call can be rejected; without that case it hangs until its timeout and its failure is blamed on the socket (that is what made the premature liveness probe destructive, workstream 8). On the other hand the **`connected`** state (handshake done, `login` not answered yet) **does answer a `pong`**: it can be probed.
+- **A 401 means "not authenticated", and NOTHING ELSE** (probed on 8.5.1, 2026-07-30). That is what allows an automatic logout on 401 without wrongly ejecting the user. Everything else uses other statuses: **missing permission → 403** (`error-unauthorized`); **excluded from the room or nonexistent room → 400** (`error-not-allowed`, `error-room-not-found`); **2FA required → 400** (`totp-required`); **wrong 2FA code → 400** (`totp-invalid`, not 401, otherwise a typo would destroy the session). Exact body for a revoked token: `{"success":false,"error":"You must be logged in to do this.","status":"error"}`.
+  - **Exception: `/api/v1/login` maps ALL its failures to 401**, with a perfect Rocket.Chat envelope and the same `error: "Unauthorized"`: bogus resume token, empty body, nonexistent user, wrong password are indistinguishable. A client that revokes on 401 MUST therefore leave out anonymous calls (login, but also `resumeSession`, whose token travels in the body), otherwise a failed entry wipes the current session.
+  - **"JSON" does not prove "Rocket.Chat"**: a reverse proxy or a gateway readily answers `401 {"message":"Unauthorized"}` or HTML. Require a mark of the envelope (`success`, `status`, `errorType`) before believing the status: see `understoodResponse` in `apps/mobile/lib/rest.ts`.
+- **Three internal expo shapes the native push path depends on** (read in expo's code, never guessed; they carry no API guarantee):
+  - `Notifications.dismissNotificationAsync` accepts the identifier `expo-notifications://foreign_notifications?[tag=…&]id=<integer>`, which `ExpoPresentationDelegate.parseNotificationIdentifier` translates into `NotificationManagerCompat.cancel(tag, id)`. It is the ONLY bridge to remove from JS a notification posted by our Kotlin, whose id is `rid.hashCode()`, with no tag (`apps/mobile/lib/notificationId.ts`);
+  - expo-secure-store stores its entries in the `SecureStore` SharedPreferences under the key `"<keychainService>-<key>"`, `keychainService` being `key_v1` by default (`SecureStoreModule.createKeychainAwareKey`): native code therefore reads `key_v1-preferred-language` (then the pre-0016 `key_v1-langue-preferee`) the same way it reads `key_v1-session-<digest>`;
+  - expo-router MERGES a deep link's query params into the route params (`getStateFromPath-forks.parseQueryParams`): `rocketvibe://room/<rid>?host=…` arrives as is in `useLocalSearchParams`. That is what carries the multi-server deep link (an old `salon/` link is rewritten by `app/+native-intent.tsx`).
+- **Unauthenticated `GET /api/info` returns the MINOR version only** (`{"version":"8.5", …, "success":true}` on an 8.5.1 server), in a body of about 15 KB most of which is a `supportedVersions` JWT. It lives **outside `/api/v1/`**: `RestClient` reaches it through the `outsideApiV1` option, which gives it the maximum timeout; otherwise a hanging request blocks the login screen forever.
+- `@rocket.chat/ddp-client` is technically perfect but ships **without a `license` field**, with an Enterprise Edition `LICENSE`. We write our own, from the DDP spec. **Do not copy its code.** `@rocket.chat/message-parser` is MIT.
+- `MONGO_OPLOG_URL` **no longer exists** since 8.0.0 (change streams). The replica set remains mandatory.
+- **Push**: the official gateway only routes to the official app ids. On a stock server bundle, `Push_enable_gateway=false` is required (the choice is global: the official apps then lose their push); the bundle patched by `docker/patch-push.mjs` routes by `appName` and lets the gateway stay `true`, a path not yet verified on `chat.barrut.me` (`docs/PUSH.md`). In both cases, the JSON of a Firebase service account goes into `Push_google_api_credentials`. Rocket.Chat speaks **FCM HTTP v1** only (`Push_UseLegacy` survives in 8.5 as a hidden setting nothing reads, see `docs/PUSH.md`). The target workspace **is registered with RC Cloud** (`cloudWorkspaceId` present).
+- **Push spike trap**: Rocket.Chat notifies **only offline users**, and by default **only on DM or mention**. An ordinary channel message triggers nothing, whatever the configuration.
+- **Typing indicator**: `stream-notify-room/<rid>/user-activity`. Not `/typing`, which is deprecated.
+- `chat.syncMessages` handles **one room at a time** and REST is rate-limited (**10 calls/min**, measured: the 11th answers 429 and our client sleeps until the reset, capped at 30 s). Do not loop over all rooms on reconnect. Cursor mode requires `type`: `UPDATED` and `DELETED` are **two requests**, the server refuses to combine them (`error-param-required`).
+- **`chat.syncMessages?type=UPDATED` is SLOW on a big room**: 3 to 4 s measured on `chat.barrut.me` to answer "nothing new" (0 documents), against 22 ms on the bench with 3,000 messages. The index is `{rid, ts, _updatedAt}`: filtering on `_updatedAt` alone forces the server to sort the whole room. Nothing on the client side speeds it up; the only way out is not to call it (see `apps/mobile/ui/hotRooms.ts`).
+- **One stream covers ALL rooms: `stream-room-messages` with the key `__my_messages__`** (checked on the 8.5 bench, and present in the server bundle as in the types of `@rocket.chat/ddp-client`). That is what the official app does. It delivers **new messages AND edits** (`editedAt`) of all the user's rooms, without opening any of them, but **not deletions**, which stay on `stream-notify-room/<rid>/deleteMessage`, one subscription PER room. The desktop subscribes to it (`MY_MESSAGES`, `apps/desktop/crates/rv-core/src/session.rs`). On mobile, a lead not taken so far: it would replace the LRU of `apps/mobile/ui/hotRooms.ts` with one line in `initialSubscriptions`, at the price of receiving the traffic of the 25 rooms continuously (battery, data).
+- **Replaying a client `_id` already accepted by `chat.sendMessage` answers 400** (`Cannot read properties of undefined (reading 'starred')`), not an idempotent success, checked on 8.5. No duplicate is created, but the answer does not tell "already delivered" from "refused": confirm with `chat.getMessage` before declaring failure (see `apps/mobile/lib/outbox.ts`).
+- **Avatars: the URL only moves if we move it.** `/avatar/<username>` answers `Cache-Control: public, max-age=3600` and **no HTTP `ETag`** (probed on 8.5); Android's image cache (Fresco) therefore freezes the URI for life. The photo's version lives in `avatarETag`, which must be added AS A QUERY (the server ignores the parameter), otherwise a changed photo never shows. Sources, by freshness: `stream-notify-logged` / **`updateAvatar`** → `args: [{username, etag}]` for a user (never the uid!), `[{rid, etag}]` for a room; `me` (at connection setup, carries `avatarETag`); `users.info` and the Rooms document (`avatarETag`, ABSENT when there is no photo: never overwrite it with null). On DELETION (`users.resetAvatar`), the event arrives **without an etag**: set a marker (`AVATAR_NO_PHOTO`), otherwise the URL falls back to its earlier form, the one the cache serves with the old photo.
+- **`/file-upload/…` answers without `Content-Length`** (chunked transfer, seen on `chat.barrut.me` on 2026-09-23): a download progress has no total on the response side. The size is in the message's attachment: `size` (file), `image_size`, `video_size`, `audio_size` (read in the 8.5 send code). See `downloadedFraction` in `apps/mobile/lib/attachment.ts`.
+- **A `name` (display name) change is NOT broadcast**: neither `Users:NameChanged` nor `rooms-changed` on 8.5 (probed). Only the avatar and the username propagate live.
 
-### Le serveur cible, relevé sans authentification
+### The target server, surveyed without authentication
 
-2FA **active, TOTP seul** (pas d'email), repli mot de passe imposé. **Aucun OAuth, SAML, CAS ni LDAP** → pas de chantier SSO.
-`FileUpload_ProtectFiles = true` **et** `Accounts_AvatarBlockUnauthenticatedAccess = true` → fichiers *et* avatars exigent `rc_uid`/`rc_token`.
-`E2E_Enable = true`, `E2E_Allow_Unencrypted_Messages = false`, mais **un seul salon chiffré sur 25** (`p:laprivitude`). Les deux apps lisent et écrivent les salons chiffrés, fichiers compris (`apps/mobile/lib/e2e/`, `apps/desktop/crates/rv-core/src/e2e.rs`), une fois la clé déverrouillée par le mot de passe E2E ; avant, dégradation soignée (`ROADMAP.md` §6.6), car le serveur **rejette** un message en clair dans un salon chiffré (`error-not-allowed`). Ni création de salon chiffré, ni création de paire de clés.
-**Push « contenu masqué » ACTIF** (`Push_request_content_from_server` — Premium, défaut `true` sur workspace licencié, invisible dans `settings.public`) : chaque push ne porte qu'un `messageId`, **jamais le contenu** ; l'app le récupère par `push.get` authentifié à la réception, avec rattrapage WorkManager sur échec (`apps/mobile/plugins/with-fcm-deeplink.js`). On **garde** ce réglage (décision utilisateur 2026-07-16 : rien chez Google/Apple). `push.get` subit la rate-limit REST par défaut (10 req/min) : une rafale dégrade en « Nouveau message » avant rattrapage.
+2FA **enabled, TOTP only** (no email), password fallback enforced. **No OAuth, SAML, CAS or LDAP** → no SSO workstream.
+`FileUpload_ProtectFiles = true` **and** `Accounts_AvatarBlockUnauthenticatedAccess = true` → files *and* avatars require `rc_uid`/`rc_token`.
+`E2E_Enable = true`, `E2E_Allow_Unencrypted_Messages = false`, but **a single encrypted room out of 25** (`p:laprivitude`). Both apps read and write encrypted rooms, files included (`apps/mobile/lib/e2e/`, `apps/desktop/crates/rv-core/src/e2e.rs`), once the key is unlocked with the E2E password; before that, graceful degradation (`ROADMAP.md` §6.6), because the server **rejects** a plaintext message in an encrypted room (`error-not-allowed`). Neither encrypted-room creation nor key-pair creation.
+**Push "hidden content" ACTIVE** (`Push_request_content_from_server`, Premium, default `true` on a licensed workspace, invisible in `settings.public`): each push carries only a `messageId`, **never the content**; the app fetches it with an authenticated `push.get` on receipt, with a WorkManager catch-up on failure (`apps/mobile/plugins/with-fcm-deeplink.js`). We **keep** this setting (user decision 2026-07-16: nothing at Google/Apple). `push.get` is subject to the default REST rate limit (10 req/min): a burst degrades to "New message" before the catch-up.

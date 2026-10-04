@@ -63,7 +63,7 @@ npm start                   # Metro only (expo start --dev-client)
 - `google-services.json` must sit in `apps/mobile/` (referenced by `app.json`), its `package_name` equal to `com.rocketvibe.app`, or the GMS Gradle plugin refuses to build.
 - Cleartext HTTP is allowed only in the debug variant (Expo's generated `src/debug/AndroidManifest.xml`). A release APK cannot reach `http://…:3000`: use a debug build and Metro against the local server.
 - Release: `source scripts/env.sh && cd android && ./gradlew assembleRelease`, then `adb install -r app/build/outputs/apk/release/app-release.apk`. `plugins/with-signature-release.js` signs with the app's own key from `RV_KEYSTORE*` and makes any Release task fail when `RV_KEYSTORE` is empty, rather than falling back to the debug key (an APK signed with another key will not install over the previous one).
-- Checks: `npx tsc --noEmit` (or `npm run typecheck`), `npm run lint`, `npm test`. `npm run db:generate` regenerates Drizzle migrations; `npm run emojis:generer` the emoji table.
+- Checks: `npx tsc --noEmit` (or `npm run typecheck`), `npm run lint`, `npm test`. `npm run db:generate` regenerates Drizzle migrations; `npm run emojis:generate` the emoji table.
 - iOS has never been compiled; it is prepared for `npx expo prebuild --platform ios` on a Mac (see `docs/DEV.md`).
 
 Pipes hide exit codes in zsh scripts: for a Gradle build, redirect to a file and test `$?`, or `set -o pipefail`.
@@ -104,7 +104,7 @@ Path filters do not apply to tag pushes, so a release tag always builds. Maestro
 
 - `node scripts/version.mjs mobile|desktop [--tag <tag>]` prints the version. For mobile it fails unless `package.json` equals `app.json` and `android.versionCode == major*10000 + minor*100 + patch` (so each release installs over the last); for desktop it reads `[workspace.package] version`. With `--tag` the tag must be exactly `<app>-v<version>`.
 - `node scripts/changelog.mjs mobile|desktop <version>` prints that version's section of `apps/<app>/CHANGELOG.md` (Keep a Changelog) and fails if it is missing or empty.
-- Every user-visible change goes under `## [Non publié]` (mobile, in French) or `## [Unreleased]` (desktop, in English).
+- Every user-visible change goes under `## [Unreleased]` in that app's changelog, in English.
 
 ## Release flow
 

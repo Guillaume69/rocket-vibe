@@ -1,6 +1,6 @@
 # Message actions
 
-What a user can do to one message: react, reply (quote), reply in a thread, copy, share or download its file, edit, delete, pin and star, plus the room's lists of pinned and starred messages. Which actions are offered is decided by one pure function per app that mirrors the server's own checks; the server stays the authority and a wrongly offered action fails with its error. Mobile `lib/actionsMessage.ts` (`actionsPossibles`) and desktop `rv-core/src/actions.rs` (`possible_actions`, "ported from the Android app") apply the same rules.
+What a user can do to one message: react, reply (quote), reply in a thread, copy, share or download its file, edit, delete, pin and star, plus the room's lists of pinned and starred messages. Which actions are offered is decided by one pure function per app that mirrors the server's own checks; the server stays the authority and a wrongly offered action fails with its error. Mobile `lib/messageActions.ts` (`possibleActions`) and desktop `rv-core/src/actions.rs` (`possible_actions`, "ported from the Android app") apply the same rules.
 
 ## Which actions are offered
 
@@ -10,14 +10,14 @@ Inputs: the message (author, timestamp, system type, text, attachments, pinned, 
 - **React**: unless the room is read-only.
 - **Reply** (quote): unless read-only or **encrypted**, because the server builds the quote card from the text, which it cannot read there; one answers in a thread instead.
 - **Reply in thread**: unless read-only or already in a thread.
-- **Copy**: when there is text once the leading quote links are stripped (`texteACopier` / `copyable_text`).
+- **Copy**: when there is text once the leading quote links are stripped (`textToCopy` / `copyable_text`).
 - **Share** (mobile, text or file) and **Save / Download** (a file attachment, `title_link` first since `image_url` is only the thumbnail).
 - **Edit**: (`edit-message` permission, or my message and `Message_AllowEditing`) and within `Message_AllowEditing_BlockEditInMinutes` (0 = no limit). The time limit comes from **settings**, not permissions.
 - **Delete**: `force-delete-message`, or `Message_AllowDeleting` and (`delete-message`, or my message and `delete-own-message`) within `Message_AllowDeleting_BlockDeleteInMinutes`.
 - `bypass-time-limit-edit-and-delete` lifts both time limits.
 - **Pin / Unpin**: `Message_AllowPinning` and `pin-message`. **Star / Unstar**: `Message_AllowStarring`.
 
-Settings are read from `settings.public` with `count=0` (the `query` parameter is dead since 7.0). Mobile caches them per server base URL (`reglesParServeur` in `app/actions-message.tsx`, so a server switch never applies the old server's rules) and never caches a failure: offline it falls back to permissive rules for that opening. Desktop reads them once per session (`Session::settings`). Permissions come from `permissions.listAll` plus my global and room roles, read once per session; **when unknown**, only what a member may do on their own messages plus Pin is offered (`delete-own-message` and `pin-message` default to granted, the others to denied).
+Settings are read from `settings.public` with `count=0` (the `query` parameter is dead since 7.0). Mobile caches them per server base URL (`rulesByServer` in `app/message-actions.tsx`, so a server switch never applies the old server's rules) and never caches a failure: offline it falls back to permissive rules for that opening. Desktop reads them once per session (`Session::settings`). Permissions come from `permissions.listAll` plus my global and room roles, read once per session; **when unknown**, only what a member may do on their own messages plus Pin is offered (`delete-own-message` and `pin-message` default to granted, the others to denied).
 
 ## The calls
 
@@ -30,21 +30,21 @@ Settings are read from `settings.public` with `count=0` (the `query` parameter i
 | Star / Unstar | `chat.starMessage` / `chat.unStarMessage` `{messageId}` | |
 | Pinned / starred lists | `chat.getPinnedMessages` / `chat.getStarredMessages` `{roomId, count: 50}` | Newest first. |
 
-Mobile wraps them in `ActionsRC` (`fournisseurs/rocketchat/actions.ts`, behind the `ActionsFournisseur` interface so screens never name endpoints); desktop in free functions of `rv-core/src/actions.rs` called by `Session`.
+Mobile wraps them in `ActionsRC` (`providers/rocketchat/actions.ts`, behind the `ProviderActions` interface so screens never name endpoints); desktop in free functions of `rv-core/src/actions.rs` called by `Session`.
 
-**Footgun: `chat.pinMessage` does not broadcast the pinned message** on `stream-room-messages` (only the `message_pinned` system message arrives; unpin does broadcast). So the local state must be set by hand after success: mobile writes it (`majMarquesMessage`, `etoilesApres` in `lib/marques.ts`); desktop refetches the message with `chat.getMessage` and ingests it (`Session::refresh_message`). Stars are stored as the list of uids (`starred: [{_id}]`), "starred by me" decided at read time; reactions are keyed by shortcode with usernames, "mine" decided by username, since the server stores only usernames (`lib/reactions.ts`, `actions::reactions`).
+**Footgun: `chat.pinMessage` does not broadcast the pinned message** on `stream-room-messages` (only the `message_pinned` system message arrives; unpin does broadcast). So the local state must be set by hand after success: mobile writes it (`updateMessageMarks`, `starredAfter` in `lib/marks.ts`); desktop refetches the message with `chat.getMessage` and ingests it (`Session::refresh_message`). Stars are stored as the list of uids (`starred: [{_id}]`), "starred by me" decided at read time; reactions are keyed by shortcode with usernames, "mine" decided by username, since the server stores only usernames (`lib/reactions.ts`, `actions::reactions`).
 
 ## Mobile
 
-- A long press on a message row (with a haptic "pop") opens `app/actions-message.tsx`, a native bottom sheet (`presentation: 'formSheet'` from react-native-screens, fitted to content, capped at 80 % of the screen; bottom-sheet libraries are banned). It reads the message from SQLite by id; a message deleted in between shows "not found".
-- The six quick reactions (👍 ❤️ 😂 🎉 😮 🙏, sent as `+1`, `heart`, `joy`, `tada`, `open_mouth`, `pray`) show mine outlined; tapping one of mine removes it. Reaction pills under a message also toggle on tap (`ui/ligneMessage.tsx`), fire-and-forget: the stream echo rewrites `messages.reactions`.
+- A long press on a message row (with a haptic "pop") opens `app/message-actions.tsx`, a native bottom sheet (`presentation: 'formSheet'` from react-native-screens, fitted to content, capped at 80 % of the screen; bottom-sheet libraries are banned). It reads the message from SQLite by id; a message deleted in between shows "not found".
+- The six quick reactions (👍 ❤️ 😂 🎉 😮 🙏, sent as `+1`, `heart`, `joy`, `tada`, `open_mouth`, `pray`) show mine outlined; tapping one of mine removes it. Reaction pills under a message also toggle on tap (`ui/messageRow.tsx`), fire-and-forget: the stream echo rewrites `messages.reactions`.
 - **Edit** swaps the list for a text field with Cancel / Save in the same sheet. The result arrives through the stream.
-- **Delete** has no confirmation dialog. If `chat.delete` fails, `messageDisparuDuServeur` asks `chat.getMessage`: a 400 means the server no longer knows the message (deleted from another client while the app was closed), so purging the local row is the requested deletion. Any other outcome keeps the original error. Otherwise the row disappears through the `deleteMessage` stream.
+- **Delete** has no confirmation dialog. If `chat.delete` fails, `messageGoneFromServer` asks `chat.getMessage`: a 400 means the server no longer knows the message (deleted from another client while the app was closed), so purging the local row is the requested deletion. Any other outcome keeps the original error. Otherwise the row disappears through the `deleteMessage` stream.
 - **Copy** uses `expo-clipboard`. **Share** sends the text through the system share sheet, or downloads the file and shares the local copy; **Save** stores it in the gallery or Downloads. Both run in the background with progress on the message row ([uploads](uploads.md#downloads)).
-- **Reply** arms the quote target for the composer the sheet came from ([composer](composer.md#replies-quotes)); **Reply in thread** opens `/fil/<tmid or id>`.
-- A ref guards against double taps: two `routeur.back()` would pop the room too.
+- **Reply** arms the quote target for the composer the sheet came from ([composer](composer.md#replies-quotes)); **Reply in thread** opens `/thread/<tmid or id>`.
+- A ref guards against double taps: two `router.back()` would pop the room too.
 - Rows still in the outbox have no actions; their only actions are retry and discard.
-- **Pinned and starred lists**: `app/messages-marques.tsx`, two tabs, each loaded on first open (one request per tab per visit, the route being limited). The lists are ephemeral, rendered from the response and never written to the database. Tapping a message closes the screen and jumps to it in the room (`ui/sautMessage.ts`, `ui/amenerMessage.ts`, paging history back up to 4 pages from the oldest local message, never an isolated page that would leave a hidden gap); a thread reply opens its thread.
+- **Pinned and starred lists**: `app/marked-messages.tsx`, two tabs, each loaded on first open (one request per tab per visit, the route being limited). The lists are ephemeral, rendered from the response and never written to the database. Tapping a message closes the screen and jumps to it in the room (`ui/messageJump.ts`, `ui/bringMessage.ts`, paging history back up to 4 pages from the oldest local message, never an isolated page that would leave a hidden gap); a thread reply opens its thread.
 
 ## Desktop (GTK)
 
@@ -63,18 +63,18 @@ Same rule set in both apps. Desktop adds delete confirmation and Up-to-edit; mob
 
 ## Sources
 
-- apps/mobile/lib/actionsMessage.ts
-- apps/mobile/app/actions-message.tsx
-- apps/mobile/app/messages-marques.tsx
-- apps/mobile/fournisseurs/rocketchat/actions.ts
-- apps/mobile/lib/fournisseur.ts
-- apps/mobile/lib/marques.ts
+- apps/mobile/lib/messageActions.ts
+- apps/mobile/app/message-actions.tsx
+- apps/mobile/app/marked-messages.tsx
+- apps/mobile/providers/rocketchat/actions.ts
+- apps/mobile/lib/provider.ts
+- apps/mobile/lib/marks.ts
 - apps/mobile/lib/reactions.ts
 - apps/mobile/lib/permissions.ts
-- apps/mobile/ui/ligneMessage.tsx
-- apps/mobile/ui/actionsJointe.ts
-- apps/mobile/ui/sautMessage.ts
-- apps/mobile/ui/amenerMessage.ts
+- apps/mobile/ui/messageRow.tsx
+- apps/mobile/ui/attachmentActions.ts
+- apps/mobile/ui/messageJump.ts
+- apps/mobile/ui/bringMessage.ts
 - apps/desktop/crates/rv-core/src/actions.rs
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-gtk/src/actions_menu.rs

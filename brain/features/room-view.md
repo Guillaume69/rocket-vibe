@@ -19,13 +19,13 @@ The screen of one room: its history read from the local database and paged back 
 
 ## Mobile
 
-- **Screen.** `app/salon/[rid].tsx` (`EcranSalon`, then `Salon`). A `FlashList` with `inverted`: the query `ORDER BY horodatage DESC, id DESC LIMIT n` feeds it as is, and `onEndReached` (the visual top) loads the past. The secondary key `id` makes ties at the same millisecond deterministic. `maintainVisibleContentPosition` is disabled (its native correction fought the manual snap); an incoming message scrolls to the bottom only if it is mine or the user is within 120 px of it. The projection is throttled to 200 ms (`ui/donneesLissees.ts`) so a burst becomes one shift.
-- **Paging** (`chargerPlus`): first widen the local window by 50 (`setLimite`), then ask the server. `ui/paginationSalon.ts` encodes two lessons paid in 429s: only a message strictly older than the boundary proves progress (`pageARecule`), and a boundary that did not move after two pages stops paging (`avancerBorne`, `borneImmobile`). `passeEpuise` (past exhausted) latches, since FlashList v2 re-fires `onEndReached` on every data change.
-- **Opening.** The room's streams are subscribed from the provider's `souscriptionsSalon`; on leaving they are handed to `ui/salonChaud.ts` (hot rooms) instead of released, so a recently left room stays live. `rattraperSalon` runs on opening unless the room stayed covered; the 50-message history reloads only once per connection generation (`ui/salonsCharges.ts`).
-- **Projections**, all pure and tested: `ui/barreNonLus.ts` (`insererBarreNonLus`; data is newest-first and the list inverted, so the oldest unread is the last match), `ui/separateurJour.ts`, `ui/groupeMessages.ts` (`idsSuites`, `idsHeuresRepetees`).
-- **Mark as read.** Debounce 1.5 s plus a 10 s floor (`PLANCHER_LU_MS`): a pending call absorbs later arrivals instead of being re-armed, and is flushed at once when the screen closes or the app goes to background.
-- **Jumps.** From pinned or starred lists (`ui/sautMessage.ts`): `ui/amenerMessage.ts` brings the message into the local window, paging back from the oldest local message (at most 4 pages, never an isolated page around the target, which would leave a hidden gap), then the list scrolls to it and highlights it. `ui/retourAuPlusRecent.ts` shows a "latest messages" button once scrolled more than a screen away.
-- **Row.** `ui/ligneMessage.tsx` (`LigneMessage`, shared with the thread screen). `ContenuMessage` picks markdown (`arbreDuMessage` in `lib/markdown.ts`, which falls back to `parse()` from `@rocket.chat/message-parser`), a substitute for locked encrypted or empty messages, a system sentence (`texteSysteme`, `lib/messagesSysteme.ts`, sentences in `ui/messages.ts` keys `sys.*`) or `CarteAppel`. `ui/markdown.tsx` renders the tree to nested native `<Text>` (no WebView, no markdown library, per [decisions.md](../decisions.md)); `GardeRendu` is an error boundary per message, keyed on its content so an edit that fixes a malformed `md` re-renders. Mentions open the profile (`@all` and `@here` do not). `Citation` draws `message_link` attachments. `ui/carteLien.tsx` (`lib/apercuLien.ts`) and `ui/carteEmbed.tsx` (`lib/liensVideo.ts`) draw the cards. `ui/enTeteSalon.tsx` is the header.
+- **Screen.** `app/room/[rid].tsx` (`RoomScreen`, then `Room`). A `FlashList` with `inverted`: the query `ORDER BY ts DESC, id DESC LIMIT n` feeds it as is, and `onEndReached` (the visual top) loads the past. The secondary key `id` makes ties at the same millisecond deterministic. `maintainVisibleContentPosition` is disabled (its native correction fought the manual snap); an incoming message scrolls to the bottom only if it is mine or the user is within 120 px of it. The projection is throttled to 200 ms (`ui/smoothedData.ts`) so a burst becomes one shift.
+- **Paging** (`loadMore`): first widen the local window by 50 (`setLimit`), then ask the server. `ui/roomPagination.ts` encodes two lessons paid in 429s: only a message strictly older than the boundary proves progress (`pageMovedBack`), and a boundary that did not move after two pages stops paging (`advanceBound`, `boundIsStuck`). `passExhausted` (past exhausted) latches, since FlashList v2 re-fires `onEndReached` on every data change.
+- **Opening.** The room's streams are subscribed from the provider's `roomSubscriptions`; on leaving they are handed to `ui/hotRooms.ts` instead of released, so a recently left room stays live. `catchUpRoom` runs on opening unless the room stayed covered; the 50-message history reloads only once per connection generation (`ui/loadedRooms.ts`).
+- **Projections**, all pure and tested: `ui/unreadBar.ts` (`insertUnreadBar`; data is newest-first and the list inverted, so the oldest unread is the last match), `ui/daySeparator.ts`, `ui/messageGrouping.ts` (`continuationIds`, `repeatedTimeIds`).
+- **Mark as read.** Debounce 1.5 s plus a 10 s floor (`READ_FLOOR_MS`): a pending call absorbs later arrivals instead of being re-armed, and is flushed at once when the screen closes or the app goes to background.
+- **Jumps.** From pinned or starred lists (`ui/messageJump.ts`): `ui/bringMessage.ts` brings the message into the local window, paging back from the oldest local message (at most 4 pages, never an isolated page around the target, which would leave a hidden gap), then the list scrolls to it and highlights it. `ui/backToLatest.ts` shows a "latest messages" button once scrolled more than a screen away.
+- **Row.** `ui/messageRow.tsx` (`MessageRow`, shared with the thread screen). `MessageContent` picks markdown (`messageTree` in `lib/markdown.ts`, which falls back to `parse()` from `@rocket.chat/message-parser`), a substitute for locked encrypted or empty messages, a system sentence (`systemText`, `lib/systemMessages.ts`, sentences in `ui/messages.ts` keys `sys.*`) or `CallCard`. `ui/markdown.tsx` renders the tree to nested native `<Text>` (no WebView, no markdown library, per [decisions.md](../decisions.md)); `RenderGuard` is an error boundary per message, keyed on its content so an edit that fixes a malformed `md` re-renders. Mentions open the profile (`@all` and `@here` do not). `Quote` draws `message_link` attachments. `ui/linkCard.tsx` (`lib/linkPreview.ts`) and `ui/embedCard.tsx` (`lib/videoLinks.ts`) draw the cards. `ui/roomHeader.tsx` is the header.
 
 ## Desktop
 
@@ -40,29 +40,29 @@ The screen of one room: its history read from the local database and paged back 
 
 ## Sources
 
-- apps/mobile/app/salon/[rid].tsx
-- apps/mobile/ui/ligneMessage.tsx
+- apps/mobile/app/room/[rid].tsx
+- apps/mobile/ui/messageRow.tsx
 - apps/mobile/ui/markdown.tsx
-- apps/mobile/ui/enTeteSalon.tsx
-- apps/mobile/ui/groupeMessages.ts
-- apps/mobile/ui/separateurJour.ts
-- apps/mobile/ui/barreNonLus.ts
-- apps/mobile/ui/paginationSalon.ts
-- apps/mobile/ui/donneesLissees.ts
-- apps/mobile/ui/sautMessage.ts
-- apps/mobile/ui/amenerMessage.ts
-- apps/mobile/ui/retourAuPlusRecent.ts
-- apps/mobile/ui/salonChaud.ts
-- apps/mobile/ui/salonsCharges.ts
-- apps/mobile/ui/carteLien.tsx
-- apps/mobile/ui/carteEmbed.tsx
+- apps/mobile/ui/roomHeader.tsx
+- apps/mobile/ui/messageGrouping.ts
+- apps/mobile/ui/daySeparator.ts
+- apps/mobile/ui/unreadBar.ts
+- apps/mobile/ui/roomPagination.ts
+- apps/mobile/ui/smoothedData.ts
+- apps/mobile/ui/messageJump.ts
+- apps/mobile/ui/bringMessage.ts
+- apps/mobile/ui/backToLatest.ts
+- apps/mobile/ui/hotRooms.ts
+- apps/mobile/ui/loadedRooms.ts
+- apps/mobile/ui/linkCard.tsx
+- apps/mobile/ui/embedCard.tsx
 - apps/mobile/lib/markdown.ts
-- apps/mobile/lib/messagesSysteme.ts
-- apps/mobile/lib/apercuLien.ts
-- apps/mobile/lib/liensVideo.ts
-- apps/mobile/lib/saisie.ts
-- apps/mobile/lib/citation.ts
-- apps/mobile/fournisseurs/rocketchat/historique.ts
+- apps/mobile/lib/systemMessages.ts
+- apps/mobile/lib/linkPreview.ts
+- apps/mobile/lib/videoLinks.ts
+- apps/mobile/lib/typing.ts
+- apps/mobile/lib/quote.ts
+- apps/mobile/providers/rocketchat/history.ts
 - apps/desktop/crates/rv-core/src/timeline.rs
 - apps/desktop/crates/rv-core/src/markdown.rs
 - apps/desktop/crates/rv-core/src/parse.rs

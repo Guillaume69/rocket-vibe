@@ -1,4 +1,4 @@
-//! `rocketvibe://salon/<rid>?host=<server>`: the links the Android app's
+//! `rocketvibe://room/<rid>?host=<server>`: the links the Android app's
 //! notifications open, handled here too.
 
 use url::Url;
@@ -42,24 +42,32 @@ mod tests {
     #[test]
     fn parses_room_links() {
         assert_eq!(
-            parse("rocketvibe://salon/abc123?host=https%3A%2F%2Fchat.example.org%2F"),
+            parse("rocketvibe://room/abc123?host=https%3A%2F%2Fchat.example.org%2F"),
             Some(RoomLink { rid: "abc123".into(), host: Some("chat.example.org".into()) })
         );
         assert_eq!(
-            parse("rocketvibe://salon/r1?host=Chat.Example.org").unwrap().host.as_deref(),
+            parse("rocketvibe://room/r1?host=Chat.Example.org").unwrap().host.as_deref(),
             Some("chat.example.org")
         );
-        assert_eq!(parse("rocketvibe://salon/r1"), Some(RoomLink { rid: "r1".into(), host: None }));
-        assert_eq!(parse("rocketvibe://salon/"), None);
-        assert_eq!(parse("https://salon/r1"), None);
+        assert_eq!(parse("rocketvibe://room/r1"), Some(RoomLink { rid: "r1".into(), host: None }));
+        assert_eq!(parse("rocketvibe://room/"), None);
+        assert_eq!(parse("https://room/r1"), None);
         assert_eq!(parse("rocketvibe://other/r1"), None);
     }
 
     #[test]
+    fn still_parses_the_old_salon_links() {
+        assert_eq!(
+            parse("rocketvibe://salon/r1?host=x.org"),
+            Some(RoomLink { rid: "r1".into(), host: Some("x.org".into()) })
+        );
+    }
+
+    #[test]
     fn matches_the_server() {
-        let link = parse("rocketvibe://salon/r1?host=chat.example.org").unwrap();
+        let link = parse("rocketvibe://room/r1?host=chat.example.org").unwrap();
         assert!(fits(&link, "https://chat.example.org"));
         assert!(!fits(&link, "https://other.example.org"));
-        assert!(fits(&parse("rocketvibe://salon/r1").unwrap(), "https://anything.org"));
+        assert!(fits(&parse("rocketvibe://room/r1").unwrap(), "https://anything.org"));
     }
 }

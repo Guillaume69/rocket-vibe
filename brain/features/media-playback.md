@@ -4,7 +4,7 @@ How images, video and audio attachments, and YouTube, Dailymotion and Vimeo link
 
 ## Shared rules
 
-- **Protected files.** The target server has `FileUpload_ProtectFiles` on: every `/file-upload/...` read needs `rc_uid` and `rc_token` in the query. Both apps add them **only when the URL is on the session's own origin**. An attachment URL comes from a message, so ultimately from anyone (`chat.sendMessage` accepts arbitrary attachments); an off-origin link stays bare and a protected file then fails to load, which is the right failure (mobile `urlFichierProtege` in `lib/upload.ts`, desktop `media::protected_url` in `rv-core/src/media.rs`).
+- **Protected files.** The target server has `FileUpload_ProtectFiles` on: every `/file-upload/...` read needs `rc_uid` and `rc_token` in the query. Both apps add them **only when the URL is on the session's own origin**. An attachment URL comes from a message, so ultimately from anyone (`chat.sendMessage` accepts arbitrary attachments); an off-origin link stays bare and a protected file then fails to load, which is the right failure (mobile `protectedFileUrl` in `lib/upload.ts`, desktop `media::protected_url` in `rv-core/src/media.rs`).
 - **Which image.** Rocket.Chat stores a ~480 px thumbnail in `image_url` and the original in `title_link`. Both apps show the original when `title_link` is a server path, falling back to `image_url`, so an enlarged image is not pixelated. Layout: natural width clamped (desktop 120 to 360 px, mobile 120 px to the available width), height at the original's ratio, capped (desktop 300 px, mobile 400 px) and cropped with cover; `image_dimensions` describes the thumbnail but its ratio is the original's. The viewer shows the whole image.
 - **Link-preview images** (OpenGraph, oEmbed thumbnails, a link that is an image) are public URLs and load without the token.
 - **Video sites.** A link is recognised by pattern in the message text (YouTube, Dailymotion, Vimeo), so a card appears even before the server described the link; its title and author come from the server's `urls[]` metadata matched by video id (YouTube through oEmbed, the others through OpenGraph). At most 3 per message. These links are skipped by the generic link previews so a message never carries two cards. Vimeo has no predictable thumbnail.
@@ -13,11 +13,11 @@ How images, video and audio attachments, and YouTube, Dailymotion and Vimeo link
 
 ## Mobile
 
-- **Images.** `ImageJointe` in `ui/ligneMessage.tsx`. A tap opens `ui/visionneuse.tsx`, a full-screen viewer in a native `Modal` with its own `GestureHandlerRootView` (a `Modal` is a separate native window the root gesture handler does not cover): pinch to zoom, pan once zoomed, double tap to zoom in or out, swipe down to close, and a save button (`enregistrerEnFond` in `ui/actionsJointe.ts`). The protected URL is kept in context state and **never passed as an expo-router route parameter**, which would put a secret in a serialisable URL. Animated GIFs play through Fresco's animated-GIF support.
-- **Video attachments.** `ui/lecteurVideo.tsx` (`expo-video`). The message shows a themed card (aurora banner, play button, download progress overlay `BarreTransfert`); a tap opens a full-screen `Modal` with native controls. The player is created only when the modal mounts and released when it closes: `useVideoPlayer` is a costly native instance and a room can hold several videos. Video attachments must be tested before the generic file branch, since they also carry `title_link`.
-- **Audio attachments and voice messages.** `ui/lecteurAudio.tsx` (`expo-audio`) plays in place: play/pause, a tappable progress bar and a "rainbow comet" visualiser fed by `useAudioSampleListener`, a Hann-windowed FFT over log-spaced bands with high-band lift, automatic gain and per-bar smoothing. On Android the sample tap needs `RECORD_AUDIO` (already granted for recording); without it playback still works with idle bars. The player exists only once "play" is pressed (`LecteurAudioActif`): created per visible message, it buffered every voice note on screen (about 20 MB for twenty notes heard zero seconds). One player at a time, coordinated at module level. See [voice-messages.md](voice-messages.md).
-- **Video-site cards.** `ui/carteEmbed.tsx` with `lib/liensVideo.ts` (`detecterLiensVideo`, `idVideo`, `estLienVideo`) and `metasVideo` in `lib/apercuLien.ts`. A card with the public thumbnail (rebuilt from the id for YouTube and Dailymotion, an aurora banner otherwise), a dark veil, a play button, and the title and channel when known. A tap calls `ouvrirLienExterne`, which hands the URL to the native app or the browser. Embedded playback would need a WebView, forbidden outside the call screen ([decisions.md](../decisions.md), ROADMAP section 4.2). The pattern requires a host boundary, so `notyoutube.com/watch?v=...` does not match.
-- **Encrypted media.** `JointeChiffree` decrypts images, audio and video into the cache before showing them; above 25 MB (`APERCU_CHIFFRE_MAX`) a medium is not decrypted for preview and stays a card to share or save.
+- **Images.** `AttachedImage` in `ui/messageRow.tsx`. A tap opens `ui/imageViewer.tsx`, a full-screen viewer in a native `Modal` with its own `GestureHandlerRootView` (a `Modal` is a separate native window the root gesture handler does not cover): pinch to zoom, pan once zoomed, double tap to zoom in or out, swipe down to close, and a save button (`saveInBackground` in `ui/attachmentActions.ts`). The protected URL is kept in context state and **never passed as an expo-router route parameter**, which would put a secret in a serialisable URL. Animated GIFs play through Fresco's animated-GIF support.
+- **Video attachments.** `ui/videoPlayer.tsx` (`expo-video`). The message shows a themed card (aurora banner, play button, download progress overlay `TransferBar`); a tap opens a full-screen `Modal` with native controls. The player is created only when the modal mounts and released when it closes: `useVideoPlayer` is a costly native instance and a room can hold several videos. Video attachments must be tested before the generic file branch, since they also carry `title_link`.
+- **Audio attachments and voice messages.** `ui/audioPlayer.tsx` (`expo-audio`) plays in place: play/pause, a tappable progress bar and a "rainbow comet" visualiser fed by `useAudioSampleListener`, a Hann-windowed FFT over log-spaced bands with high-band lift, automatic gain and per-bar smoothing. On Android the sample tap needs `RECORD_AUDIO` (already granted for recording); without it playback still works with idle bars. The player exists only once "play" is pressed (`ActiveAudioPlayer`): created per visible message, it buffered every voice note on screen (about 20 MB for twenty notes heard zero seconds). One player at a time, coordinated at module level. See [voice-messages.md](voice-messages.md).
+- **Video-site cards.** `ui/embedCard.tsx` with `lib/videoLinks.ts` (`detectVideoLinks`, `videoId`, `isVideoLink`) and `videoMetas` in `lib/linkPreview.ts`. A card with the public thumbnail (rebuilt from the id for YouTube and Dailymotion, an aurora banner otherwise), a dark veil, a play button, and the title and channel when known. A tap calls `openExternalLink`, which hands the URL to the native app or the browser. Embedded playback would need a WebView, forbidden outside the call screen ([decisions.md](../decisions.md), ROADMAP section 4.2). The pattern requires a host boundary, so `notyoutube.com/watch?v=...` does not match.
+- **Encrypted media.** `EncryptedAttachment` decrypts images, audio and video into the cache before showing them; above 25 MB (`ENCRYPTED_PREVIEW_MAX`) a medium is not decrypted for preview and stays a card to share or save.
 
 ## Desktop
 
@@ -34,19 +34,19 @@ How images, video and audio attachments, and YouTube, Dailymotion and Vimeo link
 
 ## Sources
 
-- apps/mobile/ui/ligneMessage.tsx
-- apps/mobile/ui/visionneuse.tsx
-- apps/mobile/ui/lecteurVideo.tsx
-- apps/mobile/ui/lecteurAudio.tsx
-- apps/mobile/ui/carteEmbed.tsx
-- apps/mobile/ui/carteLien.tsx
-- apps/mobile/ui/actionsJointe.ts
-- apps/mobile/ui/barreTransfert.tsx
-- apps/mobile/ui/lienExterne.ts
-- apps/mobile/lib/liensVideo.ts
-- apps/mobile/lib/apercuLien.ts
+- apps/mobile/ui/messageRow.tsx
+- apps/mobile/ui/imageViewer.tsx
+- apps/mobile/ui/videoPlayer.tsx
+- apps/mobile/ui/audioPlayer.tsx
+- apps/mobile/ui/embedCard.tsx
+- apps/mobile/ui/linkCard.tsx
+- apps/mobile/ui/attachmentActions.ts
+- apps/mobile/ui/transferBar.tsx
+- apps/mobile/ui/externalLink.ts
+- apps/mobile/lib/videoLinks.ts
+- apps/mobile/lib/linkPreview.ts
 - apps/mobile/lib/upload.ts
-- apps/mobile/lib/fichierJoint.ts
+- apps/mobile/lib/attachment.ts
 - apps/desktop/crates/rv-core/src/media.rs
 - apps/desktop/crates/rv-core/src/animation.rs
 - apps/desktop/crates/rv-core/src/player.rs

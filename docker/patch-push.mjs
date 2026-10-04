@@ -1,26 +1,25 @@
 #!/usr/bin/env node
 /**
- * Génère le bundle serveur Rocket.Chat patché pour le push, à monter en volume.
+ * Generates the Rocket.Chat server bundle patched for push, to mount as a volume.
  *
- *   node docker/patch-push.mjs              # image lue dans docker/compose.yml
- *   node docker/patch-push.mjs <image:tag>  # image explicite (serveur de prod)
+ *   node docker/patch-push.mjs              # image read from docker/compose.yml
+ *   node docker/patch-push.mjs <image:tag>  # explicit image (prod server)
  *
- * Écrit `docker/patched/app-<tag>.js`. Le compose monte ce fichier par son tag :
- * changer RC_VERSION sans relancer ce script fait échouer le démarrage, au lieu
- * de monter un bundle d'une autre version.
+ * Writes `docker/patched/app-<tag>.js`. The compose file mounts it by its tag:
+ * changing RC_VERSION without rerunning this script makes startup fail, instead
+ * of mounting a bundle from another version.
  *
- * Deux retouches, chacune ancrée sur un extrait exact qui doit apparaître UNE
- * fois, sinon le script s'arrête sans rien écrire :
+ * Two patches, each anchored on an exact excerpt that must appear ONCE,
+ * otherwise the script stops without writing anything:
  *
- * 1. Routage par application : le gateway reste en service pour les applis
- *    officielles, nos jetons (`appName` = APP_NAME de lib/pushToken.ts) passent
- *    en natif, par nos identifiants Firebase. Sans ça, le choix est global au
- *    serveur, et le natif fait supprimer les jetons des applis officielles
- *    (SENDER_ID_MISMATCH).
- * 2. Bloc `apns` dans le message FCM : `mutable-content` réveille la
- *    Notification Service Extension iOS, `thread-id` groupe par salon.
+ * 1. Per-app routing: the gateway stays in service for the official apps, our
+ *    tokens (`appName` = APP_NAME from lib/pushToken.ts) go native, through our
+ *    Firebase credentials. Without it, the choice is server-wide, and native
+ *    gets the official apps' tokens deleted (SENDER_ID_MISMATCH).
+ * 2. `apns` block in the FCM message: `mutable-content` wakes the iOS
+ *    Notification Service Extension, `thread-id` groups by room.
  *
- * Les remplacements gardent le nombre de lignes : `app.js.map` reste aligné.
+ * The replacements keep the line count: `app.js.map` stays aligned.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -31,24 +30,24 @@ import { fileURLToPath } from 'node:url';
 
 const APP_NAME = 'rocket-vibe';
 const BUNDLE = '/app/bundle/programs/server/app/app.js';
-const ici = dirname(fileURLToPath(import.meta.url));
+const here = dirname(fileURLToPath(import.meta.url));
 
-const RETOUCHES = [
+const PATCHES = [
   {
-    nom: 'routage gateway par application',
-    avant: `            if (this.shouldUseGateway()) {
+    name: 'per-app gateway routing',
+    before: `            if (this.shouldUseGateway()) {
                 await this.sendNotificationGateway(app, notification, countApn, countGcm);`,
-    apres: `            if (this.shouldUseGateway() && app.appName !== '${APP_NAME}') {
+    after: `            if (this.shouldUseGateway() && app.appName !== '${APP_NAME}') {
                 await this.sendNotificationGateway(app, notification, countApn, countGcm);`,
   },
   {
-    nom: 'bloc apns du message FCM',
-    avant: `        data,
+    name: 'apns block of the FCM message',
+    before: `        data,
         android: {
             priority: 'HIGH'
         }
     };`,
-    apres: `        data,
+    after: `        data,
         apns: { payload: { aps: { 'mutable-content': 1, ...notification.notId && { 'thread-id': String(notification.notId) } } } },
         android: {
             priority: 'HIGH' }
@@ -60,14 +59,14 @@ function docker(...args) {
   return execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trim();
 }
 
-function imageDuCompose() {
-  const config = JSON.parse(docker('compose', '--project-directory', ici, 'config', '--format', 'json'));
+function composeImage() {
+  const config = JSON.parse(docker('compose', '--project-directory', here, 'config', '--format', 'json'));
   const image = config.services?.rocketchat?.image;
-  if (typeof image !== 'string') throw new Error('service rocketchat sans image dans le compose');
+  if (typeof image !== 'string') throw new Error('rocketchat service without an image in the compose file');
   return image;
 }
 
-function garantirImage(image) {
+function ensureImage(image) {
   try {
     docker('image', 'inspect', image);
   } catch {
@@ -75,43 +74,43 @@ function garantirImage(image) {
   }
 }
 
-function extraireBundle(image) {
-  const conteneur = docker('create', image);
-  const dossier = mkdtempSync(join(tmpdir(), 'rc-bundle-'));
+function extractBundle(image) {
+  const container = docker('create', image);
+  const dir = mkdtempSync(join(tmpdir(), 'rc-bundle-'));
   try {
-    docker('cp', `${conteneur}:${BUNDLE}`, join(dossier, 'app.js'));
-    return readFileSync(join(dossier, 'app.js'), 'utf8');
+    docker('cp', `${container}:${BUNDLE}`, join(dir, 'app.js'));
+    return readFileSync(join(dir, 'app.js'), 'utf8');
   } finally {
-    docker('rm', conteneur);
-    rmSync(dossier, { recursive: true, force: true });
+    docker('rm', container);
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 
-function retoucher(source) {
-  let resultat = source;
-  for (const { nom, avant, apres } of RETOUCHES) {
-    const occurrences = resultat.split(avant).length - 1;
+function patch(source) {
+  let result = source;
+  for (const { name, before, after } of PATCHES) {
+    const occurrences = result.split(before).length - 1;
     if (occurrences !== 1) {
-      throw new Error(`« ${nom} » : ancre trouvée ${occurrences} fois (attendu : 1). Le code a changé, revoir la retouche.`);
+      throw new Error(`"${name}": anchor found ${occurrences} times (expected: 1). The code changed, review the patch.`);
     }
-    if (avant.split('\n').length !== apres.split('\n').length) {
-      throw new Error(`« ${nom} » : le remplacement change le nombre de lignes.`);
+    if (before.split('\n').length !== after.split('\n').length) {
+      throw new Error(`"${name}": the replacement changes the line count.`);
     }
-    resultat = resultat.replace(avant, () => apres);
+    result = result.replace(before, () => after);
   }
-  return resultat;
+  return result;
 }
 
-const image = process.argv[2] ?? imageDuCompose();
+const image = process.argv[2] ?? composeImage();
 const tag = image.slice(image.lastIndexOf(':') + 1);
-if (tag === '' || tag.includes('/')) throw new Error(`image sans tag : ${image}`);
+if (tag === '' || tag.includes('/')) throw new Error(`image without a tag: ${image}`);
 
-console.log(`image : ${image}`);
-garantirImage(image);
-const patche = retoucher(extraireBundle(image));
+console.log(`image: ${image}`);
+ensureImage(image);
+const patched = patch(extractBundle(image));
 
-const sortie = join(ici, 'patched', `app-${tag}.js`);
-mkdirSync(dirname(sortie), { recursive: true });
-writeFileSync(sortie, patche);
-execFileSync(process.execPath, ['--check', sortie], { stdio: 'inherit' });
-console.log(`écrit : ${sortie}`);
+const output = join(here, 'patched', `app-${tag}.js`);
+mkdirSync(dirname(output), { recursive: true });
+writeFileSync(output, patched);
+execFileSync(process.execPath, ['--check', output], { stdio: 'inherit' });
+console.log(`written: ${output}`);

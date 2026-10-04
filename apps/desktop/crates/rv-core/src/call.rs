@@ -1,7 +1,7 @@
 //! What a call window may load. It holds the camera and the microphone, so
 //! it only follows the origin the server named for the call: anything else
 //! opens in the browser. Same rule as the Android call screen
-//! (`apps/mobile/lib/origine.ts`): the authority is taken as written,
+//! (`apps/mobile/lib/origin.ts`): the authority is taken as written,
 //! userinfo included, so `https://server@evil` never passes for `https://server`.
 
 /// Scheme and authority of a web URL, lowercased; None for anything else.
@@ -76,7 +76,7 @@ mod tests {
     fn origins_are_scheme_and_authority() {
         assert_eq!(origin("https://Meet.Barrut.me/Room?jwt=x").as_deref(), Some("https://meet.barrut.me"));
         assert_eq!(origin("http://localhost:3000").as_deref(), Some("http://localhost:3000"));
-        assert_eq!(origin("rocketvibe://salon/x"), None);
+        assert_eq!(origin("rocketvibe://room/x"), None);
         assert_eq!(origin("https://"), None);
         assert_eq!(origin("not a url"), None);
     }

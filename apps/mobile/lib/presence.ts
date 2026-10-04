@@ -1,176 +1,176 @@
 /**
- * Présence (8.4) — état VOLATIL, en mémoire, jamais persisté : une présence
- * périmée affichée depuis un cache est pire que pas de présence du tout.
+ * Presence (8.4): VOLATILE state, in memory, never persisted: a stale presence
+ * shown from a cache is worse than no presence at all.
  *
- * Alimentation : `users.presence` (photo complète) à chaque raccordement,
- * puis le stream. **Écarts au plan consignés** : pas de curseur `?from=` —
- * il s'ancrerait sur l'horloge locale (voir `charger`) ; et le plan
- * nommait `stream-user-presence`, mais son abonnement 8.5 passe par un
- * protocole propriétaire (`{added: [uid]}` sur une publication « main » par
- * connexion, sondé dans le bundle serveur) — incompatible avec la mécanique
- * de souscription rejouable de notre client DDP minimal. Le serveur diffuse
- * la MÊME présence sur `stream-notify-logged` / `user-status` (vérifié par
- * sonde : `args = [[uid, username, n° statut, texte]]`), qui s'abonne comme
- * n'importe quel stream.
+ * Fed by `users.presence` (full snapshot) on every connection setup, then by
+ * the stream. **Recorded deviations from the plan**: no `?from=` cursor, it
+ * would anchor on the local clock (see `load`); and the plan named
+ * `stream-user-presence`, but its 8.5 subscription goes through a proprietary
+ * protocol (`{added: [uid]}` on a "main" publication per connection, probed in
+ * the server bundle), incompatible with the replayable subscription mechanics
+ * of our minimal DDP client. The server broadcasts the SAME presence on
+ * `stream-notify-logged` / `user-status` (checked by probe: `args = [[uid,
+ * username, status no., text]]`), which subscribes like any other stream.
  *
- * Dégradation gracieuse (le critère 8.4 l'exige) : au-delà d'environ 200
- * connexions, `Presence_broadcast_disabled` s'active seul et le serveur se
- * TAIT. Rien ici n'en dépend : les statuts inconnus restent inconnus,
- * l'UI n'affiche alors simplement rien.
+ * Graceful degradation (criterion 8.4 requires it): beyond about 200
+ * connections, `Presence_broadcast_disabled` turns on by itself and the server
+ * goes SILENT. Nothing here depends on it: unknown statuses stay unknown, and
+ * the UI then simply shows nothing.
  */
 
-import type { Evenement } from './ddp.ts';
-import type { ClientRest } from './rest.ts';
+import type { DdpEvent } from './ddp.ts';
+import type { RestClient } from './rest.ts';
 
-export type StatutPresence = 'online' | 'away' | 'busy' | 'offline';
+export type PresenceStatus = 'online' | 'away' | 'busy' | 'offline';
 
 export const STREAM_NOTIFY_LOGGED = 'stream-notify-logged';
-export const EVENEMENT_PRESENCE = 'user-status';
+export const PRESENCE_EVENT = 'user-status';
 
-/** `STATUS_MAP` du serveur (relevé dans le bundle 8.5). */
-const DEPUIS_NUMERO = new Map<number, StatutPresence>([
+/** The server's `STATUS_MAP` (read in the 8.5 bundle). */
+const SINCE_NUMBER = new Map<number, PresenceStatus>([
   [0, 'offline'],
   [1, 'online'],
   [2, 'away'],
   [3, 'busy'],
 ]);
 
-const DEPUIS_TEXTE = new Set<string>(['online', 'away', 'busy', 'offline']);
+const SINCE_TEXT = new Set<string>(['online', 'away', 'busy', 'offline']);
 
-type ReponsePresence = {
+type PresenceResponse = {
   users?: { _id?: unknown; status?: unknown }[];
   full?: boolean;
 };
 
-export class MoteurPresence {
-  private statuts = new Map<string, StatutPresence>();
-  private ecouteurs = new Set<() => void>();
-  /** N° du dernier événement STREAM par uid — départage REST/stream. */
+export class PresenceEngine {
+  private statuses = new Map<string, PresenceStatus>();
+  private listeners = new Set<() => void>();
+  /** Number of the last STREAM event per uid, to settle REST vs stream. */
   private sequences = new Map<string, number>();
-  private compteur = 0;
-  private enVol = false;
-  private repasser = false;
+  private counter = 0;
+  private inFlight = false;
+  private rerun = false;
   /**
-   * Incrémentée à chaque `invalider()`. Une photo partie sous une époque
-   * révolue décrit le monde d'avant la coupure : on la jette entière.
+   * Incremented on every `invalidate()`. A snapshot sent under a past epoch
+   * describes the world before the cut: it is dropped whole.
    */
-  private epoque = 0;
+  private epoch = 0;
 
-  /** `null` = inconnu — l'UI ne doit alors RIEN afficher (dégradation). */
-  statutDe(uid: string): StatutPresence | null {
-    return this.statuts.get(uid) ?? null;
+  /** `null` = unknown: the UI must then show NOTHING (degradation). */
+  statusOf(uid: string): PresenceStatus | null {
+    return this.statuses.get(uid) ?? null;
   }
 
-  surChangement(ecouteur: () => void): () => void {
-    this.ecouteurs.add(ecouteur);
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener);
     return () => {
-      this.ecouteurs.delete(ecouteur);
+      this.listeners.delete(listener);
     };
   }
 
-  private notifier(): void {
-    for (const ecouteur of this.ecouteurs) ecouteur();
+  private notify(): void {
+    for (const listener of this.listeners) listener();
   }
 
   /**
-   * Le transport est mort (ou l'app part en arrière-plan) : tout ce qu'on
-   * sait est daté et plus rien ne le corrigera. On oublie, et `statutDe`
-   * rend de nouveau `null` — l'UI n'affiche alors RIEN, la dégradation que
-   * l'en-tête de ce module spécifie. Sans cela, la liste des DM continue
-   * d'afficher les pastilles vertes de l'entrée dans le tunnel.
+   * The transport is dead (or the app goes to the background): everything
+   * known is dated and nothing will correct it any more. Forget it, and
+   * `statusOf` returns `null` again; the UI then shows NOTHING, the
+   * degradation this module's header specifies. Without this, the DM list
+   * keeps showing the green dots from when the tunnel was entered.
    *
-   * `compteur` n'est PAS remis à zéro : il départage les événements du stream
-   * et les photos REST, et le rembobiner ferait passer un événement frais
-   * pour antérieur au seuil d'une photo en vol, qui l'écraserait.
+   * `counter` is NOT reset: it settles stream events against REST snapshots,
+   * and rewinding it would make a fresh event look older than the threshold
+   * of an in-flight snapshot, which would overwrite it.
    */
-  invalider(): void {
-    this.epoque++;
-    const avaitQuelqueChose = this.statuts.size > 0;
-    this.statuts.clear();
+  invalidate(): void {
+    this.epoch++;
+    const hadSomething = this.statuses.size > 0;
+    this.statuses.clear();
     this.sequences.clear();
-    if (avaitQuelqueChose) this.notifier();
+    if (hadSomething) this.notify();
   }
 
-  /** Route un événement DDP. Tout ce qui n'est pas de la présence est ignoré. */
-  appliquer(evenement: Evenement): void {
+  /** Routes a DDP event. Anything that is not presence is ignored. */
+  apply(event: DdpEvent): void {
     if (
-      evenement.collection !== STREAM_NOTIFY_LOGGED ||
-      evenement.cleEvenement !== EVENEMENT_PRESENCE
+      event.collection !== STREAM_NOTIFY_LOGGED ||
+      event.eventKey !== PRESENCE_EVENT
     ) {
       return;
     }
-    // `args = [[uid, username, n° statut, texte de statut, …]]`
-    const premier = evenement.args[0];
-    if (!Array.isArray(premier)) return;
-    const uid = premier[0];
-    const numero = premier[2];
+    // `args = [[uid, username, status no., status text, ...]]`
+    const first = event.args[0];
+    if (!Array.isArray(first)) return;
+    const uid = first[0];
+    const code = first[2];
     if (typeof uid !== 'string' || uid === '') return;
-    const statut = typeof numero === 'number' ? DEPUIS_NUMERO.get(numero) : undefined;
-    if (statut === undefined) return;
-    this.statuts.set(uid, statut);
-    this.sequences.set(uid, ++this.compteur);
-    this.notifier();
+    const status = typeof code === 'number' ? SINCE_NUMBER.get(code) : undefined;
+    if (status === undefined) return;
+    this.statuses.set(uid, status);
+    this.sequences.set(uid, ++this.counter);
+    this.notify();
   }
 
   /**
-   * Photo complète à chaque raccordement — PAS de curseur `from` : il
-   * s'ancrerait sur l'horloge locale (interdit par la règle des curseurs du
-   * projet — une horloge en avance rend les deltas silencieusement vides, et
-   * la réponse ne porte aucun `_updatedAt` pour l'ancrer côté serveur). Le
-   * coût est borné : la photo n'inclut que les non-offline, et au-delà
-   * d'~200 connexions le serveur coupe de toute façon la diffusion.
+   * Full snapshot on every connection setup, NO `from` cursor: it would
+   * anchor on the local clock (forbidden by the project's cursor rule: a
+   * clock running ahead makes deltas silently empty, and the response carries
+   * no `_updatedAt` to anchor it server-side). The cost is bounded: the
+   * snapshot only includes non-offline users, and beyond ~200 connections the
+   * server stops broadcasting anyway.
    *
-   * Deux gardes :
-   * - un uid touché par le STREAM pendant la requête garde la version du
-   *   stream (la photo date d'avant — elle régresserait un statut frais) ;
-   * - un uid CONNU absent de la photo passe `offline` (la photo n'inclut que
-   *   les non-offline ; le laisser en l'état figerait un « en ligne » périmé,
-   *   l'oublier ferait disparaître la pastille d'un `offline` déjà su).
+   * Two guards:
+   * - a uid touched by the STREAM during the request keeps the stream version
+   *   (the snapshot is older and would regress a fresh status);
+   * - a KNOWN uid absent from the snapshot goes `offline` (the snapshot only
+   *   includes non-offline users; leaving it as is would freeze a stale
+   *   "online", forgetting it would drop the dot of an already known
+   *   `offline`).
    *
-   * Un échec est silencieux : la présence est un ornement, jamais une
-   * dépendance. Sérialisé : un appel pendant un appel est rejoué à la fin.
+   * A failure is silent: presence is an ornament, never a dependency.
+   * Serialized: a call during a call is replayed at the end.
    */
-  async charger(client: ClientRest): Promise<void> {
-    if (this.enVol) {
-      this.repasser = true;
+  async load(client: RestClient): Promise<void> {
+    if (this.inFlight) {
+      this.rerun = true;
       return;
     }
-    this.enVol = true;
+    this.inFlight = true;
     try {
       do {
-        this.repasser = false;
-        await this.unePhoto(client);
-      } while (this.repasser);
+        this.rerun = false;
+        await this.snapshot(client);
+      } while (this.rerun);
     } finally {
-      this.enVol = false;
+      this.inFlight = false;
     }
   }
 
-  private async unePhoto(client: ClientRest): Promise<void> {
-    const seuil = this.compteur;
-    const epoque = this.epoque;
+  private async snapshot(client: RestClient): Promise<void> {
+    const threshold = this.counter;
+    const epoch = this.epoch;
     try {
-      const reponse = await client.get<ReponsePresence>('users.presence', { params: {} });
-      // Une invalidation a eu lieu pendant la requête : cette photo décrit le
-      // monde d'avant la coupure. L'appliquer rallumerait exactement les
-      // pastilles qu'on vient d'éteindre.
-      if (this.epoque !== epoque) return;
-      const photo = new Map<string, StatutPresence>();
-      for (const u of reponse.users ?? []) {
+      const response = await client.get<PresenceResponse>('users.presence', { params: {} });
+      // An invalidation happened during the request: this snapshot describes
+      // the world before the cut. Applying it would relight exactly the dots
+      // that were just turned off.
+      if (this.epoch !== epoch) return;
+      const photo = new Map<string, PresenceStatus>();
+      for (const u of response.users ?? []) {
         if (typeof u._id !== 'string' || u._id === '') continue;
-        if (typeof u.status !== 'string' || !DEPUIS_TEXTE.has(u.status)) continue;
-        photo.set(u._id, u.status as StatutPresence);
+        if (typeof u.status !== 'string' || !SINCE_TEXT.has(u.status)) continue;
+        photo.set(u._id, u.status as PresenceStatus);
       }
-      const intact = (uid: string) => (this.sequences.get(uid) ?? 0) <= seuil;
-      for (const [uid, statut] of photo) {
-        if (intact(uid)) this.statuts.set(uid, statut);
+      const intact = (uid: string) => (this.sequences.get(uid) ?? 0) <= threshold;
+      for (const [uid, status] of photo) {
+        if (intact(uid)) this.statuses.set(uid, status);
       }
-      for (const uid of this.statuts.keys()) {
-        if (!photo.has(uid) && intact(uid)) this.statuts.set(uid, 'offline');
+      for (const uid of this.statuses.keys()) {
+        if (!photo.has(uid) && intact(uid)) this.statuses.set(uid, 'offline');
       }
-      this.notifier();
+      this.notify();
     } catch {
-      // Hors ligne, endpoint restreint, broadcast coupé : tant pis.
+      // Offline, restricted endpoint, broadcast disabled: never mind.
     }
   }
 }

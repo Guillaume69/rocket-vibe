@@ -1,0 +1,6 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": ["com.rocketvibe.downloads.DownloadsModule"]
+  }
+}

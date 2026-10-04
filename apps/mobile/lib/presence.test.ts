@@ -1,71 +1,71 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { EVENEMENT_PRESENCE, MoteurPresence, STREAM_NOTIFY_LOGGED } from './presence.ts';
-import { ClientRest } from './rest.ts';
+import { PRESENCE_EVENT, PresenceEngine, STREAM_NOTIFY_LOGGED } from './presence.ts';
+import { RestClient } from './rest.ts';
 
-const evenement = (args: unknown[]) => ({
+const event = (args: unknown[]) => ({
   collection: STREAM_NOTIFY_LOGGED,
-  cleEvenement: EVENEMENT_PRESENCE,
+  eventKey: PRESENCE_EVENT,
   args,
 });
 
-/** Client REST réel, fetch simulé — on éprouve l'URL réellement construite. */
-function fauxClient(repondre: (url: string) => unknown) {
+/** Real REST client, mocked fetch: exercises the URL actually built. */
+function fakeClient(reply: (url: string) => unknown) {
   const urls: string[] = [];
-  const client = new ClientRest('http://x', {
+  const client = new RestClient('http://x', {
     fetch: async (url) => {
       urls.push(String(url));
-      const corps = repondre(String(url));
-      if (corps instanceof Error) throw corps;
-      return new Response(JSON.stringify(corps), {
+      const body = reply(String(url));
+      if (body instanceof Error) throw body;
+      return new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
     },
-    dormir: async () => {},
+    sleep: async () => {},
   });
   return { client, urls };
 }
 
-describe('MoteurPresence — stream', () => {
-  test('un événement user-status met à jour le statut et notifie', () => {
-    const moteur = new MoteurPresence();
+describe('PresenceEngine: stream', () => {
+  test('a user-status event updates the status and notifies', () => {
+    const engine = new PresenceEngine();
     let notifications = 0;
-    moteur.surChangement(() => notifications++);
+    engine.onChange(() => notifications++);
 
-    moteur.appliquer(evenement([['u1', 'bob', 3, '']]));
-    assert.equal(moteur.statutDe('u1'), 'busy');
+    engine.apply(event([['u1', 'bob', 3, '']]));
+    assert.equal(engine.statusOf('u1'), 'busy');
     assert.equal(notifications, 1);
 
-    moteur.appliquer(evenement([['u1', 'bob', 0, '']]));
-    assert.equal(moteur.statutDe('u1'), 'offline');
+    engine.apply(event([['u1', 'bob', 0, '']]));
+    assert.equal(engine.statusOf('u1'), 'offline');
   });
 
-  test('collection ou clé étrangère, numéro inconnu, uid vide : ignorés sans bruit', () => {
-    const moteur = new MoteurPresence();
+  test('foreign collection or key, unknown number, empty uid: silently ignored', () => {
+    const engine = new PresenceEngine();
     let notifications = 0;
-    moteur.surChangement(() => notifications++);
+    engine.onChange(() => notifications++);
 
-    moteur.appliquer({ collection: 'stream-room-messages', cleEvenement: 'r1', args: [{}] });
-    moteur.appliquer({
+    engine.apply({ collection: 'stream-room-messages', eventKey: 'r1', args: [{}] });
+    engine.apply({
       collection: STREAM_NOTIFY_LOGGED,
-      cleEvenement: 'updateCustomUserStatus',
+      eventKey: 'updateCustomUserStatus',
       args: [{}],
     });
-    moteur.appliquer(evenement([['u1', 'bob', 42, '']]));
-    moteur.appliquer(evenement([['', 'bob', 1, '']]));
-    moteur.appliquer(evenement(['pas-un-tableau']));
+    engine.apply(event([['u1', 'bob', 42, '']]));
+    engine.apply(event([['', 'bob', 1, '']]));
+    engine.apply(event(['not-an-array']));
 
-    assert.equal(moteur.statutDe('u1'), null);
+    assert.equal(engine.statusOf('u1'), null);
     assert.equal(notifications, 0);
   });
 });
 
-describe('MoteurPresence — users.presence', () => {
-  test('photo complète, JAMAIS de from (curseur d’horloge locale interdit)', async () => {
-    const moteur = new MoteurPresence();
-    const { client, urls } = fauxClient(() => ({
+describe('PresenceEngine: users.presence', () => {
+  test('full snapshot, NEVER a from (local-clock cursor forbidden)', async () => {
+    const engine = new PresenceEngine();
+    const { client, urls } = fakeClient(() => ({
       users: [
         { _id: 'u1', status: 'online' },
         { _id: 'u2', status: 'busy' },
@@ -73,151 +73,151 @@ describe('MoteurPresence — users.presence', () => {
       full: true,
     }));
 
-    await moteur.charger(client);
-    await moteur.charger(client);
+    await engine.load(client);
+    await engine.load(client);
     assert.ok(urls.every((u) => !u.includes('from=')));
-    assert.equal(moteur.statutDe('u1'), 'online');
-    assert.equal(moteur.statutDe('u2'), 'busy');
+    assert.equal(engine.statusOf('u1'), 'online');
+    assert.equal(engine.statusOf('u2'), 'busy');
   });
 
-  test('un uid CONNU absent de la photo passe offline — les inconnus restent inconnus', async () => {
-    const moteur = new MoteurPresence();
-    moteur.appliquer(evenement([['u1', 'bob', 1, '']]));
-    const { client } = fauxClient(() => ({ users: [{ _id: 'u2', status: 'away' }], full: true }));
+  test('a KNOWN uid absent from the snapshot goes offline; unknowns stay unknown', async () => {
+    const engine = new PresenceEngine();
+    engine.apply(event([['u1', 'bob', 1, '']]));
+    const { client } = fakeClient(() => ({ users: [{ _id: 'u2', status: 'away' }], full: true }));
 
-    await moteur.charger(client);
-    assert.equal(moteur.statutDe('u1'), 'offline', 'la photo n’inclut que les non-offline');
-    assert.equal(moteur.statutDe('u2'), 'away');
-    assert.equal(moteur.statutDe('u3'), null, 'jamais vu : toujours inconnu');
+    await engine.load(client);
+    assert.equal(engine.statusOf('u1'), 'offline', 'the snapshot only includes non-offline users');
+    assert.equal(engine.statusOf('u2'), 'away');
+    assert.equal(engine.statusOf('u3'), null, 'never seen: still unknown');
   });
 
-  test('un événement STREAM arrivé pendant la requête gagne sur la photo', async () => {
-    const moteur = new MoteurPresence();
-    let livrer: () => void = () => {};
-    const { client } = fauxClient(() => ({ users: [{ _id: 'u1', status: 'online' }] }));
-    // On intercale l'événement entre le départ de la requête et sa réponse :
-    // le faux fetch est synchrone, on passe par une promesse de contrôle.
-    const clientLent = {
+  test('a STREAM event arriving during the request wins over the snapshot', async () => {
+    const engine = new PresenceEngine();
+    let deliver: () => void = () => {};
+    const { client } = fakeClient(() => ({ users: [{ _id: 'u1', status: 'online' }] }));
+    // The event is slipped in between the request leaving and its response:
+    // the fake fetch is synchronous, so a control promise is used.
+    const slowClient = {
       get: async (...args: unknown[]) => {
         await new Promise<void>((r) => {
-          livrer = r;
+          deliver = r;
         });
         return (client.get as (...a: unknown[]) => Promise<unknown>)(...args);
       },
     } as unknown as typeof client;
 
-    const chargement = moteur.charger(clientLent);
-    await Promise.resolve(); // laisse `unePhoto` prendre son seuil et partir
-    moteur.appliquer(evenement([['u1', 'bob', 0, '']])); // offline, PLUS FRAIS
-    livrer();
-    await chargement;
+    const loading = engine.load(slowClient);
+    await Promise.resolve(); // lets `snapshot` take its threshold and leave
+    engine.apply(event([['u1', 'bob', 0, '']])); // offline, FRESHER
+    deliver();
+    await loading;
 
-    assert.equal(moteur.statutDe('u1'), 'offline', 'la photo (antérieure) ne régresse pas u1');
+    assert.equal(engine.statusOf('u1'), 'offline', 'the (older) snapshot does not regress u1');
   });
 
-  test('échec REST : silencieux, l’état connu survit (dégradation gracieuse)', async () => {
-    const moteur = new MoteurPresence();
-    moteur.appliquer(evenement([['u1', 'bob', 1, '']]));
-    const { client } = fauxClient(() => new TypeError('Network request failed'));
+  test('REST failure: silent, the known state survives (graceful degradation)', async () => {
+    const engine = new PresenceEngine();
+    engine.apply(event([['u1', 'bob', 1, '']]));
+    const { client } = fakeClient(() => new TypeError('Network request failed'));
 
-    await moteur.charger(client); // ne doit pas jeter
-    assert.equal(moteur.statutDe('u1'), 'online');
+    await engine.load(client); // must not throw
+    assert.equal(engine.statusOf('u1'), 'online');
   });
 });
 
-describe('MoteurPresence — invalidation', () => {
-  test('invalider rend TOUT inconnu et notifie', () => {
-    // Le contrat de l'en-tête du module : « une présence périmée affichée
-    // depuis un cache est pire que pas de présence du tout ». Il n'était tenu
-    // que contre la persistance ; en mémoire, la pastille verte d'avant le
-    // tunnel restait affichée jusqu'au raccordement suivant.
-    const moteur = new MoteurPresence();
-    moteur.appliquer(evenement([['u1', 'bob', 1, '']]));
-    moteur.appliquer(evenement([['u2', 'ana', 2, '']]));
+describe('PresenceEngine: invalidation', () => {
+  test('invalidate makes EVERYTHING unknown and notifies', () => {
+    // The contract of the module header: "a stale presence shown from a cache
+    // is worse than no presence at all". It was only kept against
+    // persistence; in memory, the green dot from before the tunnel stayed on
+    // screen until the next connection setup.
+    const engine = new PresenceEngine();
+    engine.apply(event([['u1', 'bob', 1, '']]));
+    engine.apply(event([['u2', 'ana', 2, '']]));
     let notifications = 0;
-    moteur.surChangement(() => notifications++);
+    engine.onChange(() => notifications++);
 
-    moteur.invalider();
+    engine.invalidate();
 
-    assert.equal(moteur.statutDe('u1'), null, 'l’UI n’affiche plus rien, au lieu de mentir');
-    assert.equal(moteur.statutDe('u2'), null);
-    assert.equal(notifications, 1, 'les écrans montés doivent se redessiner');
+    assert.equal(engine.statusOf('u1'), null, 'the UI shows nothing any more, instead of lying');
+    assert.equal(engine.statusOf('u2'), null);
+    assert.equal(notifications, 1, 'mounted screens must redraw');
   });
 
-  test('invalider sans rien à oublier ne réveille pas les écrans', () => {
-    const moteur = new MoteurPresence();
+  test('invalidate with nothing to forget does not wake screens', () => {
+    const engine = new PresenceEngine();
     let notifications = 0;
-    moteur.surChangement(() => notifications++);
-    moteur.invalider();
-    moteur.invalider();
-    assert.equal(notifications, 0, 'un flap réseau sur une app muette ne redessine rien');
+    engine.onChange(() => notifications++);
+    engine.invalidate();
+    engine.invalidate();
+    assert.equal(notifications, 0, 'a network flap on a silent app redraws nothing');
   });
 
-  test('une photo PARTIE avant l’invalidation ne ressuscite pas les statuts effacés', async () => {
-    // Course réelle : la socket meurt pendant que `users.presence` est en vol.
-    // Sa réponse décrit le monde d'AVANT la coupure — l'appliquer remettrait
-    // exactement les pastilles que l'invalidation venait d'éteindre.
-    const moteur = new MoteurPresence();
-    let livrer: () => void = () => {};
-    const { client } = fauxClient(() => ({
+  test('a snapshot SENT before the invalidation does not revive cleared statuses', async () => {
+    // Real race: the socket dies while `users.presence` is in flight. Its
+    // response describes the world BEFORE the cut; applying it would restore
+    // exactly the dots the invalidation had just turned off.
+    const engine = new PresenceEngine();
+    let deliver: () => void = () => {};
+    const { client } = fakeClient(() => ({
       users: [
         { _id: 'u1', status: 'online' },
         { _id: 'u2', status: 'away' },
       ],
     }));
-    const clientLent = {
+    const slowClient = {
       get: async (...args: unknown[]) => {
         await new Promise<void>((r) => {
-          livrer = r;
+          deliver = r;
         });
         return (client.get as (...a: unknown[]) => Promise<unknown>)(...args);
       },
     } as unknown as typeof client;
 
-    const chargement = moteur.charger(clientLent);
-    await Promise.resolve(); // la requête est partie
-    moteur.invalider(); // le transport meurt
-    livrer();
-    await chargement;
+    const loading = engine.load(slowClient);
+    await Promise.resolve(); // the request has left
+    engine.invalidate(); // the transport dies
+    deliver();
+    await loading;
 
-    assert.equal(moteur.statutDe('u1'), null, 'la photo d’avant la coupure est jetée');
-    assert.equal(moteur.statutDe('u2'), null);
+    assert.equal(engine.statusOf('u1'), null, 'the snapshot from before the cut is dropped');
+    assert.equal(engine.statusOf('u2'), null);
   });
 
-  test('après invalidation, une NOUVELLE photo repeuple normalement', async () => {
-    const moteur = new MoteurPresence();
-    moteur.appliquer(evenement([['u1', 'bob', 1, '']]));
-    moteur.invalider();
-    const { client } = fauxClient(() => ({ users: [{ _id: 'u1', status: 'away' }] }));
+  test('after invalidation, a NEW snapshot repopulates normally', async () => {
+    const engine = new PresenceEngine();
+    engine.apply(event([['u1', 'bob', 1, '']]));
+    engine.invalidate();
+    const { client } = fakeClient(() => ({ users: [{ _id: 'u1', status: 'away' }] }));
 
-    await moteur.charger(client);
-    assert.equal(moteur.statutDe('u1'), 'away');
+    await engine.load(client);
+    assert.equal(engine.statusOf('u1'), 'away');
   });
 
-  test('un événement STREAM postérieur à l’invalidation gagne sur la photo en vol', async () => {
-    // Le compteur de séquence doit rester MONOTONE à travers l'invalidation :
-    // le remettre à zéro ferait repasser un événement frais pour antérieur au
-    // seuil pris par la photo, et la photo l'écraserait.
-    const moteur = new MoteurPresence();
-    for (let i = 0; i < 5; i++) moteur.appliquer(evenement([[`u${i}`, 'x', 1, '']]));
-    let livrer: () => void = () => {};
-    const { client } = fauxClient(() => ({ users: [{ _id: 'u1', status: 'online' }] }));
-    const clientLent = {
+  test('a STREAM event after the invalidation wins over the in-flight snapshot', async () => {
+    // The sequence counter must stay MONOTONIC across the invalidation:
+    // resetting it would make a fresh event look older than the threshold the
+    // snapshot took, and the snapshot would overwrite it.
+    const engine = new PresenceEngine();
+    for (let i = 0; i < 5; i++) engine.apply(event([[`u${i}`, 'x', 1, '']]));
+    let deliver: () => void = () => {};
+    const { client } = fakeClient(() => ({ users: [{ _id: 'u1', status: 'online' }] }));
+    const slowClient = {
       get: async (...args: unknown[]) => {
         await new Promise<void>((r) => {
-          livrer = r;
+          deliver = r;
         });
         return (client.get as (...a: unknown[]) => Promise<unknown>)(...args);
       },
     } as unknown as typeof client;
 
-    const chargement = moteur.charger(clientLent);
+    const loading = engine.load(slowClient);
     await Promise.resolve();
-    moteur.invalider();
-    moteur.appliquer(evenement([['u1', 'bob', 0, '']])); // reçu APRÈS, donc vrai
-    livrer();
-    await chargement;
+    engine.invalidate();
+    engine.apply(event([['u1', 'bob', 0, '']])); // received AFTER, so true
+    deliver();
+    await loading;
 
-    assert.equal(moteur.statutDe('u1'), 'offline');
+    assert.equal(engine.statusOf('u1'), 'offline');
   });
 });

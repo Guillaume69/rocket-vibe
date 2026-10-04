@@ -1,662 +1,660 @@
 /**
- * Upserts idempotents. **Le SQL vit ici, et nulle part ailleurs** : les tests
- * l'exécutent tel quel sur un `node:sqlite` en mémoire, donc ils éprouvent la
- * requête que l'application enverra, pas une paraphrase.
+ * Idempotent upserts. **The SQL lives here, and nowhere else**: the tests run
+ * it as is on an in-memory `node:sqlite`, so they exercise the query the app
+ * will send, not a paraphrase.
  *
- * Deux invariants, tous deux nécessaires :
+ * Two invariants, both necessary:
  *
- * 1. `ON CONFLICT DO UPDATE` — rejouer un événement ne crée pas de doublon.
- *    Le WebSocket et le REST écrivent la même ligne, et un rattrapage
- *    re-livrera des messages déjà connus.
- * 2. `WHERE excluded.mis_a_jour_le >= <table>.mis_a_jour_le` — un événement
- *    **plus ancien** n'écrase pas un état plus récent. Sans cela, un rattrapage
- *    REST lancé après une reconnexion pourrait ressusciter la version d'un
- *    message éditée depuis, ou réafficher des non-lus déjà remis à zéro.
+ * 1. `ON CONFLICT DO UPDATE`: replaying an event creates no duplicate.
+ *    The WebSocket and REST write the same row, and a catch-up will
+ *    redeliver already known messages.
+ * 2. `WHERE excluded.updated_at >= <table>.updated_at`: an **older**
+ *    event does not overwrite a more recent state. Without it, a REST catch-up
+ *    started after a reconnection could revive the version of a message
+ *    edited since, or show again unread counts already reset.
  */
 
-import type { AbonnementLocal, MessageLocal, SalonLocal } from '../lib/normaliser.ts';
+import type { LocalSubscription, LocalMessage, LocalRoom } from '../lib/normalize.ts';
 
 export const UPSERT_MESSAGE = `
 INSERT INTO messages (
-  id, rid, texte, horodatage, auteur_id, auteur_nom, type_systeme,
-  fil_id, fil_reponses, fil_dernier, fil_affiche, modifie_le, md,
-  pieces_jointes, reactions, urls, appel_id, chiffre_brut, epingle, etoiles, mis_a_jour_le
+  id, rid, text, ts, author_id, author_name, system_type,
+  thread_id, thread_count, thread_last, thread_shown, edited_at, md,
+  attachments, reactions, urls, call_id, encrypted_raw, pinned, starred, updated_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
-  -- Message chiffré : garder le clair déjà déchiffré si la resynchro arrive
-  -- sans clé (excluded.texte null). Message ordinaire : comportement inchangé.
-  texte = CASE
-    WHEN excluded.type_systeme = 'e2e' THEN COALESCE(excluded.texte, messages.texte)
-    ELSE excluded.texte
+  -- Encrypted message: keep the already decrypted plaintext if the resync
+  -- arrives without a key (excluded.text null). Ordinary message: unchanged.
+  text = CASE
+    WHEN excluded.system_type = 'e2e' THEN COALESCE(excluded.text, messages.text)
+    ELSE excluded.text
   END,
-  horodatage = excluded.horodatage,
-  auteur_nom = excluded.auteur_nom,
-  type_systeme = excluded.type_systeme,
-  fil_id = excluded.fil_id,
-  fil_reponses = excluded.fil_reponses,
-  fil_dernier = excluded.fil_dernier,
-  fil_affiche = excluded.fil_affiche,
-  modifie_le = excluded.modifie_le,
+  ts = excluded.ts,
+  author_name = excluded.author_name,
+  system_type = excluded.system_type,
+  thread_id = excluded.thread_id,
+  thread_count = excluded.thread_count,
+  thread_last = excluded.thread_last,
+  thread_shown = excluded.thread_shown,
+  edited_at = excluded.edited_at,
   md = excluded.md,
-  -- Les pièces jointes d'un fichier chiffré vivent dans son content : comme
-  -- le texte, elles ne se gardent que déchiffrées, et une resynchro sans clé
-  -- ne doit pas les effacer.
-  pieces_jointes = CASE
-    WHEN excluded.type_systeme = 'e2e' THEN COALESCE(excluded.pieces_jointes, messages.pieces_jointes)
-    ELSE excluded.pieces_jointes
+  -- An encrypted file's attachments live in its content: like the text,
+  -- they only exist decrypted, and a resync without a key must not erase
+  -- them.
+  attachments = CASE
+    WHEN excluded.system_type = 'e2e' THEN COALESCE(excluded.attachments, messages.attachments)
+    ELSE excluded.attachments
   END,
   reactions = excluded.reactions,
   urls = excluded.urls,
-  appel_id = excluded.appel_id,
-  -- texte déjà déchiffré localement (COALESCE ci-dessus) : une resynchro du
-  -- même message chiffré ne doit pas ré-effacer le clair (chiffre_brut gardé).
-  chiffre_brut = COALESCE(excluded.chiffre_brut, messages.chiffre_brut),
-  epingle = excluded.epingle,
-  etoiles = excluded.etoiles,
-  mis_a_jour_le = excluded.mis_a_jour_le
-WHERE excluded.mis_a_jour_le >= messages.mis_a_jour_le
+  call_id = excluded.call_id,
+  -- text already decrypted locally (COALESCE above): a resync of the same
+  -- encrypted message must not erase the plaintext again (encrypted_raw kept).
+  encrypted_raw = COALESCE(excluded.encrypted_raw, messages.encrypted_raw),
+  pinned = excluded.pinned,
+  starred = excluded.starred,
+  updated_at = excluded.updated_at
+WHERE excluded.updated_at >= messages.updated_at
 `;
 
 /**
- * `COALESCE` sur les champs que le serveur OMET parfois : un événement
- * `rooms-changed` peut porter un document partiel (sans `usernames`). `null` y
- * signifie « absent de la charge », jamais « efface » — sans le COALESCE, un
- * tel événement plus récent effacerait le nom dérivé d'un DM, et la liste
- * retomberait sur le `rid` brut.
+ * `COALESCE` on the fields the server sometimes OMITS: a `rooms-changed`
+ * event can carry a partial document (without `usernames`). `null` there
+ * means "absent from the payload", never "erase"; without the COALESCE, such
+ * a more recent event would erase a DM's derived name, and the list would
+ * fall back to the raw `rid`.
  *
- * **`dernier_message` fait exception, et c'est délibéré** : son absence est une
- * INFORMATION, pas un trou. Sondé sur 8.5, `rooms-changed` et `rooms.get`
- * portent toujours `lastMessage` dès que le salon en a un — renommage, topic,
- * annonce, description, lecture seule, avatar, DM compris. Le champ ne
- * disparaît que lorsque le salon n'a plus de dernier message visible, c'est-à-
- * dire quand on vient de supprimer le dernier. Le COALESCE d'origine figeait
- * donc à VIE l'aperçu d'un salon vidé : le message supprimé y restait affiché,
- * et aucun rattrapage ne pouvait le déloger.
+ * **`last_message` is the exception, deliberately**: its absence is
+ * INFORMATION, not a gap. Probed on 8.5, `rooms-changed` and `rooms.get`
+ * always carry `lastMessage` as soon as the room has one: rename, topic,
+ * announcement, description, read-only, avatar, DMs included. The field only
+ * disappears when the room no longer has a visible last message, that is,
+ * when the last one was just deleted. The original COALESCE therefore froze
+ * an emptied room's preview FOR LIFE: the deleted message stayed displayed
+ * there, and no catch-up could dislodge it.
  *
- * Un salon CHIFFRÉ est le seul cas où le serveur n'a rien à en dire (il ne
- * détient que du ciphertext) : son aperçu vient de `MAJ_APERCU_CHIFFRE`, sur
- * les messages déchiffrés localement. D'où le `CASE`, qui n'y touche pas.
+ * An ENCRYPTED room is the only case where the server has nothing to say
+ * about it (it only holds ciphertext): its preview comes from
+ * `UPDATE_ENCRYPTED_PREVIEW`, on the locally decrypted messages. Hence the
+ * `CASE`, which leaves it alone.
  */
-export const UPSERT_SALON = `
-INSERT INTO salons (
-  rid, type, nom, nom_affiche, chiffre, lecture_seule, dm_autre_uid,
-  dernier_message, dernier_message_type, horodatage_dernier_message, avatar_etag,
-  mis_a_jour_le
+export const UPSERT_ROOM = `
+INSERT INTO rooms (
+  rid, type, name, display_name, encrypted, read_only, dm_other_uid,
+  last_message, last_message_type, last_message_ts, avatar_etag,
+  updated_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(rid) DO UPDATE SET
   type = excluded.type,
-  nom = COALESCE(excluded.nom, salons.nom),
-  nom_affiche = COALESCE(excluded.nom_affiche, salons.nom_affiche),
-  chiffre = excluded.chiffre,
-  lecture_seule = excluded.lecture_seule,
-  dm_autre_uid = COALESCE(excluded.dm_autre_uid, salons.dm_autre_uid),
-  dernier_message = CASE
-    WHEN excluded.chiffre = 1 THEN salons.dernier_message
-    ELSE excluded.dernier_message
+  name = COALESCE(excluded.name, rooms.name),
+  display_name = COALESCE(excluded.display_name, rooms.display_name),
+  encrypted = excluded.encrypted,
+  read_only = excluded.read_only,
+  dm_other_uid = COALESCE(excluded.dm_other_uid, rooms.dm_other_uid),
+  last_message = CASE
+    WHEN excluded.encrypted = 1 THEN rooms.last_message
+    ELSE excluded.last_message
   END,
-  -- Pas de CASE ici : versSalon rend déjà null pour un salon chiffré, et c'est
-  -- la valeur JUSTE — l'aperçu d'un salon chiffré ne vient pas de lastMessage.
-  -- Garder l'ancien type y ferait décrire l'aperçu local par le type d'un
-  -- message que le serveur, lui, n'a pas su lire.
-  dernier_message_type = excluded.dernier_message_type,
-  -- L'horodatage, lui, garde son COALESCE : il pilote le TRI de la liste, et
-  -- le serveur ne le recule PAS en vidant un salon (le champ lm survit à la
-  -- suppression du dernier message, vérifié). L'effacer ferait donc sauter le
-  -- salon en fin de liste sans qu'aucun événement ne le justifie.
-  horodatage_dernier_message = COALESCE(excluded.horodatage_dernier_message, salons.horodatage_dernier_message),
-  -- COALESCE aussi ici, et pour une raison PARTICULIÈRE : un etag écrasé par
-  -- null ferait retomber l'URL d'avatar sur sa forme sans query — celle que le
-  -- cache image tient déjà avec l'ANCIENNE photo. Le stream updateAvatar est
-  -- souvent plus frais que le document Rooms qui suit.
-  avatar_etag = COALESCE(excluded.avatar_etag, salons.avatar_etag),
-  mis_a_jour_le = excluded.mis_a_jour_le
-WHERE excluded.mis_a_jour_le >= salons.mis_a_jour_le
+  -- No CASE here: toRoom already returns null for an encrypted room, and it is
+  -- the RIGHT value: an encrypted room's preview does not come from lastMessage.
+  -- Keeping the old type would make the local preview be described by the
+  -- type of a message the server could not read.
+  last_message_type = excluded.last_message_type,
+  -- The timestamp keeps its COALESCE: it drives the list's SORT, and the
+  -- server does NOT move it back when emptying a room (the lm field survives
+  -- the deletion of the last message, checked). Erasing it would therefore
+  -- drop the room to the end of the list with no event to justify it.
+  last_message_ts = COALESCE(excluded.last_message_ts, rooms.last_message_ts),
+  -- COALESCE here too, for a SPECIFIC reason: an etag overwritten with null
+  -- would make the avatar URL fall back to its query-less form, the one the
+  -- image cache already holds with the OLD photo. The updateAvatar stream is
+  -- often fresher than the Rooms document that follows.
+  avatar_etag = COALESCE(excluded.avatar_etag, rooms.avatar_etag),
+  updated_at = excluded.updated_at
+WHERE excluded.updated_at >= rooms.updated_at
 `;
 
-export const UPSERT_ABONNEMENT = `
-INSERT INTO abonnements (
-  rid, sub_id, non_lus, mentions, mentions_groupe, alerte, ouvert, favori,
-  lu_jusqu_a, e2e_key, e2e_key_id, roles, mis_a_jour_le
+export const UPSERT_SUBSCRIPTION = `
+INSERT INTO subscriptions (
+  rid, sub_id, unread, mentions, group_mentions, alert, open, favorite,
+  last_seen, e2e_key, e2e_key_id, roles, updated_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(rid) DO UPDATE SET
-  sub_id = COALESCE(excluded.sub_id, abonnements.sub_id),
-  non_lus = excluded.non_lus,
+  sub_id = COALESCE(excluded.sub_id, subscriptions.sub_id),
+  unread = excluded.unread,
   mentions = excluded.mentions,
-  mentions_groupe = excluded.mentions_groupe,
-  alerte = excluded.alerte,
-  ouvert = excluded.ouvert,
-  favori = excluded.favori,
-  lu_jusqu_a = excluded.lu_jusqu_a,
-  -- COALESCE : un événement d'abonnement partiel (sans E2EKey) ne doit pas
-  -- effacer la clé déjà connue.
-  e2e_key = COALESCE(excluded.e2e_key, abonnements.e2e_key),
-  e2e_key_id = COALESCE(excluded.e2e_key_id, abonnements.e2e_key_id),
-  -- Même règle : un rôle retiré laisse roles: [] ($pull), jamais un champ
-  -- absent — l'absence ne dit donc rien.
-  roles = COALESCE(excluded.roles, abonnements.roles),
-  mis_a_jour_le = excluded.mis_a_jour_le
-WHERE excluded.mis_a_jour_le >= abonnements.mis_a_jour_le
+  group_mentions = excluded.group_mentions,
+  alert = excluded.alert,
+  open = excluded.open,
+  favorite = excluded.favorite,
+  last_seen = excluded.last_seen,
+  -- COALESCE: a partial subscription event (without E2EKey) must not erase
+  -- the already known key.
+  e2e_key = COALESCE(excluded.e2e_key, subscriptions.e2e_key),
+  e2e_key_id = COALESCE(excluded.e2e_key_id, subscriptions.e2e_key_id),
+  -- Same rule: a removed role leaves roles: [] ($pull), never a missing
+  -- field, so absence says nothing.
+  roles = COALESCE(excluded.roles, subscriptions.roles),
+  updated_at = excluded.updated_at
+WHERE excluded.updated_at >= subscriptions.updated_at
 `;
 
-/** Curseur de rattrapage. Ne recule jamais : un curseur qui régresse re-télécharge. */
-export const UPSERT_CURSEUR = `
-INSERT INTO etat_synchro (portee, flux, mis_a_jour_depuis) VALUES (?, ?, ?)
-ON CONFLICT(portee, flux) DO UPDATE SET mis_a_jour_depuis = excluded.mis_a_jour_depuis
-WHERE excluded.mis_a_jour_depuis > etat_synchro.mis_a_jour_depuis
+/** Catch-up cursor. Never goes back: a regressing cursor downloads again. */
+export const UPSERT_CURSOR = `
+INSERT INTO cursors (scope, stream, updated_since) VALUES (?, ?, ?)
+ON CONFLICT(scope, stream) DO UPDATE SET updated_since = excluded.updated_since
+WHERE excluded.updated_since > cursors.updated_since
 `;
 
 /**
- * Identité d'un auteur (`uid → pseudo courant`), dérivée de CHAQUE message
- * ingéré. Deux garde-fous dans le `WHERE` :
- *  - `mis_a_jour_le >=` : un message plus ANCIEN ne rétrograde pas un pseudo
- *    plus récemment observé (« le plus récent gagne »).
- *  - `username IS NOT` : on n'écrit QUE si le pseudo change VRAIMENT. Sans ça,
- *    chaque message au même pseudo toucherait la ligne et ferait rejouer la
- *    requête vive de la table — donc re-rendre toutes les lignes visibles. Là,
- *    la table ne bouge qu'à un VRAI renommage.
+ * An author's identity (`uid -> current username`), derived from EVERY
+ * ingested message. Two safeguards in the `WHERE`:
+ *  - `updated_at >=`: an OLDER message does not downgrade a more recently
+ *    observed username ("most recent wins").
+ *  - `username IS NOT`: we write ONLY if the username REALLY changes. Without
+ *    it, each message with the same username would touch the row and rerun
+ *    the table's live query, hence re-render every visible row. This way,
+ *    the table only moves on a REAL rename.
  */
-export const UPSERT_UTILISATEUR = `
-INSERT INTO utilisateurs (uid, username, mis_a_jour_le) VALUES (?, ?, ?)
+export const UPSERT_USER = `
+INSERT INTO users (uid, username, updated_at) VALUES (?, ?, ?)
 ON CONFLICT(uid) DO UPDATE SET
   username = excluded.username,
-  mis_a_jour_le = excluded.mis_a_jour_le
-WHERE excluded.mis_a_jour_le >= utilisateurs.mis_a_jour_le
-  AND excluded.username IS NOT utilisateurs.username
+  updated_at = excluded.updated_at
+WHERE excluded.updated_at >= users.updated_at
+  AND excluded.username IS NOT users.username
 `;
 
 /**
- * Identité venue d'une source AUTORITAIRE (`me` au raccordement, `users.info` à
- * l'ouverture d'une fiche) : pseudo courant ET version d'avatar, par uid.
+ * Identity from an AUTHORITATIVE source (`me` at connection setup,
+ * `users.info` when a profile opens): current username AND avatar version,
+ * per uid.
  *
- * Trois écarts assumés avec `UPSERT_UTILISATEUR` :
- *  - `mis_a_jour_le` n'est ni lu ni écrit : ces réponses ne portent pas toutes
- *    un `_updatedAt`, et arbitrer sur l'horloge LOCALE mêlerait deux temps.
- *    L'insertion pose 0 — le plus petit — pour qu'un message ultérieur garde la
- *    main sur le pseudo ;
- *  - `COALESCE` sur l'etag : `users.info` l'OMET quand l'utilisateur n'a pas de
- *    photo, ce qui ne doit pas effacer celui qu'on connaît (voir UPSERT_SALON) ;
- *  - le `WHERE` ne laisse passer qu'un VRAI changement : sans lui, chaque
- *    ouverture de fiche toucherait la table et re-rendrait toutes les lignes
- *    abonnées à `utilisateurs`.
+ * Three deliberate differences from `UPSERT_USER`:
+ *  - `updated_at` is neither read nor written: these responses do not all
+ *    carry an `_updatedAt`, and arbitrating on the LOCAL clock would mix two
+ *    times. The insert sets 0, the smallest, so a later message keeps the
+ *    upper hand on the username;
+ *  - `COALESCE` on the etag: `users.info` OMITS it when the user has no
+ *    photo, which must not erase the one we know (see UPSERT_ROOM);
+ *  - the `WHERE` only lets a REAL change through: without it, each profile
+ *    opening would touch the table and re-render every row subscribed to
+ *    `users`.
  */
-export const UPSERT_IDENTITE = `
-INSERT INTO utilisateurs (uid, username, avatar_etag, mis_a_jour_le) VALUES (?, ?, ?, 0)
+export const UPSERT_IDENTITY = `
+INSERT INTO users (uid, username, avatar_etag, updated_at) VALUES (?, ?, ?, 0)
 ON CONFLICT(uid) DO UPDATE SET
   username = excluded.username,
-  avatar_etag = COALESCE(excluded.avatar_etag, utilisateurs.avatar_etag)
-WHERE excluded.username IS NOT utilisateurs.username
-   OR COALESCE(excluded.avatar_etag, utilisateurs.avatar_etag) IS NOT utilisateurs.avatar_etag
+  avatar_etag = COALESCE(excluded.avatar_etag, users.avatar_etag)
+WHERE excluded.username IS NOT users.username
+   OR COALESCE(excluded.avatar_etag, users.avatar_etag) IS NOT users.avatar_etag
 `;
 
 /**
- * Version d'avatar poussée par le stream `updateAvatar`, qui désigne sa cible
- * par le PSEUDO (jamais par l'uid) pour un utilisateur, par le `rid` pour un
- * salon. Un utilisateur encore inconnu localement ne touche aucune ligne : son
- * avatar n'est affiché nulle part, et la première fiche ouverte le posera.
+ * Avatar version pushed by the `updateAvatar` stream, which names its target
+ * by USERNAME (never by uid) for a user, by `rid` for a room. A user still
+ * unknown locally touches no row: their avatar is shown nowhere, and the
+ * first profile opened will set it.
  *
- * L'etag est passé DEUX fois : la garde `IS NOT` évite une écriture inutile,
- * donc un rejeu de toutes les requêtes vives assises sur la table.
+ * The etag is passed TWICE: the `IS NOT` guard avoids a useless write, hence
+ * a rerun of every live query sitting on the table.
  */
-export const MAJ_AVATAR_UTILISATEUR = `
-UPDATE utilisateurs SET avatar_etag = ? WHERE username = ? AND avatar_etag IS NOT ?
+export const UPDATE_USER_AVATAR = `
+UPDATE users SET avatar_etag = ? WHERE username = ? AND avatar_etag IS NOT ?
 `;
 
-export const MAJ_AVATAR_SALON = `
-UPDATE salons SET avatar_etag = ? WHERE rid = ? AND avatar_etag IS NOT ?
+export const UPDATE_ROOM_AVATAR = `
+UPDATE rooms SET avatar_etag = ? WHERE rid = ? AND avatar_etag IS NOT ?
 `;
 
-/** Clés de salon connues, pour la passe de déchiffrement E2EE au déverrouillage. */
-export const LISTER_CLES_SALON = `SELECT rid, e2e_key FROM abonnements WHERE e2e_key IS NOT NULL`;
-/** Messages chiffrés encore illisibles : ciphertext gardé, clair pas encore posé. */
-export const MESSAGES_A_DECHIFFRER = `SELECT id, rid, chiffre_brut FROM messages WHERE chiffre_brut IS NOT NULL AND texte IS NULL`;
-/** Pose le clair d'un message une fois déchiffré, et les pièces jointes d'un fichier. */
-export const MAJ_TEXTE_MESSAGE = `UPDATE messages SET texte = ?, pieces_jointes = COALESCE(?, pieces_jointes) WHERE id = ?`;
+/** Known room keys, for the E2EE decryption pass on unlock. */
+export const LIST_ROOM_KEYS = `SELECT rid, e2e_key FROM subscriptions WHERE e2e_key IS NOT NULL`;
+/** Encrypted messages still unreadable: ciphertext kept, plaintext not yet set. */
+export const MESSAGES_TO_DECRYPT = `SELECT id, rid, encrypted_raw FROM messages WHERE encrypted_raw IS NOT NULL AND text IS NULL`;
+/** Sets a message's plaintext once decrypted, and a file's attachments. */
+export const UPDATE_MESSAGE_TEXT = `UPDATE messages SET text = ?, attachments = COALESCE(?, attachments) WHERE id = ?`;
 /**
- * Pose l'épinglage et les étoiles après un geste réussi (voir `lib/marques.ts`).
- * `mis_a_jour_le` n'avance pas : la prochaine version du serveur fait foi.
+ * Sets pinning and stars after a successful gesture (see `lib/marks.ts`).
+ * `updated_at` does not advance: the server's next version wins.
  */
-export const MAJ_MARQUES_MESSAGE = `UPDATE messages SET epingle = ?, etoiles = ? WHERE id = ?`;
-/** Re-masque tout message chiffré au verrouillage : le clair local disparaît,
- *  pièces jointes comprises (elles portent la clé de chaque fichier), le
- *  ciphertext (`chiffre_brut`) reste pour re-déchiffrer au prochain déverrou.
+export const UPDATE_MESSAGE_MARKS = `UPDATE messages SET pinned = ?, starred = ? WHERE id = ?`;
+/** Re-masks every encrypted message on lock: the local plaintext disappears,
+ *  attachments included (they carry each file's key), the ciphertext
+ *  (`encrypted_raw`) stays to decrypt again at the next unlock.
  *
- *  `texte IS NOT NULL` n'est pas cosmétique, comme partout ailleurs ici : un
- *  verrouillage rejoué (`reverrouillageE2E`) sur des messages DÉJÀ masqués
- *  toucherait toute la table sans rien changer, et réveillerait chaque
- *  requête vive assise dessus — donc re-rendrait le salon ouvert. */
-export const MASQUER_MESSAGES_CHIFFRES = `UPDATE messages SET texte = NULL, pieces_jointes = NULL WHERE chiffre_brut IS NOT NULL AND texte IS NOT NULL`;
+ *  `text IS NOT NULL` is not cosmetic, as everywhere else here: a replayed
+ *  lock (`e2eRelocked`) on ALREADY masked messages would touch the whole
+ *  table without changing anything, and wake every live query sitting on
+ *  it, hence re-render the open room. */
+export const HIDE_ENCRYPTED_MESSAGES = `UPDATE messages SET text = NULL, attachments = NULL WHERE encrypted_raw IS NOT NULL AND text IS NOT NULL`;
 /**
- * Aperçu de la liste pour les salons chiffrés DÉVERROUILLÉS : le dernier
- * message déchiffré. Sans déchiffrement, `dernier_message` reste null (le
- * ciphertext n'est jamais stocké) → la liste montre le placeholder.
+ * List preview for UNLOCKED encrypted rooms: the last decrypted message.
+ * Without decryption, `last_message` stays null (the ciphertext is never
+ * stored), so the list shows the placeholder.
  *
- * Rejoué à chaque SUPPRESSION de message (voir `Depot.supprimerMessage`) : dans
- * un salon chiffré, le serveur ne peut pas dire quel est le nouveau dernier
- * message, seule la base locale le sait. Sans ce rejeu, effacer le dernier
- * message d'un salon chiffré y laissait son texte en aperçu.
+ * Replayed on every message DELETION (see `Store.deleteMessage`): in an
+ * encrypted room, the server cannot tell which message is the new last one,
+ * only the local database knows. Without this replay, deleting the last
+ * message of an encrypted room left its text as the preview.
  *
- * Le `IS NOT` final n'est pas cosmétique : sans lui, l'UPDATE toucherait la
- * table à chaque suppression même sans rien changer, et ferait rejouer toutes
- * les requêtes vives assises sur `salons`. La sous-requête est donc répétée —
- * une fois pour écrire, une fois pour décider s'il y a lieu d'écrire.
+ * The final `IS NOT` is not cosmetic: without it, the UPDATE would touch the
+ * table on every deletion even when changing nothing, and rerun every live
+ * query sitting on `rooms`. The subquery is therefore repeated: once to
+ * write, once to decide whether there is anything to write.
  *
- * **Elle doit désigner le même message que le FLUX**, sinon l'aperçu annonce
- * quelque chose qu'on ne trouve pas en ouvrant le salon. Trois clauses, copiées
- * de la requête d'`app/salon/[rid].tsx` :
- *  - `fil_id IS NULL OR fil_affiche = 1` : une réponse de fil vit dans son fil,
- *    pas dans le salon — sauf `tshow` ;
- *  - `type_systeme IS NULL OR type_systeme = 'e2e'` : le flux rend un message
- *    système via `texteSysteme()` (« alice a rejoint le salon »), jamais son
- *    `texte` brut — qui pour un `t: 'uj'` n'est QUE le pseudo. Le prendre en
- *    aperçu affichait donc « alice » tout court. C'est exactement le prédicat
- *    `estOrdinaire` de `ui/ligneMessage.tsx`.
- *    ⚠️ Surtout PAS `type_systeme IS NULL` seul : dans un salon chiffré, TOUS
- *    les messages portent `t: 'e2e'` (`lib/normaliser.ts`) — ce filtre-là
- *    viderait l'aperçu de tous les salons chiffrés, c'est-à-dire la seule
- *    chose que cette requête existe pour calculer ;
- *  - `id DESC` en clé secondaire : le flux a dû l'ajouter pour départager deux
- *    messages à la même milliseconde. Sans elle, l'aperçu et la première ligne
- *    du salon peuvent désigner deux messages différents.
+ * **It must point to the same message as the STREAM**, otherwise the preview
+ * announces something not found when opening the room. Three clauses, copied
+ * from the query in `app/room/[rid].tsx`:
+ *  - `thread_id IS NULL OR thread_shown = 1`: a thread reply lives in its thread,
+ *    not in the room, except `tshow`;
+ *  - `system_type IS NULL OR system_type = 'e2e'`: the stream renders a
+ *    system message via `systemText()` ("alice joined the room"), never its
+ *    raw `text`, which for a `t: 'uj'` is ONLY the username. Using it as the
+ *    preview therefore showed just "alice". It is exactly the `isOrdinary`
+ *    predicate of `ui/messageRow.tsx`.
+ *    ⚠️ Above all NOT `system_type IS NULL` alone: in an encrypted room, ALL
+ *    messages carry `t: 'e2e'` (`lib/normalize.ts`); that filter would empty
+ *    the preview of every encrypted room, which is the only thing this query
+ *    exists to compute;
+ *  - `id DESC` as secondary key: the stream had to add it to break ties
+ *    between two messages in the same millisecond. Without it, the preview
+ *    and the room's first row may point to two different messages.
  */
-export const MAJ_APERCU_CHIFFRE = `
-UPDATE salons SET dernier_message = (
-  SELECT texte FROM messages
-  WHERE messages.rid = salons.rid AND messages.texte IS NOT NULL
-    AND (messages.fil_id IS NULL OR messages.fil_affiche = 1)
-    AND (messages.type_systeme IS NULL OR messages.type_systeme = 'e2e')
-  ORDER BY messages.horodatage DESC, messages.id DESC LIMIT 1
-) WHERE chiffre = 1 AND dernier_message IS NOT (
-  SELECT texte FROM messages
-  WHERE messages.rid = salons.rid AND messages.texte IS NOT NULL
-    AND (messages.fil_id IS NULL OR messages.fil_affiche = 1)
-    AND (messages.type_systeme IS NULL OR messages.type_systeme = 'e2e')
-  ORDER BY messages.horodatage DESC, messages.id DESC LIMIT 1
+export const UPDATE_ENCRYPTED_PREVIEW = `
+UPDATE rooms SET last_message = (
+  SELECT text FROM messages
+  WHERE messages.rid = rooms.rid AND messages.text IS NOT NULL
+    AND (messages.thread_id IS NULL OR messages.thread_shown = 1)
+    AND (messages.system_type IS NULL OR messages.system_type = 'e2e')
+  ORDER BY messages.ts DESC, messages.id DESC LIMIT 1
+) WHERE encrypted = 1 AND last_message IS NOT (
+  SELECT text FROM messages
+  WHERE messages.rid = rooms.rid AND messages.text IS NOT NULL
+    AND (messages.thread_id IS NULL OR messages.thread_shown = 1)
+    AND (messages.system_type IS NULL OR messages.system_type = 'e2e')
+  ORDER BY messages.ts DESC, messages.id DESC LIMIT 1
 )`;
-/** Au verrouillage : l'aperçu redevient le placeholder (dernier_message null).
- *  Même garde que ci-dessus, pour la liste des salons cette fois. */
-export const MASQUER_APERCU_CHIFFRE = `UPDATE salons SET dernier_message = NULL WHERE chiffre = 1 AND dernier_message IS NOT NULL`;
+/** On lock: the preview becomes the placeholder again (last_message null).
+ *  Same guard as above, for the room list this time. */
+export const HIDE_ENCRYPTED_PREVIEW = `UPDATE rooms SET last_message = NULL WHERE encrypted = 1 AND last_message IS NOT NULL`;
 
-export const SUPPRIMER_MESSAGE = `DELETE FROM messages WHERE id = ?`;
+export const DELETE_MESSAGE = `DELETE FROM messages WHERE id = ?`;
 
-/** Départ d'un salon : le rattrapage (`remove[]` d'updatedSince) fait le ménage. */
-export const SUPPRIMER_SALON = `DELETE FROM salons WHERE rid = ?`;
-export const SUPPRIMER_ABONNEMENT = `DELETE FROM abonnements WHERE rid = ?`;
-/** Les `remove[]` d'abonnements ne portent QUE le `_id` de l'abonnement. */
-export const RID_PAR_SUB_ID = `SELECT rid FROM abonnements WHERE sub_id = ?`;
-
-/**
- * Le `rid` d'un brouillon : la clé est `rid` ou `rid:tmid` (fil). Un rid
- * Rocket.Chat ne contient jamais de `:`, la coupe est donc sans ambiguïté.
- * `instr` rend 0 quand il n'y a pas de séparateur — d'où le `CASE`.
- */
-const RID_DU_BROUILLON = `substr(cle, 1, CASE WHEN instr(cle, ':') = 0 THEN length(cle) ELSE instr(cle, ':') - 1 END)`;
+/** Leaving a room: the catch-up (updatedSince's `remove[]`) cleans up. */
+export const DELETE_ROOM = `DELETE FROM rooms WHERE rid = ?`;
+export const DELETE_SUBSCRIPTION = `DELETE FROM subscriptions WHERE rid = ?`;
+/** Subscription `remove[]` entries carry ONLY the subscription's `_id`. */
+export const RID_BY_SUB_ID = `SELECT rid FROM subscriptions WHERE sub_id = ?`;
 
 /**
- * Tous les `rid` que la base connaît, quelle que soit la table qui les porte —
- * l'INSTANTANÉ que la réconciliation doit prendre AVANT sa requête réseau.
- *
- * Pourquoi cet instantané : `purgerSalonsAbsents` reçoit la liste vivante d'un
- * `subscriptions.get` qui a duré ~200 ms, pendant lesquelles le stream DDP a
- * continué d'écrire. Un DM ouvert par un collègue dans cet intervalle n'est
- * dans AUCUNE des deux listes — pas dans les vivants (il n'existait pas quand
- * le serveur a répondu), pas dans les connus (il n'existait pas quand on a
- * relevé la base). Purger `NOT IN (vivants)` l'effaçait ; purger
- * `IN (connus) AND NOT IN (vivants)` l'épargne. C'est l'ORDRE des deux
- * lectures qui porte la justesse, aucun délai.
- *
- * L'union couvre TOUTES les tables à rid, pas seulement les trois du salon :
- * une file d'envoi orpheline (laissée par une purge d'avant ce correctif) n'a
- * plus de ligne nulle part ailleurs, et ne serait donc jamais reprise par une
- * purge bornée aux salons connus. `etat_synchro` y entre sans ses curseurs
- * globaux (`portee = '*'`), qui ne sont pas des rids.
+ * A draft's `rid`: the key is `rid` or `rid:tmid` (thread). A Rocket.Chat rid
+ * never contains `:`, so the split is unambiguous. `instr` returns 0 when
+ * there is no separator, hence the `CASE`.
  */
-export const LISTER_RIDS_CONNUS = `
-SELECT rid FROM salons
-UNION SELECT rid FROM abonnements
+const DRAFT_RID = `substr(key, 1, CASE WHEN instr(key, ':') = 0 THEN length(key) ELSE instr(key, ':') - 1 END)`;
+
+/**
+ * Every `rid` the database knows, whichever table carries it: the SNAPSHOT
+ * the reconciliation must take BEFORE its network request.
+ *
+ * Why this snapshot: `purgeMissingRooms` receives the live list of a
+ * `subscriptions.get` that took ~200 ms, during which the DDP stream kept
+ * writing. A DM opened by a colleague in that interval is in NEITHER list:
+ * not among the live ones (it did not exist when the server answered), not
+ * among the known ones (it did not exist when the database was read). Purging
+ * `NOT IN (live)` erased it; purging `IN (known) AND NOT IN (live)` spares it.
+ * The ORDER of the two reads carries the correctness, no delay does.
+ *
+ * The union covers ALL tables with a rid, not only the room's three: an
+ * orphaned outbox row (left by a purge from before this fix) has no row
+ * anywhere else, and so would never be picked up by a purge limited to known
+ * rooms. `cursors` enters without its global cursors (`scope = '*'`), which
+ * are not rids.
+ */
+export const LIST_KNOWN_RIDS = `
+SELECT rid FROM rooms
+UNION SELECT rid FROM subscriptions
 UNION SELECT rid FROM messages
-UNION SELECT rid FROM sortie
-UNION SELECT rid FROM televersements
-UNION SELECT portee FROM etat_synchro WHERE portee <> '*'
-UNION SELECT ${RID_DU_BROUILLON} FROM brouillons
+UNION SELECT rid FROM outbox
+UNION SELECT rid FROM uploads
+UNION SELECT scope FROM cursors WHERE scope <> '*'
+UNION SELECT ${DRAFT_RID} FROM drafts
 `;
 
 /**
- * Réconciliation anti-fantômes : efface tout ce dont le `rid` était connu au
- * départ et n'est PLUS dans la liste vivante du serveur. `json_each` déballe un
- * tableau JSON de N rids passé en UN seul paramètre — le SQL reste statique
- * (testé tel quel) quel que soit N. Ordre des paramètres : **connus, puis
- * vivants**, partout.
+ * Anti-ghost reconciliation: erases everything whose `rid` was known at the
+ * start and is NO LONGER in the server's live list. `json_each` unpacks a
+ * JSON array of N rids passed as ONE parameter: the SQL stays static (tested
+ * as is) whatever N. Parameter order: **known, then live**, everywhere.
  *
- * L'appelant GARANTIT une liste vivante non vide : `NOT IN (rien)` effacerait
- * tout ce qui est connu.
+ * The caller GUARANTEES a non-empty live list: `NOT IN (nothing)` would erase
+ * everything known.
  *
- * On purge les SEPT tables liées au salon, pas trois. Les quatre autres ne
- * disparaissaient jamais : un brouillon invisible, un curseur qui survit aux
- * messages qu'il décrit (et qu'`UPSERT_CURSEUR` interdit ensuite de corriger,
- * puisqu'il refuse toute régression), et surtout une ligne de `sortie` ou de
- * `televersements` qu'aucun écran ne peut plus afficher — donc plus aucun
- * bouton « abandonner » — mais que le rejeu repousse à CHAQUE raccordement,
- * pour toujours, en retardant les envois légitimes derrière elle.
+ * We purge the SEVEN tables tied to the room, not three. The other four
+ * never went away: an invisible draft, a cursor outliving the messages it
+ * describes (which `UPSERT_CURSOR` then forbids correcting, since it refuses
+ * any regression), and above all an `outbox` or `uploads` row that no screen
+ * can show anymore, so no "discard" button either, but that the replay
+ * pushes again at EVERY connection setup, forever, delaying legitimate sends
+ * behind it.
  */
-export const PURGER_SALONS_ABSENTS = `DELETE FROM salons WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
-export const PURGER_ABONNEMENTS_ABSENTS = `DELETE FROM abonnements WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
-export const PURGER_MESSAGES_ABSENTS = `DELETE FROM messages WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
-export const PURGER_SORTIE_ABSENTE = `DELETE FROM sortie WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
-export const PURGER_TELEVERSEMENTS_ABSENTS = `DELETE FROM televersements WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
-export const PURGER_BROUILLONS_ABSENTS = `DELETE FROM brouillons WHERE ${RID_DU_BROUILLON} IN (SELECT value FROM json_each(?)) AND ${RID_DU_BROUILLON} NOT IN (SELECT value FROM json_each(?))`;
+export const PURGE_MISSING_ROOMS = `DELETE FROM rooms WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
+export const PURGE_MISSING_SUBSCRIPTIONS = `DELETE FROM subscriptions WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
+export const PURGE_MISSING_MESSAGES = `DELETE FROM messages WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
+export const PURGE_MISSING_OUTBOX = `DELETE FROM outbox WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
+export const PURGE_MISSING_UPLOADS = `DELETE FROM uploads WHERE rid IN (SELECT value FROM json_each(?)) AND rid NOT IN (SELECT value FROM json_each(?))`;
+export const PURGE_MISSING_DRAFTS = `DELETE FROM drafts WHERE ${DRAFT_RID} IN (SELECT value FROM json_each(?)) AND ${DRAFT_RID} NOT IN (SELECT value FROM json_each(?))`;
 /**
- * `portee <> '*'` est INDISPENSABLE : les curseurs globaux (`salons`,
- * `abonnements`) ne sont pas des rids et ne doivent jamais tomber — les perdre
- * relancerait un rattrapage complet à chaque réconciliation.
+ * `scope <> '*'` is ESSENTIAL: the global cursors (`rooms`,
+ * `subscriptions`) are not rids and must never go; losing them would restart a
+ * full catch-up at every reconciliation.
  */
-export const PURGER_CURSEURS_ABSENTS = `DELETE FROM etat_synchro WHERE portee <> '*' AND portee IN (SELECT value FROM json_each(?)) AND portee NOT IN (SELECT value FROM json_each(?))`;
+export const PURGE_MISSING_CURSORS = `DELETE FROM cursors WHERE scope <> '*' AND scope IN (SELECT value FROM json_each(?)) AND scope NOT IN (SELECT value FROM json_each(?))`;
 
 /**
- * Départ d'un salon, immédiat : ce que la purge ferait plus tard, mais tout de
- * suite et pour un seul rid. Sans elles, une ligne de `sortie` laissée par un
- * salon quitté coûte deux appels REST par raccordement (`chat.sendMessage`
- * puis le `chat.getMessage` de `messageLivre`) jusqu'à la prochaine
- * réconciliation — qui n'a lieu qu'UNE fois par session.
+ * Leaving a room, immediately: what the purge would do later, but right away
+ * and for a single rid. Without these, an `outbox` row left by a room that
+ * was left costs two REST calls per connection setup (`chat.sendMessage` then
+ * the `chat.getMessage` of `messageDelivered`) until the next reconciliation,
+ * which only happens ONCE per session.
  */
-export const SUPPRIMER_SORTIE_SALON = `DELETE FROM sortie WHERE rid = ?`;
-export const SUPPRIMER_TELEVERSEMENTS_SALON = `DELETE FROM televersements WHERE rid = ?`;
-export const SUPPRIMER_BROUILLONS_SALON = `DELETE FROM brouillons WHERE ${RID_DU_BROUILLON} = ?`;
-export const SUPPRIMER_CURSEURS_SALON = `DELETE FROM etat_synchro WHERE portee = ?`;
+export const DELETE_ROOM_OUTBOX = `DELETE FROM outbox WHERE rid = ?`;
+export const DELETE_ROOM_UPLOADS = `DELETE FROM uploads WHERE rid = ?`;
+export const DELETE_ROOM_DRAFTS = `DELETE FROM drafts WHERE ${DRAFT_RID} = ?`;
+export const DELETE_ROOM_CURSORS = `DELETE FROM cursors WHERE scope = ?`;
 
 /**
- * Rétention : par salon, ne garder que les N messages les plus RÉCENTS.
+ * Retention: per room, keep only the N most RECENT messages.
  *
- * Sans elle, `messages` ne cesse jamais de croître pour un salon vivant — et
- * ce n'est pas que du texte : `md`, `pieces_jointes`, `reactions` et `urls`
- * sont des blobs JSON souvent plus lourds que le message lui-même. Le seul
- * recours de l'utilisateur sur Android est « vider les données », qui détruit
- * tout, brouillons et file d'envoi compris.
+ * Without it, `messages` never stops growing for a live room, and it is not
+ * just text: `md`, `attachments`, `reactions` and `urls` are JSON blobs
+ * often heavier than the message itself. The user's only recourse on Android
+ * is "clear data", which destroys everything, drafts and outbox included.
  *
- * Deux exemptions, toutes deux nécessaires :
+ * Two exemptions, both necessary:
  *
- * - **les optimistes** (`mis_a_jour_le = 0`) : ils n'existent que localement,
- *   le serveur ne les rendra pas. Ils sont hors du classement, donc ils ne
- *   consomment pas non plus le quota.
- * - **les racines de fil encore référencées** : effacer la racine laisserait
- *   des réponses rattachées à un message introuvable, et l'écran fil ne
- *   saurait plus quoi afficher en tête.
+ * - **optimistic ones** (`updated_at = 0`): they only exist locally, the
+ *   server will not return them. They are outside the ranking, so they do
+ *   not consume the quota either.
+ * - **thread roots still referenced**: erasing the root would leave replies
+ *   attached to a message that cannot be found, and the thread screen would
+ *   no longer know what to show at the top.
  *
- * Couper par `horodatage` et non par `mis_a_jour_le` : c'est l'ancienneté du
- * MESSAGE qu'on veut, pas celle de sa dernière édition. `id` départage les
- * ex æquo pour que la coupe soit déterministe. Inutile de ré-ancrer le curseur
- * de rattrapage : on ne coupe que par le bas, et l'app sait re-télécharger sa
- * pagination.
+ * Cut by `ts` and not by `updated_at`: we want the MESSAGE's age,
+ * not that of its last edit. `id` breaks ties so the cut is deterministic. No
+ * need to re-anchor the catch-up cursor: we only cut from the bottom, and the
+ * app knows how to download its pagination again.
  */
-export const APPLIQUER_RETENTION = `
+export const APPLY_RETENTION = `
 DELETE FROM messages WHERE id IN (
   SELECT id FROM (
-    SELECT id, ROW_NUMBER() OVER (PARTITION BY rid ORDER BY horodatage DESC, id DESC) AS rang
-    FROM messages WHERE mis_a_jour_le <> 0
+    SELECT id, ROW_NUMBER() OVER (PARTITION BY rid ORDER BY ts DESC, id DESC) AS rang
+    FROM messages WHERE updated_at <> 0
   ) WHERE rang > ?
-) AND id NOT IN (SELECT fil_id FROM messages WHERE fil_id IS NOT NULL)
+) AND id NOT IN (SELECT thread_id FROM messages WHERE thread_id IS NOT NULL)
 `;
 
-export const LIRE_CURSEUR = `
-SELECT mis_a_jour_depuis FROM etat_synchro WHERE portee = ? AND flux = ?
+export const READ_CURSOR = `
+SELECT updated_since FROM cursors WHERE scope = ? AND stream = ?
 `;
 
 /**
- * Brouillon de composer, par `rid` ou `rid:tmid`. Pas de garde de fraîcheur ici,
- * contrairement aux upserts venus du réseau : la seule source est la frappe de
- * l'utilisateur, débouncée, et la dernière l'emporte toujours.
+ * Composer draft, per `rid` or `rid:tmid`. No freshness guard here, unlike
+ * the upserts coming from the network: the only source is the user's typing,
+ * debounced, and the latest always wins.
  */
-export const UPSERT_BROUILLON = `
-INSERT INTO brouillons (cle, texte, mis_a_jour_le) VALUES (?, ?, ?)
-ON CONFLICT(cle) DO UPDATE SET texte = excluded.texte, mis_a_jour_le = excluded.mis_a_jour_le
+export const UPSERT_DRAFT = `
+INSERT INTO drafts (key, text, updated_at) VALUES (?, ?, ?)
+ON CONFLICT(key) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at
 `;
-export const SUPPRIMER_BROUILLON = `DELETE FROM brouillons WHERE cle = ?`;
-export const LIRE_BROUILLON = `SELECT texte FROM brouillons WHERE cle = ?`;
+export const DELETE_DRAFT = `DELETE FROM drafts WHERE key = ?`;
+export const READ_DRAFT = `SELECT text FROM drafts WHERE key = ?`;
 
 /**
- * Le plus grand `_updatedAt` déjà ingéré pour un salon — sert à RÉ-ANCRER le
- * curseur de rattrapage quand `chat.syncMessages` échoue sur un backlog trop
- * gros (le serveur 8.5 ne borne pas la requête, elle timeoute), pour ne pas
- * re-demander éternellement le même gouffre. `MAX(NULL)` d'une table vide rend
- * `NULL` → `null` côté appelant.
+ * The largest `_updatedAt` already ingested for a room: used to RE-ANCHOR the
+ * catch-up cursor when `chat.syncMessages` fails on too large a backlog (the
+ * 8.5 server does not bound the query, it times out), so as not to keep
+ * asking for the same abyss forever. `MAX(NULL)` of an empty table returns
+ * `NULL` -> `null` on the caller's side.
  */
-export const DERNIER_MESSAGE_MIS_A_JOUR = `
-SELECT MAX(mis_a_jour_le) AS mis_a_jour_le FROM messages WHERE rid = ?
+export const LAST_MESSAGE_UPDATED_AT = `
+SELECT MAX(updated_at) AS updated_at FROM messages WHERE rid = ?
 `;
 
 // ---------------------------------------------------------------------------
-// Emojis personnalisés. Table de référence, remplacée EN BLOC au rattrapage
-// (`emoji-custom.list` complet) : un `DELETE` puis des `INSERT`, dans une même
-// transaction, plutôt qu'un upsert qui laisserait traîner les emojis retirés
-// côté serveur en fantômes cliquables.
+// Custom emojis. Reference table, replaced AS A WHOLE on catch-up (full
+// `emoji-custom.list`): a `DELETE` then `INSERT`s, in one transaction, rather
+// than an upsert that would leave emojis removed server-side lingering as
+// clickable ghosts.
 // ---------------------------------------------------------------------------
 
-export const VIDER_EMOJIS_CUSTOM = `DELETE FROM emojis_custom`;
+export const CLEAR_CUSTOM_EMOJIS = `DELETE FROM custom_emojis`;
 
-export const INSERER_EMOJI_CUSTOM = `
-INSERT INTO emojis_custom (nom, extension, aliases, mis_a_jour_le) VALUES (?, ?, ?, ?)
+export const INSERT_CUSTOM_EMOJI = `
+INSERT INTO custom_emojis (name, extension, aliases, updated_at) VALUES (?, ?, ?, ?)
 `;
 
-export const LISTER_EMOJIS_CUSTOM = `
-SELECT nom, extension, aliases FROM emojis_custom
+export const LIST_CUSTOM_EMOJIS = `
+SELECT name, extension, aliases FROM custom_emojis
 `;
 
-export function paramsEmojiCustom(e: {
-  nom: string;
+export function customEmojiParams(e: {
+  name: string;
   extension: string;
   aliases: string[];
-  misAJourLe: number;
-}): Parametre[] {
-  return [e.nom, e.extension, JSON.stringify(e.aliases), e.misAJourLe];
+  updatedAt: number;
+}): SqlParam[] {
+  return [e.name, e.extension, JSON.stringify(e.aliases), e.updatedAt];
 }
 
 // ---------------------------------------------------------------------------
-// File d'envoi (outbox). L'`id` est le `_id` 24-hex généré CÔTÉ CLIENT : le
-// serveur déduplique dessus, c'est ce qui rend le rejeu après crash sûr.
+// Outbox. The `id` is the 24-hex `_id` generated CLIENT-SIDE: the server
+// deduplicates on it, which is what makes replay after a crash safe.
 // ---------------------------------------------------------------------------
 
-export const INSERER_SORTIE = `
-INSERT INTO sortie (id, rid, texte, fil_id, statut, tentatives, derniere_erreur, cree_le)
-VALUES (?, ?, ?, ?, 'en-attente', 0, NULL, ?)
+export const INSERT_OUTBOX = `
+INSERT INTO outbox (id, rid, text, thread_id, status, attempts, last_error, created_at)
+VALUES (?, ?, ?, ?, 'pending', 0, NULL, ?)
 `;
 
-/** Les échecs aussi : le rejeu au retour du réseau retente tout ce qui reste. */
-/** Le salon est-il chiffré ? Décide du chemin d'envoi d'un message. */
-export const SALON_CHIFFRE = `SELECT chiffre FROM salons WHERE rid = ?`;
+/** Failures too: the replay when the network returns retries everything left. */
+/** Is the room encrypted? Decides a message's send path. */
+export const ROOM_ENCRYPTED = `SELECT encrypted FROM rooms WHERE rid = ?`;
 
-export const LISTER_SORTIE_A_ENVOYER = `
-SELECT id, rid, texte, fil_id, statut, tentatives FROM sortie
-WHERE statut IN ('en-attente', 'echec') ORDER BY cree_le
+export const LIST_OUTBOX_TO_SEND = `
+SELECT id, rid, text, thread_id, status, attempts FROM outbox
+WHERE status IN ('pending', 'failed') ORDER BY created_at
 `;
 
-export const MARQUER_SORTIE_ECHEC = `
-UPDATE sortie SET statut = 'echec', tentatives = tentatives + 1, derniere_erreur = ?
+export const MARK_OUTBOX_FAILED = `
+UPDATE outbox SET status = 'failed', attempts = attempts + 1, last_error = ?
 WHERE id = ?
 `;
 
-export const SUPPRIMER_SORTIE = `DELETE FROM sortie WHERE id = ?`;
+export const DELETE_OUTBOX = `DELETE FROM outbox WHERE id = ?`;
 
 /**
- * Abandon d'un envoi : seul un message ENCORE optimiste (`mis_a_jour_le = 0`)
- * s'efface — si une version serveur existe, le message a été livré et n'a
- * plus rien d'abandonnable.
+ * Discarding a send: only a message STILL optimistic (`updated_at = 0`) is
+ * erased; if a server version exists, the message was delivered and there is
+ * nothing left to discard.
  */
-export const SUPPRIMER_MESSAGE_OPTIMISTE = `
-DELETE FROM messages WHERE id = ? AND mis_a_jour_le = 0
+export const DELETE_OPTIMISTIC_MESSAGE = `
+DELETE FROM messages WHERE id = ? AND updated_at = 0
 `;
 
 // ---------------------------------------------------------------------------
-// File de téléversements (7.2) — mêmes règles que la sortie texte.
+// Upload queue (7.2), same rules as the text outbox.
 // ---------------------------------------------------------------------------
 
-export const INSERER_TELEVERSEMENT = `
-INSERT INTO televersements (id, rid, uri, nom, type, legende, statut, derniere_erreur, file_id, cree_le)
-VALUES (?, ?, ?, ?, ?, ?, 'en-attente', NULL, NULL, ?)
+export const INSERT_UPLOAD = `
+INSERT INTO uploads (id, rid, uri, name, type, caption, status, last_error, file_id, created_at)
+VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?)
 `;
 
 /**
- * **`en-attente` SEUL.** L'échec était rejoué ici, et `traiter()` est appelé à
- * chaque raccordement : une vidéo que le serveur refuse (413, type hors liste
- * blanche, quota) repoussait donc tous ses octets à chaque flap réseau — cas
- * fréquent sur Android, où `fileSize` est souvent nul et laisse passer la
- * validation locale. Un échec est désormais un terminus : seul le geste
- * « Réessayer » le ré-arme (`REARMER_TELEVERSEMENT`). Un plafond, pas un délai.
+ * **`pending` ONLY.** Failures used to be replayed here, and `process()` is
+ * called at every connection setup: a video the server refuses (413, type not
+ * whitelisted, quota) therefore pushed all its bytes again on every network
+ * flap, a frequent case on Android, where `fileSize` is often null and lets
+ * local validation through. A failure is now a terminus: only the "Retry"
+ * gesture re-arms it (`REARM_UPLOAD`). A ceiling, not a delay.
  *
- * `envoi` est exclu pour une autre raison : la ligne est déjà prise en charge
- * par une passe en vol, la relister la téléverserait deux fois en parallèle.
+ * `sending` is excluded for another reason: the row is already taken by a pass
+ * in flight, listing it again would upload it twice in parallel.
  */
-export const LISTER_TELEVERSEMENTS_A_ENVOYER = `
-SELECT id, rid, uri, nom, type, legende, statut, file_id FROM televersements
-WHERE statut = 'en-attente' ORDER BY cree_le, id
+export const LIST_UPLOADS_TO_SEND = `
+SELECT id, rid, uri, name, type, caption, status, file_id FROM uploads
+WHERE status = 'pending' ORDER BY created_at, id
 `;
 
 /**
- * Prise en charge. La garde `AND statut = 'en-attente'` rend l'opération
- * atomique : deux passes concurrentes ne peuvent pas saisir la même ligne,
- * la seconde met à jour 0 ligne et passe son chemin.
+ * Claiming. The `AND status = 'pending'` guard makes the operation atomic:
+ * two concurrent passes cannot grab the same row, the second updates 0 rows
+ * and moves on.
  */
-export const MARQUER_TELEVERSEMENT_EN_VOL = `
-UPDATE televersements SET statut = 'envoi' WHERE id = ? AND statut = 'en-attente'
+export const MARK_UPLOAD_IN_FLIGHT = `
+UPDATE uploads SET status = 'sending' WHERE id = ? AND status = 'pending'
 `;
 
 /**
- * Ré-armement d'UNE ligne — le geste « Réessayer » du bandeau. Efface le motif
- * de l'échec précédent : le garder afficherait une erreur périmée pendant la
- * nouvelle tentative.
+ * Re-arming ONE row: the banner's "Retry" gesture. Clears the previous
+ * failure's reason: keeping it would show a stale error during the new
+ * attempt.
  */
-export const REARMER_TELEVERSEMENT = `
-UPDATE televersements SET statut = 'en-attente', derniere_erreur = NULL WHERE id = ?
+export const REARM_UPLOAD = `
+UPDATE uploads SET status = 'pending', last_error = NULL WHERE id = ?
 `;
 
 /**
- * Reprise après kill. Un `envoi` qui traîne est l'orphelin d'une exécution
- * précédente, tuée en plein téléversement — Android tue une app en
- * arrière-plan sans prévenir. Sans ce ré-armement, la ligne resterait hors du
- * listage pour toujours : le fichier ne partirait jamais et rien ne le dirait.
+ * Resume after a kill. A lingering `sending` is the orphan of a previous run,
+ * killed mid-upload (Android kills a background app without warning).
+ * Without this re-arming, the row would stay out of the listing forever: the
+ * file would never go and nothing would say so.
  *
- * **La borne n'est pas décorative.** « Orphelin » ne se déduit PAS du seul
- * statut : `SynchroProvider` reconstruit son moteur de fichiers quand l'objet
- * `session` change (un simple renommage suffit), sans jamais arrêter le
- * précédent — et les deux écrivent dans la même connexion SQLite, mémoïsée par
- * nom de fichier. Un ré-armement aveugle rendrait au rejeu une ligne dont
- * l'ancien moteur pousse encore les octets : deux uploads, deux confirms, deux
- * messages. On exclut donc ce que CE runtime a en vol — même discipline que la
- * purge du chantier 6, bornée par un instantané plutôt que par un délai.
+ * **The bound is not decorative.** "Orphan" is NOT inferred from the status
+ * alone: `SyncProvider` rebuilds its file engine when the `session` object
+ * changes (a mere rename is enough), without ever stopping the previous one,
+ * and both write to the same SQLite connection, memoised by file name. A
+ * blind re-arm would hand back to the replay a row whose bytes the old
+ * engine is still pushing: two uploads, two confirms, two messages. So we
+ * exclude what THIS runtime has in flight, the same discipline as workstream
+ * 6's purge, bounded by a snapshot rather than a delay.
  */
-export const REARMER_TELEVERSEMENTS_EN_VOL = `
-UPDATE televersements SET statut = 'en-attente'
-WHERE statut = 'envoi' AND id NOT IN (SELECT value FROM json_each(?))
+export const REARM_IN_FLIGHT_UPLOADS = `
+UPDATE uploads SET status = 'pending'
+WHERE status = 'sending' AND id NOT IN (SELECT value FROM json_each(?))
 `;
 
-/** Les octets sont chez le serveur : `rooms.media` a rendu ce `fileId`. */
-export const NOTER_FILE_ID = `UPDATE televersements SET file_id = ? WHERE id = ?`;
+/** The bytes are on the server: `rooms.media` returned this `fileId`. */
+export const RECORD_FILE_ID = `UPDATE uploads SET file_id = ? WHERE id = ?`;
 
 /**
- * « Ce fichier a-t-il DÉJÀ été posté ? » — posé à SQLite, jamais au réseau.
+ * "Has this file ALREADY been posted?", asked of SQLite, never of the network.
  *
- * Le cas : `rooms.media` a réussi, `rooms.mediaConfirm` a créé le message,
- * mais sa réponse s'est perdue. Le message existe côté serveur et le stream
- * DDP l'a livré comme n'importe quel autre ; re-confirmer posterait un
- * DOUBLON. Le `fileId` se retrouve dans le `title_link` de la pièce jointe
- * (`/file-upload/<fileId>/<nom>`), donc dans la colonne `pieces_jointes`.
+ * The case: `rooms.media` succeeded, `rooms.mediaConfirm` created the
+ * message, but its response was lost. The message exists server-side and the
+ * DDP stream delivered it like any other; confirming again would post a
+ * DUPLICATE. The `fileId` shows up in the attachment's `title_link`
+ * (`/file-upload/<fileId>/<name>`), hence in the `attachments` column.
  *
- * Local, donc insensible à la limite REST de 10 appels/min — l'interroger par
- * `chat.getMessage` aurait consommé le quota au pire moment, celui où l'on
- * rejoue une file entière.
+ * Local, hence immune to the 10 calls/min REST limit; querying it through
+ * `chat.getMessage` would have consumed the quota at the worst moment, when
+ * a whole queue is being replayed.
  */
-export const MESSAGE_AVEC_FICHIER = `
-SELECT id FROM messages WHERE rid = ? AND pieces_jointes LIKE '%' || ? || '%' LIMIT 1
+export const MESSAGE_WITH_FILE = `
+SELECT id FROM messages WHERE rid = ? AND attachments LIKE '%' || ? || '%' LIMIT 1
 `;
 
-export const MARQUER_TELEVERSEMENT_ECHEC = `
-UPDATE televersements SET statut = 'echec', derniere_erreur = ? WHERE id = ?
+export const MARK_UPLOAD_FAILED = `
+UPDATE uploads SET status = 'failed', last_error = ? WHERE id = ?
 `;
 
-export const SUPPRIMER_TELEVERSEMENT = `DELETE FROM televersements WHERE id = ?`;
+export const DELETE_UPLOAD = `DELETE FROM uploads WHERE id = ?`;
 
 // ---------------------------------------------------------------------------
-// Constructeurs de paramètres. Ils vivent ici, collés au SQL : un ordre de
-// colonnes ne peut pas diverger de l'ordre des valeurs sans que les tests le
-// voient, puisque l'application et les tests appellent les mêmes fonctions.
+// Parameter builders. They live here, next to the SQL: a column order cannot
+// drift from the value order without the tests seeing it, since the app and
+// the tests call the same functions.
 // ---------------------------------------------------------------------------
 
-/** SQLite n'a pas de booléen : `false` doit devenir `0`, jamais `'false'`. */
+/** SQLite has no boolean: `false` must become `0`, never `'false'`. */
 const b = (v: boolean): number => (v ? 1 : 0);
 
-export type Parametre = string | number | null;
+export type SqlParam = string | number | null;
 
-export function paramsUtilisateur(u: {
+export function userParams(u: {
   uid: string;
   username: string;
-  misAJourLe: number;
-}): Parametre[] {
-  return [u.uid, u.username, u.misAJourLe];
+  updatedAt: number;
+}): SqlParam[] {
+  return [u.uid, u.username, u.updatedAt];
 }
 
-export function paramsIdentite(i: {
+export function identityParams(i: {
   uid: string;
   username: string;
   avatarEtag: string | null;
-}): Parametre[] {
+}): SqlParam[] {
   return [i.uid, i.username, i.avatarEtag];
 }
 
-export function paramsMessage(m: MessageLocal): Parametre[] {
+export function messageParams(m: LocalMessage): SqlParam[] {
   return [
     m.id,
     m.rid,
-    m.texte,
-    m.horodatage,
-    m.auteurId,
-    m.auteurNom,
-    m.typeSysteme,
-    m.filId,
-    m.filReponses,
-    m.filDernier,
-    b(m.filAffiche),
-    m.modifieLe,
+    m.text,
+    m.ts,
+    m.authorId,
+    m.authorName,
+    m.systemType,
+    m.threadId,
+    m.threadCount,
+    m.threadLast,
+    b(m.threadShown),
+    m.editedAt,
     m.md,
-    m.piecesJointes,
+    m.attachments,
     m.reactions,
     m.urls,
-    m.appelId,
-    m.chiffreBrut,
-    b(m.epingle),
-    m.etoiles,
-    m.misAJourLe,
+    m.callId,
+    m.encryptedRaw,
+    b(m.pinned),
+    m.starred,
+    m.updatedAt,
   ];
 }
 
-export function paramsSalon(s: SalonLocal): Parametre[] {
+export function roomParams(s: LocalRoom): SqlParam[] {
   return [
     s.rid,
     s.type,
-    s.nom,
-    s.nomAffiche,
-    b(s.chiffre),
-    b(s.lectureSeule),
-    s.dmAutreUid,
-    s.dernierMessage,
-    s.dernierMessageType,
-    s.horodatageDernierMessage,
+    s.name,
+    s.displayName,
+    b(s.encrypted),
+    b(s.readOnly),
+    s.dmOtherUid,
+    s.lastMessage,
+    s.lastMessageType,
+    s.lastMessageTs,
     s.avatarEtag,
-    s.misAJourLe,
+    s.updatedAt,
   ];
 }
 
-export function paramsAbonnement(a: AbonnementLocal): Parametre[] {
+export function subscriptionParams(a: LocalSubscription): SqlParam[] {
   return [
     a.rid,
     a.subId,
-    a.nonLus,
+    a.unread,
     a.mentions,
-    a.mentionsGroupe,
-    b(a.alerte),
-    b(a.ouvert),
-    b(a.favori),
-    a.luJusquA,
+    a.groupMentions,
+    b(a.alert),
+    b(a.open),
+    b(a.favorite),
+    a.lastSeen,
     a.e2eKey,
     a.e2eKeyId,
     a.roles,
-    a.misAJourLe,
+    a.updatedAt,
   ];
 }

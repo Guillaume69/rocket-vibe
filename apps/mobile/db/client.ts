@@ -1,75 +1,74 @@
 /**
- * Ouverture de la base locale. **Une base par serveur et par compte** — voir
- * `nomFichier.ts` pour le pourquoi.
+ * Opening the local database. **One database per server and per account**;
+ * see `fileName.ts` for why.
  *
- * `enableChangeListener: true` est obligatoire : sans lui, `useRequeteVive` ne
- * recevrait jamais les notifications d'écriture et l'UI resterait figée alors
- * que le WebSocket alimente la base.
+ * `enableChangeListener: true` is mandatory: without it, `useCoalescedLiveQuery`
+ * would never receive write notifications and the UI would stay frozen while
+ * the WebSocket feeds the database.
  *
- * Le mode WAL évite qu'une lecture de l'UI bloque une écriture du moteur de
- * synchro, et inversement.
+ * WAL mode keeps a UI read from blocking a sync engine write, and the
+ * other way round.
  */
 
 import { drizzle } from 'drizzle-orm/expo-sqlite';
 import { openDatabaseSync, type SQLiteDatabase } from 'expo-sqlite';
 
-import { creerFileEcritures, type FileEcritures } from './fileEcritures.ts';
-import { nomFichier } from './nomFichier.ts';
+import { createWriteQueue, type WriteQueue } from './writeQueue.ts';
+import { databaseFileName } from './fileName.ts';
 import * as schema from './schema.ts';
 
-export type BaseLocale = ReturnType<typeof drizzle<typeof schema>>;
+export type LocalDatabase = ReturnType<typeof drizzle<typeof schema>>;
 
-export { nomFichier };
+export { databaseFileName };
 
-type Connexion = { brute: SQLiteDatabase; base: BaseLocale; fileEcritures: FileEcritures };
-
-/**
- * Les connexions ouvertes vivent pour la durée du PROCESS : rien n'appelle
- * `fermerBase` sur le chemin nominal, et c'est délibéré (voir sa doc). Chaque
- * couple (serveur, compte) visité y laisse donc une entrée.
- */
-const ouvertes = new Map<string, Connexion>();
+type Connection = { raw: SQLiteDatabase; base: LocalDatabase; writeQueue: WriteQueue };
 
 /**
- * Idempotent : deux écrans qui demandent la même base partagent la connexion —
- * **et sa file d'écritures**, qui est l'invariant réellement important. La file
- * sérialise les transactions d'une connexion (db/fileEcritures.ts) ; deux files
- * sur une même connexion ne protègent de rien, et c'est ce qui arrivait quand
- * l'appelant la créait lui-même : `SynchroProvider` rejoue son effet sur un
- * simple renommage (objet `session` neuf pour le même compte), fabriquait une
- * seconde file, et les deux moteurs s'entrelaçaient sur un seul SQLite.
+ * Open connections live for the lifetime of the PROCESS: nothing calls
+ * `closeDatabase` on the nominal path, and that is deliberate (see its doc).
+ * Each (server, account) pair visited therefore leaves an entry here.
  */
-export function ouvrirBase(baseUrl: string, utilisateurId?: string): Connexion {
-  const nom = nomFichier(baseUrl, utilisateurId);
-  const existante = ouvertes.get(nom);
-  if (existante) return existante;
+const open = new Map<string, Connection>();
 
-  const brute = openDatabaseSync(nom, { enableChangeListener: true });
-  // WAL : une lecture de l'UI ne bloque pas une écriture du moteur de synchro.
-  // Pas de `PRAGMA foreign_keys` : le schéma n'en déclare aucune, volontairement.
-  // Un message peut arriver par le WebSocket avant le salon qui le contient.
-  brute.execSync('PRAGMA journal_mode = WAL;');
+/**
+ * Idempotent: two screens asking for the same database share the connection,
+ * **and its write queue**, which is the invariant that really matters. The
+ * queue serialises a connection's transactions (db/writeQueue.ts); two queues
+ * on one connection protect against nothing, and that is what happened when
+ * the caller created it itself: `SyncProvider` reruns its effect on a mere
+ * rename (new `session` object for the same account), built a second queue,
+ * and the two engines interleaved on a single SQLite.
+ */
+export function openDatabase(baseUrl: string, userId?: string): Connection {
+  const name = databaseFileName(baseUrl, userId);
+  const existing = open.get(name);
+  if (existing) return existing;
 
-  const connexion: Connexion = {
-    brute,
-    base: drizzle(brute, { schema }),
-    fileEcritures: creerFileEcritures(),
+  const raw = openDatabaseSync(name, { enableChangeListener: true });
+  // WAL: a UI read does not block a sync engine write.
+  // No `PRAGMA foreign_keys`: the schema declares none, on purpose.
+  // A message can arrive over the WebSocket before the room containing it.
+  raw.execSync('PRAGMA journal_mode = WAL;');
+
+  const connection: Connection = {
+    raw,
+    base: drizzle(raw, { schema }),
+    writeQueue: createWriteQueue(),
   };
-  ouvertes.set(nom, connexion);
-  return connexion;
+  open.set(name, connection);
+  return connection;
 }
 
 /**
- * **Ne PAS appeler dans un cleanup React.** La connexion est partagée et le
- * cleanup court pendant que des écritures de l'ancien moteur peuvent encore
- * être en vol — fermer sous elles est pire que de laisser la connexion ouverte.
- * Gardée pour les tests et un éventuel effacement de compte, où l'on sait que
- * plus rien n'écrit.
+ * **Do NOT call in a React cleanup.** The connection is shared and the
+ * cleanup runs while writes from the old engine may still be in flight;
+ * closing under them is worse than leaving the connection open. Kept for
+ * tests and a possible account wipe, where we know nothing writes anymore.
  */
-export function fermerBase(baseUrl: string, utilisateurId?: string): void {
-  const nom = nomFichier(baseUrl, utilisateurId);
-  const paire = ouvertes.get(nom);
-  if (!paire) return;
-  paire.brute.closeSync();
-  ouvertes.delete(nom);
+export function closeDatabase(baseUrl: string, userId?: string): void {
+  const name = databaseFileName(baseUrl, userId);
+  const pair = open.get(name);
+  if (!pair) return;
+  pair.raw.closeSync();
+  open.delete(name);
 }

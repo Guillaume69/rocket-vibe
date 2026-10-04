@@ -1,53 +1,52 @@
 /**
- * Les réactions d'un message, projetées pour le rendu.
+ * A message's reactions, projected for rendering.
  *
- * La colonne `messages.reactions` porte le JSON du serveur tel quel :
- * `{":+1:": {"usernames": ["alice","bob"], "names": [...]}}` — les clés sont
- * des codes courts ENTRE deux-points, et l'appartenance se juge au USERNAME
- * (pas à l'uid : le serveur ne stocke que les pseudos). Cette colonne était
- * écrite depuis le premier jour (`lib/normaliser.ts`) mais lue nulle part :
- * l'utilisateur réagissait, la feuille se fermait, rien ne changeait à
- * l'écran. La projection vit ici, pure et testable ; le rendu des pastilles
- * est dans `ui/ligneMessage.tsx`.
+ * The `messages.reactions` column holds the server's JSON as is:
+ * `{":+1:": {"usernames": ["alice","bob"], "names": [...]}}`. The keys are
+ * shortcodes BETWEEN colons, and membership is judged by USERNAME (not uid:
+ * the server only stores usernames). This column was written from day one
+ * (`lib/normalize.ts`) but read nowhere: the user reacted, the sheet closed,
+ * nothing changed on screen. The projection lives here, pure and testable;
+ * the chips are rendered in `ui/messageRow.tsx`.
  */
 
-export type ReactionAffichee = {
-  /** Code court SANS les deux-points (`+1`, `party_parrot`). */
+export type DisplayedReaction = {
+  /** Shortcode WITHOUT the colons (`+1`, `party_parrot`). */
   code: string;
-  /** Nombre de personnes ayant posé cette réaction. */
+  /** Number of people who added this reaction. */
   total: number;
-  /** Mon username y figure : le contour s'accentue, et le tap RETIRE. */
-  parMoi: boolean;
+  /** My username is in it: the outline is emphasized, and a tap REMOVES. */
+  byMe: boolean;
 };
 
 /**
- * `brut` = la colonne `reactions` (JSON sérialisé, ou null). `moi` = mon
- * username, ou null si inconnu (résultats de recherche) — `parMoi` reste alors
- * faux, les pastilles s'affichent sans être marquées. Tolérant comme tout ce
- * qui vient d'autrui : un JSON illisible ou une forme inattendue rend `[]`,
- * jamais une exception. L'ordre du serveur est préservé.
+ * `raw` = the `reactions` column (serialized JSON, or null). `me` = my
+ * username, or null if unknown (search results): `byMe` then stays false and
+ * the chips show unmarked. Tolerant like everything coming from others: an
+ * unreadable JSON or an unexpected shape returns `[]`, never an exception.
+ * The server's order is preserved.
  */
-export function listeReactions(brut: string | null, moi: string | null): ReactionAffichee[] {
-  if (brut === null) return [];
-  let racine: unknown;
+export function reactionList(raw: string | null, me: string | null): DisplayedReaction[] {
+  if (raw === null) return [];
+  let root: unknown;
   try {
-    racine = JSON.parse(brut);
+    root = JSON.parse(raw);
   } catch {
     return [];
   }
-  if (typeof racine !== 'object' || racine === null || Array.isArray(racine)) return [];
-  const sorties: ReactionAffichee[] = [];
-  for (const [cle, valeur] of Object.entries(racine as Record<string, unknown>)) {
-    const brutUsernames = (valeur as { usernames?: unknown } | null)?.usernames;
-    const usernames = Array.isArray(brutUsernames)
-      ? brutUsernames.filter((u): u is string => typeof u === 'string')
+  if (typeof root !== 'object' || root === null || Array.isArray(root)) return [];
+  const out: DisplayedReaction[] = [];
+  for (const [key, value] of Object.entries(root as Record<string, unknown>)) {
+    const rawUsernames = (value as { usernames?: unknown } | null)?.usernames;
+    const usernames = Array.isArray(rawUsernames)
+      ? rawUsernames.filter((u): u is string => typeof u === 'string')
       : [];
     if (usernames.length === 0) continue;
-    sorties.push({
-      code: cle.replace(/^:/, '').replace(/:$/, ''),
+    out.push({
+      code: key.replace(/^:/, '').replace(/:$/, ''),
       total: usernames.length,
-      parMoi: moi !== null && usernames.includes(moi),
+      byMe: me !== null && usernames.includes(me),
     });
   }
-  return sorties;
+  return out;
 }

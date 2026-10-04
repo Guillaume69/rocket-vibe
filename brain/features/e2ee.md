@@ -5,7 +5,7 @@ Encrypted (E2EE) rooms are readable and writable in both apps once the user unlo
 ## What the user sees
 
 - **Room list.** Encrypted rooms carry a lock (🔒). Their preview is the last message decrypted when unlocked, otherwise a fixed "Encrypted messages" label; the base64 blob of `lastMessage` is never rendered.
-- **Room, locked.** Each `t: 'e2e'` message shows a placeholder ("🔒 Message chiffré, non pris en charge" on mobile, "message.encrypted" on desktop). The composer is replaced by an unlock affordance, since the server would refuse clear text in that room (`error-not-allowed`).
+- **Room, locked.** Each `t: 'e2e'` message shows a placeholder ("🔒 Encrypted message, not supported" on mobile (French "🔒 Message chiffré, non pris en charge"), "message.encrypted" on desktop). The composer is replaced by an unlock affordance, since the server would refuse clear text in that room (`error-not-allowed`).
 - **Unlock.** A password prompt asks for the E2E password (distinct from the login password). A wrong password says so; a missing key ("no E2E keys on this account") or a network error get their own message. On success the prompt closes and the messages already loaded turn readable in place, without reloading the room.
 - **Once per device.** The unlocked private key is kept (Keystore on mobile, system keychain on desktop), so later launches open unlocked without asking. Settings shows the state and offers "Lock" (forget the key on this device) or "Unlock".
 - **Unlocked.** Reading, sending, editing, replying in threads, and sending or opening files all work as in a clear room. Mentions still notify, because the apps declare them in `e2eMentions`.
@@ -16,15 +16,15 @@ Why it was built at all: the target server (`chat.barrut.me`) has `E2E_Enable = 
 
 ## Mobile
 
-- **Unlock sheet**: `app/deverrouiller-e2e.tsx`, a native `formSheet`. It is opened from the locked composer (`ComposerVerrouille` in `ui/composer.tsx`, label `salon.chiffreVerrouille`) or from the Settings encryption section (`SectionE2E` in `app/parametres.tsx`). It calls `synchro.deverrouillerE2E`, which unlocks the engine, decrypts the messages already in SQLite, refreshes the list previews and restarts the text outbox and upload queue. The password field sets `autoComplete="password"` and `importantForAutofill` so password managers fill it.
-- **Errors**: `ErreurE2E` (failed GCM authentication) shows `e2e.erreurMotDePasse`; anything else `e2e.erreurGenerique`.
-- **Resume**: at session start `ui/synchro.tsx` calls `e2e.reprendre()` off the critical path; a JWK kept for this (server, account) unlocks silently.
-- **Placeholders**: `ui/ligneMessage.tsx` shows `ligneMessage.chiffre` for an undecrypted message and `ligneMessage.fichierIllisible` for a file whose decryption fails. `app/index.tsx` shows `accueil.messagesChiffres` while no message of the room has been decrypted.
-- **Encrypted media**: the server only holds ciphertext, so an image, audio or video is downloaded and decrypted into the cache before display (`fichierDechiffre`, `ui/fichierJoint.ts`). Beyond 25 MB (`APERCU_CHIFFRE_MAX`) or for other file types the attachment stays a card, decrypted when shared or saved.
-- **Sending files**: the plain file is read, encrypted (`ui/chiffrementFichier.ts`), written to a temp file in the cache, uploaded, then deleted. Without `E2E_Enable_Encrypt_Files` the picker refuses with `commun.fichiersChiffresDesactives` (`ui/validationFichiers.ts`).
-- **Waiting while locked**: text and files typed or queued in an encrypted room before unlock wait in their queues (`AttenteCle`) and leave on unlock; they never go out in clear.
+- **Unlock sheet**: `app/unlock-e2e.tsx`, a native `formSheet`. It is opened from the locked composer (`LockedComposer` in `ui/composer.tsx`, label `room.encryptedLocked`) or from the Settings encryption section (`SectionE2E` in `app/settings.tsx`). It calls `sync.unlockE2E`, which unlocks the engine, decrypts the messages already in SQLite, refreshes the list previews and restarts the text outbox and upload queue. The password field sets `autoComplete="password"` and `importantForAutofill` so password managers fill it.
+- **Errors**: `E2EError` (failed GCM authentication) shows `e2e.wrongPassword`; anything else `e2e.genericError`.
+- **Resume**: at session start `ui/sync.tsx` calls `e2e.resume()` off the critical path; a JWK kept for this (server, account) unlocks silently.
+- **Placeholders**: `ui/messageRow.tsx` shows `messageRow.encrypted` for an undecrypted message and `messageRow.fileUnreadable` for a file whose decryption fails. `app/index.tsx` shows `home.encryptedMessages` while no message of the room has been decrypted.
+- **Encrypted media**: the server only holds ciphertext, so an image, audio or video is downloaded and decrypted into the cache before display (`decryptedFile`, `ui/attachment.ts`). Beyond 25 MB (`ENCRYPTED_PREVIEW_MAX`) or for other file types the attachment stays a card, decrypted when shared or saved.
+- **Sending files**: the plain file is read, encrypted (`ui/fileEncryption.ts`), written to a temp file in the cache, uploaded, then deleted. Without `E2E_Enable_Encrypt_Files` the picker refuses with `common.encryptedFilesDisabled` (`ui/fileValidation.ts`).
+- **Waiting while locked**: text and files typed or queued in an encrypted room before unlock wait in their queues (`KeyWait`) and leave on unlock; they never go out in clear.
 - **Lock**: Settings "Lock" erases the key from memory and Keystore and re-masks the clear text kept in SQLite.
-- Room info (`app/salon-info.tsx`) lists "encrypted" among the room's facts and shows the lock.
+- Room info (`app/room-info.tsx`) lists "encrypted" among the room's facts and shows the lock.
 
 ## Desktop
 
@@ -41,20 +41,20 @@ Same feature set on both sides ([parity](../parity.md) §11): unlock, decrypt me
 
 ## Sources
 
-- apps/mobile/app/deverrouiller-e2e.tsx
-- apps/mobile/app/parametres.tsx
+- apps/mobile/app/unlock-e2e.tsx
+- apps/mobile/app/settings.tsx
 - apps/mobile/app/index.tsx
-- apps/mobile/app/salon-info.tsx
+- apps/mobile/app/room-info.tsx
 - apps/mobile/ui/composer.tsx
-- apps/mobile/ui/ligneMessage.tsx
-- apps/mobile/ui/fichierJoint.ts
-- apps/mobile/ui/chiffrementFichier.ts
-- apps/mobile/ui/validationFichiers.ts
-- apps/mobile/ui/synchro.tsx
+- apps/mobile/ui/messageRow.tsx
+- apps/mobile/ui/attachment.ts
+- apps/mobile/ui/fileEncryption.ts
+- apps/mobile/ui/fileValidation.ts
+- apps/mobile/ui/sync.tsx
 - apps/mobile/ui/e2e.ts
 - apps/mobile/ui/messages.ts
-- apps/mobile/lib/e2e/moteur.ts
-- apps/mobile/lib/envoiFichiers.ts
+- apps/mobile/lib/e2e/engine.ts
+- apps/mobile/lib/uploadQueue.ts
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-gtk/src/unlock.rs
 - apps/desktop/crates/rv-gtk/src/chat.rs

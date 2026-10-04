@@ -1,20 +1,20 @@
 /**
- * La chirurgie de configuration du plugin FCM — la seule partie qu'on peut
- * juger sans compiler.
+ * The FCM plugin's config surgery, the only part that can be judged without
+ * compiling.
  *
- * Le Kotlin injecté par ce plugin n'est vérifiable que par un `assembleRelease`
- * suivi d'un essai sur l'appareil, c'est admis. Mais deux propriétés PORTEUSES
- * sont du JavaScript ordinaire, et elles étaient jusqu'ici correctes par
- * propriété du gabarit RN 0.86 plutôt que par propriété du plugin :
- *   - `android:priority="1"` sur l'intent-filter du service. Celui d'expo est à
- *     `-1` ; une valeur plus basse ferait router FCM vers expo et rendrait TOUT
- *     le fichier Kotlin inatteignable — sans erreur de build, sans message ;
- *   - l'endroit où atterrissent les `implementation`. La substitution visait la
- *     première occurrence de `dependencies {` quelle que soit sa profondeur.
+ * The Kotlin this plugin injects can only be checked by an `assembleRelease`
+ * followed by a try on the device, that is accepted. But two LOAD-BEARING
+ * properties are plain JavaScript, and until now they held by virtue of the
+ * RN 0.86 template rather than of the plugin:
+ *   - `android:priority="1"` on the service's intent-filter. Expo's is `-1`; a
+ *     lower value would route FCM to expo and make the WHOLE Kotlin file
+ *     unreachable, with no build error and no message;
+ *   - where the `implementation` lines land. The substitution targeted the
+ *     first occurrence of `dependencies {` at any depth.
  *
- * Test en `.mjs` et non en `.ts` : le sujet EST du JavaScript CommonJS chargé
- * par Expo au moment du prebuild. Le transcrire en TypeScript testerait une
- * copie, pas le fichier que l'outil exécute.
+ * Tested as `.mjs`, not `.ts`: the subject IS CommonJS JavaScript loaded by
+ * Expo at prebuild time. Transcribing it to TypeScript would test a copy, not
+ * the file the tool runs.
  */
 
 import assert from 'node:assert/strict';
@@ -23,19 +23,22 @@ import { describe, it } from 'node:test';
 import plugin from './with-fcm-deeplink.js';
 
 const {
-  ajouterDependances,
-  ajouterRecepteur,
-  ajouterService,
-  echapperXml,
+  addDependencies,
+  addReceiver,
+  addService,
+  declareComponents,
+  escapeXml,
+  kotlinSource,
   stringsXml,
-  CHAINES,
-  RECEPTEUR_CLASS,
+  NATIVE_STRINGS,
+  RECEIVER_CLASS,
+  LEGACY_RECEIVER_CLASS,
   SERVICE_CLASS,
-} = plugin.chirurgie;
+} = plugin.internals;
 
 const DEPS = ['com.google.firebase:firebase-messaging:25.0.1', 'androidx.work:work-runtime:2.10.1'];
 
-/** Un app/build.gradle réduit à ce qui compte : un bloc racine, un imbriqué. */
+/** An app/build.gradle cut down to what matters: one root block, one nested. */
 const GRADLE = `apply plugin: "com.android.application"
 
 android {
@@ -44,7 +47,7 @@ android {
     }
     buildTypes {
         release {
-            // Un bloc INDENTÉ qui contient le mot, pour piéger une regex laxiste.
+            // An INDENTED block containing the word, to trap a lax regex.
             dependencies {
                 nothing "here"
             }
@@ -59,59 +62,59 @@ dependencies {
 apply plugin: 'com.google.gms.google-services'
 `;
 
-describe('ajouterDependances', () => {
-  it('injecte dans le bloc `dependencies` RACINE, pas dans un bloc imbriqué', () => {
-    const sortie = ajouterDependances(GRADLE, DEPS);
-    const posRacine = sortie.search(/^dependencies \{/m);
-    const posImbrique = sortie.indexOf('nothing "here"');
+describe('addDependencies', () => {
+  it('injects into the ROOT `dependencies` block, not a nested one', () => {
+    const output = addDependencies(GRADLE, DEPS);
+    const rootPos = output.search(/^dependencies \{/m);
+    const nestedPos = output.indexOf('nothing "here"');
     for (const dep of DEPS) {
-      const pos = sortie.indexOf(`implementation("${dep}")`);
-      assert.ok(pos > posRacine, `${dep} devrait suivre le bloc racine`);
-      assert.ok(pos > posImbrique, `${dep} ne doit pas être tombé dans le bloc imbriqué`);
+      const pos = output.indexOf(`implementation("${dep}")`);
+      assert.ok(pos > rootPos, `${dep} should follow the root block`);
+      assert.ok(pos > nestedPos, `${dep} must not have landed in the nested block`);
     }
   });
 
-  it('déclare chacun des deux artefacts exactement une fois', () => {
-    const sortie = ajouterDependances(GRADLE, DEPS);
+  it('declares each of the two artifacts exactly once', () => {
+    const output = addDependencies(GRADLE, DEPS);
     for (const dep of DEPS) {
-      assert.equal(sortie.split(`implementation("${dep}")`).length - 1, 1);
+      assert.equal(output.split(`implementation("${dep}")`).length - 1, 1);
     }
   });
 
-  it("n'ajoute rien à un second passage (prebuild sans --clean)", () => {
-    const une = ajouterDependances(GRADLE, DEPS);
-    assert.equal(ajouterDependances(une, DEPS), une);
+  it('adds nothing on a second pass (prebuild without --clean)', () => {
+    const one = addDependencies(GRADLE, DEPS);
+    assert.equal(addDependencies(one, DEPS), one);
   });
 
-  it("laisse tranquille un artefact déjà présent dans une AUTRE version", () => {
-    // En déclarer une seconde ferait diverger la résolution de version.
-    const avec = GRADLE.replace(
+  it('leaves alone an artifact already present in ANOTHER version', () => {
+    // Declaring a second one would split version resolution.
+    const withValue = GRADLE.replace(
       /^dependencies \{/m,
       'dependencies {\n    implementation("androidx.work:work-runtime:2.9.0")',
     );
-    const sortie = ajouterDependances(avec, DEPS);
-    assert.ok(sortie.includes('androidx.work:work-runtime:2.9.0'));
-    assert.ok(!sortie.includes('androidx.work:work-runtime:2.10.1'));
+    const output = addDependencies(withValue, DEPS);
+    assert.ok(output.includes('androidx.work:work-runtime:2.9.0'));
+    assert.ok(!output.includes('androidx.work:work-runtime:2.10.1'));
   });
 
-  it('LÈVE si le gradle n’a aucun bloc `dependencies` racine', () => {
-    // Le laisser intact renvoyait le diagnostic bien plus loin : une erreur de
-    // compilation Kotlin sur une classe Firebase introuvable.
-    const sansBloc = GRADLE.replace(/^dependencies \{[\s\S]*?^\}$/m, '');
-    assert.ok(!/^dependencies \{/m.test(sansBloc), 'la fixture doit vraiment être privée du bloc');
-    assert.throws(() => ajouterDependances(sansBloc, DEPS), /dependencies/);
+  it('THROWS if the gradle file has no root `dependencies` block', () => {
+    // Leaving it untouched pushed the diagnosis much further: a Kotlin
+    // compile error on a Firebase class not found.
+    const withoutBlock = GRADLE.replace(/^dependencies \{[\s\S]*?^\}$/m, '');
+    assert.ok(!/^dependencies \{/m.test(withoutBlock), 'the fixture must really lack the block');
+    assert.throws(() => addDependencies(withoutBlock, DEPS), /dependencies/);
   });
 });
 
-describe('ajouterService', () => {
-  it('déclare le service avec la priorité 1 et l’action FCM', () => {
+describe('addService', () => {
+  it('declares the service with priority 1 and the FCM action', () => {
     const application = {};
-    ajouterService(application);
+    addService(application);
     assert.equal(application.service.length, 1);
     const service = application.service[0];
     assert.equal(service.$['android:name'], `.${SERVICE_CLASS}`);
     assert.equal(service.$['android:exported'], 'false');
-    // La valeur exacte dont dépend le routage FCM : celle d'expo est à -1.
+    // The exact value FCM routing depends on: expo's is -1.
     assert.equal(service['intent-filter'][0].$['android:priority'], '1');
     assert.equal(
       service['intent-filter'][0].action[0].$['android:name'],
@@ -119,70 +122,106 @@ describe('ajouterService', () => {
     );
   });
 
-  it('ne le déclare pas deux fois', () => {
+  it('does not declare it twice', () => {
     const application = {};
-    ajouterService(application);
-    ajouterService(application);
+    addService(application);
+    addService(application);
     assert.equal(application.service.length, 1);
   });
 
-  it('préserve les services déjà déclarés (celui d’expo)', () => {
+  it('keeps services already declared (expo\'s)', () => {
     const expo = { $: { 'android:name': 'expo.modules.notifications.service.NotificationsService' } };
     const application = { service: [expo] };
-    ajouterService(application);
+    addService(application);
     assert.equal(application.service.length, 2);
     assert.equal(application.service[0], expo);
   });
 });
 
-describe('ajouterRecepteur', () => {
-  it('déclare le récepteur de « Répondre », non exporté, une seule fois', () => {
-    const autre = { $: { 'android:name': 'expo.Autre' } };
-    const application = { receiver: [autre] };
-    ajouterRecepteur(application);
-    ajouterRecepteur(application);
+describe('addReceiver', () => {
+  it('declares the "Reply" receiver, not exported, only once', () => {
+    const other = { $: { 'android:name': 'expo.Other' } };
+    const application = { receiver: [other] };
+    addReceiver(application);
+    addReceiver(application);
     assert.equal(application.receiver.length, 2);
-    assert.equal(application.receiver[0], autre);
-    assert.equal(application.receiver[1].$['android:name'], `.${RECEPTEUR_CLASS}`);
+    assert.equal(application.receiver[0], other);
+    assert.equal(application.receiver[1].$['android:name'], `.${RECEIVER_CLASS}`);
     assert.equal(application.receiver[1].$['android:exported'], 'false');
+  });
+
+  it('the manifest also declares the receiver under its old name, which posted notifications still target', () => {
+    const application = declareComponents({});
+    assert.deepEqual(
+      application.receiver.map((r) => r.$['android:name']),
+      [`.${RECEIVER_CLASS}`, `.${LEGACY_RECEIVER_CLASS}`],
+    );
+    assert.equal(application.service[0].$['android:name'], `.${SERVICE_CLASS}`);
   });
 });
 
 describe('stringsXml', () => {
-  it('rend les trois chaînes de la voie native dans les deux langues', () => {
-    for (const langue of ['fr', 'en']) {
-      const xml = stringsXml(langue);
-      for (const [nom, formes] of Object.entries(CHAINES)) {
+  it('renders the three native-path strings in both languages', () => {
+    for (const language of ['fr', 'en']) {
+      const xml = stringsXml(language);
+      for (const [name, forms] of Object.entries(NATIVE_STRINGS)) {
         assert.ok(
-          xml.includes(`<string name="${nom}">`),
-          `${nom} manque en ${langue}`,
+          xml.includes(`<string name="${name}">`),
+          `${name} missing in ${language}`,
         );
-        assert.ok(xml.includes(formes[langue]), `la forme ${langue} de ${nom} manque`);
+        assert.ok(xml.includes(forms[language]), `the ${language} form of ${name} is missing`);
       }
     }
   });
 
-  it('échappe l’apostrophe, que le compilateur de ressources refuse nue', () => {
-    // Testé sur `echapperXml` et pas sur le rendu des trois chaînes : aucune
-    // n'a d'apostrophe aujourd'hui, donc l'assertion sur `stringsXml` passerait
-    // même sans échappement — un test vide. La règle vaut pour la PROCHAINE
-    // chaîne (« Nouveau message d'Alice » ferait échouer aapt2 au build).
-    assert.equal(echapperXml("Message d'Alice"), "Message d\\'Alice");
+  it('escapes the apostrophe, which the resource compiler rejects bare', () => {
+    // Tested on `escapeXml` and not on the rendering of the three strings: none
+    // has an apostrophe today, so the assertion on `stringsXml` would pass even
+    // without escaping, an empty test. The rule is for the NEXT string
+    // ("Nouveau message d'Alice" would make aapt2 fail the build).
+    assert.equal(escapeXml("Message d'Alice"), "Message d\\'Alice");
   });
 
-  it('échappe les entités XML', () => {
-    assert.equal(echapperXml('Alice & <b>Bob</b>'), 'Alice &amp; &lt;b&gt;Bob&lt;/b&gt;');
-    assert.equal(echapperXml('dit "oui"'), 'dit &quot;oui&quot;');
+  it('escapes XML entities', () => {
+    assert.equal(escapeXml('Alice & <b>Bob</b>'), 'Alice &amp; &lt;b&gt;Bob&lt;/b&gt;');
+    assert.equal(escapeXml('says "yes"'), 'says &quot;yes&quot;');
   });
 
-  it('ne laisse aucune apostrophe nue dans le rendu', () => {
-    assert.ok(!/[^\\]'/.test(stringsXml('fr')), 'apostrophe non échappée dans le strings.xml');
+  it('leaves no bare apostrophe in the output', () => {
+    assert.ok(!/[^\\]'/.test(stringsXml('fr')), 'unescaped apostrophe in strings.xml');
   });
 
-  it('produit un document que le compilateur peut lire', () => {
+  it('produces a document the compiler can read', () => {
     const xml = stringsXml('en');
     assert.ok(xml.startsWith('<?xml version="1.0" encoding="utf-8"?>'));
     assert.equal(xml.split('<resources>').length - 1, 1);
     assert.equal(xml.split('</resources>').length - 1, 1);
+  });
+});
+
+describe('kotlinSource: the names of the previous build still resolve', () => {
+  const source = kotlinSource('com.rocketvibe.app');
+
+  it('the old receiver and worker classes exist, as subclasses of the new ones', () => {
+    assert.match(source, new RegExp(`^class ${LEGACY_RECEIVER_CLASS} : ${RECEIVER_CLASS}\\(\\)$`, 'm'));
+    assert.match(source, /^class RattrapagePushWorker\(context: Context, params: WorkerParameters\) : PushCatchUpWorker\(context, params\)$/m);
+    assert.match(source, new RegExp(`^open class ${RECEIVER_CLASS} : BroadcastReceiver\\(\\)`, 'm'));
+    assert.match(source, /^open class PushCatchUpWorker\(/m);
+  });
+
+  it('the old reply key, worker input, work prefix, shown memory and language key are still read', () => {
+    assert.match(source, /getCharSequence\(LEGACY_REPLY_KEY\)/);
+    assert.match(source, /LEGACY_REPLY_KEY = "rv_reponse"/);
+    assert.match(source, /inputData\.getBoolean\("ombre", false\)/);
+    assert.match(source, /cancelUniqueWork\(LEGACY_CATCH_UP_WORK_PREFIX \+ messageId\)/);
+    assert.match(source, /LEGACY_CATCH_UP_WORK_PREFIX = "rattrapage-push-"/);
+    assert.match(source, /getSharedPreferences\(LEGACY_PREFS_SHOWN, /);
+    assert.match(source, /LEGACY_PREFS_SHOWN = "rvpush-affiches"/);
+    assert.match(source, /"key_v1-preferred-language"[\s\S]{0,80}"key_v1-langue-preferee"/);
+  });
+
+  it('notifications link to the room/ route', () => {
+    assert.match(source, /StringBuilder\("rocketvibe:\/\/room\/"\)/);
+    assert.doesNotMatch(source, /rocketvibe:\/\/salon\//);
   });
 });

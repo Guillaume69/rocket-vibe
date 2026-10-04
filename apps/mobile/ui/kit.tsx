@@ -1,8 +1,8 @@
 /**
- * Briques visuelles du thème « Nuit Étoilée », partagées par les écrans.
+ * Visual building blocks of the "Nuit Étoilée" theme, shared by the screens.
  *
- * Chacune s'appuie sur les tokens de `theme.ts` (jamais de couleur en dur ici)
- * pour que la future bascule claire/sombre n'ait rien à retoucher.
+ * Each relies on the `theme.ts` tokens (never a hard-coded colour here) so the
+ * future light/dark switch has nothing to touch up.
  */
 
 import MaskedView from '@react-native-masked-view/masked-view';
@@ -32,150 +32,150 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import type { ClientRest } from '../lib/rest.ts';
-import { urlAvatar } from '../lib/upload.ts';
-import { useEtagsAvatars } from './identites.tsx';
-import { useJour } from './i18n.ts';
-import { type Couleurs, degradeAvatar, type Degrade, POLICES } from './theme.ts';
+import type { RestClient } from '../lib/rest.ts';
+import { avatarUrl } from '../lib/upload.ts';
+import { useAvatarEtags } from './identities.tsx';
+import { useDayFormatter } from './i18n.ts';
+import { type Colors, avatarGradient, type Gradient, FONTS } from './theme.ts';
 
-const DEBUT = { x: 0, y: 0 } as const;
-const FIN = { x: 1, y: 0 } as const;
-const FIN_DIAG = { x: 1, y: 1 } as const;
+const START = { x: 0, y: 0 } as const;
+const END = { x: 1, y: 0 } as const;
+const DIAG_END = { x: 1, y: 1 } as const;
 
-/** Bouton d'action principale : fond en dégradé, texte Baloo 2. */
-export function BoutonPrincipal({
+/** Primary action button: gradient background, Baloo 2 text. */
+export function PrimaryButton({
   c,
-  titre,
+  title,
   onPress,
-  occupe = false,
+  busy = false,
   style,
 }: {
-  c: Couleurs;
-  titre: string;
+  c: Colors;
+  title: string;
   onPress: () => void;
-  occupe?: boolean;
+  busy?: boolean;
   style?: StyleProp<ViewStyle>;
 }) {
   return (
     <Pressable
       onPress={onPress}
-      disabled={occupe}
+      disabled={busy}
       style={({ pressed }) => [
-        styles.ctaEnveloppe,
-        // Halo rose diffus sous le bouton (New Arch : `boxShadow` natif).
-        { boxShadow: `0px 10px 24px -6px ${c.accent}99`, opacity: pressed || occupe ? 0.75 : 1 },
+        styles.ctaWrapper,
+        // Soft pink halo under the button (New Arch: native `boxShadow`).
+        { boxShadow: `0px 10px 24px -6px ${c.accent}99`, opacity: pressed || busy ? 0.75 : 1 },
         style,
       ]}
     >
-      <LinearGradient colors={c.degradeCta} start={DEBUT} end={FIN} style={styles.cta}>
-        {occupe ? (
-          <ActivityIndicator color={c.surAccent} />
+      <LinearGradient colors={c.ctaGradient} start={START} end={END} style={styles.cta}>
+        {busy ? (
+          <ActivityIndicator color={c.onAccent} />
         ) : (
-          <Text style={[styles.ctaTexte, { color: c.surAccent }]}>{titre}</Text>
+          <Text style={[styles.ctaText, { color: c.onAccent }]}>{title}</Text>
         )}
       </LinearGradient>
     </Pressable>
   );
 }
 
-/** Logotype « rocket-vibe » rempli par le dégradé de marque (texte masqué). */
-export function Marque({
+/** « rocket-vibe » logotype filled with the brand gradient (masked text). */
+export function Brand({
   c,
-  taille = 32,
-  texte = 'rocket-vibe',
+  size = 32,
+  text = 'rocket-vibe',
 }: {
-  c: Couleurs;
-  taille?: number;
-  texte?: string;
+  c: Colors;
+  size?: number;
+  text?: string;
 }) {
-  const styleTexte: TextStyle = { fontFamily: POLICES.titreFort, fontSize: taille, lineHeight: taille * 1.15 };
+  const textStyle: TextStyle = { fontFamily: FONTS.titleStrong, fontSize: size, lineHeight: size * 1.15 };
   return (
-    <MaskedView maskElement={<Text style={styleTexte}>{texte}</Text>}>
-      <LinearGradient colors={c.degradeMarque} start={DEBUT} end={FIN}>
-        {/* Le texte transparent donne sa taille au dégradé sous le masque. */}
-        <Text style={[styleTexte, styles.invisible]}>{texte}</Text>
+    <MaskedView maskElement={<Text style={textStyle}>{text}</Text>}>
+      <LinearGradient colors={c.brandGradient} start={START} end={END}>
+        {/* The transparent text gives the gradient its size under the mask. */}
+        <Text style={[textStyle, styles.invisible]}>{text}</Text>
       </LinearGradient>
     </MaskedView>
   );
 }
 
 /**
- * Tuile d'avatar : carré arrondi en dégradé, avec une initiale ou un enfant
- * (emoji cadenas d'un salon chiffré, « + » d'une nouvelle conversation). La
- * couleur est STABLE par `cle` — la même personne garde sa teinte partout.
+ * Avatar tile: rounded gradient square, with an initial or a child (lock emoji
+ * of an encrypted room, "+" of a new conversation). The colour is STABLE per
+ * `key`: the same person keeps their hue everywhere.
  *
- * Si `uri` est fourni, la VRAIE photo se pose par-dessus la tuile : elle sert
- * de fond pendant le chargement, et de repli si la photo n'existe pas — le
- * serveur renvoie alors un SVG que `<Image>` ne décode pas, donc `onError`
- * démasque à nouveau le dégradé (voir `urlAvatar`).
+ * If `uri` is given, the REAL photo goes on top of the tile: it serves as the
+ * background while loading, and as the fallback if the photo does not exist
+ * (the server then returns an SVG that `<Image>` cannot decode, so `onError`
+ * unmasks the gradient again; see `avatarUrl`).
  */
-export function TuileAvatar({
+export function AvatarTile({
   c,
-  cle,
-  initiale,
-  taille = 44,
-  rayon = 15,
-  neutre = false,
+  key,
+  initial,
+  size = 44,
+  radius = 15,
+  neutral = false,
   deg,
-  couleurTexte,
-  enfant,
+  textColor,
+  child,
   uri,
   style,
 }: {
-  c: Couleurs;
-  /** Clé (nom, id) qui fixe la teinte. Optionnelle si `deg` ou `neutre` est fourni. */
-  cle?: string;
-  initiale?: string;
-  taille?: number;
-  rayon?: number;
-  neutre?: boolean;
-  /** Dégradé IMPOSÉ (bouclier 2FA, etc.), court-circuite le choix par `cle`. */
-  deg?: Degrade;
-  couleurTexte?: string;
-  enfant?: ReactNode;
-  /** Photo à superposer. `null`/absente → tuile seule. */
+  c: Colors;
+  /** Key (name, id) that sets the hue. Optional if `deg` or `neutral` is given. */
+  key?: string;
+  initial?: string;
+  size?: number;
+  radius?: number;
+  neutral?: boolean;
+  /** IMPOSED gradient (2FA shield, etc.), bypasses the choice by `key`. */
+  deg?: Gradient;
+  textColor?: string;
+  child?: ReactNode;
+  /** Photo to overlay. `null`/absent means the tile alone. */
   uri?: string | null;
   style?: StyleProp<ViewStyle>;
 }) {
-  const gradient: Degrade =
-    deg ?? (neutre ? c.degradeNeutre : degradeAvatar(cle ?? '', c.avatarsDegrades));
+  const gradient: Gradient =
+    deg ?? (neutral ? c.neutralGradient : avatarGradient(key ?? '', c.avatarGradients));
 
-  // Une photo échouée (SVG placeholder, réseau) fait retomber sur la tuile. On
-  // réarme à chaque changement d'`uri` — lignes de liste recyclées — via le
-  // motif « ajuster l'état pendant le rendu » (React docs), pas un effet.
-  const [photoKO, setPhotoKO] = useState(false);
-  const [uriSuivie, setUriSuivie] = useState(uri);
-  if (uri !== uriSuivie) {
-    setUriSuivie(uri);
-    setPhotoKO(false);
+  // A failed photo (SVG placeholder, network) falls back to the tile. Re-armed
+  // on every `uri` change (recycled list rows) via the "adjust state during
+  // render" pattern (React docs), not an effect.
+  const [photoFailed, setPhotoFailed] = useState(false);
+  const [trackedUri, setTrackedUri] = useState(uri);
+  if (uri !== trackedUri) {
+    setTrackedUri(uri);
+    setPhotoFailed(false);
   }
-  const photo = typeof uri === 'string' && uri !== '' && !photoKO ? uri : null;
+  const photo = typeof uri === 'string' && uri !== '' && !photoFailed ? uri : null;
 
   return (
     <LinearGradient
       colors={gradient}
-      start={DEBUT}
-      end={FIN_DIAG}
-      style={[{ width: taille, height: taille, borderRadius: rayon }, styles.centre, style]}
+      start={START}
+      end={DIAG_END}
+      style={[{ width: size, height: size, borderRadius: radius }, styles.center, style]}
     >
-      {enfant ?? (
+      {child ?? (
         <Text
           style={{
-            fontFamily: POLICES.titreFort,
-            fontSize: taille * 0.4,
-            color: couleurTexte ?? c.surDegradeAvatar,
+            fontFamily: FONTS.titleStrong,
+            fontSize: size * 0.4,
+            color: textColor ?? c.onAvatarGradient,
           }}
           numberOfLines={1}
         >
-          {(initiale ?? '?').toUpperCase()}
+          {(initial ?? '?').toUpperCase()}
         </Text>
       )}
       {photo !== null && (
         <Image
           source={{ uri: photo }}
-          onError={() => setPhotoKO(true)}
+          onError={() => setPhotoFailed(true)}
           resizeMode="cover"
-          style={[StyleSheet.absoluteFill, { borderRadius: rayon }]}
+          style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
         />
       )}
     </LinearGradient>
@@ -183,146 +183,146 @@ export function TuileAvatar({
 }
 
 /**
- * Avatar d'un SALON, selon son type : cadenas neutre si chiffré, première
- * lettre pour un DM, `#` pour un canal. Règle unique, partagée par la liste et
- * l'en-tête du salon (sinon les deux dérivent).
+ * A ROOM's avatar, by type: neutral lock if encrypted, first letter for a DM,
+ * `#` for a channel. One rule, shared by the list and the room header
+ * (otherwise the two drift).
  */
-export function AvatarSalon({
+export function RoomAvatar({
   c,
-  nom,
+  name,
   type,
-  chiffre,
-  chiffreDeverrouille = false,
+  encrypted,
+  encryptedUnlocked = false,
   rid,
-  dmAutreUid,
+  dmOtherUid,
   avatarEtag,
   client,
-  taille = 44,
-  rayon = 15,
+  size = 44,
+  radius = 15,
 }: {
-  c: Couleurs;
-  nom: string;
+  c: Colors;
+  name: string;
   type: string | undefined;
-  chiffre: boolean;
-  /** E2EE déverrouillé sur l'appareil : cadenas OUVERT plutôt que fermé. */
-  chiffreDeverrouille?: boolean;
+  encrypted: boolean;
+  /** E2EE unlocked on the device: OPEN lock rather than closed. */
+  encryptedUnlocked?: boolean;
   rid: string | undefined;
-  /** L'autre participant d'un DM à deux, pour viser sa photo par uid. */
-  dmAutreUid: string | null | undefined;
+  /** The other participant of a two-person DM, to target their photo by uid. */
+  dmOtherUid: string | null | undefined;
   /**
-   * `avatarETag` du SALON (colonne `salons.avatar_etag`), sans quoi l'URI de sa
-   * photo ne bougerait jamais. Pour un DM, c'est la photo de l'AUTRE qui est
-   * affichée : son etag se lit ici même, par uid.
+   * The ROOM's `avatarETag` (column `rooms.avatar_etag`), without which its
+   * photo URI would never move. For a DM, the OTHER party's photo is shown: its
+   * etag is read right here, by uid.
    *
-   * OBLIGATOIRE à écrire, même pour passer `undefined` : optionnelle, elle
-   * s'oubliait en silence (app/partager.tsx l'a fait), et le symptôme — une
-   * photo de salon figée à vie par le cache Fresco, faute d'`ETag` HTTP sur
-   * `/avatar` — ne se voit qu'après un changement de photo côté serveur.
+   * MANDATORY to write, even to pass `undefined`: optional, it was forgotten
+   * silently (app/share.tsx did), and the symptom, a room photo frozen for life
+   * by the Fresco cache for lack of an HTTP `ETag` on `/avatar`, only shows
+   * after a photo change on the server.
    */
   avatarEtag: string | null | undefined;
-  client: ClientRest;
-  taille?: number;
-  rayon?: number;
+  client: RestClient;
+  size?: number;
+  radius?: number;
 }) {
-  const etags = useEtagsAvatars();
-  // Salon chiffré VERROUILLÉ : tuile grise + cadenas fermé (illisible).
-  // Déverrouillé : on retombe sur le rendu ORDINAIRE (tuile colorée, `#` ou
-  // avatar) — le salon est lisible, il ressemble à un salon lisible. `🔓` vs
-  // `🔒` seuls étaient trop proches à cette taille pour signaler l'état.
-  if (chiffre && !chiffreDeverrouille) {
+  const etags = useAvatarEtags();
+  // LOCKED encrypted room: grey tile + closed lock (unreadable). Unlocked: back
+  // to the ORDINARY rendering (coloured tile, `#` or avatar): the room is
+  // readable, it looks like a readable room. `🔓` vs `🔒` alone were too close
+  // at this size to signal the state.
+  if (encrypted && !encryptedUnlocked) {
     return (
-      <TuileAvatar
+      <AvatarTile
         c={c}
-        neutre
-        taille={taille}
-        rayon={rayon}
-        enfant={<Text style={{ fontSize: Math.round(taille * 0.42) }}>🔒</Text>}
+        neutral
+        size={size}
+        radius={radius}
+        child={<Text style={{ fontSize: Math.round(size * 0.42) }}>🔒</Text>}
       />
     );
   }
-  const estDM = type === 'd';
-  // DM : la photo de l'autre par uid (on n'a pas son pseudo) ; canal/groupe :
-  // l'avatar de salon. Absent → SVG côté serveur → repli sur la tuile.
-  const uri = urlAvatar(
+  const isDM = type === 'd';
+  // DM: the other party's photo by uid (we do not have their username);
+  // channel/group: the room avatar. Absent means an SVG from the server, so
+  // fallback to the tile.
+  const uri = avatarUrl(
     client,
-    estDM
+    isDM
       ? {
-          uid: dmAutreUid,
-          etag: typeof dmAutreUid === 'string' ? etags.parUid.get(dmAutreUid) : null,
+          uid: dmOtherUid,
+          etag: typeof dmOtherUid === 'string' ? etags.byUid.get(dmOtherUid) : null,
         }
       : { rid, etag: avatarEtag },
   );
   return (
-    <TuileAvatar
+    <AvatarTile
       c={c}
-      cle={nom}
-      initiale={estDM ? nom.charAt(0) || '?' : '#'}
+      key={name}
+      initial={isDM ? name.charAt(0) || '?' : '#'}
       uri={uri}
-      taille={taille}
-      rayon={rayon}
+      size={size}
+      radius={radius}
     />
   );
 }
 
-const COMETE_LARGEUR = 120;
+const COMET_WIDTH = 120;
 
 /**
- * Barre de synchro : une fine comète au dégradé de marque balaie le bord bas
- * d'un en-tête pendant qu'un fetch de fond rafraîchit le cache (rattrapage
- * global à l'ouverture, historique d'un salon). Idiome universel du
- * « rafraîchissement en cours » — le cache s'affiche déjà, ceci dit juste
- * qu'on le met à jour.
+ * Sync bar: a thin comet in the brand gradient sweeps a header's bottom edge
+ * while a background fetch refreshes the cache (global catch-up on open, a
+ * room's history). The universal "refresh in progress" idiom: the cache is
+ * already on screen, this just says it is being updated.
  *
- * Animée sur le thread UI (reanimated), SANS décaler la mise en page : la
- * piste occupe 3 px en absolu au bord bas, invisible au repos. L'appelant
- * fournit `actif` (via `useActivite`) : allumage → balayage en boucle + fondu
- * d'entrée ; extinction → fondu de sortie, puis la boucle est coupée.
+ * Animated on the UI thread (reanimated), WITHOUT shifting layout: the track
+ * takes 3 px, absolutely positioned on the bottom edge, invisible at rest. The
+ * caller provides `active` (via `useActivity`): on, a looping sweep + fade-in;
+ * off, a fade-out, then the loop is stopped.
  */
-export function BarreSynchro({ c, actif }: { c: Couleurs; actif: boolean }) {
-  // Largeur réelle mesurée (onLayout) : le balayage va de tout-à-gauche
-  // (hors piste) à tout-à-droite, indépendant de la taille d'écran.
-  const largeur = useSharedValue(0);
-  const progression = useSharedValue(0);
-  const opacite = useSharedValue(0);
+export function SyncBar({ c, active }: { c: Colors; active: boolean }) {
+  // Actual measured width (onLayout): the sweep goes from far left (off the
+  // track) to far right, independent of screen size.
+  const width = useSharedValue(0);
+  const progress = useSharedValue(0);
+  const opacity = useSharedValue(0);
 
   useEffect(() => {
-    if (actif) {
-      opacite.value = withTiming(1, { duration: 220 });
-      progression.value = 0;
-      progression.value = withRepeat(
+    if (active) {
+      opacity.value = withTiming(1, { duration: 220 });
+      progress.value = 0;
+      progress.value = withRepeat(
         withTiming(1, { duration: 1100, easing: Easing.inOut(Easing.quad) }),
         -1,
         false,
       );
     } else {
-      // Fondu de sortie d'abord ; la boucle est coupée une fois invisible —
-      // la figer en pleine course ne se voit pas derrière l'opacité nulle.
-      opacite.value = withTiming(0, { duration: 320 });
-      cancelAnimation(progression);
+      // Fade-out first; the loop is stopped once invisible: freezing it mid-run
+      // does not show behind zero opacity.
+      opacity.value = withTiming(0, { duration: 320 });
+      cancelAnimation(progress);
     }
-  }, [actif, opacite, progression]);
+  }, [active, opacity, progress]);
 
-  const styleComete = useAnimatedStyle(() => ({
-    opacity: opacite.value,
+  const cometStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
     transform: [
-      { translateX: -COMETE_LARGEUR + progression.value * (largeur.value + COMETE_LARGEUR) },
+      { translateX: -COMET_WIDTH + progress.value * (width.value + COMET_WIDTH) },
     ],
   }));
 
-  const degradeComete: Degrade = [c.accent + '00', c.accent, c.violet, c.cyan, c.cyan + '00'];
+  const cometGradient: Gradient = [c.accent + '00', c.accent, c.purple, c.cyan, c.cyan + '00'];
 
   return (
     <View
-      style={styles.pisteSynchro}
+      style={styles.syncTrack}
       onLayout={(e) => {
-        largeur.value = e.nativeEvent.layout.width;
+        width.value = e.nativeEvent.layout.width;
       }}
     >
-      <Animated.View style={[styles.comete, styleComete]}>
+      <Animated.View style={[styles.comet, cometStyle]}>
         <LinearGradient
-          colors={degradeComete}
-          start={DEBUT}
-          end={FIN}
+          colors={cometGradient}
+          start={START}
+          end={END}
           style={StyleSheet.absoluteFill}
         />
       </Animated.View>
@@ -331,77 +331,77 @@ export function BarreSynchro({ c, actif }: { c: Couleurs; actif: boolean }) {
 }
 
 /**
- * Indicateur de saisie : une pastille « bob écrit » + trois points qui pulsent,
- * qui ÉMERGE du composer quand quelqu'un écrit.
+ * Typing indicator: a "bob is typing" pill + three pulsing dots, that EMERGES
+ * from the composer when someone types.
  *
- * Avant, elle flottait en absolu au-dessus de la liste et masquait le dernier
- * message. Ici elle prend une VRAIE place en flux, juste au-dessus du composer :
- * sa hauteur s'ouvre de 0 à sa hauteur naturelle par un ressort. La liste
- * au-dessus étant `flex: 1`, ce gain de hauteur la comprime d'autant et — liste
- * inversée, contenu collé au bas — décale nativement le dernier message vers le
- * haut, frame par frame, le temps de l'animation. Débordement masqué + contenu
- * ancré en bas : la pastille paraît sortir du composer, pas apparaître par-dessus.
+ * It takes a REAL place in the flow, just above the composer (it used to float
+ * absolutely above the list and hide the last message): its height opens from
+ * 0 to its natural height on a spring. The list above being `flex: 1`, that
+ * height gain squeezes it by as much and (inverted list, content stuck to the
+ * bottom) natively shifts the last message up, frame by frame, for the
+ * duration of the animation. Overflow hidden + content anchored at the
+ * bottom: the pill seems to come out of the composer, not appear on top of it.
  *
- * TOUJOURS montée (jamais `null`) pour deux raisons : mesurer sa hauteur une fois
- * au montage — l'animation de la PREMIÈRE apparition est alors déjà juste — et
- * pouvoir jouer le repli quand `phrase` repasse à `null`.
+ * ALWAYS mounted (never `null`) for two reasons: measure its height once at
+ * mount, so the FIRST appearance's animation is already right, and be able to
+ * play the fold when `phrase` goes back to `null`.
  */
-export function IndicateurSaisie({ c, phrase }: { c: Couleurs; phrase: string | null }) {
-  const actif = phrase !== null;
-  // Retenir la dernière phrase le temps du repli : le texte ne doit pas
-  // s'effacer d'un coup avant que la pastille se soit résorbée. Ajusté PENDANT
-  // le rendu (comme `TuileAvatar` ci-dessus), pas dans un effet — un
-  // `setState` synchrone en effet déclenche des rendus en cascade (react-hooks).
-  const [derniere, setDerniere] = useState(phrase);
-  if (phrase !== null && phrase !== derniere) setDerniere(phrase);
+export function TypingIndicator({ c, phrase }: { c: Colors; phrase: string | null }) {
+  const active = phrase !== null;
+  // Keep the last phrase during the fold: the text must not vanish at once
+  // before the pill has shrunk. Adjusted DURING render (like `AvatarTile`
+  // above), not in an effect: a synchronous `setState` in an effect triggers
+  // cascading renders (react-hooks).
+  const [last, setLast] = useState(phrase);
+  if (phrase !== null && phrase !== last) setLast(phrase);
 
-  // Hauteur naturelle mesurée du contenu (robuste au grossissement des polices,
-  // plus sûr qu'une constante en dur). Tant qu'elle vaut 0, l'enveloppe n'impose
-  // pas de hauteur : le contenu absolu se mesure quand même, puis on la fige.
-  const [hauteur, setHauteur] = useState(0);
-  const ouverture = useSharedValue(0);
+  // Measured natural height of the content (robust to font scaling, safer than a
+  // hard-coded constant). While it is 0, the wrapper imposes no height: the
+  // absolute content still measures, then it is frozen.
+  const [height, setHeight] = useState(0);
+  const opening = useSharedValue(0);
   useEffect(() => {
-    // Ressort tendu mais amorti : l'ouverture « liquide », sans rebond mou.
-    ouverture.value = withSpring(actif ? 1 : 0, { damping: 20, mass: 0.7, stiffness: 220 });
-  }, [actif, ouverture]);
+    // Tight but damped spring: a "liquid" opening, no soft bounce.
+    opening.value = withSpring(active ? 1 : 0, { damping: 20, mass: 0.7, stiffness: 220 });
+  }, [active, opening]);
 
-  const styleEnveloppe = useAnimatedStyle(() => ({
-    height: ouverture.value * hauteur,
-    opacity: ouverture.value,
+  const wrapperStyle = useAnimatedStyle(() => ({
+    height: opening.value * height,
+    opacity: opening.value,
   }));
 
-  // Les points animés REMPLACENT le « … » final des clés `salon.saisieUn/Deux/N`.
-  const texte = (phrase ?? derniere ?? '').replace(/…$/u, '');
+  // The animated dots REPLACE the trailing "…" of the `room.typingOne/Two/N` keys.
+  const text = (phrase ?? last ?? '').replace(/…$/u, '');
 
   return (
     <Animated.View
-      style={[styles.saisieEnveloppe, hauteur > 0 && styleEnveloppe]}
+      style={[styles.inputWrapper, height > 0 && wrapperStyle]}
       pointerEvents="none"
     >
       <View
         onLayout={(e: LayoutChangeEvent) => {
           const h = e.nativeEvent.layout.height;
-          if (h > 0 && h !== hauteur) setHauteur(h);
+          if (h > 0 && h !== height) setHeight(h);
         }}
-        style={styles.saisieContenu}
+        style={styles.inputContent}
       >
         <View
           style={[
-            styles.saisiePastille,
+            styles.typingChip,
             {
-              backgroundColor: c.carte,
-              borderColor: c.bordure,
-              boxShadow: `0px 6px 16px -6px ${c.ombrePortee}`,
+              backgroundColor: c.card,
+              borderColor: c.border,
+              boxShadow: `0px 6px 16px -6px ${c.dropShadow}`,
             },
           ]}
         >
-          <Text style={[styles.saisieTexte, { color: c.texteSecondaire }]} numberOfLines={1}>
-            {texte}
+          <Text style={[styles.inputText, { color: c.secondaryText }]} numberOfLines={1}>
+            {text}
           </Text>
-          <View style={styles.saisiePoints}>
-            <PointSaisie c={c} rang={0} />
-            <PointSaisie c={c} rang={1} />
-            <PointSaisie c={c} rang={2} />
+          <View style={styles.typingDots}>
+            <TypingDot c={c} rank={0} />
+            <TypingDot c={c} rank={1} />
+            <TypingDot c={c} rank={2} />
           </View>
         </View>
       </View>
@@ -409,110 +409,110 @@ export function IndicateurSaisie({ c, phrase }: { c: Couleurs; phrase: string | 
   );
 }
 
-/** Un point de l'indicateur : pulse opacité + petit saut, en boucle. */
-function PointSaisie({ c, rang }: { c: Couleurs; rang: number }) {
+/** One indicator dot: pulses opacity + a small hop, looping. */
+function TypingDot({ c, rank }: { c: Colors; rank: number }) {
   const v = useSharedValue(0);
   useEffect(() => {
-    // Décalage initial UNE fois, HORS de la boucle : les trois points gardent
-    // leur phase — l'onde reste régulière au lieu de dériver à chaque cycle.
+    // Initial offset ONCE, OUTSIDE the loop: the three dots keep their phase, so
+    // the wave stays regular instead of drifting each cycle.
     v.value = withDelay(
-      rang * 150,
+      rank * 150,
       withRepeat(withTiming(1, { duration: 480, easing: Easing.inOut(Easing.quad) }), -1, true),
     );
     return () => cancelAnimation(v);
-  }, [v, rang]);
+  }, [v, rank]);
   const style = useAnimatedStyle(() => ({
     opacity: 0.3 + v.value * 0.7,
     transform: [{ translateY: -v.value * 2.5 }],
   }));
-  return <Animated.View style={[styles.saisiePoint, { backgroundColor: c.accent }, style]} />;
+  return <Animated.View style={[styles.typingDot, { backgroundColor: c.accent }, style]} />;
 }
 
 /**
- * Badge de non-lus : capsule jaune, compteur centré. Rien si le compte est nul.
+ * Unread badge: yellow capsule, centred count. Nothing if the count is zero.
  *
- * Une capsule, et plus l'étoile d'avant : le creux central d'une étoile à cinq
- * branches ne fait que ~38 % de sa largeur — 11 px pour un badge de 28. Un
- * nombre à deux chiffres en demande 13, « 99+ » en demande 19 : le compteur
- * mordait sur les branches. Aucun réglage de taille ne rattrape ça (il aurait
- * fallu ~50 px, presque l'avatar). Une forme convexe, elle, s'étire avec son
- * contenu : `minWidth` la garde ronde à un chiffre, le padding fait le reste.
+ * A capsule, no longer the former star: the central hollow of a five-pointed
+ * star is only ~38% of its width, 11 px for a 28 px badge. A two-digit number
+ * needs 13, "99+" needs 19: the count bit into the points. No size tweak fixes
+ * that (it would have taken ~50 px, nearly the avatar). A convex shape
+ * stretches with its content: `minWidth` keeps it round at one digit, padding
+ * does the rest.
  */
-export function BadgeNonLus({ c, n }: { c: Couleurs; n: number }) {
+export function UnreadBadge({ c, n }: { c: Colors; n: number }) {
   if (n < 1) return null;
   return (
-    <View style={[styles.badgeNonLus, { backgroundColor: c.jaune }]}>
-      <Text style={[styles.badgeNonLusTexte, { color: c.surJaune }]}>{n > 99 ? '99+' : n}</Text>
+    <View style={[styles.unreadBadge, { backgroundColor: c.yellow }]}>
+      <Text style={[styles.unreadBadgeText, { color: c.onYellow }]}>{n > 99 ? '99+' : n}</Text>
     </View>
   );
 }
 
 /**
- * Séparateur de jour des listes de messages (salon et fil) : le libellé
- * (« Aujourd'hui », « Hier », la date — `useJour`) entre deux traits. Même
- * silhouette que la barre « nouveaux messages » du salon, mais aux couleurs
- * discrètes : c'est un repère, pas une alerte.
+ * Day separator for message lists (room and thread): the label
+ * ("Today", "Yesterday", the date, `useDayFormatter`) between two rules.
+ * Same silhouette as the room's "new messages" bar, but in discreet colours:
+ * it is a landmark, not an alert.
  */
-export function SeparateurJour({ c, horodatage }: { c: Couleurs; horodatage: number }) {
-  const formatJour = useJour();
+export function DaySeparator({ c, ts }: { c: Colors; ts: number }) {
+  const formatDay = useDayFormatter();
   return (
-    <View style={styles.separateurJour}>
-      <View style={[styles.traitJour, { backgroundColor: c.bordure }]} />
-      <Text style={[styles.texteJour, { color: c.attenue }]}>{formatJour(horodatage)}</Text>
-      <View style={[styles.traitJour, { backgroundColor: c.bordure }]} />
+    <View style={styles.daySeparator}>
+      <View style={[styles.dayLine, { backgroundColor: c.border }]} />
+      <Text style={[styles.dayText, { color: c.dimmed }]}>{formatDay(ts)}</Text>
+      <View style={[styles.dayLine, { backgroundColor: c.border }]} />
     </View>
   );
 }
 
-export type PropsChampPilule = {
-  c: Couleurs;
-  etiquette: string;
-  valeur: string;
-  icone?: string;
-  /** Champ « code », gros et espacé (saisie d'un code 2FA). */
-  grand?: boolean;
-  /** Champ multiligne (bio) : la pilule grandit, le texte s'aligne en haut. */
-  multiligne?: boolean;
+export type PillFieldProps = {
+  c: Colors;
+  label: string;
+  value: string;
+  icon?: string;
+  /** "Code" field, large and spaced (2FA code entry). */
+  large?: boolean;
+  /** Multiline field (bio): the pill grows, the text aligns to the top. */
+  multiline?: boolean;
 } & Omit<React.ComponentProps<typeof TextInput>, 'value' | 'style'>;
 
 /**
- * Champ en pilule : contour cyan et anneau au focus, comme le design. Partagé
- * par la connexion et l'écran « Mon profil » — une seule source pour le style.
+ * Pill field: cyan outline and focus ring, as in the design. Shared by login
+ * and the "My profile" screen: one source for the style.
  */
-export function ChampPilule({ c, etiquette, valeur, icone, grand, multiligne, ...props }: PropsChampPilule) {
+export function PillField({ c, label, value, icon, large, multiline, ...props }: PillFieldProps) {
   const [focus, setFocus] = useState(false);
-  const champ = useRef<TextInput>(null);
+  const field = useRef<TextInput>(null);
   return (
-    <View style={styles.groupeChamp}>
-      <Text style={[styles.champEtiquette, { color: c.attenue }]}>{etiquette}</Text>
-      {/* Pressable : taper N'IMPORTE OÙ dans la pilule (padding, icône) focalise
-          le champ — le padding vit sur l'enveloppe, pas sur l'input lui-même. */}
+    <View style={styles.fieldGroup}>
+      <Text style={[styles.fieldLabel, { color: c.dimmed }]}>{label}</Text>
+      {/* Pressable: tapping ANYWHERE in the pill (padding, icon) focuses the
+          field; the padding lives on the wrapper, not on the input itself. */}
       <Pressable
-        onPress={() => champ.current?.focus()}
+        onPress={() => field.current?.focus()}
         style={[
-          styles.pilule,
-          multiligne === true && styles.piluleMultiligne,
-          { backgroundColor: c.carte, borderColor: focus ? c.cyan : c.bordure },
-          // Anneau diffus au focus, DÉRIVÉ du token (`24` hex ≈ 14 % d'opacité).
+          styles.pill,
+          multiline === true && styles.pillMultiline,
+          { backgroundColor: c.card, borderColor: focus ? c.cyan : c.border },
+          // Soft focus ring, DERIVED from the token (`24` hex ≈ 14% opacity).
           focus && { boxShadow: `0px 0px 0px 3px ${c.cyan}24` },
         ]}
       >
-        {icone !== undefined && <Text style={styles.champIcone}>{icone}</Text>}
+        {icon !== undefined && <Text style={styles.fieldIcon}>{icon}</Text>}
         <TextInput
-          ref={champ}
-          value={valeur}
+          ref={field}
+          value={value}
           autoCapitalize="none"
           autoCorrect={false}
-          returnKeyType={multiligne === true ? 'default' : 'go'}
-          placeholderTextColor={c.texteTertiaire}
-          multiline={multiligne}
+          returnKeyType={multiline === true ? 'default' : 'go'}
+          placeholderTextColor={c.tertiaryText}
+          multiline={multiline}
           {...props}
           onFocus={() => setFocus(true)}
           onBlur={() => setFocus(false)}
           style={[
-            grand === true ? styles.saisieGrande : styles.saisie,
-            multiligne === true && styles.saisieMultiligne,
-            { color: c.texte },
+            large === true ? styles.inputLarge : styles.input,
+            multiline === true && styles.inputMultiline,
+            { color: c.text },
           ]}
         />
       </Pressable>
@@ -521,12 +521,12 @@ export function ChampPilule({ c, etiquette, valeur, icone, grand, multiligne, ..
 }
 
 const styles = StyleSheet.create({
-  ctaEnveloppe: { borderRadius: 16, overflow: 'hidden' },
+  ctaWrapper: { borderRadius: 16, overflow: 'hidden' },
   cta: { paddingVertical: 15, paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center', minHeight: 52 },
-  ctaTexte: { fontFamily: POLICES.titre, fontSize: 16 },
+  ctaText: { fontFamily: FONTS.title, fontSize: 16 },
   invisible: { opacity: 0 },
-  centre: { alignItems: 'center', justifyContent: 'center' },
-  pisteSynchro: {
+  center: { alignItems: 'center', justifyContent: 'center' },
+  syncTrack: {
     position: 'absolute',
     left: 0,
     right: 0,
@@ -535,13 +535,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     pointerEvents: 'none',
   },
-  comete: { position: 'absolute', top: 0, bottom: 0, width: COMETE_LARGEUR },
-  // Enveloppe en FLUX (pas en absolu) : sa hauteur animée pousse la liste.
-  // `overflow: hidden` clippe le contenu ancré en bas → effet d'émergence.
-  saisieEnveloppe: { width: '100%', overflow: 'hidden' },
-  // Ancré au bas de l'enveloppe : quand elle s'ouvre de 0 à sa hauteur, la
-  // pastille se dévoile du bas vers le haut, comme sortant du composer.
-  saisieContenu: {
+  comet: { position: 'absolute', top: 0, bottom: 0, width: COMET_WIDTH },
+  // Wrapper IN THE FLOW (not absolute): its animated height pushes the list.
+  // `overflow: hidden` clips the bottom-anchored content, hence the emerging effect.
+  inputWrapper: { width: '100%', overflow: 'hidden' },
+  // Anchored to the wrapper's bottom: as it opens from 0 to its height, the
+  // pill reveals itself bottom to top, as if coming out of the composer.
+  inputContent: {
     position: 'absolute',
     left: 0,
     right: 0,
@@ -550,7 +550,7 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
     alignItems: 'flex-start',
   },
-  saisiePastille: {
+  typingChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -560,10 +560,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     maxWidth: '100%',
   },
-  saisieTexte: { fontFamily: POLICES.corps, fontSize: 12, fontStyle: 'italic' },
-  saisiePoints: { flexDirection: 'row', alignItems: 'flex-end', gap: 3, paddingBottom: 2 },
-  saisiePoint: { width: 5, height: 5, borderRadius: 3 },
-  badgeNonLus: {
+  inputText: { fontFamily: FONTS.body, fontSize: 12, fontStyle: 'italic' },
+  typingDots: { flexDirection: 'row', alignItems: 'flex-end', gap: 3, paddingBottom: 2 },
+  typingDot: { width: 5, height: 5, borderRadius: 3 },
+  unreadBadge: {
     minWidth: 22,
     height: 22,
     borderRadius: 11,
@@ -571,15 +571,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // `lineHeight` explicite : sans lui, Android ajoute au Text le padding de
-  // police de Nunito, asymétrique, et le chiffre se pose bas dans la capsule.
-  badgeNonLusTexte: { fontFamily: POLICES.corpsFort, fontSize: 12, lineHeight: 14 },
-  separateurJour: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
-  traitJour: { flex: 1, height: 1, borderRadius: 1 },
-  texteJour: { fontFamily: POLICES.corpsSemi, fontSize: 11.5 },
-  groupeChamp: { gap: 6 },
-  champEtiquette: { fontFamily: POLICES.corpsGras, fontSize: 12.5, paddingLeft: 4 },
-  pilule: {
+  // Explicit `lineHeight`: without it, Android adds Nunito's asymmetric font
+  // padding to the Text, and the digit sits low in the capsule.
+  unreadBadgeText: { fontFamily: FONTS.bodyStrong, fontSize: 12, lineHeight: 14 },
+  daySeparator: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
+  dayLine: { flex: 1, height: 1, borderRadius: 1 },
+  dayText: { fontFamily: FONTS.bodySemi, fontSize: 11.5 },
+  fieldGroup: { gap: 6 },
+  fieldLabel: { fontFamily: FONTS.bodyBold, fontSize: 12.5, paddingLeft: 4 },
+  pill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -588,13 +588,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingVertical: 13,
   },
-  piluleMultiligne: { alignItems: 'flex-start' },
-  champIcone: { fontSize: 14 },
-  saisie: { flex: 1, fontFamily: POLICES.corpsSemi, fontSize: 15, padding: 0 },
-  saisieMultiligne: { minHeight: 76, textAlignVertical: 'top', lineHeight: 21 },
-  saisieGrande: {
+  pillMultiline: { alignItems: 'flex-start' },
+  fieldIcon: { fontSize: 14 },
+  input: { flex: 1, fontFamily: FONTS.bodySemi, fontSize: 15, padding: 0 },
+  inputMultiline: { minHeight: 76, textAlignVertical: 'top', lineHeight: 21 },
+  inputLarge: {
     flex: 1,
-    fontFamily: POLICES.titre,
+    fontFamily: FONTS.title,
     fontSize: 26,
     letterSpacing: 8,
     textAlign: 'center',

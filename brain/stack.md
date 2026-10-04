@@ -47,16 +47,16 @@ Native modules (each requires a dev-client rebuild, see [architecture/mobile-nat
 | `react-native-keyboard-controller` | 1.21.9 | Keyboard tracking. |
 | `react-native-safe-area-context` | `~5.7.0` | |
 | `@shopify/flash-list` | `^2.3.2` | The message and room lists. |
-| `react-native-webview` | 13.16.1 | Only for the Jitsi call screen (`app/appel/[callId].tsx`), the one allowed WebView. |
+| `react-native-webview` | 13.16.1 | Only for the Jitsi call screen (`app/call/[callId].tsx`), the one allowed WebView. |
 | `expo-share-intent` | `^8.0.1` | Share into the app; patched by `patches/expo-share-intent+8.0.1.patch` through `patch-package` on `postinstall`. |
 | Media | `expo-audio`, `expo-video`, `expo-image-picker`, `expo-image-manipulator`, `expo-document-picker`, `expo-media-library`, `expo-file-system`, `expo-sharing` (all `~57.0.x`) | Voice messages, players, pickers, saving. |
 | Fonts | `@expo-google-fonts/baloo-2`, `@expo-google-fonts/nunito` (`^0.4.2`) | Embedded at build time by the `expo-font` plugin. |
 
-Local Expo modules under `apps/mobile/modules/`: `reducteur-video` (video downscaling, Android Media3 and iOS AVFoundation), `telechargements` (public Downloads folder, Android only), `jeton-fcm` and `reponse-notif` (iOS only). Config plugins under `apps/mobile/plugins/` customise the generated native projects; `android/` and `ios/` are gitignored (CNG).
+Local Expo modules under `apps/mobile/modules/`: `video-compressor` (video downscaling, Android Media3 and iOS AVFoundation), `downloads` (public Downloads folder, Android only), `fcm-token` and `notification-reply` (iOS only). Config plugins under `apps/mobile/plugins/` customise the generated native projects; `android/` and `ios/` are gitignored (CNG).
 
 Dev tooling: ESLint 9 with `eslint-config-expo ~57.0.0`, `patch-package ^8.0.1`, `emoji-toolkit 10.0.0` (source of the generated emoji table), Node's built-in test runner.
 
-Android build chain (local and CI): Node 24, Temurin JDK 17 (env.sh accepts 17 to 24), Gradle 9.3.1 from the wrapper, SDK `platforms;android-36`, `build-tools;36.0.0`, NDK `27.1.12297006`, `compileSdk`/`targetSdk` 36, `minSdk` 24. The application id is `com.rocketvibe.app`, the URL scheme `rocketvibe`. Native libraries are restricted to `arm64-v8a,x86_64` by `plugins/with-architectures-cibles.js`; CI builds `arm64-v8a` only.
+Android build chain (local and CI): Node 24, Temurin JDK 17 (env.sh accepts 17 to 24), Gradle 9.3.1 from the wrapper, SDK `platforms;android-36`, `build-tools;36.0.0`, NDK `27.1.12297006`, `compileSdk`/`targetSdk` 36, `minSdk` 24. The application id is `com.rocketvibe.app`, the URL scheme `rocketvibe`. Native libraries are restricted to `arm64-v8a,x86_64` by `plugins/with-target-architectures.js`; CI builds `arm64-v8a` only.
 
 ## Desktop (`apps/desktop`)
 
@@ -132,7 +132,7 @@ GitHub Actions: `ubuntu-24.04` (with `fedora:44`, the Arch image and `ubuntu:22.
 - `apps/mobile/tsconfig.json`
 - `apps/mobile/metro.config.js`
 - `apps/mobile/drizzle.config.ts`
-- `apps/mobile/plugins/with-architectures-cibles.js`
+- `apps/mobile/plugins/with-target-architectures.js`
 - `apps/mobile/modules/`
 - `apps/mobile/patches/expo-share-intent+8.0.1.patch`
 - `apps/desktop/Cargo.toml`

@@ -1,160 +1,160 @@
 /**
- * Thème « Nuit Étoilée » — palette, polices et dégradés.
+ * "Nuit Étoilée" theme: palette, fonts and gradients.
  *
- * La palette vivait dans chaque écran ; à trois copies, une teinte corrigée
- * dans un fichier ne l'était plus dans les autres. Un seul point de vérité,
- * résolu par `useCouleurs()`.
+ * The palette used to live in each screen; with three copies, a hue fixed in
+ * one file was no longer fixed in the others. A single source of truth,
+ * resolved by `useColors()`.
  *
- * Deux jeux complets — `couleursSombres` (Nuit Étoilée) et `couleursClaires`
- * (« jour ») — partagent EXACTEMENT les mêmes clés (l'interface `Couleurs` le
- * garantit). Pour l'instant `useCouleurs()` renvoie TOUJOURS le sombre :
- * l'import du design ne livre que le dark (choix @guillaume). Le clair est déjà
- * saisi comme donnée pour l'écran « jour » (2b) à venir.
+ * Two complete sets, `darkColors` (Nuit Étoilée) and `lightColors` ("day"),
+ * share EXACTLY the same keys (the `Colors` interface guarantees it). For now
+ * `useColors()` ALWAYS returns the dark one: the design import only ships
+ * dark (@guillaume's choice). The light one is already entered as data for
+ * the upcoming "day" screen (2b).
  *
- * Rebrancher la bascule système demandera TROIS retouches, pas une : ici
- * (`useCouleurs` → `useColorScheme()`), `app.json` (`userInterfaceStyle` repassé
- * à `automatic`) et `app/_layout.tsx` (qui code en dur `couleursSombres` pour la
- * coquille de navigation). Cette phrase sert de CONTRAT : toute couleur écrite
- * en dur dans un composant la rend fausse — même les voiles des médias passent
- * par les jetons ci-dessous (identiques dans les deux jeux quand ils se posent
- * sur un média, pas sur le fond du thème).
+ * Wiring the system toggle back will take THREE edits, not one: here
+ * (`useColors` → `useColorScheme()`), `app.json` (`userInterfaceStyle` set
+ * back to `automatic`) and `app/_layout.tsx` (which hardcodes `darkColors`
+ * for the navigation shell). This sentence is a CONTRACT: any color hardcoded
+ * in a component makes it false; even media scrims go through the tokens
+ * below (identical in both sets when they sit on a media, not on the theme
+ * background).
  */
 
 import { Platform } from 'react-native';
 
-/** Un dégradé linéaire : au moins deux arrêts de couleur. */
-export type Degrade = readonly [string, string, ...string[]];
+/** A linear gradient: at least two color stops. */
+export type Gradient = readonly [string, string, ...string[]];
 
-export interface Couleurs {
-  /** Fond d'écran plein. */
-  fond: string;
-  /** Surface d'un champ, d'une bulle, d'une pilule. */
-  carte: string;
-  /** Panneau plus profond (feuille d'actions, encart « serveurs connus »). */
-  carteProfonde: string;
-  /** Surface légèrement rehaussée (cercle de réaction, pastille active). */
+export interface Colors {
+  /** Full screen background. */
+  background: string;
+  /** Surface of a field, a bubble, a pill. */
+  card: string;
+  /** Deeper panel (action sheet, "known servers" box). */
+  deepCard: string;
+  /** Slightly raised surface (reaction circle, active chip). */
   surfaceActive: string;
-  /** Fond d'un encart d'erreur. */
-  carteErreur: string;
+  /** Background of an error box. */
+  errorCard: string;
 
-  /** Contour d'un champ, d'une pilule. */
-  bordure: string;
-  /** Séparateur discret entre deux lignes. */
-  bordureDouce: string;
+  /** Outline of a field, a pill. */
+  border: string;
+  /** Subtle separator between two rows. */
+  softBorder: string;
 
-  /** Texte principal. */
-  texte: string;
-  /** Corps d'un message (un cran sous `texte`). */
-  texteMessage: string;
-  /** Texte secondaire encore lisible (nom de salon non mis en avant). */
-  texteSecondaire: string;
-  /** Texte atténué : étiquettes, aperçus. */
-  attenue: string;
-  /** Texte tertiaire : horodatage, indice, placeholder. */
-  texteTertiaire: string;
-  /** Texte d'erreur. */
-  texteErreur: string;
+  /** Main text. */
+  text: string;
+  /** Message body (one notch below `text`). */
+  messageText: string;
+  /** Secondary text still readable (room name not highlighted). */
+  secondaryText: string;
+  /** Dimmed text: labels, previews. */
+  dimmed: string;
+  /** Tertiary text: timestamp, hint, placeholder. */
+  tertiaryText: string;
+  /** Error text. */
+  errorText: string;
 
-  /** Accent primaire (rose). */
+  /** Primary accent (pink). */
   accent: string;
-  /** Ondulation Android au toucher. */
-  ondulation: string;
-  /** Texte/icône POSÉ sur un aplat ou un dégradé d'accent. */
-  surAccent: string;
+  /** Android touch ripple. */
+  ripple: string;
+  /** Text/icon PLACED on an accent fill or gradient. */
+  onAccent: string;
 
-  /** Accents secondaires de l'arc-en-ciel. */
-  violet: string;
+  /** Secondary rainbow accents. */
+  purple: string;
   cyan: string;
-  bleu: string;
-  jaune: string;
+  blue: string;
+  yellow: string;
   /**
-   * Texte POSÉ sur un aplat JAUNE — toujours sombre, dans les deux thèmes.
-   * Surtout pas `surAccent` : il est blanc en clair, et blanc sur jaune tombe
-   * à 1,9:1 de contraste. Le compteur de non-lus y était illisible.
+   * Text PLACED on a YELLOW fill: always dark, in both themes.
+   * Never `onAccent`: it is white in light mode, and white on yellow drops to
+   * 1.9:1 contrast. The unread counter was unreadable on it.
    */
-  surJaune: string;
+  onYellow: string;
 
-  /** Pastilles de présence. */
-  enLigne: string;
+  /** Presence dots. */
+  online: string;
   absent: string;
-  horsLigne: string;
+  offline: string;
 
-  /** Action destructive (supprimer). */
+  /** Destructive action (delete). */
   danger: string;
 
   /**
-   * Fond d'un média plein écran (visionneuse, vidéo). Une photo se regarde sur
-   * du noir, thème clair compris : identique dans les deux jeux.
+   * Background of a full-screen media (viewer, video). A photo is viewed on
+   * black, light theme included: identical in both sets.
    */
-  fondPleinEcran: string;
-  /** Voile couvrant posé SUR un média, sous une icône claire (lecteur vidéo). */
-  voileMedia: string;
-  /** Voile léger qui laisse transparaître la vignette (embed vidéo). */
-  voileMediaLeger: string;
-  /** Fond d'attente sous une image en cours de chargement (cartes lien/embed). */
-  fondImageAttente: string;
-  /** Initiale posée sur le dégradé (saturé) d'une tuile avatar. */
-  surDegradeAvatar: string;
-  /** Ombre portée d'un élément flottant (pastille de saisie). */
-  ombrePortee: string;
+  fullScreenBackground: string;
+  /** Covering scrim placed ON a media, under a light icon (video player). */
+  mediaScrim: string;
+  /** Light scrim that lets the thumbnail show through (video embed). */
+  lightMediaScrim: string;
+  /** Placeholder background under a loading image (link/embed cards). */
+  pendingImageBackground: string;
+  /** Initial placed on the (saturated) gradient of an avatar tile. */
+  onAvatarGradient: string;
+  /** Drop shadow of a floating element (typing chip). */
+  dropShadow: string;
 
-  /** Dégradé des boutons d'action principale. */
-  degradeCta: Degrade;
-  /** Dégradé du logotype « rocket-vibe ». */
-  degradeMarque: Degrade;
-  /** Palette de dégradés pour les tuiles d'avatar, choisie par le nom. */
-  avatarsDegrades: readonly Degrade[];
-  /** Dégradé neutre (salon chiffré, avatar système). */
-  degradeNeutre: Degrade;
+  /** Gradient of the primary action buttons. */
+  ctaGradient: Gradient;
+  /** Gradient of the "rocket-vibe" logotype. */
+  brandGradient: Gradient;
+  /** Gradient palette for avatar tiles, picked by name. */
+  avatarGradients: readonly Gradient[];
+  /** Neutral gradient (encrypted room, system avatar). */
+  neutralGradient: Gradient;
 }
 
-export const couleursSombres: Couleurs = {
-  fond: '#0C0B16',
-  carte: '#171529',
-  carteProfonde: '#141227',
+export const darkColors: Colors = {
+  background: '#0C0B16',
+  card: '#171529',
+  deepCard: '#141227',
   surfaceActive: '#1E1B33',
-  carteErreur: '#2A1420',
+  errorCard: '#2A1420',
 
-  bordure: '#2C2946',
-  bordureDouce: '#1E1B33',
+  border: '#2C2946',
+  softBorder: '#1E1B33',
 
-  texte: '#F3F0FF',
-  texteMessage: '#E7E3F5',
-  texteSecondaire: '#C9C3E0',
-  attenue: '#8F89AB',
-  texteTertiaire: '#6E6890',
-  texteErreur: '#FF7A8A',
+  text: '#F3F0FF',
+  messageText: '#E7E3F5',
+  secondaryText: '#C9C3E0',
+  dimmed: '#8F89AB',
+  tertiaryText: '#6E6890',
+  errorText: '#FF7A8A',
 
   accent: '#FF5FA2',
-  // Translucide (25 %) : la RippleDrawable dessine la couleur telle quelle —
-  // opaque, la vague est un flash dur qui écrase le contenu qu'elle recouvre.
-  ondulation: '#E14B9640',
-  surAccent: '#0B0913',
+  // Translucent (25 %): the RippleDrawable draws the color as is; opaque,
+  // the wave is a harsh flash that crushes the content it covers.
+  ripple: '#E14B9640',
+  onAccent: '#0B0913',
 
-  violet: '#A78BFA',
+  purple: '#A78BFA',
   cyan: '#34E1D0',
-  bleu: '#5CC8FF',
-  jaune: '#FFD34E',
-  surJaune: '#0B0913',
+  blue: '#5CC8FF',
+  yellow: '#FFD34E',
+  onYellow: '#0B0913',
 
-  enLigne: '#3ED67F',
+  online: '#3ED67F',
   absent: '#FFC24B',
-  horsLigne: '#5A5573',
+  offline: '#5A5573',
 
   danger: '#FF7A8A',
 
-  fondPleinEcran: 'rgba(4,3,10,0.94)',
-  voileMedia: 'rgba(12,11,22,0.80)',
-  voileMediaLeger: 'rgba(12,11,22,0.42)',
-  fondImageAttente: '#00000020',
-  surDegradeAvatar: '#FFFFFF',
-  ombrePortee: 'rgba(0,0,0,0.55)',
+  fullScreenBackground: 'rgba(4,3,10,0.94)',
+  mediaScrim: 'rgba(12,11,22,0.80)',
+  lightMediaScrim: 'rgba(12,11,22,0.42)',
+  pendingImageBackground: '#00000020',
+  onAvatarGradient: '#FFFFFF',
+  dropShadow: 'rgba(0,0,0,0.55)',
 
-  degradeCta: ['#FF5FA2', '#A78BFA'],
-  degradeMarque: ['#FF5FA2', '#A78BFA', '#34E1D0'],
-  // Sept teintes aux ENSEMBLES de couleurs distincts (aucune n'est l'inverse
-  // d'une autre) : deux avatars voisins ne se confondent pas.
-  avatarsDegrades: [
+  ctaGradient: ['#FF5FA2', '#A78BFA'],
+  brandGradient: ['#FF5FA2', '#A78BFA', '#34E1D0'],
+  // Seven hues with distinct color SETS (none is the inverse of another):
+  // two neighbouring avatars do not blend together.
+  avatarGradients: [
     ['#FF5FA2', '#A78BFA'],
     ['#A78BFA', '#5CC8FF'],
     ['#5CC8FF', '#34E1D0'],
@@ -163,55 +163,55 @@ export const couleursSombres: Couleurs = {
     ['#34E1D0', '#A78BFA'],
     ['#FFD34E', '#FF5FA2'],
   ],
-  degradeNeutre: ['#8F89AB', '#5A5573'],
+  neutralGradient: ['#8F89AB', '#5A5573'],
 };
 
-export const couleursClaires: Couleurs = {
-  fond: '#FBF7FF',
-  carte: '#FFFFFF',
-  carteProfonde: '#F5EFFC',
+export const lightColors: Colors = {
+  background: '#FBF7FF',
+  card: '#FFFFFF',
+  deepCard: '#F5EFFC',
   surfaceActive: '#F5EFFC',
-  carteErreur: '#FDE7EF',
+  errorCard: '#FDE7EF',
 
-  bordure: '#E7DCF5',
-  bordureDouce: '#F1EBFA',
+  border: '#E7DCF5',
+  softBorder: '#F1EBFA',
 
-  texte: '#2A2140',
-  texteMessage: '#2A2140',
-  texteSecondaire: '#4A4066',
-  attenue: '#8A7FA6',
-  texteTertiaire: '#A99EC0',
-  texteErreur: '#D6335A',
+  text: '#2A2140',
+  messageText: '#2A2140',
+  secondaryText: '#4A4066',
+  dimmed: '#8A7FA6',
+  tertiaryText: '#A99EC0',
+  errorText: '#D6335A',
 
   accent: '#E14B96',
-  // Même logique qu'en sombre : translucide, sinon flash opaque.
-  ondulation: '#C0398A38',
-  surAccent: '#FFFFFF',
+  // Same logic as in dark: translucent, otherwise an opaque flash.
+  ripple: '#C0398A38',
+  onAccent: '#FFFFFF',
 
-  violet: '#7C5CE0',
+  purple: '#7C5CE0',
   cyan: '#10AE9F',
-  bleu: '#3AA0E8',
-  jaune: '#F2B300',
-  surJaune: '#2A2140',
+  blue: '#3AA0E8',
+  yellow: '#F2B300',
+  onYellow: '#2A2140',
 
-  enLigne: '#17B06B',
+  online: '#17B06B',
   absent: '#E0952A',
-  horsLigne: '#C4B7DA',
+  offline: '#C4B7DA',
 
   danger: '#D6335A',
 
-  // Posés sur un média (pas sur le fond du thème) : mêmes valeurs qu'en sombre.
-  fondPleinEcran: 'rgba(4,3,10,0.94)',
-  voileMedia: 'rgba(12,11,22,0.80)',
-  voileMediaLeger: 'rgba(12,11,22,0.42)',
-  fondImageAttente: '#00000020',
-  surDegradeAvatar: '#FFFFFF',
-  // Une ombre à 55 % sur fond clair serait un pochoir : adoucie.
-  ombrePortee: 'rgba(0,0,0,0.25)',
+  // Placed on a media (not on the theme background): same values as in dark.
+  fullScreenBackground: 'rgba(4,3,10,0.94)',
+  mediaScrim: 'rgba(12,11,22,0.80)',
+  lightMediaScrim: 'rgba(12,11,22,0.42)',
+  pendingImageBackground: '#00000020',
+  onAvatarGradient: '#FFFFFF',
+  // A 55 % shadow on a light background would be a stencil: softened.
+  dropShadow: 'rgba(0,0,0,0.25)',
 
-  degradeCta: ['#E14B96', '#7C5CE0'],
-  degradeMarque: ['#E14B96', '#7C5CE0', '#10AE9F'],
-  avatarsDegrades: [
+  ctaGradient: ['#E14B96', '#7C5CE0'],
+  brandGradient: ['#E14B96', '#7C5CE0', '#10AE9F'],
+  avatarGradients: [
     ['#E14B96', '#7C5CE0'],
     ['#7C5CE0', '#3AA0E8'],
     ['#3AA0E8', '#10AE9F'],
@@ -220,75 +220,74 @@ export const couleursClaires: Couleurs = {
     ['#10AE9F', '#7C5CE0'],
     ['#E8A600', '#E14B96'],
   ],
-  degradeNeutre: ['#C4B7DA', '#A99EC0'],
+  neutralGradient: ['#C4B7DA', '#A99EC0'],
 };
 
 /**
- * Familles de police EMBARQUÉES (config plugin `expo-font`, cf. app.json).
- * Une famille PAR GRAISSE : sur Android, `fontFamily` + `fontWeight` sur une
- * police custom est capricieux (faux-gras synthétique) ; une famille par graisse
- * rend toujours le bon dessin. Ne jamais y adjoindre de `fontWeight`.
+ * EMBEDDED font families (`expo-font` config plugin, see app.json).
+ * One family PER WEIGHT: on Android, `fontFamily` + `fontWeight` on a custom
+ * font is unreliable (synthetic faux bold); one family per weight always
+ * renders the right glyphs. Never add a `fontWeight` to them.
  *
- * Android nomme la police d'après son FICHIER, iOS d'après son nom PostScript
- * (table `name` du .ttf) : un nom de fichier sous iOS retombe sans bruit sur la
- * police système.
+ * Android names the font after its FILE, iOS after its PostScript name (the
+ * .ttf `name` table): a file name on iOS silently falls back to the system
+ * font.
  *
- * `titre*` = Baloo 2 (arrondie, pour les titres) ; le reste = Nunito (corps).
+ * `title*` = Baloo 2 (rounded, for titles); the rest = Nunito (body).
  */
-const police = (fichier: string, postScript: string): string =>
-  Platform.OS === 'ios' ? postScript : fichier;
+const fonts = (file: string, postScript: string): string =>
+  Platform.OS === 'ios' ? postScript : file;
 
-export const POLICES = {
-  titreSemi: police('Baloo2_600SemiBold', 'Baloo2-SemiBold'),
-  titre: police('Baloo2_700Bold', 'Baloo2-Bold'),
-  titreFort: police('Baloo2_800ExtraBold', 'Baloo2-ExtraBold'),
-  corps: police('Nunito_400Regular', 'Nunito-Regular'),
-  corpsSemi: police('Nunito_600SemiBold', 'Nunito-SemiBold'),
-  corpsGras: police('Nunito_700Bold', 'Nunito-Bold'),
-  corpsFort: police('Nunito_800ExtraBold', 'Nunito-ExtraBold'),
+export const FONTS = {
+  titleSemi: fonts('Baloo2_600SemiBold', 'Baloo2-SemiBold'),
+  title: fonts('Baloo2_700Bold', 'Baloo2-Bold'),
+  titleStrong: fonts('Baloo2_800ExtraBold', 'Baloo2-ExtraBold'),
+  body: fonts('Nunito_400Regular', 'Nunito-Regular'),
+  bodySemi: fonts('Nunito_600SemiBold', 'Nunito-SemiBold'),
+  bodyBold: fonts('Nunito_700Bold', 'Nunito-Bold'),
+  bodyStrong: fonts('Nunito_800ExtraBold', 'Nunito-ExtraBold'),
 } as const;
 
 /**
- * Délai (ms) avant qu'un `Pressable` d'une LISTE (ou d'une ligne de bottom
- * sheet) n'affiche sa pression — via `unstable_pressDelay`. Le temps qu'il
- * s'écoule, un début de scroll (ou le glisser-pour-fermer natif d'une feuille)
- * s'empare du geste et ANNULE la pression : la couleur/ondulation n'apparaît
- * jamais quand on ne fait que défiler. Un vrai tap reste instantané —
- * Pressability vide le `onPressIn` retardé avant le relâchement.
+ * Delay (ms) before a `Pressable` in a LIST (or a bottom sheet row) shows its
+ * press, via `unstable_pressDelay`. Meanwhile, the start of a scroll (or a
+ * sheet's native swipe-to-dismiss) grabs the gesture and CANCELS the press:
+ * the color/ripple never shows when merely scrolling. A real tap stays
+ * instant: Pressability flushes the delayed `onPressIn` before release.
  *
- * 120 ms : au-delà du seuil de détection du scroll, en-deçà du perceptible sur
- * un tap franc. Ne PAS mettre sur les gros CTA hors liste, ça les rendrait mous.
+ * 120 ms: above the scroll detection threshold, below what is perceptible on
+ * a clean tap. Do NOT put it on big CTAs outside lists, it would make them
+ * mushy.
  */
-export const DELAI_PRESSION_LISTE = 120;
+export const LIST_PRESS_DELAY = 120;
 
 /**
- * Largeur disponible pour le corps d'un message : écran − marges de liste
- * (16×2) − colonne avatar (34) − gouttière (10), plafonnée pour les grands
- * écrans. Partagée entre les images jointes (`ui/ligneMessage.tsx`) et les
- * aperçus de lien (`ui/carteLien.tsx`), qui doivent s'aligner — le calcul
- * était recopié dans les deux.
+ * Width available for a message body: screen − list margins (16×2) − avatar
+ * column (34) − gutter (10), capped for large screens. Shared by attached
+ * images (`ui/messageRow.tsx`) and link previews (`ui/linkCard.tsx`), which
+ * must line up; the computation was copied in both.
  */
-export function largeurDispoCorps(largeurEcran: number): number {
-  return Math.min(largeurEcran - 92, 380);
+export function availableBodyWidth(screenWidth: number): number {
+  return Math.min(screenWidth - 92, 380);
 }
 
 /**
- * Choisit un dégradé d'avatar STABLE pour une clé (nom, id) : la même personne
- * garde sa cutie-mark d'un écran à l'autre. Somme des points de code modulo la
- * taille de la palette — déterministe, sans dépendance.
+ * Picks a STABLE avatar gradient for a key (name, id): the same person keeps
+ * their cutie mark from one screen to the next. Sum of code points modulo
+ * the palette size: deterministic, dependency-free.
  */
-export function degradeAvatar(cle: string, palette: readonly Degrade[]): Degrade {
-  // Hash polynomial (×31), sensible à l'ORDRE : deux anagrammes (« bob » / « obb »)
-  // ne tombent plus sur la même teinte. `| 0` borne à 32 bits signés.
+export function avatarGradient(key: string, palette: readonly Gradient[]): Gradient {
+  // Polynomial hash (×31), ORDER-sensitive: two anagrams ("bob" / "obb") no
+  // longer land on the same hue. `| 0` bounds to signed 32 bits.
   let h = 0;
-  for (let i = 0; i < cle.length; i++) h = (h * 31 + cle.charCodeAt(i)) | 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
   return palette[Math.abs(h) % palette.length]!;
 }
 
 /**
- * Palette active. Forcée en SOMBRE le temps de l'import du design (dark only).
- * Rebrancher `useColorScheme()` ici quand le thème « jour » (2b) sera livré.
+ * Active palette. Forced to DARK for the design import (dark only).
+ * Wire `useColorScheme()` back here when the "day" theme (2b) ships.
  */
-export function useCouleurs(): Couleurs {
-  return couleursSombres;
+export function useColors(): Colors {
+  return darkColors;
 }

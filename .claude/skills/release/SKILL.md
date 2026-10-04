@@ -17,9 +17,9 @@ when both, they share one release branch.
 
 - Which app(s)? If not given, list what each has unreleased:
   `git log --oneline <app>-v<last>..master -- apps/<app>` and its changelog's
-  "Unreleased" / "Non publié" section. An app with nothing there is not released.
+  "Unreleased" section. An app with nothing there is not released.
 - Previous version per app: `git describe --tags --abbrev=0 --match '<app>-v*' master`.
-- Pick the next semver: **minor** if the section has an Added / Ajouté entry or a
+- Pick the next semver: **minor** if the section has an Added entry or a
   visible Changed, **patch** for fix-only.
 - Main checkout on `master`, clean, up to date: `git pull --ff-only origin master`.
   Other sessions work on master: never commit the release onto it directly.
@@ -34,9 +34,9 @@ when both, they share one release branch.
 
 - **`apps/<app>/CHANGELOG.md`, the unreleased section** must cover every visible
   change since the last tag. Entries are added per branch during development, so
-  this is usually a completeness check against the log. Mobile is in French
-  (Ajouté / Modifié / Corrigé / Supprimé), desktop in English (Added / Changed /
-  Fixed / Removed). One entry per change, worded for a user, not a commit subject.
+  this is usually a completeness check against the log. Both apps use the
+  English Keep a Changelog categories (Added / Changed / Fixed / Removed /
+  Deprecated / Security). One entry per change, worded for a user, not a commit subject.
 - **READMEs**: `apps/<app>/README.md` (features, prerequisites, scripts) and the root
   `README.md` (CI, secrets, release flow), if the release changes what they say.
 - **`brain/parity.md`**: every visible change in the section has its row, with
@@ -59,7 +59,7 @@ Per app, one commit `[release/<x.y.z>] chore(<app>): release <x.y.z>` holding:
   heading (the heading stays, empty), and fix the link references at the bottom:
   the unreleased one now compares from `<app>-v<x.y.z>`, and a new
   `[<x.y.z>]: .../compare/<app>-v<last>...<app>-v<x.y.z>` line goes under it.
-  Mobile's unreleased label is `[Non publié]`, desktop's `[Unreleased]`.
+  Both apps' unreleased label is `[Unreleased]`.
 - **mobile**: `apps/mobile/app.json` `expo.version` and `expo.android.versionCode`
   (= major * 10000 + minor * 100 + patch), then from `apps/mobile/`:
   `npm version <x.y.z> --no-git-tag-version` (updates `package.json` and

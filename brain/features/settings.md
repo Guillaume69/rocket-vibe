@@ -9,24 +9,24 @@ The settings screen gathers my profile, the notification preference, the languag
 | Notification preference | server, per account (`users.setPreferences`) | `pushNotifications` | `desktopNotifications` |
 | Presence and status text | server (`users.setStatus`) | in My profile | in Settings |
 | Profile fields, photo | server | My profile page | Edit profile subpage |
-| Language | device | SecureStore `langue-preferee` | file `<config>/rocket-vibe-rs/language` |
+| Language | device | SecureStore `preferred-language` (moved from `langue-preferee` on first read) | file `<config>/rocket-vibe-rs/language` |
 | E2EE key | device | Keystore | system keychain |
 | Keep running, start at login | device | n/a | Windows, macOS |
 | Automatic update checks | device | n/a | file `no-update-check` (absent = on) |
 
 ## Mobile
 
-`app/parametres.tsx`, a page opened from the room list. Sections, in order:
+`app/settings.tsx`, a page opened from the room list. Sections, in order:
 
-- **Profile card**: avatar, name, link to `/mon-profil` ([room-info-and-profiles.md](room-info-and-profiles.md)).
-- **Notifications**: the push preference, read from `GET me` (`settings.preferences.pushNotifications`) and written with `POST users.setPreferences {data: {pushNotifications}}`. It is global to the account, not per room. Three choices are offered: all messages, mentions and direct messages, none. The server also knows `default` (follow the server's setting); an account on `default` shows no option ticked until the first choice, which is honest rather than misleading. Save errors show `parametres.enregistrementImpossible`.
-- **Language**: automatic (phone locale), French, English (`SelecteurLangue`, `definirLangue` in `ui/i18n.ts`). The switch is live: listeners re-render the app without a restart. "Automatic" deletes the key; an explicit choice is written with `AFTER_FIRST_UNLOCK` so the iOS notification extension can read it with the phone locked, and the Android push service reads the same key to localise native notifications. Details in [../architecture/i18n.md](../architecture/i18n.md).
-- **Encryption**: locked or unlocked state, Unlock (opens `/deverrouiller-e2e`) or Lock (`synchro.verrouillerE2E`) ([e2ee.md](e2ee.md)).
+- **Profile card**: avatar, name, link to `/my-profile` ([room-info-and-profiles.md](room-info-and-profiles.md)).
+- **Notifications**: the push preference, read from `GET me` (`settings.preferences.pushNotifications`) and written with `POST users.setPreferences {data: {pushNotifications}}`. It is global to the account, not per room. Three choices are offered: all messages, mentions and direct messages, none. The server also knows `default` (follow the server's setting); an account on `default` shows no option ticked until the first choice, which is honest rather than misleading. Save errors show `settings.saveFailed`.
+- **Language**: automatic (phone locale), French, English (`LanguagePicker`, `setLanguage` in `ui/i18n.ts`). The switch is live: listeners re-render the app without a restart. "Automatic" deletes the key; an explicit choice is written with `AFTER_FIRST_UNLOCK` so the iOS notification extension can read it with the phone locked, and the Android push service reads the same key to localise native notifications. Details in [../architecture/i18n.md](../architecture/i18n.md).
+- **Encryption**: locked or unlocked state, Unlock (opens `/unlock-e2e`) or Lock (`sync.lockE2E`) ([e2ee.md](e2ee.md)).
 - **Account**: signed in as `@username`, server URL.
-- **Diagnostics**: "Get the FCM token" (`SectionJetonFcm`), which runs `obtenirJetonFcm` and prints the token, for push debugging ([notifications.md](notifications.md)).
-- **Change server** (`/connexion?changer=1`) and **Sign out** ([login-and-servers.md](login-and-servers.md)).
+- **Diagnostics**: "Get the FCM token" (`FcmTokenSection`), which runs `getFcmToken` and prints the token, for push debugging ([notifications.md](notifications.md)).
+- **Change server** (`/login?change=1`) and **Sign out** ([login-and-servers.md](login-and-servers.md)).
 
-There is no theme setting: `useCouleurs()` (`ui/theme.ts`) always returns the dark "Nuit Étoilée" palette. A light palette exists as data for a future "day" theme.
+There is no theme setting: `useColors()` (`ui/theme.ts`) always returns the dark "Nuit Étoilée" palette. A light palette exists as data for a future "day" theme.
 
 ## Desktop
 
@@ -52,8 +52,8 @@ Fields are filled from `GET me` (`rv-core/src/account.rs::me`) before their chan
 
 ## Sources
 
-- apps/mobile/app/parametres.tsx
-- apps/mobile/app/mon-profil.tsx
+- apps/mobile/app/settings.tsx
+- apps/mobile/app/my-profile.tsx
 - apps/mobile/ui/i18n.ts
 - apps/mobile/ui/messages.ts
 - apps/mobile/ui/theme.ts

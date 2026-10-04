@@ -1,25 +1,26 @@
 /**
- * L'identifiant sous lequel expo-notifications désigne une notification que
- * NOUS avons postée depuis le Kotlin (`plugins/with-fcm-deeplink.js`).
+ * The identifier under which expo-notifications refers to a notification WE
+ * posted from Kotlin (`plugins/with-fcm-deeplink.js`).
  *
- * Le service natif poste ses notifications de conversation avec
- * `notify(rid.hashCode(), …)` — pas de tag, un id dérivé du salon, pour que les
- * messages suivants du même salon complètent la même notification.
- * `Notifications.dismissNotificationAsync` attend, lui, une CHAÎNE : côté
- * Android, expo la passe à `parseNotificationIdentifier`, qui reconnaît la forme
- * `expo-notifications://foreign_notifications?[tag=…&]id=<entier>` et la traduit
- * en `NotificationManagerCompat.cancel(tag, id)`
- * (`ExpoPresentationDelegate.kt`). Sans tag, on écrit donc `?id=<hash>` et la
- * notification native est retirée — c'est le seul pont entre les deux voies.
+ * The native service posts its conversation notifications with
+ * `notify(rid.hashCode(), ...)`: no tag, an id derived from the room, so that
+ * later messages of the same room extend the same notification.
+ * `Notifications.dismissNotificationAsync`, however, expects a STRING: on
+ * Android, expo hands it to `parseNotificationIdentifier`, which recognises the
+ * form `expo-notifications://foreign_notifications?[tag=...&]id=<integer>` and
+ * translates it to `NotificationManagerCompat.cancel(tag, id)`
+ * (`ExpoPresentationDelegate.kt`). With no tag, we therefore write
+ * `?id=<hash>` and the native notification is removed: the only bridge
+ * between the two paths.
  *
- * `hashCodeJava` reproduit `java.lang.String.hashCode` : `s[0]*31^(n-1) + …`,
- * sur les UNITÉS UTF-16 (ce que rend `charCodeAt`, comme `String.charAt` côté
- * Java) et en arithmétique 32 bits SIGNÉE qui déborde en silence. Un `rid`
- * Rocket.Chat est de l'ASCII, mais la règle est écrite pour ce qu'elle est :
- * `Math.imul` fait la multiplication 32 bits, `| 0` ramène dans le signé.
+ * `hashCodeJava` reproduces `java.lang.String.hashCode`: `s[0]*31^(n-1) + ...`,
+ * over UTF-16 UNITS (what `charCodeAt` returns, like `String.charAt` in Java)
+ * and in SIGNED 32-bit arithmetic that overflows silently. A Rocket.Chat `rid`
+ * is ASCII, but the rule is written for what it is: `Math.imul` does the
+ * 32-bit multiplication, `| 0` brings it back to signed.
  */
 
-/** `java.lang.String.hashCode` — entier 32 bits signé, débordement compris. */
+/** `java.lang.String.hashCode`: signed 32-bit integer, overflow included. */
 export function hashCodeJava(s: string): number {
   let h = 0;
   for (let i = 0; i < s.length; i++) {
@@ -28,7 +29,7 @@ export function hashCodeJava(s: string): number {
   return h;
 }
 
-/** L'identifiant expo de la notification de conversation d'un salon. */
-export function identifiantNotifSalon(rid: string): string {
+/** The expo identifier of a room's conversation notification. */
+export function roomNotificationId(rid: string): string {
   return `expo-notifications://foreign_notifications?id=${hashCodeJava(rid)}`;
 }

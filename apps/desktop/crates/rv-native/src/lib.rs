@@ -291,8 +291,8 @@ mod tests {
     #[test]
     fn a_second_launch_forwards_its_link() {
         assert_eq!(
-            forwarded("C:\\app.exe\nrocketvibe://salon/r1?host=x"),
-            Some(AppEvent::Open("rocketvibe://salon/r1?host=x".into()))
+            forwarded("C:\\app.exe\nrocketvibe://room/r1?host=x"),
+            Some(AppEvent::Open("rocketvibe://room/r1?host=x".into()))
         );
         assert_eq!(forwarded("C:\\app.exe"), Some(AppEvent::Show));
         assert_eq!(forwarded("C:\\app.exe\n--background"), None);

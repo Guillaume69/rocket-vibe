@@ -1,12 +1,12 @@
 /**
- * Persistance de la session, **une par serveur**.
+ * Session persistence, **one per server**.
  *
- * Le jeton vit dans l'Android Keystore via `expo-secure-store`, jamais dans
- * `AsyncStorage`. La clé dérive du host : plusieurs serveurs cohabitent sans
- * qu'une déconnexion sur l'un touche à l'autre.
+ * The token lives in the Android Keystore through `expo-secure-store`, never in
+ * `AsyncStorage`. The key derives from the host: several servers coexist
+ * without a logout on one touching the other.
  *
- * Seul module de la couche transport à dépendre de la plateforme. Tout le
- * reste (`rest`, `auth`, `ddp`) tourne sous Node, donc se teste pour de vrai.
+ * The only transport-layer module that depends on the platform. All the rest
+ * (`rest`, `auth`, `ddp`) runs under Node, so it is tested for real.
  */
 
 import * as Crypto from 'expo-crypto';
@@ -14,247 +14,216 @@ import * as SecureStore from 'expo-secure-store';
 
 import type { Session } from './auth.ts';
 import {
-  cleE2E,
-  cleE2EHeritee,
-  cleSession,
-  sansSlashFinal,
-} from './clesStockage.ts';
-import type { DeconnexionEnSuspens } from './deconnexionDifferee.ts';
-import { normaliserGenre } from './fournisseur.ts';
+  type AsyncKeyStore,
+  e2eStorageKey,
+  legacyE2eStorageKey,
+  readMovedKey,
+  sessionStorageKey,
+  STORED_KEYS,
+  withoutTrailingSlash,
+} from './storageKeys.ts';
+import type { PendingLogout } from './deferredLogout.ts';
+import { parsePendingLogouts, parseSession } from './storedRecords.ts';
 
-/** SHA-256 hexadécimal — l'implémentation de `Hacheur` côté application. */
-export function hacher(texte: string): Promise<string> {
-  return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, texte);
+/** Hex SHA-256: the app-side implementation of `Hasher`. */
+export function hash(text: string): Promise<string> {
+  return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, text);
 }
 
 /**
- * La dérivation des noms de clés vit dans `lib/clesStockage.ts`, sans
- * dépendance à `expo`, parce que c'est elle qui décide de l'isolation entre
- * comptes — et que cela se prouve par des tests, pas par une relecture.
+ * Key name derivation lives in `lib/storageKeys.ts`, with no `expo`
+ * dependency, because it decides the isolation between accounts, and that is
+ * proven by tests, not by a reread.
  */
-const cle = (baseUrl: string): Promise<string> => cleSession(baseUrl, hacher);
+const key = (baseUrl: string): Promise<string> => sessionStorageKey(baseUrl, hash);
+
+const secureStore: AsyncKeyStore = {
+  get: (k) => SecureStore.getItemAsync(k),
+  set: (k, v) => SecureStore.setItemAsync(k, v),
+  remove: (k) => SecureStore.deleteItemAsync(k),
+};
 
 /**
- * iOS : lisible par la Notification Service Extension, qui tourne aussi
- * écran verrouillé (plugins/ios-notification-service). Le défaut
- * `WHEN_UNLOCKED` la cacherait à chaque push reçu téléphone en poche. Sans
- * effet sous Android.
+ * iOS: readable by the Notification Service Extension, which also runs with
+ * the screen locked (plugins/ios-notification-service). The default
+ * `WHEN_UNLOCKED` would hide it from every push received with the phone in a
+ * pocket. No effect on Android.
  */
-const ACCES_EXTENSION_PUSH: SecureStore.SecureStoreOptions = {
+const PUSH_EXTENSION_ACCESS: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
 };
 
-export async function enregistrerSession(session: Session): Promise<void> {
-  await SecureStore.setItemAsync(await cle(session.baseUrl), JSON.stringify(session), ACCES_EXTENSION_PUSH);
+export async function saveSession(session: Session): Promise<void> {
+  await SecureStore.setItemAsync(await key(session.baseUrl), JSON.stringify(session), PUSH_EXTENSION_ACCESS);
 }
 
-export async function lireSession(baseUrl: string): Promise<Session | null> {
-  const brut = await SecureStore.getItemAsync(await cle(baseUrl));
-  if (brut === null) return null;
-  try {
-    const session = JSON.parse(brut) as Session;
-    // Un stockage corrompu ou d'une ancienne version ne doit pas faire planter
-    // le démarrage : on le traite comme une absence de session.
-    if (typeof session?.authToken !== 'string' || typeof session?.userId !== 'string') return null;
-    // La clé dérive d'un condensé tronqué : on ne se fie pas à elle seule pour
-    // affirmer que cette session appartient bien au serveur demandé.
-    if (sansSlashFinal(session.baseUrl) !== sansSlashFinal(baseUrl)) return null;
-    // Migration à la lecture : les sessions d'avant les champs `genre` et
-    // `siteUrl` retombent sur leurs replis (`rocketchat`, null → `baseUrl` à
-    // l'usage), sans réécriture.
-    return {
-      ...session,
-      genre: normaliserGenre(session.genre),
-      siteUrl: typeof session.siteUrl === 'string' ? session.siteUrl : null,
-    };
-  } catch {
-    return null;
-  }
+export async function readSession(baseUrl: string): Promise<Session | null> {
+  const raw = await SecureStore.getItemAsync(await key(baseUrl));
+  if (raw === null) return null;
+  return parseSession(raw, baseUrl);
 }
 
-export async function effacerSession(baseUrl: string): Promise<void> {
-  await SecureStore.deleteItemAsync(await cle(baseUrl));
+export async function clearSession(baseUrl: string): Promise<void> {
+  await SecureStore.deleteItemAsync(await key(baseUrl));
 }
 
 /**
- * Clé privée E2EE déchiffrée (JWK JSON), rangée dans le Keystore par
- * **(serveur, compte)** — comme la base SQLite, et contrairement à la session,
- * qui est bien du serveur. Sa présence = ce compte est « déverrouillé » : au
- * redémarrage on réimporte sans redemander le mot de passe E2E. Verrouiller =
- * l'effacer. On stocke le JWK DÉCHIFFRÉ (le blob chiffré du serveur ne servirait
- * à rien sans le mot de passe) : c'est le même compromis que la session en clair
- * dans le Keystore — protégé par l'écran de verrouillage de l'appareil, hors
- * périmètre du modèle de menace E2EE (qui vise le serveur).
+ * Decrypted E2EE private key (JWK JSON), stored in the Keystore per
+ * **(server, account)**, like the SQLite database and unlike the session,
+ * which really is per server. Its presence = this account is "unlocked": on
+ * restart we reimport without asking for the E2E password again. Locking =
+ * erasing it. We store the DECRYPTED JWK (the server's encrypted blob would be
+ * useless without the password): the same trade-off as the plaintext session
+ * in the Keystore, protected by the device lock screen, outside the E2EE
+ * threat model (which targets the server).
  *
- * L'indexation par compte n'est pas une commodité : rangée par serveur seul,
- * la clé d'un compte était réimportée pour le suivant. Voir `clesStockage.ts`.
+ * Indexing by account is not a convenience: stored per server alone, one
+ * account's key was reimported for the next. See `storageKeys.ts`.
  */
-export async function enregistrerClePriveeE2E(
+export async function saveE2EPrivateKey(
   baseUrl: string,
-  utilisateurId: string,
+  userId: string,
   jwkJson: string,
 ): Promise<void> {
-  await SecureStore.setItemAsync(await cleE2E(baseUrl, utilisateurId, hacher), jwkJson);
+  await SecureStore.setItemAsync(await e2eStorageKey(baseUrl, userId, hash), jwkJson);
 }
 
-export async function lireClePriveeE2E(
+export async function readE2EPrivateKey(
   baseUrl: string,
-  utilisateurId: string,
+  userId: string,
 ): Promise<string | null> {
-  return SecureStore.getItemAsync(await cleE2E(baseUrl, utilisateurId, hacher));
+  return SecureStore.getItemAsync(await e2eStorageKey(baseUrl, userId, hash));
 }
 
-export async function effacerClePriveeE2E(
+export async function clearE2EPrivateKey(
   baseUrl: string,
-  utilisateurId: string,
+  userId: string,
 ): Promise<void> {
-  await SecureStore.deleteItemAsync(await cleE2E(baseUrl, utilisateurId, hacher));
+  await SecureStore.deleteItemAsync(await e2eStorageKey(baseUrl, userId, hash));
 }
 
 /**
- * Efface l'entrée E2EE de l'ANCIEN format, indexée par serveur seul.
+ * Erases the E2EE entry in the OLD format, indexed by server alone.
  *
- * Sans elle, la correction ci-dessus laisserait sur l'appareil, pour toujours,
- * un JWK RSA **déchiffré** que plus aucun code ne saurait retrouver —
- * `expo-secure-store` n'énumère pas ses clés. On ne la LIT jamais : la relire
- * pour la « migrer » rejouerait exactement le défaut corrigé, puisque rien ne
- * dit à quel compte elle appartenait.
+ * Without it, the fix above would leave on the device, forever, a
+ * **decrypted** RSA JWK that no code could find again: `expo-secure-store`
+ * does not enumerate its keys. We NEVER read it: reading it to "migrate" it
+ * would replay exactly the fixed defect, since nothing says which account it
+ * belonged to.
  *
- * Appelée au raccordement plutôt qu'à la déconnexion : un utilisateur qui ne
- * se déconnecte jamais est le cas courant, et c'est justement lui qui garde
- * l'orpheline.
+ * Called at connection setup rather than at logout: a user who never logs out
+ * is the common case, and precisely the one who keeps the orphan.
  */
-export async function purgerCleE2EHeritee(baseUrl: string): Promise<void> {
-  await SecureStore.deleteItemAsync(await cleE2EHeritee(baseUrl, hacher));
+export async function purgeLegacyE2EKey(baseUrl: string): Promise<void> {
+  await SecureStore.deleteItemAsync(await legacyE2eStorageKey(baseUrl, hash));
 }
 
 /**
- * Le même balayage, sur TOUS les serveurs où une session a existé.
+ * The same sweep, over ALL the servers where a session existed.
  *
- * Purger le seul serveur actif ne suffit pas, et c'est le piège de cette
- * migration : l'utilisateur qui avait déverrouillé E2E sur un serveur puis l'a
- * quitté — bascule, ou déconnexion d'avant la correction, qui n'effaçait pas la
- * clé — garde son JWK RSA déchiffré sous une clé que plus personne ne dérive.
- * « Introuvable » voudrait alors dire **indestructible**.
+ * Purging only the active server is not enough, and that is the trap of this
+ * migration: a user who unlocked E2E on a server then left it (switch, or a
+ * logout from before the fix, which did not erase the key) keeps their
+ * decrypted RSA JWK under a key nobody derives any more. "Unfindable" would
+ * then mean **indestructible**.
  *
- * Le registre `serveurs-connus` existe exactement pour contourner la
- * non-énumérabilité du Keystore, et il est déjà peuplé par les sessions
- * d'avant. Joué une fois par démarrage : quelques suppressions d'entrées
- * absentes, ce que `deleteItemAsync` traite sans erreur.
+ * The `known-servers` registry exists exactly to work around the Keystore's
+ * non-enumerability, and it is already populated by earlier sessions. Run once
+ * per startup: a few deletions of absent entries, which `deleteItemAsync`
+ * handles without error.
  */
-export async function purgerToutesClesE2EHeritees(): Promise<void> {
-  for (const url of await listerServeursConnus()) {
-    await purgerCleE2EHeritee(url);
+export async function purgeAllLegacyE2EKeys(): Promise<void> {
+  for (const url of await listKnownServers()) {
+    await purgeLegacyE2EKey(url);
   }
 }
 
 /**
- * Le serveur de la dernière session ouverte. Les sessions sont rangées par
- * condensé d'URL : sans ce pointeur, le démarrage ne saurait pas laquelle
- * reprendre. L'étape 5.3 (multi-serveurs) en fera le « serveur actif ».
+ * The server of the last opened session. Sessions are stored by URL digest:
+ * without this pointer, startup would not know which one to resume. Step 5.3
+ * (multi-server) makes it the "active server".
  */
-const CLE_DERNIER_SERVEUR = 'dernier-serveur';
-
-export async function enregistrerDernierServeur(baseUrl: string): Promise<void> {
-  await SecureStore.setItemAsync(CLE_DERNIER_SERVEUR, sansSlashFinal(baseUrl));
+export async function saveLastServer(baseUrl: string): Promise<void> {
+  await SecureStore.setItemAsync(STORED_KEYS.lastServer.key, withoutTrailingSlash(baseUrl));
 }
 
-export async function lireDernierServeur(): Promise<string | null> {
-  return SecureStore.getItemAsync(CLE_DERNIER_SERVEUR);
+export async function readLastServer(): Promise<string | null> {
+  return readMovedKey(secureStore, STORED_KEYS.lastServer);
 }
 
 /**
- * Registre des serveurs où une session a existé. Nécessaire parce que
- * `expo-secure-store` ne sait PAS énumérer ses clés : sans cette liste,
- * impossible de proposer « repasser sur tel serveur ».
+ * Registry of the servers where a session existed. Needed because
+ * `expo-secure-store` CANNOT enumerate its keys: without this list, there is
+ * no way to offer "switch back to that server".
  */
-const CLE_SERVEURS_CONNUS = 'serveurs-connus';
-
-export async function listerServeursConnus(): Promise<string[]> {
-  const brut = await SecureStore.getItemAsync(CLE_SERVEURS_CONNUS);
-  if (brut === null) return [];
+export async function listKnownServers(): Promise<string[]> {
+  const raw = await readMovedKey(secureStore, STORED_KEYS.knownServers);
+  if (raw === null) return [];
   try {
-    const liste = JSON.parse(brut) as unknown;
-    return Array.isArray(liste) ? liste.filter((s): s is string => typeof s === 'string') : [];
+    const list = JSON.parse(raw) as unknown;
+    return Array.isArray(list) ? list.filter((s): s is string => typeof s === 'string') : [];
   } catch {
     return [];
   }
 }
 
-export async function enregistrerServeurConnu(baseUrl: string): Promise<void> {
-  const propre = sansSlashFinal(baseUrl);
-  const liste = await listerServeursConnus();
-  if (liste.includes(propre)) return;
-  await SecureStore.setItemAsync(CLE_SERVEURS_CONNUS, JSON.stringify([...liste, propre]));
+export async function saveKnownServer(baseUrl: string): Promise<void> {
+  const clean = withoutTrailingSlash(baseUrl);
+  const list = await listKnownServers();
+  if (list.includes(clean)) return;
+  await SecureStore.setItemAsync(STORED_KEYS.knownServers.key, JSON.stringify([...list, clean]));
 }
 
 /**
- * Le dernier jeton FCM qu'on a enregistré auprès d'un serveur.
+ * The last FCM token we registered with a server.
  *
- * Retenu à l'ENREGISTREMENT, pas au moment de s'en servir. La déconnexion en
- * avait besoin et le redemandait à `obtenirJetonFcm()`, ce qui a deux défauts :
- * la fonction crée le canal de notification et appelle
- * `requestPermissionsAsync()` — se déconnecter pouvait donc faire surgir un
- * prompt système —, et sur un appareil sans Play Services elle ne rend rien du
- * tout, si bien qu'aucun `DELETE` n'était même tenté. Le jeton FCM est propre à
- * l'APPAREIL, pas au serveur : une seule clé suffit.
+ * Remembered at REGISTRATION, not when it is used. Logout needed it and asked
+ * `getFcmToken()` for it again, which has two defects: the function creates the
+ * notification channel and calls `requestPermissionsAsync()` (so logging out
+ * could pop a system prompt), and on a device without Play Services it returns
+ * nothing at all, so no `DELETE` was even attempted. The FCM token belongs to
+ * the DEVICE, not the server: a single key is enough.
  */
-const CLE_JETON_PUSH = 'jeton-push-appareil';
-
-export async function retenirJetonPush(jeton: string): Promise<void> {
-  await SecureStore.setItemAsync(CLE_JETON_PUSH, jeton);
+export async function rememberPushToken(token: string): Promise<void> {
+  await SecureStore.setItemAsync(STORED_KEYS.devicePushToken.key, token);
+  await SecureStore.deleteItemAsync(STORED_KEYS.devicePushToken.legacy);
 }
 
-export function lireJetonPushRetenu(): Promise<string | null> {
-  return SecureStore.getItemAsync(CLE_JETON_PUSH);
+export function readRememberedPushToken(): Promise<string | null> {
+  return readMovedKey(secureStore, STORED_KEYS.devicePushToken);
 }
 
 /**
- * Déconnexions que le réseau n'a pas laissées aboutir, à terminer au prochain
- * démarrage. Voir `lib/deconnexionDifferee.ts` pour le pourquoi.
+ * Logouts the network did not let through, to finish on the next startup. See
+ * `lib/deferredLogout.ts` for why.
  *
- * Même patron que `serveurs-connus` : `expo-secure-store` ne sait pas énumérer
- * ses clés, donc une liste JSON sous une clé fixe. Le nom ne commence
- * délibérément PAS par `session-` : le service natif de notifications balaye
- * les préférences en cherchant ce préfixe (`plugins/with-fcm-deeplink.js`), et
- * mieux vaut ne pas dépendre de ses gardes internes pour l'écarter.
+ * Same pattern as `known-servers`: `expo-secure-store` cannot enumerate its
+ * keys, hence a JSON list under a fixed key. The name deliberately does NOT
+ * start with `session-`: the native notification service scans the
+ * preferences for that prefix (`plugins/with-fcm-deeplink.js`), and it is
+ * better not to rely on its internal guards to skip it.
  *
- * Une entrée par serveur, écrasée si elle existe : se déconnecter deux fois du
- * même serveur ne peut pas faire grandir la file.
+ * One entry per server, overwritten if it exists: logging out twice from the
+ * same server cannot grow the queue.
  */
-const CLE_DECONNEXIONS = 'deconnexions-en-suspens';
-
-export async function listerDeconnexionsEnSuspens(): Promise<DeconnexionEnSuspens[]> {
-  const brut = await SecureStore.getItemAsync(CLE_DECONNEXIONS);
-  if (brut === null) return [];
-  try {
-    const liste = JSON.parse(brut) as unknown;
-    if (!Array.isArray(liste)) return [];
-    // Parse défensif, comme `lireSession` : une entrée d'une ancienne version
-    // ou tronquée ne doit pas faire échouer tout le démarrage.
-    return liste.filter(
-      (d): d is DeconnexionEnSuspens =>
-        typeof (d as DeconnexionEnSuspens)?.baseUrl === 'string' &&
-        typeof (d as DeconnexionEnSuspens)?.authToken === 'string' &&
-        typeof (d as DeconnexionEnSuspens)?.userId === 'string',
-    );
-  } catch {
-    return [];
-  }
+export async function listPendingLogouts(): Promise<PendingLogout[]> {
+  const raw = await readMovedKey(secureStore, STORED_KEYS.pendingLogouts);
+  if (raw === null) return [];
+  return parsePendingLogouts(raw);
 }
 
-export async function ajouterDeconnexionEnSuspens(entree: DeconnexionEnSuspens): Promise<void> {
-  const propre = { ...entree, baseUrl: sansSlashFinal(entree.baseUrl) };
-  const autres = (await listerDeconnexionsEnSuspens()).filter((d) => d.baseUrl !== propre.baseUrl);
-  await SecureStore.setItemAsync(CLE_DECONNEXIONS, JSON.stringify([...autres, propre]));
+export async function addPendingLogout(entry: PendingLogout): Promise<void> {
+  const clean = { ...entry, baseUrl: withoutTrailingSlash(entry.baseUrl) };
+  const others = (await listPendingLogouts()).filter((d) => d.baseUrl !== clean.baseUrl);
+  await SecureStore.setItemAsync(STORED_KEYS.pendingLogouts.key, JSON.stringify([...others, clean]));
 }
 
-export async function retirerDeconnexionEnSuspens(baseUrl: string): Promise<void> {
-  const propre = sansSlashFinal(baseUrl);
-  const restantes = (await listerDeconnexionsEnSuspens()).filter((d) => d.baseUrl !== propre);
-  if (restantes.length === 0) {
-    await SecureStore.deleteItemAsync(CLE_DECONNEXIONS);
+export async function removePendingLogout(baseUrl: string): Promise<void> {
+  const clean = withoutTrailingSlash(baseUrl);
+  const remaining = (await listPendingLogouts()).filter((d) => d.baseUrl !== clean);
+  if (remaining.length === 0) {
+    await SecureStore.deleteItemAsync(STORED_KEYS.pendingLogouts.key);
     return;
   }
-  await SecureStore.setItemAsync(CLE_DECONNEXIONS, JSON.stringify(restantes));
+  await SecureStore.setItemAsync(STORED_KEYS.pendingLogouts.key, JSON.stringify(remaining));
 }

@@ -447,12 +447,12 @@ mod tests {
     fn what_we_encrypt_opens_in_the_mode_of_the_key() {
         for (size, iv_len) in [(16, 16), (32, 12)] {
             let key = vec![5u8; size];
-            let payload = json!({"msg": "envoyé 🔒", "attachments": [{"title": "b.pdf"}]});
+            let payload = json!({"msg": "sent 🔒", "attachments": [{"title": "b.pdf"}]});
             let content = encrypt_message(&payload, &key, "kid").unwrap();
             assert_eq!(content["kid"], "kid");
             assert_eq!(STANDARD.decode(content["iv"].as_str().unwrap()).unwrap().len(), iv_len);
             let opened = decrypt_payload(&content.to_string(), &key).unwrap();
-            assert_eq!(opened.text, "envoyé 🔒");
+            assert_eq!(opened.text, "sent 🔒");
             assert_eq!(opened.attachments, Some(json!([{"title": "b.pdf"}])));
             assert_ne!(encrypt_message(&payload, &key, "kid").unwrap()["iv"], content["iv"]);
         }

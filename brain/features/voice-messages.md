@@ -4,11 +4,11 @@ A voice message is an audio file recorded from the microphone and sent through t
 
 ## Mobile
 
-- **Recording** (`basculerVocal` in `ui/composer.tsx`): the 🎤 button asks the microphone permission (`expo-audio`), switches the audio session to allow recording (iOS refuses otherwise and would route playback to the earpiece afterwards), and records with the `HIGH_QUALITY` preset: AAC in `.m4a`, sent as `audio/mp4`. While recording, the button stays "stop" (⏹) even if text is typed, and 📎 is disabled.
-- **Staged, not sent.** Stopping does not send: the recording becomes a staged piece named `vocal-<timestamp>.m4a`, shown above the field with a real player (`LecteurAudio` inside `ui/apercuPieceJointe.tsx`) so it can be replayed before sending. Text typed meanwhile becomes its caption, and ➤ sends it with any other staged files. Removing the chip deletes the recording from the cache.
+- **Recording** (`toggleVoice` in `ui/composer.tsx`): the 🎤 button asks the microphone permission (`expo-audio`), switches the audio session to allow recording (iOS refuses otherwise and would route playback to the earpiece afterwards), and records with the `HIGH_QUALITY` preset: AAC in `.m4a`, sent as `audio/mp4`. While recording, the button stays "stop" (⏹) even if text is typed, and 📎 is disabled.
+- **Staged, not sent.** Stopping does not send: the recording becomes a staged piece named `vocal-<timestamp>.m4a`, shown above the field with a real player (`AudioPlayer` inside `ui/attachmentPreview.tsx`) so it can be replayed before sending. Text typed meanwhile becomes its caption, and ➤ sends it with any other staged files. Removing the chip deletes the recording from the cache.
 - An empty recording (no URI) or a refused permission shows an error line above the composer.
 - The thread composer has no 🎤 (it has no attachments, see [threads](threads.md)).
-- **Playback** of any audio attachment, voice included, is `ui/lecteurAudio.tsx`: play/pause, a seekable bar, and a frequency visualiser fed by an FFT of the output samples (Android's `Visualizer`, which needs `RECORD_AUDIO`; without it playback still works with idle bars). The player is only created on the first "play": mounting one per visible voice message buffered every file (about 20 MB for twenty messages scrolled past) and leaked the tokenised URL into ExoPlayer. One player plays at a time. Details in [media playback](media-playback.md).
+- **Playback** of any audio attachment, voice included, is `ui/audioPlayer.tsx`: play/pause, a seekable bar, and a frequency visualiser fed by an FFT of the output samples (Android's `Visualizer`, which needs `RECORD_AUDIO`; without it playback still works with idle bars). The player is only created on the first "play": mounting one per visible voice message buffered every file (about 20 MB for twenty messages scrolled past) and leaked the tokenised URL into ExoPlayer. One player plays at a time. Details in [media playback](media-playback.md).
 
 ## Desktop (GTK)
 
@@ -33,10 +33,10 @@ Recording and sending exist in all three. Only mobile stages the recording for r
 ## Sources
 
 - apps/mobile/ui/composer.tsx
-- apps/mobile/ui/apercuPieceJointe.tsx
-- apps/mobile/ui/piecesEnAttente.tsx
-- apps/mobile/ui/lecteurAudio.tsx
-- apps/mobile/app/fil/[id].tsx
+- apps/mobile/ui/attachmentPreview.tsx
+- apps/mobile/ui/stagedAttachments.tsx
+- apps/mobile/ui/audioPlayer.tsx
+- apps/mobile/app/thread/[id].tsx
 - apps/desktop/crates/rv-gtk/src/recorder.rs
 - apps/desktop/crates/rv-gtk/src/composer.rs
 - apps/desktop/crates/rv-gtk/src/chat.rs

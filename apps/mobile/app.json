@@ -46,9 +46,9 @@
       ],
       "./plugins/with-fcm-deeplink",
       "./plugins/with-ios-push",
-      "./plugins/with-architectures-cibles",
+      "./plugins/with-target-architectures",
       "./plugins/with-signature-release",
-      "./plugins/with-partage-entrant",
+      "./plugins/with-incoming-share",
       "expo-audio",
       [
         "expo-font",

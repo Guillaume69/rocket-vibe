@@ -1,255 +1,254 @@
 # rocket-vibe
 
-Client mobile **Rocket.Chat** tiers — **Android d'abord**, en Expo / React Native.
-Objectif : un client **plus rapide et plus fiable** que l'application officielle, pour
-un usage personnel sur un serveur Rocket.Chat auto-hébergé.
+Third-party **Rocket.Chat** mobile client, **Android first**, in Expo / React Native.
+Goal: a client **faster and more reliable** than the official app, for personal use
+on a self-hosted Rocket.Chat server.
 
-> Ce README explique l'app mobile et comment la faire tourner en local ; **toutes les
-> commandes se lancent depuis `apps/mobile/`**. Les **décisions** et leur justification
-> vivent dans [`ROADMAP.md`](../../ROADMAP.md) ; l'**état d'avancement** détaillé dans
-> [`EXECUTION.md`](EXECUTION.md) ; l'**environnement de build** dans
+> This README explains the mobile app and how to run it locally; **every command
+> runs from `apps/mobile/`**. The **decisions** and their justification live in
+> [`ROADMAP.md`](../../ROADMAP.md); the detailed **progress** in
+> [`EXECUTION.md`](EXECUTION.md); the **build environment** in
 > [`docs/DEV.md`](../../docs/DEV.md).
 
 ---
 
-## Ce que c'est
+## What it is
 
-Un client de consommation Rocket.Chat, pas une console d'administration, pour
-Rocket.Chat **8** ou plus récent. L'URL du serveur se saisit à l'écran de connexion.
+A Rocket.Chat consumer client, not an administration console, for Rocket.Chat **8**
+or newer. The server URL is entered on the login screen.
 
-Ce qu'il sait faire aujourd'hui : connexion mot de passe + **2FA** (TOTP ou repli mot
-de passe), liste des salons, fil de messages (liste inversée performante), **rendu
-markdown** natif, envoi / édition / actions sur message, **fils de discussion**,
-**upload de fichiers** (photo, document), **lecture audio et vidéo intégrée**,
-**aperçus de lien** (images en ligne, cartes OpenGraph pour articles et tweets,
-cartes vidéo **YouTube / Dailymotion**), **emojis** (dont personnalisés),
-**présence** et **indicateur de saisie**, **recherche**, **notifications push FCM**,
-**salons chiffrés E2EE** (messages et fichiers, lus et envoyés), **appels Jitsi**,
-reconnexion et rattrapage automatiques, le tout **hors-ligne d'abord**.
+What it does today: password login + **2FA** (TOTP or password fallback), room list,
+message timeline (fast inverted list), native **markdown rendering**, sending /
+editing / message actions, **threads**, **file upload** (photo, document), **built-in
+audio and video playback**, **link previews** (inline images, OpenGraph cards for
+articles and tweets, **YouTube / Dailymotion** video cards), **emojis** (custom ones
+included), **presence** and **typing indicator**, **search**, **FCM push
+notifications**, **E2EE encrypted rooms** (messages and files, read and sent),
+**Jitsi calls**, automatic reconnection and catch-up, all of it **offline first**.
 
-### Le parti pris d'architecture
+### The architectural stance
 
 ```
-UI (primitives React Native) — une PROJECTION réactive, jamais un miroir du réseau
-        │  useRequeteVive (requêtes Drizzle vives)
-SQLite (expo-sqlite + Drizzle, WAL) — LA SOURCE DE VÉRITÉ, une base par serveur et par compte
-        │  upserts idempotents
-REST  → pour AGIR          DDP maison (WebSocket) → pour ÉCOUTER (sub/unsub)
+UI (React Native primitives): a reactive PROJECTION, never a mirror of the network
+        │  useCoalescedLiveQuery (live Drizzle queries)
+SQLite (expo-sqlite + Drizzle, WAL): THE SOURCE OF TRUTH, one database per server and per account
+        │  idempotent upserts
+REST  → to ACT             home-made DDP (WebSocket) → to LISTEN (sub/unsub)
         │
-Push FCM direct (expo-notifications) — réveille l'app même tuée
+Direct FCM push (expo-notifications): wakes the app even when killed
 ```
 
-Le WebSocket et le REST écrivent dans SQLite ; l'UI **observe** SQLite. Le flux temps
-réel n'est jamais gardé dans un store mémoire. C'est le remède direct aux griefs
-documentés contre l'app officielle (souscriptions empilées, messages dupliqués, envois
-figés). Détails et justifications dans [`ROADMAP.md`](../../ROADMAP.md).
+The WebSocket and REST write to SQLite; the UI **observes** SQLite. The real-time
+stream is never kept in an in-memory store. This is the direct remedy for the
+documented complaints against the official app (stacked subscriptions, duplicated
+messages, stuck sends). Details and justifications in [`ROADMAP.md`](../../ROADMAP.md).
 
-**Contraintes fermes** (voir `ROADMAP.md` §4.2) : primitives React Native **natives par
-défaut**, **aucun kit UI** (NativeBase, Tamagui, RN Paper…), **aucune WebView** hors
-l'écran d'appel Jitsi (`app/appel/[callId].tsx`, seule exception), builds
-Android **100 % locaux** (`expo prebuild` + Gradle, **jamais d'EAS**). Le client DDP est
-maison (≈ 200 lignes, écrit depuis la spec, pour éviter toute ambiguïté de licence).
+**Hard constraints** (see `ROADMAP.md` §4.2): React Native primitives, **native by
+default**, **no UI kit** (NativeBase, Tamagui, RN Paper...), **no WebView** except the
+Jitsi call screen (`app/call/[callId].tsx`, the only exception), Android builds
+**100% local** (`expo prebuild` + Gradle, **never EAS**). The DDP client is home-made
+(about 200 lines, written from the spec, to avoid any licence ambiguity).
 
 ---
 
-## Prérequis
+## Prerequisites
 
-| Outil | Version | Note |
+| Tool | Version | Note |
 |---|---|---|
 | **Node** | 24 | |
-| **JDK** | Temurin **17** (17.0.x) | RN 0.86 fixe `sourceCompatibility 17`. **JDK 21 non requis.** |
-| **SDK Android** | build-tools **36.0.0**, `platforms/android-36`, **NDK 27.1.12297006** | Exactement ce qu'exige le template RN 0.86. |
-| **Docker** + Compose | récent | Pour le serveur Rocket.Chat de développement. |
-| **Appareil Android** | physique **ou** émulateur | Un **téléphone physique** est requis pour valider le push (l'émulateur ne reproduit ni Doze ni le kill de process). |
+| **JDK** | Temurin **17** (17.0.x) | RN 0.86 pins `sourceCompatibility 17`. **JDK 21 not required.** |
+| **Android SDK** | build-tools **36.0.0**, `platforms/android-36`, **NDK 27.1.12297006** | Exactly what the RN 0.86 template requires. |
+| **Docker** + Compose | recent | For the Rocket.Chat development server. |
+| **Android device** | physical **or** emulator | A **physical phone** is required to validate push (the emulator reproduces neither Doze nor the process kill). |
 
-Plateforme de développement : Linux ou macOS. iOS est prévu plus tard, sur un Mac —
-l'architecture est gardée agnostique, mais n'est pas encore buildée pour iOS.
+Development platform: Linux or macOS. iOS is planned later, on a Mac: the
+architecture is kept agnostic, but is not yet built for iOS.
 
-`android/` et `ios/` sont **gitignorés** (Continuous Native Generation) : ils sont
-regénérés par `expo prebuild`. Toute personnalisation native passe par un config plugin
-(voir `plugins/`).
+`android/` and `ios/` are **gitignored** (Continuous Native Generation): they are
+regenerated by `expo prebuild`. Any native customisation goes through a config plugin
+(see `plugins/`).
 
 ---
 
 ## Installation
 
-### 1. Dépendances
+### 1. Dependencies
 
 ```sh
 npm install
 ```
 
-### 2. Environnement de build
+### 2. Build environment
 
 ```sh
-source scripts/env.sh          # RV_ENV_VERBOSE=1 pour voir ce qui est exporté
+source scripts/env.sh          # RV_ENV_VERBOSE=1 to see what is exported
 ```
 
-Ce script **auto-détecte** le JDK 17 et le SDK Android, ajuste `PATH`, et calcule
-`ROOT_URL` à partir de l'IP LAN de la machine. Il est idempotent (le sourcer plusieurs
-fois n'empile rien). Surcharges disponibles : `RV_JDK_HOME`, `RV_ANDROID_HOME`,
-`RV_ROOT_URL` (voir `docs/DEV.md`).
+This script **auto-detects** JDK 17 and the Android SDK, adjusts `PATH`, and computes
+`ROOT_URL` from the machine's LAN IP. It is idempotent (sourcing it several times
+stacks nothing). Available overrides: `RV_JDK_HOME`, `RV_ANDROID_HOME`,
+`RV_ROOT_URL` (see `docs/DEV.md`).
 
-### 3. Un serveur Rocket.Chat pour se connecter
+### 3. A Rocket.Chat server to connect to
 
-Deux options selon l'usage.
+Two options depending on the use.
 
-**a. Serveur de développement local (recommandé pour développer)**
+**a. Local development server (recommended for development)**
 
 ```sh
 cd ../../docker
-cp .env.example .env && chmod 600 .env    # puis renseigner ADMIN_PASS
+cp .env.example .env && chmod 600 .env    # then fill in ADMIN_PASS
 docker compose up -d                       # Rocket.Chat 8.5.1 + MongoDB 8.0 (replica set)
-curl -sf "$ROOT_URL/api/info"              # attendu : {"version":"8.5",...}
+curl -sf "$ROOT_URL/api/info"              # expected: {"version":"8.5",...}
 ```
 
-Puis les données de test (idempotent, rejouable même après interruption) :
+Then the test data (idempotent, replayable even after an interruption):
 
 ```sh
-cd - && npm run seed                       # crée alice, bob, test-public, test-prive, un DM…
+cd - && npm run seed                       # creates alice, bob, test-public, test-prive, a DM...
 ```
 
-> `docker compose up` **échoue volontairement** sans `.env` renseigné, plutôt que de
-> créer un compte `admin` sans mot de passe sur un serveur exposé au LAN.
+> `docker compose up` **fails on purpose** without a filled-in `.env`, rather than
+> creating an `admin` account without a password on a server exposed to the LAN.
 
-**b. Un serveur réel** — rien à lancer localement : l'URL se saisit à l'écran de
-connexion de l'app (ex. `https://chat.example.org`).
+**b. A real server**: nothing to run locally, the URL is entered on the app's login
+screen (e.g. `https://chat.example.org`).
 
-### 4. Firebase (pour le push)
+### 4. Firebase (for push)
 
-Le build attend un `google-services.json` dans `apps/mobile/` (référencé par `app.json`, et
-**gitignoré** — c'est un secret). Fournis le tien :
+The build expects a `google-services.json` in `apps/mobile/` (referenced by `app.json`,
+and **gitignored**: it is a secret). Provide your own:
 
-1. Crée un projet Firebase (gratuit) et une app Android dont le `package_name`
-   correspond **exactement** à `android.package` de `app.json` (actuellement
-   `com.rocketvibe.app`) — sinon le plugin Gradle GMS refuse de builder.
-2. Télécharge `google-services.json` et pose-le dans `apps/mobile/`.
+1. Create a Firebase project (free) and an Android app whose `package_name` matches
+   `android.package` from `app.json` **exactly** (currently `com.rocketvibe.app`),
+   otherwise the GMS Gradle plugin refuses to build.
+2. Download `google-services.json` and put it in `apps/mobile/`.
 
-Côté serveur, le push direct FCM v1 suppose `Push_enable_gateway=false`,
-`Push_UseLegacy=false`, et le JSON d'un **compte de service** Firebase dans
-`Push_google_api_credentials`. Détails dans `ROADMAP.md` et `docs/DEV.md`.
+Server side, direct FCM v1 push assumes `Push_enable_gateway=false`,
+`Push_UseLegacy=false`, and the JSON of a Firebase **service account** in
+`Push_google_api_credentials`. Details in `ROADMAP.md` and `docs/DEV.md`.
 
-> Sans `google-services.json`, tu peux tout de même builder en retirant temporairement
-> `googleServicesFile` / le plugin de `app.json`, mais le push ne fonctionnera pas.
+> Without `google-services.json`, you can still build by temporarily removing
+> `googleServicesFile` / the plugin from `app.json`, but push will not work.
 
-### 5. Builder et lancer l'app
+### 5. Build and run the app
 
 ```sh
-npm run prebuild               # expo prebuild --platform android --clean (régénère android/)
-npm run android                # build debug + installe + lance ; démarre Metro
+npm run prebuild               # expo prebuild --platform android --clean (regenerates android/)
+npm run android                # debug build + install + launch; starts Metro
 ```
 
-Pour un appareil physique, branche-le (`adb devices` doit le voir). Pour l'émulateur,
-redirige le port du serveur de dev :
+For a physical device, plug it in (`adb devices` must see it). For the emulator,
+forward the dev server's port:
 
 ```sh
 adb reverse tcp:3000 tcp:3000
 ```
 
-#### ⚠️ Debug vs. release avec le serveur local
+#### ⚠️ Debug vs. release with the local server
 
-Le serveur de dev est en **HTTP en clair**, qu'Android bloque depuis `targetSdk 28`.
-Expo autorise le trafic cleartext **uniquement dans le variant `debug`** (via
-`android/app/src/debug/AndroidManifest.xml`). Donc :
+The dev server speaks **plain HTTP**, which Android blocks since `targetSdk 28`.
+Expo allows cleartext traffic **only in the `debug` variant** (via
+`android/app/src/debug/AndroidManifest.xml`). So:
 
-- **Serveur local HTTP** → utiliser un build **debug** + Metro. Une **release ne joindra
-  pas** `http://…:3000` (elle renverra « serveur injoignable »).
-- **Serveur HTTPS** → non concerné, la release marche.
+- **Local HTTP server** → use a **debug** build + Metro. A **release will not reach**
+  `http://…:3000` (it will report "server unreachable").
+- **HTTPS server** → not affected, the release works.
 
-C'est **voulu** : la release reste sûre par construction. Ne pas activer le cleartext
-globalement (voir `docs/DEV.md`).
+This is **intended**: the release stays safe by construction. Do not enable cleartext
+globally (see `docs/DEV.md`).
 
 ---
 
-## Scripts npm
+## npm scripts
 
-| Commande | Effet |
+| Command | Effect |
 |---|---|
-| `npm start` | Démarre Metro (`--dev-client`). |
-| `npm run android` | Build debug, installe, lance. |
-| `npm run prebuild` | Régénère `android/` (`expo prebuild --clean`). |
-| `npm run typecheck` | `tsc --noEmit` (TypeScript strict, zéro `any` implicite). |
+| `npm start` | Starts Metro (`--dev-client`). |
+| `npm run android` | Debug build, install, launch. |
+| `npm run prebuild` | Regenerates `android/` (`expo prebuild --clean`). |
+| `npm run typecheck` | `tsc --noEmit` (strict TypeScript, zero implicit `any`). |
 | `npm run lint` | `expo lint`. |
-| `npm test` | Tests unitaires (`node --test` sur `lib/`, `db/`, `ui/`, `fournisseurs/` et les `plugins/*.test.mjs`). |
-| `npm run seed` | (Re)pose les données de test sur le serveur de dev. |
-| `npm run db:generate` | Génère les migrations Drizzle depuis le schéma. |
+| `npm test` | Unit tests (`node --test` on `lib/`, `db/`, `ui/`, `providers/` and the `plugins/*.test.mjs`). |
+| `npm run seed` | (Re)seeds the test data on the dev server. |
+| `npm run db:generate` | Generates the Drizzle migrations from the schema. |
 
-Pour une **release** : `source scripts/env.sh && cd android && ./gradlew assembleRelease`,
-puis `adb install -r app/build/outputs/apk/release/app-release.apk`.
+For a **release**: `source scripts/env.sh && cd android && ./gradlew assembleRelease`,
+then `adb install -r app/build/outputs/apk/release/app-release.apk`.
 
-Une release est signée avec **la clé de l'app**, la même en local et en CI : Android
-refuse une mise à jour signée d'une autre clé. Elle vit hors du dépôt, dans
-`~/.config/rocket-vibe/` (`release.keystore` et `signature.env`, que `scripts/env.sh`
-lit) ; la CI la tient des secrets `ANDROID_KEYSTORE_BASE64` et
-`ANDROID_KEYSTORE_PASSWORD`. Sans elle, un build release échoue au lieu de retomber sur
-la clé de debug. **À sauvegarder** : perdue, plus aucune mise à jour ne s'installe.
+A release is signed with **the app's key**, the same locally and in CI: Android
+refuses an update signed with another key. It lives outside the repo, in
+`~/.config/rocket-vibe/` (`release.keystore` and `signature.env`, which `scripts/env.sh`
+reads); CI gets it from the `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`
+secrets. Without it, a release build fails instead of falling back to the debug key.
+**Back it up**: if it is lost, no update will ever install again.
 
 ---
 
-## Structure de l'app
+## App layout
 
 ```
-app/            Routes expo-router (index, connexion, salon/[rid], fil/[id], recherche…)
-ui/             Composants et thème « Nuit Étoilée » (theme.ts, kit.tsx, ligneMessage.tsx,
-                lecteurAudio/Video, carteEmbed, carteLien, visionneuse, markdown, session…),
-                plus l'i18n : messages.ts (catalogue) et i18n.ts (store + hooks)
-lib/            Cœur non-UI : ddp.ts (client DDP), rest.ts, auth.ts, envoi.ts, upload.ts,
-                sync.ts, rattrapage.ts, reconnexion.ts, presence.ts, push.ts, apercuLien.ts…
-db/             SQLite + Drizzle : schema.ts, upserts.ts, depot.ts, migrations/
-scripts/        env.sh, génération d'emojis
-plugins/        Config plugins CNG : with-fcm-deeplink (service FCM natif, deep-link au tap,
-                réponse depuis la notif), with-ios-push (push iOS par FCM, extension
-                ios-notification-service/), with-architectures-cibles (ABI ciblées),
-                with-signature-release (clé de release), with-partage-entrant (un partage
-                reçu ne se rejoue pas)
-assets/         Icônes de l'app (lanceur, adaptative, notif « fusée » monochrome)
-e2e/            Parcours Maestro et leur harnais
+app/            expo-router routes (index, login, room/[rid], thread/[id], search...)
+ui/             Components and the "Nuit Étoilée" theme (theme.ts, kit.tsx, messageRow.tsx,
+                audioPlayer/videoPlayer, embedCard, linkCard, imageViewer, markdown, session...),
+                plus i18n: messages.ts (catalogue) and i18n.ts (store + hooks)
+lib/            Non-UI core: ddp.ts (DDP client), rest.ts, auth.ts, outbox.ts, upload.ts,
+                sync.ts, catchUp.ts, reconnect.ts, presence.ts, push.ts, linkPreview.ts...
+db/             SQLite + Drizzle: schema.ts, upserts.ts, store.ts, migrations/
+scripts/        env.sh, emoji generation
+plugins/        CNG config plugins: with-fcm-deeplink (native FCM service, deep link on tap,
+                reply from the notification), with-ios-push (iOS push through FCM,
+                ios-notification-service/ extension), with-target-architectures (targeted
+                ABIs), with-signature-release (release key), with-incoming-share (an incoming
+                share is not replayed)
+assets/         App icons (launcher, adaptive, monochrome "rocket" notification icon)
+e2e/            Maestro flows and their harness
 ```
 
-À la racine du dépôt, partagés avec l'app bureau : `docker/` (Rocket.Chat 8.5.1 +
-MongoDB 8.0), `scripts/` (seed.mjs, spike-ddp.mjs) et `docs/` (DEV.md : environnement,
-réseau, relevé du serveur cible).
+At the repo root, shared with the desktop app: `docker/` (Rocket.Chat 8.5.1 +
+MongoDB 8.0), `scripts/` (seed.mjs, spike-ddp.mjs) and `docs/` (DEV.md: environment,
+network, survey of the target server).
 
-Les modules de `lib/`, `db/`, `ui/` et `fournisseurs/` sont accompagnés de tests
-(`*.test.ts`), les config plugins aussi (`plugins/*.test.mjs`).
+The modules in `lib/`, `db/`, `ui/` and `providers/` come with tests (`*.test.ts`),
+and so do the config plugins (`plugins/*.test.mjs`).
 
 ---
 
 ## Internationalisation (i18n)
 
-Anglais et français, **sans dépendance** : la langue du téléphone est lue en pur
-JS via `Intl.DateTimeFormat().resolvedOptions().locale` (Hermes embarque ICU),
-donc aucun module natif ni rebuild. La préférence (Automatique / Français /
-English) se choisit dans **Paramètres → Langue** et vit dans SecureStore, lue de
-façon synchrone au démarrage (pas de flash de langue).
+English and French, **with no dependency**: the phone's language is read in pure JS
+through `Intl.DateTimeFormat().resolvedOptions().locale` (Hermes ships ICU), so no
+native module and no rebuild. The preference (Automatic / Français / English) is
+picked in **Settings → Language** and lives in SecureStore, read synchronously at
+startup (no language flash).
 
-- `ui/messages.ts` — catalogue **pur** (testable sous Node). `fr` est la
-  référence ; `en` est typé `Record<CleTraduction, string>`, donc toute clé
-  manquante ou en trop **casse la compilation**. Interpolation `{param}`,
-  pluriel `singulier | pluriel` arbitré par un `n` numérique.
-- `ui/i18n.ts` — store abonnable (patron de `identites.tsx`) : `useT()` pour le
-  rendu, `traduireCourant()` pour les messages figés hors composant (handlers
-  natifs, effets). Ajouter une langue = un catalogue de plus, zéro code.
+- `ui/messages.ts`: **pure** catalogue (testable under Node). `fr` is the reference;
+  `en` is typed `Record<TranslationKey, string>`, so any missing or extra key **breaks
+  the build**. `{param}` interpolation, `singular | plural` plurals chosen by a
+  numeric `n`.
+- `ui/i18n.ts`: subscribable store (the `identities.tsx` pattern): `useT()` for
+  rendering, `translateCurrent()` for messages frozen outside a component (native
+  handlers, effects). Adding a language = one more catalogue, zero code.
 
-**Frontière assumée** : l'UI est bilingue, mais les messages d'erreur bruts de
-la couche `lib/` et du transport (`serveur injoignable`, `Téléversement
-annulé`…) restent en français — `lib/` reste pur, testable et sans plateforme.
-Ils ne surfacent que par `e.message`, en dernier recours.
-
----
-
-## Secrets — jamais dans le dépôt
-
-Sont **gitignorés** et à fournir localement : `.env`, `.env.local`,
-`google-services.json`, tout JSON de compte de service Firebase
-(`*firebase-adminsdk*.json`, `*-service-account*.json`). Seul `docker/.env.example` (à la racine)
-documente les variables attendues côté serveur de dev.
+**Deliberate boundary**: the UI is bilingual, but the raw error messages of the `lib/`
+layer and of the transport (`Server unreachable.`, `Upload cancelled.`...) stay in
+English: `lib/` stays pure, testable and platform-free. They only surface through
+`e.message`, as a last resort.
 
 ---
 
-## Licence & statut
+## Secrets: never in the repo
 
-Projet personnel, en développement actif. Branche principale : **`master`**.
-Voir `ROADMAP.md` pour le périmètre v1 (l'**admin serveur** et **iOS au démarrage**
-sont hors périmètre et documentés comme dettes assumées ; l'**E2EE** et les **appels**
-Jitsi, d'abord écartés, sont livrés).
+**Gitignored**, to be provided locally: `.env`, `.env.local`,
+`google-services.json`, any Firebase service-account JSON
+(`*firebase-adminsdk*.json`, `*-service-account*.json`). Only `docker/.env.example` (at
+the root) documents the variables expected by the dev server.
+
+---
+
+## Licence & status
+
+Personal project, in active development. Main branch: **`master`**.
+See `ROADMAP.md` for the v1 scope (**server admin** and **iOS at launch** are out of
+scope and documented as accepted debt; **E2EE** and Jitsi **calls**, first ruled out,
+have shipped).

@@ -1,13 +1,12 @@
 const { withAppBuildGradle } = require('expo/config-plugins');
 
 /**
- * Signe les builds release avec LA clé de l'app, jamais avec la clé de debug
- * du template : Android refuse une mise à jour signée d'une autre clé, donc un
- * APK de la CI ne s'installerait pas par-dessus un APK construit ici, ni
- * l'inverse. La clé vient de l'environnement (RV_KEYSTORE, fichier ;
- * RV_KEYSTORE_PASSWORD, RV_KEY_ALIAS, RV_KEY_PASSWORD) : posée par
- * scripts/env.sh en local, par les secrets en CI. Sans elle, une tâche release
- * échoue au lieu de retomber en silence sur la clé de debug.
+ * Signs release builds with THE app's key, never with the template's debug key:
+ * Android refuses an update signed with another key, so a CI APK would not
+ * install over an APK built here, nor the reverse. The key comes from the
+ * environment (RV_KEYSTORE, a file; RV_KEYSTORE_PASSWORD, RV_KEY_ALIAS,
+ * RV_KEY_PASSWORD): set by scripts/env.sh locally, by secrets in CI. Without it,
+ * a release task fails instead of silently falling back to the debug key.
  */
 const CONFIG_RELEASE = `
         release {
@@ -19,31 +18,31 @@ const CONFIG_RELEASE = `
             }
         }`;
 
-const GARDE = `
+const GUARD = `
 gradle.taskGraph.whenReady { graph ->
     if (graph.allTasks.any { it.name.contains('Release') } && !System.getenv('RV_KEYSTORE')) {
         throw new GradleException(
-            "Build release sans la clé de l'app (RV_KEYSTORE vide) : source scripts/env.sh, qui la lit dans ~/.config/rocket-vibe/signature.env.")
+            "Release build without the app's key (RV_KEYSTORE empty): source scripts/env.sh, which reads it from ~/.config/rocket-vibe/signature.env.")
     }
 }
 `;
 
-function signer(gradle) {
+function sign(gradle) {
   if (gradle.includes("System.getenv('RV_KEYSTORE')")) return gradle;
   const debug = /(signingConfigs \{\s*\n\s*debug \{[^}]*\})/;
-  if (!debug.test(gradle)) throw new Error('with-signature-release : bloc signingConfigs.debug introuvable');
-  let sortie = gradle.replace(debug, `$1${CONFIG_RELEASE}`);
+  if (!debug.test(gradle)) throw new Error('with-signature-release: signingConfigs.debug block not found');
+  let output = gradle.replace(debug, `$1${CONFIG_RELEASE}`);
   const release = /(buildTypes \{[\s\S]*?release \{[\s\S]*?)signingConfig signingConfigs\.debug/;
-  if (!release.test(sortie)) throw new Error('with-signature-release : signingConfig du buildType release introuvable');
-  sortie = sortie.replace(release, '$1signingConfig signingConfigs.release');
-  return sortie + GARDE;
+  if (!release.test(output)) throw new Error('with-signature-release: signingConfig of the release buildType not found');
+  output = output.replace(release, '$1signingConfig signingConfigs.release');
+  return output + GUARD;
 }
 
-module.exports = function withSignatureRelease(config) {
+module.exports = function withReleaseSigning(config) {
   return withAppBuildGradle(config, (config) => {
-    config.modResults.contents = signer(config.modResults.contents);
+    config.modResults.contents = sign(config.modResults.contents);
     return config;
   });
 };
 
-module.exports.signer = signer;
+module.exports.sign = sign;

@@ -15,8 +15,8 @@ the answer. Every leaf doc cites the real source files if you need to go deeper.
 
 1. Know the topic? Jump straight to its file via the indexes below.
 2. Have a question, not a topic? Scan **Find by question** first.
-3. Met a French identifier in the mobile code (`salon`, `rattrapage`,
-   `televersements`)? See [glossary.md](glossary.md).
+3. Met a project term (`hotRooms`, connection setup, `writeQueue`) or a legacy
+   French stored name? See [glossary.md](glossary.md).
 4. Want the "why" behind a design? See [decisions.md](decisions.md).
 5. Need what the Rocket.Chat server really does? The verified facts live in the
    repo's `CLAUDE.md`; [architecture/rocket-chat.md](architecture/rocket-chat.md)
@@ -33,7 +33,7 @@ use the indexes.
 |---|---|
 | [stack.md](stack.md) | Exact technologies and versions for both apps, the toolchains per OS, the Docker images, the CI runners. |
 | [operations.md](operations.md) | Environment, the test server and its seed, build and run per app, CI, versions, the tag release flow, secrets. |
-| [glossary.md](glossary.md) | Rocket.Chat terms, the mobile code's French vocabulary, desktop crate names. |
+| [glossary.md](glossary.md) | Rocket.Chat terms, the project's own terms, the legacy French names still read for upgrades, desktop crate names. |
 | [decisions.md](decisions.md) | The non-obvious decisions and their rationale. |
 | [parity.md](parity.md) | What each app (Android, GTK, SwiftUI) can do, row by row, and the debt each owes the others. |
 
@@ -46,7 +46,7 @@ use the indexes.
 | [testing.md](architecture/testing.md) | Unit tests per app, the Maestro suite, desktop fake servers, live tests, smoke and e2e runs, what CI gates. |
 | [e2ee.md](architecture/e2ee.md) | The E2EE key chain and message/file formats in both apps. |
 | [i18n.md](architecture/i18n.md) | French and English in both apps, and how to add a string in each. |
-| [mobile-app.md](architecture/mobile-app.md) | Mobile layering (`app/`, `ui/`, `lib/`, `db/`, `fournisseurs/`), providers, stores, live queries, theme. |
+| [mobile-app.md](architecture/mobile-app.md) | Mobile layering (`app/`, `ui/`, `lib/`, `db/`, `providers/`), providers, stores, live queries, theme. |
 | [mobile-data.md](architecture/mobile-data.md) | One SQLite file per (server, account), its tables, the write queue, migrations, retention. |
 | [mobile-transport.md](architecture/mobile-transport.md) | The listen-only DDP client, the REST client, liveness, backoff, session revocation. |
 | [mobile-native.md](architecture/mobile-native.md) | CNG, the config plugins, the local Expo modules, quick-crypto, when to rebuild the dev-client, iOS. |
@@ -106,18 +106,18 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | How do I start the test server and seed it? | [operations.md](operations.md) |
 | What does CI check, and what only runs on a tag? | [operations.md](operations.md), [architecture/testing.md](architecture/testing.md) |
 | How do I cut a release? | [operations.md](operations.md) (and the `release` skill) |
-| What does `salonChaud` / `raccordement` / `fileEcritures` mean? | [glossary.md](glossary.md) |
+| What does `hotRooms` / connection setup / `writeQueue` mean? | [glossary.md](glossary.md) |
 
 ## Maintaining the brain
 
 This brain is **load-bearing documentation**: it must stay true to the code.
 When a change makes a brain doc wrong, fix the doc in the same branch. When you
 discover the brain disagrees with reality, the code wins: correct the brain and
-note it. The rule lives in the repo's `CLAUDE.md` ("Le brain"), the procedure in
+note it. The rule lives in the repo's `CLAUDE.md` ("The brain"), the procedure in
 the `brain` skill. New feature -> new `features/<name>.md` + a row in
 [features/index.md](features/index.md) + a row here + its rows in
-[parity.md](parity.md), one status per app ("La parité" in `CLAUDE.md`).
+[parity.md](parity.md), one status per app ("Parity" in `CLAUDE.md`).
 
 The brain does not replace the docs that have their own job: the changelogs,
-`apps/mobile/CHANTIERS.md` (the debt to fix next), `ROADMAP.md` (product
+`apps/mobile/WORKSTREAMS.md` (the debt to fix next), `ROADMAP.md` (product
 decisions) and `CLAUDE.md` (the probed server facts). It links them.

@@ -1,5 +1,5 @@
 //! What a user can do to a message, and doing it. Rules port the Android
-//! app's `lib/actionsMessage.ts`.
+//! app's `lib/messageActions.ts`.
 
 use serde_json::{Value, json};
 

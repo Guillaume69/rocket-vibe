@@ -1,125 +1,125 @@
-# Environnement de développement
+# Development environment
 
-## Démarrage
+## Getting started
 
 ```sh
-source apps/mobile/scripts/env.sh   # RV_ENV_VERBOSE=1 pour voir ce qui est exporté
+source apps/mobile/scripts/env.sh   # RV_ENV_VERBOSE=1 to see what is exported
 java -version                  # 17.0.19
 adb devices
 ```
 
-Le script auto-détecte le JDK et le SDK Android, et est **idempotent** : le sourcer plusieurs fois n'empile pas les entrées de `PATH`.
+The script auto-detects the JDK and the Android SDK, and is **idempotent**: sourcing it several times does not stack `PATH` entries.
 
-Il **interroge `javac -version`** au lieu de lire le nom du répertoire : `jdk1.8.0_171` contient « 17 » sans être un JDK 17. Il accepte les majeures 17 à 24 et retient la plus récente (`sort -V`, car lexicalement `jdk-17.0.9` précède `jdk-17.0.19`).
+It **queries `javac -version`** instead of reading the directory name: `jdk1.8.0_171` contains "17" without being a JDK 17. It accepts majors 17 to 24 and keeps the most recent (`sort -V`, because lexically `jdk-17.0.9` sorts before `jdk-17.0.19`).
 
-Surcharges :
+Overrides:
 
-| Variable | Effet |
+| Variable | Effect |
 |---|---|
-| `RV_JDK_HOME` | Court-circuite la détection du JDK. |
-| `RV_ANDROID_HOME` | Court-circuite la détection du SDK. |
-| `RV_ROOT_URL` | Fige `ROOT_URL` au lieu de le déduire de l'IP LAN. |
-| `RV_ENV_VERBOSE=1` | Affiche ce qui est exporté. |
+| `RV_JDK_HOME` | Bypasses JDK detection. |
+| `RV_ANDROID_HOME` | Bypasses SDK detection. |
+| `RV_ROOT_URL` | Pins `ROOT_URL` instead of deriving it from the LAN IP. |
+| `RV_ENV_VERBOSE=1` | Prints what is exported. |
 
-`ROOT_URL` est **recalculé à chaque source**, car l'IP LAN change (DHCP, VPN, Wi-Fi vers Ethernet) et un `ROOT_URL` rance pointerait silencieusement sur l'ancien réseau. Sans route par défaut, il n'est **pas défini** — plutôt que de valoir `http://:3000`.
+`ROOT_URL` is **recomputed on every source**, because the LAN IP changes (DHCP, VPN, Wi-Fi to Ethernet) and a stale `ROOT_URL` would silently point at the old network. Without a default route, it is **left undefined**, rather than being `http://:3000`.
 
-## La chaîne de build, et pourquoi elle marche telle quelle
+## The build chain, and why it works as is
 
-Le template `@react-native-community/template@0.86.0` exige :
+The `@react-native-community/template@0.86.0` template requires:
 
-| Exigence | Valeur | Statut local |
+| Requirement | Value | Local status |
 |---|---|---|
-| `buildToolsVersion` | 36.0.0 | installé |
+| `buildToolsVersion` | 36.0.0 | installed |
 | `compileSdk` / `targetSdk` | 36 | `platforms/android-36` |
-| `minSdk` | 24 | — |
-| `ndkVersion` | 27.1.12297006 | installé à la version exacte |
-| Gradle | 9.3.1 | téléchargé par le wrapper |
+| `minSdk` | 24 | - |
+| `ndkVersion` | 27.1.12297006 | installed at the exact version |
+| Gradle | 9.3.1 | downloaded by the wrapper |
 | `sourceCompatibility` | `VERSION_17` | Temurin 17.0.19 |
 
-**Le JDK 21 n'est pas requis.** Gradle 9.3.1 accepte Java 17 à 24, et React Native fixe `sourceCompatibility = VERSION_17`.
+**JDK 21 is not required.** Gradle 9.3.1 accepts Java 17 to 24, and React Native pins `sourceCompatibility = VERSION_17`.
 
-## Réseau
+## Network
 
-`ROOT_URL` pointe sur l'**IP LAN** de la machine, pas sur `10.0.2.2`. Deux raisons : un appareil physique doit joindre le serveur, et `ROOT_URL` conditionne les payloads de notification et les deep links — il ne peut pas valoir les deux à la fois.
+`ROOT_URL` points at the machine's **LAN IP**, not at `10.0.2.2`. Two reasons: a physical device must reach the server, and `ROOT_URL` shapes notification payloads and deep links, so it cannot be both at once.
 
-Pour l'émulateur, rediriger le port plutôt que changer `ROOT_URL` :
+For the emulator, forward the port rather than changing `ROOT_URL`:
 
 ```sh
 adb reverse tcp:3000 tcp:3000
 ```
 
-## Émulateur
+## Emulator
 
 ```sh
 emulator -avd duogo_test -no-audio -no-boot-anim -gpu auto &
 adb wait-for-device
-adb shell getprop sys.boot_completed   # 1 = prêt
+adb shell getprop sys.boot_completed   # 1 = ready
 adb exec-out screencap -p > /tmp/screen.png
 ```
 
-L'AVD `duogo_test` est un Pixel 7, `android-36`, image `google_apis` (x86_64).
+The `duogo_test` AVD is a Pixel 7, `android-36`, `google_apis` image (x86_64).
 
-Deux remarques :
+Two remarks:
 
-- L'image `google_apis` embarque les **Google Play Services**, que FCM exige. L'émulateur peut donc servir à valider la chaîne de push (Firebase → serveur → token → réception). Il ne reproduit en revanche ni Doze ni le kill de process : le critère binaire du *kill gate* reste sur un appareil physique.
-- `hw.ramSize = 1536M` est un peu juste pour Hermes et le bundler. Passer à `4096` dans `~/.android/avd/duogo_test.avd/config.ini` si le bundle rame.
+- The `google_apis` image ships **Google Play Services**, which FCM requires. The emulator can therefore validate the push chain (Firebase → server → token → delivery). It reproduces neither Doze nor the process kill, though: the binary criterion of the *kill gate* stays on a physical device.
+- `hw.ramSize = 1536M` is a bit tight for Hermes and the bundler. Raise it to `4096` in `~/.android/avd/duogo_test.avd/config.ini` if the bundle crawls.
 
-## Serveur Rocket.Chat de développement
+## Rocket.Chat development server
 
 ```sh
-cd docker && cp .env.example .env && chmod 600 .env   # renseigner ADMIN_PASS
-node patch-push.mjs                                   # bundle patché pour le push, voir docs/PUSH.md
+cd docker && cp .env.example .env && chmod 600 .env   # fill in ADMIN_PASS
+node patch-push.mjs                                   # bundle patched for push, see docs/PUSH.md
 docker compose up -d
 curl -sf "$ROOT_URL/api/info"                          # {"version":"8.5",...}
 ```
 
-Épinglé sur **Rocket.Chat 8.5.1** — la version de `chat.barrut.me` — et non sur la dernière publiée (8.6.0). Coller à la production évite les écarts d'API qui se paient en fin de parcours. 8.5 est une LTS supportée jusqu'au 2027-06-30.
+Pinned to **Rocket.Chat 8.5.1** (the version of `chat.barrut.me`), not to the latest release (8.6.0). Sticking to production avoids API gaps that get paid for at the end. 8.5 is an LTS supported until 2027-06-30.
 
-**MongoDB 8.0 est imposé** : `https://releases.rocket.chat/8.5.1/info` renvoie `compatibleMongoVersions: ["8.0"]`. Les séries 6 et 7 ne sont plus supportées depuis la 8.2.
+**MongoDB 8.0 is mandatory**: `https://releases.rocket.chat/8.5.1/info` returns `compatibleMongoVersions: ["8.0"]`. The 6 and 7 series are no longer supported since 8.2.
 
-Le **replica set est obligatoire**, même à un seul nœud : Rocket.Chat s'appuie sur les *change streams* MongoDB, qui n'existent pas sur un `mongod` autonome. Le healthcheck du service `mongodb` initie le replica set lui-même, puis n'est vert qu'une fois le nœud `PRIMARY` — c'est ce qui garantit que Rocket.Chat ne démarre pas trop tôt.
+The **replica set is mandatory**, even with a single node: Rocket.Chat relies on MongoDB *change streams*, which do not exist on a standalone `mongod`. The `mongodb` service's healthcheck initiates the replica set itself, then only turns green once the node is `PRIMARY`: that is what guarantees Rocket.Chat does not start too early.
 
-`MONGO_OPLOG_URL` n'est **pas** définie : la variable a été supprimée en 8.0.0.
+`MONGO_OPLOG_URL` is **not** set: the variable was removed in 8.0.0.
 
-`ROOT_URL` et `ADMIN_PASS` utilisent la forme `${VAR:?message}` : un `docker compose up` sans `.env` échoue immédiatement, au lieu de créer un compte `admin` sans mot de passe sur un serveur exposé au LAN.
+`ROOT_URL` and `ADMIN_PASS` use the `${VAR:?message}` form: a `docker compose up` without `.env` fails immediately, instead of creating an `admin` account without a password on a server exposed to the LAN.
 
-### Données de test
+### Test data
 
 ```sh
 node scripts/seed.mjs
 ```
 
-Crée `alice` et `bob`, le canal public `test-public`, le groupe privé `test-prive`, un message direct, 12 messages par salon et un fil de 3 réponses.
+Creates `alice` and `bob`, the public channel `test-public`, the private group `test-prive`, a direct message, 12 messages per room and a thread of 3 replies.
 
-Le script est **idempotent y compris après une interruption**. Chaque message seedé porte un marqueur `[seed i/12]` : la relance lit l'historique, calcule les indices manquants et ne repose que ceux-là. Une idempotence en tout-ou-rien (« ce salon a déjà des messages, je passe ») figerait pour toujours un salon interrompu à 7 messages sur 12.
+The script is **idempotent, even after an interruption**. Each seeded message carries a `[seed i/12]` marker: a rerun reads the history, computes the missing indices and posts only those. All-or-nothing idempotence ("this room already has messages, skip it") would freeze a room interrupted at 7 messages out of 12 forever.
 
-## Verdict du spike DDP (étape 1.7, incertitude n°2)
+## DDP spike verdict (step 1.7, uncertainty #2)
 
-`node scripts/spike-ddp.mjs` contre le serveur Docker 8.5, deux connexions WebSocket (une anonyme, une authentifiée) :
+`node scripts/spike-ddp.mjs` against the 8.5 Docker server, two WebSocket connections (one anonymous, one authenticated):
 
-- **Le login DDP est obligatoire pour toute souscription**, y compris sur un canal **public** : sans lui, `sub stream-room-messages` répond `nosub: not-allowed`. Le client de l'étape 3.3 fera donc systématiquement `connect` → `method login {resume}` → `sub`, aucun mode dégradé anonyme à prévoir.
-- **Le même token sert aux deux transports** : `method login {resume: <authToken REST>}` est accepté tel quel. Pas de second secret à stocker.
-- Temps réel prouvé : un message posté via REST arrive par `stream-room-messages` (collection = nom du stream, clé dans `fields.eventName`, charge dans `fields.args[0]`), et `stream-notify-user <uid>/subscriptions-changed` est émis dans la foulée.
-- Le `WebSocket` **global** de Node 22+ (API navigateur, la même que React Native) suffit : handshake `{"msg":"connect","version":"1","support":["1"]}`, `ping`/`pong`, `sub`/`ready`/`nosub`.
+- **DDP login is mandatory for any subscription**, including on a **public** channel: without it, `sub stream-room-messages` answers `nosub: not-allowed`. The step 3.3 client will therefore always do `connect` → `method login {resume}` → `sub`, with no anonymous degraded mode to plan for.
+- **The same token serves both transports**: `method login {resume: <REST authToken>}` is accepted as is. No second secret to store.
+- Real time proven: a message posted via REST arrives through `stream-room-messages` (collection = stream name, key in `fields.eventName`, payload in `fields.args[0]`), and `stream-notify-user <uid>/subscriptions-changed` is emitted right after.
+- Node 22+'s **global** `WebSocket` (browser API, the same as React Native) is enough: handshake `{"msg":"connect","version":"1","support":["1"]}`, `ping`/`pong`, `sub`/`ready`/`nosub`.
 
-## Ce que dit le serveur cible (`chat.barrut.me`, relevé sans authentification)
+## What the target server says (`chat.barrut.me`, surveyed without authentication)
 
-| Réglage | Valeur | Conséquence |
+| Setting | Value | Consequence |
 |---|---|---|
-| `version` | `8.5` | `rooms.upload` supprimé, appels de méthodes DDP dépréciés. |
-| `cloudWorkspaceId` | présent | Le workspace **est enregistré sur Rocket.Chat Cloud** : le Push Gateway officiel est actif, il faudra le désactiver. |
-| `Accounts_TwoFactorAuthentication_Enabled` | `true` | 2FA obligatoire dès l'étape 3.2. |
-| `..._By_TOTP_Enabled` / `..._By_Email_Enabled` | `true` / `false` | Seul le TOTP est à implémenter, plus le repli mot de passe. |
-| OAuth, SAML, CAS, LDAP | tous inactifs | **Aucun chantier SSO** dans le v1. |
-| `E2E_Enable` | `true` | Un salon marqué `encrypted` sera illisible et inaccessible en écriture. À arbitrer. |
-| `E2E_Allow_Unencrypted_Messages` | `false` | Le serveur **rejette** un message en clair dans un salon chiffré. |
-| `E2E_Enabled_Default_PrivateRooms` | `false` | Les nouveaux salons privés ne sont pas chiffrés d'office. |
-| `FileUpload_ProtectFiles` | `true` | Fichiers accessibles seulement authentifié (`rc_uid`/`rc_token`). |
-| `Accounts_AvatarBlockUnauthenticatedAccess` | `true` | Les avatars aussi. |
-| `Presence_broadcast_disabled` | `false` | La présence fonctionne. |
-| `Message_AllowEditing_BlockEditInMinutes` | `0` | Pas de limite de temps d'édition. |
+| `version` | `8.5` | `rooms.upload` removed, DDP method calls deprecated. |
+| `cloudWorkspaceId` | present | The workspace **is registered on Rocket.Chat Cloud**: the official Push Gateway is active, it will have to be disabled. |
+| `Accounts_TwoFactorAuthentication_Enabled` | `true` | 2FA mandatory from step 3.2. |
+| `..._By_TOTP_Enabled` / `..._By_Email_Enabled` | `true` / `false` | Only TOTP needs implementing, plus the password fallback. |
+| OAuth, SAML, CAS, LDAP | all inactive | **No SSO workstream** in v1. |
+| `E2E_Enable` | `true` | A room flagged `encrypted` will be unreadable and closed to writing. To be decided. |
+| `E2E_Allow_Unencrypted_Messages` | `false` | The server **rejects** a plaintext message in an encrypted room. |
+| `E2E_Enabled_Default_PrivateRooms` | `false` | New private rooms are not encrypted by default. |
+| `FileUpload_ProtectFiles` | `true` | Files reachable only when authenticated (`rc_uid`/`rc_token`). |
+| `Accounts_AvatarBlockUnauthenticatedAccess` | `true` | Avatars too. |
+| `Presence_broadcast_disabled` | `false` | Presence works. |
+| `Message_AllowEditing_BlockEditInMinutes` | `0` | No time limit on editing. |
 
-## L'application
+## The app
 
 ```sh
 cd apps/mobile
@@ -129,68 +129,68 @@ npm run prebuild      # expo prebuild --platform android --clean
 npm run android       # expo run:android
 ```
 
-Expo **SDK 57** (React Native 0.86, React 19.2.3), `expo-router` sur le stack natif de `react-native-screens`.
+Expo **SDK 57** (React Native 0.86, React 19.2.3), `expo-router` on the native stack of `react-native-screens`.
 
-Le squelette vient du template **`blank-typescript`**, pas de `default` : ce dernier ajoute un écran de démo à onglets et des dépendances non demandées. Chaque dépendance est choisie, pas subie.
+The skeleton comes from the **`blank-typescript`** template, not `default`: the latter adds a tabbed demo screen and unrequested dependencies. Every dependency is chosen, not endured.
 
-**Correction d'une affirmation initiale.** J'ai d'abord écrit que ce choix évitait `react-native-reanimated`. C'est faux : `expo-router@57.0.4` en dépend **directement** (ainsi que de `react-native-worklets`), comme le montre `npm ls react-native-reanimated`. Reanimated est donc présent quel que soit le template, et le build Gradle le compile. La régression mémoire de 25 à 30 % introduite par RN 0.85 s'applique, et n'est pas évitable tant qu'on utilise `expo-router`. À surveiller au profilage ; s'en débarrasser supposerait d'abandonner `expo-router` pour `react-navigation` nu, ce qui n'en vaut probablement pas le prix.
+**Correction of an initial claim.** I first wrote that this choice avoided `react-native-reanimated`. That is wrong: `expo-router@57.0.4` depends on it **directly** (and on `react-native-worklets`), as `npm ls react-native-reanimated` shows. Reanimated is therefore present whatever the template, and the Gradle build compiles it. The 25 to 30% memory regression introduced by RN 0.85 applies, and cannot be avoided as long as we use `expo-router`. To watch when profiling; getting rid of it would mean dropping `expo-router` for bare `react-navigation`, which is probably not worth the price.
 
-`applicationId` = `com.rocketvibe.app`. Il devra correspondre **exactement** au `package_name` déclaré dans le projet Firebase, sinon le plugin Gradle GMS refuse de builder.
+`applicationId` = `com.rocketvibe.app`. It must match the `package_name` declared in the Firebase project **exactly**, otherwise the GMS Gradle plugin refuses to build.
 
-### HTTP en clair : rien à faire
+### Plain HTTP: nothing to do
 
-Android bloque le trafic cleartext depuis `targetSdk 28`, et le serveur de dev est en `http://`. **Expo le gère déjà** : `prebuild` génère `android/app/src/debug/AndroidManifest.xml` avec `usesCleartextTraffic="true"` (plus la permission `SYSTEM_ALERT_WINDOW` de l'overlay LogBox). AGP ne fusionne cet overlay que dans le variant `debug` — le manifeste `src/main` n'en contient rien, donc la **release reste sûre par construction**.
+Android blocks cleartext traffic since `targetSdk 28`, and the dev server is on `http://`. **Expo already handles it**: `prebuild` generates `android/app/src/debug/AndroidManifest.xml` with `usesCleartextTraffic="true"` (plus the `SYSTEM_ALERT_WINDOW` permission for the LogBox overlay). AGP merges this overlay only into the `debug` variant: the `src/main` manifest contains none of it, so the **release stays safe by construction**.
 
-N'ajoute **ni** `expo-build-properties` avec `usesCleartextTraffic` (il l'activerait aussi en release), **ni** un config plugin qui réécrit `src/debug/AndroidManifest.xml` : il écraserait le fichier d'Expo et supprimerait `SYSTEM_ALERT_WINDOW`. Vérifier avant d'agir :
+Add **neither** `expo-build-properties` with `usesCleartextTraffic` (it would enable it in release too), **nor** a config plugin that rewrites `src/debug/AndroidManifest.xml`: it would overwrite Expo's file and drop `SYSTEM_ALERT_WINDOW`. Check before acting:
 
 ```sh
 grep -c usesCleartextTraffic android/app/src/main/AndroidManifest.xml   # 0
 grep -c usesCleartextTraffic android/app/src/debug/AndroidManifest.xml  # 1
 ```
 
-### L'override `react-dom`
+### The `react-dom` override
 
-`expo-router` tire `react-dom@19.2.7`, qui exige `react ^19.2.7`, alors qu'Expo SDK 57 épingle `react@19.2.3`. Toute installation échoue en `ERESOLVE`. On ne cible pas le web, `react-dom` n'est qu'une dépendance transitive : on l'aligne sur `react` plutôt que de recourir à `--legacy-peer-deps`, qui masquerait l'incohérence.
+`expo-router` pulls `react-dom@19.2.7`, which requires `react ^19.2.7`, while Expo SDK 57 pins `react@19.2.3`. Every install fails with `ERESOLVE`. We do not target the web, `react-dom` is only a transitive dependency: we align it on `react` rather than resorting to `--legacy-peer-deps`, which would hide the inconsistency.
 
 ```json
 "overrides": { "react-dom": "$react" }
 ```
 
-La forme `$react` référence la version de la dépendance directe `react` : l'alignement se maintient tout seul lors des montées de SDK. Une version figée en dur dériverait en silence, et mélangerait deux versions de React dans le bundle devtools.
+The `$react` form references the version of the direct `react` dependency: the alignment maintains itself across SDK upgrades. A hard-coded version would drift silently, and would mix two React versions in the devtools bundle.
 
 ## iOS
 
-Jamais compilé à ce jour : tout ce qui suit a été préparé sous Linux. Le push iOS a sa propre section dans `docs/PUSH.md`.
+Never compiled to date: everything below was prepared under Linux. iOS push has its own section in `docs/PUSH.md`.
 
-**Build, sur un Mac** (Xcode, CocoaPods, un compte Apple Developer) :
+**Build, on a Mac** (Xcode, CocoaPods, an Apple Developer account):
 
 ```sh
 cd apps/mobile
-npx expo prebuild --platform ios      # régénère ios/ et lance pod install
+npx expo prebuild --platform ios      # regenerates ios/ and runs pod install
 open ios/rocketvibe.xcworkspace
 ```
 
-Trois cibles : `rocketvibe`, `NotificationService` (push, `plugins/with-ios-push.js`) et `ShareExtension` (partage vers l'app, expo-share-intent). Sur les trois, Signing & Capabilities → choisir l'équipe, ou poser `ios.appleTeamId` dans `app.json`. La signature automatique enregistre les identifiants des deux extensions et le groupe d'app `group.com.rocketvibe.app` de l'extension de partage.
+Three targets: `rocketvibe`, `NotificationService` (push, `plugins/with-ios-push.js`) and `ShareExtension` (sharing into the app, expo-share-intent). On all three, Signing & Capabilities → choose the team, or set `ios.appleTeamId` in `app.json`. Automatic signing registers the identifiers of both extensions and the share extension's app group `group.com.rocketvibe.app`.
 
-**Ce qui a été adapté à iOS**, parce que le code ne visait qu'Android :
+**What was adapted to iOS**, because the code only targeted Android:
 
-| Sujet | Correction |
+| Topic | Fix |
 |---|---|
-| Polices | iOS résout `fontFamily` par nom PostScript (`Baloo2-SemiBold`), Android par nom de fichier : `POLICES` choisit selon la plateforme (`ui/theme.ts`). |
-| Retour au toucher | `android_ripple` est ignoré sous iOS : `ui/appuyable.tsx` atténue l'élément pressé. |
-| Réduction vidéo | `reducteur-video` a une moitié Swift (AVFoundation, `AVAssetReader` → `AVAssetWriter`) : même sortie que Media3 côté Android, MP4 H.264 au bitrate demandé, côté court plafonné. |
-| Téléchargements | `telechargements` vaut `null` (iOS n'a pas de dossier public) : « Enregistrer » un fichier ouvre la feuille de partage, qui propose « Enregistrer dans Fichiers ». |
-| Messages vocaux | Session audio : enregistrement autorisé le temps de l'enregistrer, lecture malgré le bouton silencieux (`ui/composer.tsx`, `app/_layout.tsx`). |
-| Toasts | `ToastAndroid` ne fait rien sous iOS : un toast dessiné par l'app (`ui/toast.tsx`). |
-| Bottom sheets | Marge basse au-dessus de l'indicateur d'accueil (`ui/margeFeuille.ts`). |
-| Photothèque | Demande du JPEG / H.264 au lieu de HEIC / HEVC, illisibles dans un navigateur. |
-| Partage vers l'app | Extension de partage activée ; `app/+native-intent.tsx` écarte son URL `rocketvibe://dataUrl=…` d'expo-router. |
-| Textes de permission | Caméra et micro couvrent les appels et les vocaux ; photothèque (écriture) et réseau local ajoutés. |
+| Fonts | iOS resolves `fontFamily` by PostScript name (`Baloo2-SemiBold`), Android by file name: `FONTS` picks per platform (`ui/theme.ts`). |
+| Touch feedback | `android_ripple` is ignored on iOS: `ui/tappable.tsx` dims the pressed element. |
+| Video compression | `video-compressor` has a Swift half (AVFoundation, `AVAssetReader` → `AVAssetWriter`): same output as Media3 on Android, H.264 MP4 at the requested bitrate, short side capped. |
+| Downloads | `Downloads` is `null` (iOS has no public folder): "Save" on a file opens the share sheet, which offers "Save to Files". |
+| Voice messages | Audio session: recording allowed while recording, playback despite the silent switch (`ui/composer.tsx`, `app/_layout.tsx`). |
+| Toasts | `ToastAndroid` does nothing on iOS: a toast drawn by the app (`ui/toast.tsx`). |
+| Bottom sheets | Bottom margin above the home indicator (`ui/sheetMargin.ts`). |
+| Photo library | Requests JPEG / H.264 instead of HEIC / HEVC, unreadable in a browser. |
+| Sharing into the app | Share extension enabled; `app/+native-intent.tsx` keeps its `rocketvibe://dataUrl=…` URL away from expo-router. |
+| Permission texts | Camera and microphone cover calls and voice messages; photo library (write) and local network added. |
 
-Vérifié sous Linux : `expo prebuild --platform ios --no-install` (cibles, entitlements, Info.plist), `tsc`, les tests, ESLint, et le bundle JS iOS (`expo export --platform ios`).
+Checked under Linux: `expo prebuild --platform ios --no-install` (targets, entitlements, Info.plist), `tsc`, the tests, ESLint, and the iOS JS bundle (`expo export --platform ios`).
 
-**Premier passage sur iPhone, à surveiller** : les polices (titres en Baloo 2), un vocal enregistré puis réécouté téléphone en silencieux, le partage d'une photo depuis Photos, un appel Jitsi (caméra et micro), un fichier « Enregistré », et le clavier sous une bottom sheet (le suivi du clavier mesure depuis le bas de la fenêtre).
+**First run on an iPhone, to watch**: the fonts (titles in Baloo 2), a voice message recorded then played back with the phone on silent, sharing a photo from Photos, a Jitsi call (camera and microphone), a "Saved" file, and the keyboard under a bottom sheet (keyboard tracking measures from the bottom of the window).
 
-## Outils
+## Tools
 
-`docker` et `docker compose` sont disponibles, daemon accessible sans `sudo`. `jq` est absent : les scripts utilisent `node` pour lire du JSON.
+`docker` and `docker compose` are available, daemon reachable without `sudo`. `jq` is missing: the scripts use `node` to read JSON.

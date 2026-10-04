@@ -1,102 +1,103 @@
 /**
- * Transport d'upload côté app : `expo-file-system/legacy` `createUploadTask`
- * en MULTIPART. La progression vient de `totalBytesSent`.
+ * App-side upload transport: `expo-file-system/legacy` `createUploadTask`
+ * in MULTIPART. Progress comes from `totalBytesSent`.
  *
- * Deux variantes, un seul corps : le NOM DE CHAMP multipart diffère selon
- * l'endpoint — `file` pour `rooms.media` (pièce jointe), `image` pour
- * `users.setAvatar` (photo de profil). La factory le paramètre.
+ * Two variants, one body: the multipart FIELD NAME differs per endpoint:
+ * `file` for `rooms.media` (attachment), `image` for `users.setAvatar`
+ * (profile photo). The factory takes it as a parameter.
  */
 
 import * as FileSystem from 'expo-file-system/legacy';
 
-import { nomATeleverser } from '../lib/fichierJoint.ts';
-import { ErreurRest } from '../lib/rest.ts';
+import { uploadName } from '../lib/attachment.ts';
+import { RestError } from '../lib/rest.ts';
 import type { TransportUpload } from '../lib/upload.ts';
-import { signalerFinUpload } from './sondeUpload.ts';
+import { reportUploadEnd } from './uploadProbe.ts';
 
 /**
- * Copie le fichier sous son vrai nom, dans un dossier à lui : le multipart part
- * sous le nom du fichier sur le disque. Rend `null` quand l'URI le porte déjà
- * ou que la copie échoue — le fichier part alors sous son nom de cache.
+ * Copies the file under its real name, into a folder of its own: the
+ * multipart goes out under the file's on-disk name. Returns `null` when the
+ * URI already carries it or the copy fails; the file then goes out under its
+ * cache name.
  */
-async function copieNommee(
+async function namedCopy(
   uri: string,
-  nom: string,
-): Promise<{ dossier: string; fichier: string } | null> {
-  const voulu = nomATeleverser(uri, nom);
+  name: string,
+): Promise<{ folder: string; file: string } | null> {
+  const wanted = uploadName(uri, name);
   const cache = FileSystem.cacheDirectory;
-  if (voulu === null || cache === null) return null;
-  const dossier = `${cache}envoi-nomme/${Date.now()}-${Math.random().toString(36).slice(2)}/`;
+  if (wanted === null || cache === null) return null;
+  const folder = `${cache}envoi-nomme/${Date.now()}-${Math.random().toString(36).slice(2)}/`;
   try {
-    await FileSystem.makeDirectoryAsync(dossier, { intermediates: true });
-    const fichier = dossier + encodeURIComponent(voulu);
-    await FileSystem.copyAsync({ from: uri, to: fichier });
-    return { dossier, fichier };
+    await FileSystem.makeDirectoryAsync(folder, { intermediates: true });
+    const file = folder + encodeURIComponent(wanted);
+    await FileSystem.copyAsync({ from: uri, to: file });
+    return { folder, file };
   } catch {
-    await FileSystem.deleteAsync(dossier, { idempotent: true }).catch(() => {});
+    await FileSystem.deleteAsync(folder, { idempotent: true }).catch(() => {});
     return null;
   }
 }
 
-function transportExpoAvec(champ: string): TransportUpload {
-  return async (url, entetes, fichier, surProgression, surAnnulable, champs) => {
-    // Un fichier de cache purgé par l'OS (kill entre la sélection et le rejeu)
-    // n'est PAS une panne réseau : erreur franche → statut « échec »,
-    // abandonnable — pas une attente éternelle.
-    const info = await FileSystem.getInfoAsync(fichier.uri);
+function expoTransportWith(field: string): TransportUpload {
+  return async (url, headers, file, onProgress, onCancelable, fields) => {
+    // A cache file purged by the OS (kill between selection and replay) is NOT
+    // a network failure: a plain error → "failed" status, discardable, not an
+    // endless wait.
+    const info = await FileSystem.getInfoAsync(file.uri);
     if (!info.exists) {
-      throw new Error(`Fichier introuvable (${fichier.nom}) — cache purgé ?`);
+      throw new Error(`File not found (${file.name}), cache purged?`);
     }
 
-    const copie = await copieNommee(fichier.uri, fichier.nom);
+    const copy = await namedCopy(file.uri, file.name);
 
-    const tache = FileSystem.createUploadTask(
+    const task = FileSystem.createUploadTask(
       url,
-      copie?.fichier ?? fichier.uri,
+      copy?.file ?? file.uri,
       {
         httpMethod: 'POST',
         uploadType: FileSystem.FileSystemUploadType.MULTIPART,
-        fieldName: champ,
-        mimeType: fichier.type,
-        headers: entetes,
-        parameters: champs ?? {},
+        fieldName: field,
+        mimeType: file.type,
+        headers,
+        parameters: fields ?? {},
       },
-      (progression) => {
-        if (progression.totalBytesExpectedToSend > 0) {
-          surProgression?.(progression.totalBytesSent / progression.totalBytesExpectedToSend);
+      (progress) => {
+        if (progress.totalBytesExpectedToSend > 0) {
+          onProgress?.(progress.totalBytesSent / progress.totalBytesExpectedToSend);
         }
       },
     );
-    // Remonté AVANT le premier octet : « Abandonner » doit pouvoir mordre dès
-    // le début, sinon les octets continuent de monter après le geste et le
-    // fichier finit par apparaître dans le salon.
-    surAnnulable?.(() => tache.cancelAsync());
+    // Surfaced BEFORE the first byte: "Discard" must be able to bite from the
+    // start, otherwise the bytes keep going up after the gesture and the file
+    // ends up appearing in the room.
+    onCancelable?.(() => task.cancelAsync());
 
-    let resultat;
+    let result;
     try {
-      resultat = await tache.uploadAsync();
+      result = await task.uploadAsync();
     } catch {
-      // `uploadAsync` ne rejette que quand AUCUNE réponse HTTP n'est arrivée :
-      // c'est le réseau. Statut 0 = la ligne reste « en-attente », le rejeu du
-      // prochain raccordement s'en charge — même sémantique que ClientRest.
-      throw new ErreurRest('Upload : serveur injoignable.', 0);
+      // `uploadAsync` rejects only when NO HTTP response arrived: that is the
+      // network. Status 0 = the row stays 'pending', the replay on the next
+      // connection setup takes care of it; same semantics as RestClient.
+      throw new RestError('Upload: server unreachable.', 0);
     } finally {
-      // Réussi comme échoué : c'est le passage des octets qui fait tomber la
-      // socket, pas le verdict du serveur.
-      signalerFinUpload();
-      if (copie !== null) {
-        void FileSystem.deleteAsync(copie.dossier, { idempotent: true }).catch(() => {});
+      // Success or failure alike: it is the bytes going through that drop the
+      // socket, not the server's verdict.
+      reportUploadEnd();
+      if (copy !== null) {
+        void FileSystem.deleteAsync(copy.folder, { idempotent: true }).catch(() => {});
       }
     }
-    if (resultat == null) {
-      throw new Error('Téléversement annulé.');
+    if (result == null) {
+      throw new Error('Upload cancelled.');
     }
-    return { statut: resultat.status, corps: resultat.body };
+    return { status: result.status, body: result.body };
   };
 }
 
-/** Pièce jointe de salon (`rooms.media`), champ `file`. */
-export const transportExpo = transportExpoAvec('file');
+/** Room attachment (`rooms.media`), field `file`. */
+export const transportExpo = expoTransportWith('file');
 
-/** Photo de profil (`users.setAvatar`), champ `image`. */
-export const transportAvatarExpo = transportExpoAvec('image');
+/** Profile picture (`users.setAvatar`), `image` field. */
+export const transportAvatarExpo = expoTransportWith('image');

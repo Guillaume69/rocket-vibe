@@ -8,19 +8,19 @@ How user and room photos are fetched, how a gradient tile stands in when there i
 - **No photo** answers a generated initials SVG, not a 404. Both apps treat that SVG as "no photo" and keep their own gradient tile.
 - **No revalidation.** `/avatar/...` answers `Cache-Control: public, max-age=3600` and no HTTP `ETag` (probed on 8.5). An image cache keyed on the URI (Android's Fresco in particular) therefore keeps the first photo for that URI for ever. The URI must change when the photo changes: the client appends `?etag=<avatarETag>`, a parameter the server ignores.
 - **Where the version comes from**, freshest first:
-  - `stream-notify-logged` / `updateAvatar`: `args: [{username, etag}]` for a user (the username, never the uid) or `[{rid, etag}]` for a room. After `users.resetAvatar` the event comes **without** `etag`: the client must still change the URI, or it falls back to the old form the cache serves with the old photo. Mobile stores the marker `AVATAR_SANS_PHOTO` (`sans-photo`), desktop `media::NO_PHOTO` (`none`); the URL then serves the SVG and the tile comes back.
+  - `stream-notify-logged` / `updateAvatar`: `args: [{username, etag}]` for a user (the username, never the uid) or `[{rid, etag}]` for a room. After `users.resetAvatar` the event comes **without** `etag`: the client must still change the URI, or it falls back to the old form the cache serves with the old photo. Mobile stores the marker `AVATAR_NO_PHOTO` (`none`), desktop `media::NO_PHOTO` (`none`); the URL then serves the SVG and the tile comes back.
   - `me` (my own `avatarETag`), read at connection: the only way to learn a photo changed while the app was closed.
   - `users.info` (a profile opened) and the room document's `avatarETag`. The field is **absent** when there is no photo, and partial documents omit it too, so a missing value must never overwrite a known one.
 - **Name changes are not broadcast** on 8.5 (no `Users:NameChanged`, no `rooms-changed`); only the photo and the username propagate live.
 
 ## Mobile
 
-- **URL builder.** `urlAvatar` in `lib/upload.ts`: username first, else uid, else rid, plus `?etag=` when known, then `urlFichierProtege` for the token. Returns `null` when nothing designates a target, and the caller keeps its tile.
-- **Tiles.** `TuileAvatar` in `ui/kit.tsx` draws a rounded gradient tile with an initial (or a child: a padlock, a "+"), its colour stable per key so a person keeps their hue everywhere; the photo is laid over it, and when the server returns the SVG, `<Image>` fails to decode it and `onError` uncovers the tile again. `AvatarSalon` (same file) picks the target: a DM shows the other participant by uid with that uid's etag, a channel or group shows the room photo with the room's etag. A locked encrypted room shows a grey tile with a closed padlock; once E2EE is unlocked it looks like any room. Its `avatarEtag` prop is mandatory to write (even as `undefined`): optional, it was silently forgotten once (`app/partager.tsx`), freezing a room photo.
-- **Storage.** Room versions live in `salons.avatar_etag`; user versions in the `utilisateurs` (users) table (uid, current username, `avatar_etag`), fed by every ingested message, by `me` at catch-up (`lireMonIdentite` in `lib/monProfil.ts`, called from `lib/rattrapage.ts`), by `users.info` when a profile opens, and by the stream. Upserts use `COALESCE` so a null never erases a version (`UPSERT_IDENTITE`, `UPSERT_SALON` in `db/upserts.ts`). Because `updateAvatar` names users by username and can only update an existing row, ingesting a DM room also inserts the other participant into `utilisateurs` (`upsertSalon` in `db/depot.ts`); otherwise a never-opened DM's photo would never refresh. The other participant's username is matched by the "not me" rule, never by index, since `uids` and `usernames` are not aligned.
-- **Stream.** `traduireAvatar` in `fournisseurs/rocketchat/traducteur.ts` turns `updateAvatar` into an `avatar` change; `majAvatarUtilisateur` and `majAvatarSalon` write it.
-- **Reading.** `ui/identites.tsx` (`SuiviIdentites`) reads `utilisateurs` with one live query and pushes into two module-level stores in `ui/storeIdentites.ts`: usernames by uid, and photo versions by uid and by username (`useEtagsAvatars`), so a rename does not re-render photos and the reverse. Both stores are emptied at session end so a new account never inherits the previous one's versions.
-- **My own photo.** `app/mon-profil.tsx`: `ui/choisirAvatar.ts` opens the system photo picker (no gallery permission needed), crops square and compresses; `definirAvatar` (`lib/upload.ts`) sends `users.setAvatar` as one multipart POST with the field **`image`** (not `file`), no two-step confirmation. Afterwards the screen re-reads `me` and stores the new version, so the list, messages and settings update without depending on the socket. There is no "remove photo" action on mobile.
+- **URL builder.** `avatarUrl` in `lib/upload.ts`: username first, else uid, else rid, plus `?etag=` when known, then `protectedFileUrl` for the token. Returns `null` when nothing designates a target, and the caller keeps its tile.
+- **Tiles.** `AvatarTile` in `ui/kit.tsx` draws a rounded gradient tile with an initial (or a child: a padlock, a "+"), its colour stable per key so a person keeps their hue everywhere; the photo is laid over it, and when the server returns the SVG, `<Image>` fails to decode it and `onError` uncovers the tile again. `RoomAvatar` (same file) picks the target: a DM shows the other participant by uid with that uid's etag, a channel or group shows the room photo with the room's etag. A locked encrypted room shows a grey tile with a closed padlock; once E2EE is unlocked it looks like any room. Its `avatarEtag` prop is mandatory to write (even as `undefined`): optional, it was silently forgotten once (`app/share.tsx`), freezing a room photo.
+- **Storage.** Room versions live in `rooms.avatar_etag`; user versions in the `users` table (uid, current username, `avatar_etag`), fed by every ingested message, by `me` at catch-up (`readMyIdentity` in `lib/myProfile.ts`, called from `lib/catchUp.ts`), by `users.info` when a profile opens, and by the stream. Upserts use `COALESCE` so a null never erases a version (`UPSERT_IDENTITY`, `UPSERT_ROOM` in `db/upserts.ts`). Because `updateAvatar` names users by username and can only update an existing row, ingesting a DM room also inserts the other participant into `users` (`upsertRoom` in `db/store.ts`); otherwise a never-opened DM's photo would never refresh. The other participant's username is matched by the "not me" rule, never by index, since `uids` and `usernames` are not aligned.
+- **Stream.** `translateAvatar` in `providers/rocketchat/translator.ts` turns `updateAvatar` into an `avatar` change; `updateUserAvatar` and `updateRoomAvatar` write it.
+- **Reading.** `ui/identities.tsx` (`IdentityTracker`) reads `users` with one live query and pushes into two module-level stores in `ui/identityStore.ts`: usernames by uid, and photo versions by uid and by username (`useAvatarEtags`), so a rename does not re-render photos and the reverse. Both stores are emptied at session end so a new account never inherits the previous one's versions.
+- **My own photo.** `app/my-profile.tsx`: `ui/pickAvatar.ts` opens the system photo picker (no gallery permission needed), crops square and compresses; `setAvatar` (`lib/upload.ts`) sends `users.setAvatar` as one multipart POST with the field **`image`** (not `file`), no two-step confirmation. Afterwards the screen re-reads `me` and stores the new version, so the list, messages and settings update without depending on the socket. There is no "remove photo" action on mobile.
 
 ## Desktop
 
@@ -37,19 +37,19 @@ How user and room photos are fetched, how a gradient tile stands in when there i
 ## Sources
 
 - apps/mobile/lib/upload.ts
-- apps/mobile/lib/monProfil.ts
-- apps/mobile/lib/rattrapage.ts
-- apps/mobile/lib/normaliser.ts
+- apps/mobile/lib/myProfile.ts
+- apps/mobile/lib/catchUp.ts
+- apps/mobile/lib/normalize.ts
 - apps/mobile/ui/kit.tsx
-- apps/mobile/ui/identites.tsx
-- apps/mobile/ui/storeIdentites.ts
-- apps/mobile/ui/choisirAvatar.ts
-- apps/mobile/app/mon-profil.tsx
-- apps/mobile/app/partager.tsx
+- apps/mobile/ui/identities.tsx
+- apps/mobile/ui/identityStore.ts
+- apps/mobile/ui/pickAvatar.ts
+- apps/mobile/app/my-profile.tsx
+- apps/mobile/app/share.tsx
 - apps/mobile/db/schema.ts
 - apps/mobile/db/upserts.ts
-- apps/mobile/db/depot.ts
-- apps/mobile/fournisseurs/rocketchat/traducteur.ts
+- apps/mobile/db/store.ts
+- apps/mobile/providers/rocketchat/translator.ts
 - apps/desktop/crates/rv-core/src/media.rs
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-core/src/info.rs

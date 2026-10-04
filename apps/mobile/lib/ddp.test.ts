@@ -1,684 +1,685 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { ClientDdp, ErreurDdp, type Evenement, type WebSocketLike } from './ddp.ts';
+import { ClientDdp, DdpError, type DdpEvent, type WebSocketLike } from './ddp.ts';
 
-/** WebSocket en mémoire : on inspecte ce qui part, on injecte ce qui arrive. */
-class FauxWebSocket implements WebSocketLike {
+/** In-memory WebSocket: we inspect what goes out, we inject what comes in. */
+class FakeWebSocket implements WebSocketLike {
   onopen: ((e: unknown) => void) | null = null;
   onmessage: ((e: { data: unknown }) => void) | null = null;
   onclose: ((e: unknown) => void) | null = null;
   onerror: ((e: unknown) => void) | null = null;
 
-  readonly envoyes: Record<string, unknown>[] = [];
-  ferme = false;
+  readonly sent: Record<string, unknown>[] = [];
+  closed = false;
 
-  send(donnees: string): void {
-    this.envoyes.push(JSON.parse(donnees) as Record<string, unknown>);
+  send(data: string): void {
+    this.sent.push(JSON.parse(data) as Record<string, unknown>);
   }
 
   close(): void {
-    this.ferme = true;
+    this.closed = true;
   }
 
-  /** Simule l'ouverture TCP. */
-  ouvrir(): void {
+  /** Simulates the TCP open. */
+  open(): void {
     this.onopen?.(null);
   }
 
-  recevoir(objet: unknown): void {
-    this.onmessage?.({ data: JSON.stringify(objet) });
+  receive(obj: unknown): void {
+    this.onmessage?.({ data: JSON.stringify(obj) });
   }
 
-  recevoirBrut(texte: string): void {
-    this.onmessage?.({ data: texte });
+  receiveRaw(text: string): void {
+    this.onmessage?.({ data: text });
   }
 
-  dernier(): Record<string, unknown> {
-    return this.envoyes[this.envoyes.length - 1];
+  last(): Record<string, unknown> {
+    return this.sent[this.sent.length - 1];
   }
 }
 
-/** Connecte un client jusqu'à `authentifie`, en répondant comme le serveur. */
-async function clientAuthentifie(): Promise<{ ddp: ClientDdp; ws: FauxWebSocket }> {
-  const ws = new FauxWebSocket();
-  const ddp = new ClientDdp('ws://x/websocket', { creerWebSocket: () => ws, delaiMs: 200 });
-  const promesse = ddp.connecter('jeton-rest');
-  ws.ouvrir();
-  ws.recevoir({ msg: 'connected', session: 'sess-1' });
-  // Le client envoie alors `method login`.
+/** Connects a client up to `authenticated`, answering like the server. */
+async function authenticatedClient(): Promise<{ ddp: ClientDdp; ws: FakeWebSocket }> {
+  const ws = new FakeWebSocket();
+  const ddp = new ClientDdp('ws://x/websocket', { createWebSocket: () => ws, timeoutMs: 200 });
+  const promise = ddp.connect('rest-token');
+  ws.open();
+  ws.receive({ msg: 'connected', session: 'sess-1' });
+  // The client then sends `method login`.
   await new Promise((r) => setImmediate(r));
-  const login = ws.dernier();
-  ws.recevoir({ msg: 'result', id: login.id, result: { id: 'u1' } });
-  await promesse;
+  const login = ws.last();
+  ws.receive({ msg: 'result', id: login.id, result: { id: 'u1' } });
+  await promise;
   return { ddp, ws };
 }
 
 describe('ClientDdp', () => {
-  test('le handshake DDP est envoyé à l’ouverture', async () => {
-    const ws = new FauxWebSocket();
-    const ddp = new ClientDdp('ws://x', { creerWebSocket: () => ws, delaiMs: 200 });
-    const p = ddp.connecter('jeton');
-    ws.ouvrir();
-    assert.deepEqual(ws.envoyes[0], { msg: 'connect', version: '1', support: ['1'] });
+  test('the DDP handshake is sent on open', async () => {
+    const ws = new FakeWebSocket();
+    const ddp = new ClientDdp('ws://x', { createWebSocket: () => ws, timeoutMs: 200 });
+    const p = ddp.connect('token');
+    ws.open();
+    assert.deepEqual(ws.sent[0], { msg: 'connect', version: '1', support: ['1'] });
 
-    ws.recevoir({ msg: 'connected', session: 's' });
+    ws.receive({ msg: 'connected', session: 's' });
     await new Promise((r) => setImmediate(r));
-    ws.recevoir({ msg: 'result', id: ws.dernier().id, result: {} });
+    ws.receive({ msg: 'result', id: ws.last().id, result: {} });
     await p;
-    assert.equal(ddp.etat, 'authentifie');
+    assert.equal(ddp.state, 'authenticated');
     assert.equal(ddp.session, 's');
   });
 
-  test('le login DDP utilise le jeton REST via `resume`', async () => {
-    const { ws } = await clientAuthentifie();
-    const login = ws.envoyes.find((m) => m.msg === 'method');
+  test('the DDP login uses the REST token through `resume`', async () => {
+    const { ws } = await authenticatedClient();
+    const login = ws.sent.find((m) => m.msg === 'method');
     assert.equal(login?.method, 'login');
-    assert.deepEqual(login?.params, [{ resume: 'jeton-rest' }]);
+    assert.deepEqual(login?.params, [{ resume: 'rest-token' }]);
   });
 
-  test('un `failed` rejette la connexion ET laisse le client réutilisable', async () => {
-    const ws = new FauxWebSocket();
-    const ddp = new ClientDdp('ws://x', { creerWebSocket: () => ws, delaiMs: 200 });
-    const p = ddp.connecter('j');
-    ws.ouvrir();
-    ws.recevoir({ msg: 'failed', version: '2' });
-    await assert.rejects(p, /Version DDP refusée/);
-    assert.equal(ddp.etat, 'ferme', 'sinon toute retentative échoue sur « déjà connecté »');
-    assert.equal(ws.ferme, true);
+  test('a `failed` rejects the connection AND leaves the client reusable', async () => {
+    const ws = new FakeWebSocket();
+    const ddp = new ClientDdp('ws://x', { createWebSocket: () => ws, timeoutMs: 200 });
+    const p = ddp.connect('j');
+    ws.open();
+    ws.receive({ msg: 'failed', version: '2' });
+    await assert.rejects(p, /DDP version refused/);
+    assert.equal(ddp.state, 'closed', 'otherwise every retry fails on "already connected"');
+    assert.equal(ws.closed, true);
   });
 
-  test('le TIMEOUT de négociation nettoie : le client reste réutilisable', async () => {
-    // Un proxy qui accepte le WebSocket mais dont le backend est mort n'enverra
-    // jamais « connected » NI ne fermera la socket : sans nettoyage, l'état
-    // resterait « connexion » pour toujours et le pilote de reconnexion
-    // tournerait à vide sur « déjà connecté ».
-    const ws = new FauxWebSocket();
-    const ddp = new ClientDdp('ws://x', { creerWebSocket: () => ws, delaiMs: 50 });
-    const p = ddp.connecter('j');
-    ws.ouvrir();
-    await assert.rejects(p, /Pas de « connected »/);
-    assert.equal(ddp.etat, 'ferme');
-    assert.equal(ws.ferme, true, 'la socket zombie est coupée');
+  test('the handshake TIMEOUT cleans up: the client stays reusable', async () => {
+    // A proxy that accepts the WebSocket but whose backend is dead will never
+    // send "connected" NOR close the socket: without cleanup, the state would
+    // stay "connecting" forever and the reconnection driver would spin idle on
+    // "already connected".
+    const ws = new FakeWebSocket();
+    const ddp = new ClientDdp('ws://x', { createWebSocket: () => ws, timeoutMs: 50 });
+    const p = ddp.connect('j');
+    ws.open();
+    await assert.rejects(p, /No "connected"/);
+    assert.equal(ddp.state, 'closed');
+    assert.equal(ws.closed, true, 'the zombie socket is cut');
   });
 
-  test('fermer() pendant la négociation rejette IMMÉDIATEMENT', async () => {
-    // La négociation vit hors de `attentes` : sans crochet dédié, ce scénario
-    // (démontage rapide d'un écran, StrictMode) pendait jusqu'au délai. Le
-    // délai d'une minute ici prouve qu'on ne passe PAS par lui.
-    const ws = new FauxWebSocket();
-    const ddp = new ClientDdp('ws://x', { creerWebSocket: () => ws, delaiMs: 60_000 });
-    const p = ddp.connecter('j');
-    ws.ouvrir();
-    ddp.fermer();
-    await assert.rejects(p, ErreurDdp);
-    assert.equal(ddp.etat, 'ferme');
+  test('close() during the handshake rejects IMMEDIATELY', async () => {
+    // The handshake lives outside `pending`: without a dedicated hook, this
+    // scenario (quick screen unmount, StrictMode) hung until the timeout. The
+    // one-minute timeout here proves we do NOT go through it.
+    const ws = new FakeWebSocket();
+    const ddp = new ClientDdp('ws://x', { createWebSocket: () => ws, timeoutMs: 60_000 });
+    const p = ddp.connect('j');
+    ws.open();
+    ddp.close();
+    await assert.rejects(p, DdpError);
+    assert.equal(ddp.state, 'closed');
   });
 
-  test('souscrire AVANT l’authentification est différé, puis établi tout seul', async () => {
-    // Régression : l'ancienne API levait ici, l'écran avalait l'erreur et ne
-    // retentait jamais — un salon ouvert trop tôt restait sourd à vie. C'est
-    // le chemin exact d'un lancement par tap sur une notification (6.2).
-    const ws = new FauxWebSocket();
-    const ddp = new ClientDdp('ws://x/websocket', { creerWebSocket: () => ws, delaiMs: 200 });
-    ddp.souscrire('stream-room-messages', 'rid-1');
-    assert.equal(ws.envoyes.length, 0, "rien ne part tant qu'on n'est pas authentifié");
+  test('subscribing BEFORE authentication is deferred, then established on its own', async () => {
+    // Regression: the old API threw here, the screen swallowed the error and
+    // never retried; a room opened too early stayed deaf for life. It is the
+    // exact path of a launch from a notification tap (6.2).
+    const ws = new FakeWebSocket();
+    const ddp = new ClientDdp('ws://x/websocket', { createWebSocket: () => ws, timeoutMs: 200 });
+    ddp.subscribe('stream-room-messages', 'rid-1');
+    assert.equal(ws.sent.length, 0, 'nothing goes out until authenticated');
 
-    const promesse = ddp.connecter('jeton');
-    ws.ouvrir();
-    ws.recevoir({ msg: 'connected', session: 's' });
+    const promise = ddp.connect('token');
+    ws.open();
+    ws.receive({ msg: 'connected', session: 's' });
     await new Promise((r) => setImmediate(r));
-    ws.recevoir({ msg: 'result', id: ws.dernier().id, result: {} });
-    await promesse;
+    ws.receive({ msg: 'result', id: ws.last().id, result: {} });
+    await promise;
 
-    const sub = ws.envoyes.find((m) => m.msg === 'sub');
-    assert.ok(sub, "la souscription différée part à l'authentification");
+    const sub = ws.sent.find((m) => m.msg === 'sub');
+    assert.ok(sub, 'the deferred subscription goes out on authentication');
     assert.equal(sub?.name, 'stream-room-messages');
-    ws.recevoir({ msg: 'ready', subs: [sub?.id] });
+    ws.receive({ msg: 'ready', subs: [sub?.id] });
     await new Promise((r) => setImmediate(r));
-    assert.equal(ddp.nombreSouscriptions, 1);
+    assert.equal(ddp.subscriptionCount, 1);
   });
 
-  test('une `sub` envoie la convention des streamers et attend `ready`', async () => {
-    const { ddp, ws } = await clientAuthentifie();
-    ddp.souscrire('stream-room-messages', 'rid-1');
-    const sub = ws.dernier();
+  test('a `sub` sends the streamer convention and waits for `ready`', async () => {
+    const { ddp, ws } = await authenticatedClient();
+    ddp.subscribe('stream-room-messages', 'rid-1');
+    const sub = ws.last();
     assert.equal(sub.msg, 'sub');
     assert.equal(sub.name, 'stream-room-messages');
     assert.deepEqual(sub.params, ['rid-1', { useCollection: false, args: [] }]);
-    assert.equal(ddp.nombreSouscriptions, 0, 'pas établie avant le `ready`');
+    assert.equal(ddp.subscriptionCount, 0, 'not established before the `ready`');
 
-    ws.recevoir({ msg: 'ready', subs: [sub.id] });
+    ws.receive({ msg: 'ready', subs: [sub.id] });
     await new Promise((r) => setImmediate(r));
-    assert.equal(ddp.nombreSouscriptions, 1);
+    assert.equal(ddp.subscriptionCount, 1);
   });
 
-  test('`souscriptionsArmees` attend le `ready` du serveur, pas un délai', async () => {
-    const { ddp, ws } = await clientAuthentifie();
-    ddp.souscrire('stream-room-messages', 'rid-1');
-    ddp.souscrire('stream-notify-user', 'u1/rooms-changed');
-    const [avantDernier, dernier] = ws.envoyes.slice(-2);
+  test('`armedSubscriptions` waits for the server `ready`, not a delay', async () => {
+    const { ddp, ws } = await authenticatedClient();
+    ddp.subscribe('stream-room-messages', 'rid-1');
+    ddp.subscribe('stream-notify-user', 'u1/rooms-changed');
+    const [secondToLast, last] = ws.sent.slice(-2);
 
-    let armees = false;
-    const attente = ddp.souscriptionsArmees().then(() => {
-      armees = true;
+    let armed = false;
+    const wait = ddp.armedSubscriptions().then(() => {
+      armed = true;
     });
 
-    // Une seule des deux est prête : le raccordement ne doit PAS lire encore,
-    // sinon l'autre laisse un trou entre les deux transports.
-    ws.recevoir({ msg: 'ready', subs: [avantDernier.id] });
+    // Only one of the two is ready: connection setup must NOT read yet, or the
+    // other leaves a gap between the two transports.
+    ws.receive({ msg: 'ready', subs: [secondToLast.id] });
     await new Promise((r) => setImmediate(r));
-    assert.equal(armees, false);
+    assert.equal(armed, false);
 
-    ws.recevoir({ msg: 'ready', subs: [dernier.id] });
-    await attente;
-    assert.equal(armees, true);
-    assert.equal(ddp.nombreSouscriptions, 2);
+    ws.receive({ msg: 'ready', subs: [last.id] });
+    await wait;
+    assert.equal(armed, true);
+    assert.equal(ddp.subscriptionCount, 2);
   });
 
-  test('`souscriptionsArmees` retombe aussi sur un `nosub` — jamais de blocage', async () => {
-    const { ddp, ws } = await clientAuthentifie();
-    ddp.souscrire('stream-room-messages', 'prive');
-    const sub = ws.dernier();
+  test('`armedSubscriptions` also settles on a `nosub`, never blocking', async () => {
+    const { ddp, ws } = await authenticatedClient();
+    ddp.subscribe('stream-room-messages', 'private');
+    const sub = ws.last();
 
-    const attente = ddp.souscriptionsArmees();
-    ws.recevoir({ msg: 'nosub', id: sub.id, error: { error: 'not-allowed' } });
+    const wait = ddp.armedSubscriptions();
+    ws.receive({ msg: 'nosub', id: sub.id, error: { error: 'not-allowed' } });
 
-    await attente; // ne rejette pas : un salon refusé n'empêche pas de lire
-    assert.equal(ddp.nombreSouscriptions, 0);
+    await wait; // does not reject: a refused room does not prevent reading
+    assert.equal(ddp.subscriptionCount, 0);
   });
 
-  test('`souscriptionsArmees` retombe quand la socket meurt en pleine négociation', async () => {
-    const { ddp, ws } = await clientAuthentifie();
-    ddp.souscrire('stream-room-messages', 'rid-1');
+  test('`armedSubscriptions` settles when the socket dies mid-negotiation', async () => {
+    const { ddp, ws } = await authenticatedClient();
+    ddp.subscribe('stream-room-messages', 'rid-1');
 
-    const attente = ddp.souscriptionsArmees();
-    ws.onclose?.(null); // coupure pendant que la `sub` est en vol
+    const wait = ddp.armedSubscriptions();
+    ws.onclose?.(null); // drop while the `sub` is in flight
 
-    await attente;
-    assert.equal(ddp.etat, 'ferme');
+    await wait;
+    assert.equal(ddp.state, 'closed');
   });
 
-  test('un `nosub` ne compte pas la souscription, mais la garde désirée', async () => {
-    const { ddp, ws } = await clientAuthentifie();
-    ddp.souscrire('stream-room-messages', 'prive');
-    const sub = ws.dernier();
-    ws.recevoir({ msg: 'nosub', id: sub.id, error: { error: 'not-allowed' } });
+  test('a `nosub` does not count the subscription, but keeps it desired', async () => {
+    const { ddp, ws } = await authenticatedClient();
+    ddp.subscribe('stream-room-messages', 'private');
+    const sub = ws.last();
+    ws.receive({ msg: 'nosub', id: sub.id, error: { error: 'not-allowed' } });
     await new Promise((r) => setImmediate(r));
-    assert.equal(ddp.nombreSouscriptions, 0);
-    assert.equal(ddp.nombreSouscriptionsDesirees, 1, 'retentée à la prochaine authentification');
+    assert.equal(ddp.subscriptionCount, 0);
+    assert.equal(ddp.wantedSubscriptionCount, 1, 'retried on the next authentication');
   });
 
-  test('un `changed` est routé vers les écouteurs', async () => {
-    const { ddp, ws } = await clientAuthentifie();
-    const recus: Evenement[] = [];
-    ddp.surEvenement((e) => recus.push(e));
+  test('a `changed` is routed to the listeners', async () => {
+    const { ddp, ws } = await authenticatedClient();
+    const received: DdpEvent[] = [];
+    ddp.onEvent((e) => received.push(e));
 
-    ws.recevoir({
+    ws.receive({
       msg: 'changed',
       collection: 'stream-room-messages',
       id: 'id',
-      fields: { eventName: 'rid-1', args: [{ msg: 'bonjour' }] },
+      fields: { eventName: 'rid-1', args: [{ msg: 'hello' }] },
     });
-    assert.equal(recus.length, 1);
-    assert.equal(recus[0].collection, 'stream-room-messages');
-    assert.equal(recus[0].cleEvenement, 'rid-1');
-    assert.deepEqual(recus[0].args, [{ msg: 'bonjour' }]);
+    assert.equal(received.length, 1);
+    assert.equal(received[0].collection, 'stream-room-messages');
+    assert.equal(received[0].eventKey, 'rid-1');
+    assert.deepEqual(received[0].args, [{ msg: 'hello' }]);
   });
 
-  test("un écouteur qui lève n'empêche pas les autres de recevoir", async () => {
-    const { ddp, ws } = await clientAuthentifie();
-    const recus: string[] = [];
-    ddp.surEvenement(() => {
-      throw new Error('boum');
+  test('a throwing listener does not stop the others from receiving', async () => {
+    const { ddp, ws } = await authenticatedClient();
+    const received: string[] = [];
+    ddp.onEvent(() => {
+      throw new Error('boom');
     });
-    ddp.surEvenement((e) => recus.push(e.cleEvenement));
-    ws.recevoir({
+    ddp.onEvent((e) => received.push(e.eventKey));
+    ws.receive({
       msg: 'changed',
       collection: 'c',
       fields: { eventName: 'k', args: [] },
     });
-    assert.deepEqual(recus, ['k']);
+    assert.deepEqual(received, ['k']);
   });
 
-  test('un `changed` sans `eventName` est ignoré, pas fatal', async () => {
-    const { ddp, ws } = await clientAuthentifie();
-    let recus = 0;
-    ddp.surEvenement(() => recus++);
-    ws.recevoir({ msg: 'changed', collection: 'c', fields: { args: [] } });
-    assert.equal(recus, 0);
+  test('a `changed` without `eventName` is ignored, not fatal', async () => {
+    const { ddp, ws } = await authenticatedClient();
+    let received = 0;
+    ddp.onEvent(() => received++);
+    ws.receive({ msg: 'changed', collection: 'c', fields: { args: [] } });
+    assert.equal(received, 0);
   });
 
-  test('un `ping` reçoit un `pong`, avec l’`id` seulement s’il y en avait un', async () => {
-    const { ws } = await clientAuthentifie();
-    ws.recevoir({ msg: 'ping' });
-    assert.deepEqual(ws.dernier(), { msg: 'pong' });
-    ws.recevoir({ msg: 'ping', id: 'p1' });
-    assert.deepEqual(ws.dernier(), { msg: 'pong', id: 'p1' });
+  test('a `ping` gets a `pong`, with the `id` only if there was one', async () => {
+    const { ws } = await authenticatedClient();
+    ws.receive({ msg: 'ping' });
+    assert.deepEqual(ws.last(), { msg: 'pong' });
+    ws.receive({ msg: 'ping', id: 'p1' });
+    assert.deepEqual(ws.last(), { msg: 'pong', id: 'p1' });
   });
 
-  test('un message non JSON ne fait pas planter le client', async () => {
-    const { ddp, ws } = await clientAuthentifie();
-    ws.recevoirBrut('<html>proxy</html>');
-    assert.equal(ddp.etat, 'authentifie');
+  test('a non-JSON message does not crash the client', async () => {
+    const { ddp, ws } = await authenticatedClient();
+    ws.receiveRaw('<html>proxy</html>');
+    assert.equal(ddp.state, 'authenticated');
   });
 
-  test('relâcher envoie `unsub` ; relâcher deux fois est inoffensif', async () => {
-    const { ddp, ws } = await clientAuthentifie();
-    const relacher = ddp.souscrire('stream-notify-user', 'u1/subscriptions-changed');
-    const id = ws.dernier().id;
-    ws.recevoir({ msg: 'ready', subs: [id] });
+  test('releasing sends `unsub`; releasing twice is harmless', async () => {
+    const { ddp, ws } = await authenticatedClient();
+    const release = ddp.subscribe('stream-notify-user', 'u1/subscriptions-changed');
+    const id = ws.last().id;
+    ws.receive({ msg: 'ready', subs: [id] });
     await new Promise((r) => setImmediate(r));
 
-    relacher();
-    assert.deepEqual(ws.dernier(), { msg: 'unsub', id });
-    assert.equal(ddp.nombreSouscriptions, 0);
+    release();
+    assert.deepEqual(ws.last(), { msg: 'unsub', id });
+    assert.equal(ddp.subscriptionCount, 0);
 
-    // Idempotente par appelant : un double appel ne vole pas la référence
-    // d'un autre écran.
-    const avant = ws.envoyes.length;
-    relacher();
-    assert.equal(ws.envoyes.length, avant);
-    assert.equal(ddp.nombreSouscriptionsDesirees, 0);
+    // Idempotent per caller: a double call does not steal another screen's
+    // reference.
+    const before = ws.sent.length;
+    release();
+    assert.equal(ws.sent.length, before);
+    assert.equal(ddp.wantedSubscriptionCount, 0);
   });
 
-  test('relâcher PENDANT la négociation coupe la souscription dès le `ready`', async () => {
-    const { ddp, ws } = await clientAuthentifie();
-    const relacher = ddp.souscrire('stream-room-messages', 'rid');
-    const id = ws.dernier().id;
-    relacher(); // l'écran ferme avant la réponse du serveur
-    ws.recevoir({ msg: 'ready', subs: [id] });
+  test('releasing DURING the negotiation cuts the subscription on `ready`', async () => {
+    const { ddp, ws } = await authenticatedClient();
+    const release = ddp.subscribe('stream-room-messages', 'rid');
+    const id = ws.last().id;
+    release(); // the screen closes before the server answers
+    ws.receive({ msg: 'ready', subs: [id] });
     await new Promise((r) => setImmediate(r));
-    assert.deepEqual(ws.dernier(), { msg: 'unsub', id }, 'ne pas laisser fuir la souscription');
-    assert.equal(ddp.nombreSouscriptionsDesirees, 0);
+    assert.deepEqual(ws.last(), { msg: 'unsub', id }, 'do not leak the subscription');
+    assert.equal(ddp.wantedSubscriptionCount, 0);
   });
 
-  test('relâcher APRÈS une coupure ne fuit pas la référence', async () => {
-    // Régression : `desouscrire(id)` cherchait l'identifiant du fil, que la
-    // coupure venait d'effacer — le compteur ne redescendait jamais et la
-    // reconnexion aurait rejoué des salons fermés pour toujours.
-    const { ddp, ws } = await clientAuthentifie();
-    const relacher = ddp.souscrire('stream-room-messages', 'rid');
-    ws.recevoir({ msg: 'ready', subs: [ws.dernier().id] });
+  test('releasing AFTER a drop does not leak the reference', async () => {
+    // Regression: `unsubscribe(id)` looked up the wire identifier, which the
+    // drop had just erased; the counter never went down and the reconnection
+    // would have replayed closed rooms forever.
+    const { ddp, ws } = await authenticatedClient();
+    const release = ddp.subscribe('stream-room-messages', 'rid');
+    ws.receive({ msg: 'ready', subs: [ws.last().id] });
     await new Promise((r) => setImmediate(r));
 
-    ws.onclose?.(null); // la socket tombe, l'écran est toujours ouvert
-    relacher(); // puis l'écran ferme
-    assert.equal(ddp.nombreSouscriptionsDesirees, 0, 'plus rien à rejouer en 5.1');
+    ws.onclose?.(null); // the socket drops, the screen is still open
+    release(); // then the screen closes
+    assert.equal(ddp.wantedSubscriptionCount, 0, 'nothing left to replay in 5.1');
   });
 
-  test('la fermeture de la socket laisse la négociation retomber proprement', async () => {
-    const { ddp, ws } = await clientAuthentifie();
-    ddp.souscrire('stream-room-messages', 'rid');
+  test('closing the socket lets the negotiation settle cleanly', async () => {
+    const { ddp, ws } = await authenticatedClient();
+    ddp.subscribe('stream-room-messages', 'rid');
     ws.onclose?.(null);
     await new Promise((r) => setImmediate(r));
-    assert.equal(ddp.etat, 'ferme');
-    assert.equal(ddp.nombreSouscriptions, 0);
-    assert.equal(ddp.nombreSouscriptionsDesirees, 1);
+    assert.equal(ddp.state, 'closed');
+    assert.equal(ddp.subscriptionCount, 0);
+    assert.equal(ddp.wantedSubscriptionCount, 1);
   });
 
-  test('la sonde de vie : pong = vivant ; silence = socket nettoyée et perte notifiée', async () => {
-    const vivant = await clientAuthentifie();
-    const p1 = vivant.ddp.verifierVie();
-    vivant.ws.recevoir({ msg: 'pong', id: vivant.ws.dernier().id });
+  test('the liveness probe: pong = alive; silence = socket cleaned up and loss notified', async () => {
+    const alive = await authenticatedClient();
+    const p1 = alive.ddp.checkAlive();
+    alive.ws.receive({ msg: 'pong', id: alive.ws.last().id });
     assert.equal(await p1, true);
-    assert.equal(vivant.ddp.etat, 'authentifie');
+    assert.equal(alive.ddp.state, 'authenticated');
 
-    // Socket à moitié morte : jamais de pong, jamais de close.
-    const zombie = await clientAuthentifie(); // délai 200 ms
-    let pertes = 0;
-    zombie.ddp.surPerte(() => pertes++);
-    assert.equal(await zombie.ddp.verifierVie(), false);
-    assert.equal(zombie.ddp.etat, 'ferme', 'la socket morte est nettoyée');
-    assert.equal(pertes, 1, 'le pilote de reconnexion est prévenu');
+    // Half-dead socket: never a pong, never a close.
+    const zombie = await authenticatedClient(); // 200 ms timeout
+    let losses = 0;
+    zombie.ddp.onLoss(() => losses++);
+    assert.equal(await zombie.ddp.checkAlive(), false);
+    assert.equal(zombie.ddp.state, 'closed', 'the dead socket is cleaned up');
+    assert.equal(losses, 1, 'the reconnection driver is notified');
   });
 
-  test('surPerte prévient sur une coupure — jamais sur fermer()', async () => {
-    // C'est le signal du pilote de reconnexion : le notifier sur `fermer()`
-    // déclencherait une reconnexion juste après la déconnexion volontaire.
-    const premiere = await clientAuthentifie();
-    let pertes = 0;
-    premiere.ddp.surPerte(() => pertes++);
-    premiere.ws.onclose?.(null);
-    assert.equal(pertes, 1);
+  test('onLoss fires on a drop, never on close()', async () => {
+    // It is the reconnection driver's signal: firing it on `close()` would
+    // trigger a reconnection right after the deliberate logout.
+    const first = await authenticatedClient();
+    let losses = 0;
+    first.ddp.onLoss(() => losses++);
+    first.ws.onclose?.(null);
+    assert.equal(losses, 1);
 
-    const seconde = await clientAuthentifie();
-    let pertesVolontaires = 0;
-    seconde.ddp.surPerte(() => pertesVolontaires++);
-    seconde.ddp.fermer();
-    assert.equal(pertesVolontaires, 0);
+    const second = await authenticatedClient();
+    let voluntaryLosses = 0;
+    second.ddp.onLoss(() => voluntaryLosses++);
+    second.ddp.close();
+    assert.equal(voluntaryLosses, 0);
   });
 
-  test('à la reconnexion, les souscriptions désirées sont rejouées', async () => {
-    // Fondation de l'étape 5.1 : la coupure efface les identifiants du fil,
-    // pas les intentions. Une nouvelle authentification rétablit tout.
-    const sockets: FauxWebSocket[] = [];
+  test('on reconnection, the desired subscriptions are replayed', async () => {
+    // Foundation of step 5.1: the drop erases the wire identifiers, not the
+    // intentions. A new authentication restores everything.
+    const sockets: FakeWebSocket[] = [];
     const ddp = new ClientDdp('ws://x/websocket', {
-      creerWebSocket: () => {
-        const ws = new FauxWebSocket();
+      createWebSocket: () => {
+        const ws = new FakeWebSocket();
         sockets.push(ws);
         return ws;
       },
-      delaiMs: 200,
+      timeoutMs: 200,
     });
 
-    const p1 = ddp.connecter('jeton');
-    sockets[0].ouvrir();
-    sockets[0].recevoir({ msg: 'connected', session: 's1' });
+    const p1 = ddp.connect('token');
+    sockets[0].open();
+    sockets[0].receive({ msg: 'connected', session: 's1' });
     await new Promise((r) => setImmediate(r));
-    sockets[0].recevoir({ msg: 'result', id: sockets[0].dernier().id, result: {} });
+    sockets[0].receive({ msg: 'result', id: sockets[0].last().id, result: {} });
     await p1;
 
-    ddp.souscrire('stream-room-messages', 'rid');
-    sockets[0].recevoir({ msg: 'ready', subs: [sockets[0].dernier().id] });
+    ddp.subscribe('stream-room-messages', 'rid');
+    sockets[0].receive({ msg: 'ready', subs: [sockets[0].last().id] });
     await new Promise((r) => setImmediate(r));
-    assert.equal(ddp.nombreSouscriptions, 1);
+    assert.equal(ddp.subscriptionCount, 1);
 
-    sockets[0].onclose?.(null); // coupure
-    assert.equal(ddp.nombreSouscriptions, 0);
+    sockets[0].onclose?.(null); // drop
+    assert.equal(ddp.subscriptionCount, 0);
 
-    const p2 = ddp.connecter('jeton');
-    sockets[1].ouvrir();
-    sockets[1].recevoir({ msg: 'connected', session: 's2' });
+    const p2 = ddp.connect('token');
+    sockets[1].open();
+    sockets[1].receive({ msg: 'connected', session: 's2' });
     await new Promise((r) => setImmediate(r));
-    sockets[1].recevoir({ msg: 'result', id: sockets[1].dernier().id, result: {} });
+    sockets[1].receive({ msg: 'result', id: sockets[1].last().id, result: {} });
     await p2;
 
-    const resub = sockets[1].envoyes.find((m) => m.msg === 'sub');
-    assert.ok(resub, 'la souscription repart sans que personne ne la redemande');
-    sockets[1].recevoir({ msg: 'ready', subs: [resub?.id] });
+    const resub = sockets[1].sent.find((m) => m.msg === 'sub');
+    assert.ok(resub, 'the subscription goes out again without anyone asking');
+    sockets[1].receive({ msg: 'ready', subs: [resub?.id] });
     await new Promise((r) => setImmediate(r));
-    assert.equal(ddp.nombreSouscriptions, 1);
+    assert.equal(ddp.subscriptionCount, 1);
   });
 
-  test('un login refusé ferme la socket et laisse le client réutilisable', async () => {
-    const ws = new FauxWebSocket();
-    const ddp = new ClientDdp('ws://x', { creerWebSocket: () => ws, delaiMs: 200 });
-    const p = ddp.connecter('jeton-mort');
-    ws.ouvrir();
-    ws.recevoir({ msg: 'connected', session: 's' });
+  test('a refused login closes the socket and leaves the client reusable', async () => {
+    const ws = new FakeWebSocket();
+    const ddp = new ClientDdp('ws://x', { createWebSocket: () => ws, timeoutMs: 200 });
+    const p = ddp.connect('dead-token');
+    ws.open();
+    ws.receive({ msg: 'connected', session: 's' });
     await new Promise((r) => setImmediate(r));
-    ws.recevoir({ msg: 'result', id: ws.dernier().id, error: { error: 403, reason: 'login denied' } });
+    ws.receive({ msg: 'result', id: ws.last().id, error: { error: 403, reason: 'login denied' } });
 
-    await assert.rejects(p, /Méthode refusée/);
-    assert.equal(ddp.etat, 'ferme', "sinon un connecter() ultérieur lèverait « déjà connecté »");
-    assert.equal(ws.ferme, true, 'la socket ne doit pas fuir');
+    await assert.rejects(p, /Method refused/);
+    assert.equal(ddp.state, 'closed', 'otherwise a later connect() would throw "already connected"');
+    assert.equal(ws.closed, true, 'the socket must not leak');
   });
 
-  test('une socket morte pendant le login ne notifie la perte QU’UNE FOIS', async () => {
-    // `onclose` nettoie et rejette l'attente du login ; le `catch` de
-    // `connecter()` rappelle `nettoyer()`. Sans idempotence, tout abonné
-    // (compteur de coupures, bandeau hors ligne, métrique) compte double, et
-    // le second passage réémet l'événement sur un objet déjà vidé.
-    const ws = new FauxWebSocket();
-    const ddp = new ClientDdp('ws://x', { creerWebSocket: () => ws, delaiMs: 200 });
-    let pertes = 0;
-    ddp.surPerte(() => pertes++);
-    const p = ddp.connecter('jeton');
-    ws.ouvrir();
-    ws.recevoir({ msg: 'connected', session: 's' });
-    await new Promise((r) => setImmediate(r)); // le `method login` est parti
-    ws.onclose?.(null); // la socket meurt AVANT la réponse au login
+  test('a socket dying during login notifies the loss only ONCE', async () => {
+    // `onclose` cleans up and rejects the login wait; `connect()`'s `catch`
+    // calls `cleanUp()` again. Without idempotence, every subscriber (drop
+    // counter, offline banner, metric) counts double, and the second pass
+    // re-emits the event on an already emptied object.
+    const ws = new FakeWebSocket();
+    const ddp = new ClientDdp('ws://x', { createWebSocket: () => ws, timeoutMs: 200 });
+    let losses = 0;
+    ddp.onLoss(() => losses++);
+    const p = ddp.connect('token');
+    ws.open();
+    ws.receive({ msg: 'connected', session: 's' });
+    await new Promise((r) => setImmediate(r)); // the `method login` has gone out
+    ws.onclose?.(null); // the socket dies BEFORE the login answer
 
     await assert.rejects(p);
-    assert.equal(pertes, 1, 'une coupure, un événement');
-    assert.equal(ddp.etat, 'ferme');
+    assert.equal(losses, 1, 'one drop, one event');
+    assert.equal(ddp.state, 'closed');
   });
 
-  test('`verifierVie` pendant la NÉGOCIATION ne sonde pas et ne tue pas la socket', async () => {
-    // Sondé sur un vrai Rocket.Chat 8.5 : un `ping` envoyé avant le `connect`
-    // reçoit `{msg:'error', reason:'Must connect first'}` — jamais de `pong`.
-    // L'attente pendrait donc jusqu'à son délai, et le `catch` fermerait une
-    // socket qui, entre-temps, a fini son login et rejoué ses souscriptions.
-    const ws = new FauxWebSocket();
-    const ddp = new ClientDdp('ws://x', { creerWebSocket: () => ws, delaiMs: 60 });
-    const p = ddp.connecter('jeton');
-    ws.ouvrir();
-    assert.equal(ddp.etat, 'connexion');
+  test('`checkAlive` during the NEGOTIATION does not probe and does not kill the socket', async () => {
+    // Probed on a real Rocket.Chat 8.5: a `ping` sent before the `connect` gets
+    // `{msg:'error', reason:'Must connect first'}`, never a `pong`. The wait
+    // would hang until its timeout, and the `catch` would close a socket that
+    // has meanwhile finished its login and replayed its subscriptions.
+    const ws = new FakeWebSocket();
+    const ddp = new ClientDdp('ws://x', { createWebSocket: () => ws, timeoutMs: 60 });
+    const p = ddp.connect('token');
+    ws.open();
+    assert.equal(ddp.state, 'connecting');
 
-    const avant = ws.envoyes.length;
-    assert.equal(await ddp.verifierVie(), false, 'une négociation a déjà son propre délai');
-    assert.equal(ws.envoyes.length, avant, 'aucun ping ne part');
+    const before = ws.sent.length;
+    assert.equal(await ddp.checkAlive(), false, 'a negotiation already has its own timeout');
+    assert.equal(ws.sent.length, before, 'no ping goes out');
 
-    // La négociation aboutit normalement, la socket est intacte.
-    ws.recevoir({ msg: 'connected', session: 's' });
+    // The negotiation completes normally, the socket is intact.
+    ws.receive({ msg: 'connected', session: 's' });
     await new Promise((r) => setImmediate(r));
-    ws.recevoir({ msg: 'result', id: ws.dernier().id, result: {} });
+    ws.receive({ msg: 'result', id: ws.last().id, result: {} });
     await p;
-    assert.equal(ddp.etat, 'authentifie');
-    assert.equal(ws.ferme, false, 'la sonde prématurée n’a rien fermé');
+    assert.equal(ddp.state, 'authenticated');
+    assert.equal(ws.closed, false, 'the premature probe closed nothing');
   });
 
-  test('`verifierVie` sonde dès l’état « connecte », avant même le login', async () => {
-    // Vérifié sur le banc 8.5.1 : `connect` puis `ping` sans login → `pong`.
-    // La garde ne doit donc pas être plus stricte que le serveur.
-    const ws = new FauxWebSocket();
-    const ddp = new ClientDdp('ws://x', { creerWebSocket: () => ws, delaiMs: 200 });
-    const p = ddp.connecter('jeton');
-    ws.ouvrir();
-    ws.recevoir({ msg: 'connected', session: 's' });
+  test('`checkAlive` probes from the "connected" state, even before the login', async () => {
+    // Checked on the 8.5.1 bench: `connect` then `ping` without login → `pong`.
+    // So the guard must not be stricter than the server.
+    const ws = new FakeWebSocket();
+    const ddp = new ClientDdp('ws://x', { createWebSocket: () => ws, timeoutMs: 200 });
+    const p = ddp.connect('token');
+    ws.open();
+    ws.receive({ msg: 'connected', session: 's' });
     await new Promise((r) => setImmediate(r));
-    assert.equal(ddp.etat, 'connecte');
+    assert.equal(ddp.state, 'connected');
 
-    const sonde = ddp.verifierVie();
-    const ping = ws.envoyes.filter((m) => m.msg === 'ping').at(-1);
-    assert.ok(ping, 'la sonde part');
-    ws.recevoir({ msg: 'pong', id: ping.id });
-    assert.equal(await sonde, true);
+    const probe = ddp.checkAlive();
+    const ping = ws.sent.filter((m) => m.msg === 'ping').at(-1);
+    assert.ok(ping, 'the probe goes out');
+    ws.receive({ msg: 'pong', id: ping.id });
+    assert.equal(await probe, true);
 
-    ws.recevoir({ msg: 'result', id: ws.envoyes.find((m) => m.msg === 'method')?.id, result: {} });
+    ws.receive({ msg: 'result', id: ws.sent.find((m) => m.msg === 'method')?.id, result: {} });
     await p;
   });
 
-  test('un `msg: error` rejette l’attente fautive au lieu de la laisser expirer', async () => {
-    // Forme relevée sur le banc 8.5.1 :
+  test('a `msg: error` rejects the offending wait instead of letting it expire', async () => {
+    // Shape recorded on the 8.5.1 bench:
     // {"msg":"error","reason":"Must connect first","offendingMessage":{"msg":"ping","id":"v1"}}
-    // Sans ce cas, le message est avalé et l'appelant attend `delaiMs` pour
-    // rien — c'est ce silence qui rendait la sonde prématurée destructrice.
-    const { ddp, ws } = await clientAuthentifie(); // délai 200 ms
-    const sonde = ddp.verifierVie();
-    const id = ws.dernier().id;
+    // Without this case, the message is swallowed and the caller waits
+    // `timeoutMs` for nothing; that silence is what made the premature probe
+    // destructive.
+    const { ddp, ws } = await authenticatedClient(); // 200 ms timeout
+    const probe = ddp.checkAlive();
+    const id = ws.last().id;
 
-    ws.recevoir({ msg: 'error', reason: 'Must connect first', offendingMessage: { msg: 'ping', id } });
+    ws.receive({ msg: 'error', reason: 'Must connect first', offendingMessage: { msg: 'ping', id } });
 
-    // Sans attendre les 200 ms du délai : la réponse doit être immédiate.
-    assert.equal(await Promise.race([sonde, new Promise((r) => setTimeout(() => r('pendante'), 60))]), false);
+    // Without waiting for the 200 ms timeout: the answer must be immediate.
+    assert.equal(await Promise.race([probe, new Promise((r) => setTimeout(() => r('pending'), 60))]), false);
   });
 
-  test('un `msg: error` sans `offendingMessage` exploitable est ignoré, pas fatal', async () => {
-    const { ddp, ws } = await clientAuthentifie();
-    ws.recevoir({ msg: 'error', reason: 'Bad request' });
-    assert.equal(ddp.etat, 'authentifie');
+  test('a `msg: error` without a usable `offendingMessage` is ignored, not fatal', async () => {
+    const { ddp, ws } = await authenticatedClient();
+    ws.receive({ msg: 'error', reason: 'Bad request' });
+    assert.equal(ddp.state, 'authenticated');
   });
 
-  test('deux souscriptions au même stream ne produisent qu’une `sub` sur le fil', async () => {
-    const { ddp, ws } = await clientAuthentifie();
-    ddp.souscrire('stream-room-messages', 'rid');
-    ws.recevoir({ msg: 'ready', subs: [ws.dernier().id] });
+  test('two subscriptions to the same stream produce a single `sub` on the wire', async () => {
+    const { ddp, ws } = await authenticatedClient();
+    ddp.subscribe('stream-room-messages', 'rid');
+    ws.receive({ msg: 'ready', subs: [ws.last().id] });
     await new Promise((r) => setImmediate(r));
 
-    const avant = ws.envoyes.length;
-    ddp.souscrire('stream-room-messages', 'rid');
-    assert.equal(ws.envoyes.length, avant, 'aucune `sub` supplémentaire ne part');
-    assert.equal(ddp.nombreSouscriptions, 1);
+    const before = ws.sent.length;
+    ddp.subscribe('stream-room-messages', 'rid');
+    assert.equal(ws.sent.length, before, 'no extra `sub` goes out');
+    assert.equal(ddp.subscriptionCount, 1);
   });
 
-  test('deux `souscrire` du même tick ne produisent qu’une `sub` sur le fil', async () => {
-    const { ddp, ws } = await clientAuthentifie();
-    ddp.souscrire('stream-room-messages', 'rid');
-    ddp.souscrire('stream-room-messages', 'rid');
-    const subs = ws.envoyes.filter((m) => m.msg === 'sub');
-    assert.equal(subs.length, 1, 'la déduplication doit valoir aussi pour les `sub` en vol');
+  test('two `subscribe` in the same tick produce a single `sub` on the wire', async () => {
+    const { ddp, ws } = await authenticatedClient();
+    ddp.subscribe('stream-room-messages', 'rid');
+    ddp.subscribe('stream-room-messages', 'rid');
+    const subs = ws.sent.filter((m) => m.msg === 'sub');
+    assert.equal(subs.length, 1, 'deduplication must also hold for in-flight `sub`s');
 
-    ws.recevoir({ msg: 'ready', subs: [subs[0].id] });
+    ws.receive({ msg: 'ready', subs: [subs[0].id] });
     await new Promise((r) => setImmediate(r));
-    assert.equal(ddp.nombreSouscriptions, 1);
+    assert.equal(ddp.subscriptionCount, 1);
   });
 
-  test('`unsub` n’est envoyé qu’au départ du dernier appelant', async () => {
-    const { ddp, ws } = await clientAuthentifie();
-    const relacher1 = ddp.souscrire('stream-room-messages', 'rid');
-    const id = ws.dernier().id;
-    ws.recevoir({ msg: 'ready', subs: [id] });
+  test('`unsub` is sent only when the last caller leaves', async () => {
+    const { ddp, ws } = await authenticatedClient();
+    const release1 = ddp.subscribe('stream-room-messages', 'rid');
+    const id = ws.last().id;
+    ws.receive({ msg: 'ready', subs: [id] });
     await new Promise((r) => setImmediate(r));
-    const relacher2 = ddp.souscrire('stream-room-messages', 'rid');
+    const release2 = ddp.subscribe('stream-room-messages', 'rid');
 
-    relacher1();
-    assert.notEqual(ws.dernier().msg, 'unsub', 'un observateur reste');
-    assert.equal(ddp.nombreSouscriptions, 1);
+    release1();
+    assert.notEqual(ws.last().msg, 'unsub', 'one observer remains');
+    assert.equal(ddp.subscriptionCount, 1);
 
-    relacher2();
-    assert.deepEqual(ws.dernier(), { msg: 'unsub', id });
-    assert.equal(ddp.nombreSouscriptions, 0);
+    release2();
+    assert.deepEqual(ws.last(), { msg: 'unsub', id });
+    assert.equal(ddp.subscriptionCount, 0);
   });
 
-  test('les souscriptions désirées survivent à la chute de la socket', async () => {
-    const { ddp, ws } = await clientAuthentifie();
-    ddp.souscrire('stream-room-messages', 'rid');
-    ws.recevoir({ msg: 'ready', subs: [ws.dernier().id] });
+  test('the desired subscriptions survive the socket going down', async () => {
+    const { ddp, ws } = await authenticatedClient();
+    ddp.subscribe('stream-room-messages', 'rid');
+    ws.receive({ msg: 'ready', subs: [ws.last().id] });
     await new Promise((r) => setImmediate(r));
 
     ws.onclose?.(null);
-    assert.equal(ddp.nombreSouscriptions, 0, 'plus rien sur le fil');
-    assert.equal(ddp.nombreSouscriptionsDesirees, 1, "l'étape 5.1 doit pouvoir la rejouer");
+    assert.equal(ddp.subscriptionCount, 0, 'nothing left on the wire');
+    assert.equal(ddp.wantedSubscriptionCount, 1, 'step 5.1 must be able to replay it');
 
-    ddp.reinitialiser();
-    assert.equal(ddp.nombreSouscriptionsDesirees, 0);
+    ddp.reset();
+    assert.equal(ddp.wantedSubscriptionCount, 0);
   });
 
-  test('le `close` d’une socket abandonnée ne casse pas la connexion suivante', async () => {
-    // Bug trouvé en intégration : après un login refusé, l'`onclose` de
-    // l'ancienne socket arrivait APRÈS l'ouverture de la nouvelle et remettait
-    // `this.ws` à null. Le `connect` ne partait jamais, et la reconnexion
-    // expirait sans explication.
-    const sockets: FauxWebSocket[] = [];
+  test('an abandoned socket’s `close` does not break the next connection', async () => {
+    // Bug found in integration: after a refused login, the old socket's
+    // `onclose` arrived AFTER the new one opened and reset `this.ws` to null.
+    // The `connect` never went out, and the reconnection expired without
+    // explanation.
+    const sockets: FakeWebSocket[] = [];
     const ddp = new ClientDdp('ws://x', {
-      creerWebSocket: () => {
-        const ws = new FauxWebSocket();
+      createWebSocket: () => {
+        const ws = new FakeWebSocket();
         sockets.push(ws);
         return ws;
       },
-      delaiMs: 200,
+      timeoutMs: 200,
     });
 
-    const p1 = ddp.connecter('jeton-mort');
-    sockets[0].ouvrir();
-    sockets[0].recevoir({ msg: 'connected', session: 's' });
+    const p1 = ddp.connect('dead-token');
+    sockets[0].open();
+    sockets[0].receive({ msg: 'connected', session: 's' });
     await new Promise((r) => setImmediate(r));
-    sockets[0].recevoir({ msg: 'result', id: sockets[0].dernier().id, error: { error: 403 } });
+    sockets[0].receive({ msg: 'result', id: sockets[0].last().id, error: { error: 403 } });
     await assert.rejects(p1);
 
-    const p2 = ddp.connecter('bon-jeton');
-    sockets[1].ouvrir();
-    // L'ancienne socket signale sa fermeture, en retard.
+    const p2 = ddp.connect('good-token');
+    sockets[1].open();
+    // The old socket reports its close, late.
     sockets[0].onclose?.(null);
 
-    sockets[1].recevoir({ msg: 'connected', session: 's2' });
+    sockets[1].receive({ msg: 'connected', session: 's2' });
     await new Promise((r) => setImmediate(r));
-    sockets[1].recevoir({ msg: 'result', id: sockets[1].dernier().id, result: {} });
+    sockets[1].receive({ msg: 'result', id: sockets[1].last().id, result: {} });
     await p2;
-    assert.equal(ddp.etat, 'authentifie');
+    assert.equal(ddp.state, 'authenticated');
     assert.equal(ddp.session, 's2');
   });
 
-  test('une `sub` sans réponse expire au lieu de pendre, et reste désirée', async () => {
-    const { ddp } = await clientAuthentifie(); // délai de 200 ms
-    ddp.souscrire('stream-room-messages', 'rid');
+  test('an unanswered `sub` expires instead of hanging, and stays desired', async () => {
+    const { ddp } = await authenticatedClient(); // 200 ms timeout
+    ddp.subscribe('stream-room-messages', 'rid');
     await new Promise((r) => setTimeout(r, 300));
-    assert.equal(ddp.nombreSouscriptions, 0, 'jamais établie');
-    assert.equal(ddp.nombreSouscriptionsDesirees, 1, 'retentée à la prochaine authentification');
+    assert.equal(ddp.subscriptionCount, 0, 'never established');
+    assert.equal(ddp.wantedSubscriptionCount, 1, 'retried on the next authentication');
   });
 });
 
 /**
- * Une socket peut mourir sans que `onclose` ne soit JAMAIS appelé (FIN reçu,
- * CLOSE-WAIT côté OS, rien au JS). Sans chien de garde, le client se croit
- * authentifié pour toujours et plus aucun message n'arrive.
+ * A socket can die without `onclose` EVER being called (FIN received,
+ * CLOSE-WAIT on the OS side, nothing in JS). Without a watchdog, the client
+ * believes itself authenticated forever and no message arrives any more.
  */
-describe('chien de garde du silence', () => {
-  /** Comme `clientAuthentifie`, mais avec des seuils de garde miniatures. */
-  async function clientSousGarde(): Promise<{ ddp: ClientDdp; ws: FauxWebSocket }> {
-    const ws = new FauxWebSocket();
+describe('silence watchdog', () => {
+  /** Like `authenticatedClient`, but with miniature guard thresholds. */
+  async function guardedClient(): Promise<{ ddp: ClientDdp; ws: FakeWebSocket }> {
+    const ws = new FakeWebSocket();
     const ddp = new ClientDdp('ws://x/websocket', {
-      creerWebSocket: () => ws,
-      delaiMs: 120,
+      createWebSocket: () => ws,
+      timeoutMs: 120,
       silenceMaxMs: 60,
-      gardeMs: 20,
+      watchdogMs: 20,
     });
-    const promesse = ddp.connecter('jeton-rest');
-    ws.ouvrir();
-    ws.recevoir({ msg: 'connected', session: 'sess-1' });
+    const promise = ddp.connect('rest-token');
+    ws.open();
+    ws.receive({ msg: 'connected', session: 'sess-1' });
     await new Promise((r) => setImmediate(r));
-    ws.recevoir({ msg: 'result', id: ws.dernier().id, result: { id: 'u1' } });
-    await promesse;
+    ws.receive({ msg: 'result', id: ws.last().id, result: { id: 'u1' } });
+    await promise;
     return { ddp, ws };
   }
 
-  test('une socket muette est SONDÉE : le ping part tout seul', async () => {
-    const { ddp, ws } = await clientSousGarde();
-    const avant = ws.envoyes.length;
+  test('a silent socket is PROBED: the ping goes out on its own', async () => {
+    const { ddp, ws } = await guardedClient();
+    const before = ws.sent.length;
 
-    await new Promise((r) => setTimeout(r, 110)); // dépasse le silence toléré
+    await new Promise((r) => setTimeout(r, 110)); // exceeds the tolerated silence
 
-    const pings = ws.envoyes.slice(avant).filter((m) => m.msg === 'ping');
-    assert.ok(pings.length >= 1, `le garde doit sonder, vu ${pings.length} ping`);
-    ddp.fermer();
+    const pings = ws.sent.slice(before).filter((m) => m.msg === 'ping');
+    assert.ok(pings.length >= 1, `the guard must probe, saw ${pings.length} ping`);
+    ddp.close();
   });
 
-  test('sans pong, la socket est déclarée morte et `surPerte` réveille le pilote', async () => {
-    const { ddp, ws } = await clientSousGarde();
-    let pertes = 0;
-    ddp.surPerte(() => pertes++);
+  test('without a pong, the socket is declared dead and `onLoss` wakes the driver', async () => {
+    const { ddp, ws } = await guardedClient();
+    let losses = 0;
+    ddp.onLoss(() => losses++);
 
-    // Silence total : ni trafic, ni réponse à la sonde.
+    // Total silence: no traffic, no answer to the probe.
     await new Promise((r) => setTimeout(r, 300));
 
-    assert.equal(ddp.etat, 'ferme', 'la socket morte est nettoyée');
-    assert.equal(pertes, 1, 'la perte est signalée — sans elle, rien ne reconnecte');
-    assert.ok(ws.ferme, 'la socket est refermée côté client');
+    assert.equal(ddp.state, 'closed', 'the dead socket is cleaned up');
+    assert.equal(losses, 1, 'the loss is reported; without it, nothing reconnects');
+    assert.ok(ws.closed, 'the socket is closed client-side');
   });
 
-  test('un serveur qui ping REPOUSSE la garde — pas de sonde sur socket vivante', async () => {
-    const { ddp, ws } = await clientSousGarde();
-    const avant = ws.envoyes.length;
+  test('a pinging server PUSHES BACK the guard: no probe on a live socket', async () => {
+    const { ddp, ws } = await guardedClient();
+    const before = ws.sent.length;
 
-    // Le serveur tient son rythme : un ping avant chaque échéance.
+    // The server keeps its rhythm: a ping before each deadline.
     for (let i = 0; i < 5; i++) {
       await new Promise((r) => setTimeout(r, 40));
-      ws.recevoir({ msg: 'ping' });
+      ws.receive({ msg: 'ping' });
     }
 
-    const sondes = ws.envoyes.slice(avant).filter((m) => m.msg === 'ping');
-    assert.equal(sondes.length, 0, 'aucune sonde : le trafic serveur suffit');
-    assert.equal(ddp.etat, 'authentifie');
-    ddp.fermer();
+    const probes = ws.sent.slice(before).filter((m) => m.msg === 'ping');
+    assert.equal(probes.length, 0, 'no probe: server traffic is enough');
+    assert.equal(ddp.state, 'authenticated');
+    ddp.close();
   });
 
-  test('N’IMPORTE QUEL message compte comme trafic, pas seulement un ping', async () => {
-    const { ddp, ws } = await clientSousGarde();
-    const avant = ws.envoyes.length;
+  test('ANY message counts as traffic, not just a ping', async () => {
+    const { ddp, ws } = await guardedClient();
+    const before = ws.sent.length;
 
     for (let i = 0; i < 5; i++) {
       await new Promise((r) => setTimeout(r, 40));
-      ws.recevoir({
+      ws.receive({
         msg: 'changed',
         collection: 'stream-room-messages',
         fields: { eventName: 'rid', args: [{ _id: `m${i}` }] },
       });
     }
 
-    assert.equal(ws.envoyes.slice(avant).filter((m) => m.msg === 'ping').length, 0);
-    assert.equal(ddp.etat, 'authentifie');
-    ddp.fermer();
+    assert.equal(ws.sent.slice(before).filter((m) => m.msg === 'ping').length, 0);
+    assert.equal(ddp.state, 'authenticated');
+    ddp.close();
   });
 
-  test('`fermer()` arrête la garde — pas de sonde sur un client rangé', async () => {
-    const { ddp, ws } = await clientSousGarde();
-    ddp.fermer();
-    const avant = ws.envoyes.length;
+  test('`close()` stops the guard: no probe on a put-away client', async () => {
+    const { ddp, ws } = await guardedClient();
+    ddp.close();
+    const before = ws.sent.length;
 
     await new Promise((r) => setTimeout(r, 150));
 
-    assert.equal(ws.envoyes.length, avant, 'plus rien ne part après fermeture');
+    assert.equal(ws.sent.length, before, 'nothing goes out after closing');
   });
 });

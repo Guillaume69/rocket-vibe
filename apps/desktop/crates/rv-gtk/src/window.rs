@@ -479,7 +479,7 @@ impl AppWindow {
         });
     }
 
-    /// A `rocketvibe://salon/<rid>?host=` link: the room, on the account of
+    /// A `rocketvibe://room/<rid>?host=` link: the room, on the account of
     /// that server (switching to it if another one is open).
     pub fn open_link(self: &Rc<Self>, uri: &str) {
         let Some(link) = rv_core::links::parse(uri) else { return };

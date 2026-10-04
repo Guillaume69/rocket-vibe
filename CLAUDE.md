@@ -3,7 +3,7 @@
 Clients **Rocket.Chat** tiers, en monorepo. Ce fichier est rechargé à chaque session. Il porte ce qui coûte cher à redécouvrir.
 
 - `apps/mobile/` — l'app mobile, Android d'abord, en Expo / React Native. **Ses commandes (`npm`, `npx`) se lancent depuis `apps/mobile/`.**
-- `apps/desktop/` — l'app bureau, en Rust (cœur sans UI `rv-core`, interface GTK 4 + libadwaita `rv-gtk`). **Tout build dans le conteneur Fedora de `apps/desktop/docker/`** via `apps/desktop/scripts/build.sh` (fmt, clippy `-D warnings`, tests) ; `scripts/smoke.sh` et `scripts/e2e*.sh` la font tourner sous Xvfb contre le serveur de test. Sa parité avec le mobile : `brain/parity.md`.
+- `apps/desktop/` — l'app bureau, en Rust (cœur sans UI `rv-core`, interface GTK 4 + libadwaita `rv-gtk`). **Tout build dans le conteneur Fedora de `apps/desktop/docker/`** via `apps/desktop/scripts/build.sh` (fmt, clippy `-D warnings`, tests) ; `scripts/smoke.sh` et `scripts/e2e*.sh` la font tourner sous Xvfb contre le serveur de test. Sa parité avec le mobile : voir « La parité » ci-dessous.
 - `docker/`, `scripts/` — le serveur Rocket.Chat de test et ses données, partagés par les apps.
 - **Une version par app** : `apps/mobile/app.json` (avec `package.json` et `android.versionCode` = majeur×10000 + mineur×100 + patch) et `apps/desktop/Cargo.toml` ; `node scripts/version.mjs mobile|desktop` les lit et les vérifie. La CI (`.github/workflows/`) ne vérifie une app que si ses fichiers changent, et n'en construit les paquets (APK, archives, installeurs) que sur un tag ou un `workflow_dispatch` ; un tag `mobile-vX.Y.Z` / `desktop-vX.Y.Z` publie la release, avec pour notes la section de la version dans `apps/<app>/CHANGELOG.md` (Keep a Changelog, obligatoire : `node scripts/changelog.mjs`). Tout changement visible d'une app s'ajoute à sa section « Non publié » / « Unreleased ».
 
@@ -20,9 +20,18 @@ Clients **Rocket.Chat** tiers, en monorepo. Ce fichier est rechargé à chaque s
 
 - Il est porteur : il doit rester VRAI. Un changement qui rend une fiche fausse corrige la fiche dans la même branche (couche `docs(brain): …` après le comportement et ses tests).
 - Le code fait foi. Si le brain le contredit, on corrige le brain.
-- Nouvelle fonctionnalité → `brain/features/<nom>.md` (sections `## Mobile` et `## Desktop`), une ligne dans `brain/features/index.md` et dans le catalogue de `brain/BRAIN.md`. Nouveau sous-système → un `brain/architecture/*.md`.
+- Nouvelle fonctionnalité → `brain/features/<nom>.md` (sections `## Mobile` et `## Desktop`), une ligne dans `brain/features/index.md` et dans le catalogue de `brain/BRAIN.md`, ses lignes dans `brain/parity.md`. Nouveau sous-système → un `brain/architecture/*.md`.
 - Le pourquoi va dans `brain/decisions.md`, les termes nouveaux dans `brain/glossary.md`. Les faits serveur sondés restent d'abord ici (« Faits sur Rocket.Chat ») ; `brain/architecture/rocket-chat.md` y renvoie.
 - En anglais, dense, sans tiret cadratin, des chemins de source plutôt que du code recopié ; chaque fiche finit par `## Sources`.
+
+## La parité
+
+Les trois apps (Android, GTK, SwiftUI) visent les mêmes fonctionnalités, et aucune n'est la référence : ce qu'une app fait en premier, les autres le doivent. `brain/parity.md` en tient le compte, ligne par ligne, avec le statut de chaque app (`done`, `partial`, `missing`, `mapped`, `n/a`) et la dette de chacune.
+
+- Toute fonctionnalité visible arrive dans les trois apps, ou bien sa ligne dans `brain/parity.md` dit quelle app la doit (`missing` ou `partial`, avec ce qui manque). L'un ou l'autre, jamais rien.
+- La ligne bouge dans la même branche que le changement qui la fait bouger (couche `docs(brain): …`), dans les deux sens : une app qui rattrape passe sa case à `done`, une fonctionnalité nouvelle ajoute sa ligne avec le statut des trois.
+- `mapped` seulement quand la plateforme répond au même besoin autrement (le partage Android contre le glisser-déposer du bureau), et la note dit comment. Une différence de comportement qui n'est pas voulue est une dette, pas un `mapped`.
+- Le statut se vérifie dans le code des trois apps, pas dans le changelog ni dans la mémoire.
 
 ## La boucle de travail
 

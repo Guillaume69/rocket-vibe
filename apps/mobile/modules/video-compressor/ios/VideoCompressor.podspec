@@ -1,7 +1,7 @@
 Pod::Spec.new do |s|
-  s.name           = 'ReducteurVideo'
+  s.name           = 'VideoCompressor'
   s.version        = '1.0.0'
-  s.summary        = 'Réduction vidéo avant envoi (AVFoundation)'
+  s.summary        = 'Video compression before upload (AVFoundation)'
   s.author         = ''
   s.homepage       = 'https://github.com/Guillaume69/rocket-vibe'
   s.license        = { :type => 'MIT' }

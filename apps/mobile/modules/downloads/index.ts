@@ -10,7 +10,7 @@ type NativeDownloads = {
    * Copie un fichier LOCAL (`file://…`) dans le dossier public Téléchargements.
    * Rend l'URI de l'entrée créée. Un nom déjà pris est suffixé par le système.
    */
-  enregistrer(source: string, name: string, type: string | null): Promise<string>;
+  save(source: string, name: string, type: string | null): Promise<string>;
 };
 
-export const Downloads = requireOptionalNativeModule<NativeDownloads>('Telechargements');
+export const Downloads = requireOptionalNativeModule<NativeDownloads>('Downloads');

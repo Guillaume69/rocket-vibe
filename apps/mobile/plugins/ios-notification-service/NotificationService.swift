@@ -19,170 +19,170 @@ import UserNotifications
  *
  * Le tap est routé par expo-notifications, qui expose `userInfo["body"]` comme
  * `data` d'un push distant : on y range `ejson` (avec `rid` et `host`), la
- * forme que lit `cibleDeNotification` dans ui/notifications.tsx.
+ * forme que lit `notificationTarget` dans ui/notifications.tsx.
  */
 class NotificationService: UNNotificationServiceExtension {
-  private var livrer: ((UNNotificationContent) -> Void)?
-  private var contenu: UNMutableNotificationContent?
-  private var tache: URLSessionDataTask?
+  private var deliver: ((UNNotificationContent) -> Void)?
+  private var content: UNMutableNotificationContent?
+  private var task: URLSessionDataTask?
 
   override func didReceive(
     _ request: UNNotificationRequest,
     withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void
   ) {
-    livrer = contentHandler
-    guard let contenu = request.content.mutableCopy() as? UNMutableNotificationContent else {
+    deliver = contentHandler
+    guard let content = request.content.mutableCopy() as? UNMutableNotificationContent else {
       contentHandler(request.content)
       return
     }
-    self.contenu = contenu
+    self.content = content
 
     guard
-      let brut = request.content.userInfo["ejson"] as? String,
-      let ejson = objetJson(brut),
+      let raw = request.content.userInfo["ejson"] as? String,
+      let ejson = jsonObject(raw),
       let host = ejson["host"] as? String
     else {
-      terminer()
+      finish()
       return
     }
-    let langue = languePreferee()
+    let language = preferredLanguage()
 
-    guard let session = lireSession(host: host) else {
-      contenu.body = Chaines.nouveauMessage(langue)
-      terminer()
+    guard let session = readSession(host: host) else {
+      content.body = LocalizedStrings.newMessage(language)
+      finish()
       return
     }
 
     if ejson["notificationType"] as? String == "message-id-only" {
       guard let messageId = ejson["messageId"] as? String, !messageId.isEmpty else {
-        terminer()
+        finish()
         return
       }
-      tache = recupererContenu(messageId: messageId, session: session) { [weak self] notification in
-        guard let self, let contenu = self.contenu else { return }
+      task = fetchContent(messageId: messageId, session: session) { [weak self] notification in
+        guard let self, let content = self.content else { return }
         if let notification,
           let payload = notification["payload"] as? [String: Any],
           let rid = payload["rid"] as? String, !rid.isEmpty
         {
-          appliquer(
-            contenu,
-            titre: notification["title"] as? String ?? contenu.title,
-            texte: notification["text"] as? String ?? contenu.body,
+          apply(
+            content,
+            title: notification["title"] as? String ?? content.title,
+            text: notification["text"] as? String ?? content.body,
             payload: payload,
             rid: rid,
             host: host,
-            langue: langue
+            language: language
           )
         } else {
-          contenu.body = Chaines.nouveauMessage(langue)
+          content.body = LocalizedStrings.newMessage(language)
         }
-        self.terminer()
+        self.finish()
       }
       return
     }
 
     if let rid = ejson["rid"] as? String, !rid.isEmpty {
-      appliquer(contenu, titre: contenu.title, texte: contenu.body, payload: ejson, rid: rid, host: host, langue: langue)
+      apply(content, title: content.title, text: content.body, payload: ejson, rid: rid, host: host, language: language)
     }
-    terminer()
+    finish()
   }
 
   override func serviceExtensionTimeWillExpire() {
     DispatchQueue.main.async { [self] in
-      tache?.cancel()
-      if let contenu, contenu.userInfo["body"] == nil {
-        contenu.body = Chaines.nouveauMessage(languePreferee())
+      task?.cancel()
+      if let content, content.userInfo["body"] == nil {
+        content.body = LocalizedStrings.newMessage(preferredLanguage())
       }
-      terminer()
+      finish()
     }
   }
 
-  private func terminer() {
-    guard let livrer, let contenu else { return }
-    self.livrer = nil
-    livrer(contenu)
+  private func finish() {
+    guard let deliver, let content else { return }
+    self.deliver = nil
+    deliver(content)
   }
 }
 
-private func appliquer(
-  _ contenu: UNMutableNotificationContent,
-  titre: String,
-  texte texteInitial: String,
+private func apply(
+  _ content: UNMutableNotificationContent,
+  title: String,
+  text initialText: String,
   payload: [String: Any],
   rid: String,
   host: String,
-  langue: String
+  language: String
 ) {
-  var texte = texteInitial
+  var text = initialText
   if payload["messageType"] as? String == "e2e" {
-    texte = Chaines.messageChiffre(langue)
+    text = LocalizedStrings.encryptedMessage(language)
   }
   let sender = payload["sender"] as? [String: Any]
   let username = sender?["username"] as? String ?? ""
-  let nom = (sender?["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (username.isEmpty ? titre : username)
+  let name = (sender?["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (username.isEmpty ? title : username)
 
   if payload["type"] as? String == "d" {
-    contenu.title = nom
-    if !username.isEmpty, texte.hasPrefix(username + ": ") {
-      texte = String(texte.dropFirst(username.count + 2))
+    content.title = name
+    if !username.isEmpty, text.hasPrefix(username + ": ") {
+      text = String(text.dropFirst(username.count + 2))
     }
   } else {
-    contenu.title = titre
+    content.title = title
   }
-  contenu.body = texte
-  contenu.threadIdentifier = rid
+  content.body = text
+  content.threadIdentifier = rid
   // Le serveur refuserait une réponse en clair dans un salon chiffré.
   if payload["messageType"] as? String != "e2e" {
-    contenu.categoryIdentifier = categorieMessage
+    content.categoryIdentifier = messageCategory
   }
 
   var ejson = payload
   ejson["rid"] = rid
   ejson["host"] = host
-  if let donnees = try? JSONSerialization.data(withJSONObject: ejson),
-    let chaine = String(data: donnees, encoding: .utf8)
+  if let data = try? JSONSerialization.data(withJSONObject: ejson),
+    let ejsonString = String(data: data, encoding: .utf8)
   {
-    var userInfo = contenu.userInfo
-    userInfo["body"] = ["ejson": chaine]
-    contenu.userInfo = userInfo
+    var userInfo = content.userInfo
+    userInfo["body"] = ["ejson": ejsonString]
+    content.userInfo = userInfo
   }
 }
 
-private enum Chaines {
-  static func nouveauMessage(_ langue: String) -> String { langue == "fr" ? "Nouveau message" : "New message" }
-  static func messageChiffre(_ langue: String) -> String { langue == "fr" ? "Message chiffré" : "Encrypted message" }
+private enum LocalizedStrings {
+  static func newMessage(_ language: String) -> String { language == "fr" ? "Nouveau message" : "New message" }
+  static func encryptedMessage(_ language: String) -> String { language == "fr" ? "Message chiffré" : "Encrypted message" }
 }
 
 // MARK: - push.get
 
-private func recupererContenu(
+private func fetchContent(
   messageId: String,
   session: Session,
-  quand: @escaping ([String: Any]?) -> Void
+  completion: @escaping ([String: Any]?) -> Void
 ) -> URLSessionDataTask? {
-  var composants = URLComponents(string: session.baseUrl.trimmingSuffix("/") + "/api/v1/push.get")
-  composants?.queryItems = [URLQueryItem(name: "id", value: messageId)]
-  guard let url = composants?.url else {
-    quand(nil)
+  var components = URLComponents(string: session.baseUrl.trimmingSuffix("/") + "/api/v1/push.get")
+  components?.queryItems = [URLQueryItem(name: "id", value: messageId)]
+  guard let url = components?.url else {
+    completion(nil)
     return nil
   }
-  var requete = URLRequest(url: url, timeoutInterval: 20)
-  requete.setValue(session.userId, forHTTPHeaderField: "X-User-Id")
-  requete.setValue(session.authToken, forHTTPHeaderField: "X-Auth-Token")
-  requete.setValue("application/json", forHTTPHeaderField: "Accept")
-  let tache = URLSession.shared.dataTask(with: requete) { donnees, reponse, _ in
+  var request = URLRequest(url: url, timeoutInterval: 20)
+  request.setValue(session.userId, forHTTPHeaderField: "X-User-Id")
+  request.setValue(session.authToken, forHTTPHeaderField: "X-Auth-Token")
+  request.setValue("application/json", forHTTPHeaderField: "Accept")
+  let task = URLSession.shared.dataTask(with: request) { responseData, response, _ in
     var notification: [String: Any]?
-    if (reponse as? HTTPURLResponse)?.statusCode == 200,
-      let donnees,
-      let json = (try? JSONSerialization.jsonObject(with: donnees)) as? [String: Any],
+    if (response as? HTTPURLResponse)?.statusCode == 200,
+      let responseData,
+      let json = (try? JSONSerialization.jsonObject(with: responseData)) as? [String: Any],
       json["success"] as? Bool == true,
       let data = json["data"] as? [String: Any]
     {
       notification = data["notification"] as? [String: Any]
     }
-    let resultat = notification
-    DispatchQueue.main.async { quand(resultat) }
+    let result = notification
+    DispatchQueue.main.async { completion(result) }
   }
-  tache.resume()
-  return tache
+  task.resume()
+  return task
 }

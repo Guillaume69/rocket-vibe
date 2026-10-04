@@ -161,6 +161,6 @@ export async function saveProtectedAttachment(options: AttachmentOptions): Promi
     await Sharing.shareAsync(local, options.type ? { mimeType: options.type } : undefined);
     return 'share';
   }
-  await Downloads.enregistrer(local, name, options.type ?? null);
+  await Downloads.save(local, name, options.type ?? null);
   return 'downloads';
 }

@@ -39,7 +39,7 @@ function sign(gradle) {
   return outbox + GUARD;
 }
 
-module.exports = function withSignatureRelease(config) {
+module.exports = function withReleaseSigning(config) {
   return withAppBuildGradle(config, (config) => {
     config.modResults.contents = sign(config.modResults.contents);
     return config;

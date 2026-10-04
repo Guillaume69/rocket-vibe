@@ -28,7 +28,7 @@ const {
   addService,
   escapeXml,
   stringsXml,
-  CHAINES,
+  NATIVE_STRINGS,
   RECEIVER_CLASS,
   SERVICE_CLASS,
 } = plugin.internals;
@@ -152,7 +152,7 @@ describe('stringsXml', () => {
   it('rend les trois chaînes de la voie native dans les deux langues', () => {
     for (const language of ['fr', 'en']) {
       const xml = stringsXml(language);
-      for (const [name, forms] of Object.entries(CHAINES)) {
+      for (const [name, forms] of Object.entries(NATIVE_STRINGS)) {
         assert.ok(
           xml.includes(`<string name="${name}">`),
           `${name} manque en ${language}`,
@@ -163,7 +163,7 @@ describe('stringsXml', () => {
   });
 
   it('échappe l’apostrophe, que le compilateur de ressources refuse nue', () => {
-    // Testé sur `echapperXml` et pas sur le rendu des trois chaînes : aucune
+    // Testé sur `escapeXml` et pas sur le rendu des trois chaînes : aucune
     // n'a d'apostrophe aujourd'hui, donc l'assertion sur `stringsXml` passerait
     // même sans échappement — un test vide. La règle vaut pour la PROCHAINE
     // chaîne (« Nouveau message d'Alice » ferait échouer aapt2 au build).

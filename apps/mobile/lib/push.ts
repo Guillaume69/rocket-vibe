@@ -40,12 +40,12 @@ export function onTokenRotation(when: (token: string) => void): () => void {
   if (Platform.OS === 'ios') {
     // Deux sources : Firebase annonce un nouveau jeton FCM, et un nouveau jeton
     // APNs doit lui être remis pour qu'il en produise un.
-    const fcm = FcmToken?.addListener('jetonRenouvele', ({ jeton: token }) => {
+    const fcm = FcmToken?.addListener('tokenRefreshed', ({ token }) => {
       if (token !== '') when(token);
     });
     const apns = Notifications.addPushTokenListener((token) => {
       if (typeof token.data !== 'string' || token.data === '' || FcmToken === null) return;
-      FcmToken.obtenir(token.data).then(when, () => {});
+      FcmToken.getToken(token.data).then(when, () => {});
     });
     return () => {
       fcm?.remove();
@@ -78,8 +78,8 @@ export async function getFcmToken(): Promise<TokenResult> {
       return { ok: false, reason: 'failed', detail: `jeton vide (type=${type})` };
     }
     if (Platform.OS === 'ios') {
-      if (FcmToken === null) return { ok: false, reason: 'failed', detail: 'module jeton-fcm absent' };
-      return { ok: true, token: await FcmToken.obtenir(data) };
+      if (FcmToken === null) return { ok: false, reason: 'failed', detail: 'module fcm-token absent' };
+      return { ok: true, token: await FcmToken.getToken(data) };
     }
     return { ok: true, token: data };
   } catch (e) {

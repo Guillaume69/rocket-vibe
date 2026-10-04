@@ -1,4 +1,4 @@
-package com.rocketvibe.reducteurvideo
+package com.rocketvibe.videocompressor
 
 import android.content.Context
 import android.media.MediaMetadataRetriever
@@ -29,49 +29,49 @@ import java.io.File
  * officiel d'Android, sur MediaCodec matériel. Sortie MP4 H.264 au bitrate
  * demandé, côté court plafonné (l'aspect est préservé), audio copié tel quel
  * quand le conteneur l'accepte. Le fichier est écrit dans le cache de l'app :
- * c'est ce qui autorise `supprimerSiTemporaire` (ui/temporaryFiles.ts) à
+ * c'est ce qui autorise `deleteIfTemporary` (ui/temporaryFiles.ts) à
  * le nettoyer une fois l'envoi soldé.
  */
 @OptIn(UnstableApi::class)
-class ReducteurVideoModule : Module() {
+class VideoCompressorModule : Module() {
   override fun definition() = ModuleDefinition {
-    Name("ReducteurVideo")
+    Name("VideoCompressor")
 
-    AsyncFunction("reduire") { uri: String, coteCourtMax: Int, bitrateVideo: Int, promise: Promise ->
-      val contexte = appContext.reactContext
-      if (contexte == null) {
-        promise.reject("ERR_CONTEXTE", "Contexte Android indisponible.", null)
+    AsyncFunction("compress") { uri: String, maxShortSide: Int, videoBitrate: Int, promise: Promise ->
+      val context = appContext.reactContext
+      if (context == null) {
+        promise.reject("ERR_CONTEXT", "Contexte Android indisponible.", null)
         return@AsyncFunction
       }
       // Les métadonnées se lisent ici, sur le thread de la fonction : c'est de
       // l'I/O. Transformer, lui, exige un thread à Looper — le principal (le
       // transcodage tourne sur ses propres threads, rien n'y bloque).
-      val effets = effetsRedimension(contexte, uri, coteCourtMax)
+      val effects = resizeEffects(context, uri, maxShortSide)
       Handler(Looper.getMainLooper()).post {
         try {
-          demarrer(contexte, uri, effets, bitrateVideo, promise)
+          startExport(context, uri, effects, videoBitrate, promise)
         } catch (e: Exception) {
-          promise.reject("ERR_REDUCTION", e.message ?: "Transcodage impossible.", e)
+          promise.reject("ERR_COMPRESSION", e.message ?: "Transcodage impossible.", e)
         }
       }
     }
   }
 
-  private fun demarrer(
-    contexte: Context,
+  private fun startExport(
+    context: Context,
     uri: String,
-    effets: List<Effect>,
-    bitrateVideo: Int,
+    effects: List<Effect>,
+    videoBitrate: Int,
     promise: Promise,
   ) {
-    val sortie = File.createTempFile("video-reduite-", ".mp4", contexte.cacheDir)
-    val transformer = Transformer.Builder(contexte)
+    val output = File.createTempFile("compressed-video-", ".mp4", context.cacheDir)
+    val transformer = Transformer.Builder(context)
       // H.264 : le codec que tout destinataire sait lire, navigateur compris.
       .setVideoMimeType(MimeTypes.VIDEO_H264)
       .setEncoderFactory(
-        DefaultEncoderFactory.Builder(contexte)
+        DefaultEncoderFactory.Builder(context)
           .setRequestedVideoEncoderSettings(
-            VideoEncoderSettings.Builder().setBitrate(bitrateVideo).build(),
+            VideoEncoderSettings.Builder().setBitrate(videoBitrate).build(),
           )
           .build(),
       )
@@ -79,8 +79,8 @@ class ReducteurVideoModule : Module() {
         override fun onCompleted(composition: Composition, exportResult: ExportResult) {
           promise.resolve(
             mapOf(
-              "uri" to Uri.fromFile(sortie).toString(),
-              "taille" to sortie.length().toDouble(),
+              "uri" to Uri.fromFile(output).toString(),
+              "size" to output.length().toDouble(),
             ),
           )
         }
@@ -90,9 +90,9 @@ class ReducteurVideoModule : Module() {
           exportResult: ExportResult,
           exportException: ExportException,
         ) {
-          sortie.delete()
+          output.delete()
           promise.reject(
-            "ERR_REDUCTION",
+            "ERR_COMPRESSION",
             exportException.message ?: "Transcodage impossible.",
             exportException,
           )
@@ -101,9 +101,9 @@ class ReducteurVideoModule : Module() {
       .build()
     transformer.start(
       EditedMediaItem.Builder(MediaItem.fromUri(uri))
-        .setEffects(Effects(listOf(), effets))
+        .setEffects(Effects(listOf(), effects))
         .build(),
-      sortie.absolutePath,
+      output.absolutePath,
     )
   }
 
@@ -115,27 +115,27 @@ class ReducteurVideoModule : Module() {
    * sortent tous deux avec un côté court de 720, pas l'un plus réduit que
    * l'autre.
    */
-  private fun effetsRedimension(contexte: Context, uri: String, coteCourtMax: Int): List<Effect> {
+  private fun resizeEffects(context: Context, uri: String, maxShortSide: Int): List<Effect> {
     val retriever = MediaMetadataRetriever()
     try {
-      retriever.setDataSource(contexte, Uri.parse(uri))
-      val largeur =
+      retriever.setDataSource(context, Uri.parse(uri))
+      val width =
         retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull()
-      val hauteur =
+      val height =
         retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull()
-      if (largeur == null || hauteur == null || largeur <= 0 || hauteur <= 0) return listOf()
+      if (width == null || height == null || width <= 0 || height <= 0) return listOf()
       val rotation =
         retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull()
           ?: 0
-      val pivotee = rotation == 90 || rotation == 270
-      val largeurDroite = if (pivotee) hauteur else largeur
-      val hauteurDroite = if (pivotee) largeur else hauteur
-      val coteCourt = minOf(largeurDroite, hauteurDroite)
-      if (coteCourt <= coteCourtMax) return listOf()
+      val rotated = rotation == 90 || rotation == 270
+      val uprightWidth = if (rotated) height else width
+      val uprightHeight = if (rotated) width else height
+      val shortSide = minOf(uprightWidth, uprightHeight)
+      if (shortSide <= maxShortSide) return listOf()
       // Hauteur cible paire (contrainte d'encodeur) ; la largeur suit l'aspect
       // et l'encodeur l'aligne lui-même sur ses propres contraintes.
-      val hauteurCible = (hauteurDroite.toLong() * coteCourtMax / coteCourt).toInt() / 2 * 2
-      return listOf(Presentation.createForHeight(hauteurCible))
+      val targetHeight = (uprightHeight.toLong() * maxShortSide / shortSide).toInt() / 2 * 2
+      return listOf(Presentation.createForHeight(targetHeight))
     } catch (e: Exception) {
       // Métadonnées illisibles : pas de redimensionnement, le réencodage seul.
       return listOf()

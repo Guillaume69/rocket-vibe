@@ -1,5 +1,5 @@
 {
-  "name": "jeton-fcm",
+  "name": "fcm-token",
   "version": "1.0.0",
   "private": true,
   "main": "index.ts"

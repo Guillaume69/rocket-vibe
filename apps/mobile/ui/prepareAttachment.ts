@@ -33,7 +33,7 @@ const VIDEO_BITRATE = 2_000_000;
  * Donne au fichier réduit le NOM du média d'origine. Nécessaire parce que le
  * multipart d'upload (`createUploadTask`) envoie le nom du fichier SUR DISQUE
  * — le champ `nom` de la pièce n'y passe jamais. Sans ce déplacement, le salon
- * affiche le nom technique du transcodeur (`video-reduite-…`, vu au banc).
+ * affiche le nom technique du transcodeur (`compressed-video-…`, vu au banc).
  * Un dossier unique pare la collision de deux envois simultanés du même nom ;
  * une fois la ligne soldée il n'en reste qu'un dossier vide, que l'OS purge.
  * En échec, l'URI d'origine : un nom moche part — l'envoi vaut mieux que lui.
@@ -82,10 +82,10 @@ export async function compressVideoIfPossible(
 ): Promise<PendingFile> {
   if (VideoCompressor === null || !videoCompressible(file)) return file;
   try {
-    const outbox = await VideoCompressor.reduire(file.uri, VIDEO_MAX_SHORT_SIDE, VIDEO_BITRATE);
+    const outbox = await VideoCompressor.compress(file.uri, VIDEO_MAX_SHORT_SIDE, VIDEO_BITRATE);
     // Une vidéo déjà modeste peut ressortir plus lourde du réencodage : dans
     // ce cas l'original part, et le MP4 réécrit s'efface.
-    if (file.size !== null && outbox.taille >= file.size) {
+    if (file.size !== null && outbox.size >= file.size) {
       void deleteIfTemporary(outbox.uri);
       return file;
     }
@@ -94,7 +94,7 @@ export async function compressVideoIfPossible(
       uri: await renameCompressed(outbox.uri, name),
       name,
       type: 'video/mp4',
-      size: outbox.taille,
+      size: outbox.size,
     };
   } catch {
     // Transcodage impossible (codec exotique, fichier tronqué…) : l'original

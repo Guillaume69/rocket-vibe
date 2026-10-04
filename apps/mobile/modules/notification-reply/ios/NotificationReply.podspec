@@ -1,7 +1,7 @@
 Pod::Spec.new do |s|
-  s.name           = 'ReponseNotif'
+  s.name           = 'NotificationReply'
   s.version        = '1.0.0'
-  s.summary        = 'Répondre depuis une notification (iOS)'
+  s.summary        = 'Reply from a notification (iOS)'
   s.author         = ''
   s.homepage       = 'https://github.com/Guillaume69/rocket-vibe'
   s.license        = { :type => 'MIT' }

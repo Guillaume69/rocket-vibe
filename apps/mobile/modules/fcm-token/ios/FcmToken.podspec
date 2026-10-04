@@ -1,7 +1,7 @@
 Pod::Spec.new do |s|
-  s.name           = 'JetonFcm'
+  s.name           = 'FcmToken'
   s.version        = '1.0.0'
-  s.summary        = 'Jeton FCM iOS pour rocket-vibe'
+  s.summary        = 'iOS FCM token for rocket-vibe'
   s.author         = ''
   s.homepage       = 'https://github.com/Guillaume69/rocket-vibe'
   s.license        = { :type => 'MIT' }

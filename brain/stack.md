@@ -52,7 +52,7 @@ Native modules (each requires a dev-client rebuild, see [architecture/mobile-nat
 | Media | `expo-audio`, `expo-video`, `expo-image-picker`, `expo-image-manipulator`, `expo-document-picker`, `expo-media-library`, `expo-file-system`, `expo-sharing` (all `~57.0.x`) | Voice messages, players, pickers, saving. |
 | Fonts | `@expo-google-fonts/baloo-2`, `@expo-google-fonts/nunito` (`^0.4.2`) | Embedded at build time by the `expo-font` plugin. |
 
-Local Expo modules under `apps/mobile/modules/`: `reducteur-video` (video downscaling, Android Media3 and iOS AVFoundation), `telechargements` (public Downloads folder, Android only), `jeton-fcm` and `reponse-notif` (iOS only). Config plugins under `apps/mobile/plugins/` customise the generated native projects; `android/` and `ios/` are gitignored (CNG).
+Local Expo modules under `apps/mobile/modules/`: `video-compressor` (video downscaling, Android Media3 and iOS AVFoundation), `downloads` (public Downloads folder, Android only), `fcm-token` and `notification-reply` (iOS only). Config plugins under `apps/mobile/plugins/` customise the generated native projects; `android/` and `ios/` are gitignored (CNG).
 
 Dev tooling: ESLint 9 with `eslint-config-expo ~57.0.0`, `patch-package ^8.0.1`, `emoji-toolkit 10.0.0` (source of the generated emoji table), Node's built-in test runner.
 

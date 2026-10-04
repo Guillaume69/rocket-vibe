@@ -15,7 +15,7 @@ const path = require('path');
  * - `FirebaseAppDelegateProxyEnabled = false` : Firebase ne swizzle pas
  *   l'AppDelegate, qu'expo-notifications gère déjà ; modules/fcm-token lui
  *   remet le jeton APNs à la main ;
- * - les pods Firebase en `modular_headers` : le module Swift jeton-fcm importe
+ * - les pods Firebase en `modular_headers` : le module Swift fcm-token importe
  *   FirebaseMessaging, et FirebaseCoreInternal (Swift) dépend de
  *   GoogleUtilities, qui ne définit pas de module sans ça ;
  * - la Notification Service Extension (ios-notification-service/), cible

@@ -3,11 +3,11 @@ plugins {
   id 'expo-module-gradle-plugin'
 }
 
-group = 'com.rocketvibe.telechargements'
+group = 'com.rocketvibe.downloads'
 version = '1.0.0'
 
 android {
-  namespace "com.rocketvibe.telechargements"
+  namespace "com.rocketvibe.downloads"
   defaultConfig {
     versionCode 1
     versionName '1.0.0'

@@ -29,10 +29,10 @@ Autolinked by Expo from `modules/`. Each `index.ts` uses `requireOptionalNativeM
 
 | Module | Platforms | Purpose |
 |---|---|---|
-| `reducteur-video` | Android (Kotlin, Media3 Transformer), iOS (Swift, AVFoundation) | `reduire(uri, coteCourtMax, bitrateVideo)`: re-encodes a video to MP4 H.264 before upload, short side capped, writing into the app cache so `supprimerSiTemporaire` can clean it. Used by `ui/prepareAttachment.ts`; if the result is not smaller, the original is sent. |
-| `telechargements` | Android only | `enregistrer(source, nom, type)`: copies a cached file into the public Downloads folder (`MediaStore.Downloads` from Android 10, the public directory before). On iOS it is `null` and `ui/attachment.ts` opens the share sheet instead. |
-| `jeton-fcm` | iOS only | Hands the APNs token to Firebase and returns the FCM token Rocket.Chat expects as `gcm`; emits `jetonRenouvele` on rotation. Android gets its FCM token directly from `getDevicePushTokenAsync()` (`lib/push.ts`). |
-| `reponse-notif` | iOS only, no JS API | `ReponseNotifAppDelegate`, an `ExpoAppDelegateSubscriber` registered at launch (so it is in place when iOS wakes the app only to deliver a reply), posts the notification's "Reply" text via `chat.sendMessage` natively. `SessionPush.swift` reads session and language from the keychain and is compiled into both this pod and the NotificationService extension. |
+| `video-compressor` | Android (Kotlin, Media3 Transformer), iOS (Swift, AVFoundation) | `compress(uri, maxShortSide, videoBitrate)`: re-encodes a video to MP4 H.264 before upload, short side capped, writing into the app cache so `supprimerSiTemporaire` can clean it. Used by `ui/prepareAttachment.ts`; if the result is not smaller, the original is sent. |
+| `downloads` | Android only | `save(source, name, type)`: copies a cached file into the public Downloads folder (`MediaStore.Downloads` from Android 10, the public directory before). On iOS it is `null` and `ui/attachment.ts` opens the share sheet instead. |
+| `fcm-token` | iOS only | Hands the APNs token to Firebase and returns the FCM token Rocket.Chat expects as `gcm`; emits `tokenRefreshed` on rotation. Android gets its FCM token directly from `getDevicePushTokenAsync()` (`lib/push.ts`). |
+| `notification-reply` | iOS only, no JS API | `NotificationReplyAppDelegate`, an `ExpoAppDelegateSubscriber` registered at launch (so it is in place when iOS wakes the app only to deliver a reply), posts the notification's "Reply" text via `chat.sendMessage` natively. `SessionPush.swift` reads session and language from the keychain and is compiled into both this pod and the NotificationService extension. |
 
 ## Patches (`apps/mobile/patches/`)
 
@@ -61,7 +61,7 @@ This is why some choices avoided a native dependency: drafts live in SQLite inst
 
 ## iOS status
 
-Prepared, never built. `app.json` has an `ios` section (`bundleIdentifier` `com.rocketvibe.app`, permission strings), `ui/theme.ts` picks PostScript font names on iOS, and the iOS halves of `reducteur-video`, `jeton-fcm`, `reponse-notif` and the NotificationService extension exist. `docs/DEV.md` and `docs/PUSH.md` state that everything was verified only from Linux (`expo prebuild --platform ios --no-install`, `swiftc -parse`, the JS bundle via `expo export --platform ios`) and that the app has never been compiled with Xcode. The CI workflow (`.github/workflows/mobile.yml`) builds Android only. Building needs a Mac: `npx expo prebuild --platform ios`, then Xcode with three targets (`rocketvibe`, `NotificationService`, `ShareExtension`).
+Prepared, never built. `app.json` has an `ios` section (`bundleIdentifier` `com.rocketvibe.app`, permission strings), `ui/theme.ts` picks PostScript font names on iOS, and the iOS halves of `video-compressor`, `fcm-token`, `notification-reply` and the NotificationService extension exist. `docs/DEV.md` and `docs/PUSH.md` state that everything was verified only from Linux (`expo prebuild --platform ios --no-install`, `swiftc -parse`, the JS bundle via `expo export --platform ios`) and that the app has never been compiled with Xcode. The CI workflow (`.github/workflows/mobile.yml`) builds Android only. Building needs a Mac: `npx expo prebuild --platform ios`, then Xcode with three targets (`rocketvibe`, `NotificationService`, `ShareExtension`).
 
 ## Sources
 
@@ -76,13 +76,13 @@ Prepared, never built. `app.json` has an `ios` section (`bundleIdentifier` `com.
 - apps/mobile/plugins/with-signature-release.js
 - apps/mobile/plugins/with-incoming-share.js
 - apps/mobile/modules/video-compressor/index.ts
-- apps/mobile/modules/video-compressor/android/src/main/java/com/rocketvibe/reducteurvideo/ReducteurVideoModule.kt
+- apps/mobile/modules/video-compressor/android/src/main/java/com/rocketvibe/videocompressor/VideoCompressorModule.kt
 - apps/mobile/modules/video-compressor/ios/ReducteurVideoModule.swift
 - apps/mobile/modules/downloads/index.ts
-- apps/mobile/modules/downloads/android/src/main/java/com/rocketvibe/telechargements/TelechargementsModule.kt
+- apps/mobile/modules/downloads/android/src/main/java/com/rocketvibe/downloads/DownloadsModule.kt
 - apps/mobile/modules/fcm-token/index.ts
-- apps/mobile/modules/fcm-token/ios/JetonFcmModule.swift
-- apps/mobile/modules/notification-reply/ios/ReponseNotifAppDelegate.swift
+- apps/mobile/modules/fcm-token/ios/FcmTokenModule.swift
+- apps/mobile/modules/notification-reply/ios/NotificationReplyAppDelegate.swift
 - apps/mobile/modules/notification-reply/ios/SessionPush.swift
 - apps/mobile/patches/expo-share-intent+8.0.1.patch
 - apps/mobile/lib/e2e/crypto.ts

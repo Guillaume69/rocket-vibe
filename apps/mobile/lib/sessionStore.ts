@@ -23,7 +23,7 @@ import {
   withoutTrailingSlash,
 } from './storageKeys.ts';
 import type { PendingLogout } from './deferredLogout.ts';
-import { normalizeProviderKind } from './provider.ts';
+import { parsePendingLogouts, parseSession } from './storedRecords.ts';
 
 /** Hex SHA-256: the app-side implementation of `Hasher`. */
 export function hash(text: string): Promise<string> {
@@ -60,26 +60,7 @@ export async function saveSession(session: Session): Promise<void> {
 export async function readSession(baseUrl: string): Promise<Session | null> {
   const raw = await SecureStore.getItemAsync(await key(baseUrl));
   if (raw === null) return null;
-  try {
-    const session = JSON.parse(raw) as Session & { genre?: unknown };
-    // Corrupt storage or one from an older version must not crash startup:
-    // treat it as no session.
-    if (typeof session?.authToken !== 'string' || typeof session?.userId !== 'string') return null;
-    // The key derives from a truncated digest: we don't trust it alone to
-    // assert that this session belongs to the requested server.
-    if (withoutTrailingSlash(session.baseUrl) !== withoutTrailingSlash(baseUrl)) return null;
-    // Migration on read: sessions older than the `kind` (formerly `genre`) and
-    // `siteUrl` fields
-    // fall back on their defaults (`rocketchat`, null → `baseUrl` at use),
-    // without rewriting.
-    return {
-      ...session,
-      kind: normalizeProviderKind(session.kind ?? session.genre),
-      siteUrl: typeof session.siteUrl === 'string' ? session.siteUrl : null,
-    };
-  } catch {
-    return null;
-  }
+  return parseSession(raw, baseUrl);
 }
 
 export async function clearSession(baseUrl: string): Promise<void> {
@@ -228,25 +209,7 @@ export function readRememberedPushToken(): Promise<string | null> {
 export async function listPendingLogouts(): Promise<PendingLogout[]> {
   const raw = await readMovedKey(secureStore, STORED_KEYS.pendingLogouts);
   if (raw === null) return [];
-  try {
-    const list = JSON.parse(raw) as unknown;
-    if (!Array.isArray(list)) return [];
-    // Defensive parse, like `readSession`: an entry from an older version or a
-    // truncated one must not fail the whole startup.
-    return list
-      .filter(
-        (d): d is PendingLogout & { jetonPush?: unknown } =>
-          typeof (d as PendingLogout)?.baseUrl === 'string' &&
-          typeof (d as PendingLogout)?.authToken === 'string' &&
-          typeof (d as PendingLogout)?.userId === 'string',
-      )
-      .map(({ jetonPush, ...d }) => ({
-        ...d,
-        pushToken: typeof d.pushToken === 'string' ? d.pushToken : typeof jetonPush === 'string' ? jetonPush : null,
-      }));
-  } catch {
-    return [];
-  }
+  return parsePendingLogouts(raw);
 }
 
 export async function addPendingLogout(entry: PendingLogout): Promise<void> {

@@ -211,14 +211,14 @@ export default function ProfileScreen() {
           // code does nothing, never worse than before.
           const stack = navigation.getState()?.routes ?? [];
           const below = stack.length >= 2 ? stack[stack.length - 2] : undefined;
-          // An expo-router route's `name` is its file path (`salon/[rid]`); we
+          // An expo-router route's `name` is its file path (`room/[rid]`); we
           // tolerate a possible leading slash rather than bet on the exact shape.
           const alreadyOpen =
             below !== undefined &&
-            below.name.replace(/^\//, '').startsWith('salon/') &&
+            below.name.replace(/^\//, '').startsWith('room/') &&
             (below.params as { rid?: unknown } | undefined)?.rid === rid;
           if (alreadyOpen) router.back();
-          else router.replace({ pathname: '/salon/[rid]', params: { rid } });
+          else router.replace({ pathname: '/room/[rid]', params: { rid } });
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : t('profile.actionFailed'));

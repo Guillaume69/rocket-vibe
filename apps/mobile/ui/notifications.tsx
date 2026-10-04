@@ -78,7 +78,7 @@ export function NotificationHandler() {
   // This path serves ONLY notifications posted by expo (fallback pushes
   // without a `notification` block, or without a groupable `rid`). Native
   // message notifications (`plugins/with-fcm-deeplink.js`) open the room
-  // through their own `rocketvibe://salon/<rid>` deep link, routed by
+  // through their own `rocketvibe://room/<rid>` deep link, routed by
   // expo-router, never going through here. On iOS, however, ALL taps come
   // through here: the notification extension stores `rid` and `host` in `ejson`.
   useEffect(() => {
@@ -100,7 +100,7 @@ export function NotificationHandler() {
       // landed on a room screen with no row for that rid, hence on a permanent
       // activity indicator.
       router.push({
-        pathname: '/salon/[rid]',
+        pathname: '/room/[rid]',
         params: target.host === null ? { rid: target.rid } : { rid: target.rid, host: target.host },
       });
     };

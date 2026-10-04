@@ -16,7 +16,7 @@ describe('isWebLink', () => {
       'file:///data/data/com.rocketvibe.app/databases/x.db',
       'content://media/external/images/1',
       'data:text/html,<script>x</script>',
-      'rocketvibe://salon/abc',
+      'rocketvibe://room/abc',
       '//exemple.org/a',
       ' https://exemple.org',
     ]) {

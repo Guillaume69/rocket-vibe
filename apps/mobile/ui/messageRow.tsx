@@ -1,7 +1,7 @@
 /**
  * Message row, shared between the room screen and the thread screen (8.3).
  *
- * Extracted from `app/salon/[rid].tsx`: the thread screen shows exactly the
+ * Extracted from `app/room/[rid].tsx`: the thread screen shows exactly the
  * same rows (markdown, system messages, protected attachments, send states);
  * duplicating it would have made the two renderings diverge.
  */

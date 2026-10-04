@@ -469,7 +469,7 @@ const passes = new Map<string, Pass>();
  * Catches up ONE room, one pagination at a time.
  *
  * Two paths lead here at each connection setup, and they trampled each other:
- * `ui/sync.tsx` (the room declared active) and `app/salon/[rid].tsx` (its opening
+ * `ui/sync.tsx` (the room declared active) and `app/room/[rid].tsx` (its opening
  * effect, woken by the `generation` bump that this same connection setup
  * just made). Two paginations therefore started from the SAME cursor, to
  * ask again for the same slice: up to 8 `chat.syncMessages` where 4 suffice,

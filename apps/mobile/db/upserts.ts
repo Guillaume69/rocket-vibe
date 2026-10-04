@@ -244,7 +244,7 @@ export const HIDE_ENCRYPTED_MESSAGES = `UPDATE messages SET text = NULL, attachm
  *
  * **It must point to the same message as the STREAM**, otherwise the preview
  * announces something not found when opening the room. Three clauses, copied
- * from the query in `app/salon/[rid].tsx`:
+ * from the query in `app/room/[rid].tsx`:
  *  - `thread_id IS NULL OR thread_shown = 1`: a thread reply lives in its thread,
  *    not in the room, except `tshow`;
  *  - `system_type IS NULL OR system_type = 'e2e'`: the stream renders a

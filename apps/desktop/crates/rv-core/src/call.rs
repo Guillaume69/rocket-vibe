@@ -76,7 +76,7 @@ mod tests {
     fn origins_are_scheme_and_authority() {
         assert_eq!(origin("https://Meet.Barrut.me/Room?jwt=x").as_deref(), Some("https://meet.barrut.me"));
         assert_eq!(origin("http://localhost:3000").as_deref(), Some("http://localhost:3000"));
-        assert_eq!(origin("rocketvibe://salon/x"), None);
+        assert_eq!(origin("rocketvibe://room/x"), None);
         assert_eq!(origin("https://"), None);
         assert_eq!(origin("not a url"), None);
     }

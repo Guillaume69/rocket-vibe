@@ -2,7 +2,7 @@
  * Room screen header: back, tile, name, peer presence (DM), call, search,
  * sync bar.
  *
- * Moved as is from `app/salon/[rid].tsx` (workstream 14): props only, no
+ * Moved as is from `app/room/[rid].tsx` (workstream 14): props only, no
  * coupling with the list engine; the screen file mixed three
  * responsibilities over 1,400 lines.
  */

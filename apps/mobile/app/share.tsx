@@ -262,7 +262,7 @@ function Share({
           await outboxQueue.send(rid, cleanCaption);
         }
         // Success: we open the conversation. Unmounting will settle the intent.
-        router.replace({ pathname: '/salon/[rid]', params: { rid } });
+        router.replace({ pathname: '/room/[rid]', params: { rid } });
       } catch (e) {
         // Only a validation refusal (size/type) rejects here. A server refusal
         // as well as an unreachable network become a line in the room's banner,

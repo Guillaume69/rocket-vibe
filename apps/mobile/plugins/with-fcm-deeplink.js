@@ -34,7 +34,7 @@ const ANDROIDX_WORK = 'androidx.work:work-runtime:2.10.1';
  *     `MessagingStyle` notification whose id derives from the `rid`: successive
  *     messages of one room ACCUMULATE in the same notification (the previous
  *     style is re-extracted and extended). The tap carries a deep link
- *     `rocketvibe://salon/<rid>?host=<server>` (handled by expo-router, cold or
+ *     `rocketvibe://room/<rid>?host=<server>` (handled by expo-router, cold or
  *     warm), so those no longer need the expo-notifications circuit.
  *   - Any other intent (other pushes, messages without `rid`) → expo route
  *     unchanged: title/body copied into the `data` keys expo reads (`title`,
@@ -714,7 +714,7 @@ private fun publishRoomNotification(
   // each, so both servers push. Without it, a rid from ANOTHER server landed on
   // a room screen with no row for that rid: the loading effect short-circuited
   // and the screen kept its activity indicator forever. The screen can now offer
-  // the switch (\`app/salon/[rid].tsx\`).
+  // the switch (\`app/room/[rid].tsx\`).
   //
   // NO CLEAR_TASK: it RECREATED MainActivity even with the process alive, which
   // UNREGISTERS expo-image-picker's ActivityResultLaunchers. Expo only
@@ -724,7 +724,7 @@ private fun publishRoomNotification(
   // "unregistered ActivityResultLauncher" until a full restart.
   // NO SINGLE_TOP either: combined with NEW_TASK on an Activity already in the
   // foreground, it prevented navigating to the room (seen on the AVD).
-  val link = StringBuilder("rocketvibe://salon/").append(Uri.encode(rid))
+  val link = StringBuilder("rocketvibe://room/").append(Uri.encode(rid))
   if (host.isNotEmpty()) link.append("?host=").append(Uri.encode(host))
   val tap = Intent(Intent.ACTION_VIEW, Uri.parse(link.toString()))
     .setPackage(ctx.packageName)

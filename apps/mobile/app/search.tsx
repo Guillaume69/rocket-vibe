@@ -91,7 +91,7 @@ function Search({
     async (raw: Record<string, unknown> | undefined, rid: string | undefined) => {
       if (rid === undefined) return;
       if (raw !== undefined) await engine.ingestRooms([raw]);
-      router.replace({ pathname: '/salon/[rid]', params: { rid } });
+      router.replace({ pathname: '/room/[rid]', params: { rid } });
     },
     [engine, router],
   );

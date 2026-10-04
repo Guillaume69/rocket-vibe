@@ -48,7 +48,7 @@ struct RocketVibeApp: App {
         if app.screen == .starting && !SmokeGallery.requested { await app.start() }
     }
 
-    /// `rocketvibe://salon/<rid>?host=<server>`, from the Android app's links.
+    /// `rocketvibe://room/<rid>?host=<server>`, from the Android app's links.
     @MainActor
     func open(_ url: URL) {
         guard url.scheme == "rocketvibe", ["salon", "room"].contains(url.host() ?? "") else { return }

@@ -3,7 +3,7 @@
  * attachments (camera, library, file, voice), emoji/mention completions,
  * quote, and the read-only / locked encrypted room variants.
  *
- * Extracted from `app/salon/[rid].tsx` (workstream 14). The thread composer
+ * Extracted from `app/room/[rid].tsx` (workstream 14). The thread composer
  * was a DIVERGED copy of it (system font for lack of `FONTS`, no keyboard
  * dismissal before the picker, a text send button); the merge removes those
  * gaps. What really differs is parameterised:

@@ -201,7 +201,7 @@ function OtherServer({ c, host, rid }: { c: Colors; host: string; rid: string })
         // Success: `replace` removes the `host` from the URL. Leaving it would replay
         // this same screen if the user later came back to the other server.
         // No `setState` on this path: the screen is already leaving.
-        if (ok) router.replace({ pathname: '/salon/[rid]', params: { rid } });
+        if (ok) router.replace({ pathname: '/room/[rid]', params: { rid } });
         else {
           setBusy(false);
           setFailure(true);

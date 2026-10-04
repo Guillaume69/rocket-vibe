@@ -258,7 +258,7 @@ function RoomRow({
     // emulator), only a PARENT's clip cuts it.
     <View style={styles.rowWrapper}>
       <Tappable
-        onPress={() => router.push({ pathname: '/salon/[rid]', params: { rid: room.rid } })}
+        onPress={() => router.push({ pathname: '/room/[rid]', params: { rid: room.rid } })}
         android_ripple={{ color: c.ripple }}
         unstable_pressDelay={LIST_PRESS_DELAY}
         style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}

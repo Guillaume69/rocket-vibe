@@ -1,4 +1,6 @@
 mod common;
+#[path = "native_crypto/rooms.rs"]
+mod room_controls;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as B64};
 use common::{FakeHttp, respond};
 use rv_core::{
@@ -70,6 +72,7 @@ impl Gate {
         result.expect("crypto request did not reach its gate");
     }
 }
+type RoomHandler = Arc<dyn Fn(&common::Request) -> Option<common::Response> + Send + Sync>;
 struct Pilot {
     directory: tempfile::TempDir,
     server: FakeHttp,
@@ -88,6 +91,7 @@ struct Pilot {
     registrations: Arc<Mutex<Vec<String>>>,
     registration_receipt: Arc<Mutex<Option<Value>>>,
     lose_registration: Arc<AtomicBool>,
+    room_handler: Arc<Mutex<Option<RoomHandler>>>,
 }
 async fn online(session: &native::NativeSession) {
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -114,6 +118,8 @@ impl Pilot {
         let registrations = Arc::new(Mutex::new(vec![]));
         let peer_directories = Arc::new(Mutex::new(BTreeMap::<String, Value>::new()));
         let peer_reply = peer_directories.clone();
+        let room_handler = Arc::new(Mutex::new(None::<RoomHandler>));
+        let room_reply = room_handler.clone();
         let registration_receipt = Arc::new(Mutex::new(None::<Value>));
         let lose_registration = Arc::new(AtomicBool::new(false));
         let (directory_reply, enrollments, receipt_reply, lose_reply) =
@@ -127,7 +133,12 @@ impl Pilot {
             gate.clone(),
             publications.clone(),
         );
-        let server = FakeHttp::start(move |request| match request.path() {
+        let server = FakeHttp::start(move |request| {
+            let handler = room_reply.lock().unwrap().clone();
+            if let Some(response) = handler.as_ref().and_then(|handler| handler(request)) {
+                return response;
+            }
+            match request.path() {
             path if path.starts_with("/api/v1/e2ee/users/") => {
                 let key = request.target.strip_prefix("/api/v1/e2ee/users/").unwrap();
                 if let Some(page) = peer_reply.lock().unwrap().get(key) { respond(200, &page.to_string()) }
@@ -161,6 +172,10 @@ impl Pilot {
             "/.well-known/rocketvibe" => {
                 let mut discovery = data["discovery"].clone();
                 discovery["capabilities"]["e2ee"] = json!(capable.load(Ordering::SeqCst));
+                if handler.is_some() {
+                    discovery["capabilities"]["room_info"] = json!(true);
+                    discovery["capabilities"]["room_management"] = json!(true);
+                }
                 if changed.load(Ordering::SeqCst) { discovery["data_epoch"] = json!("replacement-epoch"); }
                 respond(200, &discovery.to_string())
             }
@@ -182,7 +197,7 @@ impl Pilot {
                 respond(503, r#"{"code":"response_lost","request_id":"crypto-pilot"}"#)
             }
             _ => respond(404, r#"{"code":"not_found","request_id":"crypto-pilot"}"#),
-        }).await;
+        }}).await;
         let identity = native::Identity {
             instance_id: fixture["discovery"]["instance_id"].as_str().unwrap().into(),
             data_epoch: fixture["discovery"]["data_epoch"].as_str().unwrap().into(),
@@ -246,6 +261,7 @@ impl Pilot {
             registrations,
             registration_receipt,
             lose_registration,
+            room_handler,
         }
     }
     async fn attach(&self, guard: Guard) -> crypto::Access {

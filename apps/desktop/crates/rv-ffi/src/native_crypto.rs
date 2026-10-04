@@ -11,6 +11,7 @@ use rv_core::native::{
 };
 use std::sync::{Arc, Mutex};
 pub(crate) mod peers;
+pub(crate) mod rooms;
 
 #[derive(Clone, Copy, uniffi::Enum)]
 pub enum NativeCryptoPhase {

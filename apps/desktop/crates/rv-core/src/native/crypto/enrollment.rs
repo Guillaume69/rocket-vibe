@@ -26,6 +26,7 @@ use std::{
 
 const RECORD: &str = "crypto-enrollment-ui-v1";
 pub mod peers;
+pub mod rooms;
 const LIFETIME: u64 = 86400 * 30;
 fn changed() -> Error {
     crate::native::Error::Protocol("crypto_enrollment_changed").into()
@@ -272,6 +273,14 @@ impl Access {
             let state = manager.inspect(|_, records| read(records, &manager))?.ok_or_else(changed)?;
             registered(&manager, &state, &directory, time, &context)?;
             Ok((manager, state.root))
+        })
+        .await
+    }
+    async fn device_revision(&self) -> Result<String> {
+        let (manager, _) = self.prepared().await?;
+        self.owned(move |_, _| {
+            let state = manager.inspect(|_, records| read(records, &manager))?.ok_or_else(changed)?;
+            Ok(state.receipt.ok_or_else(changed)?.device_revision)
         })
         .await
     }

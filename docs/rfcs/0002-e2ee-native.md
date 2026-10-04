@@ -350,7 +350,11 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    explicite des racines et l'aperçu / approbation des certificats. Les révocations
    signées sont paginées et conservées dans le coffre, y compris pour l'appareil
    local. L'attachement d'une conversation réutilise l'installation enregistrée
-   sans recréer d'identité. Cérémonies de groupe, renouvellement,
+   sans recréer d'identité. Les informations du salon GTK / SwiftUI raccordent
+   création, admission, mise à jour et reprise / abandon de groupe, avec aperçu
+   opaque des destinataires et confirmation distincte. Retrait / changement de
+   projection ferment le panneau ; aucun groupe n'est créé par sa consultation.
+   Renouvellement,
    récupération / révocation visibles et projection restent ouverts ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.
 6. Revue indépendante du protocole applicatif / stockage et qualification des

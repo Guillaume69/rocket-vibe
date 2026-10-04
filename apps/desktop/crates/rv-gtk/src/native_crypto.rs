@@ -14,7 +14,9 @@ use std::{
     sync::Arc,
 };
 mod peers;
+mod rooms;
 pub use peers::profile_button;
+pub use rooms::room_button;
 
 pub fn group(parent: &adw::PreferencesDialog, session: Arc<NativeSession>) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder().title(t("crypto.title")).build();

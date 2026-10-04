@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 fn stale() -> Error {
     crate::native::Error::Protocol("crypto_peer_changed").into()
 }
-fn fingerprint(value: &str) -> Result<[u8; 32]> {
+pub(super) fn fingerprint(value: &str) -> Result<[u8; 32]> {
     if value.len() != 64 || !value.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
         return Err(stale());
     }
@@ -210,6 +210,15 @@ impl Access {
         self.check()?;
         let session = self.0.context.session.upgrade().ok_or_else(stale)?;
         let page = session.client.crypto_directory(user, None).await.map_err(crate::native::Error::from)?;
+        if page.scope.instance_id == self.0.account.instance
+            && page.scope.data_epoch == self.0.account.data_epoch
+            && page.identity.is_none()
+            && page.devices.is_empty()
+            && page.revocations.is_empty()
+            && page.next_revocation.is_none()
+        {
+            return Err(crate::native::Error::Protocol("crypto_peer_missing").into());
+        }
         self.verified_directory(user, page).await.map(|(_, directory)| directory)
     }
     async fn peer_display(&self, manager: Arc<Manager>, directory: Directory) -> Result<View> {
@@ -245,7 +254,10 @@ impl Access {
     pub async fn peer(&self, user: String) -> Result<View> {
         let _dispatch = self.0.dispatch.lock().await;
         let (manager, _) = self.prepared().await?;
-        let directory = self.peer_directory(&user).await?;
+        self.observed_peer(manager, &user).await
+    }
+    pub(super) async fn observed_peer(&self, manager: Arc<Manager>, user: &str) -> Result<View> {
+        let directory = self.peer_directory(user).await?;
         self.peer_display(manager, directory).await
     }
     pub async fn pin_peer(&self, view: View, choice: RootChoice, confirmed: String, previous: String) -> Result<View> {

@@ -4221,6 +4221,7 @@ dependencies = [
  "rusqlite",
  "rv-client",
  "rv-crypto",
+ "rv-crypto-public",
  "rv-protocol",
  "serde",
  "serde_json",

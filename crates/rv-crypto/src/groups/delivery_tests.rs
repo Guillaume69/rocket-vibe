@@ -1174,7 +1174,7 @@ async fn lost_http_ack_is_reconciled_after_worker_recreation_without_new_post_or
     let (server, book) = server(&alice, &bob, true);
     let worker = server.worker(&alice);
     let empty = worker.local_group_status("room").await.unwrap();
-    assert!(empty.accepted.is_none() && empty.pending.is_none());
+    assert!(empty.accepted.is_none() && empty.pending.is_none() && empty.participants.is_empty());
     let prepared = preview(&worker).await;
     let fingerprint = prepared.preview.fingerprint;
     assert!(matches!(
@@ -1187,7 +1187,7 @@ async fn lost_http_ack_is_reconciled_after_worker_recreation_without_new_post_or
     );
     let original = alice.reopened().retry("room", NOW).unwrap();
     let pending = worker.local_group_status("room").await.unwrap();
-    assert!(pending.accepted.is_none());
+    assert!(pending.accepted.is_none() && pending.participants.is_empty());
     let pending = pending.pending.unwrap();
     assert_eq!(pending.operation, original.operation);
     assert_eq!(pending.fingerprint, receipt(&original).fingerprint);
@@ -1201,6 +1201,19 @@ async fn lost_http_ack_is_reconciled_after_worker_recreation_without_new_post_or
     let current = reopened.local_group_status("room").await.unwrap();
     assert!(current.pending.is_none());
     assert!(current.accepted.as_ref() == Some(&accepted));
+    assert_eq!(current.participants.len(), 2);
+    assert!(
+        current
+            .participants
+            .iter()
+            .any(|p| p.device == alice.manager.scope().device)
+    );
+    assert!(
+        current
+            .participants
+            .iter()
+            .any(|p| p.device == bob.manager.scope().device)
+    );
     let recipient = server.worker(&bob);
     let batch = recipient.events("room").await.unwrap();
     let prepared = recipient

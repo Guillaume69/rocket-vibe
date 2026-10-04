@@ -9,6 +9,12 @@ section here.
 
 ### Added
 
+- Existing GTK and SwiftUI room information panels can review encrypted group
+  creation, admission and device changes, then explicitly confirm the exact
+  recipients. Interrupted transitions can be resumed or cancelled from the same
+  protected installation. Opening the panel creates no identity or group;
+  experimental capability gates keep encrypted messaging disabled.
+
 - Existing GTK and SwiftUI profiles can review a RocketVibe participant's
   encryption identity and explicitly approve device certificates. First contact,
   fingerprint verification and changed-identity replacement remain separate;

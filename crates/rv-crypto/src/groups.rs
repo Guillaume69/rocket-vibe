@@ -15,7 +15,8 @@ use openmls::prelude::{
 };
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_traits::signatures::Signer as _;
-use rv_crypto_public::groups::{self as public, Member, Participant, Plan, Scope, Transition};
+pub use rv_crypto_public::groups::Participant;
+use rv_crypto_public::groups::{self as public, Member, Plan, Scope, Transition};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -1137,6 +1138,11 @@ impl Coordinator {
     }
     /// Accepted local head for catchup/reconciliation, never permission to send.
     pub fn accepted_receipt(&self, room: &str) -> Result<Receipt> {
+        self.accepted_group(room).map(|(receipt, _)| receipt)
+    }
+    /// The actual MLS roster checked against the accepted signed plan. These
+    /// public observations still do not authorize a new send or transition.
+    pub fn accepted_group(&self, room: &str) -> Result<(Receipt, Vec<Participant>)> {
         self.inspect(|provider, records| {
             let state = read(records, room)?.ok_or(Error::NotReady)?;
             self.scope(&state.scope)?;
@@ -1148,7 +1154,7 @@ impl Coordinator {
             .map_err(|_| Error::Mls)?
             .ok_or(Error::Changed)?;
             check_actual(group.public_group(), &active.transition.plan)?;
-            Ok(active.receipt)
+            Ok((active.receipt, active.transition.plan.participants))
         })
     }
     pub fn ready_epoch(&self, room: &str) -> Result<u64> {

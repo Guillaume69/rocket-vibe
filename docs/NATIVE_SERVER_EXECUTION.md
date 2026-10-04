@@ -11,13 +11,14 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, cérémonie d'identité / association et vérification des pairs dans les profils GTK / SwiftUI | Groupes et projection privée dans les interfaces, renouvellement / récupération / révocation visibles, suspension des salons retirés, pont mobile, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, vérification des pairs et contrôles de groupe GTK / SwiftUI | Projection privée dans les interfaces, renouvellement / récupération / révocation visibles, suspension des conversations retirées, pont mobile, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison entièrement qualifiée (`ee3f717`) passe les neuf jobs de la CI
-`37199651127` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison entièrement qualifiée (`bebf911`) passe les neuf jobs de la CI
+`37201456469` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
-L'application macOS passe aussi sa compilation / packaging (`37199651129`).
+L'application macOS du lot profils précédent (`ee3f717`) passe aussi sa
+compilation / packaging (`37199651129`).
 L'inventaire généré qui avait arrêté la CI du raccordement `60e72f4` est corrigé.
 Le journal serveur passe ses neuf scénarios
 PostgreSQL / HTTP / MLS et les contrats communs ; aucune capacité E2EE n'est
@@ -32,7 +33,7 @@ même coffre avec nouveau Welcome / package, remplacement atomique et cache
 précédent marqué hors projection ajoutés. Le cœur du fournisseur bureau lie
 maintenant le worker à sa session et à son client HTTP, avec garde terminale
 des résultats tardifs. La cérémonie d'identité / association et les trousseaux
-des réglages bureau sont raccordés. Pins / groupes, projection privée,
+des réglages bureau sont raccordés. Projection privée,
 suspension des salons retirés, pont mobile et historique autorisé restent ouverts.
 Le lot suivant raccorde les pins / appareils aux profils GTK et SwiftUI existants,
 avec premier contact non vérifié, comparaison explicite de racine, remplacement
@@ -51,7 +52,15 @@ parcours MLS / HTTP avec réponse perdue couvre ces observations et leur reprise
 les dix-sept tests de livraison passent sur Windows. L'apprentissage d'une
 révocation locale dans un autre viewer arrête aussi la conversation déjà ouverte
 pour la même incarnation. Les onze parcours du cœur et Clippy cœur / FFI passent.
-Les contrôles de création / admission de groupe dans les interfaces restent ouverts.
+Les contrôles de groupe dans les informations du salon GTK / SwiftUI sont
+maintenant raccordés au même contrôleur Rust : consultation sans mutation,
+packages d'invitation explicites, création / admission / mise à jour avec aperçu
+des destinataires, confirmation séparée et reprise / abandon des intentions
+interrompues. Les appareils déjà admis ne sont pas proposés comme nouveaux
+destinataires. Les quatorze parcours du cœur passent sur Windows, dont trois
+nouveaux parcours réels MLS / HTTP / SQLite ; la CI reste requise pour qualifier
+la compilation des interfaces et le rendu GTK. Aucun composer déverrouillé et
+aucune capacité E2EE activée par ce lot.
 
 Les critères externes encore ouverts restent des critères de sortie de la RFC.
 

@@ -77,6 +77,7 @@ pub struct Batch {
 /// receipt is a catchup point; it does not authorize a send or a new admission.
 pub struct LocalGroupStatus {
     pub accepted: Option<groups::Receipt>,
+    pub participants: Vec<groups::Participant>,
     pub pending: Option<groups::PendingLookup>,
 }
 
@@ -397,9 +398,9 @@ impl Worker {
         let room = room.to_owned();
         self.owned(move |manager, root, _| {
             let coordinator = groups::Coordinator::new(manager, root)?;
-            let accepted = match coordinator.accepted_receipt(&room) {
-                Ok(receipt) => Some(receipt),
-                Err(groups::Error::NotReady) => None,
+            let (accepted, participants) = match coordinator.accepted_group(&room) {
+                Ok((receipt, participants)) => (Some(receipt), participants),
+                Err(groups::Error::NotReady) => (None, vec![]),
                 Err(error) => return Err(error.into()),
             };
             let pending = match coordinator.pending_lookup(&room) {
@@ -407,7 +408,11 @@ impl Worker {
                 Err(groups::Error::NotReady) => None,
                 Err(error) => return Err(error.into()),
             };
-            Ok(LocalGroupStatus { accepted, pending })
+            Ok(LocalGroupStatus {
+                accepted,
+                participants,
+                pending,
+            })
         })
         .await
     }

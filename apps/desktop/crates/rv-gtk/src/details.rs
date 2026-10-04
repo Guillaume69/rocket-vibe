@@ -221,6 +221,9 @@ pub fn native_room_info(
                     content.append(&centered(&info.name, &["details-name"]));
                     fill_room(&content, &info, &session.info.username);
                     native_favorites::controls(&content, session.clone(), &rid, active.clone());
+                    if session.crypto_settings_supported() {
+                        crate::native_crypto::room_button(&content, &dialog, session.clone(), rid.clone());
+                    }
                     if can_invite {
                         let button = gtk::Button::builder().label(t("native.invite")).build();
                         let (callback, live) = (invite.clone(), active.clone());

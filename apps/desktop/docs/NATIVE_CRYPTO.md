@@ -119,7 +119,7 @@ local ne vaut pas permission d'envoyer ou nouvelle admission. Le parcours HTTP
 avec ACK perdu vérifie maintenant ces trois états, la réouverture et l'absence
 de POST supplémentaire. Les dix-sept tests de livraison MLS passent sur Windows.
 
-Les onze scénarios `native_crypto` passent sur Windows ; ils incluent maintenant
+Les quatorze scénarios `native_crypto` passent sur Windows ; ils incluent maintenant
 premier contact / comparaison / appareil, changement de racine avec consentement
 périmé, révocations paginées persistantes et révocation locale après réouverture.
 Le contrôle strict du cœur et du pont FFI utilise des caches et temporaires sur D:.
@@ -128,7 +128,39 @@ Le lot des profils `ee3f717` passe les neuf contrôles de la CI native
 `37199651129`. La bibliothèque privée passe aussi Clippy strict sur Windows.
 Docker / WSL local a échoué au démarrage lorsque le disque système était plein.
 
-Restent les cérémonies de groupe dans les interfaces, la récupération
+## Contrôles de groupe dans les informations du salon
+
+GTK et SwiftUI réutilisent les informations du salon existantes, sous la même
+condition expérimentale. `enrollment::Access::room()` attache uniquement
+l'installation enregistrée ; ouvrir ou rafraîchir le panneau ne publie ni
+package ni transition et n'approuve aucun pair. La lecture du groupe expose le
+reçu et les participants du plan signé effectivement vérifié dans MLS.
+
+Le contrôleur Rust commun consulte les droits, membres et appareils. Pour
+créer, le salon doit être sans historique et son propriétaire doit agir, sauf
+pour un DM. Le plan doit représenter chaque membre avec un appareil approuvé ;
+un appareil non approuvé ne peut être omis pour contourner cette règle.
+La sélection conduit à un aperçu opaque, avec empreintes de racine et de
+certificat. Une seconde action confirme sa révision et son empreinte exactes.
+Une rotation sans ajout ni retrait suit le même parcours ; les admissions et
+mises à jour reçues passent par l'aperçu vérifié du worker existant.
+
+Une réponse perdue laisse l'intention protégée d'origine. Le panneau propose
+reprise ou abandon explicites ; la reprise consulte d'abord le reçu personnel,
+sans régénérer le commit. Une fermeture, un retrait de salon, une nouvelle
+projection ou une autre version de membership invalident définitivement l'ancien
+panneau. UniFFI et les vues ne reconstruisent pas de consentement à partir de JSON.
+Préparer les packages d'invitation est une action distincte de l'admission.
+
+Les trois nouveaux tests d'intégration couvrent ouverture sans mutation,
+sélection non approuvée, aperçu incomplet refusé, confirmation erronée ou périmée,
+création / rotation réelles, reçu perdu et réouverture sans second POST, droits
+de création et retrait / réadhésion. Les dix-sept scénarios HTTP privés couvrent
+admission, rattrapage et règlement. Le rendu GTK de l'aperçu est exercé dans
+la CI avec un vrai dialogue ; la compilation SwiftUI reste requise dans sa CI.
+Un groupe enregistré localement ne déverrouille pas le composer ordinaire.
+
+Restent la récupération
 et révocation visibles, la suspension des salons retirés et la projection
 privée, le pont Android, les archives / fichiers et la qualification de la
 [RFC E2EE](../../../docs/rfcs/0002-e2ee-native.md). La capacité reste désactivée

@@ -22,6 +22,42 @@ pub fn set(lang: Lang) {
 /// (key, French, English). A `{name}` is filled by `tf`; `a | b` is the
 /// singular and plural of `tn`.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("crypto.group_title", "Chiffrement du salon", "Room encryption"),
+    (
+        "crypto.group_help",
+        "Préparez cet appareil pour les invitations et comparez les identités dans les profils. Seuls les appareils de l’aperçu rejoignent le groupe.",
+        "Prepare this device for invitations and compare identities in profiles. Only devices in the review join the group.",
+    ),
+    ("crypto.group_empty", "Aucun groupe enregistré", "No group recorded"),
+    ("crypto.group_admission", "Cet appareil attend une admission", "This device needs admission"),
+    ("crypto.group_ack", "Groupe enregistré sur cet appareil", "Group recorded on this device"),
+    ("crypto.group_pending", "Transition en attente de son reçu", "Transition awaiting its receipt"),
+    ("crypto.group_prepare", "Préparer cet appareil pour les invitations", "Prepare this device for invitations"),
+    ("crypto.group_create", "Examiner la création du groupe", "Review group creation"),
+    ("crypto.group_change", "Examiner la mise à jour des appareils", "Review device changes"),
+    ("crypto.group_accept", "Examiner l’admission ou la mise à jour", "Review admission or update"),
+    ("crypto.group_confirm", "Confirmer cet aperçu", "Confirm this review"),
+    ("crypto.group_preview", "Appareils destinataires de l’aperçu", "Devices included in this review"),
+    ("crypto.group_select", "Appareils approuvés à inclure", "Approved devices to include"),
+    ("crypto.group_members", "Appareils du groupe local", "Devices in the local group"),
+    ("crypto.group_remove", "Appareils à retirer", "Devices to remove"),
+    (
+        "crypto.group_blocked",
+        "Identité ou certificat à approuver dans le profil",
+        "Identity or certificate needs approval in the profile",
+    ),
+    (
+        "crypto.group_need_empty",
+        "La création exige un salon sans historique. L’appareil doit d’abord être associé dans les réglages de sécurité.",
+        "Creation requires a room without history. First associate this device in security settings.",
+    ),
+    ("crypto.group_resume", "Reprendre la transition en attente", "Resume the pending transition"),
+    ("crypto.group_cancel", "Annuler la transition en attente", "Cancel the pending transition"),
+    ("crypto.group_own", "Cet appareil", "This device"),
+    ("crypto.group_epoch", "Version des clés", "Key version"),
+    ("crypto.group_fingerprint", "Empreinte du groupe", "Group fingerprint"),
+    ("crypto.group_review_fingerprint", "Empreinte de l’aperçu", "Review fingerprint"),
+    ("crypto.group_included", "Déjà dans le groupe", "Already in the group"),
     ("crypto.peer_title", "Vérifier l’identité chiffrée", "Verify encryption identity"),
     (
         "crypto.peer_help",

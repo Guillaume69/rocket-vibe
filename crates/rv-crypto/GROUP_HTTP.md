@@ -111,12 +111,39 @@ Le worker traverse également HTTP, le vrai MLS et les coffres sur disque dans
 une fixture réseau déterministe : réponse de genèse perdue et reprise sans
 second POST, rotation perdue conservant son parent jusqu'au reçu puis rattrapage
 du pair avec les mêmes nouveaux secrets, reçu incorrect / activation changée,
-429 conservé et arrêt / changement d'identité. Ces cinq scénarios ne constituent
-pas encore le banc combiné worker privé / serveur Rust / PostgreSQL ; la
-publication réseau des packages et ce banc combiné restent à vérifier. La
+429 conservé et arrêt / changement d'identité. Ces cinq scénarios ne constituent pas
+à eux seuls le banc combiné worker privé / serveur Rust / PostgreSQL. La
 suite complète initiale du worker compte 100 succès et l'enfant de crash
 exécuté par son parent ; les cinq scénarios HTTP sont revérifiés après ajout
 du cas de rotation. Formatage et Clippy strict passent avec les deux features.
+
+Le banc combiné `delivery_smoke` passe également contre le vrai routeur Rust et
+PostgreSQL : appareils / certificats enregistrés par HTTP, deux publications
+de vrais packages, genèse, Welcome ciblé, puis rotations par les deux auteurs.
+Le serveur perd volontairement la réponse de la première publication et de
+chaque transition après commit réel. Chaque reprise rouvre le coffre avec un
+nouveau Manager / SDK et retrouve le reçu : deux POSTs de publication et trois
+POSTs de transition au total, trois événements SQL, un seul Welcome et un seul
+package consommé. Le parent local reste actif avant ACK et les secrets MLS
+des pairs concordent à chaque époque. L'envoi en clair est ensuite refusé.
+
+La fixture privée est un processus séparé, sans accès à `DATABASE_URL`, avec
+tokens temporaires via stdin. Son SQLite est réel ; son stockage de checkpoint
+externe est simulé en mémoire. Ce banc ne prouve pas la reprise après destruction
+du processus privé ni les trousseaux physiques. Le vrai banc Secret Service
+Linux reste une preuve distincte. Le scénario combiné initial passe en 12,62 s ;
+les 15 tests de routes de groupe passent ensemble en 14,05 s. Le scénario est
+revérifié après suppression de l'environnement SQL client en 12,36 s.
+Le job CI `native-crypto-http` fournit toujours le binaire et exécute ce test
+explicitement ignoré dans les suites générales, afin de ne pas masquer son
+absence par un résultat positif conditionnel.
+
+Pour le rejouer sous Linux avec `DATABASE_URL` vers un PostgreSQL jetable :
+
+```sh
+cargo build --locked --manifest-path crates/rv-crypto/Cargo.toml --features native-http --target-dir target/native-crypto --example delivery_smoke
+RV_CRYPTO_HTTP_SMOKE_BINARY="$PWD/target/native-crypto/debug/examples/delivery_smoke" cargo test --locked -p rv-server --lib protected_http_worker_publishes_joins_rotates_and_reconciles_real_postgres -- --ignored --nocapture
+```
 
 Planification dans les fournisseurs, réconciliation des refus, rattrapage complet des adhésions,
 retrait local / réadmission, messages et inbox / outbox, fichiers / archives /

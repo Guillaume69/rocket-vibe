@@ -315,13 +315,34 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P19 / J4, banc combiné du worker privé (4 octobre 2026) : binaire séparé
+  `delivery_smoke` appelé par le vrai serveur de test Rust / PostgreSQL,
+  tokens temporaires via stdin et accès SQL retiré de l'environnement client.
+  Appareils / certificats enregistrés par HTTP, deux lots de packages réels,
+  genèse / Welcome ciblé, rotations par Alice puis Bob. Première réponse de
+  publication et chaque réponse de transition coupées après commit serveur :
+  nouveau Manager / SDK recherchant le reçu sans second POST. Parent local
+  conservé avant ACK, mêmes nouveaux secrets d'époque chez les pairs, envoi
+  en clair refusé. SQL : deux publications, trois transitions / événements,
+  un seul Welcome et package consommé. Scénario combiné initial réussi en
+  12,62 s ; les 15 scénarios de routes de groupe passent ensemble en 14,05 s,
+  puis ce scénario est revérifié sans identifiants SQL côté client en 12,36 s.
+  Formatage et Clippy strict des deux workspaces passent. SQLite
+  privé réel, checkpoint externe simulé en mémoire : destruction du processus
+  privé / trousseaux physiques non qualifiés par ce banc. Job dédié
+  `native-crypto-http` exécutant ce test ignoré par défaut avec binaire requis.
+  Messages chiffrés, planification / interfaces, rattrapage complet / retraits,
+  refus / packages expirés, archives / fichiers / import et revue restent
+  ouverts. Aucune capacité activée.
+
 - P19 / J4, portabilité du banc HTTP (4 octobre 2026) : le job macOS de
   `37168795438` révèle un `WouldBlock` à la lecture de socket, puis une
   seconde panique dans le nettoyage. Les sockets acceptées sont explicitement
   bloquantes, leur délai est aligné sur les 15 secondes du SDK et le nettoyage
   conserve l'erreur initiale sans interrompre toute la suite. Formatage /
-  Clippy strict et les cinq parcours HTTP passent localement ; confirmation
-  macOS suivie sur la prochaine CI. Aucun changement du transport de production.
+  Clippy strict et les cinq parcours HTTP passent localement ; CI corrigée
+  `37169133442` entièrement verte sur Linux / Windows / macOS. Aucun changement
+  du transport de production.
 
 - P19 / J4, worker HTTP privé expérimental (4 octobre 2026) : feature
   optionnelle `native-http` utilisant le SDK existant. Instance / génération,

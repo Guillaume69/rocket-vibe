@@ -213,9 +213,19 @@ Cinq scénarios HTTP à fixture déterministe exercent le vrai MLS / coffre, don
 réponses de genèse / rotation perdues, mêmes nouveaux secrets chez le pair,
 reçu divergent, changement d'activation, recréation après 429 et arrêt partagé.
 Suite complète initiale : 100 succès ; les cinq scénarios sont revérifiés
-après ajout de la rotation. Le banc combiné worker / serveur / PostgreSQL,
-la publication réseau des packages et la planification dans les fournisseurs
-restent ouverts. Aucune capacité E2EE n'est activée.
+après ajout de la rotation.
+
+Le banc combiné worker privé / serveur Rust / PostgreSQL passe aussi : vrais
+appareils enregistrés et packages publiés par HTTP, genèse / admission ciblée,
+rotations par chaque pair. Après réponses coupées suite aux commits serveur,
+des Managers / SDK neufs réconcilient les reçus sans nouveau POST. SQL compte
+exactement deux publications, trois transitions, un Welcome et un package
+consommé ; les secrets d'époque des deux coffres concordent. Le checkpoint
+externe du processus privé est simulé en mémoire ; aucune qualification de
+trousseau ou destruction du processus privé n'en découle. Le test explicitement
+ignoré par défaut est obligatoire dans le job dédié `native-crypto-http`.
+Planification dans les fournisseurs, messages et qualification restent ouverts.
+Aucune capacité E2EE n'est activée.
 
 Les limites se cumulent : 128 membres, 256 appareils, index MLS ≤ 4 095,
 preuve ≤ 256 Kio, arbre / commit / Welcome individuel ≤ 1 Mio, charges opaques

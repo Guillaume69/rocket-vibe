@@ -14,6 +14,9 @@ use std::time::Duration;
 #[path = "roster_tests.rs"]
 mod roster_observation;
 
+#[path = "protected_worker_tests.rs"]
+mod protected_worker;
+
 struct Ready {
     actor: Account,
     token: String,

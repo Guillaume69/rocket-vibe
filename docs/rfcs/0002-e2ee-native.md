@@ -192,8 +192,12 @@ grants, publication de vrais KeyPackages et reçus persistants sont disponibles.
 Le [lot groupes serveur](../protocol/E2EE_GROUPS.md) ajoute liste signée, CAS de
 révision / époque / parent, consommation atomique des packages et Welcomes
 ciblés, avec vrai ajout / jointure / retrait MLS testés contre PostgreSQL.
-Vérification et admission locales, coordinateur de coffre / outbox et livraison
-des messages restent ouverts ; E2EE demeure désactivé.
+Vérification / admission locales et coordinateur de coffre / outbox sont livrés.
+Le worker privé est également exercé sur le vrai serveur Rust / PostgreSQL :
+publication de packages, admission et rotations par les deux pairs, réponses
+perdues et réconciliation des reçus sans nouveau POST. Le checkpoint externe
+de ce banc est simulé. Livraison des messages, planification / interfaces et
+qualifications restent ouvertes ; E2EE demeure désactivé.
 
 ### Archive et récupération
 
@@ -277,8 +281,10 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    optionnel : scope courant contrôlé, tâches privées possédées, reçu recherché
    avant renvoi original, cooldown durable et preview / confirmation des
    événements livrés. Banc HTTP à fixture avec vrai MLS / coffre réussi ;
-   banc combiné contre PostgreSQL, publication réseau des packages,
-   planification dans les fournisseurs et réconciliation des refus ouverts.
+   banc combiné contre PostgreSQL vérifiant publication réelle de packages,
+   genèse / admission / deux rotations et réponses perdues sans POST
+   supplémentaire réussi. Checkpoint externe simulé dans ce banc ;
+   planification dans les fournisseurs et réconciliation des refus ouvertes.
    Rattrapage complet à travers les adhésions et livraison des messages
    chiffrés restent ouverts ;
    aucune capacité activée.

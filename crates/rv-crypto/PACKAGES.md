@@ -75,14 +75,21 @@ sa libération après une véritable jointure. Une clé récupérée après inte
 permet effectivement une jointure MLS ; une clé déjà consommée ne peut plus
 être republiée. La recherche publique expose seulement l'ID et la portée.
 
-La suite complète du coffre passe : 68 scénarios, plus l'enfant de crash exécuté
-et tué par son parent. Clippy strict passe avec le backend système. Les derniers
-changements du module de publication passent aussi leur suite ciblée. La CI
+Les neuf scénarios du coordinateur passent, avec Clippy strict et le backend
+système ; les dernières suites du coffre sont consignées dans le suivi de J4.
+Les derniers changements du module de publication passent aussi leur suite ciblée. La CI
 Linux / Windows / macOS qualifie ses plateformes de compilation / tests ; elle
 ne remplace pas les qualifications des trousseaux installés ou des appareils.
 
-Suite de J4 : coordonner le transport et ses observations d'appareil avec cette
-outbox, recevoir les commits suivants, livrer les messages chiffrés durables,
+Le worker optionnel `native-http` coordonne maintenant le transport et ses
+observations d'appareil avec cette outbox. Le banc combiné vérifie deux
+publications réelles par HTTP / PostgreSQL, puis admission et rotations MLS :
+la première réponse perdue est réconciliée depuis un nouveau Manager / SDK sans
+renvoyer le POST ni recréer les clés. Voir [GROUP_HTTP.md](GROUP_HTTP.md) pour
+le scénario, ses commandes et la limite du checkpoint simulé.
+
+Suite de J4 : réconcilier refus définitifs / packages expirés et références
+remplacées, livrer les messages chiffrés durables,
 puis raccorder le moteur aux fournisseurs et écrans existants. Les archives,
 fichiers, admission hors ligne à travers plusieurs époques, import et revue
 indépendante demeurent ouverts. `capabilities.e2ee` reste faux.

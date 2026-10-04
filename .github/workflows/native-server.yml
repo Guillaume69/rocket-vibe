@@ -118,6 +118,43 @@ jobs:
           sudo apt-get install -y --no-install-recommends gnome-keyring dbus-daemon
           bash crates/rv-crypto/scripts/keystore-smoke.sh
 
+  native-crypto-http:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: rocketvibe
+          POSTGRES_PASSWORD: crypto-http-ci-disposable-password
+          POSTGRES_DB: rocketvibe
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U rocketvibe -d rocketvibe"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      DATABASE_URL: postgres://rocketvibe:crypto-http-ci-disposable-password@localhost/rocketvibe
+      RV_CRYPTO_HTTP_SMOKE_BINARY: ${{ github.workspace }}/target/native-crypto/debug/examples/delivery_smoke
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: native-crypto-http-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'crates/rv-crypto/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            native-crypto-http-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'crates/rv-crypto/Cargo.lock') }}-
+            native-crypto-http-${{ runner.os }}-
+            native-server-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+            native-server-${{ runner.os }}-
+      - name: Build the separate private HTTP worker fixture
+        run: cargo build --locked --manifest-path crates/rv-crypto/Cargo.toml --features native-http --target-dir target/native-crypto --example delivery_smoke
+      - name: Run the private worker against real HTTP and PostgreSQL
+        run: cargo test --locked -p rv-server --lib protected_http_worker_publishes_joins_rotates_and_reconciles_real_postgres -- --ignored --nocapture
+
   verify:
     needs: scope
     if: needs.scope.outputs.clients == 'true'

@@ -166,8 +166,11 @@ borne les réponses crypto avant le JSON. La feature `native-http` fournit un
 worker asynchrone : scope du compte / appareil vérifié, travail privé possédé,
 reçu consulté avant renvoi original et cooldown POST durable après recréation.
 Admission / successeur exigent leur preview et confirmation avec roster courant.
-Le banc HTTP utilise une fixture déterministe avec le vrai MLS / coffre ; le
-banc combiné contre PostgreSQL et la planification dans les apps restent ouverts.
+Le banc HTTP utilise une fixture déterministe avec le vrai MLS / coffre. Un
+processus privé séparé passe aussi publication / genèse / admission / deux
+rotations contre le vrai serveur Rust / PostgreSQL, avec réponses perdues et
+réconciliation sans POST supplémentaire. Son checkpoint externe est simulé ;
+la planification dans les apps et les qualifications physiques restent ouvertes.
 
 Réception des messages, rattrapage complet
 et politique de chaque envoi, transport et ponts vers les apps restent ouverts ; E2EE demeure
@@ -245,6 +248,10 @@ Aucun profil utilisateur de l'hôte n'est connecté.
 
 La CI a une matrice crypto Linux / Windows / macOS : formatage, Clippy, tests et
 compilation du backend natif ; Linux exécute aussi le vrai banc de trousseau.
+Le job `native-crypto-http` compile le binaire privé séparé puis exerce le
+coordinateur sur HTTP / PostgreSQL ; ses tokens passent par stdin et le
+processus client ne reçoit pas les identifiants SQL. Son checkpoint externe simulé
+reste distinct de la qualification du vrai trousseau.
 Les validations serveur / mobile et longs pilotes clients restent obligatoires pour changements clients / serveur,
 workflow, base inconnue, ou moteur crypto consommé par une app. Seuls les lots
 crypto encore isolés et Markdown peuvent les éviter. La détection vise la

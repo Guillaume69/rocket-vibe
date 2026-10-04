@@ -19,6 +19,16 @@ confirmation liée à l'ancien état et remplacement atomique du groupe / curseu
 dans le même coffre. Le cache précédent reste protégé et ne devient pas une
 page visible de l'admission nouvelle. Les interfaces restent à raccorder.
 
+Le [fournisseur bureau existant](../../apps/desktop/docs/NATIVE_CRYPTO.md)
+attache maintenant ce worker à son client HTTP et à sa génération de session.
+`Worker::new_guarded` vérifie une `Lifecycle` avant / après les attentes et à
+l'entrée du travail privé possédé. Son arrêt est terminal et partagé entre
+clones. La découverte validée actualise la garde des capacités sans seconde
+requête. Aucun réseau ni callback de coffre dans cette garde. Les opérations
+déjà en cours de checkpoint finissent sous leur verrou et ne rendent pas leur
+résultat à un accès fermé. Ce raccordement ne remplit pas encore les contrôles
+de création / appareils / pins ni la projection des interfaces.
+
 `Genesis::from_wire` prend le roster courant sans groupe, une nouvelle incarnation
 de salon non nulle, l'opération et les réponses de packages disponibles.
 `Change::from_wire` prend le roster avec sa tête, les retraits explicites et les

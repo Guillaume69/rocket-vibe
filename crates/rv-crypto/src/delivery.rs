@@ -83,6 +83,18 @@ struct Cooldown {
 }
 const COOLDOWN: &str = "crypto-http-cooldown-v1";
 
+/// A native account/viewer generation. Called only at operation boundaries;
+/// it must not access the vault or wait for platform work. Once inactive, this
+/// worker is terminal even if the application's session later reconnects.
+pub trait Lifecycle: Send + Sync {
+    fn active(&self) -> bool;
+    /// Observe a successfully scoped discovery without a second network request.
+    /// Default adapters have no capability state to update.
+    fn discovery(&self, _info: &rv_protocol::Discovery) -> bool {
+        self.active()
+    }
+}
+
 /// One immutable account/vault scope. Clones share stop state and dispatch
 /// ordering; a new viewer generation gets a new worker and stops its old one.
 /// This feature remains experimental; existing apps still gate E2EE off.
@@ -93,6 +105,7 @@ pub struct Worker {
     client: NativeClient,
     dispatch: Arc<Mutex<()>>,
     stopped: Arc<AtomicBool>,
+    lifecycle: Option<Arc<dyn Lifecycle>>,
     clock: Clock,
 }
 impl Worker {
@@ -105,8 +118,20 @@ impl Worker {
             client,
             dispatch: Arc::new(Mutex::new(())),
             stopped: Arc::new(AtomicBool::new(false)),
+            lifecycle: None,
             clock,
         })
+    }
+    pub fn new_guarded(
+        manager: Arc<Manager>,
+        root: Root,
+        client: NativeClient,
+        lifecycle: Arc<dyn Lifecycle>,
+    ) -> Result<Self> {
+        let mut worker = Self::new(manager, root, client)?;
+        worker.lifecycle = Some(lifecycle);
+        worker.current()?;
+        Ok(worker)
     }
     #[cfg(test)]
     pub(crate) fn with_clock(mut self, clock: Clock) -> Self {
@@ -117,6 +142,9 @@ impl Worker {
         self.stopped.store(true, Ordering::Release);
     }
     fn current(&self) -> Result<()> {
+        if self.lifecycle.as_ref().is_some_and(|guard| !guard.active()) {
+            self.stop();
+        }
         if self.stopped.load(Ordering::Acquire) {
             Err(Error::Stopped)
         } else {
@@ -131,8 +159,12 @@ impl Worker {
         let manager = self.manager.clone();
         let root = self.root.clone();
         let stopped = self.stopped.clone();
+        let lifecycle = self.lifecycle.clone();
         let clock = self.clock;
         let value = tokio::task::spawn_blocking(move || {
+            if lifecycle.as_ref().is_some_and(|guard| !guard.active()) {
+                stopped.store(true, Ordering::Release);
+            }
             if stopped.load(Ordering::Acquire) {
                 return Err(Error::Stopped);
             }
@@ -152,6 +184,15 @@ impl Worker {
         {
             return Err(Error::Scope);
         }
+        if self
+            .lifecycle
+            .as_ref()
+            .is_some_and(|guard| !guard.discovery(&info))
+        {
+            self.stop();
+            return Err(Error::Stopped);
+        }
+        self.current()?;
         let user = self.client.me().await?;
         self.current()?;
         if user.id != self.manager.scope().user {

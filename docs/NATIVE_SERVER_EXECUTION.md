@@ -11,7 +11,7 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues et réadmission dans le même coffre | Messages et lifecycle dans les apps, historique après révocation, ponts / interfaces, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission dans le même coffre et accès crypto du cœur bureau lié à sa session | Cérémonies / trousseaux / projection dans les interfaces, suspension des salons retirés, pont mobile, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
 La dernière livraison qualifiée (`c667ce0`) passe les neuf jobs de la CI
@@ -27,9 +27,10 @@ privée checkpoint avant HTTP et document récupérable. Règlement des transiti
 ajouté ensuite : original conservé après succession d'un pair, décision
 terminale durable et libération du seul commit non accepté. Réadmission du
 même coffre avec nouveau Welcome / package, remplacement atomique et cache
-précédent marqué hors projection ajoutés. Raccordement aux fournisseurs des
-apps, suspension après retrait et historique autorisé constituent les étapes
-suivantes.
+précédent marqué hors projection ajoutés. Le cœur du fournisseur bureau lie
+maintenant le worker à sa session et à son client HTTP, avec garde terminale
+des résultats tardifs. Cérémonies / trousseaux / projection des interfaces,
+suspension des salons retirés, pont mobile et historique autorisé restent ouverts.
 Les critères externes encore ouverts restent des critères de sortie de la RFC.
 
 ## Premier incrément : socle serveur et transports pilotes
@@ -343,6 +344,28 @@ Le parcours mobile pilote et les tests sans appareil ne ferment pas J1 : il exig
 les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
+
+- P19 / J4, accès crypto du fournisseur bureau (4 octobre 2026) : `rv-core`
+  consomme maintenant le coffre privé avec HTTP natif ; mêmes SQLite et client
+  HTTP que le fournisseur existant, sans autre compte ni token. Attachement
+  explicite après contrôle de l'instance / génération / utilisateur / unique
+  appareil courant ; un seul accès par génération et clones partageant le
+  dispatch. Garde terminale dans le worker après HTTP et à l'entrée du travail
+  privé, mise à jour des capacités depuis la découverte validée et arrêt lors
+  de suspension / reconnexion / fin de cycle / shutdown. Références faibles :
+  l'accès ne maintient pas le runner fermé en vie. Cinq scénarios bureau réussis
+  en 1,97 s avec vrai runner, HTTP, SQLite et package MLS : fermeture avant
+  coffre, portée remplacée, ambiguïté d'appareil, reprise byte-identique après
+  fermeture pendant POST, annulation du demandeur pendant checkpoint avec
+  verrou OS conservé et absence de POST tardif. Suite bureau complète :
+  403 succès, zéro échec, trois scénarios d'affichage / bus ignorés dans cette
+  exécution ordinaire ; Clippy strict et build GTK / FFI sur tout le workspace.
+  Les 17 workers privés HTTP
+  repassent en 4,27 s ; Clippy strict avec et sans HTTP. Aucun changement d'écran,
+  du fournisseur Rocket.Chat ou du masque E2EE. Cérémonies / adaptateurs de
+  trousseau / projection des interfaces, suspension des salons retirés, mobile,
+  archives et qualification restent ouverts.
+  [Frontière de session bureau](../apps/desktop/docs/NATIVE_CRYPTO.md).
 
 - P19 / J4, réadmission dans le même coffre (4 octobre 2026) : nouveau package /
   Welcome, preview dans un provider temporaire et consentement liant paquet,

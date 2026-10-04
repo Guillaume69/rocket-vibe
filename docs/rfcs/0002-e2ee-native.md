@@ -210,7 +210,8 @@ Quatorze tests du coffre, dont échange MLS après réouverture disque et deux p
 tués avant / après commit, plus le vrai pilote de trousseau vérifient cette
 fondation ; neuf tests supplémentaires couvrent les identités certifiées et
 onze l'ajout d'appareil et huit la récupération de racine, soit 42 scénarios au total.
-Le coffre reste hors des apps. L'[annuaire public serveur](../protocol/E2EE_DIRECTORY.md)
+Le coffre n'est pas encore ouvert depuis les interfaces ; son worker est
+raccordé au cœur du fournisseur bureau avec garde de session. L'[annuaire public serveur](../protocol/E2EE_DIRECTORY.md)
 consomme les vérificateurs extraits sans clés privées : certificats / demandes /
 grants, publication de vrais KeyPackages et reçus persistants sont disponibles.
 Le [lot groupes serveur](../protocol/E2EE_GROUPS.md) ajoute liste signée, CAS de
@@ -336,7 +337,11 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    atomique et cache / curseur de l'ancienne admission séparés. Suspension après
    retrait, historique après révocation et projection des apps restent ouverts ;
    aucune capacité activée.
-5. Pont mobile et intégration aux fournisseurs actuels ; archive / fichiers,
+5. Pont mobile et intégration aux fournisseurs actuels ; le
+   [cœur du fournisseur bureau](../../apps/desktop/docs/NATIVE_CRYPTO.md) lie
+   maintenant le worker au compte / appareil et à la génération de session,
+   avec fermeture terminale, client HTTP partagé et garde des résultats tardifs.
+   Cérémonies, trousseaux des interfaces et projection restent ouverts ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.
 6. Revue indépendante du protocole applicatif / stockage et qualification des
    trousseaux, Android / Hermes, GTK / SwiftUI. Activation seulement après preuve.

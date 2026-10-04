@@ -39,6 +39,7 @@ pub use messages::{
     CancelledMessage, ClearMessage, MessageCancellation, MessageObservation, MessagePending,
     MessageSettlement, MessageSubmission,
 };
+pub use rv_crypto_public::messages::Receipt as MessageReceipt;
 
 const SUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 const STATE_LIMIT: usize = 8 * 1024 * 1024;

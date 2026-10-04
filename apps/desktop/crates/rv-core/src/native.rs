@@ -3,6 +3,7 @@ pub mod authentication;
 pub mod authentication_vault;
 mod cards;
 pub mod credentials;
+pub mod crypto;
 mod custom_emojis;
 pub mod email_recovery;
 pub mod factor_email;
@@ -274,6 +275,7 @@ pub struct NativeSession {
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     credentials: Option<Arc<dyn credentials::Provider>>,
     security_generation: AtomicU64,
+    crypto: crypto::Registry,
     state_intent_lock: tokio::sync::Mutex<()>,
     read_retry: Mutex<Option<tokio::time::Instant>>,
     favorite_retry: Mutex<Option<tokio::time::Instant>>,
@@ -333,6 +335,7 @@ impl NativeSession {
             task: Mutex::new(None),
             credentials,
             security_generation: AtomicU64::new(0),
+            crypto: crypto::Registry::default(),
             state_intent_lock: tokio::sync::Mutex::new(()),
             read_retry: Mutex::new(None),
             favorite_retry: Mutex::new(None),
@@ -363,7 +366,7 @@ impl NativeSession {
                 }
                 s.set_status(Connection::Connecting, None);
                 let result = tokio::select! {result=s.cycle()=>Some(result), _=changed.changed()=>None};
-                s.security_generation.fetch_add(1, Ordering::SeqCst);
+                s.invalidate_security();
                 s.verified.store(false, Ordering::SeqCst);
                 s.clear_live();
                 if let Some(Err(error)) = result {
@@ -502,17 +505,21 @@ impl NativeSession {
     fn signal(&self) {
         self.control.send_modify(|n| *n = n.wrapping_add(1));
     }
+    fn invalidate_security(&self) {
+        self.security_generation.fetch_add(1, Ordering::SeqCst);
+        self.crypto.stop();
+    }
     pub fn suspend(&self) {
         self.stop_presence();
         self.clear_live();
-        self.security_generation.fetch_add(1, Ordering::SeqCst);
+        self.invalidate_security();
         self.paused.store(true, Ordering::SeqCst);
         self.verified.store(false, Ordering::SeqCst);
         self.signal();
     }
     pub fn reconnect(&self) {
         self.clear_live();
-        self.security_generation.fetch_add(1, Ordering::SeqCst);
+        self.invalidate_security();
         if self.closed.load(Ordering::SeqCst) {
             return;
         }
@@ -527,7 +534,7 @@ impl NativeSession {
     pub fn shutdown(&self) {
         self.stop_presence();
         self.clear_live();
-        self.security_generation.fetch_add(1, Ordering::SeqCst);
+        self.invalidate_security();
         self.closed.store(true, Ordering::SeqCst);
         self.paused.store(true, Ordering::SeqCst);
         self.verified.store(false, Ordering::SeqCst);

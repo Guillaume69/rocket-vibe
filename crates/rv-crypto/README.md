@@ -1,8 +1,10 @@
 # Stockage privé du moteur E2EE natif
 
 Fondation Rust de [RFC 0002](../../docs/rfcs/0002-e2ee-native.md), distincte du
-[prototype MLS](../rv-crypto-spike/README.md). Workspace et lock propres : aucun
-serveur ni client ne dépend du coffre. Les formats / vérificateurs publics sont
+[prototype MLS](../rv-crypto-spike/README.md). Workspace et lock propres ; le
+serveur ne dépend pas du coffre. Le [cœur du fournisseur bureau existant](../../apps/desktop/docs/NATIVE_CRYPTO.md)
+le consomme désormais avec HTTP et garde de génération de session, sans
+activation ni ouverture implicite depuis les interfaces. Les formats / vérificateurs publics sont
 partagés via [`rv-crypto-public`](../rv-crypto-public/README.md), consommé par le
 serveur et réexporté ici sans changement de format. Aucune capacité E2EE activée.
 
@@ -86,8 +88,9 @@ explicites Secret Service synchrone / transfert chiffré Linux, Keychain macOS e
 Credential Store Windows, dans le service `me.barrut.RocketVibe.crypto.v1`, hors
 des sessions Rocket.Chat. [Contrat de la bibliothèque](https://docs.rs/keyring/3.6.3/keyring/).
 Les plateformes non prises en charge n'obtiennent pas un backend mock de repli.
-Android exigera son propre pont Keystore. Les widgets, retrait de compte et
-verrouillage des apps ne sont pas encore reliés à ce coordinateur.
+Android exigera son propre pont Keystore. Le cycle de session du cœur bureau
+arrête désormais son accès ; widgets, cérémonie / trousseau des interfaces et
+retrait durable du compte restent à raccorder.
 
 ## Limite de confidentialité des anciennes copies
 
@@ -101,7 +104,8 @@ J4. [Exigences du stockage OpenMLS](https://book.openmls.tech/user_manual/persis
 
 MLS n'est pas l'archive récupérable demandée par la RFC. Cette crate ne fournit
 encore ni archive / fichiers, ni pont Android. Le worker HTTP optionnel demeure
-expérimental et n'est pas raccordé aux applications. Le module
+expérimental ; son accès est lié au cœur bureau, tandis que les cérémonies,
+trousseaux et projection des interfaces restent à raccorder. Le module
 [`identity`](IDENTITY.md) fournit racines Ed25519, certificats, pins / confirmations
 explicites et révocations ; la cérémonie de nouvel appareil, la récupération
 et la politique d'admission de salon restent à intégrer. Le parcours interne

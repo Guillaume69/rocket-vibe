@@ -20,6 +20,7 @@ struct Source {
     document: SendMessage,
     position: String,
     author: String,
+    files: Vec<Value>,
 }
 struct RoomSources {
     membership: String,
@@ -76,7 +77,10 @@ impl Access {
             })
             .unwrap_or_else(|| receipt.header.author.clone());
             if messages
-                .insert(receipt.message, Source { document, position: receipt.position.to_string(), author })
+                .insert(
+                    receipt.message,
+                    Source { document, position: receipt.position.to_string(), author, files: vec![] },
+                )
                 .is_some()
             {
                 return Err(room_changed());
@@ -100,11 +104,14 @@ impl Access {
             .into_iter()
             .map(|entry| {
                 let doc = entry.excerpt;
-                (
+                crate::native::files::validate_descriptors(&doc.files, room)?;
+                let files = crate::native::files::attachments(&doc.files)?;
+                Ok::<_, crate::native::Error>((
                     entry.id.clone(),
                     Source {
                         position: doc.revision,
                         author: doc.author.username,
+                        files,
                         document: SendMessage {
                             operation_id: entry.id,
                             text: doc.text,
@@ -113,9 +120,9 @@ impl Access {
                             cards: vec![],
                         },
                     },
-                )
+                ))
             })
-            .collect();
+            .collect::<std::result::Result<_, _>>()?;
         self.check()?;
         Ok(Some(RoomSources { membership: source.membership, admission: None, messages }))
     }
@@ -297,12 +304,20 @@ fn quote_card(
         card["author_name"] = json!(entry.author);
         card["md"] = json!(crate::native::markdown::tree(&rv_protocol::markdown::parse(&text)));
         card["text"] = json!(text);
+        // Only reader-authorized ordinary descriptors use the existing file
+        // renderer. MLS sources cannot acquire public file metadata here.
+        let mut attachments = if sources[&reference.room_id].as_ref().is_some_and(|s| s.admission.is_none()) {
+            entry.files.clone()
+        } else {
+            vec![]
+        };
         if depth < 2 && !entry.document.quotes.is_empty() {
             let mut next = path.to_vec();
             next.push((reference.room_id.clone(), reference.message_id.clone()));
-            card["attachments"] = json!(
-                entry.document.quotes.iter().map(|r| quote_card(sources, r, depth + 1, &next)).collect::<Vec<_>>()
-            );
+            attachments.extend(entry.document.quotes.iter().map(|r| quote_card(sources, r, depth + 1, &next)));
+        }
+        if !attachments.is_empty() {
+            card["attachments"] = json!(attachments);
         }
     }
     card
@@ -325,6 +340,7 @@ mod tests {
             },
             position: "9007199254740995".into(),
             author: "reader-visible-author".into(),
+            files: vec![],
         }
     }
     #[test]
@@ -378,5 +394,52 @@ mod tests {
         let unavailable = quote_card(&sources, &parent, 1, &[]);
         assert_eq!(unavailable["native_unavailable"], true);
         assert!(unavailable.get("attachments").is_none(), "withdrawn parents do not expose child references");
+    }
+    #[test]
+    fn mixed_quote_cards_keep_ordinary_files_beside_private_children_without_granting_them_to_private_sources() {
+        let parent = reference("clear", "parent");
+        let child = reference("private", "child");
+        let file = rv_protocol::parity::FileDescriptor {
+            id: "source-file".into(),
+            room_id: "clear".into(),
+            bytes: "42".into(),
+            sha256: "a".repeat(64),
+            media_type: "application/pdf".into(),
+            filename: Some("source.pdf".into()),
+            encrypted: false,
+        };
+        let mut clear = entry("ordinary parent", vec![child.clone()]);
+        clear.files = crate::native::files::attachments(&[file]).unwrap();
+        let mut private = entry("private child", vec![]);
+        private.files = clear.files.clone();
+        let mut sources = BTreeMap::from([
+            (
+                "clear".into(),
+                Some(RoomSources {
+                    membership: "clear-grant".into(),
+                    admission: None,
+                    messages: BTreeMap::from([("parent".into(), clear)]),
+                }),
+            ),
+            (
+                "private".into(),
+                Some(RoomSources {
+                    membership: "private-grant".into(),
+                    admission: Some([2; 32]),
+                    messages: BTreeMap::from([("child".into(), private)]),
+                }),
+            ),
+        ]);
+        let card = quote_card(&sources, &parent, 1, &[]);
+        assert_eq!(card["attachments"][0]["title_link"], "rv-file:source-file");
+        assert_eq!(card["attachments"][1]["text"], "private child");
+        assert!(card["attachments"][1].get("attachments").is_none());
+        sources.insert("private".into(), None);
+        let card = quote_card(&sources, &parent, 1, &[]);
+        assert_eq!(card["attachments"][0]["title_link"], "rv-file:source-file");
+        assert_eq!(card["attachments"][1]["native_unavailable"], true);
+        assert_eq!(card["attachments"][1]["text"], "");
+        sources.insert("clear".into(), None);
+        assert!(quote_card(&sources, &parent, 1, &[]).get("attachments").is_none());
     }
 }

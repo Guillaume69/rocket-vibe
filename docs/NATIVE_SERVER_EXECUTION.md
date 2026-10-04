@@ -209,6 +209,19 @@ n’est modifié. La qualification GUI installée, les cartes ordinaires et sél
 bureau, archive / fichiers / actions / recherche privés restent ouverts. Aucun
 masque E2EE de production activé.
 
+Les cartes mixtes du cœur bureau conservent maintenant aussi les fichiers de
+leurs sources ordinaires, au côté de descendants privés et avec les lecteurs
+de fichiers protégés existants. Le retrait masque uniquement la source concernée ;
+une source MLS ne peut obtenir de métadonnées de fichier ordinaires. Les deux
+tests ciblés de cartes passent sur Windows : fichiers / descendant retiré,
+parent retiré, Unicode, profondeur et cycles. Clippy strict cœur / FFI passe
+en 22,1 secondes ; qualification CI de cette correction encore ouverte.
+La CI verte de `a576db3` révèle un échec de sauvegarde du cache desktop : verrous
+incrémentaux créés par Docker en propriétaire `root`, illisibles par `tar` du
+runner. Le nettoyage rend maintenant les caches générés au runner, comme le
+fait déjà le job Swift. L’efficacité de la nouvelle sauvegarde reste à constater
+sur le prochain run ; aucun contrôle fonctionnel n’est retiré.
+
 | Jalon | Développement livré | Travail restant pour le fermer |
 |---|---|---|
 | J0 | Contrats, fixtures communes, inventaire et backlog de parité | Conditions opérateur / export et décisions crypto liées aux jalons suivants |
@@ -218,16 +231,16 @@ masque E2EE de production activé.
 | J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils et citations privés dans les trois interfaces, lecture mixte, composition / destination intersalons Android et cartes privées dans ses salons ordinaires | Sélecteurs intersalons bureau, cartes privées dans les salons ordinaires bureau, renouvellement / récupération / révocation visibles, autres actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison serveur qui passe tous les jobs de sa CI (`574f137`) passe les neuf jobs de la CI
-`37240191574` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison serveur qui passe tous les jobs de sa CI (`a576db3`) passe les neuf jobs de la CI
+`37242529465` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
 Le job Android `37238019723` passe aussi les deux ABI, le vrai Keystore, la
 cérémonie d'association, les contrôles de confiance, groupes, fils et citations sur émulateur.
 L'application macOS du lot citations privées `9884ce2` passe sa compilation, son packaging et son
 démarrage (`37235042086`, tentative 2 après timeout d’upload GitHub).
 Le lot lecture mixte `574f137` passe aussi l’application macOS (`37240191547`).
-Le lot composition Android `a576db3` passe le Keystore / ABI (`37242529415`) ;
-sa CI serveur `37242529465` attend encore son job desktop. Groupes, projection et composeur dans les interfaces
+Le lot composition Android `a576db3` passe le Keystore / ABI (`37242529415`) et
+tous les jobs serveur (`37242529465`). Groupes, projection et composeur dans les interfaces
 existantes compilent et passent ces régressions. Le parcours GUI E2EE complet
 avec plusieurs applications installées reste un critère de sortie distinct.
 L'inventaire généré qui avait arrêté la CI du raccordement `60e72f4` est corrigé.

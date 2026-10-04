@@ -9,12 +9,18 @@ section here.
 
 ### Added
 
+- Mixed private quote cards retain ordinary source files alongside private
+  descendants, using the existing protected file readers. Losing a source masks
+  its files and excerpts; an MLS source cannot acquire ordinary file metadata.
+  Encrypted files and private cards displayed in ordinary desktop rooms remain open.
+
 - Existing private GTK / SwiftUI cards can resolve ordinary source excerpts
   from their membership-scoped cache alongside sources from the protected
   coffer. Source edits refresh the excerpt; withdrawal masks the parent and
   its children. The shared private SDK also selects ordinary sources for an
   MLS send, retaining only references and the original ciphertext. Android
-  composition and citations displayed in ordinary rooms remain open.
+  citations displayed in ordinary desktop rooms remain open; Android composition
+  and its ordinary-room private cards are now connected.
 
 - Existing GTK and SwiftUI reply menus and composer banners can experimentally
   quote retained private messages, including thread replies, and send a quote

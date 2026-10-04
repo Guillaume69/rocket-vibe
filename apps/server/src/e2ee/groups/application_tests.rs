@@ -146,6 +146,15 @@ async fn http_exact_retries_survive_restart_and_only_a_real_peer_opens_the_opaqu
     let server = tokio::spawn(async move { axum::serve(socket, router).await.unwrap() });
     let native = rv_client::NativeClient::new(&format!("http://{address}")).unwrap();
     native.update_token(owner.token.clone());
+    let ordinary_before = native.snapshot().await.unwrap();
+    assert!(
+        !ordinary_before
+            .rooms
+            .iter()
+            .find(|r| r.id == room.id)
+            .unwrap()
+            .encrypted
+    );
     let receipt = native.submit_crypto_group(&room.id, &input).await.unwrap();
     group.merge_pending_commit(&owner.provider).unwrap();
     let message = plaintext();
@@ -184,6 +193,37 @@ async fn http_exact_retries_survive_restart_and_only_a_real_peer_opens_the_opaqu
     assert_eq!(recovered.position, first.position);
     let counts: (i64,i64,i64) = sqlx::query_as("SELECT (SELECT count(*) FROM e2ee_application_messages),(SELECT count(*) FROM e2ee_delivery),(SELECT count(*) FROM messages WHERE system IS NULL)").fetch_one(&app.pool).await.unwrap();
     assert_eq!(counts, (1, 2, 0));
+    let ordinary_changes = native.changes(&ordinary_before.cursor).await.unwrap();
+    assert_eq!(
+        ordinary_changes.changes.len(),
+        2,
+        "Exact retries publish no duplicate room activity"
+    );
+    for change in &ordinary_changes.changes {
+        let rv_protocol::Change::RoomUpsert(changed) = change else {
+            panic!("Private activity must publish only room metadata")
+        };
+        assert_eq!(changed.id, room.id);
+        assert!(changed.encrypted);
+    }
+    let encoded = serde_json::to_string(&ordinary_changes).unwrap();
+    assert!(!encoded.contains(&message.text));
+    assert!(!encoded.contains(&submitted.ciphertext));
+    let fresh = native.snapshot().await.unwrap();
+    let current = fresh.rooms.iter().find(|r| r.id == room.id).unwrap();
+    assert!(current.encrypted);
+    assert_eq!(current.revision, first.position);
+    assert!(
+        native
+            .rooms()
+            .await
+            .unwrap()
+            .iter()
+            .find(|r| r.id == room.id)
+            .unwrap()
+            .encrypted
+    );
+    assert!(native.room_details(&room.id).await.unwrap().room.encrypted);
     let row: (Vec<u8>, Vec<u8>) =
         sqlx::query_as("SELECT proof,ciphertext FROM e2ee_application_messages")
             .fetch_one(&app.pool)

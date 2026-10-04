@@ -39,7 +39,7 @@ pub async fn read(app: &App, actor: &Account, room: &str) -> Result<RoomDetails>
     if !identifier(room) {
         return Err(Error::invalid());
     }
-    let row: DetailsRow = sqlx::query_as("SELECT r.*,m.role AS actor_role,m.access_version AS actor_access,(SELECT count(*) FROM members g WHERE g.room_id=r.id) AS member_count FROM rooms r JOIN members m ON m.room_id=r.id AND m.user_id=$2 WHERE r.id=$1")
+    let row: DetailsRow = sqlx::query_as("SELECT r.*,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=r.id) AS encrypted,m.role AS actor_role,m.access_version AS actor_access,(SELECT count(*) FROM members g WHERE g.room_id=r.id) AS member_count FROM rooms r JOIN members m ON m.room_id=r.id AND m.user_id=$2 WHERE r.id=$1")
         .bind(room).bind(&actor.id).fetch_optional(&app.pool).await?.ok_or_else(Error::missing)?;
     let p = permissions::room_grant(
         room,
@@ -226,7 +226,7 @@ pub async fn apply(
             applied_revision: revision,
         });
     }
-    let current: CoreRoom = sqlx::query_as("SELECT * FROM rooms WHERE id=$1 FOR UPDATE")
+    let current: CoreRoom = sqlx::query_as("SELECT rooms.*,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=rooms.id) AS encrypted FROM rooms WHERE id=$1 FOR UPDATE")
         .bind(room)
         .fetch_optional(&mut *tx)
         .await?
@@ -388,7 +388,7 @@ pub(crate) async fn publish(
 ) -> Result<rv_protocol::Room> {
     let position = store::next_position(tx).await?;
     let row: RoomRow =
-        sqlx::query_as("UPDATE rooms SET revision=$2 WHERE id=$1 RETURNING id,name,kind,revision")
+        sqlx::query_as("UPDATE rooms SET revision=$2 WHERE id=$1 RETURNING id,name,kind,revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=rooms.id) AS encrypted")
             .bind(room)
             .bind(position)
             .fetch_one(&mut **tx)

@@ -10,6 +10,7 @@ fn room(id: &str, revision: &str, grant: &str) -> Room {
         name: id.into(),
         kind: rv_protocol::RoomKind::Private,
         revision: revision.into(),
+        encrypted: false,
         read_state: Some(Box::new(ReadState {
             room_id: id.into(),
             revision: revision.into(),

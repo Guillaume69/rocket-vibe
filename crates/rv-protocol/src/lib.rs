@@ -264,6 +264,12 @@ pub struct Room {
     /// Account-scoped state; absent from public journal payloads and old servers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub read_state: Option<Box<parity::ReadState>>,
+    /// An MLS group exists. This metadata grants no key or group admission.
+    #[serde(default, skip_serializing_if = "unencrypted")]
+    pub encrypted: bool,
+}
+fn unencrypted(value: &bool) -> bool {
+    !value
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

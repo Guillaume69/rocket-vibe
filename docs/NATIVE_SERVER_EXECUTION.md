@@ -11,15 +11,14 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission dans le même coffre et accès crypto du cœur bureau lié à sa session | Cérémonies / trousseaux / projection dans les interfaces, suspension des salons retirés, pont mobile, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session et cérémonie d'identité / association dans les réglages GTK / SwiftUI | Pins / groupes et projection privée dans les interfaces, renouvellement / récupération / révocation visibles, suspension des salons retirés, pont mobile, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison entièrement qualifiée (`0b2d92e`) passe les neuf jobs de la CI
-`37189126102` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison entièrement qualifiée (`28776ff`) passe les neuf jobs de la CI
+`37194321788` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
-Le raccordement suivant (`60e72f4`, CI `37190798775`) passe huit jobs ; le contrôle
-général échoue sur l'inventaire API généré, après ses tests réussis. Cet inventaire
-est régénéré et vérifié avec le lot des cérémonies ci-dessous.
+L'application macOS passe aussi sa compilation / packaging (`37194321889`).
+L'inventaire généré qui avait arrêté la CI du raccordement `60e72f4` est corrigé.
 Le journal serveur passe ses neuf scénarios
 PostgreSQL / HTTP / MLS et les contrats communs ; aucune capacité E2EE n'est
 activée. Le worker privé checkpoint maintenant les pages communes aux messages
@@ -32,7 +31,8 @@ terminale durable et libération du seul commit non accepté. Réadmission du
 même coffre avec nouveau Welcome / package, remplacement atomique et cache
 précédent marqué hors projection ajoutés. Le cœur du fournisseur bureau lie
 maintenant le worker à sa session et à son client HTTP, avec garde terminale
-des résultats tardifs. Cérémonies / trousseaux / projection des interfaces,
+des résultats tardifs. La cérémonie d'identité / association et les trousseaux
+des réglages bureau sont raccordés. Pins / groupes, projection privée,
 suspension des salons retirés, pont mobile et historique autorisé restent ouverts.
 Les critères externes encore ouverts restent des critères de sortie de la RFC.
 
@@ -347,6 +347,29 @@ Le parcours mobile pilote et les tests sans appareil ne ferment pas J1 : il exig
 les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
+
+- P19 / J4, état des salons dans les fournisseurs existants (4 octobre 2026) :
+  le contrat commun expose `encrypted`, optionnel et faux sur les anciens serveurs.
+  Le serveur dérive cet état de l'existence du groupe MLS. Acceptation d'un groupe
+  ou d'un message privé publie seulement une mise à jour du salon dans le journal
+  ordinaire, au même emplacement global que sa livraison privée et dans la même
+  transaction ; un retry exact ne publie pas une seconde activité. Aucun texte,
+  ciphertext, clé ou état de groupe ne passe par ce journal. Liste / snapshot /
+  détails et changements transmettent l'état aux caches GTK, SwiftUI et mobile.
+  Le salon déjà ouvert devient verrouillé dans les vues existantes. Le bouton de
+  déverrouillage Rocket.Chat reste réservé à son fournisseur. Nouvel envoi en clair
+  refusé avant intention ordinaire ; ancien envoi hors ligne marqué `crypto_required`
+  avant HTTP, avec corps conservé. Ce raccordement prépare la projection privée,
+  sans la livrer ni activer E2EE. Les badges privés et le rattrapage du journal
+  protégé dans les interfaces restent ouverts.
+  Vérifications locales : 408 tests bureau réussis (quatre cas ignorés par
+  défaut), Clippy strict Fedora ; 288 tests mobiles et TypeScript réussis.
+  Contrats Rust et schéma / TypeScript générés vérifiés. Le cas HTTP / PostgreSQL
+  étend le banc MLS avec snapshot, liste, détails et deux activités ordinaires
+  sans texte privé ni doublon. Clippy serveur passe ; sa compilation de tests
+  est interrompue par le moteur Docker, y compris seule avec deux tâches et
+  mémoire limitée. Qualification serveur / Swift confiée à la CI de la branche,
+  sans considérer cette interruption comme une validation réussie.
 
 - P19 / J4, cérémonie dans les réglages existants (4 octobre 2026) : GTK et
   SwiftUI partagent le parcours Rust de création explicite de racine, demande

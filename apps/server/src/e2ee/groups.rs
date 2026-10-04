@@ -9,6 +9,25 @@ use std::time::Instant;
 
 const PAYLOAD: usize = 1024 * 1024;
 const TOTAL: usize = 2 * 1024 * 1024;
+
+/// Wake the existing room stream without disclosing private message content.
+/// The room lock and global sequencer are already held by this transaction.
+async fn publish_activity(
+    tx: &mut Transaction<'_, Postgres>,
+    room: &str,
+    position: i64,
+) -> Result<()> {
+    let row: crate::store::RoomRow = sqlx::query_as("UPDATE rooms SET revision=$2 WHERE id=$1 RETURNING id,name,kind,revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=rooms.id) AS encrypted")
+        .bind(room).bind(position).fetch_one(&mut **tx).await?;
+    crate::store::event(
+        tx,
+        position,
+        room,
+        None,
+        rv_protocol::Change::RoomUpsert(row.wire()),
+    )
+    .await
+}
 pub mod messages;
 mod settlement;
 pub use settlement::cancel;
@@ -582,6 +601,7 @@ pub async fn submit(
     if commit_now >= roster_deadline {
         return Err(wait());
     }
+    publish_activity(&mut tx, room, delivery_position).await?;
     tx.commit().await?;
     Ok(receipt)
 }

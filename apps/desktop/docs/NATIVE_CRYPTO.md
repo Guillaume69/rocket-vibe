@@ -42,6 +42,16 @@ sont rendus qu'après leur checkpoint protégé et revalidation du cycle de vie.
 Leur projection dans la liste des messages reste à raccorder ; ils ne sont pas
 écrits dans la SQLite ordinaire.
 
+Le contrat commun du salon indique maintenant l'existence d'un groupe MLS.
+Ce booléen, absent ou faux sur les anciens serveurs, n'accorde aucune clé ou
+admission. Une acceptation crypto publie uniquement cette métadonnée dans le
+journal ordinaire, avec le même emplacement global que la livraison privée.
+Les caches et vues de salon existants la conservent et verrouillent le composer,
+y compris après une mise à jour du salon déjà ouvert. Un ancien envoi ordinaire
+hors ligne passe en échec `crypto_required` avant tout POST, avec son corps
+récupérable ; la file ordinaire refuse aussi de nouvelles intentions dans ce
+salon. Aucun message déchiffré n'est encore affiché par ce raccordement.
+
 ## Vérifications et suite
 
 Les tests `native_crypto` utilisent le vrai `NativeSession`, son client HTTP,

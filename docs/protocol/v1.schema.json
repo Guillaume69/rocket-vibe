@@ -4473,6 +4473,10 @@
     },
     "Room": {
       "properties": {
+        "encrypted": {
+          "description": "An MLS group exists. This metadata grants no key or group admission.",
+          "type": "boolean"
+        },
         "id": {
           "type": "string"
         },

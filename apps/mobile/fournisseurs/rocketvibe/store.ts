@@ -287,7 +287,7 @@ export class NativeStore {
     const access=await this.db.getFirstAsync<NativeRoomAccess>('SELECT * FROM native_room_access WHERE rid=?',[room.id]);
     await this.db.runAsync(UPSERT_SALON, paramsSalon({
       rid: room.id, type: room.kind === 'direct' ? 'd' : room.kind === 'private' ? 'p' : 'c',
-      nom: room.name, nomAffiche: room.name, chiffre: false, lectureSeule: access?.can_send===0,
+      nom: room.name, nomAffiche: room.name, chiffre: room.encrypted===true, lectureSeule: access?.can_send===0,
       dmAutreUid: null, dmAutreUsername: null, dernierMessage: null, dernierMessageType: null,
       horodatageDernierMessage: null, avatarEtag: null, misAJourLe: Date.now(),
     }));
@@ -411,6 +411,9 @@ export class NativeStore {
   }
   rooms(): Promise<NativeRoomRow[]> {
     return this.queue(async () => await this.sameGeneration() ? this.db.getAllAsync<NativeRoomRow>('SELECT rid,COALESCE(nom_affiche,nom,rid) AS nom,type,dernier_message FROM salons ORDER BY COALESCE(horodatage_dernier_message,0) DESC,rid', []) : []);
+  }
+  roomEncrypted(rid:string):Promise<boolean> {
+    return this.queue(async()=>!await this.sameGeneration() || (await this.db.getFirstAsync<{chiffre:number}>('SELECT chiffre FROM salons WHERE rid=?',[rid]))?.chiffre===1);
   }
   roomAccess(rid:string):Promise<NativeRoomAccess|null> {
     return this.queue(async()=>await this.sameGeneration()?this.db.getFirstAsync<NativeRoomAccess>('SELECT * FROM native_room_access WHERE rid=?',[rid]):null);
@@ -664,6 +667,7 @@ export class NativeStore {
   enqueue(id: string, rid: string, text: string,scope?:{membership:string|null},selected:readonly NativeQuoteSelection[]=[],replyTo?:string|null): Promise<void> {
     return this.atomic(async () => {
       if (!await this.sameGeneration() || !await this.db.getFirstAsync('SELECT rid FROM salons WHERE rid=?', [rid])) throw new Error('Room unavailable in this generation');
+      if ((await this.db.getFirstAsync<{chiffre:number}>('SELECT chiffre FROM salons WHERE rid=?',[rid]))?.chiffre===1) throw new Error('Encrypted room requires the private delivery worker');
       if(scope && !await this.membershipMatches(rid,scope.membership))throw new Error('Native membership changed');
       if(replyTo && !await this.db.getFirstAsync('SELECT m.id FROM messages m JOIN native_positions p ON p.id=m.id WHERE m.id=? AND m.rid=? AND m.fil_id IS NULL AND m.type_systeme IS NULL AND p.position<>\'0\'',[replyTo,rid]))throw new Error('Native thread root unavailable');
       const now = new Date().toISOString();

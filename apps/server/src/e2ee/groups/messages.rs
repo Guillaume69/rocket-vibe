@@ -271,6 +271,7 @@ pub async fn submit(
     {
         return Err(wait());
     }
+    publish_activity(&mut tx, room, position).await?;
     tx.commit().await?;
     Ok(receipt)
 }

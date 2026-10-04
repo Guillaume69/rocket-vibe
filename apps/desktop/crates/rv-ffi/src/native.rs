@@ -55,6 +55,7 @@ pub struct NativeRoom {
     pub id: String,
     pub name: String,
     pub kind: String,
+    pub encrypted: bool,
 }
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct NativeMessage {
@@ -615,6 +616,7 @@ impl NativeChat {
             .map(|r| NativeRoom {
                 id: r.id,
                 name: r.name,
+                encrypted: r.encrypted,
                 kind: match r.kind {
                     rv_core::native::RoomKind::Public => "public",
                     rv_core::native::RoomKind::Private => "private",

@@ -213,6 +213,7 @@ mod tests {
                 name: "Room".into(),
                 kind: RoomKind::Private,
                 revision: "1".into(),
+                encrypted: false,
                 read_state: None,
             }],
             messages: vec![],

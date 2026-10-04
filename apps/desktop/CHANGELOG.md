@@ -16,6 +16,11 @@ section here.
 
 ### Fixed
 
+- RocketVibe room synchronization preserves the encrypted-room state in the
+  existing GTK and SwiftUI views. Ordinary sends stop before HTTP, including
+  queued offline sends whose bodies remain recoverable. Native encrypted
+  messaging remains gated during validation.
+
 - Native Linux notifications use XDG Notification v2 inline replies when the
   portal advertises support and GLib supports their typed activation. A reply
   can reactivate the app after exit; late displays cannot undo a withdrawal.

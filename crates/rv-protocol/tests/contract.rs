@@ -1,6 +1,28 @@
 use rv_protocol::{Contract, SendMessage};
 
 #[test]
+fn encrypted_room_metadata_is_optional_on_old_servers_and_contains_no_private_state() {
+    let fixture: Contract =
+        serde_json::from_str(include_str!("../../../docs/protocol/v1.fixture.json")).unwrap();
+    assert!(!fixture.room.encrypted);
+    assert!(
+        serde_json::to_value(&fixture.room)
+            .unwrap()
+            .get("encrypted")
+            .is_none()
+    );
+    let mut room = fixture.room;
+    room.encrypted = true;
+    let encoded = serde_json::to_value(&room).unwrap();
+    assert_eq!(encoded["encrypted"], true);
+    assert!(
+        serde_json::from_value::<rv_protocol::Room>(encoded)
+            .unwrap()
+            .encrypted
+    );
+}
+
+#[test]
 fn terminal_group_decisions_never_publish_a_revision_for_abandonment() {
     use rv_protocol::e2ee::GroupSettlement;
     let fixture: Contract =

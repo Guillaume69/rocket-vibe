@@ -109,7 +109,7 @@ impl NativeSession {
                     mentions,
                     alert,
                     favorite: room.read_state.as_ref().is_some_and(|s| s.favorite),
-                    encrypted: false,
+                    encrypted: room.encrypted,
                     read_only,
                     slug: None,
                     last_encrypted: None,

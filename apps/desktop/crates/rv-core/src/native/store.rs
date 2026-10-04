@@ -714,6 +714,25 @@ impl NativeStore {
             Ok(true)
         })
     }
+    pub fn room_encrypted(&self, rid: &str) -> rusqlite::Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        if !self.same(&conn)? {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        Self::encrypted_in(&conn, rid)
+    }
+    fn encrypted_in(conn: &Connection, rid: &str) -> rusqlite::Result<bool> {
+        let payload: Option<String> =
+            conn.query_row("SELECT payload FROM native_rooms WHERE id=?1", [rid], |row| row.get(0)).optional()?;
+        payload
+            .map(|value| {
+                serde_json::from_str::<Room>(&value)
+                    .map(|room| room.encrypted)
+                    .map_err(|_| rusqlite::Error::InvalidQuery)
+            })
+            .transpose()
+            .map(|encrypted| encrypted.unwrap_or(false))
+    }
     pub fn rooms(&self) -> rusqlite::Result<Vec<Room>> {
         let conn = self.conn.lock().unwrap();
         if !self.same(&conn)? {
@@ -855,6 +874,9 @@ impl NativeStore {
     }
     fn insert_pending_in(&self, tx: &Transaction, pending: &Pending, username: &str) -> rusqlite::Result<()> {
         let (id, rid, text) = (&pending.id, &pending.room_id, &pending.text);
+        if Self::encrypted_in(tx, rid)? {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         tx.execute(
             "INSERT INTO native_messages(id,rid,text,author,ts,reply_to) VALUES(?1,?2,?3,?4,?5,?6)",
             params![id, rid, text, username, chrono::Utc::now().timestamp_millis(), pending.reply_to],
@@ -952,6 +974,39 @@ mod tests {
     }
     fn store() -> NativeStore {
         NativeStore::open(Path::new(":memory:"), identity()).unwrap()
+    }
+    #[test]
+    fn encrypted_room_metadata_blocks_new_ordinary_intentions_without_losing_old_drafts() {
+        let store = store();
+        let snapshot = snapshot();
+        let mut room = snapshot.rooms[0].clone();
+        store.snapshot(&snapshot).unwrap();
+        store.set_draft(&room.id, "retained draft").unwrap();
+        store.enqueue("queued-before", &room.id, "retained outbox", "alice").unwrap();
+        assert!(!store.room_encrypted(&room.id).unwrap());
+        room.encrypted = true;
+        room.revision = (decimal(&room.revision).unwrap() + 1).to_string();
+        store
+            .batch(&SyncBatch {
+                protocol_version: 1,
+                changes: vec![Change::RoomUpsert(room.clone())],
+                cursor: "encrypted".into(),
+                has_more: false,
+            })
+            .unwrap();
+        assert!(store.room_encrypted(&room.id).unwrap());
+        assert!(store.enqueue("after-encryption", &room.id, "must not queue", "alice").is_err());
+        assert_eq!(store.pending().unwrap()[0].text, "retained outbox");
+        assert_eq!(store.draft(&room.id).unwrap(), "retained draft");
+        store
+            .batch(&SyncBatch {
+                protocol_version: 1,
+                changes: vec![Change::RoomUpsert(snapshot.rooms[0].clone())],
+                cursor: "stale".into(),
+                has_more: false,
+            })
+            .unwrap();
+        assert!(store.room_encrypted(&room.id).unwrap(), "An older room cannot unlock the composer");
     }
     #[test]
     fn cursor_and_echo_roll_back_together() {

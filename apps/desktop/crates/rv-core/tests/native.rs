@@ -5,6 +5,68 @@ use rv_core::session::SessionInfo;
 use serde_json::json;
 
 #[tokio::test]
+async fn encrypted_room_sync_refuses_plaintext_posts_and_preserves_the_old_outbox_body() {
+    use std::{sync::Arc, time::Duration};
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../../docs/protocol/v1.fixture.json")).unwrap();
+    let mut room: rv_protocol::Room = serde_json::from_value(fixture["room"].clone()).unwrap();
+    let identity = Identity { instance_id: "fixture-instance".into(), data_epoch: "fixture-epoch".into() };
+    let path = std::env::temp_dir().join(format!("rv-encrypted-room-{:032x}.sqlite", fastrand::u128(..)));
+    let store = native::store::NativeStore::open(&path, identity.clone()).unwrap();
+    store
+        .snapshot(&rv_protocol::Snapshot {
+            protocol_version: 1,
+            rooms: vec![room.clone()],
+            messages: vec![],
+            cursor: "initial".into(),
+        })
+        .unwrap();
+    store.enqueue("offline-before", &room.id, "Keep the unsent body", "alice").unwrap();
+    drop(store);
+    room.encrypted = true;
+    room.revision = (room.revision.parse::<u64>().unwrap() + 1).to_string();
+    let rid = room.id.clone();
+    let responses = Arc::new(fixture);
+    let server = FakeHttp::start(move |request| match request.path() {
+        "/.well-known/rocketvibe"=>respond(200,&responses["discovery"].to_string()),
+        "/api/v1/me"=>respond(200,&responses["session"]["user"].to_string()),
+        "/api/v1/sync/changes"=>respond(200,&json!({"protocol_version":1,"changes":[rv_protocol::Change::RoomUpsert(room.clone())],"cursor":"encrypted","has_more":false}).to_string()),
+        "/api/v1/sync/ticket"=>respond(200,&responses["socket_ticket"].to_string()),
+        "/api/v1/sync/socket"=>common::Response {websocket:true,..Default::default()},
+        _=>respond(404,r#"{"code":"not_found","request_id":"fake"}"#),
+    }).await;
+    let session = native::NativeSession::start(
+        SessionInfo {
+            base_url: server.url.as_str().into(),
+            user_id: "alice-id".into(),
+            username: "alice".into(),
+            auth_token: "fixture-token".into(),
+            native: Some(identity),
+        },
+        &path,
+    )
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while session.status().connection != rv_core::session::Connection::Online {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(session.store.room_encrypted(&rid).unwrap());
+    assert!(session.room_rows().unwrap().iter().find(|r| r.rid == rid).unwrap().encrypted);
+    assert!(!session.can_send_to_room(&rid));
+    assert_eq!(session.send(&rid, "No ordinary send").err().unwrap().code(), "crypto_required");
+    assert!(session.store.pending().unwrap().is_empty());
+    let kept = session.store.messages(&rid, 10).unwrap();
+    assert_eq!(kept[0].text, "Keep the unsent body");
+    assert_eq!(kept[0].status.as_deref(), Some("failed"));
+    common::close_native(session).await;
+    assert!(server.requests().iter().all(|r| r.method != "POST" || !r.path().ends_with("/messages")));
+    std::fs::remove_file(path).unwrap();
+}
+
+#[tokio::test]
 async fn reaction_intentions_survive_restart_and_normalize_aliases_before_retrying() {
     use std::sync::{
         Arc,

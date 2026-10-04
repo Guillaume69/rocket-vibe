@@ -151,6 +151,7 @@ pub struct ChatPage {
     composer: Rc<Composer>,
     read_only_label: gtk::Label,
     e2e_banner: gtk::Box,
+    e2e_unlock: gtk::Button,
     session: Rc<RefCell<Option<Arc<Session>>>>,
     current: RefCell<Option<OpenRoom>>,
     limit: Cell<i64>,
@@ -424,6 +425,7 @@ impl ChatPage {
             composer,
             read_only_label,
             e2e_banner,
+            e2e_unlock: unlock_button.clone(),
             session,
             current: RefCell::default(),
             limit: Cell::new(HISTORY_PAGE),
@@ -1771,6 +1773,7 @@ impl ChatPage {
         self.room_title.append(&names);
         let unlocked = self.session.borrow().as_ref().is_some_and(|s| s.e2e_unlocked());
         self.e2e_banner.set_visible(open.encrypted && !unlocked);
+        self.e2e_unlock.set_visible(self.session.borrow().is_some());
         // Locked, nothing can leave an encrypted room: the server refuses clear text in it.
         let writable = !open.read_only && (!open.encrypted || unlocked);
         self.composer.root.set_visible(writable);

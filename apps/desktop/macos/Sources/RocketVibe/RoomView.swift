@@ -150,7 +150,9 @@ struct LockedBanner: View {
             Image(systemName: "lock.fill")
             Text(L("e2e.read_only"))
             Spacer()
-            Button(L("e2e.unlock")) { asking = true }.buttonStyle(VibeButtonStyle())
+            if app.chat != nil {
+                Button(L("e2e.unlock")) { asking = true }.buttonStyle(VibeButtonStyle())
+            }
         }
         .padding(12)
         .background(Vibe.card)

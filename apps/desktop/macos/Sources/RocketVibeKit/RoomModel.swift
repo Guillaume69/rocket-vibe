@@ -170,7 +170,7 @@ public final class RoomModel {
     private let nativeMembership: String?
     @ObservationIgnored private var nativeQuote: NativeQuoteSelection?
     public private(set) var pendingQuote: Quote?
-    public var canSend: Bool { threadWriteAllowed && (!draft.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || nativeQuote != nil) }
+    public var canSend: Bool { threadWriteAllowed && !(provider.native != nil && room.encrypted) && (!draft.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || nativeQuote != nil) }
     public private(set) var threadWriteAllowed = true
     @ObservationIgnored private var actionLoads: Set<String> = []
     @ObservationIgnored private var mutations: [String: NativeMessageActions] = [:]

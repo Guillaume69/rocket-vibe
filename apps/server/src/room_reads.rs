@@ -87,7 +87,7 @@ pub(crate) async fn publish(
     user: Option<&str>,
     revision: i64,
 ) -> Result<()> {
-    let row: RoomRow = sqlx::query_as("SELECT id,name,kind,revision FROM rooms WHERE id=$1")
+    let row: RoomRow = sqlx::query_as("SELECT id,name,kind,revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=rooms.id) AS encrypted FROM rooms WHERE id=$1")
         .bind(room)
         .fetch_one(&mut **tx)
         .await?;

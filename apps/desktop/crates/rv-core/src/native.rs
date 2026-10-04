@@ -756,6 +756,10 @@ impl NativeSession {
         Ok(())
     }
     async fn deliver_pending(&self, pending: store::Pending) -> Result<(), Error> {
+        if self.store.room_encrypted(&pending.room_id)? {
+            self.store.fail(&pending.id, "crypto_required")?;
+            return Ok(());
+        }
         let projection = self.store.projection_token();
         match self
             .client
@@ -825,6 +829,9 @@ impl NativeSession {
         if self.status().error.as_deref() == Some("server_identity_changed") {
             return Err(Error::Protocol("server_identity_changed"));
         }
+        if self.store.room_encrypted(rid)? {
+            return Err(Error::Protocol("crypto_required"));
+        }
         let text = text.trim();
         if text.is_empty() && selections.is_empty() || text.len() > 32_768 {
             return Err(Error::Protocol("invalid_message"));
@@ -892,6 +899,9 @@ impl NativeSession {
     }
     /// An offline cache is only a UI hint; every send is authorized by the server.
     pub fn can_send_to_room(&self, room: &str) -> bool {
+        if self.store.room_encrypted(room).unwrap_or(true) {
+            return false;
+        }
         if !self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.room_info) {
             return true;
         }

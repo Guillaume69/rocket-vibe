@@ -69,3 +69,32 @@ test('concurrent composer reads coalesce and recheck a changed room version',asy
     await chat.refreshRoomAccess(original.room.id);assert.equal(reads,2,'Known rights avoid another HTTP read');
   }finally{chat.stop();await store.state();harness.db.close();}
 });
+
+test('encrypted room synchronization locks the existing composer and fences persisted clear sends',async()=>{
+  const harness=nativeTestDatabase(),store=new NativeStore(harness.adapter,creerFileEcritures(),session);
+  const ordinary=details().room,encrypted={...ordinary,encrypted:true,revision:String(BigInt(ordinary.revision)+1n)};
+  let sends=0,ids=0;
+  const transport={discover:async()=>fixture.discovery,me:async()=>fixture.session.user,
+    changes:async()=>({protocol_version:1,changes:[{type:'room_upsert',data:encrypted}],cursor:'encrypted',has_more:false}),
+    socketUrl:async()=>'ws://localhost/fake',send:async()=>{sends++;throw new Error('No plaintext POST may reach the transport');},
+  } as unknown as NativeTransport;
+  const chat=new NativeChat(session,store,()=>String(++ids),{transport,socket:()=>{
+    const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;
+    queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;
+  }});
+  try {
+    await store.applySnapshot({protocol_version:1,rooms:[ordinary],messages:[],cursor:'first'});
+    assert.equal(await store.roomEncrypted(ordinary.id),false,'Legacy rooms default to the ordinary transport');
+    await store.enqueue('offline-before-encryption',ordinary.id,'Retained offline body');
+    await chat.connect();
+    assert.equal(await store.roomEncrypted(ordinary.id),true);
+    assert.equal(harness.db.prepare('SELECT chiffre FROM salons WHERE rid=?').get(ordinary.id)?.chiffre,1);
+    const retained=harness.db.prepare('SELECT texte,derniere_erreur FROM sortie WHERE id=?').get('offline-before-encryption');
+    assert.equal(retained?.texte,'Retained offline body');assert.equal(retained?.derniere_erreur,'crypto_required');
+    await assert.rejects(chat.send(ordinary.id,'No ordinary intention'),/crypto_required/);
+    await assert.rejects(store.enqueue('bypass',ordinary.id,'No direct cache bypass'),/Encrypted room/);
+    await store.applyBatch({protocol_version:1,changes:[{type:'room_upsert',data:ordinary}],cursor:'stale',has_more:false});
+    assert.equal(await store.roomEncrypted(ordinary.id),true,'Older metadata cannot unlock the room');
+    assert.equal(sends,0);assert.equal(ids,0);
+  } finally {chat.stop();await store.state();harness.db.close();}
+});

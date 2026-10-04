@@ -14,6 +14,7 @@ pub(crate) struct RoomRow {
     pub name: String,
     pub kind: String,
     pub revision: i64,
+    pub encrypted: bool,
 }
 
 impl RoomRow {
@@ -28,6 +29,7 @@ impl RoomRow {
             },
             revision: self.revision.to_string(),
             read_state: None,
+            encrypted: self.encrypted,
         }
     }
 }
@@ -215,7 +217,7 @@ pub async fn create_room(app: &App, account: &Account, input: CreateRoom) -> Res
             }
             require_member(&mut tx, &room_id, &account.id).await?;
             let room =
-                sqlx::query_as::<_, RoomRow>("SELECT id,name,kind,revision FROM rooms WHERE id=$1")
+                sqlx::query_as::<_, RoomRow>("SELECT id,name,kind,revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=rooms.id) AS encrypted FROM rooms WHERE id=$1")
                     .bind(room_id)
                     .fetch_one(&mut *tx)
                     .await?
@@ -263,6 +265,7 @@ pub async fn create_room(app: &App, account: &Account, input: CreateRoom) -> Res
         name: name.into(),
         kind: kind.into(),
         revision: position,
+        encrypted: false,
     }
     .wire();
     if let Some(operation) = input.operation_id {
@@ -300,19 +303,20 @@ pub async fn public_rooms(
         return Err(Error::invalid());
     }
     // Literal substring search: user '%'/'_' characters are not SQL wildcards.
-    let rows: Vec<(String,String,String,i64,bool)> = sqlx::query_as("SELECT r.id,r.name,r.kind,r.revision,EXISTS(SELECT 1 FROM members m WHERE m.room_id=r.id AND m.user_id=$1) FROM rooms r WHERE r.kind='public' AND strpos(lower(r.name),lower($2))>0 AND r.id>$3 ORDER BY r.id LIMIT 21")
+    let rows: Vec<(String,String,String,i64,bool,bool)> = sqlx::query_as("SELECT r.id,r.name,r.kind,r.revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=r.id) AS encrypted,EXISTS(SELECT 1 FROM members m WHERE m.room_id=r.id AND m.user_id=$1) FROM rooms r WHERE r.kind='public' AND strpos(lower(r.name),lower($2))>0 AND r.id>$3 ORDER BY r.id LIMIT 21")
         .bind(&account.id).bind(query.trim()).bind(after.unwrap_or("")).fetch_all(&app.pool).await?;
     let more = rows.len() > 20;
     let rooms: Vec<_> = rows
         .into_iter()
         .take(20)
         .map(
-            |(id, name, kind, revision, joined)| rv_protocol::PublicRoom {
+            |(id, name, kind, revision, encrypted, joined)| rv_protocol::PublicRoom {
                 room: RoomRow {
                     id,
                     name,
                     kind,
                     revision,
+                    encrypted,
                 }
                 .wire(),
                 joined,
@@ -334,7 +338,7 @@ pub async fn join_public(app: &App, account: &Account, room_id: &str) -> Result<
     let mut tx = app.pool.begin().await?;
     lock_active(&mut tx, account).await?;
     let mut room = sqlx::query_as::<_, RoomRow>(
-        "SELECT id,name,kind,revision FROM rooms WHERE id=$1 AND kind='public' FOR UPDATE",
+        "SELECT id,name,kind,revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=rooms.id) AS encrypted FROM rooms WHERE id=$1 AND kind='public' FOR UPDATE",
     )
     .bind(room_id)
     .fetch_optional(&mut *tx)
@@ -391,7 +395,7 @@ pub async fn direct(app: &App, account: &Account, target: &str) -> Result<Room> 
     let name = format!("{} / {}", found[0].1, found[1].1);
     let pair = format!("{}:{}", users[0], users[1]);
     if let Some(room) =
-        sqlx::query_as::<_, RoomRow>("SELECT id,name,kind,revision FROM rooms WHERE direct_pair=$1")
+        sqlx::query_as::<_, RoomRow>("SELECT id,name,kind,revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=rooms.id) AS encrypted FROM rooms WHERE direct_pair=$1")
             .bind(&pair)
             .fetch_optional(&mut *tx)
             .await?
@@ -424,6 +428,7 @@ pub async fn direct(app: &App, account: &Account, target: &str) -> Result<Room> 
         name,
         kind: "direct".into(),
         revision: position,
+        encrypted: false,
     }
     .wire();
     event(
@@ -531,7 +536,7 @@ pub async fn rooms(app: &App, account: &Account) -> Result<Vec<Room>> {
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         .execute(&mut *tx)
         .await?;
-    let mut rooms:Vec<_>=sqlx::query_as::<_, RoomRow>("SELECT r.id,r.name,r.kind,r.revision FROM rooms r JOIN members m ON m.room_id=r.id WHERE m.user_id=$1 ORDER BY r.revision DESC,r.id")
+    let mut rooms:Vec<_>=sqlx::query_as::<_, RoomRow>("SELECT r.id,r.name,r.kind,r.revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=r.id) AS encrypted FROM rooms r JOIN members m ON m.room_id=r.id WHERE m.user_id=$1 ORDER BY r.revision DESC,r.id")
         .bind(&account.id).fetch_all(&mut *tx).await?.into_iter().map(RoomRow::wire).collect();
     for room in &mut rooms {
         crate::room_reads::personalize(&mut tx, &account.id, room).await?;

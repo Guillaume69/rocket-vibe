@@ -343,7 +343,10 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    maintenant le worker au compte / appareil et à la génération de session,
    avec fermeture terminale, client HTTP partagé et garde des résultats tardifs.
    La cérémonie d'identité / association et les trousseaux dédiés sont raccordés
-   aux réglages GTK / SwiftUI. Pins de pairs, cérémonies de groupe, renouvellement,
+   aux réglages GTK / SwiftUI. L'état de salon chiffré est transmis aux caches des
+   trois clients et verrouille leurs composers existants ; la file ordinaire
+   refuse ces salons et conserve les anciens envois hors ligne en échec avant HTTP.
+   Pins de pairs, cérémonies de groupe, renouvellement,
    récupération / révocation visibles et projection restent ouverts ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.
 6. Revue indépendante du protocole applicatif / stockage et qualification des

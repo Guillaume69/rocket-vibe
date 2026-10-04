@@ -104,6 +104,11 @@ impl ChatPage {
                 this.set_connection(status.connection);
                 this.native_features(&session);
                 this.reload_rooms();
+                if let Some(open) = this.current.borrow_mut().as_mut()
+                    && let Some(room) = this.rooms.borrow().iter().find(|room| room.rid == open.rid)
+                {
+                    open.encrypted = room.encrypted;
+                }
                 this.refresh_uploads();
                 this.refresh_room_header();
                 this.refresh_native_call();
@@ -207,7 +212,7 @@ impl ChatPage {
             kind: room.kind,
             name: room.name.clone(),
             read_only: room.read_only,
-            encrypted: false,
+            encrypted: room.encrypted,
             avatar: room.avatar_etag.map(|id| format!("rv-avatar:{id}")),
             slug: None,
             dm_other_uid: room.dm_other_uid,

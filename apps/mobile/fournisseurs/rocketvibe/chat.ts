@@ -893,6 +893,7 @@ export class NativeChat {
   }
   async send(rid: string, text: string,scope?:{membership:string|null},quotes:readonly import('./quotes.ts').NativeQuoteSelection[]=[],replyTo?:string|null): Promise<string> {
     if (this.stopped) throw new NativeError(0,'session_closed');
+    if (await this.store.roomEncrypted(rid)) throw new NativeError(409,'crypto_required');
     const value = text.trim();
     let bytes = 0;
     for (const char of value) { const code = char.codePointAt(0)!; bytes += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4; }
@@ -1083,6 +1084,8 @@ export class NativeChat {
       try {
         const generation = this.generation;
         const projection=this.store.projectionToken();
+        if (await this.store.roomEncrypted(pending.rid)) throw new NativeError(409,'crypto_required');
+        if (this.stopped || !this.verified || generation !== this.generation) return;
         const message = await this.transport.send(pending.rid,{operation_id:pending.id,text:pending.texte,quotes:pending.quotes,...(pending.reply_to?{reply_to:pending.reply_to}:{})});
         if (this.stopped || generation !== this.generation) return;
         // The echo and outbox deletion commit together; a failed commit remains retryable.

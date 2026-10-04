@@ -123,7 +123,7 @@ export type RetireEmailRemoval = { "context": ReauthenticationContext; "expected
 export type RetireEmailVerification = { "context": ReauthenticationContext; "expected_version": string; "verification_version": string; };
 export type RetireReauthentication = { "context": ReauthenticationContext; "proof_version": string; };
 export type Revocation = { "position": string; "signed": string; };
-export type Room = { "id": string; "kind": RoomKind; "name": string; "read_state"?: ReadState | null; "revision": string; };
+export type Room = { "encrypted"?: boolean; "id": string; "kind": RoomKind; "name": string; "read_state"?: ReadState | null; "revision": string; };
 export type RoomCommandReceipt = { "applied_revision": string; "operation_id": string; "room_id": string; };
 export type RoomDetails = { "announcement": string; "description": string; "member_count": number; "permissions": RoomPermissions; "read_only": boolean; "revision": string; "room": Room; "topic": string; };
 export type RoomKeyEnvelope = { "ciphertext": string; "format": string; "key_version": string; "recipient_device_id": string; "recipient_user_id": string; "room_id": string; "sender_device_id": string; };
@@ -4640,6 +4640,10 @@ export const nativeSchema = {
     },
     "Room": {
       "properties": {
+        "encrypted": {
+          "description": "An MLS group exists. This metadata grants no key or group admission.",
+          "type": "boolean"
+        },
         "id": {
           "type": "string"
         },

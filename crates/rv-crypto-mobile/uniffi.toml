@@ -1,0 +1,5 @@
+[bindings.kotlin]
+package_name = "com.rocketvibe.crypto.engine"
+cdylib_name = "rv_crypto_mobile"
+android = true
+generate_immutable_records = true

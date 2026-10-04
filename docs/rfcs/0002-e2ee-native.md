@@ -197,7 +197,9 @@ pour Linux / macOS / Windows, dans un service distinct des sessions existantes.
 [API et features du trousseau](https://docs.rs/keyring/3.6.3/keyring/).
 Le vrai Secret Service Linux est vérifié avec nouveaux processus et bus,
 verrou concurrent, arrêt forcé après commit / avant checkpoint, reprise et
-retrait. Android / Keystore, raccordement aux comptes / widgets, sauvegardes
+retrait. Le [pont Android](../../crates/rv-crypto-mobile/README.md) fournit maintenant
+un coffre protégé par Android Keystore, avec bindings Kotlin et lease système
+testés sur émulateur. L'association et les conversations mobiles, sauvegardes
 du trousseau, Windows / macOS installés et coupure électrique restent ouverts.
 
 Le coffre durable ne revendique pas encore la forward secrecy du stockage :
@@ -354,8 +356,13 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    création, admission, mise à jour et reprise / abandon de groupe, avec aperçu
    opaque des destinataires et confirmation distincte. Retrait / changement de
    projection ferment le panneau ; aucun groupe n'est créé par sa consultation.
-   Renouvellement,
-   récupération / révocation visibles et projection restent ouverts ; archive / fichiers,
+   Les conversations GTK / SwiftUI utilisent maintenant la projection privée
+   ordonnée, les brouillons protégés et l'envoi / reprise de l'intention originale,
+   avec fermeture terminale après retrait / nouvelle adhésion. Le socle Android
+   relie le même coffre privé au Keystore et au compte / appareil HTTP courant,
+   sans transfert de clés vers JS ni création implicite d'identité.
+   Renouvellement, récupération / révocation visibles, actions privées et
+   raccordement identité / groupes / conversations mobile restent ouverts ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.
 6. Revue indépendante du protocole applicatif / stockage et qualification des
    trousseaux, Android / Hermes, GTK / SwiftUI. Activation seulement après preuve.

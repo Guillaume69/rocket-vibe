@@ -108,6 +108,11 @@ jobs:
       - run: cargo fmt --manifest-path crates/rv-crypto/Cargo.toml -- --check
       - run: cargo clippy --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore,native-http --target-dir target/native-crypto --all-targets -- -D warnings
       - run: cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore,native-http --target-dir target/native-crypto
+      - name: Mobile private bridge format, strict checks and lifetime tests
+        run: |
+          cargo fmt --manifest-path crates/rv-crypto-mobile/Cargo.toml -- --check
+          cargo clippy --locked --manifest-path crates/rv-crypto-mobile/Cargo.toml --target-dir target/native-crypto --all-targets -- -D warnings
+          cargo test --locked --manifest-path crates/rv-crypto-mobile/Cargo.toml --target-dir target/native-crypto --lib
       - run: cargo build --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore --target-dir target/native-crypto --example protected_smoke
       - name: Real Linux Secret Service, restart and forced process termination
         if: runner.os == 'Linux'

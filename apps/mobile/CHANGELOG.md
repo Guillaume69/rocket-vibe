@@ -7,6 +7,20 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Coffre crypto RocketVibe sur Android
+
+- Module Expo local Kotlin / Rust raccordé au cycle de session du fournisseur
+  existant. Les clés et checkpoints restent dans le moteur privé, avec les
+  petits enregistrements plateforme enveloppés par une clé Android Keystore
+  non exportable et exclus des sauvegardes automatiques.
+- Ouverture sans création implicite, initialisation locale explicite, refus des
+  coffres copiés / retirés / corrompus et fermeture terminale après suspension
+  ou changement de compte / appareil HTTP. Verrou système Android conservé
+  jusqu'à la fin de l'écriture réelle, même après fermeture de la vue.
+- Build Gradle reproductible ARM64 / x86-64, bindings Kotlin générés et test
+  d'instrumentation sur le vrai Keystore. Ce socle de stockage n'active pas
+  encore l'association, les groupes ou le composeur E2EE mobile.
+
 ### Salons RocketVibe
 
 - Appels RocketVibe raccordés aux boutons de salon / profil, à la carte d'appel

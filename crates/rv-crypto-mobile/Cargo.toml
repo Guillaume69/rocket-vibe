@@ -1,0 +1,32 @@
+[package]
+name = "rv-crypto-mobile"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[features]
+bindgen = ["uniffi/cli"]
+
+[lib]
+name = "rv_crypto_mobile"
+crate-type = ["lib", "cdylib"]
+
+[[bin]]
+name = "mobile-bindgen"
+path = "src/bin/mobile-bindgen.rs"
+required-features = ["bindgen"]
+
+[dependencies]
+rv-crypto = { path = "../rv-crypto" }
+data-encoding = "2"
+serde_json = "1"
+sha2 = "0.11"
+thiserror = "2"
+uniffi = { version = "=0.32.2" }
+url = "2.5.8"
+zeroize = "1"
+
+[dev-dependencies]
+tempfile = "3"

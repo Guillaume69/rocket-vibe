@@ -5,16 +5,26 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 
 ## État synthétique au 4 octobre 2026
 
-Lot conversations privées en cours de qualification : lecture du préfixe
+Lot conversations privées intégré et validé par les CI de `220ffc5` : lecture du préfixe
 chiffré retenu dans le coffre, positions décimales exactes, brouillons séparés
 par fil et adhésion, envoi / reprise de l'intention originale et intégration
 dans les listes / composeurs GTK et SwiftUI existants. Les tests natifs couvrent
 la réponse perdue, le redémarrage, l'absence de second POST, la séparation des
-brouillons, la rotation et le refus après révocation ; les interfaces doivent
-encore passer leur CI. Les dates affichées sont des observations locales et
+brouillons, la rotation et le refus après révocation. Les dates affichées sont des observations locales et
 sont indiquées comme telles. Les archives complètes, citations privées,
-édition / actions, fichiers et raccordement Android restent à traiter ; aucun
+édition / actions, fichiers et raccordement complet Android restent à traiter ; aucun
 masque E2EE de production n'est activé.
+
+Socle Android ajouté : module Expo Kotlin / Rust dans l'app existante, coffre
+privé et petits enregistrements plateforme enveloppés par Android Keystore,
+build ARM64 / x86-64 et accès lié au compte / appareil HTTP courant. Ouverture
+sans initialisation implicite, fermeture terminale après suspension / changement
+de scope et résultat tardif refusé. Les deux tests d'instrumentation du vrai
+Keystore / ABI / coffre passent sur l'émulateur API 36.1 ; ils incluent le maintien
+du verrou OS pendant une écriture dont l'appelant a été fermé. Les 1282 tests
+mobiles et le typecheck passent. Cette preuve concerne le stockage et son cycle
+de session ; association, groupes, messages et qualification physique Android
+restent ouverts. [Détails du pont](../crates/rv-crypto-mobile/README.md).
 
 | Jalon | Développement livré | Travail restant pour le fermer |
 |---|---|---|
@@ -22,15 +32,16 @@ masque E2EE de production n'est activé.
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, vérification des pairs et contrôles de groupe GTK / SwiftUI | Projection privée dans les interfaces, renouvellement / récupération / révocation visibles, suspension des conversations retirées, pont mobile, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, socle de coffre Android | Renouvellement / récupération / révocation visibles, fin des actions privées, parcours GUI E2EE complet, raccordement identité / groupes / conversations mobile, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison entièrement qualifiée (`792861b`) passe les neuf jobs de la CI
-`37207277495` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison qui passe toutes les CI existantes (`220ffc5`) passe les neuf jobs de la CI
+`37211906515` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
 L'application macOS du même lot passe aussi sa compilation, son packaging et son
-démarrage (`37207277485`). Les contrôles de groupe dans les détails des salons
-existants sont donc qualifiés ; la projection privée et le composeur restent en cours.
+démarrage (`37211906510`). Groupes, projection et composeur dans les interfaces
+existantes compilent et passent ces régressions. Le parcours GUI E2EE complet
+avec plusieurs applications installées reste un critère de sortie distinct.
 L'inventaire généré qui avait arrêté la CI du raccordement `60e72f4` est corrigé.
 Le journal serveur passe ses neuf scénarios
 PostgreSQL / HTTP / MLS et les contrats communs ; aucune capacité E2EE n'est
@@ -45,8 +56,11 @@ même coffre avec nouveau Welcome / package, remplacement atomique et cache
 précédent marqué hors projection ajoutés. Le cœur du fournisseur bureau lie
 maintenant le worker à sa session et à son client HTTP, avec garde terminale
 des résultats tardifs. La cérémonie d'identité / association et les trousseaux
-des réglages bureau sont raccordés. Projection privée,
-suspension des salons retirés, pont mobile et historique autorisé restent ouverts.
+des réglages bureau sont raccordés. Projection privée, brouillons et composeur
+GTK / SwiftUI sont intégrés ; retrait / changement de projection ferment la vue
+de conversation et masquent son contenu transitoire. Le coffre Android est
+raccordé au cycle de session. Le parcours mobile complet et l'historique autorisé
+restent ouverts.
 Le lot suivant raccorde les pins / appareils aux profils GTK et SwiftUI existants,
 avec premier contact non vérifié, comparaison explicite de racine, remplacement
 contrôlé d'une racine changée et aperçu opaque de certificat avant approbation.

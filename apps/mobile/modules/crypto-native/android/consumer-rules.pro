@@ -1,0 +1,3 @@
+-keep class com.rocketvibe.crypto.engine.** { *; }
+-keep class com.sun.jna.** { *; }
+-keep class * implements com.sun.jna.Library { *; }

@@ -19,7 +19,10 @@ impl Drop for Lease {
         // Explicit unlock also releases a briefly inherited descriptor while
         // another thread spawns a child; closing this handle alone can leave
         // flock held until that child execs/closes its inherited descriptor.
+        #[cfg(not(target_os = "android"))]
         let _ = self.0.unlock();
+        #[cfg(target_os = "android")]
+        let _ = rustix::fs::flock(&self.0, rustix::fs::FlockOperation::Unlock);
     }
 }
 
@@ -318,10 +321,21 @@ pub(crate) fn lease(directory: &std::path::Path, name: &str) -> Result<Lease, Er
             return Err(Error::Storage);
         }
     }
+    #[cfg(not(target_os = "android"))]
     file.try_lock().map_err(|error| match error {
         std::fs::TryLockError::WouldBlock => Error::Busy,
         std::fs::TryLockError::Error(_) => Error::Storage,
     })?;
+    #[cfg(target_os = "android")]
+    rustix::fs::flock(&file, rustix::fs::FlockOperation::NonBlockingLockExclusive).map_err(
+        |error| {
+            if error == rustix::io::Errno::WOULDBLOCK {
+                Error::Busy
+            } else {
+                Error::Storage
+            }
+        },
+    )?;
     Ok(Lease(file))
 }
 

@@ -45,6 +45,11 @@ zeroize = "1"
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", default-features = false, features = ["process"] }
 
+[target.'cfg(target_os = "android")'.dependencies]
+# std::fs::File locking is unsupported on Android in Rust 1.97. Use the
+# same kernel flock lease through rustix's safe API, without weakening it.
+rustix = { version = "1", default-features = false, features = ["fs"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "=3.6.3", optional = true, features = ["sync-secret-service", "crypto-rust", "vendored"] }
 

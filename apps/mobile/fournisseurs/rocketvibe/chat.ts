@@ -20,6 +20,8 @@ import type {EmailRemote} from './emailVault.ts';
 import {checkSecurityScope,type SecurityScope} from './reauthenticationVault.ts';
 import {previewImageIdentity} from './linkPreviews.ts';
 import {publicMeetingUrl,privateMeetingUrl} from './meetings.ts';
+import {CryptoStorageAccess} from './cryptoStorage.ts';
+import type {CryptoStorageBridge} from '../../modules/crypto-native/index.ts';
 
 type MeetingScope={room:string;membership:string;generation:number;projection:number;alive:()=>boolean};
 
@@ -67,6 +69,7 @@ export class NativeChat {
   private readRetryAt=0;
   private favoriteRetryAt=0;
   private credentialCheckAt=Date.now()+24*60*60*1000;
+  private cryptoViews=new Set<CryptoStorageAccess>();
   status: NativeStatus = {online:false,error:null};
   capabilities: Capabilities | null = null;
 
@@ -223,6 +226,8 @@ export class NativeChat {
   private notify(): void { for (const listener of this.listeners) listener(); }
   start(): void { this.reconnect.declencher(); }
   private disconnect(): void {
+    for(const view of this.cryptoViews)void view.close();
+    this.cryptoViews.clear();
     if(this.verified && this.capabilities?.presence)this.emitPresence('offline');
     if(this.presenceTimer!==null)clearInterval(this.presenceTimer);
     this.presenceTimer=null;this.typingDesired=null;this.typingLast=null;this.live.clear();
@@ -546,6 +551,29 @@ export class NativeChat {
     this.ready();
     if(!this.capabilities?.device_sessions)throw new NativeError(501,'unsupported_feature');
     return this.generation;
+  }
+  async cryptoStorage(bridge:CryptoStorageBridge,visible:()=>boolean=()=>true):Promise<CryptoStorageAccess> {
+    this.ready();
+    if(!this.capabilities?.e2ee || !this.capabilities.device_sessions)throw new NativeError(501,'unsupported_feature');
+    const generation=this.generation;
+    const alive=()=>visible() && !this.stopped && this.verified && generation===this.generation;
+    const readScope=async()=>{
+      this.roomOperationGeneration(generation);if(!visible())throw new NativeError(0,'session_closed');
+      const discovery=await this.transport.discover();checkIdentity(this.session,discovery);
+      this.roomOperationGeneration(generation);if(!visible())throw new NativeError(0,'session_closed');
+      if(!discovery.capabilities.e2ee || !discovery.capabilities.device_sessions)throw new NativeError(501,'unsupported_feature');
+      const devices=await this.deviceSessions();
+      this.roomOperationGeneration(generation);if(!visible())throw new NativeError(0,'session_closed');
+      const current=devices.find(device=>device.current)!;
+      return {origin:this.transport.baseUrl,instance:this.session.nativeInstanceId!,dataEpoch:this.session.nativeDataEpoch!,
+        user:this.session.userId,device:current.id};
+    };
+    const access=await CryptoStorageAccess.open(bridge,readScope,alive);
+    if(!alive()){await access.close();throw new NativeError(0,'session_closed');}
+    for(const view of this.cryptoViews)if(view.isClosed)this.cryptoViews.delete(view);
+    // Suspension closes every live settings view.
+    this.cryptoViews.add(access);
+    return access;
   }
   /** Capture the connected runner generation, never expose a raw transport to
    * a retained settings callback after logout, suspension or account switch. */

@@ -607,5 +607,7 @@ mod changes;
 mod delivery_tests;
 #[path = "incoming_tests.rs"]
 mod incoming_commits;
+#[path = "journal_tests.rs"]
+mod journal_tests;
 #[path = "wire_tests.rs"]
 mod wire_tests;

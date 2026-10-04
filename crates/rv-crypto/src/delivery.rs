@@ -542,6 +542,65 @@ impl Worker {
         })
         .await
     }
+    /// Fetch exactly the next protected prefix. A page, all MLS changes and all
+    /// clear messages commit together; a failed/abandoned HTTP read advances
+    /// nothing. Call again while complete=false to finish the fixed window.
+    pub async fn journal_page(&self, room: &str) -> Result<groups::JournalBatch> {
+        let _dispatch = self.dispatch.lock().await;
+        self.scope().await?;
+        let owned_room = room.to_owned();
+        let request = self
+            .owned(move |manager, root, _| {
+                Ok(groups::Coordinator::new(manager, root)?.journal_request(&owned_room)?)
+            })
+            .await?;
+        let end = request.through.map(|value| value.to_string());
+        let page = self
+            .client
+            .crypto_delivery(room, &request.after.to_string(), end.as_deref())
+            .await?;
+        self.current()?;
+        // Re-observe the reader's current grant after receiving the ciphertext.
+        // Each historical epoch still requires the exact same admission.
+        let roster = self.client.crypto_group_roster(room).await?;
+        self.current()?;
+        let state = self.client.crypto_group_state(room).await?;
+        self.current()?;
+        self.owned(move |manager, root, now| {
+            let observation = groups::JournalObservation::from_wire(&roster, &state)?;
+            if observation.current.head.scope != request.scope || page.room_id != request.scope.room
+            {
+                return Err(Error::Scope);
+            }
+            Ok(groups::Coordinator::new(manager, root)?.receive_journal(
+                &observation,
+                &page,
+                now,
+            )?)
+        })
+        .await
+    }
+    /// Recover a protected page whose result was lost before app projection.
+    pub async fn journal_last_batch(&self, room: &str) -> Result<groups::JournalBatch> {
+        let _dispatch = self.dispatch.lock().await;
+        self.scope().await?;
+        let roster = self.client.crypto_group_roster(room).await?;
+        self.current()?;
+        let state = self.client.crypto_group_state(room).await?;
+        self.current()?;
+        let room = room.to_owned();
+        self.owned(move |manager, root, now| {
+            let observation = groups::JournalObservation::from_wire(&roster, &state)?;
+            if observation.current.head.scope.room != room
+                || observation.current.head.scope.instance != manager.scope().instance
+                || observation.current.head.scope.data_epoch != manager.scope().data_epoch
+            {
+                return Err(Error::Scope);
+            }
+            Ok(groups::Coordinator::new(manager, root)?.journal_last_batch(&observation, now)?)
+        })
+        .await
+    }
     pub async fn events(&self, room: &str) -> Result<Batch> {
         let _dispatch = self.dispatch.lock().await;
         self.scope().await?;

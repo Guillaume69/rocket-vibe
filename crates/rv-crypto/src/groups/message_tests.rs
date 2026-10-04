@@ -20,7 +20,7 @@ pub(super) fn observation(account: &Account) -> MessageObservation {
         })
         .unwrap()
 }
-fn message(id: &str) -> SendMessage {
+pub(super) fn message(id: &str) -> SendMessage {
     SendMessage {
         operation_id: id.into(),
         text: "Texte privé **riche** 🐾\nseconde ligne".into(),
@@ -40,7 +40,7 @@ fn message(id: &str) -> SendMessage {
         }],
     }
 }
-fn ack(submission: &MessageSubmission, position: u64) -> packet::Receipt {
+pub(super) fn ack(submission: &MessageSubmission, position: u64) -> packet::Receipt {
     let proof = submission.verified(NOW).unwrap();
     packet::Receipt {
         fingerprint: proof.fingerprint().unwrap(),

@@ -3,7 +3,7 @@
 | Métadonnée | Valeur |
 |---|---|
 | Date | 3 octobre 2026 |
-| Statut | Spécification de travail J4 ; coffre isolé, groupes / journal opaque serveur, messages dans le worker HTTP, aucune capacité activée |
+| Statut | Spécification de travail J4 ; coffre isolé, journal opaque serveur et pages protégées dans le worker HTTP, aucune capacité activée |
 | Référence | RFC 0001 §13, P18 / P19 |
 | Clients | Fournisseurs des apps mobile, GTK et SwiftUI actuelles |
 
@@ -292,8 +292,11 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    natives exactes, admission par appareil, watermark fixe, quotas persistants
    et transports Rust / TypeScript livrés. Worker de messages avec checkpoint
    avant HTTP, reçu avant renvoi original et réception contre la tête courante
-   ajouté. Rattrapage complet à travers les adhésions, checkpoint d'un préfixe
-   ordonné durable et projection des apps restent ouverts ;
+   ajouté. [Pages protégées du journal](../../crates/rv-crypto/JOURNAL.md)
+   ajoutées : curseur / fenêtre fixe, transitions et contenus dans la même
+   transaction, rattrapage de plusieurs époques sur la même admission,
+   confirmation propre différée jusqu'à sa position et rejeu du dernier lot.
+   Historique après expiration / révocation, réadmission et projection des apps restent ouverts ;
    aucune capacité activée.
 5. Pont mobile et intégration aux fournisseurs actuels ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.

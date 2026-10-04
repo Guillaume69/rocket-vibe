@@ -11,16 +11,17 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque et worker de messages sur HTTP / PostgreSQL | Préfixe ordonné complet, messages dans les apps, validation historique, ponts / interfaces, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque et pages protégées sur HTTP / PostgreSQL | Messages dans les apps, historique après expiration / retrait, ponts / interfaces, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison validée (`88f9c43`) passe toute la CI `37177661644`, dont
+La dernière livraison validée (`7eaf0cd`) passe toute la CI `37179473580`, dont
 les contrôles généraux, les bancs clients et les suites crypto Linux, Windows et
 macOS. Le nouveau journal serveur de messages opaques passe ses neuf scénarios
 PostgreSQL / HTTP / MLS et les contrats communs ; aucune capacité E2EE n'est
-activée. Envoi / reprise et réception contre la tête courante sont maintenant
-raccordés au worker privé ; la prochaine étape est la validation d'un préfixe
-ordonné complet et du rattrapage, puis les fournisseurs des apps actuelles.
+activée. Le worker privé checkpoint maintenant les pages communes aux messages
+et transitions, avec curseur durable et rattrapage de plusieurs époques sur la
+même admission. Historique après expiration / retrait et fournisseurs des apps
+actuelles constituent les étapes suivantes.
 Les critères externes encore ouverts restent des critères de sortie de la RFC.
 
 ## Premier incrément : socle serveur et transports pilotes
@@ -334,6 +335,32 @@ Le parcours mobile pilote et les tests sans appareil ne ferment pas J1 : il exig
 les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
+
+- P19 / J4, pages du journal privé (4 octobre 2026) : fenêtre fixe et curseur
+  lié à l'admission ; messages, transitions, ratchets et contenu privé partagent
+  une transaction protégée par page. Les positions natives sont exactes ; les
+  parents / époques restent chaînés par MLS. Le roster historique provient du
+  vrai plan, l'accès propre doit correspondre à l'observation courante. Une
+  signature tardive refuse aussi les mutations antérieures de cette page.
+  L'ACK exact de rotation propre conserve l'ancienne époque jusqu'aux messages
+  qui précèdent son commit. Les consommateurs séparés ne contournent pas le
+  journal commencé. Le dernier lot est rejouable depuis le coffre rouvert,
+  même après refus d'écriture du checkpoint externe sans résultat publié.
+  Six nouveaux scénarios MLS / SQLite passent en 3,86 s : trois époques
+  manquées, reprise entre pages, substitutions / gaps / ordre, rollback tardif,
+  rotation propre avec message non lu, retrait d'un autre membre et nouvel
+  accès refusé, échec de checkpoint. Le banc réel HTTP / PostgreSQL utilise
+  les pages et leur rejeu dans les deux coffres : six messages / trois époques,
+  ACKs perdus après commit, six POSTs / lignes opaques, neuf trames et aucun
+  document clair dans SQL, en 30,15 s.
+  Formatage / Clippy strict passent ; 124 tests privés complets en 157,95 s,
+  enfant de crash exercé par son parent, aucun filtre. Un scénario HTTP ajouté
+  ensuite vérifie lecture interrompue / réouverture, rejeu et refus de route
+  substituée sans avancement : onze cas HTTP en 2,84 s, six cas du journal en
+  4,03 s et banc PostgreSQL revérifié en 30,93 s. Certificats historiques expirés / révoqués,
+  réadmission, projection durable des apps, archive au-delà du cache borné,
+  fichiers, ponts et qualifications restent ouverts ; capacité désactivée.
+  [Journal protégé](../crates/rv-crypto/JOURNAL.md).
 
 - P19 / J4, worker HTTP des messages protégés (4 octobre 2026) : préparation
   / ratchet / document dans le checkpoint avant réseau, reçu recherché à partir

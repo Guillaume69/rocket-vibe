@@ -2,9 +2,10 @@
 
 État au 4 octobre 2026 : serveur opaque, journal ordonné et transports Rust /
 TypeScript expérimentaux. `capabilities.e2ee` reste désactivé. Le [worker HTTP privé](../../crates/rv-crypto/GROUP_HTTP.md)
-raccorde envoi / reprise et réception contre la tête courante. Son checkpoint
-de préfixe complet, le raccordement aux interfaces existantes, le rattrapage
-historique et les fichiers restent ouverts.
+raccorde envoi / reprise et [pages protégées du journal](../../crates/rv-crypto/JOURNAL.md),
+avec checkpoint commun aux messages / transitions et rattrapage sur la même
+admission. Raccordement aux interfaces, historique après expiration / retrait,
+archives et fichiers restent ouverts.
 Ce lot ne ferme pas J4 et ne permet pas la bascule J5.
 
 ## Routes

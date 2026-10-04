@@ -177,6 +177,9 @@ impl Coordinator {
             return Err(Error::Changed);
         };
         self.transact(|provider, records| {
+            if super::journal::started(records, &transition.plan.scope)? {
+                return Err(Error::JournalOrder);
+            }
             let mut state = read(records, &transition.plan.scope.room)?.ok_or(Error::NotReady)?;
             check_clock(Some(&state), now)?;
             if state.scope != transition.plan.scope {

@@ -277,7 +277,17 @@ async fn rotate(author: &Account, peer: &Account, room: &str) -> Result<()> {
         accepted.revision == parent.revision + 1 && accepted.epoch == parent.epoch + 1,
         "rotation skipped a revision"
     );
-    catchup(peer, room, &accepted).await?;
+    assert!(
+        author.head(room)? == parent,
+        "rotation ACK discarded an unread epoch"
+    );
+    for account in [author, peer] {
+        let batch = account.worker()?.journal_page(room).await?;
+        assert!(
+            batch.complete && batch.head == accepted && batch.messages.is_empty(),
+            "rotation was not consumed at its journal position"
+        );
+    }
     assert!(
         author.secret(room)? == peer.secret(room)? && author.secret(room)? != old,
         "peer epoch secrets differ or did not rotate"
@@ -349,39 +359,48 @@ async fn exchange(
     );
     for account in [alice, bob] {
         let worker = account.worker()?;
-        for event in &page.events {
-            match &event.content {
-                http::DeliveryContent::Group(group) => {
-                    assert!(
-                        groups::Receipt::from_wire(&group.receipt)? == account.head(room)?,
-                        "delivery transition was not already protected/accepted"
-                    );
-                }
-                http::DeliveryContent::Message(message) => {
-                    let clear = worker.receive_message(message.clone()).await?;
-                    assert!(
-                        clear.receipt.position.to_string() == event.position,
-                        "mismatched delivery position"
-                    );
-                    let expected = if clear.receipt.header.operation == root.operation_id {
-                        &root
-                    } else {
-                        &reply
-                    };
-                    assert!(
-                        clear.receipt.header.operation == expected.operation_id,
-                        "unexpected application operation"
-                    );
-                    assert!(
-                        serde_json::to_vec(&clear.message()?)? == serde_json::to_vec(expected)?,
-                        "protected message document changed"
-                    );
-                }
+        let batch = worker.journal_page(room).await?;
+        assert!(
+            batch.complete
+                && batch.after == reply_ack.position
+                && batch.through == reply_ack.position
+                && batch.messages.len() == 2,
+            "wrong protected journal checkpoint"
+        );
+        worker.stop();
+        let replay = account.worker()?.journal_last_batch(room).await?;
+        assert!(
+            replay.after == batch.after && replay.head == batch.head && replay.messages.len() == 2,
+            "protected page was not replayable after reopen"
+        );
+        for result in [&batch, &replay] {
+            for clear in &result.messages {
+                let expected = if clear.receipt.header.operation == root.operation_id {
+                    &root
+                } else {
+                    &reply
+                };
+                assert!(
+                    clear.receipt.header.operation == expected.operation_id,
+                    "unexpected application operation"
+                );
+                assert!(
+                    clear.receipt
+                        == if expected.operation_id == root.operation_id {
+                            root_ack.clone()
+                        } else {
+                            reply_ack.clone()
+                        },
+                    "mismatched delivery receipt"
+                );
+                assert!(
+                    serde_json::to_vec(&clear.message()?)? == serde_json::to_vec(expected)?,
+                    "protected message document changed"
+                );
             }
         }
     }
-    // This fixture consumes each epoch before rotating. Its local cursor does
-    // not claim a durable complete-journal checkpoint or missed-epoch catchup.
+    // Both cursors and replayable private page bodies survive manager reopen.
     Ok(reply_ack.position.to_string())
 }
 async fn run(input: Input) -> Result<()> {

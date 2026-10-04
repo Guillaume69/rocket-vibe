@@ -1,7 +1,7 @@
 use super::incoming_commits as incoming;
 use super::*;
 
-fn change(
+pub(super) fn change(
     account: &Account,
     operation: &str,
     users: &[&str],
@@ -27,7 +27,7 @@ fn change(
         packages,
     }
 }
-fn prepare_change(account: &Account, request: &Change, now: u64) -> Submission {
+pub(super) fn prepare_change(account: &Account, request: &Change, now: u64) -> Submission {
     let (preview, consent) = account.coordinator().preview_change(request, now).unwrap();
     account
         .coordinator()

@@ -305,11 +305,12 @@ impl Coordinator {
         state: &State,
         observation: &MessageObservation,
         now: u64,
+        ordered_receive: bool,
     ) -> Result<(MlsGroup, Context)> {
         if observation.needs_rekey {
             return Err(Error::Changed);
         }
-        if state.pending.is_some() {
+        if state.pending.is_some() && !ordered_receive {
             return Err(Error::Pending);
         }
         let context = self.context(records, now)?;
@@ -321,7 +322,7 @@ impl Coordinator {
         .ok_or(Error::Changed)?;
         if !group.is_active()
             || group.ciphersuite() != SUITE
-            || group.pending_commit().is_some()
+            || group.pending_commit().is_some() && !ordered_receive
             || group.pending_proposals().next().is_some()
         {
             return Err(Error::Pending);
@@ -356,7 +357,7 @@ impl Coordinator {
         self.transact(|provider, records| {
             let (mut state, grant) = self.message_observation(records, observation, now)?;
             let (mut group, context) =
-                self.message_source(provider, records, &state, observation, now)?;
+                self.message_source(provider, records, &state, observation, now, false)?;
             let mut ledger = self.message_ledger(records)?;
             ledger_clock(&ledger, now)?;
             if let Some(seen) = ledger.seen.get(&id) {
@@ -444,7 +445,8 @@ impl Coordinator {
         let id = operation(&self.manager.scope().user, id)?;
         self.inspect(|provider, records| {
             let (state, _) = self.message_observation(records, observation, now)?;
-            let (_, context) = self.message_source(provider, records, &state, observation, now)?;
+            let (_, context) =
+                self.message_source(provider, records, &state, observation, now, false)?;
             let ledger = self.message_ledger(records)?;
             ledger_clock(&ledger, now)?;
             let seen = ledger.seen.get(&id).ok_or(Error::MessageNotPending)?;
@@ -509,127 +511,151 @@ impl Coordinator {
         receipt: &packet::Receipt,
         now: u64,
     ) -> Result<ClearMessage> {
+        self.transact(|provider, records| {
+            if super::journal::started(records, &observation.head.scope)? {
+                return Err(Error::JournalOrder);
+            }
+            self.receive_message_inner(
+                provider,
+                records,
+                observation,
+                submission,
+                receipt,
+                now,
+                false,
+            )
+        })
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn receive_message_inner(
+        &self,
+        provider: &OpenMlsRustCrypto,
+        records: &mut Records,
+        observation: &MessageObservation,
+        submission: &MessageSubmission,
+        receipt: &packet::Receipt,
+        now: u64,
+        ordered_receive: bool,
+    ) -> Result<ClearMessage> {
         let received_hash = receipt_hash(receipt)?;
         let id = operation(&receipt.header.author, &receipt.header.operation)?;
-        self.transact(|provider, records| {
-            let (mut state, grant) = self.message_observation(records, observation, now)?;
-            let mut ledger = self.message_ledger(records)?;
-            ledger_clock(&ledger, now)?;
-            if let Some(seen) = ledger.seen.get_mut(&id) {
-                let entry = ledger.cache.get_mut(&id).ok_or(Error::MessageNotRetained)?;
-                if entry.submission != *submission || entry.grant != grant {
-                    return Err(Error::Conflict);
-                }
-                receipt.matches(&submission.verified(entry.created)?)?;
-                if seen
-                    .receipt
-                    .as_ref()
-                    .is_some_and(|old| old != &received_hash)
-                {
-                    return Err(Error::Receipt);
-                }
-                seen.receipt = Some(received_hash.clone());
-                entry.receipt = Some(receipt.clone());
-                let clear = ClearMessage {
-                    receipt: receipt.clone(),
-                    payload: Zeroizing::new(entry.plaintext.to_vec()),
-                };
-                ledger.clock = now;
-                advance(&mut ledger, receipt)?;
-                state.clock = now;
-                save_ledger(records, &ledger)?;
-                save(records, &state)?;
-                return Ok(clear);
+        let (mut state, grant) = self.message_observation(records, observation, now)?;
+        let mut ledger = self.message_ledger(records)?;
+        ledger_clock(&ledger, now)?;
+        if let Some(seen) = ledger.seen.get_mut(&id) {
+            let entry = ledger.cache.get_mut(&id).ok_or(Error::MessageNotRetained)?;
+            if entry.submission != *submission || entry.grant != grant {
+                return Err(Error::Conflict);
             }
-            capacity(&ledger)?;
-            let stream = stream(&receipt.header.scope)?;
-            if ledger
-                .progress
-                .get(&stream)
-                .is_some_and(|position| receipt.position <= *position)
-            {
-                return Err(Error::Changed);
-            }
-            let proof = submission.verified(now)?;
-            receipt.matches(&proof)?;
-            let (mut group, context) =
-                self.message_source(provider, records, &state, observation, now)?;
-            current_head(&proof.header, observation)?;
-            // OwnPrivateMessage is explicitly unauthenticated in OpenMLS. Only
-            // the byte-identical protected outbox path above may supply an echo.
-            if proof.header.device == context.certificate.device.device {
-                return Err(Error::Changed);
-            }
-            let protocol = MlsMessageIn::tls_deserialize_exact(&submission.ciphertext)
-                .map_err(|_| Error::Mls)?
-                .try_into_protocol_message()
-                .map_err(|_| Error::Mls)?;
-            let processed = group
-                .process_message(provider, protocol)
-                .map_err(|_| Error::Mls)?;
-            let leaf = match processed.sender() {
-                Sender::Member(leaf) => leaf.u32(),
-                _ => return Err(Error::Changed),
-            };
-            let plan = &state
-                .active
+            receipt.matches(&submission.verified(entry.created)?)?;
+            if seen
+                .receipt
                 .as_ref()
-                .ok_or(Error::NotReady)?
-                .transition
-                .plan;
-            let participant = plan
-                .participants
-                .iter()
-                .find(|p| p.leaf == leaf)
-                .ok_or(Error::Changed)?;
-            let certificate = Certificate::from_credential(processed.credential())?;
-            if processed.group_id().as_slice() != state.scope.group_id()?
-                || processed.epoch().as_u64() != proof.header.epoch
-                || processed.aad() != proof.header.aad()?
-                || certificate != proof.certificate
-                || participant.device != proof.header.device
-                || participant.user != proof.header.author
-                || participant.incarnation != proof.header.incarnation
-                || participant.certificate != proof.header.certificate
+                .is_some_and(|old| old != &received_hash)
             {
-                return Err(Error::Changed);
+                return Err(Error::Receipt);
             }
-            let plaintext = match processed.into_content() {
-                ProcessedMessageContent::ApplicationMessage(message) => {
-                    Zeroizing::new(message.into_bytes())
-                }
-                _ => return Err(Error::Changed),
-            };
-            decode(&plaintext, &proof.header)?;
+            seen.receipt = Some(received_hash.clone());
+            entry.receipt = Some(receipt.clone());
             let clear = ClearMessage {
                 receipt: receipt.clone(),
-                payload: Zeroizing::new(plaintext.to_vec()),
+                payload: Zeroizing::new(entry.plaintext.to_vec()),
             };
-            ledger.seen.insert(
-                id.clone(),
-                Seen {
-                    packet: HEXLOWER.encode(&proof.fingerprint()?),
-                    intent: None,
-                    receipt: Some(received_hash.clone()),
-                },
-            );
-            ledger.cache.insert(
-                id,
-                Entry {
-                    created: now,
-                    submission: submission.clone(),
-                    plaintext,
-                    grant,
-                    receipt: Some(receipt.clone()),
-                },
-            );
             ledger.clock = now;
             advance(&mut ledger, receipt)?;
             state.clock = now;
             save_ledger(records, &ledger)?;
             save(records, &state)?;
-            Ok(clear)
-        })
+            return Ok(clear);
+        }
+        capacity(&ledger)?;
+        let stream = stream(&receipt.header.scope)?;
+        if ledger
+            .progress
+            .get(&stream)
+            .is_some_and(|position| receipt.position <= *position)
+        {
+            return Err(Error::Changed);
+        }
+        let proof = submission.verified(now)?;
+        receipt.matches(&proof)?;
+        let (mut group, context) =
+            self.message_source(provider, records, &state, observation, now, ordered_receive)?;
+        current_head(&proof.header, observation)?;
+        // OwnPrivateMessage is explicitly unauthenticated in OpenMLS. Only
+        // the byte-identical protected outbox path above may supply an echo.
+        if proof.header.device == context.certificate.device.device {
+            return Err(Error::Changed);
+        }
+        let protocol = MlsMessageIn::tls_deserialize_exact(&submission.ciphertext)
+            .map_err(|_| Error::Mls)?
+            .try_into_protocol_message()
+            .map_err(|_| Error::Mls)?;
+        let processed = group
+            .process_message(provider, protocol)
+            .map_err(|_| Error::Mls)?;
+        let leaf = match processed.sender() {
+            Sender::Member(leaf) => leaf.u32(),
+            _ => return Err(Error::Changed),
+        };
+        let plan = &state
+            .active
+            .as_ref()
+            .ok_or(Error::NotReady)?
+            .transition
+            .plan;
+        let participant = plan
+            .participants
+            .iter()
+            .find(|p| p.leaf == leaf)
+            .ok_or(Error::Changed)?;
+        let certificate = Certificate::from_credential(processed.credential())?;
+        if processed.group_id().as_slice() != state.scope.group_id()?
+            || processed.epoch().as_u64() != proof.header.epoch
+            || processed.aad() != proof.header.aad()?
+            || certificate != proof.certificate
+            || participant.device != proof.header.device
+            || participant.user != proof.header.author
+            || participant.incarnation != proof.header.incarnation
+            || participant.certificate != proof.header.certificate
+        {
+            return Err(Error::Changed);
+        }
+        let plaintext = match processed.into_content() {
+            ProcessedMessageContent::ApplicationMessage(message) => {
+                Zeroizing::new(message.into_bytes())
+            }
+            _ => return Err(Error::Changed),
+        };
+        decode(&plaintext, &proof.header)?;
+        let clear = ClearMessage {
+            receipt: receipt.clone(),
+            payload: Zeroizing::new(plaintext.to_vec()),
+        };
+        ledger.seen.insert(
+            id.clone(),
+            Seen {
+                packet: HEXLOWER.encode(&proof.fingerprint()?),
+                intent: None,
+                receipt: Some(received_hash.clone()),
+            },
+        );
+        ledger.cache.insert(
+            id,
+            Entry {
+                created: now,
+                submission: submission.clone(),
+                plaintext,
+                grant,
+                receipt: Some(receipt.clone()),
+            },
+        );
+        ledger.clock = now;
+        advance(&mut ledger, receipt)?;
+        state.clock = now;
+        save_ledger(records, &ledger)?;
+        save(records, &state)?;
+        Ok(clear)
     }
     pub fn forget_message(&self, receipt: &packet::Receipt) -> Result<()> {
         let id = operation(&receipt.header.author, &receipt.header.operation)?;
@@ -669,6 +695,33 @@ impl Coordinator {
             }
         }
         Ok(false)
+    }
+    pub(super) fn journal_clear(
+        &self,
+        records: &Records,
+        scope: &Scope,
+        grant: &Member,
+        positions: &[u64],
+    ) -> Result<Vec<ClearMessage>> {
+        let ledger = self.message_ledger(records)?;
+        let mut messages = Vec::new();
+        for position in positions {
+            let entry = ledger
+                .cache
+                .values()
+                .find(|entry| {
+                    entry.grant == *grant
+                        && entry.receipt.as_ref().is_some_and(|receipt| {
+                            receipt.position == *position && receipt.header.scope == *scope
+                        })
+                })
+                .ok_or(Error::MessageNotRetained)?;
+            messages.push(ClearMessage {
+                receipt: entry.receipt.as_ref().ok_or(Error::Changed)?.clone(),
+                payload: Zeroizing::new(entry.plaintext.to_vec()),
+            });
+        }
+        Ok(messages)
     }
 }
 fn current_head(header: &packet::Header, observation: &MessageObservation) -> Result<()> {

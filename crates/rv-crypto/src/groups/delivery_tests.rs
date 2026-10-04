@@ -155,6 +155,8 @@ struct Book {
     message_wrong_ack: bool,
     message_limited: bool,
     message_roster_reads: usize,
+    journal_drop_once: bool,
+    journal_wrong_room: bool,
 }
 fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex<Book>>) {
     let roster = wire_tests::observation(&request(vec![], &["alice", "bob"]).roster, None);
@@ -175,6 +177,8 @@ fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex
         message_wrong_ack: false,
         message_limited: false,
         message_roster_reads: 0,
+        journal_drop_once: false,
+        journal_wrong_room: false,
     }));
     let stored = book.clone();
     let own = alice.certificate.device.device.clone();
@@ -332,6 +336,70 @@ fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex
                 tree: submission.tree.clone(),
             });
         }
+        if request.path.contains("/delivery?after=") {
+            if book.journal_drop_once {
+                book.journal_drop_once = false;
+                return None;
+            }
+            let query = request.path.split("after=").nth(1).unwrap();
+            let (after, through) = query
+                .split_once("&through=")
+                .map_or((query, None), |(a, t)| (a, Some(t)));
+            let after: u64 = after.parse().unwrap();
+            let through = through.map(|t| t.parse().unwrap()).unwrap_or_else(|| {
+                book.message_receipts
+                    .values()
+                    .map(|r| r.position.parse::<u64>().unwrap())
+                    .max()
+                    .unwrap_or(1)
+            });
+            let submission = book.submission.as_ref().unwrap();
+            let receipt = book.receipt.as_ref().unwrap();
+            let mut events = Vec::new();
+            if after == 0 {
+                events.push(http::DeliveryEvent {
+                    position: "1".into(),
+                    content: http::DeliveryContent::Group(http::GroupEvent {
+                        receipt: receipt.clone(),
+                        transition: submission.transition.clone(),
+                        commit: submission.commit.clone(),
+                        welcome: submission
+                            .welcomes
+                            .iter()
+                            .find(|w| w.device_id == device)
+                            .cloned(),
+                    }),
+                });
+            }
+            for (operation, receipt) in &book.message_receipts {
+                let position: u64 = receipt.position.parse().unwrap();
+                if after < position && position <= through {
+                    let input = &book.message_submissions[operation];
+                    events.push(http::DeliveryEvent {
+                        position: receipt.position.clone(),
+                        content: http::DeliveryContent::Message(http::ApplicationMessage {
+                            receipt: receipt.clone(),
+                            proof: input.proof.clone(),
+                            ciphertext: input.ciphertext.clone(),
+                        }),
+                    });
+                }
+            }
+            events.sort_by_key(|e| e.position.parse::<u64>().unwrap());
+            return json(&http::DeliveryPage {
+                scope: receipt.scope.clone(),
+                room_id: if book.journal_wrong_room {
+                    "other-room".into()
+                } else {
+                    receipt.room_id.clone()
+                },
+                incarnation: receipt.incarnation.clone(),
+                after: after.to_string(),
+                through: through.to_string(),
+                events,
+                next: None,
+            });
+        }
         if request.path.contains("/events?after=") {
             let after: u64 = request
                 .path
@@ -408,6 +476,55 @@ async fn joined_workers(server: &Server, alice: &Account, bob: &Account) -> (Wor
     let fingerprint = preview.preview.fingerprint;
     peer.accept_event(preview, fingerprint).await.unwrap();
     (author, peer)
+}
+
+#[tokio::test]
+async fn journal_worker_reopens_after_lost_read_replays_clear_and_refuses_wrong_route_labels() {
+    let (alice, bob) = accounts();
+    let (server, book) = server(&alice, &bob, false);
+    let (author, peer) = joined_workers(&server, &alice, &bob).await;
+    let receipt = author
+        .send_message("room", private_message("journal-http"))
+        .await
+        .unwrap();
+    book.lock().unwrap().journal_drop_once = true;
+    assert!(matches!(
+        peer.journal_page("room").await,
+        Err(delivery::Error::Network(_))
+    ));
+    assert_eq!(bob.reopened().journal_request("room").unwrap().after, 0);
+    peer.stop();
+    let batch = server.worker(&bob).journal_page("room").await.unwrap();
+    assert!(batch.complete && batch.after == receipt.position && batch.messages.len() == 1);
+    assert_eq!(
+        batch.messages[0].message().unwrap().operation_id,
+        "journal-http"
+    );
+    let replay = server
+        .worker(&bob)
+        .journal_last_batch("room")
+        .await
+        .unwrap();
+    assert_eq!(
+        replay.messages[0].message().unwrap().text,
+        "Message HTTP **privé** 🐾"
+    );
+    // This deliberately blind fixture serves the valid room envelope for any
+    // roster/state URL. The requested route must still bind the worker result.
+    assert!(matches!(
+        server.worker(&bob).journal_last_batch("other-room").await,
+        Err(delivery::Error::Scope)
+    ));
+    book.lock().unwrap().journal_wrong_room = true;
+    assert!(matches!(
+        server.worker(&bob).journal_page("room").await,
+        Err(delivery::Error::Scope)
+    ));
+    assert_eq!(
+        bob.reopened().journal_request("room").unwrap().after,
+        receipt.position
+    );
+    assert_eq!(book.lock().unwrap().message_attempts.len(), 1);
 }
 fn delivered(book: &Mutex<Book>, operation: &str) -> http::ApplicationMessage {
     let book = book.lock().unwrap();

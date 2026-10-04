@@ -121,7 +121,7 @@ checkpoint de préfixe complet du journal. Les fournisseurs ne doivent pas
 avancer une page à partir de cette seule confirmation de message ni conserver
 le document clair dans leur cache public ordinaire.
 
-Cinq nouveaux scénarios HTTP à fixture exercent confirmation perdue / worker
+Le lot initial de messages ajoute cinq scénarios HTTP à fixture : confirmation perdue / worker
 neuf, vrai déchiffrement par le pair et l'écho, retry identique après absence
 de commit, rotation propre bloquée, reçu divergent, ACK après expiration et
 sans roster, et cooldown durable laissant les confirmations disponibles.
@@ -132,8 +132,25 @@ Il passe en 29,76 s : six POSTs de messages, six lignes opaques, neuf trames
 de livraison et aucun document clair dans SQL. Les deux coffres rouverts
 retrouvent texte riche, citations exactes, cartes et réponse dans le fil.
 La fixture consomme chaque époque avant sa rotation ; elle ne qualifie pas
-un rattrapage d'époques manquées. La suite privée complète compte 118 succès
+un rattrapage d'époques manquées. La suite privée de ce lot comptait 118 succès
 en 162,91 s, avec l'enfant ignoré exécuté par le parent de crash, sans filtre.
+
+## Pages du journal protégé
+
+`journal_page(room)` utilise le curseur du coffre et la fenêtre fixe du journal
+opaque. Déchiffrement, transitions, contenu privé et préfixe complet partagent
+le même checkpoint. Une erreur tardive annule toute la page. Les rosters
+historiques viennent des plans signés / vrais arbres MLS ; l'admission propre
+doit rester identique à l'observation courante. `journal_last_batch(room)`
+reprend le dernier lot après réouverture sans nouvelle consommation.
+
+Une fois ce journal commencé, l'ACK d'une rotation propre conserve l'ancienne
+époque jusqu'à la lecture des messages qui précèdent sa position. Les API
+isolées de message / commit refusent de contourner l'ordre. Six tests privés
+et le banc réel HTTP / PostgreSQL passent ; les règles, preuves et limites
+sont dans [JOURNAL.md](JOURNAL.md). Le banc réel couvre maintenant les pages
+protégées et leur rejeu après réouverture ; le rattrapage de trois époques
+manquées est prouvé séparément contre de vrais groupes MLS sur disque.
 
 ## Historique des vérifications de groupes
 
@@ -188,8 +205,8 @@ cargo build --locked --manifest-path crates/rv-crypto/Cargo.toml --features nati
 RV_CRYPTO_HTTP_SMOKE_BINARY="$PWD/target/native-crypto/debug/examples/delivery_smoke" cargo test --locked -p rv-server --lib protected_http_worker_publishes_joins_rotates_and_reconciles_real_postgres -- --ignored --nocapture
 ```
 
-Planification dans les fournisseurs, réconciliation des refus, rattrapage complet des adhésions,
-retrait local / réadmission, préfixe ordonné durable et projection des messages, fichiers / archives /
+Planification dans les fournisseurs, réconciliation des refus, rattrapage après expiration,
+retrait local / réadmission, projection des messages, fichiers / archives /
 import, pont Android et interfaces existantes restent ouverts. Les qualifications
 sur appareils / trousseaux et la revue indépendante demeurent nécessaires.
 Aucune capacité E2EE n'est activée.

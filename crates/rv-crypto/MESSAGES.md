@@ -3,8 +3,9 @@
 Lot expérimental du coordinateur privé `groups::Coordinator`, hors des apps.
 `capabilities.e2ee` reste désactivé. Les [routes serveur et le journal opaque](../../docs/protocol/E2EE_MESSAGES.md)
 existent séparément. Le [worker privé HTTP](GROUP_HTTP.md) raccorde maintenant
-envoi / reprise et réception contre la tête courante ; préfixe complet du journal,
-rattrapage historique et intégration aux apps restent à livrer.
+envoi / reprise et réception. Le [journal protégé](JOURNAL.md) ajoute les pages
+communes aux transitions et messages, leur checkpoint et le rattrapage sur
+la même admission. Historique après expiration / retrait et apps restent ouverts.
 
 ## Authentification et contenu
 
@@ -71,8 +72,8 @@ un nouveau message d'une époque passée.
 Une opération nouvelle avec position antérieure à la dernière position reçue
 est refusée avant consommation. Le rejeu exact d'un résultat conservé ne peut
 pas faire reculer cette position. Cette valeur ne constitue pas à elle seule un
-curseur complet : le futur worker doit valider des pages ordonnées et complètes,
-y compris les commits entre messages, puis coordonner la projection des apps.
+curseur complet : le journal protégé valide et checkpoint les pages communes,
+y compris les commits entre messages. La projection des apps reste à raccorder.
 Les positions peuvent présenter des écarts pour d'autres événements natifs.
 
 ## Bornes et preuves
@@ -102,7 +103,6 @@ du temps. Le profil de production et le journal des apps ne changent pas.
 cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --target-dir target --features system-keystore,native-http groups::tests::application_messages
 ```
 
-Suite : checkpoint d'un préfixe complet du journal opaque PostgreSQL,
-rattrapage à travers changements d'adhésion / retrait local,
+Suite : historique après expiration / révocation, réadmission après retrait,
 refus définitifs / nouvelles opérations, archive / fichiers, pont Android et
 fournisseurs des interfaces existantes, revue crypto et qualifications natives.

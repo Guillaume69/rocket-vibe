@@ -49,6 +49,9 @@ fn decoded(value: &str, limit: usize) -> Result<Vec<u8>> {
     }
     Ok(bytes)
 }
+pub(super) fn state_transition(value: &http::GroupState) -> Result<Vec<u8>> {
+    decoded(&value.transition, public::WIRE_LIMIT)
+}
 fn http_scope(scope: &Scope) -> http::Scope {
     http::Scope {
         instance_id: scope.instance.clone(),
@@ -389,11 +392,11 @@ impl Submission {
     }
 }
 
-struct DecodedEvent {
-    receipt: Receipt,
-    transition: Vec<u8>,
-    commit: Option<Vec<u8>>,
-    welcome: Option<Welcome>,
+pub(super) struct DecodedEvent {
+    pub receipt: Receipt,
+    pub transition: Vec<u8>,
+    pub commit: Option<Vec<u8>>,
+    pub welcome: Option<Welcome>,
     previous: Fingerprint,
     expected_epoch: Option<u64>,
 }
@@ -534,4 +537,81 @@ pub fn validate_page(value: &http::GroupEventPage, scope: &Scope, after: u64) ->
         return Err(Error::Changed);
     }
     Ok(())
+}
+
+pub(super) enum DeliveryContent {
+    Group(DecodedEvent),
+    Message(MessageSubmission, packet::Receipt),
+}
+pub(super) struct Delivery {
+    pub through: u64,
+    pub next: Option<u64>,
+    pub events: Vec<(u64, DeliveryContent)>,
+}
+/// Validate the bounded envelope and exact packet labels before any ratchet is
+/// spent. Native positions may have gaps; group successors may not.
+pub(super) fn delivery(
+    page: &http::DeliveryPage,
+    scope: &Scope,
+    after: u64,
+    through: Option<u64>,
+) -> Result<Delivery> {
+    scope.group_id()?;
+    bound_scope(&page.scope, &page.room_id)?;
+    let end = decimal(&page.through, false)?;
+    if !same_scope(&page.scope, scope)
+        || page.room_id != scope.room
+        || hex::<16>(&page.incarnation)? != scope.incarnation
+        || decimal(&page.after, false)? != after
+        || end < after
+        || through.is_some_and(|expected| expected != end)
+    {
+        return Err(Error::JournalOrder);
+    }
+    if page.events.len() > 16 {
+        return Err(Error::Limit);
+    }
+    let mut position = after;
+    let mut total: usize = 0;
+    let mut events = Vec::new();
+    for frame in &page.events {
+        let next_position = decimal(&frame.position, true)?;
+        if next_position <= position || next_position > end {
+            return Err(Error::JournalOrder);
+        }
+        let content = match &frame.content {
+            http::DeliveryContent::Group(value) => {
+                let group = event(value)?;
+                if group.receipt.scope != *scope {
+                    return Err(Error::JournalOrder);
+                }
+                total += group.transition.len()
+                    + group.commit.as_ref().map_or(0, Vec::len)
+                    + group.welcome.as_ref().map_or(0, |w| w.payload.len());
+                DeliveryContent::Group(group)
+            }
+            http::DeliveryContent::Message(value) => {
+                let (submission, receipt) = MessageSubmission::from_delivered(value)?;
+                if receipt.header.scope != *scope || receipt.position != next_position {
+                    return Err(Error::JournalOrder);
+                }
+                total += submission.proof.len() + submission.ciphertext.len();
+                DeliveryContent::Message(submission, receipt)
+            }
+        };
+        if page.events.len() > 1 && total > TOTAL_LIMIT {
+            return Err(Error::Limit);
+        }
+        events.push((next_position, content));
+        position = next_position;
+    }
+    let next = page.next.as_deref().map(|s| decimal(s, true)).transpose()?;
+    if next.is_some_and(|next| events.is_empty() || next != position || next >= end) {
+        return Err(Error::JournalOrder);
+    }
+    Ok(Delivery {
+        through: end,
+        next,
+        events,
+    })
 }

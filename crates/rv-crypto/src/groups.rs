@@ -26,8 +26,10 @@ mod incoming;
 pub use incoming::Commit;
 mod changes;
 pub use changes::Change;
+mod journal;
 mod messages;
 pub mod wire;
+pub use journal::{JournalBatch, JournalObservation, JournalRequest};
 pub use messages::{ClearMessage, MessageObservation, MessagePending, MessageSubmission};
 
 const SUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
@@ -63,6 +65,8 @@ pub enum Error {
     MessageNotPending,
     #[error("crypto_message_not_retained")]
     MessageNotRetained,
+    #[error("crypto_journal_order_changed")]
+    JournalOrder,
 }
 type Result<T> = std::result::Result<T, Error>;
 
@@ -1049,6 +1053,12 @@ impl Coordinator {
             let pending = state.pending.as_ref().ok_or(Error::NotReady)?;
             let transition = Transition::from_bytes(&pending.submission.transition)?;
             check_receipt(&transition, receipt)?;
+            // Once ordered delivery is active, the HTTP ACK cannot discard an
+            // epoch with unread messages. The journal merges this exact pending
+            // commit at its native position instead.
+            if state.active.is_some() && journal::started(records, &state.scope)? {
+                return Ok(());
+            }
             let mut group = MlsGroup::load(
                 provider.storage(),
                 &GroupId::from_slice(&state.scope.group_id()?),

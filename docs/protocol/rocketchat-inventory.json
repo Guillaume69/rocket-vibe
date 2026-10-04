@@ -2243,13 +2243,13 @@
     },
     {
       "file": "apps/mobile/app/actions-message.tsx",
-      "line": 83,
+      "line": 84,
       "kind": "call:GET",
       "surface": "'settings.public'"
     },
     {
       "file": "apps/mobile/app/actions-message.tsx",
-      "line": 84,
+      "line": 85,
       "kind": "endpoint",
       "surface": "settings.public"
     },
@@ -3071,37 +3071,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1008,
+      "line": 1009,
       "kind": "endpoint",
       "surface": "e2e.titre"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1009,
+      "line": 1010,
       "kind": "endpoint",
       "surface": "e2e.explication"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1011,
+      "line": 1012,
       "kind": "endpoint",
       "surface": "e2e.champ"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1012,
+      "line": 1013,
       "kind": "endpoint",
       "surface": "e2e.deverrouiller"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1013,
+      "line": 1014,
       "kind": "endpoint",
       "surface": "e2e.erreurMotDePasse"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1014,
+      "line": 1015,
       "kind": "endpoint",
       "surface": "e2e.erreurGenerique"
     }

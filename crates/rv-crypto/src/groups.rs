@@ -1144,6 +1144,11 @@ impl Coordinator {
     pub fn accepted_receipt(&self, room: &str) -> Result<Receipt> {
         self.accepted_group(room).map(|(receipt, _)| receipt)
     }
+    /// A protected group record, including pending or withdrawn states, must
+    /// never be treated as an ordinary source by a host cache observation.
+    pub fn has_recorded_group(&self, room: &str) -> Result<bool> {
+        self.inspect(|_, records| Ok(read(records, room)?.is_some()))
+    }
     /// The actual MLS roster checked against the accepted signed plan. These
     /// public observations still do not authorize a new send or transition.
     pub fn accepted_group(&self, room: &str) -> Result<(Receipt, Vec<Participant>)> {

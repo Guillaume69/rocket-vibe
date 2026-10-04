@@ -404,8 +404,12 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    reprise du paquet MLS original. Les sources sont résolues dans le coffre,
    avec adhésion / admission fraîches, positions exactes, deux niveaux et
    coupure des cycles. Retrait, blur et suspension effacent les aperçus Android ;
-   aucune sélection privée ne rejoint la file SQL ordinaire. Sources mixtes,
-   révisions d'édition et fichiers cités restent ouverts.
+   aucune sélection privée ne rejoint la file SQL ordinaire. Les cartes privées
+   lisent aussi les sources claires de leur cache autorisé. Android prépare des
+   références mixtes dans le document MLS et choisit une destination dans la
+   feuille d’actions existante ; le pont refuse de rendre ordinaire un groupe
+   protégé enregistré. Sélecteurs intersalons bureau, cartes privées dans les
+   salons ordinaires, révisions d'édition et fichiers cités restent ouverts.
    Renouvellement, récupération / révocation visibles, actions / recherche
    privés et qualification GUI complète restent ouverts ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.

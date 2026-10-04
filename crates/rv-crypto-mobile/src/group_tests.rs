@@ -672,13 +672,45 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
             )
             .is_err()
     );
+    let ordinary = json!({"reference":{"room_id":"ordinary-room","message_id":"ordinary-source","revision":"9007199254740998"},
+        "instance_id":own.scope.instance_id,"data_epoch":own.scope.data_epoch,"membership_version":"ordinary-grant"});
+    let ordinary_source = json!({"room_id":"ordinary-room","membership_version":"ordinary-grant","references":[ordinary["reference"]]});
+    let mut downgraded = selected["selection"].clone();
+    downgraded
+        .as_object_mut()
+        .unwrap()
+        .remove("crypto_admission");
+    for (quote, source) in [
+        (ordinary.clone(), Value::Null),
+        (
+            ordinary.clone(),
+            json!({"room_id":"ordinary-room","membership_version":"old-grant","references":[ordinary["reference"]]}),
+        ),
+        (
+            ordinary.clone(),
+            json!({"room_id":"ordinary-room","membership_version":"ordinary-grant","references":[{"room_id":"ordinary-room","message_id":"ordinary-source","revision":"9007199254740999"}]}),
+        ),
+        (
+            downgraded.clone(),
+            json!({"room_id":"room","membership_version":"private-membership","references":[downgraded["reference"]]}),
+        ),
+    ] {
+        let public_sources = if source.is_null() {
+            json!([])
+        } else {
+            json!([source])
+        };
+        assert!(alice.conversation_action(serde_json::to_string(&own).unwrap(),
+            json!({"roster":roster,"state":state,"thread":null,"command":{"action":"prepare","text":"",
+                "quotes":[quote],"sources":[],"public_sources":public_sources}}).to_string()).is_err());
+    }
     let quoted = conversation(
         &alice,
         &own,
         &roster,
         &state,
         None,
-        json!({"action":"prepare","text":"","quotes":[selected["selection"]],"sources":[]}),
+        json!({"action":"prepare","text":"","quotes":[selected["selection"],ordinary],"sources":[],"public_sources":[ordinary_source]}),
     );
     let quote_operation = quoted["operation"].as_str().unwrap();
     let quote_original = conversation(
@@ -770,7 +802,7 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
         assert_eq!(quoted["document"]["text"], "");
         assert_eq!(
             quoted["document"]["quotes"],
-            json!([selected["selection"]["reference"]])
+            json!([selected["selection"]["reference"], ordinary["reference"]])
         );
         assert!(
             !quoted["document"]

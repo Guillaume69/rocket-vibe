@@ -28,7 +28,16 @@ struct QuoteSelection {
     instance_id: String,
     data_epoch: String,
     membership_version: String,
-    crypto_admission: String,
+    crypto_admission: Option<String>,
+}
+/// The authenticated host adapter rechecks its ordinary, reader-scoped cache
+/// immediately before this command. No excerpt or file enters this witness.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublicSourceObservation {
+    room_id: String,
+    membership_version: String,
+    references: Vec<rv_protocol::parity::QuoteReference>,
 }
 #[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
@@ -57,6 +66,8 @@ enum Command {
         quotes: Vec<QuoteSelection>,
         #[serde(default)]
         sources: Vec<SourceObservation>,
+        #[serde(default)]
+        public_sources: Vec<PublicSourceObservation>,
     },
     Restore {
         operation: String,
@@ -351,8 +362,9 @@ impl CryptoInstallation {
                 text,
                 quotes,
                 sources,
+                public_sources,
             } => {
-                if quotes.len() > 8 || sources.len() > 8 {
+                if quotes.len() > 8 || sources.len() + public_sources.len() > 8 {
                     return Err(CryptoBridgeError::Integrity);
                 }
                 let mut observations = std::collections::BTreeMap::new();
@@ -362,6 +374,31 @@ impl CryptoInstallation {
                         engine::JournalObservation::from_wire(&source.roster, &source.state)?;
                     let room = observed.current.roster.scope.room.clone();
                     if observations.insert(room, observed).is_some() {
+                        return Err(CryptoBridgeError::Integrity);
+                    }
+                }
+                let mut public = std::collections::BTreeMap::new();
+                for source in public_sources {
+                    if !identifier(&source.room_id)
+                        || !identifier(&source.membership_version)
+                        || source.references.is_empty()
+                        || source.references.len() > 8
+                        || observations.contains_key(&source.room_id)
+                        || c.has_recorded_group(&source.room_id)?
+                    {
+                        return Err(CryptoBridgeError::Integrity);
+                    }
+                    let mut seen = std::collections::BTreeSet::new();
+                    for r in &source.references {
+                        if r.room_id != source.room_id
+                            || !identifier(&r.message_id)
+                            || !seen.insert(&r.message_id)
+                        {
+                            return Err(CryptoBridgeError::Integrity);
+                        }
+                        decimal(&r.revision)?;
+                    }
+                    if public.insert(source.room_id.clone(), source).is_some() {
                         return Err(CryptoBridgeError::Integrity);
                     }
                 }
@@ -376,6 +413,16 @@ impl CryptoInstallation {
                     {
                         return Err(CryptoBridgeError::Integrity);
                     }
+                    if selection.crypto_admission.is_none() {
+                        let source = public.get(&r.room_id).ok_or(CryptoBridgeError::Integrity)?;
+                        if source.membership_version != selection.membership_version
+                            || !source.references.contains(r)
+                        {
+                            return Err(CryptoBridgeError::Integrity);
+                        }
+                        refs.push(selection.reference);
+                        continue;
+                    }
                     let observed = if r.room_id == current.roster.scope.room {
                         &observation
                     } else {
@@ -384,7 +431,8 @@ impl CryptoInstallation {
                             .ok_or(CryptoBridgeError::Integrity)?
                     };
                     let sources = c.journal_sources(observed, time)?;
-                    if selection.crypto_admission != HEXLOWER.encode(&sources.admission)
+                    if selection.crypto_admission.as_deref()
+                        != Some(HEXLOWER.encode(&sources.admission).as_str())
                         || !sources.messages.iter().any(|m| {
                             m.message.receipt.message == r.message_id
                                 && m.message.receipt.position.to_string() == r.revision

@@ -6,7 +6,7 @@ import type {NativeChat} from '../fournisseurs/rocketvibe/chat.ts';
 import type {CryptoConversationAccess,CryptoConversationView} from '../fournisseurs/rocketvibe/cryptoConversations.ts';
 import type {Outbox} from '../lib/fournisseur.ts';
 import {NativeError} from '../fournisseurs/rocketvibe/transport.ts';
-import {actualiserReponsePrivee,invaliderReponseNative,lireReponse,useReponse} from './reponse.ts';
+import {actualiserReponseNative,invaliderReponseNative,lireReponse,useReponse} from './reponse.ts';
 /** The existing room list consumes a volatile native projection. Blur,
  * suspension and membership changes dispose it; no lissage retains clear rows. */
 export function useConversationChiffree(chat:NativeChat|undefined,room:string,membership:string|null|undefined,enabled:boolean,thread:string|null=null) {
@@ -17,7 +17,7 @@ export function useConversationChiffree(chat:NativeChat|undefined,room:string,me
   const focused=useRef(false),epoch=useRef(0),access=useRef<CryptoConversationAccess|null>(null),job=useRef<number|null>(null);
   const opening=useRef<Promise<CryptoConversationAccess>|null>(null),lastInitial=useRef<number|null>(null);
   const clear=useCallback(()=>{epoch.current++;job.current=null;opening.current=null;lastInitial.current=null;
-    const cible=lireReponse(cleReponse);if(cible?.native?.crypto_admission)invaliderReponseNative(cleReponse,cible);
+    const cible=lireReponse(cleReponse);if(cible?.native)invaliderReponseNative(cleReponse,cible);
     void access.current?.close();access.current=null;setView(null);setInitial(null);setBusy(false);},[cleReponse]);
   const run=useCallback(async<T,>(action:(a:CryptoConversationAccess)=>Promise<T>,restore=false,retainPrepared=false):Promise<T>=>{
     if(!enabled || !chat || membership==null || !focused.current || AppState.currentState!=='active' || !CryptoNative)throw Error('Private conversation unavailable');
@@ -37,10 +37,10 @@ export function useConversationChiffree(chat:NativeChat|undefined,room:string,me
       // refresh resumes the durable cursor without reopening an MLS ratchet.
       for(let p=0;p<8 && current.catching_up;p++)current=await a.refresh();
       const cible=lireReponse(cleReponse);
-      if(cible?.native?.crypto_admission) {
+      if(cible?.native) {
         const preview=await a.previewQuote(cible.native);
         if(visible()) {
-          if(preview)actualiserReponsePrivee(cleReponse,cible,preview);
+          if(preview)actualiserReponseNative(cleReponse,cible,preview);
           else invaliderReponseNative(cleReponse,cible);
         }
       }
@@ -62,7 +62,7 @@ export function useConversationChiffree(chat:NativeChat|undefined,room:string,me
     const n=epoch.current;job.current=n;
     void run(async()=>{}).catch(()=>{}).finally(()=>{if(job.current===n)job.current=null;});
   },[run,enabled]);
-  useEffect(()=>{if(enabled && focused.current && reponse?.native?.crypto_admission)reload();},[enabled,reponse?.native,reload]);
+  useEffect(()=>{if(enabled && focused.current && reponse?.native)reload();},[enabled,reponse?.native,reload]);
   useFocusEffect(useCallback(()=>{focused.current=true;clear();if(enabled)reload();return()=>{focused.current=false;clear();};},[clear,enabled,reload]));
   useEffect(()=>{const sub=AppState.addEventListener('change',state=>{if(state!=='active')clear();else if(focused.current)reload();});return()=>sub.remove();},[clear,reload]);
   useEffect(()=>{if(!enabled || !chat)return;

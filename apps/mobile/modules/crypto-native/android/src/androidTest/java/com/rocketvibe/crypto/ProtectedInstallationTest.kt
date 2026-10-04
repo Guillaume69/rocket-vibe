@@ -183,7 +183,17 @@ class ProtectedInstallationTest {
       assertEquals(sourceRows.getString("admission"), selectedQuote.getString("crypto_admission"))
       val invalidQuote = JSONObject(selectedQuote.toString()).put("crypto_admission", "00".repeat(32))
       refused { conversation(command("prepare").put("text", "").put("quotes", JSONArray().put(invalidQuote)).put("sources", JSONArray())) }
-      val quoteOperation = JSONObject(conversation(command("prepare").put("text", "").put("quotes", JSONArray().put(selectedQuote)).put("sources", JSONArray()))).getString("operation")
+      val ordinaryReference = JSONObject().put("room_id", "ordinary-room").put("message_id", "ordinary-source").put("revision", "9007199254740998")
+      val ordinaryQuote = JSONObject().put("reference", ordinaryReference).put("instance_id", account.instance)
+        .put("data_epoch", account.dataEpoch).put("membership_version", "ordinary-grant")
+      val ordinarySource = JSONObject().put("room_id", "ordinary-room").put("membership_version", "ordinary-grant").put("references", JSONArray().put(ordinaryReference))
+      refused { conversation(command("prepare").put("text", "").put("quotes", JSONArray().put(ordinaryQuote)).put("sources", JSONArray())) }
+      val downgradedQuote = JSONObject(selectedQuote.toString()).also { it.remove("crypto_admission") }
+      val downgradedSource = JSONObject().put("room_id", "room").put("membership_version", "private-membership")
+        .put("references", JSONArray().put(downgradedQuote.getJSONObject("reference")))
+      refused { conversation(command("prepare").put("text", "").put("quotes", JSONArray().put(downgradedQuote)).put("public_sources", JSONArray().put(downgradedSource))) }
+      val quoteOperation = JSONObject(conversation(command("prepare").put("text", "").put("quotes", JSONArray().put(selectedQuote).put(ordinaryQuote))
+        .put("sources", JSONArray()).put("public_sources", JSONArray().put(ordinarySource)))).getString("operation")
       val quoteOriginal = conversation(command("retry").put("operation", quoteOperation))
       assertFalse(quoteOriginal.contains("private Android thread reply"))
       installation.stop(); installation.destroy()
@@ -208,6 +218,9 @@ class ProtectedInstallationTest {
       assertEquals("", quoteDocument.getString("text"))
       assertEquals("android-reply", quoteDocument.getJSONArray("quotes").getJSONObject(0).getString("message_id"))
       assertEquals("9007199254740994", quoteDocument.getJSONArray("quotes").getJSONObject(0).getString("revision"))
+      assertEquals(2, quoteDocument.getJSONArray("quotes").length())
+      assertEquals("ordinary-source", quoteDocument.getJSONArray("quotes").getJSONObject(1).getString("message_id"))
+      assertEquals("9007199254740998", quoteDocument.getJSONArray("quotes").getJSONObject(1).getString("revision"))
       assertFalse(quoteDocument.toString().contains("private Android thread reply"))
       // Private plaintext is present only in the protected coffer, not in its
       // ciphertext or the platform's encrypted small records.

@@ -315,8 +315,8 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:488](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L488) | endpoint | e2e.no_keys |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:489](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L489) | endpoint | e2e.failed |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:492](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L492) | endpoint | e2e.failed |
-| [apps/mobile/app/actions-message.tsx:83](../../apps/mobile/app/actions-message.tsx#L83) | call:GET | 'settings.public' |
-| [apps/mobile/app/actions-message.tsx:84](../../apps/mobile/app/actions-message.tsx#L84) | endpoint | settings.public |
+| [apps/mobile/app/actions-message.tsx:84](../../apps/mobile/app/actions-message.tsx#L84) | call:GET | 'settings.public' |
+| [apps/mobile/app/actions-message.tsx:85](../../apps/mobile/app/actions-message.tsx#L85) | endpoint | settings.public |
 | [apps/mobile/app/connexion.tsx:407](../../apps/mobile/app/connexion.tsx#L407) | endpoint | chat.exemple.fr |
 | [apps/mobile/app/deverrouiller-e2e.tsx:45](../../apps/mobile/app/deverrouiller-e2e.tsx#L45) | endpoint | e2e.erreurGenerique |
 | [apps/mobile/app/deverrouiller-e2e.tsx:45](../../apps/mobile/app/deverrouiller-e2e.tsx#L45) | endpoint | e2e.erreurMotDePasse |
@@ -453,9 +453,9 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/mobile/ui/messages.ts:373](../../apps/mobile/ui/messages.ts#L373) | endpoint | e2e.deverrouiller |
 | [apps/mobile/ui/messages.ts:374](../../apps/mobile/ui/messages.ts#L374) | endpoint | e2e.erreurMotDePasse |
 | [apps/mobile/ui/messages.ts:375](../../apps/mobile/ui/messages.ts#L375) | endpoint | e2e.erreurGenerique |
-| [apps/mobile/ui/messages.ts:1008](../../apps/mobile/ui/messages.ts#L1008) | endpoint | e2e.titre |
-| [apps/mobile/ui/messages.ts:1009](../../apps/mobile/ui/messages.ts#L1009) | endpoint | e2e.explication |
-| [apps/mobile/ui/messages.ts:1011](../../apps/mobile/ui/messages.ts#L1011) | endpoint | e2e.champ |
-| [apps/mobile/ui/messages.ts:1012](../../apps/mobile/ui/messages.ts#L1012) | endpoint | e2e.deverrouiller |
-| [apps/mobile/ui/messages.ts:1013](../../apps/mobile/ui/messages.ts#L1013) | endpoint | e2e.erreurMotDePasse |
-| [apps/mobile/ui/messages.ts:1014](../../apps/mobile/ui/messages.ts#L1014) | endpoint | e2e.erreurGenerique |
+| [apps/mobile/ui/messages.ts:1009](../../apps/mobile/ui/messages.ts#L1009) | endpoint | e2e.titre |
+| [apps/mobile/ui/messages.ts:1010](../../apps/mobile/ui/messages.ts#L1010) | endpoint | e2e.explication |
+| [apps/mobile/ui/messages.ts:1012](../../apps/mobile/ui/messages.ts#L1012) | endpoint | e2e.champ |
+| [apps/mobile/ui/messages.ts:1013](../../apps/mobile/ui/messages.ts#L1013) | endpoint | e2e.deverrouiller |
+| [apps/mobile/ui/messages.ts:1014](../../apps/mobile/ui/messages.ts#L1014) | endpoint | e2e.erreurMotDePasse |
+| [apps/mobile/ui/messages.ts:1015](../../apps/mobile/ui/messages.ts#L1015) | endpoint | e2e.erreurGenerique |

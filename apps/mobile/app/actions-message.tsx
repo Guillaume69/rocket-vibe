@@ -8,6 +8,7 @@ import {
   AppState,
   Pressable,
   Share,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -136,6 +137,8 @@ export default function EcranActionsMessage() {
   const [edition, setEdition] = useState<string | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const [occupe, setOccupe] = useState(false);
+  const [destinations,setDestinations]=useState<{rid:string;nom:string;encrypted:boolean}[]|null>(null);
+  const [filtreDestination,setFiltreDestination]=useState('');
 
   const pret = synchro.phase === 'pret' && etat.phase === 'connecte' && typeof id === 'string';
   const base = synchro.phase === 'pret' ? synchro.base : null;
@@ -337,18 +340,31 @@ export default function EcranActionsMessage() {
 
   // Arme la cible de réponse pour le composer d'origine (salon ou fil) puis se
   // referme — l'envoi lui-même se joue là-bas, avec le texte tapé ensuite.
-  const repondre = async () => {
+  const repondre = async (destination?:string) => {
     const generation = generationVue.current;
     void Haptics.selectionAsync();
+    const target=destination??message.rid;
+    const cle=target===message.rid && typeof fil==='string'?`${target}:${fil}`:target;
+    const terminer=()=>{
+      routeur.back();
+      if(target!==message.rid)routeur.push({pathname:'/salon/[rid]',params:{rid:target}});
+    };
+    if(destination!==undefined) {
+      try {
+        const access=await fournisseur?.native?.store.cryptoRoomAccess(target);
+        if(!access?.canSend || access.membership===null || prive==='1' && !access.encrypted)throw Error('Quote destination unavailable');
+        if(generationVue.current!==generation)return;
+      } catch {if(generationVue.current===generation)setErreur(t('citation.selectionChangee'));return;}
+    }
     if(prive==='1') {
       try {
         const actor=priveAccess.current;if(!actor)throw Error('Private source unavailable');
         const selected=await actor.selectQuote(message.id);
         if(generationVue.current!==generation || actor.isClosed)return;
         // The origin view re-resolves this reference after regaining focus.
-        demanderReponse(typeof fil==='string'?`${message.rid}:${fil}`:message.rid,{id:message.id,auteur:null,apercu:null,
+        demanderReponse(cle,{id:message.id,auteur:null,apercu:null,
           permalien:'',jointeLocale:'[]',imageApercu:null,native:selected.selection,nativeIndisponible:true});
-        routeur.back();
+        terminer();
       } catch {if(generationVue.current===generation)setErreur(t('citation.selectionChangee'));}
       return;
     }
@@ -357,11 +373,11 @@ export default function EcranActionsMessage() {
         const selection = await fournisseur.native.store.quoteSelection(message.rid, message.id);
         if (selection.reference.revision !== charge.revision) throw new NativeError(409,'quote_revision_conflict');
         if (generationVue.current !== generation) return;
-        demanderReponse(message.rid, {
+        demanderReponse(cle, {
           id:message.id, auteur:message.auteurNom, apercu:message.texte?.trim() || null,
           permalien:'', jointeLocale:'[]', imageApercu:null, native:selection,
         });
-        routeur.back();
+        terminer();
       } catch { if (generationVue.current === generation) setErreur(t('citation.selectionChangee')); }
       return;
     }
@@ -387,6 +403,20 @@ export default function EcranActionsMessage() {
       imageApercu: premiereImageDesJointes(message.piecesJointes),
     });
     routeur.back();
+  };
+  const choisirDestination=async()=>{
+    const native=fournisseur?.native;if(!native)return;
+    const generation=generationVue.current;setOccupe(true);setErreur(null);
+    try {
+      const rooms=await native.store.rooms();
+      const candidates=await Promise.all(rooms.map(async room=>{
+        const access=await native.store.cryptoRoomAccess(room.rid);
+        return access?.canSend && access.membership!==null && (prive!=='1' || access.encrypted)?
+          {rid:room.rid,nom:room.nom,encrypted:access.encrypted}:null;
+      }));
+      if(generationVue.current===generation){setFiltreDestination('');setDestinations(candidates.filter((r):r is NonNullable<typeof r>=>r!==null));}
+    } catch {if(generationVue.current===generation)setErreur(t('citation.selectionChangee'));}
+    finally {if(generationVue.current===generation)setOccupe(false);}
   };
 
   // Un fichier joint part COMME fichier ; sinon le texte. La légende d'une
@@ -468,7 +498,20 @@ export default function EcranActionsMessage() {
         </View>
       )}
 
-      {enEdition ? (
+      {destinations!==null ? (
+        <View style={styles.listeActions}>
+          <Text style={[styles.ligneTexte,{color:c.texte}]}>{t('actionsMessage.repondreDans')}</Text>
+          <TextInput value={filtreDestination} onChangeText={setFiltreDestination} placeholder={t('commun.rechercher')}
+            placeholderTextColor={c.texteTertiaire} style={[styles.champ,{color:c.texte,backgroundColor:c.carte,borderColor:c.bordure}]} />
+          <ScrollView style={{maxHeight:Math.max(100,hauteurMax-160)}} keyboardShouldPersistTaps="handled">
+            {destinations.filter(r=>r.nom.toLocaleLowerCase().includes(filtreDestination.toLocaleLowerCase())).map(r=>(
+              <ActionLigne key={r.rid} c={c} disabled={occupe} icone={r.encrypted?'🔒':'↩️'} libelle={r.nom}
+                onPress={()=>{if(occupe)return;setOccupe(true);void repondre(r.rid).finally(()=>setOccupe(false));}} />
+            ))}
+          </ScrollView>
+          <ActionLigne c={c} disabled={occupe} icone="←" libelle={t('commun.annuler')} onPress={()=>setDestinations(null)} />
+        </View>
+      ) : enEdition ? (
         <View style={styles.blocEdition}>
           <TextInput
             value={edition}
@@ -525,8 +568,12 @@ export default function EcranActionsMessage() {
               disabled={occupe}
               icone="↩️"
               libelle={t('actionsMessage.repondre')}
-              onPress={repondre}
+              onPress={()=>void repondre()}
             />
+          )}
+          {actions.includes('repondre') && fournisseur?.native && (
+            <ActionLigne c={c} disabled={occupe} icone="↪️" libelle={t('actionsMessage.repondreDans')}
+              onPress={()=>void choisirDestination()} />
           )}
           {actions.includes('repondreFil') && (
             <ActionLigne

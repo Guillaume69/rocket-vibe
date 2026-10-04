@@ -128,7 +128,16 @@ Les tests Rust à deux acteurs et Android Keystore / ABI exercent cette reprise
 et la réception MLS ; leurs reçus restent synthétiques. Les tests JS couvrent
 aussi le refus d'une sélection stale, source retirée et reprise HTTP sans
 second POST. La file SQL ordinaire refuse les sélections privées.
-Sources mixtes, autres actions / recherche, archive et fichiers restent
+La composition accepte aussi des sources ordinaires : le runner les relit
+dans son cache autorisé et fournit seulement adhésion et références exactes.
+Rust vérifie scope / correspondance / bornes et refuse de classer un groupe
+protégé enregistré comme source ordinaire. Les sélections privées gardent leur
+contrôle d’admission et de position dans le coffre. Les témoins ordinaires
+viennent du cache authentifié de l’adaptateur, sans signature MLS d’auteur.
+Les tests à deux acteurs et Android exercent envoi mixte, témoin absent, refus
+de rétrogradation et réception du même original après réouverture. Le choix de
+destination est dans la feuille d’actions existante, sans envoi automatique.
+Cartes privées dans les salons ordinaires, autres actions / recherche, archive et fichiers restent
 ouverts, ainsi que la qualification physique et la revue. Aucun masque activé.
 
 Prérequis : Rust 1.97, cibles `aarch64-linux-android` et `x86_64-linux-android`,

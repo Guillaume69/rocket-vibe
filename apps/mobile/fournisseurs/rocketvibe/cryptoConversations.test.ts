@@ -23,6 +23,7 @@ async function setup(thread:string|null=null,mixed=false) {
   let membership:string|null='member';
   let sourceRetained=true,preparedText='private text';
   let publicMembership:string|null='plain-grant',publicText='ordinary source words';
+  let publicRevision='10',publicReads=0,changePublicAt=Infinity;
   let selectedQuotes: import('./protocol.generated.ts').QuoteReference[]=[];
   const source={id:'private-source',operation:'source-op',author:scope.user,
     document:{operation_id:'source-op',text:'private quoted reply',reply_to:'source-root',quotes:mixed?[{room_id:'plain-room',message_id:'plain-source',revision:'10'}]:[],cards:[]},position:'9007199254740993',observed_at:'1700000000',status:'journaled'};
@@ -48,7 +49,10 @@ async function setup(thread:string|null=null,mixed=false) {
         case 'select_quote':assert.equal(c.message,source.id);return JSON.stringify({selection:{reference:{room_id:ack.room_id,message_id:source.id,revision:source.position},
           instance_id:scope.instance,data_epoch:scope.dataEpoch,membership_version:c.membership,crypto_admission:admission},author:source.author,text:source.document.text});
         case 'sources':return JSON.stringify({room_id:ack.room_id,admission,after:source.position,messages:sourceRetained?[source]:[]});
-        case 'prepare':assert.ok(c.text==='private text' || c.text==='');preparedText=c.text;selectedQuotes=(c.quotes??[]).map((q:import('./cryptoQuotes.ts').PrivateQuoteSelection)=>q.reference);prepares++;prepared=true;return JSON.stringify({operation:packet.operation_id});
+        case 'prepare':assert.ok(c.text==='private text' || c.text==='');preparedText=c.text;selectedQuotes=(c.quotes??[]).map((q:import('./quotes.ts').NativeQuoteSelection)=>q.reference);
+          assert.deepEqual(c.public_sources,(c.quotes??[]).some((q:import('./quotes.ts').NativeQuoteSelection)=>q.reference.room_id==='plain-room')?
+            [{room_id:'plain-room',membership_version:publicMembership,references:[{room_id:'plain-room',message_id:'plain-source',revision:publicRevision}]}]:[]);
+          assert.ok(!JSON.stringify(c).includes(publicText));prepares++;prepared=true;return JSON.stringify({operation:packet.operation_id});
         case 'pending':assert.equal(c.operation,packet.operation_id);return JSON.stringify({operation:c.operation,status:cancelled?'cancelled':cancelling?'cancelling':'pending'});
         case 'retry':retries++;return JSON.stringify(packet);
         case 'acknowledge':assert.deepEqual(c.receipt,ack);return 'null';
@@ -71,12 +75,46 @@ async function setup(thread:string|null=null,mixed=false) {
       return {kind:'cancelled',data:{scope:ack.scope,room_id:ack.room_id,operation_id:ack.operation_id,header:ack.header,fingerprint:ack.fingerprint}};}};
   const group=new CryptoGroupAccess(identity,bridge,remote,ack.room_id,async mutation=>{if(mutation && readOnly)throw new NativeError(403,'room_access_denied');});
   const access=new CryptoConversationAccess(group,bridge,remote,ack.room_id,thread,'member',async room=>room===ack.room_id?membership:null,
-    async(room,ids)=>mixed && room==='plain-room' && publicMembership!==null?{membership:publicMembership,messages:ids.includes('plain-source')?[{id:'plain-source',excerpt:{author:{id:'bob',username:'bob',display_name:'Bob'},text:publicText,created_at:'2026-10-04T08:00:00Z',revision:'10',membership_version:publicMembership,references:[]}}]:[]}:null);
+    async(room,ids)=>{if(room==='plain-room' && ++publicReads===changePublicAt)publicMembership='replacement-grant';
+      return mixed && room==='plain-room' && publicMembership!==null?{membership:publicMembership,messages:ids.includes('plain-source')?[{id:'plain-source',excerpt:{author:{id:'bob',username:'bob',display_name:'Bob'},text:publicText,created_at:'2026-10-04T08:00:00Z',revision:publicRevision,membership_version:publicMembership,references:[]}}]:[]}:null;});
   return {access,remote,get posts(){return posts;},get retries(){return retries;},get prepares(){return prepares;},get cancels(){return cancels;},get nativeDrafts(){return nativeDrafts;},get scopeReads(){return scopeReads;},
     lose:()=>{lose=true;},readOnly:()=>{readOnly=true;},switchDevice:()=>{current={...scope,device:'replacement'};},changeAdmission:()=>{admission='cd'.repeat(32);},
     wrongRoot:()=>{if(root)root={...root,id:'foreign-root'};},evictRoot:()=>{root=null;},evictSource:()=>{sourceRetained=false;},withdrawSource:()=>{membership=null;},
-    editPublic:()=>{publicText='edited ordinary words';},withdrawPublic:()=>{publicMembership=null;}};
+    editPublic:()=>{publicText='edited ordinary words';publicRevision='11';},withdrawPublic:()=>{publicMembership=null;},
+    rejoinPublic:()=>{publicMembership='replacement-grant';},changePublicDuringSend:()=>{changePublicAt=publicReads+2;}};
 }
+
+test('mixed quote-only authoring sends references without ordinary excerpts and recovers the accepted original',async()=>{
+  const f=await setup(null,true);await f.access.refresh();
+  const clear=await f.access.selectSourceQuote('plain-room','plain-source'),privateSource=await f.access.selectQuote('private-source');
+  assert.equal(clear.selection.crypto_admission,undefined);assert.equal(clear.text,'ordinary source words');
+  assert.equal((await f.access.previewQuote(clear.selection))?.author,'bob');
+  f.lose();await f.access.send('',[privateSource.selection,clear.selection]);
+  const view=await f.access.refresh();assert.deepEqual(view.messages[0].document.quotes,[privateSource.selection.reference,clear.selection.reference]);
+  assert.equal(view.quote_cards?.[packet.operation_id][1].text,'ordinary source words');
+  await f.access.resume(packet.operation_id);assert.equal(f.posts,1);assert.equal(f.prepares,1);await f.access.close();
+});
+
+test('ordinary quote authoring rejects changed revision, membership, withdrawal and a private admission downgrade before preparing',async()=>{
+  for(const change of ['editPublic','rejoinPublic','withdrawPublic','changePublicDuringSend'] as const) {
+    const f=await setup(null,true);const selected=await f.access.selectSourceQuote('plain-room','plain-source');f[change]();
+    await assert.rejects(f.access.send('',[selected.selection]));assert.equal(f.prepares,0);assert.equal(f.posts,0);await f.access.close();
+  }
+  const f=await setup(null,true);const {selection}=await f.access.selectQuote('private-source');
+  const {crypto_admission:_admission,...downgraded}=selection;
+  assert.equal(await f.access.previewQuote(downgraded),null);await assert.rejects(f.access.send('',[downgraded]));
+  assert.equal(f.prepares,0);assert.equal(f.posts,0);await f.access.close();
+});
+
+test('ordinary references cannot cross account scope, become private or duplicate an encrypted intention',async()=>{
+  const f=await setup(null,true);const {selection}=await f.access.selectSourceQuote('plain-room','plain-source');
+  for(const altered of [{...selection,instance_id:'foreign'}, {...selection,data_epoch:'foreign'},
+    {...selection,crypto_admission:fp}, {...selection,reference:{...selection.reference,revision:'0'}}]) {
+    await assert.rejects(f.access.send('',[altered]));
+  }
+  await assert.rejects(f.access.send('',[selection,selection]));assert.equal(f.prepares,0);assert.equal(f.posts,0);
+  f.switchDevice();await assert.rejects(f.access.send('',[selection]));assert.equal(f.posts,0);await f.access.close();
+});
 
 test('an encrypted reader resolves mixed private and ordinary source cards without persisting private descendants',async()=>{
   const f=await setup(null,true);await f.access.refresh();const selected=await f.access.selectQuote('private-source');

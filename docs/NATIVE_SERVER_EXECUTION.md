@@ -8,10 +8,12 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 Conversations de texte, fils et citations privées raccordés aux interfaces
 GTK / SwiftUI / Android existantes : lecture du journal conservé dans le coffre,
 positions exactes, brouillons séparés, envoi et reprise du ciphertext original.
-Les qualifications locales et CI sont distinguées ci-dessous ; le lot citations
-Android passe les validations locales détaillées ci-dessous. Les dates sont des observations locales, pas des
-dates d'auteur certifiées. Les archives complètes, sources mixtes, édition /
-actions, recherche et fichiers privés restent à livrer, ainsi que récupération /
+Les qualifications locales et CI sont distinguées ci-dessous ; les citations
+Android et la composition mixte passent les validations locales détaillées
+ci-dessous. Les dates sont des observations locales, pas des dates d'auteur
+certifiées. Les archives complètes, cartes privées dans les salons ordinaires,
+sélection intersalons bureau, édition / actions, recherche et fichiers privés
+restent à livrer, ainsi que récupération /
 révocation visibles et qualification installée. Aucun masque E2EE de production
 n'est activé.
 
@@ -162,22 +164,46 @@ la composition Android et les cartes privées dans les salons ordinaires
 restent ouverts, ainsi que fichiers, archive, édition privée et qualification
 GUI installée. Aucun masque E2EE de production activé.
 
+Composition mixte Android et choix de destination raccordés à la feuille
+d’actions et au composeur existants : recherche locale parmi les conversations
+rejointes autorisées, références claires vers une destination chiffrée et
+références privées vers une autre destination chiffrée. Une sélection de fil
+reste adressée au bon composeur. L’ouverture n’envoie rien ; scope, adhésion,
+admission et révision des sources sont relus avant préparation MLS. Les témoins
+clairs du cache authentifié contiennent seulement adhésion et références ;
+aucun extrait n’entre dans la commande native ou dans le document envoyé.
+Rust refuse de traiter un groupe déjà enregistré, y compris retiré / en attente,
+comme une source claire. Aperçus des deux catégories revérifiés après focus,
+effacés au blur et refusés après remplacement de sélection ou de compte.
+Les 1 311 tests mobiles passent en 50 secondes, ainsi que typecheck / lint et
+Hermes. Les huit tests du pont Rust passent : deux acteurs MLS, envoi mixte,
+témoins absents / périmés, rétrogradation refusée et original réouvert. Les deux
+ABI Android compilent ; les cinq instrumentations du vrai Keystore / ABI passent
+(6,102 secondes de tests, 26 secondes pour Gradle), avec références mixtes et
+paquet original retrouvé après réouverture. Leurs reçus restent synthétiques.
+Clippy strict du pont / cœur / FFI passe. CI du nouveau lot et parcours GUI installé restent
+à qualifier. Sélecteurs bureau, cartes privées dans les salons ordinaires,
+archives / fichiers / autres actions / recherche restent ouverts. Aucun masque
+E2EE de production activé.
+
 | Jalon | Développement livré | Travail restant pour le fermer |
 |---|---|---|
 | J0 | Contrats, fixtures communes, inventaire et backlog de parité | Conditions opérateur / export et décisions crypto liées aux jalons suivants |
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils et citations privés dans les trois interfaces | Sources mixtes, renouvellement / récupération / révocation visibles, autres actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils et citations privés dans les trois interfaces, lecture mixte, composition et destination intersalons Android | Sélecteurs intersalons bureau, cartes privées dans les salons ordinaires, renouvellement / récupération / révocation visibles, autres actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison qui passe toutes les CI existantes (`8356206`) passe les neuf jobs de la CI
-`37232082535` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison serveur qui passe tous les jobs de sa CI (`96d4184`) passe les neuf jobs de la CI
+`37238019700` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
-Le job Android `37232082495` passe aussi les deux ABI, le vrai Keystore, la
-cérémonie d'association, les contrôles de confiance, groupes et fils sur émulateur.
-L'application macOS du lot fils privés `8356206` passe sa compilation, son packaging et son
-démarrage (`37232082458`). Groupes, projection et composeur dans les interfaces
+Le job Android `37238019723` passe aussi les deux ABI, le vrai Keystore, la
+cérémonie d'association, les contrôles de confiance, groupes, fils et citations sur émulateur.
+L'application macOS du lot citations privées `9884ce2` passe sa compilation, son packaging et son
+démarrage (`37235042086`, tentative 2 après timeout d’upload GitHub).
+Le lot lecture mixte `574f137` passe déjà l’application macOS (`37240191547`) ;
+sa CI serveur `37240191574` reste en cours. Groupes, projection et composeur dans les interfaces
 existantes compilent et passent ces régressions. Le parcours GUI E2EE complet
 avec plusieurs applications installées reste un critère de sortie distinct.
 L'inventaire généré qui avait arrêté la CI du raccordement `60e72f4` est corrigé.

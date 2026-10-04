@@ -62,10 +62,25 @@ un document MLS, après vérification de sa révision et de son adhésion. Seule
 ses références sont envoyées. La sélection distingue explicitement source
 ordinaire et admission protégée ; effacer l’admission d’une sélection privée
 ne la rend pas ordinaire. Après réponse perdue, le même ciphertext reste
-repris par reçu, même si la source a changé. Les sélecteurs intersalons dans
-les interfaces, la composition de références ordinaires sur Android et les
-cartes privées dans les salons ordinaires restent à raccorder. Ces parcours
-ne transmettent aucun extrait privé à d’autres membres.
+repris par reçu, même si la source a changé.
+
+Android prépare aussi des références en clair dans le document MLS : le runner
+revalide les sources exactes dans le cache ordinaire, leur scope, statut non
+chiffré, adhésion et révision, puis les relit avant la commande native. Il passe
+au pont un témoin par salon portant seulement adhésion et références. Aucun
+extrait n’est inclus dans ce témoin ou dans l’intention protégée. Rust vérifie
+scope, bornes, unicité et correspondance exacte des témoins ; une source déjà
+connue comme groupe protégé, même en attente ou retiré, ne peut devenir claire
+en supprimant son admission. La confiance du témoin clair vient de l’adaptateur
+de cache authentifié, pas d’une signature MLS de l’auteur ordinaire.
+
+La feuille d’actions Android existante permet de choisir une destination où
+l’utilisateur a le droit d’envoyer, parmi les conversations rejointes. Les
+sources privées restent limitées aux destinations chiffrées. L’ouverture du
+composeur n’envoie rien ; il relit les aperçus et conserve uniquement la sélection
+à sa fermeture. Les sélecteurs intersalons bureau et les cartes privées dans
+les salons ordinaires restent à raccorder. Ces parcours ne transmettent aucun
+extrait privé à d’autres membres.
 
 Parité complète des citations mixtes, fichiers cités, sources
 hors de la fenêtre retenue, évolution des révisions avec l'édition privée et

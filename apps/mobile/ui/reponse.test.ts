@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {demanderReponse,actualiserReponsePrivee,invaliderReponseNative,lireReponse,oublierReponses,type CibleReponse} from './reponse.ts';
+import {demanderReponse,actualiserReponsePrivee,actualiserReponseNative,invaliderReponseNative,lireReponse,oublierReponses,type CibleReponse} from './reponse.ts';
 
 const cible=():CibleReponse=>({id:'source',auteur:null,apercu:null,permalien:'',jointeLocale:'[]',imageApercu:null,nativeIndisponible:true,
   native:{reference:{room_id:'room',message_id:'source',revision:'9007199254740993'},instance_id:'instance',data_epoch:'epoch',membership_version:'grant',crypto_admission:'a'.repeat(64)}});
@@ -34,4 +34,17 @@ test('private preview refresh leaves ordinary reply targets and another thread u
   actualiserReponsePrivee('room',ordinary,{author:'alice',text:'private preview'});
   assert.equal(lireReponse('room'),ordinary);assert.equal(lireReponse('room:thread'),privateTarget);
   oublierReponses();
+});
+
+test('an ordinary reference in a protected composer is refreshed only while it remains selected',()=>{
+  oublierReponses();const {crypto_admission:_admission,...native}=cible().native!;
+  const selected={...cible(),native};demanderReponse('protected-destination',selected);
+  actualiserReponseNative('protected-destination',selected,{author:'bob',text:'ordinary excerpt'});
+  const visible=lireReponse('protected-destination')!;assert.equal(visible.apercu,'ordinary excerpt');
+  invaliderReponseNative('protected-destination',visible);assert.equal(lireReponse('protected-destination')?.apercu,null);
+  actualiserReponseNative('protected-destination',selected,{author:'bob',text:'refreshed excerpt'});
+  assert.equal(lireReponse('protected-destination')?.apercu,'refreshed excerpt');
+  const replacement={...selected,native:{...native}};demanderReponse('protected-destination',replacement);
+  actualiserReponseNative('protected-destination',selected,{author:'bob',text:'late excerpt'});
+  assert.equal(lireReponse('protected-destination'),replacement);oublierReponses();
 });

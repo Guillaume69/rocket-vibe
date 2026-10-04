@@ -2,7 +2,7 @@ import type {CryptoConversationBridge} from '../../modules/crypto-native/index.t
 import {CryptoGroupAccess,type CryptoRoomAction} from './cryptoGroups.ts';
 import type {ApplicationReceipt,ApplicationSettlement,ApplicationSubmission,DeliveryPage,GroupRoster,GroupState,SendMessage} from './protocol.generated.ts';
 import type {NativeQuoteAttachment,NativeQuoteSelection,PublicQuoteSources} from './quotes.ts';
-import {privateQuoteCards,type PrivateQuoteSelection,type PrivateQuotePreview,type PrivateQuoteRoom} from './cryptoQuotes.ts';
+import {privateQuoteCards,type PrivateQuoteSelection,type PrivateQuotePreview,type CryptoQuotePreview,type PrivateQuoteRoom} from './cryptoQuotes.ts';
 import {NativeError} from './transport.ts';
 import {decodeNative} from './validation.ts';
 
@@ -32,11 +32,15 @@ function decodeRow(raw:unknown,target:string|null|undefined):CryptoMessage {
     || document.operation_id!==row.operation || target!==undefined && (document.reply_to??null)!==target)integrity();
   return {...row,document} as CryptoMessage;
 }
-function privateSelection(value:unknown):PrivateQuoteSelection {
+function quoteSelection(value:unknown):NativeQuoteSelection {
   const v=object(value),r=object(v.reference);
   if(!id(r.room_id) || !id(r.message_id) || !position(r.revision,false) || !id(v.instance_id) || !id(v.data_epoch)
-    || !id(v.membership_version) || typeof v.crypto_admission!=='string' || !/^[0-9a-f]{64}$/.test(v.crypto_admission))integrity();
-  return v as PrivateQuoteSelection;
+    || !id(v.membership_version) || v.crypto_admission!==undefined && (typeof v.crypto_admission!=='string' || !/^[0-9a-f]{64}$/.test(v.crypto_admission)))integrity();
+  return v as NativeQuoteSelection;
+}
+function privateSelection(value:unknown):PrivateQuoteSelection {
+  const selection=quoteSelection(value);if(selection.crypto_admission===undefined)integrity();
+  return selection as PrivateQuoteSelection;
 }
 function projection(value:unknown,thread:string|null):CryptoConversationView {
   const v=object(value);
@@ -80,8 +84,8 @@ export class CryptoConversationAccess {
     if(!id(room))integrity();
     const clear=await call(()=>this.publicSources(room,ids));
     if(clear) {
-      // Card-only adaptation: these are ordinary reader-authorized excerpts,
-      // never protected journal records or authority to prepare an MLS source.
+      // Reader-authorized ordinary excerpts; the protected send document gets
+      // references only, never their text or private descendants.
       const messages:CryptoMessage[]=clear.messages.map(({id,excerpt})=>({id,operation:id,author:excerpt.author.id,author_label:excerpt.author.username,
         document:{operation_id:id,text:excerpt.text,quotes:excerpt.references??[],reply_to:null,cards:[]},
         position:excerpt.revision,observed_at:'0',status:'journaled'}));
@@ -199,31 +203,53 @@ export class CryptoConversationAccess {
       return room.messages.find(m=>m.id===message)??null;
     });
   }
-  previewQuote(selected:NativeQuoteSelection):Promise<PrivateQuotePreview|null> {
-    const selection=privateSelection(selected);
+  selectSourceQuote(room:string,message:string):Promise<CryptoQuotePreview> {
+    return this.run(false,async(rpc,_r,peers,scope,call)=>{
+      if(!id(room) || !id(message))integrity();
+      const source=await this.source(room,rpc,peers,scope,call,[message]);
+      const row=source?.messages.find(m=>m.id===message);if(!source || !row?.position)integrity();
+      const selection:NativeQuoteSelection={reference:{room_id:room,message_id:message,revision:row.position},instance_id:scope.instance,
+        data_epoch:scope.dataEpoch,membership_version:source.membership,...(source.admission===null?{}:{crypto_admission:source.admission})};
+      const fresh=await this.source(room,rpc,peers,scope,call,[message]);
+      return this.quotePreview(selection,fresh)??integrity();
+    });
+  }
+  private quotePreview(selection:NativeQuoteSelection,room:PrivateQuoteRoom|null):CryptoQuotePreview|null {
+    const message=room?.messages.find(m=>m.id===selection.reference.message_id);
+    if(!room || room.membership!==selection.membership_version || room.admission!==(selection.crypto_admission??null)
+      || !message || message.position!==selection.reference.revision)return null;
+    return {selection,author:message.author_label??message.author,text:Array.from(message.document.text).slice(0,1024).join('')};
+  }
+  previewQuote(selected:NativeQuoteSelection):Promise<CryptoQuotePreview|null> {
+    const selection=quoteSelection(selected);
     return this.run(false,async(rpc,_r,peers,scope,call)=>{
       if(selection.instance_id!==scope.instance || selection.data_epoch!==scope.dataEpoch)return null;
-      const room=await this.source(selection.reference.room_id,rpc,peers,scope,call);
-      const message=room?.messages.find(m=>m.id===selection.reference.message_id);
-      if(!room || room.membership!==selection.membership_version || room.admission!==selection.crypto_admission
-        || !message || message.position!==selection.reference.revision)return null;
-      return {selection,author:message.author,text:Array.from(message.document.text).slice(0,1024).join('')};
+      const room=await this.source(selection.reference.room_id,rpc,peers,scope,call,[selection.reference.message_id]);
+      return this.quotePreview(selection,room);
     });
   }
   async send(text:string,quotes:readonly NativeQuoteSelection[]=[]):Promise<string> {
     return this.run(true,async(rpc,_r,peers,scope,call)=>{
-      if(quotes.length>8 || new Set(quotes.map(q=>JSON.stringify([q.reference.room_id,q.reference.message_id]))).size!==quotes.length)integrity();
-      const selected=quotes.map(privateSelection),sources:PrivateQuoteRoom[]=[];
+      const selected=quotes.map(quoteSelection),sources:PrivateQuoteRoom[]=[];
+      if(selected.length>8 || new Set(selected.map(q=>JSON.stringify([q.reference.room_id,q.reference.message_id]))).size!==selected.length)integrity();
       for(const room of new Set(selected.map(q=>q.reference.room_id))) {
-        const source=await this.source(room,rpc,peers,scope,call);if(!source)integrity();sources.push(source);
+        const ids=selected.filter(q=>q.reference.room_id===room).map(q=>q.reference.message_id);
+        const source=await this.source(room,rpc,peers,scope,call,ids);if(!source)integrity();sources.push(source);
       }
       for(const q of selected) {
         const source=sources.find(s=>s.room===q.reference.room_id)!;
-        if(q.instance_id!==scope.instance || q.data_epoch!==scope.dataEpoch || q.membership_version!==source.membership || q.crypto_admission!==source.admission
-          || !source.messages.some(m=>m.id===q.reference.message_id && m.position===q.reference.revision))integrity();
+        if(q.instance_id!==scope.instance || q.data_epoch!==scope.dataEpoch || !this.quotePreview(q,source))integrity();
       }
-      for(const source of sources)if(await this.sourceMembership(source.room)!==source.membership)integrity();
-      const prepared=object(await rpc({action:'prepare',text,quotes:selected,sources:sources.filter(s=>s.room!==this.room && s.observation!==null).map(s=>s.observation)}));if(!id(prepared.operation))integrity();
+      for(let i=0;i<sources.length;i++) {
+        const old=sources[i],refs=selected.filter(q=>q.reference.room_id===old.room);
+        const fresh=await this.source(old.room,rpc,peers,scope,call,refs.map(q=>q.reference.message_id));
+        if(!fresh || fresh.membership!==old.membership || fresh.admission!==old.admission || refs.some(q=>!this.quotePreview(q,fresh)))integrity();
+        sources[i]=fresh;
+      }
+      const prepared=object(await rpc({action:'prepare',text,quotes:selected,
+        sources:sources.filter(s=>s.room!==this.room && s.observation!==null).map(s=>s.observation),
+        public_sources:sources.filter(s=>s.admission===null).map(s=>({room_id:s.room,membership_version:s.membership,
+          references:selected.filter(q=>q.reference.room_id===s.room).map(q=>q.reference)}))}));if(!id(prepared.operation))integrity();
       // Once prepared, an uncertain HTTP result leaves this exact intention in
       // the private outbox. A retry never prepares a second ciphertext.
       try {await this.resumeInner(prepared.operation,rpc,call);}

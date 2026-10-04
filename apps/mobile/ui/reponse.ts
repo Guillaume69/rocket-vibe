@@ -55,8 +55,13 @@ export function annulerReponse(cle: string): void {
 export function lireReponse(cle:string):CibleReponse|null { return cibles.get(cle)??null; }
 /** Only the still-selected private reference may recover a fresh preview. */
 export function actualiserReponsePrivee(cle:string,cible:CibleReponse,preview:{author:string;text:string}):void {
+  if(!cible.native?.crypto_admission)return;
+  actualiserReponseNative(cle,cible,preview);
+}
+/** Refresh either kind of reference inside the protected conversation. */
+export function actualiserReponseNative(cle:string,cible:CibleReponse,preview:{author:string;text:string}):void {
   const actuelle=cibles.get(cle);
-  if(!cible.native?.crypto_admission || actuelle?.native!==cible.native)return;
+  if(!cible.native || actuelle?.native!==cible.native)return;
   const apercu=preview.text.trim()||null;
   if(actuelle.auteur===preview.author && actuelle.apercu===apercu && !actuelle.nativeIndisponible)return;
   demanderReponse(cle,{...actuelle,auteur:preview.author,apercu,imageApercu:null,jointeLocale:'[]',nativeIndisponible:false});

@@ -4,6 +4,7 @@ import type {NativeQuoteAttachment,NativeQuoteSelection} from './quotes.ts';
 
 export type PrivateQuoteSelection=NativeQuoteSelection & {crypto_admission:string};
 export type PrivateQuotePreview={selection:PrivateQuoteSelection;author:string;text:string};
+export type CryptoQuotePreview={selection:NativeQuoteSelection;author:string;text:string};
 export type PrivateQuoteRoom={room:string;membership:string;admission:string|null;messages:CryptoMessage[];
   observation:{roster:GroupRoster;state:GroupState}|null};
 /** Existing cards, built only from reader-authorized private source documents. */

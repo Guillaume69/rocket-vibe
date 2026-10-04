@@ -203,6 +203,11 @@ impl AuthorizedDevice {
     }
 }
 impl Pins {
+    /// Public identity previously acknowledged on this installation. Device
+    /// approvals and the persisted trust record remain inside the protected vault.
+    pub fn pinned_root(&self, user: &str) -> Option<&Root> {
+        self.peers.get(user).map(|pin| &pin.root)
+    }
     pub fn new(instance: &str) -> Result<Self, Error> {
         if !label(instance) {
             return Err(Error::Scope);

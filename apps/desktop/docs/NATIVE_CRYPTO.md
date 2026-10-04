@@ -89,7 +89,33 @@ l'annuaire et la clé locale correspondante. Le renouvellement des certificats,
 le remplacement avec révocation et la résolution d'une demande expirée avant toute
 acceptation restent à raccorder : cette cérémonie n'active pas les salons chiffrés.
 
-Restent les pins de pairs / cérémonies de groupe dans les interfaces, la récupération
+Les profils GTK et SwiftUI existants proposent maintenant la vérification d'un
+participant, avec la même condition expérimentale de capacités. L'annuaire
+public est authentifié et ses révocations paginées sont vérifiées avant affichage.
+Une consultation ne crée ni coffre ni pin. Mémoriser un premier contact conserve
+le statut « non vérifié » ; comparer l'empreinte avec la personne demande une
+action distincte. Un changement de racine bloque les appareils et exige les
+empreintes ancienne et nouvelle avant remplacement. L'approbation d'un certificat
+d'appareil conserve son aperçu opaque et revalide l'annuaire avant confirmation ;
+elle n'accorde aucune admission de groupe MLS. Les pins restent dans le coffre
+protégé et une révocation signée déjà connue ne disparaît pas avec son omission
+d'une réponse ultérieure. La révocation de l'appareil local reste aussi bloquante
+après réouverture du coffre.
+
+`enrollment::Access::conversation()` attache l'installation déjà enregistrée et
+sa racine à l'accès de conversation existant. L'absence, un enregistrement
+incomplet ou une incohérence refuse l'attachement sans générer une identité.
+La fermeture explicite de ce viewer ferme aussi les conversations attachées
+avec sa garde.
+
+Les onze scénarios `native_crypto` passent sur Windows ; ils incluent maintenant
+premier contact / comparaison / appareil, changement de racine avec consentement
+périmé, révocations paginées persistantes et révocation locale après réouverture.
+Le contrôle strict du cœur et du pont FFI utilise des caches et temporaires sur D:.
+La compilation GTK / SwiftUI de ce lot reste à qualifier en CI ; Docker / WSL
+local a échoué au démarrage lorsque le disque système était plein.
+
+Restent les cérémonies de groupe dans les interfaces, la récupération
 et révocation visibles, la suspension des salons retirés et la projection
 privée, le pont Android, les archives / fichiers et la qualification de la
 [RFC E2EE](../../../docs/rfcs/0002-e2ee-native.md). La capacité reste désactivée

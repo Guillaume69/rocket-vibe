@@ -422,6 +422,11 @@ fn fill_profile(
     if let Some(bio) = &p.bio {
         section(content, t("info.bio"), bio, session.username());
     }
+    if let ProfileSource::Native(native) = session
+        && native.crypto_settings_supported()
+    {
+        crate::native_crypto::profile_button(content, dialog, native.clone(), p.id.clone());
+    }
     if p.id != session.user_id() {
         let buttons = gtk::Box::builder().spacing(10).halign(gtk::Align::Center).margin_top(12).build();
         let message = gtk::Button::builder().label(t("info.message")).css_classes(["file-action"]).build();

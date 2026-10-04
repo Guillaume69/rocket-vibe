@@ -10,6 +10,7 @@ use rv_core::native::{
     security::Guard,
 };
 use std::sync::{Arc, Mutex};
+pub(crate) mod peers;
 
 #[derive(Clone, Copy, uniffi::Enum)]
 pub enum NativeCryptoPhase {

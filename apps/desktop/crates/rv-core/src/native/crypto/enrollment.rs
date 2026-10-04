@@ -25,6 +25,7 @@ use std::{
 };
 
 const RECORD: &str = "crypto-enrollment-ui-v1";
+pub mod peers;
 const LIFETIME: u64 = 86400 * 30;
 fn changed() -> Error {
     crate::native::Error::Protocol("crypto_enrollment_changed").into()
@@ -54,6 +55,8 @@ struct State {
     request: Option<Request>,
     registration: Option<http::RegisterDevice>,
     receipt: Option<http::OperationReceipt>,
+    #[serde(default)]
+    withdrawn: bool,
 }
 fn read(records: &Records, manager: &Manager) -> std::result::Result<Option<State>, vault::Error> {
     let Some(bytes) = records.get(RECORD) else { return Ok(None) };
@@ -81,6 +84,52 @@ fn save(records: &mut Records, value: &State) -> std::result::Result<(), vault::
 }
 fn private<T>(value: std::result::Result<T, rv_crypto::identity::Error>) -> std::result::Result<T, vault::Error> {
     value.map_err(|_| vault::Error::Rejected)
+}
+fn registered(manager: &Manager, state: &State, directory: &http::Directory, time: u64) -> Result<()> {
+    let receipt = state.receipt.as_ref().ok_or_else(changed)?;
+    if state.withdrawn
+        || directory.identity.as_ref().map(|i| i.fingerprint.as_str()) != Some(hex(&state.root.fingerprint()?).as_str())
+    {
+        return Err(changed());
+    }
+    for item in &directory.revocations {
+        let revocation: rv_crypto::identity::Revocation =
+            serde_json::from_slice(&decode(&item.signed, 4096)?).map_err(|_| changed())?;
+        revocation.verify()?;
+        if revocation.root == state.root
+            && revocation.device == manager.scope().device
+            && hex(&revocation.incarnation) == manager.scope().incarnation
+        {
+            // Keep a withdrawal learned from a valid root signature even if a
+            // later directory omits it or still advertises the revoked leaf.
+            manager.transact(|_, records| {
+                let mut current = read(records, manager)?.ok_or(vault::Error::NotInitialized)?;
+                current.withdrawn = true;
+                save(records, &current)
+            })?;
+            return Err(changed());
+        }
+    }
+    let device = directory.devices.iter().find(|d| d.device_id == manager.scope().device).ok_or_else(changed)?;
+    let certificate: rv_crypto::identity::Certificate =
+        serde_json::from_slice(&decode(&device.certificate, 4096)?).map_err(|_| changed())?;
+    certificate.verify(time)?;
+    if certificate.device.root != state.root
+        || certificate.device.device != manager.scope().device
+        || hex(&certificate.device.incarnation) != manager.scope().incarnation
+        || device.incarnation != manager.scope().incarnation
+        || device.revision != receipt.device_revision
+    {
+        return Err(changed());
+    }
+    manager.inspect(|_, records| {
+        let local = private(LocalDevice::load(&state.root, &manager.scope().device, records))?;
+        if local.public_key() != certificate.device.signature_key {
+            return Err(vault::Error::Integrity);
+        }
+        private(local.credential(time)).map(|_| ())
+    })?;
+    Ok(())
 }
 fn incarnation(manager: &Manager) -> std::result::Result<[u8; 16], vault::Error> {
     let mut value = [0; 16];
@@ -134,6 +183,7 @@ pub struct Access(Arc<Inner>);
 impl Access {
     pub fn close(&self) {
         self.0.context.stopped.store(true, Ordering::SeqCst);
+        self.0.context.guard.cancel();
     }
     pub fn check(&self) -> Result<()> {
         Ok(self.0.context.check()?)
@@ -185,17 +235,12 @@ impl Access {
         {
             return Err(changed());
         }
-        if let Some(identity) = &directory.identity {
-            let root: Root = serde_json::from_slice(&decode(&identity.root, 4096)?).map_err(|_| changed())?;
-            root.validate()?;
-            if identity.user_id != account.user
-                || root.instance != account.instance
-                || root.user != account.user
-                || hex(&root.fingerprint()?) != identity.fingerprint
-            {
-                return Err(changed());
-            }
-        } else if !directory.devices.is_empty() || !directory.revocations.is_empty() {
+        if directory.identity.is_some() {
+            return self.verified_directory(&account.user, directory).await.map(|(wire, _)| wire);
+        } else if !directory.devices.is_empty()
+            || !directory.revocations.is_empty()
+            || directory.next_revocation.is_some()
+        {
             return Err(changed());
         }
         Ok(directory)
@@ -204,6 +249,27 @@ impl Access {
         let _dispatch = self.0.dispatch.lock().await;
         let directory = self.observe().await?;
         self.view(directory).await
+    }
+    pub(super) async fn prepared(&self) -> Result<(Arc<Manager>, Root)> {
+        let directory = self.observe().await?;
+        self.owned(move |slot, time| {
+            let manager = slot.load()?.ok_or_else(changed)?;
+            let state = manager.inspect(|_, records| read(records, &manager))?.ok_or_else(changed)?;
+            registered(&manager, &state, &directory, time)?;
+            Ok((manager, state.root))
+        })
+        .await
+    }
+    /// Attach the exact already registered installation. Positive absence,
+    /// incomplete registration or changed directory never initializes a replacement.
+    pub async fn conversation(&self) -> Result<super::Access> {
+        let _dispatch = self.0.dispatch.lock().await;
+        let (manager, root) = self.prepared().await?;
+        self.check()?;
+        let session = self.0.context.session.upgrade().ok_or_else(changed)?;
+        let access = session.crypto(self.0.context.guard.clone(), manager, root).await?;
+        self.check()?;
+        Ok(access)
     }
     async fn view(&self, directory: http::Directory) -> Result<View> {
         self.owned(move |slot, time| {
@@ -234,29 +300,9 @@ impl Access {
             if !remote_fingerprint.is_empty() && remote_fingerprint != root_fingerprint {
                 return Err(changed());
             }
-            if let Some(receipt) = &state.receipt {
+            if state.receipt.is_some() {
                 let manager = selected.as_ref().ok_or_else(changed)?;
-                let device =
-                    directory.devices.iter().find(|d| d.device_id == manager.scope().device).ok_or_else(changed)?;
-                let certificate: rv_crypto::identity::Certificate =
-                    serde_json::from_slice(&decode(&device.certificate, 4096)?).map_err(|_| changed())?;
-                certificate.verify(time)?;
-                if remote_fingerprint != root_fingerprint
-                    || certificate.device.root != state.root
-                    || certificate.device.device != manager.scope().device
-                    || hex(&certificate.device.incarnation) != manager.scope().incarnation
-                    || device.incarnation != manager.scope().incarnation
-                    || device.revision != receipt.device_revision
-                {
-                    return Err(changed());
-                }
-                manager.inspect(|_, records| {
-                    let local = private(LocalDevice::load(&state.root, &manager.scope().device, records))?;
-                    if local.public_key() != certificate.device.signature_key {
-                        return Err(vault::Error::Integrity);
-                    }
-                    private(local.credential(time)).map(|_| ())
-                })?;
+                registered(manager, &state, &directory, time)?;
             }
             let (request_fingerprint, request_code) = state
                 .request
@@ -321,7 +367,15 @@ impl Access {
                             incarnation(&manager)?,
                             records,
                         ))?;
-                        State { version: 1, root, controller, request: None, registration: None, receipt: None }
+                        State {
+                            version: 1,
+                            root,
+                            controller,
+                            request: None,
+                            registration: None,
+                            receipt: None,
+                            withdrawn: false,
+                        }
                     }
                 };
                 if root.as_ref().is_some_and(|root| *root != state.root) {

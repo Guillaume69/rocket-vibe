@@ -346,7 +346,11 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    aux réglages GTK / SwiftUI. L'état de salon chiffré est transmis aux caches des
    trois clients et verrouille leurs composers existants ; la file ordinaire
    refuse ces salons et conserve les anciens envois hors ligne en échec avant HTTP.
-   Pins de pairs, cérémonies de groupe, renouvellement,
+   Les profils GTK / SwiftUI raccordent maintenant les pins de pairs, la comparaison
+   explicite des racines et l'aperçu / approbation des certificats. Les révocations
+   signées sont paginées et conservées dans le coffre, y compris pour l'appareil
+   local. L'attachement d'une conversation réutilise l'installation enregistrée
+   sans recréer d'identité. Cérémonies de groupe, renouvellement,
    récupération / révocation visibles et projection restent ouverts ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.
 6. Revue indépendante du protocole applicatif / stockage et qualification des

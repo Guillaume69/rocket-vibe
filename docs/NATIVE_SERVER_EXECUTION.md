@@ -11,13 +11,13 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session et cérémonie d'identité / association dans les réglages GTK / SwiftUI | Pins / groupes et projection privée dans les interfaces, renouvellement / récupération / révocation visibles, suspension des salons retirés, pont mobile, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, cérémonie d'identité / association et vérification des pairs dans les profils GTK / SwiftUI | Groupes et projection privée dans les interfaces, renouvellement / récupération / révocation visibles, suspension des salons retirés, pont mobile, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison entièrement qualifiée (`28776ff`) passe les neuf jobs de la CI
-`37194321788` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison entièrement qualifiée (`9d7ec67`) passe les neuf jobs de la CI
+`37196674607` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
-L'application macOS passe aussi sa compilation / packaging (`37194321889`).
+L'application macOS passe aussi sa compilation / packaging (`37196674604`).
 L'inventaire généré qui avait arrêté la CI du raccordement `60e72f4` est corrigé.
 Le journal serveur passe ses neuf scénarios
 PostgreSQL / HTTP / MLS et les contrats communs ; aucune capacité E2EE n'est
@@ -34,6 +34,17 @@ maintenant le worker à sa session et à son client HTTP, avec garde terminale
 des résultats tardifs. La cérémonie d'identité / association et les trousseaux
 des réglages bureau sont raccordés. Pins / groupes, projection privée,
 suspension des salons retirés, pont mobile et historique autorisé restent ouverts.
+Le lot suivant raccorde les pins / appareils aux profils GTK et SwiftUI existants,
+avec premier contact non vérifié, comparaison explicite de racine, remplacement
+contrôlé d'une racine changée et aperçu opaque de certificat avant approbation.
+La consultation n'initialise aucun coffre et n'admet aucun membre MLS. Les
+révocations signées paginées restent bloquantes après omission et réouverture ;
+l'attachement d'une conversation utilise uniquement l'installation enregistrée.
+Les onze parcours crypto du cœur passent sur Windows. La compilation des deux
+interfaces de ce nouveau lot reste à qualifier en CI. Les caches / temporaires
+Rust locaux utilisent D: après l'échec de Cargo sur le disque C: plein ; Docker
+local a aussi cessé de démarrer, sans preuve suffisante sur sa cause exacte.
+
 Les critères externes encore ouverts restent des critères de sortie de la RFC.
 
 ## Premier incrément : socle serveur et transports pilotes

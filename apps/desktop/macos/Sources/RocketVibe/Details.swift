@@ -147,6 +147,7 @@ struct ProfileView: View {
                     if !p.roles.isEmpty { LabeledContent(L("info.roles"), value: p.roles.joined(separator: ", ")) }
                     if let time = p.localTime { LabeledContent(L("info.local_time"), value: time) }
                     if let bio = p.bio, !bio.isEmpty { LabeledContent(L("info.bio"), value: bio) }
+                    if app.native?.cryptoSettingsSupported() == true { PeerIdentitySection(user: p.id) }
                     if p.id != app.account?.userId {
                         HStack {
                             Button(L("info.message")) {

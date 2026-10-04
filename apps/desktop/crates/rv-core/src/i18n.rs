@@ -22,6 +22,39 @@ pub fn set(lang: Lang) {
 /// (key, French, English). A `{name}` is filled by `tf`; `a | b` is the
 /// singular and plural of `tn`.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("crypto.peer_title", "Vérifier l’identité chiffrée", "Verify encryption identity"),
+    (
+        "crypto.peer_help",
+        "Comparez l’empreinte avec cette personne par un autre moyen avant de la marquer vérifiée. L’annuaire du serveur ne constitue pas une vérification.",
+        "Compare this fingerprint with the person through another channel before marking it verified. The server directory is not a verification.",
+    ),
+    ("crypto.peer_unknown", "Identité encore inconnue sur cet appareil", "Identity not yet known on this device"),
+    ("crypto.peer_unverified", "Empreinte mémorisée, non vérifiée", "Fingerprint saved, unverified"),
+    ("crypto.peer_verified", "Empreinte vérifiée", "Fingerprint verified"),
+    ("crypto.peer_changed", "L’identité a changé : appareils bloqués", "Identity changed: devices blocked"),
+    ("crypto.peer_first", "Mémoriser cette empreinte comme non vérifiée", "Save this fingerprint as unverified"),
+    ("crypto.peer_confirm", "Empreinte confirmée par cette personne", "Fingerprint confirmed by this person"),
+    ("crypto.peer_previous", "Empreinte précédente", "Previous fingerprint"),
+    ("crypto.peer_verify", "Marquer l’empreinte comparée comme vérifiée", "Mark the compared fingerprint verified"),
+    (
+        "crypto.peer_replace",
+        "Remplacer après comparaison des deux empreintes",
+        "Replace after comparing both fingerprints",
+    ),
+    ("crypto.peer_review", "Examiner cet appareil", "Review this device"),
+    (
+        "crypto.peer_device_help",
+        "L’approbation vise uniquement ce certificat d’appareil. Elle ne lui accorde pas l’accès à un groupe.",
+        "Approval covers only this device certificate. It does not grant access to a group.",
+    ),
+    ("crypto.peer_approve", "Approuver ce certificat d’appareil", "Approve this device certificate"),
+    ("crypto.peer_approved", "Certificat approuvé", "Certificate approved"),
+    ("crypto.peer_pending", "Certificat non approuvé ou expiré", "Certificate unapproved or expired"),
+    (
+        "crypto.peer_prepare",
+        "Préparez d’abord votre identité dans les réglages de sécurité.",
+        "First prepare your identity in security settings.",
+    ),
     ("crypto.title", "Identité chiffrée et appareils", "Encryption identity and devices"),
     (
         "crypto.explanation",

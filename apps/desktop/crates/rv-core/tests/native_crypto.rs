@@ -84,6 +84,7 @@ struct Pilot {
     gate: Arc<Gate>,
     publications: Arc<Mutex<Vec<String>>>,
     crypto_directory: Arc<Mutex<Value>>,
+    peer_directories: Arc<Mutex<BTreeMap<String, Value>>>,
     registrations: Arc<Mutex<Vec<String>>>,
     registration_receipt: Arc<Mutex<Option<Value>>>,
     lose_registration: Arc<AtomicBool>,
@@ -111,6 +112,8 @@ impl Pilot {
             json!({"scope": {"instance_id": fixture["discovery"]["instance_id"], "data_epoch": fixture["discovery"]["data_epoch"]}, "identity": null, "devices": [], "revocations": [], "next_revocation": null}),
         ));
         let registrations = Arc::new(Mutex::new(vec![]));
+        let peer_directories = Arc::new(Mutex::new(BTreeMap::<String, Value>::new()));
+        let peer_reply = peer_directories.clone();
         let registration_receipt = Arc::new(Mutex::new(None::<Value>));
         let lose_registration = Arc::new(AtomicBool::new(false));
         let (directory_reply, enrollments, receipt_reply, lose_reply) =
@@ -125,7 +128,12 @@ impl Pilot {
             publications.clone(),
         );
         let server = FakeHttp::start(move |request| match request.path() {
-            path if path.starts_with("/api/v1/e2ee/users/") => respond(200, &directory_reply.lock().unwrap().to_string()),
+            path if path.starts_with("/api/v1/e2ee/users/") => {
+                let key = request.target.strip_prefix("/api/v1/e2ee/users/").unwrap();
+                if let Some(page) = peer_reply.lock().unwrap().get(key) { respond(200, &page.to_string()) }
+                else if path.rsplit('/').next() == data["session"]["user"]["id"].as_str() { respond(200, &directory_reply.lock().unwrap().to_string()) }
+                else { respond(404, r#"{"code":"not_found","request_id":"crypto-pilot"}"#) }
+            }
             path if path.starts_with("/api/v1/e2ee/operations/") => {
                 if let Some(receipt) = receipt_reply.lock().unwrap().as_ref() { respond(200, &receipt.to_string()) }
                 else { respond(404, r#"{"code":"not_found","request_id":"crypto-pilot"}"#) }
@@ -234,6 +242,7 @@ impl Pilot {
             gate,
             publications,
             crypto_directory,
+            peer_directories,
             registrations,
             registration_receipt,
             lose_registration,
@@ -460,6 +469,7 @@ async fn identity_ceremony_registers_real_grants_and_recovers_a_lost_reply_after
     let access = pilot.session.crypto_settings(guard.clone(), path.clone(), pilot.memory.clone()).await.unwrap();
     let empty = access.refresh().await.unwrap();
     assert!(empty.stage == Stage::Missing);
+    assert!(access.conversation().await.is_err());
     assert!(pilot.memory.values.lock().unwrap().is_empty());
     let created = access.begin(String::new()).await.unwrap();
     assert!(created.stage == Stage::IdentityCreated && created.controls_root);
@@ -484,6 +494,12 @@ async fn identity_ceremony_registers_real_grants_and_recovers_a_lost_reply_after
     assert_eq!(pilot.registrations.lock().unwrap().len(), 1);
     assert!(pilot.registration_receipt.lock().unwrap().is_some());
     assert!(!pilot.session.supported_features().iter().any(|f| f == "e2ee"));
+    let conversation = resumed.conversation().await.unwrap();
+    let remote = pilot.crypto_directory.lock().unwrap().clone();
+    assert_eq!(conversation.scope().incarnation, remote["devices"][0]["incarnation"]);
+    assert_eq!(pilot.registrations.lock().unwrap().len(), 1);
+    resumed.close();
+    assert!(conversation.check().is_err());
     pilot.close().await;
 }
 
@@ -542,5 +558,200 @@ async fn stale_view_consent_and_disabled_capabilities_cannot_initialize_or_appro
     pilot.enabled.store(true, Ordering::SeqCst);
     assert!(fresh.refresh().await.is_err());
     assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), before);
+    pilot.close().await;
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+struct Peer {
+    issuer: Issuer,
+    certificate: rv_crypto::identity::Certificate,
+    directory: Value,
+}
+impl Peer {
+    fn new(user: &str) -> Self {
+        let issuer = Issuer::generate("fixture-instance", user).unwrap();
+        let mut records = vault::Records::new();
+        let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let mut local = LocalDevice::create_bound(issuer.root(), "peer-device", [17; 16], &mut records).unwrap();
+        let request = local.request(time, &mut records).unwrap();
+        let preview = issuer.preview_request(&request, time, 3600, &records).unwrap();
+        let grant = issuer.approve_request(&request, &preview, time, &mut records).unwrap();
+        local.install(&grant, time, &mut records).unwrap();
+        let certificate = grant.certificate;
+        let directory = json!({
+            "scope": {"instance_id":"fixture-instance", "data_epoch":"fixture-epoch"},
+            "identity": {"user_id":user, "root": B64.encode(serde_json::to_vec(issuer.root()).unwrap()),
+                "fingerprint":hex(&issuer.root().fingerprint().unwrap()), "revision":"1"},
+            "devices": [{"device_id":"peer-device", "incarnation":hex(&certificate.device.incarnation),
+                "certificate":B64.encode(serde_json::to_vec(&certificate).unwrap()), "revision":"1",
+                "expires_at":certificate.device.expires_at.to_string()}],
+            "revocations": [], "next_revocation":null
+        });
+        Self { issuer, certificate, directory }
+    }
+    fn revoke(&self, device: &str, incarnation: [u8; 16], position: u64) -> Value {
+        let signed = self.issuer.revoke(device, incarnation).unwrap();
+        json!({"position":position.to_string(), "signed":B64.encode(serde_json::to_vec(&signed).unwrap())})
+    }
+}
+async fn ready(pilot: &Pilot) -> crypto::enrollment::Access {
+    let access = pilot
+        .session
+        .crypto_settings(Guard::new(), pilot.directory.path().join("ceremony"), pilot.memory.clone())
+        .await
+        .unwrap();
+    let created = access.begin(String::new()).await.unwrap();
+    let preview = access.preview(created.request_code).await.unwrap();
+    let grant = access.approve(preview).await.unwrap();
+    assert!(access.install(grant).await.unwrap().stage == crypto::enrollment::Stage::Ready);
+    access
+}
+async fn approve_peer(access: &crypto::enrollment::Access, user: &str) -> crypto::enrollment::peers::View {
+    use crypto::enrollment::peers::RootChoice;
+    let peer = access.peer(user.into()).await.unwrap();
+    let fingerprint = peer.fingerprint.clone();
+    let pinned = access.pin_peer(peer, RootChoice::FirstContact, fingerprint.clone(), String::new()).await.unwrap();
+    let verified = access.pin_peer(pinned, RootChoice::Verify, fingerprint, String::new()).await.unwrap();
+    let preview = access.preview_peer_device(verified, "peer-device".into()).await.unwrap();
+    access.approve_peer_device(preview).await.unwrap()
+}
+
+#[tokio::test]
+async fn profile_review_separates_first_contact_verified_root_and_explicit_device_approval() {
+    use crypto::enrollment::peers::{RootChoice, Trust};
+    let pilot = Pilot::new(true).await;
+    let access = ready(&pilot).await;
+    let peer = Peer::new("bob-id");
+    pilot.peer_directories.lock().unwrap().insert("bob-id".into(), peer.directory);
+    let before = pilot.memory.writes.load(Ordering::SeqCst);
+    let unknown = access.peer("bob-id".into()).await.unwrap();
+    assert!(unknown.trust == Trust::Unknown && !unknown.devices[0].approved);
+    assert!(access.preview_peer_device(unknown, "peer-device".into()).await.is_err());
+    assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), before);
+    let unknown = access.peer("bob-id".into()).await.unwrap();
+    assert!(access.pin_peer(unknown, RootChoice::FirstContact, "00".repeat(32), String::new()).await.is_err());
+    assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), before);
+    let unknown = access.peer("bob-id".into()).await.unwrap();
+    let fingerprint = unknown.fingerprint.clone();
+    let pinned = access.pin_peer(unknown, RootChoice::FirstContact, fingerprint.clone(), String::new()).await.unwrap();
+    assert!(pinned.trust == Trust::Unverified && !pinned.devices[0].approved);
+    let verified = access.pin_peer(pinned, RootChoice::Verify, fingerprint, String::new()).await.unwrap();
+    assert!(verified.trust == Trust::Verified && !verified.devices[0].approved);
+    let before = pilot.memory.writes.load(Ordering::SeqCst);
+    let consent = access.preview_peer_device(verified, "peer-device".into()).await.unwrap();
+    assert_eq!(consent.fingerprint, hex(&peer.certificate.fingerprint().unwrap()));
+    assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), before);
+    let approved = access.approve_peer_device(consent).await.unwrap();
+    assert!(approved.trust == Trust::Verified && approved.devices[0].approved);
+    let before = pilot.memory.writes.load(Ordering::SeqCst);
+    assert!(access.peer("bob-id".into()).await.unwrap().devices[0].approved);
+    assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), before);
+    assert_eq!(pilot.registrations.lock().unwrap().len(), 1);
+    assert!(pilot.publications.lock().unwrap().is_empty());
+    let foreign = pilot
+        .session
+        .crypto_settings(Guard::new(), pilot.directory.path().join("ceremony"), pilot.memory.clone())
+        .await
+        .unwrap();
+    assert!(foreign.preview_peer_device(approved, "peer-device".into()).await.is_err());
+    assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), before);
+    access.close();
+    assert!(access.peer("bob-id".into()).await.is_err());
+    pilot.close().await;
+}
+
+#[tokio::test]
+async fn changed_roots_stale_consents_and_signed_paginated_withdrawals_block_peer_devices() {
+    use crypto::enrollment::peers::{RootChoice, Trust};
+    let pilot = Pilot::new(true).await;
+    let access = ready(&pilot).await;
+    let original = Peer::new("bob-id");
+    pilot.peer_directories.lock().unwrap().insert("bob-id".into(), original.directory);
+    let approved = approve_peer(&access, "bob-id").await;
+    let previous = approved.fingerprint.clone();
+    let stale = access.preview_peer_device(approved, "peer-device".into()).await.unwrap();
+    let replacement = Peer::new("bob-id");
+    pilot.peer_directories.lock().unwrap().insert("bob-id".into(), replacement.directory.clone());
+    let before = pilot.memory.writes.load(Ordering::SeqCst);
+    assert!(access.approve_peer_device(stale).await.is_err());
+    assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), before);
+    let changed = access.peer("bob-id".into()).await.unwrap();
+    assert!(changed.trust == Trust::Changed && !changed.devices[0].approved);
+    assert_eq!(changed.previous_fingerprint, previous);
+    let fingerprint = changed.fingerprint.clone();
+    assert!(access.pin_peer(changed, RootChoice::Verify, fingerprint.clone(), String::new()).await.is_err());
+    let changed = access.peer("bob-id".into()).await.unwrap();
+    let replaced = access.pin_peer(changed, RootChoice::Replace, fingerprint, previous).await.unwrap();
+    assert!(replaced.trust == Trust::Verified && !replaced.devices[0].approved);
+    let consent = access.preview_peer_device(replaced, "peer-device".into()).await.unwrap();
+    assert!(access.approve_peer_device(consent).await.unwrap().devices[0].approved);
+    let mut first = replacement.directory.clone();
+    first["revocations"] = json!([replacement.revoke("another-device", [18; 16], 1)]);
+    first["next_revocation"] = json!("1");
+    let mut second = replacement.directory.clone();
+    second["revocations"] = json!([replacement.revoke("peer-device", replacement.certificate.device.incarnation, 2)]);
+    pilot.peer_directories.lock().unwrap().extend([("bob-id".into(), first), ("bob-id?after=1".into(), second)]);
+    let withdrawn = access.peer("bob-id".into()).await.unwrap();
+    assert!(!withdrawn.devices[0].approved);
+    assert!(access.preview_peer_device(withdrawn, "peer-device".into()).await.is_err());
+    let before = pilot.memory.writes.load(Ordering::SeqCst);
+    assert!(!access.peer("bob-id".into()).await.unwrap().devices[0].approved);
+    assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), before);
+    // A later omission cannot revive a withdrawal already authenticated locally.
+    pilot.peer_directories.lock().unwrap().insert("bob-id".into(), replacement.directory);
+    let withdrawn = access.peer("bob-id".into()).await.unwrap();
+    assert!(access.preview_peer_device(withdrawn, "peer-device".into()).await.is_err());
+    pilot.close().await;
+}
+
+#[tokio::test]
+async fn a_signed_own_device_withdrawal_survives_directory_omission_and_reopening() {
+    use rv_crypto::installation::{Account, Installation};
+    let pilot = Pilot::new(true).await;
+    let access = ready(&pilot).await;
+    let identity = pilot.session.info.native.as_ref().unwrap();
+    let path = pilot.directory.path().join("ceremony");
+    let manager = Installation::new(
+        path.clone(),
+        Account {
+            origin: pilot.session.info.base_url.clone(),
+            instance: identity.instance_id.clone(),
+            data_epoch: identity.data_epoch.clone(),
+            user: pilot.session.info.user_id.clone(),
+            device: "current".into(),
+        },
+        pilot.memory.clone(),
+    )
+    .unwrap()
+    .load()
+    .unwrap()
+    .unwrap();
+    let signed = manager
+        .inspect(|_, records| {
+            let issuer = Issuer::load(records, &manager.scope().instance, &manager.scope().user).unwrap();
+            let incarnation = rv_crypto::identity::Certificate::from_credential(
+                &LocalDevice::load(issuer.root(), "current", records)
+                    .unwrap()
+                    .credential(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs())
+                    .unwrap()
+                    .credential,
+            )
+            .unwrap()
+            .device
+            .incarnation;
+            Ok(issuer.revoke("current", incarnation).unwrap())
+        })
+        .unwrap();
+    pilot.crypto_directory.lock().unwrap()["revocations"] =
+        json!([{"position":"1", "signed":B64.encode(serde_json::to_vec(&signed).unwrap())}]);
+    assert!(access.conversation().await.is_err());
+    pilot.crypto_directory.lock().unwrap()["revocations"] = json!([]);
+    access.close();
+    let reopened = pilot.session.crypto_settings(Guard::new(), path, pilot.memory.clone()).await.unwrap();
+    assert!(reopened.refresh().await.is_err());
+    assert!(reopened.conversation().await.is_err());
+    assert_eq!(pilot.registrations.lock().unwrap().len(), 1);
     pilot.close().await;
 }

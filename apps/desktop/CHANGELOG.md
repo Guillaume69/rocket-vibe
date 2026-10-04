@@ -9,6 +9,12 @@ section here.
 
 ### Added
 
+- Existing GTK and SwiftUI profiles can review a RocketVibe participant's
+  encryption identity and explicitly approve device certificates. First contact,
+  fingerprint verification and changed-identity replacement remain separate;
+  signed withdrawals persist in protected storage. Experimental capability gates
+  still keep encrypted messaging disabled.
+
 - The existing GTK and SwiftUI settings can prepare a RocketVibe encryption
   identity and associate devices with explicit fingerprint approval, protected
   platform storage and restart-safe registration. This experimental section is

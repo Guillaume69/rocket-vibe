@@ -5,15 +5,15 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 
 ## État synthétique au 4 octobre 2026
 
-Lot conversations privées intégré et validé par les CI de `220ffc5` : lecture du préfixe
-chiffré retenu dans le coffre, positions décimales exactes, brouillons séparés
-par fil et adhésion, envoi / reprise de l'intention originale et intégration
-dans les listes / composeurs GTK et SwiftUI existants. Les tests natifs couvrent
-la réponse perdue, le redémarrage, l'absence de second POST, la séparation des
-brouillons, la rotation et le refus après révocation. Les dates affichées sont des observations locales et
-sont indiquées comme telles. Les archives complètes, citations privées,
-édition / actions, fichiers et raccordement complet Android restent à traiter ; aucun
-masque E2EE de production n'est activé.
+Conversations de texte, fils et citations privées raccordés aux interfaces
+GTK / SwiftUI / Android existantes : lecture du journal conservé dans le coffre,
+positions exactes, brouillons séparés, envoi et reprise du ciphertext original.
+Les qualifications locales et CI sont distinguées ci-dessous ; le lot citations
+Android passe les validations locales détaillées ci-dessous. Les dates sont des observations locales, pas des
+dates d'auteur certifiées. Les archives complètes, sources mixtes, édition /
+actions, recherche et fichiers privés restent à livrer, ainsi que récupération /
+révocation visibles et qualification installée. Aucun masque E2EE de production
+n'est activé.
 
 Socle Android ajouté : module Expo Kotlin / Rust dans l'app existante, coffre
 privé et petits enregistrements plateforme enveloppés par Android Keystore,
@@ -119,13 +119,37 @@ par la CI de ce nouveau lot. Citations Android, sources mêlant clair / chiffré
 révisions d'édition privée, fichiers cités, archives complètes et parcours GUI
 installé restent ouverts. Aucun masque E2EE de production activé.
 
+Citations Android raccordées dans les mêmes menus, bandeaux et composeurs :
+source privée racine ou réponse, citation seule, sélection liée au scope /
+adhésion / admission et document MLS portant uniquement les références.
+Résolution des cartes dans le coffre par salon, deux niveaux et cycles bornés ;
+les sources retirées ne révèlent ni extrait ni descendants. La feuille d'actions
+évite SQL ordinaire et navigation avec corps privé. L'aperçu est reconstruit
+après retour au composeur, effacé au blur / suspension, et les résultats tardifs
+ne restaurent pas une sélection remplacée ou annulée. La file SQL refuse toute
+sélection privée. Les 1 302 tests mobiles passent, plus les trois nouveaux
+scénarios de cycle de vie du bandeau ; typecheck, lint et Hermes passent.
+Les huit tests Rust du pont incluent une citation seule MLS entre deux acteurs,
+source de fil, sélection stale refusée et paquet original réouvert. Clippy strict
+pont / cœur passe. Les deux ABI Android compilent et les cinq instrumentations
+du vrai Keystore / ABI passent, incluant citation seule et réouverture ; leurs
+reçus sont synthétiques. Les 16 parcours desktop HTTP / MLS / SQLite passent
+après correction du serveur de test : maintien périodique de sa socket pour
+éviter une fermeture artificielle à 45 secondes sur un runner lent.
+La CI Linux du lot desktop `9884ce2` passe ; la CI Windows a révélé cette
+simulation muette. Le build / packaging / démarrage macOS passe sur ce même
+commit ; l'envoi des artefacts a échoué sur un timeout GitHub et est relancé.
+La CI du lot courant reste à confirmer. Sources mixtes, autres actions /
+recherche, archives / fichiers privés, revue indépendante et qualification GUI
+installée restent ouverts. Aucun masque E2EE de production activé.
+
 | Jalon | Développement livré | Travail restant pour le fermer |
 |---|---|---|
 | J0 | Contrats, fixtures communes, inventaire et backlog de parité | Conditions opérateur / export et décisions crypto liées aux jalons suivants |
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils privés dans les trois interfaces, citations privées GTK / SwiftUI | Citations Android / mixtes, renouvellement / récupération / révocation visibles, actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils et citations privés dans les trois interfaces | Sources mixtes, renouvellement / récupération / révocation visibles, autres actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
 La dernière livraison qui passe toutes les CI existantes (`8356206`) passe les neuf jobs de la CI

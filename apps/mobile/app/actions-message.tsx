@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Pressable,
   Share,
   StyleSheet,
@@ -49,6 +50,9 @@ import { useSession } from '../ui/session.tsx';
 import { useSynchro } from '../ui/synchro.tsx';
 import { DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
 import { Appuyable } from '../ui/appuyable.tsx';
+import {CryptoNative} from '../modules/crypto-native/index.ts';
+import type {CryptoConversationAccess} from '../fournisseurs/rocketvibe/cryptoConversations.ts';
+import type {NativeChat} from '../fournisseurs/rocketvibe/chat.ts';
 
 /**
  * Feuille d'actions d'un message (8.2) — `presentation: 'formSheet'` déclarée
@@ -107,12 +111,13 @@ type Charge = {
   actions: ActionMessage[];
   revision?: string;
   brouillonEdition?: string | null;
+  privateOwner?:NativeChat;
 };
 
 export default function EcranActionsMessage() {
   // `fil` : présent quand la feuille est ouverte DEPUIS l'écran d'un fil — la
   // cible de réponse est alors adressée au composer de ce fil, pas du salon.
-  const { id, fil } = useLocalSearchParams<{ id: string; fil?: string }>();
+  const { id, fil, prive, rid } = useLocalSearchParams<{ id: string; fil?: string; prive?:string;rid?:string }>();
   const { etat } = useSession();
   const synchro = useSynchro();
   const routeur = useRouter();
@@ -138,10 +143,11 @@ export default function EcranActionsMessage() {
   const actionneur = synchro.phase === 'pret' ? synchro.actions : null;
   const fournisseur = synchro.phase === 'pret' ? synchro.fournisseur : null;
   const generationVue = useRef(0);
+  const priveAccess=useRef<CryptoConversationAccess|null>(null);
   useEffect(() => {
     generationVue.current += 1;
     return () => { generationVue.current += 1; };
-  }, [fournisseur,id]);
+  }, [fournisseur,id,prive,rid,fil]);
   const e2e = synchro.phase === 'pret' ? synchro.e2e : null;
   const client = etat.phase === 'connecte' ? etat.client : null;
   const moi = etat.phase === 'connecte' ? etat.session.userId : null;
@@ -153,7 +159,34 @@ export default function EcranActionsMessage() {
   useEffect(() => {
     if (!pret || base === null || client === null || moi === null) return;
     let annule = false;
+    let unsubscribe=()=>{},appSubscription:{remove:()=>void}|null=null;
     (async () => {
+      if(prive==='1') {
+        const native=fournisseur?.native;
+        if(!native || !CryptoNative || typeof rid!=='string')throw Error('Private source unavailable');
+        const scope=await native.store.cryptoRoomAccess(rid);
+        if(!scope?.encrypted || scope.membership===null)throw Error('Private source unavailable');
+        let withdrawn=false;
+        const alive=()=>!annule && !withdrawn && AppState.currentState==='active';
+        const actor=await native.chat.cryptoConversation(CryptoNative,rid,scope.membership,alive,typeof fil==='string'?fil:null);
+        if(!alive()){await actor.close();return;}priveAccess.current=actor;
+        const discard=()=>{if(annule)return;withdrawn=true;void actor.close();priveAccess.current=null;setCharge(null);setErreur(t('actionsMessage.messageIntrouvable'));};
+        const invalidate=()=>{
+          if(!alive() || actor.isClosed){discard();return;}
+          void native.store.cryptoRoomAccess(rid).then(current=>{
+            if(!current?.encrypted || current.membership!==scope.membership)discard();
+          }).catch(discard);
+        };
+        unsubscribe=native.chat.subscribe(invalidate);appSubscription=AppState.addEventListener('change',invalidate);
+        let view=await actor.refresh();
+        for(let n=0;n<8 && view.catching_up;n++)view=await actor.refresh();
+        const message=[...(view.root?[view.root]:[]),...view.messages].find(m=>m.id===id && m.status==='journaled');
+        if(!alive() || actor.isClosed)return;if(!message)throw Error('Private source unavailable');
+        setCharge({privateOwner:native.chat,message:{id,rid,filId:message.document.reply_to??null,typeSysteme:null,texte:message.document.text,
+          auteurNom:message.author,piecesJointes:null,reactions:null,epingle:false,etoiles:null},
+          salon:{type:'p',nom:null},actions:['repondre',...(message.document.text?['copier'] as const:[])]});
+        return;
+      }
       // Les règles ne dépendent de rien de local : la requête part tout de
       // suite, en parallèle des lectures SQLite.
       const promesseRegles = client.genre === 'rocketvibe' ? Promise.resolve(reglesDepuisReglages([])) : lireRegles(client);
@@ -232,12 +265,15 @@ export default function EcranActionsMessage() {
         }),
       });
     })().catch(() => {
+      if(prive==='1' && !annule){void priveAccess.current?.close();priveAccess.current=null;setCharge(null);}
       if (!annule) setErreur(t('actionsMessage.chargementImpossible'));
     });
     return () => {
       annule = true;
+      unsubscribe();appSubscription?.remove();
+      if(prive==='1'){void priveAccess.current?.close();priveAccess.current=null;setCharge(null);}
     };
-  }, [pret, id, fil, base, client, fournisseur, moi, t]);
+  }, [pret, id, fil, base, client, fournisseur, moi, t,prive,rid]);
 
   // Mes réactions déjà posées sur ce message : contour accentué, et le tap
   // RETIRE au lieu d'ajouter — `chat.react` sait faire les deux, le câblage en
@@ -284,7 +320,8 @@ export default function EcranActionsMessage() {
     [routeur, fournisseur, t],
   );
 
-  if (!pret || client === null || moteur === null || actionneur === null || charge === null) {
+  if (!pret || client === null || moteur === null || actionneur === null || charge === null || charge.message.id!==id
+    || prive==='1' && (charge.message.rid!==rid || charge.privateOwner!==fournisseur?.native?.chat)) {
     return (
       <View style={[styles.feuille, styles.centre, { paddingBottom: bas }]}>
         {erreur !== null ? (
@@ -303,6 +340,18 @@ export default function EcranActionsMessage() {
   const repondre = async () => {
     const generation = generationVue.current;
     void Haptics.selectionAsync();
+    if(prive==='1') {
+      try {
+        const actor=priveAccess.current;if(!actor)throw Error('Private source unavailable');
+        const selected=await actor.selectQuote(message.id);
+        if(generationVue.current!==generation || actor.isClosed)return;
+        // The origin view re-resolves this reference after regaining focus.
+        demanderReponse(typeof fil==='string'?`${message.rid}:${fil}`:message.rid,{id:message.id,auteur:null,apercu:null,
+          permalien:'',jointeLocale:'[]',imageApercu:null,native:selected.selection,nativeIndisponible:true});
+        routeur.back();
+      } catch {if(generationVue.current===generation)setErreur(t('citation.selectionChangee'));}
+      return;
+    }
     if (fournisseur?.native) {
       try {
         const selection = await fournisseur.native.store.quoteSelection(message.rid, message.id);
@@ -498,7 +547,11 @@ export default function EcranActionsMessage() {
               disabled={occupe}
               icone="📋"
               libelle={t('actionsMessage.copier')}
-              onPress={() => void agir(() => Clipboard.setStringAsync(texteACopier(message.texte) ?? ''))}
+              onPress={() => void agir(async()=>{
+                const text=prive==='1'?await priveAccess.current?.readMessage(message.id).then(v=>v?.document.text):texteACopier(message.texte);
+                if(prive==='1' && text===undefined)throw Error('Private source unavailable');
+                await Clipboard.setStringAsync(text??'');
+              })}
             />
           )}
           {actions.includes('partager') && (

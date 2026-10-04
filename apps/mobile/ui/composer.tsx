@@ -228,7 +228,7 @@ export function Composer({
   const [envoiNatif, setEnvoiNatif] = useState(false);
   useEffect(() => {
     const native = synchro.phase === 'pret' ? synchro.fournisseur.native : undefined;
-    if (!native || !reponse?.native || reponse.nativeIndisponible) return;
+    if (!native || !reponse?.native || reponse.nativeIndisponible || reponse.native.crypto_admission) return;
     let active = true;
     const selected = reponse.native;
     const verifier = async () => {

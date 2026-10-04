@@ -189,7 +189,9 @@ impl Pilot {
             }
             "/api/v1/sync/changes" => respond(200, &json!({"protocol_version":1,"changes":[],"cursor":"initial","has_more":false}).to_string()),
             "/api/v1/sync/ticket" => respond(200, &data["socket_ticket"].to_string()),
-            "/api/v1/sync/socket" => common::Response { websocket:true, ..Default::default() },
+            "/api/v1/sync/socket" => common::Response { websocket:true,
+                websocket_keepalive:Some(json!({"protocol_version":1,"changes":[],"cursor":"initial","has_more":false})),
+                ..Default::default() },
             "/api/v1/e2ee/key-packages" => {
                 assert_eq!(request.headers["authorization"], "Bearer fixture-token");
                 posted.lock().unwrap().push(request.body.clone());

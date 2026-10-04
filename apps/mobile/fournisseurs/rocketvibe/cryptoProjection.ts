@@ -10,6 +10,6 @@ export function lignesPrivees(view:CryptoConversationView|null,room:string,threa
   if(thread){rows.reverse();if(view?.root)rows.unshift(view.root);}
   return rows.map(v=>({id:v.id,rid:room,texte:v.document.text,horodatage:Number(v.observed_at)*1000,
     auteurId:v.author,auteurNom:v.author,typeSysteme:null,filId:v.document.reply_to??null,filReponses:view?.retained_replies[v.id]??0,filDernier:null,
-    filAffiche:false,modifieLe:null,md:null,piecesJointes:null,reactions:null,urls:null,appelId:null,chiffreBrut:null,
+    filAffiche:false,modifieLe:null,md:null,piecesJointes:view?.quote_cards?.[v.id]?.length?JSON.stringify(view.quote_cards[v.id]):null,reactions:null,urls:null,appelId:null,chiffreBrut:null,
     epingle:false,etoiles:null,misAJourLe:0}));
 }

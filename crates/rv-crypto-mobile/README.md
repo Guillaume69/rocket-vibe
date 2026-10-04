@@ -117,7 +117,18 @@ ne permet pas de préparer un nouvel envoi. Les parcours Rust à deux acteurs et
 l’instrumentation Android exercent aussi une vraie réponse MLS après réouverture,
 sa racine, les compteurs et le refus d’un fil imbriqué. Les reçus Android restent
 synthétiques ; les qualifications GUI et HTTP installées restent distinctes.
-Citations / actions / recherche, archive et fichiers restent
+Les citations utilisent les menus et composeurs Android existants. Sélection
+liée au scope, à l'adhésion et à l'admission ; le pont vérifie la source retenue
+et sa position exacte avant de préparer un document MLS contenant uniquement
+les références. Sources racines et réponses de fil viennent du même journal
+privé. Résolution volatile par salon, deux niveaux, cycles bornés ; retrait,
+blur et suspension effacent les aperçus. Une citation seule garde son paquet
+original après réouverture, y compris si la source devient ensuite indisponible.
+Les tests Rust à deux acteurs et Android Keystore / ABI exercent cette reprise
+et la réception MLS ; leurs reçus restent synthétiques. Les tests JS couvrent
+aussi le refus d'une sélection stale, source retirée et reprise HTTP sans
+second POST. La file SQL ordinaire refuse les sélections privées.
+Sources mixtes, autres actions / recherche, archive et fichiers restent
 ouverts, ainsi que la qualification physique et la revue. Aucun masque activé.
 
 Prérequis : Rust 1.97, cibles `aarch64-linux-android` et `x86_64-linux-android`,

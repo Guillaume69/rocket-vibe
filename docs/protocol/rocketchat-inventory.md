@@ -315,8 +315,8 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:488](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L488) | endpoint | e2e.no_keys |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:489](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L489) | endpoint | e2e.failed |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:492](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L492) | endpoint | e2e.failed |
-| [apps/mobile/app/actions-message.tsx:79](../../apps/mobile/app/actions-message.tsx#L79) | call:GET | 'settings.public' |
-| [apps/mobile/app/actions-message.tsx:80](../../apps/mobile/app/actions-message.tsx#L80) | endpoint | settings.public |
+| [apps/mobile/app/actions-message.tsx:83](../../apps/mobile/app/actions-message.tsx#L83) | call:GET | 'settings.public' |
+| [apps/mobile/app/actions-message.tsx:84](../../apps/mobile/app/actions-message.tsx#L84) | endpoint | settings.public |
 | [apps/mobile/app/connexion.tsx:407](../../apps/mobile/app/connexion.tsx#L407) | endpoint | chat.exemple.fr |
 | [apps/mobile/app/deverrouiller-e2e.tsx:45](../../apps/mobile/app/deverrouiller-e2e.tsx#L45) | endpoint | e2e.erreurGenerique |
 | [apps/mobile/app/deverrouiller-e2e.tsx:45](../../apps/mobile/app/deverrouiller-e2e.tsx#L45) | endpoint | e2e.erreurMotDePasse |

@@ -278,9 +278,9 @@ function Fil({
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       // `fil` : une éventuelle cible de réponse revient au composer de CE fil,
       // pas à celui du salon empilé dessous.
-      routeur.push({ pathname: '/actions-message', params: { id: idMessage, fil: filId } });
+      routeur.push({ pathname: '/actions-message', params: { id: idMessage, fil: filId, ...(protege?{prive:'1',rid}:{}) } });
     },
-    [routeur, filId],
+    [routeur, filId,protege,rid],
   );
   const reessayer = useCallback((idMessage:string) => {
     (protege?conversation.outbox.reessayer!(idMessage):envoi.traiter()).catch(() => {});
@@ -317,7 +317,7 @@ function Fil({
           libelleEchec={interrompu?t(prive.status==='cancelled'?'conversation.cancelled':'conversation.pending'):undefined}
           surReessayer={(protege?interrompu && !conversation.busy:etatEnvoi?.statut==='echec')?()=>reessayer(item.id):null}
           surAbandonner={(protege?interrompu && prive.status!=='cancelled' && !conversation.busy:etatEnvoi?.statut==='echec')?abandonner:null}
-          surAppuiLong={!protege && etatEnvoi === undefined ? ouvrirActions : null}
+          surAppuiLong={protege?prive?.status==='journaled' || item.id===conversation.view?.root?.id?ouvrirActions:null:etatEnvoi === undefined ? ouvrirActions : null}
           // On EST dans le fil : pas d'indicateur « N réponses » sur la racine.
           surOuvrirFil={null}
           moi={moi}
@@ -450,7 +450,7 @@ function Fil({
           lectureSeule={protege?droitsNatifs?.[0]?.canSend!==true || conversation.view?.can_send!==true || conversation.view.catching_up:salon.lectureSeule || !!native && (membership==null || !racine)}
           chiffre={salon.chiffre}
           nativeEncryptedReady={protege && conversation.view!==null}
-          citationsDisponibles={!protege}
+          citationsDisponibles={!protege || conversation.view!==null}
           placeholder={t('fil.repondre')}
           apresEnvoi={apresEnvoi}
           brouillonInitial={persistance.initial}

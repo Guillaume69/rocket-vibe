@@ -30,6 +30,8 @@ pub struct Response {
     pub drop: bool,
     pub websocket: bool,
     pub websocket_frames: Vec<serde_json::Value>,
+    /// Optional periodic empty protocol batch, matching the real sync server.
+    pub websocket_keepalive: Option<serde_json::Value>,
 }
 
 pub fn respond(status: u16, body: &str) -> Response {
@@ -145,7 +147,19 @@ impl FakeHttp {
                                     return;
                                 }
                             }
-                            while ws.next().await.is_some() {}
+                            let mut tick = tokio::time::interval(std::time::Duration::from_secs(10));
+                            tick.tick().await;
+                            loop {
+                                tokio::select! {
+                                    frame = ws.next() => if frame.is_none() { break; },
+                                    _ = tick.tick(), if response.websocket_keepalive.is_some() => {
+                                        let batch = response.websocket_keepalive.as_ref().unwrap();
+                                        if ws.send(tokio_tungstenite::tungstenite::Message::Text(batch.to_string().into())).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
                             return;
                         }
                         let content_type = response

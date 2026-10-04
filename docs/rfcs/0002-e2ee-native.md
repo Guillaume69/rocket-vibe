@@ -399,6 +399,13 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    Les compteurs bornés reflètent seulement les réponses retenues. Racine évincée :
    réponses disponibles lisibles, nouvel envoi refusé ; aucune récupération
    depuis SQL ordinaire. La qualification GUI installée reste ouverte.
+   Les menus / bandeaux existants GTK / SwiftUI / Android citent aussi les
+   messages retenus, racines ou réponses, avec envoi d'une citation seule et
+   reprise du paquet MLS original. Les sources sont résolues dans le coffre,
+   avec adhésion / admission fraîches, positions exactes, deux niveaux et
+   coupure des cycles. Retrait, blur et suspension effacent les aperçus Android ;
+   aucune sélection privée ne rejoint la file SQL ordinaire. Sources mixtes,
+   révisions d'édition et fichiers cités restent ouverts.
    Renouvellement, récupération / révocation visibles, actions / recherche
    privés et qualification GUI complète restent ouverts ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.

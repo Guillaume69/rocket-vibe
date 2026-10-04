@@ -8,7 +8,7 @@ import {fileDescriptor,nativeFileAttachments} from './fileDescriptors.ts';
 
 type SourceRow={rid:string;membership:string|null;view_position:string;payload:string|null};
 export type NativeQuoteAttachment={message_link:string;native_reference:QuoteReference;native_unavailable:boolean;text:string;author_name?:string;attachments?:(NativeQuoteAttachment|Record<string,unknown>)[]};
-export type NativeQuoteSelection={reference:QuoteReference;instance_id:string;data_epoch:string;membership_version:string};
+export type NativeQuoteSelection={reference:QuoteReference;instance_id:string;data_epoch:string;membership_version:string;crypto_admission?:string};
 function position(value:string):bigint {
   const n=readDecimal(value);
   if(n>9223372036854775807n)throw new Error('Invalid native quote position');
@@ -29,6 +29,7 @@ export class NativeQuoteCache {
     if(selected.length>8)throw new Error('Too many native quote references');
     const ids=new Set<string>(),refs:QuoteReference[]=[];
     for(const value of selected){
+      if(value.crypto_admission!==undefined)throw new Error('Private references require the protected outbox');
       const r=value.reference;
       const current=await this.selection(r.room_id,r.message_id);
       if(r.message_id===id || ids.has(r.message_id) || value.instance_id!==current.instance_id || value.data_epoch!==current.data_epoch || value.membership_version!==current.membership_version || r.revision!==current.reference.revision)throw new Error('Native quote selection changed');

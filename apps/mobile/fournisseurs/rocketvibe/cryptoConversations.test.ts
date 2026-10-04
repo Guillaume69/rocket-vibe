@@ -9,6 +9,7 @@ import {CryptoStorageAccess} from './cryptoStorage.ts';
 import {NativeError} from './transport.ts';
 import {decodeNative} from './validation.ts';
 import {lignesPrivees} from './cryptoProjection.ts';
+import {privateQuoteCards,type PrivateQuoteRoom} from './cryptoQuotes.ts';
 
 const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
 const packet=decodeNative('ApplicationSubmission',fixture.parity.e2ee_application_submission);
@@ -19,11 +20,16 @@ const fp='ab'.repeat(32);
 async function setup(thread:string|null=null) {
   let current=scope,closed=false,readOnly=false,accepted=false,cancelling=false,cancelled=false,prepared=false,draft='';
   let posts=0,retries=0,prepares=0,cancels=0,nativeDrafts=0,scopeReads=0,admission=fp,lose=false;
+  let membership:string|null='member';
+  let sourceRetained=true,preparedText='private text';
+  let selectedQuotes: import('./protocol.generated.ts').QuoteReference[]=[];
+  const source={id:'private-source',operation:'source-op',author:scope.user,
+    document:{operation_id:'source-op',text:'private quoted reply',reply_to:'source-root',quotes:[],cards:[]},position:'9007199254740993',observed_at:'1700000000',status:'journaled'};
   const forbidden=async()=>{throw Error('No identity, pin, group or plaintext SQL operation');};
   const roster={scope:packet.scope,room_id:ack.room_id,authority_version:'authority',members:[{user_id:scope.user,access_version:'access',activation_version:'active'}],group:state.receipt};
   const page={scope:packet.scope,room_id:ack.room_id,incarnation:state.receipt.incarnation,after:'0',through:'0',events:[],next:null};
   const row=()=>({id:packet.operation_id,operation:packet.operation_id,author:scope.user,
-    document:{operation_id:packet.operation_id,text:'private text',reply_to:thread,quotes:[],cards:[]},position:null,observed_at:'1700000000',status:cancelled?'cancelled':cancelling?'cancelling':accepted?'accepted':'pending'});
+    document:{operation_id:packet.operation_id,text:preparedText,reply_to:thread,quotes:selectedQuotes,cards:[]},position:null,observed_at:'1700000000',status:cancelled?'cancelled':cancelling?'cancelling':accepted?'accepted':'pending'});
   let root=thread?{id:thread,operation:'root-op',author:'bob',document:{operation_id:'root-op',text:'retained root',reply_to:null,quotes:[],cards:[]},position:'1',observed_at:'1700000000',status:'journaled'}:null;
   const bridge:CryptoConversationBridge={open:async()=>({handle:'native-conversation',phase:'ready',accountFingerprint:fp,incarnation:'cd'.repeat(16)}),
     status:forbidden,initialize:forbidden,retire:forbidden,close:async()=>{closed=true;},identityView:forbidden,identityBegin:forbidden,
@@ -38,7 +44,10 @@ async function setup(thread:string|null=null) {
         case 'receive':assert.deepEqual(c.page,page);return 'null';
         case 'view':return JSON.stringify({admission,after:thread?'2':'0',catching_up:false,has_older:false,can_send:!thread || root!==null,draft,messages:prepared?[row()]:[],root,retained_replies:thread?{[thread]:1}:{}});
         case 'draft':if(c.text===null)return JSON.stringify(draft);draft=c.text;nativeDrafts++;return 'null';
-        case 'prepare':assert.equal(c.text,'private text');prepares++;prepared=true;return JSON.stringify({operation:packet.operation_id});
+        case 'select_quote':assert.equal(c.message,source.id);return JSON.stringify({selection:{reference:{room_id:ack.room_id,message_id:source.id,revision:source.position},
+          instance_id:scope.instance,data_epoch:scope.dataEpoch,membership_version:c.membership,crypto_admission:admission},author:source.author,text:source.document.text});
+        case 'sources':return JSON.stringify({room_id:ack.room_id,admission,after:source.position,messages:sourceRetained?[source]:[]});
+        case 'prepare':assert.ok(c.text==='private text' || c.text==='');preparedText=c.text;selectedQuotes=(c.quotes??[]).map((q:import('./cryptoQuotes.ts').PrivateQuoteSelection)=>q.reference);prepares++;prepared=true;return JSON.stringify({operation:packet.operation_id});
         case 'pending':assert.equal(c.operation,packet.operation_id);return JSON.stringify({operation:c.operation,status:cancelled?'cancelled':cancelling?'cancelling':'pending'});
         case 'retry':retries++;return JSON.stringify(packet);
         case 'acknowledge':assert.deepEqual(c.receipt,ack);return 'null';
@@ -60,11 +69,50 @@ async function setup(thread:string|null=null) {
       if(lose){lose=false;throw new NativeError(0,'network_or_protocol_error');}
       return {kind:'cancelled',data:{scope:ack.scope,room_id:ack.room_id,operation_id:ack.operation_id,header:ack.header,fingerprint:ack.fingerprint}};}};
   const group=new CryptoGroupAccess(identity,bridge,remote,ack.room_id,async mutation=>{if(mutation && readOnly)throw new NativeError(403,'room_access_denied');});
-  const access=new CryptoConversationAccess(group,bridge,remote,ack.room_id,thread);
+  const access=new CryptoConversationAccess(group,bridge,remote,ack.room_id,thread,'member',async()=>membership);
   return {access,remote,get posts(){return posts;},get retries(){return retries;},get prepares(){return prepares;},get cancels(){return cancels;},get nativeDrafts(){return nativeDrafts;},get scopeReads(){return scopeReads;},
     lose:()=>{lose=true;},readOnly:()=>{readOnly=true;},switchDevice:()=>{current={...scope,device:'replacement'};},changeAdmission:()=>{admission='cd'.repeat(32);},
-    wrongRoot:()=>{if(root)root={...root,id:'foreign-root'};},evictRoot:()=>{root=null;}};
+    wrongRoot:()=>{if(root)root={...root,id:'foreign-root'};},evictRoot:()=>{root=null;},evictSource:()=>{sourceRetained=false;},withdrawSource:()=>{membership=null;}};
 }
+
+test('private quote-only send keeps typed references, masks evicted sources and resumes the accepted original',async()=>{
+  const f=await setup();await f.access.refresh();const selected=await f.access.selectQuote('private-source');
+  assert.equal(selected.selection.reference.revision,'9007199254740993');
+  assert.equal((await f.access.previewQuote(selected.selection))?.text,'private quoted reply');
+  f.lose();await f.access.send('',[selected.selection]);assert.equal(f.prepares,1);assert.equal(f.posts,1);
+  let view=await f.access.refresh();assert.equal(view.messages[0].document.text,'');
+  assert.equal(view.quote_cards?.[packet.operation_id][0].text,'private quoted reply');
+  assert.ok(lignesPrivees(view,ack.room_id)[0].piecesJointes?.includes('private quoted reply'));
+  f.evictSource();assert.equal(await f.access.previewQuote(selected.selection),null);
+  view=await f.access.refresh();const card=view.quote_cards?.[packet.operation_id][0];
+  assert.equal(card?.native_unavailable,true);assert.equal(card?.text,'');assert.equal(card?.author_name,undefined);
+  f.readOnly();await f.access.resume(packet.operation_id);assert.equal(f.posts,1);assert.equal(f.prepares,1);await f.access.close();
+});
+test('private selections cannot cross scope, admission, membership, revision or duplicate references',async()=>{
+  const f=await setup();const {selection}=await f.access.selectQuote('private-source');
+  for(const changed of [ {...selection,instance_id:'other'}, {...selection,data_epoch:'other'}, {...selection,membership_version:'other'},
+    {...selection,crypto_admission:'cd'.repeat(32)}, {...selection,reference:{...selection.reference,revision:'9007199254740992'}} ]) {
+    await assert.rejects(f.access.send('',[changed]));
+  }
+  await assert.rejects(f.access.send('',[selection,selection]));assert.equal(f.prepares,0);assert.equal(f.posts,0);
+  f.withdrawSource();assert.equal(await f.access.previewQuote(selection),null);await assert.rejects(f.access.send('',[selection]));
+  assert.equal(f.prepares,0);await f.access.close();
+});
+test('private cards bound each source, unicode, nested depth and room-qualified cycles',()=>{
+  const ref=(room_id:string,message_id:string)=>({room_id,message_id,revision:'1'});
+  const root=ref('a','same'),child=ref('b','same'),hidden=ref('withdrawn','secret');
+  const row=(id:string,text:string,quotes:ReturnType<typeof ref>[])=>({id,operation:id,author:'alice',position:'1',observed_at:'1',status:'journaled' as const,
+    document:{operation_id:id,text,quotes,reply_to:null,cards:[]}});
+  const sources=new Map<string,PrivateQuoteRoom|null>([
+    ['a',{room:'a',membership:'a',admission:fp,observation:{roster:decodeNative('GroupRoster',fixture.parity.e2ee_group_roster),state},messages:[row('same','🐾'.repeat(1025),[child,hidden,root])]}],
+    ['b',{room:'b',membership:'b',admission:fp,observation:{roster:decodeNative('GroupRoster',fixture.parity.e2ee_group_roster),state},messages:[row('same','visible child',[ref('b','third')]),row('third','hidden third level',[])]}],
+    ['withdrawn',null],
+  ]);
+  const card=privateQuoteCards([root],sources)[0];assert.equal(Array.from(card.text).length,1024);
+  assert.equal(card.attachments?.[0].text,'visible child');assert.equal(card.attachments?.[0].attachments,undefined);
+  for(const index of [1,2]) {assert.equal(card.attachments?.[index].native_unavailable,true);assert.equal(card.attachments?.[index].author_name,undefined);}
+  sources.set('a',null);assert.equal(privateQuoteCards([root],sources)[0].attachments,undefined);
+});
 test('private viewing does not initialize keys; lost send resumes its receipt without another POST, including read-only',async()=>{
   const f=await setup();await f.access.refresh();assert.equal(f.posts,0);assert.equal(f.prepares,0);
   f.lose();assert.equal(await f.access.send('private text'),packet.operation_id);assert.equal(f.posts,1);

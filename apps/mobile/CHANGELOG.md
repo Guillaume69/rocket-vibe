@@ -7,6 +7,18 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Citations chiffrées RocketVibe sur Android
+
+- Le menu et le bandeau de réponse existants citent un message privé conservé,
+  y compris une réponse de fil. Une citation seule peut être envoyée ; seul son
+  identifiant et sa révision entrent dans le document MLS, sans copie de l’extrait.
+- Les cartes sont résolues dans le coffre, avec accès vérifié pour chaque salon,
+  deux niveaux et coupure des cycles. Une source indisponible perd son extrait ;
+  quitter l’écran ou suspendre l’app efface aussi l’aperçu du composeur.
+- La reprise conserve le ciphertext original après réponse perdue ou réouverture.
+  Les sources mêlant clair et chiffré, fichiers cités et archives complètes
+  restent à livrer. L’E2EE demeure expérimental et désactivé en production.
+
 ### Fils chiffrés RocketVibe sur Android
 
 - Ouverture et réponse dans l’écran de fil existant, avec racine et réponses

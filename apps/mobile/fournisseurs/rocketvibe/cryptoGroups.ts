@@ -19,7 +19,7 @@ type Pending={operation:string;fingerprint:string;cancelling:boolean;superseded:
 type Local={accepted:GroupReceipt|null;participants:CryptoParticipant[];pending:Pending|null};
 export type CryptoGroupView=Local & {roster:GroupRoster;eligible:{user:string;device:string;incarnation:string}[];event:GroupEvent|null};
 export type CryptoRoomAction<T>=(rpc:(input:unknown)=>Promise<unknown>,roster:GroupRoster,
-  peers:()=>Promise<CryptoGroupView['eligible']>,scope:CryptoAccount,
+  peers:(source?:GroupRoster)=>Promise<CryptoGroupView['eligible']>,scope:CryptoAccount,
   call:<R>(fn:()=>Promise<R>,mutation?:boolean)=>Promise<R>)=>Promise<T>;
 const fp=(v:unknown):v is string=>typeof v==='string' && /^[0-9a-f]{64}$/.test(v);
 const id=(v:unknown):v is string=>typeof v==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(v);
@@ -80,9 +80,11 @@ export class CryptoGroupAccess {
       const roster=decodeNative('GroupRoster',await call(()=>this.remote.cryptoGroupRoster(this.room)));
       if(roster.room_id!==this.room || roster.scope.instance_id!==scope.instance || roster.scope.data_epoch!==scope.dataEpoch
         || roster.members.length>128 || !roster.members.some(m=>m.user_id===scope.user))throw new NativeError(409,'crypto_scope_changed');
-      const peers=async()=>{
+      const peers=async(source=roster)=>{
+        if(source.scope.instance_id!==scope.instance || source.scope.data_epoch!==scope.dataEpoch || source.members.length>128
+          || !source.members.some(m=>m.user_id===scope.user))throw new NativeError(409,'crypto_scope_changed');
         const devices:CryptoGroupView['eligible']=[];
-        for(const member of roster.members) {
+        for(const member of source.members) {
           const directory=await read(member.user_id);
           const result=await call(()=>this.bridge.peerView(handle,own,member.user_id,directory));
           const status=JSON.parse(result.statusJson) as CryptoPeerStatus;

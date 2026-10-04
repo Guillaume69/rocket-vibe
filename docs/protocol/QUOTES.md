@@ -4,10 +4,10 @@ Les références, leur résolution côté serveur, les caches bureau commun
 GTK / SwiftUI et mobile, et les corps d'intention durables sont livrés. La capacité
 `quotes` active les actions de réponse des trois interfaces existantes : cartes,
 menus, bandeaux et composeurs sont réutilisés, y compris les citations imbriquées
-sur deux niveaux. Fichiers cités et qualification des applications installées
-restent ouverts ; ce lot ne ferme pas P07.
+sur deux niveaux. Qualification des applications installées et parité complète
+des citations privées restent ouvertes ; ce lot ne ferme pas P07.
 
-## Citations privées expérimentales — GTK / SwiftUI
+## Citations privées expérimentales — GTK / SwiftUI / Android
 
 Les menus de réponse, bandeaux et cartes existants peuvent maintenant citer un
 message conservé dans le journal privé, racine ou réponse de fil. Le composeur
@@ -33,7 +33,16 @@ cycles à leur couple salon / message. Un parent inaccessible ne révèle aucun
 enfant. La liste privée est reconstruite sur toute sa fenêtre retenue pour ne
 pas conserver une ancienne carte après retrait d'un autre salon.
 
-Android, citations mêlant sources en clair et chiffrées, fichiers cités, sources
+Sur Android, la feuille d'actions ouvre une vue privée volatile avant toute
+lecture SQL du message. « Répondre » transmet uniquement la sélection au
+composeur ; son aperçu est reconstruit depuis un accès frais au coffre. Blur,
+suspension et retrait effacent ses mots tout en gardant la référence pour
+validation ou annulation. La copie relit également le message privé courant.
+Une sélection portant une admission crypto est refusée par la file SQL
+ordinaire, avant toute écriture. Aucun texte privé ne transite dans les
+paramètres de navigation.
+
+Citations mêlant sources en clair et chiffrées, fichiers cités, sources
 hors de la fenêtre retenue, évolution des révisions avec l'édition privée et
 qualification GUI installée restent ouverts. La capacité E2EE de production
 reste désactivée ; ce lot ne ferme ni P07 ni J4.

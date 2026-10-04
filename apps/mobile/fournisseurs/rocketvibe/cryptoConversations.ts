@@ -1,10 +1,13 @@
 import type {CryptoConversationBridge} from '../../modules/crypto-native/index.ts';
 import {CryptoGroupAccess,type CryptoRoomAction} from './cryptoGroups.ts';
-import type {ApplicationReceipt,ApplicationSettlement,ApplicationSubmission,DeliveryPage,GroupState,SendMessage} from './protocol.generated.ts';
+import type {ApplicationReceipt,ApplicationSettlement,ApplicationSubmission,DeliveryPage,GroupRoster,GroupState,SendMessage} from './protocol.generated.ts';
+import type {NativeQuoteAttachment,NativeQuoteSelection} from './quotes.ts';
+import {privateQuoteCards,type PrivateQuoteSelection,type PrivateQuotePreview,type PrivateQuoteRoom} from './cryptoQuotes.ts';
 import {NativeError} from './transport.ts';
 import {decodeNative} from './validation.ts';
 
 export type ConversationTransport={
+  cryptoGroupRoster:(room:string)=>Promise<GroupRoster>;
   cryptoGroupState:(room:string)=>Promise<GroupState>;
   cryptoDelivery:(room:string,after:string,through?:string)=>Promise<DeliveryPage>;
   cryptoMessageOperation:(room:string,operation:string)=>Promise<ApplicationReceipt>;
@@ -14,26 +17,32 @@ export type ConversationTransport={
 export type CryptoMessage={id:string;operation:string;author:string;document:SendMessage;position:string|null;
   observed_at:string;status:'journaled'|'pending'|'accepted'|'cancelling'|'cancelled'};
 export type CryptoConversationView={admission:string;after:string;catching_up:boolean;has_older:boolean;can_send:boolean;draft:string;messages:CryptoMessage[];
-  root:CryptoMessage|null;retained_replies:Record<string,number>};
+  root:CryptoMessage|null;retained_replies:Record<string,number>;quote_cards?:Record<string,NativeQuoteAttachment[]>};
 const id=(v:unknown):v is string=>typeof v==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(v);
 function integrity():never {throw new NativeError(0,'crypto_integrity_failed');}
 function object(v:unknown):Record<string,unknown> {if(!v || typeof v!=='object' || Array.isArray(v))integrity();return v as Record<string,unknown>;}
 function position(v:unknown,zero=true):v is string {
   return typeof v==='string' && /^(0|[1-9][0-9]{0,18})$/.test(v) && BigInt(v)<=9223372036854775807n && (zero || v!=='0');
 }
+function decodeRow(raw:unknown,target:string|null|undefined):CryptoMessage {
+  const row=object(raw),document=decodeNative('SendMessage',row.document);
+  if(!id(row.id) || !id(row.operation) || !id(row.author) || (row.position!==null && !position(row.position,false))
+    || !position(row.observed_at) || BigInt(row.observed_at)>253402300799n
+    || !['journaled','pending','accepted','cancelling','cancelled'].includes(String(row.status))
+    || document.operation_id!==row.operation || target!==undefined && (document.reply_to??null)!==target)integrity();
+  return {...row,document} as CryptoMessage;
+}
+function privateSelection(value:unknown):PrivateQuoteSelection {
+  const v=object(value),r=object(v.reference);
+  if(!id(r.room_id) || !id(r.message_id) || !position(r.revision,false) || !id(v.instance_id) || !id(v.data_epoch)
+    || !id(v.membership_version) || typeof v.crypto_admission!=='string' || !/^[0-9a-f]{64}$/.test(v.crypto_admission))integrity();
+  return v as PrivateQuoteSelection;
+}
 function projection(value:unknown,thread:string|null):CryptoConversationView {
   const v=object(value);
   if(typeof v.admission!=='string' || !/^[0-9a-f]{64}$/.test(v.admission) || !position(v.after)
     || typeof v.catching_up!=='boolean' || typeof v.has_older!=='boolean' || typeof v.can_send!=='boolean'
     || typeof v.draft!=='string' || v.draft.length>65536 || !Array.isArray(v.messages) || v.messages.length>264)integrity();
-  const decodeRow=(raw:unknown,target:string|null):CryptoMessage=>{
-    const row=object(raw),document=decodeNative('SendMessage',row.document);
-    if(!id(row.id) || !id(row.operation) || !id(row.author) || (row.position!==null && !position(row.position,false))
-      || !position(row.observed_at) || BigInt(row.observed_at)>253402300799n
-      || !['journaled','pending','accepted','cancelling','cancelled'].includes(String(row.status))
-      || document.operation_id!==row.operation || (document.reply_to??null)!==target)integrity();
-    return {...row,document} as CryptoMessage;
-  };
   const messages=v.messages.map(raw=>decodeRow(raw,thread));
   if(new Set(messages.map(v=>v.operation)).size!==messages.length || new Set(messages.map(v=>v.id)).size!==messages.length)integrity();
   const root=v.root===null?null:decodeRow(v.root,null),replies=object(v.retained_replies);
@@ -56,8 +65,53 @@ export class CryptoConversationAccess {
   private closed=false;
   private localDraft:((text:string)=>Promise<void>)|null=null;
   private draftQueue:Promise<void>=Promise.resolve();
-  constructor(groups:CryptoGroupAccess,bridge:CryptoConversationBridge,remote:ConversationTransport,room:string,thread:string|null=null) {
+  private readonly membership:string|null;
+  private readonly sourceMembership:(room:string)=>Promise<string|null>;
+  constructor(groups:CryptoGroupAccess,bridge:CryptoConversationBridge,remote:ConversationTransport,room:string,thread:string|null=null,
+    membership:string|null=null,sourceMembership:(room:string)=>Promise<string|null>=async()=>null) {
     this.groups=groups;this.bridge=bridge;this.remote=remote;this.room=room;this.thread=thread;
+    this.membership=membership;this.sourceMembership=sourceMembership;
+  }
+  private async source(room:string,rpc:Parameters<CryptoRoomAction<void>>[0],peers:Parameters<CryptoRoomAction<void>>[2],
+    scope:Parameters<CryptoRoomAction<void>>[3],call:Parameters<CryptoRoomAction<void>>[4]):Promise<PrivateQuoteRoom|null> {
+    if(!id(room))integrity();
+    const membership=await this.sourceMembership(room);if(membership===null)return null;
+    try {
+      const roster=decodeNative('GroupRoster',await call(()=>this.remote.cryptoGroupRoster(room)));
+      if(roster.room_id!==room || roster.scope.instance_id!==scope.instance || roster.scope.data_epoch!==scope.dataEpoch)integrity();
+      if(!roster.members.some(m=>m.user_id===scope.user))return null;
+      await peers(roster);
+      const state=decodeNative('GroupState',await call(()=>this.remote.cryptoGroupState(room)));
+      const value=await rpc({action:'sources',source:{roster,state}});
+      if(await this.sourceMembership(room)!==membership || value===null)return null;
+      const v=object(value);
+      if(v.room_id!==room || typeof v.admission!=='string' || !/^[0-9a-f]{64}$/.test(v.admission) || !position(v.after)
+        || !Array.isArray(v.messages) || v.messages.length>64)integrity();
+      const messages=v.messages.map(raw=>decodeRow(raw,undefined));
+      if(messages.some(m=>m.status!=='journaled' || m.position===null || BigInt(m.position)>BigInt(v.after as string))
+        || new Set(messages.map(m=>m.id)).size!==messages.length || new Set(messages.map(m=>m.operation)).size!==messages.length)integrity();
+      return {room,membership,admission:v.admission,messages,observation:{roster,state}};
+    } catch(error) {if(error instanceof NativeError && [403,404].includes(error.status))return null;throw error;}
+  }
+  private async quotes(view:CryptoConversationView,rpc:Parameters<CryptoRoomAction<void>>[0],peers:Parameters<CryptoRoomAction<void>>[2],
+    scope:Parameters<CryptoRoomAction<void>>[3],call:Parameters<CryptoRoomAction<void>>[4]):Promise<CryptoConversationView> {
+    const rows=[...(view.root?[view.root]:[]),...view.messages];
+    let refs=rows.flatMap(m=>m.document.quotes??[]);
+    if(!refs.length)return view;
+    const sources=new Map<string,PrivateQuoteRoom|null>();
+    for(let depth=0;depth<2;depth++) {
+      for(const room of new Set(refs.map(r=>r.room_id)))if(!sources.has(room))sources.set(room,await this.source(room,rpc,peers,scope,call));
+      if(depth===0)refs=refs.flatMap(r=>sources.get(r.room_id)?.messages.find(m=>m.id===r.message_id)?.document.quotes??[]);
+    }
+    for(const [room,old] of sources)if(old) {
+      const fresh=await this.source(room,rpc,peers,scope,call);
+      sources.set(room,fresh?.membership===old.membership && fresh.admission===old.admission?fresh:null);
+    }
+    const own=sources.has(this.room)?sources.get(this.room):await this.source(this.room,rpc,peers,scope,call);
+    if(!own || own.admission!==view.admission){await this.close();throw new NativeError(409,'crypto_scope_changed');}
+    const cards:Record<string,NativeQuoteAttachment[]>={};
+    for(const row of rows)cards[row.id]=privateQuoteCards(row.document.quotes??[],sources,[JSON.stringify([this.room,row.id])]);
+    return {...view,quote_cards:cards};
   }
   close():Promise<void> {this.closed=true;this.localDraft=null;return this.groups.close();}
   get isClosed():boolean {return this.closed || this.groups.isClosed;}
@@ -83,7 +137,7 @@ export class CryptoConversationAccess {
     });
   }
   refresh(before:string|null=null,limit=200):Promise<CryptoConversationView> {
-    return this.run(false,async(rpc,_r,_p,_s,call)=>{
+    return this.run(false,async(rpc,_r,peers,scope,call)=>{
       if(before===null) {
         const cursor=object(await rpc({action:'journal_request'}));
         if(!position(cursor.after) || cursor.through!==null && !position(cursor.through))integrity();
@@ -92,7 +146,7 @@ export class CryptoConversationAccess {
       }
       const view=projection(await rpc({action:'view',before,limit}),this.thread);
       if(this.admission && this.admission!==view.admission){await this.close();throw new NativeError(409,'crypto_scope_changed');}
-      this.admission=view.admission;return view;
+      this.admission=view.admission;return this.quotes(view,rpc,peers,scope,call);
     });
   }
   draft(text?:string):Promise<string|void> {return this.run(false,async rpc=>{
@@ -109,9 +163,49 @@ export class CryptoConversationAccess {
   restore(operation:string):Promise<void> {return this.run(false,async rpc=>{
     if(!id(operation))integrity();if(await rpc({action:'restore',operation})!==null)integrity();
   });}
-  async send(text:string):Promise<string> {
-    return this.run(true,async(rpc,_r,_p,_s,call)=>{
-      const prepared=object(await rpc({action:'prepare',text}));if(!id(prepared.operation))integrity();
+  selectQuote(message:string):Promise<PrivateQuotePreview> {
+    return this.run(false,async(rpc,_r,_p,_s,call)=>{
+      if(!id(message) || this.membership===null || await call(()=>this.sourceMembership(this.room))!==this.membership)integrity();
+      const value=object(await rpc({action:'select_quote',message,membership:this.membership}));
+      const selection=privateSelection(value.selection);
+      if(selection.reference.room_id!==this.room || selection.reference.message_id!==message || selection.membership_version!==this.membership
+        || typeof value.author!=='string' || !id(value.author) || typeof value.text!=='string' || Array.from(value.text).length>1024)integrity();
+      return {selection,author:value.author,text:value.text};
+    });
+  }
+  readMessage(message:string):Promise<CryptoMessage|null> {
+    if(!id(message))integrity();
+    return this.run(false,async(rpc,_r,peers,scope,call)=>{
+      const room=await this.source(this.room,rpc,peers,scope,call);
+      if(!room || this.admission!==null && room.admission!==this.admission){await this.close();throw new NativeError(409,'crypto_scope_changed');}
+      return room.messages.find(m=>m.id===message)??null;
+    });
+  }
+  previewQuote(selected:NativeQuoteSelection):Promise<PrivateQuotePreview|null> {
+    const selection=privateSelection(selected);
+    return this.run(false,async(rpc,_r,peers,scope,call)=>{
+      if(selection.instance_id!==scope.instance || selection.data_epoch!==scope.dataEpoch)return null;
+      const room=await this.source(selection.reference.room_id,rpc,peers,scope,call);
+      const message=room?.messages.find(m=>m.id===selection.reference.message_id);
+      if(!room || room.membership!==selection.membership_version || room.admission!==selection.crypto_admission
+        || !message || message.position!==selection.reference.revision)return null;
+      return {selection,author:message.author,text:Array.from(message.document.text).slice(0,1024).join('')};
+    });
+  }
+  async send(text:string,quotes:readonly NativeQuoteSelection[]=[]):Promise<string> {
+    return this.run(true,async(rpc,_r,peers,scope,call)=>{
+      if(quotes.length>8 || new Set(quotes.map(q=>JSON.stringify([q.reference.room_id,q.reference.message_id]))).size!==quotes.length)integrity();
+      const selected=quotes.map(privateSelection),sources:PrivateQuoteRoom[]=[];
+      for(const room of new Set(selected.map(q=>q.reference.room_id))) {
+        const source=await this.source(room,rpc,peers,scope,call);if(!source)integrity();sources.push(source);
+      }
+      for(const q of selected) {
+        const source=sources.find(s=>s.room===q.reference.room_id)!;
+        if(q.instance_id!==scope.instance || q.data_epoch!==scope.dataEpoch || q.membership_version!==source.membership || q.crypto_admission!==source.admission
+          || !source.messages.some(m=>m.id===q.reference.message_id && m.position===q.reference.revision))integrity();
+      }
+      for(const source of sources)if(await this.sourceMembership(source.room)!==source.membership)integrity();
+      const prepared=object(await rpc({action:'prepare',text,quotes:selected,sources:sources.filter(s=>s.room!==this.room).map(s=>s.observation)}));if(!id(prepared.operation))integrity();
       // Once prepared, an uncertain HTTP result leaves this exact intention in
       // the private outbox. A retry never prepares a second ciphertext.
       try {await this.resumeInner(prepared.operation,rpc,call);}

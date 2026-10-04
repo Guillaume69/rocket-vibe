@@ -16,6 +16,21 @@ struct Request {
     command: Command,
 }
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceObservation {
+    roster: http::GroupRoster,
+    state: http::GroupState,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct QuoteSelection {
+    reference: rv_protocol::parity::QuoteReference,
+    instance_id: String,
+    data_epoch: String,
+    membership_version: String,
+    crypto_admission: String,
+}
+#[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
     JournalRequest,
@@ -26,11 +41,22 @@ enum Command {
         before: Option<String>,
         limit: u32,
     },
+    Sources {
+        source: Option<Box<SourceObservation>>,
+    },
+    SelectQuote {
+        message: String,
+        membership: String,
+    },
     Draft {
         text: Option<String>,
     },
     Prepare {
         text: String,
+        #[serde(default)]
+        quotes: Vec<QuoteSelection>,
+        #[serde(default)]
+        sources: Vec<SourceObservation>,
     },
     Restore {
         operation: String,
@@ -83,6 +109,24 @@ fn row(
 ) -> Value {
     json!({"id":id,"operation":header.operation,"author":header.author,"document":doc,
         "position":position,"observed_at":observed.to_string(),"status":status})
+}
+fn source_rows(room: &str, sources: engine::JournalSources) -> Result<Value> {
+    let admission = HEXLOWER.encode(&sources.admission);
+    let mut rows = Vec::new();
+    for entry in sources.messages {
+        let receipt = &entry.message.receipt;
+        rows.push(row(
+            &receipt.header,
+            entry.message.message()?,
+            receipt.message.clone(),
+            Some(receipt.position.to_string()),
+            entry.observed_at,
+            "journaled",
+        ));
+    }
+    Ok(
+        json!({"room_id":room,"admission":admission,"after":sources.after.to_string(),"messages":rows}),
+    )
 }
 impl CryptoInstallation {
     fn conversation_binding(
@@ -166,7 +210,7 @@ impl CryptoInstallation {
         let current = &observation.current;
         let key = serde_json::to_string(&(&request.roster.room_id, &request.thread))
             .map_err(|_| CryptoBridgeError::Integrity)?;
-        let c = engine::Coordinator::new(manager, root)?;
+        let c = engine::Coordinator::new(manager.clone(), root.clone())?;
         self.conversation_binding(
             &key,
             current,
@@ -258,6 +302,43 @@ impl CryptoInstallation {
                     "draft":c.draft(&current.roster,request.thread,time)?.as_str(),"messages":rows,
                     "root":root,"retained_replies":projection.retained_replies})
             }
+            Command::Sources { source } => {
+                let other = if let Some(source) = source {
+                    groups::roster(&source.roster, &manager, &root)?;
+                    Some(engine::JournalObservation::from_wire(
+                        &source.roster,
+                        &source.state,
+                    )?)
+                } else {
+                    None
+                };
+                let observed = other.as_ref().unwrap_or(&observation);
+                match c.journal_sources(observed, time) {
+                    Ok(sources) => source_rows(&observed.current.roster.scope.room, sources)?,
+                    Err(_) => Value::Null,
+                }
+            }
+            Command::SelectQuote {
+                message,
+                membership,
+            } => {
+                if !identifier(&message) || !identifier(&membership) {
+                    return Err(CryptoBridgeError::Integrity);
+                }
+                let sources = c.journal_sources(&observation, time)?;
+                let admission = HEXLOWER.encode(&sources.admission);
+                let source = sources
+                    .messages
+                    .into_iter()
+                    .find(|m| m.message.receipt.message == message)
+                    .ok_or(CryptoBridgeError::Integrity)?;
+                let receipt = &source.message.receipt;
+                let doc = source.message.message()?;
+                json!({"selection":{"reference":{"room_id":current.roster.scope.room,"message_id":message,
+                    "revision":receipt.position.to_string()},"instance_id":current.roster.scope.instance,
+                    "data_epoch":current.roster.scope.data_epoch,"membership_version":membership,"crypto_admission":admission},
+                    "author":receipt.header.author,"text":doc.text.chars().take(1024).collect::<String>()})
+            }
             Command::Draft { text } => {
                 if let Some(text) = text {
                     c.set_draft(&current.roster, request.thread, text, time)?;
@@ -266,7 +347,53 @@ impl CryptoInstallation {
                     json!(c.draft(&current.roster, request.thread, time)?.as_str())
                 }
             }
-            Command::Prepare { text } => {
+            Command::Prepare {
+                text,
+                quotes,
+                sources,
+            } => {
+                if quotes.len() > 8 || sources.len() > 8 {
+                    return Err(CryptoBridgeError::Integrity);
+                }
+                let mut observations = std::collections::BTreeMap::new();
+                for source in sources {
+                    groups::roster(&source.roster, &manager, &root)?;
+                    let observed =
+                        engine::JournalObservation::from_wire(&source.roster, &source.state)?;
+                    let room = observed.current.roster.scope.room.clone();
+                    if observations.insert(room, observed).is_some() {
+                        return Err(CryptoBridgeError::Integrity);
+                    }
+                }
+                let mut refs = Vec::new();
+                let mut seen = std::collections::BTreeSet::new();
+                for selection in quotes {
+                    let r = &selection.reference;
+                    if selection.instance_id != current.roster.scope.instance
+                        || selection.data_epoch != current.roster.scope.data_epoch
+                        || !identifier(&selection.membership_version)
+                        || !seen.insert((r.room_id.clone(), r.message_id.clone()))
+                    {
+                        return Err(CryptoBridgeError::Integrity);
+                    }
+                    let observed = if r.room_id == current.roster.scope.room {
+                        &observation
+                    } else {
+                        observations
+                            .get(&r.room_id)
+                            .ok_or(CryptoBridgeError::Integrity)?
+                    };
+                    let sources = c.journal_sources(observed, time)?;
+                    if selection.crypto_admission != HEXLOWER.encode(&sources.admission)
+                        || !sources.messages.iter().any(|m| {
+                            m.message.receipt.message == r.message_id
+                                && m.message.receipt.position.to_string() == r.revision
+                        })
+                    {
+                        return Err(CryptoBridgeError::Integrity);
+                    }
+                    refs.push(selection.reference);
+                }
                 if request.thread.is_some()
                     && c.journal_projection(
                         &observation,
@@ -285,7 +412,8 @@ impl CryptoInstallation {
                 if c.outgoing_messages(&current.roster, time)?.iter().any(|v| {
                     !v.cancelled
                         && v.header.thread == request.thread
-                        && v.message().is_ok_and(|m| m.text == text)
+                        && v.message()
+                            .is_ok_and(|m| m.text == text && m.quotes == refs)
                 }) {
                     return Err(CryptoBridgeError::Integrity);
                 }
@@ -296,7 +424,7 @@ impl CryptoInstallation {
                     operation_id: operation.clone(),
                     text,
                     reply_to: request.thread,
-                    quotes: vec![],
+                    quotes: refs,
                     cards: vec![],
                 };
                 c.prepare_message(current, &message, time)?;

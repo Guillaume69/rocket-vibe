@@ -613,7 +613,14 @@ export class NativeChat {
   async cryptoConversation(bridge:import('../../modules/crypto-native/index.ts').CryptoConversationBridge,room:string,
     membership:string,visible:()=>boolean=()=>true,thread:string|null=null):Promise<CryptoConversationAccess> {
     if(thread!==null && !/^[A-Za-z0-9_-]{1,128}$/.test(thread))throw new NativeError(400,'invalid_request');
-    return new CryptoConversationAccess(await this.cryptoGroup(bridge,room,membership,visible),bridge,this.transport,room,thread);
+    const generation=this.generation,projection=this.store.projectionToken();
+    const sourceMembership=async(source:string)=>{
+      this.roomOperationGeneration(generation);if(!visible() || projection!==this.store.projectionToken())throw new NativeError(0,'session_closed');
+      const access=await this.store.cryptoRoomAccess(source);
+      this.roomOperationGeneration(generation);if(!visible() || projection!==this.store.projectionToken())throw new NativeError(0,'session_closed');
+      return access?.encrypted?access.membership:null;
+    };
+    return new CryptoConversationAccess(await this.cryptoGroup(bridge,room,membership,visible),bridge,this.transport,room,thread,membership,sourceMembership);
   }
   /** Capture the connected runner generation, never expose a raw transport to
    * a retained settings callback after logout, suspension or account switch. */

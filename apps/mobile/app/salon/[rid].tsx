@@ -887,9 +887,9 @@ function Salon({
     (id: string) => {
       // « Pop » à l'ouverture de la feuille — confirme que l'appui long a pris.
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      routeur.push({ pathname: '/actions-message', params: { id } });
+      routeur.push({ pathname: '/actions-message', params: { id, ...(protege?{prive:'1',rid}:{}) } });
     },
-    [routeur],
+    [routeur,protege,rid],
   );
   const ouvrirFil = useCallback(
     (id: string) => {
@@ -956,7 +956,7 @@ function Salon({
             // Pas d'actions sur une ligne d'outbox : son `_id` client n'a pas
             // été accepté par le serveur — `chat.delete`/`chat.update` dessus ne
             // peuvent qu'échouer. Ses vraies actions sont réessayer/abandonner.
-            surAppuiLong={!protege && etatEnvoi === undefined ? ouvrirActions : null}
+            surAppuiLong={protege?prive?.status==='journaled'?ouvrirActions:null:etatEnvoi === undefined ? ouvrirActions : null}
             surOuvrirFil={(protege?prive?.status!=='journaled':fournisseur.capacites.fils===false)?null:ouvrirFil}
             libelleFil={protege?t(item.filReponses>0?'conversation.retainedReplies':'fil.repondre',{n:item.filReponses}):undefined}
             moi={moi}
@@ -1147,7 +1147,7 @@ function Salon({
             lectureSeule={protege ? peutEcrire!==true || conversation.view?.can_send!==true || conversation.view.catching_up : fournisseur.native && fournisseur.capacites.infosSalon ? peutEcrire!==true : salon.lectureSeule}
             chiffre={salon.chiffre}
             nativeEncryptedReady={protege && conversation.view!==null}
-            citationsDisponibles={!protege}
+            citationsDisponibles={!protege || conversation.view!==null}
             placeholder={t('salon.messagePlaceholder')}
             brouillonInitial={persistance.initial}
             sauverBrouillon={persistance.sauver}

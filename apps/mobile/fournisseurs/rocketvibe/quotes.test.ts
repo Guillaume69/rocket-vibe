@@ -125,7 +125,7 @@ test('mobile quoted outbox keeps the body and existing cards after source loss, 
 test('mobile source selections are checked atomically and cannot capture an old grant, revision or generation',async()=>{
   const h=setup();try {
     await h.store.applySnapshot(initial());const selected=await h.store.quoteSelection('origin','source');
-    for(const invalid of [{...selected,data_epoch:'other'},{...selected,instance_id:'other'},{...selected,membership_version:'other'},{...selected,reference:{...selected.reference,revision:'9'}},{...selected,reference:{...selected.reference,room_id:'destination'}}]){
+    for(const invalid of [{...selected,crypto_admission:'a'.repeat(64)},{...selected,data_epoch:'other'},{...selected,instance_id:'other'},{...selected,membership_version:'other'},{...selected,reference:{...selected.reference,revision:'9'}},{...selected,reference:{...selected.reference,room_id:'destination'}}]){
       await assert.rejects(h.store.enqueue('pending','destination','Saved words',undefined,[invalid]));
       assert.deepEqual(await h.store.pending(),[]);assert.equal(h.db.prepare("SELECT id FROM messages WHERE id='pending'").get(),undefined);
     }

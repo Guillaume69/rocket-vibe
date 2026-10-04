@@ -618,6 +618,166 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
         assert!(nested["root"].is_null());
         assert_eq!(nested["can_send"], false);
     }
+    // The source set includes retained replies even when the root projection
+    // does not. Selections carry exact positions and private admissions.
+    let sources = conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"sources","source":null}),
+    );
+    assert_eq!(sources["messages"].as_array().unwrap().len(), 2);
+    let selected = conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"select_quote","message":"thread-reply","membership":"private-membership"}),
+    );
+    assert_eq!(selected["text"], "private thread reply");
+    assert_eq!(
+        selected["selection"]["reference"]["revision"],
+        "9007199254740995"
+    );
+    assert_eq!(
+        selected["selection"]["crypto_admission"],
+        sources["admission"]
+    );
+    for field in ["crypto_admission", "instance_id", "data_epoch"] {
+        let mut invalid = selected["selection"].clone();
+        invalid[field] = json!("wrong");
+        assert!(
+            alice
+                .conversation_action(
+                    serde_json::to_string(&own).unwrap(),
+                    json!({"roster":roster,"state":state,"thread":null,
+                "command":{"action":"prepare","text":"","quotes":[invalid],"sources":[]}})
+                    .to_string()
+                )
+                .is_err()
+        );
+    }
+    let mut invalid = selected["selection"].clone();
+    invalid["reference"]["revision"] = json!("9007199254740996");
+    assert!(
+        alice
+            .conversation_action(
+                serde_json::to_string(&own).unwrap(),
+                json!({"roster":roster,"state":state,"thread":null,
+            "command":{"action":"prepare","text":"","quotes":[invalid],"sources":[]}})
+                .to_string()
+            )
+            .is_err()
+    );
+    let quoted = conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"prepare","text":"","quotes":[selected["selection"]],"sources":[]}),
+    );
+    let quote_operation = quoted["operation"].as_str().unwrap();
+    let quote_original = conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"retry","operation":quote_operation}),
+    );
+    assert!(!quote_original.to_string().contains("private thread reply"));
+    alice.stop();
+    drop(alice);
+    let alice =
+        CryptoInstallation::open(path.path().to_string_lossy().into(), account(), key.clone())
+            .unwrap();
+    assert_eq!(
+        quote_original,
+        conversation(
+            &alice,
+            &own,
+            &roster,
+            &state,
+            None,
+            json!({"action":"retry","operation":quote_operation})
+        )
+    );
+    let packet: http::ApplicationSubmission = serde_json::from_value(quote_original).unwrap();
+    let proof = rv_crypto_public::messages::Proof::from_bytes(
+        &B64.decode(packet.proof.as_bytes()).unwrap(),
+    )
+    .unwrap();
+    let quote_receipt = http::ApplicationReceipt {
+        scope: own.scope.clone(),
+        room_id: "room".into(),
+        operation_id: quote_operation.into(),
+        header: B64.encode(&serde_json::to_vec(&proof.header).unwrap()),
+        fingerprint: HEXLOWER.encode(&proof.fingerprint().unwrap()),
+        message_id: "private-quote".into(),
+        position: "9007199254740996".into(),
+    };
+    conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"acknowledge","receipt":quote_receipt}),
+    );
+    let quote_page = http::DeliveryPage {
+        scope: own.scope.clone(),
+        room_id: "room".into(),
+        incarnation: ack.incarnation.clone(),
+        after: "9007199254740995".into(),
+        through: quote_receipt.position.clone(),
+        next: None,
+        events: vec![http::DeliveryEvent {
+            position: quote_receipt.position.clone(),
+            content: http::DeliveryContent::Message(http::ApplicationMessage {
+                receipt: quote_receipt,
+                proof: packet.proof,
+                ciphertext: packet.ciphertext,
+            }),
+        }],
+    };
+    for (actor, directory) in [(&*alice, &own), (&*bob, &peer)] {
+        conversation(
+            actor,
+            directory,
+            &roster,
+            &state,
+            None,
+            json!({"action":"receive","page":quote_page}),
+        );
+        let view = conversation(
+            actor,
+            directory,
+            &roster,
+            &state,
+            None,
+            json!({"action":"view","before":null,"limit":200}),
+        );
+        let quoted = view["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["id"] == "private-quote")
+            .unwrap();
+        assert_eq!(quoted["document"]["text"], "");
+        assert_eq!(
+            quoted["document"]["quotes"],
+            json!([selected["selection"]["reference"]])
+        );
+        assert!(
+            !quoted["document"]
+                .to_string()
+                .contains("private thread reply")
+        );
+    }
     let pending = conversation(
         &alice,
         &own,

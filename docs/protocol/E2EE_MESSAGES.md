@@ -1,9 +1,10 @@
 # Livraison des messages MLS natifs
 
 État au 4 octobre 2026 : serveur opaque, journal ordonné et transports Rust /
-TypeScript expérimentaux. `capabilities.e2ee` reste désactivé. Le raccordement du
-[coffre privé](../../crates/rv-crypto/MESSAGES.md) au worker HTTP et aux interfaces
-existantes reste ouvert, ainsi que le rattrapage historique et les fichiers.
+TypeScript expérimentaux. `capabilities.e2ee` reste désactivé. Le [worker HTTP privé](../../crates/rv-crypto/GROUP_HTTP.md)
+raccorde envoi / reprise et réception contre la tête courante. Son checkpoint
+de préfixe complet, le raccordement aux interfaces existantes, le rattrapage
+historique et les fichiers restent ouverts.
 Ce lot ne ferme pas J4 et ne permet pas la bascule J5.
 
 ## Routes

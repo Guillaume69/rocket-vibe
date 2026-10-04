@@ -284,6 +284,106 @@ async fn rotate(author: &Account, peer: &Account, room: &str) -> Result<()> {
     );
     Ok(())
 }
+async fn exchange(
+    alice: &Account,
+    bob: &Account,
+    room: &str,
+    phase: u8,
+    after: &str,
+) -> Result<String> {
+    let root = rv_protocol::SendMessage {
+        operation_id: HEXLOWER.encode(&random::<32>()),
+        text: format!("protected-worker-private-payload-phase-{phase}: **Bonjour** 🐾"),
+        quotes: vec![rv_protocol::parity::QuoteReference {
+            room_id: "opaque-quote-room".into(),
+            message_id: "opaque-quote-message".into(),
+            revision: "9007199254740993".into(),
+        }],
+        cards: vec![rv_protocol::cards::IntegrationCard {
+            author: Some("Auteur privé".into()),
+            title: Some("Carte privée".into()),
+            url: Some("https://example.org/private".into()),
+            text: Some("Texte privé de carte".into()),
+            color: None,
+            fields: vec![],
+        }],
+        reply_to: None,
+    };
+    let author = alice.worker()?;
+    lost(author.send_message(room, root.clone()).await);
+    let pending = groups::Coordinator::new(alice.manager.clone(), alice.root.clone())?
+        .pending_message(&root.operation_id)?;
+    author.stop();
+    let root_ack = alice.worker()?.resume_message(&root.operation_id).await?;
+    assert!(
+        root_ack.header == pending.header && root_ack.fingerprint == pending.fingerprint,
+        "original message changed during reconciliation"
+    );
+    assert!(
+        root_ack.position > 9007199254740992,
+        "message position was rounded or sequencer was not seeded"
+    );
+    let reply = rv_protocol::SendMessage {
+        operation_id: HEXLOWER.encode(&random::<32>()),
+        text: format!("protected-worker-private-payload-phase-{phase}: réponse chiffrée"),
+        quotes: vec![],
+        cards: vec![],
+        reply_to: Some(root_ack.message.clone()),
+    };
+    let peer = bob.worker()?;
+    lost(peer.send_message(room, reply.clone()).await);
+    peer.stop();
+    let reply_ack = bob.worker()?.resume_message(&reply.operation_id).await?;
+    assert!(
+        reply_ack.position > root_ack.position,
+        "replies were delivered out of order"
+    );
+    let page = bob.client.crypto_delivery(room, after, None).await?;
+    assert!(
+        page.next.is_none() && page.events.len() == 3,
+        "expected one accepted transition and two messages"
+    );
+    assert!(
+        page.through == reply_ack.position.to_string(),
+        "wrong fixed delivery watermark"
+    );
+    for account in [alice, bob] {
+        let worker = account.worker()?;
+        for event in &page.events {
+            match &event.content {
+                http::DeliveryContent::Group(group) => {
+                    assert!(
+                        groups::Receipt::from_wire(&group.receipt)? == account.head(room)?,
+                        "delivery transition was not already protected/accepted"
+                    );
+                }
+                http::DeliveryContent::Message(message) => {
+                    let clear = worker.receive_message(message.clone()).await?;
+                    assert!(
+                        clear.receipt.position.to_string() == event.position,
+                        "mismatched delivery position"
+                    );
+                    let expected = if clear.receipt.header.operation == root.operation_id {
+                        &root
+                    } else {
+                        &reply
+                    };
+                    assert!(
+                        clear.receipt.header.operation == expected.operation_id,
+                        "unexpected application operation"
+                    );
+                    assert!(
+                        serde_json::to_vec(&clear.message()?)? == serde_json::to_vec(expected)?,
+                        "protected message document changed"
+                    );
+                }
+            }
+        }
+    }
+    // This fixture consumes each epoch before rotating. Its local cursor does
+    // not claim a durable complete-journal checkpoint or missed-epoch catchup.
+    Ok(reply_ack.position.to_string())
+}
 async fn run(input: Input) -> Result<()> {
     let alice = Account::new(&input.base, &input.alice).await?;
     let bob = Account::new(&input.base, &input.bob).await?;
@@ -334,8 +434,11 @@ async fn run(input: Input) -> Result<()> {
         alice.secret(&input.room)? == bob.secret(&input.room)?,
         "initial peer epoch secrets differ"
     );
+    let position = exchange(&alice, &bob, &input.room, 1, "0").await?;
     rotate(&alice, &bob, &input.room).await?;
+    let position = exchange(&alice, &bob, &input.room, 2, &position).await?;
     rotate(&bob, &alice, &input.room).await?;
+    exchange(&alice, &bob, &input.room, 3, &position).await?;
     let head = alice.client.crypto_group_state(&input.room).await?;
     assert!(
         head.receipt.revision == "3" && head.receipt.epoch == "3" && !head.needs_rekey,

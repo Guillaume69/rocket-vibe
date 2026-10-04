@@ -1,4 +1,4 @@
-# Frontière HTTP des groupes MLS
+# Frontière HTTP des groupes et messages MLS
 
 Le module `groups::wire` convertit les DTOs publics de `rv-protocol::e2ee` vers
 le coordinateur protégé. Une conversion n'approuve aucune racine, aucun appareil
@@ -92,7 +92,50 @@ fork observé et valide l'enveloppe publique. Chaque événement exige ensuite
 `preview_event` / `accept_event`, avec un roster de nouveau observé à
 l'acceptation. Une page ou une tête ne vaut aucune approbation.
 
-## Vérifications et suite
+## Messages applicatifs
+
+`MessageSubmission::to_wire` / `from_wire` et `from_delivered` conservent
+preuve et ciphertext originaux, avec décodage borné, base64url / JSON canoniques,
+digest et portée / opération / reçu liés exactement. Les conversions du reçu
+préservent Header opaque, empreinte, ID serveur et position décimale, y compris
+au-delà de `2^53`. Cette validation de forme ne remplace pas l'authentification
+du certificat, de la signature, de l'auteur MLS et de l'AAD dans le coffre.
+
+Le worker ajoute `send_message(room, SendMessage)` : observation de tête / roster
+courant, préparation / checkpoint privé, puis recherche du reçu avant POST.
+Le document clair entre seulement dans la tâche privée ; le transport reçoit
+les octets opaques déjà protégés. `resume_message(operation)` cherche d'abord
+le reçu propre à partir des métadonnées historiques du coffre. Un reçu exact
+confirme l'opération sans nouvel envoi, même après expiration du certificat,
+changement de roster ou pendant un cooldown de POST. Un 404 seulement permet
+un retry original, après nouveau contrôle de tête, droits, pins et expiration.
+Un refus ne libère pas silencieusement l'outbox ni ne rechiffre son document.
+
+`receive_message(ApplicationMessage)` observe le groupe courant, convertit la
+trame et appelle le coordinateur dans une tâche possédée. Le vrai auteur / AAD,
+contenu et ratchet sont validés ; le résultat clair n'est remis qu'après
+checkpoint et contrôle de l'arrêt du worker. Réouverture, doublon et écho propre
+utilisent le contenu privé conservé. Un message inconnu d'une ancienne tête
+reste refusé : cette API ne fournit pas encore le rattrapage historique ni un
+checkpoint de préfixe complet du journal. Les fournisseurs ne doivent pas
+avancer une page à partir de cette seule confirmation de message ni conserver
+le document clair dans leur cache public ordinaire.
+
+Cinq nouveaux scénarios HTTP à fixture exercent confirmation perdue / worker
+neuf, vrai déchiffrement par le pair et l'écho, retry identique après absence
+de commit, rotation propre bloquée, reçu divergent, ACK après expiration et
+sans roster, et cooldown durable laissant les confirmations disponibles.
+Les dix scénarios HTTP passent en 2,85 s ; deux scénarios de conversions avec
+vrais paquets passent en 0,89 s. Le banc combiné est étendu à six messages
+sur trois époques, avec réponses perdues après les vrais commits serveur.
+Il passe en 29,76 s : six POSTs de messages, six lignes opaques, neuf trames
+de livraison et aucun document clair dans SQL. Les deux coffres rouverts
+retrouvent texte riche, citations exactes, cartes et réponse dans le fil.
+La fixture consomme chaque époque avant sa rotation ; elle ne qualifie pas
+un rattrapage d'époques manquées. La suite privée complète compte 118 succès
+en 162,91 s, avec l'enfant ignoré exécuté par le parent de crash, sans filtre.
+
+## Historique des vérifications de groupes
 
 Six scénarios du coffre traversent les vrais DTOs avec commits et bases privées :
 genèse / jointure / rotation et mêmes secrets d'époque, retry HTTP exact,
@@ -146,7 +189,7 @@ RV_CRYPTO_HTTP_SMOKE_BINARY="$PWD/target/native-crypto/debug/examples/delivery_s
 ```
 
 Planification dans les fournisseurs, réconciliation des refus, rattrapage complet des adhésions,
-retrait local / réadmission, messages et inbox / outbox, fichiers / archives /
+retrait local / réadmission, préfixe ordonné durable et projection des messages, fichiers / archives /
 import, pont Android et interfaces existantes restent ouverts. Les qualifications
 sur appareils / trousseaux et la revue indépendante demeurent nécessaires.
 Aucune capacité E2EE n'est activée.

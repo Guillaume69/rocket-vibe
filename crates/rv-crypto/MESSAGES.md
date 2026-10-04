@@ -2,7 +2,9 @@
 
 Lot expérimental du coordinateur privé `groups::Coordinator`, hors des apps.
 `capabilities.e2ee` reste désactivé. Les [routes serveur et le journal opaque](../../docs/protocol/E2EE_MESSAGES.md)
-existent séparément ; leur raccordement au worker privé et aux apps reste à livrer.
+existent séparément. Le [worker privé HTTP](GROUP_HTTP.md) raccorde maintenant
+envoi / reprise et réception contre la tête courante ; préfixe complet du journal,
+rattrapage historique et intégration aux apps restent à livrer.
 
 ## Authentification et contenu
 
@@ -90,7 +92,7 @@ refusé, ciphertext altéré, propre ciphertext inconnu, rotation réellement pr
 ordre des positions, bornes et libération explicite du cache. Ils ne qualifient
 ni le réseau des messages ni les appareils / trousseaux physiques.
 
-Les dix scénarios passent ; la suite privée complète compte 111 succès en
+Le lot initial de dix scénarios passe ; sa suite privée complète comptait 111 succès en
 164,33 s sous Linux. Le seul enfant ignoré est exécuté et tué par son parent de
 crash. L'arithmétique `curve25519-dalek` du profil test est optimisée, avec les
 assertions du coordinateur conservées ; aucun scénario n'est retiré pour gagner
@@ -100,7 +102,7 @@ du temps. Le profil de production et le journal des apps ne changent pas.
 cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --target-dir target --features system-keystore,native-http groups::tests::application_messages
 ```
 
-Suite : raccordement au journal opaque PostgreSQL et au transport, worker reçu avant
-renvoi original, rattrapage à travers changements d'adhésion / retrait local,
+Suite : checkpoint d'un préfixe complet du journal opaque PostgreSQL,
+rattrapage à travers changements d'adhésion / retrait local,
 refus définitifs / nouvelles opérations, archive / fichiers, pont Android et
 fournisseurs des interfaces existantes, revue crypto et qualifications natives.

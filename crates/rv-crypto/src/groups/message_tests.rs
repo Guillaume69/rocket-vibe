@@ -2,7 +2,7 @@ use super::*;
 use rv_crypto_public::messages as packet;
 use rv_protocol::{SendMessage, cards::IntegrationCard, parity::QuoteReference};
 
-fn observation(account: &Account) -> MessageObservation {
+pub(super) fn observation(account: &Account) -> MessageObservation {
     account
         .manager
         .inspect(|_, records| {
@@ -127,6 +127,98 @@ fn crafted(
         proof: proof.to_bytes().unwrap(),
         ciphertext,
     }
+}
+
+#[test]
+fn message_wire_roundtrips_original_bytes_and_keeps_canonical_large_receipt_fields() {
+    let (alice, _, _) = incoming_commits::fixture(false);
+    let submission = alice
+        .coordinator()
+        .prepare_message(&observation(&alice), &message("wire-private"), NOW)
+        .unwrap();
+    let encoded = submission.to_wire().unwrap();
+    assert!(MessageSubmission::from_wire(&encoded).unwrap() == submission);
+    let receipt = ack(&submission, 9007199254740993);
+    let encoded_receipt = wire::message_receipt_to_wire(&receipt).unwrap();
+    assert_eq!(encoded_receipt.position, "9007199254740993");
+    assert!(wire::message_receipt(&encoded_receipt).unwrap() == receipt);
+    let frame = rv_protocol::e2ee::ApplicationMessage {
+        receipt: encoded_receipt,
+        proof: encoded.proof,
+        ciphertext: encoded.ciphertext,
+    };
+    let (received, received_receipt) = MessageSubmission::from_delivered(&frame).unwrap();
+    assert!(received == submission && received_receipt == receipt);
+    let mut large = receipt;
+    large.header.group_revision = 9007199254740993;
+    large.header.epoch = 9007199254740992;
+    assert!(
+        wire::message_receipt(&wire::message_receipt_to_wire(&large).unwrap()).unwrap() == large
+    );
+    let mut untrusted = submission;
+    let mut proof = packet::Proof::from_bytes(&untrusted.proof).unwrap();
+    proof.signature[0] ^= 1;
+    untrusted.proof = proof.to_bytes().unwrap();
+    // Wire shape/digest validation must not be mistaken for signature trust.
+    let untrusted = MessageSubmission::from_wire(&untrusted.to_wire().unwrap()).unwrap();
+    assert!(untrusted.verified(NOW).is_err());
+}
+
+#[test]
+fn message_wire_refuses_relabelled_scopes_receipts_noncanonical_encoding_and_bounds() {
+    let (alice, _, _) = incoming_commits::fixture(false);
+    let submission = alice
+        .coordinator()
+        .prepare_message(&observation(&alice), &message("wire-private-bounds"), NOW)
+        .unwrap();
+    let input = submission.to_wire().unwrap();
+    let mut changed = input.clone();
+    changed.operation_id = "different".into();
+    assert!(MessageSubmission::from_wire(&changed).is_err());
+    let mut changed = input.clone();
+    changed.scope.data_epoch = "different".into();
+    assert!(MessageSubmission::from_wire(&changed).is_err());
+    let mut changed = input.clone();
+    changed.proof.push('=');
+    assert!(MessageSubmission::from_wire(&changed).is_err());
+    let mut changed = input.clone();
+    let mut cipher = B64.decode(changed.ciphertext.as_bytes()).unwrap();
+    cipher[0] ^= 1;
+    changed.ciphertext = B64.encode(&cipher);
+    assert!(MessageSubmission::from_wire(&changed).is_err());
+    let receipt = wire::message_receipt_to_wire(&ack(&submission, 9007199254740993)).unwrap();
+    for position in ["0", "01", "-1", "9223372036854775808"] {
+        let mut changed = receipt.clone();
+        changed.position = position.into();
+        assert!(wire::message_receipt(&changed).is_err());
+    }
+    for field in 0..4 {
+        let mut changed = receipt.clone();
+        match field {
+            0 => changed.room_id = "different".into(),
+            1 => changed.operation_id = "different".into(),
+            2 => changed.scope.instance_id = "different".into(),
+            _ => changed.fingerprint = HEXLOWER.encode(&[0; 32]),
+        }
+        assert!(wire::message_receipt(&changed).is_err());
+    }
+    let mut changed = receipt.clone();
+    let header: packet::Header =
+        serde_json::from_slice(&B64.decode(changed.header.as_bytes()).unwrap()).unwrap();
+    changed.header = B64.encode(&serde_json::to_vec_pretty(&header).unwrap());
+    assert!(wire::message_receipt(&changed).is_err());
+    let mut frame = rv_protocol::e2ee::ApplicationMessage {
+        receipt,
+        proof: input.proof,
+        ciphertext: input.ciphertext,
+    };
+    frame.receipt.fingerprint = HEXLOWER.encode(&[7; 32]);
+    assert!(MessageSubmission::from_delivered(&frame).is_err());
+    frame.ciphertext = "A".repeat(packet::CIPHERTEXT_LIMIT.div_ceil(3) * 4 + 1);
+    assert!(matches!(
+        MessageSubmission::from_delivered(&frame),
+        Err(Error::Limit)
+    ));
 }
 
 #[test]

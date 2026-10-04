@@ -42,22 +42,36 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
     store::membership(&app, &alice, &room.id, &bob.id, false)
         .await
         .unwrap();
+    sqlx::query("UPDATE instance SET position=9007199254740992 WHERE singleton")
+        .execute(&app.pool)
+        .await
+        .unwrap();
     let packages = Arc::new(AtomicUsize::new(0));
     let transitions = Arc::new(AtomicUsize::new(0));
+    let applications = Arc::new(AtomicUsize::new(0));
     let package_posts = packages.clone();
     let group_posts = transitions.clone();
+    let message_posts = applications.clone();
     let router = crate::http::router(app.clone()).layer(middleware::from_fn(
         move |request: Request, next: Next| {
             let packages = package_posts.clone();
             let transitions = group_posts.clone();
+            let applications = message_posts.clone();
             async move {
                 let package = request.method() == axum::http::Method::POST
                     && request.uri().path() == "/api/v1/e2ee/key-packages";
                 let group = request.method() == axum::http::Method::POST
                     && request.uri().path().ends_with("/transitions");
-                let lose = (package && packages.fetch_add(1, Ordering::SeqCst) == 0) || group;
+                let message = request.method() == axum::http::Method::POST
+                    && request.uri().path().starts_with("/api/v1/e2ee/rooms/")
+                    && request.uri().path().ends_with("/messages");
+                let lose =
+                    (package && packages.fetch_add(1, Ordering::SeqCst) == 0) || group || message;
                 if group {
                     transitions.fetch_add(1, Ordering::SeqCst);
+                }
+                if message {
+                    applications.fetch_add(1, Ordering::SeqCst);
                 }
                 let mut response = next.run(request).await;
                 if lose && response.status().is_success() {
@@ -115,6 +129,42 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
         3,
         "a commit was posted twice after losing its ACK"
     );
+    assert_eq!(
+        applications.load(Ordering::SeqCst),
+        6,
+        "a message was posted twice after losing its ACK"
+    );
+    let opaque: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM e2ee_application_messages WHERE room_id=$1")
+            .bind(&room.id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!(opaque, 6);
+    let delivered: i64 = sqlx::query_scalar("SELECT count(*) FROM e2ee_delivery WHERE room_id=$1")
+        .bind(&room.id)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+    assert_eq!(delivered, 9);
+    let clear: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM messages WHERE room_id=$1 AND system IS NULL")
+            .bind(&room.id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!(clear, 0);
+    let packets: Vec<(Vec<u8>, Vec<u8>)> =
+        sqlx::query_as("SELECT proof,ciphertext FROM e2ee_application_messages WHERE room_id=$1")
+            .bind(&room.id)
+            .fetch_all(&app.pool)
+            .await
+            .unwrap();
+    let secret = b"protected-worker-private-payload-phase-";
+    assert!(packets.iter().all(|(proof, cipher)| {
+        !proof.windows(secret.len()).any(|bytes| bytes == secret)
+            && !cipher.windows(secret.len()).any(|bytes| bytes == secret)
+    }));
     let head: (i64, i64) =
         sqlx::query_as("SELECT revision,epoch FROM e2ee_groups WHERE room_id=$1")
             .bind(&room.id)

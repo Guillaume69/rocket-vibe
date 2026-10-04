@@ -147,6 +147,14 @@ struct Book {
     drop_once: bool,
     wrong_ack: bool,
     limited: bool,
+    message_submissions: BTreeMap<String, http::ApplicationSubmission>,
+    message_receipts: BTreeMap<String, http::ApplicationReceipt>,
+    message_attempts: Vec<Vec<u8>>,
+    message_drop_before: bool,
+    message_drop_after: bool,
+    message_wrong_ack: bool,
+    message_limited: bool,
+    message_roster_reads: usize,
 }
 fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex<Book>>) {
     let roster = wire_tests::observation(&request(vec![], &["alice", "bob"]).roster, None);
@@ -159,6 +167,14 @@ fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex
         drop_once,
         wrong_ack: false,
         limited: false,
+        message_submissions: BTreeMap::new(),
+        message_receipts: BTreeMap::new(),
+        message_attempts: vec![],
+        message_drop_before: false,
+        message_drop_after: false,
+        message_wrong_ack: false,
+        message_limited: false,
+        message_roster_reads: 0,
     }));
     let stored = book.clone();
     let own = alice.certificate.device.device.clone();
@@ -210,10 +226,58 @@ fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex
             }]);
         }
         if request.path.ends_with("/roster") {
+            book.message_roster_reads += 1;
             return json(&book.roster);
         }
         if request.path.contains("/key-packages/") {
             return json(&book.package);
+        }
+        if request.path.contains("/message-operations/") {
+            let operation = request.path.rsplit('/').next().unwrap();
+            let Some(stored) = book.message_receipts.get(operation) else {
+                return error(404, "not_found", None);
+            };
+            let mut stored = stored.clone();
+            let receipt = wire::message_receipt(&stored).unwrap();
+            if receipt.header.author != user {
+                return error(404, "not_found", None);
+            };
+            if book.message_wrong_ack {
+                stored.fingerprint = HEXLOWER.encode(&[7; 32]);
+            }
+            return json(&stored);
+        }
+        if request.path.ends_with("/messages") && request.method == "POST" {
+            book.message_attempts.push(request.body.clone());
+            if book.message_limited {
+                return error(429, "crypto_message_limit", Some(30));
+            }
+            if book.message_drop_before {
+                book.message_drop_before = false;
+                return None;
+            }
+            let input: http::ApplicationSubmission = serde_json::from_slice(&request.body).unwrap();
+            let submission = MessageSubmission::from_wire(&input).unwrap();
+            let proof = submission.verified(NOW).unwrap();
+            assert_eq!(proof.header.author, user);
+            assert_eq!(proof.header.device, device);
+            let fingerprint = proof.fingerprint().unwrap();
+            let receipt = rv_crypto_public::messages::Receipt {
+                header: proof.header,
+                fingerprint,
+                message: format!("stored-message-{}", book.message_receipts.len() + 1),
+                position: 9007199254740993 + book.message_receipts.len() as u64,
+            };
+            let receipt = wire::message_receipt_to_wire(&receipt).unwrap();
+            book.message_submissions
+                .insert(input.operation_id.clone(), input);
+            book.message_receipts
+                .insert(receipt.operation_id.clone(), receipt.clone());
+            if book.message_drop_after {
+                book.message_drop_after = false;
+                return None;
+            }
+            return json(&receipt);
         }
         if request.path.contains("/operations/") {
             return match &book.receipt {
@@ -316,6 +380,251 @@ fn accounts() -> (Account, Account) {
     alice.trust(&bob, true);
     bob.trust(&alice, true);
     (alice, bob)
+}
+fn private_message(operation: &str) -> rv_protocol::SendMessage {
+    rv_protocol::SendMessage {
+        operation_id: operation.into(),
+        text: "Message HTTP **privé** 🐾".into(),
+        quotes: vec![rv_protocol::parity::QuoteReference {
+            room_id: "quoted-room".into(),
+            message_id: "quoted-message".into(),
+            revision: "9007199254740993".into(),
+        }],
+        cards: vec![],
+        reply_to: None,
+    }
+}
+async fn joined_workers(server: &Server, alice: &Account, bob: &Account) -> (Worker, Worker) {
+    let author = server.worker(alice);
+    let preview = preview(&author).await;
+    let fingerprint = preview.preview.fingerprint;
+    author.prepare_genesis(preview, fingerprint).await.unwrap();
+    let peer = server.worker(bob);
+    let batch = peer.events("room").await.unwrap();
+    let preview = peer
+        .preview_event(batch.page.events[0].clone())
+        .await
+        .unwrap();
+    let fingerprint = preview.preview.fingerprint;
+    peer.accept_event(preview, fingerprint).await.unwrap();
+    (author, peer)
+}
+fn delivered(book: &Mutex<Book>, operation: &str) -> http::ApplicationMessage {
+    let book = book.lock().unwrap();
+    let input = book.message_submissions.get(operation).unwrap();
+    http::ApplicationMessage {
+        receipt: book.message_receipts.get(operation).unwrap().clone(),
+        proof: input.proof.clone(),
+        ciphertext: input.ciphertext.clone(),
+    }
+}
+fn late() -> std::result::Result<u64, delivery::Error> {
+    Ok(NOW + 3601)
+}
+
+#[tokio::test]
+async fn protected_message_lost_ack_reopens_exactly_and_real_peer_receive_is_durable() {
+    let (alice, bob) = accounts();
+    let (server, book) = server(&alice, &bob, false);
+    let (author, peer) = joined_workers(&server, &alice, &bob).await;
+    book.lock().unwrap().message_drop_after = true;
+    let message = private_message("worker-private-one");
+    assert!(matches!(
+        author.send_message("room", message.clone()).await,
+        Err(delivery::Error::Network(_))
+    ));
+    let original = alice
+        .reopened()
+        .pending_message(&message.operation_id)
+        .unwrap();
+    assert_eq!(book.lock().unwrap().message_attempts.len(), 1);
+    author.stop();
+    let acknowledged = server
+        .worker(&alice)
+        .resume_message(&message.operation_id)
+        .await
+        .unwrap();
+    assert!(
+        acknowledged.header == original.header && acknowledged.fingerprint == original.fingerprint
+    );
+    assert_eq!(acknowledged.position, 9007199254740993);
+    assert_eq!(book.lock().unwrap().message_attempts.len(), 1);
+    let frame = delivered(&book, &message.operation_id);
+    let clear = peer.receive_message(frame.clone()).await.unwrap();
+    assert_eq!(
+        serde_json::to_value(clear.message().unwrap()).unwrap(),
+        serde_json::to_value(&message).unwrap()
+    );
+    peer.stop();
+    let clear = server
+        .worker(&bob)
+        .receive_message(frame.clone())
+        .await
+        .unwrap();
+    assert_eq!(clear.receipt.position, acknowledged.position);
+    assert_eq!(clear.message().unwrap().text, message.text);
+    let clear = server.worker(&alice).receive_message(frame).await.unwrap();
+    assert_eq!(
+        clear.message().unwrap().quotes[0].revision,
+        "9007199254740993"
+    );
+    assert!(
+        alice
+            .reopened()
+            .pending_message(&message.operation_id)
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn unaccepted_message_retries_byte_identically_and_blocks_own_rotation() {
+    let (alice, bob) = accounts();
+    let (server, book) = server(&alice, &bob, false);
+    let (author, peer) = joined_workers(&server, &alice, &bob).await;
+    book.lock().unwrap().message_drop_before = true;
+    let message = private_message("worker-private-retry");
+    assert!(matches!(
+        author.send_message("room", message.clone()).await,
+        Err(delivery::Error::Network(_))
+    ));
+    assert!(matches!(
+        author
+            .preview_change("room", "rotation-must-wait".into(), vec![], vec![])
+            .await,
+        Err(delivery::Error::Group(Error::Pending))
+    ));
+    author.stop();
+    server
+        .worker(&alice)
+        .resume_message(&message.operation_id)
+        .await
+        .unwrap();
+    {
+        let book_guard = book.lock().unwrap();
+        assert_eq!(book_guard.message_attempts.len(), 2);
+        assert!(book_guard.message_attempts[0] == book_guard.message_attempts[1]);
+    }
+    assert_eq!(
+        peer.receive_message(delivered(&book, &message.operation_id))
+            .await
+            .unwrap()
+            .message()
+            .unwrap()
+            .text,
+        message.text
+    );
+}
+
+#[tokio::test]
+async fn divergent_message_receipt_never_clears_the_original_protected_outbox() {
+    let (alice, bob) = accounts();
+    let (server, book) = server(&alice, &bob, false);
+    let (author, _) = joined_workers(&server, &alice, &bob).await;
+    book.lock().unwrap().message_drop_after = true;
+    let message = private_message("worker-private-wrong-ack");
+    assert!(author.send_message("room", message.clone()).await.is_err());
+    let original = alice
+        .reopened()
+        .pending_message(&message.operation_id)
+        .unwrap();
+    book.lock().unwrap().message_wrong_ack = true;
+    assert!(matches!(
+        server
+            .worker(&alice)
+            .resume_message(&message.operation_id)
+            .await,
+        Err(delivery::Error::Group(Error::Receipt))
+    ));
+    assert!(
+        alice
+            .reopened()
+            .pending_message(&message.operation_id)
+            .unwrap()
+            .fingerprint
+            == original.fingerprint
+    );
+    book.lock().unwrap().message_wrong_ack = false;
+    server
+        .worker(&alice)
+        .resume_message(&message.operation_id)
+        .await
+        .unwrap();
+    assert_eq!(book.lock().unwrap().message_attempts.len(), 1);
+}
+
+#[tokio::test]
+async fn accepted_message_receipt_is_reconciled_after_certificate_expiry_without_roster_or_post() {
+    let (alice, bob) = accounts();
+    let (server, book) = server(&alice, &bob, false);
+    let (author, _) = joined_workers(&server, &alice, &bob).await;
+    book.lock().unwrap().message_drop_after = true;
+    let message = private_message("worker-private-historical");
+    assert!(author.send_message("room", message.clone()).await.is_err());
+    let reads = book.lock().unwrap().message_roster_reads;
+    book.lock().unwrap().roster.members.clear();
+    assert!(alice.certificate.verify(late().unwrap()).is_err());
+    author.stop();
+    server
+        .worker(&alice)
+        .with_clock(late)
+        .resume_message(&message.operation_id)
+        .await
+        .unwrap();
+    let book = book.lock().unwrap();
+    assert_eq!(book.message_attempts.len(), 1);
+    assert_eq!(book.message_roster_reads, reads);
+}
+
+#[tokio::test]
+async fn message_cooldown_is_durable_while_a_late_historical_receipt_remains_readable() {
+    let (alice, bob) = accounts();
+    let (server, book) = server(&alice, &bob, false);
+    let (author, _) = joined_workers(&server, &alice, &bob).await;
+    book.lock().unwrap().message_limited = true;
+    let message = private_message("worker-private-budget");
+    assert!(matches!(
+        author.send_message("room", message.clone()).await,
+        Err(delivery::Error::Network(rv_client::Error::Server {
+            status: 429,
+            ..
+        }))
+    ));
+    assert!(matches!(
+        server
+            .worker(&alice)
+            .resume_message(&message.operation_id)
+            .await,
+        Err(delivery::Error::Cooldown { retry_after: 30 })
+    ));
+    let original = alice
+        .coordinator()
+        .retry_message(
+            &super::application_messages::observation(&alice),
+            &message.operation_id,
+            NOW,
+        )
+        .unwrap();
+    let proof = original.verified(NOW).unwrap();
+    let fingerprint = proof.fingerprint().unwrap();
+    // Simulate a prior request committed after an uncertain/gateway response.
+    // Its canonical original packet already exists in the protected outbox.
+    let ack = wire::message_receipt_to_wire(&rv_crypto_public::messages::Receipt {
+        header: proof.header,
+        fingerprint,
+        message: "late-stored-message".into(),
+        position: 9007199254740993,
+    })
+    .unwrap();
+    book.lock()
+        .unwrap()
+        .message_receipts
+        .insert(message.operation_id.clone(), ack);
+    server
+        .worker(&alice)
+        .resume_message(&message.operation_id)
+        .await
+        .unwrap();
+    assert_eq!(book.lock().unwrap().message_attempts.len(), 1);
 }
 async fn preview(worker: &Worker) -> delivery::GenesisPreview {
     worker

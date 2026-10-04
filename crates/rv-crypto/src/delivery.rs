@@ -430,6 +430,118 @@ impl Worker {
         })
         .await
     }
+    async fn message_observation(&self, room: &str) -> Result<groups::MessageObservation> {
+        let roster = self.client.crypto_group_roster(room).await?;
+        self.current()?;
+        let state = self.client.crypto_group_state(room).await?;
+        self.current()?;
+        let room = room.to_owned();
+        self.owned(move |manager, _, _| {
+            let observation = groups::MessageObservation::from_wire(&roster, &state)?;
+            if observation.head.scope.room != room
+                || observation.head.scope.instance != manager.scope().instance
+                || observation.head.scope.data_epoch != manager.scope().data_epoch
+            {
+                return Err(Error::Scope);
+            }
+            Ok(observation)
+        })
+        .await
+    }
+    /// Prepare and checkpoint the original private ratchet/body before HTTP.
+    /// Persist the operation ID in the app outbox; on restart use resume_message.
+    pub async fn send_message(
+        &self,
+        room: &str,
+        message: rv_protocol::SendMessage,
+    ) -> Result<rv_crypto_public::messages::Receipt> {
+        let _dispatch = self.dispatch.lock().await;
+        self.scope().await?;
+        self.gate().await?;
+        let observation = self.message_observation(room).await?;
+        let operation = message.operation_id.clone();
+        self.owned(move |manager, root, now| {
+            groups::Coordinator::new(manager, root)?.prepare_message(
+                &observation,
+                &message,
+                now,
+            )?;
+            Ok(())
+        })
+        .await?;
+        self.resume_message_inner(&operation).await
+    }
+    /// Look up a historical own receipt before any current-state validation or
+    /// POST, including after withdrawal, rekey, certificate expiry or cooldown.
+    pub async fn resume_message(
+        &self,
+        operation: &str,
+    ) -> Result<rv_crypto_public::messages::Receipt> {
+        let _dispatch = self.dispatch.lock().await;
+        self.scope().await?;
+        self.resume_message_inner(operation).await
+    }
+    async fn resume_message_inner(
+        &self,
+        operation: &str,
+    ) -> Result<rv_crypto_public::messages::Receipt> {
+        let id = operation.to_owned();
+        let pending = self
+            .owned(move |manager, root, _| {
+                Ok(groups::Coordinator::new(manager, root)?.pending_message(&id)?)
+            })
+            .await?;
+        let room = &pending.header.scope.room;
+        let receipt = match self.client.crypto_message_operation(room, operation).await {
+            Ok(receipt) => receipt,
+            Err(rv_client::Error::Server { status: 404, .. }) => {
+                self.gate().await?;
+                let observation = self.message_observation(room).await?;
+                let id = operation.to_owned();
+                let submission = self
+                    .owned(move |manager, root, now| {
+                        Ok(groups::Coordinator::new(manager, root)?
+                            .retry_message(&observation, &id, now)?
+                            .to_wire()?)
+                    })
+                    .await?;
+                self.current()?;
+                self.network(self.client.submit_crypto_message(room, &submission).await)
+                    .await?
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let receipt = groups::wire::message_receipt(&receipt)?;
+        if receipt.header != pending.header || receipt.fingerprint != pending.fingerprint {
+            return Err(groups::Error::Receipt.into());
+        }
+        self.owned(move |manager, root, now| {
+            groups::Coordinator::new(manager, root)?.confirm_message(&receipt, now)?;
+            Ok(receipt)
+        })
+        .await
+    }
+    /// Receive one frame against the exact current accepted head. This is not
+    /// an ordered journal checkpoint: adapters must not advance a page cursor
+    /// from this result, and missed historical epochs require catchup support.
+    pub async fn receive_message(
+        &self,
+        message: http::ApplicationMessage,
+    ) -> Result<groups::ClearMessage> {
+        let _dispatch = self.dispatch.lock().await;
+        self.scope().await?;
+        let observation = self.message_observation(&message.receipt.room_id).await?;
+        self.owned(move |manager, root, now| {
+            let (submission, receipt) = groups::MessageSubmission::from_delivered(&message)?;
+            Ok(groups::Coordinator::new(manager, root)?.receive_message(
+                &observation,
+                &submission,
+                &receipt,
+                now,
+            )?)
+        })
+        .await
+    }
     pub async fn events(&self, room: &str) -> Result<Batch> {
         let _dispatch = self.dispatch.lock().await;
         self.scope().await?;

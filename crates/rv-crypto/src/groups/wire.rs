@@ -2,6 +2,7 @@
 //! device or MLS epoch; Coordinator still performs the protected validation.
 use super::*;
 use openmls::ciphersuite::hash_ref::make_key_package_ref;
+use rv_crypto_public::messages as packet;
 use rv_protocol::e2ee as http;
 
 fn identifier(value: &str) -> bool {
@@ -62,6 +63,88 @@ fn bound_scope(value: &http::Scope, room: &str) -> Result<()> {
         return Err(Error::Changed);
     }
     Ok(())
+}
+
+/// Canonical public receipt only. Its authenticity and ownership are checked
+/// against the original protected outbox or MLS packet by the coordinator.
+pub fn message_receipt(value: &http::ApplicationReceipt) -> Result<packet::Receipt> {
+    bound_scope(&value.scope, &value.room_id)?;
+    let bytes = decoded(&value.header, packet::PROOF_LIMIT)?;
+    let header: packet::Header = serde_json::from_slice(&bytes).map_err(|_| Error::Receipt)?;
+    header.validate()?;
+    if serde_json::to_vec(&header).map_err(|_| Error::Receipt)? != bytes
+        || !same_scope(&value.scope, &header.scope)
+        || value.room_id != header.scope.room
+        || value.operation_id != header.operation
+    {
+        return Err(Error::Receipt);
+    }
+    let receipt = packet::Receipt {
+        header,
+        fingerprint: hex(&value.fingerprint)?,
+        message: value.message_id.clone(),
+        position: decimal(&value.position, true)?,
+    };
+    receipt.validate()?;
+    Ok(receipt)
+}
+pub fn message_receipt_to_wire(value: &packet::Receipt) -> Result<http::ApplicationReceipt> {
+    value.validate()?;
+    Ok(http::ApplicationReceipt {
+        scope: http_scope(&value.header.scope),
+        room_id: value.header.scope.room.clone(),
+        operation_id: value.header.operation.clone(),
+        header: B64.encode(&serde_json::to_vec(&value.header).map_err(|_| Error::Receipt)?),
+        fingerprint: HEXLOWER.encode(&value.fingerprint),
+        message_id: value.message.clone(),
+        position: value.position.to_string(),
+    })
+}
+impl MessageSubmission {
+    fn wire_proof(&self) -> Result<packet::Proof> {
+        if self.ciphertext.is_empty() || self.ciphertext.len() > packet::CIPHERTEXT_LIMIT {
+            return Err(Error::Limit);
+        }
+        let proof = packet::Proof::from_bytes(&self.proof)?;
+        if proof.ciphertext != digest(&self.ciphertext) {
+            return Err(Error::Changed);
+        }
+        Ok(proof)
+    }
+    /// Bounded, canonical conversion, without granting trust or certificate
+    /// lifetime. Historical receipt reconciliation must remain possible.
+    pub fn from_wire(value: &http::ApplicationSubmission) -> Result<Self> {
+        let submission = Self {
+            proof: decoded(&value.proof, packet::PROOF_LIMIT)?,
+            ciphertext: decoded(&value.ciphertext, packet::CIPHERTEXT_LIMIT)?,
+        };
+        let proof = submission.wire_proof()?;
+        bound_scope(&value.scope, &proof.header.scope.room)?;
+        if !same_scope(&value.scope, &proof.header.scope)
+            || value.operation_id != proof.header.operation
+        {
+            return Err(Error::Changed);
+        }
+        Ok(submission)
+    }
+    pub fn to_wire(&self) -> Result<http::ApplicationSubmission> {
+        let proof = self.wire_proof()?;
+        Ok(http::ApplicationSubmission {
+            scope: http_scope(&proof.header.scope),
+            operation_id: proof.header.operation,
+            proof: B64.encode(&self.proof),
+            ciphertext: B64.encode(&self.ciphertext),
+        })
+    }
+    pub fn from_delivered(value: &http::ApplicationMessage) -> Result<(Self, packet::Receipt)> {
+        let receipt = message_receipt(&value.receipt)?;
+        let submission = Self {
+            proof: decoded(&value.proof, packet::PROOF_LIMIT)?,
+            ciphertext: decoded(&value.ciphertext, packet::CIPHERTEXT_LIMIT)?,
+        };
+        receipt.matches(&submission.wire_proof()?)?;
+        Ok((submission, receipt))
+    }
 }
 impl Receipt {
     pub fn from_wire(value: &http::GroupReceipt) -> Result<Self> {

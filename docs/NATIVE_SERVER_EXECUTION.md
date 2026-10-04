@@ -11,15 +11,16 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS et worker HTTP, noyau privé de messages et journal opaque serveur | Messages dans le worker et les apps, validation historique, ponts / interfaces, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque et worker de messages sur HTTP / PostgreSQL | Préfixe ordonné complet, messages dans les apps, validation historique, ponts / interfaces, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison validée (`989310f`) passe toute la CI `37175551995`, dont
+La dernière livraison validée (`88f9c43`) passe toute la CI `37177661644`, dont
 les contrôles généraux, les bancs clients et les suites crypto Linux, Windows et
 macOS. Le nouveau journal serveur de messages opaques passe ses neuf scénarios
 PostgreSQL / HTTP / MLS et les contrats communs ; aucune capacité E2EE n'est
-activée. Sa prochaine étape est le raccordement au worker privé et la validation
-d'un préfixe ordonné complet, puis aux fournisseurs des apps actuelles.
+activée. Envoi / reprise et réception contre la tête courante sont maintenant
+raccordés au worker privé ; la prochaine étape est la validation d'un préfixe
+ordonné complet et du rattrapage, puis les fournisseurs des apps actuelles.
 Les critères externes encore ouverts restent des critères de sortie de la RFC.
 
 ## Premier incrément : socle serveur et transports pilotes
@@ -333,6 +334,28 @@ Le parcours mobile pilote et les tests sans appareil ne ferment pas J1 : il exig
 les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
+
+- P19 / J4, worker HTTP des messages protégés (4 octobre 2026) : préparation
+  / ratchet / document dans le checkpoint avant réseau, reçu recherché à partir
+  des métadonnées historiques avant renvoi. Un 404 permet seulement le retry
+  original après nouvelle observation / contrôle des grants, tête, pins et
+  expiration ; un ACK exact reste confirmable après retrait / expiry / cooldown.
+  Réception contre la tête courante dans une tâche possédée, clair remis après
+  checkpoint et vérification d'arrêt. Conversions bornées / canoniques du
+  paquet, reçu et Header opaque, digest et métadonnées liées exactement ;
+  leur décodage ne remplace pas l'authentification MLS / certificat du coffre.
+  Cinq nouveaux scénarios HTTP et deux de conversion passent ; les dix cas du
+  worker passent ensemble en 2,85 s et la suite privée complète compte 118
+  succès en 162,91 s, avec le crash enfant exercé par son parent et aucun filtre.
+  Le banc combiné réel PostgreSQL / HTTP passe en 29,76 s : six messages sur
+  trois époques, chaque réponse perdue après commit, Managers / SDK neufs pour
+  confirmation, documents riches et replies déchiffrés par les deux coffres.
+  SQL conserve six ciphertexts, neuf trames, six POSTs exacts et aucun document
+  clair. La fixture consomme chaque époque avant rotation ; elle ne ferme pas
+  le rattrapage historique, le préfixe ordonné durable, les refus définitifs /
+  réadmissions, la projection, les fichiers / archives, les ponts, la revue et
+  les qualifications sur appareils. Formatage / Clippy strict passent ; aucune
+  capacité E2EE activée. [Frontière HTTP](../crates/rv-crypto/GROUP_HTTP.md).
 
 - P19 / J4, livraison opaque des messages (4 octobre 2026) : POST de vrai
   ciphertext MLS et preuve certifiée, reçu personnel historique et journal

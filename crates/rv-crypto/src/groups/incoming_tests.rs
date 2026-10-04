@@ -7,7 +7,7 @@ enum Change {
     Remove(String),
     Replace(String, Vec<u8>),
 }
-fn fixture(third: bool) -> (Account, Account, Option<Account>) {
+pub(super) fn fixture(third: bool) -> (Account, Account, Option<Account>) {
     let alice = Account::new("alice", "alice-desktop", [1; 16]);
     let bob = Account::new("bob", "bob-mobile", [2; 16]);
     alice.trust(&bob, true);
@@ -274,14 +274,14 @@ fn resign(author: &Account, event: &mut Commit, alter: impl FnOnce(&mut Transiti
     };
     event.transition = transition.to_bytes().unwrap();
 }
-fn accept(account: &Account, event: &Commit) {
+pub(super) fn accept(account: &Account, event: &Commit) {
     let (preview, consent) = account.coordinator().preview_commit(event, NOW).unwrap();
     account
         .coordinator()
         .accept_commit(event, &consent, preview.fingerprint, NOW)
         .unwrap();
 }
-fn secret(account: &Account) -> Vec<u8> {
+pub(super) fn secret(account: &Account) -> Vec<u8> {
     account
         .manager
         .inspect(|provider, _| {

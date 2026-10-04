@@ -315,6 +315,24 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P19 / J4, préparation cliente des successeurs (4 octobre 2026) :
+  `preview_change` / `prepare_change` vérifient la tête serveur observée et
+  l'ancien arbre MLS, puis préparent rotation / ajout / retrait / remplacement
+  dans une transaction protégée. Les nonces changés exigent Remove+Add frais ;
+  les appareils conservés gardent indice / référence d'admission. Un appareil
+  déjà révoqué peut être retiré ; certificat local renouvelé installé dans la
+  vraie feuille. Preuve / arbre / commit / Welcomes originaux sauvegardés avant
+  checkpoint et résultat, fusion seulement au reçu exact. Onze nouveaux
+  scénarios passent par le coordinateur réel, dont singleton époque zéro,
+  reprise disque / checkpoint perdu, remplacement deux retraits / un ajout,
+  bornes et références dépensées. Suite complète : 90 tests réussis, plus
+  enfant de crash exécuté par son parent, en 38,48 secondes. Formatage et
+  Clippy strict passent. La CI de réception `37164702081` est entièrement
+  verte sur les trois OS ; CI du présent lot suivie après publication.
+  Conversion HTTP / ordonnanceur, rattrapage complet / retrait local,
+  messages chiffrés, pont Android / apps existantes, archives / fichiers /
+  import, qualifications et revue demeurent ouverts. Aucune capacité activée.
+
 - P19 / J4, réception cliente protégée de commits (4 octobre 2026) : vraie
   rotation / ajout / retrait après admission, auteur MLS / indice / clé reliés
   à la preuve signée et pins. AAD liant opération / parent / versions / appareils
@@ -326,10 +344,10 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   exact suivant un groupe actif, reprise après checkpoint perdu, configuration
   d'arbre conservée sur les groupes rejoints. Onze nouveaux scénarios passent ;
   suite complète : 79 réussis, plus enfant de crash exécuté par son parent.
-  Clippy strict et CI multi-OS suivis ; import Unix du test de publication
+  Clippy strict et CI `37164702081` verte sur les trois OS ; import Unix du test de publication
   conditionné pour corriger le refus Clippy Windows de `37162727300`.
   Tous ses autres jobs sont verts, y compris le banc de fichiers Windows et GTK.
-  Préparation publique des transitions, rattrapage complet / retrait local,
+  Préparation publique poursuivie au lot suivant ; rattrapage complet / retrait local,
   messages, transports / ponts / apps, archives / fichiers / import et revue
   restent ouverts. [Contrat privé](../crates/rv-crypto/GROUP_COMMITS.md).
   Capacité E2EE non activée.

@@ -1,10 +1,49 @@
-# Réception protégée des transitions MLS
+# Transitions MLS protégées
 
 `groups::Commit` porte la transition signée, son vrai commit TLS, le reçu et les
 versions de salon / adhésions observées indépendamment. `preview_commit` valide
 le successeur dans un fournisseur temporaire ; `accept_commit` répète cette
 validation et conserve état MLS, reçu et invalidation de l'outbox concurrente
 dans la même transaction protégée. Rien n'est remis avant le checkpoint.
+
+## Préparation du successeur
+
+`groups::Change` fournit le roster courant observé indépendamment, la tête
+serveur complète, l'opération, les IDs d'appareils à retirer explicitement et
+leurs nouveaux KeyPackages publics. `preview_change` exige cette tête identique
+au reçu local accepté et vérifie l'ancien arbre réel avant confirmation. Un
+état hors ligne périmé doit rattraper les événements avant préparation.
+
+Sans ajout ni retrait, le parcours fait une vraie rotation de feuille. Ajouts,
+retraits et remplacements Remove+Add sont inclus dans un seul commit, même avec
+des nombres différents. L'auteur reste admis ; un retrait local relève du
+parcours distinct à intégrer. Tous les utilisateurs du roster doivent être
+représentés. Un nonce d'accès / activation changé interdit de conserver une
+ancienne admission : les appareils concernés doivent être retirés et réadmis
+avec packages frais. Les références déjà observées restent interdites.
+
+Les appareils conservés gardent leur identité, indice et référence initiale de
+package, avec certificat courant et pins approuvés. Un appareil retiré peut
+déjà être révoqué ou expiré. Le certificat local renouvelé est installé dans la
+véritable feuille MLS par les paramètres du commit ; sa racine, incarnation et
+clé de signature doivent rester les mêmes. Les autres appareils vérifient
+ensuite le certificat renouvelé par le parcours de réception.
+
+La confirmation opaque lie demande, état accepté, pins, certificat local et
+échéance de cinq minutes au maximum. Les indices des nouveaux destinataires
+dans le preview sont provisoires ; le plan signé emploie les vrais indices
+du PublicGroup validé après préparation. Le contexte, arbre, époque et chaque
+feuille sont contrôlés avant persistance. Les entrées sont bornées avant copie
+et hash ; l'ordre des retraits ou packages ne modifie pas l'identité de demande.
+Les propositions MLS déjà en attente sont refusées, sans ajout implicite.
+
+`prepare_change` conserve état MLS préparé, preuve, arbre, commit et Welcomes
+originaux dans la même transaction protégée avant toute remise au réseau.
+L'époque acceptée demeure ancienne jusqu'au reçu exact. Réouverture, réponse
+perdue et checkpoint interrompu reprennent les mêmes octets ; une demande
+différente ne remplace pas l'outbox. Le retry original reste possible après
+expiration du preview seulement si certificat et confiance sont toujours
+valides. Le reçu historique exact demeure réconciliable séparément.
 
 ## Validation et réception
 
@@ -98,8 +137,16 @@ conflit entre deux préparations, rollback après fusion, ACK propre et récupé
 après checkpoint perdu. Les bornes, reçus changés et consentements périmés sont
 également refusés. La suite complète conserve les scénarios antérieurs.
 
-La préparation publique des transitions suivantes, conversion des événements
-HTTP vers le moteur et ordonnanceur réseau restent à livrer. Cette réception
+Onze scénarios de préparation supplémentaires passent par l'API du coordinateur,
+avec vrais coffres et commits : rotation / retry exact, ajout et retrait révoqué,
+deux retraits avec un ajout, nonces réactivés, approbations et références dépensées,
+ancien head, certificat renouvelé dans la vraie feuille, checkpoint perdu,
+bounds et historique de références plein, puis rotation d'un singleton à
+l'époque zéro avant admission. La suite complète compte 90 tests réussis,
+plus l'enfant de crash exécuté par son parent.
+
+Conversion des événements HTTP vers le moteur et ordonnanceur réseau restent
+à livrer. Cette réception
 vise un successeur correspondant aux versions observées ; le rattrapage complet
 de pages à travers des changements d'adhésion, Welcome initial ancien, retrait
 local / retour et nouvelles incarnations reste ouvert. L'outbox et l'inbox des

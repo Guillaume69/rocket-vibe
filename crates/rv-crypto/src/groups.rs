@@ -24,6 +24,8 @@ use std::{
 };
 mod incoming;
 pub use incoming::Commit;
+mod changes;
+pub use changes::Change;
 
 const SUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 const STATE_LIMIT: usize = 8 * 1024 * 1024;
@@ -273,24 +275,27 @@ fn check_clock(state: Option<&State>, now: u64) -> Result<()> {
     }
     Ok(())
 }
-fn request_fingerprint(request: &Genesis) -> Result<Fingerprint> {
-    request.roster.scope.group_id()?;
-    if request.roster.members.len() > public::MAX_MEMBERS
-        || request.operation.len() > 128
-        || request.roster.authority_version.len() > 128
-        || request.roster.members.iter().any(|member| {
+fn check_request(roster: &Roster, operation: &str, packages: &[Vec<u8>]) -> Result<()> {
+    roster.scope.group_id()?;
+    if roster.members.len() > public::MAX_MEMBERS
+        || operation.len() > 128
+        || roster.authority_version.len() > 128
+        || roster.members.iter().any(|member| {
             member.user.len() > 128
                 || member.access_version.len() > 128
                 || member.activation_version.len() > 128
         })
-        || request.packages.len() >= public::MAX_DEVICES
-        || request
-            .packages
+        || packages.len() >= public::MAX_DEVICES
+        || packages
             .iter()
             .any(|p| p.is_empty() || p.len() > PACKAGE_LIMIT)
     {
         return Err(Error::Limit);
     }
+    Ok(())
+}
+fn request_fingerprint(request: &Genesis) -> Result<Fingerprint> {
+    check_request(&request.roster, &request.operation, &request.packages)?;
     let mut packages = request
         .packages
         .iter()
@@ -360,7 +365,8 @@ fn draft(request: &Genesis, participants: Vec<Participant>) -> Plan {
 
 /// Account adapter. Every result is released after the protected checkpoint.
 /// Genesis, targeted admission, ACK and original retry share this coordinator.
-/// Later roster transitions and message delivery remain to integrate before UI.
+/// Successor preparation and reception share the same durable outbox.
+/// Message delivery and network/UI integration remain to connect.
 pub struct Coordinator {
     manager: Arc<Manager>,
     root: Root,

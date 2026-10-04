@@ -268,8 +268,10 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    Réconciliation réseau des refus / expirés et raccordement aux apps ouverts.
    Réception protégée d'un successeur, auteur / AAD / propositions Add vérifiés,
    références observées conservées après retrait et remplacement atomique d'un
-   commit local concurrent livrés. Préparation publique des transitions suivantes,
-   rattrapage complet à travers les adhésions et livraison des messages
+   commit local concurrent livrés. Préparation publique de rotations / ajouts /
+   retraits / remplacements atomiques, renouvellement du vrai certificat de
+   feuille et outbox conservant le commit original jusqu'au reçu exact livrés.
+   Rattrapage complet à travers les adhésions et livraison des messages
    chiffrés restent ouverts ;
    aucune capacité activée.
 5. Pont mobile et intégration aux fournisseurs actuels ; archive / fichiers,

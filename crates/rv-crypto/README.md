@@ -149,7 +149,15 @@ refus annulent aussi les mutations MLS. Les références déjà observées reste
 mémorisées après retrait. `confirm` traite également le reçu d'une préparation
 suivant un groupe actif ; les jointures conservent la configuration d'arbre.
 
-Réception des messages, préparation des transitions suivantes, rattrapage complet
+`preview_change` / `prepare_change` préparent désormais rotation, ajouts, retraits
+et remplacement atomique avec la tête serveur observée et les nonces courants.
+L'outbox conserve la demande exacte avant checkpoint / réseau ; le groupe ne
+fusionne qu'au reçu exact. Les références conservées restent celles de leur
+admission initiale ; une réadmission exige un vrai package frais. Un certificat
+local renouvelé modifie la véritable feuille MLS. Voir les
+[transitions protégées](GROUP_COMMITS.md).
+
+Réception des messages, rattrapage complet
 et politique de chaque envoi, transport et ponts vers les apps restent ouverts ; E2EE demeure
 désactivé. Voir le [contrat de livraison](../../docs/protocol/E2EE_GROUPS.md).
 

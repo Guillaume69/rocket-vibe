@@ -188,7 +188,7 @@ fn receipt(submission: &Submission) -> Receipt {
     Receipt {
         scope: submission.scope.clone(),
         operation: submission.operation.clone(),
-        revision: 1,
+        revision: transition.plan.expected_revision + 1,
         epoch: transition.plan.epoch,
         fingerprint: transition.fingerprint().unwrap(),
     }
@@ -598,5 +598,7 @@ fn oversized_observations_are_refused_before_intent_serialization() {
 #[path = "admission_tests.rs"]
 mod admission;
 
+#[path = "changes_tests.rs"]
+mod changes;
 #[path = "incoming_tests.rs"]
 mod incoming_commits;

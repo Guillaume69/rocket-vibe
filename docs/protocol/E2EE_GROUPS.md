@@ -185,7 +185,12 @@ contexte / arbre / feuilles, puis sauvegarde successeur et reçu. Un commit loca
 concurrent n'est remplacé qu'après succès ; refus tardif / checkpoint interrompu
 ne perdent pas l'ancienne outbox. Les références déjà observées restent mémorisées
 après retrait. Onze scénarios supplémentaires passent, avec 79 tests du coffre
-au total. Préparation publique des transitions suivantes, rattrapage complet,
+au total pour ce lot de réception. Le coordinateur prépare également les
+successeurs publics : tête observée exacte, retraits explicites / ajouts frais,
+nonces courants, véritable renouvellement de certificat de feuille et outbox
+originale protégée jusqu'au reçu. Onze scénarios supplémentaires exercent ce
+parcours, y compris rotation d'un singleton à l'époque zéro puis admission.
+Suite privée complète : 90 tests réussis. Rattrapage complet,
 messages et raccordement HTTP / fournisseurs restent ouverts ; ce n'est pas encore un
 parcours utilisateur connecté. Aucune capacité E2EE n'est activée.
 

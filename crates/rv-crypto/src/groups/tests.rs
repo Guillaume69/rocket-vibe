@@ -597,3 +597,6 @@ fn oversized_observations_are_refused_before_intent_serialization() {
 
 #[path = "admission_tests.rs"]
 mod admission;
+
+#[path = "incoming_tests.rs"]
+mod incoming_commits;

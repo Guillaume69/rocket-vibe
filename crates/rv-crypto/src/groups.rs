@@ -18,13 +18,19 @@ use openmls_traits::signatures::Signer as _;
 use rv_crypto_public::groups::{self as public, Member, Participant, Plan, Scope, Transition};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
+mod incoming;
+pub use incoming::Commit;
 
 const SUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 const STATE_LIMIT: usize = 8 * 1024 * 1024;
 const PAYLOAD_LIMIT: usize = 1024 * 1024;
 const TOTAL_LIMIT: usize = 2 * 1024 * 1024;
 const PACKAGE_LIMIT: usize = 16 * 1024;
+const PACKAGE_HISTORY_LIMIT: usize = 8192;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
@@ -155,6 +161,9 @@ struct State {
     clock: u64,
     active: Option<Active>,
     pending: Option<Pending>,
+    /// Observed accepted references survive removal of their participant.
+    #[serde(default)]
+    seen_packages: BTreeSet<Fingerprint>,
 }
 struct Peer {
     package: KeyPackage,
@@ -192,7 +201,7 @@ fn read(records: &Records, room: &str) -> Result<Option<State>> {
     if value.len() > STATE_LIMIT {
         return Err(Error::Limit);
     }
-    let state: State = serde_json::from_slice(value).map_err(|_| Error::Changed)?;
+    let mut state: State = serde_json::from_slice(value).map_err(|_| Error::Changed)?;
     if state.version != 1 || state.scope.room != room || state.clock > 253_402_300_799 {
         return Err(Error::Changed);
     }
@@ -203,7 +212,18 @@ fn read(records: &Records, room: &str) -> Result<Option<State>> {
         if active.receipt.scope != state.scope || active.created > state.clock {
             return Err(Error::Changed);
         }
+        state.seen_packages.extend(
+            active
+                .transition
+                .plan
+                .participants
+                .iter()
+                .filter_map(|p| p.key_package),
+        );
     }
+    if state.seen_packages.len() > PACKAGE_HISTORY_LIMIT {
+        return Err(Error::Limit);
+    };
     if let Some(pending) = &state.pending {
         let transition = Transition::from_bytes(&pending.submission.transition)?;
         transition.verify(pending.created)?;
@@ -214,10 +234,21 @@ fn read(records: &Records, room: &str) -> Result<Option<State>> {
         {
             return Err(Error::Changed);
         }
+        if state.active.as_ref().is_some_and(|active| {
+            transition.plan.expected_revision != active.receipt.revision
+                || transition.plan.expected_epoch != Some(active.receipt.epoch)
+                || transition.plan.previous != active.receipt.fingerprint
+        }) || state.active.is_none() && transition.plan.expected_revision != 0
+        {
+            return Err(Error::Changed);
+        }
     }
     Ok(Some(state))
 }
 fn save(records: &mut Records, state: &State) -> Result<()> {
+    if state.seen_packages.len() > PACKAGE_HISTORY_LIMIT {
+        return Err(Error::Limit);
+    };
     let value = serde_json::to_vec(state).map_err(|_| Error::Changed)?;
     if value.len() > STATE_LIMIT {
         return Err(Error::Limit);
@@ -541,6 +572,7 @@ impl Coordinator {
             let (commit, welcome, group_info) = if peers.is_empty() {
                 (None, None, None)
             } else {
+                group.set_aad(incoming::commit_aad(&plan)?);
                 let (commit, welcome, info) = group
                     .add_members(
                         provider,
@@ -618,6 +650,7 @@ impl Coordinator {
                     scope: request.roster.scope.clone(),
                     clock: now,
                     active: None,
+                    seen_packages: BTreeSet::new(),
                     pending: Some(Pending {
                         created: now,
                         intent,
@@ -876,6 +909,12 @@ impl Coordinator {
                 return Err(Error::Changed);
             }
             self.validate_admission(provider, &context, admission, &transition, now)?;
+            let seen_packages = transition
+                .plan
+                .participants
+                .iter()
+                .filter_map(|p| p.key_package)
+                .collect();
             save(
                 records,
                 &State {
@@ -883,6 +922,7 @@ impl Coordinator {
                     scope: transition.plan.scope.clone(),
                     clock: now,
                     pending: None,
+                    seen_packages,
                     active: Some(Active {
                         created: now,
                         transition,
@@ -922,9 +962,14 @@ impl Coordinator {
         if message.ciphersuite() != SUITE {
             return Err(Error::Mls);
         }
-        let processed =
-            ProcessedWelcome::new_from_welcome(provider, &MlsGroupJoinConfig::default(), message)
-                .map_err(|_| Error::Mls)?;
+        let processed = ProcessedWelcome::new_from_welcome(
+            provider,
+            &MlsGroupJoinConfig::builder()
+                .use_ratchet_tree_extension(true)
+                .build(),
+            message,
+        )
+        .map_err(|_| Error::Mls)?;
         let package = processed.own_key_package().ok_or(Error::Mls)?;
         if package.last_resort()
             || package
@@ -981,10 +1026,11 @@ impl Coordinator {
                 return Err(Error::Receipt);
             }
             if let Some(active) = &state.active {
-                return if active.receipt == *receipt {
-                    Ok(())
-                } else {
-                    Err(Error::Receipt)
+                if active.receipt == *receipt {
+                    return Ok(());
+                };
+                if state.pending.is_none() {
+                    return Err(Error::Receipt);
                 };
             }
             let pending = state.pending.as_ref().ok_or(Error::NotReady)?;
@@ -1002,6 +1048,13 @@ impl Coordinator {
                     .map_err(|_| Error::Mls)?;
             }
             check_actual(group.public_group(), &transition.plan)?;
+            state.seen_packages.extend(
+                transition
+                    .plan
+                    .participants
+                    .iter()
+                    .filter_map(|p| p.key_package),
+            );
             state.active = Some(Active {
                 created: pending.created,
                 transition,

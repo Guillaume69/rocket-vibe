@@ -179,8 +179,14 @@ Un échec, même après création MLS du groupe, annule consommation et écritur
 Un succès sauvegarde le reçu et le groupe ensemble avant retour. Le retry
 historique exact après checkpoint perdu ne réaccorde aucun droit d'envoi.
 Les tests utilisent de vraies bases privées rouvertes et prouvent les mêmes
-secrets d'époque. Réception de commits / messages, transitions suivantes et
-raccordement HTTP / fournisseurs restent ouverts ; ce n'est pas encore un
+secrets d'époque. La [réception protégée de commits](../../crates/rv-crypto/GROUP_COMMITS.md)
+valide maintenant vrai auteur MLS, AAD de routage, propositions Add et références,
+contexte / arbre / feuilles, puis sauvegarde successeur et reçu. Un commit local
+concurrent n'est remplacé qu'après succès ; refus tardif / checkpoint interrompu
+ne perdent pas l'ancienne outbox. Les références déjà observées restent mémorisées
+après retrait. Onze scénarios supplémentaires passent, avec 79 tests du coffre
+au total. Préparation publique des transitions suivantes, rattrapage complet,
+messages et raccordement HTTP / fournisseurs restent ouverts ; ce n'est pas encore un
 parcours utilisateur connecté. Aucune capacité E2EE n'est activée.
 
 ## Limites et preuves exécutées

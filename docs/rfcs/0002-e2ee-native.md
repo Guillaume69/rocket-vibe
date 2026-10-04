@@ -266,8 +266,11 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    avant émission, retry original et réconciliation du reçu exact livrés ;
    consommation réelle par Welcome interdisant le renvoi puis libérant l'index.
    Réconciliation réseau des refus / expirés et raccordement aux apps ouverts.
-   Transitions suivantes, réception de commits et livraison des messages
-   chiffrés restent ouvertes ;
+   Réception protégée d'un successeur, auteur / AAD / propositions Add vérifiés,
+   références observées conservées après retrait et remplacement atomique d'un
+   commit local concurrent livrés. Préparation publique des transitions suivantes,
+   rattrapage complet à travers les adhésions et livraison des messages
+   chiffrés restent ouverts ;
    aucune capacité activée.
 5. Pont mobile et intégration aux fournisseurs actuels ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.

@@ -315,6 +315,25 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P19 / J4, réception cliente protégée de commits (4 octobre 2026) : vraie
+  rotation / ajout / retrait après admission, auteur MLS / indice / clé reliés
+  à la preuve signée et pins. AAD liant opération / parent / versions / appareils
+  sans digests circulaires ; contexte / arbre / feuilles contrôlés séparément.
+  Références d'ajout comparées aux vrais packages MLS, Welcomes limités aux
+  nouvelles admissions, mémoire des références observées après retrait.
+  Commit local préparé remplacé seulement après succès transactionnel ; refus
+  tardif après fusion restaurant état / ratchets / outbox. ACK propre et reçu
+  exact suivant un groupe actif, reprise après checkpoint perdu, configuration
+  d'arbre conservée sur les groupes rejoints. Onze nouveaux scénarios passent ;
+  suite complète : 79 réussis, plus enfant de crash exécuté par son parent.
+  Clippy strict et CI multi-OS suivis ; import Unix du test de publication
+  conditionné pour corriger le refus Clippy Windows de `37162727300`.
+  Tous ses autres jobs sont verts, y compris le banc de fichiers Windows et GTK.
+  Préparation publique des transitions, rattrapage complet / retrait local,
+  messages, transports / ponts / apps, archives / fichiers / import et revue
+  restent ouverts. [Contrat privé](../crates/rv-crypto/GROUP_COMMITS.md).
+  Capacité E2EE non activée.
+
 - Qualification bureau, banc de reprise des fichiers (4 octobre 2026) : la CI
   du roster `37161366000` valide serveur / mobile, Swift et crypto sur les trois
   OS, mais son test Windows d'ACK d'upload perdu observe parfois la file après

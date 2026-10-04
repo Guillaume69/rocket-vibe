@@ -1,6 +1,6 @@
 use super::*;
 
-fn event(request: &Genesis, submission: &Submission, device: &str) -> Admission {
+pub(super) fn event(request: &Genesis, submission: &Submission, device: &str) -> Admission {
     Admission {
         roster: request.roster.clone(),
         receipt: receipt(submission),
@@ -48,7 +48,7 @@ fn resign(author: &Account, admission: &mut Admission, change: impl FnOnce(&mut 
     };
     admission.transition = transition.to_bytes().unwrap();
 }
-fn accept(bob: &Account, admission: &Admission) {
+pub(super) fn accept(bob: &Account, admission: &Admission) {
     let (preview, consent) = bob.coordinator().preview_admission(admission, NOW).unwrap();
     bob.coordinator()
         .accept_admission(admission, &consent, preview.fingerprint, NOW)

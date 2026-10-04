@@ -142,8 +142,15 @@ Un refus tardif annule les écritures MLS ; un checkpoint perdu reprend seulemen
 l'acceptation exacte historique. Ni une racine ni un appareil inconnu ne sont
 approuvés automatiquement par une signature valide de transition.
 
-Réception des commits / messages, transitions suivantes, politique de
-chaque envoi, transport et ponts vers les apps restent ouverts ; E2EE demeure
+La [réception de commits](GROUP_COMMITS.md) vérifie maintenant le vrai auteur MLS,
+les AAD de routage et les ajouts / références, puis conserve le successeur avec
+son reçu. Un commit local concurrent n'est remplacé qu'après validation ; les
+refus annulent aussi les mutations MLS. Les références déjà observées restent
+mémorisées après retrait. `confirm` traite également le reçu d'une préparation
+suivant un groupe actif ; les jointures conservent la configuration d'arbre.
+
+Réception des messages, préparation des transitions suivantes, rattrapage complet
+et politique de chaque envoi, transport et ponts vers les apps restent ouverts ; E2EE demeure
 désactivé. Voir le [contrat de livraison](../../docs/protocol/E2EE_GROUPS.md).
 
 ## Vérifications
@@ -165,7 +172,7 @@ cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --features syste
 node crates/rv-crypto/scripts/verify-identity-vector.mjs
 ```
 
-Soixante-huit scénarios Linux passent, dont l'échange OpenMLS entre deux véritables bases
+Soixante-dix-neuf scénarios Linux passent, dont l'échange OpenMLS entre deux véritables bases
 rouvertes : consommation / ciphertext original conservés, réception altérée
 annulée puis original accepté, et rejeu refusé. Les autres preuves couvrent AEAD,
 portées, tête ancienne restaurée, auteur concurrent, échec SQL, limites, fichier
@@ -202,6 +209,11 @@ Neuf scénarios de publication vérifient le DTO HTTP, références / dates rée
 chaînes décimales exactes, chaque champ du reçu, reprise de checkpoint,
 interdiction de renvoyer après consommation / révocation, jointure avec le
 package retrouvé et libération de la borne de rétention après vraie admission.
+Onze scénarios de réception vérifient véritables rotations / ajouts / retraits,
+preuve signée incohérente avec MLS, faux auteur / AAD / référence d'Add,
+réutilisation après retrait, ciphertext applicatif refusé sans consommation,
+nonces exigeant réadmission, propre ACK / concurrent remplacé seulement après
+succès, refus tardif après fusion et reprise historique après checkpoint perdu.
 
 [`scripts/keystore-smoke.sh`](scripts/keystore-smoke.sh) utilise un **vrai Secret
 Service Linux**, ses répertoires XDG jetables et plusieurs processus CLI. Un

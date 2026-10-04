@@ -7,6 +7,13 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Changed
+
+- The app moves its local data, settings and notification links to new internal names on
+  the first launch after the update. You stay signed in, with your messages, language,
+  collapsed sections and unsent messages; notifications already on screen still open and
+  still take replies.
+
 ## [0.5.0] - 2026-10-03
 
 ### Added

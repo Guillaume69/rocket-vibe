@@ -46,11 +46,21 @@ pub struct MessageSubmission {
 }
 impl MessageSubmission {
     pub fn verified(&self, now: u64) -> Result<packet::Proof> {
+        self.checked_at(now, false)
+    }
+    fn checked_at(&self, now: u64, historical: bool) -> Result<packet::Proof> {
         if self.ciphertext.len() > packet::CIPHERTEXT_LIMIT {
             return Err(Error::Limit);
         }
         let proof = packet::Proof::from_bytes(&self.proof)?;
-        proof.verify(now, &self.ciphertext)?;
+        if historical {
+            proof.authenticate(&self.ciphertext)?;
+            if now < proof.certificate.device.issued_at {
+                return Err(identity::Error::Expired.into());
+            }
+        } else {
+            proof.verify(now, &self.ciphertext)?;
+        }
         Ok(proof)
     }
 }
@@ -178,11 +188,18 @@ struct Seen {
 #[serde(deny_unknown_fields)]
 struct Entry {
     created: u64,
+    #[serde(default)]
+    historical: bool,
     submission: MessageSubmission,
     #[serde(with = "secret_bytes")]
     plaintext: Zeroizing<Vec<u8>>,
     grant: Member,
     receipt: Option<packet::Receipt>,
+}
+impl Entry {
+    fn proof(&self) -> Result<packet::Proof> {
+        self.submission.checked_at(self.created, self.historical)
+    }
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -243,7 +260,7 @@ impl Coordinator {
         }
         for (id, entry) in &ledger.cache {
             let seen = ledger.seen.get(id).ok_or(Error::Changed)?;
-            let proof = entry.submission.verified(entry.created)?;
+            let proof = entry.proof()?;
             let header = &proof.header;
             self.scope(&header.scope)?;
             if entry.created > ledger.clock
@@ -254,7 +271,8 @@ impl Coordinator {
                 || HEXLOWER.encode(&proof.fingerprint()?) != seen.packet
                 || seen.intent.is_none() && entry.receipt.is_none()
                 || seen.intent.is_some()
-                    && (header.author != ledger.scope.user
+                    && (entry.historical
+                        || header.author != ledger.scope.user
                         || header.device != ledger.scope.device
                         || HEXLOWER.encode(&header.incarnation) != ledger.scope.incarnation)
             {
@@ -334,7 +352,12 @@ impl Coordinator {
             .transition
             .plan;
         check_actual(group.public_group(), plan)?;
-        check_participants(group.public_group(), plan, &context, now)?;
+        check_participants_with(
+            group.public_group(),
+            plan,
+            &context,
+            Verification::at(now, ordered_receive),
+        )?;
         Ok((group, context))
     }
     pub fn prepare_message(
@@ -368,11 +391,7 @@ impl Coordinator {
                     return Err(Error::MessageNotPending);
                 }
                 let entry = ledger.cache.get(&id).ok_or(Error::MessageNotRetained)?;
-                current_packet(
-                    &entry.submission.verified(entry.created)?.header,
-                    observation,
-                    &context,
-                )?;
+                current_packet(&entry.proof()?.header, observation, &context)?;
                 return Ok(entry.submission.clone());
             }
             capacity(&ledger)?;
@@ -423,6 +442,7 @@ impl Coordinator {
                 id,
                 Entry {
                     created: now,
+                    historical: false,
                     submission: submission.clone(),
                     plaintext: Zeroizing::new(plaintext.to_vec()),
                     grant,
@@ -468,7 +488,7 @@ impl Coordinator {
                 return Err(Error::MessageNotPending);
             }
             let entry = ledger.cache.get(&id).ok_or(Error::MessageNotRetained)?;
-            let proof = entry.submission.verified(entry.created)?;
+            let proof = entry.proof()?;
             Ok(MessagePending {
                 fingerprint: proof.fingerprint()?,
                 header: proof.header,
@@ -497,7 +517,7 @@ impl Coordinator {
                 };
             }
             let entry = ledger.cache.get_mut(&id).ok_or(Error::MessageNotRetained)?;
-            receipt.matches(&entry.submission.verified(entry.created)?)?;
+            receipt.matches(&entry.proof()?)?;
             seen.receipt = Some(hash.clone());
             entry.receipt = Some(receipt.clone());
             ledger.clock = now;
@@ -547,7 +567,7 @@ impl Coordinator {
             if entry.submission != *submission || entry.grant != grant {
                 return Err(Error::Conflict);
             }
-            receipt.matches(&submission.verified(entry.created)?)?;
+            receipt.matches(&entry.proof()?)?;
             if seen
                 .receipt
                 .as_ref()
@@ -577,7 +597,7 @@ impl Coordinator {
         {
             return Err(Error::Changed);
         }
-        let proof = submission.verified(now)?;
+        let proof = submission.checked_at(now, ordered_receive)?;
         receipt.matches(&proof)?;
         let (mut group, context) =
             self.message_source(provider, records, &state, observation, now, ordered_receive)?;
@@ -644,6 +664,7 @@ impl Coordinator {
             id,
             Entry {
                 created: now,
+                historical: ordered_receive,
                 submission: submission.clone(),
                 plaintext,
                 grant,
@@ -688,9 +709,7 @@ impl Coordinator {
     pub(super) fn pending_messages(&self, records: &Records, scope: &Scope) -> Result<bool> {
         let ledger = self.message_ledger(records)?;
         for entry in ledger.cache.values() {
-            if entry.receipt.is_none()
-                && entry.submission.verified(entry.created)?.header.scope == *scope
-            {
+            if entry.receipt.is_none() && entry.proof()?.header.scope == *scope {
                 return Ok(true);
             }
         }

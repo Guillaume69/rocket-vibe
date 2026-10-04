@@ -109,6 +109,30 @@ la disponibilité. Les écarts de transcript doivent suspendre le groupe et
 produire un diagnostic sans secret. La politique applicative de livraison et
 d'identité relève aussi de l'[architecture MLS, RFC 9750](https://www.rfc-editor.org/rfc/rfc9750.html).
 
+### Validité courante et signatures historiques
+
+La lecture du journal pour une admission inchangée distingue l'authentification
+de signature et l'autorisation actuelle d'envoyer. Une expiration seule ne
+supprime pas l'authenticité des signatures d'un ancien certificat / paquet MLS.
+Le lecteur doit rester actif, avec certificat local courant et même identité
+de clé après renouvellement. Les pairs restent soumis aux pins explicitement
+approuvés et aux révocations connues actuels ; racine changée, appareil inconnu,
+signature invalide ou certificat futur suspendent le déchiffrement nouveau.
+
+Les signatures historiques ne prouvent pas leur date de création ni que leur
+auteur possédait alors une autorisation serveur. Les métadonnées de livraison
+ne deviennent pas une preuve de date. L'envoi / retry / publication / nouvelle
+admission garde les vérifications de validité courante côté client et serveur.
+On ne remplace pas l'horloge du lecteur par une date choisie par le signataire.
+Les contenus privés déjà acceptés gardent leur autorisation personnelle pour
+le rejeu ; les archives et l'historique après révocation sont une politique
+distincte. [Implémentation et preuves](../../crates/rv-crypto/JOURNAL.md).
+
+Une compromission conjointe des clés de signature et des secrets d'une ancienne
+époque peut permettre de fabriquer des contenus attribués à cette époque.
+L'authentification historique ne prouve donc pas qu'ils précèdent l'expiration
+ou une révocation. Cette limite reste soumise à la revue indépendante.
+
 ## Persistance, récupération et historique
 
 État MLS, consommation des clés, ciphertext de sortie et curseur de traitement
@@ -296,7 +320,11 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    ajoutées : curseur / fenêtre fixe, transitions et contenus dans la même
    transaction, rattrapage de plusieurs époques sur la même admission,
    confirmation propre différée jusqu'à sa position et rejeu du dernier lot.
-   Historique après expiration / révocation, réadmission et projection des apps restent ouverts ;
+   Authentification des feuilles / transitions / messages expirés sur la même
+   admission ajoutée, avec lecteur renouvelé, pins / révocations courants et
+   interdiction des certificats futurs. Les vérificateurs courants du serveur
+   et des nouveaux envois restent requis. Réadmission, historique après
+   révocation et projection des apps restent ouverts ;
    aucune capacité activée.
 5. Pont mobile et intégration aux fournisseurs actuels ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.

@@ -439,3 +439,214 @@ fn failed_external_checkpoint_publishes_no_clear_result_but_reopens_original_bat
     );
     assert!(result.head == observed.current.head);
 }
+
+fn renew(account: &Account, at: u64) -> Certificate {
+    account
+        .manager
+        .transact(|_, records| {
+            let issuer = Issuer::load(records, "instance", &account.root.user).unwrap();
+            let mut local =
+                LocalDevice::load(&account.root, &account.manager.scope().device, records).unwrap();
+            let request = local.request(at, records).unwrap();
+            let consent = issuer.preview_request(&request, at, 7200, records).unwrap();
+            let grant = issuer
+                .approve_request(&request, &consent, at, records)
+                .unwrap();
+            local.install(&grant, at, records).unwrap();
+            Ok(grant.certificate)
+        })
+        .unwrap()
+}
+
+#[test]
+fn expired_peer_epochs_reopen_after_own_renewal_without_authorizing_a_current_send() {
+    let (alice, bob, observed, whole) = offline();
+    let at = NOW + 3601;
+    assert!(matches!(
+        alice.certificate.verify(at),
+        Err(identity::Error::Expired)
+    ));
+    assert!(
+        bob.coordinator()
+            .receive_journal(&observed, &whole, at)
+            .is_err()
+    );
+    assert_eq!(bob.coordinator().journal_request("room").unwrap().after, 0);
+    renew(&bob, at);
+    let result = bob
+        .reopened()
+        .receive_journal(&observed, &whole, at)
+        .unwrap();
+    assert_eq!(result.messages.len(), 3);
+    assert_eq!(
+        result.messages[0].message().unwrap().operation_id,
+        "first-epoch"
+    );
+    assert_eq!(
+        result.messages[2].message().unwrap().operation_id,
+        "third-epoch"
+    );
+    assert!(result.head == observed.current.head);
+    assert_eq!(
+        incoming_commits::secret(&alice),
+        incoming_commits::secret(&bob)
+    );
+    let replay = bob
+        .reopened()
+        .journal_last_batch(&observed, at + 1)
+        .unwrap();
+    assert_eq!(replay.messages.len(), 3);
+    assert_eq!(bob.reopened().ready_epoch("room").unwrap(), 3);
+    assert!(
+        bob.coordinator()
+            .prepare_message(
+                &messages::observation(&bob),
+                &messages::message("fresh-send-still-refused"),
+                at + 1
+            )
+            .is_err()
+    );
+    let http::DeliveryContent::Message(frame) = &whole.events[5].content else {
+        panic!()
+    };
+    let (submission, _) = MessageSubmission::from_delivered(frame).unwrap();
+    assert!(matches!(
+        submission.verified(at),
+        Err(Error::Identity(identity::Error::Expired))
+    ));
+    let proof = rv_crypto_public::messages::Proof::from_bytes(&submission.proof).unwrap();
+    proof.authenticate(&submission.ciphertext).unwrap();
+    assert!(matches!(
+        proof.verify(at, &submission.ciphertext),
+        Err(identity::Error::Expired)
+    ));
+}
+
+#[test]
+fn historical_authentication_keeps_known_revocation_and_signature_refusals() {
+    let (alice, bob, observed, whole) = offline();
+    let at = NOW + 3601;
+    renew(&bob, at);
+    bob.revoke(&alice);
+    assert!(matches!(
+        bob.coordinator().receive_journal(&observed, &whole, at),
+        Err(Error::Identity(identity::Error::Revoked))
+    ));
+    assert_eq!(bob.reopened().journal_request("room").unwrap().after, 0);
+    let (alice, bob, observed, whole) = offline();
+    renew(&bob, at);
+    let mut invalid = whole.clone();
+    let http::DeliveryContent::Message(frame) = &mut invalid.events[5].content else {
+        panic!()
+    };
+    let (mut submission, _) = MessageSubmission::from_delivered(frame).unwrap();
+    let mut proof = rv_crypto_public::messages::Proof::from_bytes(&submission.proof).unwrap();
+    proof.signature[0] ^= 1;
+    submission.proof = proof.to_bytes().unwrap();
+    frame.proof = B64.encode(&submission.proof);
+    frame.receipt.fingerprint = HEXLOWER.encode(&proof.fingerprint().unwrap());
+    assert!(matches!(
+        bob.coordinator().receive_journal(&observed, &invalid, at),
+        Err(Error::Identity(identity::Error::Signature))
+    ));
+    assert_eq!(bob.reopened().journal_request("room").unwrap().after, 0);
+    let result = bob
+        .reopened()
+        .receive_journal(&observed, &whole, at)
+        .unwrap();
+    assert!(result.head == observation(&alice).current.head);
+}
+
+#[test]
+fn future_issued_historical_certificate_is_refused_before_spending_the_valid_epoch() {
+    let (alice, bob, observed, whole) = offline();
+    let certificate = renew(&alice, NOW + 50);
+    let mut invalid = whole.clone();
+    let http::DeliveryContent::Message(frame) = &mut invalid.events[5].content else {
+        panic!()
+    };
+    let (mut submission, _) = MessageSubmission::from_delivered(frame).unwrap();
+    messages::resign(&alice, &mut submission, |proof| {
+        proof.header.certificate = certificate.fingerprint().unwrap();
+        proof.certificate = certificate;
+    });
+    let proof = rv_crypto_public::messages::Proof::from_bytes(&submission.proof).unwrap();
+    proof.authenticate(&submission.ciphertext).unwrap();
+    frame.proof = B64.encode(&submission.proof);
+    let mut receipt = wire::message_receipt(&frame.receipt).unwrap();
+    receipt.header = proof.header.clone();
+    receipt.fingerprint = proof.fingerprint().unwrap();
+    frame.receipt = wire::message_receipt_to_wire(&receipt).unwrap();
+    assert!(matches!(
+        bob.coordinator()
+            .receive_journal(&observed, &invalid, NOW + 10),
+        Err(Error::Identity(identity::Error::Expired))
+    ));
+    assert_eq!(bob.reopened().journal_request("room").unwrap().after, 0);
+    bob.reopened()
+        .receive_journal(&observed, &whole, NOW + 10)
+        .unwrap();
+}
+
+#[test]
+fn expired_own_pending_rotation_reads_old_message_then_merges_original_commit_after_renewal() {
+    let (alice, bob, _, initial) = fixture(false);
+    let observed = observation(&alice);
+    for account in [&alice, &bob] {
+        account
+            .coordinator()
+            .receive_journal(
+                &observed,
+                &page(&observed, 0, 1, vec![group(&initial, 1, None)], None),
+                NOW,
+            )
+            .unwrap();
+    }
+    let message = send(&bob, "old-message-before-rotation", 3);
+    let change = changes::change(&alice, "old-own-pending", &["alice", "bob"], &[], vec![]);
+    let submission = changes::prepare_change(&alice, &change, NOW);
+    let expected = receipt(&submission);
+    let at = NOW + 3601;
+    alice.coordinator().confirm(&expected, at).unwrap();
+    assert_eq!(alice.reopened().ready_epoch("room").unwrap(), 1);
+    renew(&alice, at);
+    renew(&bob, at);
+    let observed = JournalObservation {
+        current: MessageObservation {
+            roster: change.roster,
+            head: expected.clone(),
+            needs_rekey: true,
+        },
+        transition: submission.transition.clone(),
+    };
+    let continuation = page(
+        &observed,
+        1,
+        5,
+        vec![message, group(&submission, 5, None)],
+        None,
+    );
+    let result = alice
+        .reopened()
+        .receive_journal(&observed, &continuation, at)
+        .unwrap();
+    assert!(result.head == expected && result.messages.len() == 1);
+    let result = bob
+        .reopened()
+        .receive_journal(&observed, &continuation, at)
+        .unwrap();
+    assert!(result.head == expected && result.messages.len() == 1);
+    assert_eq!(
+        incoming_commits::secret(&alice),
+        incoming_commits::secret(&bob)
+    );
+    assert_eq!(
+        alice
+            .reopened()
+            .journal_last_batch(&observed, at + 1)
+            .unwrap()
+            .messages
+            .len(),
+        1
+    );
+}

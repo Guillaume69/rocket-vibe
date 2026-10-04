@@ -481,6 +481,28 @@ impl Pins {
     ) -> Result<AuthorizedDevice, Error> {
         let certificate = Certificate::from_credential(credential)?;
         certificate.verify(now)?;
+        self.authorize_certificate(certificate, signature_key)
+    }
+    /// Private read policy for an MLS-validated historical credential. Current
+    /// pins/revocations still apply; this cannot authorize publication or Add.
+    pub(crate) fn authorize_history_credential(
+        &self,
+        credential: &Credential,
+        signature_key: &[u8],
+        now: u64,
+    ) -> Result<AuthorizedDevice, Error> {
+        let certificate = Certificate::from_credential(credential)?;
+        certificate.authenticate()?;
+        if now < certificate.device.issued_at {
+            return Err(Error::Expired);
+        }
+        self.authorize_certificate(certificate, signature_key)
+    }
+    fn authorize_certificate(
+        &self,
+        certificate: Certificate,
+        signature_key: &[u8],
+    ) -> Result<AuthorizedDevice, Error> {
         self.check_root(&certificate.device.root)?;
         let device = certificate.device;
         if signature_key != device.signature_key {

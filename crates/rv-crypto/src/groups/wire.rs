@@ -195,7 +195,7 @@ impl Receipt {
     pub fn from_state(value: &http::GroupState) -> Result<Self> {
         let receipt = Self::from_wire(&value.receipt)?;
         let transition = Transition::from_bytes(&decoded(&value.transition, public::WIRE_LIMIT)?)?;
-        transition.verify(transition.certificate.device.issued_at)?;
+        transition.authenticate()?;
         check_receipt(&transition, &receipt)?;
         if transition.plan.tree != digest(&decoded(&value.tree, PAYLOAD_LIMIT)?) {
             return Err(Error::Changed);
@@ -272,7 +272,7 @@ fn packages(values: &[http::AvailableKeyPackage], roster: &Roster) -> Result<Vec
             .validate(provider.crypto(), ProtocolVersion::Mls10)
             .map_err(|_| Error::Mls)?;
         let certificate = Certificate::from_credential(package.leaf_node().credential())?;
-        certificate.verify(certificate.device.issued_at)?;
+        certificate.authenticate()?;
         if package.ciphersuite() != SUITE
             || package.last_resort()
             || package.leaf_node().signature_key().as_slice() != certificate.device.signature_key
@@ -353,7 +353,7 @@ impl Submission {
             return Err(Error::Limit);
         }
         let transition = Transition::from_bytes(&self.transition)?;
-        transition.verify(transition.certificate.device.issued_at)?;
+        transition.authenticate()?;
         let plan = &transition.plan;
         if self.scope != plan.scope
             || self.operation != plan.operation
@@ -404,7 +404,7 @@ fn event(value: &http::GroupEvent) -> Result<DecodedEvent> {
     let receipt = Receipt::from_wire(&value.receipt)?;
     let bytes = decoded(&value.transition, public::WIRE_LIMIT)?;
     let transition = Transition::from_bytes(&bytes)?;
-    transition.verify(transition.certificate.device.issued_at)?;
+    transition.authenticate()?;
     check_receipt(&transition, &receipt)?;
     let commit = value
         .commit

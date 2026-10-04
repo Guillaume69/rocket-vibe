@@ -49,7 +49,7 @@ pub(super) fn ack(submission: &MessageSubmission, position: u64) -> packet::Rece
         position,
     }
 }
-fn resign(
+pub(super) fn resign(
     account: &Account,
     submission: &mut MessageSubmission,
     alter: impl FnOnce(&mut packet::Proof),

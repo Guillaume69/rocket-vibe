@@ -205,7 +205,13 @@ cargo build --locked --manifest-path crates/rv-crypto/Cargo.toml --features nati
 RV_CRYPTO_HTTP_SMOKE_BINARY="$PWD/target/native-crypto/debug/examples/delivery_smoke" cargo test --locked -p rv-server --lib protected_http_worker_publishes_joins_rotates_and_reconciles_real_postgres -- --ignored --nocapture
 ```
 
-Planification dans les fournisseurs, réconciliation des refus, rattrapage après expiration,
+Le journal authentifie désormais les anciennes feuilles expirées sans
+autoriser de nouveau POST sous ces certificats : lecteur courant, même
+admission et pins / révocations actuels restent requis. Quatre scénarios
+MLS supplémentaires passent ; les détails de politique sont dans
+[JOURNAL.md](JOURNAL.md). Le renouvellement dans les apps reste à raccorder.
+
+Planification dans les fournisseurs, réconciliation des refus,
 retrait local / réadmission, projection des messages, fichiers / archives /
 import, pont Android et interfaces existantes restent ouverts. Les qualifications
 sur appareils / trousseaux et la revue indépendante demeurent nécessaires.

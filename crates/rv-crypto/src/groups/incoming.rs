@@ -221,6 +221,7 @@ impl Coordinator {
             state.pending = None;
             state.active = Some(Active {
                 created: now,
+                historical: false,
                 transition,
                 receipt: commit.receipt.clone(),
             });
@@ -236,8 +237,44 @@ impl Coordinator {
         transition: &Transition,
         now: u64,
     ) -> Result<u64> {
+        self.validate_commit_with(
+            provider,
+            context,
+            state,
+            commit,
+            transition,
+            Verification::Current(now),
+        )
+    }
+    pub(super) fn validate_journal_commit(
+        &self,
+        provider: &OpenMlsRustCrypto,
+        context: &Context,
+        state: &State,
+        commit: &Commit,
+        transition: &Transition,
+        now: u64,
+    ) -> Result<u64> {
+        self.validate_commit_with(
+            provider,
+            context,
+            state,
+            commit,
+            transition,
+            Verification::Historical(now),
+        )
+    }
+    fn validate_commit_with(
+        &self,
+        provider: &OpenMlsRustCrypto,
+        context: &Context,
+        state: &State,
+        commit: &Commit,
+        transition: &Transition,
+        verification: Verification,
+    ) -> Result<u64> {
         let active = state.active.as_ref().ok_or(Error::NotReady)?;
-        transition.verify(now)?;
+        verification.transition(transition)?;
         parent(active, transition)?;
         let plan = &transition.plan;
         let references: BTreeSet<_> = plan
@@ -297,12 +334,12 @@ impl Coordinator {
                         return Err(Error::Changed);
                     }
                 }
-                check_participants(&public, plan, context, now)?;
+                check_participants_with(&public, plan, context, verification)?;
                 group
                     .merge_pending_commit(provider)
                     .map_err(|_| Error::Mls)?;
                 check_actual(group.public_group(), plan)?;
-                return check_participants(group.public_group(), plan, context, now);
+                return check_participants_with(group.public_group(), plan, context, verification);
             }
             group
                 .clear_pending_commit(provider.storage())
@@ -340,10 +377,10 @@ impl Coordinator {
         {
             return Err(Error::Changed);
         };
-        context.pins.authorize_credential(
+        verification.peer(
+            &context.pins,
             &declared.credential()?,
             &declared.device.signature_key,
-            now,
         )?;
         let ProcessedMessageContent::StagedCommitMessage(staged) = processed.into_content() else {
             return Err(Error::Mls);
@@ -410,6 +447,6 @@ impl Coordinator {
             return Err(Error::Mls);
         };
         check_actual(group.public_group(), plan)?;
-        check_participants(group.public_group(), plan, context, now)
+        check_participants_with(group.public_group(), plan, context, verification)
     }
 }

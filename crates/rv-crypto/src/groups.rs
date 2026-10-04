@@ -23,7 +23,9 @@ use std::{
     sync::Arc,
 };
 mod incoming;
+mod verification;
 pub use incoming::Commit;
+use verification::Verification;
 mod changes;
 pub use changes::Change;
 mod journal;
@@ -163,6 +165,8 @@ struct Pending {
 #[serde(deny_unknown_fields)]
 struct Active {
     created: u64,
+    #[serde(default)]
+    historical: bool,
     transition: Transition,
     receipt: Receipt,
 }
@@ -220,7 +224,7 @@ fn read(records: &Records, room: &str) -> Result<Option<State>> {
     }
     state.scope.group_id()?;
     if let Some(active) = &state.active {
-        active.transition.verify(active.created)?;
+        Verification::at(active.created, active.historical).transition(&active.transition)?;
         check_receipt(&active.transition, &active.receipt)?;
         if active.receipt.scope != state.scope || active.created > state.clock {
             return Err(Error::Changed);
@@ -942,6 +946,7 @@ impl Coordinator {
                     seen_packages,
                     active: Some(Active {
                         created: now,
+                        historical: false,
                         transition,
                         receipt: admission.receipt.clone(),
                     }),
@@ -1080,6 +1085,7 @@ impl Coordinator {
             );
             state.active = Some(Active {
                 created: pending.created,
+                historical: false,
                 transition,
                 receipt: receipt.clone(),
             });
@@ -1146,13 +1152,21 @@ fn check_participants(
     context: &Context,
     now: u64,
 ) -> Result<u64> {
+    check_participants_with(group, plan, context, Verification::Current(now))
+}
+fn check_participants_with(
+    group: &PublicGroup,
+    plan: &Plan,
+    context: &Context,
+    verification: Verification,
+) -> Result<u64> {
     let expected: BTreeMap<_, _> = plan.participants.iter().map(|p| (p.leaf, p)).collect();
     let mut count = 0;
     let mut expires = u64::MAX;
     for member in group.members() {
         count += 1;
         let certificate = Certificate::from_credential(&member.credential)?;
-        certificate.verify(now)?;
+        verification.certificate(&certificate)?;
         expires = expires.min(certificate.device.expires_at);
         let participant = expected.get(&member.index.u32()).ok_or(Error::Changed)?;
         let device = &certificate.device;
@@ -1167,13 +1181,11 @@ fn check_participants(
             return Err(Error::Changed);
         }
         if device.device == context.certificate.device.device {
-            if certificate != context.certificate {
+            if !verification.own_matches(&certificate, &context.certificate) {
                 return Err(Error::Changed);
             }
         } else {
-            context
-                .pins
-                .authorize_credential(&member.credential, &member.signature_key, now)?;
+            verification.peer(&context.pins, &member.credential, &member.signature_key)?;
         }
     }
     if count != expected.len() {

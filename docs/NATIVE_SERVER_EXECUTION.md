@@ -11,17 +11,19 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque et pages protégées sur HTTP / PostgreSQL | Messages dans les apps, historique après expiration / retrait, ponts / interfaces, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées et signatures historiques | Messages dans les apps, réadmission / historique après révocation, ponts / interfaces, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison validée (`7eaf0cd`) passe toute la CI `37179473580`, dont
-les contrôles généraux, les bancs clients et les suites crypto Linux, Windows et
-macOS. Le nouveau journal serveur de messages opaques passe ses neuf scénarios
+La dernière livraison (`6d9fa60`) passe la CI `37181015422` : suites crypto Linux,
+Windows / macOS et banc HTTP / PostgreSQL. Les contrôles généraux et bancs des
+apps existantes passent pour `7eaf0cd` dans la CI `37179473580` ; ils sont ignorés
+pour le lot privé de journal. Le journal serveur passe ses neuf scénarios
 PostgreSQL / HTTP / MLS et les contrats communs ; aucune capacité E2EE n'est
 activée. Le worker privé checkpoint maintenant les pages communes aux messages
 et transitions, avec curseur durable et rattrapage de plusieurs époques sur la
-même admission. Historique après expiration / retrait et fournisseurs des apps
-actuelles constituent les étapes suivantes.
+même admission. Authentification des signatures expirées sur cette admission
+ajoutée ; réadmissions, refus d'outbox et fournisseurs des apps constituent les
+étapes suivantes.
 Les critères externes encore ouverts restent des critères de sortie de la RFC.
 
 ## Premier incrément : socle serveur et transports pilotes
@@ -335,6 +337,28 @@ Le parcours mobile pilote et les tests sans appareil ne ferment pas J1 : il exig
 les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
+
+- P19 / J4, authentification historique (4 octobre 2026) : vérification
+  cryptographique de certificat / transition / paquet séparée de sa validité
+  courante. Les publications / admissions / envois actuels gardent `verify(now)`
+  côté client et serveur. Le journal lit les époques expirées uniquement avec
+  lecteur courant, même admission et clés / racine / incarnation inchangées ;
+  pairs approuvés, révocations connues et certificat non futur sont requis.
+  Les records privés conservent le rôle historique et la vraie date de réception,
+  pour réouverture sans prétendre à une validité courante ou une date d'envoi.
+  Quatre cas MLS / SQLite ajoutés passent : trois époques expirées après
+  renouvellement du lecteur, réouverture / rejeu, nouvel envoi toujours refusé,
+  révocation / signature / futur refusés et rotation propre ancienne préparée
+  consommée après le message qui la précède. Les dix cas du journal passent
+  en 6,40 s au premier contrôle.
+  Vérification complète : formatage / Clippy strict des deux workspaces,
+  31 tests serveur E2EE en 9,89 s, banc réel HTTP / PostgreSQL en 35,27 s et
+  129 tests privés en 159,96 s, sans filtre et enfant de crash exécuté.
+  Les expirations sont prouvées dans le coffre avec horloge de fixture ;
+  aucune heure de temps écoulé réel n'est simulée dans le banc HTTP.
+  Cérémonie de renouvellement des apps,
+  réadmissions / historique après révocation, projection, archives et revue
+  crypto restent ouverts. [Politique et preuves](../crates/rv-crypto/JOURNAL.md).
 
 - P19 / J4, pages du journal privé (4 octobre 2026) : fenêtre fixe et curseur
   lié à l'admission ; messages, transitions, ratchets et contenu privé partagent

@@ -5,7 +5,8 @@ Lot expérimental du coordinateur privé `groups::Coordinator`, hors des apps.
 existent séparément. Le [worker privé HTTP](GROUP_HTTP.md) raccorde maintenant
 envoi / reprise et réception. Le [journal protégé](JOURNAL.md) ajoute les pages
 communes aux transitions et messages, leur checkpoint et le rattrapage sur
-la même admission. Historique après expiration / retrait et apps restent ouverts.
+la même admission, y compris les signatures de feuilles expirées après
+renouvellement du lecteur. Réadmission après retrait et apps restent ouverts.
 
 ## Authentification et contenu
 
@@ -14,7 +15,10 @@ salon / incarnation de groupe, opération, révision / époque / empreinte de t�
 auteur / appareil / incarnation / certificat, genre `chat` et fil éventuel.
 L'en-tête entier devient l'AAD du vrai `PrivateMessage` MLS. Une preuve externe
 signée par l'appareil lie cet en-tête, son certificat et le SHA-256 du ciphertext.
-Le certificat doit être valide à la date d'observation. La preuve permet une
+Les nouveaux envois exigent un certificat valide à la date d'observation.
+Le journal historique authentifie aussi les signatures de feuilles expirées,
+avec lecteur courant et pins / révocations actuels, selon [JOURNAL.md](JOURNAL.md).
+La preuve permet une
 vérification publique de routage ; elle ne remplace pas la vérification privée
 de l'auteur MLS, de l'AAD, des destinataires et du contenu déchiffré.
 
@@ -103,6 +107,6 @@ du temps. Le profil de production et le journal des apps ne changent pas.
 cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --target-dir target --features system-keystore,native-http groups::tests::application_messages
 ```
 
-Suite : historique après expiration / révocation, réadmission après retrait,
+Suite : politique d'historique des appareils révoqués, réadmission après retrait,
 refus définitifs / nouvelles opérations, archive / fichiers, pont Android et
 fournisseurs des interfaces existantes, revue crypto et qualifications natives.

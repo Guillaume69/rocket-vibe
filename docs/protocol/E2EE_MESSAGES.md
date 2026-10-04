@@ -4,7 +4,9 @@
 TypeScript expérimentaux. `capabilities.e2ee` reste désactivé. Le [worker HTTP privé](../../crates/rv-crypto/GROUP_HTTP.md)
 raccorde envoi / reprise et [pages protégées du journal](../../crates/rv-crypto/JOURNAL.md),
 avec checkpoint commun aux messages / transitions et rattrapage sur la même
-admission. Raccordement aux interfaces, historique après expiration / retrait,
+admission, avec authentification historique distincte de la validité actuelle
+des certificats. Les POSTs serveur conservent leurs contrôles de date / roster
+courants. Raccordement aux interfaces, réadmission après retrait,
 archives et fichiers restent ouverts.
 Ce lot ne ferme pas J4 et ne permet pas la bascule J5.
 

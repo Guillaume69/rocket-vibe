@@ -89,8 +89,54 @@ route est ajouté et vérifié séparément ensuite.
 Après les gardes de route, les onze scénarios HTTP passent ensemble en 2,84 s,
 les six scénarios du journal en 4,03 s et le banc réel est revérifié en 30,93 s.
 
-Les certificats et pins restent vérifiés à la date réelle de réception.
-Le rattrapage d'une feuille expirée / révoquée, la réadmission après retrait,
+## Certificats historiques
+
+Le journal authentifie les signatures des anciens certificats, transitions
+et messages sans leur conférer une validité courante. Le lecteur conserve
+un certificat local courant, les mêmes clés / racine / incarnation et la
+même admission. Une ancienne feuille propre reste lisible après renouvellement
+de ce certificat ; elle n'est pas convertie en feuille courante pour envoyer.
+
+Racines et appareils des pairs doivent toujours correspondre aux pins
+explicitement approuvés aujourd'hui. Changement de racine, appareil inconnu,
+révocation connue, certificat futur ou signature invalide suspendent les
+nouveaux déchiffrements. Une expiration seule n'annule pas une signature ni
+un groupe MLS authentifié. Les contenus déjà acceptés restent soumis à
+l'admission personnelle actuelle lors du rejeu de cache.
+
+L'envoi, le retry, les nouveaux KeyPackages et les admissions explicites
+continuent de vérifier les certificats à la date courante. Les API publiques
+`verify(now, ...)` gardent cette règle, également côté serveur. Le nouveau
+`authenticate(...)` vérifie les signatures / formes seulement ; il ne prouve
+ni date de création, ni validité passée, ni confiance, ni droit de publication.
+Le journal utilise la vraie date de réception pour refuser un certificat futur,
+sans choisir la date déclarée par le signataire comme horloge de validation.
+
+Les records privés marquent cette politique de réception avec la vraie date
+d'observation, afin de rouvrir un contenu / état historique sans le présenter
+comme accepté sous une autorisation courante. Les anciens records sans ce
+champ conservent leur vérification originale à leur date d'acceptation.
+
+Quatre scénarios supplémentaires avec vrai MLS / SQLite et horloge de fixture
+prouvent trois époques expirées après renouvellement du lecteur, persistance /
+rejeu, envoi actuel toujours refusé, révocation / signatures / futur refusés,
+et commit propre ancien encore préparé consommé après un message ancien.
+Les dix scénarios du journal passent en 6,40 s lors du premier contrôle.
+Ce banc ne qualifie pas la cérémonie de renouvellement dans les apps.
+Formatage / Clippy strict passent sur les deux workspaces. Les 31 scénarios
+serveur E2EE passent en 9,89 s, le banc réel HTTP / PostgreSQL en 35,27 s et
+la suite privée complète compte 129 succès en 159,96 s, sans filtre ; l'enfant
+de crash reste exécuté par son parent. Les expirations sont exercées par
+l'horloge de fixture dans les coffres ; le banc HTTP réel ne simule pas
+une heure de temps écoulé.
+
+Ce choix ne prouve pas qu'un contenu a été produit avant l'expiration. Une
+compromission conjointe des clés de signature et des secrets d'une ancienne
+époque peut permettre de fabriquer des contenus attribués à cette époque.
+Les contrôles de révocation connue et d'admission ne constituent pas une
+preuve de date de création. Cette limite relève aussi de la revue crypto.
+
+La réadmission après retrait, l'historique d'un appareil révoqué,
 la découverte d'un ancien Welcome lorsque les autres grants ont changé,
 les refus définitifs d'outbox, archives / fichiers et ponts des apps restent
 ouverts. Le cache conserve au plus 64 documents ; il n'est pas une archive.

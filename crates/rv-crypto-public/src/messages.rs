@@ -81,8 +81,8 @@ pub struct Proof {
     pub signature: Vec<u8>,
 }
 impl Proof {
-    /// Canonical bytes and identity bindings to sign; signature authentication
-    /// belongs to `verify`, once the caller supplies the observation time.
+    /// Canonical bytes and identity bindings to sign. Authentication belongs
+    /// to `authenticate`; `verify` also requires current certificate validity.
     pub fn signing_bytes(&self) -> Result<Vec<u8>, Error> {
         self.header.validate()?;
         let certificate = &self.certificate;
@@ -103,6 +103,14 @@ impl Proof {
         )
     }
     pub fn verify(&self, now: u64, ciphertext: &[u8]) -> Result<(), Error> {
+        self.verify_inner(Some(now), ciphertext)
+    }
+    /// Authenticate historical bytes and certificate signatures, without
+    /// claiming current validity, delivery time, admission or key trust.
+    pub fn authenticate(&self, ciphertext: &[u8]) -> Result<(), Error> {
+        self.verify_inner(None, ciphertext)
+    }
+    fn verify_inner(&self, now: Option<u64>, ciphertext: &[u8]) -> Result<(), Error> {
         if self.signature.len() != 64
             || ciphertext.is_empty()
             || ciphertext.len() > CIPHERTEXT_LIMIT
@@ -110,7 +118,10 @@ impl Proof {
             return Err(Error::Limit);
         }
         let body = self.signing_bytes()?;
-        self.certificate.verify(now)?;
+        match now {
+            Some(now) => self.certificate.verify(now)?,
+            None => self.certificate.authenticate()?,
+        }
         if Sha256::digest(ciphertext).as_slice() != self.ciphertext {
             return Err(Error::Changed);
         }
@@ -143,7 +154,8 @@ impl Proof {
         }
         Ok(result)
     }
-    /// Bounded canonical decoding. Call `verify` before accepting this proof.
+    /// Bounded canonical decoding. Authenticate signatures and apply the
+    /// relevant current/read policy before accepting this proof.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.is_empty() || bytes.len() > PROOF_LIMIT {
             return Err(Error::Limit);

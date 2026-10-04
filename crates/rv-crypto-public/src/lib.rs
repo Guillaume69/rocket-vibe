@@ -131,13 +131,19 @@ pub struct Certificate {
     pub signature: Vec<u8>,
 }
 impl Certificate {
-    /// Signature/shape checks only; not trust, admission or proof of possession.
-    pub fn verify(&self, now: u64) -> Result<(), Error> {
+    /// Cryptographic signature/shape only. No current validity, trust,
+    /// admission or proof of possession is granted by this historical check.
+    pub fn authenticate(&self) -> Result<(), Error> {
         self.device.validate()?;
         let signature = Signature::from_slice(&self.signature).map_err(|_| Error::Signature)?;
         verifying_key(&self.device.root.public_key)?
             .verify_strict(&signing_bytes(CERT_DOMAIN, &self.device)?, &signature)
             .map_err(|_| Error::Signature)?;
+        Ok(())
+    }
+    /// Current signature/shape/lifetime; still not trust or admission.
+    pub fn verify(&self, now: u64) -> Result<(), Error> {
+        self.authenticate()?;
         if now < self.device.issued_at || now >= self.device.expires_at {
             return Err(Error::Expired);
         }

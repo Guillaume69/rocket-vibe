@@ -215,6 +215,14 @@ impl Transition {
     }
     pub fn verify(&self, now: u64) -> Result<(), Error> {
         self.certificate.verify(now)?;
+        self.authenticate_plan()
+    }
+    /// Historical signature binding only, without current validity or trust.
+    pub fn authenticate(&self) -> Result<(), Error> {
+        self.certificate.authenticate()?;
+        self.authenticate_plan()
+    }
+    fn authenticate_plan(&self) -> Result<(), Error> {
         let author = &self.certificate.device;
         if author.root.instance != self.plan.scope.instance
             || !self.plan.participants.iter().any(|p| {

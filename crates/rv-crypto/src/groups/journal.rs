@@ -144,7 +144,7 @@ impl Coordinator {
         check_request(&current.roster, "journal-control", &[])?;
         self.scope(&current.head.scope)?;
         let remote = Transition::from_bytes(&observation.transition)?;
-        remote.verify(remote.certificate.device.issued_at)?;
+        Verification::Historical(now).transition(&remote)?;
         check_receipt(&remote, &current.head)?;
         if current.roster.scope != current.head.scope {
             return Err(Error::JournalOrder);
@@ -212,11 +212,11 @@ impl Coordinator {
                             .map_err(|_| Error::Mls)?
                             .ok_or(Error::Changed)?;
                             check_actual(group.public_group(), &transition.plan)?;
-                            check_participants(
+                            check_participants_with(
                                 group.public_group(),
                                 &transition.plan,
                                 &context,
-                                now,
+                                Verification::Historical(now),
                             )?;
                             bootstrap = false;
                         } else {
@@ -234,7 +234,7 @@ impl Coordinator {
                                 commit: event.commit.ok_or(Error::Changed)?,
                             };
                             incoming::checked(&commit)?;
-                            self.validate_commit(
+                            self.validate_journal_commit(
                                 provider,
                                 &context,
                                 &state,
@@ -253,6 +253,7 @@ impl Coordinator {
                             state.clock = now;
                             state.active = Some(Active {
                                 created: now,
+                                historical: true,
                                 transition,
                                 receipt: commit.receipt,
                             });
@@ -342,7 +343,7 @@ impl Coordinator {
         let current = &observation.current;
         check_request(&current.roster, "journal-control", &[])?;
         let remote = Transition::from_bytes(&observation.transition)?;
-        remote.verify(remote.certificate.device.issued_at)?;
+        Verification::Historical(now).transition(&remote)?;
         check_receipt(&remote, &current.head)?;
         if current.roster.scope != current.head.scope {
             return Err(Error::JournalOrder);

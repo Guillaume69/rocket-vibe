@@ -465,7 +465,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         // Retention (once per session, as above): beyond 500 messages per
         // room, trim from the bottom. Without it `messages` never stops
         // growing for a live room, and the JSON blobs (`md`,
-        // `pieces_jointes`, `reactions`, `urls`) weigh the most. Nothing is
+        // `attachments`, `reactions`, `urls`) weigh the most. Nothing is
         // lost: the app never reads beyond its pagination and can download
         // again. Purely local, hence AFTER the catch-up: trimming before
         // would have re-downloaded right away. A failure need not re-arm
@@ -541,7 +541,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       onAbort = () => {
         appStateSub.remove();
         // E2E plaintext does not survive the end of the session. `e2eUnlocked`
-        // writes the decrypted text into the `texte` column (lib/sync.ts), and
+        // writes the decrypted text into the `text` column (lib/sync.ts), and
         // the project already acknowledges that this plaintext must be able to
         // disappear: that is the "Lock" button. It was inconsistent for the
         // strongest gesture, logout, to protect less than the weakest.

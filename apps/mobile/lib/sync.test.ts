@@ -284,8 +284,8 @@ function makeStore() {
   return {
     store,
     messages,
-    salons: rooms,
-    abonnements: subscriptions,
+    rooms,
+    subscriptions,
     deleted,
     deletedRooms,
     deletedBySubId,
@@ -317,7 +317,7 @@ describe('SyncEngine', () => {
     // Recorded against an 8.5 server: args[0] is the string "updated".
     // Treating args[0] as the document would silently drop every
     // subscription change, and so every unread counter.
-    const { store, abonnements: subscriptions } = makeStore();
+    const { store, subscriptions } = makeStore();
     const engine = new SyncEngine(store, new RcTranslator());
     await engine.apply(
       event('stream-notify-user', 'u1/subscriptions-changed', [
@@ -331,7 +331,7 @@ describe('SyncEngine', () => {
   });
 
   test('the form without action is accepted too', async () => {
-    const { store, abonnements: subscriptions } = makeStore();
+    const { store, subscriptions } = makeStore();
     await new SyncEngine(store, new RcTranslator()).apply(
       event('stream-notify-user', 'u1/subscriptions-changed', [{ rid: 'r1', unread: 1 }]),
     );
@@ -339,7 +339,7 @@ describe('SyncEngine', () => {
   });
 
   test('`rooms-changed` writes a room', async () => {
-    const { store, salons: rooms } = makeStore();
+    const { store, rooms } = makeStore();
     await new SyncEngine(store, new RcTranslator()).apply(
       event('stream-notify-user', 'u1/rooms-changed', ['updated', { _id: 'r1', t: 'c' }]),
     );
@@ -350,7 +350,7 @@ describe('SyncEngine', () => {
     // The historical bug: the 'removed' action was consumed then IGNORED, and
     // the document (just { _id }) attempted an upsert. A room deleted server-side
     // therefore stayed in the cache forever. Here we check the deletion.
-    const { store, deletedBySubId, abonnements: subscriptions } = makeStore();
+    const { store, deletedBySubId, subscriptions } = makeStore();
     const engine = new SyncEngine(store, new RcTranslator());
     await engine.apply(
       event('stream-notify-user', 'u1/subscriptions-changed', ['removed', { _id: 'sub1' }]),
@@ -361,7 +361,7 @@ describe('SyncEngine', () => {
   });
 
   test('`rooms-changed` action "removed" deletes the room', async () => {
-    const { store, deletedRooms, salons: rooms } = makeStore();
+    const { store, deletedRooms, rooms } = makeStore();
     const engine = new SyncEngine(store, new RcTranslator());
     await engine.apply(
       event('stream-notify-user', 'u1/rooms-changed', ['removed', { _id: 'r1' }]),

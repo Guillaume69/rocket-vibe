@@ -56,8 +56,8 @@ function fullFakeStore() {
     store,
     cursors,
     identities,
-    salons: rooms,
-    abonnements: subscriptions,
+    rooms,
+    subscriptions,
     messages,
     deletedRooms,
     deletedSubscriptions,
@@ -113,15 +113,15 @@ describe('catchUpGlobal', () => {
     await catchUpGlobal(client, engine);
 
     assert.ok(!urls.some((u) => u.includes('updatedSince')), 'first pass = full');
-    assert.deepEqual(d.salons, ['r1']);
-    assert.equal(d.cursors.get('*|salons'), 500, 'cursor = largest INGESTED _updatedAt');
-    assert.equal(d.cursors.get('*|abonnements'), 700);
+    assert.deepEqual(d.rooms, ['r1']);
+    assert.equal(d.cursors.get('*|rooms'), 500, 'cursor = largest INGESTED _updatedAt');
+    assert.equal(d.cursors.get('*|subscriptions'), 700);
   });
 
   test('with a cursor: updatedSince is sent, the removes clean up', async () => {
     const d = fullFakeStore();
-    d.cursors.set('*|salons', 1000);
-    d.cursors.set('*|abonnements', 1000);
+    d.cursors.set('*|rooms', 1000);
+    d.cursors.set('*|subscriptions', 1000);
     const engine = new SyncEngine(d.store, new RcTranslator());
     const { client, urls } = fakeClient({
       // Real projections of the 8.5 server: the rooms.get `remove[]` carries the
@@ -140,7 +140,7 @@ describe('catchUpGlobal', () => {
     );
     assert.deepEqual(d.deletedRooms, ['r-detruit']);
     assert.deepEqual(d.deletedBySubId, ['sub-quitte']);
-    assert.equal(d.cursors.get('*|salons'), 1000, 'nothing ingested: the cursor does not move');
+    assert.equal(d.cursors.get('*|rooms'), 1000, 'nothing ingested: the cursor does not move');
   });
 
   test('MY avatar version is caught up through `me`: the only path after the app was closed', async () => {
@@ -177,7 +177,7 @@ describe('catchUpGlobal', () => {
 
     await catchUpGlobal(client, engine);
 
-    assert.deepEqual(d.salons, ['r1'], 'the rooms go through anyway');
+    assert.deepEqual(d.rooms, ['r1'], 'the rooms go through anyway');
     assert.equal(d.identities.length, 0);
   });
 });
@@ -251,7 +251,7 @@ describe('catchUpRoom', () => {
     // page, the next pass resumes where we stopped.
     const d = fullFakeStore();
     d.cursors.set('r1|messages', 1000);
-    d.cursors.set('r1|messages-supprimes', 9_000_000);
+    d.cursors.set('r1|messages-deleted', 9_000_000);
     const engine = new SyncEngine(d.store, new RcTranslator());
     const seen: (number | undefined)[] = [];
     const { client } = clientSequence([page([msg('m1', 1500)], '2000'), page([msg('m2', 2500)], null)]);
@@ -280,7 +280,7 @@ describe('catchUpRoom', () => {
     // it grew with every message posted since.
     const d = fullFakeStore();
     d.cursors.set('r1|messages', 1000);
-    d.cursors.set('r1|messages-supprimes', 9_000_000);
+    d.cursors.set('r1|messages-deleted', 9_000_000);
     const engine = new SyncEngine(d.store, new RcTranslator());
     const { client, urls } = clientSequence([page([msg('m1', 1500)], null)]);
 
@@ -298,7 +298,7 @@ describe('catchUpRoom', () => {
     // messages rewritten) would pull down 60 pages, i.e. 1.85 MB.
     const d = fullFakeStore();
     d.cursors.set('r1|messages', 1000);
-    d.cursors.set('r1|messages-supprimes', 9_000_000);
+    d.cursors.set('r1|messages-deleted', 9_000_000);
     const engine = new SyncEngine(d.store, new RcTranslator());
     // Each page promises more: only the cap can stop the loop.
     const { client, urls } = clientSequence([
@@ -318,7 +318,7 @@ describe('catchUpRoom', () => {
   test('a cursor that does not advance stops the loop: no spinning in place', async () => {
     const d = fullFakeStore();
     d.cursors.set('r1|messages', 5000);
-    d.cursors.set('r1|messages-supprimes', 9_000_000);
+    d.cursors.set('r1|messages-deleted', 9_000_000);
     const engine = new SyncEngine(d.store, new RcTranslator());
     const { client, urls } = clientSequence([page([], '5000')]);
 
@@ -337,13 +337,13 @@ describe('catchUpRoom', () => {
     await catchUpRoom(client, engine, 'r1');
 
     assert.equal(urls.filter((u) => u.includes('type=DELETED')).length, 0);
-    assert.equal(d.cursors.get('r1|messages-supprimes'), 4000);
+    assert.equal(d.cursors.get('r1|messages-deleted'), 4000);
   });
 
   test('deletions: next pass → messages deleted server-side go away', async () => {
     const d = fullFakeStore();
     d.cursors.set('r1|messages', 4000);
-    d.cursors.set('r1|messages-supprimes', 4000);
+    d.cursors.set('r1|messages-deleted', 4000);
     const engine = new SyncEngine(d.store, new RcTranslator());
     const { client, urls } = clientSequence([
       page([], null),
@@ -356,7 +356,7 @@ describe('catchUpRoom', () => {
     const deletion = urls.filter((u) => u.includes('type=DELETED'));
     assert.ok(deletion[0]?.includes('next=4000'));
     assert.deepEqual(d.deletedMessages, ['m-efface']);
-    assert.equal(d.cursors.get('r1|messages-supprimes'), 5000);
+    assert.equal(d.cursors.get('r1|messages-deleted'), 5000);
   });
 
   test('deletions: the last page advances the cursor on `_deletedAt`', async () => {
@@ -364,7 +364,7 @@ describe('catchUpRoom', () => {
     // were replayed at each opening of the room.
     const d = fullFakeStore();
     d.cursors.set('r1|messages', 4000);
-    d.cursors.set('r1|messages-supprimes', 4000);
+    d.cursors.set('r1|messages-deleted', 4000);
     const engine = new SyncEngine(d.store, new RcTranslator());
     const erased = '2026-07-25T13:12:28.691Z'; // shape recorded on 8.5
     const { client } = clientSequence([
@@ -380,7 +380,7 @@ describe('catchUpRoom', () => {
     await catchUpRoom(client, engine, 'r1');
 
     assert.deepEqual(d.deletedMessages, ['m-efface']);
-    assert.equal(d.cursors.get('r1|messages-supprimes'), Date.parse(erased));
+    assert.equal(d.cursors.get('r1|messages-deleted'), Date.parse(erased));
   });
 
   test('abandoned between the response and the write: nothing is written', async () => {
@@ -525,7 +525,7 @@ describe('catchUpRoom: one pagination at a time per room', () => {
   function bench() {
     const d = fullFakeStore();
     d.cursors.set('r1|messages', 1000);
-    d.cursors.set('r1|messages-supprimes', 9_000_000);
+    d.cursors.set('r1|messages-deleted', 9_000_000);
     return { d, engine: new SyncEngine(d.store, new RcTranslator()) };
   }
 

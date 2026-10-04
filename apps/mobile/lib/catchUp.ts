@@ -34,8 +34,8 @@ export async function catchUpGlobal(
 ): Promise<void> {
   const store = engine.syncStore;
   const [fromRooms, fromSubscriptions] = await Promise.all([
-    store.readCursor('*', 'salons'),
-    store.readCursor('*', 'abonnements'),
+    store.readCursor('*', 'rooms'),
+    store.readCursor('*', 'subscriptions'),
   ]);
 
   const [rooms, subscriptions, me] = await Promise.all([
@@ -62,7 +62,7 @@ export async function catchUpGlobal(
   for (const removed of rooms.remove ?? []) {
     if (typeof removed._id === 'string') await store.deleteRoom(removed._id);
   }
-  if (recentRooms !== null) await store.writeCursor('*', 'salons', recentRooms);
+  if (recentRooms !== null) await store.writeCursor('*', 'rooms', recentRooms);
 
   const recentSubscriptions = await engine.ingestSubscriptions(subscriptions.update ?? []);
   for (const removed of subscriptions.remove ?? []) {
@@ -71,7 +71,7 @@ export async function catchUpGlobal(
     if (typeof removed._id === 'string') await store.deleteBySubId(removed._id);
   }
   if (recentSubscriptions !== null) {
-    await store.writeCursor('*', 'abonnements', recentSubscriptions);
+    await store.writeCursor('*', 'subscriptions', recentSubscriptions);
   }
 }
 
@@ -188,7 +188,7 @@ const PAGE = 50;
 const PAGES_MAX = 2;
 
 /** Deletions cursor: the `_deletedAt` timeline, distinct from `_updatedAt`. */
-const DELETED_STREAM = 'messages-supprimes';
+const DELETED_STREAM = 'messages-deleted';
 
 /**
  * Window of the time-based FALLBACK, for a server older than cursor mode (< 7.5).

@@ -213,20 +213,20 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
     async readCursor(scope, stream) {
       // Read: no queue. It may see an uncommitted batch, without consequence:
       // cursors are only written after the batch returns.
-      const row = await raw.getFirstAsync<{ mis_a_jour_depuis: number }>(READ_CURSOR, [
+      const row = await raw.getFirstAsync<{ updated_since: number }>(READ_CURSOR, [
         scope,
         stream,
       ]);
-      return row?.mis_a_jour_depuis ?? null;
+      return row?.updated_since ?? null;
     },
     async lastMessageUpdatedAt(rid) {
       // Direct read (no queue), like `readCursor`. `MAX(...)` of a room with no
       // local message returns `NULL` -> `null`.
-      const row = await raw.getFirstAsync<{ mis_a_jour_le: number | null }>(
+      const row = await raw.getFirstAsync<{ updated_at: number | null }>(
         LAST_MESSAGE_UPDATED_AT,
         [rid],
       );
-      return row?.mis_a_jour_le ?? null;
+      return row?.updated_at ?? null;
     },
     writeCursor: (scope, stream, v) => serially(() => direct.writeCursor(scope, stream, v)),
     async listRoomKeys() {
@@ -234,10 +234,10 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
       return rows.map((l) => ({ rid: l.rid, e2eKey: l.e2e_key }));
     },
     async messagesToDecrypt() {
-      const rows = await raw.getAllAsync<{ id: string; rid: string; chiffre_brut: string }>(
+      const rows = await raw.getAllAsync<{ id: string; rid: string; encrypted_raw: string }>(
         MESSAGES_TO_DECRYPT,
       );
-      return rows.map((l) => ({ id: l.id, rid: l.rid, encryptedRaw: l.chiffre_brut }));
+      return rows.map((l) => ({ id: l.id, rid: l.rid, encryptedRaw: l.encrypted_raw }));
     },
     // The unlock pass writes the plaintext: it goes through the queue, like any
     // write, so as not to slip into an open transaction.
@@ -303,11 +303,11 @@ export function createEmojiStore(raw: SQLiteDatabase, serially: WriteQueue): Emo
       );
     },
     async list(): Promise<CustomEmoji[]> {
-      const rows = await raw.getAllAsync<{ nom: string; extension: string; aliases: string }>(
+      const rows = await raw.getAllAsync<{ name: string; extension: string; aliases: string }>(
         LIST_CUSTOM_EMOJIS,
       );
       return rows.map((l) => ({
-        name: l.nom,
+        name: l.name,
         extension: l.extension,
         // `aliases` is JSON written by us; a `catch` keeps one corrupt row from
         // depriving the whole room of its other emojis. The same filter
@@ -329,10 +329,10 @@ function parseAliases(raw: string): string[] {
 type RawOutbox = {
   id: string;
   rid: string;
-  texte: string;
-  fil_id: string | null;
-  statut: 'en-attente' | 'echec';
-  tentatives: number;
+  text: string;
+  thread_id: string | null;
+  status: 'pending' | 'failed';
+  attempts: number;
 };
 
 export function createOutboxStore(raw: SQLiteDatabase, serially: WriteQueue): OutboxStore {
@@ -350,10 +350,10 @@ export function createOutboxStore(raw: SQLiteDatabase, serially: WriteQueue): Ou
       return rows.map((l) => ({
         id: l.id,
         rid: l.rid,
-        text: l.texte,
-        threadId: l.fil_id,
-        status: l.statut,
-        attempts: l.tentatives,
+        text: l.text,
+        threadId: l.thread_id,
+        status: l.status,
+        attempts: l.attempts,
       }));
     },
     markFailed(id, error) {
@@ -369,8 +369,8 @@ export function createOutboxStore(raw: SQLiteDatabase, serially: WriteQueue): Ou
       return serially(() => raw.runAsync(DELETE_OPTIMISTIC_MESSAGE, [id]).then(() => {}));
     },
     async roomEncrypted(rid) {
-      const row = await raw.getFirstAsync<{ chiffre: number }>(ROOM_ENCRYPTED, [rid]);
-      return row?.chiffre === 1;
+      const row = await raw.getFirstAsync<{ encrypted: number }>(ROOM_ENCRYPTED, [rid]);
+      return row?.encrypted === 1;
     },
   };
 }
@@ -380,10 +380,10 @@ type RawUpload = {
   id: string;
   rid: string;
   uri: string;
-  nom: string;
+  name: string;
   type: string;
-  legende: string | null;
-  statut: 'en-attente' | 'envoi' | 'echec';
+  caption: string | null;
+  status: 'pending' | 'sending' | 'failed';
   file_id: string | null;
 };
 
@@ -413,10 +413,10 @@ export function createUploadStore(
         id: l.id,
         rid: l.rid,
         uri: l.uri,
-        name: l.nom,
+        name: l.name,
         type: l.type,
-        caption: l.legende,
-        status: l.statut,
+        caption: l.caption,
+        status: l.status,
         fileId: l.file_id,
       }));
     },
@@ -472,8 +472,8 @@ export function createDraftStore(
 ): DraftStore {
   return {
     async read(key) {
-      const row = await raw.getFirstAsync<{ texte: string }>(READ_DRAFT, [key]);
-      return row?.texte ?? null;
+      const row = await raw.getFirstAsync<{ text: string }>(READ_DRAFT, [key]);
+      return row?.text ?? null;
     },
     write(key, text) {
       return serially(() =>

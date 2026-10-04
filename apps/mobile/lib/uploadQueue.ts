@@ -30,18 +30,18 @@ export type UploadRow = {
   name: string;
   type: string;
   caption: string | null;
-  status: 'en-attente' | 'envoi' | 'echec';
+  status: 'pending' | 'sending' | 'failed';
   /** Returned by `rooms.media`. Non-null = the bytes are already on the server. */
   fileId: string | null;
 };
 
 export interface UploadStore {
   insert(row: Omit<UploadRow, 'status' | 'fileId'>): Promise<void>;
-  /** Only the `en-attente` rows, in creation order. */
+  /** Only the `pending` rows, in creation order. */
   listToSend(): Promise<UploadRow[]>;
-  /** Claims the row (`en-attente` → `envoi`). `false` if another pass took it. */
+  /** Claims the row (`pending` → `sending`). `false` if another pass took it. */
   claim(id: string): Promise<boolean>;
-  /** Hands back to the replay the orphaned `envoi` rows of a killed process, EXCEPT those still in flight here. */
+  /** Hands back to the replay the orphaned `sending` rows of a killed process, EXCEPT those still in flight here. */
   rearmInFlight(inFlightHere: string[]): Promise<void>;
   /** The "Retry" gesture: a failure becomes a candidate again. */
   rearm(id: string): Promise<void>;
@@ -221,7 +221,7 @@ export class UploadEngine {
   /** 0..1 progress of the running upload, by id, for the UI. */
   readonly progress = new Map<string, number>();
   private rules: UploadRules | null = null;
-  /** False until the orphaned `envoi` rows of the previous process have been handed back. */
+  /** False until the orphaned `sending` rows of the previous process have been handed back. */
   private rearmed = false;
   /** Ids discarded during their own send, checked before posting. */
   private readonly discarded = new Set<string>();
@@ -326,7 +326,7 @@ export class UploadEngine {
     }
     this.inFlight = true;
     try {
-      // Once per process, BEFORE the first read of the queue: an `envoi` can
+      // Once per process, BEFORE the first read of the queue: an `sending` can
       // only have been set by a previous run, killed mid-upload. Without this,
       // its row would stay out of the listing forever and the file would never
       // leave.
@@ -369,12 +369,12 @@ export class UploadEngine {
           continue;
         }
         if (e instanceof RestError && e.status === 0) {
-          // Unreachable. The row must GO BACK to `en-attente`: leaving it in
-          // `envoi` would take it out of the listing until the next launch.
+          // Unreachable. The row must GO BACK to `pending`: leaving it in
+          // `sending` would take it out of the listing until the next launch.
           await this.store.rearm(row.id);
           return false;
         }
-        // `derniere_erreur` is a DIAGNOSTIC (never displayed, the UI shows
+        // `last_error` is a DIAGNOSTIC (never displayed, the UI shows
         // `messageRow.failedRetry`): not a string to translate.
         await this.store.markFailed(row.id, e instanceof Error ? e.message : 'Send refused.');
       } finally {

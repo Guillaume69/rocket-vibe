@@ -78,7 +78,7 @@ export const MessageRow = memo(function MessageRow({
   c: Colors;
   message: MessageRowData;
   client: RestClient;
-  sendStatus: 'en-attente' | 'echec' | null;
+  sendStatus: 'pending' | 'failed' | null;
   onRetry: (() => void) | null;
   onDiscard: ((id: string) => void) | null;
   onLongPress: ((id: string) => void) | null;
@@ -158,7 +158,7 @@ export const MessageRow = memo(function MessageRow({
       style={[
         styles.message,
         continuation && styles.messageContinuation,
-        sendStatus === 'en-attente' && styles.pending,
+        sendStatus === 'pending' && styles.pending,
       ]}
     >
       {continuation && repeatedTime ? (
@@ -219,7 +219,7 @@ export const MessageRow = memo(function MessageRow({
         {/* A continuation hides username and time, but "edited" and
             "sending..." are still owed to the reader: their line only renders
             when one of them has something to say. */}
-        {(!continuation || message.editedAt !== null || sendStatus === 'en-attente') && (
+        {(!continuation || message.editedAt !== null || sendStatus === 'pending') && (
           <View style={styles.header}>
             {!continuation && (
               <TappableText
@@ -235,7 +235,7 @@ export const MessageRow = memo(function MessageRow({
             {message.editedAt !== null && (
               <Text style={[styles.time, { color: c.tertiaryText }]}>{t('messageRow.edited')}</Text>
             )}
-            {sendStatus === 'en-attente' && (
+            {sendStatus === 'pending' && (
               <Text style={[styles.time, { color: c.tertiaryText }]}>{t('messageRow.sending')}</Text>
             )}
           </View>
@@ -289,7 +289,7 @@ export const MessageRow = memo(function MessageRow({
             </Text>
           </Pressable>
         )}
-        {sendStatus === 'echec' && (
+        {sendStatus === 'failed' && (
           <View style={styles.failureActions}>
             <Pressable onPress={onRetry ?? undefined}>
               <Text style={[styles.time, { color: c.errorText }]}>{t('messageRow.failedRetry')}</Text>

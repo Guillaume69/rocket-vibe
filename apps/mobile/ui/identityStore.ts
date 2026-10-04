@@ -57,7 +57,7 @@ function sameMap(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>)
 
 /**
  * Notifies only on an ACTUAL version change. The live query replays on every
- * write to `utilisateurs` (a mere ingested message, then), and each
+ * write to `users` (a mere ingested message, then), and each
  * notification would re-render every avatar mounted on screen.
  */
 export function setEtags(added: AvatarEtags): void {

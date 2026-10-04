@@ -278,8 +278,8 @@ function Thread({
           message={item}
           client={client}
           sendStatus={sendState?.status ?? null}
-          onRetry={sendState?.status === 'echec' ? retry : null}
-          onDiscard={sendState?.status === 'echec' ? discard : null}
+          onRetry={sendState?.status === 'failed' ? retry : null}
+          onDiscard={sendState?.status === 'failed' ? discard : null}
           onLongPress={sendState === undefined ? openActions : null}
           // We ARE in the thread: no "N replies" indicator on the root.
           onOpenThread={null}

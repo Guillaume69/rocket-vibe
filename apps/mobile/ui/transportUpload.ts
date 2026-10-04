@@ -78,7 +78,7 @@ function expoTransportWith(field: string): TransportUpload {
       result = await task.uploadAsync();
     } catch {
       // `uploadAsync` rejects only when NO HTTP response arrived: that is the
-      // network. Status 0 = the row stays 'en-attente', the replay on the next
+      // network. Status 0 = the row stays 'pending', the replay on the next
       // connection setup takes care of it; same semantics as RestClient.
       throw new RestError('Upload: server unreachable.', 0);
     } finally {

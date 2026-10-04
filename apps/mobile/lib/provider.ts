@@ -228,7 +228,7 @@ export interface Provider {
   /** Single actions on messages. */
   readonly actions: ProviderActions;
   /** Desired subscriptions `[name, key]`, declared before the 1st connection (replayed on every reconnection). */
-  initialSubscriptions(): readonly (readonly [nom: string, cle: string])[];
+  initialSubscriptions(): readonly (readonly [name: string, key: string])[];
   /**
    * PER-ROOM subscriptions: the ones the room screen (and a thread) arms on
    * open, the counterpart of `initialSubscriptions`. The key format (`rid`,
@@ -236,7 +236,7 @@ export interface Provider {
    * without knowing it. Refcounted by the `Listener`: several screens on the
    * same room cost a single `sub`.
    */
-  roomSubscriptions(rid: string): readonly (readonly [nom: string, cle: string])[];
+  roomSubscriptions(rid: string): readonly (readonly [name: string, key: string])[];
   /**
    * What a transport event tells me alone in a room (a slash command's reply),
    * or `null` if it is not that.
@@ -244,7 +244,7 @@ export interface Provider {
   privateNote(event: DdpEvent): { rid: string; text: string } | null;
   /**
    * A page of the room's history (newest first), ingested into the engine.
-   * `type`: the room type as stored (`salons.type`); `latest`: ISO keyset
+   * `type`: the room type as stored (`rooms.type`); `latest`: ISO keyset
    * bound; absent, the page starts from now. Returns the page's oldest
    * timestamp: the screen's pagination step-back criterion.
    */

@@ -10,12 +10,12 @@ function fakeStore(encrypted: ReadonlySet<string> = new Set()) {
   const messages: LocalMessage[] = [];
   const store: OutboxStore = {
     insertOutbox: async (id, rid, text, threadId) =>
-      void outbox.set(id, { id, rid, text, threadId, status: 'en-attente', attempts: 0 }),
+      void outbox.set(id, { id, rid, text, threadId, status: 'pending', attempts: 0 }),
     listToSend: async () => [...outbox.values()],
     markFailed: async (id, error) => {
       const l = outbox.get(id);
       if (l) {
-        l.status = 'echec';
+        l.status = 'failed';
         l.attempts++;
         void error;
       }
@@ -129,7 +129,7 @@ describe('OutboxEngine', () => {
     assert.ok(!('tmid' in ordinary));
   });
 
-  test('network unreachable: the row STAYS en-attente, ready for the replay', async () => {
+  test('network unreachable: the row STAYS pending, ready for the replay', async () => {
     const { engine, outbox } = testEngine({
       reply: async () => {
         throw new TypeError('Network request failed');
@@ -138,7 +138,7 @@ describe('OutboxEngine', () => {
     await engine.send('r1', 'hors ligne');
     const rows = [...outbox.values()];
     assert.equal(rows.length, 1);
-    assert.equal(rows[0].status, 'en-attente', 'not a failure: the network will come back');
+    assert.equal(rows[0].status, 'pending', 'not a failure: the network will come back');
   });
 
   test('server refusal: actionable failure, NO deletion', async () => {
@@ -148,7 +148,7 @@ describe('OutboxEngine', () => {
     await engine.send('r1', 'refusé');
     const rows = [...outbox.values()];
     assert.equal(rows.length, 1);
-    assert.equal(rows[0].status, 'echec');
+    assert.equal(rows[0].status, 'failed');
     assert.equal(rows[0].attempts, 1);
   });
 
@@ -187,7 +187,7 @@ describe('OutboxEngine', () => {
    * sent" on a message the server may have accepted; the user types it again
    * and gets two.
    */
-  test('check impossible (dead network): the row stays en-attente, not failed', async () => {
+  test('check impossible (dead network): the row stays pending, not failed', async () => {
     const { engine, outbox } = testEngine({
       reply: async () => ok({ success: false, error: 'starred…' }),
       replyGet: async () => {
@@ -197,7 +197,7 @@ describe('OutboxEngine', () => {
     await engine.send('r1', 'peut-être livré');
     const rows = [...outbox.values()];
     assert.equal(rows.length, 1);
-    assert.equal(rows[0].status, 'en-attente', 'when in doubt, do not condemn');
+    assert.equal(rows[0].status, 'pending', 'when in doubt, do not condemn');
     assert.equal(rows[0].attempts, 0, 'and do not use up an attempt');
   });
 
@@ -206,7 +206,7 @@ describe('OutboxEngine', () => {
    * (CLAUDE.md): a burst of sends exhausts the quota and ALL checks fall back
    * to 429, after `RestClient`'s three retries.
    */
-  test('rate-limited check (429): the row stays en-attente', async () => {
+  test('rate-limited check (429): the row stays pending', async () => {
     let gets = 0;
     const { engine, outbox } = testEngine({
       reply: async () => ok({ success: false, error: 'starred…' }),
@@ -217,7 +217,7 @@ describe('OutboxEngine', () => {
     });
     await engine.send('r1', 'quota épuisé');
     assert.ok(gets > 1, 'RestClient does retry the 429 before giving up');
-    assert.equal([...outbox.values()][0]?.status, 'en-attente');
+    assert.equal([...outbox.values()][0]?.status, 'pending');
   });
 
   test('the server answering "this message does not exist" IS a failure', async () => {
@@ -227,7 +227,7 @@ describe('OutboxEngine', () => {
       replyGet: async () => ok({ success: false, error: 'error-invalid-message' }),
     });
     await engine.send('r1', 'vraiment refusé');
-    assert.equal([...outbox.values()][0]?.status, 'echec', 'a server verdict decides');
+    assert.equal([...outbox.values()][0]?.status, 'failed', 'a server verdict decides');
   });
 
   test('discard deletes the outbox row AND the optimistic message', async () => {
@@ -235,7 +235,7 @@ describe('OutboxEngine', () => {
       reply: async () => ok({ success: false, error: 'refus définitif' }),
     });
     const id = await engine.send('r1', 'condamné');
-    assert.equal([...outbox.values()][0]?.status, 'echec');
+    assert.equal([...outbox.values()][0]?.status, 'failed');
 
     await engine.discard(id);
     assert.equal(outbox.size, 0);
@@ -279,7 +279,7 @@ describe('OutboxEngine', () => {
       },
     });
     await engine.send('r1', 'a');
-    assert.equal([...outbox.values()][0]?.status, 'echec');
+    assert.equal([...outbox.values()][0]?.status, 'failed');
 
     refuse = false;
     await engine.process();
@@ -357,7 +357,7 @@ describe('OutboxEngine, encrypted room', () => {
 
     assert.deepEqual(queries.map((r) => (r.message as { rid: string }).rid), ['r2']);
     assert.equal(outbox.size, 1);
-    assert.equal([...outbox.values()][0].status, 'en-attente');
+    assert.equal([...outbox.values()][0].status, 'pending');
 
     key = true;
     await engine.process();

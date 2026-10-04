@@ -2,12 +2,12 @@
  * Resolves `uid → CURRENT username` to display message authors, and
  * `who → their photo version` (`avatarETag`) to display avatars.
  *
- * Both come from the SAME table (`utilisateurs`) and the same live query, but
+ * Both come from the SAME table (`users`) and the same live query, but
  * feed two separate stores: a rename must not re-render what only concerns
  * photos, nor the reverse.
  *
  * The Rocket.Chat username is MUTABLE, the uid is not: `messages.authorName` is
- * only a snapshot frozen at ingestion (fallback). The `utilisateurs` table, fed
+ * only a snapshot frozen at ingestion (fallback). The `users` table, fed
  * by every message, gives the current username, including for messages posted
  * BEFORE a rename, which are not downloaded again.
  *
@@ -39,7 +39,7 @@ export {
 } from './identityStore.ts';
 
 /**
- * Feeds the store from the `utilisateurs` table and the session. A sibling of
+ * Feeds the store from the `users` table and the session. A sibling of
  * the stack (mounted in `_layout`), it renders nothing: it pushes into the store.
  */
 export function IdentityTracker() {

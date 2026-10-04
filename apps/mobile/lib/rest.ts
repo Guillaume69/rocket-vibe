@@ -135,7 +135,7 @@ export type RequestOptions = {
    * received). Reserved for idempotent writes (profile, status): a request
    * rejected without a response delivered nothing, so replaying it doubles no
    * server effect. `chat.sendMessage` does NOT enable it: its deduplication
-   * lives in lib/outbox, which keeps the "en-attente" row for a clean replay.
+   * lives in lib/outbox, which keeps the "pending" row for a clean replay.
    */
   networkReplay?: boolean;
   /**

@@ -8,9 +8,9 @@
  * a duplicate: the server refuses it with a 400 on an already accepted `_id`,
  * and `chat.getMessage` decides between "already delivered" and "refused".
  *
- * Network unreachable (status 0): the message STAYS `en-attente`, the replay at
+ * Network unreachable (status 0): the message STAYS `pending`, the replay at
  * the next start or network return will carry it. Server refusal (4xx/5xx):
- * `echec`, actionable from the UI.
+ * `failed`, actionable from the UI.
  *
  * Encrypted room: the text is encrypted when it leaves, never before; the
  * queue keeps the plaintext, as the database keeps decrypted messages. Without
@@ -30,7 +30,7 @@ export type OutboxRow = {
   rid: string;
   text: string;
   threadId: string | null;
-  status: 'en-attente' | 'echec';
+  status: 'pending' | 'failed';
   attempts: number;
 };
 
@@ -183,7 +183,7 @@ export class OutboxEngine {
         // server.
         const delivered = await this.messageDelivered(row.id);
         if (delivered === UNKNOWN) {
-          // Could not decide. The row stays `en-attente`, so replayable, and
+          // Could not decide. The row stays `pending`, so replayable, and
           // the pass stops: the following rows would burn the same quota for
           // the same verdict.
           return false;
@@ -195,7 +195,7 @@ export class OutboxEngine {
           await this.store.deleteOutbox(row.id);
           continue;
         }
-        // `derniere_erreur` is a DIAGNOSTIC (never displayed, the UI shows
+        // `last_error` is a DIAGNOSTIC (never displayed, the UI shows
         // `messageRow.failedRetry`): not a string to translate.
         const message = e instanceof Error ? e.message : 'Send refused.';
         await this.store.markFailed(row.id, message);
@@ -228,7 +228,7 @@ export class OutboxEngine {
    * says no, `UNKNOWN` if we COULD NOT ask.
    *
    * The distinction is not cosmetic. "I could not check" is not "the server
-   * says no": folding everything into `null` marked `echec`, so displayed "not
+   * says no": folding everything into `null` marked `failed`, so displayed "not
    * sent", on a message the server may have accepted. The user types it again:
    * now there are two.
    */

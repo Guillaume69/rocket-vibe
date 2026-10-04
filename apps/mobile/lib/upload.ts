@@ -198,7 +198,7 @@ export function protectedFileUrl(client: RestClient, path: string): string {
  * old photo. A constant is enough: the matching URL returns an SVG, which
  * `<Image>` rejects, so the fallback tile takes its place again.
  */
-export const AVATAR_NO_PHOTO = 'sans-photo';
+export const AVATAR_NO_PHOTO = 'none';
 
 /**
  * Authenticated avatar URL. The target server has

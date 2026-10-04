@@ -16,35 +16,35 @@ import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlit
 export type RoomType = 'c' | 'p' | 'd' | 'l';
 
 export const rooms = sqliteTable(
-  'salons',
+  'rooms',
   {
     rid: text('rid').primaryKey(),
     type: text('type').$type<RoomType>().notNull(),
     /** `name` is the slug; `fname` the display name (may contain spaces). */
-    name: text('nom'),
-    displayName: text('nom_affiche'),
+    name: text('name'),
+    displayName: text('display_name'),
     /** End-to-end encrypted room: we do not write there, we do not show the preview. */
-    encrypted: integer('chiffre', { mode: 'boolean' }).notNull().default(false),
-    readOnly: integer('lecture_seule', { mode: 'boolean' }).notNull().default(false),
+    encrypted: integer('encrypted', { mode: 'boolean' }).notNull().default(false),
+    readOnly: integer('read_only', { mode: 'boolean' }).notNull().default(false),
     /**
      * The OTHER participant of a two-person DM (from the Rooms document's
      * `uids`), for presence (8.4). An 8.5 DM rid is a RANDOM ObjectId, no
      * longer the concatenation of both uids; it cannot be derived.
      */
-    dmOtherUid: text('dm_autre_uid'),
+    dmOtherUid: text('dm_other_uid'),
     /** Preview of the last message. `null` if the room is encrypted. */
-    lastMessage: text('dernier_message'),
+    lastMessage: text('last_message'),
     /**
      * The last message's `t`, when it has one. Separates the TWO meanings of
-     * `dernier_message IS NULL`: "this room no longer has a last message" (column
+     * `last_message IS NULL`: "this room no longer has a last message" (column
      * null as well) and "the last message has nothing to show", the exact shape
      * of a video call, whose content lives in `blocks`. Without it, a video call
      * lifted the room to the top of the list with an EMPTY preview line. Always
      * null for an encrypted room: its preview is computed locally
      * (`UPDATE_ENCRYPTED_PREVIEW`), not from `lastMessage`.
      */
-    lastMessageType: text('dernier_message_type'),
-    lastMessageTs: integer('horodatage_dernier_message'),
+    lastMessageType: text('last_message_type'),
+    lastMessageTs: integer('last_message_ts'),
     /**
      * `avatarETag`: version of the room's photo. Without it, `/avatar/room/<rid>`
      * is a FROZEN URI that Android's image cache serves forever: the photo
@@ -52,16 +52,16 @@ export const rooms = sqliteTable(
      * on every change (see `lib/upload.ts#avatarUrl`).
      */
     avatarEtag: text('avatar_etag'),
-    updatedAt: integer('mis_a_jour_le').notNull().default(0),
+    updatedAt: integer('updated_at').notNull().default(0),
   },
-  (t) => [index('idx_salons_activite').on(t.lastMessageTs)],
+  (t) => [index('idx_rooms_activity').on(t.lastMessageTs)],
 );
 
 /**
  * **Per-user** state of a room: unread, favourite, last read.
  * Distinct from the room itself, which all members share.
  */
-export const subscriptions = sqliteTable('abonnements', {
+export const subscriptions = sqliteTable('subscriptions', {
   rid: text('rid').primaryKey(),
   /**
    * Server-side `_id` of the subscription. The catch-up's `remove[]` entries
@@ -69,21 +69,21 @@ export const subscriptions = sqliteTable('abonnements', {
    * this column, a room left elsewhere would stay listed forever.
    */
   subId: text('sub_id'),
-  unread: integer('non_lus').notNull().default(0),
+  unread: integer('unread').notNull().default(0),
   mentions: integer('mentions').notNull().default(0),
-  groupMentions: integer('mentions_groupe').notNull().default(0),
-  alert: integer('alerte', { mode: 'boolean' }).notNull().default(false),
-  open: integer('ouvert', { mode: 'boolean' }).notNull().default(true),
-  favorite: integer('favori', { mode: 'boolean' }).notNull().default(false),
+  groupMentions: integer('group_mentions').notNull().default(0),
+  alert: integer('alert', { mode: 'boolean' }).notNull().default(false),
+  open: integer('open', { mode: 'boolean' }).notNull().default(true),
+  favorite: integer('favorite', { mode: 'boolean' }).notNull().default(false),
   /** `ls`: last read date, for the "new messages" bar. */
-  lastSeen: integer('lu_jusqu_a'),
+  lastSeen: integer('last_seen'),
   /** `E2EKey`: the room's AES key RSA-encrypted for this member (E2EE, step 10). */
   e2eKey: text('e2e_key'),
   /** `e2eKeyId`: UUID of the room key, if the server provides it separately. */
   e2eKeyId: text('e2e_key_id'),
   /** `roles`: my roles IN this room (`owner`, `moderator`...), serialised; `null` if none. */
   roles: text('roles'),
-  updatedAt: integer('mis_a_jour_le').notNull().default(0),
+  updatedAt: integer('updated_at').notNull().default(0),
 });
 
 export const messages = sqliteTable(
@@ -93,24 +93,24 @@ export const messages = sqliteTable(
     id: text('id').primaryKey(),
     rid: text('rid').notNull(),
     /** `null` for an undecryptable encrypted message, or a system message. */
-    text: text('texte'),
-    ts: integer('horodatage').notNull(),
-    authorId: text('auteur_id').notNull(),
-    authorName: text('auteur_nom'),
+    text: text('text'),
+    ts: integer('ts').notNull(),
+    authorId: text('author_id').notNull(),
+    authorName: text('author_name'),
     /** `t`: system message type (`uj`, `ul`, `rm`, `e2e`...). `null` = ordinary message. */
-    systemType: text('type_systeme'),
+    systemType: text('system_type'),
     /** `tmid`: id of the root message, if this message is a thread reply. */
-    threadId: text('fil_id'),
+    threadId: text('thread_id'),
     /** `tcount`: number of replies, on the root message. */
-    threadCount: integer('fil_reponses').notNull().default(0),
+    threadCount: integer('thread_count').notNull().default(0),
     /** `tlm`: timestamp of the last reply, carried by the root message. */
-    threadLast: integer('fil_dernier'),
+    threadLast: integer('thread_last'),
     /** `tshow`: thread reply to show ALSO in the room's main stream. */
-    threadShown: integer('fil_affiche', { mode: 'boolean' }).notNull().default(false),
-    editedAt: integer('modifie_le'),
+    threadShown: integer('thread_shown', { mode: 'boolean' }).notNull().default(false),
+    editedAt: integer('edited_at'),
     /** Markdown AST pre-parsed by the server (`md`), serialised. Absent from old messages. */
     md: text('md'),
-    attachments: text('pieces_jointes'),
+    attachments: text('attachments'),
     reactions: text('reactions'),
     /**
      * `urls`: link metadata parsed by the SERVER (OpenGraph/oEmbed), serialised.
@@ -125,28 +125,28 @@ export const messages = sqliteTable(
      * field we replay ("Join" button), and it is NOT the message's `_id`.
      * `null` everywhere else.
      */
-    callId: text('appel_id'),
+    callId: text('call_id'),
     /**
      * `content` object of an encrypted message (`rc.v2.aes-sha2`), serialised,
      * kept for deferred decryption on E2EE unlock. `text` stays null while the
      * room is not unlocked. See `lib/e2e`.
      */
-    encryptedRaw: text('chiffre_brut'),
+    encryptedRaw: text('encrypted_raw'),
     /** `pinned`. */
-    pinned: integer('epingle', { mode: 'boolean' }).notNull().default(false),
+    pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
     /** `starred` reduced to uids, serialised; `null` if nobody. See `lib/marks.ts`. */
-    starred: text('etoiles'),
-    updatedAt: integer('mis_a_jour_le').notNull().default(0),
+    starred: text('starred'),
+    updatedAt: integer('updated_at').notNull().default(0),
   },
-  // The index covers the room screen's query: `WHERE rid = ? ORDER BY horodatage DESC`.
-  (t) => [index('idx_messages_salon_date').on(t.rid, t.ts), index('idx_messages_fil').on(t.threadId)],
+  // The index covers the room screen's query: `WHERE rid = ? ORDER BY ts DESC`.
+  (t) => [index('idx_messages_room_ts').on(t.rid, t.ts), index('idx_messages_thread').on(t.threadId)],
 );
 
 /**
  * Status of an optimistic send. There is no "sent" state: on success (or as
  * soon as a server-origin copy arrives), the row is DELETED.
  */
-export type OutboxStatus = 'en-attente' | 'echec';
+export type OutboxStatus = 'pending' | 'failed';
 
 /**
  * Persistent outbox. The message is shown immediately, then reconciled when
@@ -156,18 +156,18 @@ export type OutboxStatus = 'en-attente' | 'echec';
  * (see lib/outbox.ts).
  */
 export const outbox = sqliteTable(
-  'sortie',
+  'outbox',
   {
     id: text('id').primaryKey(),
     rid: text('rid').notNull(),
-    text: text('texte').notNull(),
-    threadId: text('fil_id'),
-    status: text('statut').$type<OutboxStatus>().notNull().default('en-attente'),
-    attempts: integer('tentatives').notNull().default(0),
-    lastError: text('derniere_erreur'),
-    createdAt: integer('cree_le').notNull(),
+    text: text('text').notNull(),
+    threadId: text('thread_id'),
+    status: text('status').$type<OutboxStatus>().notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+    createdAt: integer('created_at').notNull(),
   },
-  (t) => [index('idx_sortie_statut').on(t.status)],
+  (t) => [index('idx_outbox_status').on(t.status)],
 );
 
 /**
@@ -186,34 +186,34 @@ export const outbox = sqliteTable(
  * SQLite, not the network, whether the message is already there.
  *
  * The three statuses:
- * - `en-attente`: the only one the automatic replay picks up;
- * - `envoi`: taken by a pass of THIS process. Excluded from listing, so
+ * - `pending`: the only one the automatic replay picks up;
+ * - `sending`: taken by a pass of THIS process. Excluded from listing, so
  *   never uploaded twice in parallel; re-armed at the first `process()` of
  *   the next process, otherwise a kill mid-upload would have frozen it
  *   there forever;
- * - `echec`: the server refused. NO LONGER replayed automatically: a refused
+ * - `failed`: the server refused. NO LONGER replayed automatically: a refused
  *   video (413, type, quota) pushed all its bytes again on every return to
  *   the foreground. Only the "Retry" gesture re-arms it.
  */
 export const uploads = sqliteTable(
-  'televersements',
+  'uploads',
   {
     id: text('id').primaryKey(),
     rid: text('rid').notNull(),
     uri: text('uri').notNull(),
-    name: text('nom').notNull(),
+    name: text('name').notNull(),
     type: text('type').notNull(),
-    caption: text('legende'),
-    status: text('statut')
-      .$type<'en-attente' | 'envoi' | 'echec'>()
+    caption: text('caption'),
+    status: text('status')
+      .$type<'pending' | 'sending' | 'failed'>()
       .notNull()
-      .default('en-attente'),
-    lastError: text('derniere_erreur'),
+      .default('pending'),
+    lastError: text('last_error'),
     /** Returned by `rooms.media`. Non-null = the bytes are already on the server. */
     fileId: text('file_id'),
-    createdAt: integer('cree_le').notNull(),
+    createdAt: integer('created_at').notNull(),
   },
-  (t) => [index('idx_televersements_statut').on(t.status)],
+  (t) => [index('idx_uploads_status').on(t.status)],
 );
 
 /**
@@ -223,11 +223,11 @@ export const uploads = sqliteTable(
  * hence a rebuild, is not justified against ROADMAP §4.2 when the database
  * already covers all local state.
  */
-export const drafts = sqliteTable('brouillons', {
+export const drafts = sqliteTable('drafts', {
   /** `rid`, or `rid:tmid` for a reply in a thread. */
-  key: text('cle').primaryKey(),
-  text: text('texte').notNull(),
-  updatedAt: integer('mis_a_jour_le').notNull(),
+  key: text('key').primaryKey(),
+  text: text('text').notNull(),
+  updatedAt: integer('updated_at').notNull(),
 });
 
 /**
@@ -243,12 +243,12 @@ export const drafts = sqliteTable('brouillons', {
  * shortcode in its own right (`:parrot:` = `:party_parrot:`), the in-memory
  * index unfolds them.
  */
-export const customEmojis = sqliteTable('emojis_custom', {
-  name: text('nom').primaryKey(),
+export const customEmojis = sqliteTable('custom_emojis', {
+  name: text('name').primaryKey(),
   extension: text('extension').notNull(),
   /** JSON `string[]`. An alias serves the same image as its canonical name. */
   aliases: text('aliases').notNull().default('[]'),
-  updatedAt: integer('mis_a_jour_le').notNull().default(0),
+  updatedAt: integer('updated_at').notNull().default(0),
 });
 
 /**
@@ -260,7 +260,7 @@ export const customEmojis = sqliteTable('emojis_custom', {
  * SHOW, up to date even for messages posted BEFORE a rename, which are not
  * downloaded again.
  */
-export const users = sqliteTable('utilisateurs', {
+export const users = sqliteTable('users', {
   uid: text('uid').primaryKey(),
   username: text('username'),
   /**
@@ -272,7 +272,7 @@ export const users = sqliteTable('utilisateurs', {
    */
   avatarEtag: text('avatar_etag'),
   /** `_updatedAt` of the message that set this username: "most recent wins" referee. */
-  updatedAt: integer('mis_a_jour_le').notNull().default(0),
+  updatedAt: integer('updated_at').notNull().default(0),
 });
 
 /**
@@ -281,12 +281,12 @@ export const users = sqliteTable('utilisateurs', {
  * rooms are resynced (step 5.2).
  */
 export const cursors = sqliteTable(
-  'etat_synchro',
+  'cursors',
   {
     /** `rid`, or `*` for global cursors (`subscriptions.get?updatedSince`). */
-    scope: text('portee').notNull(),
-    stream: text('flux').notNull(),
-    updatedSince: integer('mis_a_jour_depuis').notNull(),
+    scope: text('scope').notNull(),
+    stream: text('stream').notNull(),
+    updatedSince: integer('updated_since').notNull(),
   },
   (t) => [primaryKey({ columns: [t.scope, t.stream] })],
 );

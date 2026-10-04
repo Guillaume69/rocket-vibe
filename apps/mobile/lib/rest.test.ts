@@ -294,7 +294,7 @@ describe('RestClient', () => {
   });
 
   test('without networkReplay, a network failure throws at once (no replay)', async () => {
-    // `chat.sendMessage` does not enable the replay: the row stays "en-attente"
+    // `chat.sendMessage` does not enable the replay: the row stays "pending"
     // in lib/outbox, the only place where its deduplication is safe.
     let calls = 0;
     const c = new RestClient(base, {

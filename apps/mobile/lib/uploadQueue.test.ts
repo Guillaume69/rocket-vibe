@@ -68,7 +68,7 @@ describe('readUploadRules', () => {
 
 /**
  * In-memory store that REPRODUCES the SQL semantics, in particular the filter
- * on `en-attente` and the atomic claim. A fake more permissive than the real
+ * on `pending` and the atomic claim. A fake more permissive than the real
  * database would pass tests that production would fail.
  */
 function fakeStore() {
@@ -77,28 +77,28 @@ function fakeStore() {
   /** Call log: it is what tells "not marked" from "marked pending". */
   const calls: string[] = [];
   const store: UploadStore = {
-    insert: async (l) => void rows.set(l.id, { ...l, status: 'en-attente', fileId: null }),
+    insert: async (l) => void rows.set(l.id, { ...l, status: 'pending', fileId: null }),
     listToSend: async () => {
       calls.push('lister');
-      return [...rows.values()].filter((l) => l.status === 'en-attente');
+      return [...rows.values()].filter((l) => l.status === 'pending');
     },
     claim: async (id) => {
       const l = rows.get(id);
-      if (l === undefined || l.status !== 'en-attente') return false;
-      l.status = 'envoi';
+      if (l === undefined || l.status !== 'pending') return false;
+      l.status = 'sending';
       calls.push(`prendre:${id}`);
       return true;
     },
     rearmInFlight: async (inFlightHere) => {
       calls.push(`rearmerEnVol:[${inFlightHere.join(',')}]`);
       for (const l of rows.values()) {
-        if (l.status === 'envoi' && !inFlightHere.includes(l.id)) l.status = 'en-attente';
+        if (l.status === 'sending' && !inFlightHere.includes(l.id)) l.status = 'pending';
       }
     },
     rearm: async (id) => {
       calls.push(`rearmer:${id}`);
       const l = rows.get(id);
-      if (l) l.status = 'en-attente';
+      if (l) l.status = 'pending';
     },
     recordFileId: async (id, fileId) => {
       calls.push(`fileId:${id}=${fileId}`);
@@ -107,10 +107,10 @@ function fakeStore() {
     },
     fileAlreadyPosted: async (_rid, fileId) => posted.has(fileId),
     markFailed: async (id, error) => {
-      calls.push(`echec:${id}`);
+      calls.push(`failed:${id}`);
       const l = rows.get(id);
       if (l) {
-        l.status = 'echec';
+        l.status = 'failed';
         void error;
       }
     },
@@ -208,7 +208,7 @@ describe('UploadEngine', () => {
     assert.equal(ingested.length, 1, 'the confirmed message goes back through sync');
   });
 
-  test('a server refusal marks `echec`, replayable', async () => {
+  test('a server refusal marks `failed`, replayable', async () => {
     const { store, rows } = fakeStore();
     const transport: TransportUpload = async () => ({
       status: 413,
@@ -222,17 +222,17 @@ describe('UploadEngine', () => {
       ingest: async () => {},
     });
     await engine.send('r1', { uri: 'file:///a.png', name: 'a.png', type: 'image/png', size: 10 });
-    assert.equal([...rows.values()][0]?.status, 'echec');
+    assert.equal([...rows.values()][0]?.status, 'failed');
     assert.equal(engine.progress.size, 0, 'progress does not survive the failure');
   });
 
   /**
    * The ONLY path that left a row invisible: an unreachable network is not a
-   * refusal. The row must stay `en-attente`: that is the status the room
+   * refusal. The row must stay `pending`: that is the status the room
    * banner must show, otherwise the file vanishes from the screen without a
    * sign and the user sends it again.
    */
-  test('network unreachable: the row stays `en-attente`, nothing is marked failed', async () => {
+  test('network unreachable: the row stays `pending`, nothing is marked failed', async () => {
     const { store, rows, calls } = fakeStore();
     const transport: TransportUpload = async () => {
       throw new RestError('Upload: server unreachable.', 0);
@@ -248,9 +248,9 @@ describe('UploadEngine', () => {
     await engine.send('r1', FILE);
 
     assert.equal(rows.size, 1, 'the intent survives: the replay will pick it up');
-    assert.equal([...rows.values()][0]?.status, 'en-attente');
+    assert.equal([...rows.values()][0]?.status, 'pending');
     assert.ok(
-      !calls.some((a) => a.startsWith('echec:')),
+      !calls.some((a) => a.startsWith('failed:')),
       'unreachable is not a refusal: markFailed must NOT be called',
     );
     assert.equal(engine.progress.size, 0, 'progress is cleared even when the pass is abandoned');
@@ -280,16 +280,16 @@ describe('UploadEngine', () => {
     // BOTH must stay replayable: t1 rearmed after its claim, t2 never touched.
     assert.deepEqual(
       [...rows.values()].map((l) => l.status),
-      ['en-attente', 'en-attente'],
+      ['pending', 'pending'],
     );
   });
 
   /**
-   * The trap of the `envoi` status: it takes the row out of the listing. If a
+   * The trap of the `sending` status: it takes the row out of the listing. If a
    * network failure left it in that state, the file would never leave again:
    * the original defect, only worse, since it would survive a restart.
    */
-  test('a claimed then cut row becomes replayable again, not frozen in `envoi`', async () => {
+  test('a claimed then cut row becomes replayable again, not frozen in `sending`', async () => {
     const { store, rows } = fakeStore();
     let cut = true;
     const transport: TransportUpload = async () => {
@@ -306,14 +306,14 @@ describe('UploadEngine', () => {
     await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
 
     await engine.process();
-    assert.equal([...rows.values()][0]?.status, 'en-attente');
+    assert.equal([...rows.values()][0]?.status, 'pending');
 
     cut = false;
     await engine.process();
     assert.equal(rows.size, 0, 'with the network back, the same row finally leaves');
   });
 
-  test('an orphaned `envoi` of a killed process is picked up at the first `process()`', async () => {
+  test('an orphaned `sending` of a killed process is picked up at the first `process()`', async () => {
     const { store, rows } = fakeStore();
     const transport: TransportUpload = async () => ({
       status: 200,
@@ -329,7 +329,7 @@ describe('UploadEngine', () => {
     // The state a kill mid-upload leaves behind.
     await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
     await store.claim('t1');
-    assert.equal([...rows.values()][0]?.status, 'envoi');
+    assert.equal([...rows.values()][0]?.status, 'sending');
 
     await engine.process();
 
@@ -355,7 +355,7 @@ describe('UploadEngine', () => {
     await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
 
     await engine.process();
-    assert.equal([...rows.values()][0]?.status, 'echec');
+    assert.equal([...rows.values()][0]?.status, 'failed');
     assert.equal(attempts, 1);
 
     // What `afterCatchUp` does at EVERY connection setup.
@@ -410,7 +410,7 @@ describe('UploadEngine', () => {
     assert.equal(bytes, 1);
     assert.equal(confirms, 1);
     assert.ok(calls.includes('fileId:t1=f1'), 'the fileId is recorded BEFORE the confirm');
-    assert.equal([...rows.values()][0]?.status, 'en-attente', 'replayable');
+    assert.equal([...rows.values()][0]?.status, 'pending', 'replayable');
 
     // Meanwhile, the DDP stream delivered the message the confirm had created.
     posted.add('f1');
@@ -838,7 +838,7 @@ describe('UploadEngine, encrypted room', () => {
         },
         encryptFile: async (uri: string) => {
           encryptedFiles.push(uri);
-          return { uri: `${uri}.chiffre`, key: JWK, iv: 'Y3RyMTY=', sha256: 'abc', size: 10 };
+          return { uri: `${uri}.encrypted`, key: JWK, iv: 'Y3RyMTY=', sha256: 'abc', size: 10 };
         },
         hashedName: (name: string) => `hache(${name})`,
       },
@@ -880,7 +880,7 @@ describe('UploadEngine, encrypted room', () => {
 
     assert.deepEqual(sends, [
       {
-        file: { uri: 'file:///cache/a.png.chiffre', name: 'hache(vacances.png)', type: 'application/octet-stream' },
+        file: { uri: 'file:///cache/a.png.encrypted', name: 'hache(vacances.png)', type: 'application/octet-stream' },
         fields: { content: JSON.stringify(CONTENT) },
       },
     ]);
@@ -890,7 +890,7 @@ describe('UploadEngine, encrypted room', () => {
     assert.equal(message.attachments[0].title, 'vacances.png');
     assert.equal(message.attachments[0].image_url, '/file-upload/f1/hache(vacances.png)');
     assert.deepEqual(message.attachments[0].encryption, { key: JWK, iv: 'Y3RyMTY=' });
-    assert.deepEqual(deleted, ['file:///cache/a.png.chiffre', 'file:///cache/a.png']);
+    assert.deepEqual(deleted, ['file:///cache/a.png.encrypted', 'file:///cache/a.png']);
     assert.equal(rows.size, 0);
   });
 
@@ -913,8 +913,8 @@ describe('UploadEngine, encrypted room', () => {
 
     await engine.send('p1', FILE);
     assert.equal(sends, 0);
-    assert.equal([...rows.values()][0].status, 'en-attente');
-    assert.ok(!calls.some((a) => a.startsWith('echec')));
+    assert.equal([...rows.values()][0].status, 'pending');
+    assert.ok(!calls.some((a) => a.startsWith('failed')));
 
     key = true;
     await engine.process();

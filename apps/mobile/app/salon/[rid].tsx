@@ -322,8 +322,8 @@ function Room({
   );
   // ALL uploads of this room, whatever their status.
   //
-  // The former `status === 'echec'` filter left a gaping hole: a file sent
-  // offline stays `en-attente`, `send()` resolves normally (so the preview,
+  // The former `status === 'failed'` filter left a gaping hole: a file sent
+  // offline stays `pending`, `send()` resolves normally (so the preview,
   // the draft and the quote are cleared), and the screen showed NOTHING. The
   // photo vanished without the slightest sign; the user sent it again and
   // ended up with two.
@@ -816,8 +816,8 @@ function Room({
             message={item}
             client={client}
             sendStatus={sendState?.status ?? null}
-            onRetry={sendState?.status === 'echec' ? retry : null}
-            onDiscard={sendState?.status === 'echec' ? discard : null}
+            onRetry={sendState?.status === 'failed' ? retry : null}
+            onDiscard={sendState?.status === 'failed' ? discard : null}
             // No actions on an outbox row: its client `_id` has not been accepted by
             // the server; `chat.delete`/`chat.update` on it can only fail. Its real
             // actions are retry/discard.
@@ -922,10 +922,10 @@ function Room({
         </View>
       )}
       {filesInProgress.map((upload) => {
-        const failed = upload.status === 'echec';
+        const failed = upload.status === 'failed';
         const label = failed
           ? t('room.fileNotSent', { name: upload.name })
-          : upload.status === 'envoi'
+          : upload.status === 'sending'
             ? t('room.fileSending', {
                 name: upload.name,
                 percent: String(Math.round((progressions.get(upload.id) ?? 0) * 100)),
@@ -941,7 +941,7 @@ function Room({
             </Text>
             {/* "Retry" only makes sense on a failure, and it needs the id: the
                 automatic replay no longer sees failed rows, a plain `process()`
-                would miss it. An `en-attente` or `envoi` row goes out on its
+                would miss it. A `pending` or `sending` row goes out on its
                 own already. */}
             {failed && (
               <Pressable onPress={() => void files.retry(upload.id)}>
@@ -958,7 +958,7 @@ function Room({
           threadId): without this banner, its failure would only be visible by
           reopening that exact thread, i.e. silently never, in practice. */}
       {(outboxRows ?? [])
-        .filter((s) => s.status === 'echec' && s.threadId !== null)
+        .filter((s) => s.status === 'failed' && s.threadId !== null)
         .map((s) => (
           <View key={s.id} style={styles.fileFailureBand}>
             <Pressable

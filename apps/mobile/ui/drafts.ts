@@ -1,7 +1,7 @@
 /**
  * Composer drafts (8.7), per `rid` or `rid:tmid`.
  *
- * In SQLite (table `brouillons`), not MMKV, a recorded departure from the
+ * In SQLite (table `drafts`), not MMKV, a recorded departure from the
  * plan: the draft is written DEBOUNCED (400 ms), so the database's async
  * latency is irrelevant, and one more native dependency (full rebuild, to be
  * justified against ROADMAP §4.2) does not beat "the database already covers

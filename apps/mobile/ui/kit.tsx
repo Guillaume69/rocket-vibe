@@ -210,7 +210,7 @@ export function RoomAvatar({
   /** The other participant of a two-person DM, to target their photo by uid. */
   dmOtherUid: string | null | undefined;
   /**
-   * The ROOM's `avatarETag` (column `salons.avatar_etag`), without which its
+   * The ROOM's `avatarETag` (column `rooms.avatar_etag`), without which its
    * photo URI would never move. For a DM, the OTHER party's photo is shown: its
    * etag is read right here, by uid.
    *

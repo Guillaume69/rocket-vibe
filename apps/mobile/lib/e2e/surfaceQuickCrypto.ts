@@ -62,7 +62,7 @@ declare const jwk: {
 export function surfaceUsedByCryptoTs(): void {
   // `Buffer.from` / `Buffer.concat` (base64ToBytes, decryptGcm...).
   const b64 = moduleBuffer.Buffer.from('AA==', 'base64');
-  const utf8 = moduleBuffer.Buffer.from('texte', 'utf8');
+  const utf8 = moduleBuffer.Buffer.from('text', 'utf8');
   const concat: BufferEmbarque = moduleBuffer.Buffer.concat([b64, utf8]);
   void concat.subarray(0, 16);
   void concat.toString('utf8');

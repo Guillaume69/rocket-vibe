@@ -266,7 +266,7 @@ function Share({
       } catch (e) {
         // Only a validation refusal (size/type) rejects here. A server refusal
         // as well as an unreachable network become a line in the room's banner,
-        // which now also shows `en-attente` ones; otherwise a share made offline
+        // which now also shows `pending` ones; otherwise a share made offline
         // disappeared without a trace.
         //
         // Trim what has ALREADY gone out: the user stays on this screen, removes

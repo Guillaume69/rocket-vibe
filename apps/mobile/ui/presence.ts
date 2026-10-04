@@ -61,4 +61,4 @@ export function usePresence(uid: string | null): PresenceStatus | null {
 // The OTHER participant of a DM is NOT DERIVED from the rid: on 8.5 a DM's
 // rid is a random ObjectId, no longer the concatenation of both uids
 // (checked on the local server). It comes from the Rooms document (`uids`)
-// and lives in the `salons.dm_autre_uid` column; see `toRoom`.
+// and lives in the `rooms.dm_other_uid` column; see `toRoom`.

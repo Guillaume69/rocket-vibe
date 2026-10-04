@@ -61,4 +61,4 @@ PARITY section 3 "Photo avatars over gradient tiles" holds on both. Gaps found i
 - apps/desktop/macos/Sources/RocketVibe/Media.swift
 - apps/desktop/macos/Sources/RocketVibe/Pictures.swift
 - apps/desktop/macos/Sources/RocketVibeKit/MediaStore.swift
-- apps/desktop/docs/PARITY.md
+- brain/parity.md

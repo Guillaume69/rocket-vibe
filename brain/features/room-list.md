@@ -64,4 +64,4 @@ Section 2 of PARITY is implemented, Favourites included (`rooms::Section::Favori
 - apps/desktop/crates/rv-gtk/src/spotlight.rs
 - apps/desktop/macos/Sources/RocketVibe/ChatView.swift
 - apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift
-- apps/desktop/docs/PARITY.md
+- brain/parity.md

@@ -49,4 +49,4 @@ Both apps: spotlight for new conversations, `chat.search` in a room. Desktop onl
 - apps/desktop/macos/Sources/RocketVibe/ChatView.swift
 - apps/desktop/macos/Sources/RocketVibe/Details.swift
 - apps/desktop/macos/Sources/RocketVibeKit/RoomModel.swift
-- apps/desktop/docs/PARITY.md
+- brain/parity.md

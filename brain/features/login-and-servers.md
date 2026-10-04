@@ -69,4 +69,4 @@ PARITY section 1 is done on desktop except email 2FA, which is partial: GTK and 
 - apps/desktop/crates/rv-ffi/src/accounts.rs
 - apps/desktop/macos/Sources/RocketVibeKit/LoginModel.swift
 - apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift
-- apps/desktop/docs/PARITY.md
+- brain/parity.md

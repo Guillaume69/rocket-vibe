@@ -68,4 +68,4 @@ PARITY marks shortcode emoji ("6222 codes, same table as Android"), custom emoji
 - apps/desktop/macos/Sources/RocketVibe/Composer.swift
 - scripts/emojis-seed.mjs
 - scripts/seed.mjs
-- apps/desktop/docs/PARITY.md
+- brain/parity.md

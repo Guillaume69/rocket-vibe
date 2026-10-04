@@ -82,7 +82,7 @@ Reconciliation ignores an empty list (an active account always has subscriptions
 | Background | socket closed, driver suspended, push | socket kept |
 | Logout interrupted offline | queued and replayed at next start | best effort, not replayed |
 
-Two consequences worth knowing on desktop: a room created between the reconciliation request and its write could be purged until the next global catch-up brings it back, and a message deleted in a room that is already in `synced` while another room is open stays visible until that room is caught up again (a reconnection while it is open, or the next session). `apps/desktop/docs/PARITY.md` section 14 lists the offline features as done on both apps.
+Two consequences worth knowing on desktop: a room created between the reconciliation request and its write could be purged until the next global catch-up brings it back, and a message deleted in a room that is already in `synced` while another room is open stays visible until that room is caught up again (a reconnection while it is open, or the next session). `brain/parity.md` section 14 lists the offline features as done on both apps.
 
 ## Sources
 
@@ -112,5 +112,5 @@ Two consequences worth knowing on desktop: a room created between the reconcilia
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-gtk/src/chat.rs
 - apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift
-- apps/desktop/docs/PARITY.md
+- brain/parity.md
 - CLAUDE.md

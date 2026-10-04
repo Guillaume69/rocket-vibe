@@ -63,4 +63,4 @@ Thread view, live replies and thread composer in all three. Not available anywhe
 - apps/desktop/macos/Sources/RocketVibe/ThreadView.swift
 - apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift
 - apps/desktop/macos/Sources/RocketVibeKit/RoomModel.swift
-- apps/desktop/docs/PARITY.md
+- brain/parity.md

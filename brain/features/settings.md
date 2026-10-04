@@ -68,4 +68,4 @@ PARITY §9: profile card, notification preference, language, E2EE status, accoun
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-native/src/lib.rs
 - apps/desktop/macos/Sources/RocketVibe/SettingsView.swift
-- apps/desktop/docs/PARITY.md
+- brain/parity.md

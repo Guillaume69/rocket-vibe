@@ -85,4 +85,4 @@ Same rule set in both apps. Desktop adds delete confirmation and Up-to-edit; mob
 - apps/desktop/macos/Sources/RocketVibe/RoomView.swift
 - apps/desktop/macos/Sources/RocketVibe/Details.swift
 - apps/desktop/macos/Sources/RocketVibeKit/RoomModel.swift
-- apps/desktop/docs/PARITY.md
+- brain/parity.md

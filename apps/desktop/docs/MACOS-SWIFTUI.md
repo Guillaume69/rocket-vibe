@@ -152,7 +152,7 @@ the dock badge, and Retina rendering on the GPU.
 ## Status (2026-09-29)
 
 Phases 1 to 4 are built, now on master, and phase
-5's parity: every item of `docs/PARITY.md` (room info, profiles, search,
+5's parity: every item of `brain/parity.md` (room info, profiles, search,
 pinned and starred, calls, completion, the emoji picker, the staged-file
 preview, my profile, the notification preference...). What is proven, and
 where:
@@ -192,7 +192,7 @@ feels on a tester's Mac is still to be told.
 4. **Desktop integration** (a week): notifications with reply and deep link to
    the message, dock badge, `rocketvibe://` links, sessions shared with the
    GTK install.
-5. **Parity and release** (two weeks): walk `docs/PARITY.md` and
+5. **Parity and release** (two weeks): walk `brain/parity.md` and
    `docs/FEEDBACK.md` on a Mac, a beta for the testers. CI packaging and
    notarization are done: a desktop release carries the SwiftUI DMG.
 
@@ -202,7 +202,7 @@ About two months for one developer, most of it in the room view and composer.
 
 - **Two UIs to keep in step.** Every visible feature lands twice (GTK and
   SwiftUI). rv-core carrying the logic (as it already does for actions,
-  formatting, markdown) keeps the UI layers thin; `PARITY.md` gains a macOS
+  formatting, markdown) keeps the UI layers thin; `brain/parity.md` gains a macOS
   column.
 - **FFI surface churn.** rv-core's API was shaped for rv-gtk; rv-ffi absorbs
   the differences so rv-core does not bend to Swift.

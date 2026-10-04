@@ -64,5 +64,5 @@ Same feature set on both sides (PARITY §11): unlock, decrypt messages and previ
 - apps/desktop/macos/Sources/RocketVibe/RoomView.swift
 - apps/desktop/macos/Sources/RocketVibe/SettingsView.swift
 - apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift
-- apps/desktop/docs/PARITY.md
+- brain/parity.md
 - ROADMAP.md

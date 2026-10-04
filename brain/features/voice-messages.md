@@ -24,7 +24,7 @@ A voice message is an audio file recorded from the microphone and sent through t
 
 ## Why the formats differ
 
-GTK uses Ogg/Opus, which "Rocket.Chat's web and mobile clients both play" (`recorder.rs`). SwiftUI uses AAC `.m4a`, "as the Android app sends them", since AVFoundation records AAC natively (`apps/desktop/docs/PARITY.md` lists this as a SwiftUI difference).
+GTK uses Ogg/Opus, which "Rocket.Chat's web and mobile clients both play" (`recorder.rs`). SwiftUI uses AAC `.m4a`, "as the Android app sends them", since AVFoundation records AAC natively (`brain/parity.md` lists this as a SwiftUI difference).
 
 ## Parity
 
@@ -46,4 +46,4 @@ Recording and sending exist in all three. Only mobile stages the recording for r
 - apps/desktop/macos/Sources/RocketVibe/Composer.swift
 - apps/desktop/macos/Sources/RocketVibe/ThreadView.swift
 - apps/desktop/macos/Sources/RocketVibeKit/RoomModel.swift
-- apps/desktop/docs/PARITY.md
+- brain/parity.md

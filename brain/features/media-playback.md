@@ -66,4 +66,4 @@ PARITY section 3 marks images, video, audio and video-site cards done on both. T
 - apps/desktop/macos/Sources/RocketVibe/Pictures.swift
 - apps/desktop/macos/Sources/RocketVibeKit/MediaStore.swift
 - ROADMAP.md
-- apps/desktop/docs/PARITY.md
+- brain/parity.md

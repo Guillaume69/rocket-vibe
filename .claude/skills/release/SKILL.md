@@ -1,6 +1,6 @@
 ---
 name: release
-description: Cut a rocket-vibe release of the mobile app, the desktop app, or both, the whole shebang - docs sweep (each app's CHANGELOG, READMEs, PARITY.md), version bump in the files that own it, gate, a release/<x.y.z> branch merged into master, the <app>-vX.Y.Z tag pushed, then watch the GitHub workflow until the Release exists with its binaries. Use when the user says "cut a release", "release", "release desktop", "release mobile", or "the whole release shebang".
+description: Cut a rocket-vibe release of the mobile app, the desktop app, or both, the whole shebang - docs sweep (each app's CHANGELOG, READMEs, brain/parity.md), version bump in the files that own it, gate, a release/<x.y.z> branch merged into master, the <app>-vX.Y.Z tag pushed, then watch the GitHub workflow until the Release exists with its binaries. Use when the user says "cut a release", "release", "release desktop", "release mobile", or "the whole release shebang".
 ---
 
 # Release shebang
@@ -39,7 +39,7 @@ when both, they share one release branch.
   Fixed / Removed). One entry per change, worded for a user, not a commit subject.
 - **READMEs**: `apps/<app>/README.md` (features, prerequisites, scripts) and the root
   `README.md` (CI, secrets, release flow), if the release changes what they say.
-- **`apps/desktop/docs/PARITY.md`**: a feature that landed on either app moves a
+- **`brain/parity.md`**: a feature that landed on either app moves a
   box (`[ ]` / `[~]` / `[x]`). Mobile-only features are listed there too, mapped to
   their desktop equivalent.
 - **`apps/desktop/docs/FEEDBACK.md`**: tick the tester items this release fixes.

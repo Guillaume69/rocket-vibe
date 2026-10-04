@@ -101,7 +101,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | Why doesn't a changed avatar show up? | [features/avatars.md](features/avatars.md) |
 | Where do core events reach the GTK main thread? | [architecture/desktop-gtk.md](architecture/desktop-gtk.md) |
 | How does the SwiftUI app talk to the Rust core? | [architecture/desktop-macos.md](architecture/desktop-macos.md) |
-| Does desktop do X yet, and how does it differ from mobile? | the feature doc's Desktop section, and `apps/desktop/docs/PARITY.md` |
+| Does desktop do X yet, and how does it differ from mobile? | the feature doc's Desktop section, and `brain/parity.md` |
 | How do I start the test server and seed it? | [operations.md](operations.md) |
 | What does CI check, and what only runs on a tag? | [operations.md](operations.md), [architecture/testing.md](architecture/testing.md) |
 | How do I cut a release? | [operations.md](operations.md) (and the `release` skill) |
@@ -117,6 +117,6 @@ the `brain` skill. New feature -> new `features/<name>.md` + a row in
 [features/index.md](features/index.md) + a row here.
 
 The brain does not replace the docs that have their own job: the changelogs,
-`apps/desktop/docs/PARITY.md` (the parity checklist), `apps/mobile/CHANTIERS.md`
+`brain/parity.md` (the parity checklist), `apps/mobile/CHANTIERS.md`
 (the debt to fix next), `ROADMAP.md` (product decisions) and `CLAUDE.md` (the
 probed server facts). It links them.

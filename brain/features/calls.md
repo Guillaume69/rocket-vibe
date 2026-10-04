@@ -64,5 +64,5 @@ Start, join, call card with Join, profile Call: both apps (PARITY §12). Desktop
 - apps/desktop/crates/rv-native/src/macos_call.rs
 - apps/desktop/macos/Sources/RocketVibe/CallWindow.swift
 - apps/desktop/data/macos/Info.plist
-- apps/desktop/docs/PARITY.md
+- brain/parity.md
 - ROADMAP.md

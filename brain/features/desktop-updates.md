@@ -54,5 +54,5 @@ Desktop only (PARITY §9, "the desktop equivalent of the store"); the SwiftUI ap
 - apps/desktop/scripts/install.sh
 - apps/desktop/scripts/smoke.sh
 - .github/workflows/desktop.yml
-- apps/desktop/docs/PARITY.md
+- brain/parity.md
 - apps/desktop/README.md

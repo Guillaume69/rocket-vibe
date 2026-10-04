@@ -79,4 +79,4 @@ Section 3 of PARITY is implemented on both sides. Differences that show: desktop
 - apps/desktop/macos/Sources/RocketVibeKit/RoomModel.swift
 - apps/desktop/macos/Sources/RocketVibe/RoomView.swift
 - apps/desktop/macos/Sources/RocketVibe/BodyView.swift
-- apps/desktop/docs/PARITY.md
+- brain/parity.md

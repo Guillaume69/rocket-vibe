@@ -9,7 +9,7 @@ serveurs auto-hébergés en Rocket.Chat **8** ou plus récent.
 | **Bureau** (Linux, Windows, macOS) | [`apps/desktop`](apps/desktop/README.md) | Rust, GTK 4 + libadwaita | `apps/desktop/Cargo.toml` |
 
 Chaque app a son numéro de version et ses propres builds ; la parité fonctionnelle du
-bureau avec le mobile est suivie dans [`apps/desktop/docs/PARITY.md`](apps/desktop/docs/PARITY.md).
+bureau avec le mobile est suivie dans [`brain/parity.md`](brain/parity.md).
 
 ## Partagé
 

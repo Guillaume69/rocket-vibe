@@ -50,7 +50,7 @@ doc disagrees with reality, fix the doc.
   French identifier -> `brain/glossary.md`.
 - A server fact probed on the 8.5 test server goes in `CLAUDE.md`'s facts first;
   `brain/architecture/rocket-chat.md` links it.
-- The other docs keep their own job: changelogs, `apps/desktop/docs/PARITY.md`,
+- The other docs keep their own job: changelogs, `brain/parity.md`,
   `apps/mobile/CHANTIERS.md`, `ROADMAP.md`. The brain links them, it doesn't
   replace them. `apps/mobile/docs/AUDIT.md` is frozen.
 - Style: English, dense, skimmable, present tense, normal prose. No em-dashes.

@@ -25,7 +25,7 @@ so the binary runs natively:
 The session token lives in the Secret Service (KWallet or GNOME Keyring),
 never on disk.
 
-What the Android app does and where this one stands: `docs/PARITY.md`.
+What the Android app does and where this one stands: `brain/parity.md`.
 
 ## Desktop integration
 
@@ -153,4 +153,4 @@ HTML=1 scripts/coverage.sh --e2e
 Login (password, TOTP, email code), several accounts, live room list and
 messages, markdown, reactions, threads, typing indicator, files, voice
 messages, calls, notifications and E2EE: the feature list, and what is still
-missing, is `docs/PARITY.md`.
+missing, is `brain/parity.md`.

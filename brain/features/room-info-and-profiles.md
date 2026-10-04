@@ -54,4 +54,4 @@ Room info, profile with Message and Call, my profile with password and 2FA, live
 - apps/desktop/crates/rv-gtk/src/chat.rs
 - apps/desktop/macos/Sources/RocketVibe/Details.swift
 - apps/desktop/macos/Sources/RocketVibe/SettingsView.swift
-- apps/desktop/docs/PARITY.md
+- brain/parity.md

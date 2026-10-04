@@ -2,7 +2,7 @@
 
 What the apps do. Each doc describes the feature, then its `## Mobile` and
 `## Desktop` sides (GTK, with SwiftUI differences) and their parity. The
-checklist of parity itself is `apps/desktop/docs/PARITY.md`. Back to
+checklist of parity itself is `brain/parity.md`. Back to
 [../BRAIN.md](../BRAIN.md).
 
 ## Session and data

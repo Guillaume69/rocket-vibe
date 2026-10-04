@@ -73,4 +73,4 @@ PARITY §13: room links open the room on both (desktop registered as URL handler
 - apps/desktop/data/macos/Info.plist
 - apps/desktop/scripts/install.sh
 - apps/desktop/macos/Sources/RocketVibe/RocketVibeApp.swift
-- apps/desktop/docs/PARITY.md
+- brain/parity.md

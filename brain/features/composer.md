@@ -92,4 +92,4 @@ Both apps: outbox send with retry, drafts per room and thread, `@`/`:` completio
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/macos/Sources/RocketVibe/Composer.swift
 - apps/desktop/macos/Sources/RocketVibeKit/RoomModel.swift
-- apps/desktop/docs/PARITY.md
+- brain/parity.md

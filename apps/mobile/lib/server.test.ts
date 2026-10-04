@@ -100,7 +100,7 @@ describe('normaliserUrl', () => {
   test('vide et invalide lèvent ErreurServeur, pas une TypeError brute', () => {
     // NB : repose sur un `URL` qui LÈVE sur l'invalide — vrai sous Node comme
     // dans l'app (runtime Winter d'Expo, conforme au standard), faux du vieux
-    // polyfill regex de RN, le piège consigné pour `lib/origine.ts`.
+    // polyfill regex de RN, le piège consigné pour `lib/origin.ts`.
     assert.throws(() => normaliserUrl(''), ErreurServeur);
     assert.throws(() => normaliserUrl('   '), ErreurServeur);
     assert.throws(() => normaliserUrl('https://'), ErreurServeur);
@@ -268,7 +268,7 @@ describe('sonderServeur', () => {
     // LE défaut du chantier 8. `/api/info` partait sur un `fetch` nu, sans
     // délai maximal : si `settings.public` réussissait et que `/api/info`
     // restait pendante (reverse proxy, portail captif), le `Promise.all` de
-    // `sonderServeur` pendait pour toujours. Le `finally` d'app/connexion.tsx
+    // `sonderServeur` pendait pour toujours. Le `finally` d'app/login.tsx
     // ne s'exécutait pas, son garde `enVol` restait armé, et un second appui
     // ressortait dessus SANS jamais atteindre l'`abort()` : écran mort, muet,
     // jusqu'au redémarrage de l'app.

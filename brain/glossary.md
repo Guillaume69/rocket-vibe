@@ -41,41 +41,41 @@ The mobile code, its comments and most of its docs are in French; the desktop co
 | Term | English | Where |
 |---|---|---|
 | `abonnements` | Subscriptions table (per-user room state). | `apps/mobile/db/schema.ts` |
-| `appel` | Call (Jitsi video conference). | `apps/mobile/lib/appel.ts` |
-| `brouillon`, `brouillons` | Composer draft, keyed by `rid` or `rid:tmid`; stored in SQLite, written debounced. | `apps/mobile/db/schema.ts`, `apps/mobile/ui/brouillons.ts` |
-| `citation` | Reply-quote: a message starting with `[ ](permalink?msg=<id>)`, which the server turns into an attachment. | `apps/mobile/lib/citation.ts` |
+| `appel` | Call (Jitsi video conference). | `apps/mobile/lib/call.ts` |
+| `brouillon`, `brouillons` | Composer draft, keyed by `rid` or `rid:tmid`; stored in SQLite, written debounced. | `apps/mobile/db/schema.ts`, `apps/mobile/ui/drafts.ts` |
+| `citation` | Reply-quote: a message starting with `[ ](permalink?msg=<id>)`, which the server turns into an attachment. | `apps/mobile/lib/quote.ts` |
 | `ClientDdp` | The in-house listen-only DDP client; `souscrire` (subscribe) is reference-counted. | `apps/mobile/lib/ddp.ts` |
 | `ClientRest` | The REST client; runs under Node, owns timeouts, 429 sleep and the 401 hook. | `apps/mobile/lib/rest.ts` |
-| `clesStockage` | Secure-store key names (per server, per account). | `apps/mobile/lib/clesStockage.ts` |
-| `commandes` | Slash commands (`commands.list`, `commands.run`). | `apps/mobile/lib/commandes.ts` |
-| `deconnexionDifferee` | Deferred sign-out: finishes `DELETE push.token` and `logout` that failed offline. | `apps/mobile/lib/deconnexionDifferee.ts` |
-| `Depot`, `depot` | Repository: the storage interface the sync engine writes through (`creerDepot`, `creerDepotEnvoi`, `creerDepotTeleversements`, `creerDepotBrouillons`...). | `apps/mobile/db/depot.ts` |
-| `envoi`, `MoteurEnvoi` | Sending: the text outbox engine with client-side `_id` and optimistic display. | `apps/mobile/lib/envoi.ts` |
-| `envoiFichiers`, `MoteurTeleversement` | File sending: the upload queue engine (validation, two-step upload, `file_id` dedup). | `apps/mobile/lib/envoiFichiers.ts` |
-| `epingle`, `etoiles` | Pinned flag, starred-by uids on a message. | `apps/mobile/db/schema.ts`, `apps/mobile/lib/marques.ts` |
+| `clesStockage` | Secure-store key names (per server, per account). | `apps/mobile/lib/storageKeys.ts` |
+| `commandes` | Slash commands (`commands.list`, `commands.run`). | `apps/mobile/lib/commands.ts` |
+| `deconnexionDifferee` | Deferred sign-out: finishes `DELETE push.token` and `logout` that failed offline. | `apps/mobile/lib/deferredLogout.ts` |
+| `Depot`, `depot` | Repository: the storage interface the sync engine writes through (`creerDepot`, `creerDepotEnvoi`, `creerDepotTeleversements`, `creerDepotBrouillons`...). | `apps/mobile/db/store.ts` |
+| `envoi`, `MoteurEnvoi` | Sending: the text outbox engine with client-side `_id` and optimistic display. | `apps/mobile/lib/outbox.ts` |
+| `envoiFichiers`, `MoteurTeleversement` | File sending: the upload queue engine (validation, two-step upload, `file_id` dedup). | `apps/mobile/lib/uploadQueue.ts` |
+| `epingle`, `etoiles` | Pinned flag, starred-by uids on a message. | `apps/mobile/db/schema.ts`, `apps/mobile/lib/marks.ts` |
 | `etatSynchro` (`etat_synchro`) | Sync cursors, per scope (`portee`) and per flow (`flux`). | `apps/mobile/db/schema.ts` |
-| `fil`, `filId` | Thread, thread root id (`tmid`). | `apps/mobile/app/fil/[id].tsx` |
-| File d'écritures (`FileEcritures`, `enSerie`) | Write queue: serialises every write of ONE SQLite connection, because transactions are per connection and not reentrant. | `apps/mobile/db/fileEcritures.ts` |
-| `Fournisseur` | Provider: the neutral façade over a chat server (listener, translator, actions, outbox factories). Only `rocketchat` exists; a Mattermost (kChat) driver is anticipated. | `apps/mobile/lib/fournisseur.ts`, `apps/mobile/fournisseurs/` |
-| `Genre` | The provider kind stored in a session (`'rocketchat'`). | `apps/mobile/lib/fournisseur.ts` |
-| `migrer`, `migrerBase` | Run drizzle migrations, per database, memoised per file name. | `apps/mobile/db/migrer.ts` |
-| `MoteurE2E` | E2EE engine: private key in memory, room key cache, unlock. | `apps/mobile/lib/e2e/moteur.ts` |
-| `MoteurPresence`, `MoteurSaisie`, `MoteurActivite` | Volatile in-memory stores for presence, typing, and background-fetch activity. | `apps/mobile/lib/presence.ts`, `apps/mobile/lib/saisie.ts`, `apps/mobile/lib/activite.ts` |
+| `fil`, `filId` | Thread, thread root id (`tmid`). | `apps/mobile/app/thread/[id].tsx` |
+| File d'écritures (`FileEcritures`, `enSerie`) | Write queue: serialises every write of ONE SQLite connection, because transactions are per connection and not reentrant. | `apps/mobile/db/writeQueue.ts` |
+| `Fournisseur` | Provider: the neutral façade over a chat server (listener, translator, actions, outbox factories). Only `rocketchat` exists; a Mattermost (kChat) driver is anticipated. | `apps/mobile/lib/provider.ts`, `apps/mobile/providers/` |
+| `Genre` | The provider kind stored in a session (`'rocketchat'`). | `apps/mobile/lib/provider.ts` |
+| `migrer`, `migrerBase` | Run drizzle migrations, per database, memoised per file name. | `apps/mobile/db/migrate.ts` |
+| `MoteurE2E` | E2EE engine: private key in memory, room key cache, unlock. | `apps/mobile/lib/e2e/engine.ts` |
+| `MoteurPresence`, `MoteurSaisie`, `MoteurActivite` | Volatile in-memory stores for presence, typing, and background-fetch activity. | `apps/mobile/lib/presence.ts`, `apps/mobile/lib/typing.ts`, `apps/mobile/lib/activity.ts` |
 | `MoteurSynchro` | Sync engine: applies stream events and REST documents as upserts. | `apps/mobile/lib/sync.ts` |
-| `nomFichier` | Database file name, derived from host and account: one database per (server, account). | `apps/mobile/db/nomFichier.ts` |
-| `normaliser` | Normalise: turns server payloads into local rows; where the server's quirks are absorbed. | `apps/mobile/lib/normaliser.ts` |
-| `origine` | URL origin (scheme + authority) and comparisons, parsed by hand because React Native's `URL` polyfill never throws. | `apps/mobile/lib/origine.ts` |
+| `nomFichier` | Database file name, derived from host and account: one database per (server, account). | `apps/mobile/db/fileName.ts` |
+| `normaliser` | Normalise: turns server payloads into local rows; where the server's quirks are absorbed. | `apps/mobile/lib/normalize.ts` |
+| `origine` | URL origin (scheme + authority) and comparisons, parsed by hand because React Native's `URL` polyfill never throws. | `apps/mobile/lib/origin.ts` |
 | `pieces_jointes` (`piecesJointes`) | Attachments, as server JSON on a message row. | `apps/mobile/db/schema.ts` |
-| `portee` | Scope: `'global'` or a `rid` (sync cursors, activity indicator). | `apps/mobile/lib/activite.ts` |
-| `raccordement`, `raccorder` | Hook-up: what runs at every (re)connection, ordering stream subscriptions and REST reads so nothing falls in between. | `apps/mobile/lib/raccordement.ts` |
-| `rattrapage` | Catch-up after a gap: `rattraperGlobal` (two `updatedSince` requests for all rooms) and `rattraperSalon` (`syncMessages` for one room). | `apps/mobile/lib/rattrapage.ts` |
-| `Reconnecteur` | Reconnection driver: exponential backoff with jitter, 1 s to 30 s; `suspendre`/`reprendre` on background and foreground. | `apps/mobile/lib/reconnexion.ts` |
-| `saisie` | Typing (indicator). | `apps/mobile/lib/saisie.ts` |
+| `portee` | Scope: `'global'` or a `rid` (sync cursors, activity indicator). | `apps/mobile/lib/activity.ts` |
+| `raccordement`, `raccorder` | Hook-up: what runs at every (re)connection, ordering stream subscriptions and REST reads so nothing falls in between. | `apps/mobile/lib/connectionSetup.ts` |
+| `rattrapage` | Catch-up after a gap: `rattraperGlobal` (two `updatedSince` requests for all rooms) and `rattraperSalon` (`syncMessages` for one room). | `apps/mobile/lib/catchUp.ts` |
+| `Reconnecteur` | Reconnection driver: exponential backoff with jitter, 1 s to 30 s; `suspendre`/`reprendre` on background and foreground. | `apps/mobile/lib/reconnect.ts` |
+| `saisie` | Typing (indicator). | `apps/mobile/lib/typing.ts` |
 | `salon`, `salons` | Room, rooms table. | `apps/mobile/db/schema.ts` |
 | `sessionStore` | Session persistence in `expo-secure-store`. | `apps/mobile/lib/sessionStore.ts` |
 | `sortie` | Outbox table for text messages (`en-attente`, `echec`; a sent row is deleted). | `apps/mobile/db/schema.ts` |
 | `televersement`, `televersements` | Upload, uploads table (`en-attente`, `envoi`, `echec`, and `file_id` as dedup key). | `apps/mobile/db/schema.ts` |
-| `TraducteurRC` | Translator: decodes Rocket.Chat stream events and documents into neutral `ChangementSync` values. | `apps/mobile/fournisseurs/rocketchat/traducteur.ts` |
+| `TraducteurRC` | Translator: decodes Rocket.Chat stream events and documents into neutral `ChangementSync` values. | `apps/mobile/providers/rocketchat/translator.ts` |
 | `upserts` | The idempotent SQL, kept in one module and executed as-is by the tests on `node:sqlite`. | `apps/mobile/db/upserts.ts` |
 | `utilisateurs` | Users table: `uid` to current username and `avatarEtag`. | `apps/mobile/db/schema.ts` |
 
@@ -83,31 +83,31 @@ The mobile code, its comments and most of its docs are in French; the desktop co
 
 | Term | English | Where |
 |---|---|---|
-| `amenerMessage` | Bring a message into the room's local window (paging history) before jumping to it. | `apps/mobile/ui/amenerMessage.ts` |
-| `barreNonLus` | The "new messages" bar projection. | `apps/mobile/ui/barreNonLus.ts` |
+| `amenerMessage` | Bring a message into the room's local window (paging history) before jumping to it. | `apps/mobile/ui/bringMessage.ts` |
+| `barreNonLus` | The "new messages" bar projection. | `apps/mobile/ui/unreadBar.ts` |
 | `composer` | Composer shared by room and thread screens. | `apps/mobile/ui/composer.tsx` |
-| `donneesLissees` | Smoothed data: throttles bursts of incoming messages so the inverted list does not jump. | `apps/mobile/ui/donneesLissees.ts` |
-| `generation` | Connection generation counter in `SynchroProvider`, bumped at each hook-up; screen caches compare against it. | `apps/mobile/ui/synchro.tsx` |
-| `identites`, `storeIdentites` | Identities: `uid` to current username and avatar etags, fed from the `utilisateurs` table into two module-level stores. | `apps/mobile/ui/identites.tsx`, `apps/mobile/ui/storeIdentites.ts` |
-| `jetonSession` | UI session token that lets module-level caches refuse a late write after sign-out. | `apps/mobile/ui/jetonSession.ts` |
+| `donneesLissees` | Smoothed data: throttles bursts of incoming messages so the inverted list does not jump. | `apps/mobile/ui/smoothedData.ts` |
+| `generation` | Connection generation counter in `SynchroProvider`, bumped at each hook-up; screen caches compare against it. | `apps/mobile/ui/sync.tsx` |
+| `identites`, `storeIdentites` | Identities: `uid` to current username and avatar etags, fed from the `utilisateurs` table into two module-level stores. | `apps/mobile/ui/identities.tsx`, `apps/mobile/ui/identityStore.ts` |
+| `jetonSession` | UI session token that lets module-level caches refuse a late write after sign-out. | `apps/mobile/ui/sessionToken.ts` |
 | `kit`, `theme` | Shared visual bricks and the "Nuit Etoilee" (starry night) theme tokens. | `apps/mobile/ui/kit.tsx`, `apps/mobile/ui/theme.ts` |
-| `lancerSelecteur` | Launch a native picker with retry over an Android view-tree NPE (the one argued fixed delay in the repo). | `apps/mobile/ui/lancerSelecteur.ts` |
-| `ligneMessage` | Message row, shared by room and thread. | `apps/mobile/ui/ligneMessage.tsx` |
+| `lancerSelecteur` | Launch a native picker with retry over an Android view-tree NPE (the one argued fixed delay in the repo). | `apps/mobile/ui/launchPicker.ts` |
+| `ligneMessage` | Message row, shared by room and thread. | `apps/mobile/ui/messageRow.tsx` |
 | `messages` | The i18n catalogue (`fr` is the reference, `en` typed against it). | `apps/mobile/ui/messages.ts` |
-| `notesPrivees` | Private notes: the server's answer to a slash command, shown above the composer, in memory only. | `apps/mobile/ui/notesPrivees.tsx` |
-| `piecesEnAttente` | Staged attachments, shown as chips before sending. | `apps/mobile/ui/piecesEnAttente.tsx` |
-| `reponse` | Reply target, the channel between the actions sheet and the composer. | `apps/mobile/ui/reponse.ts` |
-| `requeteVive`, `useRequeteVive` | Live query: a `useLiveQuery` that coalesces write bursts. | `apps/mobile/ui/requeteVive.ts` |
-| `salonChaud` | Hot room: up to 3 recently left rooms whose subscriptions stay open (LRU), so re-entering needs no slow `syncMessages`. | `apps/mobile/ui/salonChaud.ts` |
-| `salonsCharges`, `filsCharges` | Which rooms / threads already got their opening load, and under which `generation`. | `apps/mobile/ui/salonsCharges.ts`, `apps/mobile/ui/filsCharges.ts` |
-| `salonsOuverts` | Which room screens are mounted and which one is displayed (the only room the catch-up targets). | `apps/mobile/ui/salonsOuverts.ts` |
-| `sautMessage` | Jump-to-message target, armed by the pinned/starred list. | `apps/mobile/ui/sautMessage.ts` |
-| `sectionsAccueil` | Home sections: the room list grouping. | `apps/mobile/ui/sectionsAccueil.ts` |
-| `SessionProvider`, `SynchroProvider` | Session lifecycle (optimistic resume, sign-out) and the sync wiring per session. | `apps/mobile/ui/session.tsx`, `apps/mobile/ui/synchro.tsx` |
-| `sondeUpload` | Upload probe: checks DDP liveness after a multipart upload, which can kill the socket silently. | `apps/mobile/ui/sondeUpload.ts` |
-| `sourcePieceJointe` | Attachment source channel between the composer and the "joindre" sheet. | `apps/mobile/ui/sourcePieceJointe.ts` |
-| `transferts` | Downloads in progress (save, share) and their progress. | `apps/mobile/ui/transferts.ts` |
-| `visionneuse` | Full-screen image viewer. | `apps/mobile/ui/visionneuse.tsx` |
+| `notesPrivees` | Private notes: the server's answer to a slash command, shown above the composer, in memory only. | `apps/mobile/ui/privateNotes.tsx` |
+| `piecesEnAttente` | Staged attachments, shown as chips before sending. | `apps/mobile/ui/stagedAttachments.tsx` |
+| `reponse` | Reply target, the channel between the actions sheet and the composer. | `apps/mobile/ui/reply.ts` |
+| `requeteVive`, `useRequeteVive` | Live query: a `useLiveQuery` that coalesces write bursts. | `apps/mobile/ui/liveQuery.ts` |
+| `salonChaud` | Hot room: up to 3 recently left rooms whose subscriptions stay open (LRU), so re-entering needs no slow `syncMessages`. | `apps/mobile/ui/hotRooms.ts` |
+| `salonsCharges`, `filsCharges` | Which rooms / threads already got their opening load, and under which `generation`. | `apps/mobile/ui/loadedRooms.ts`, `apps/mobile/ui/loadedThreads.ts` |
+| `salonsOuverts` | Which room screens are mounted and which one is displayed (the only room the catch-up targets). | `apps/mobile/ui/openRooms.ts` |
+| `sautMessage` | Jump-to-message target, armed by the pinned/starred list. | `apps/mobile/ui/messageJump.ts` |
+| `sectionsAccueil` | Home sections: the room list grouping. | `apps/mobile/ui/homeSections.ts` |
+| `SessionProvider`, `SynchroProvider` | Session lifecycle (optimistic resume, sign-out) and the sync wiring per session. | `apps/mobile/ui/session.tsx`, `apps/mobile/ui/sync.tsx` |
+| `sondeUpload` | Upload probe: checks DDP liveness after a multipart upload, which can kill the socket silently. | `apps/mobile/ui/uploadProbe.ts` |
+| `sourcePieceJointe` | Attachment source channel between the composer and the "joindre" sheet. | `apps/mobile/ui/attachmentSource.ts` |
+| `transferts` | Downloads in progress (save, share) and their progress. | `apps/mobile/ui/transfers.ts` |
+| `visionneuse` | Full-screen image viewer. | `apps/mobile/ui/imageViewer.tsx` |
 
 ## Mobile routes (`apps/mobile/app/`)
 
@@ -115,21 +115,21 @@ The mobile code, its comments and most of its docs are in French; the desktop co
 |---|---|
 | `_layout.tsx` | Root native stack; declares the `formSheet` sheets and the share guard. |
 | `index.tsx` | Gate and room list (to `connexion` without a session). |
-| `connexion.tsx` | Sign-in: server, credentials, second factor. |
+| `login.tsx` | Sign-in: server, credentials, second factor. |
 | `salon/[rid].tsx` | A room (`salon`). |
-| `fil/[id].tsx` | A thread (`fil`), `id` = root message id. |
-| `appel/[callId].tsx` | Call screen: Jitsi in a full-screen WebView, the only WebView. |
-| `actions-message.tsx` | Message actions sheet. |
-| `joindre.tsx` | "Attach" sheet: attachment sources. |
-| `deverrouiller-e2e.tsx` | E2EE unlock sheet. |
-| `salon-info.tsx` | Room info sheet. |
-| `profil.tsx` | A user's profile sheet. |
-| `mon-profil.tsx` | My profile (edit). |
-| `parametres.tsx` | Settings. |
-| `partager.tsx` | Incoming share (Android `ACTION_SEND`). |
-| `recherche.tsx` | Start a conversation (spotlight). |
-| `recherche-messages.tsx` | Message search in one room. |
-| `messages-marques.tsx` | Pinned and starred messages (`marques`, marked). |
+| `thread/[id].tsx` | A thread (`fil`), `id` = root message id. |
+| `call/[callId].tsx` | Call screen: Jitsi in a full-screen WebView, the only WebView. |
+| `message-actions.tsx` | Message actions sheet. |
+| `attach.tsx` | "Attach" sheet: attachment sources. |
+| `unlock-e2e.tsx` | E2EE unlock sheet. |
+| `room-info.tsx` | Room info sheet. |
+| `profile.tsx` | A user's profile sheet. |
+| `my-profile.tsx` | My profile (edit). |
+| `settings.tsx` | Settings. |
+| `share.tsx` | Incoming share (Android `ACTION_SEND`). |
+| `search.tsx` | Start a conversation (spotlight). |
+| `message-search.tsx` | Message search in one room. |
+| `marked-messages.tsx` | Pinned and starred messages (`marques`, marked). |
 | `+native-intent.tsx` | Swallows the iOS share extension's `rocketvibe://dataUrl=` reopen. |
 
 ## Mobile native (`apps/mobile/modules/`, `apps/mobile/plugins/`)
@@ -141,7 +141,7 @@ The mobile code, its comments and most of its docs are in French; the desktop co
 | `reponse-notif` | iOS module: inline reply from a notification, sent natively. |
 | `telechargements` | Android module: copies a file into the public Downloads folder. |
 | `with-fcm-deeplink.js` | Config plugin injecting the Kotlin FCM service (`push.get`, WorkManager retry, deep links). |
-| `with-partage-entrant.js`, `with-signature-release.js`, `with-architectures-cibles.js`, `with-ios-push.js` | Incoming share, release signing, target ABIs, iOS push. |
+| `with-incoming-share.js`, `with-signature-release.js`, `with-target-architectures.js`, `with-ios-push.js` | Incoming share, release signing, target ABIs, iOS push. |
 
 ## Desktop (`apps/desktop/`)
 
@@ -159,7 +159,7 @@ The mobile code, its comments and most of its docs are in French; the desktop co
 | Term | Meaning |
 |---|---|
 | Banc | Test bench: the local Rocket.Chat 8.5.1 in `docker/`. |
-| Chantier | A work item of the 2026-07-25 audit, numbered 1 to 16 in `apps/mobile/CHANTIERS.md`. |
+| Chantier | A work item of the 2026-07-25 audit, numbered 1 to 16 in `apps/mobile/WORKSTREAMS.md`. |
 | Écart assumé | A documented deviation from the audit's prescribed fix, with its reason. |
 | Étape | A step of the (frozen) construction checklist `apps/mobile/EXECUTION.md`, e.g. "8.3". |
 | Kill gate | Phase 1 of `ROADMAP.md`: the binary proof that a self-built APK receives pushes when killed. |
@@ -170,19 +170,19 @@ The mobile code, its comments and most of its docs are in French; the desktop co
 
 - `CLAUDE.md`
 - `ROADMAP.md`
-- `apps/mobile/CHANTIERS.md`
+- `apps/mobile/WORKSTREAMS.md`
 - `apps/mobile/db/schema.ts`
-- `apps/mobile/db/fileEcritures.ts`
-- `apps/mobile/db/depot.ts`
-- `apps/mobile/db/nomFichier.ts`
-- `apps/mobile/lib/fournisseur.ts`
-- `apps/mobile/lib/raccordement.ts`
-- `apps/mobile/lib/rattrapage.ts`
+- `apps/mobile/db/writeQueue.ts`
+- `apps/mobile/db/store.ts`
+- `apps/mobile/db/fileName.ts`
+- `apps/mobile/lib/provider.ts`
+- `apps/mobile/lib/connectionSetup.ts`
+- `apps/mobile/lib/catchUp.ts`
 - `apps/mobile/lib/ddp.ts`
 - `apps/mobile/lib/rest.ts`
-- `apps/mobile/ui/identites.tsx`
-- `apps/mobile/ui/salonChaud.ts`
-- `apps/mobile/ui/synchro.tsx`
+- `apps/mobile/ui/identities.tsx`
+- `apps/mobile/ui/hotRooms.ts`
+- `apps/mobile/ui/sync.tsx`
 - `apps/mobile/app/_layout.tsx`
 - `apps/mobile/modules/`
 - `apps/mobile/plugins/`

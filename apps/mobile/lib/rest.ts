@@ -137,7 +137,7 @@ export type OptionsAppel = {
    * HTTP reçue). Réservé aux écritures idempotentes (profil, statut) : une
    * requête rejetée sans réponse n'a rien délivré, donc la rejouer ne double
    * aucun effet serveur. `chat.sendMessage` NE l'active PAS — sa déduplication
-   * vit dans lib/envoi, qui garde la ligne « en-attente » pour un rejeu propre.
+   * vit dans lib/outbox, qui garde la ligne « en-attente » pour un rejeu propre.
    */
   rejeuReseau?: boolean;
   /**
@@ -168,7 +168,7 @@ const DELAI_REJEU_RESEAU_MS = 400;
  * reçoivent le MÊME `x-ratelimit-reset` et se réveillent à la même
  * milliseconde : ils repartent en rafale sur une fenêtre qui vient tout juste
  * de rouvrir, et se reprennent un 429. Même raison que la gigue du pilote de
- * reconnexion (`lib/reconnexion.ts`) — un troupeau tonnant, à deux têtes.
+ * reconnexion (`lib/reconnect.ts`) — un troupeau tonnant, à deux têtes.
  */
 const DISPERSION_429_MS = 500;
 

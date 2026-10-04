@@ -64,7 +64,7 @@ Les noms de streams et les clés d'événements sont des faits d'interface, déj
 | Exclu | Raison |
 |---|---|
 | **E2EE** | Mesuré sur le serveur cible : `E2E_Enable=true`, mais **un seul salon chiffré sur 25** (`p:laprivitude`). Coût élevé (`react-native-quick-crypto` pour RSA-OAEP, `expo-crypto` ne fait pas de RSA) pour 4 % de l'usage. Le v1 **dégrade proprement** : cadenas dans la liste, aperçu `lastMessage` masqué, messages `t='e2e'` remplacés par un placeholder, composer désactivé, notification générique. Voir §6.6. **Livré depuis** dans les deux apps (`apps/mobile/lib/e2e/`, `apps/desktop/crates/rv-core/src/e2e.rs`) : messages et fichiers, déchiffrés et chiffrés ; la dégradation reste en place tant que la clé est verrouillée. |
-| **Appels audio/vidéo** | Hors motivation. C'est ce que tire `@rocket.chat/media-signaling` — on l'évite. **Livrés depuis** par la visioconférence Jitsi du serveur, sans `media-signaling` : `apps/mobile/app/appel/[callId].tsx`, `apps/desktop/crates/rv-core/src/call.rs` (voir l'exception WebView, §4.2). |
+| **Appels audio/vidéo** | Hors motivation. C'est ce que tire `@rocket.chat/media-signaling` — on l'évite. **Livrés depuis** par la visioconférence Jitsi du serveur, sans `media-signaling` : `apps/mobile/app/call/[callId].tsx`, `apps/desktop/crates/rv-core/src/call.rs` (voir l'exception WebView, §4.2). |
 | **Administration serveur** | Client de consommation, pas console admin. |
 | **Apps / blocs UiKit interactifs** | On rend `attachments` et `md`, on ignore proprement les `blocks` inconnus. |
 | **Omnichannel / LiveChat** | Cas d'usage entreprise. |
@@ -109,7 +109,7 @@ Ce sont des **dettes assumées**, documentées pour éviter la dérive de périm
 | Runtime | **Expo SDK 57** (`expo@57.0.4`), RN 0.86, React 19.2, Hermes | Le majeur du paquet `expo` = le numéro de SDK. **New Architecture obligatoire et non désactivable** depuis RN 0.82 : `newArchEnabled=false` n'a plus aucun effet. Ne compte pas dessus comme filet. |
 | Build | CNG : `android/` **gitignoré**, tout passe par config plugins | En SDK 57 `expo prebuild` **efface et régénère par défaut** (`--no-clean` pour l'éviter) : une édition manuelle du dossier serait perdue. |
 | Navigation | `expo-router` (57.x) sur `react-native-screens` | Deep link natif depuis la notification, routes typées, stack natif, **bottom sheets natifs** via `presentation: 'formSheet'`. |
-| Persistance | `expo-sqlite` + `drizzle-orm` | `useRequeteVive` (`ui/requeteVive.ts`), un `useLiveQuery` de `drizzle-orm/expo-sqlite` qui regroupe les rafales d'écriture en un seul rafraîchissement, avec **`enableChangeListener: true`** obligatoire à l'ouverture de la base. |
+| Persistance | `expo-sqlite` + `drizzle-orm` | `useRequeteVive` (`ui/liveQuery.ts`), un `useLiveQuery` de `drizzle-orm/expo-sqlite` qui regroupe les rafales d'écriture en un seul rafraîchissement, avec **`enableChangeListener: true`** obligatoire à l'ouverture de la base. |
 | Clé-valeur | ~~`react-native-mmkv` 4.x~~ non retenu | Prévu pour les brouillons et préférences. Les brouillons vivent finalement dans SQLite (table `brouillons`), le paquet n'est pas installé. |
 | Temps réel | **Mini-client DDP maison** | Voir §2. |
 | Liste | **`@shopify/flash-list` 2.3.2, `inverted`** | Voir §6.3. |
@@ -152,19 +152,19 @@ C'est ce qu'on utilisera pour la feuille d'actions sur un message, le sélecteur
 > **L'exception WebView : l'écran d'appel, et rien d'autre** (consignée au chantier 16, livrée
 > le 2026-07-12, `61fc7d4`). La visioconférence Jitsi est une **web-app** : l'alternative native,
 > `@jitsi/react-native-sdk`, vise RN ~0.79 et embarque `react-native-webrtc` — un pari New
-> Architecture fragile contre notre RN 0.86. `apps/mobile/app/appel/[callId].tsx` charge donc l'URL rendue
+> Architecture fragile contre notre RN 0.86. `apps/mobile/app/call/[callId].tsx` charge donc l'URL rendue
 > par `video-conference.join` (JWT inclus) dans une WebView plein écran. Les bornes, et elles ne
 > se négocient pas : **une seule route** ; **origine verrouillée** sur celle que le serveur a
-> désignée (`originWhitelist` + `onShouldStartLoadWithRequest`, primitives de `apps/mobile/lib/origine.ts`) —
+> désignée (`originWhitelist` + `onShouldStartLoadWithRequest`, primitives de `apps/mobile/lib/origin.ts`) —
 > parce que l'app détient caméra et micro pendant l'appel et qu'Android ne sait pas arbitrer ces
 > permissions par origine, la navigation est le seul verrou. Partout ailleurs, l'interdit tient :
-> la lecture intégrée des liens vidéo, par exemple, reste une carte native (`apps/mobile/ui/carteEmbed.tsx`).
+> la lecture intégrée des liens vidéo, par exemple, reste une carte native (`apps/mobile/ui/embedCard.tsx`).
 >
 > **Sur le bureau, la même exception, avec les mêmes bornes** (2026-09-30) : l'appel s'ouvre dans une
 > fenêtre de l'app et nulle part ailleurs, WebView2 sous Windows (`apps/desktop/crates/rv-native/src/windows_call.rs`),
 > WKWebView sous macOS (`macos_call.rs`, et `CallWindow.swift` dans l'app SwiftUI). L'origine est
 > verrouillée par la même règle, écrite une fois en Rust (`apps/desktop/crates/rv-core/src/call.rs`,
-> portage de `origine.ts`) : navigation hors de l'origine annulée et renvoyée au navigateur, et
+> portage de `origin.ts`) : navigation hors de l'origine annulée et renvoyée au navigateur, et
 > cette fois la caméra et le micro s'arbitrent aussi par origine, ce que WebView2 et WKWebView
 > permettent. Sous Linux, pas de moteur embarqué : les distributions compilent WebKitGTK sans WebRTC
 > (vérifié sur Fedora 44 et Arch, `RTCPeerConnection` absent), l'appel ouvre donc une fenêtre
@@ -328,7 +328,7 @@ Non-lus (`subscriptions.read`, barre « nouveaux messages » via `ls`). Actions 
 
 **Problème.** Les souscriptions ne survivent pas à une reconnexion, et oublier un `unsub` fait exploser le nombre de souscriptions et les doublons.
 
-**Solution.** Client maison en écoute seule (§2). Backoff avec gigue. À chaque socket : re-connect, re-login, **re-sub complet**. Souscriptions minimales : deux à quatre sur `stream-notify-user`, plus `stream-room-messages/<rid>` **uniquement pour le salon ouvert** (livré : le mobile garde aussi abonnés les 3 derniers salons quittés, en LRU, `apps/mobile/ui/salonChaud.ts`). Rattrapage REST piloté par `SyncState`. Test de torture en critère d'acceptation.
+**Solution.** Client maison en écoute seule (§2). Backoff avec gigue. À chaque socket : re-connect, re-login, **re-sub complet**. Souscriptions minimales : deux à quatre sur `stream-notify-user`, plus `stream-room-messages/<rid>` **uniquement pour le salon ouvert** (livré : le mobile garde aussi abonnés les 3 derniers salons quittés, en LRU, `apps/mobile/ui/hotRooms.ts`). Rattrapage REST piloté par `SyncState`. Test de torture en critère d'acceptation.
 
 **Plan B.** Adopter `@rocket.chat/ddp-client` en acceptant son poids et son flou de licence. En dernier recours, polling REST pur : dégradé mais fonctionnel.
 

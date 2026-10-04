@@ -12,11 +12,11 @@ How a user signs in to a Rocket.Chat server (password, then a second factor when
 
 ## Mobile
 
-**Screen.** `app/connexion.tsx` is a three-phase state machine (`Phase`: `serveur` (server) then `identifiants` (credentials) then `deuxFacteurs` (second factor)). The REST client lives inside the phase variants, so it exists exactly when a server was validated. A ref (`enVol`, in flight) guards re-entry: two events in the same frame (Enter key plus a tap) would otherwise send two logins and burn the same one-time TOTP code twice. The probe (`sonderServeur` in `lib/server.ts`) goes through `ClientRest` with the `horsApiV1` option, which gives it the maximal timeout; on a bare `fetch` a hanging proxy left the screen dead. When `Accounts_ShowFormLogin` is false the screen warns but does not block, since the API sometimes accepts a direct login anyway. The probe also records `Site_Url`, which the login answer lacks: it is merged into the persisted `Session.siteUrl` and later used to build quote permalinks (`lib/citation.ts`). Errors map to messages: a repeated `totp-required` on the same method or a `totp-invalid` means "code refused", a plain 401 means "credentials refused". The email method gets a "send the code" button, then a "resend" link.
+**Screen.** `app/login.tsx` is a three-phase state machine (`Phase`: `serveur` (server) then `identifiants` (credentials) then `deuxFacteurs` (second factor)). The REST client lives inside the phase variants, so it exists exactly when a server was validated. A ref (`enVol`, in flight) guards re-entry: two events in the same frame (Enter key plus a tap) would otherwise send two logins and burn the same one-time TOTP code twice. The probe (`sonderServeur` in `lib/server.ts`) goes through `ClientRest` with the `horsApiV1` option, which gives it the maximal timeout; on a bare `fetch` a hanging proxy left the screen dead. When `Accounts_ShowFormLogin` is false the screen warns but does not block, since the API sometimes accepts a direct login anyway. The probe also records `Site_Url`, which the login answer lacks: it is merged into the persisted `Session.siteUrl` and later used to build quote permalinks (`lib/quote.ts`). Errors map to messages: a repeated `totp-required` on the same method or a `totp-invalid` means "code refused", a plain 401 means "credentials refused". The email method gets a "send the code" button, then a "resend" link.
 
-**Default server.** `SERVEUR_PAR_DEFAUT` (`db/migrer.ts`) is `http://localhost:3000` in dev builds and `https://chat.barrut.me` otherwise; the field is pre-filled with the last server used unless the user already typed something.
+**Default server.** `SERVEUR_PAR_DEFAUT` (`db/migrate.ts`) is `http://localhost:3000` in dev builds and `https://chat.barrut.me` otherwise; the field is pre-filled with the last server used unless the user already typed something.
 
-**Storage.** `lib/sessionStore.ts` keeps everything in `expo-secure-store` (Android Keystore), never AsyncStorage. Key names are derived in `lib/clesStockage.ts`, isolated so tests can prove the isolation rules:
+**Storage.** `lib/sessionStore.ts` keeps everything in `expo-secure-store` (Android Keystore), never AsyncStorage. Key names are derived in `lib/storageKeys.ts`, isolated so tests can prove the isolation rules:
 
 - the session is keyed by **server only**: `session-<first 32 hex of SHA-256(url)>` (Keystore keys accept only `[A-Za-z0-9._-]`). One account per server on mobile;
 - the E2EE private key is keyed by **(server, account)** (`e2e-<hash of url|uid>`); an old server-only key is never read, only deleted at startup (`purgerToutesClesE2EHeritees`), because reading it re-imported one account's key for the next;
@@ -25,9 +25,9 @@ How a user signs in to a Rocket.Chat server (password, then a second factor when
 
 `lireSession` treats corrupt or foreign entries as absent and migrates old shapes on read (`genre` defaults to `rocketchat`, `siteUrl` to null).
 
-**Lifecycle.** `ui/session.tsx` (`SessionProvider`) exposes `EtatSession` (`demarrage` (starting), `deconnecte`, `connecte`). At launch it resumes **optimistically**: the stored session is declared connected at once and `reprendreSession` validates it in the background. An unreachable server keeps the session; only `estJetonRefuse` (a 401 with a Rocket.Chat envelope, not a 2FA challenge) signs out, and it also adopts a username changed elsewhere. Every client of the running app is made by `clientPour`, which wires `ClientRest.surJetonRefuse` so any call that meets a revoked token triggers `revoquer`. Two guards protect a fresh session from a late 401: the token in flight is compared with `jetonCourant`, and the Keystore is re-read before anything is erased. Sign-out unregisters the push token and calls `logout`; if either fails offline, the pair is queued (`ajouterDeconnexionEnSuspens`) and replayed at the next start by `terminerDeconnexions` (`lib/deconnexionDifferee.ts`), because the token is still alive server-side and keeping it is the only way to kill it. `effacerTraces` then removes the session, the E2EE key and the legacy key together. The per-account SQLite file is not removed by this path.
+**Lifecycle.** `ui/session.tsx` (`SessionProvider`) exposes `EtatSession` (`demarrage` (starting), `deconnecte`, `connecte`). At launch it resumes **optimistically**: the stored session is declared connected at once and `reprendreSession` validates it in the background. An unreachable server keeps the session; only `estJetonRefuse` (a 401 with a Rocket.Chat envelope, not a 2FA challenge) signs out, and it also adopts a username changed elsewhere. Every client of the running app is made by `clientPour`, which wires `ClientRest.surJetonRefuse` so any call that meets a revoked token triggers `revoquer`. Two guards protect a fresh session from a late 401: the token in flight is compared with `jetonCourant`, and the Keystore is re-read before anything is erased. Sign-out unregisters the push token and calls `logout`; if either fails offline, the pair is queued (`ajouterDeconnexionEnSuspens`) and replayed at the next start by `terminerDeconnexions` (`lib/deferredLogout.ts`), because the token is still alive server-side and keeping it is the only way to kill it. `effacerTraces` then removes the session, the E2EE key and the legacy key together. The per-account SQLite file is not removed by this path.
 
-**Several servers.** Each server keeps its own session; the local database is per (server, account) (`db/nomFichier.ts`: `rocket-vibe-<host slug>-<uid>.db`). Settings has a "change server" link to `/connexion?changer=1`, which lists the known servers; tapping one calls `changerDeServeur`, which reads the target session before moving the resume pointer (so a server without a session never strands the user signed out) and validates it in the background. A notification deep link carrying `?host=` for another server lands on an explicit "switch to that server" screen in `app/salon/[rid].tsx` (`AutreServeur`) rather than switching silently. See [sharing-and-links.md](sharing-and-links.md).
+**Several servers.** Each server keeps its own session; the local database is per (server, account) (`db/fileName.ts`: `rocket-vibe-<host slug>-<uid>.db`). Settings has a "change server" link to `/login?changer=1`, which lists the known servers; tapping one calls `changerDeServeur`, which reads the target session before moving the resume pointer (so a server without a session never strands the user signed out) and validates it in the background. A notification deep link carrying `?host=` for another server lands on an explicit "switch to that server" screen in `app/salon/[rid].tsx` (`AutreServeur`) rather than switching silently. See [sharing-and-links.md](sharing-and-links.md).
 
 ## Desktop
 
@@ -47,18 +47,18 @@ How a user signs in to a Rocket.Chat server (password, then a second factor when
 
 ## Sources
 
-- apps/mobile/app/connexion.tsx
-- apps/mobile/app/parametres.tsx
+- apps/mobile/app/login.tsx
+- apps/mobile/app/settings.tsx
 - apps/mobile/app/salon/[rid].tsx
 - apps/mobile/lib/auth.ts
 - apps/mobile/lib/server.ts
 - apps/mobile/lib/rest.ts
 - apps/mobile/lib/sessionStore.ts
-- apps/mobile/lib/clesStockage.ts
-- apps/mobile/lib/deconnexionDifferee.ts
+- apps/mobile/lib/storageKeys.ts
+- apps/mobile/lib/deferredLogout.ts
 - apps/mobile/ui/session.tsx
-- apps/mobile/db/nomFichier.ts
-- apps/mobile/db/migrer.ts
+- apps/mobile/db/fileName.ts
+- apps/mobile/db/migrate.ts
 - apps/desktop/crates/rv-core/src/server.rs
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-core/src/rest.rs

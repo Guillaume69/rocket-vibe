@@ -13,7 +13,7 @@
  * injecté (`expo-crypto` dans l'app, `node:crypto` dans les tests).
  */
 
-import type { Genre } from './fournisseur.ts';
+import type { Genre } from './provider.ts';
 import { ClientRest, ErreurDeuxFacteurs, type CodeDeuxFacteurs } from './rest.ts';
 
 export type Session = {
@@ -26,7 +26,7 @@ export type Session = {
   /**
    * `Site_Url` du serveur, relevé au sondage de connexion. C'est la SEULE URL
    * que le serveur reconnaît en tête d'un permalien de citation
-   * (`lib/citation.ts`) — `baseUrl` peut en différer (alias de proxy, IP, port,
+   * (`lib/quote.ts`) — `baseUrl` peut en différer (alias de proxy, IP, port,
    * http/https : cas du banc émulateur, `10.0.2.2:3300` vs `localhost:3300`).
    * `null` pour une session d'avant le champ ou un réglage absent : on retombe
    * alors sur `baseUrl`, le comportement historique.
@@ -151,7 +151,7 @@ export function demanderCodeParEmail(client: ClientRest, emailOuNom: string): Pr
 /**
  * Rend **vrai si le serveur a bien fermé la session**, faux si l'appel n'a pas
  * abouti. L'appelant s'en sert pour mettre la déconnexion en file plutôt que
- * de la perdre (`lib/deconnexionDifferee.ts`) : hors ligne, le jeton reste
+ * de la perdre (`lib/deferredLogout.ts`) : hors ligne, le jeton reste
  * vivant côté serveur, et personne ne le savait.
  *
  * L'échec n'est toujours PAS relayé en exception : l'état local est déconnecté

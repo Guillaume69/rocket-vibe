@@ -7,8 +7,8 @@
  */
 
 import type { Evenement } from './ddp.ts';
-import type { ChangementSync, Traducteur } from './fournisseur.ts';
-import type { AbonnementLocal, MessageLocal, SalonLocal } from './normaliser.ts';
+import type { ChangementSync, Traducteur } from './provider.ts';
+import type { AbonnementLocal, MessageLocal, SalonLocal } from './normalize.ts';
 
 /**
  * Ce que la synchro attend du moteur E2EE, structurellement (pas d'import de
@@ -70,7 +70,7 @@ export interface Depot {
   messagesADechiffrer(): Promise<{ id: string; rid: string; chiffreBrut: string }[]>;
   /** Pose le clair d'un message (et ses pièces jointes) après déchiffrement au déverrouillage. */
   majTexteMessage(id: string, texte: string, piecesJointes: string | null): Promise<void>;
-  /** Épinglage et étoiles posés localement après un geste réussi (`lib/marques.ts`). */
+  /** Épinglage et étoiles posés localement après un geste réussi (`lib/marks.ts`). */
   majMarquesMessage(id: string, epingle: boolean, etoiles: string | null): Promise<void>;
   /**
    * Pose la version d'avatar (`avatarETag`) d'un utilisateur, désigné par son

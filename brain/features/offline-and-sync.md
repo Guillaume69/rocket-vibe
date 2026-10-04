@@ -27,26 +27,26 @@ Reconciliation ignores an empty list (an active account always has subscriptions
 
 ## Mobile
 
-**Engine.** `MoteurSynchro` (sync engine, `apps/mobile/lib/sync.ts`) writes neutral rows through a `Depot` interface; the Rocket.Chat specifics (stream payload shapes, `removed` actions that carry only a subscription `_id`) live in `TraducteurRC` (`apps/mobile/fournisseurs/rocketchat/traducteur.ts`). REST batches are ingested in one transaction, so a page of 50 messages is one commit and one change notification for the live queries. E2EE messages are decrypted during ingestion when the room key is available, otherwise kept as `chiffre_brut` for a pass at unlock (see [../architecture/e2ee.md](../architecture/e2ee.md)). Schema, upserts and the write queue are in [../architecture/mobile-data.md](../architecture/mobile-data.md).
+**Engine.** `MoteurSynchro` (sync engine, `apps/mobile/lib/sync.ts`) writes neutral rows through a `Depot` interface; the Rocket.Chat specifics (stream payload shapes, `removed` actions that carry only a subscription `_id`) live in `TraducteurRC` (`apps/mobile/providers/rocketchat/translator.ts`). REST batches are ingested in one transaction, so a page of 50 messages is one commit and one change notification for the live queries. E2EE messages are decrypted during ingestion when the room key is available, otherwise kept as `chiffre_brut` for a pass at unlock (see [../architecture/e2ee.md](../architecture/e2ee.md)). Schema, upserts and the write queue are in [../architecture/mobile-data.md](../architecture/mobile-data.md).
 
-**Write queue.** `expo-sqlite` transactions are per connection and not re-entrant, so every writer on one connection shares a single `FileEcritures` (write queue, `apps/mobile/db/fileEcritures.ts`) created by `ouvrirBase`. Two interleaved batches used to die with "cannot rollback - no transaction is active".
+**Write queue.** `expo-sqlite` transactions are per connection and not re-entrant, so every writer on one connection shares a single `FileEcritures` (write queue, `apps/mobile/db/writeQueue.ts`) created by `ouvrirBase`. Two interleaved batches used to die with "cannot rollback - no transaction is active".
 
-**Connection sequence** (`apps/mobile/ui/synchro.tsx`, `rattraperTout`): the global catch-up, then a fire-and-forget `rattraperSalon` (room catch-up) for the room on top of the open-rooms stack (`apps/mobile/ui/salonsOuverts.ts`; a stack because navigation can push two room screens). After the first read: flush the outbox and the upload queue, load presence, and once per session sync custom emoji, register the push token, reconcile rooms and apply retention. Finally `generation` is bumped, which re-runs the open effect of any screen whose initial load failed offline.
+**Connection sequence** (`apps/mobile/ui/sync.tsx`, `rattraperTout`): the global catch-up, then a fire-and-forget `rattraperSalon` (room catch-up) for the room on top of the open-rooms stack (`apps/mobile/ui/openRooms.ts`; a stack because navigation can push two room screens). After the first read: flush the outbox and the upload queue, load presence, and once per session sync custom emoji, register the push token, reconcile rooms and apply retention. Finally `generation` is bumped, which re-runs the open effect of any screen whose initial load failed offline.
 
 **Opening a room** (`apps/mobile/app/salon/[rid].tsx`) does two independent things:
 
 1. Per-room catch-up, **skipped** when `salonCouvert(rid, generation)` says the room stayed subscribed since its last visit.
-2. History, **skipped** when `salonChargeSous(rid, generation)` says it was already loaded under this connection generation (`apps/mobile/ui/salonsCharges.ts`). The test is causal, not a timer: any reconnection bumps `generation` and invalidates both caches, because the gap can then be any size.
+2. History, **skipped** when `salonChargeSous(rid, generation)` says it was already loaded under this connection generation (`apps/mobile/ui/loadedRooms.ts`). The test is causal, not a timer: any reconnection bumps `generation` and invalidates both caches, because the gap can then be any size.
 
-**Hot rooms** (`apps/mobile/ui/salonChaud.ts`). Mobile subscribes to a room's streams (`stream-room-messages/<rid>`, `deleteMessage`, `user-activity`) only while its screen is mounted. Leaving used to release them, so reopening needed a `chat.syncMessages` that takes 3 s on a big room to report nothing. Instead, the screen hands its release functions to `garderAuChaud` on unmount: the three most recently left rooms stay subscribed (LRU), which costs no extra `sub` since DDP subscriptions are ref-counted. A room evicted from the LRU becomes a room to catch up again. A session token (`apps/mobile/ui/jetonSession.ts`) stops a screen unmounting after logout from repopulating these caches for the next session.
+**Hot rooms** (`apps/mobile/ui/hotRooms.ts`). Mobile subscribes to a room's streams (`stream-room-messages/<rid>`, `deleteMessage`, `user-activity`) only while its screen is mounted. Leaving used to release them, so reopening needed a `chat.syncMessages` that takes 3 s on a big room to report nothing. Instead, the screen hands its release functions to `garderAuChaud` on unmount: the three most recently left rooms stay subscribed (LRU), which costs no extra `sub` since DDP subscriptions are ref-counted. A room evicted from the LRU becomes a room to catch up again. A session token (`apps/mobile/ui/sessionToken.ts`) stops a screen unmounting after logout from repopulating these caches for the next session.
 
-**Serialised room passes** (`rattraperSalon` in `apps/mobile/lib/rattrapage.ts`). The connection sequence and the room screen's open effect both request a pass for the same room at each reconnection. One pass at a time per room: a request arriving before the running pass has read its cursor merges into it; one arriving after gets its own pass chained behind (nearly empty, about 92 bytes). That keeps the guaranteeing second read without doubling calls. A merged pass aborts only when every requester has given up.
+**Serialised room passes** (`rattraperSalon` in `apps/mobile/lib/catchUp.ts`). The connection sequence and the room screen's open effect both request a pass for the same room at each reconnection. One pass at a time per room: a request arriving before the running pass has read its cursor merges into it; one arriving after gets its own pass chained behind (nearly empty, about 92 bytes). That keeps the guaranteeing second read without doubling calls. A merged pass aborts only when every requester has given up.
 
 **Legacy fallback.** If the server rejects cursor mode on the first page (400, or no `cursor` in the answer, i.e. before 7.5), `rattraperParDate` uses `lastUpdate=`, clamped to 24 h, and re-anchors the cursor on the newest local message when the unbounded request times out.
 
-**Outbox** (`MoteurEnvoi`, `apps/mobile/lib/envoi.ts`, table `sortie`). The message `_id` (24 hex characters) is generated client-side; the optimistic row and the outbox row are written before any network call. Passes run in order, one at a time, and a pass requested mid-flush runs right after. Unreachable (`statut 0`): the row stays `en-attente` (pending) for the next trigger. Any other error: `chat.getMessage` decides. Found means delivered (ingest it, drop the row), absent means `echec` (failed, retry offered in the UI), and a network error or 429 means unknown (row stays pending, pass stops). In an encrypted room the text is encrypted only when leaving, and a locked room makes the row wait instead of failing. File sends use a separate queue with the same spirit (`televersements`, `apps/mobile/lib/envoiFichiers.ts`); see [uploads.md](uploads.md).
+**Outbox** (`MoteurEnvoi`, `apps/mobile/lib/outbox.ts`, table `sortie`). The message `_id` (24 hex characters) is generated client-side; the optimistic row and the outbox row are written before any network call. Passes run in order, one at a time, and a pass requested mid-flush runs right after. Unreachable (`statut 0`): the row stays `en-attente` (pending) for the next trigger. Any other error: `chat.getMessage` decides. Found means delivered (ingest it, drop the row), absent means `echec` (failed, retry offered in the UI), and a network error or 429 means unknown (row stays pending, pass stops). In an encrypted room the text is encrypted only when leaving, and a locked room makes the row wait instead of failing. File sends use a separate queue with the same spirit (`televersements`, `apps/mobile/lib/uploadQueue.ts`); see [uploads.md](uploads.md).
 
-**Retention.** Once per session, after catch-up, `appliquerRetention` keeps the 500 newest messages per room (`MESSAGES_GARDES_PAR_SALON` in `apps/mobile/db/depot.ts`), sparing optimistic rows and thread roots still referenced. The app re-downloads anything older when paging back.
+**Retention.** Once per session, after catch-up, `appliquerRetention` keeps the 500 newest messages per room (`MESSAGES_GARDES_PAR_SALON` in `apps/mobile/db/store.ts`), sparing optimistic rows and thread roots still referenced. The app re-downloads anything older when paging back.
 
 **Reconciliation race.** `reconcilierSalons` snapshots the known rids before the request and only purges rooms in that snapshot, so a DM created by the stream during the round trip is not deleted.
 
@@ -87,22 +87,22 @@ Two consequences worth knowing on desktop: a room created between the reconcilia
 ## Sources
 
 - apps/mobile/lib/sync.ts
-- apps/mobile/lib/rattrapage.ts
-- apps/mobile/lib/raccordement.ts
-- apps/mobile/lib/envoi.ts
-- apps/mobile/lib/envoiFichiers.ts
-- apps/mobile/fournisseurs/rocketchat/index.ts
-- apps/mobile/fournisseurs/rocketchat/historique.ts
-- apps/mobile/fournisseurs/rocketchat/traducteur.ts
-- apps/mobile/db/depot.ts
+- apps/mobile/lib/catchUp.ts
+- apps/mobile/lib/connectionSetup.ts
+- apps/mobile/lib/outbox.ts
+- apps/mobile/lib/uploadQueue.ts
+- apps/mobile/providers/rocketchat/index.ts
+- apps/mobile/providers/rocketchat/history.ts
+- apps/mobile/providers/rocketchat/translator.ts
+- apps/mobile/db/store.ts
 - apps/mobile/db/upserts.ts
 - apps/mobile/db/schema.ts
-- apps/mobile/db/fileEcritures.ts
-- apps/mobile/ui/synchro.tsx
-- apps/mobile/ui/salonChaud.ts
-- apps/mobile/ui/salonsCharges.ts
-- apps/mobile/ui/salonsOuverts.ts
-- apps/mobile/ui/jetonSession.ts
+- apps/mobile/db/writeQueue.ts
+- apps/mobile/ui/sync.tsx
+- apps/mobile/ui/hotRooms.ts
+- apps/mobile/ui/loadedRooms.ts
+- apps/mobile/ui/openRooms.ts
+- apps/mobile/ui/sessionToken.ts
 - apps/mobile/app/salon/[rid].tsx
 - apps/desktop/crates/rv-core/src/store.rs
 - apps/desktop/crates/rv-core/src/sync.rs

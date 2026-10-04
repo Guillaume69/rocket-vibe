@@ -264,8 +264,8 @@ export const DELAI_PRESSION_LISTE = 120;
 /**
  * Largeur disponible pour le corps d'un message : écran − marges de liste
  * (16×2) − colonne avatar (34) − gouttière (10), plafonnée pour les grands
- * écrans. Partagée entre les images jointes (`ui/ligneMessage.tsx`) et les
- * aperçus de lien (`ui/carteLien.tsx`), qui doivent s'aligner — le calcul
+ * écrans. Partagée entre les images jointes (`ui/messageRow.tsx`) et les
+ * aperçus de lien (`ui/linkCard.tsx`), qui doivent s'aligner — le calcul
  * était recopié dans les deux.
  */
 export function largeurDispoCorps(largeurEcran: number): number {

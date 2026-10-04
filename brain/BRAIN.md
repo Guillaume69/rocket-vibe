@@ -46,7 +46,7 @@ use the indexes.
 | [testing.md](architecture/testing.md) | Unit tests per app, the Maestro suite, desktop fake servers, live tests, smoke and e2e runs, what CI gates. |
 | [e2ee.md](architecture/e2ee.md) | The E2EE key chain and message/file formats in both apps. |
 | [i18n.md](architecture/i18n.md) | French and English in both apps, and how to add a string in each. |
-| [mobile-app.md](architecture/mobile-app.md) | Mobile layering (`app/`, `ui/`, `lib/`, `db/`, `fournisseurs/`), providers, stores, live queries, theme. |
+| [mobile-app.md](architecture/mobile-app.md) | Mobile layering (`app/`, `ui/`, `lib/`, `db/`, `providers/`), providers, stores, live queries, theme. |
 | [mobile-data.md](architecture/mobile-data.md) | One SQLite file per (server, account), its tables, the write queue, migrations, retention. |
 | [mobile-transport.md](architecture/mobile-transport.md) | The listen-only DDP client, the REST client, liveness, backoff, session revocation. |
 | [mobile-native.md](architecture/mobile-native.md) | CNG, the config plugins, the local Expo modules, quick-crypto, when to rebuild the dev-client, iOS. |
@@ -119,5 +119,5 @@ the `brain` skill. New feature -> new `features/<name>.md` + a row in
 [parity.md](parity.md), one status per app ("La parité" in `CLAUDE.md`).
 
 The brain does not replace the docs that have their own job: the changelogs,
-`apps/mobile/CHANTIERS.md` (the debt to fix next), `ROADMAP.md` (product
+`apps/mobile/WORKSTREAMS.md` (the debt to fix next), `ROADMAP.md` (product
 decisions) and `CLAUDE.md` (the probed server facts). It links them.

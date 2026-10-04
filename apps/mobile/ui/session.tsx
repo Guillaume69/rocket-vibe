@@ -11,8 +11,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { appliquerSession, reprendreSession, seDeconnecter, type Session } from '../lib/auth.ts';
-import { terminerDeconnexions } from '../lib/deconnexionDifferee.ts';
-import { definirClientProfil } from '../lib/profilPreload.ts';
+import { terminerDeconnexions } from '../lib/deferredLogout.ts';
+import { definirClientProfil } from '../lib/profilePreload.ts';
 import { desenregistrerJeton } from '../lib/pushToken.ts';
 import { ClientRest, estJetonRefuse } from '../lib/rest.ts';
 import {
@@ -100,7 +100,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const jetonCourant = useRef<string | null>(null);
   useEffect(() => {
     jetonCourant.current = etat.phase === 'connecte' ? etat.session.authToken : null;
-    // Le préchargement de fiche (`lib/profilPreload`) ouvre `/profil` depuis des
+    // Le préchargement de fiche (`lib/profilePreload`) ouvre `/profile` depuis des
     // fonctions de rendu sans client sous la main : on lui pose le client actif.
     definirClientProfil(etat.phase === 'connecte' ? etat.client : null);
   }, [etat]);
@@ -270,7 +270,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     setEtat({ phase: 'deconnecte' });
     try {
       // Le jeton FCM vient du Keystore, où il a été retenu À SON ENREGISTREMENT
-      // (`ui/synchro.tsx`). Le redemander ici à `obtenirJetonFcm()` créait le
+      // (`ui/sync.tsx`). Le redemander ici à `obtenirJetonFcm()` créait le
       // canal de notification et demandait la permission POST_NOTIFICATIONS :
       // se déconnecter pouvait faire surgir un prompt système. Et sur un
       // appareil sans Play Services, il ne rendait rien — donc aucun `DELETE`

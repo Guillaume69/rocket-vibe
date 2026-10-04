@@ -13,7 +13,7 @@ const path = require('path');
  * Le push iOS, par FCM comme Android (voir docs/PUSH.md, « iOS ») :
  *
  * - `FirebaseAppDelegateProxyEnabled = false` : Firebase ne swizzle pas
- *   l'AppDelegate, qu'expo-notifications gère déjà ; modules/jeton-fcm lui
+ *   l'AppDelegate, qu'expo-notifications gère déjà ; modules/fcm-token lui
  *   remet le jeton APNs à la main ;
  * - les pods Firebase en `modular_headers` : le module Swift jeton-fcm importe
  *   FirebaseMessaging, et FirebaseCoreInternal (Swift) dépend de
@@ -28,8 +28,8 @@ const path = require('path');
 const CIBLE = 'NotificationService';
 const SOURCE_SWIFT = path.join(__dirname, 'ios-notification-service', `${CIBLE}.swift`);
 // Session et langue lues au trousseau : même source que la réponse depuis la
-// notification (modules/reponse-notif), compilée dans les deux cibles.
-const SOURCE_SESSION = path.join(__dirname, '..', 'modules', 'reponse-notif', 'ios', 'SessionPush.swift');
+// notification (modules/notification-reply), compilée dans les deux cibles.
+const SOURCE_SESSION = path.join(__dirname, '..', 'modules', 'notification-reply', 'ios', 'SessionPush.swift');
 const CIBLE_IOS_MIN = '16.4';
 
 const PODS_MODULAIRES = [

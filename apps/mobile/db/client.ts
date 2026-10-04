@@ -1,6 +1,6 @@
 /**
  * Ouverture de la base locale. **Une base par serveur et par compte** — voir
- * `nomFichier.ts` pour le pourquoi.
+ * `fileName.ts` pour le pourquoi.
  *
  * `enableChangeListener: true` est obligatoire : sans lui, `useRequeteVive` ne
  * recevrait jamais les notifications d'écriture et l'UI resterait figée alors
@@ -13,8 +13,8 @@
 import { drizzle } from 'drizzle-orm/expo-sqlite';
 import { openDatabaseSync, type SQLiteDatabase } from 'expo-sqlite';
 
-import { creerFileEcritures, type FileEcritures } from './fileEcritures.ts';
-import { nomFichier } from './nomFichier.ts';
+import { creerFileEcritures, type FileEcritures } from './writeQueue.ts';
+import { nomFichier } from './fileName.ts';
 import * as schema from './schema.ts';
 
 export type BaseLocale = ReturnType<typeof drizzle<typeof schema>>;
@@ -33,7 +33,7 @@ const ouvertes = new Map<string, Connexion>();
 /**
  * Idempotent : deux écrans qui demandent la même base partagent la connexion —
  * **et sa file d'écritures**, qui est l'invariant réellement important. La file
- * sérialise les transactions d'une connexion (db/fileEcritures.ts) ; deux files
+ * sérialise les transactions d'une connexion (db/writeQueue.ts) ; deux files
  * sur une même connexion ne protègent de rien, et c'est ce qui arrivait quand
  * l'appelant la créait lui-même : `SynchroProvider` rejoue son effet sur un
  * simple renommage (objet `session` neuf pour le même compte), fabriquait une

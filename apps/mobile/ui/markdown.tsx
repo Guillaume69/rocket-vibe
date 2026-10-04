@@ -11,7 +11,7 @@
  * Les emojis STANDARD sont des caractères, rendus par la police du système :
  * le serveur ne livre que le code court (`:smile:`), que `lib/emojis.ts`
  * résout. Les emojis PERSONNALISÉS, eux, sont des images distantes
- * (`lib/emojisCustom.ts`) : `rendreEmoji` en fait une `<Image>` inline, animée
+ * (`lib/customEmojis.ts`) : `rendreEmoji` en fait une `<Image>` inline, animée
  * (GIF via Fresco), chargée depuis `/emoji-custom/:nom.:ext` — URL publique,
  * sans jeton. La priorité va au caractère : un code court qui est à la fois
  * Unicode et custom rend le glyphe.
@@ -21,17 +21,17 @@ import type { BigEmoji, Blocks, Inlines, Paragraph } from '@rocket.chat/message-
 import { Component, createContext, useContext, type ReactElement, type ReactNode } from 'react';
 import { Image, Platform, StyleSheet, Text, View } from 'react-native';
 
-import { urlEmojiCustom } from '../lib/emojisCustom.ts';
+import { urlEmojiCustom } from '../lib/customEmojis.ts';
 import { texteDe, unicodeDEmoji, type Root } from '../lib/markdown.ts';
-import { ouvrirFicheProfil } from '../lib/profilPreload.ts';
-import { ouvrirLienExterne } from './lienExterne.ts';
-import { TexteTappable } from './texteTappable.tsx';
+import { ouvrirFicheProfil } from '../lib/profilePreload.ts';
+import { ouvrirLienExterne } from './externalLink.ts';
+import { TexteTappable } from './tappableText.tsx';
 import { type Couleurs, POLICES } from './theme.ts';
 
 const POLICE_MONO = Platform.select({ android: 'monospace', default: 'Menlo' });
 
 // La garde qui vivait ici (« uniquement le web : `javascript:`, `intent:`,
-// `file:` restent lettre morte ») est passée dans `ui/lienExterne.ts`, pour que
+// `file:` restent lettre morte ») est passée dans `ui/externalLink.ts`, pour que
 // les cartes d'aperçu et d'embed en héritent au lieu de s'en passer.
 const ouvrirLien = ouvrirLienExterne;
 

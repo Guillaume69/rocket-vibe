@@ -6,9 +6,9 @@ The mobile app gets FCM push from Rocket.Chat even when killed, fetches the hidd
 
 ### The push chain
 
-1. **Token.** `lib/push.ts` creates the Android channel `default` (importance HIGH) **before** asking permission (otherwise the Android 13+ `POST_NOTIFICATIONS` prompt never shows), then reads the native FCM token with `getDevicePushTokenAsync()`. Never the Expo push token: no Expo service in the loop. On iOS that call returns an APNs token, which `modules/jeton-fcm` (Swift) hands to Firebase to get an FCM token.
-2. **Registration.** `lib/pushToken.ts`: `POST push.token {type: 'gcm', value, appName: 'rocket-vibe'}`, nothing more (`additionalProperties: false`). iOS registers its FCM token as `gcm` too. `ui/synchro.tsx` registers once per session at the first successful connection; a Play Services failure re-arms the attempt for the next connection, a refused permission does not (it would replay the system prompt on every network flap). `surRotationJeton` re-registers when FCM rotates the token mid-session. The token is remembered in the Keystore so that sign-out can remove it without asking FCM again.
-3. **Sign-out.** `DELETE push.token {token}`; a 404 counts as success. If offline, `lib/deconnexionDifferee.ts` keeps the token removal and the `logout` and replays them at next launch, otherwise the server would keep pushing to an account-less device.
+1. **Token.** `lib/push.ts` creates the Android channel `default` (importance HIGH) **before** asking permission (otherwise the Android 13+ `POST_NOTIFICATIONS` prompt never shows), then reads the native FCM token with `getDevicePushTokenAsync()`. Never the Expo push token: no Expo service in the loop. On iOS that call returns an APNs token, which `modules/fcm-token` (Swift) hands to Firebase to get an FCM token.
+2. **Registration.** `lib/pushToken.ts`: `POST push.token {type: 'gcm', value, appName: 'rocket-vibe'}`, nothing more (`additionalProperties: false`). iOS registers its FCM token as `gcm` too. `ui/sync.tsx` registers once per session at the first successful connection; a Play Services failure re-arms the attempt for the next connection, a refused permission does not (it would replay the system prompt on every network flap). `surRotationJeton` re-registers when FCM rotates the token mid-session. The token is remembered in the Keystore so that sign-out can remove it without asking FCM again.
+3. **Sign-out.** `DELETE push.token {token}`; a 404 counts as success. If offline, `lib/deferredLogout.ts` keeps the token removal and the `logout` and replays them at next launch, otherwise the server would keep pushing to an account-less device.
 4. **Server side.** Rocket.Chat 8.5 speaks only FCM HTTP v1 (`Push_enable_gateway = false`, service account JSON in `Push_google_api_credentials`). The gateway switch is global, so `docker/patch-push.mjs` patches the server bundle to route only `appName: rocket-vibe` tokens natively and keep the gateway for the official apps, and adds an `apns` block (`mutable-content: 1`). The server only pushes to **offline** users, and by default only for DMs and mentions. Details and pitfalls (`am force-stop` vs `am kill`, 2FA for settings): `docs/PUSH.md` and [../architecture/rocket-chat.md](../architecture/rocket-chat.md).
 
 ### Android: the native service
@@ -19,7 +19,7 @@ The mobile app gets FCM push from Rocket.Chat even when killed, fetches the hidd
 - **Grouped per room.** A message push (an `ejson` with `rid`) is posted by the service itself as a `MessagingStyle` notification whose id is `rid.hashCode()`. The previous style is re-extracted from the active notification and appended to, so a room's messages accumulate in one notification. DMs have no conversation title; channels use the push title. A `username: ` prefix already carried by the sender `Person` is stripped. Other pushes fall through to expo unchanged.
 - **Tap.** A `rocketvibe://salon/<rid>?host=<server>` VIEW intent with only `FLAG_ACTIVITY_NEW_TASK` (no `CLEAR_TASK`, which recreated the activity and broke expo-image-picker's launchers; no `SINGLE_TOP`, which blocked navigation). See [sharing-and-links.md](sharing-and-links.md).
 - **Hidden content (`message-id-only`).** The target server has `Push_request_content_from_server` active, so a push carries only `{host, messageId}`. The service reads the stored session without any JS runtime (expo-secure-store's `SharedPreferences "SecureStore"`, entry `key_v1-session-<hash>`, AES/GCM key in the AndroidKeyStore), then calls `GET /api/v1/push.get?id=<messageId>` (3 s timeout) and displays the returned title/text/payload. The content never transits through Google.
-- **Origin guard.** `lireSession` only accepts a session whose `baseUrl` has the same origin as the push's `host` (Kotlin twin of `lib/origine.ts`). An earlier fallback ("only one session, take it") would have sent `X-Auth-Token` to any host named in a forged push.
+- **Origin guard.** `lireSession` only accepts a session whose `baseUrl` has the same origin as the push's `host` (Kotlin twin of `lib/origin.ts`). An earlier fallback ("only one session, take it") would have sent `X-Auth-Token` to any host named in a forged push.
 - **No session, no notification.** A push for a host with no stored session (signed out, server not yet told) is swallowed in both branches; before, it showed full content or an undismissable "New message".
 - **Fetch failure.** The service posts a degraded "New message" notification at once (id `messageId.hashCode()`, tap opens the app), then enqueues `RattrapagePushWorker` (WorkManager, network constraint, linear backoff 30 s, 8 attempts, unique per messageId, `KEEP`). A 429 delays the first attempt by `x-ratelimit-reset` (capped at 60 s); `push.get` shares the 10 req/min REST limit, so a burst in a busy room degrades first. When the worker succeeds it replaces the degraded notification silently. A 401/403 is final: no retry.
 - **Anti-duplicate.** FCM redelivers an unacknowledged push when the network returns, which also wakes the worker. A direct success cancels the degraded notification and the pending worker; `dejaAffiche` is an atomic test-and-set in SharedPreferences (`rvpush-affiches`, one hour retention, written with `commit()`) so one messageId produces at most one conversation entry. On any exception it answers "not shown": a duplicate beats a lost message.
@@ -30,12 +30,12 @@ The mobile app gets FCM push from Rocket.Chat even when killed, fetches the hidd
 
 ### iOS
 
-Same route: FCM token as `gcm`, FCM relays to APNs with the `.p8` key set in the Firebase console. `plugins/ios-notification-service/NotificationService.swift` is a Notification Service Extension: it reads the session from the shared keychain group, calls `push.get`, rewrites title and body, sets `threadIdentifier` to the rid and stores `rid`/`host` in `ejson` for the tap. iOS limits: it cannot drop a push (no filtering entitlement), so without a session it shows "New message"; there is no deferred catch-up. Session and language are written `AFTER_FIRST_UNLOCK` so the extension can read them with the phone locked. Reply is an iOS text-input action on category `rv-message` (not for encrypted rooms), sent natively by `modules/reponse-notif` (`chat.sendMessage`). `plugins/with-ios-push.js` wires the target, entitlements and pods. **Never built with Xcode** yet; checked under Linux only (`docs/PUSH.md`).
+Same route: FCM token as `gcm`, FCM relays to APNs with the `.p8` key set in the Firebase console. `plugins/ios-notification-service/NotificationService.swift` is a Notification Service Extension: it reads the session from the shared keychain group, calls `push.get`, rewrites title and body, sets `threadIdentifier` to the rid and stores `rid`/`host` in `ejson` for the tap. iOS limits: it cannot drop a push (no filtering entitlement), so without a session it shows "New message"; there is no deferred catch-up. Session and language are written `AFTER_FIRST_UNLOCK` so the extension can read them with the phone locked. Reply is an iOS text-input action on category `rv-message` (not for encrypted rooms), sent natively by `modules/notification-reply` (`chat.sendMessage`). `plugins/with-ios-push.js` wires the target, entitlements and pods. **Never built with Xcode** yet; checked under Linux only (`docs/PUSH.md`).
 
 ### In the app
 
 `ui/notifications.tsx`:
-- `setNotificationHandler` shows expo-handled notifications in the foreground (banner, no sound) and replaces those of encrypted rooms (`estSalonChiffre`, `ui/etatNotifications.ts`) with `notifications.titreChiffre` / `notifications.corpsChiffre`.
+- `setNotificationHandler` shows expo-handled notifications in the foreground (banner, no sound) and replaces those of encrypted rooms (`estSalonChiffre`, `ui/notificationState.ts`) with `notifications.titreChiffre` / `notifications.corpsChiffre`.
 - Taps on expo-posted notifications (and all taps on iOS) are routed to `/salon/[rid]` with `host`, once per response, and `clearLastNotificationResponseAsync` is called so a stale response cannot reopen an old room on a later launch.
 - **Badge**: the sum of `nonLus` over subscriptions, via `setBadgeCountAsync`.
 - **Read means dismissed**: when a room's unread count drops to 0 (read here or on another device), its notification is removed. On Android this uses `identifiantNotifSalon(rid)` (`lib/notificationId.ts`): `expo-notifications://foreign_notifications?id=<hash>`, where `hashCodeJava` reproduces `java.lang.String.hashCode` in 32-bit signed arithmetic, the only bridge from JS to a notification posted by Kotlin. On iOS it matches presented notifications by their `ejson.rid`.
@@ -65,20 +65,20 @@ The desktop equivalent of push only works while the app runs. Both apps: DMs and
 - apps/mobile/plugins/with-fcm-deeplink.js
 - apps/mobile/plugins/with-ios-push.js
 - apps/mobile/plugins/ios-notification-service/NotificationService.swift
-- apps/mobile/modules/jeton-fcm
-- apps/mobile/modules/reponse-notif/ios/ReponseNotifAppDelegate.swift
-- apps/mobile/modules/reponse-notif/ios/SessionPush.swift
+- apps/mobile/modules/fcm-token
+- apps/mobile/modules/notification-reply/ios/ReponseNotifAppDelegate.swift
+- apps/mobile/modules/notification-reply/ios/SessionPush.swift
 - apps/mobile/lib/push.ts
 - apps/mobile/lib/pushToken.ts
-- apps/mobile/lib/deconnexionDifferee.ts
+- apps/mobile/lib/deferredLogout.ts
 - apps/mobile/lib/notificationId.ts
-- apps/mobile/lib/origine.ts
+- apps/mobile/lib/origin.ts
 - apps/mobile/lib/sessionStore.ts
 - apps/mobile/ui/notifications.tsx
-- apps/mobile/ui/etatNotifications.ts
-- apps/mobile/ui/synchro.tsx
+- apps/mobile/ui/notificationState.ts
+- apps/mobile/ui/sync.tsx
 - apps/mobile/ui/i18n.ts
-- apps/mobile/app/parametres.tsx
+- apps/mobile/app/settings.tsx
 - apps/desktop/crates/rv-core/src/notify.rs
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-core/src/rooms.rs

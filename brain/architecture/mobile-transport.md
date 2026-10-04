@@ -10,14 +10,14 @@ The server-side contract these modules rely on is in [rocket-chat.md](rocket-cha
 |---|---|
 | `apps/mobile/lib/ddp.ts` | `ClientDdp`: WebSocket, DDP handshake, `login`, ref-counted subscriptions, silence watchdog and liveness probe |
 | `apps/mobile/lib/rest.ts` | `ClientRest`: timeouts, 429 retries, one network retry, envelope checks, 2FA, token-rejected hook |
-| `apps/mobile/lib/reconnexion.ts` | `Reconnecteur` (reconnection driver): exponential backoff with jitter, idempotent trigger, suspend / resume |
-| `apps/mobile/lib/raccordement.ts` | `raccorder` (connect): runs the stream and the REST catch-up in the order that leaves no gap |
-| `apps/mobile/lib/deconnexionDifferee.ts` | `terminerDeconnexions`: replays a logout the network interrupted |
-| `apps/mobile/ui/synchro.tsx` | `SynchroProvider`: wires all of the above to the session, `AppState` and the database |
+| `apps/mobile/lib/reconnect.ts` | `Reconnecteur` (reconnection driver): exponential backoff with jitter, idempotent trigger, suspend / resume |
+| `apps/mobile/lib/connectionSetup.ts` | `raccorder` (connect): runs the stream and the REST catch-up in the order that leaves no gap |
+| `apps/mobile/lib/deferredLogout.ts` | `terminerDeconnexions`: replays a logout the network interrupted |
+| `apps/mobile/ui/sync.tsx` | `SynchroProvider`: wires all of the above to the session, `AppState` and the database |
 | `apps/mobile/ui/session.tsx` | session lifecycle, resume validation, revocation on a rejected token |
-| `apps/mobile/ui/sondeUpload.ts` | a hook that probes the socket right after an upload ends |
+| `apps/mobile/ui/uploadProbe.ts` | a hook that probes the socket right after an upload ends |
 
-The Rocket.Chat driver (`apps/mobile/fournisseurs/rocketchat/index.ts`) builds the `ClientDdp` on `<baseUrl with ws/wss>/websocket` and declares which streams to subscribe; `ui/synchro.tsx` drives it without naming Rocket.Chat.
+The Rocket.Chat driver (`apps/mobile/providers/rocketchat/index.ts`) builds the `ClientDdp` on `<baseUrl with ws/wss>/websocket` and declares which streams to subscribe; `ui/sync.tsx` drives it without naming Rocket.Chat.
 
 ## DDP client (`lib/ddp.ts`)
 
@@ -45,7 +45,7 @@ States: `ferme` (closed), `connexion` (negotiating), `connecte` (handshake done,
 
 **Session death.** `estJetonRefuse(e)` is the only predicate allowed to log the user out: status 401, not a 2FA challenge, envelope understood. When it holds on a non-anonymous call, `ClientRest` calls `surJetonRefuse(tokenSent)` with the token captured before the request left. `ui/session.tsx` (`revoquer`) ignores it if that token is no longer current, re-reads the stored session in case a new login wrote a fresh token under the same key, then erases the session traces and returns to the login screen, without calling `logout` (the token is already dead). This covers every call in the app (catch-up, `chat.syncMessages`, sends, presence) without touching call sites; before it, a token revoked elsewhere left the app looking like it had a network problem forever. Session resume at startup (`reprendreSession`) is anonymous because the token travels in the body, so it applies `estJetonRefuse` itself; any other failure keeps the session.
 
-## Reconnection driver (`lib/reconnexion.ts`)
+## Reconnection driver (`lib/reconnect.ts`)
 
 `Reconnecteur` wraps one `connecter` function (the whole raccordement). Delays: 0 for the first attempt, then 1 s, 2 s, 4 s... capped at 30 s, with "equal jitter" (half fixed, half random) so clients cut by the same incident do not retry together.
 
@@ -53,7 +53,7 @@ States: `ferme` (closed), `connexion` (negotiating), `connecte` (handshake done,
 - A failed attempt increments the backoff and re-triggers; a success resets it.
 - `suspendre()` (background) disarms the scheduled timer and blocks any re-trigger; `reprendre()` (foreground) lifts the block and resets the backoff, so the user's return costs no wait. `arreter()` (logout, unmount) is final.
 
-## Raccordement (`lib/raccordement.ts`)
+## Raccordement (`lib/connectionSetup.ts`)
 
 The order of the two transports decides what can be lost. A REST read evaluated before the subscriptions are armed can miss what the server publishes in between, and it has already advanced the cursors, so nothing asks again. `raccorder` therefore does two reads:
 
@@ -62,9 +62,9 @@ The order of the two transports decides what can be lost. A REST read evaluated 
 
 The second read is skipped when the stream was already authenticated at the start (the first read then started after arming). The `ensuite` callback (outbox flush, presence, one-per-session work) runs once after the first read. A stream failure is surfaced only at the end, so the backoff still applies but the user got their messages first. `estAbandonne` stops everything once the session is gone.
 
-In `ui/synchro.tsx`, `ouvrirStream` connects only if the socket is `ferme`: after a REST-only failure the socket is still authenticated and `connecter` would throw "already connected".
+In `ui/sync.tsx`, `ouvrirStream` connects only if the socket is `ferme`: after a REST-only failure the socket is still authenticated and `connecter` would throw "already connected".
 
-## Lifecycle wiring (`ui/synchro.tsx`)
+## Lifecycle wiring (`ui/sync.tsx`)
 
 - Startup: database opened and migrated, then state `pret` (ready) so the UI shows SQLite at once, even offline. The initial streams are declared before any connection; the first raccordement goes through the same `Reconnecteur`, so an offline launch retries on its own.
 - `surPerte` invalidates presence (it lives only on the stream) and triggers the driver.
@@ -74,7 +74,7 @@ In `ui/synchro.tsx`, `ouvrirStream` connects only if the socket is `ferme`: afte
 - Each successful raccordement bumps `generation`, which screens use as "the connection held since then" (see [../features/offline-and-sync.md](../features/offline-and-sync.md)).
 - Unmount (logout, server switch): stop the driver first, then close and reset DDP, release hot rooms, purge every module-level store.
 
-## Interrupted logout (`lib/deconnexionDifferee.ts`)
+## Interrupted logout (`lib/deferredLogout.ts`)
 
 Logging out is two server calls: `DELETE push.token` then `POST logout`, in that order since `logout` kills the token the delete needs. Offline, both fail silently and the server keeps pushing to a device with no account. `ui/session.tsx` queues the entry (base URL, uid, auth token, FCM token) in secure storage (`ajouterDeconnexionEnSuspens` in `lib/sessionStore.ts`), and `terminerDeconnexions` replays it at the next start. The entry is removed when both calls succeed, or when the server rejects the token (nothing left to kill); a network failure keeps it. A 404 on `push.token` counts as done. Keeping a live auth token is deliberate: it is the only way to kill it.
 
@@ -90,16 +90,16 @@ Logging out is two server calls: `DELETE push.token` then `POST logout`, in that
 
 - apps/mobile/lib/ddp.ts
 - apps/mobile/lib/rest.ts
-- apps/mobile/lib/reconnexion.ts
-- apps/mobile/lib/raccordement.ts
-- apps/mobile/lib/deconnexionDifferee.ts
+- apps/mobile/lib/reconnect.ts
+- apps/mobile/lib/connectionSetup.ts
+- apps/mobile/lib/deferredLogout.ts
 - apps/mobile/lib/auth.ts
 - apps/mobile/lib/sessionStore.ts
 - apps/mobile/lib/pushToken.ts
 - apps/mobile/lib/presence.ts
-- apps/mobile/fournisseurs/rocketchat/index.ts
-- apps/mobile/ui/synchro.tsx
+- apps/mobile/providers/rocketchat/index.ts
+- apps/mobile/ui/sync.tsx
 - apps/mobile/ui/session.tsx
-- apps/mobile/ui/sondeUpload.ts
+- apps/mobile/ui/uploadProbe.ts
 - apps/mobile/ui/transportUpload.ts
 - CLAUDE.md

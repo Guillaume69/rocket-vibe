@@ -296,7 +296,7 @@ describe('ClientRest', () => {
 
   test('sans rejeuReseau, un échec réseau lève tout de suite (aucun rejeu)', async () => {
     // `chat.sendMessage` n'active pas le rejeu : la ligne reste « en-attente »
-    // dans lib/envoi, seul lieu où sa déduplication est sûre.
+    // dans lib/outbox, seul lieu où sa déduplication est sûre.
     let appels = 0;
     const c = new ClientRest(base, {
       fetch: async () => {

@@ -7,7 +7,7 @@ import { useCallback, useSyncExternalStore } from 'react';
 
 import type { StatutPresence } from '../lib/presence.ts';
 import type { CleTraduction } from './messages.ts';
-import { useSynchro } from './synchro.tsx';
+import { useSynchro } from './sync.tsx';
 import type { Couleurs } from './theme.ts';
 
 const RIEN = () => {};

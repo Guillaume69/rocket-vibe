@@ -10,11 +10,11 @@ import {
   type AbonnementLocal,
   type MessageLocal,
   type SalonLocal,
-} from './normaliser.ts';
-import { avecPiegeTransaction } from './depotDeTest.ts';
+} from './normalize.ts';
+import { avecPiegeTransaction } from './testStore.ts';
 import { MoteurSynchro, type DechiffreurE2E, type Depot } from './sync.ts';
 import { AVATAR_SANS_PHOTO } from './upload.ts';
-import { TraducteurRC } from '../fournisseurs/rocketchat/traducteur.ts';
+import { TraducteurRC } from '../providers/rocketchat/translator.ts';
 
 describe('versEpoch', () => {
   test('accepte l’EJSON de Rocket.Chat', () => {
@@ -241,7 +241,7 @@ function faireDepot() {
   /** Versions d'avatar écrites, clé `u:<pseudo>` ou `r:<rid>`. */
   const avatars = new Map<string, string>();
   const identites: { uid: string; username: string; avatarEtag: string | null }[] = [];
-  // Le piège rejoue l'invariant de `db/depot.ts` : pendant une transaction,
+  // Le piège rejoue l'invariant de `db/store.ts` : pendant une transaction,
   // seules les écritures du `tx` reçu passent — celles du dépôt jettent.
   const depot: Depot = avecPiegeTransaction({
     upsertMessage: async (m) => void messages.push(m),

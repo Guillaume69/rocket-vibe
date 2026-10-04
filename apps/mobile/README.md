@@ -46,7 +46,7 @@ figés). Détails et justifications dans [`ROADMAP.md`](../../ROADMAP.md).
 
 **Contraintes fermes** (voir `ROADMAP.md` §4.2) : primitives React Native **natives par
 défaut**, **aucun kit UI** (NativeBase, Tamagui, RN Paper…), **aucune WebView** hors
-l'écran d'appel Jitsi (`app/appel/[callId].tsx`, seule exception), builds
+l'écran d'appel Jitsi (`app/call/[callId].tsx`, seule exception), builds
 Android **100 % locaux** (`expo prebuild` + Gradle, **jamais d'EAS**). Le client DDP est
 maison (≈ 200 lignes, écrit depuis la spec, pour éviter toute ambiguïté de licence).
 
@@ -170,7 +170,7 @@ globalement (voir `docs/DEV.md`).
 | `npm run prebuild` | Régénère `android/` (`expo prebuild --clean`). |
 | `npm run typecheck` | `tsc --noEmit` (TypeScript strict, zéro `any` implicite). |
 | `npm run lint` | `expo lint`. |
-| `npm test` | Tests unitaires (`node --test` sur `lib/`, `db/`, `ui/`, `fournisseurs/` et les `plugins/*.test.mjs`). |
+| `npm test` | Tests unitaires (`node --test` sur `lib/`, `db/`, `ui/`, `providers/` et les `plugins/*.test.mjs`). |
 | `npm run seed` | (Re)pose les données de test sur le serveur de dev. |
 | `npm run db:generate` | Génère les migrations Drizzle depuis le schéma. |
 
@@ -189,13 +189,13 @@ la clé de debug. **À sauvegarder** : perdue, plus aucune mise à jour ne s'ins
 ## Structure de l'app
 
 ```
-app/            Routes expo-router (index, connexion, salon/[rid], fil/[id], recherche…)
-ui/             Composants et thème « Nuit Étoilée » (theme.ts, kit.tsx, ligneMessage.tsx,
+app/            Routes expo-router (index, connexion, salon/[rid], thread/[id], recherche…)
+ui/             Composants et thème « Nuit Étoilée » (theme.ts, kit.tsx, messageRow.tsx,
                 lecteurAudio/Video, carteEmbed, carteLien, visionneuse, markdown, session…),
                 plus l'i18n : messages.ts (catalogue) et i18n.ts (store + hooks)
-lib/            Cœur non-UI : ddp.ts (client DDP), rest.ts, auth.ts, envoi.ts, upload.ts,
-                sync.ts, rattrapage.ts, reconnexion.ts, presence.ts, push.ts, apercuLien.ts…
-db/             SQLite + Drizzle : schema.ts, upserts.ts, depot.ts, migrations/
+lib/            Cœur non-UI : ddp.ts (client DDP), rest.ts, auth.ts, outbox.ts, upload.ts,
+                sync.ts, catchUp.ts, reconnect.ts, presence.ts, push.ts, linkPreview.ts…
+db/             SQLite + Drizzle : schema.ts, upserts.ts, store.ts, migrations/
 scripts/        env.sh, génération d'emojis
 plugins/        Config plugins CNG : with-fcm-deeplink (service FCM natif, deep-link au tap,
                 réponse depuis la notif), with-ios-push (push iOS par FCM, extension
@@ -210,7 +210,7 @@ e2e/            Parcours Maestro et leur harnais
 MongoDB 8.0), `scripts/` (seed.mjs, spike-ddp.mjs) et `docs/` (DEV.md : environnement,
 réseau, relevé du serveur cible).
 
-Les modules de `lib/`, `db/`, `ui/` et `fournisseurs/` sont accompagnés de tests
+Les modules de `lib/`, `db/`, `ui/` et `providers/` sont accompagnés de tests
 (`*.test.ts`), les config plugins aussi (`plugins/*.test.mjs`).
 
 ---
@@ -227,7 +227,7 @@ façon synchrone au démarrage (pas de flash de langue).
   référence ; `en` est typé `Record<CleTraduction, string>`, donc toute clé
   manquante ou en trop **casse la compilation**. Interpolation `{param}`,
   pluriel `singulier | pluriel` arbitré par un `n` numérique.
-- `ui/i18n.ts` — store abonnable (patron de `identites.tsx`) : `useT()` pour le
+- `ui/i18n.ts` — store abonnable (patron de `identities.tsx`) : `useT()` pour le
   rendu, `traduireCourant()` pour les messages figés hors composant (handlers
   natifs, effets). Ajouter une langue = un catalogue de plus, zéro code.
 

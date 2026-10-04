@@ -5,10 +5,10 @@
  * `{":+1:": {"usernames": ["alice","bob"], "names": [...]}}` — les clés sont
  * des codes courts ENTRE deux-points, et l'appartenance se juge au USERNAME
  * (pas à l'uid : le serveur ne stocke que les pseudos). Cette colonne était
- * écrite depuis le premier jour (`lib/normaliser.ts`) mais lue nulle part :
+ * écrite depuis le premier jour (`lib/normalize.ts`) mais lue nulle part :
  * l'utilisateur réagissait, la feuille se fermait, rien ne changeait à
  * l'écran. La projection vit ici, pure et testable ; le rendu des pastilles
- * est dans `ui/ligneMessage.tsx`.
+ * est dans `ui/messageRow.tsx`.
  */
 
 export type ReactionAffichee = {

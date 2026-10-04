@@ -13,7 +13,7 @@
 
 import { parse, type Root } from '@rocket.chat/message-parser';
 
-import { sansLiensDeCitation } from './citation.ts';
+import { sansLiensDeCitation } from './quote.ts';
 import { unicodeDeCodeCourt } from './emojis.ts';
 
 export type { Root };

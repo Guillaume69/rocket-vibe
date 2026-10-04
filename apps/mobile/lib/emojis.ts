@@ -14,10 +14,10 @@
  * reste `:nom:` littéral, ce qui se lit, plutôt qu'un glyphe manquant.
  *
  * Module pur, sans React : testable sous Node. La table elle-même est générée
- * par `scripts/generer-emojis.mjs` (voir sa doc pour la source et la licence).
+ * par `scripts/generate-emojis.mjs` (voir sa doc pour la source et la licence).
  */
 
-import { CODES_EMOJI, EMOJIS_PAR_CATEGORIE } from './emojis.genere.ts';
+import { CODES_EMOJI, EMOJIS_PAR_CATEGORIE } from './emojis.generated.ts';
 
 let table: Record<string, string> | null = null;
 
@@ -42,7 +42,7 @@ let codes: readonly string[] | null = null;
 
 /**
  * Tous les codes courts standard connus, pour l'autocomplétion du composer
- * (`lib/completionEmoji.ts`). Dérivés des clés de la table déjà parsée — un seul
+ * (`lib/emojiCompletion.ts`). Dérivés des clés de la table déjà parsée — un seul
  * `JSON.parse`, partagé avec `unicodeDeCodeCourt`. La liste est figée (table
  * générée) : on la met en cache, jamais recopiée à la frappe.
  *

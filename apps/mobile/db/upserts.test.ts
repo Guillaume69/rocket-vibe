@@ -5,8 +5,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { beforeEach, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { versSalon } from '../lib/normaliser.ts';
-import type { AbonnementLocal, MessageLocal, SalonLocal } from '../lib/normaliser.ts';
+import { versSalon } from '../lib/normalize.ts';
+import type { AbonnementLocal, MessageLocal, SalonLocal } from '../lib/normalize.ts';
 import {
   APPLIQUER_RETENTION,
   INSERER_EMOJI_CUSTOM,
@@ -438,12 +438,12 @@ describe('file d’envoi (outbox)', () => {
 });
 
 /**
- * La file de FICHIERS n'était exécutée par aucun test — `db/depot.ts` rendait
+ * La file de FICHIERS n'était exécutée par aucun test — `db/store.ts` rendait
  * `getAllAsync` directement comme `LigneTeleversement[]`, une assertion de type
  * que rien ne vérifiait : une colonne renommée dans le SQL aurait donné des
  * `undefined` silencieux jusque dans l'URI téléversée.
  *
- * On insère ici avec EXACTEMENT les paramètres que passe `db/depot.ts`, dans
+ * On insère ici avec EXACTEMENT les paramètres que passe `db/store.ts`, dans
  * le même ordre — un décalage entre l'ordre des colonnes et l'ordre des
  * valeurs fait échouer ces tests au lieu de corrompre la base.
  */
@@ -460,7 +460,7 @@ describe('file de téléversements', () => {
     const lignes = db.prepare(LISTER_TELEVERSEMENTS_A_ENVOYER).all().map(ligne);
     assert.equal(lignes.length, 1);
     // deepEqual et non une série d'`equal` : une colonne EN TROP la fait
-    // échouer aussi. C'est le seul garde-fou contre le cast de db/depot.ts.
+    // échouer aussi. C'est le seul garde-fou contre le cast de db/store.ts.
     assert.deepEqual(lignes[0], {
       id: 't1',
       rid: 'r1',
@@ -469,7 +469,7 @@ describe('file de téléversements', () => {
       type: 'image/png',
       legende: 'ma légende',
       statut: 'en-attente',
-      // Colonne SNAKE : `db/depot.ts` doit la remettre en `fileId`, comme il
+      // Colonne SNAKE : `db/store.ts` doit la remettre en `fileId`, comme il
       // le fait déjà pour `fil_id` dans la file de sortie.
       file_id: null,
     });
@@ -563,7 +563,7 @@ describe('file de téléversements', () => {
   });
 
   test('l’ordre de rejeu départage les créations de la même milliseconde', () => {
-    // `app/partager.tsx` insère N pièces dans une boucle serrée : `Date.now()`
+    // `app/share.tsx` insère N pièces dans une boucle serrée : `Date.now()`
     // peut rendre la même valeur pour plusieurs.
     db.prepare(INSERER_TELEVERSEMENT).run(...televersement({ id: 'b', nom: 'deux', creeLe: 7 }));
     db.prepare(INSERER_TELEVERSEMENT).run(...televersement({ id: 'a', nom: 'un', creeLe: 7 }));
@@ -922,7 +922,7 @@ describe('identités (uid → pseudo courant)', () => {
   });
 
   test('un upsert de message enregistre AUSSI l’identité de l’auteur', () => {
-    // Le dépôt (db/depot.ts) dérive l'identité de chaque message ; ici on
+    // Le dépôt (db/store.ts) dérive l'identité de chaque message ; ici on
     // reproduit la double écriture pour prouver le contrat de bout en bout.
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', auteurId: 'u9', auteurNom: 'bob', misAJourLe: 300 }));
     db.prepare(UPSERT_UTILISATEUR).run(...util('u9', 'bob', 300));
@@ -1313,7 +1313,7 @@ describe('aperçu de liste : les documents réels du serveur', () => {
 
 /**
  * Brouillons de composer. Ce SQL n'existait pas — l'écriture était construite
- * par Drizzle dans `ui/brouillons.ts` et lancée hors de la file d'écritures,
+ * par Drizzle dans `ui/drafts.ts` et lancée hors de la file d'écritures,
  * donc jamais exécutée par un test. Il vit désormais ici, avec le reste.
  */
 describe('brouillons', () => {

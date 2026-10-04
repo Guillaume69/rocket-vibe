@@ -9,10 +9,10 @@
 
 import * as FileSystem from 'expo-file-system/legacy';
 
-import { nomATeleverser } from '../lib/fichierJoint.ts';
+import { nomATeleverser } from '../lib/attachment.ts';
 import { ErreurRest } from '../lib/rest.ts';
 import type { TransportUpload } from '../lib/upload.ts';
-import { signalerFinUpload } from './sondeUpload.ts';
+import { signalerFinUpload } from './uploadProbe.ts';
 
 /**
  * Copie le fichier sous son vrai nom, dans un dossier à lui : le multipart part

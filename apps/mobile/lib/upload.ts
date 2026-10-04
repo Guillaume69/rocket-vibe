@@ -13,7 +13,7 @@
  * dans les tests. Ce module reste pur.
  */
 
-import { memeOrigine } from './origine.ts';
+import { memeOrigine } from './origin.ts';
 import type { ClientRest } from './rest.ts';
 
 export type FichierAEnvoyer = {
@@ -221,7 +221,7 @@ export const AVATAR_SANS_PHOTO = 'sans-photo';
  * serveur ignore le paramètre), fait bouger l'URI à chaque version : c'est LUI
  * qui rafraîchit l'affichage. Il vient de la base locale (`utilisateurs`,
  * `salons`), alimentée par le stream `updateAvatar`, par `me` et par
- * `users.info` — voir `ui/identites.tsx`.
+ * `users.info` — voir `ui/identities.tsx`.
  */
 export function urlAvatar(
   client: ClientRest,

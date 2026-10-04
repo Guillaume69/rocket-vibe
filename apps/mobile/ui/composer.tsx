@@ -36,38 +36,38 @@ import {
   View,
 } from 'react-native';
 
-import { citer } from '../lib/citation.ts';
-import { decouperCommande, lancerCommande } from '../lib/commandes.ts';
-import type { CandidatMention } from '../lib/completionMention.ts';
-import type { Outbox, OutboxFichiers } from '../lib/fournisseur.ts';
+import { citer } from '../lib/quote.ts';
+import { decouperCommande, lancerCommande } from '../lib/commands.ts';
+import type { CandidatMention } from '../lib/mentionCompletion.ts';
+import type { Outbox, OutboxFichiers } from '../lib/provider.ts';
 import type { ClientRest } from '../lib/rest.ts';
-import type { FichierEnAttente } from './apercuPieceJointe.tsx';
-import { BandeauReponse } from './bandeauReponse.tsx';
-import { BandeauCompletionCommande, useCommandes } from './completionCommande.tsx';
-import { BandeauCompletionEmoji, useCompletionEmoji } from './completionEmoji.tsx';
-import { BandeauCompletionMention } from './completionMention.tsx';
+import type { FichierEnAttente } from './attachmentPreview.tsx';
+import { BandeauReponse } from './replyBanner.tsx';
+import { BandeauCompletionCommande, useCommandes } from './commandCompletion.tsx';
+import { BandeauCompletionEmoji, useCompletionEmoji } from './emojiCompletion.tsx';
+import { BandeauCompletionMention } from './mentionCompletion.tsx';
 import { useE2EDeverrouille } from './e2e.ts';
-import { ouvrirFichierLocal } from './fichierJoint.ts';
-import { supprimerSiTemporaire } from './fichiersTemporaires.ts';
+import { ouvrirFichierLocal } from './attachment.ts';
+import { supprimerSiTemporaire } from './temporaryFiles.ts';
 import { useT } from './i18n.ts';
 import { TuileAvatar } from './kit.tsx';
-import { estRejetArbreDeVues, lancerSelecteurAvecReprise } from './lancerSelecteur.ts';
-import { ModaleVideo } from './lecteurVideo.tsx';
+import { estRejetArbreDeVues, lancerSelecteurAvecReprise } from './launchPicker.ts';
+import { ModaleVideo } from './videoPlayer.tsx';
 import { estImage } from './mime.ts';
-import { NavigateurEmoji, usePanneauEmoji } from './navigateurEmoji.tsx';
-import { NotePrivee, useNotePrivee } from './notesPrivees.tsx';
-import { PiecesEnAttente, type PieceEnAttente } from './piecesEnAttente.tsx';
-import { reduirePieceJointe } from './preparerPieceJointe.ts';
-import { reductionProposable, type QualiteEnvoi } from './qualitePieceJointe.ts';
-import { annulerReponse, useReponse } from './reponse.ts';
-import { useRetourMateriel } from './retourMateriel.ts';
-import { demanderSource, feuilleEstMontee } from './sourcePieceJointe.ts';
-import { useSynchro } from './synchro.tsx';
+import { NavigateurEmoji, usePanneauEmoji } from './emojiPicker.tsx';
+import { NotePrivee, useNotePrivee } from './privateNotes.tsx';
+import { PiecesEnAttente, type PieceEnAttente } from './stagedAttachments.tsx';
+import { reduirePieceJointe } from './prepareAttachment.ts';
+import { reductionProposable, type QualiteEnvoi } from './attachmentQuality.ts';
+import { annulerReponse, useReponse } from './reply.ts';
+import { useRetourMateriel } from './hardwareBack.ts';
+import { demanderSource, feuilleEstMontee } from './attachmentSource.ts';
+import { useSynchro } from './sync.tsx';
 import { type Couleurs, POLICES } from './theme.ts';
 import { signaler } from './toast.tsx';
-import { phraseValidation } from './validationFichiers.ts';
-import { useVisionneuse } from './visionneuse.tsx';
-import { Appuyable } from './appuyable.tsx';
+import { phraseValidation } from './fileValidation.ts';
+import { useVisionneuse } from './imageViewer.tsx';
+import { Appuyable } from './tappable.tsx';
 
 /** Média d'`expo-image-picker` → pièce en attente normalisée. */
 function assetVersFichier(a: ImagePicker.ImagePickerAsset): FichierEnAttente {
@@ -219,7 +219,7 @@ export function Composer({
 
   // Cible de réponse (citation), armée par la feuille d'actions (appui long →
   // Répondre). Adressée à CE composer : `rid:filId` dans un fil, `rid` dans le
-  // salon — voir `ui/reponse.ts`. Déclaré APRÈS le gestionnaire de pièce
+  // salon — voir `ui/reply.ts`. Déclaré APRÈS le gestionnaire de pièce
   // jointe : inscrit en dernier, le back referme d'abord le bandeau de réponse.
   const cleReponse = filId === null ? rid : `${rid}:${filId}`;
   const reponse = useReponse(cleReponse);
@@ -242,7 +242,7 @@ export function Composer({
   const envoyer = useCallback(() => {
     const legende = brouillon.trim();
     // Une citation armée préfixe le texte de son permalien `[ ](…)` — le
-    // serveur en fera la pièce jointe de citation (lib/citation.ts).
+    // serveur en fera la pièce jointe de citation (lib/quote.ts).
     const texteAEnvoyer = reponse === null ? legende : citer(reponse.permalien, legende);
     // Les pièces en attente partent une par une, dans l'ordre ; la légende
     // (citation comprise) accompagne la PREMIÈRE — répétée sous chaque pièce,
@@ -530,7 +530,7 @@ export function Composer({
   // d'ouvrir directement le sélecteur de fichiers. La feuille renvoie la source
   // choisie via `demanderSource` SANS se fermer : on lance donc le sélecteur
   // pendant qu'elle est ouverte et immobile, seul moment où l'arbre de vues
-  // Android est sûr (voir `ui/sourcePieceJointe.ts`). C'est `depuisX` qui la
+  // Android est sûr (voir `ui/attachmentSource.ts`). C'est `depuisX` qui la
   // referme, au retour du sélecteur.
   const joindre = useCallback(async () => {
     setErreurFichier(null);
@@ -540,7 +540,7 @@ export function Composer({
     fermerEmoji();
     Keyboard.dismiss();
     const choix = demanderSource();
-    routeur.push('/joindre');
+    routeur.push('/attach');
     const source = await choix;
     if (source === null) return; // feuille fermée sans choix : déjà démontée
     try {
@@ -733,7 +733,7 @@ function ComposerVerrouille({ c }: { c: Couleurs }) {
   const routeur = useRouter();
   return (
     <Appuyable
-      onPress={() => routeur.push('/deverrouiller-e2e')}
+      onPress={() => routeur.push('/unlock-e2e')}
       android_ripple={{ color: c.ondulation }}
       style={[styles.composer, { borderTopColor: c.bordureDouce }]}
       accessibilityRole="button"

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { unicodeDeCodeCourt } from './emojis.ts';
-import { CODES_EMOJI } from './emojis.genere.ts';
+import { CODES_EMOJI } from './emojis.generated.ts';
 
 describe('unicodeDeCodeCourt', () => {
   test('résout les codes courts usuels', () => {

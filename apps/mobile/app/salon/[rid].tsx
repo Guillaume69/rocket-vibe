@@ -1,6 +1,6 @@
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { and, count, desc, eq, gt, isNull, min, or } from 'drizzle-orm';
-import { useRequeteVive } from '../../ui/requeteVive.ts';
+import { useRequeteVive } from '../../ui/liveQuery.ts';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import {
@@ -24,51 +24,51 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { BaseLocale } from '../../db/client.ts';
-import type { DepotBrouillons } from '../../db/depot.ts';
+import type { DepotBrouillons } from '../../db/store.ts';
 import { abonnements, messages, salons, sortie, televersements } from '../../db/schema.ts';
-import type { MoteurActivite } from '../../lib/activite.ts';
+import type { MoteurActivite } from '../../lib/activity.ts';
 import type {
   ActionsFournisseur,
   Fournisseur,
   Listener,
   Outbox,
   OutboxFichiers,
-} from '../../lib/fournisseur.ts';
+} from '../../lib/provider.ts';
 import type { ClientRest } from '../../lib/rest.ts';
-import { MoteurSaisie, resumerSaisie } from '../../lib/saisie.ts';
-import { amenerMessage } from '../../ui/amenerMessage.ts';
-import { useBrouillon } from '../../ui/brouillons.ts';
-import { useProgressionFichiers } from '../../ui/progressionFichiers.ts';
-import { VueEvitantLeClavier } from '../../ui/clavier.tsx';
-import { useCandidatsMention } from '../../ui/completionMention.tsx';
+import { MoteurSaisie, resumerSaisie } from '../../lib/typing.ts';
+import { amenerMessage } from '../../ui/bringMessage.ts';
+import { useBrouillon } from '../../ui/drafts.ts';
+import { useProgressionFichiers } from '../../ui/fileProgress.ts';
+import { VueEvitantLeClavier } from '../../ui/keyboard.tsx';
+import { useCandidatsMention } from '../../ui/mentionCompletion.tsx';
 import { Composer } from '../../ui/composer.tsx';
-import { EnTeteSalon } from '../../ui/enTeteSalon.tsx';
-import { jetonSession } from '../../ui/jetonSession.ts';
-import { insererBarreNonLus, type LigneBarre } from '../../ui/barreNonLus.ts';
-import { useDonneesLissees } from '../../ui/donneesLissees.ts';
-import { idsHeuresRepetees, idsSuites } from '../../ui/groupeMessages.ts';
-import { insererSeparateursJour, type LigneJour } from '../../ui/separateurJour.ts';
-import { avancerBorne, borneImmobile, pageARecule } from '../../ui/paginationSalon.ts';
+import { EnTeteSalon } from '../../ui/roomHeader.tsx';
+import { jetonSession } from '../../ui/sessionToken.ts';
+import { insererBarreNonLus, type LigneBarre } from '../../ui/unreadBar.ts';
+import { useDonneesLissees } from '../../ui/smoothedData.ts';
+import { idsHeuresRepetees, idsSuites } from '../../ui/messageGrouping.ts';
+import { insererSeparateursJour, type LigneJour } from '../../ui/daySeparator.ts';
+import { avancerBorne, borneImmobile, pageARecule } from '../../ui/roomPagination.ts';
 import {
   ETAT_RETOUR_INITIAL,
   type EtatRetour,
   surAppuiRetour,
   surDefilementRetour,
   surGlisseRetour,
-} from '../../ui/retourAuPlusRecent.ts';
-import { garderAuChaud, salonCouvert } from '../../ui/salonChaud.ts';
-import { consommerSaut, useSaut } from '../../ui/sautMessage.ts';
+} from '../../ui/backToLatest.ts';
+import { garderAuChaud, salonCouvert } from '../../ui/hotRooms.ts';
+import { consommerSaut, useSaut } from '../../ui/messageJump.ts';
 import { signaler } from '../../ui/toast.tsx';
-import { marquerSalonCharge, salonChargeSous } from '../../ui/salonsCharges.ts';
+import { marquerSalonCharge, salonChargeSous } from '../../ui/loadedRooms.ts';
 import { BoutonPrincipal, IndicateurSaisie, SeparateurJour } from '../../ui/kit.tsx';
-import { Appuyable } from '../../ui/appuyable.tsx';
-import { memeOrigine, origineDe } from '../../lib/origine.ts';
+import { Appuyable } from '../../ui/tappable.tsx';
+import { memeOrigine, origineDe } from '../../lib/origin.ts';
 import { MoteurSynchro } from '../../lib/sync.ts';
-import { LigneMessage, type LigneDeMessage } from '../../ui/ligneMessage.tsx';
+import { LigneMessage, type LigneDeMessage } from '../../ui/messageRow.tsx';
 import { usePresence } from '../../ui/presence.ts';
 import { useT } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
-import { useSynchro } from '../../ui/synchro.tsx';
+import { useSynchro } from '../../ui/sync.tsx';
 import { type Couleurs, POLICES, useCouleurs } from '../../ui/theme.ts';
 
 /**
@@ -125,7 +125,7 @@ export default function EcranSalon() {
 
   // Ce garde est le pendant de celui d'index.tsx : un lien profond (le tap
   // sur une notification, étape 6.2) peut atterrir ici sans session.
-  if (etat.phase === 'deconnecte') return <Redirect href="/connexion" />;
+  if (etat.phase === 'deconnecte') return <Redirect href="/login" />;
 
   if (synchro.phase === 'erreur') {
     return (
@@ -427,7 +427,7 @@ function Salon({
     [donneesAvecBarre],
   );
 
-  // Regroupement des rafales d'un même auteur (`ui/groupeMessages`) : calculé
+  // Regroupement des rafales d'un même auteur (`ui/messageGrouping`) : calculé
   // APRÈS les insertions — barre et séparateur rompent les groupes. Données DESC.
   const suites = useMemo(() => idsSuites(donneesListe, 'recent-en-tete'), [donneesListe]);
   const heuresRepetees = useMemo(
@@ -494,13 +494,13 @@ function Salon({
   // qui garde le salon écouté. Couper l'écoute ouvrait un trou que seule une
   // lecture pouvait combler — et cette lecture coûte 3 s sur un gros salon,
   // barre de synchro allumée, pour n'annoncer aucun changement. Voir
-  // `ui/salonChaud.ts` : les références sont comptées, garder la nôtre n'envoie
+  // `ui/hotRooms.ts` : les références sont comptées, garder la nôtre n'envoie
   // aucune `sub` de plus.
   useEffect(() => {
     // Capturé ICI, avec les souscriptions : c'est la session à laquelle ces
     // références appartiennent. Le provider peut être démonté AVANT cet
     // écran — son cleanup court en premier — et les relâcheurs pointeraient
-    // alors sur un client déjà rangé. Voir `ui/jetonSession.ts`.
+    // alors sur un client déjà rangé. Voir `ui/sessionToken.ts`.
     const jeton = jetonSession();
     // Les streams et leurs clés sont l'affaire du fournisseur — on arme ce
     // qu'il déclare, sans en connaître le format.
@@ -519,7 +519,7 @@ function Salon({
   }, [ddp, fournisseur, rid, declarerSalonOuvert]);
 
   // Indicateur de saisie (8.6) : volatil, propre à l'écran — écoute seule,
-  // voir lib/saisie.ts pour l'écart consigné sur l'émission.
+  // voir lib/typing.ts pour l'écart consigné sur l'émission.
   const saisie = useMemo(() => new MoteurSaisie({ rid, moi }), [rid, moi]);
   useEffect(() => {
     const detacher = ddp.surEvenement((evenement) => saisie.appliquer(evenement));
@@ -579,7 +579,7 @@ function Salon({
   //    `generation` change à chaque raccordement, donc une coupure, même brève,
   //    fait retomber la garde (le trou peut être de n'importe quelle taille,
   //    au-delà de ce que les 100 messages de `rattraperSalon` couvrent).
-  //    Voir `ui/salonsCharges.ts`.
+  //    Voir `ui/loadedRooms.ts`.
   const type = salon?.type;
   useEffect(() => {
     if (type === undefined) return;
@@ -645,7 +645,7 @@ function Salon({
       return;
     }
     const plusVieux = fraiches[fraiches.length - 1];
-    // Prédicats extraits dans `ui/paginationSalon.ts`, testés sous Node — ils
+    // Prédicats extraits dans `ui/roomPagination.ts`, testés sous Node — ils
     // encodent les deux leçons payées en 429 (ex æquo, borne immobile).
     bornePrecedente.current = avancerBorne(bornePrecedente.current, plusVieux.id);
     if (borneImmobile(bornePrecedente.current)) {
@@ -668,8 +668,8 @@ function Salon({
       });
   }, [fraiches, limite, type, chargerHistorique, rid]);
 
-  // Saut vers un message choisi dans les épinglés/favoris (`ui/sautMessage.ts`) :
-  // l'amener dans la fenêtre (`ui/amenerMessage.ts`), attendre qu'il figure
+  // Saut vers un message choisi dans les épinglés/favoris (`ui/messageJump.ts`) :
+  // l'amener dans la fenêtre (`ui/bringMessage.ts`), attendre qu'il figure
   // dans les données de la liste, défiler jusqu'à lui et le surligner.
   const cibleSaut = useSaut(rid);
   const [sautVise, setSautVise] = useState<string | null>(null);
@@ -759,13 +759,13 @@ function Salon({
     (id: string) => {
       // « Pop » à l'ouverture de la feuille — confirme que l'appui long a pris.
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      routeur.push({ pathname: '/actions-message', params: { id } });
+      routeur.push({ pathname: '/message-actions', params: { id } });
     },
     [routeur],
   );
   const ouvrirFil = useCallback(
     (id: string) => {
-      routeur.push({ pathname: '/fil/[id]', params: { id } });
+      routeur.push({ pathname: '/thread/[id]', params: { id } });
     },
     [routeur],
   );
@@ -851,8 +851,8 @@ function Salon({
         // Repli si le salon est la RACINE (deep-link à froid) : `back()` n'a
         // alors aucune cible et laisserait l'utilisateur coincé.
         onRetour={() => (routeur.canGoBack() ? routeur.back() : routeur.replace('/'))}
-        onRecherche={() => routeur.push({ pathname: '/recherche-messages', params: { rid } })}
-        onMarques={() => routeur.push({ pathname: '/messages-marques', params: { rid } })}
+        onRecherche={() => routeur.push({ pathname: '/message-search', params: { rid } })}
+        onMarques={() => routeur.push({ pathname: '/marked-messages', params: { rid } })}
       />
       {donneesListe.length === 0 ? (
         // Vide : indicateur, puis mention explicite. (L'ancien piège mVCP
@@ -967,7 +967,7 @@ function Salon({
           <View key={s.id} style={styles.bandeEchecFichier}>
             <Pressable
               style={styles.plein}
-              onPress={() => routeur.push({ pathname: '/fil/[id]', params: { id: s.filId ?? '' } })}
+              onPress={() => routeur.push({ pathname: '/thread/[id]', params: { id: s.filId ?? '' } })}
             >
               <Text style={[styles.heure, { color: c.texteErreur }]} numberOfLines={1}>
                 {t('salon.reponseFilNonEnvoyee')}

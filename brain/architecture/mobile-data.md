@@ -4,7 +4,7 @@ The mobile app keeps everything in SQLite (expo-sqlite, schema and migrations by
 
 ## One database per (server, account)
 
-`db/nomFichier.ts#nomFichier(baseUrl, utilisateurId)` gives `rocket-vibe-<host slug>-<uid slug>.db`. Scheme and trailing slash are ignored, so the same server written two ways maps to one file. Two accounts on one server get two files: rooms, previews and unread counts belong to the account, and sharing them would show one account the other's DMs. Nothing in the schema is multi-server; isolation is the file name. The E2EE private key in the Keystore is keyed by the same (server, account) pair for the same reason (see [e2ee.md](e2ee.md)).
+`db/fileName.ts#nomFichier(baseUrl, utilisateurId)` gives `rocket-vibe-<host slug>-<uid slug>.db`. Scheme and trailing slash are ignored, so the same server written two ways maps to one file. Two accounts on one server get two files: rooms, previews and unread counts belong to the account, and sharing them would show one account the other's DMs. Nothing in the schema is multi-server; isolation is the file name. The E2EE private key in the Keystore is keyed by the same (server, account) pair for the same reason (see [e2ee.md](e2ee.md)).
 
 ## The connection (`db/client.ts`)
 
@@ -15,7 +15,7 @@ The mobile app keeps everything in SQLite (expo-sqlite, schema and migrations by
 - **No foreign keys, on purpose**: a message can arrive over the WebSocket before the room that contains it.
 - **Never call `fermerBase` from a React cleanup.** The connection is shared and old-engine writes may still be in flight; closing under them is worse than leaving it open. It exists for tests and a possible account wipe.
 
-## The write queue (`db/fileEcritures.ts`)
+## The write queue (`db/writeQueue.ts`)
 
 `withTransactionAsync` transactions are per connection and not re-entrant: any write issued outside the queue while a `BEGIN` is open is absorbed into that transaction and silently rolled back if the batch fails. Two interleaved batches died on "cannot rollback - no transaction is active" (seen on the AVD, room history racing the reconnect catch-up). So `creerFileEcritures()` returns a promise chain that runs jobs one at a time; a failed job rejects for its caller but never blocks the queue.
 
@@ -43,13 +43,13 @@ Optimistic messages are `messages` rows with `mis_a_jour_le = 0`: only a local c
 
 - Edit `db/schema.ts`, then run `npm run db:generate` (`drizzle-kit generate`, configured by `drizzle.config.ts` with `dialect: 'sqlite'`, `driver: 'expo'`). It writes a numbered `db/migrations/NNNN_<name>.sql`, a snapshot in `db/migrations/meta/`, and regenerates `db/migrations/migrations.js`. Commit all three; `db/migrations/` is ignored by ESLint.
 - `migrations.js` imports the `.sql` files as strings. That works because Metro gets `sql` added to `sourceExts` (`metro.config.js`) and Babel runs `babel-plugin-inline-import` for `.sql` (`babel.config.js`). `db/migrations.d.ts` types the generated module.
-- `db/migrer.ts#migrerBase` runs drizzle's expo migrator on one database. It is memoized per file name by promise, so two callers in the same tick share one run; a failure is not memoized, so the next call retries. The body is async so that even a synchronous throw from opening a corrupt file becomes a rejection the caller can catch.
+- `db/migrate.ts#migrerBase` runs drizzle's expo migrator on one database. It is memoized per file name by promise, so two callers in the same tick share one run; a failure is not memoized, so the next call retries. The body is async so that even a synchronous throw from opening a corrupt file becomes a rejection the caller can catch.
 - Migration is done by whoever opens the database (`SynchroProvider` for the session's), never globally at app start.
 - `db/schema.test.ts` applies every `.sql` file, split on `--> statement-breakpoint`, to an in-memory `node:sqlite` and checks the result, because generated is not the same as valid.
 
 ## Upserts (`db/upserts.ts`)
 
-All SQL lives in this one file, as exported string constants with parameter builders (`paramsMessage`, `paramsSalon`...). Tests run exactly these strings on `node:sqlite` (`db/upserts.test.ts`), so they exercise the real queries. `db/depot.ts` deliberately uses `runAsync` with these strings rather than Drizzle's query builder, so the app cannot diverge from the tested SQL.
+All SQL lives in this one file, as exported string constants with parameter builders (`paramsMessage`, `paramsSalon`...). Tests run exactly these strings on `node:sqlite` (`db/upserts.test.ts`), so they exercise the real queries. `db/store.ts` deliberately uses `runAsync` with these strings rather than Drizzle's query builder, so the app cannot diverge from the tested SQL.
 
 Two invariants on network-fed tables:
 
@@ -65,7 +65,7 @@ Notable column rules:
 - `UPSERT_CURSEUR` only moves a cursor forward.
 - Drafts have no freshness guard: the user's last keystroke wins.
 
-## Depots (`db/depot.ts`)
+## Depots (`db/store.ts`)
 
 Factories over one connection and its queue: `creerDepot` (the sync engine's `Depot`, from `lib/sync.ts`), `creerDepotEnvoi`, `creerDepotTeleversements`, `creerDepotBrouillons`, `creerDepotEmojis`. Each write goes through the queue; reads (`lireCurseur`, `dernierMessageMisAJour`) skip it. `transaction(fn)` wraps a batch in one queued `withTransactionAsync`: one commit means one change event for live queries instead of one per row.
 
@@ -86,11 +86,11 @@ Side effects baked into writes:
 
 - apps/mobile/db/schema.ts
 - apps/mobile/db/client.ts
-- apps/mobile/db/fileEcritures.ts
-- apps/mobile/db/migrer.ts
-- apps/mobile/db/nomFichier.ts
+- apps/mobile/db/writeQueue.ts
+- apps/mobile/db/migrate.ts
+- apps/mobile/db/fileName.ts
 - apps/mobile/db/upserts.ts
-- apps/mobile/db/depot.ts
+- apps/mobile/db/store.ts
 - apps/mobile/db/schema.test.ts
 - apps/mobile/db/upserts.test.ts
 - apps/mobile/db/migrations/migrations.js
@@ -98,5 +98,5 @@ Side effects baked into writes:
 - apps/mobile/drizzle.config.ts
 - apps/mobile/metro.config.js
 - apps/mobile/babel.config.js
-- apps/mobile/ui/synchro.tsx
+- apps/mobile/ui/sync.tsx
 - apps/mobile/lib/sync.ts

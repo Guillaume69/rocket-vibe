@@ -56,7 +56,7 @@ doc disagrees with reality, fix the doc.
 - A server fact probed on the 8.5 test server goes in `CLAUDE.md`'s facts first;
   `brain/architecture/rocket-chat.md` links it.
 - The other docs keep their own job: changelogs,
-  `apps/mobile/CHANTIERS.md`, `ROADMAP.md`. The brain links them, it doesn't
+  `apps/mobile/WORKSTREAMS.md`, `ROADMAP.md`. The brain links them, it doesn't
   replace them. `apps/mobile/docs/AUDIT.md` is frozen.
 - Style: English, dense, skimmable, present tense, normal prose. No em-dashes.
   Cross-link siblings with relative markdown links. Cite source paths instead of

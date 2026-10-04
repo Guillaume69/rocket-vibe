@@ -30,10 +30,10 @@ An encrypted message is sent as `t: 'e2e'`, `e2e: 'pending'`, `content`, plus `e
 
 - **`lib/e2e/crypto.ts`**: pure functions, no React, no network, testable under Node. Imports `crypto` and `buffer`. `metro.config.js` aliases `crypto` to `react-native-quick-crypto` (Nitro native module, OpenSSL, native PBKDF2) and `buffer` to `@craftzdog/react-native-buffer` (the leaf implementation, not quick-crypto's barrel). Under Node tests the alias does not apply and the same imports resolve to `node:crypto`. Adding quick-crypto required a dev-client rebuild; see [mobile-native.md](mobile-native.md).
 - **`lib/e2e/surfaceQuickCrypto.ts`**: never executed. It replays every call `crypto.ts` makes against the TYPES of `react-native-quick-crypto` so that `npx tsc --noEmit` breaks if a quick-crypto upgrade drops or changes one. Behaviour is proven only by the vectors in `crypto.test.ts` (Node OpenSSL) and a real unlock on device.
-- **`lib/e2e/moteur.ts`, `MoteurE2E`** (E2E engine): holds the private key in memory, a `rid -> AES key` cache (`clesSalon`) and a `rid -> E2EKey` map. `reprendre()` reimports a JWK kept in the Keystore; `deverrouiller(motDePasse)` (unlock) fetches, decrypts and persists it; `verrouiller()` (lock) forgets everything, memory and Keystore. `dechiffrerContenu` and `chiffrer` are **synchronous**, so decryption plugs straight into message ingestion. `estDeverrouille` is observable through `souscrire`, read by `useE2EDeverrouille` (`ui/e2e.ts`) via `useSyncExternalStore`.
+- **`lib/e2e/engine.ts`, `MoteurE2E`** (E2E engine): holds the private key in memory, a `rid -> AES key` cache (`clesSalon`) and a `rid -> E2EKey` map. `reprendre()` reimports a JWK kept in the Keystore; `deverrouiller(motDePasse)` (unlock) fetches, decrypts and persists it; `verrouiller()` (lock) forgets everything, memory and Keystore. `dechiffrerContenu` and `chiffrer` are **synchronous**, so decryption plugs straight into message ingestion. `estDeverrouille` is observable through `souscrire`, read by `useE2EDeverrouille` (`ui/e2e.ts`) via `useSyncExternalStore`.
 - **Key rotation.** Removing a member rotates the room key, so the subscription's `E2EKey` changes. `enregistrerCleSalon` drops the cached AES key when the `E2EKey` differs; without that purge every later message stayed on the placeholder until restart.
-- **Storage scope.** The decrypted JWK is kept in expo-secure-store under a key derived from (server, account), `cleE2E` in `lib/clesStockage.ts` (SHA-256 of `baseUrl|userId`, truncated to 32 hex chars). It used to be per server only: the next account on the same server reimported the previous account's key, the import succeeded, the app believed itself unlocked and silently failed every room key. `purgerCleE2EHeritee` erases the old-format entry at session start because the Keystore cannot enumerate its keys.
-- **Wiring** (`ui/synchro.tsx`): the engine is passed to `MoteurSynchro` as its `DechiffreurE2E`. Ingestion decrypts in place when a key exists and otherwise stores `chiffreBrut` (raw `content` JSON) with `texte` null. On unlock, `deverrouillageE2E` loads every known room key from the DB, decrypts all `messagesADechiffrer`, refreshes encrypted previews (`majApercuChiffre`), then kicks the text outbox and the upload queue, whose encrypted rows were waiting (`AttenteCle`). On lock, `reverrouillageE2E` wipes the clear text of encrypted messages from SQLite. The clear text therefore **lives in the SQLite database while unlocked**. Unlock transitions refresh the context object identity without bumping `generation`, which would have invalidated the room caches and re-fetched history.
+- **Storage scope.** The decrypted JWK is kept in expo-secure-store under a key derived from (server, account), `cleE2E` in `lib/storageKeys.ts` (SHA-256 of `baseUrl|userId`, truncated to 32 hex chars). It used to be per server only: the next account on the same server reimported the previous account's key, the import succeeded, the app believed itself unlocked and silently failed every room key. `purgerCleE2EHeritee` erases the old-format entry at session start because the Keystore cannot enumerate its keys.
+- **Wiring** (`ui/sync.tsx`): the engine is passed to `MoteurSynchro` as its `DechiffreurE2E`. Ingestion decrypts in place when a key exists and otherwise stores `chiffreBrut` (raw `content` JSON) with `texte` null. On unlock, `deverrouillageE2E` loads every known room key from the DB, decrypts all `messagesADechiffrer`, refreshes encrypted previews (`majApercuChiffre`), then kicks the text outbox and the upload queue, whose encrypted rows were waiting (`AttenteCle`). On lock, `reverrouillageE2E` wipes the clear text of encrypted messages from SQLite. The clear text therefore **lives in the SQLite database while unlocked**. Unlock transitions refresh the context object identity without bumping `generation`, which would have invalidated the room caches and re-fetched history.
 
 ## Desktop engine
 
@@ -55,19 +55,19 @@ An encrypted message is sent as `t: 'e2e'`, `e2e: 'pending'`, `content`, plus `e
 ## Sources
 
 - apps/mobile/lib/e2e/crypto.ts
-- apps/mobile/lib/e2e/moteur.ts
+- apps/mobile/lib/e2e/engine.ts
 - apps/mobile/lib/e2e/mentions.ts
 - apps/mobile/lib/e2e/surfaceQuickCrypto.ts
 - apps/mobile/lib/e2e/crypto.test.ts
 - apps/mobile/metro.config.js
-- apps/mobile/lib/clesStockage.ts
+- apps/mobile/lib/storageKeys.ts
 - apps/mobile/lib/sessionStore.ts
 - apps/mobile/lib/sync.ts
-- apps/mobile/lib/envoi.ts
-- apps/mobile/lib/envoiFichiers.ts
-- apps/mobile/ui/synchro.tsx
+- apps/mobile/lib/outbox.ts
+- apps/mobile/lib/uploadQueue.ts
+- apps/mobile/ui/sync.tsx
 - apps/mobile/ui/e2e.ts
-- apps/mobile/ui/chiffrementFichier.ts
+- apps/mobile/ui/fileEncryption.ts
 - apps/mobile/db/schema.ts
 - apps/desktop/crates/rv-core/src/e2e.rs
 - apps/desktop/crates/rv-core/src/session.rs

@@ -14,19 +14,19 @@ The link is produced by the Android push service for every conversation notifica
 
 - **Routing.** expo-router maps `rocketvibe://salon/<rid>` to `app/salon/[rid].tsx` and merges the query into the route params, so `host` arrives through `useLocalSearchParams` (a behaviour read in expo-router's code, see the project facts). `app/+native-intent.tsx` (`redirectSystemPath`) passes every path through except the iOS share extension's `rocketvibe://dataUrl=<key>` callback, which is not a route and would show "page not found".
 - **Cold start and running.** The Android notification intent uses only `FLAG_ACTIVITY_NEW_TASK`; `MainActivity` is `singleTask`, so a running app receives it through `onNewIntent` and a dead one starts fresh, both carrying the URL.
-- **No session**: the room screen redirects to `/connexion`.
-- **Other server.** The screen compares origins (`origineDe`/`memeOrigine`, `lib/origine.ts`), never the raw string, since any app can send that intent. A non-web `host` is ignored. A different origin renders `AutreServeur`: an explicit button naming the target server, which calls `changerDeServeur(host)` and, on success, `replace`s the route without `host` so it cannot replay later. The switch is never automatic: it moves the resume pointer, closes the socket and opens another database ([login-and-servers.md](login-and-servers.md)).
+- **No session**: the room screen redirects to `/login`.
+- **Other server.** The screen compares origins (`origineDe`/`memeOrigine`, `lib/origin.ts`), never the raw string, since any app can send that intent. A non-web `host` is ignored. A different origin renders `AutreServeur`: an explicit button naming the target server, which calls `changerDeServeur(host)` and, on success, `replace`s the route without `host` so it cannot replay later. The switch is never automatic: it moves the resume pointer, closes the socket and opens another database ([login-and-servers.md](login-and-servers.md)).
 
 ### Incoming shares
 
 - **Library.** `expo-share-intent` declares the Android `SEND`/`SEND_MULTIPLE` intent filters (`text/*`, `*/*`) and the iOS share extension (text, one web URL or page, up to 10 images, movies or files), configured in `app.json`. The native module copies `content://` URIs to readable paths.
-- **Routing.** `GardePartage` (`app/_layout.tsx`) pushes `/partager` once per incoming share (rising-edge guard), re-armed when the screen calls `resetShareIntent`.
-- **Screen** `app/partager.tsx`, a modal: preview of the shared files or text, a caption prefilled with the shared text or URL, and a pick among existing local conversations (channels, groups, DMs; no destination invented). Images are compressed when useful (`compresserImageSiUtile`) while the preview keeps the original URI, to avoid thumbnails reloading. Sending reuses the room's engines: `fichiers.envoyer` for attachments (caption on the file), `envoi.envoyer` for text alone; validation errors (size, encrypted room without file support) come from `phraseValidation`. Then it replaces itself with the target room.
-- **No replay.** When Android recreates `MainActivity` (process killed, or relaunched from recents) it hands back the intent that created the task, and expo-share-intent would reopen the share screen on every launch. `plugins/with-partage-entrant.js` patches `onCreate`: a restored activity (`savedInstanceState`) or one launched from history whose intent is a `SEND` gets the launcher's `MAIN` intent instead, before `super.onCreate`.
+- **Routing.** `GardePartage` (`app/_layout.tsx`) pushes `/share` once per incoming share (rising-edge guard), re-armed when the screen calls `resetShareIntent`.
+- **Screen** `app/share.tsx`, a modal: preview of the shared files or text, a caption prefilled with the shared text or URL, and a pick among existing local conversations (channels, groups, DMs; no destination invented). Images are compressed when useful (`compresserImageSiUtile`) while the preview keeps the original URI, to avoid thumbnails reloading. Sending reuses the room's engines: `fichiers.envoyer` for attachments (caption on the file), `envoi.envoyer` for text alone; validation errors (size, encrypted room without file support) come from `phraseValidation`. Then it replaces itself with the target room.
+- **No replay.** When Android recreates `MainActivity` (process killed, or relaunched from recents) it hands back the intent that created the task, and expo-share-intent would reopen the share screen on every launch. `plugins/with-incoming-share.js` patches `onCreate`: a restored activity (`savedInstanceState`) or one launched from history whose intent is a `SEND` gets the launcher's `MAIN` intent instead, before `super.onCreate`.
 
 ### Outgoing links
 
-- **One exit.** `ui/lienExterne.ts::ouvrirLienExterne` is the only caller of `Linking.openURL` (markdown links, link cards, embed cards). It refuses silently unless `lib/lienExterne.ts::peutSortirDuProcessus` holds: the URL is `http(s)://` (no `javascript:`, `intent:`, `file:`, `content:`) **and** carries no `rc_uid=`/`rc_token=`. Protected file URLs embed those credentials in the query (`urlFichierProtege`, `lib/upload.ts`) and a `rc_token` is worth the whole account; such URLs are for in-process use only (images, players, downloads). The file branch of a message downloads and shares a local file instead of opening a URL; the guard makes a regression fail closed.
+- **One exit.** `ui/externalLink.ts::ouvrirLienExterne` is the only caller of `Linking.openURL` (markdown links, link cards, embed cards). It refuses silently unless `lib/externalLink.ts::peutSortirDuProcessus` holds: the URL is `http(s)://` (no `javascript:`, `intent:`, `file:`, `content:`) **and** carries no `rc_uid=`/`rc_token=`. Protected file URLs embed those credentials in the query (`urlFichierProtege`, `lib/upload.ts`) and a `rc_token` is worth the whole account; such URLs are for in-process use only (images, players, downloads). The file branch of a message downloads and shares a local file instead of opening a URL; the guard makes a regression fail closed.
 - `@user` mentions stay inside the app (they open the profile sheet); `#channel` mentions are styled but not tappable.
 
 ## Desktop
@@ -46,18 +46,18 @@ The link is produced by the Android push service for every conversation notifica
 - apps/mobile/app.json
 - apps/mobile/app/+native-intent.tsx
 - apps/mobile/app/_layout.tsx
-- apps/mobile/app/partager.tsx
+- apps/mobile/app/share.tsx
 - apps/mobile/app/salon/[rid].tsx
-- apps/mobile/plugins/with-partage-entrant.js
+- apps/mobile/plugins/with-incoming-share.js
 - apps/mobile/plugins/with-fcm-deeplink.js
-- apps/mobile/lib/origine.ts
-- apps/mobile/lib/lienExterne.ts
+- apps/mobile/lib/origin.ts
+- apps/mobile/lib/externalLink.ts
 - apps/mobile/lib/upload.ts
-- apps/mobile/ui/lienExterne.ts
+- apps/mobile/ui/externalLink.ts
 - apps/mobile/ui/markdown.tsx
 - apps/mobile/ui/notifications.tsx
-- apps/mobile/ui/preparerPieceJointe.ts
-- apps/mobile/ui/validationFichiers.ts
+- apps/mobile/ui/prepareAttachment.ts
+- apps/mobile/ui/fileValidation.ts
 - apps/desktop/crates/rv-core/src/links.rs
 - apps/desktop/crates/rv-core/src/markdown.rs
 - apps/desktop/crates/rv-gtk/src/main.rs

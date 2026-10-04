@@ -18,9 +18,9 @@ import {
   cleE2EHeritee,
   cleSession,
   sansSlashFinal,
-} from './clesStockage.ts';
-import type { DeconnexionEnSuspens } from './deconnexionDifferee.ts';
-import { normaliserGenre } from './fournisseur.ts';
+} from './storageKeys.ts';
+import type { DeconnexionEnSuspens } from './deferredLogout.ts';
+import { normaliserGenre } from './provider.ts';
 
 /** SHA-256 hexadécimal — l'implémentation de `Hacheur` côté application. */
 export function hacher(texte: string): Promise<string> {
@@ -28,7 +28,7 @@ export function hacher(texte: string): Promise<string> {
 }
 
 /**
- * La dérivation des noms de clés vit dans `lib/clesStockage.ts`, sans
+ * La dérivation des noms de clés vit dans `lib/storageKeys.ts`, sans
  * dépendance à `expo`, parce que c'est elle qui décide de l'isolation entre
  * comptes — et que cela se prouve par des tests, pas par une relecture.
  */
@@ -87,7 +87,7 @@ export async function effacerSession(baseUrl: string): Promise<void> {
  * périmètre du modèle de menace E2EE (qui vise le serveur).
  *
  * L'indexation par compte n'est pas une commodité : rangée par serveur seul,
- * la clé d'un compte était réimportée pour le suivant. Voir `clesStockage.ts`.
+ * la clé d'un compte était réimportée pour le suivant. Voir `storageKeys.ts`.
  */
 export async function enregistrerClePriveeE2E(
   baseUrl: string,
@@ -211,7 +211,7 @@ export function lireJetonPushRetenu(): Promise<string | null> {
 
 /**
  * Déconnexions que le réseau n'a pas laissées aboutir, à terminer au prochain
- * démarrage. Voir `lib/deconnexionDifferee.ts` pour le pourquoi.
+ * démarrage. Voir `lib/deferredLogout.ts` pour le pourquoi.
  *
  * Même patron que `serveurs-connus` : `expo-secure-store` ne sait pas énumérer
  * ses clés, donc une liste JSON sous une clé fixe. Le nom ne commence

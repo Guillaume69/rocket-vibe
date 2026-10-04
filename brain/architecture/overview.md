@@ -38,11 +38,11 @@ An Expo SDK 57 app on React Native 0.86 (New Architecture), Android first, iOS p
 
 | Directory | Role |
 |---|---|
-| `app/` | expo-router routes: `index.tsx` (room list), `connexion.tsx` (login), `salon/[rid].tsx` (room), `fil/[id].tsx` (thread), `appel/[callId].tsx` (Jitsi call, the one WebView), search, settings, profiles, share target. |
-| `ui/` | Components, theme, i18n catalog (`messages.ts`), and the React glue that owns the session and the sync engine (`session.tsx`, `synchro.tsx`). |
-| `fournisseurs/` | "Providers": `creerFournisseur` picks the chat backend by `session.genre`; `fournisseurs/rocketchat/` is the only one and translates Rocket.Chat's wire format into neutral sync changes (`ChangementSync`). The contract is `lib/fournisseur.ts`. |
-| `lib/` | Platform-free core: DDP client (`ddp.ts`), REST client (`rest.ts`), auth, sync engine (`sync.ts`, `MoteurSynchro`), catch-up (`rattrapage.ts`), reconnection, send queue (`envoi.ts`), uploads, markdown, E2EE (`lib/e2e/`). Loadable by plain Node, which is how it is tested. |
-| `db/` | SQLite schema (Drizzle), the SQL of every upsert (`upserts.ts`), the `Depot` (store) implementation (`depot.ts`) and its serialised write queue (`fileEcritures.ts`), migrations. |
+| `app/` | expo-router routes: `index.tsx` (room list), `login.tsx` (login), `salon/[rid].tsx` (room), `thread/[id].tsx` (thread), `call/[callId].tsx` (Jitsi call, the one WebView), search, settings, profiles, share target. |
+| `ui/` | Components, theme, i18n catalog (`messages.ts`), and the React glue that owns the session and the sync engine (`session.tsx`, `sync.tsx`). |
+| `providers/` | "Providers": `creerFournisseur` picks the chat backend by `session.genre`; `fournisseurs/rocketchat/` is the only one and translates Rocket.Chat's wire format into neutral sync changes (`ChangementSync`). The contract is `lib/provider.ts`. |
+| `lib/` | Platform-free core: DDP client (`ddp.ts`), REST client (`rest.ts`), auth, sync engine (`sync.ts`, `MoteurSynchro`), catch-up (`catchUp.ts`), reconnection, send queue (`outbox.ts`), uploads, markdown, E2EE (`lib/e2e/`). Loadable by plain Node, which is how it is tested. |
+| `db/` | SQLite schema (Drizzle), the SQL of every upsert (`upserts.ts`), the `Depot` (store) implementation (`store.ts`) and its serialised write queue (`writeQueue.ts`), migrations. |
 | `plugins/`, `modules/` | Config plugins that shape the generated `android/`/`ios/` projects, and local Expo native modules. |
 
 Dependencies point downward: `app/` and `ui/` use `lib/` and `db/`; `lib/` defines interfaces such as `Depot` and never imports React Native, so its modules run under `node --test`. Details: [mobile-app.md](mobile-app.md), [mobile-data.md](mobile-data.md), [mobile-transport.md](mobile-transport.md), [mobile-native.md](mobile-native.md).
@@ -72,7 +72,7 @@ The desktop app has no push: it stays connected (optionally in the background or
 ## Footguns worth knowing before touching anything
 
 - **The mobile `lib/` and `db/` must stay loadable by Node**: no `enum`, no constructor parameter properties (ESLint rule in `apps/mobile/eslint.config.js`), imports with `.ts` extensions. Break it and the unit tests stop running.
-- **Calling a queued `Depot` method inside a mobile transaction deadlocks** the write queue; transactions receive a direct writer. `lib/depotDeTest.ts` makes the test fakes enforce this.
+- **Calling a queued `Depot` method inside a mobile transaction deadlocks** the write queue; transactions receive a direct writer. `lib/testStore.ts` makes the test fakes enforce this.
 - **`android/` and `ios/` are regenerated** by every `expo prebuild`; hand edits vanish. Native changes go through `plugins/`, and a native module change needs a rebuild, not a Metro reload.
 - **The desktop binary built in the container runs only on a host with matching GTK/libadwaita** (Fedora 44); elsewhere use the AppImage.
 - **One version per app, checked by CI**: a mobile bump touches `app.json` (including `versionCode`) and `package.json`; a desktop bump touches `Cargo.toml` and `Cargo.lock`.
@@ -84,13 +84,13 @@ The desktop app has no push: it stays connected (optionally in the background or
 - `ROADMAP.md`
 - `CLAUDE.md`
 - `apps/mobile/app`
-- `apps/mobile/ui/synchro.tsx`
+- `apps/mobile/ui/sync.tsx`
 - `apps/mobile/ui/session.tsx`
-- `apps/mobile/fournisseurs/index.ts`
-- `apps/mobile/lib/fournisseur.ts`
+- `apps/mobile/providers/index.ts`
+- `apps/mobile/lib/provider.ts`
 - `apps/mobile/lib/sync.ts`
-- `apps/mobile/lib/depotDeTest.ts`
-- `apps/mobile/db/depot.ts`
+- `apps/mobile/lib/testStore.ts`
+- `apps/mobile/db/store.ts`
 - `apps/mobile/eslint.config.js`
 - `apps/desktop/Cargo.toml`
 - `apps/desktop/crates/rv-core/src/lib.rs`

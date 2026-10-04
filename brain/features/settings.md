@@ -16,15 +16,15 @@ The settings screen gathers my profile, the notification preference, the languag
 
 ## Mobile
 
-`app/parametres.tsx`, a page opened from the room list. Sections, in order:
+`app/settings.tsx`, a page opened from the room list. Sections, in order:
 
-- **Profile card**: avatar, name, link to `/mon-profil` ([room-info-and-profiles.md](room-info-and-profiles.md)).
+- **Profile card**: avatar, name, link to `/my-profile` ([room-info-and-profiles.md](room-info-and-profiles.md)).
 - **Notifications**: the push preference, read from `GET me` (`settings.preferences.pushNotifications`) and written with `POST users.setPreferences {data: {pushNotifications}}`. It is global to the account, not per room. Three choices are offered: all messages, mentions and direct messages, none. The server also knows `default` (follow the server's setting); an account on `default` shows no option ticked until the first choice, which is honest rather than misleading. Save errors show `parametres.enregistrementImpossible`.
 - **Language**: automatic (phone locale), French, English (`SelecteurLangue`, `definirLangue` in `ui/i18n.ts`). The switch is live: listeners re-render the app without a restart. "Automatic" deletes the key; an explicit choice is written with `AFTER_FIRST_UNLOCK` so the iOS notification extension can read it with the phone locked, and the Android push service reads the same key to localise native notifications. Details in [../architecture/i18n.md](../architecture/i18n.md).
-- **Encryption**: locked or unlocked state, Unlock (opens `/deverrouiller-e2e`) or Lock (`synchro.verrouillerE2E`) ([e2ee.md](e2ee.md)).
+- **Encryption**: locked or unlocked state, Unlock (opens `/unlock-e2e`) or Lock (`synchro.verrouillerE2E`) ([e2ee.md](e2ee.md)).
 - **Account**: signed in as `@username`, server URL.
 - **Diagnostics**: "Get the FCM token" (`SectionJetonFcm`), which runs `obtenirJetonFcm` and prints the token, for push debugging ([notifications.md](notifications.md)).
-- **Change server** (`/connexion?changer=1`) and **Sign out** ([login-and-servers.md](login-and-servers.md)).
+- **Change server** (`/login?changer=1`) and **Sign out** ([login-and-servers.md](login-and-servers.md)).
 
 There is no theme setting: `useCouleurs()` (`ui/theme.ts`) always returns the dark "Nuit Étoilée" palette. A light palette exists as data for a future "day" theme.
 
@@ -52,8 +52,8 @@ Fields are filled from `GET me` (`rv-core/src/account.rs::me`) before their chan
 
 ## Sources
 
-- apps/mobile/app/parametres.tsx
-- apps/mobile/app/mon-profil.tsx
+- apps/mobile/app/settings.tsx
+- apps/mobile/app/my-profile.tsx
 - apps/mobile/ui/i18n.ts
 - apps/mobile/ui/messages.ts
 - apps/mobile/ui/theme.ts

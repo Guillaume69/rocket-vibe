@@ -14,10 +14,10 @@ Three read-on-demand views and one editor: a room's information sheet, a person'
 
 ## Mobile
 
-- **Room info** `app/salon-info.tsx`, a native `formSheet` opened by tapping the room name in the header (`ui/enTeteSalon.tsx`). For a DM the header goes straight to the other person's profile instead: the "info" of a one-to-one is the person. The skeleton (name, avatar, type, encrypted and read-only flags) comes from the local DB and shows immediately, offline included; member count, announcement, topic and description arrive from `rooms.info`. It also toggles the favourite (`rooms.favorite`), with an error line on failure. Encrypted rooms show the lock and a decrypted-or-not tile (see [e2ee.md](e2ee.md)).
-- **Profile** `app/profil.tsx`, a `formSheet` sized `fitToContents`. Opened from a message's avatar or author name (`ui/ligneMessage.tsx`), an `@mention` (`ui/markdown.tsx`) or the DM header. Shows avatar, name, `@username`, presence, roles, the person's local time (`14:07 (UTC+2)`, computed from `utcOffset`) and bio (falling back to `statusText`). Actions: Message (`actions.ouvrirOuCreerDm`, `im.create`, idempotent) and Call when a conference provider exists ([calls.md](calls.md)).
-- **Preloading** (`lib/profilPreload.ts`): a `fitToContents` sheet measures itself on first render, so content arriving later made it jump. `ouvrirFicheProfil` fetches `users.info` and settles the call probe **before** navigating; the screen reads the result with `lireProfilPrecharge` and renders at its final height. It is a hand-off buffer, not a freshness cache: each opening refetches. The client and the navigator are module singletons (`definirClientProfil`, `definirNavigateurProfil`) because mentions are rendered by plain functions with nothing at hand; `ui/indicateurOuverture.tsx` shows feedback if the fetch drags.
-- **My profile** `app/mon-profil.tsx`, a full page (it has a keyboard), reached from the profile card at the top of Settings. One Save button calls only the endpoints of what changed (`lib/monProfil.ts`: `diffInfos`, `exigeMotDePasse`, `enregistrerStatut`, `enregistrerInfos`): presence among online/away/busy/offline plus status text, name, bio, email, username, and a new photo picked with `ui/choisirAvatar.ts` (`definirAvatar`, `lib/upload.ts`). The current password field appears when email or username changes; a 2FA challenge is answered with `preparerCodeDeuxFacteurs`.
+- **Room info** `app/room-info.tsx`, a native `formSheet` opened by tapping the room name in the header (`ui/roomHeader.tsx`). For a DM the header goes straight to the other person's profile instead: the "info" of a one-to-one is the person. The skeleton (name, avatar, type, encrypted and read-only flags) comes from the local DB and shows immediately, offline included; member count, announcement, topic and description arrive from `rooms.info`. It also toggles the favourite (`rooms.favorite`), with an error line on failure. Encrypted rooms show the lock and a decrypted-or-not tile (see [e2ee.md](e2ee.md)).
+- **Profile** `app/profile.tsx`, a `formSheet` sized `fitToContents`. Opened from a message's avatar or author name (`ui/messageRow.tsx`), an `@mention` (`ui/markdown.tsx`) or the DM header. Shows avatar, name, `@username`, presence, roles, the person's local time (`14:07 (UTC+2)`, computed from `utcOffset`) and bio (falling back to `statusText`). Actions: Message (`actions.ouvrirOuCreerDm`, `im.create`, idempotent) and Call when a conference provider exists ([calls.md](calls.md)).
+- **Preloading** (`lib/profilePreload.ts`): a `fitToContents` sheet measures itself on first render, so content arriving later made it jump. `ouvrirFicheProfil` fetches `users.info` and settles the call probe **before** navigating; the screen reads the result with `lireProfilPrecharge` and renders at its final height. It is a hand-off buffer, not a freshness cache: each opening refetches. The client and the navigator are module singletons (`definirClientProfil`, `definirNavigateurProfil`) because mentions are rendered by plain functions with nothing at hand; `ui/openingIndicator.tsx` shows feedback if the fetch drags.
+- **My profile** `app/my-profile.tsx`, a full page (it has a keyboard), reached from the profile card at the top of Settings. One Save button calls only the endpoints of what changed (`lib/myProfile.ts`: `diffInfos`, `exigeMotDePasse`, `enregistrerStatut`, `enregistrerInfos`): presence among online/away/busy/offline plus status text, name, bio, email, username, and a new photo picked with `ui/pickAvatar.ts` (`definirAvatar`, `lib/upload.ts`). The current password field appears when email or username changes; a 2FA challenge is answered with `preparerCodeDeuxFacteurs`.
 
 ## Desktop
 
@@ -33,18 +33,18 @@ Room info, profile with Message and Call, my profile with password and 2FA, live
 
 ## Sources
 
-- apps/mobile/app/salon-info.tsx
-- apps/mobile/app/profil.tsx
-- apps/mobile/app/mon-profil.tsx
-- apps/mobile/app/parametres.tsx
-- apps/mobile/lib/monProfil.ts
-- apps/mobile/lib/profilPreload.ts
+- apps/mobile/app/room-info.tsx
+- apps/mobile/app/profile.tsx
+- apps/mobile/app/my-profile.tsx
+- apps/mobile/app/settings.tsx
+- apps/mobile/lib/myProfile.ts
+- apps/mobile/lib/profilePreload.ts
 - apps/mobile/lib/upload.ts
-- apps/mobile/ui/choisirAvatar.ts
-- apps/mobile/ui/enTeteSalon.tsx
-- apps/mobile/ui/ligneMessage.tsx
+- apps/mobile/ui/pickAvatar.ts
+- apps/mobile/ui/roomHeader.tsx
+- apps/mobile/ui/messageRow.tsx
 - apps/mobile/ui/markdown.tsx
-- apps/mobile/ui/indicateurOuverture.tsx
+- apps/mobile/ui/openingIndicator.tsx
 - apps/desktop/crates/rv-core/src/info.rs
 - apps/desktop/crates/rv-core/src/account.rs
 - apps/desktop/crates/rv-core/src/actions.rs

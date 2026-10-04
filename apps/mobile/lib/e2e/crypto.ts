@@ -4,7 +4,7 @@
  *
  * Fonctions PURES, sans React ni réseau — testables sous Node. Tout le savoir
  * cryptographique du client tient ici ; l'orchestration (session, clés en
- * mémoire, REST) vit dans `lib/e2e/moteur.ts`.
+ * mémoire, REST) vit dans `lib/e2e/engine.ts`.
  *
  * La crypto passe par l'API `node:crypto` : sous Node (tests) c'est l'implé
  * native OpenSSL ; dans l'app RN, Metro alias `crypto` et `buffer` vers

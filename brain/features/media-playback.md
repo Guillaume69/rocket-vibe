@@ -13,10 +13,10 @@ How images, video and audio attachments, and YouTube, Dailymotion and Vimeo link
 
 ## Mobile
 
-- **Images.** `ImageJointe` in `ui/ligneMessage.tsx`. A tap opens `ui/visionneuse.tsx`, a full-screen viewer in a native `Modal` with its own `GestureHandlerRootView` (a `Modal` is a separate native window the root gesture handler does not cover): pinch to zoom, pan once zoomed, double tap to zoom in or out, swipe down to close, and a save button (`enregistrerEnFond` in `ui/actionsJointe.ts`). The protected URL is kept in context state and **never passed as an expo-router route parameter**, which would put a secret in a serialisable URL. Animated GIFs play through Fresco's animated-GIF support.
-- **Video attachments.** `ui/lecteurVideo.tsx` (`expo-video`). The message shows a themed card (aurora banner, play button, download progress overlay `BarreTransfert`); a tap opens a full-screen `Modal` with native controls. The player is created only when the modal mounts and released when it closes: `useVideoPlayer` is a costly native instance and a room can hold several videos. Video attachments must be tested before the generic file branch, since they also carry `title_link`.
-- **Audio attachments and voice messages.** `ui/lecteurAudio.tsx` (`expo-audio`) plays in place: play/pause, a tappable progress bar and a "rainbow comet" visualiser fed by `useAudioSampleListener`, a Hann-windowed FFT over log-spaced bands with high-band lift, automatic gain and per-bar smoothing. On Android the sample tap needs `RECORD_AUDIO` (already granted for recording); without it playback still works with idle bars. The player exists only once "play" is pressed (`LecteurAudioActif`): created per visible message, it buffered every voice note on screen (about 20 MB for twenty notes heard zero seconds). One player at a time, coordinated at module level. See [voice-messages.md](voice-messages.md).
-- **Video-site cards.** `ui/carteEmbed.tsx` with `lib/liensVideo.ts` (`detecterLiensVideo`, `idVideo`, `estLienVideo`) and `metasVideo` in `lib/apercuLien.ts`. A card with the public thumbnail (rebuilt from the id for YouTube and Dailymotion, an aurora banner otherwise), a dark veil, a play button, and the title and channel when known. A tap calls `ouvrirLienExterne`, which hands the URL to the native app or the browser. Embedded playback would need a WebView, forbidden outside the call screen ([decisions.md](../decisions.md), ROADMAP section 4.2). The pattern requires a host boundary, so `notyoutube.com/watch?v=...` does not match.
+- **Images.** `ImageJointe` in `ui/messageRow.tsx`. A tap opens `ui/imageViewer.tsx`, a full-screen viewer in a native `Modal` with its own `GestureHandlerRootView` (a `Modal` is a separate native window the root gesture handler does not cover): pinch to zoom, pan once zoomed, double tap to zoom in or out, swipe down to close, and a save button (`enregistrerEnFond` in `ui/attachmentActions.ts`). The protected URL is kept in context state and **never passed as an expo-router route parameter**, which would put a secret in a serialisable URL. Animated GIFs play through Fresco's animated-GIF support.
+- **Video attachments.** `ui/videoPlayer.tsx` (`expo-video`). The message shows a themed card (aurora banner, play button, download progress overlay `BarreTransfert`); a tap opens a full-screen `Modal` with native controls. The player is created only when the modal mounts and released when it closes: `useVideoPlayer` is a costly native instance and a room can hold several videos. Video attachments must be tested before the generic file branch, since they also carry `title_link`.
+- **Audio attachments and voice messages.** `ui/audioPlayer.tsx` (`expo-audio`) plays in place: play/pause, a tappable progress bar and a "rainbow comet" visualiser fed by `useAudioSampleListener`, a Hann-windowed FFT over log-spaced bands with high-band lift, automatic gain and per-bar smoothing. On Android the sample tap needs `RECORD_AUDIO` (already granted for recording); without it playback still works with idle bars. The player exists only once "play" is pressed (`LecteurAudioActif`): created per visible message, it buffered every voice note on screen (about 20 MB for twenty notes heard zero seconds). One player at a time, coordinated at module level. See [voice-messages.md](voice-messages.md).
+- **Video-site cards.** `ui/embedCard.tsx` with `lib/videoLinks.ts` (`detecterLiensVideo`, `idVideo`, `estLienVideo`) and `metasVideo` in `lib/linkPreview.ts`. A card with the public thumbnail (rebuilt from the id for YouTube and Dailymotion, an aurora banner otherwise), a dark veil, a play button, and the title and channel when known. A tap calls `ouvrirLienExterne`, which hands the URL to the native app or the browser. Embedded playback would need a WebView, forbidden outside the call screen ([decisions.md](../decisions.md), ROADMAP section 4.2). The pattern requires a host boundary, so `notyoutube.com/watch?v=...` does not match.
 - **Encrypted media.** `JointeChiffree` decrypts images, audio and video into the cache before showing them; above 25 MB (`APERCU_CHIFFRE_MAX`) a medium is not decrypted for preview and stays a card to share or save.
 
 ## Desktop
@@ -34,19 +34,19 @@ How images, video and audio attachments, and YouTube, Dailymotion and Vimeo link
 
 ## Sources
 
-- apps/mobile/ui/ligneMessage.tsx
-- apps/mobile/ui/visionneuse.tsx
-- apps/mobile/ui/lecteurVideo.tsx
-- apps/mobile/ui/lecteurAudio.tsx
-- apps/mobile/ui/carteEmbed.tsx
-- apps/mobile/ui/carteLien.tsx
-- apps/mobile/ui/actionsJointe.ts
-- apps/mobile/ui/barreTransfert.tsx
-- apps/mobile/ui/lienExterne.ts
-- apps/mobile/lib/liensVideo.ts
-- apps/mobile/lib/apercuLien.ts
+- apps/mobile/ui/messageRow.tsx
+- apps/mobile/ui/imageViewer.tsx
+- apps/mobile/ui/videoPlayer.tsx
+- apps/mobile/ui/audioPlayer.tsx
+- apps/mobile/ui/embedCard.tsx
+- apps/mobile/ui/linkCard.tsx
+- apps/mobile/ui/attachmentActions.ts
+- apps/mobile/ui/transferBar.tsx
+- apps/mobile/ui/externalLink.ts
+- apps/mobile/lib/videoLinks.ts
+- apps/mobile/lib/linkPreview.ts
 - apps/mobile/lib/upload.ts
-- apps/mobile/lib/fichierJoint.ts
+- apps/mobile/lib/attachment.ts
 - apps/desktop/crates/rv-core/src/media.rs
 - apps/desktop/crates/rv-core/src/animation.rs
 - apps/desktop/crates/rv-core/src/player.rs

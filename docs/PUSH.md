@@ -60,7 +60,7 @@ Même voie qu'Android : jeton **FCM** enregistré en `gcm`, Rocket.Chat pousse v
 
 | Pièce | Rôle |
 |---|---|
-| `apps/mobile/modules/jeton-fcm/` | Module Swift : remet le jeton APNs (rendu par `getDevicePushTokenAsync()`) à Firebase et rend le jeton FCM ; émet `jetonRenouvele` à la rotation. |
+| `apps/mobile/modules/fcm-token/` | Module Swift : remet le jeton APNs (rendu par `getDevicePushTokenAsync()`) à Firebase et rend le jeton FCM ; émet `jetonRenouvele` à la rotation. |
 | `apps/mobile/plugins/with-ios-push.js` | `FirebaseAppDelegateProxyEnabled = false` (pas de swizzling contre expo-notifications), pods Firebase en `modular_headers`, groupe de trousseau partagé, cible `NotificationService`. |
 | `apps/mobile/plugins/ios-notification-service/NotificationService.swift` | Notification Service Extension, pendant du service Kotlin : lit la session au trousseau, `push.get`, réécrit titre et texte, `threadIdentifier` = rid, range `ejson` (rid, host) dans `userInfo["body"]`, que expo-notifications expose comme `data` au tap. |
 
@@ -70,7 +70,7 @@ Ce qui diffère d'Android, par contrainte iOS :
 - pas de rattrapage différé : un `push.get` raté ou trop long (~30 s) laisse « Nouveau message » ;
 - la session et la langue sont écrites `AFTER_FIRST_UNLOCK` (`lib/sessionStore.ts`, `ui/i18n.ts`) : avec le défaut `WHEN_UNLOCKED`, l'extension ne les lirait pas écran verrouillé ;
 - le groupe de trousseau `$(AppIdentifierPrefix)com.rocketvibe.app` est EN TÊTE des groupes de l'app, donc c'est là qu'expo-secure-store écrit par défaut ;
-- « Répondre » est une action de saisie iOS : l'extension pose la catégorie `rv-message` (sauf salon chiffré), et `modules/reponse-notif` envoie le texte par `chat.sendMessage` en natif, app réveillée en arrière-plan, sans passer par le JS. Échec : une notification « Réponse non envoyée » reprend la même action. Le code de session (`SessionPush.swift`) est commun aux deux cibles.
+- « Répondre » est une action de saisie iOS : l'extension pose la catégorie `rv-message` (sauf salon chiffré), et `modules/notification-reply` envoie le texte par `chat.sendMessage` en natif, app réveillée en arrière-plan, sans passer par le JS. Échec : une notification « Réponse non envoyée » reprend la même action. Le code de session (`SessionPush.swift`) est commun aux deux cibles.
 
 Vérifié sous Linux : `expo prebuild --platform ios --no-install` (cible, embarquement, réglages, Podfile, entitlements), `swiftc -parse` des deux fichiers Swift, typecheck de l'extension contre des doublures des API Apple, et sa logique exécutée contre le banc 8.5.1 (vrai `push.get`, origine étrangère refusée, repli, E2EE, DM). **Jamais compilé avec Xcode.**
 

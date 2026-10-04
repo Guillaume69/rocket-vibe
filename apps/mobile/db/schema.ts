@@ -2,7 +2,7 @@
  * Schéma local. **SQLite est la source de vérité**, l'UI n'en est qu'une
  * projection : le WebSocket et le REST y font des upserts, jamais l'inverse.
  *
- * Une base par serveur **et par compte** (`db/nomFichier.ts`) : le nom de
+ * Une base par serveur **et par compte** (`db/fileName.ts`) : le nom de
  * fichier dérive du host et de l'utilisateur, donc rien de multi-serveur ici.
  *
  * Les dates Rocket.Chat arrivent en EJSON (`{"$date": epochMs}`) ou en ISO.
@@ -114,7 +114,7 @@ export const messages = sqliteTable(
     reactions: text('reactions'),
     /**
      * `urls` : métadonnées de lien parsées par le SERVEUR (OpenGraph/oEmbed),
-     * sérialisées. Source des cartes d'aperçu (`lib/apercuLien.ts`). Arrive
+     * sérialisées. Source des cartes d'aperçu (`lib/linkPreview.ts`). Arrive
      * souvent APRÈS le message : le serveur parse en asynchrone puis re-pousse
      * la version enrichie avec un `_updatedAt` plus récent, que l'upsert accepte.
      */
@@ -134,7 +134,7 @@ export const messages = sqliteTable(
     chiffreBrut: text('chiffre_brut'),
     /** `pinned`. */
     epingle: integer('epingle', { mode: 'boolean' }).notNull().default(false),
-    /** `starred` réduit aux uids, sérialisé ; `null` si personne. Voir `lib/marques.ts`. */
+    /** `starred` réduit aux uids, sérialisé ; `null` si personne. Voir `lib/marks.ts`. */
     etoiles: text('etoiles'),
     misAJourLe: integer('mis_a_jour_le').notNull().default(0),
   },
@@ -153,7 +153,7 @@ export type StatutSortie = 'en-attente' | 'echec';
  * réconcilié quand le serveur le renvoie — le `_id` est généré côté client,
  * et le serveur n'en accepte jamais deux : une réémission après un crash ne
  * crée pas de doublon. ATTENTION : le rejeu répond 400, pas un succès
- * idempotent (voir lib/envoi.ts).
+ * idempotent (voir lib/outbox.ts).
  */
 export const sortie = sqliteTable(
   'sortie',
@@ -235,7 +235,7 @@ export const brouillons = sqliteTable('brouillons', {
  * pas de flux : `msg.md` ne livre que le code court (`:party_parrot:`), c'est
  * elle qui donne le nom de FICHIER à afficher. Persistée pour l'offline-first
  * (étape 8) — au démarrage sans réseau, les customs s'affichent quand même ;
- * chargée en Map mémoire (`lib/emojisCustom.ts`) pour un rendu synchrone.
+ * chargée en Map mémoire (`lib/customEmojis.ts`) pour un rendu synchrone.
  *
  * La base étant par (serveur, compte), la table est déjà scopée serveur : pas
  * d'`etag` à garder, on remplace tout au rattrapage. `nom` est le nom

@@ -15,16 +15,16 @@
  */
 
 import * as Notifications from 'expo-notifications';
-import { useRequeteVive } from './requeteVive.ts';
+import { useRequeteVive } from './liveQuery.ts';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 
 import { salons, abonnements } from '../db/schema.ts';
-import { estSalonChiffre, poserSalonsChiffres } from './etatNotifications.ts';
+import { estSalonChiffre, poserSalonsChiffres } from './notificationState.ts';
 import { identifiantNotifSalon } from '../lib/notificationId.ts';
 import { traduireCourant } from './i18n.ts';
-import { useSynchro } from './synchro.tsx';
+import { useSynchro } from './sync.tsx';
 
 /** Le salon d'un push, et le serveur d'où il vient (multi-session). */
 type CibleNotification = { rid: string; host: string | null };
@@ -86,7 +86,7 @@ export function GestionNotifications() {
     // `getLastNotificationResponse` au démarrage) : on ne route qu'une fois.
     let dejaRoute: string | null = null;
     const ouvrir = (reponse: Notifications.NotificationResponse) => {
-      // « Répondre » sous iOS est traité en natif (modules/reponse-notif), app
+      // « Répondre » sous iOS est traité en natif (modules/notification-reply), app
       // en arrière-plan : naviguer ici poserait le salon sous les yeux au
       // prochain retour dans l'app.
       if (reponse.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;

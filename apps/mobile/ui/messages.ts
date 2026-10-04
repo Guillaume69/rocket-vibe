@@ -13,7 +13,7 @@
  * (cf. `ui/i18n.ts`).
  */
 
-import { cleJour } from './separateurJour.ts';
+import { cleJour } from './daySeparator.ts';
 
 const fr = {
   // ── Commun — réutilisé par plusieurs écrans. Préférer une clé d'écran
@@ -26,7 +26,7 @@ const fr = {
   'commun.rechercher': 'Rechercher',
   'commun.supprimer': 'Supprimer',
   'commun.pieceJointe': 'Pièce jointe',
-  // Mise en phrase des refus de validation d'upload (ui/validationFichiers.ts),
+  // Mise en phrase des refus de validation d'upload (ui/fileValidation.ts),
   // partagée entre le composer du salon et l'écran de partage.
   'commun.fichierTropLourd': 'Fichier trop lourd (maximum {mo} Mo).',
   'commun.typeFichierRefuse': 'Type {type} refusé par le serveur.',
@@ -155,7 +155,7 @@ const fr = {
   'salon.cameraRefuse': 'Accès à la caméra refusé.',
   'salon.selectionImpossible': 'Sélection impossible.',
   // Le NPE d'arbre de vues d'Android : rien dans l'app n'en sort, seul un
-  // redémarrage le solde. Autant le dire clairement (voir `lancerSelecteur.ts`).
+  // redémarrage le solde. Autant le dire clairement (voir `launchPicker.ts`).
   'salon.selecteurBloque': "Le sélecteur ne répond plus. Fermez l'app et rouvrez-la.",
   'salon.joindreFichier': 'Joindre un fichier',
   'salon.revenirClavier': 'Revenir au clavier',
@@ -245,7 +245,7 @@ const fr = {
   'rechercheMessages.rechercheImpossible': 'Recherche impossible.',
   'rechercheMessages.aucunMessage': 'Aucun message trouvé.',
 
-  // ── Messages épinglés et favoris (app/messages-marques.tsx)
+  // ── Messages épinglés et favoris (app/marked-messages.tsx)
   'marques.titre': 'Épinglés et favoris',
   'marques.epingles': 'Épinglés',
   'marques.favoris': 'Mes favoris',
@@ -336,7 +336,7 @@ const fr = {
   'apercuPieceJointe.kilooctets': '{taille} Ko',
   'apercuPieceJointe.megaoctets': '{taille} Mo',
   // Pastilles du choix de qualité d'un média (photo lourde, vidéo) — la
-  // réduction se fait à l'envoi (ui/preparerPieceJointe.ts).
+  // réduction se fait à l'envoi (ui/prepareAttachment.ts).
   'apercuPieceJointe.reduite': 'Réduite',
   'apercuPieceJointe.originale': 'Originale',
   'apercuPieceJointe.envoyerReduite': 'Envoyer en qualité réduite',
@@ -838,7 +838,7 @@ export function formateurHeure(langue: Langue): (ms: number) => string {
 }
 
 /**
- * Libellé d'un séparateur de jour (ui/separateurJour) : « Aujourd'hui »,
+ * Libellé d'un séparateur de jour (ui/daySeparator) : « Aujourd'hui »,
  * « Hier », sinon la date — avec le jour de semaine dans l'année courante
  * (« jeudi 31 juillet »), avec l'année au-delà (« 31 juillet 2025 », le jour
  * de semaine n'aide plus à se situer si loin). Même fabrique à mémoïser que

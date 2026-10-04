@@ -8,15 +8,15 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { definirNavigateurProfil } from '../lib/profilPreload.ts';
-import { SuiviIdentites } from '../ui/identites.tsx';
+import { definirNavigateurProfil } from '../lib/profilePreload.ts';
+import { SuiviIdentites } from '../ui/identities.tsx';
 import { HoteToast } from '../ui/toast.tsx';
-import { IndicateurOuvertureProfil } from '../ui/indicateurOuverture.tsx';
+import { IndicateurOuvertureProfil } from '../ui/openingIndicator.tsx';
 import { GestionNotifications } from '../ui/notifications.tsx';
 import { SessionProvider } from '../ui/session.tsx';
-import { SynchroProvider } from '../ui/synchro.tsx';
+import { SynchroProvider } from '../ui/sync.tsx';
 import { couleursSombres, POLICES } from '../ui/theme.ts';
-import { VisionneuseImageProvider } from '../ui/visionneuse.tsx';
+import { VisionneuseImageProvider } from '../ui/imageViewer.tsx';
 
 /**
  * Racine de navigation. `Stack` d'expo-router s'appuie sur le stack natif de
@@ -30,11 +30,11 @@ import { VisionneuseImageProvider } from '../ui/visionneuse.tsx';
  * entière.
  */
 export default function RootLayout() {
-  // Le préchargement de fiche (`lib/profilPreload.ts`, du lib/ pur, chargeable
+  // Le préchargement de fiche (`lib/profilePreload.ts`, du lib/ pur, chargeable
   // sous Node) ne connaît pas expo-router : on lui prête la navigation d'ici,
   // sur le modèle de `definirClientProfil` posé par `SessionProvider`.
   useEffect(() => {
-    definirNavigateurProfil((p) => router.push({ pathname: '/profil', params: p }));
+    definirNavigateurProfil((p) => router.push({ pathname: '/profile', params: p }));
     return () => definirNavigateurProfil(null);
   }, []);
 
@@ -54,7 +54,7 @@ export default function RootLayout() {
             `resetOnBackground: false` — repasser par une autre app pour vérifier
             un détail ne doit pas jeter le fichier qu'on s'apprête à partager. */}
         <ShareIntentProvider options={{ resetOnBackground: false }}>
-          {/* Alimente la SharedValue clavier de `ui/clavier.tsx` (suivi
+          {/* Alimente la SharedValue clavier de `ui/keyboard.tsx` (suivi
               frame-par-frame via WindowInsetsAnimation, edge-to-edge natif). */}
           <KeyboardProvider>
             <SessionProvider>
@@ -83,7 +83,7 @@ export default function RootLayout() {
                         au lieu de remplir l'écran (défaut `[1.0]`). Grabber + coins
                         arrondis natifs, pas d'en-tête — c'est un menu, pas une page. */}
                     <Stack.Screen
-                      name="actions-message"
+                      name="message-actions"
                       options={{
                         presentation: 'formSheet',
                         headerShown: false,
@@ -98,7 +98,7 @@ export default function RootLayout() {
                         (photo, vidéo, bibliothèque, fichier). Même sheet native que
                         les actions de message. */}
                     <Stack.Screen
-                      name="joindre"
+                      name="attach"
                       options={{
                         presentation: 'formSheet',
                         headerShown: false,
@@ -111,7 +111,7 @@ export default function RootLayout() {
                     />
                     {/* Déverrouillage E2EE : mot de passe de chiffrement. */}
                     <Stack.Screen
-                      name="deverrouiller-e2e"
+                      name="unlock-e2e"
                       options={{
                         presentation: 'formSheet',
                         headerShown: false,
@@ -124,7 +124,7 @@ export default function RootLayout() {
                     />
                     {/* Fiche d'un salon (tap sur le nom dans l'en-tête). */}
                     <Stack.Screen
-                      name="salon-info"
+                      name="room-info"
                       options={{
                         presentation: 'formSheet',
                         headerShown: false,
@@ -138,7 +138,7 @@ export default function RootLayout() {
                     {/* Fiche d'un utilisateur (avatar/nom d'auteur, mention).
                         Même sheet native que les actions de message. */}
                     <Stack.Screen
-                      name="profil"
+                      name="profile"
                       options={{
                         presentation: 'formSheet',
                         headerShown: false,
@@ -152,7 +152,7 @@ export default function RootLayout() {
                     {/* Écran de partage : ouvert par la feuille système d'Android
                         (ACTION_SEND) via `GardePartage`. Modal glissant du bas —
                         c'est une action ponctuelle par-dessus l'app, pas une page. */}
-                    <Stack.Screen name="partager" options={{ presentation: 'modal' }} />
+                    <Stack.Screen name="share" options={{ presentation: 'modal' }} />
                   </Stack>
                   <GestionNotifications />
                   {/* Tient à jour la résolution `uid → pseudo courant` des
@@ -179,13 +179,13 @@ export default function RootLayout() {
 
 /**
  * Aiguilleur du partage entrant. Le module natif d'`expo-share-intent` publie
- * l'intent `ACTION_SEND` dans le contexte ; on ouvre alors l'écran `/partager`.
+ * l'intent `ACTION_SEND` dans le contexte ; on ouvre alors l'écran `/share`.
  *
  * `traite` garde le front montant : on ne pousse QU'UNE fois par intent, même
  * si le contexte se re-rend. Quand l'écran de partage réinitialise l'intent
  * (`resetShareIntent`), `hasShareIntent` retombe à false et le garde se réarme
  * pour le partage suivant — sans dépendre du pathname, donc sans re-pousser
- * `/partager` par-dessus le salon où l'on vient d'envoyer.
+ * `/share` par-dessus le salon où l'on vient d'envoyer.
  */
 function GardePartage() {
   const { hasShareIntent } = useShareIntentContext();
@@ -195,7 +195,7 @@ function GardePartage() {
   useEffect(() => {
     if (hasShareIntent && !traite.current) {
       traite.current = true;
-      routeur.push('/partager');
+      routeur.push('/share');
     } else if (!hasShareIntent) {
       traite.current = false;
     }

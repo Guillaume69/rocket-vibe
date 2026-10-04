@@ -268,7 +268,7 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
     val session = lireSession(this, host)
     // Pas de session pour cet hôte = compte déconnecté sur cet appareil. Le
     // serveur, lui, continue de pousser : le dé-enregistrement du jeton peut
-    // avoir échoué hors ligne (voir \`lib/deconnexionDifferee.ts\`, qui le
+    // avoir échoué hors ligne (voir \`lib/deferredLogout.ts\`, qui le
     // rejoue au démarrage suivant). Sans cette garde, chaque push produisait un
     // « Nouveau message » fantôme, non annulable depuis l'app puisqu'il n'y a
     // plus de compte — et PLUS un rattrapage WorkManager mort-né, dont la
@@ -880,7 +880,7 @@ private fun annulerRattrapage(ctx: Context, messageId: String) {
 
 /**
  * Scheme + authority d'une URL web, en minuscules ; null si ce n'en est pas une.
- * Pendant Kotlin de \`lib/origine.ts\` — même règle, écrite deux fois faute de
+ * Pendant Kotlin de \`lib/origin.ts\` — même règle, écrite deux fois faute de
  * langage commun entre le service natif et l'app. L'autorité est prise TELLE
  * QUELLE, userinfo compris : « https://serveur@evil » ne doit surtout pas se
  * réduire à « https://serveur ».

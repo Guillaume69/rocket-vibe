@@ -6,7 +6,7 @@
 
 import { useSyncExternalStore } from 'react';
 
-import type { MoteurE2E } from '../lib/e2e/moteur.ts';
+import type { MoteurE2E } from '../lib/e2e/engine.ts';
 
 export function useE2EDeverrouille(e2e: MoteurE2E | null): boolean {
   return useSyncExternalStore(

@@ -83,7 +83,7 @@ one **sweep** finder with the merged list, hunting only for gaps.
 
 Re-verify every claim before fixing: finders surface plausible-but-wrong items.
 Fix every confirmed correctness / protocol / security issue and the worthwhile
-quality ones. Real but out of scope: a line in `apps/mobile/CHANTIERS.md` ("Relevé
+quality ones. Real but out of scope: a line in `apps/mobile/WORKSTREAMS.md` ("Relevé
 APRÈS l'audit") or `apps/desktop/docs/FEEDBACK.md` ("Found while fixing"), not
 dropped.
 
@@ -109,7 +109,7 @@ branch as the change:
 - `brain/parity.md`: the rows the change adds or moves, a status per app,
   and the Open debt list kept in step.
 - The app's README, `CLAUDE.md` for a newly
-  probed server fact, `ROADMAP.md` for a new decision, ticks in `CHANTIERS.md` /
+  probed server fact, `ROADMAP.md` for a new decision, ticks in `WORKSTREAMS.md` /
   `FEEDBACK.md`.
 
 ## 5. Gate (green before merge)

@@ -1,7 +1,7 @@
 /**
  * Langue active de l'application : store abonnable + hooks React.
  *
- * Même patron que `ui/identites` : un store module-level plutôt qu'un Provider.
+ * Même patron que `ui/identities` : un store module-level plutôt qu'un Provider.
  * Envelopper la pile pour la langue REMONTERAIT tout l'arbre de navigation à
  * chaque bascule ; ici chaque composant s'abonne via `useSyncExternalStore` et
  * ne se re-rend qu'au vrai changement de langue. Le noyau PUR (catalogue,

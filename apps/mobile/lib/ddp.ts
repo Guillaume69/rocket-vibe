@@ -387,7 +387,7 @@ export class ClientDdp {
    * lecture REST démarrée après lui ne peut plus laisser de trou : tout ce que
    * le serveur publie ensuite arrive par le fil. Le raccordement s'en sert au
    * lieu d'un délai — la justesse ne doit dépendre ni de la latence ni de la
-   * qualité du réseau (voir `lib/raccordement.ts`).
+   * qualité du réseau (voir `lib/connectionSetup.ts`).
    *
    * Ne rejette jamais : une souscription qui échoue reste désirée et sera
    * rejouée à la prochaine authentification.

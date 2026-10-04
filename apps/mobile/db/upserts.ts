@@ -14,7 +14,7 @@
  *    message éditée depuis, ou réafficher des non-lus déjà remis à zéro.
  */
 
-import type { AbonnementLocal, MessageLocal, SalonLocal } from '../lib/normaliser.ts';
+import type { AbonnementLocal, MessageLocal, SalonLocal } from '../lib/normalize.ts';
 
 export const UPSERT_MESSAGE = `
 INSERT INTO messages (
@@ -212,7 +212,7 @@ export const MESSAGES_A_DECHIFFRER = `SELECT id, rid, chiffre_brut FROM messages
 /** Pose le clair d'un message une fois déchiffré, et les pièces jointes d'un fichier. */
 export const MAJ_TEXTE_MESSAGE = `UPDATE messages SET texte = ?, pieces_jointes = COALESCE(?, pieces_jointes) WHERE id = ?`;
 /**
- * Pose l'épinglage et les étoiles après un geste réussi (voir `lib/marques.ts`).
+ * Pose l'épinglage et les étoiles après un geste réussi (voir `lib/marks.ts`).
  * `mis_a_jour_le` n'avance pas : la prochaine version du serveur fait foi.
  */
 export const MAJ_MARQUES_MESSAGE = `UPDATE messages SET epingle = ?, etoiles = ? WHERE id = ?`;
@@ -249,9 +249,9 @@ export const MASQUER_MESSAGES_CHIFFRES = `UPDATE messages SET texte = NULL, piec
  *    système via `texteSysteme()` (« alice a rejoint le salon »), jamais son
  *    `texte` brut — qui pour un `t: 'uj'` n'est QUE le pseudo. Le prendre en
  *    aperçu affichait donc « alice » tout court. C'est exactement le prédicat
- *    `estOrdinaire` de `ui/ligneMessage.tsx`.
+ *    `estOrdinaire` de `ui/messageRow.tsx`.
  *    ⚠️ Surtout PAS `type_systeme IS NULL` seul : dans un salon chiffré, TOUS
- *    les messages portent `t: 'e2e'` (`lib/normaliser.ts`) — ce filtre-là
+ *    les messages portent `t: 'e2e'` (`lib/normalize.ts`) — ce filtre-là
  *    viderait l'aperçu de tous les salons chiffrés, c'est-à-dire la seule
  *    chose que cette requête existe pour calculer ;
  *  - `id DESC` en clé secondaire : le flux a dû l'ajouter pour départager deux

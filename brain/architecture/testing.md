@@ -6,16 +6,16 @@ How each app is tested: fast unit and integration suites that run everywhere (in
 
 ### Unit tests (`npm test`)
 
-`npm test` runs Node's built-in runner on `lib/**/*.test.ts`, `db/**/*.test.ts`, `ui/**/*.test.ts`, `fournisseurs/**/*.test.ts` and `plugins/**/*.test.mjs`. There is no Jest and no transpiler: Node 24 strips TypeScript types itself, which is why:
+`npm test` runs Node's built-in runner on `lib/**/*.test.ts`, `db/**/*.test.ts`, `ui/**/*.test.ts`, `providers/**/*.test.ts` and `plugins/**/*.test.mjs`. There is no Jest and no transpiler: Node 24 strips TypeScript types itself, which is why:
 
 - imports carry their `.ts` extension (`allowImportingTsExtensions` in `tsconfig.json`);
 - `lib/` and `db/` must avoid syntax that emits code (`enum`, constructor parameter properties); `apps/mobile/eslint.config.js` turns both into lint errors, because a single one stops Node from loading the module and silently takes its tests with it;
-- tested modules must not import React Native. Pure logic lives in `lib/` and in the testable halves of `ui/` (for example `ui/salonChaud.ts`, `ui/barreNonLus.ts`, `ui/sectionsAccueil.ts`), while the `.tsx` components stay untested.
+- tested modules must not import React Native. Pure logic lives in `lib/` and in the testable halves of `ui/` (for example `ui/hotRooms.ts`, `ui/unreadBar.ts`, `ui/homeSections.ts`), while the `.tsx` components stay untested.
 
 Notable test techniques:
 
-- **SQL is tested on real SQLite.** `db/upserts.test.ts` and `db/schema.test.ts` open `node:sqlite`'s `DatabaseSync`, apply the real Drizzle migrations from `db/migrations/`, and run the exact SQL strings and parameter builders that `db/depot.ts` executes on the device through `expo-sqlite` (the depot deliberately avoids Drizzle's query builder so tested and shipped SQL cannot diverge).
-- **Fake stores keep the deadlock invariant.** `lib/depotDeTest.ts` wraps fake `Depot`s so that calling a queued write method inside `transaction` throws, as the real write queue would deadlock; a naive fake would let such a refactor pass every test and then freeze on the device.
+- **SQL is tested on real SQLite.** `db/upserts.test.ts` and `db/schema.test.ts` open `node:sqlite`'s `DatabaseSync`, apply the real Drizzle migrations from `db/migrations/`, and run the exact SQL strings and parameter builders that `db/store.ts` executes on the device through `expo-sqlite` (the depot deliberately avoids Drizzle's query builder so tested and shipped SQL cannot diverge).
+- **Fake stores keep the deadlock invariant.** `lib/testStore.ts` wraps fake `Depot`s so that calling a queued write method inside `transaction` throws, as the real write queue would deadlock; a naive fake would let such a refactor pass every test and then freeze on the device.
 - **Transports are faked at the socket.** `lib/ddp.test.ts` drives the DDP client through an in-memory `WebSocketLike`; `lib/rest.test.ts` injects its own `fetch` into the client.
 - **Crypto runs on `node:crypto`.** Metro aliases `crypto` to react-native-quick-crypto in the app bundle only, so `lib/e2e/*.test.ts` exercise the same calls against Node's OpenSSL. `lib/e2e/surfaceQuickCrypto.test.ts` runs the real `metro.config.js` resolver with a fake context to prove the alias still points at quick-crypto (if it broke, the app would load a pure-JS polyfill or nothing and no other test would notice); the quick-crypto API surface itself is pinned by type assertions in `lib/e2e/surfaceQuickCrypto.ts`, checked by `tsc`.
 - **Config plugins are tested as functions**: each `plugins/with-*.test.mjs` feeds a template file to the plugin's exported transform (for example `signer` in `with-signature-release.js`).
@@ -24,17 +24,17 @@ Alongside: `npx tsc --noEmit` (strict, no implicit `any`) and `npm run lint`. CI
 
 ### End-to-end: Maestro (`e2e/`)
 
-`MAESTRO=/path/to/maestro e2e/lancer.sh` runs five flows against a dev build on the emulator and the local server (`SERVEUR`, default `http://localhost:3000`):
+`MAESTRO=/path/to/maestro e2e/run.sh` runs five flows against a dev build on the emulator and the local server (`SERVEUR`, default `http://localhost:3000`):
 
 | Flow | What it proves | Harness around it |
 |---|---|---|
-| `01-connexion.yaml` | From a cleared state: dev-client launcher, server address, alice's login, room list. | Retried once (see below). |
-| `02-envoi.yaml` | Sends a message. | `harnais/verifier-serveur.mjs` checks the server holds it: the on-screen assert would pass on the optimistic row alone. |
-| `03-reconnexion.yaml` | A message posted while offline appears after reconnecting. | The script removes `adb reverse`, has bob post (`harnais/poster-bob.mjs`), restores the link (a trap restores it on any failure). |
+| `01-login.yaml` | From a cleared state: dev-client launcher, server address, alice's login, room list. | Retried once (see below). |
+| `02-send.yaml` | Sends a message. | `harness/check-server.mjs` checks the server holds it: the on-screen assert would pass on the optimistic row alone. |
+| `03-reconnect.yaml` | A message posted while offline appears after reconnecting. | The script removes `adb reverse`, has bob post (`harness/post-as-bob.mjs`), restores the link (a trap restores it on any failure). |
 | `04-upload.yaml` | Uploads an image through the system picker with a caption. | Generates a 1x1 PNG, pushes it to `/sdcard/Download`, then checks the server has the message and its file. |
-| `05-deux-facteurs.yaml` | Login with TOTP. | `harnais/deux-facteurs.mjs` enables bob's TOTP (via DDP methods, the only place in the repo allowed to call them) and always disables it afterwards; `harnais/totp.mjs` computes codes. |
+| `05-two-factor.yaml` | Login with TOTP. | `harness/two-factor.mjs` enables bob's TOTP (via DDP methods, the only place in the repo allowed to call them) and always disables it afterwards; `harness/totp.mjs` computes codes. |
 
-Footguns encoded in `lancer.sh`: it pins `ANDROID_SERIAL` to `emulator-5554` so a plugged-in personal phone never receives the suite; flows starting from a cleared state get one retry because the dev client crashes natively on some cold starts (Fabric `MountingCoordinator::pullTransaction`, roughly 2 in 8, never in release); flows that post are not retried, since a retry would post twice; a 2FA secret left by an interrupted run is persisted in `/tmp/rocket-vibe-e2e-2fa-secret` and cleaned up at the next start. The suite is written in bash, not zsh. It does not run in CI.
+Footguns encoded in `run.sh`: it pins `ANDROID_SERIAL` to `emulator-5554` so a plugged-in personal phone never receives the suite; flows starting from a cleared state get one retry because the dev client crashes natively on some cold starts (Fabric `MountingCoordinator::pullTransaction`, roughly 2 in 8, never in release); flows that post are not retried, since a retry would post twice; a 2FA secret left by an interrupted run is persisted in `/tmp/rocket-vibe-e2e-2fa-secret` and cleaned up at the next start. The suite is written in bash, not zsh. It does not run in CI.
 
 ## Desktop
 
@@ -86,18 +86,18 @@ Fixtures for media playback live in `apps/desktop/tests/media/` (`voice.ogg`, `v
 - `apps/mobile/tsconfig.json`
 - `apps/mobile/eslint.config.js`
 - `apps/mobile/metro.config.js`
-- `apps/mobile/lib/depotDeTest.ts`
+- `apps/mobile/lib/testStore.ts`
 - `apps/mobile/lib/ddp.test.ts`
 - `apps/mobile/lib/e2e/surfaceQuickCrypto.test.ts`
 - `apps/mobile/lib/e2e/surfaceQuickCrypto.ts`
 - `apps/mobile/lib/rest.test.ts`
 - `apps/mobile/db/upserts.test.ts`
 - `apps/mobile/db/schema.test.ts`
-- `apps/mobile/db/depot.ts`
+- `apps/mobile/db/store.ts`
 - `apps/mobile/plugins/with-signature-release.test.mjs`
-- `apps/mobile/e2e/lancer.sh`
+- `apps/mobile/e2e/run.sh`
 - `apps/mobile/e2e/flows/`
-- `apps/mobile/e2e/harnais/`
+- `apps/mobile/e2e/harness/`
 - `apps/desktop/scripts/build.sh`
 - `apps/desktop/scripts/smoke.sh`
 - `apps/desktop/scripts/e2e.sh`

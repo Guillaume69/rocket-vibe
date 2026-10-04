@@ -1,5 +1,5 @@
 import { desc } from 'drizzle-orm';
-import { useRequeteVive } from '../ui/requeteVive.ts';
+import { useRequeteVive } from '../ui/liveQuery.ts';
 import { Redirect, Stack, useRouter } from 'expo-router';
 import { ActivityIndicator, SectionList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -7,9 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { BaseLocale } from '../db/client.ts';
 import { abonnements, salons } from '../db/schema.ts';
 import { apercuTexte } from '../lib/markdown.ts';
-import { apercuSysteme } from '../lib/messagesSysteme.ts';
+import { apercuSysteme } from '../lib/systemMessages.ts';
 import type { ClientRest } from '../lib/rest.ts';
-import { useActivite } from '../ui/activite.ts';
+import { useActivite } from '../ui/activity.ts';
 import { useT } from '../ui/i18n.ts';
 import { AvatarSalon, BadgeNonLus, BarreSynchro, Marque, TuileAvatar } from '../ui/kit.tsx';
 import { couleursPresence, usePresence } from '../ui/presence.ts';
@@ -18,14 +18,14 @@ import {
   type EntreeAccueil,
   replierSections,
   type SectionAffichee,
-} from '../ui/sectionsAccueil.ts';
-import { basculerSectionRepliee, useSectionsRepliees } from '../ui/sectionsRepliees.ts';
+} from '../ui/homeSections.ts';
+import { basculerSectionRepliee, useSectionsRepliees } from '../ui/collapsedSections.ts';
 import { useSession } from '../ui/session.tsx';
-import { useSynchro } from '../ui/synchro.tsx';
+import { useSynchro } from '../ui/sync.tsx';
 import { useE2EDeverrouille } from '../ui/e2e.ts';
-import type { MoteurE2E } from '../lib/e2e/moteur.ts';
+import type { MoteurE2E } from '../lib/e2e/engine.ts';
 import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
-import { Appuyable } from '../ui/appuyable.tsx';
+import { Appuyable } from '../ui/tappable.tsx';
 
 /**
  * Portier et liste des salons. Sans session on va se connecter ; avec session,
@@ -44,11 +44,11 @@ export default function EcranAccueil() {
     );
   }
 
-  if (etat.phase === 'deconnecte') return <Redirect href="/connexion" />;
+  if (etat.phase === 'deconnecte') return <Redirect href="/login" />;
 
   return (
     // Pas de saisie sur cet écran ; s'il en gagne une, passer à
-    // `VueEvitantLeClavier` (ui/clavier.tsx) — SafeAreaView ignore le clavier.
+    // `VueEvitantLeClavier` (ui/keyboard.tsx) — SafeAreaView ignore le clavier.
     <SafeAreaView style={[styles.plein, { backgroundColor: c.fond }]} edges={['top', 'bottom']}>
       {/* En-tête à logo dessiné par l'écran : l'en-tête natif ne sait pas
           rendre le wordmark dégradé. */}
@@ -73,7 +73,7 @@ function EnTeteListe({ c }: { c: Couleurs }) {
         <Marque c={c} taille={23} />
       </View>
       <Appuyable
-        onPress={() => routeur.push('/parametres')}
+        onPress={() => routeur.push('/settings')}
         android_ripple={{ color: c.ondulation, borderless: true, radius: 22 }}
         hitSlop={8}
         accessibilityRole="button"
@@ -134,7 +134,7 @@ function Salons({
   const { data: lignesAbonnements } = useRequeteVive(base.select().from(abonnements));
 
   // Fusion, masquage, remontée des non-lus, répartition, sections vides
-  // retirées : la projection vit dans `ui/sectionsAccueil.ts`, testée sous
+  // retirées : la projection vit dans `ui/homeSections.ts`, testée sous
   // Node.
   const repliees = useSectionsRepliees();
   const sections: SectionSalons[] = replierSections(
@@ -318,7 +318,7 @@ function LigneNouvelleConversation({ c }: { c: Couleurs }) {
   return (
     <View style={styles.enveloppeLigne}>
       <Appuyable
-        onPress={() => routeur.push('/recherche')}
+        onPress={() => routeur.push('/search')}
         android_ripple={{ color: c.ondulation }}
         unstable_pressDelay={DELAI_PRESSION_LISTE}
         style={[styles.ligne, { borderBottomColor: c.bordureDouce, borderBottomWidth: 1 }]}

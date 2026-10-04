@@ -1,7 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
-import { JetonFcm } from '../modules/jeton-fcm/index.ts';
+import { JetonFcm } from '../modules/fcm-token/index.ts';
 
 /**
  * Obtention du jeton FCM **natif** — pas le jeton Expo Push.
@@ -13,7 +13,7 @@ import { JetonFcm } from '../modules/jeton-fcm/index.ts';
  * l'autonomie complète.
  *
  * Sous iOS, `getDevicePushTokenAsync()` rend le jeton APNs, que FCM refuse :
- * `modules/jeton-fcm` le remet à Firebase et rend le jeton FCM. Rocket.Chat le
+ * `modules/fcm-token` le remet à Firebase et rend le jeton FCM. Rocket.Chat le
  * reçoit en `gcm` comme sous Android ; FCM relaie vers APNs.
  *
  * L'ordre importe : le canal de notification doit exister **avant** la demande

@@ -34,7 +34,7 @@ import Animated, {
 
 import type { ClientRest } from '../lib/rest.ts';
 import { urlAvatar } from '../lib/upload.ts';
-import { useEtagsAvatars } from './identites.tsx';
+import { useEtagsAvatars } from './identities.tsx';
 import { useJour } from './i18n.ts';
 import { type Couleurs, degradeAvatar, type Degrade, POLICES } from './theme.ts';
 
@@ -215,7 +215,7 @@ export function AvatarSalon({
    * affichée : son etag se lit ici même, par uid.
    *
    * OBLIGATOIRE à écrire, même pour passer `undefined` : optionnelle, elle
-   * s'oubliait en silence (app/partager.tsx l'a fait), et le symptôme — une
+   * s'oubliait en silence (app/share.tsx l'a fait), et le symptôme — une
    * photo de salon figée à vie par le cache Fresco, faute d'`ETag` HTTP sur
    * `/avatar` — ne se voit qu'après un changement de photo côté serveur.
    */

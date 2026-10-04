@@ -83,7 +83,7 @@ describe('ClientDdp', () => {
     const p = ddp.connect('j');
     ws.open();
     ws.receive({ msg: 'failed', version: '2' });
-    await assert.rejects(p, /Version DDP refusée/);
+    await assert.rejects(p, /DDP version refused/);
     assert.equal(ddp.state, 'closed', 'sinon toute retentative échoue sur « déjà connecté »');
     assert.equal(ws.closed, true);
   });
@@ -97,7 +97,7 @@ describe('ClientDdp', () => {
     const ddp = new ClientDdp('ws://x', { createWebSocket: () => ws, timeoutMs: 50 });
     const p = ddp.connect('j');
     ws.open();
-    await assert.rejects(p, /Pas de « connected »/);
+    await assert.rejects(p, /No "connected"/);
     assert.equal(ddp.state, 'closed');
     assert.equal(ws.closed, true, 'la socket zombie est coupée');
   });
@@ -400,7 +400,7 @@ describe('ClientDdp', () => {
     await new Promise((r) => setImmediate(r));
     ws.receive({ msg: 'result', id: ws.last().id, error: { error: 403, reason: 'login denied' } });
 
-    await assert.rejects(p, /Méthode refusée/);
+    await assert.rejects(p, /Method refused/);
     assert.equal(ddp.state, 'closed', "sinon un connecter() ultérieur lèverait « déjà connecté »");
     assert.equal(ws.closed, true, 'la socket ne doit pas fuir');
   });

@@ -41,7 +41,7 @@ export class DdpError extends Error {
 
   constructor(message: string, details?: unknown) {
     super(message);
-    this.name = 'ErreurDdp';
+    this.name = 'DdpError';
     this.details = details;
   }
 }
@@ -195,7 +195,7 @@ export class ClientDdp {
    * deux transports.
    */
   async connect(authToken: string): Promise<void> {
-    if (this.state !== 'closed') throw new DdpError('Client déjà connecté.');
+    if (this.state !== 'closed') throw new DdpError('Client already connected.');
     this.state = 'connecting';
     this.closedOnPurpose = false;
     this.cleanedUp = false;
@@ -205,14 +205,14 @@ export class ClientDdp {
       // « connexion » avec une socket ouverte, et toute retentative du pilote
       // de reconnexion échouerait à jamais sur « déjà connecté ».
       const timer = setTimeout(() => {
-        const error = new DdpError(`Pas de « connected » en ${this.timeoutMs} ms.`);
+        const error = new DdpError(`No "connected" within ${this.timeoutMs} ms.`);
         this.ws?.close();
         this.cleanUp(error);
         reject(error);
       }, this.timeoutMs);
       this.cancelHandshake = (reason) => {
         clearTimeout(timer);
-        reject(reason instanceof Error ? reason : new DdpError('Connexion interrompue.'));
+        reject(reason instanceof Error ? reason : new DdpError('Connection interrupted.'));
       };
       const ws = this.createWebSocket(this.url);
       this.ws = ws;
@@ -226,13 +226,13 @@ export class ClientDdp {
       ws.onerror = () => {
         if (!isCurrent()) return;
         clearTimeout(timer);
-        this.cleanUp(new DdpError('Erreur WebSocket.'));
-        reject(new DdpError('Erreur WebSocket.'));
+        this.cleanUp(new DdpError('WebSocket error.'));
+        reject(new DdpError('WebSocket error.'));
       };
       ws.onclose = () => {
         if (!isCurrent()) return;
         clearTimeout(timer);
-        this.cleanUp(new DdpError('Socket fermée.'));
+        this.cleanUp(new DdpError('Socket closed.'));
       };
       ws.onmessage = (e) => {
         if (!isCurrent()) return;
@@ -257,7 +257,7 @@ export class ClientDdp {
           clearTimeout(timer);
           this.cancelHandshake = null;
           // Même exigence que le timeout : laisser le client réutilisable.
-          const error = new DdpError('Version DDP refusée par le serveur.');
+          const error = new DdpError('DDP version refused by the server.');
           ws.close();
           this.cleanUp(error);
           reject(error);
@@ -376,7 +376,7 @@ export class ClientDdp {
   close(): void {
     this.closedOnPurpose = true;
     this.ws?.close();
-    this.cleanUp(new DdpError('Client fermé.'));
+    this.cleanUp(new DdpError('Client closed.'));
   }
 
   /**
@@ -465,7 +465,7 @@ export class ClientDdp {
       // l'await (une coupure concurrente a pu déjà nettoyer).
       if ((this.state as DdpState) !== 'closed') {
         this.ws?.close();
-        this.cleanUp(new DdpError('Sonde de vie sans réponse : socket morte.'));
+        this.cleanUp(new DdpError('Liveness probe unanswered: socket dead.'));
       }
       return false;
     }
@@ -483,7 +483,7 @@ export class ClientDdp {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new DdpError(`${what} : ni réponse ni erreur en ${this.timeoutMs} ms.`));
+        reject(new DdpError(`${what}: neither result nor error within ${this.timeoutMs} ms.`));
       }, this.timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
     });
@@ -515,7 +515,7 @@ export class ClientDdp {
           this.finish(
             m.id,
             m.result,
-            m.error === undefined ? undefined : new DdpError('Méthode refusée.', m.error),
+            m.error === undefined ? undefined : new DdpError('Method refused.', m.error),
           );
         }
         break;
@@ -526,7 +526,7 @@ export class ClientDdp {
 
       case 'nosub':
         if (m.id !== undefined) {
-          this.finish(m.id, undefined, new DdpError('Souscription refusée.', m.error));
+          this.finish(m.id, undefined, new DdpError('Subscription refused.', m.error));
         }
         break;
 
@@ -538,7 +538,7 @@ export class ClientDdp {
         // donc son `id` : on peut rejeter la bonne attente, pas toutes.
         const id = m.offendingMessage?.id;
         if (typeof id === 'string') {
-          this.finish(id, undefined, new DdpError(`Message refusé : ${m.reason ?? 'sans raison'}`));
+          this.finish(id, undefined, new DdpError(`Message refused: ${m.reason ?? 'no reason'}`));
         }
         break;
       }

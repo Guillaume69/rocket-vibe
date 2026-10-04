@@ -34,8 +34,8 @@ export function withTransactionTrap(bare: Omit<Store, 'transaction'>): Store {
     return (...args: A) => {
       if (inTransaction) {
         throw new Error(
-          `${name}: écriture hors file pendant une transaction — ` +
-            `interblocage sur l'appareil (utiliser le \`tx\` reçu par le callback)`,
+          `${name}: write outside the queue during a transaction, ` +
+            `deadlocks on the device (use the \`tx\` passed to the callback)`,
         );
       }
       return method(...args);
@@ -86,7 +86,7 @@ export function withTransactionTrap(bare: Omit<Store, 'transaction'>): Store {
     async transaction(fn) {
       if (inTransaction) {
         // `enSerie` dans `enSerie` : le vrai dépôt s'y interbloque aussi.
-        throw new Error('transaction: transaction imbriquée — interblocage sur l’appareil');
+        throw new Error('transaction: nested transaction, deadlocks on the device');
       }
       inTransaction = true;
       try {

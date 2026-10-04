@@ -46,7 +46,7 @@ export class ServerError extends Error {
 
   constructor(message: string, origin?: unknown) {
     super(message);
-    this.name = 'ErreurServeur';
+    this.name = 'ServerError';
     this.origin = origin;
   }
 }
@@ -60,13 +60,13 @@ export class ServerError extends Error {
  */
 export function normalizeUrl(entry: string): string {
   const raw = entry.trim();
-  if (raw === '') throw new ServerError('Adresse vide.');
+  if (raw === '') throw new ServerError('Empty address.');
   const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
   let url: URL;
   try {
     url = new URL(withScheme);
   } catch (e) {
-    throw new ServerError(`Adresse invalide : ${raw}`, e);
+    throw new ServerError(`Invalid address: ${raw}`, e);
   }
   return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
 }
@@ -74,7 +74,7 @@ export function normalizeUrl(entry: string): string {
 function indexSettings(payload: unknown): Map<string, unknown> {
   const settings = (payload as { settings?: unknown } | null)?.settings;
   if (!Array.isArray(settings)) {
-    throw new ServerError('`settings.public` ne contient pas de tableau `settings`.');
+    throw new ServerError('`settings.public` has no `settings` array.');
   }
   const index = new Map<string, unknown>();
   for (const raw of settings as PublicSetting[]) {
@@ -101,7 +101,7 @@ async function fetchVersion(
     signal,
   });
   if (typeof payload.version !== 'string') {
-    throw new ServerError("La réponse ne ressemble pas à celle d'un Rocket.Chat.");
+    throw new ServerError('The response does not look like a Rocket.Chat one.');
   }
   return payload.version;
 }
@@ -141,7 +141,7 @@ export async function probeServer(
       if (e instanceof ServerError) throw e;
       if (e instanceof RestError) throw new ServerError(e.message, e);
       if (e instanceof Error && e.name === 'AbortError') throw e;
-      throw new ServerError('Serveur injoignable.', e);
+      throw new ServerError('Server unreachable.', e);
     }
 
     const settings = indexSettings(rawSettings);

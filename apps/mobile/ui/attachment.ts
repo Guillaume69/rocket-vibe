@@ -28,7 +28,7 @@ import type { Progress } from './transfers.ts';
 export class FileOpenError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'ErreurOuvertureFichier';
+    this.name = 'FileOpenError';
   }
 }
 

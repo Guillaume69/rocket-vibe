@@ -47,7 +47,7 @@ export class RestError extends Error {
     understoodResponse = false,
   ) {
     super(message);
-    this.name = 'ErreurRest';
+    this.name = 'RestError';
     this.status = status;
     this.error = error;
     this.errorType = errorType;
@@ -78,8 +78,8 @@ export class TwoFactorError extends RestError {
     // qui rend la garde `instanceof` du prédicat portante plutôt que
     // décorative. Le 401 déclaré ici, lui, ne reflète pas le statut HTTP :
     // hors login, 8.5 répond 400.
-    super(`Double authentification requise (${method})`, 401, undefined, 'totp-required', true);
-    this.name = 'ErreurDeuxFacteurs';
+    super(`Two-factor authentication required (${method})`, 401, undefined, 'totp-required', true);
+    this.name = 'TwoFactorError';
     this.method = method;
     this.availableMethods = availableMethods;
     this.generatedCode = generatedCode;
@@ -193,7 +193,7 @@ function isMethod(v: unknown): v is TwoFactorMethod {
 
 /** Même forme que l'`AbortError` de `fetch`, sans dépendre de `DOMException`. */
 function cancelError(): Error {
-  const e = new Error('Requête annulée.');
+  const e = new Error('Request canceled.');
   e.name = 'AbortError';
   return e;
 }
@@ -348,7 +348,7 @@ export class ClientRest {
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') {
         if (!expire) throw e; // Annulation demandée par l'appelant.
-        throw new RestError(`${path} : pas de réponse en ${TIMEOUT_MS / 1000} s.`, 0);
+        throw new RestError(`${path}: no response within ${TIMEOUT_MS / 1000} s.`, 0);
       }
       // Échec réseau : le `fetch` a rejeté sans réponse HTTP. Sur Android/OkHttp,
       // la PREMIÈRE requête après un temps d'inactivité (ici : le temps de
@@ -364,7 +364,7 @@ export class ClientRest {
         await this.cancelableSleep(NETWORK_RETRY_DELAY_MS, options.signal);
         return this.call<T>(method, path, options, attempt, networkAttempt + 1);
       }
-      throw new RestError(`${path} : serveur injoignable.`, 0);
+      throw new RestError(`${path}: server unreachable.`, 0);
     } finally {
       clearTimeout(timer);
       options.signal?.removeEventListener('abort', relay);
@@ -390,7 +390,7 @@ export class ClientRest {
       json = JSON.parse(text) as typeof json;
     } catch {
       throw new RestError(
-        `${path} : réponse non JSON (${response.status}, ${text.length} octets).`,
+        `${path}: non-JSON response (${response.status}, ${text.length} bytes).`,
         response.status,
       );
     }
@@ -413,7 +413,7 @@ export class ClientRest {
     // Rocket.Chat mélange deux conventions : `success: false` sur /api/v1/* et
     // `status: 'error'` sur /api/v1/login. Les deux valent échec.
     if (!response.ok || json.success === false || json.status === 'error') {
-      const message = json.error ?? json.message ?? `${path} a échoué`;
+      const message = json.error ?? json.message ?? `${path} failed`;
       // « Du JSON » ne suffit pas à dire « du Rocket.Chat ». Une passerelle
       // d'API répond volontiers `{"message":"Unauthorized"}` en 401 : ça parse,
       // et ça ne dit RIEN de notre jeton. On exige donc une marque de

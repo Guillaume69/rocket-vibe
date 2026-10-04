@@ -102,7 +102,7 @@ export async function resumeSession(client: ClientRest, authToken: string): Prom
 class LoginError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'ErreurLogin';
+    this.name = 'LoginError';
   }
 }
 
@@ -114,7 +114,7 @@ class LoginError extends Error {
 function sessionFrom(baseUrl: string, response: LoginResponse | undefined): Session {
   const data = response?.data;
   if (!data?.authToken || !data.userId) {
-    throw new LoginError('Réponse de login invalide : ni jeton ni identifiant.');
+    throw new LoginError('Invalid login response: neither token nor user id.');
   }
   return {
     baseUrl,

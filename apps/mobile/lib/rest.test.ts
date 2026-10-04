@@ -201,7 +201,7 @@ describe('ClientRest', () => {
     };
     await assert.rejects(client().get('info'), (e: unknown) => {
       assert.ok(e instanceof RestError);
-      assert.match(e.message, /non JSON/);
+      assert.match(e.message, /non-JSON/);
       return true;
     });
   });
@@ -288,7 +288,7 @@ describe('ClientRest', () => {
     await assert.rejects(c.post('users.setStatus', { body: {}, networkReplay: true }), (e: unknown) => {
       assert.ok(e instanceof RestError);
       assert.equal(e.status, 0);
-      assert.match(e.message, /injoignable/);
+      assert.match(e.message, /unreachable/);
       return true;
     });
     assert.equal(calls, 2, "l'appel d'origine plus un seul rejeu");

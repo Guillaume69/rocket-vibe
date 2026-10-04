@@ -71,7 +71,7 @@ export type RsaPrivateKey = KeyObject;
 export class E2EError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'ErreurE2E';
+    this.name = 'E2EError';
   }
 }
 
@@ -164,7 +164,7 @@ export function decryptPrivateKey(privateKey: string, password: string, uid: str
       const env = obj as unknown as PrivateKeyEnvelope;
       const masterKey = pbkdf2Sync(Buffer.from(password, 'utf8'), Buffer.from(env.salt, 'utf8'), env.iterations, 32, 'sha256');
       const plain = decryptGcm(masterKey, base64ToBytes(env.iv), base64ToBytes(env.ciphertext));
-      if (plain === null) throw new E2EError('mot de passe E2E invalide');
+      if (plain === null) throw new E2EError('invalid E2E password');
       return plain.toString('utf8');
     }
     // v1 emballé en binaire EJSON.
@@ -186,12 +186,12 @@ export function decryptPrivateKey(privateKey: string, password: string, uid: str
 function decryptPrivateKeyV1(bytes: Buffer, password: string, uid: string): string {
   const masterKey = pbkdf2Sync(Buffer.from(password, 'utf8'), Buffer.from(uid, 'utf8'), 1000, 32, 'sha256');
   const plain = decryptCbc(masterKey, bytes.subarray(0, CBC_IV_SIZE), bytes.subarray(CBC_IV_SIZE));
-  if (plain === null) throw new E2EError('mot de passe E2E invalide');
+  if (plain === null) throw new E2EError('invalid E2E password');
   const text = plain.toString('utf8');
   try {
     JSON.parse(text);
   } catch {
-    throw new E2EError('mot de passe E2E invalide');
+    throw new E2EError('invalid E2E password');
   }
   return text;
 }
@@ -221,10 +221,10 @@ export function decryptRoomKey(e2eKey: string, privateKey: RsaPrivateKey): Buffe
       encrypted,
     ).toString('utf8');
   } catch {
-    throw new E2EError('déchiffrement de la clé de salon échoué');
+    throw new E2EError('room key decryption failed');
   }
   const jwk = JSON.parse(jwkJson) as { k?: string };
-  if (typeof jwk.k !== 'string') throw new E2EError('clé de salon sans champ k');
+  if (typeof jwk.k !== 'string') throw new E2EError('room key without a k field');
   return base64urlToBytes(jwk.k);
 }
 
@@ -257,7 +257,7 @@ export function decryptPayload(content: EncryptedContent, roomKeyBytes: Buffer):
     const blob = base64ToBytes(content.ciphertext.substring(12));
     plain = decryptCbc(roomKeyBytes, blob.subarray(0, CBC_IV_SIZE), blob.subarray(CBC_IV_SIZE));
   }
-  if (plain === null) throw new E2EError('déchiffrement du message échoué');
+  if (plain === null) throw new E2EError('message decryption failed');
   const text = plain.toString('utf8');
   // Le clair est en général un JSON `{"msg": "..."}` ; certains messages
   // hérités portent le texte brut — on retombe dessus.
@@ -293,7 +293,7 @@ export function encryptMessage(payload: object, roomKeyBytes: Buffer, kid: strin
     const encryptor = createCipheriv('aes-256-gcm', roomKeyBytes, iv);
     ct = Buffer.concat([encryptor.update(plain), encryptor.final(), encryptor.getAuthTag()]);
   } else {
-    throw new E2EError('clé de salon de taille inattendue');
+    throw new E2EError('room key of unexpected size');
   }
   return { algorithm: 'rc.v2.aes-sha2', kid, iv: iv.toString('base64'), ciphertext: ct.toString('base64') };
 }
@@ -327,11 +327,11 @@ export function decryptFile(bytes: Buffer, encryption: FileEncryption): Buffer {
   const key = base64urlToBytes(encryption.key.k);
   const bits = bitsAes(key);
   const iv = base64ToBytes(encryption.iv);
-  if (bits === null || iv.length !== 16) throw new E2EError('chiffrement de fichier illisible');
+  if (bits === null || iv.length !== 16) throw new E2EError('unreadable file encryption');
   const decryptor = createDecipheriv(`aes-${bits}-ctr`, key, iv);
   const plain = Buffer.concat([decryptor.update(bytes), decryptor.final()]);
   if (encryption.sha256 !== null && sha256Digest(plain) !== encryption.sha256.toLowerCase()) {
-    throw new E2EError('fichier altéré ou clé fausse');
+    throw new E2EError('tampered file or wrong key');
   }
   return plain;
 }

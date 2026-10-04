@@ -170,7 +170,7 @@ describe('sonderServeur', () => {
     );
     await assert.rejects(probeServer('https://x', undefined, t), (e: unknown) => {
       assert.ok(e instanceof ServerError);
-      assert.match(e.message, /ne ressemble pas/);
+      assert.match(e.message, /does not look like/);
       return true;
     });
   });
@@ -187,7 +187,7 @@ describe('sonderServeur', () => {
     );
     await assert.rejects(probeServer('https://x', undefined, t), (e: unknown) => {
       assert.ok(e instanceof ServerError);
-      assert.match(e.message, /non JSON/);
+      assert.match(e.message, /non-JSON/);
       assert.ok(e.origin instanceof RestError, 'la cause est conservée');
       return true;
     });
@@ -208,7 +208,7 @@ describe('sonderServeur', () => {
     );
     await assert.rejects(
       probeServer('https://x', undefined, t),
-      (e: unknown) => e instanceof ServerError && /tableau/.test(e.message),
+      (e: unknown) => e instanceof ServerError && /array/.test(e.message),
     );
   });
 
@@ -223,7 +223,7 @@ describe('sonderServeur', () => {
     );
     await assert.rejects(probeServer('https://x', undefined, t), (e: unknown) => {
       assert.ok(e instanceof ServerError);
-      assert.match(e.message, /injoignable/);
+      assert.match(e.message, /unreachable/);
       return true;
     });
     assert.equal(t.signals.get('/api/info')?.aborted, true, 'la sœur doit être annulée');
@@ -305,7 +305,7 @@ describe('sonderServeur', () => {
       mock.timers.tick(2);
       await assert.rejects(p, (e: unknown) => {
         assert.ok(e instanceof ServerError);
-        assert.match(e.message, /pas de réponse en 15 s/);
+        assert.match(e.message, /no response within 15 s/);
         return true;
       });
     } finally {

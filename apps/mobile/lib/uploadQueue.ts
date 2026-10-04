@@ -170,12 +170,12 @@ export class ValidationError extends Error {
     // `message` est un diagnostic (logs) — jamais la chaîne affichée.
     super(
       detail.code === 'size'
-        ? `taille > ${detail.maxMb} Mo`
+        ? `size > ${detail.maxMb} MB`
         : detail.code === 'type'
-          ? `type ${detail.type} refusé`
-          : 'fichiers chiffrés désactivés',
+          ? `type ${detail.type} refused`
+          : 'encrypted files disabled',
     );
-    this.name = 'ErreurValidation';
+    this.name = 'ValidationError';
     this.detail = detail;
   }
 }
@@ -378,7 +378,7 @@ export class UploadEngine {
         }
         // `derniere_erreur` est un DIAGNOSTIC (jamais affiché — l'UI montre
         // `ligneMessage.echecReessayer`) : pas une chaîne à traduire.
-        await this.store.markFailed(row.id, e instanceof Error ? e.message : 'Envoi refusé.');
+        await this.store.markFailed(row.id, e instanceof Error ? e.message : 'Send refused.');
       } finally {
         IN_FLIGHT_HERE.delete(row.id);
         this.progress.delete(row.id);

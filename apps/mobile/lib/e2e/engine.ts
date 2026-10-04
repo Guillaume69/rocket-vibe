@@ -104,7 +104,7 @@ export class E2EEngine {
   async unlock(password: string): Promise<void> {
     const res = await this.client.get<FetchMyKeysResponse>('e2e.fetchMyKeys');
     if (typeof res.private_key !== 'string') {
-      throw new E2EError('aucune clé E2E sur ce compte');
+      throw new E2EError('no E2E key on this account');
     }
     // `dechiffrerClePrivee` détecte le schéma (v1/v2) ; le uid sert de sel v1.
     const jwk = decryptPrivateKey(res.private_key, password, this.uid); // lève ErreurE2E si faux

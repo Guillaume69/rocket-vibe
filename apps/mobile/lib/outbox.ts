@@ -58,7 +58,7 @@ export function idFromBytes(bytes: Uint8Array): string {
 type SendResponse = { message?: Record<string, unknown> };
 
 /** Verdict de `messageLivre` quand la question n'a pas pu être posée. */
-const UNKNOWN = Symbol('livraison indéterminée');
+const UNKNOWN = Symbol('delivery unknown');
 
 export class OutboxEngine {
   private readonly store: OutboxStore;
@@ -197,7 +197,7 @@ export class OutboxEngine {
         }
         // `derniere_erreur` est un DIAGNOSTIC (jamais affiché — l'UI montre
         // `ligneMessage.echecReessayer`) : pas une chaîne à traduire.
-        const message = e instanceof Error ? e.message : 'Envoi refusé.';
+        const message = e instanceof Error ? e.message : 'Send refused.';
         await this.store.markFailed(row.id, message);
       }
     }

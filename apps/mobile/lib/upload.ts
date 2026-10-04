@@ -46,7 +46,7 @@ export type TransportUpload = (
 export class UploadError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'ErreurUpload';
+    this.name = 'UploadError';
   }
 }
 
@@ -96,11 +96,11 @@ export async function uploadBytes(options: {
   try {
     media = JSON.parse(body) as typeof media;
   } catch {
-    throw new UploadError(`rooms.media : réponse non JSON (${status}).`);
+    throw new UploadError(`rooms.media: non-JSON response (${status}).`);
   }
   const fileId = media.file?._id;
   if (status >= 400 || media.success === false || typeof fileId !== 'string') {
-    throw new UploadError(media.error ?? `rooms.media a échoué (${status}).`);
+    throw new UploadError(media.error ?? `rooms.media failed (${status}).`);
   }
   return fileId;
 }
@@ -126,7 +126,7 @@ export async function confirmerMedia(options: {
     body: options.body ?? (message === undefined || message === '' ? {} : { msg: message }),
   });
   if (confirmation.message === undefined) {
-    throw new UploadError('rooms.mediaConfirm : pas de message dans la réponse.');
+    throw new UploadError('rooms.mediaConfirm: no message in the response.');
   }
   return confirmation.message;
 }
@@ -161,10 +161,10 @@ export async function setAvatar(options: {
   try {
     json = JSON.parse(body) as typeof json;
   } catch {
-    throw new UploadError(`users.setAvatar : réponse non JSON (${status}).`);
+    throw new UploadError(`users.setAvatar: non-JSON response (${status}).`);
   }
   if (status >= 400 || json.success === false) {
-    throw new UploadError(json.error ?? `users.setAvatar a échoué (${status}).`);
+    throw new UploadError(json.error ?? `users.setAvatar failed (${status}).`);
   }
 }
 

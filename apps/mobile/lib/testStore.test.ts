@@ -60,7 +60,7 @@ describe('avecPiegeTransaction', () => {
       store.transaction(async () => {
         await store.upsertMessage(message);
       }),
-      /hors file pendant une transaction/,
+      /outside the queue during a transaction/,
     );
     assert.deepEqual(written, []);
     // Les méthodes de file NON membres d'`EcrituresDepot` sont piégées aussi :
@@ -69,7 +69,7 @@ describe('avecPiegeTransaction', () => {
       store.transaction(async () => {
         await store.updateMessageText('m1', 'clair', null);
       }),
-      /hors file pendant une transaction/,
+      /outside the queue during a transaction/,
     );
   });
 
@@ -88,7 +88,7 @@ describe('avecPiegeTransaction', () => {
       store.transaction(async () => {
         await store.transaction(async () => {});
       }),
-      /transaction imbriquée/,
+      /nested transaction/,
     );
     // Le `finally` a bien rendu la main : le dépôt refonctionne après l'échec.
     await store.upsertMessage(message);

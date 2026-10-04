@@ -136,7 +136,7 @@ describe('auth', () => {
     handle = (_q, res) => json(res, 200, { status: 'success', data: { me: {} } });
     await assert.rejects(
       logIn(new ClientRest(base), { user: 'a', password: 'b' }),
-      /Réponse de login invalide/,
+      /Invalid login response/,
     );
   });
 
@@ -151,7 +151,7 @@ describe('auth', () => {
       logIn(new ClientRest(base), { user: 'a', password: 'b' }),
       (e: unknown) => {
         assert.ok(e instanceof Error);
-        assert.equal(e.name, 'ErreurLogin');
+        assert.equal(e.name, 'LoginError');
         return true;
       },
     );

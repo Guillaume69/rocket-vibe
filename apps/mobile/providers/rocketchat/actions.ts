@@ -41,7 +41,7 @@ export class ActionsRC implements ProviderActions {
       return;
     }
     const content = encryptor.encrypt(rid, { msg: text });
-    if (content === null) throw new Error('chat.update: clé du salon indisponible');
+    if (content === null) throw new Error('chat.update: room key unavailable');
     await this.client.post('chat.update', {
       body: { roomId: rid, msgId: mid, content, e2eMentions: mentionsE2E(text) },
     });
@@ -98,7 +98,7 @@ export class ActionsRC implements ProviderActions {
     // Un 200 sans salon est anormal (proxy, réponse tronquée) : message de
     // DIAGNOSTIC, pas une phrase d'écran — l'appelant met en phrase s'il veut.
     if (rawRoom === undefined || typeof rid !== 'string') {
-      throw new Error('im.create: réponse sans salon');
+      throw new Error('im.create: response without a room');
     }
     return { rid, rawRoom };
   }

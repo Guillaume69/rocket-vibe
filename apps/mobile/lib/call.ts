@@ -38,7 +38,7 @@ type JoinResponse = { url?: unknown };
 export async function startConference(client: ClientRest, roomId: string): Promise<string> {
   const r = await client.post<StartResponse>('video-conference.start', { body: { roomId } });
   const callId = asString(r.data?.callId);
-  if (callId === null) throw new RestError("Le serveur n'a pas renvoyé d'identifiant d'appel.", 0);
+  if (callId === null) throw new RestError('The server returned no call id.', 0);
   return callId;
 }
 
@@ -56,7 +56,7 @@ export async function joinConference(
     body: state === undefined ? { callId } : { callId, state },
   });
   const url = asString(r.url);
-  if (url === null) throw new RestError("Le serveur n'a pas renvoyé d'URL d'appel.", 0);
+  if (url === null) throw new RestError('The server returned no call URL.', 0);
   return url;
 }
 

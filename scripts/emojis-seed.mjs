@@ -1,7 +1,7 @@
 // Custom emojis for the seed (8.12). Generated once with PIL, frozen as base64
 // for a reproducible seed with no dependency: an animated GIF (party_parrot,
 // 5 rainbow frames) and a static PNG (shipit).
-// See scripts/seed.mjs → seedEmojisCustom.
+// See scripts/seed.mjs → seedCustomEmojis.
 
 export const CUSTOM_EMOJIS = [
   {

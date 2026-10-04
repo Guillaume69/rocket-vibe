@@ -37,7 +37,7 @@ brain/features/index.md        one doc per feature, both apps in each
 
 ## Maintaining (after a change)
 
-The rule is in `CLAUDE.md` ("Le brain"). The code is the source of truth - if a
+The rule is in `CLAUDE.md` ("The brain"). The code is the source of truth - if a
 doc disagrees with reality, fix the doc.
 
 - A change that makes a brain doc wrong fixes that doc in the **same branch**, as

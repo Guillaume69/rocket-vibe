@@ -1,6 +1,6 @@
 # The Rocket.Chat server contract
 
-What both clients rely on from Rocket.Chat 8.5 (the target `chat.barrut.me` and the local Docker bench, pinned to 8.5.1): REST to act, DDP to listen, and the endpoints, streams, status codes and limits each app actually uses. The probed, dated facts live in the root [`CLAUDE.md`](../../CLAUDE.md) ("Faits sur Rocket.Chat qu'un résumé ne doit pas perdre"), which stays the canonical record; this page maps them onto the code.
+What both clients rely on from Rocket.Chat 8.5 (the target `chat.barrut.me` and the local Docker bench, pinned to 8.5.1): REST to act, DDP to listen, and the endpoints, streams, status codes and limits each app actually uses. The probed, dated facts live in the root [`CLAUDE.md`](../../CLAUDE.md) ("Rocket.Chat facts a summary must not lose"), which stays the canonical record; this page maps them onto the code.
 
 ## The split: REST to act, DDP to listen
 

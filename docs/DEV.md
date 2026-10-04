@@ -68,6 +68,7 @@ Deux remarques :
 
 ```sh
 cd docker && cp .env.example .env && chmod 600 .env   # renseigner ADMIN_PASS
+node patch-push.mjs                                   # bundle patché pour le push, voir docs/PUSH.md
 docker compose up -d
 curl -sf "$ROOT_URL/api/info"                          # {"version":"8.5",...}
 ```
@@ -134,7 +135,7 @@ Le squelette vient du template **`blank-typescript`**, pas de `default` : ce der
 
 **Correction d'une affirmation initiale.** J'ai d'abord écrit que ce choix évitait `react-native-reanimated`. C'est faux : `expo-router@57.0.4` en dépend **directement** (ainsi que de `react-native-worklets`), comme le montre `npm ls react-native-reanimated`. Reanimated est donc présent quel que soit le template, et le build Gradle le compile. La régression mémoire de 25 à 30 % introduite par RN 0.85 s'applique, et n'est pas évitable tant qu'on utilise `expo-router`. À surveiller au profilage ; s'en débarrasser supposerait d'abandonner `expo-router` pour `react-navigation` nu, ce qui n'en vaut probablement pas le prix.
 
-`applicationId` = `me.barrut.rocketvibe`. Il devra correspondre **exactement** au `package_name` déclaré dans le projet Firebase, sinon le plugin Gradle GMS refuse de builder.
+`applicationId` = `com.rocketvibe.app`. Il devra correspondre **exactement** au `package_name` déclaré dans le projet Firebase, sinon le plugin Gradle GMS refuse de builder.
 
 ### HTTP en clair : rien à faire
 

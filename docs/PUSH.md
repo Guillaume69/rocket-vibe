@@ -92,9 +92,9 @@ Points à surveiller au premier `pod install` / build : la liste des pods en `mo
 
 ## Trois pièges vérifiés sur le terrain
 
-### `Push_UseLegacy` n'existe pas en 8.5
+### `Push_UseLegacy` ne sert plus en 8.5
 
-Ni `Push_gcm_api_key`, ni `Push_gcm_project_number`. L'API FCM legacy a été **entièrement retirée** de Rocket.Chat 8.x : le serveur ne parle que FCM HTTP v1. Le dossier de recherche affirmait le contraire.
+Le réglage est encore déclaré dans le bundle 8.5.1, caché, à `false` par défaut, comme `Push_gcm_api_key` et `Push_gcm_project_number` (un `TODO` prévoit leur retrait). Seul l'écran d'administration le lit, pour griser des champs : aucun code d'envoi ne le consulte. L'API FCM legacy a été **entièrement retirée** de Rocket.Chat 8.x : le serveur ne parle que FCM HTTP v1, il n'y a rien à régler. Le dossier de recherche affirmait le contraire.
 
 ### `am force-stop` ≠ balayage depuis les récents
 
@@ -115,13 +115,15 @@ curl -X POST -H "x-2fa-code: $SHA" -H "x-2fa-method: password" …
 
 C'est le mécanisme générique de l'étape 3.2, validé en avance.
 
-## Deux défauts connus, à traiter en 6.3
+## Deux défauts relevés au spike, corrigés depuis
+
+Les deux sont réglés : le service Kotlin (`plugins/with-fcm-deeplink.js`) rend la notification lui-même sur notre canal `default`, en `HIGH`, créé par `lib/push.ts`, et `ui/notifications.tsx` pose un `setNotificationHandler`. Le constat d'origine :
 
 1. **Mauvais canal de notification.** La notification atterrit sur `fcm_fallback_notification_channel` (importance `3` = DEFAULT), pas sur notre canal `default` en `HIGH` — donc pas de bannière *heads-up*. Cause : le payload serveur ne porte pas d'`android_channel_id`, et le manifeste n'a pas la métadonnée `com.google.firebase.messaging.default_notification_channel_id`. `logcat` le dit : *« Missing Default Notification Channel metadata in AndroidManifest »*.
 
 2. **Rien ne s'affiche au premier plan.** Un message FCM de type `notification` reçu app ouverte est remis à l'app, pas au système ; `expo-notifications` n'affiche rien sans `setNotificationHandler`. Ce n'est pas un bug du push — mon premier test, app au premier plan, a failli me le faire croire.
 
-La correction des deux passe par le rendu de la notification **par l'app** (`data`-only côté client), ce que 6.3 prévoit déjà : groupement par salon, `MessagingStyle`, et texte générique pour les salons chiffrés (`Push_show_message = true` exposerait sinon du ciphertext).
+La correction des deux est passée par le rendu de la notification **par l'app** (`data`-only côté client), comme 6.3 le prévoyait : groupement par salon, `MessagingStyle`, et texte générique pour les salons chiffrés (`Push_show_message = true` exposerait sinon du ciphertext).
 
 ## Utilisateurs de test et 2FA par email
 

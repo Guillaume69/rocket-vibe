@@ -34,9 +34,9 @@ import { useCouleurs, type Couleurs, POLICES } from '../../ui/theme.ts';
  * réponses). Même architecture que le salon : SQLite projeté par requêtes
  * vives, le réseau (REST `chat.getThreadMessages` + stream) écrit dans SQLite.
  *
- * Un fil est court et fini — pas de pagination : `chat.getThreadMessages`
- * rapporte tout le fil en une passe (count=0 y est permis, ce n'est pas
- * l'historique du salon).
+ * Un fil est court et fini : le fournisseur le charge en entier à l'ouverture
+ * (`chat.getThreadMessages` par pages de 100, 20 pages au plus), sans
+ * pagination à l'écran.
  */
 
 export default function EcranFil() {

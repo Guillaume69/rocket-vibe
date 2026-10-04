@@ -314,7 +314,7 @@ export const LigneMessage = memo(function LigneMessage({
 function ContenuMessage({ c, message }: { c: Couleurs; message: LigneDeMessage }) {
   const t = useT();
   // Clés = les CHAÎNES, stables à travers le barattage d'objets de
-  // `useLiveQuery` (qui défait le memo de LigneMessage) : sans cela, chaque
+  // `useRequeteVive` (qui défait le memo de LigneMessage) : sans cela, chaque
   // écriture en base re-parserait le markdown de toutes les lignes visibles.
   // Un message chiffré DÉCHIFFRÉ (déverrouillé) porte encore `t: 'e2e'` mais a
   // un `texte` : il se rend alors comme un message ordinaire (son `md` est null,

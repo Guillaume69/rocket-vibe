@@ -4,8 +4,9 @@
  * Le `_id` du message est généré CÔTÉ CLIENT, 24 hexadécimaux, AVANT tout
  * affichage : c'est la clé de tout. Le message apparaît immédiatement (ligne
  * `messages` avec `misAJourLe = 0`, que n'importe quelle version serveur
- * écrase), la file `sortie` persiste l'intention, et le serveur DÉDUPLIQUE
- * sur `_id` — un rejeu après crash ne crée jamais de doublon.
+ * écrase), la file `sortie` persiste l'intention. Un rejeu après crash ne crée
+ * jamais de doublon : le serveur le refuse en 400 sur un `_id` déjà accepté, et
+ * `chat.getMessage` tranche entre « déjà livré » et « refusé ».
  *
  * Réseau injoignable (statut 0) : le message RESTE `en-attente`, le rejeu du
  * prochain démarrage ou retour de réseau l'emportera. Refus du serveur

@@ -87,7 +87,7 @@ const ANDROIDX_WORK = 'androidx.work:work-runtime:2.10.1';
  * si l'ejson porte `messageType: 'e2e'`, on substitue un texte générique —
  * même dégradation que côté JS (`ui/notifications.tsx`).
  *
- * LANGUE : les trois chaînes que l'utilisateur voit de cette voie sortent de
+ * LANGUE : les chaînes que l'utilisateur voit de cette voie sortent de
  * `res/values[-fr]/strings.xml` (posés par ce plugin), en honorant d'abord la
  * langue EXPLICITEMENT choisie dans l'app (`langue-preferee`, même SecureStore
  * que la session) et à défaut celle du téléphone.
@@ -97,7 +97,7 @@ const SERVICE_CLASS = 'RocketVibeMessagingService';
 const RECEPTEUR_CLASS = 'ReponseNotifReceiver';
 
 /**
- * Les trois chaînes vues par l'utilisateur sur la voie native. `en` est la
+ * Les chaînes vues par l'utilisateur sur la voie native. `en` est la
  * ressource par DÉFAUT (`values/`), `fr` la traduction (`values-fr/`) — même
  * couple que le catalogue JS de `ui/messages.ts`, dont elles reprennent le ton.
  */

@@ -6,8 +6,9 @@
  *
  * - `POST /api/v1/push.token`, corps `{ type, value, appName }`, tous trois
  *   requis, `additionalProperties: false` — ne rien envoyer de plus.
- * - `type` vaut `'gcm'` pour Android (nommage historique ; la valeur est bien
- *   un jeton FCM v1) ou `'apn'` pour iOS.
+ * - `type` vaut `'gcm'` (nommage historique ; la valeur est bien un jeton
+ *   FCM v1), sous iOS comme sous Android puisque les deux passent par FCM.
+ *   Le serveur accepte aussi `'apn'`, que l'app n'envoie pas.
  * - `appName` est une **chaîne libre** (`minLength: 1`) ; aucun lien imposé
  *   avec l'applicationId.
  * - `DELETE /api/v1/push.token`, corps `{ token }`. Un rejeu répond **404** :

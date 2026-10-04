@@ -43,7 +43,7 @@ const FENETRE_MESSAGES = 400;
 /**
  * Les auteurs récents du salon, dédupliqués par username, plus récent d'abord.
  *
- * `useLiveQuery` : la liste suit la base — un nouvel arrivant qui écrit devient
+ * `useRequeteVive` : la liste suit la base — un nouvel arrivant qui écrit devient
  * immédiatement proposable. Les messages système gardent leur auteur (untel « a
  * rejoint le canal » est bien un membre) ; seuls les auteurs sans username
  * (`auteurNom` null : messages chiffrés indéchiffrables) sont écartés par la

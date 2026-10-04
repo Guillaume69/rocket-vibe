@@ -4,7 +4,7 @@
  * test).
  *
  * Les règles, toutes visibles à l'écran et aucune verrouillée jusqu'ici :
- *   - fusion salons/abonnements PAR RID, en JS — le `useLiveQuery` de drizzle
+ *   - fusion salons/abonnements PAR RID, en JS — `useRequeteVive`
  *     n'écoute que la table du FROM, une jointure SQL raterait les écritures
  *     qui ne touchent qu'`abonnements` ;
  *   - `ouvert === false` masque le salon ; PAS d'abonnement reçu → visible,

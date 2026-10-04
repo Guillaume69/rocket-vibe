@@ -2,7 +2,7 @@
  * Ouverture de la base locale. **Une base par serveur et par compte** — voir
  * `nomFichier.ts` pour le pourquoi.
  *
- * `enableChangeListener: true` est obligatoire : sans lui, `useLiveQuery` ne
+ * `enableChangeListener: true` est obligatoire : sans lui, `useRequeteVive` ne
  * recevrait jamais les notifications d'écriture et l'UI resterait figée alors
  * que le WebSocket alimente la base.
  *

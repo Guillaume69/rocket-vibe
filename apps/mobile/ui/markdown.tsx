@@ -56,7 +56,7 @@ function ouvrirProfil(username: string): void {
  * du contenu (`message.md ?? message.texte`), qui fait renaître la garde quand
  * l'ÉDITION corrige le `md` — et seulement là. Un `componentDidUpdate` sur
  * l'identité de `children` réessaierait à CHAQUE re-rendu du parent (le
- * barattage d'objets de `useLiveQuery` en produit un par écriture en base),
+ * barattage d'objets de `useRequeteVive` en produit un par écriture en base),
  * soit un parse + throw + catch par écriture et par message cassé.
  */
 export class GardeRendu extends Component<

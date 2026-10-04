@@ -24,14 +24,15 @@ markdown** natif, envoi / édition / actions sur message, **fils de discussion**
 **aperçus de lien** (images en ligne, cartes OpenGraph pour articles et tweets,
 cartes vidéo **YouTube / Dailymotion**), **emojis** (dont personnalisés),
 **présence** et **indicateur de saisie**, **recherche**, **notifications push FCM**,
+**salons chiffrés E2EE** (messages et fichiers, lus et envoyés), **appels Jitsi**,
 reconnexion et rattrapage automatiques, le tout **hors-ligne d'abord**.
 
 ### Le parti pris d'architecture
 
 ```
 UI (primitives React Native) — une PROJECTION réactive, jamais un miroir du réseau
-        │  useLiveQuery (Drizzle)
-SQLite (expo-sqlite + Drizzle, WAL) — LA SOURCE DE VÉRITÉ, une base par serveur
+        │  useRequeteVive (requêtes Drizzle vives)
+SQLite (expo-sqlite + Drizzle, WAL) — LA SOURCE DE VÉRITÉ, une base par serveur et par compte
         │  upserts idempotents
 REST  → pour AGIR          DDP maison (WebSocket) → pour ÉCOUTER (sub/unsub)
         │
@@ -44,7 +45,8 @@ documentés contre l'app officielle (souscriptions empilées, messages dupliqué
 figés). Détails et justifications dans [`ROADMAP.md`](../../ROADMAP.md).
 
 **Contraintes fermes** (voir `ROADMAP.md` §4.2) : primitives React Native **natives par
-défaut**, **aucun kit UI** (NativeBase, Tamagui, RN Paper…), **aucune WebView**, builds
+défaut**, **aucun kit UI** (NativeBase, Tamagui, RN Paper…), **aucune WebView** hors
+l'écran d'appel Jitsi (`app/appel/[callId].tsx`, seule exception), builds
 Android **100 % locaux** (`expo prebuild` + Gradle, **jamais d'EAS**). Le client DDP est
 maison (≈ 200 lignes, écrit depuis la spec, pour éviter toute ambiguïté de licence).
 
@@ -168,7 +170,7 @@ globalement (voir `docs/DEV.md`).
 | `npm run prebuild` | Régénère `android/` (`expo prebuild --clean`). |
 | `npm run typecheck` | `tsc --noEmit` (TypeScript strict, zéro `any` implicite). |
 | `npm run lint` | `expo lint`. |
-| `npm test` | Tests unitaires (`node --test` sur `lib/` et `db/`). |
+| `npm test` | Tests unitaires (`node --test` sur `lib/`, `db/`, `ui/`, `fournisseurs/` et les `plugins/*.test.mjs`). |
 | `npm run seed` | (Re)pose les données de test sur le serveur de dev. |
 | `npm run db:generate` | Génère les migrations Drizzle depuis le schéma. |
 
@@ -195,7 +197,11 @@ lib/            Cœur non-UI : ddp.ts (client DDP), rest.ts, auth.ts, envoi.ts, 
                 sync.ts, rattrapage.ts, reconnexion.ts, presence.ts, push.ts, apercuLien.ts…
 db/             SQLite + Drizzle : schema.ts, upserts.ts, depot.ts, migrations/
 scripts/        env.sh, génération d'emojis
-plugins/        Config plugins CNG (with-fcm-deeplink : deep-link au tap d'un push)
+plugins/        Config plugins CNG : with-fcm-deeplink (service FCM natif, deep-link au tap,
+                réponse depuis la notif), with-ios-push (push iOS par FCM, extension
+                ios-notification-service/), with-architectures-cibles (ABI ciblées),
+                with-signature-release (clé de release), with-partage-entrant (un partage
+                reçu ne se rejoue pas)
 assets/         Icônes de l'app (lanceur, adaptative, notif « fusée » monochrome)
 e2e/            Parcours Maestro et leur harnais
 ```
@@ -204,7 +210,8 @@ e2e/            Parcours Maestro et leur harnais
 MongoDB 8.0), `scripts/` (seed.mjs, spike-ddp.mjs) et `docs/` (DEV.md : environnement,
 réseau, relevé du serveur cible).
 
-Les modules de `lib/` et `db/` sont accompagnés de tests (`*.test.ts`).
+Les modules de `lib/`, `db/`, `ui/` et `fournisseurs/` sont accompagnés de tests
+(`*.test.ts`), les config plugins aussi (`plugins/*.test.mjs`).
 
 ---
 
@@ -243,6 +250,6 @@ documente les variables attendues côté serveur de dev.
 ## Licence & statut
 
 Projet personnel, en développement actif. Branche principale : **`master`**.
-Voir `ROADMAP.md` pour le périmètre v1 (l'**E2EE**, les **appels A/V**, l'**admin
-serveur** et **iOS au démarrage** sont hors périmètre et documentés comme dettes
-assumées).
+Voir `ROADMAP.md` pour le périmètre v1 (l'**admin serveur** et **iOS au démarrage**
+sont hors périmètre et documentés comme dettes assumées ; l'**E2EE** et les **appels**
+Jitsi, d'abord écartés, sont livrés).

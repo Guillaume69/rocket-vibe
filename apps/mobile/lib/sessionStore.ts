@@ -205,6 +205,7 @@ export async function saveKnownServer(baseUrl: string): Promise<void> {
  */
 export async function rememberPushToken(token: string): Promise<void> {
   await SecureStore.setItemAsync(STORED_KEYS.devicePushToken.key, token);
+  await SecureStore.deleteItemAsync(STORED_KEYS.devicePushToken.legacy);
 }
 
 export function readRememberedPushToken(): Promise<string | null> {

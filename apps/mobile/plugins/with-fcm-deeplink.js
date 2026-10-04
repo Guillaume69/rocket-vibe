@@ -470,6 +470,7 @@ private const val LEGACY_CATCH_UP_WORK_PREFIX = "rattrapage-push-"
 
 /** Memory of the messageIds already shown as a conversation notification. */
 private const val PREFS_SHOWN = "rvpush-shown"
+private const val LEGACY_PREFS_SHOWN = "rvpush-affiches"
 
 /**
  * Beyond this, a marker is forgotten. One hour amply covers FCM's redelivery
@@ -546,6 +547,8 @@ private fun alreadyShown(ctx: Context, messageId: String): Boolean {
       val now = System.currentTimeMillis()
       val markedAt = prefs.getLong(messageId, 0L)
       if (markedAt != 0L && now - markedAt <= SHOWN_RETENTION_MS) return true
+      val legacyAt = ctx.getSharedPreferences(LEGACY_PREFS_SHOWN, Context.MODE_PRIVATE).getLong(messageId, 0L)
+      if (legacyAt != 0L && now - legacyAt <= SHOWN_RETENTION_MS) return true
       val edit = prefs.edit()
       for ((key, value) in prefs.all) {
         val entryAt = value as? Long ?: 0L

@@ -13,6 +13,7 @@ import Security
 /// text input action, registered by NotificationReplyAppDelegate.
 let messageCategory = "rv-message"
 let replyAction = "rv-reply"
+let legacyReplyAction = "rv-repondre"
 
 // MARK: - Keychain (expo-secure-store 57 format)
 

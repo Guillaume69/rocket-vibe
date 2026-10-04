@@ -43,7 +43,7 @@ private func registerCategory() {
 
 private final class ReplyHandler: NotificationDelegate {
   func didReceive(_ response: UNNotificationResponse, completionHandler: @escaping () -> Void) -> Bool {
-    guard response.actionIdentifier == replyAction,
+    guard [replyAction, legacyReplyAction].contains(response.actionIdentifier),
       let textResponse = response as? UNTextInputNotificationResponse
     else { return false }
 

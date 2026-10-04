@@ -38,7 +38,7 @@ The private message is shown above the composer of the page it concerns, rendere
 
 ## Parity
 
-Present in both apps (mobile 0.5.0, desktop 0.6.0 for GTK and SwiftUI), same rules and wording tables. `apps/desktop/docs/PARITY.md` still says the private answers are "desktop only": mobile has shown them since 0.5.0.
+Present in both apps (mobile 0.5.0, desktop 0.6.0 for GTK and SwiftUI), same rules and wording tables. The private answers above the composer exist in both.
 
 ## Sources
 

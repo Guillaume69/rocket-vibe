@@ -37,7 +37,7 @@ The home screen of both apps: every room the account is subscribed to, grouped i
 
 ## Parity
 
-Section 2 of PARITY is implemented, with one stale line: PARITY lists "Sections: Unread, Channels, Direct messages", but both apps also have a **Favourites** section (`rooms::Section::Favorites`, `sectionsAccueil` key `favoris`). Visible differences: desktop shows the time and an `@` badge on mentions, mobile does neither; desktop keeps the padlock tile on encrypted rooms even when unlocked, mobile switches back to the normal tile; desktop treats an unlisted user as offline once presence loaded, mobile shows nothing for an unknown status.
+Section 2 of PARITY is implemented, Favourites included (`rooms::Section::Favorites`, `sectionsAccueil` key `favoris`). Visible differences: desktop shows the time and an `@` badge on mentions, mobile does neither; desktop keeps the padlock tile on encrypted rooms even when unlocked, mobile switches back to the normal tile; desktop treats an unlisted user as offline once presence loaded, mobile shows nothing for an unknown status.
 
 ## Sources
 

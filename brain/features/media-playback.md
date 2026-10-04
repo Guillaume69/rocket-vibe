@@ -30,7 +30,7 @@ How images, video and audio attachments, and YouTube, Dailymotion and Vimeo link
 
 ## Parity
 
-PARITY section 3 marks images, video, audio and video-site cards done on both. The one designed difference is the video-site card: played inline on desktop, opened externally on mobile. Note that ROADMAP section 4.2 describes the desktop WebView use as "the same exception" as mobile (calls only), while desktop also embeds a web engine for these video cards.
+PARITY section 3 marks images, video, audio and video-site cards done on both. The one designed difference is the video-site card: played inline on desktop, opened externally on mobile. Desktop's web engine therefore serves two uses, calls and these video cards (ROADMAP section 4.2).
 
 ## Sources
 

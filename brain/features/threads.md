@@ -37,7 +37,7 @@ Replies are ordinary message rows with a thread column (mobile `messages.fil_id`
 
 ## Parity
 
-Thread view, live replies and thread composer in all three. Not available anywhere: a list of the room's threads, following a thread, "also send to the room" (`tshow`) on send, attachments in a thread.
+Thread view, live replies and thread composer in all three. Not available anywhere: a list of the room's threads, following a thread, "also send to the room" (`tshow`) on send, attachments in a thread. On attachments the three differ: mobile hides the attach and microphone buttons in the thread composer; the GTK thread composer shows both but nothing is wired to them, so a picked file is dropped and a recording deleted (`open_thread` in `rv-gtk/src/chat.rs`); SwiftUI posts them to the room, since `RoomModel.attach` takes no thread id.
 
 ## Sources
 

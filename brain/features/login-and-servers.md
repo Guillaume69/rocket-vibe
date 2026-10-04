@@ -43,7 +43,7 @@ How a user signs in to a Rocket.Chat server (password, then a second factor when
 
 ## Parity
 
-All items of PARITY section 1 are present in code. Differences worth knowing: mobile holds one account per server, desktop several; mobile keeps the database on sign-out, desktop deletes it; mobile replays failed sign-outs at next launch, desktop does not (it has no push token to remove). The PARITY line "email (send and resend code)" overstates GTK: the code is requested automatically, with no resend control.
+PARITY section 1 is done on desktop except email 2FA, which is partial: GTK and SwiftUI request the code automatically and have no resend control. Other differences worth knowing: mobile holds one account per server, desktop several; mobile keeps the database on sign-out, desktop deletes it (GTK the `.sqlite`, `-wal` and `-shm` files, SwiftUI only the `.sqlite`); mobile replays failed sign-outs at next launch, desktop does not (it has no push token to remove).
 
 ## Sources
 

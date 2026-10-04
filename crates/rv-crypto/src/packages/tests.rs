@@ -7,9 +7,10 @@ use crate::{
 use openmls::prelude::{KeyPackageIn, ProtocolVersion, tls_codec::Deserialize as _};
 use rv_crypto_public::groups::{Member, Scope as GroupScope, Transition};
 use sha2::{Digest, Sha256};
+#[cfg(unix)]
+use std::fs;
 use std::{
     collections::BTreeMap,
-    fs,
     sync::{
         Mutex, OnceLock,
         atomic::{AtomicUsize, Ordering},

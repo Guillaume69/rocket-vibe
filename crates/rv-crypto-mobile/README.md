@@ -40,7 +40,7 @@ ni cette intention ni les clés. Les annuaires complets sont revalidés en Rust 
 une révocation locale signée est conservée même si le serveur l'omet ensuite.
 Les réglages mobiles existants portent ce parcours, derrière les capacités
 expérimentales du serveur. L'état `ready` du coffre demeure distinct de celui
-de l'identité enregistrée et des futurs groupes MLS.
+de l'identité enregistrée et des groupes MLS admis.
 
 Les fiches utilisateur existantes utilisent aussi les contrôles de confiance
 `rv-crypto::account::peers`, avec le même `Pins` privé que les groupes / desktop.
@@ -54,8 +54,28 @@ Ces contrôles ne publient aucun package et n'admettent aucun membre de groupe.
 
 `Ready` signifie **stockage prêt**. Aucune identité ou groupe n'est créé, aucun
 appareil n'est enregistré et aucun masque E2EE de production n'est activé.
-L'association / renouvellement, les groupes et les conversations mobiles
-restent à raccorder aux contrôleurs partagés et aux écrans existants.
+Le renouvellement des appareils et les conversations mobiles restent à
+raccorder aux contrôleurs partagés et aux écrans existants.
+
+Les informations du salon, et la fiche du correspondant ouverte depuis un DM,
+portent maintenant les contrôles de groupe : publication explicite de packages,
+création / mise à jour (ajouts, retraits, rotation), admission / réadmission et
+réception d'un commit, avec aperçu des destinataires puis confirmation distincte.
+`groupAction` n'accepte que les DTOs publics bornés. Le consentement opaque reste
+en RAM Rust ; le paquet original, les bundles et le fournisseur MLS restent dans
+le coffre. Le roster frais et les pins sont revérifiés lors de la confirmation.
+Les retraits signés des correspondants sont appris avant une préparation ou reprise.
+La vue est liée à l'adhésion, la projection et l'appareil HTTP ; retrait / retour,
+suspension et changement de compte ferment cette vue. Les versions d'adhésion
+de la projection de lectures et les grants du roster MLS sont distincts.
+
+La reprise lit le reçu avant de demander au moteur son paquet original. Un reçu
+accepté ne provoque pas un second POST. Une nouvelle soumission exige encore
+le droit courant d'envoyer ; une décision déjà acceptée reste récupérable en
+lecture seule. L'abandon est checkpointé avant HTTP puis réglé selon la décision
+terminale du serveur. Les publications de packages se reprennent aussi par
+leur reçu, avant de retenter un bundle éventuellement expiré. Aucun texte,
+brouillon privé ou ratchet ne rejoint la SQL ordinaire par ce raccordement.
 
 ## Build et qualification
 
@@ -90,3 +110,13 @@ approbations dans le Keystore. Les tests JS vérifient les gardes lors des requ�
 publiques et le refus d'un consentement pour un autre utilisateur.
 L'émulateur ne qualifie pas le matériel, les coupures électriques ou
 le parcours E2EE complet dans une application installée.
+
+Le septième test Rust exerce deux vrais acteurs MLS : packages, création,
+Welcome, rotation, commit, réouverture du paquet original, refus d'un reçu
+substitué / grant changé et règlement d'abandon. Le cinquième test Android
+exerce création / rotation / paquet original après réouverture et abandon sur
+le vrai Keystore / ABI. Les reçus de ces deux bancs privés sont synthétiques ;
+ils ne remplacent pas une qualification contre le serveur HTTP réel.
+Quatre régressions JS qualifient le routage HTTP, réponse perdue sans second
+POST, publication originale, lecture seule et fermeture après changement
+d'appareil / retrait du salon. Conversations mobiles, iOS et GUI installé restent ouverts.

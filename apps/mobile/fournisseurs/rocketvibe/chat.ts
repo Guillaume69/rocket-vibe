@@ -23,6 +23,7 @@ import {publicMeetingUrl,privateMeetingUrl} from './meetings.ts';
 import {CryptoStorageAccess} from './cryptoStorage.ts';
 import {CryptoIdentityAccess} from './cryptoIdentity.ts';
 import {CryptoPeerAccess} from './cryptoPeers.ts';
+import {CryptoGroupAccess} from './cryptoGroups.ts';
 import type {CryptoStorageBridge} from '../../modules/crypto-native/index.ts';
 
 type MeetingScope={room:string;membership:string;generation:number;projection:number;alive:()=>boolean};
@@ -588,6 +589,25 @@ export class NativeChat {
     visible:()=>boolean=()=>true):Promise<CryptoPeerAccess> {
     if(!user || user.length>256)throw new NativeError(400,'invalid_request');
     return new CryptoPeerAccess(await this.cryptoIdentity(bridge,visible),bridge,user);
+  }
+  async cryptoGroup(bridge:import('../../modules/crypto-native/index.ts').CryptoGroupBridge,room:string,
+    membership:string,visible:()=>boolean=()=>true):Promise<CryptoGroupAccess> {
+    const generation=this.generation,projection=this.store.projectionToken();
+    let closed=false;
+    const alive=()=>!closed && visible() && !this.stopped && generation===this.generation && projection===this.store.projectionToken();
+    const guard=async(mutation:boolean)=>{
+      if(!alive())throw new NativeError(0,'session_closed');
+      let access=await this.store.cryptoRoomAccess(room);
+      if(mutation){await this.roomDetails(room);access=await this.store.cryptoRoomAccess(room);}
+      if(!alive() || !access || access.membership!==membership || !access.encrypted) {
+        closed=true;throw new NativeError(403,'room_access_denied');
+      }
+      if(mutation && !access.canSend)throw new NativeError(403,'room_access_denied');
+    };
+    await guard(false);
+    const identity=await this.cryptoIdentity(bridge,alive);
+    try {await guard(false);return new CryptoGroupAccess(identity,bridge,this.transport,room,guard);}
+    catch(error){await identity.close();throw error;}
   }
   /** Capture the connected runner generation, never expose a raw transport to
    * a retained settings callback after logout, suspension or account switch. */

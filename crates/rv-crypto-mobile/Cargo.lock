@@ -2063,8 +2063,12 @@ version = "0.1.0"
 dependencies = [
  "data-encoding",
  "getrandom 0.4.3",
+ "openmls",
+ "openmls_rust_crypto",
  "rv-crypto",
+ "rv-crypto-public",
  "rv-protocol",
+ "serde",
  "serde_json",
  "sha2 0.11.0",
  "tempfile",

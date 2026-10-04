@@ -26,7 +26,7 @@ import { sonderAppelDisponible } from './appel.ts';
 import type { ClientRest } from './rest.ts';
 
 /** Une des deux formes acceptées par `users.info` (jamais les deux à la fois). */
-export type ParamsProfil = { username?: string; uid?: string };
+export type ParamsProfil = { username?: string; uid?: string; cryptoRoom?:string };
 
 /**
  * Pourquoi `user` manque : une clé du catalogue — traduite à l'AFFICHAGE, ce

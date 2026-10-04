@@ -418,6 +418,16 @@ export class NativeStore {
   roomAccess(rid:string):Promise<NativeRoomAccess|null> {
     return this.queue(async()=>await this.sameGeneration()?this.db.getFirstAsync<NativeRoomAccess>('SELECT * FROM native_room_access WHERE rid=?',[rid]):null);
   }
+  /** One projection observation; grants/permissions from separate reads must
+   * not straddle a removal/rejoin while preparing a protected transition. */
+  cryptoRoomAccess(rid:string):Promise<{membership:string|null;encrypted:boolean;canSend:boolean}|null> {
+    return this.queue(async()=>{
+      if(!await this.sameGeneration())return null;
+      const row=await this.db.getFirstAsync<{payload:string;chiffre:number;can_send:number|null}>(
+        'SELECT p.payload,s.chiffre,a.can_send FROM salons s JOIN native_read_states p ON p.rid=s.rid JOIN native_room_access a ON a.rid=s.rid WHERE s.rid=?',[rid]);
+      return row?{membership:readState(JSON.parse(row.payload),rid).membership_version??null,encrypted:row.chiffre===1,canSend:row.can_send===1}:null;
+    });
+  }
   readState(rid:string):Promise<ReadState|null> {
     return this.queue(async()=>await this.sameGeneration()?this.readStateIn(rid):null);
   }

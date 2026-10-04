@@ -33,6 +33,7 @@ import { useMargeBasFeuille } from '../ui/margeFeuille.ts';
 import {CommandesSalon} from '../ui/gestionSalon.tsx';
 import {BorneAdhesionSalon} from '../ui/adhesionSalon.tsx';
 import {FavoriSalonNatif} from '../ui/favoriSalonNatif.tsx';
+import {SectionGroupeChiffre} from '../ui/groupeChiffre.tsx';
 
 const PHRASE_TYPE: Record<string, CleTraduction> = {
   c: 'salonInfo.typeCanalPublic',
@@ -193,6 +194,7 @@ function ContenuSalonInfo({
       )}
 
       {complement?.gestion && actions.gestionSalon && <CommandesSalon rid={rid} base={base} details={complement.gestion} actions={actions.gestionSalon} c={c} rafraichir={()=>setActualisation(value=>value+1)} />}
+      {native && membership && salon?.chiffre && <SectionGroupeChiffre c={c} room={rid} membership={membership}/>}
 
       {complement?.annonce !== null && complement !== null && (
         <Section c={c} titre={t('salonInfo.annonce')} texte={complement.annonce} />

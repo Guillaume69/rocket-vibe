@@ -49,20 +49,34 @@ du pont, quatre instrumentations Android réelles et 1286 tests mobiles passent 
 typecheck / lint et Clippy strict du moteur passent. Les deux ABI compilent.
 Groupes / conversations mobiles et qualification GUI installée restent ouverts.
 
+Groupes Android raccordés dans les informations du salon et la fiche du DM :
+packages explicites, création, ajouts / retraits / rotation et admission /
+réadmission / commit reçu, avec aperçu de destinataires puis confirmation séparée.
+Le pont utilise les coordinateurs / conversions MLS existants, sans second client
+HTTP. Consentement opaque conservé en Rust ; original durable avant HTTP et
+reprise par reçu sans second POST. Un abandon est checkpointé avant sa demande.
+Le roster frais, les retraits signés des pairs, le droit d'envoyer et l'adhésion /
+projection sont revalidés. Un reçu déjà accepté reste récupérable en lecture seule.
+Sept tests Rust passent, dont deux acteurs MLS ; cinq tests Android réels passent,
+dont création / rotation / réouverture originale et abandon. Les reçus de ces
+tests privés sont synthétiques. Les 1291 tests mobiles, typecheck / lint,
+Clippy strict et les deux ABI passent ; l'export Hermes passe aussi.
+Conversations mobiles, iOS et parcours GUI complet restent ouverts.
+
 | Jalon | Développement livré | Travail restant pour le fermer |
 |---|---|---|
 | J0 | Contrats, fixtures communes, inventaire et backlog de parité | Conditions opérateur / export et décisions crypto liées aux jalons suivants |
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance des correspondants Android | Renouvellement / récupération / révocation visibles, fin des actions privées, parcours GUI E2EE complet, raccordement groupes / conversations mobile, iOS, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes Android | Renouvellement / récupération / révocation visibles, fin des actions privées, parcours GUI E2EE complet, raccordement conversations mobile, iOS, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison qui passe toutes les CI existantes (`e4a40da`) passe les neuf jobs de la CI
-`37220016734` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison qui passe toutes les CI existantes (`ed57f96`) passe les neuf jobs de la CI
+`37222881384` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
-Le job Android `37220016701` passe aussi les deux ABI, le vrai Keystore et la
-cérémonie d'association sur émulateur.
+Le job Android `37222881418` passe aussi les deux ABI, le vrai Keystore, la
+cérémonie d'association et les contrôles de confiance sur émulateur.
 L'application macOS du lot conversations `220ffc5` passe sa compilation, son packaging et son
 démarrage (`37211906510`). Groupes, projection et composeur dans les interfaces
 existantes compilent et passent ces régressions. Le parcours GUI E2EE complet

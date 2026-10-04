@@ -374,8 +374,15 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    la comparaison / remplacement de racine et l'aperçu / approbation séparés
    des appareils. Les pins privés et retraits persistants sont partagés avec
    le moteur de groupe ; ces écrans ne publient ni package ni admission.
+   Les informations de salon / DM Android raccordent maintenant publication
+   explicite de packages, création / changements / rotation, admission /
+   réadmission et commits reçus. Le consentement reste dans Rust ; confirmation
+   sur roster frais, original checkpointé avant HTTP, reprise par reçu et
+   abandon durable. Sept tests du pont Rust (dont deux acteurs MLS), cinq
+   instrumentations du vrai Keystore / ABI et les régressions HTTP mobiles
+   qualifient ce raccordement ; les reçus des tests privés sont synthétiques.
    Renouvellement, récupération / révocation visibles, actions privées et
-   raccordement groupes / conversations mobile restent ouverts ; archive / fichiers,
+   raccordement conversations mobile restent ouverts ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.
 6. Revue indépendante du protocole applicatif / stockage et qualification des
    trousseaux, Android / Hermes, GTK / SwiftUI. Activation seulement après preuve.

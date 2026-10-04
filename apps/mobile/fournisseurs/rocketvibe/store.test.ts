@@ -18,6 +18,23 @@ const session:Session = {baseUrl:'http://localhost:3400',authToken:'test-token',
 const snapshot = {protocol_version:1,rooms:[room],messages:[message],cursor:'initial'};
 function setup() { const harness = nativeTestDatabase(); return {...harness,store:new NativeStore(harness.adapter,creerFileEcritures(),session)}; }
 
+test('protected room access observes encryption, permissions and membership in one SQLite projection and loses them on rejoin',async()=>{
+  const {db,store}=setup();
+  const grant=decodeNative('ReadState',{room_id:room.id,revision:'1',membership_version:'first-membership',root_position:'0',reply_position:'0',
+    unread_roots:'0',unread_replies:'0',mentions:'0',group_mentions:'0',favorite:false});
+  const encrypted=decodeNative('Room',{...room,encrypted:true,read_state:grant});
+  await store.applySnapshot({...snapshot,rooms:[encrypted]});
+  const details=decodeNative('RoomDetails',{...fixture.parity.room_details,room:encrypted});
+  await store.cacheRoomAccess(details,store.projectionToken());
+  assert.deepEqual(await store.cryptoRoomAccess(room.id),{membership:'first-membership',encrypted:true,canSend:true});
+  const next={...grant,revision:'2',membership_version:'second-membership'};
+  await store.applySnapshot({...snapshot,rooms:[{...encrypted,read_state:next}],cursor:'rejoined'});
+  const access=await store.cryptoRoomAccess(room.id);
+  assert.equal(access?.membership,'second-membership');assert.equal(access?.encrypted,true);assert.equal(access?.canSend,false);
+  await store.applySnapshot({...snapshot,rooms:[],messages:[],cursor:'removed'});
+  assert.equal(await store.cryptoRoomAccess(room.id),null);db.close();
+});
+
 test('native room activity survives SQLite and uses the existing translated system rows',async()=>{
   const {db,store}=setup();
   const system=decodeNative('Message',{...message,text:'',body:null,system:{kind:'role_changed',user:{id:'bob',username:'bob',display_name:'Robert'},previous_role:'member',role:'moderator'}});

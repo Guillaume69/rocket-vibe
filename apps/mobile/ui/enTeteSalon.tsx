@@ -24,6 +24,7 @@ import { CLES_PRESENCE, couleursPresence } from './presence.ts';
 import { useSynchro } from './synchro.tsx';
 import { type Couleurs, POLICES } from './theme.ts';
 import { Appuyable } from './appuyable.tsx';
+import {CryptoNative} from '../modules/crypto-native/index.ts';
 
 type LigneDeSalon = typeof salons.$inferSelect;
 
@@ -114,7 +115,7 @@ export function EnTeteSalon({
           disabled={capacites?.infosSalon === false}
           onPress={() =>
             estDM && capacites?.profil !== false && salon?.dmAutreUid != null
-              ? void ouvrirFicheProfil({ uid: salon.dmAutreUid })
+              ? void ouvrirFicheProfil({ uid: salon.dmAutreUid,...(salon.chiffre && CryptoNative && synchro.phase==='pret' && synchro.fournisseur.native?.chat.capabilities?.e2ee ? {cryptoRoom:rid} : {}) })
               : routeur.push({ pathname: '/salon-info', params: { rid } })
           }
           android_ripple={{ color: c.ondulation, borderless: false }}

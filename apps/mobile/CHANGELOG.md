@@ -7,6 +7,19 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Groupes chiffrés RocketVibe sur Android
+
+- Informations du salon et fiche du correspondant d'un DM raccordées au même
+  moteur Rust que le bureau : publication de clés d'invitation, création,
+  ajouts / retraits / rotation, admission / réadmission et transitions reçues.
+- Aperçu des destinataires et empreintes avant confirmation séparée. Les
+  consentements et originaux restent dans Rust ; réponse perdue reprise par
+  reçu sans seconde soumission et abandon conservé avant sa demande au serveur.
+- Vue liée à l'adhésion au salon, à la projection et à l'appareil HTTP actuel.
+  Une nouvelle soumission revalide le droit d'envoyer ; une décision acceptée
+  reste récupérable en lecture seule. L'E2EE demeure expérimental ; le
+  raccordement des conversations et la qualification GUI complète restent ouverts.
+
 ### Identités des correspondants RocketVibe
 
 - Fiche utilisateur existante : consultation explicite de l'identité chiffrée,

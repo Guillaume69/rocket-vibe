@@ -54,6 +54,64 @@ class ProtectedInstallationTest {
     return wire.toString()
   }
 
+  @Test fun actualMlsGroupKeepsOriginalAcrossReopenAndRequiresFreshMembershipConsent() {
+    val context = InstrumentationRegistry.getInstrumentation().targetContext
+    val root = AndroidProtectedKeystore.privateDirectory(File(context.noBackupFilesDir, "crypto-group-test-" + UUID.randomUUID()))
+    val directory = AndroidProtectedKeystore.privateDirectory(File(root, "coffer"))
+    val platform = File(root, "platform")
+    val account = CryptoAccount("https://crypto.example.org", "test-instance", "test-epoch", "alice", UUID.randomUUID().toString())
+    var installation = CryptoInstallation.open(directory.absolutePath, account, AndroidProtectedKeystore(platform))
+    try {
+      val own = enroll(installation, account)
+      val scope = JSONObject().put("instance_id", account.instance).put("data_epoch", account.dataEpoch)
+      val roster = JSONObject().put("scope", scope).put("room_id", "room").put("authority_version", "authority")
+        .put("members", JSONArray().put(JSONObject().put("user_id", account.user).put("access_version", "access").put("activation_version", "active")))
+        .put("group", JSONObject.NULL)
+      fun command(action: String) = JSONObject().put("action", action)
+      fun call(input: JSONObject) = installation.groupAction(own, input.toString())
+      fun preview() = JSONObject(call(command("preview").put("roster", roster).put("packages", JSONArray()).put("removals", JSONArray()).put("event", JSONObject.NULL)))
+      fun confirm(value: JSONObject, current: JSONObject = roster) = call(command("confirm").put("roster", current)
+        .put("id", value.getString("id")).put("fingerprint", value.getString("fingerprint")))
+      assertTrue(JSONObject(call(command("view").put("roster", roster))).isNull("accepted"))
+      var consent = preview()
+      assertEquals("null", call(command("pending").put("room", "room")))
+      assertEquals(1, consent.getJSONArray("recipients").length())
+      val changed = JSONObject(roster.toString())
+      changed.getJSONArray("members").getJSONObject(0).put("access_version", "new-access")
+      refused { confirm(consent, changed) }
+      consent = preview(); confirm(consent)
+      val original = call(command("retry").put("room", "room"))
+      installation.stop(); installation.destroy()
+      installation = CryptoInstallation.open(directory.absolutePath, account, AndroidProtectedKeystore(platform))
+      assertEquals(original, call(command("retry").put("room", "room")))
+      val packet = JSONObject(original)
+      val flags = Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+      val plan = JSONObject(String(Base64.decode(packet.getString("transition"), flags), Charsets.UTF_8)).getJSONObject("plan")
+      val pending = JSONObject(call(command("pending").put("room", "room")))
+      val incarnation = plan.getJSONObject("scope").getJSONArray("incarnation").let { bytes ->
+        (0 until bytes.length()).joinToString("") { "%02x".format(bytes.getInt(it)) }
+      }
+      val receipt = JSONObject().put("scope", scope).put("room_id", "room").put("incarnation", incarnation)
+        .put("operation_id", packet.getString("operation_id")).put("revision", (plan.getLong("expected_revision") + 1).toString())
+        .put("epoch", plan.getLong("epoch").toString()).put("fingerprint", pending.getString("fingerprint"))
+      val wrong = JSONObject(receipt.toString()).put("fingerprint", "00".repeat(32))
+      refused { call(command("acknowledge").put("room", "room").put("receipt", wrong)) }
+      call(command("acknowledge").put("room", "room").put("receipt", receipt))
+      roster.put("group", receipt)
+      assertEquals(receipt.getString("fingerprint"), JSONObject(call(command("view").put("roster", roster))).getJSONObject("accepted").getString("fingerprint"))
+      consent = preview(); assertEquals("change", consent.getString("kind")); confirm(consent)
+      val cancellation = JSONObject(call(command("cancel").put("room", "room")))
+      val cancelling = JSONObject(call(command("pending").put("room", "room")))
+      assertTrue(cancelling.getBoolean("cancelling"))
+      assertEquals(cancelling.getString("operation"), cancellation.getJSONObject("original").getString("operation_id"))
+      val decision = JSONObject().put("kind", "cancelled").put("data", JSONObject().put("scope", scope).put("room_id", "room")
+        .put("incarnation", incarnation).put("operation_id", cancelling.getString("operation")).put("device_id", account.device)
+        .put("fingerprint", cancelling.getString("fingerprint")))
+      call(command("settle").put("room", "room").put("settlement", decision))
+      assertEquals("null", call(command("pending").put("room", "room")))
+    } finally { installation.stop(); installation.destroy(); root.deleteRecursively() }
+  }
+
   @Test fun peerIdentityAndDeviceApprovalPersistInActualAndroidCoffer() {
     val context = InstrumentationRegistry.getInstrumentation().targetContext
     val root = AndroidProtectedKeystore.privateDirectory(File(context.noBackupFilesDir, "crypto-peer-test-" + UUID.randomUUID()))

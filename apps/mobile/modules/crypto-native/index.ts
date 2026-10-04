@@ -54,4 +54,9 @@ export type CryptoPeerBridge = CryptoIdentityBridge & {
   peerApprove: (handle:string,ownDirectory:string,peerDirectory:string,approvalId:string)=>Promise<{id:string;statusJson:string}>;
 };
 /** Keys and protected records remain between Rust and Kotlin, outside this API. */
-export const CryptoNative = requireOptionalNativeModule<CryptoPeerBridge>('CryptoNative');
+export type CryptoParticipant = {user:string;device:string;incarnation:string;root:string;certificate:string};
+export type CryptoGroupPreview = {id:string;kind:'genesis'|'change'|'admission'|'readmission'|'commit';fingerprint:string;recipients:CryptoParticipant[]};
+export type CryptoGroupBridge = CryptoPeerBridge & {
+  groupAction:(handle:string,ownDirectory:string,input:string)=>Promise<string>;
+};
+export const CryptoNative = requireOptionalNativeModule<CryptoGroupBridge>('CryptoNative');

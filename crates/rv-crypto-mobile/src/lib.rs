@@ -10,6 +10,7 @@ use std::{
     },
 };
 use zeroize::Zeroizing;
+mod groups;
 mod identity;
 mod peers;
 pub use identity::{IdentityApproval, IdentityPhase, IdentityStatus};
@@ -107,6 +108,7 @@ pub struct CryptoInstallation {
     approval: Mutex<Option<(String, rv_crypto::account::Approval)>>,
     peer_review: Mutex<Option<(String, rv_crypto::account::peers::View)>>,
     peer_approval: Mutex<Option<(String, rv_crypto::account::peers::Approval)>>,
+    group_preview: Mutex<Option<groups::Staged>>,
 }
 impl CryptoInstallation {
     fn check(&self) -> Result<()> {
@@ -178,6 +180,7 @@ impl CryptoInstallation {
             approval: Mutex::new(None),
             peer_review: Mutex::new(None),
             peer_approval: Mutex::new(None),
+            group_preview: Mutex::new(None),
         }))
     }
     pub fn stop(&self) {
@@ -190,6 +193,9 @@ impl CryptoInstallation {
         }
         if let Ok(mut approval) = self.peer_approval.lock() {
             *approval = None;
+        }
+        if let Ok(mut preview) = self.group_preview.lock() {
+            *preview = None;
         }
     }
     pub fn is_closed(&self) -> bool {
@@ -223,5 +229,7 @@ impl CryptoInstallation {
     }
 }
 
+#[cfg(test)]
+mod group_tests;
 #[cfg(test)]
 mod tests;

@@ -17,6 +17,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import type {ReactNode} from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {SectionConfianceChiffree} from '../ui/confianceChiffree.tsx';
+import {SectionGroupeChiffre} from '../ui/groupeChiffre.tsx';
+import {BorneAdhesionSalon} from '../ui/adhesionSalon.tsx';
 import {CryptoNative} from '../modules/crypto-native/index.ts';
 
 import { appelDisponibleMemo, contexteAppel, demarrerConference, sonderAppelDisponible } from '../lib/appel.ts';
@@ -97,7 +99,7 @@ export default function EcranProfil() {
   const margeBas = useMargeBasFeuille();
   // `username` (mentions, lignes de message) OU `uid` (en-tête d'un DM, où
   // seul `dmAutreUid` est connu localement) — `users.info` accepte les deux.
-  const { username, uid } = useLocalSearchParams<{ username?: string; uid?: string }>();
+  const { username, uid, cryptoRoom } = useLocalSearchParams<{ username?: string; uid?: string; cryptoRoom?:string }>();
   const { etat } = useSession();
   const synchro = useSynchro();
   const c = useCouleurs();
@@ -354,6 +356,8 @@ export default function EcranProfil() {
         <Text style={[styles.erreur, { color: c.texteErreur }]}>{erreur}</Text>
       )}
       {client?.genre==='rocketvibe' && profil && <SectionConfianceChiffree c={c} user={profil.uid}/>}
+      {client?.genre==='rocketvibe' && typeof cryptoRoom==='string' && synchro.phase==='pret' && chat?.capabilities?.e2ee &&
+        <BorneAdhesionSalon base={synchro.base} rid={cryptoRoom}>{membership=>membership?<SectionGroupeChiffre c={c} room={cryptoRoom} membership={membership}/>:null}</BorneAdhesionSalon>}
 
       {/* Actions présentes dès le squelette (Message désactivé le temps du
           chargement) : leur hauteur ne change pas à l'arrivée des données.

@@ -1,9 +1,9 @@
 use super::*;
 use std::collections::BTreeMap;
 #[derive(Default)]
-struct Keystore {
+pub(super) struct Keystore {
     items: Mutex<BTreeMap<String, Vec<u8>>>,
-    writes: Mutex<usize>,
+    pub(super) writes: Mutex<usize>,
     unavailable: AtomicBool,
 }
 impl ProtectedKeystore for Keystore {
@@ -22,7 +22,7 @@ impl ProtectedKeystore for Keystore {
         Ok(())
     }
 }
-fn account() -> CryptoAccount {
+pub(super) fn account() -> CryptoAccount {
     CryptoAccount {
         origin: "https://example.org".into(),
         instance: "instance".into(),
@@ -233,7 +233,7 @@ fn open(path: &std::path::Path, key: Arc<Keystore>) -> Arc<CryptoInstallation> {
     }
     CryptoInstallation::open(path.to_string_lossy().into(), account(), key).unwrap()
 }
-fn registered(
+pub(super) fn registered(
     path: &std::path::Path,
     selected: CryptoAccount,
     key: Arc<Keystore>,

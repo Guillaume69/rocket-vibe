@@ -315,6 +315,14 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P19 / J4, portabilité du banc HTTP (4 octobre 2026) : le job macOS de
+  `37168795438` révèle un `WouldBlock` à la lecture de socket, puis une
+  seconde panique dans le nettoyage. Les sockets acceptées sont explicitement
+  bloquantes, leur délai est aligné sur les 15 secondes du SDK et le nettoyage
+  conserve l'erreur initiale sans interrompre toute la suite. Formatage /
+  Clippy strict et les cinq parcours HTTP passent localement ; confirmation
+  macOS suivie sur la prochaine CI. Aucun changement du transport de production.
+
 - P19 / J4, worker HTTP privé expérimental (4 octobre 2026) : feature
   optionnelle `native-http` utilisant le SDK existant. Instance / génération,
   compte et unique session courante vérifiés ; clones arrêtés ensemble,

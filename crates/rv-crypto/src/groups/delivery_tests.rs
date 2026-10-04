@@ -39,11 +39,14 @@ fn error(status: u16, code: &str, retry: Option<u64>) -> Option<Reply> {
     })
 }
 fn receive(stream: &mut TcpStream) -> Request {
+    // Accept flags vary by platform. The listener polls, but request reads
+    // must block; allow the same deadline as the SDK under a busy CI runner.
+    stream.set_nonblocking(false).unwrap();
     stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
+        .set_read_timeout(Some(Duration::from_secs(15)))
         .unwrap();
     stream
-        .set_write_timeout(Some(Duration::from_secs(5)))
+        .set_write_timeout(Some(Duration::from_secs(15)))
         .unwrap();
     let mut bytes = Vec::new();
     let mut buffer = [0; 4096];
@@ -125,7 +128,13 @@ impl Server {
 impl Drop for Server {
     fn drop(&mut self) {
         self.stopped.store(true, Ordering::Release);
-        self.join.take().unwrap().join().unwrap();
+        if let Err(error) = self.join.take().unwrap().join()
+            && !thread::panicking()
+        {
+            // Keep the fixture failure visible without aborting the entire
+            // test process with a second panic during unwinding.
+            std::panic::resume_unwind(error);
+        }
     }
 }
 

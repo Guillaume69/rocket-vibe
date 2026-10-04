@@ -9,6 +9,46 @@ const registration=decodeNative('RegisterDevice',fixture.parity.e2ee_register_de
 const receipt=decodeNative('OperationReceipt',fixture.parity.e2ee_operation_receipt);
 const directory=decodeNative('Directory',fixture.parity.e2ee_directory);
 
+test('opaque message delivery retries original bytes and preserves the fixed large watermark',async()=>{
+  const input=decodeNative('ApplicationSubmission',fixture.parity.e2ee_application_submission);
+  const receipt=decodeNative('ApplicationReceipt',fixture.parity.e2ee_application_receipt);
+  const page=decodeNative('DeliveryPage',fixture.parity.e2ee_delivery_page);
+  const requests:{url:string;options?:RequestInit}[]=[];
+  let lost=true;
+  const transport=new NativeTransport('https://example.org',async(url,options)=>{
+    requests.push({url:String(url),options});
+    const path=new URL(String(url)).pathname;
+    if(path.endsWith('/delivery'))return Response.json(page);
+    if(path.includes('/message-operations/'))return Response.json(receipt);
+    if(lost){lost=false;throw new TypeError('Lost message receipt');}
+    return Response.json(receipt);
+  });
+  transport.restore('saved-token');
+  await assert.rejects(transport.submitCryptoMessage('fixture-room',input));
+  assert.deepEqual(await transport.submitCryptoMessage('fixture-room',input),receipt);
+  assert.equal(requests[0].options?.body,requests[1].options?.body);
+  assert.deepEqual(await transport.cryptoMessageOperation('fixture-room',input.operation_id),receipt);
+  assert.deepEqual(await transport.cryptoDelivery('fixture-room',page.after,page.through),page);
+  const requested=new URL(requests[3].url);
+  assert.equal(requested.searchParams.get('after'),'9007199254740992');
+  assert.equal(requested.searchParams.get('through'),'9007199254740996');
+  assert.equal(page.events[1].position,'9007199254740995');
+  assert.equal(page.events[1].content.kind,'message');
+  for(const value of ['01','-1','9223372036854775808','1e3']) {
+    await assert.rejects(transport.cryptoDelivery('fixture-room',value));
+    await assert.rejects(transport.cryptoDelivery('fixture-room','0',value));
+  }
+  assert.equal(requests.length,4);
+  assert.throws(()=>decodeNative('DeliveryPage',{...page,through:9007199254740996}));
+  assert.throws(()=>decodeNative('DeliveryPage',{...page,events:[{...page.events[1],position:9007199254740995}]}));
+  assert.throws(()=>decodeNative('DeliveryPage',{...page,events:[{...page.events[1],content:{...page.events[1].content,plaintext:'forbidden'}}]}));
+  assert.throws(()=>decodeNative('ApplicationSubmission',{...input,text:'forbidden'}));
+  for(const request of requests) {
+    assert.equal(request.options?.redirect,'error');
+    assert.equal(new Headers(request.options?.headers).get('authorization'),'Bearer saved-token');
+  }
+});
+
 test('current group grants stay typed, private and readable during crypto cooldown',async()=>{
   const roster=decodeNative('GroupRoster',fixture.parity.e2ee_group_roster);
   const requests:{url:string;options?:RequestInit}[]=[];
@@ -29,6 +69,21 @@ test('current group grants stay typed, private and readable during crypto cooldo
   assert.throws(()=>decodeNative('GroupRoster',{...roster,members:[{...roster.members[0],activation_version:1}]}));
   assert.throws(()=>decodeNative('GroupRoster',{...roster,group:{...roster.group,epoch:9007199254740992}}));
   assert.throws(()=>decodeNative('GroupRoster',{...roster,welcome:'forbidden'}));
+});
+
+test('crypto success bodies are bounded before JSON decoding and never revoke the HTTP session',async()=>{
+  for(const response of [
+    new Response('{}',{headers:{'content-length':'4194305'}}),
+    new Response('{}',{headers:{'content-length':'invalid'}}),
+    new Response('x'.repeat(4*1024*1024+1)),
+  ]) {
+    let revoked=false;
+    const transport=new NativeTransport('https://example.org',async()=>response);
+    transport.restore('saved-token');
+    transport.surJetonRefuse=()=>{revoked=true;};
+    await assert.rejects(transport.cryptoDelivery('fixture-room','0'),error=>error instanceof NativeError&&error.code==='invalid_crypto_delivery');
+    assert.equal(revoked,false);
+  }
 });
 
 test('signed group transport preserves large revisions, targeted Welcome and original retry',async()=>{

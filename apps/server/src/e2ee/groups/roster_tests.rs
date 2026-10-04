@@ -14,7 +14,7 @@ fn grants(roster: &wire::GroupRoster) -> Vec<Member> {
 async fn observe(app: &App, actor: &Account, room: &str) -> wire::GroupRoster {
     body(delivery::observe_roster(app, actor, room).await.unwrap()).await
 }
-async fn wait_for_lock(pool: &PgPool) {
+pub(super) async fn wait_for_lock(pool: &PgPool) {
     tokio::time::timeout(Duration::from_secs(3), async {
         loop {
             let blocked:bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock')").fetch_one(pool).await.unwrap();

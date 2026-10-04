@@ -59,6 +59,87 @@
       ],
       "type": "object"
     },
+    "ApplicationMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "ciphertext": {
+          "type": "string"
+        },
+        "proof": {
+          "type": "string"
+        },
+        "receipt": {
+          "$ref": "#/$defs/ApplicationReceipt"
+        }
+      },
+      "required": [
+        "receipt",
+        "proof",
+        "ciphertext"
+      ],
+      "type": "object"
+    },
+    "ApplicationReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "fingerprint": {
+          "type": "string"
+        },
+        "header": {
+          "description": "Canonical public Header JSON, base64url. Its u64 fields stay opaque to JS.",
+          "type": "string"
+        },
+        "message_id": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "position": {
+          "type": "string"
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "room_id",
+        "operation_id",
+        "header",
+        "fingerprint",
+        "message_id",
+        "position"
+      ],
+      "type": "object"
+    },
+    "ApplicationSubmission": {
+      "additionalProperties": false,
+      "properties": {
+        "ciphertext": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "proof": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "operation_id",
+        "proof",
+        "ciphertext"
+      ],
+      "type": "object"
+    },
     "AuthChallenge": {
       "properties": {
         "challenge_id": {
@@ -696,6 +777,102 @@
       "required": [
         "operation_id",
         "expected_revision"
+      ],
+      "type": "object"
+    },
+    "DeliveryContent": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/GroupEvent"
+            },
+            "kind": {
+              "const": "group",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/ApplicationMessage"
+            },
+            "kind": {
+              "const": "message",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DeliveryEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "$ref": "#/$defs/DeliveryContent"
+        },
+        "position": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "position",
+        "content"
+      ],
+      "type": "object"
+    },
+    "DeliveryPage": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "type": "string"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/DeliveryEvent"
+          },
+          "type": "array"
+        },
+        "incarnation": {
+          "type": "string"
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "through": {
+          "description": "Fixed native position watermark; continue subsequent pages through it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "room_id",
+        "incarnation",
+        "after",
+        "through",
+        "events"
       ],
       "type": "object"
     },
@@ -2724,10 +2901,40 @@
             }
           ]
         },
+        "e2ee_application_receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApplicationReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_application_submission": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApplicationSubmission"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "e2ee_available_key_package": {
           "anyOf": [
             {
               "$ref": "#/$defs/AvailableKeyPackage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_delivery_page": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeliveryPage"
             },
             {
               "type": "null"

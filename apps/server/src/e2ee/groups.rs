@@ -9,6 +9,7 @@ use std::time::Instant;
 
 const PAYLOAD: usize = 1024 * 1024;
 const TOTAL: usize = 2 * 1024 * 1024;
+pub mod messages;
 fn stale() -> Error {
     Error::new(StatusCode::CONFLICT, "crypto_group_changed")
 }
@@ -183,6 +184,45 @@ async fn current_members(
         )
         .collect())
 }
+
+// Compatible with ordinary per-author NO KEY UPDATE, but blocks activation-key
+// changes. Take these before room locks so a disabling operator cannot form a
+// peer-user / room cycle with a crypto publisher.
+async fn lock_activations(
+    tx: &mut Transaction<'_, Postgres>,
+    members: &[public::Member],
+) -> Result<()> {
+    let users: Vec<_> = members.iter().map(|m| m.user.clone()).collect();
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT id,activation_version FROM users WHERE id=ANY($1) AND NOT disabled ORDER BY id FOR KEY SHARE")
+        .bind(users).fetch_all(&mut **tx).await?;
+    if rows.len() != members.len()
+        || rows.iter().zip(members).any(|((user, version), member)| {
+            user != &member.user || version != &member.activation_version
+        })
+    {
+        return Err(wait());
+    }
+    Ok(())
+}
+
+fn admission_witness(plan: &public::Plan, participant: &Participant) -> Result<serde_json::Value> {
+    let member = plan
+        .members
+        .iter()
+        .find(|m| m.user == participant.user)
+        .ok_or_else(proof)?;
+    Ok(serde_json::json!([
+        plan.scope,
+        participant.user,
+        participant.device,
+        participant.incarnation,
+        participant.root,
+        participant.leaf,
+        participant.key_package,
+        member.access_version,
+        member.activation_version
+    ]))
+}
 fn same_admission(old: &public::Plan, new: &public::Plan, p: &Participant) -> bool {
     let member = |plan: &public::Plan| plan.members.iter().find(|m| m.user == p.user).cloned();
     member(old) == member(new)
@@ -292,6 +332,7 @@ pub async fn submit(
     }
     let mut tx = app.pool.begin().await?;
     let (device, _) = lock_scope(&mut tx, actor, &scope).await?;
+    lock_activations(&mut tx, &plan.members).await?;
     let (kind, authority) = room_lock(&mut tx, actor, room, true).await?;
     if let Some(receipt) = saved_group(&mut tx, actor, &device, &operation, &fingerprint).await? {
         tx.commit().await?;
@@ -468,6 +509,17 @@ pub async fn submit(
         .bind(&receipt.fingerprint).bind(&checked.bytes).bind(&checked.tree).bind(Json(&receipt)).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO e2ee_group_events(room_id,revision,transition,commit,receipt) VALUES($1,$2,$3,$4,$5)")
         .bind(room).bind(plan.expected_revision as i64+1).bind(&checked.bytes).bind(&checked.commit).bind(Json(&receipt)).execute(&mut *tx).await?;
+    for participant in &plan.participants {
+        sqlx::query("INSERT INTO e2ee_group_recipients(room_id,revision,device_id,witness) VALUES($1,$2,$3,$4)")
+            .bind(room).bind(plan.expected_revision as i64+1).bind(&participant.device).bind(Json(admission_witness(plan, participant)?)).execute(&mut *tx).await?;
+    }
+    let delivery_position = crate::store::next_position(&mut tx).await?;
+    sqlx::query("INSERT INTO e2ee_delivery(position,room_id,group_revision) VALUES($1,$2,$3)")
+        .bind(delivery_position)
+        .bind(room)
+        .bind(plan.expected_revision as i64 + 1)
+        .execute(&mut *tx)
+        .await?;
     for (welcome, payload) in checked.welcomes {
         let participant = plan
             .participants

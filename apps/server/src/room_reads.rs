@@ -164,7 +164,7 @@ pub async fn favorite(
     }
     lock_room(&mut tx, room).await?;
     store::require_member(&mut tx, room, &actor.id).await?;
-    let used:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM messages WHERE author_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM room_creation_requests WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM message_actions WHERE user_id=$1 AND operation_id=$2)").bind(&actor.id).bind(&input.operation_id).fetch_one(&mut *tx).await?;
+    let used:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM messages WHERE author_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM room_creation_requests WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM message_actions WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM e2ee_application_messages WHERE user_id=$1 AND operation_id=$2)").bind(&actor.id).bind(&input.operation_id).fetch_one(&mut *tx).await?;
     if used {
         return Err(Error::conflict());
     }

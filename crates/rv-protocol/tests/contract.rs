@@ -1,6 +1,28 @@
 use rv_protocol::{Contract, SendMessage};
 
 #[test]
+fn opaque_delivery_preserves_exact_positions_and_excludes_private_or_cleartext_fields() {
+    use rv_protocol::e2ee::{ApplicationSubmission, DeliveryPage};
+    let fixture: Contract =
+        serde_json::from_str(include_str!("../../../docs/protocol/v1.fixture.json")).unwrap();
+    let receipt = fixture.parity.e2ee_application_receipt.unwrap();
+    assert_eq!(receipt.position, "9007199254740995");
+    let page = fixture.parity.e2ee_delivery_page.unwrap();
+    assert_eq!(page.after, "9007199254740992");
+    assert_eq!(page.through, "9007199254740996");
+    assert_eq!(page.next.as_deref(), Some("9007199254740995"));
+    let mut encoded = serde_json::to_value(page).unwrap();
+    encoded["events"][1]["position"] = serde_json::json!(9007199254740995u64);
+    assert!(serde_json::from_value::<DeliveryPage>(encoded).is_err());
+    let input = fixture.parity.e2ee_application_submission.unwrap();
+    for field in ["text", "private_key", "plaintext"] {
+        let mut encoded = serde_json::to_value(&input).unwrap();
+        encoded[field] = "must-not-enter-the-server-contract".into();
+        assert!(serde_json::from_value::<ApplicationSubmission>(encoded).is_err());
+    }
+}
+
+#[test]
 fn public_crypto_metadata_preserves_exact_revisions_and_rejects_private_fields() {
     let contract: Contract =
         serde_json::from_str(include_str!("../../../docs/protocol/v1.fixture.json")).unwrap();

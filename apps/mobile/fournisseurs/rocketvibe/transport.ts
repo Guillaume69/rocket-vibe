@@ -42,6 +42,19 @@ export class NativeTransport {
   cryptoGroupOperation(room:string,operation:string):Promise<NativeTypes['GroupReceipt']> {
     return this.request('GroupReceipt',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/operations/${encodeURIComponent(operation)}`);
   }
+  submitCryptoMessage(room:string,input:NativeTypes['ApplicationSubmission']):Promise<NativeTypes['ApplicationReceipt']> {
+    return this.request('ApplicationReceipt',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/messages`,input);
+  }
+  cryptoMessageOperation(room:string,operation:string):Promise<NativeTypes['ApplicationReceipt']> {
+    return this.request('ApplicationReceipt',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/message-operations/${encodeURIComponent(operation)}`);
+  }
+  /** Opaque delivery only. The native crypto engine validates and opens each frame. */
+  async cryptoDelivery(room:string,after:string,through?:string):Promise<NativeTypes['DeliveryPage']> {
+    for(const position of [after,...(through===undefined?[]:[through])]) {
+      if(!/^(0|[1-9][0-9]{0,18})$/.test(position)||BigInt(position)>9223372036854775807n)throw new NativeError(400,'invalid_request');
+    }
+    return this.request('DeliveryPage',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/delivery?after=${after}${through===undefined?'':`&through=${through}`}`);
+  }
   availableCryptoKeyPackage(room:string,user:string,device:string):Promise<NativeTypes['AvailableKeyPackage']> {
     return this.request('AvailableKeyPackage',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/key-packages/${encodeURIComponent(user)}/${encodeURIComponent(device)}`);
   }
@@ -113,6 +126,17 @@ export class NativeTransport {
       if (response.status === 429 && effectiveBudget !== null) this.cooldowns.set(effectiveBudget,{until:Date.now()+retry*1000,code:error.code,requestId:error.request_id});
       throw new NativeError(response.status, error.code, response.status === 429 ? retry : undefined, error.request_id);
     }
+      if (path.startsWith('/api/v1/e2ee/')) {
+        const maximum=4*1024*1024;
+        const length=response.headers.get('content-length');
+        if(length!==null&&(!/^\d+$/.test(length)||Number(length)>maximum)) {
+          controller.abort();
+          throw new NativeError(0,'invalid_crypto_delivery');
+        }
+        const text=await response.text();
+        if(utf8Bytes(text)>maximum)throw new NativeError(0,'invalid_crypto_delivery');
+        return JSON.parse(text);
+      }
       if (path === '/api/v1/emoji' || path === '/api/v1/sync/snapshots' || path.startsWith('/api/v1/sync/snapshots/')) {
         const invalid=path==='/api/v1/emoji'?'invalid_emoji_catalog':'invalid_snapshot';
         const length = response.headers.get('content-length');

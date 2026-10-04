@@ -17,6 +17,9 @@ mod roster_observation;
 #[path = "protected_worker_tests.rs"]
 mod protected_worker;
 
+#[path = "application_tests.rs"]
+mod application_delivery;
+
 struct Ready {
     actor: Account,
     token: String,

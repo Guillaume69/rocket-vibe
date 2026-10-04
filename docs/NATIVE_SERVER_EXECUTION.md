@@ -11,14 +11,15 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages et transitions MLS, worker testé sur HTTP / PostgreSQL | Messages chiffrés et leur livraison, ponts / interfaces, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS et worker HTTP, noyau privé de messages et journal opaque serveur | Messages dans le worker et les apps, validation historique, ponts / interfaces, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison de transitions crypto (`46377b8`) passe toute la CI
-`37170184356`, dont le banc combiné HTTP / PostgreSQL et les suites Linux,
-Windows et macOS. Le noyau privé des messages passe les vérifications locales ;
-aucune capacité E2EE n'est activée. Sa prochaine étape est le journal opaque et le
-transport de messages, avant le raccordement aux fournisseurs des apps actuelles.
+La dernière livraison validée (`989310f`) passe toute la CI `37175551995`, dont
+les contrôles généraux, les bancs clients et les suites crypto Linux, Windows et
+macOS. Le nouveau journal serveur de messages opaques passe ses neuf scénarios
+PostgreSQL / HTTP / MLS et les contrats communs ; aucune capacité E2EE n'est
+activée. Sa prochaine étape est le raccordement au worker privé et la validation
+d'un préfixe ordonné complet, puis aux fournisseurs des apps actuelles.
 Les critères externes encore ouverts restent des critères de sortie de la RFC.
 
 ## Premier incrément : socle serveur et transports pilotes
@@ -332,6 +333,31 @@ Le parcours mobile pilote et les tests sans appareil ne ferment pas J1 : il exig
 les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
+
+- P19 / J4, livraison opaque des messages (4 octobre 2026) : POST de vrai
+  ciphertext MLS et preuve certifiée, reçu personnel historique et journal
+  commun aux transitions / messages. Position allouée au séquenceur natif dans
+  la même transaction ; retry exact sans nouveau ciphertext ni nouvelle trame.
+  Quotas persistants et identités d'opération partagées avec les parcours
+  ordinaires ; droit d'écriture, tête exacte, appareils / grants et activation
+  de tous les pairs gardés jusqu'au commit. Les fences d'activation précèdent
+  le verrou du salon, compatibles avec les envois concurrents et les opérateurs.
+  Pagination avec watermark fixe, ordre natif exact et témoin d'admission par
+  appareil ; une réadhésion avec nouveau Welcome n'expose pas les anciens
+  messages. Migration des transitions existantes et de leurs témoins exercée
+  avec le SQL exact. Reçu propre disponible après retrait sans accès au contenu.
+  Les SDK Rust / TypeScript conservent les positions supérieures à `2^53` et
+  bornent les réponses crypto avant JSON ; aucun document clair stocké côté
+  serveur. Neuf scénarios PostgreSQL / vrai MLS / HTTP passent en 4,17 s,
+  11 scénarios de contrat et six scénarios du transport crypto passent.
+  Les 1 273 tests mobiles passent en 55,09 s ; typecheck de toute l'app et lint
+  ciblé réussis. Le workspace natif compte 308 succès, avec le banc privé HTTP
+  ignoré par défaut et vérifié séparément ; 285 tests de fournisseurs TypeScript,
+  formatage / Clippy strict, schéma / générations et inventaire passent.
+  Le worker privé,
+  préfixe complet historique, projections / interfaces, fichiers, appareils
+  physiques et revue restent ouverts. [Contrat](protocol/E2EE_MESSAGES.md).
+  Aucun changement d'interface et aucune capacité E2EE activée.
 
 - CI / fichiers, retrait effectif (4 octobre 2026) : le job `verify` de
   `37173763923` échoue sur une assertion de lecture lancée en concurrence avec

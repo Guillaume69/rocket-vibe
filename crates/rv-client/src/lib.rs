@@ -122,6 +122,51 @@ impl NativeClient {
         self.get(&format!("/api/v1/e2ee/rooms/{room}/operations/{operation}"))
             .await
     }
+    pub async fn submit_crypto_message(
+        &self,
+        room: &str,
+        input: &rv_protocol::e2ee::ApplicationSubmission,
+    ) -> Result<rv_protocol::e2ee::ApplicationReceipt, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(&format!("/api/v1/e2ee/rooms/{room}/messages"), input)
+            .await
+    }
+    pub async fn crypto_message_operation(
+        &self,
+        room: &str,
+        operation: &str,
+    ) -> Result<rv_protocol::e2ee::ApplicationReceipt, Error> {
+        if !path_segment(room) || !path_segment(operation) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!(
+            "/api/v1/e2ee/rooms/{room}/message-operations/{operation}"
+        ))
+        .await
+    }
+    /// Complete ordered crypto pages; this transport grants no MLS permission.
+    pub async fn crypto_delivery(
+        &self,
+        room: &str,
+        after: &str,
+        through: Option<&str>,
+    ) -> Result<rv_protocol::e2ee::DeliveryPage, Error> {
+        let position = |value: &str| {
+            value
+                .parse::<i64>()
+                .is_ok_and(|v| v >= 0 && v.to_string() == value)
+        };
+        if !path_segment(room) || !position(after) || through.is_some_and(|v| !position(v)) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!(
+            "/api/v1/e2ee/rooms/{room}/delivery?after={after}{}",
+            through.map(|v| format!("&through={v}")).unwrap_or_default()
+        ))
+        .await
+    }
     /// Observation only: the package is claimed with the accepted group transition.
     pub async fn available_crypto_key_package(
         &self,

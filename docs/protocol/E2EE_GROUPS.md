@@ -254,10 +254,12 @@ le checkpoint protégé. Preuve de routage externe et auteur / AAD MLS sont
 vérifiés séparément, avec document riche borné. Un résultat conservé est repris
 après réouverture ; un refus tardif ne consomme ni génération ni position.
 La dernière position reçue ne vaut pas validation d'une page complète du journal.
-Ce lot isolé ne fournit aucune route HTTP de messages et n'active aucune capacité.
+Le noyau privé reste distinct des [routes de messages opaques](E2EE_MESSAGES.md)
+et de leur journal ordonné ; leur raccordement au worker reste ouvert et aucune
+capacité n'est activée.
 
 Restent ouverts : suite du coordinateur de groupe dans le coffre, cérémonie de
-consentement et politique vérifiées dans les apps, journal et
-livraison des messages chiffrés, pont Android, écrans existants, archives /
+consentement et politique vérifiées dans les apps, validation historique et
+raccordement de la livraison des messages au coffre, pont Android, écrans existants, archives /
 fichiers / historique importé et revue crypto indépendante. Ce lot ne ferme
 pas J4 et n'autorise pas la bascule J5.

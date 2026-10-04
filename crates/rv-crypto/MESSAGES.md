@@ -1,8 +1,8 @@
 # Messages applicatifs protégés
 
 Lot expérimental du coordinateur privé `groups::Coordinator`, hors des apps.
-`capabilities.e2ee` reste désactivé. Ce lot ne crée ni route de messages chiffrés
-ni worker de livraison ; le journal opaque et leur raccordement restent à livrer.
+`capabilities.e2ee` reste désactivé. Les [routes serveur et le journal opaque](../../docs/protocol/E2EE_MESSAGES.md)
+existent séparément ; leur raccordement au worker privé et aux apps reste à livrer.
 
 ## Authentification et contenu
 
@@ -100,7 +100,7 @@ du temps. Le profil de production et le journal des apps ne changent pas.
 cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --target-dir target --features system-keystore,native-http groups::tests::application_messages
 ```
 
-Suite : journal opaque PostgreSQL et transport de messages, worker reçu avant
+Suite : raccordement au journal opaque PostgreSQL et au transport, worker reçu avant
 renvoi original, rattrapage à travers changements d'adhésion / retrait local,
 refus définitifs / nouvelles opérations, archive / fichiers, pont Android et
 fournisseurs des interfaces existantes, revue crypto et qualifications natives.

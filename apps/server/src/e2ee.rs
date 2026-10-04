@@ -26,6 +26,7 @@ const PACKAGE_BATCH: usize = 8;
 const LIVE_PACKAGES: i64 = 64;
 const DAILY_OPERATIONS: i64 = 256;
 pub mod groups;
+pub use groups::messages;
 
 fn changed() -> Error {
     Error::new(StatusCode::CONFLICT, "crypto_identity_changed")
@@ -80,7 +81,7 @@ async fn lock_scope(
 ) -> Result<(String, i64)> {
     auth::lock_active(tx, actor).await?;
     let current: (String, String) =
-        sqlx::query_as("SELECT instance_id,data_epoch FROM instance WHERE singleton FOR SHARE")
+        sqlx::query_as("SELECT instance_id,data_epoch FROM instance WHERE singleton FOR KEY SHARE")
             .fetch_one(&mut **tx)
             .await?;
     if current != (scope.instance_id.clone(), scope.data_epoch.clone()) {

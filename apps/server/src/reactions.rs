@@ -51,7 +51,7 @@ pub async fn apply(app: &App, account: &Account, id: &str, input: SetReaction) -
         tx.commit().await?;
         return Ok(());
     }
-    let used:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM messages WHERE author_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM room_creation_requests WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM room_commands WHERE user_id=$1 AND operation_id=$2)").bind(&account.id).bind(&input.operation_id).fetch_one(&mut *tx).await?;
+    let used:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM messages WHERE author_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM room_creation_requests WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM room_commands WHERE user_id=$1 AND operation_id=$2) OR EXISTS(SELECT 1 FROM e2ee_application_messages WHERE user_id=$1 AND operation_id=$2)").bind(&account.id).bind(&input.operation_id).fetch_one(&mut *tx).await?;
     if used {
         return Err(Error::conflict());
     }

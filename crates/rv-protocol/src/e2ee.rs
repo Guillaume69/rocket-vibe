@@ -155,3 +155,60 @@ pub struct AvailableKeyPackage {
     pub reference: String,
     pub wire: String,
 }
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ApplicationSubmission {
+    pub scope: Scope,
+    pub operation_id: String,
+    pub proof: String,
+    pub ciphertext: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ApplicationReceipt {
+    pub scope: Scope,
+    pub room_id: String,
+    pub operation_id: String,
+    /// Canonical public Header JSON, base64url. Its u64 fields stay opaque to JS.
+    pub header: String,
+    pub fingerprint: String,
+    pub message_id: String,
+    pub position: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ApplicationMessage {
+    pub receipt: ApplicationReceipt,
+    pub proof: String,
+    pub ciphertext: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    content = "data",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum DeliveryContent {
+    Group(GroupEvent),
+    Message(ApplicationMessage),
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DeliveryEvent {
+    pub position: String,
+    pub content: DeliveryContent,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DeliveryPage {
+    pub scope: Scope,
+    pub room_id: String,
+    pub incarnation: String,
+    pub after: String,
+    /// Fixed native position watermark; continue subsequent pages through it.
+    pub through: String,
+    pub events: Vec<DeliveryEvent>,
+    pub next: Option<String>,
+}

@@ -117,6 +117,15 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/e2ee/rooms/{room}/roster", get(crypto_group_roster))
         .route("/api/v1/e2ee/rooms/{room}/state", get(crypto_group_state))
         .route("/api/v1/e2ee/rooms/{room}/events", get(crypto_group_events))
+        .route("/api/v1/e2ee/rooms/{room}/delivery", get(crypto_delivery))
+        .route(
+            "/api/v1/e2ee/rooms/{room}/messages",
+            post(submit_crypto_message).layer(DefaultBodyLimit::max(256 * 1024)),
+        )
+        .route(
+            "/api/v1/e2ee/rooms/{room}/message-operations/{operation}",
+            get(crypto_message_operation),
+        )
         .route(
             "/api/v1/e2ee/rooms/{room}/operations/{operation}",
             get(crypto_group_operation),
@@ -850,6 +859,47 @@ async fn crypto_group_operation(
 ) -> Result<Response> {
     let actor = account(&app, &headers).await?;
     crate::e2ee::groups::operation(&app, &actor, &room, &operation).await
+}
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CryptoDeliveryQuery {
+    after: Option<String>,
+    through: Option<String>,
+}
+async fn crypto_delivery(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    Query(query): Query<CryptoDeliveryQuery>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    crate::e2ee::messages::delivery(
+        &app,
+        &actor,
+        &room,
+        query.after.as_deref(),
+        query.through.as_deref(),
+    )
+    .await
+}
+async fn submit_crypto_message(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    input: Input<rv_protocol::e2ee::ApplicationSubmission>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::e2ee::messages::submit(&app, &actor, &room, crypto_body(input)?).await?,
+    ))
+}
+async fn crypto_message_operation(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path((room, operation)): Path<(String, String)>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    crate::e2ee::messages::operation(&app, &actor, &room, &operation).await
 }
 async fn crypto_available_package(
     State(app): State<App>,

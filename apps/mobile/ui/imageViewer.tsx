@@ -86,7 +86,7 @@ export function ImageViewerProvider({ children }: { children: React.ReactNode })
 export function useImageViewer(): ViewerContext {
   const context = useContext(Context);
   if (context === null) {
-    throw new Error('useVisionneuse appelé hors de <VisionneuseImageProvider>.');
+    throw new Error('useImageViewer called outside <ImageViewerProvider>.');
   }
   return context;
 }

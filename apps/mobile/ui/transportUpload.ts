@@ -45,7 +45,7 @@ function expoTransportWith(field: string): TransportUpload {
     // abandonnable — pas une attente éternelle.
     const info = await FileSystem.getInfoAsync(file.uri);
     if (!info.exists) {
-      throw new Error(`Fichier introuvable (${file.name}) — cache purgé ?`);
+      throw new Error(`File not found (${file.name}), cache purged?`);
     }
 
     const copy = await namedCopy(file.uri, file.name);
@@ -79,7 +79,7 @@ function expoTransportWith(field: string): TransportUpload {
       // `uploadAsync` ne rejette que quand AUCUNE réponse HTTP n'est arrivée :
       // c'est le réseau. Statut 0 = la ligne reste « en-attente », le rejeu du
       // prochain raccordement s'en charge — même sémantique que ClientRest.
-      throw new RestError('Upload : serveur injoignable.', 0);
+      throw new RestError('Upload: server unreachable.', 0);
     } finally {
       // Réussi comme échoué : c'est le passage des octets qui fait tomber la
       // socket, pas le verdict du serveur.
@@ -89,7 +89,7 @@ function expoTransportWith(field: string): TransportUpload {
       }
     }
     if (result == null) {
-      throw new Error('Téléversement annulé.');
+      throw new Error('Upload cancelled.');
     }
     return { status: result.status, body: result.body };
   };

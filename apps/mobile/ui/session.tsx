@@ -337,7 +337,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 export function useSession(): SessionContext {
   const context = useContext(Context);
   if (context === null) {
-    throw new Error('useSession appelé hors de <SessionProvider>.');
+    throw new Error('useSession called outside <SessionProvider>.');
   }
   return context;
 }

@@ -615,7 +615,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
 export function useSync(): SyncState {
   const context = useContext(Context);
   if (context === null) {
-    throw new Error('useSynchro appelé hors de <SynchroProvider>.');
+    throw new Error('useSync called outside <SyncProvider>.');
   }
   return context;
 }

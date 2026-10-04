@@ -51,7 +51,7 @@ type AttachmentOptions = {
 async function toCache(options: AttachmentOptions): Promise<string> {
   const folder = FileSystem.cacheDirectory;
   if (folder === null) {
-    throw new FileOpenError('Aucun dossier de cache disponible.');
+    throw new FileOpenError('No cache directory available.');
   }
   return downloadAttachment({
     ...options,
@@ -78,7 +78,7 @@ async function toCache(options: AttachmentOptions): Promise<string> {
       // partagerait ou enregistrerait le corps JSON de l'erreur.
       if (res === undefined || res.status !== 200) {
         await FileSystem.deleteAsync(partial, { idempotent: true });
-        throw new FileOpenError(`Téléchargement refusé (HTTP ${res?.status ?? 0}).`);
+        throw new FileOpenError(`Download refused (HTTP ${res?.status ?? 0}).`);
       }
       if (options.encryption) {
         const base64 = { encoding: FileSystem.EncodingType.Base64 };
@@ -88,7 +88,7 @@ async function toCache(options: AttachmentOptions): Promise<string> {
           await FileSystem.writeAsStringAsync(partial, plain.toString('base64'), base64);
         } catch {
           await FileSystem.deleteAsync(partial, { idempotent: true });
-          throw new FileOpenError('Fichier chiffré illisible.');
+          throw new FileOpenError('Encrypted file unreadable.');
         }
       }
       await FileSystem.moveAsync({ from: partial, to: destination });
@@ -117,7 +117,7 @@ export function decryptedFile(options: AttachmentOptions): Promise<string> {
  */
 export async function openProtectedAttachment(options: AttachmentOptions): Promise<void> {
   if (!(await Sharing.isAvailableAsync())) {
-    throw new FileOpenError('Le partage de fichiers est indisponible.');
+    throw new FileOpenError('File sharing is unavailable.');
   }
   const local = await toCache(options);
   await Sharing.shareAsync(local, options.type ? { mimeType: options.type } : {});
@@ -126,7 +126,7 @@ export async function openProtectedAttachment(options: AttachmentOptions): Promi
 /** Confie au système un fichier DÉJÀ local (une pièce pas encore envoyée). */
 export async function openLocalFile(uri: string, type: string | null): Promise<void> {
   if (!(await Sharing.isAvailableAsync())) {
-    throw new FileOpenError('Le partage de fichiers est indisponible.');
+    throw new FileOpenError('File sharing is unavailable.');
   }
   await Sharing.shareAsync(uri, type ? { mimeType: type } : {});
 }
@@ -149,7 +149,7 @@ export async function saveProtectedAttachment(options: AttachmentOptions): Promi
       // Android 9 et avant : l'écriture dans le stockage partagé exige encore
       // la permission. On la demande, puis on réessaie une fois.
       const permission = await requestPermissionsAsync(true);
-      if (!permission.granted) throw new FileOpenError('Permission refusée.');
+      if (!permission.granted) throw new FileOpenError('Permission denied.');
       await Asset.create(local);
     }
     return 'gallery';

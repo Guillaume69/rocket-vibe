@@ -14,7 +14,7 @@ const BASE64 = { encoding: FileSystem.EncodingType.Base64 };
 
 export async function encryptLocalFile(uri: string): Promise<EncryptedFile> {
   const cache = FileSystem.cacheDirectory;
-  if (cache === null) throw new Error('Aucun dossier de cache disponible.');
+  if (cache === null) throw new Error('No cache directory available.');
   const plain = Buffer.from(await FileSystem.readAsStringAsync(uri, BASE64), 'base64');
   const { encrypted, key, iv, sha256 } = encryptFile(plain);
   const folder = `${cache}envoi-chiffre/`;

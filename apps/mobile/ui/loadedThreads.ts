@@ -1,22 +1,21 @@
 /**
- * Quels FILS ont déjà reçu leur chargement d'ouverture, et sous quelle
- * génération de connexion. Même raisonnement que [[salonsCharges]] — mais le
- * gaspillage qu'il évite est plus gros, pas plus petit.
+ * Which THREADS already received their opening load, and under which
+ * connection generation. Same reasoning as [[loadedRooms]], but the waste it
+ * avoids is bigger, not smaller.
  *
- * L'effet de chargement de `app/thread/[id].tsx` a `generation` dans ses deps et
- * n'avait aucune garde : chaque raccordement — donc chaque retour au premier
- * plan, chaque flap réseau — rejouait `chat.getMessage` PUIS la pagination
- * complète de `chat.getThreadMessages` par pages de 100. Sur un fil de 300
- * réponses, 4 appels REST par raccordement sur une route plafonnée à 10/min,
- * pour ré-ingérer exactement les mêmes documents.
+ * The load effect of `app/thread/[id].tsx` has `generation` in its deps and had
+ * no guard: every connection setup (so every return to the foreground, every
+ * network flap) replayed `chat.getMessage` THEN the full pagination of
+ * `chat.getThreadMessages` in pages of 100. On a 300-reply thread, 4 REST calls
+ * per connection setup on a route capped at 10/min, to re-ingest exactly the
+ * same documents.
  *
- * Un fil n'a pas d'équivalent du filet de `ui/hotRooms.ts` : ses réponses
- * arrivent par le stream du SALON, auquel l'écran s'abonne lui-même. Le critère
- * reste donc causal et non temporel — la connexion a-t-elle tenu depuis ? Une
- * coupure, même brève, rend la garde caduque, parce que le trou peut être de
- * n'importe quelle taille.
+ * A thread has no equivalent of the `ui/hotRooms.ts` net: its replies arrive
+ * through the ROOM stream, which the screen subscribes to itself. The criterion
+ * thus stays causal, not temporal: has the connection held since? A drop,
+ * however brief, voids the guard, because the gap can be any size.
  *
- * Store module-level : rien ne doit re-rendre l'arbre quand cette table change.
+ * Module-level store: nothing should re-render the tree when this table changes.
  */
 
 import { invalidateSessionToken, sessionToken } from './sessionToken.ts';
@@ -24,11 +23,11 @@ import { invalidateSessionToken, sessionToken } from './sessionToken.ts';
 const payloads = new Map<string, number>();
 
 /**
- * Après un chargement de fil ABOUTI — jamais sur un échec réseau, sinon un fil
- * ouvert hors ligne resterait vide jusqu'au raccordement SUIVANT.
+ * After a SUCCESSFUL thread load, never on a network failure, otherwise a
+ * thread opened offline would stay empty until the NEXT connection setup.
  *
- * `jeton` : capturé au lancement du chargement, refusé s'il a changé depuis.
- * Voir [[jetonSession]].
+ * `token`: captured when the load starts, rejected if it changed since.
+ * See [[sessionToken]].
  */
 export function markThreadLoaded(threadId: string, generation: number, token: number): void {
   if (token !== sessionToken()) return;
@@ -39,7 +38,7 @@ export function threadLoadedUnder(threadId: string, generation: number): boolean
   return payloads.get(threadId) === generation;
 }
 
-/** Fin de session / changement de serveur : plus rien de ce cache ne vaut. */
+/** Session end / server change: nothing in this cache holds anymore. */
 export function forgetLoadedThreads(): void {
   payloads.clear();
   invalidateSessionToken();

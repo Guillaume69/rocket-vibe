@@ -1,22 +1,20 @@
 /**
- * Le regroupement de la liste des salons (écran d'accueil) — la projection
- * PURE, extraite du composant pour être testable sous Node (`app/` n'a aucun
- * test).
+ * Grouping of the room list (home screen): the PURE projection, pulled out of
+ * the component to be testable under Node (`app/` has no tests).
  *
- * Les règles, toutes visibles à l'écran et aucune verrouillée jusqu'ici :
- *   - fusion salons/abonnements PAR RID, en JS — `useRequeteVive`
- *     n'écoute que la table du FROM, une jointure SQL raterait les écritures
- *     qui ne touchent qu'`abonnements` ;
- *   - `ouvert === false` masque le salon ; PAS d'abonnement reçu → visible,
- *     plutôt que de faire clignoter la liste ;
- *   - « j'ai un message » = non-lus > 0 OU drapeau `alerte` (une mention peut
- *     le lever sans que le compteur bouge) : ces salons remontent en tête,
- *     TOUS TYPES CONFONDUS ; viennent ensuite les salons que j'ai mis en favori
- *     (l'étoile du serveur, `f`), puis le reste se répartit Salons / Messages
- *     privés ;
- *   - une section vide est retirée ;
- *   - l'ordre d'entrée (récence décroissante, trié par la requête) est
- *     PRÉSERVÉ par chaque section — aucun re-tri ici.
+ * The rules, all visible on screen and none locked down until now:
+ *   - rooms/subscriptions merged BY RID, in JS: `useCoalescedLiveQuery` only
+ *     listens to the FROM table, an SQL join would miss writes that only touch
+ *     `abonnements`;
+ *   - `open === false` hides the room; NO subscription received means visible,
+ *     rather than making the list flicker;
+ *   - "I have a message" = unreads > 0 OR the `alert` flag (a mention can raise
+ *     it without the counter moving): those rooms rise to the top, ALL TYPES
+ *     ALIKE; then come the rooms I starred (the server's star, `f`), then the
+ *     rest splits into Rooms / Direct messages;
+ *   - an empty section is dropped;
+ *   - the input order (recency descending, sorted by the query) is PRESERVED
+ *     by each section: no re-sort here.
  */
 
 export type HomeEntry<S, A> = { room: S; subscription: A | null };
@@ -62,9 +60,9 @@ export function buildSections<
 const SECTION_KEYS: readonly SectionKey[] = ['nonLus', 'favoris', 'salons', 'messagesPrives'];
 
 /**
- * Relit les sections repliées persistées. Tout ce qui n'est pas un tableau de
- * clés connues (absence, stockage corrompu, clé d'une version future) est
- * ignoré : au pire, une section se redéplie.
+ * Reads back the persisted collapsed sections. Anything that is not an array
+ * of known keys (absent, corrupt storage, key from a future version) is
+ * ignored: at worst, a section expands again.
  */
 export function readCollapsedSections(raw: string | null): ReadonlySet<SectionKey> {
   if (raw === null) return new Set();
@@ -96,9 +94,9 @@ export function toggleSection(
 export type DisplayedSection<E> = HomeSection<E> & { collapsed: boolean; total: number };
 
 /**
- * Vide les sections repliées en gardant leur effectif. Une section SEULE n'a
- * pas d'en-tête à l'écran, donc aucun moyen de la redéplier : elle reste
- * dépliée quel que soit l'état persisté.
+ * Clears the collapsed sections while keeping their count. A LONE section has
+ * no header on screen, so no way to expand it: it stays expanded whatever the
+ * persisted state.
  */
 export function collapseSections<E>(
   sections: HomeSection<E>[],

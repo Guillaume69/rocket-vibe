@@ -1,13 +1,13 @@
 /**
- * Transferts de pièces jointes en cours (enregistrer, partager), et leur
- * progression. Un magasin au niveau module : l'action se lance depuis une
- * feuille qui se referme aussitôt, mais sa progression s'affiche sur la ligne
- * du message, qui l'écoute par la même clé (le chemin serveur du fichier).
+ * Attachment transfers in progress (save, share), and their progress. A
+ * module-level store: the action starts from a sheet that closes right away,
+ * but its progress shows on the message row, which listens by the same key
+ * (the file's server path).
  */
 
 import { useCallback, useSyncExternalStore } from 'react';
 
-/** Fraction 0..1, ou `null` tant que la taille totale est inconnue. */
+/** Fraction 0..1, or `null` while the total size is unknown. */
 export type Progress = number | null;
 
 let inProgress = new Map<string, Progress>();
@@ -28,16 +28,16 @@ function subscribe(subscriber: () => void): () => void {
   };
 }
 
-/** `undefined` : aucun transfert en cours pour ce fichier. */
+/** `undefined`: no transfer in progress for this file. */
 export function useProgress(key: string | null): Progress | undefined {
   const read = useCallback(() => (key === null ? undefined : inProgress.get(key)), [key]);
   return useSyncExternalStore(subscribe, read);
 }
 
 /**
- * Lance un transfert sous cette clé. Un second lancement pendant le premier
- * est ignoré : deux téléchargements vers la même destination s'écraseraient.
- * Rend `false` dans ce cas.
+ * Starts a transfer under this key. A second start during the first is
+ * ignored: two downloads to the same destination would overwrite each other.
+ * Returns `false` in that case.
  */
 export async function transfer(
   key: string,
@@ -53,7 +53,7 @@ export async function transfer(
   return true;
 }
 
-/** « 37 % », ou « … » tant que la taille est inconnue. */
+/** "37 %", or "…" while the size is unknown. */
 export function progressLabel(p: Progress): string {
   return p === null ? '…' : `${Math.round(p * 100)} %`;
 }

@@ -1,16 +1,16 @@
 /**
- * Aperçu d'une pièce jointe EN ATTENTE d'envoi — le « buffer » avant l'envoi.
+ * Preview of an attachment WAITING to be sent: the buffer before sending.
  *
- * Avant, choisir un fichier ou finir un enregistrement l'envoyait aussitôt.
- * Ici la pièce se pose d'abord au-dessus du composer : on la voit, on peut
- * écrire une légende, puis on envoie le tout en UN SEUL message — comme l'app
- * officielle. Le retrait (✕) la jette sans rien envoyer.
+ * Picking a file or finishing a recording used to send it at once. Here the
+ * attachment first sits above the composer: you see it, can write a caption,
+ * then send everything as ONE message, like the official app. Removing it (✕)
+ * discards it without sending anything.
  *
- * L'apparition POUSSE nativement la liste (le composer grandit, la liste
- * `flex: 1` se comprime, contenu inversé collé au bas → le dernier message
- * remonte). Trois rendus selon le type : vignette pour une image, LECTEUR RÉEL
- * pour l'audio (on se réécoute avant d'envoyer, `LecteurAudio` réutilisé),
- * tuile à emoji pour tout autre fichier.
+ * Its appearance natively PUSHES the list (the composer grows, the `flex: 1`
+ * list shrinks, inverted content pinned to the bottom → the last message moves
+ * up). Three renderings by type: a thumbnail for an image, a REAL PLAYER for
+ * audio (listen again before sending, `AudioPlayer` reused), an emoji tile for
+ * any other file.
  */
 
 import { LinearGradient } from 'expo-linear-gradient';
@@ -27,7 +27,7 @@ import { type Colors, FONTS } from './theme.ts';
 export type PendingFile = {
   uri: string;
   name: string;
-  /** MIME. Validé à la pose et à l'envoi contre `FileUpload_MediaTypeWhiteList`. */
+  /** MIME. Validated when staged and when sent, against `FileUpload_MediaTypeWhiteList`. */
   type: string;
   size: number | null;
 };
@@ -52,27 +52,26 @@ export function AttachmentPreview({
   c: Colors;
   file: PendingFile;
   onRemove: () => void;
-  /** Envoi en cours : le retrait est gelé (le fichier est déjà en vol). */
+  /** Sending: removal is frozen (the file is already in flight). */
   busy?: boolean;
   /**
-   * Choix de qualité (pastilles Réduite/Originale) — `null` quand il n'y a
-   * rien à choisir (audio, document, image légère, ou écran sans réduction).
-   * La réduction elle-même se fait à l'ENVOI, chez l'appelant.
+   * Quality choice (Reduced/Original chips), `null` when there is nothing to
+   * choose (audio, document, light image, or a screen without compression).
+   * The compression itself happens at SEND time, in the caller.
    */
   quality?: SendQuality | null;
   onQuality?: (quality: SendQuality) => void;
   /**
-   * Retrait horizontal de la carte. 12 par défaut : dans le composeur du salon,
-   * le parent n'a pas de padding, la carte s'inset donc elle-même. Quand
-   * l'appelant est déjà dans un conteneur padé (écran de partage), passer 0
-   * pour aligner la carte sur les autres champs.
+   * Horizontal inset of the card. 12 by default: in the room composer the
+   * parent has no padding, so the card insets itself. When the caller is
+   * already in a padded container (share screen), pass 0 to align the card
+   * with the other fields.
    */
   horizontalInset?: number;
   /**
-   * Retrait vertical propre de la carte. Non défini : garde l'espacement du
-   * composeur (8/10). Quand plusieurs cartes s'empilent (écran de partage),
-   * passer 0 et laisser le conteneur gérer l'espacement, sinon les cartes sont
-   * trop écartées.
+   * The card's own vertical inset. Undefined: keeps the composer spacing
+   * (8/10). When several cards stack (share screen), pass 0 and let the
+   * container handle spacing, otherwise the cards sit too far apart.
    */
   verticalInset?: number;
 }) {
@@ -92,7 +91,7 @@ export function AttachmentPreview({
       ]}
     >
       {isAudio ? (
-        // Le vocal se réécoute AVANT d'envoyer : le vrai lecteur, pas une icône.
+        // The voice message can be replayed BEFORE sending: the real player, not an icon.
         <View style={styles.row}>
           <View style={styles.full}>
             <AudioPlayer c={c} url={file.uri} title={t('audioPlayer.voiceMessage')} />
@@ -144,9 +143,9 @@ export function AttachmentPreview({
 }
 
 /**
- * Une des deux pastilles du choix de qualité. Gelée pendant l'envoi (`occupe`) :
- * la version qui part est déjà en cours de préparation, changer d'avis ici ne
- * serait qu'un mensonge d'affichage.
+ * One of the two quality chips. Frozen while sending (`busy`): the version
+ * being sent is already being prepared, changing your mind here would only be
+ * a display lie.
  */
 export function QualityBadge({
   c,

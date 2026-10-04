@@ -1,7 +1,7 @@
 /**
- * Un toast dessiné par l'app, pour iOS, qui n'en a pas de système. Android
- * garde `ToastAndroid`. Même durée que `ToastAndroid.SHORT`, sans geste à
- * faire pour le fermer, contrairement à une alerte.
+ * A toast drawn by the app, for iOS, which has no system one. Android keeps
+ * `ToastAndroid`. Same duration as `ToastAndroid.SHORT`, with no gesture
+ * needed to dismiss it, unlike an alert.
  */
 
 import { useSyncExternalStore } from 'react';
@@ -33,7 +33,7 @@ export function showToast(message: string): void {
   emit();
 }
 
-/** Le toast de la plateforme : `ToastAndroid` sur Android, le nôtre ailleurs. */
+/** The platform toast: `ToastAndroid` on Android, ours elsewhere. */
 export function notify(message: string): void {
   if (Platform.OS === 'android') ToastAndroid.show(message, ToastAndroid.SHORT);
   else showToast(message);
@@ -44,7 +44,7 @@ function subscribe(e: () => void): () => void {
   return () => listeners.delete(e);
 }
 
-/** Monté une fois, au-dessus de la pile (app/_layout.tsx). */
+/** Mounted once, above the stack (app/_layout.tsx). */
 export function ToastHost() {
   const toast = useSyncExternalStore(subscribe, () => current);
   const c = useColors();

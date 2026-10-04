@@ -1,24 +1,23 @@
 /**
- * Composer commun aux écrans salon et fil : champ, brouillon persistant,
- * pièces jointes (caméra, bibliothèque, fichier, vocal), complétions
- * emoji/mention, citation, et les variantes lecture seule / salon chiffré
- * verrouillé.
+ * Composer shared by the room and thread screens: field, persistent draft,
+ * attachments (camera, library, file, voice), emoji/mention completions,
+ * quote, and the read-only / locked encrypted room variants.
  *
- * Extrait de `app/salon/[rid].tsx` (chantier 14). Le composer du fil en était
- * une copie DIVERGÉE — police système faute de `POLICES`, pas de fermeture du
- * clavier avant sélecteur, bouton d'envoi textuel — la fusion résorbe ces
- * écarts. Ce qui diffère réellement est paramétré :
+ * Extracted from `app/salon/[rid].tsx` (workstream 14). The thread composer
+ * was a DIVERGED copy of it (system font for lack of `FONTS`, no keyboard
+ * dismissal before the picker, a text send button); the merge removes those
+ * gaps. What really differs is parameterised:
  *
- *  - `filId` : la réponse part dans ce fil (`envoi.envoyer`), et la cible de
- *    citation est adressée `rid:filId` au lieu de `rid` ;
- *  - `fichiers` : `null` = ni 📎 ni 🎤 (le fil n'a pas les pièces jointes —
- *    `OutboxFichiers.envoyer` ne sait d'ailleurs pas viser un fil) ;
- *  - `apresEnvoi` : reçoit l'`_id` client posé par l'outbox (le fil suit son
- *    apparition pour défiler) ;
- *  - `placeholder` : « Message » côté salon, « Répondre… » côté fil.
+ *  - `threadId`: the reply goes to this thread (`outbox.send`), and the quote
+ *    target is addressed `rid:threadId` instead of `rid`;
+ *  - `files`: `null` = neither 📎 nor 🎤 (the thread has no attachments;
+ *    `FileOutbox.send` cannot target a thread anyway);
+ *  - `afterSend`: receives the client `_id` set by the outbox (the thread
+ *    watches for its appearance to scroll);
+ *  - `placeholder`: "Message" in a room, "Reply…" in a thread.
  *
- * Couplages externes uniquement par stores module-level (`useReponse`,
- * `demanderSource`) — aucun lien avec le moteur de liste des écrans.
+ * External coupling only through module-level stores (`useReply`,
+ * `requestSource`): no link with the screens' list engine.
  */
 
 import { AudioModule, RecordingPresets, setAudioModeAsync, useAudioRecorder } from 'expo-audio';
@@ -69,7 +68,7 @@ import { phraseValidation } from './fileValidation.ts';
 import { useImageViewer } from './imageViewer.tsx';
 import { Tappable } from './tappable.tsx';
 
-/** Média d'`expo-image-picker` → pièce en attente normalisée. */
+/** `expo-image-picker` media → normalised pending attachment. */
 function assetToFile(a: ImagePicker.ImagePickerAsset): PendingFile {
   const isVideo = a.type === 'video';
   return {
@@ -80,7 +79,7 @@ function assetToFile(a: ImagePicker.ImagePickerAsset): PendingFile {
   };
 }
 
-/** Pièces préparées d'un salon (ou d'un fil) quitté sans envoyer : elles l'y attendent. */
+/** Prepared attachments of a room (or thread) left without sending: they wait for it there. */
 const parkedAttachments = new Map<string, { attachments: StagedAttachment[]; quality: SendQuality }>();
 
 export function Composer({
@@ -101,22 +100,22 @@ export function Composer({
 }: {
   c: Colors;
   rid: string;
-  /** Fil visé par les envois, ou `null` pour le flux principal du salon. */
+  /** Thread targeted by sends, or `null` for the room's main stream. */
   threadId?: string | null;
   outbox: Outbox;
-  /** `null` : pas de pièces jointes ni de vocal (le composer du fil). */
+  /** `null`: no attachments nor voice (the thread composer). */
   files: FileOutbox | null;
-  /** Avatars des suggestions de mention. */
+  /** Avatars of the mention suggestions. */
   client: ClientRest;
-  /** Auteurs récents du salon (`useCandidatsMention`), calculés par le parent. */
+  /** Recent authors of the room (`useMentionCandidates`), computed by the parent. */
   mentionCandidates: MentionCandidate[];
   readOnly: boolean;
   encrypted: boolean;
-  /** Placeholder du champ vide — une pièce jointe en attente le remplace. */
+  /** Placeholder of the empty field: a pending attachment replaces it. */
   placeholder: string;
-  /** Reçoit l'`_id` client posé par l'outbox — le fil suit son apparition. */
+  /** Receives the client `_id` set by the outbox: the thread watches for its appearance. */
   afterSend?: ((idMessage: string) => void) | undefined;
-  /** Brouillon restauré (8.7) — le parent attend sa lecture avant de monter. */
+  /** Restored draft (8.7): the parent awaits its read before mounting. */
   initialDraft: string;
   saveDraft: (text: string) => void;
   clearDraft: () => void;
@@ -124,12 +123,11 @@ export function Composer({
   const sync = useSync();
   const unlocked = useE2EUnlocked(sync.phase === 'ready' ? sync.e2e : null);
   const [draft, setDraft] = useState(initialDraft);
-  // Le texte COURANT, lisible depuis une continuation asynchrone. Un
-  // téléversement prend des secondes et le champ reste éditable pendant tout ce
-  // temps (seuls 📎/➤/🎤 sont grisés) : à la fin de l'envoi, il faut pouvoir
-  // distinguer « le champ porte encore la légende partie » de « l'utilisateur a
-  // continué à composer ». La closure de `envoyer` ne voit que le texte de
-  // l'appui, elle ne peut pas répondre à cette question.
+  // The CURRENT text, readable from an async continuation. An upload takes
+  // seconds and the field stays editable the whole time (only 📎/➤/🎤 are
+  // greyed out): at the end of the send, we must tell "the field still holds
+  // the sent caption" from "the user kept typing". The `send` closure only sees
+  // the text at press time, it cannot answer that question.
   const draftRef = useRef(draft);
   useEffect(() => {
     draftRef.current = draft;
@@ -137,9 +135,9 @@ export function Composer({
   const [fileSend, setFileSend] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
-  // Pièces jointes en attente d'envoi (images, vocal, tout fichier) : elles se
-  // posent en pastilles au-dessus du champ, le texte tapé devient la légende
-  // de la première, et tout part au ➤ — rien ne part dès le choix.
+  // Attachments waiting to be sent (images, voice, any file): they sit as chips
+  // above the field, the typed text becomes the first one's caption, and
+  // everything goes on ➤. Nothing is sent on pick.
   const parkingKey = `${rid}:${threadId ?? ''}`;
   const [parked] = useState(() => {
     const p = parkedAttachments.get(parkingKey);
@@ -148,16 +146,16 @@ export function Composer({
   });
   const [pending, setPending] = useState<StagedAttachment[]>(parked?.attachments ?? []);
   const nextKey = useRef(Math.max(0, ...(parked?.attachments ?? []).map((p) => p.key + 1)));
-  // Qualité d'envoi des médias réductibles (photo lourde, vidéo) : « réduite »
-  // par défaut, basculable sur les pastilles. La réduction se fait À L'ENVOI
-  // (voir `envoyer`) — pas au choix du fichier, où elle ferait payer un
-  // transcodage à qui retire la pièce ou veut l'original.
+  // Send quality of compressible media (heavy photo, video): "reduced" by
+  // default, switchable on the chips. Compression happens AT SEND time (see
+  // `send`), not on file pick, where it would charge a transcode to whoever
+  // removes the attachment or wants the original.
   const [quality, setQuality] = useState<SendQuality>(parked?.quality ?? 'reduced');
   const [videoOpen, setVideoOpen] = useState<StagedAttachment | null>(null);
   const viewer = useImageViewer();
-  // Changer de salon démonte le composer (`key={rid}`) : les pièces qui
-  // attendaient sont mises de côté pour ce salon, sauf celles que l'envoi en
-  // cours a déjà confiées à la file.
+  // Switching rooms unmounts the composer (`key={rid}`): the pending
+  // attachments are parked for that room, except those the ongoing send has
+  // already handed to the queue.
   const pendingRef = useRef(pending);
   useEffect(() => {
     pendingRef.current = pending;
@@ -177,32 +175,31 @@ export function Composer({
       if (remaining.length > 0) parkedAttachments.set(parkingKey, { attachments: remaining, quality: qualityRef.current });
     };
   }, [parkingKey]);
-  // `.m4a` AAC (préréglage HIGH_QUALITY) — le MIME attendu est `audio/mp4`.
+  // AAC `.m4a` (HIGH_QUALITY preset): the expected MIME is `audio/mp4`.
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const router = useRouter();
   const t = useT();
 
-  // Autocomplétion des emojis : curseur + insertion, mécanique partagée avec le
-  // composer du fil (`useCompletionEmoji`).
+  // Emoji autocompletion: cursor + insertion, mechanics shared with the thread
+  // composer (`useCompletionEmoji`).
   const { cursor, selection, onSelection, pickEmoji, insertAtCursor, reset } =
     useCompletionEmoji(draft, setDraft, saveDraft);
   const { commands, granted } = useCommands(client, rid);
   const privateNote = usePrivateNote(rid);
 
-  // Navigateur d'emojis : un panneau qui prend la place du clavier. Le bouton
-  // 😀 bascule de l'un à l'autre ; toucher le champ rouvre le clavier (onFocus).
+  // Emoji browser: a panel that takes the keyboard's place. The 😀 button
+  // toggles between them; touching the field reopens the keyboard (onFocus).
   const fieldRef = useRef<TextInput>(null);
   const emoji = useEmojiPanel(fieldRef);
   const { close: closeEmoji } = emoji;
 
-  // Le back retire la dernière pièce en attente au lieu de quitter le salon —
-  // sinon on perd le salon ET les pièces préparées.
-  // Retirer une pièce efface AUSSI le fichier : aucune ligne de téléversement
-  // ne l'a jamais connu, donc le ménage de la file ne l'atteindrait jamais.
-  // `supprimerSiTemporaire` ne touche que le cache de l'app — jamais la photo
-  // que l'utilisateur a désignée en place.
-  // L'effacement est HORS de l'updater : React peut rejouer un updater, et une
-  // suppression de fichier n'est pas rejouable.
+  // Back removes the last pending attachment instead of leaving the room,
+  // otherwise we lose the room AND the prepared attachments.
+  // Removing an attachment ALSO deletes the file: no upload row ever knew it,
+  // so the queue's cleanup would never reach it. `deleteIfTemporary` only
+  // touches the app cache, never the photo the user picked in place.
+  // The deletion is OUTSIDE the updater: React may replay an updater, and a
+  // file deletion cannot be replayed.
   const removeAttachment = useCallback(
     (key: number) => {
       const outgoing = pending.find((p) => p.key === key);
@@ -217,16 +214,16 @@ export function Composer({
   }, [pending, removeAttachment]);
   useHardwareBack(pending.length > 0 && !fileSend, removeLastAttachment);
 
-  // Cible de réponse (citation), armée par la feuille d'actions (appui long →
-  // Répondre). Adressée à CE composer : `rid:filId` dans un fil, `rid` dans le
-  // salon — voir `ui/reply.ts`. Déclaré APRÈS le gestionnaire de pièce
-  // jointe : inscrit en dernier, le back referme d'abord le bandeau de réponse.
+  // Reply target (quote), armed by the action sheet (long press → Reply).
+  // Addressed to THIS composer: `rid:threadId` in a thread, `rid` in the room,
+  // see `ui/reply.ts`. Declared AFTER the attachment handler: registered last,
+  // back closes the reply banner first.
   const replyKey = threadId === null ? rid : `${rid}:${threadId}`;
   const response = useReply(replyKey);
   const cancelQuote = useCallback(() => cancelReply(replyKey), [replyKey]);
   useHardwareBack(response !== null, cancelQuote);
-  // La feuille se referme sur la cible armée : le clavier s'ouvre sur le champ,
-  // prêt pour la réponse.
+  // The sheet closes on the armed target: the keyboard opens on the field,
+  // ready for the reply.
   useEffect(() => {
     if (response !== null) fieldRef.current?.focus();
   }, [response]);
@@ -241,23 +238,22 @@ export function Composer({
 
   const send = useCallback(() => {
     const caption = draft.trim();
-    // Une citation armée préfixe le texte de son permalien `[ ](…)` — le
-    // serveur en fera la pièce jointe de citation (lib/quote.ts).
+    // An armed quote prefixes the text with its permalink `[ ](…)`: the server
+    // will turn it into the quote attachment (lib/quote.ts).
     const textToSend = response === null ? caption : quote(response.permalink, caption);
-    // Les pièces en attente partent une par une, dans l'ordre ; la légende
-    // (citation comprise) accompagne la PREMIÈRE — répétée sous chaque pièce,
-    // elle s'afficherait autant de fois. (`fichiers` ne peut pas être null ici :
-    // sans lui, ni 📎 ni 🎤 — rien ne peut poser de pièce. La garde contente le
-    // typage.)
+    // Pending attachments go one by one, in order; the caption (quote included)
+    // goes with the FIRST: repeated under each attachment, it would show as many
+    // times. (`files` cannot be null here: without it, neither 📎 nor 🎤, nothing
+    // can stage an attachment. The guard satisfies the type checker.)
     if (pending.length > 0 && files !== null) {
       setFileError(null);
       setFileSend(true);
       const lot = pending;
-      // `fichiers.envoyer` valide (taille/type), persiste l'intention puis
-      // téléverse ; il ne REJETTE que sur un refus de validation. Tout le
-      // reste — refus serveur ET réseau injoignable — devient une ligne du
-      // bandeau de l'écran, affichée QUEL QUE SOIT son statut. Une pièce ne
-      // quitte donc les pastilles qu'une fois confiée à la file.
+      // `files.send` validates (size/type), persists the intent, then uploads; it
+      // only REJECTS on a validation refusal. Everything else, server refusal AND
+      // unreachable network, becomes a row in the screen's banner, shown WHATEVER
+      // its status. An attachment thus only leaves the chips once handed to the
+      // queue.
       void (async () => {
         const gone = new Set<number>();
         let captionPart = false;
@@ -265,9 +261,9 @@ export function Composer({
           for (const [i, original] of lot.entries()) {
             if (unmounted.current) break;
             handedOff.current.add(original.key);
-            // La réduction promise par les pastilles se paie ICI (photo → JPEG
-            // 1920 px, vidéo → MP4 H.264 720p via le module natif Media3) : le
-            // spinner du 📎 couvre le transcodage puis le téléversement.
+            // The compression promised by the chips is paid HERE (photo → 1920 px JPEG,
+            // video → 720p H.264 MP4 through the native Media3 module): the 📎 spinner
+            // covers the transcode, then the upload.
             const ready =
               quality === 'reduced' && compressionOffered(original)
                 ? await compressAttachment(original)
@@ -277,14 +273,13 @@ export function Composer({
               await files.send(rid, ready, captionCarrier ? textToSend : undefined);
             } catch (e) {
               handedOff.current.delete(original.key);
-              // Refus de validation : la pièce (l'original) reste en place ; la
-              // version réduite orpheline s'efface — elle se recalculera si on
-              // réessaie.
+              // Validation refusal: the attachment (the original) stays in place; the
+              // orphan compressed version is deleted, it will be recomputed on retry.
               if (ready.uri !== original.uri) void deleteIfTemporary(ready.uri);
               throw e;
             }
-            // L'original du sélecteur ne sert plus : la version réduite est
-            // partie (la file effacera SON fichier au solde de la ligne).
+            // The picker's original is no longer needed: the compressed version is sent
+            // (the queue will delete ITS file when the row settles).
             if (ready.uri !== original.uri) void deleteIfTemporary(original.uri);
             gone.add(original.key);
             if (captionCarrier) captionPart = true;
@@ -299,13 +294,13 @@ export function Composer({
           setFileSend(false);
         }
         if (gone.size === 0) return;
-        // La citation a été CONSOMMÉE par le premier message — son permalien
-        // est dans `texteAEnvoyer`, calculé avant l'appel. La désarmer sans
-        // condition : sinon le message SUIVANT re-citerait la même cible.
+        // The quote was CONSUMED by the first message: its permalink is in
+        // `textToSend`, computed before the call. Disarm it unconditionally,
+        // otherwise the NEXT message would quote the same target again.
         cancelReply(replyKey);
-        // Le champ ne se solde que s'il porte encore la légende partie : ce qui
-        // a été tapé pendant le téléversement n'est pas à jeter (correctif de
-        // 8.7). `effacerBrouillon()` détruit en plus la ligne persistée.
+        // The field is only cleared if it still holds the sent caption: what was
+        // typed during the upload must not be thrown away (fix from 8.7).
+        // `clearDraft()` also destroys the persisted row.
         if (captionPart && draftRef.current === draft) {
           setDraft('');
           reset();
@@ -318,8 +313,8 @@ export function Composer({
     setDraft('');
     reset();
     clearDraft();
-    // Une commande slash part par `commands.run` ; un nom que le serveur ne
-    // connaît pas reste un message ordinaire. Refusée, elle revient au champ.
+    // A slash command goes through `commands.run`; a name the server does not
+    // know stays an ordinary message. Refused, it comes back to the field.
     if (response === null && splitCommand(caption) !== null) {
       void runCommand(client, rid, caption, threadId)
         .then((launched) => {
@@ -327,7 +322,7 @@ export function Composer({
           outbox
             .send(rid, caption, threadId, null)
             .then((idMessage) => afterSend?.(idMessage))
-            .catch((e: unknown) => console.warn('envoi: échec local', e));
+            .catch((e: unknown) => console.warn('send: local failure', e));
         })
         .catch((e: unknown) => {
           if (draftRef.current === '') {
@@ -338,19 +333,19 @@ export function Composer({
         });
       return;
     }
-    // L'aperçu optimiste de la citation : la version du serveur, qui porte les
-    // vraies pièces jointes reconstruites du permalien, l'écrasera.
+    // The optimistic preview of the quote: the server's version, carrying the
+    // real attachments rebuilt from the permalink, will overwrite it.
     const localAttachments = response === null ? null : response.localAttachment;
     cancelReply(replyKey);
-    // L'affichage optimiste et la persistance de l'intention sont dans
-    // `envoyer` : d'ici, rien à attendre. Un refus deviendra un statut
-    // « échec » actionnable sur la ligne elle-même. `envoyer` résout avec
-    // l'`_id` client dès l'écriture locale : le fil défile quand CE message
-    // apparaît dans sa liste, pas après un délai.
+    // The optimistic display and the intent's persistence are in `send`: nothing
+    // to await from here. A refusal will become an actionable "failed" status on
+    // the row itself. `send` resolves with the client `_id` as soon as it is
+    // written locally: the thread scrolls when THIS message appears in its list,
+    // not after a delay.
     outbox
       .send(rid, textToSend, threadId, localAttachments)
       .then((idMessage) => afterSend?.(idMessage))
-      .catch((e: unknown) => console.warn('envoi: échec local', e));
+      .catch((e: unknown) => console.warn('send: local failure', e));
   }, [
     draft,
     pending,
@@ -369,12 +364,12 @@ export function Composer({
     t,
   ]);
 
-  // Pose des médias/fichiers choisis en pastilles, en attente d'une légende et
-  // du ➤. Chaque pièce reste l'ORIGINAL : la réduction éventuelle (7.3) se paie
-  // à l'envoi. La validation (taille/type), elle, se fait DÈS la pose — une
-  // pièce que le serveur refusera ne s'affiche même pas. Le poids d'un média
-  // réductible n'est pas jugé ici : la version réduite peut passer sous la
-  // limite, et `envoyer` revalide ce qui part réellement.
+  // Stages the picked media/files as chips, waiting for a caption and ➤. Each
+  // attachment stays the ORIGINAL: any compression (7.3) is paid at send time.
+  // Validation (size/type), however, happens AS SOON AS staged: an attachment
+  // the server will refuse does not even show. A compressible media's size is
+  // not judged here: the compressed version may fall under the limit, and
+  // `send` revalidates what actually goes out.
   const setAttachments = useCallback(
     async (attachments: PendingFile[]) => {
       if (files === null || attachments.length === 0) return;
@@ -406,7 +401,7 @@ export function Composer({
               (refusal instanceof Error ? refusal.message : t('room.uploadFailed'))),
       );
       if (accepted.length === 0) return;
-      // Le choix de qualité vaut pour un lot : il se réarme quand on repart de rien.
+      // The quality choice applies to a batch: it resets when starting from scratch.
       if (pendingRef.current.length === 0) setQuality('reduced');
       setPending((prev) => [...prev, ...accepted]);
     },
@@ -437,8 +432,8 @@ export function Composer({
           setFileError(t('room.microphoneDenied'));
           return;
         }
-        // iOS refuse d'enregistrer tant que la session audio ne l'autorise pas,
-        // et la rend à la lecture ensuite : sinon le son part dans l'écouteur.
+        // iOS refuses to record until the audio session allows it, then hand it back
+        // to playback: otherwise the sound goes to the earpiece.
         await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
         await recorder.prepareToRecordAsync();
         recorder.record();
@@ -453,8 +448,8 @@ export function Composer({
         setFileError(t('room.recordingEmpty'));
         return;
       }
-      // On ne l'envoie plus tout de suite : le vocal se pose au-dessus du
-      // composer (réécoutable), en attente d'une éventuelle légende et de l'envoi.
+      // No longer sent at once: the voice message sits above the composer
+      // (replayable), waiting for an optional caption and the send.
       await setAttachments([{ uri, name: `vocal-${Date.now()}.m4a`, type: 'audio/mp4', size: null }]);
     } catch (e) {
       setRecording(false);
@@ -463,18 +458,18 @@ export function Composer({
     }
   }, [recording, recorder, setAttachments, t]);
 
-  // Referme la feuille « joindre », restée ouverte pendant le sélecteur. Le
-  // garde n'est pas décoratif : sans lui, si l'usager a balayé la feuille entre
-  // temps, ce `back()` dépilerait le SALON.
+  // Closes the "attach" sheet, left open during the picker. The guard is not
+  // decorative: without it, if the user swiped the sheet away in the meantime,
+  // this `back()` would pop the ROOM.
   const closeAttachSheet = useCallback(() => {
     if (isSheetMounted()) router.back();
   }, [router]);
 
   const fromCamera = useCallback(
     async (type: 'photo' | 'video') => {
-      // Seule la caméra exige une permission ; le photo picker système et le
-      // sélecteur de fichiers n'en demandent pas. Le dialogue de permission est
-      // lui aussi une activité : il part donc, comme le reste, feuille ouverte.
+      // Only the camera requires a permission; the system photo picker and the
+      // file picker do not. The permission dialog is an activity too, so it is
+      // launched, like the rest, with the sheet open.
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) {
         closeAttachSheet();
@@ -501,8 +496,8 @@ export function Composer({
         allowsMultipleSelection: true,
         selectionLimit: 10,
         orderedSelection: true,
-        // iOS : la photothèque rendrait du HEIC/HEVC, que la plupart des
-        // navigateurs (donc Rocket.Chat web) n'affichent pas. Sans effet Android.
+        // iOS: the photo library would return HEIC/HEVC, which most browsers (so
+        // Rocket.Chat web) do not display. No effect on Android.
         preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
       }),
     );
@@ -526,35 +521,34 @@ export function Composer({
     );
   }, [setAttachments, closeAttachSheet]);
 
-  // 📎 → menu de sources (feuille native), comme l'app officielle, au lieu
-  // d'ouvrir directement le sélecteur de fichiers. La feuille renvoie la source
-  // choisie via `demanderSource` SANS se fermer : on lance donc le sélecteur
-  // pendant qu'elle est ouverte et immobile, seul moment où l'arbre de vues
-  // Android est sûr (voir `ui/attachmentSource.ts`). C'est `depuisX` qui la
-  // referme, au retour du sélecteur.
+  // 📎 → source menu (native sheet), like the official app, instead of opening
+  // the file picker directly. The sheet returns the chosen source through
+  // `requestSource` WITHOUT closing: we thus launch the picker while it is open
+  // and still, the only moment the Android view tree is safe (see
+  // `ui/attachmentSource.ts`). `fromX` closes it when the picker returns.
   const attach = useCallback(async () => {
     setFileError(null);
-    // Part d'un état de saisie stable : panneau emoji fermé et clavier baissé.
-    // Un `TextInput` focalisé pendant le retour du sélecteur peut, lui aussi,
-    // laisser une vue nulle sur le chemin de `dispatchCancelPendingInputEvents`.
+    // Start from a stable input state: emoji panel closed and keyboard down.
+    // A `TextInput` focused while the picker returns can also leave a null view
+    // on the path of `dispatchCancelPendingInputEvents`.
     closeEmoji();
     Keyboard.dismiss();
     const choice = requestSource();
     router.push('/attach');
     const source = await choice;
-    if (source === null) return; // feuille fermée sans choix : déjà démontée
+    if (source === null) return; // sheet closed without a choice: already unmounted
     try {
       if (source === 'photo') await fromCamera('photo');
       else if (source === 'video') await fromCamera('video');
       else if (source === 'library') await fromLibrary();
       else await fromFile();
     } catch (e) {
-      // Le sélecteur n'est jamais parti : la feuille est encore là, et l'erreur
-      // s'afficherait derrière elle. On la referme avant de la montrer.
+      // The picker never launched: the sheet is still there, and the error would
+      // show behind it. Close it before showing the error.
       closeAttachSheet();
-      // Le NPE d'arbre de vues n'a AUCUN sens pour qui le lit, et surtout il
-      // appelle un geste précis : seul un redémarrage de l'app le solde (pas
-      // même sortir du salon — vécu). On le dit, au lieu d'afficher la trace.
+      // The view-tree NPE means NOTHING to whoever reads it, and above all it calls
+      // for a precise action: only an app restart clears it (not even leaving the
+      // room, experienced). Say so, instead of showing the trace.
       setFileError(
         isViewTreeRejection(e)
           ? t('room.pickerStuck')
@@ -565,8 +559,8 @@ export function Composer({
     }
   }, [router, fromCamera, fromLibrary, fromFile, closeAttachSheet, closeEmoji, t]);
 
-  // Salon chiffré verrouillé : sans clé, rien ne peut partir — on propose de
-  // déverrouiller. Déverrouillé, c'est le composer ordinaire, et l'outbox chiffre.
+  // Locked encrypted room: without a key nothing can be sent, so offer to
+  // unlock. Unlocked, it is the ordinary composer, and the outbox encrypts.
   if (encrypted && !unlocked) {
     return <LockedComposer c={c} />;
   }
@@ -579,9 +573,9 @@ export function Composer({
   }
 
   const emptyDraft = draft.trim() === '';
-  // Le bouton d'envoi remplace le micro dès qu'il y a un texte OU une pièce
-  // jointe en attente — mais JAMAIS pendant l'enregistrement, où le bouton doit
-  // rester « arrêter » (⏹), même si du texte a été tapé entre-temps.
+  // The send button replaces the mic as soon as there is text OR a pending
+  // attachment, but NEVER while recording, where the button must stay "stop"
+  // (⏹), even if text was typed in the meantime.
   const showSend = (!emptyDraft || pending.length > 0) && !recording;
 
   return (
@@ -589,8 +583,8 @@ export function Composer({
       {fileError !== null && (
         <Text style={[styles.composerError, { color: c.errorText }]}>{fileError}</Text>
       )}
-      {/* Les pièces attendent ici qu'on les envoie. Leur apparition pousse
-          nativement le dernier message vers le haut. */}
+      {/* Attachments wait here to be sent. Their appearance natively
+          pushes the last message up. */}
       {pending.length > 0 && (
         <StagedAttachments
           c={c}
@@ -627,7 +621,7 @@ export function Composer({
       {!emoji.open && (
         <EmojiCompletionBanner text={draft} cursor={cursor} c={c} onPick={pickEmoji} />
       )}
-      {/* Jetons `:` et `@` mutuellement exclusifs : un seul bandeau à la fois. */}
+      {/* `:` and `@` tokens are mutually exclusive: one strip at a time. */}
       {!emoji.open && (
         <MentionCompletionBanner
           text={draft}
@@ -672,7 +666,7 @@ export function Composer({
           selection={selection}
           onChangeText={changeDraft}
           onSelectionChange={onSelection}
-          // Toucher le champ referme le panneau : le clavier reprend sa place.
+          // Touching the field closes the panel: the keyboard takes its place back.
           onFocus={emoji.onFocus}
           placeholder={pending.length > 0 ? t('room.addCaption') : placeholder}
           placeholderTextColor={c.tertiaryText}
@@ -725,8 +719,8 @@ export function Composer({
 }
 
 /**
- * Zone composer d'un salon chiffré verrouillé : un bouton qui ouvre la feuille
- * de déverrouillage (les messages s'éclairent ensuite tout seuls).
+ * Composer area of a locked encrypted room: a button that opens the unlock
+ * sheet (messages then light up on their own).
  */
 function LockedComposer({ c }: { c: Colors }) {
   const t = useT();

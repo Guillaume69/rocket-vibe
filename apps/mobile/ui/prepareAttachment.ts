@@ -1,19 +1,19 @@
 /**
- * Préparation d'une pièce jointe média — les EFFETS (réécriture de fichiers) ;
- * la décision « proposer ou non la réduction » est pure et vit dans
+ * Preparation of a media attachment: the EFFECTS (file rewriting); the
+ * "offer downscaling or not" decision is pure and lives in
  * `attachmentQuality.ts`.
  *
- * Une photo de galerie pèse plusieurs mégaoctets, une vidéo plusieurs
- * dizaines : les pousser tels quels, c'est risquer le refus du serveur
- * (`FileUpload_MaxFileSize`) et gaspiller le réseau pour un aperçu de chat.
- * L'image se réduit en JPEG 1920 px (expo-image-manipulator), la vidéo en MP4
- * H.264 côté court ≤ 720 (module natif Media3, `modules/video-compressor`).
+ * A gallery photo weighs several megabytes, a video several tens: pushing
+ * them as is risks a server refusal (`FileUpload_MaxFileSize`) and wastes
+ * network for a chat preview. Images are downscaled to 1920 px JPEG
+ * (expo-image-manipulator), videos to H.264 MP4 with short side ≤ 720
+ * (Media3 native module, `modules/video-compressor`).
  *
- * Dans le composeur, la réduction se fait À L'ENVOI, selon le choix affiché
- * sur l'aperçu (pastilles Réduite/Originale) — plus au moment du choix du
- * fichier : réduire d'office ferait payer un transcodage à qui retire la
- * pièce ou veut justement l'original. L'écran de partage, lui, garde sa
- * compression d'images au montage (`compresserImageSiUtile`).
+ * In the composer, downscaling happens AT SEND time, per the choice shown on
+ * the preview (Reduced/Original chips), no longer when the file is picked:
+ * downscaling by default would charge a transcode to whoever removes the file
+ * or wants the original. The share screen keeps its image compression on
+ * mount (`compressImageIfUseful`).
  */
 
 import * as FileSystem from 'expo-file-system/legacy';
@@ -24,19 +24,20 @@ import type { PendingFile } from './attachmentPreview.tsx';
 import { deleteIfTemporary } from './temporaryFiles.ts';
 import { imageCompressible, videoCompressible } from './attachmentQuality.ts';
 
-/** Côté court maximal d'une vidéo réduite, en pixels (720p). */
+/** Maximum short side of a downscaled video, in pixels (720p). */
 const VIDEO_MAX_SHORT_SIDE = 720;
-/** Bitrate vidéo du réencodage — l'ordre de grandeur des messageries. */
+/** Video bitrate of the re-encode, in the range messaging apps use. */
 const VIDEO_BITRATE = 2_000_000;
 
 /**
- * Donne au fichier réduit le NOM du média d'origine. Nécessaire parce que le
- * multipart d'upload (`createUploadTask`) envoie le nom du fichier SUR DISQUE
- * — le champ `nom` de la pièce n'y passe jamais. Sans ce déplacement, le salon
- * affiche le nom technique du transcodeur (`compressed-video-…`, vu au banc).
- * Un dossier unique pare la collision de deux envois simultanés du même nom ;
- * une fois la ligne soldée il n'en reste qu'un dossier vide, que l'OS purge.
- * En échec, l'URI d'origine : un nom moche part — l'envoi vaut mieux que lui.
+ * Gives the downscaled file the NAME of the original media. Needed because
+ * the upload multipart (`createUploadTask`) sends the file name ON DISK; the
+ * file's `name` field never goes through. Without this move, the room shows
+ * the transcoder's technical name (`compressed-video-…`, seen on the bench).
+ * A unique folder avoids the collision of two simultaneous sends with the
+ * same name; once the row is settled only an empty folder remains, which the
+ * OS purges. On failure, the original URI: an ugly name goes out, sending
+ * beats it.
  */
 async function renameCompressed(uri: string, name: string): Promise<string> {
   const cache = FileSystem.cacheDirectory;
@@ -62,8 +63,8 @@ export async function compressImageIfUseful(
       [{ resize: { width: 1920 } }],
       { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
     );
-    // `taille: null` — on ne connaît plus le poids exact du JPEG réécrit ; la
-    // validation d'envoi ne s'appuiera que sur le type, ce qui suffit.
+    // `size: null`: the exact weight of the rewritten JPEG is no longer known;
+    // send validation will rely on the type only, which is enough.
     const name = `${file.name.replace(/\.\w+$/, '')}.jpg`;
     return {
       uri: await renameCompressed(compressed.uri, name),
@@ -72,7 +73,7 @@ export async function compressImageIfUseful(
       size: null,
     };
   } catch {
-    // Compression impossible : on garde l'original tel quel.
+    // Compression impossible: keep the original as is.
     return file;
   }
 }
@@ -83,8 +84,8 @@ export async function compressVideoIfPossible(
   if (VideoCompressor === null || !videoCompressible(file)) return file;
   try {
     const outbox = await VideoCompressor.compress(file.uri, VIDEO_MAX_SHORT_SIDE, VIDEO_BITRATE);
-    // Une vidéo déjà modeste peut ressortir plus lourde du réencodage : dans
-    // ce cas l'original part, et le MP4 réécrit s'efface.
+    // An already modest video can come out heavier from the re-encode: in that
+    // case the original goes out, and the rewritten MP4 is deleted.
     if (file.size !== null && outbox.size >= file.size) {
       void deleteIfTemporary(outbox.uri);
       return file;
@@ -97,13 +98,13 @@ export async function compressVideoIfPossible(
       size: outbox.size,
     };
   } catch {
-    // Transcodage impossible (codec exotique, fichier tronqué…) : l'original
-    // part tel quel — comme pour l'image, un envoi lourd vaut mieux qu'un échec.
+    // Transcode impossible (exotic codec, truncated file...): the original goes
+    // out as is; as for images, a heavy send beats a failure.
     return file;
   }
 }
 
-/** L'aiguillage appelé par le composeur à l'envoi, quand « Réduite » est choisi. */
+/** The switch the composer calls at send time, when "Reduced" is chosen. */
 export function compressAttachment(file: PendingFile): Promise<PendingFile> {
   if (file.type.startsWith('video/')) return compressVideoIfPossible(file);
   return compressImageIfUseful(file);

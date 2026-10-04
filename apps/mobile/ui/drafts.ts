@@ -1,12 +1,12 @@
 /**
- * Brouillons de composer (8.7), par `rid` ou `rid:tmid`.
+ * Composer drafts (8.7), per `rid` or `rid:tmid`.
  *
- * En SQLite (table `brouillons`), pas en MMKV — écart au plan consigné : le
- * brouillon s'écrit DÉBOUNCÉ (400 ms), la latence asynchrone de la base est
- * donc sans objet, et une dépendance native de plus (rebuild complet, à
- * justifier contre ROADMAP §4.2) ne l'emporte pas sur « la base couvre déjà
- * tout l'état local ». La base étant par (serveur, compte), les brouillons
- * ne fuient pas d'un compte à l'autre.
+ * In SQLite (table `brouillons`), not MMKV, a recorded departure from the
+ * plan: the draft is written DEBOUNCED (400 ms), so the database's async
+ * latency is irrelevant, and one more native dependency (full rebuild, to be
+ * justified against ROADMAP §4.2) does not beat "the database already covers
+ * all local state". The database being per (server, account), drafts do not
+ * leak from one account to another.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -15,22 +15,22 @@ import { createDeferredDraft } from './deferredDraft.ts';
 import type { DraftStore } from '../db/store.ts';
 
 /**
- * `cle: null` = pas encore déterminable (fil dont le rid n'est pas arrivé) :
- * `initial` reste `null` et rien ne s'écrit. L'appelant ne monte son composer
- * qu'une fois `initial` non-null — sinon il écraserait le brouillon par ''.
+ * `key: null` = not determinable yet (thread whose rid has not arrived):
+ * `initial` stays `null` and nothing is written. The caller only mounts its
+ * composer once `initial` is non-null, otherwise it would overwrite the draft
+ * with ''.
  *
- * Le dépôt (et non la `BaseLocale` brute) : ses écritures passent par la file
- * de la connexion, sans quoi le débounce qui tombe pendant un lot de synchro
- * entre dans SA transaction et disparaît avec elle si le lot échoue.
+ * The store (not the raw `BaseLocale`): its writes go through the
+ * connection's queue; otherwise a debounce landing during a sync batch would
+ * enter ITS transaction and vanish with it if the batch fails.
  */
 export function useDraft(store: DraftStore, key: string | null) {
   const [state, setState] = useState<{ key: string | null; initial: string | null }>({
     key,
     initial: null,
   });
-  // Changement de clé PENDANT le rendu (motif React sanctionné, plutôt qu'un
-  // setState dans l'effet) : l'initial de l'ancienne clé ne doit pas fuir
-  // vers la nouvelle.
+  // Key change DURING render (sanctioned React pattern, rather than a setState
+  // in the effect): the old key's initial value must not leak into the new one.
   if (state.key !== key) setState({ key, initial: null });
 
   useEffect(() => {
@@ -49,12 +49,12 @@ export function useDraft(store: DraftStore, key: string | null) {
     };
   }, [store, key]);
 
-  // La mécanique (débounce, flush, dernière-frappe-gagne) vit dans
-  // `creerBrouillonDifferre`, testée sous Node. UNE instance PAR CLÉ : ses
-  // écritures sont liées à `cle` à la création, donc un flush tardif ne peut
-  // écrire que sous la clé qui a vu la frappe. Les rejets sont avalés à
-  // dessein : un brouillon perdu ne vaut ni un écran d'erreur ni un rejet non
-  // capté — la frappe suivante réécrira.
+  // The mechanics (debounce, flush, last-keystroke-wins) live in
+  // `createDeferredDraft`, tested under Node. ONE instance PER KEY: its writes
+  // are bound to `key` at creation, so a late flush can only write under the
+  // key that saw the keystroke. Rejections are swallowed on purpose: a lost
+  // draft is worth neither an error screen nor an unhandled rejection, the next
+  // keystroke will write again.
   const deferred = useMemo(() => {
     if (key === null) return null;
     const swallow = (p: Promise<void>): void => {
@@ -69,15 +69,15 @@ export function useDraft(store: DraftStore, key: string | null) {
     });
   }, [store, key]);
 
-  // Départ de l'écran OU changement de clé pendant la pause : sans ce flush,
-  // les derniers caractères tapés seraient perdus. Le cleanup tient l'instance
-  // de l'ANCIENNE clé — c'est elle qui écrit, jamais la nouvelle.
+  // Leaving the screen OR changing key during the pause: without this flush,
+  // the last typed characters would be lost. The cleanup holds the OLD key's
+  // instance: that one writes, never the new one.
   useEffect(() => () => deferred?.flusher(), [deferred]);
 
-  /** À appeler à chaque frappe : l'écriture part après une pause de 400 ms. */
+  /** Call on each keystroke: the write goes after a 400 ms pause. */
   const save = useCallback((text: string) => deferred?.save(text), [deferred]);
 
-  /** À l'envoi : le brouillon n'a plus lieu d'être, débounce compris. */
+  /** On send: the draft is no longer needed, debounce included. */
   const clear = useCallback(() => deferred?.clear(), [deferred]);
 
   const initial = state.key === key ? state.initial : null;

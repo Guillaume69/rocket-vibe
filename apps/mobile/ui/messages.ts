@@ -1,23 +1,22 @@
 /**
- * Catalogue de traduction — le SEUL point de vérité des chaînes affichées.
+ * Translation catalogue, the ONLY source of truth for displayed strings.
  *
- * `fr` est la RÉFÉRENCE : ses clés définissent `CleTraduction`. `en` est typé
- * `Record<CleTraduction, string>`, donc TypeScript refuse à la compilation toute
- * clé manquante OU en trop — les deux langues restent structurellement jumelles
- * sans qu'on ait à le vérifier à la main. `npx tsc --noEmit` est le garde-fou.
+ * `fr` is the REFERENCE: its keys define `TranslationKey`. `en` is typed
+ * `Record<TranslationKey, string>`, so TypeScript rejects at compile time any
+ * missing OR extra key: both languages stay structurally twinned without
+ * checking by hand. `npx tsc --noEmit` is the guard.
  *
- * Convention de clés : `espace.nom`, un espace de noms par écran ou composant
- * (`connexion.*`, `salon.*`…), plus `commun.*` pour ce qui se répète partout et
- * `sys.*` pour les messages système Rocket.Chat. Interpolation `{param}` ;
- * pluriel `singulier | pluriel` choisi par le paramètre numérique `n`
- * (cf. `ui/i18n.ts`).
+ * Key convention: `namespace.name`, one namespace per screen or component
+ * (`login.*`, `room.*`...), plus `common.*` for what repeats everywhere and
+ * `sys.*` for Rocket.Chat system messages. Interpolation `{param}`; plural
+ * `singular | plural` chosen by the numeric parameter `n` (see `ui/i18n.ts`).
  */
 
 import { dayKey } from './daySeparator.ts';
 
 const fr = {
-  // ── Commun — réutilisé par plusieurs écrans. Préférer une clé d'écran
-  //    quand la formulation est propre à un contexte.
+  // ── Common: reused by several screens. Prefer a screen key when the
+  //    wording belongs to one context.
   'common.save': 'Enregistrer',
   'common.cancel': 'Annuler',
   'common.retry': 'Réessayer',
@@ -26,25 +25,25 @@ const fr = {
   'common.search': 'Rechercher',
   'common.delete': 'Supprimer',
   'common.attachment': 'Pièce jointe',
-  // Mise en phrase des refus de validation d'upload (ui/fileValidation.ts),
-  // partagée entre le composer du salon et l'écran de partage.
+  // Wording of upload validation refusals (ui/fileValidation.ts), shared by
+  // the room composer and the share screen.
   'common.fileTooLarge': 'Fichier trop lourd (maximum {mb} Mo).',
   'common.fileTypeRejected': 'Type {type} refusé par le serveur.',
   'common.encryptedFilesDisabled': 'Ce serveur n’accepte pas de fichiers dans un salon chiffré.',
-  // Présence, en minuscule — la casse d'un contexte (sélecteur) est à
-  // l'appelant. Table statut → clé : CLES_PRESENCE (ui/presence.ts).
+  // Presence, lowercase: casing for a context (picker) is up to the caller.
+  // Status → key table: PRESENCE_KEYS (ui/presence.ts).
   'common.presenceOnline': 'en ligne',
   'common.presenceAway': 'absent',
   'common.presenceBusy': 'occupé',
   'common.presenceOffline': 'hors ligne',
 
-  // ── Langue (sélecteur des paramètres). Les noms de langue eux-mêmes sont des
-  //    endonymes (cf. NOMS_LANGUE plus bas), identiques dans toutes les
-  //    langues ; seule l'option « automatique » se traduit.
+  // ── Language (settings picker). Language names themselves are endonyms
+  //    (see LANGUAGE_NAMES below), identical in every language; only the
+  //    "automatic" option is translated.
   'language.auto': 'Automatique',
   'language.autoHelp': 'Suit la langue du téléphone',
 
-  // ── Paramètres
+  // ── Settings
   'settings.title': 'Paramètres',
   'settings.editProfile': 'Modifier mon profil',
   'settings.sectionNotifications': 'Notifications',
@@ -65,7 +64,7 @@ const fr = {
   'settings.switchServer': 'Changer de serveur',
   'settings.signOut': 'Se déconnecter',
 
-  // ── Ligne de message (salon et fil)
+  // ── Message row (room and thread)
   'messageRow.profileOf': 'Profil de {name}',
   'messageRow.edited': '(modifié)',
   'messageRow.sending': '⏳ envoi…',
@@ -113,7 +112,7 @@ const fr = {
   'login.submit': 'Valider',
   'login.resendCode': 'Renvoyer le code',
 
-  // ── Salon (écran d'un salon : liste + composer + en-tête)
+  // ── Room (room screen: list + composer + header)
   'room.newMessages': '✦ nouveaux messages',
   'room.jumpToLatest': 'Aller aux derniers messages',
   'room.marked': 'Messages épinglés et favoris',
@@ -121,8 +120,8 @@ const fr = {
   'daySeparator.today': "Aujourd'hui",
   'daySeparator.yesterday': 'Hier',
   'room.noMessages': 'Aucun message.',
-  // Le « … » final est un contrat : `IndicateurSaisie` (ui/kit.tsx) le retire
-  // pour le remplacer par ses points animés.
+  // The trailing "…" is a contract: `TypingIndicator` (ui/kit.tsx) strips it
+  // and replaces it with its animated dots.
   'room.typingOne': '{name} écrit…',
   'room.typingTwo': '{a} et {b} écrivent…',
   'room.typingN': '{n} personnes écrivent…',
@@ -154,8 +153,8 @@ const fr = {
   'room.recordingFailed': 'Enregistrement impossible.',
   'room.cameraDenied': 'Accès à la caméra refusé.',
   'room.selectionFailed': 'Sélection impossible.',
-  // Le NPE d'arbre de vues d'Android : rien dans l'app n'en sort, seul un
-  // redémarrage le solde. Autant le dire clairement (voir `launchPicker.ts`).
+  // Android's view-tree NPE: nothing in the app gets out of it, only a restart
+  // clears it. Might as well say so plainly (see `launchPicker.ts`).
   'room.pickerStuck': "Le sélecteur ne répond plus. Fermez l'app et rouvrez-la.",
   'room.attachFile': 'Joindre un fichier',
   'room.backToKeyboard': 'Revenir au clavier',
@@ -171,16 +170,16 @@ const fr = {
   'room.startCall': 'Démarrer un appel vidéo',
   'room.replyingTo': 'Réponse à {name}',
   'room.cancelReply': 'Annuler la réponse',
-  // ── Notification venue d'un AUTRE serveur que celui affiché. La bascule est
-  //    un geste EXPLICITE : changer de serveur tout seul déplacerait le pointeur
-  //    de reprise et la liste des salons sous les pieds de l'utilisateur.
+  // ── Notification from ANOTHER server than the one shown. Switching is an
+  //    EXPLICIT gesture: switching servers on its own would move the resume
+  //    pointer and the room list out from under the user.
   'room.otherServerTitle': 'Ce message est sur un autre serveur',
   'room.otherServerBody': 'Il vient de {host}.',
   'room.otherServerButton': 'Basculer sur ce serveur',
   'room.otherServerFailed': 'Aucune session enregistrée pour ce serveur.',
 
-  // ── Messages système Rocket.Chat (le champ `t` d'un message). `{p}` = le
-  //    paramètre porté par `msg` (nom ajouté, nouveau sujet…).
+  // ── Rocket.Chat system messages (a message's `t` field). `{p}` = the
+  //    parameter carried by `msg` (added name, new topic...).
   'sys.uj': 'a rejoint le salon',
   'sys.ujt': "a rejoint l'équipe",
   'sys.ul': 'a quitté le salon',
@@ -216,7 +215,7 @@ const fr = {
   'sys.unknown': '(action système « {type} »)',
   'sys.unknownWithParam': '(action système « {type} » : {p})',
 
-  // ── Accueil (liste des conversations)
+  // ── Home (conversation list)
   'home.settings': 'Paramètres',
   'home.sectionUnread': 'Non lus',
   'home.sectionFavorites': 'Favoris',
@@ -226,8 +225,8 @@ const fr = {
   'home.emptyList':
     "Aucun salon pour l'instant — la première synchronisation peut prendre quelques secondes.",
   'home.encryptedMessages': 'Messages chiffrés',
-  // Aperçu d'un salon dont le dernier message est un appel vidéo : il n'a
-  // aucun texte, son contenu vit dans ses `blocks`.
+  // Preview of a room whose last message is a video call: it has no text,
+  // its content lives in its `blocks`.
   'home.callPreview': 'Appel vidéo',
   'home.newConversation': 'Nouvelle conversation',
 
@@ -239,13 +238,13 @@ const fr = {
   'search.joinFailed': 'Impossible de rejoindre.',
   'search.noResults': 'Aucun résultat.',
 
-  // ── Recherche dans le salon
+  // ── Search in the room
   'messageSearch.title': 'Rechercher dans le salon',
   'messageSearch.placeholder': 'Rechercher des messages…',
   'messageSearch.searchFailed': 'Recherche impossible.',
   'messageSearch.noMessages': 'Aucun message trouvé.',
 
-  // ── Messages épinglés et favoris (app/marked-messages.tsx)
+  // ── Pinned and starred messages (app/marked-messages.tsx)
   'marked.title': 'Épinglés et favoris',
   'marked.pinned': 'Épinglés',
   'marked.starred': 'Mes favoris',
@@ -253,13 +252,13 @@ const fr = {
   'marked.noStarred': 'Aucun message en favori.',
   'marked.loadFailed': 'Chargement impossible.',
 
-  // ── Fil de discussion — le composer commun (ui/composer.tsx) parle avec
-  // les clés `salon.*` : les doublons `fil.*` ont été fusionnés (chantier 14).
+  // ── Thread: the shared composer (ui/composer.tsx) uses the `room.*` keys;
+  // the duplicate `thread.*` keys were merged (workstream 14).
   'thread.title': 'Fil',
   'thread.notFound': 'Fil introuvable.',
   'thread.reply': 'Répondre dans le fil',
 
-  // ── Actions sur un message
+  // ── Message actions
   'messageActions.messageNotFound': 'Message introuvable.',
   'messageActions.noActions': 'Rien à faire sur ce message.',
   'messageActions.loadFailed': 'Chargement impossible.',
@@ -297,7 +296,7 @@ const fr = {
   'share.readOnly': 'Lecture seule',
   'share.removeAttachment': 'Retirer la pièce jointe',
 
-  // ── Appel vidéo (WebView Jitsi)
+  // ── Video call (Jitsi WebView)
   'call.videoCall': 'Appel vidéo',
   'call.joinFailed': "Impossible de rejoindre l'appel. Il est peut-être terminé.",
   'call.endCall': "Terminer l'appel",
@@ -319,7 +318,7 @@ const fr = {
   'emojiPicker.symbols': 'Symboles',
   'emojiPicker.flags': 'Drapeaux',
 
-  // ── Lecteurs média
+  // ── Media players
   'audioPlayer.voiceMessage': 'Message vocal',
   'audioPlayer.play': 'Lire le message vocal',
   'audioPlayer.pause': 'Pause',
@@ -328,15 +327,15 @@ const fr = {
   'videoPlayer.playWithTitle': 'Vidéo : {title}, toucher pour lire',
   'viewer.image': 'Image',
 
-  // ── Aperçu de pièce jointe
+  // ── Attachment preview
   'attachmentPreview.image': 'Image',
   'attachmentPreview.file': 'Fichier',
   'attachmentPreview.remove': 'Retirer la pièce jointe',
   'attachmentPreview.bytes': '{size} o',
   'attachmentPreview.kilobytes': '{size} Ko',
   'attachmentPreview.megabytes': '{size} Mo',
-  // Pastilles du choix de qualité d'un média (photo lourde, vidéo) — la
-  // réduction se fait à l'envoi (ui/prepareAttachment.ts).
+  // Quality choice chips for a media item (heavy photo, video); the
+  // downscaling happens at send time (ui/prepareAttachment.ts).
   'attachmentPreview.reduced': 'Réduite',
   'attachmentPreview.original': 'Originale',
   'attachmentPreview.sendReduced': 'Envoyer en qualité réduite',
@@ -344,20 +343,20 @@ const fr = {
   'attachmentPreview.preview': 'Aperçu de {name}',
   'attachmentPreview.openFailed': "Impossible d'ouvrir ce fichier.",
 
-  // ── Cartes (aperçus de liens / embeds)
+  // ── Cards (link previews / embeds)
   'linkCard.imageEnlarge': 'Image, toucher pour agrandir',
   'linkCard.defaultLink': 'Lien',
   'linkCard.open': '{name}, toucher pour ouvrir',
   'embedCard.open': '{name}, toucher pour ouvrir',
 
-  // ── Notifications (contenu masqué d'un salon chiffré)
+  // ── Notifications (hidden content of an encrypted room)
   'notifications.encryptedTitle': 'Message chiffré',
   'notifications.encryptedBody': 'Nouveau message dans un salon chiffré.',
 
   // ── Synchro
   'sync.databaseUnavailable': 'Base locale inutilisable.',
 
-  // ── Mon profil (édition)
+  // ── My profile (editing)
   'myProfile.title': 'Mon profil',
   'myProfile.profileUnreadable': 'Profil illisible.',
   'myProfile.selectionFailed': 'Sélection impossible.',
@@ -393,7 +392,7 @@ const fr = {
   'myProfile.labelCode': 'Code',
   'myProfile.submitCode': 'Valider le code',
 
-  // ── Fiche d'un utilisateur
+  // ── User profile
   'profile.profileUnreadable': 'Profil illisible.',
   'profile.profileNotFound': 'Profil introuvable.',
   'profile.actionFailed': 'Action impossible.',
@@ -403,7 +402,7 @@ const fr = {
   'profile.callLabel': 'Appeler {name}',
   'profile.callButton': '📞 Appeler',
 
-  // ── Fiche d'un salon
+  // ── Room info
   'roomInfo.typePublicChannel': 'Canal public',
   'roomInfo.typePrivateGroup': 'Groupe privé',
   'roomInfo.typeDirectMessage': 'Message direct',
@@ -420,12 +419,12 @@ const fr = {
   'roomInfo.favoriteFailed': 'Favori non modifié : réessayez.',
 } as const;
 
-/** Toutes les clés valides de traduction — dérivées de `fr`, la référence. */
+/** Every valid translation key, derived from `fr`, the reference. */
 export type TranslationKey = keyof typeof fr;
 
 /**
- * Anglais. Typé `Record<CleTraduction, string>` : une clé oubliée ou en trop
- * casse la compilation. Garder le MÊME ordre que `fr` facilite la relecture.
+ * English. Typed `Record<TranslationKey, string>`: a forgotten or extra key
+ * breaks compilation. Keeping the SAME order as `fr` eases review.
  */
 const en: Record<TranslationKey, string> = {
   'common.save': 'Save',
@@ -785,20 +784,20 @@ const en: Record<TranslationKey, string> = {
   'roomInfo.favoriteFailed': 'Favorite not changed: try again.',
 };
 
-/** Les deux catalogues, prêts à l'indexation par langue. */
+/** Both catalogues, ready to index by language. */
 export const CATALOGUES = { fr, en } as const;
 
-/** Langues disponibles — dérivées des catalogues, jamais désynchronisées. */
+/** Available languages, derived from the catalogues, never out of sync. */
 export type Language = keyof typeof CATALOGUES;
 export const LANGUAGES = Object.keys(CATALOGUES) as readonly Language[];
 
-/** Préférence stockée : une langue explicite, ou « suivre l'appareil ». */
+/** Stored preference: an explicit language, or "follow the device". */
 export type LanguagePreference = Language | 'auto';
 
 /**
- * Noms de langue en ENDONYME (dans la langue elle-même) : « Français » et
- * « English » se lisent pareil quelle que soit la langue de l'interface —
- * convention des sélecteurs de langue.
+ * Language names as ENDONYMS (in the language itself): "Français" and
+ * "English" read the same whatever the interface language, the usual
+ * convention for language pickers.
  */
 export const LANGUAGE_NAMES: Record<Language, string> = {
   fr: 'Français',
@@ -809,11 +808,11 @@ export type TranslationParams = Record<string, string | number>;
 export type TranslateFn = (key: TranslationKey, params?: TranslationParams) => string;
 
 /**
- * Langue du téléphone, en PUR JS : Hermes (RN 0.86) embarque `Intl`/ICU adossé
- * à `Locale.getDefault()` d'Android. Aucun module natif — donc pas de rebuild du
- * dev-client ni de dépendance à justifier (ROADMAP §4.2) — et ça tourne tel quel
- * sous Node. Repli sur l'anglais pour toute locale non couverte (défaut
- * international neutre).
+ * Phone language, in PURE JS: Hermes (RN 0.86) ships `Intl`/ICU backed by
+ * Android's `Locale.getDefault()`. No native module, so no dev-client rebuild
+ * nor dependency to justify (ROADMAP §4.2), and it runs as is under Node.
+ * Falls back to English for any uncovered locale (neutral international
+ * default).
  */
 export function deviceLanguage(): Language {
   const locale = Intl.DateTimeFormat().resolvedOptions().locale;
@@ -822,12 +821,12 @@ export function deviceLanguage(): Language {
 }
 
 /**
- * Formateur d'heure des messages, lié à une LANGUE — pas à la locale de
- * l'appareil : l'heure suit la langue choisie dans les paramètres, comme toute
- * chaîne du catalogue. FR « 14:05 » (2-digit), EN « 2:05 PM » (numeric — le
- * 2-digit anglophone donnerait « 02:05 PM », que personne n'écrit). Fabrique à
- * mémoïser par l'appelant : construire un `Intl.DateTimeFormat` coûte cher,
- * `format` non (cf. `useHeure`, ui/i18n.ts).
+ * Message time formatter, bound to a LANGUAGE, not the device locale: the
+ * time follows the language chosen in settings, like any catalogue string.
+ * FR "14:05" (2-digit), EN "2:05 PM" (numeric: English 2-digit would give
+ * "02:05 PM", which nobody writes). A factory for the caller to memoize:
+ * building an `Intl.DateTimeFormat` is expensive, `format` is not (see
+ * `useTimeFormatter`, ui/i18n.ts).
  */
 export function timeFormatter(language: Language): (ms: number) => string {
   const format = new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'en-US', {
@@ -838,12 +837,12 @@ export function timeFormatter(language: Language): (ms: number) => string {
 }
 
 /**
- * Libellé d'un séparateur de jour (ui/daySeparator) : « Aujourd'hui »,
- * « Hier », sinon la date — avec le jour de semaine dans l'année courante
- * (« jeudi 31 juillet »), avec l'année au-delà (« 31 juillet 2025 », le jour
- * de semaine n'aide plus à se situer si loin). Même fabrique à mémoïser que
- * `formateurHeure`. `maintenantMs` est lu à CHAQUE appel (une liste ouverte à
- * travers minuit re-rend « Aujourd'hui » juste) ; injectable pour les tests.
+ * Label of a day separator (ui/daySeparator): "Today", "Yesterday",
+ * otherwise the date, with the weekday within the current year ("Thursday
+ * 31 July"), with the year beyond ("31 July 2025": the weekday no longer
+ * helps that far back). Same memoizable factory as `timeFormatter`. `nowMs`
+ * is read on EVERY call (a list left open across midnight re-renders "Today"
+ * correctly); injectable for tests.
  */
 export function dayFormatter(language: Language): (ms: number, nowMs?: number) => string {
   const locale = language === 'fr' ? 'fr-FR' : 'en-US';
@@ -863,18 +862,18 @@ export function dayFormatter(language: Language): (ms: number, nowMs?: number) =
 }
 
 /**
- * Sélection singulier/pluriel. FR : singulier pour 0 et 1 (« 0 membre »,
- * « 1 membre »), pluriel dès 2. EN : singulier pour 1 seulement.
+ * Singular/plural selection. FR: singular for 0 and 1 ("0 membre",
+ * "1 membre"), plural from 2. EN: singular for 1 only.
  */
 function isPlural(language: Language, n: number): boolean {
   return language === 'fr' ? n > 1 : n !== 1;
 }
 
 /**
- * Rend le modèle final : d'abord le choix du pluriel (`singulier | pluriel`
- * arbitré par le paramètre numérique `n`), puis la substitution des `{param}`.
- * Un `{param}` sans valeur est laissé TEL QUEL — plus parlant qu'un « undefined »
- * en pleine phrase pour repérer un oubli d'argument.
+ * Renders the final template: first the plural choice (`singular | plural`
+ * decided by the numeric parameter `n`), then `{param}` substitution. A
+ * `{param}` without a value is left AS IS: easier to spot a missing argument
+ * than an "undefined" mid-sentence.
  */
 function interpolate(
   template: string,
@@ -893,9 +892,9 @@ function interpolate(
 }
 
 /**
- * Traduit une clé dans une langue. Repli sur le français (la référence) si une
- * clé venait à manquer côté cible — impossible en théorie (le type l'interdit),
- * mais un texte français reste préférable à une clé brute affichée.
+ * Translates a key into a language. Falls back to French (the reference) if
+ * a key were missing on the target side: impossible in theory (the type
+ * forbids it), but French text beats a raw key on screen.
  */
 export function translate(
   language: Language,

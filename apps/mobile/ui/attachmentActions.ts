@@ -1,8 +1,7 @@
 /**
- * Enregistrer ou partager une pièce jointe EN FOND : l'appel rend la main tout
- * de suite (la feuille d'actions peut se refermer), le téléchargement suit, sa
- * progression s'affiche sur la ligne du message (`ui/transfers.ts`) et l'issue
- * se dit par un toast.
+ * Save or share an attachment IN THE BACKGROUND: the call returns at once
+ * (the action sheet can close), the download follows, its progress shows on
+ * the message row (`ui/transfers.ts`) and the outcome is told by a toast.
  */
 
 import { Alert } from 'react-native';
@@ -14,13 +13,13 @@ import { transfer } from './transfers.ts';
 import { notify as toast } from './toast.tsx';
 
 export type AttachmentToTransfer = {
-  /** Clé du transfert : le chemin serveur du fichier, sans jeton. */
+  /** Transfer key: the file's server path, without a token. */
   key: string;
-  /** URL protégée, jeton compris — ne quitte pas le processus. */
+  /** Protected URL, token included: never leaves the process. */
   url: string;
   title: string | null;
   type: string | null;
-  /** Poids annoncé par le message, en octets. */
+  /** Size announced by the message, in bytes. */
   size: number | null;
   encryption?: FileEncryption | null;
 };
@@ -48,7 +47,7 @@ export function shareInBackground(attachment: AttachmentToTransfer, t: Translate
   });
 }
 
-/** Le choix au toucher d'un fichier : télécharger ou partager, avant tout téléchargement. */
+/** The choice when a file is tapped: download or share, before any download. */
 export function offerDownloadOrShare(attachment: AttachmentToTransfer, t: TranslateFn): void {
   Alert.alert(
     attachment.title ?? t('messageRow.file'),

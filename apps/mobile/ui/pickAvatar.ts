@@ -1,11 +1,11 @@
 /**
- * Choix d'une photo de profil : ouvre le sélecteur d'images natif, laisse
- * RECADRER en carré (`allowsEditing` + `aspect [1,1]`) — un avatar est toujours
- * carré — et compresse. Rend un `FichierAEnvoyer` prêt pour `users.setAvatar`,
- * ou `null` si l'utilisateur annule.
+ * Picks a profile photo: opens the native image picker, lets the user CROP
+ * to a square (`allowsEditing` + `aspect [1,1]`), as an avatar is always
+ * square, and compresses. Returns a `FileToSend` ready for `users.setAvatar`,
+ * or `null` if the user cancels.
  *
- * Le photo picker Android moderne ne demande AUCUNE permission d'accès à la
- * galerie (il tourne hors du bac à sable de l'app), donc pas de garde ici.
+ * The modern Android photo picker asks for NO gallery access permission (it
+ * runs outside the app's sandbox), hence no guard here.
  */
 
 import * as ImagePicker from 'expo-image-picker';
@@ -19,7 +19,7 @@ export async function pickAvatar(): Promise<FileToSend | null> {
       mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
-      // 0.7 : un avatar est affiché petit ; inutile de téléverser du plein format.
+      // 0.7: an avatar is shown small; no point uploading full size.
       quality: 0.7,
       preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
     }),
@@ -27,7 +27,7 @@ export async function pickAvatar(): Promise<FileToSend | null> {
   if (res.canceled || res.assets.length === 0) return null;
   const a = res.assets[0]!;
   const type = a.mimeType ?? 'image/jpeg';
-  // Extension cohérente avec le MIME : le serveur se fie parfois au nom.
+  // Extension consistent with the MIME: the server sometimes trusts the name.
   const ext = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : 'jpg';
   return { uri: a.uri, name: a.fileName ?? `avatar.${ext}`, type };
 }

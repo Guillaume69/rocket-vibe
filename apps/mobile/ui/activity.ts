@@ -1,7 +1,7 @@
 /**
- * Lecture React de l'activité réseau de fond (indicateur « mise à jour… »).
- * `useSyncExternalStore` : le moteur est un magasin volatil, pas de SQLite —
- * même mécanique que `usePresence`.
+ * React view of background network activity (the "updating…" indicator).
+ * `useSyncExternalStore`: the engine is a volatile store, not SQLite, same
+ * mechanics as `usePresence`.
  */
 
 import { useCallback, useSyncExternalStore } from 'react';
@@ -11,16 +11,16 @@ import { useSync } from './sync.tsx';
 const NOTHING = () => {};
 
 /**
- * `true` tant qu'un fetch de fond est en vol pour cette portée : `'global'`
- * pour le rattrapage à l'ouverture de l'app, un `rid` pour l'historique d'un
- * salon. `false` hors phase « pret » — l'écran plein de chargement couvre ce cas.
+ * `true` while a background fetch is in flight for this scope: `'global'`
+ * for the catch-up at app start, a `rid` for a room's history. `false` outside
+ * the `ready` phase: the full loading screen covers that case.
  */
 export function useActivity(key: string): boolean {
   const sync = useSync();
   const activity = sync.phase === 'ready' ? sync.activity : null;
 
-  // Identités STABLES (cf. usePresence) : un `subscribe` recréé à chaque rendu
-  // ferait désabonner/réabonner l'en-tête à chaque re-rendu.
+  // STABLE identities (see usePresence): a `subscribe` recreated on every render
+  // would unsubscribe/resubscribe the header on every re-render.
   const subscribe = useCallback(
     (reread: () => void) => (activity === null ? NOTHING : activity.onChange(reread)),
     [activity],

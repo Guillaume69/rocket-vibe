@@ -1,40 +1,39 @@
 /**
- * Le jeton de la session UI courante — ce qui permet à un cache module-level
- * de refuser une écriture arrivée trop tard.
+ * The current UI session's token: what lets a module-level cache refuse a
+ * write that arrives too late.
  *
- * Le problème, précis : les caches d'écran (`ui/loadedRooms.ts`,
- * `ui/loadedThreads.ts`, `ui/hotRooms.ts`) vivent au niveau du MODULE, donc
- * survivent au démontage de l'arbre. `ui/sync.tsx` les purge dans son
- * cleanup — mais ce cleanup court AVANT celui des écrans qu'il portait. Un
- * écran salon démonté juste après appelle donc `garderAuChaud(...)` avec des
- * relâcheurs qui pointent sur un client DDP déjà `reinitialiser()`, et
- * REPEUPLE le cache qu'on venait de vider.
+ * The exact problem: screen caches (`ui/loadedRooms.ts`,
+ * `ui/loadedThreads.ts`, `ui/hotRooms.ts`) live at MODULE level, so they
+ * outlive the tree's unmount. `ui/sync.tsx` purges them in its cleanup, but
+ * that cleanup runs BEFORE those of the screens it carried. A room screen
+ * unmounted right after therefore calls `keepWarm(...)` with releasers
+ * pointing at a DDP client already `reset()`, and REPOPULATES the cache that
+ * was just emptied.
  *
- * L'entrée fantôme ne s'efface plus jamais, et elle MENT : la garde compare
- * une égalité de générations, or le compteur repart de 0 à la session
- * suivante. Dès que la nouvelle session atteint la valeur mémorisée,
- * `salonCouvert` répond « rien à rattraper » pour un salon que cette socket-là
- * n'a jamais écouté — éditions et suppressions manquées ne sont alors jamais
- * rapatriées.
+ * The ghost entry never clears again, and it LIES: the guard compares
+ * generations for equality, yet the counter restarts from 0 in the next
+ * session. As soon as the new session reaches the remembered value,
+ * `roomCovered` answers "nothing to catch up" for a room this socket never
+ * listened to; missed edits and deletions are then never fetched.
  *
- * Un jeton règle ça sans délai ni ordonnancement : l'écran capture le jeton au
- * moment où il prend ses souscriptions, et le rend en les confiant. Si le
- * jeton a changé entre-temps, la session à laquelle ces références
- * appartenaient est morte — on relâche au lieu de mémoriser. Fait causal,
- * jamais chronologique, comme `generation` elle-même.
+ * A token fixes this with no delay or ordering: the screen captures the token
+ * when it takes its subscriptions, and hands it back when handing them over.
+ * If the token changed in between, the session those references belonged to
+ * is dead: release instead of remembering. A causal fact, never a
+ * chronological one, like `generation` itself.
  */
 
 let token = 0;
 
-/** À capturer au MONTAGE, à rendre au démontage — jamais relu entre les deux. */
+/** Capture on MOUNT, hand back on unmount; never read in between. */
 export function sessionToken(): number {
   return token;
 }
 
 /**
- * Fin de session / changement de serveur. Appelée par les purges de caches
- * elles-mêmes : ce qui vide un cache de session invalide forcément le jeton,
- * et l'oubli d'un des deux gestes ferait retomber le défaut.
+ * End of session / server switch. Called by the cache purges themselves:
+ * whatever empties a session cache necessarily invalidates the token, and
+ * forgetting either step would bring the defect back.
  */
 export function invalidateSessionToken(): void {
   token += 1;

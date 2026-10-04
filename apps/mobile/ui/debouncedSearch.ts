@@ -1,23 +1,22 @@
 /**
- * Recherche débouncée avec garde de séquence — l'idiome commun aux deux écrans
- * de recherche (spotlight, `chat.search`), qui avaient déjà divergé sur le
- * nettoyage du message d'erreur avant d'être réunis ici.
+ * Debounced search with a sequence guard: the idiom shared by both search
+ * screens (spotlight, `chat.search`), which had already diverged on clearing
+ * the error message before being merged here.
  *
- * - une requête par PAUSE de frappe, pas par touche : le REST est rate-limité ;
- * - la garde de séquence rejette les réponses EN RETARD : sans elle, la
- *   réponse lente de « a » écraserait les résultats frais de « ab » (le rejeu
- *   sur 429 du client rend le cas très réel) ;
- * - requête vide = remise à zéro COMPLÈTE et immédiate : résultats, message
- *   d'erreur ET `repondue` — un bandeau « recherche impossible » ne survit pas
- *   au vidage du champ.
+ * - one request per typing PAUSE, not per key: REST is rate-limited;
+ * - the sequence guard drops LATE responses: without it, the slow response
+ *   for "a" would overwrite the fresh results for "ab" (the client's replay
+ *   on 429 makes the case very real);
+ * - empty query = COMPLETE, immediate reset: results, error message AND
+ *   `answered`; a "search failed" banner does not survive clearing the field.
  */
 
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 
 /**
- * `vide` et `chercher` doivent être STABLES (constante module-level,
- * `useCallback`) : leur identité relance l'effet, et une valeur recréée à
- * chaque rendu bouclerait débounce → réponse → rendu → débounce.
+ * `empty` and `search` must be STABLE (module-level constant,
+ * `useCallback`): their identity reruns the effect, and a value recreated on
+ * every render would loop debounce → response → render → debounce.
  */
 export function useDebouncedSearch<T>(
   query: string,
@@ -29,16 +28,16 @@ export function useDebouncedSearch<T>(
   results: T;
   message: string | null;
   /**
-   * Le setter est exposé parce que le bandeau d'erreur est PARTAGÉ avec les
-   * actions de l'écran (démarrer un DM, rejoindre un canal) — et une recherche
-   * qui aboutit efface aussi l'erreur d'une action passée.
+   * The setter is exposed because the error banner is SHARED with the screen's
+   * actions (start a DM, join a channel), and a successful search also clears
+   * a past action's error.
    */
   setMessage: Dispatch<SetStateAction<string | null>>;
   /**
-   * La requête dont les résultats affichés sont issus : « on cherche » se
-   * DÉRIVE (`propre !== '' && repondue !== propre`) au lieu de vivre dans un
-   * état posé par l'effet — sans quoi, pendant le débounce d'une nouvelle
-   * frappe, l'écran afficherait un faux « aucun résultat ».
+   * The query the displayed results come from: "searching" is DERIVED
+   * (`clean !== '' && answered !== clean`) instead of living in state set by
+   * the effect; otherwise, during the debounce of a new keystroke, the screen
+   * would show a false "no results".
    */
   answered: string;
 } {

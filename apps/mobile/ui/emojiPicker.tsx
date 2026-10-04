@@ -1,16 +1,16 @@
 /**
- * Le navigateur d'emojis : un panneau qui prend la place du clavier, avec une
- * recherche, des onglets de catégorie et une grille à piocher.
+ * The emoji picker: a panel that takes the keyboard's place, with a search,
+ * category tabs and a grid to pick from.
  *
- * Tout est NATIF — une grille `FlatList`, des `Text`/`Image`, aucun kit UI ni
- * WebView (ROADMAP §4.2). Les données viennent de `lib/emojis.ts`
- * (`emojisParCategorie`, 1918 codes de base classés) et des customs du serveur ;
- * la résolution glyphe/image et l'insertion réutilisent `resoudre`
- * (`ui/emojiCompletion.tsx`), seul juge du standard vs custom.
+ * Everything is NATIVE: a `FlatList` grid, `Text`/`Image`, no UI kit or
+ * WebView (ROADMAP §4.2). Data comes from `lib/emojis.ts` (`emojisByCategory`,
+ * 1918 base codes, classified) and the server customs; glyph/image resolution
+ * and insertion reuse `resolve` (`ui/emojiCompletion.tsx`), sole judge of
+ * standard vs custom.
  *
- * L'insertion se fait AU CURSEUR sans espace (`insererAuCurseur` côté composer) :
- * on pose les emojis les uns contre les autres, comme le clavier du système. Le
- * panneau reste ouvert après un choix — on en enchaîne plusieurs.
+ * Insertion happens AT THE CURSOR with no space (`insertAtCursor` in the
+ * composer): emojis go side by side, like the system keyboard. The panel stays
+ * open after a pick, so several can be chained.
  */
 
 import {
@@ -59,35 +59,35 @@ import { useHardwareBack } from './hardwareBack.ts';
 import { type Colors, LIST_PRESS_DELAY, FONTS } from './theme.ts';
 import { Tappable } from './tappable.tsx';
 
-/** Une recherche dans le navigateur ratisse plus large que la bande inline. */
+/** A search in the picker casts a wider net than the inline strip. */
 const SEARCH_LIMIT = 300;
-/** Largeur cible d'une case ; le nombre de colonnes s'en déduit de l'écran. */
+/** Target cell width; the column count follows from the screen. */
 const TARGET_CELL = 46;
 
 /**
- * Repli quand aucun clavier n'a encore été mesuré (panneau ouvert sans avoir
- * jamais tapé) : ~42 % de l'écran, borné. Dès qu'un clavier s'est montré, on
- * prend SA hauteur — le panneau prend exactement sa place, sans écart.
+ * Fallback when no keyboard has been measured yet (panel opened without ever
+ * typing): ~42% of the screen, bounded. Once a keyboard has shown, ITS height
+ * is used: the panel takes exactly its place, with no gap.
  */
 function defaultHeight(screenHeight: number): number {
   return Math.min(360, Math.max(260, Math.round(screenHeight * 0.42)));
 }
 
-/** Glissement propre du panneau, calé sur la durée d'un clavier Android. */
+/** Clean panel slide, matched to an Android keyboard's duration. */
 const SWIPE_DURATION = 250;
 
 /**
- * `cede` : le clavier remonte et va reprendre la place. Le panneau GARDE sa
- * cible ; sa hauteur affichée fond au rythme du clavier (même SharedValue), donc
- * le composer ne bouge pas d'un pixel. On ne repasse à `ferme` qu'une fois le
- * clavier levé — à ce moment la hauteur vaut déjà 0, ça ne se voit pas.
+ * `yielded`: the keyboard is coming up to take the place back. The panel KEEPS
+ * its target; its displayed height melts at the keyboard's pace (same
+ * SharedValue), so the composer does not move a pixel. It only goes back to
+ * `closed` once the keyboard is up, when the height is already 0 and nothing shows.
  */
 type PanelState = 'closed' | 'open' | 'yielded';
 
 /**
- * Pilote le panneau emoji d'un composer : bascule 😀/⌨️, back qui referme au
- * lieu de quitter l'écran, et la hauteur calée sur le vrai clavier.
- * Partagé par le salon et le fil — mêmes gestes, une seule mécanique.
+ * Drives a composer's emoji panel: the 😀/⌨️ toggle, back that closes it
+ * instead of leaving the screen, and the height matched to the real keyboard.
+ * Shared by room and thread: same gestures, one mechanism.
  */
 export function useEmojiPanel(fieldRef: RefObject<TextInput | null>) {
   const [state, setState] = useState<PanelState>('closed');
@@ -97,37 +97,37 @@ export function useEmojiPanel(fieldRef: RefObject<TextInput | null>) {
   const keyboardVisible = useKeyboardState((s) => s.isVisible);
   const { height: keyboardLive } = useReanimatedKeyboardAnimation();
 
-  // La hauteur du clavier retombe à 0 quand il se ferme : on retient la dernière
-  // mesure utile, c'est elle que le panneau doit remplir.
+  // The keyboard height drops to 0 when it closes: keep the last useful
+  // measurement, that is what the panel must fill.
   const [lastHeight, setLastHeight] = useState(0);
   if (keyboardHeight > 0 && keyboardHeight !== lastHeight) setLastHeight(keyboardHeight);
 
-  // Mesurée depuis le bas de la fenêtre, la hauteur du clavier inclut la barre
-  // de navigation, que `VueEvitantLeClavier` paie déjà en marge : on la retire.
+  // Measured from the bottom of the window, the keyboard height includes the
+  // navigation bar, which `KeyboardAvoidingContainer` already pays as margin: subtract it.
   const height =
     lastHeight > 0
       ? Math.max(180, lastHeight - insets.bottom)
       : defaultHeight(screenHeight);
 
-  // Le panneau se monte une fois l'écran posé, à hauteur nulle, et ne se démonte
-  // plus. Monter la grille coûte plusieurs frames : au tap sur 😀 ce coût
-  // tomberait pile sur le chemin critique et se verrait comme un blocage. Payé
-  // pendant que l'écran est au repos, il ne se voit pas — le tap ne change plus
-  // qu'une hauteur. `runAfterInteractions` attend que l'ouverture du salon (et
-  // son défilement) soit finie, pour ne pas la saccader à sa place.
+  // The panel mounts once the screen has settled, at zero height, and never
+  // unmounts. Mounting the grid costs several frames: on the 😀 tap that cost
+  // would land right on the critical path and look like a freeze. Paid while the
+  // screen is idle, it does not show; the tap then only changes a height.
+  // `runAfterInteractions` waits for the room opening (and its scroll) to finish,
+  // so as not to make it stutter instead.
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => setMounted(true));
     return () => task.cancel();
   }, []);
 
-  // Fin de `cede` : quand le clavier a FINI de couvrir le panneau, pas avant.
-  // `useKeyboardState` lève `isVisible` dès `keyboardWillShow`, donc au DÉBUT de
-  // la remontée : s'y fier remettait la cible à 0 pendant que le clavier montait
-  // encore, le panneau se repliait sur son propre timing par-dessus, et le
-  // composer plongeait avant de remonter. On lit la SharedValue, alimentée frame
-  // par frame : à l'instant où le clavier couvre tout, la hauteur affichée vaut
-  // déjà 0 et le passage à `ferme` ne se voit pas.
+  // End of `yielded`: when the keyboard has FINISHED covering the panel, not
+  // before. `useKeyboardState` raises `isVisible` on `keyboardWillShow`, so at
+  // the START of the rise: relying on it reset the target to 0 while the
+  // keyboard was still rising, the panel folded on its own timing on top, and
+  // the composer dipped before rising again. We read the SharedValue, fed frame
+  // by frame: the moment the keyboard covers everything, the displayed height is
+  // already 0 and the switch to `closed` does not show.
   const closeIfYielded = useCallback(() => setState((e) => (e === 'yielded' ? 'closed' : e)), []);
   useAnimatedReaction(
     () => -keyboardLive.value >= height + insets.bottom,
@@ -137,39 +137,38 @@ export function useEmojiPanel(fieldRef: RefObject<TextInput | null>) {
   );
 
   const toggle = useCallback(() => {
-    // L'état suivant se calcule ICI, et les effets de bord partent APRÈS le
-    // `setEtat` : un updater doit rester PUR — StrictMode le double, un rendu
-    // concurrent interrompu le rejoue — et un `Keyboard.dismiss()` exécuté une
-    // fois de trop pendant l'animation peut faire manquer sa transition à
-    // `useAnimatedReaction`, laissant le panneau en `cede`, hauteur réservée
-    // sous le composer.
+    // The next state is computed HERE, and side effects run AFTER `setState`: an
+    // updater must stay PURE (StrictMode doubles it, an interrupted concurrent
+    // render replays it), and a `Keyboard.dismiss()` run once too often during
+    // the animation can make `useAnimatedReaction` miss its transition, leaving
+    // the panel `yielded`, with space reserved under the composer.
     const next: PanelState = state === 'open' ? 'yielded' : 'open';
     setState(next);
     if (next === 'yielded') fieldRef.current?.focus();
     else Keyboard.dismiss();
   }, [state, fieldRef]);
 
-  // Toucher le champ rend la place au clavier.
+  // Touching the field gives the place back to the keyboard.
   const onFocus = useCallback(() => setState((e) => (e === 'open' ? 'yielded' : e)), []);
   const close = useCallback(() => setState('closed'), []);
 
   useHardwareBack(state === 'open', close);
 
   return {
-    /** Vrai quand le panneau tient la place (bouton en ⌨️, bandeaux masqués). */
+    /** True when the panel holds the place (button shows ⌨️, banners hidden). */
     open: state === 'open',
-    /** Monté (peut-être à hauteur nulle). */
+    /** Mounted (possibly at zero height). */
     mounted,
-    /** Taille du CONTENU : stable, pour que la grille ne se remesure pas à l'ouverture. */
+    /** CONTENT size: stable, so the grid is not re-measured on open. */
     height,
-    /** Hauteur visée ; 0 replie. */
+    /** Target height; 0 folds. */
     target: state === 'closed' ? 0 : height,
     /**
-     * Le panneau doit-il s'animer LUI-MÊME ? Clavier ouvert, non : il se
-     * rétracte déjà et découvre le panneau à son rythme, s'animer en plus les
-     * ferait courir l'un contre l'autre et le composer plongerait. Clavier
-     * fermé — le cas de LOIN le plus courant, on ouvre les emojis sans avoir
-     * tapé — rien ne pilote : sans ça le panneau surgit d'un bloc.
+     * Should the panel animate ITSELF? Keyboard open, no: it is already retracting
+     * and uncovering the panel at its own pace; animating as well would race the
+     * two and the composer would dip. Keyboard closed (BY FAR the most common
+     * case, emojis opened without typing): nothing drives it, and without this the
+     * panel pops up in one block.
      */
     swiped: !keyboardVisible,
     toggle,
@@ -178,11 +177,11 @@ export function useEmojiPanel(fieldRef: RefObject<TextInput | null>) {
   };
 }
 
-/** Onglet actif : une catégorie standard, ou les customs du serveur. */
+/** Active tab: a standard category, or the server customs. */
 type Tab = EmojiCategory | 'custom';
 
-/** Métadonnées d'affichage des onglets, dans l'ordre canonique. Icône = un emoji
- *  représentatif de la catégorie ; libellé (clé de traduction) pour l'accessibilité. */
+/** Tab display metadata, in canonical order. Icon = an emoji representative
+ *  of the category; label (translation key) for accessibility. */
 const TABS: { key: EmojiCategory; icon: string; labelKey: TranslationKey }[] = [
   { key: 'people', icon: '😀', labelKey: 'emojiPicker.people' },
   { key: 'nature', icon: '🐻', labelKey: 'emojiPicker.nature' },
@@ -202,13 +201,13 @@ export function EmojiPicker({
   onPick,
 }: {
   c: Colors;
-  /** Taille du contenu — stable : la grille est mesurée une fois, pas à chaque ouverture. */
+  /** Content size, stable: the grid is measured once, not on every open. */
   height: number;
-  /** Hauteur visée (`usePanneauEmoji`), 0 pour se replier. */
+  /** Target height (`useEmojiPanel`), 0 to fold. */
   target: number;
-  /** Le panneau s'anime lui-même (aucun clavier ne le fait pour lui). */
+  /** The panel animates itself (no keyboard does it for it). */
   swiped: boolean;
-  /** Reçoit ce qu'on insère : un glyphe (standard) ou `:nom:` (custom). */
+  /** Receives what is inserted: a glyph (standard) or `:name:` (custom). */
   onPick: (insertion: string) => void;
 }) {
   const t = useT();
@@ -216,16 +215,16 @@ export function EmojiPicker({
   const insets = useSafeAreaInsets();
   const { height: keyboard } = useReanimatedKeyboardAnimation();
 
-  // Ouverture clavier ouvert : instantanée, c'est sa rétractation qui découvre
-  // le panneau (formule ci-dessous). Sinon, le panneau glisse de lui-même.
+  // Opening with the keyboard open: instant, its retraction uncovers the panel
+  // (formula below). Otherwise the panel slides on its own.
   const liveTarget = useDerivedValue(() =>
     target > 0 && !swiped ? target : withTiming(target, { duration: SWIPE_DURATION }),
   );
-  // Le panneau ne remplit QUE ce que le clavier libère : `VueEvitantLeClavier`
-  // paie déjà `max(inset, hauteurClavier)` en marge basse, et les deux lisent la
-  // même SharedValue, alimentée frame par frame côté natif. Somme constante donc
-  // composer immobile, à l'ouverture comme à la fermeture — aucun saut, aucune
-  // animation JS à synchroniser avec celle du système.
+  // The panel fills ONLY what the keyboard frees: `KeyboardAvoidingContainer`
+  // already pays `max(inset, keyboardHeight)` as bottom margin, and both read
+  // the same SharedValue, fed frame by frame on the native side. Constant sum,
+  // so the composer stays still, opening and closing alike: no jump, no JS
+  // animation to sync with the system's.
   const style = useAnimatedStyle(() => ({
     height: Math.max(0, liveTarget.value - Math.max(0, -keyboard.value - insets.bottom)),
   }));
@@ -233,12 +232,11 @@ export function EmojiPicker({
   const [tab, setTab] = useState<Tab>('people');
   const [search, setSearch] = useState('');
 
-  // ABONNÉ, pas figé au montage : ce panneau ne se démonte JAMAIS
-  // (`usePanneauEmoji` le monte une fois pour toutes), et
-  // `synchroniserEmojisCustom` court APRÈS `pret` — à la première installation,
-  // la liste lue au montage est vide, l'onglet ⭐ n'existerait pas et la
-  // recherche ne proposerait aucun custom de toute la session. Le cache gelé de
-  // `codesEmojiCustom` est l'instantané stable qu'exige `useSyncExternalStore`.
+  // SUBSCRIBED, not frozen at mount: this panel NEVER unmounts (`useEmojiPanel`
+  // mounts it once and for all), and `syncCustomEmojis` runs AFTER `ready`: on
+  // first install the list read at mount is empty, the ⭐ tab would not exist and
+  // search would offer no custom for the whole session. The frozen cache of
+  // `codesEmojiCustom` is the stable snapshot `useSyncExternalStore` requires.
   const customs = useSyncExternalStore(onCustomEmojisChange, codesEmojiCustom);
   const byCategory = useMemo(() => emojisByCategory(), []);
 
@@ -251,8 +249,8 @@ export function EmojiPicker({
     return byCategory[tab].map((code) => ({ code, type: 'standard' as const }));
   }, [query, tab, customs, byCategory]);
 
-  // Remonte la grille en haut quand la vue change (catégorie, passage en
-  // recherche, rotation) : une nouvelle `key` remonte la `FlatList`.
+  // Scroll the grid back to the top when the view changes (category, switch to
+  // search, rotation): a new `key` remounts the `FlatList`.
   const listKey = `${query !== '' ? 'recherche' : tab}-${columns}`;
   const cellSize = Math.floor(width / columns);
 
@@ -260,8 +258,8 @@ export function EmojiPicker({
     <Animated.View
       style={[styles.panel, { backgroundColor: c.card, borderTopColor: c.border }, style]}
     >
-      {/* Contenu à taille FIXE derrière l'enveloppe qui, elle, s'anime : la
-          grille est mesurée une fois pour toutes, jamais frame par frame. */}
+      {/* FIXED-size content behind the wrapper, which is what animates: the grid
+          is measured once and for all, never frame by frame. */}
       <View style={{ height }}>
       <View style={[styles.search, { backgroundColor: c.deepCard }]}>
         <Text style={styles.magnifier}>🔍</Text>
@@ -323,9 +321,9 @@ export function EmojiPicker({
           return (
             <Tappable
               onPress={() => onPick(insertion)}
-              // Vague CIRCULAIRE. `borderless` + rayon calibré sur la case :
-              // le masque du ripple borné ignore borderRadius sous Fabric
-              // (vérifié sur l'émulateur — rectangle quel que soit le style).
+              // CIRCULAR ripple. `borderless` + radius calibrated on the cell: the bounded
+              // ripple mask ignores borderRadius under Fabric (checked on the emulator:
+              // a rectangle whatever the style).
               android_ripple={{ color: c.ripple, borderless: true, radius: cellSize / 2 - 2 }}
               unstable_pressDelay={LIST_PRESS_DELAY}
               style={[styles.case, { width: cellSize, height: cellSize }]}

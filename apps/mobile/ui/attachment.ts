@@ -1,17 +1,16 @@
 /**
- * Câblage natif de `lib/attachment.ts` : `expo-file-system/legacy` pour
- * télécharger dans le cache, `expo-sharing` pour ouvrir la feuille de partage
- * sur le fichier local.
+ * Native wiring of `lib/attachment.ts`: `expo-file-system/legacy` to download
+ * into the cache, `expo-sharing` to open the share sheet on the local file.
  *
- * `expo-sharing` est un binding natif de niveau 1 au sens de ROADMAP §4.2 — il
- * expose `Intent.ACTION_SEND` et pose son propre `FileProvider`, sans imposer
- * ni composant ni look. Aucun config plugin à écrire ; `expo install` a ajouté
- * son entrée dans `app.json`, mais il faut un `prebuild` + rebuild pour que le
- * module existe côté natif.
+ * `expo-sharing` is a level-1 native binding in the sense of ROADMAP §4.2: it
+ * exposes `Intent.ACTION_SEND` and installs its own `FileProvider`, imposing
+ * neither component nor look. No config plugin to write; `expo install` added
+ * its entry to `app.json`, but a `prebuild` + rebuild is needed for the module
+ * to exist natively.
  *
- * La logique (assainissement du nom, dossier par identifiant de fichier) reste
- * dans `lib/`, où elle se teste sous Node : ce fichier-ci n'est pas importable
- * hors appareil. Même patron que `ui/transportUpload.ts`.
+ * The logic (name sanitising, folder per file id) stays in `lib/`, where it is
+ * tested under Node: this file cannot be imported off device. Same pattern as
+ * `ui/transportUpload.ts`.
  */
 
 import { Buffer } from 'buffer';
@@ -24,7 +23,7 @@ import { downloadedFraction, downloadAttachment, toGallery } from '../lib/attach
 import { Downloads } from '../modules/downloads/index.ts';
 import type { Progress } from './transfers.ts';
 
-/** Levée quand rien ne peut ouvrir le fichier : l'appelant en informe l'écran. */
+/** Thrown when nothing can open the file: the caller tells the screen. */
 export class FileOpenError extends Error {
   constructor(message: string) {
     super(message);
@@ -36,17 +35,17 @@ type AttachmentOptions = {
   url: string;
   title: string | null | undefined;
   type: string | null | undefined;
-  /** Poids annoncé par le message, en octets. */
+  /** Size announced by the message, in bytes. */
   size?: number | null;
-  /** Fichier d'un salon chiffré : on télécharge du chiffré, on garde le clair. */
+  /** File from an encrypted room: we download ciphertext and keep the plaintext. */
   encryption?: FileEncryption | null;
   onProgress?: (p: Progress) => void;
 };
 
 /**
- * Télécharge dans le cache, ou y retrouve le fichier : l'écriture passe par un
- * `.part` renommé à la fin, donc un fichier présent sous son vrai nom est
- * COMPLET. Partager après avoir enregistré ne retélécharge rien.
+ * Downloads into the cache, or finds the file there: writes go through a
+ * `.part` renamed at the end, so a file present under its real name is
+ * COMPLETE. Sharing after saving downloads nothing again.
  */
 async function toCache(options: AttachmentOptions): Promise<string> {
   const folder = FileSystem.cacheDirectory;
@@ -61,8 +60,8 @@ async function toCache(options: AttachmentOptions): Promise<string> {
     },
     download: async (url, destination) => {
       if ((await FileSystem.getInfoAsync(destination)).exists) return;
-      // Un fichier déjà déchiffré dans NOTRE cache (la visionneuse qui
-      // enregistre une image chiffrée) : rien à télécharger.
+      // A file already decrypted in OUR cache (the viewer saving an encrypted
+      // image): nothing to download.
       if (url.startsWith(folder)) {
         await FileSystem.copyAsync({ from: url, to: destination });
         return;
@@ -74,8 +73,8 @@ async function toCache(options: AttachmentOptions): Promise<string> {
         );
       });
       const res = await task.downloadAsync();
-      // Un 401/403/404 s'écrit quand même sur le disque : sans ce contrôle, on
-      // partagerait ou enregistrerait le corps JSON de l'erreur.
+      // A 401/403/404 still gets written to disk: without this check, we would
+      // share or save the error's JSON body.
       if (res === undefined || res.status !== 200) {
         await FileSystem.deleteAsync(partial, { idempotent: true });
         throw new FileOpenError(`Download refused (HTTP ${res?.status ?? 0}).`);
@@ -99,8 +98,8 @@ async function toCache(options: AttachmentOptions): Promise<string> {
 const inProgress = new Map<string, Promise<string>>();
 
 /**
- * Le fichier clair d'une pièce jointe chiffrée, dans le cache — pour l'afficher.
- * Une même pièce vue deux fois à l'écran ne se télécharge qu'une fois.
+ * The plaintext file of an encrypted attachment, in the cache, for display.
+ * The same attachment shown twice on screen is downloaded only once.
  */
 export function decryptedFile(options: AttachmentOptions): Promise<string> {
   const existing = inProgress.get(options.url);
@@ -111,9 +110,9 @@ export function decryptedFile(options: AttachmentOptions): Promise<string> {
 }
 
 /**
- * Télécharge la pièce jointe protégée puis ouvre la feuille de partage dessus.
- * L'URL authentifiée ne sort pas du processus : seul le `file://` local est
- * confié au système.
+ * Downloads the protected attachment, then opens the share sheet on it.
+ * The authenticated URL never leaves the process: only the local `file://`
+ * is handed to the system.
  */
 export async function openProtectedAttachment(options: AttachmentOptions): Promise<void> {
   if (!(await Sharing.isAvailableAsync())) {
@@ -123,7 +122,7 @@ export async function openProtectedAttachment(options: AttachmentOptions): Promi
   await Sharing.shareAsync(local, options.type ? { mimeType: options.type } : {});
 }
 
-/** Confie au système un fichier DÉJÀ local (une pièce pas encore envoyée). */
+/** Hands an ALREADY local file to the system (an attachment not yet sent). */
 export async function openLocalFile(uri: string, type: string | null): Promise<void> {
   if (!(await Sharing.isAvailableAsync())) {
     throw new FileOpenError('File sharing is unavailable.');
@@ -134,9 +133,9 @@ export async function openLocalFile(uri: string, type: string | null): Promise<v
 export type SaveLocation = 'gallery' | 'downloads' | 'share';
 
 /**
- * Télécharge la pièce jointe protégée puis l'ENREGISTRE sur l'appareil : photo,
- * vidéo et son dans la galerie, tout autre fichier dans Téléchargements — les
- * deux par MediaStore, sans permission depuis Android 10.
+ * Downloads the protected attachment, then SAVES it on the device: photo,
+ * video and sound into the gallery, any other file into Downloads, both
+ * through MediaStore, without permission since Android 10.
  */
 export async function saveProtectedAttachment(options: AttachmentOptions): Promise<SaveLocation> {
   const local = await toCache(options);
@@ -146,8 +145,8 @@ export async function saveProtectedAttachment(options: AttachmentOptions): Promi
     try {
       await Asset.create(local);
     } catch {
-      // Android 9 et avant : l'écriture dans le stockage partagé exige encore
-      // la permission. On la demande, puis on réessaie une fois.
+      // Android 9 and earlier: writing to shared storage still requires the
+      // permission. Ask for it, then retry once.
       const permission = await requestPermissionsAsync(true);
       if (!permission.granted) throw new FileOpenError('Permission denied.');
       await Asset.create(local);
@@ -155,8 +154,7 @@ export async function saveProtectedAttachment(options: AttachmentOptions): Promi
     return 'gallery';
   }
 
-  // iOS n'a pas de dossier Téléchargements : la feuille de partage propose
-  // « Enregistrer dans Fichiers ».
+  // iOS has no Downloads folder: the share sheet offers "Save to Files".
   if (Downloads === null) {
     await Sharing.shareAsync(local, options.type ? { mimeType: options.type } : undefined);
     return 'share';

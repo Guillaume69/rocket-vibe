@@ -1,37 +1,38 @@
 /**
- * Cible de réponse (citation) — canal entre la feuille d'actions et le composer.
+ * Reply (quote) target: the channel between the action sheet and the
+ * composer.
  *
- * Même famille que `sourcePieceJointe`, mais en ÉTAT OBSERVABLE plutôt qu'en
- * promesse : la feuille arme la cible puis se ferme ; le composer, monté bien
- * avant, l'affiche dans son bandeau tant qu'elle vit — annulée (✕, back), ou
- * soldée par l'envoi. Clé = `rid` pour le salon, `rid:filId` pour un fil : les
- * deux composers peuvent coexister (le fil est empilé sur le salon) sans se
- * voler la cible. Mémoire seule, volontairement : contrairement au brouillon,
- * une citation en suspens ne survit ni au redémarrage ni à la FIN DE SESSION.
+ * Same family as `attachmentSource`, but as OBSERVABLE STATE rather than a
+ * promise: the sheet arms the target then closes; the composer, mounted well
+ * before, shows it in its banner while it lives, cancelled (✕, back) or
+ * settled by sending. Key = `rid` for the room, `rid:threadId` for a thread:
+ * both composers can coexist (the thread is stacked on the room) without
+ * stealing each other's target. Memory only, on purpose: unlike the draft, a
+ * pending quote survives neither a restart nor the END OF SESSION.
  *
- * Le « ni à la fin de session » a longtemps été une intention, pas un fait :
- * une déconnexion ne démonte que l'arbre React, elle n'efface pas un store de
- * module. Le permalien retenu embarque la `baseUrl` (`lib/quote.ts`), donc
- * le premier message tapé après reconnexion partait préfixé du permalien de la
- * session précédente — l'ancien serveur cité dans un message posté sur le
- * nouveau. D'où `oublierReponses`, appelé au démontage de `SynchroProvider`.
+ * The "nor the end of session" part was long an intention, not a fact: a
+ * logout only unmounts the React tree, it does not clear a module store. The
+ * kept permalink embeds the `baseUrl` (`lib/quote.ts`), so the first message
+ * typed after reconnecting went out prefixed with the previous session's
+ * permalink: the old server quoted in a message posted on the new one. Hence
+ * `forgetReplies`, called when `SyncProvider` unmounts.
  */
 
 import { useSyncExternalStore } from 'react';
 
 export type ReplyTarget = {
-  /** `_id` du message cité. */
+  /** `_id` of the quoted message. */
   id: string;
-  /** Username de l'auteur cité — l'instantané suffit pour un bandeau. */
+  /** Username of the quoted author; the snapshot is enough for a banner. */
   author: string | null;
-  /** Extrait du texte cité, déjà purgé de son propre permalien de citation. */
+  /** Excerpt of the quoted text, already stripped of its own quote permalink. */
   preview: string | null;
-  /** Permalien `?msg=` — deviendra le préfixe `[ ](…)` à l'envoi. */
+  /** `?msg=` permalink; becomes the `[ ](…)` prefix at send time. */
   permalink: string;
-  /** Pièce jointe de citation prête pour l'affichage optimiste
-   *  (`jointeCitationLocale`) — pièces du cité incluses, chaîne taillée à 2. */
+  /** Quote attachment ready for optimistic display
+   *  (`localQuoteAttachment`), quoted message's files included, chain trimmed to 2. */
   localAttachment: string;
-  /** URL (relative) de la première image du cité — vignette du bandeau. */
+  /** (Relative) URL of the quoted message's first image: the banner thumbnail. */
   previewImage: string | null;
 };
 
@@ -51,7 +52,7 @@ export function cancelReply(key: string): void {
   if (targets.delete(key)) notify();
 }
 
-/** Fin de session / changement de serveur : aucune citation ne traverse. */
+/** End of session / server switch: no quote crosses over. */
 export function forgetReplies(): void {
   if (targets.size === 0) return;
   targets.clear();
@@ -65,7 +66,7 @@ function subscribe(reread: () => void): () => void {
   };
 }
 
-/** La cible armée pour cette clé, `null` sinon. Se met à jour toute seule. */
+/** The target armed for this key, `null` otherwise. Updates itself. */
 export function useReply(key: string): ReplyTarget | null {
   return useSyncExternalStore(subscribe, () => targets.get(key) ?? null);
 }

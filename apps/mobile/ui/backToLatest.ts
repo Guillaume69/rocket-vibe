@@ -1,11 +1,11 @@
 /**
- * Le bouton « aller aux derniers messages » d'un salon : visible dès qu'on est
- * remonté de plus d'un écran dans l'historique (liste inversée, le décalage se
- * compte donc depuis le plus récent).
+ * A room's "go to latest messages" button: visible once scrolled up more than
+ * one screen into the history (inverted list, so the offset counts from the
+ * newest).
  *
- * Après un appui, le défilement animé repasse par des décalages encore
- * lointains : sans `retourEnCours`, le bouton se rallumerait le temps de
- * l'animation. Un glissé du doigt reprend la main et lève le verrou.
+ * After a press, the animated scroll passes through offsets that are still
+ * far: without `backInProgress`, the button would light up again for the
+ * duration of the animation. A finger drag takes over and lifts the lock.
  */
 
 export type BackToLatestState = { visible: boolean; backInProgress: boolean };

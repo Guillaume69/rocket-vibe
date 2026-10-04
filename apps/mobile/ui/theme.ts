@@ -1,54 +1,54 @@
 /**
- * Thème « Nuit Étoilée » — palette, polices et dégradés.
+ * "Nuit Étoilée" theme: palette, fonts and gradients.
  *
- * La palette vivait dans chaque écran ; à trois copies, une teinte corrigée
- * dans un fichier ne l'était plus dans les autres. Un seul point de vérité,
- * résolu par `useCouleurs()`.
+ * The palette used to live in each screen; with three copies, a hue fixed in
+ * one file was no longer fixed in the others. A single source of truth,
+ * resolved by `useColors()`.
  *
- * Deux jeux complets — `couleursSombres` (Nuit Étoilée) et `couleursClaires`
- * (« jour ») — partagent EXACTEMENT les mêmes clés (l'interface `Couleurs` le
- * garantit). Pour l'instant `useCouleurs()` renvoie TOUJOURS le sombre :
- * l'import du design ne livre que le dark (choix @guillaume). Le clair est déjà
- * saisi comme donnée pour l'écran « jour » (2b) à venir.
+ * Two complete sets, `darkColors` (Nuit Étoilée) and `lightColors` ("day"),
+ * share EXACTLY the same keys (the `Colors` interface guarantees it). For now
+ * `useColors()` ALWAYS returns the dark one: the design import only ships
+ * dark (@guillaume's choice). The light one is already entered as data for
+ * the upcoming "day" screen (2b).
  *
- * Rebrancher la bascule système demandera TROIS retouches, pas une : ici
- * (`useCouleurs` → `useColorScheme()`), `app.json` (`userInterfaceStyle` repassé
- * à `automatic`) et `app/_layout.tsx` (qui code en dur `couleursSombres` pour la
- * coquille de navigation). Cette phrase sert de CONTRAT : toute couleur écrite
- * en dur dans un composant la rend fausse — même les voiles des médias passent
- * par les jetons ci-dessous (identiques dans les deux jeux quand ils se posent
- * sur un média, pas sur le fond du thème).
+ * Wiring the system toggle back will take THREE edits, not one: here
+ * (`useColors` → `useColorScheme()`), `app.json` (`userInterfaceStyle` set
+ * back to `automatic`) and `app/_layout.tsx` (which hardcodes `darkColors`
+ * for the navigation shell). This sentence is a CONTRACT: any color hardcoded
+ * in a component makes it false; even media scrims go through the tokens
+ * below (identical in both sets when they sit on a media, not on the theme
+ * background).
  */
 
 import { Platform } from 'react-native';
 
-/** Un dégradé linéaire : au moins deux arrêts de couleur. */
+/** A linear gradient: at least two color stops. */
 export type Gradient = readonly [string, string, ...string[]];
 
 export interface Colors {
-  /** Fond d'écran plein. */
+  /** Full screen background. */
   background: string;
-  /** Surface d'un champ, d'une bulle, d'une pilule. */
+  /** Surface of a field, a bubble, a pill. */
   card: string;
   /** Panneau plus profond (feuille d'actions, encart « serveurs connus »). */
   deepCard: string;
-  /** Surface légèrement rehaussée (cercle de réaction, pastille active). */
+  /** Slightly raised surface (reaction circle, active chip). */
   surfaceActive: string;
-  /** Fond d'un encart d'erreur. */
+  /** Background of an error box. */
   errorCard: string;
 
-  /** Contour d'un champ, d'une pilule. */
+  /** Outline of a field, a pill. */
   border: string;
-  /** Séparateur discret entre deux lignes. */
+  /** Subtle separator between two rows. */
   softBorder: string;
 
   /** Texte principal. */
   text: string;
-  /** Corps d'un message (un cran sous `texte`). */
+  /** Message body (one notch below `text`). */
   messageText: string;
-  /** Texte secondaire encore lisible (nom de salon non mis en avant). */
+  /** Secondary text still readable (room name not highlighted). */
   secondaryText: string;
-  /** Texte atténué : étiquettes, aperçus. */
+  /** Dimmed text: labels, previews. */
   dimmed: string;
   /** Texte tertiaire : horodatage, indice, placeholder. */
   tertiaryText: string;
@@ -57,24 +57,24 @@ export interface Colors {
 
   /** Accent primaire (rose). */
   accent: string;
-  /** Ondulation Android au toucher. */
+  /** Android touch ripple. */
   ripple: string;
-  /** Texte/icône POSÉ sur un aplat ou un dégradé d'accent. */
+  /** Text/icon PLACED on an accent fill or gradient. */
   onAccent: string;
 
-  /** Accents secondaires de l'arc-en-ciel. */
+  /** Secondary rainbow accents. */
   purple: string;
   cyan: string;
   blue: string;
   yellow: string;
   /**
-   * Texte POSÉ sur un aplat JAUNE — toujours sombre, dans les deux thèmes.
-   * Surtout pas `surAccent` : il est blanc en clair, et blanc sur jaune tombe
-   * à 1,9:1 de contraste. Le compteur de non-lus y était illisible.
+   * Text PLACED on a YELLOW fill: always dark, in both themes.
+   * Never `onAccent`: it is white in light mode, and white on yellow drops to
+   * 1.9:1 contrast. The unread counter was unreadable on it.
    */
   onYellow: string;
 
-  /** Pastilles de présence. */
+  /** Presence dots. */
   online: string;
   absent: string;
   offline: string;
@@ -83,28 +83,28 @@ export interface Colors {
   danger: string;
 
   /**
-   * Fond d'un média plein écran (visionneuse, vidéo). Une photo se regarde sur
-   * du noir, thème clair compris : identique dans les deux jeux.
+   * Background of a full-screen media (viewer, video). A photo is viewed on
+   * black, light theme included: identical in both sets.
    */
   fullScreenBackground: string;
-  /** Voile couvrant posé SUR un média, sous une icône claire (lecteur vidéo). */
+  /** Covering scrim placed ON a media, under a light icon (video player). */
   mediaScrim: string;
-  /** Voile léger qui laisse transparaître la vignette (embed vidéo). */
+  /** Light scrim that lets the thumbnail show through (video embed). */
   lightMediaScrim: string;
-  /** Fond d'attente sous une image en cours de chargement (cartes lien/embed). */
+  /** Placeholder background under a loading image (link/embed cards). */
   pendingImageBackground: string;
-  /** Initiale posée sur le dégradé (saturé) d'une tuile avatar. */
+  /** Initial placed on the (saturated) gradient of an avatar tile. */
   onAvatarGradient: string;
-  /** Ombre portée d'un élément flottant (pastille de saisie). */
+  /** Drop shadow of a floating element (typing chip). */
   dropShadow: string;
 
-  /** Dégradé des boutons d'action principale. */
+  /** Gradient of the primary action buttons. */
   ctaGradient: Gradient;
-  /** Dégradé du logotype « rocket-vibe ». */
+  /** Gradient of the "rocket-vibe" logotype. */
   brandGradient: Gradient;
-  /** Palette de dégradés pour les tuiles d'avatar, choisie par le nom. */
+  /** Gradient palette for avatar tiles, picked by name. */
   avatarGradients: readonly Gradient[];
-  /** Dégradé neutre (salon chiffré, avatar système). */
+  /** Neutral gradient (encrypted room, system avatar). */
   neutralGradient: Gradient;
 }
 
@@ -126,8 +126,8 @@ export const darkColors: Colors = {
   errorText: '#FF7A8A',
 
   accent: '#FF5FA2',
-  // Translucide (25 %) : la RippleDrawable dessine la couleur telle quelle —
-  // opaque, la vague est un flash dur qui écrase le contenu qu'elle recouvre.
+  // Translucent (25 %): the RippleDrawable draws the color as is; opaque,
+  // the wave is a harsh flash that crushes the content it covers.
   ripple: '#E14B9640',
   onAccent: '#0B0913',
 
@@ -152,8 +152,8 @@ export const darkColors: Colors = {
 
   ctaGradient: ['#FF5FA2', '#A78BFA'],
   brandGradient: ['#FF5FA2', '#A78BFA', '#34E1D0'],
-  // Sept teintes aux ENSEMBLES de couleurs distincts (aucune n'est l'inverse
-  // d'une autre) : deux avatars voisins ne se confondent pas.
+  // Seven hues with distinct color SETS (none is the inverse of another):
+  // two neighbouring avatars do not blend together.
   avatarGradients: [
     ['#FF5FA2', '#A78BFA'],
     ['#A78BFA', '#5CC8FF'],
@@ -184,7 +184,7 @@ export const lightColors: Colors = {
   errorText: '#D6335A',
 
   accent: '#E14B96',
-  // Même logique qu'en sombre : translucide, sinon flash opaque.
+  // Same logic as in dark: translucent, otherwise an opaque flash.
   ripple: '#C0398A38',
   onAccent: '#FFFFFF',
 
@@ -200,13 +200,13 @@ export const lightColors: Colors = {
 
   danger: '#D6335A',
 
-  // Posés sur un média (pas sur le fond du thème) : mêmes valeurs qu'en sombre.
+  // Placed on a media (not on the theme background): same values as in dark.
   fullScreenBackground: 'rgba(4,3,10,0.94)',
   mediaScrim: 'rgba(12,11,22,0.80)',
   lightMediaScrim: 'rgba(12,11,22,0.42)',
   pendingImageBackground: '#00000020',
   onAvatarGradient: '#FFFFFF',
-  // Une ombre à 55 % sur fond clair serait un pochoir : adoucie.
+  // A 55 % shadow on a light background would be a stencil: softened.
   dropShadow: 'rgba(0,0,0,0.25)',
 
   ctaGradient: ['#E14B96', '#7C5CE0'],
@@ -224,16 +224,16 @@ export const lightColors: Colors = {
 };
 
 /**
- * Familles de police EMBARQUÉES (config plugin `expo-font`, cf. app.json).
- * Une famille PAR GRAISSE : sur Android, `fontFamily` + `fontWeight` sur une
- * police custom est capricieux (faux-gras synthétique) ; une famille par graisse
- * rend toujours le bon dessin. Ne jamais y adjoindre de `fontWeight`.
+ * EMBEDDED font families (`expo-font` config plugin, see app.json).
+ * One family PER WEIGHT: on Android, `fontFamily` + `fontWeight` on a custom
+ * font is unreliable (synthetic faux bold); one family per weight always
+ * renders the right glyphs. Never add a `fontWeight` to them.
  *
- * Android nomme la police d'après son FICHIER, iOS d'après son nom PostScript
- * (table `name` du .ttf) : un nom de fichier sous iOS retombe sans bruit sur la
- * police système.
+ * Android names the font after its FILE, iOS after its PostScript name (the
+ * .ttf `name` table): a file name on iOS silently falls back to the system
+ * font.
  *
- * `titre*` = Baloo 2 (arrondie, pour les titres) ; le reste = Nunito (corps).
+ * `title*` = Baloo 2 (rounded, for titles); the rest = Nunito (body).
  */
 const fonts = (file: string, postScript: string): string =>
   Platform.OS === 'ios' ? postScript : file;
@@ -249,45 +249,44 @@ export const FONTS = {
 } as const;
 
 /**
- * Délai (ms) avant qu'un `Pressable` d'une LISTE (ou d'une ligne de bottom
- * sheet) n'affiche sa pression — via `unstable_pressDelay`. Le temps qu'il
- * s'écoule, un début de scroll (ou le glisser-pour-fermer natif d'une feuille)
- * s'empare du geste et ANNULE la pression : la couleur/ondulation n'apparaît
- * jamais quand on ne fait que défiler. Un vrai tap reste instantané —
- * Pressability vide le `onPressIn` retardé avant le relâchement.
+ * Delay (ms) before a `Pressable` in a LIST (or a bottom sheet row) shows its
+ * press, via `unstable_pressDelay`. Meanwhile, the start of a scroll (or a
+ * sheet's native swipe-to-dismiss) grabs the gesture and CANCELS the press:
+ * the color/ripple never shows when merely scrolling. A real tap stays
+ * instant: Pressability flushes the delayed `onPressIn` before release.
  *
- * 120 ms : au-delà du seuil de détection du scroll, en-deçà du perceptible sur
- * un tap franc. Ne PAS mettre sur les gros CTA hors liste, ça les rendrait mous.
+ * 120 ms: above the scroll detection threshold, below what is perceptible on
+ * a clean tap. Do NOT put it on big CTAs outside lists, it would make them
+ * mushy.
  */
 export const LIST_PRESS_DELAY = 120;
 
 /**
- * Largeur disponible pour le corps d'un message : écran − marges de liste
- * (16×2) − colonne avatar (34) − gouttière (10), plafonnée pour les grands
- * écrans. Partagée entre les images jointes (`ui/messageRow.tsx`) et les
- * aperçus de lien (`ui/linkCard.tsx`), qui doivent s'aligner — le calcul
- * était recopié dans les deux.
+ * Width available for a message body: screen − list margins (16×2) − avatar
+ * column (34) − gutter (10), capped for large screens. Shared by attached
+ * images (`ui/messageRow.tsx`) and link previews (`ui/linkCard.tsx`), which
+ * must line up; the computation was copied in both.
  */
 export function availableBodyWidth(screenWidth: number): number {
   return Math.min(screenWidth - 92, 380);
 }
 
 /**
- * Choisit un dégradé d'avatar STABLE pour une clé (nom, id) : la même personne
- * garde sa cutie-mark d'un écran à l'autre. Somme des points de code modulo la
- * taille de la palette — déterministe, sans dépendance.
+ * Picks a STABLE avatar gradient for a key (name, id): the same person keeps
+ * their cutie mark from one screen to the next. Sum of code points modulo
+ * the palette size: deterministic, dependency-free.
  */
 export function avatarGradient(key: string, palette: readonly Gradient[]): Gradient {
-  // Hash polynomial (×31), sensible à l'ORDRE : deux anagrammes (« bob » / « obb »)
-  // ne tombent plus sur la même teinte. `| 0` borne à 32 bits signés.
+  // Polynomial hash (×31), ORDER-sensitive: two anagrams ("bob" / "obb") no
+  // longer land on the same hue. `| 0` bounds to signed 32 bits.
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
   return palette[Math.abs(h) % palette.length]!;
 }
 
 /**
- * Palette active. Forcée en SOMBRE le temps de l'import du design (dark only).
- * Rebrancher `useColorScheme()` ici quand le thème « jour » (2b) sera livré.
+ * Active palette. Forced to DARK for the design import (dark only).
+ * Wire `useColorScheme()` back here when the "day" theme (2b) ships.
  */
 export function useColors(): Colors {
   return darkColors;

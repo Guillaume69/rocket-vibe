@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 
 import { createDeferredDraft, DRAFT_DELAY_MS } from './deferredDraft.ts';
 
-/** Horloge à main : rien ne part tant qu'on ne fait pas avancer le temps. */
+/** Manual clock: nothing fires until time is advanced. */
 function clock() {
   const scheduled = new Map<number, () => void>();
   const delays: number[] = [];
@@ -16,7 +16,7 @@ function clock() {
       return id;
     },
     cancel: (id: unknown) => void scheduled.delete(id as number),
-    /** Fait tirer toutes les minuteries armées. */
+    /** Fires every armed timer. */
     fire: () => {
       const fns = [...scheduled.values()];
       scheduled.clear();
@@ -27,7 +27,7 @@ function clock() {
   };
 }
 
-/** Une instance instrumentée : `journal` note écritures et suppressions. */
+/** An instrumented instance: `log` records writes and deletions. */
 function make(timeoutMs?: number) {
   const h = clock();
   const log: string[] = [];
@@ -41,55 +41,55 @@ function make(timeoutMs?: number) {
   return { h, log, deferred };
 }
 
-describe('creerBrouillonDifferre', () => {
-  test('une frappe → UNE écriture, après la pause — jamais pendant', () => {
+describe('createDeferredDraft', () => {
+  test('one keystroke → ONE write, after the pause, never during', () => {
     const { h, log, deferred } = make();
     deferred.save('bonjou');
-    assert.deepEqual(log, [], 'rien ne part pendant la frappe');
-    assert.deepEqual(h.delays, [DRAFT_DELAY_MS], 'la pause par défaut est celle du contrat');
+    assert.deepEqual(log, [], 'nothing goes out while typing');
+    assert.deepEqual(h.delays, [DRAFT_DELAY_MS], "the default pause is the contract's");
     h.fire();
     assert.deepEqual(log, ['ecrit:bonjou']);
   });
 
-  test('deux frappes rapprochées → une seule écriture, la DERNIÈRE', () => {
+  test('two close keystrokes → a single write, the LAST', () => {
     const { h, log, deferred } = make();
     deferred.save('bonjou');
     deferred.save('bonjour');
-    assert.equal(h.armed(), 1, 'la première minuterie est annulée, pas empilée');
+    assert.equal(h.armed(), 1, 'the first timer is cancelled, not stacked');
     h.fire();
     assert.deepEqual(log, ['ecrit:bonjour']);
   });
 
-  test('un texte BLANC vaut suppression, pas écriture d’espaces', () => {
+  test('BLANK text means deletion, not writing spaces', () => {
     const { h, log, deferred } = make();
     deferred.save('   ');
     h.fire();
     assert.deepEqual(log, ['supprime']);
   });
 
-  test('flusher pendant la pause → écriture IMMÉDIATE, et plus rien derrière', () => {
-    // Le démontage de l'écran : sans ce flush, les derniers caractères tapés
-    // seraient perdus.
+  test('flushing during the pause → IMMEDIATE write, and nothing after', () => {
+    // The screen's unmount: without this flush, the last typed characters would
+    // be lost.
     const { h, log, deferred } = make();
     deferred.save('à ne pas perdre');
     deferred.flusher();
     assert.deepEqual(log, ['ecrit:à ne pas perdre']);
     h.fire();
-    assert.deepEqual(log, ['ecrit:à ne pas perdre'], 'la minuterie annulée ne retire pas');
+    assert.deepEqual(log, ['ecrit:à ne pas perdre'], 'the cancelled timer does not fire again');
   });
 
-  test('flusher APRÈS le tir n’écrit pas deux fois, flusher à vide n’écrit rien', () => {
+  test('flushing AFTER the timer fired does not write twice, flushing with nothing pending writes nothing', () => {
     const { h, log, deferred } = make();
     deferred.flusher();
-    assert.deepEqual(log, [], 'rien en pause, rien à écrire');
+    assert.deepEqual(log, [], 'nothing pending, nothing to write');
     deferred.save('déjà écrit');
     h.fire();
     deferred.flusher();
-    assert.deepEqual(log, ['ecrit:déjà écrit'], 'le texte parti ne se rejoue pas');
+    assert.deepEqual(log, ['ecrit:déjà écrit'], 'sent text is not replayed');
   });
 
-  test('effacer → suppression immédiate, la frappe en pause ne part JAMAIS', () => {
-    // L'envoi du message : le brouillon n'a plus lieu d'être, débounce compris.
+  test('clearing → immediate deletion, the pending keystroke NEVER goes out', () => {
+    // Sending the message: the draft is no longer needed, debounce included.
     const { h, log, deferred } = make();
     deferred.save('envoyé entre-temps');
     deferred.clear();
@@ -98,10 +98,10 @@ describe('creerBrouillonDifferre', () => {
     assert.deepEqual(log, ['supprime']);
   });
 
-  test('changement de clé : le flush de l’ANCIENNE instance écrit chez elle, la nouvelle reste vierge', () => {
-    // Le contrat sur lequel `useBrouillon` s'appuie : une instance PAR clé,
-    // flush de l'ancienne au changement (cleanup d'effet). Le texte tapé dans
-    // le salon A quitté en moins de 400 ms atterrit sous A — jamais sous B.
+  test("key change: the OLD instance's flush writes under its key, the new one stays blank", () => {
+    // The contract `useDraft` relies on: one instance PER key, the old one
+    // flushed on change (effect cleanup). Text typed in room A, left within
+    // 400 ms, lands under A, never under B.
     const h = clock();
     const byKey: Record<string, string[]> = { A: [], B: [] };
     const instance = (key: 'A' | 'B') =>
@@ -114,17 +114,17 @@ describe('creerBrouillonDifferre', () => {
 
     const old = instance('A');
     old.save('tapé dans A');
-    // Le hook bascule sur B : cleanup → flush de A, instance neuve pour B.
+    // The hook switches to B: cleanup → flush of A, fresh instance for B.
     old.flusher();
     const next = instance('B');
     h.fire();
     assert.deepEqual(byKey.A, ['ecrit:tapé dans A']);
-    assert.deepEqual(byKey.B, [], 'rien ne fuit vers la nouvelle clé');
+    assert.deepEqual(byKey.B, [], 'nothing leaks into the new key');
     next.flusher();
-    assert.deepEqual(byKey.B, [], 'la nouvelle n’a rien en pause à flusher');
+    assert.deepEqual(byKey.B, [], 'the new one has nothing pending to flush');
   });
 
-  test('la pause est configurable — le hook garde 400 ms, un autre écran peut serrer', () => {
+  test('the pause is configurable: the hook keeps 400 ms, another screen can tighten it', () => {
     const { h, deferred } = make(120);
     deferred.save('x');
     assert.deepEqual(h.delays, [120]);

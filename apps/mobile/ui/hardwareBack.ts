@@ -2,13 +2,12 @@ import { useEffect } from 'react';
 import { BackHandler } from 'react-native';
 
 /**
- * Fait CONSOMMER le back matériel par `action` tant que `actif`.
+ * Makes `action` CONSUME the hardware back while `active`.
  *
- * Sans ça, un élément éphémère (panneau emoji, aperçu de pièce jointe) laisse le
- * back traverser jusqu'au routeur : l'écran se ferme alors qu'on voulait juste
- * refermer l'élément. Android empile les gestionnaires et appelle le DERNIER
- * inscrit d'abord — deux éléments ouverts, le plus récent se referme en premier,
- * ce qui est l'ordre attendu.
+ * Without it, a transient element (emoji panel, attachment preview) lets back
+ * through to the router: the screen closes when the intent was only to close
+ * the element. Android stacks handlers and calls the LAST registered first:
+ * with two elements open, the most recent closes first, which is the expected order.
  */
 export function useHardwareBack(active: boolean, action: () => void): void {
   useEffect(() => {

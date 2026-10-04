@@ -1,6 +1,6 @@
 /**
- * Lecture React de la présence (8.4). `useSyncExternalStore` : le moteur est
- * un magasin externe volatil — pas de SQLite, pas de requête vive.
+ * React read of presence (8.4). `useSyncExternalStore`: the engine is a
+ * volatile external store, no SQLite, no live query.
  */
 
 import { useCallback, useSyncExternalStore } from 'react';
@@ -13,18 +13,18 @@ import type { Colors } from './theme.ts';
 const NOTHING = () => {};
 
 /**
- * Pastilles de présence, alimentées par les JETONS DU THÈME — la seule table
- * statut → couleur de l'app (l'audit en avait relevé trois, avec trois teintes
- * différentes pour le même statut).
+ * Presence dots, fed by the THEME TOKENS: the app's only status → colour
+ * table (the audit found three, with three different shades for the same
+ * status).
  */
 export function presenceColors(c: Colors): Record<PresenceStatus, string> {
   return { online: c.online, away: c.absent, busy: c.danger, offline: c.offline };
 }
 
 /**
- * Libellés par statut — quatre clés `common.presence*` pour toute l'app, en
- * minuscule : la casse d'un contexte (« En ligne » d'un sélecteur) est à
- * l'appelant.
+ * Labels per status: four `common.presence*` keys for the whole app, in
+ * lowercase; casing for a context ("En ligne" in a picker) is up to the
+ * caller.
  */
 export const PRESENCE_KEYS: Record<PresenceStatus, TranslationKey> = {
   online: 'common.presenceOnline',
@@ -34,18 +34,18 @@ export const PRESENCE_KEYS: Record<PresenceStatus, TranslationKey> = {
 };
 
 /**
- * Statut d'un utilisateur, `null` si inconnu — l'appelant n'affiche alors
- * RIEN (dégradation : au-delà d'~200 connexions le serveur cesse de
- * diffuser, et l'UI ne doit jamais en dépendre).
+ * A user's status, `null` if unknown: the caller then shows NOTHING
+ * (degradation: beyond ~200 connections the server stops broadcasting, and
+ * the UI must never depend on it).
  */
 export function usePresence(uid: string | null): PresenceStatus | null {
   const sync = useSync();
   const presence = sync.phase === 'ready' ? sync.presence : null;
 
-  // Identités STABLES : un `subscribe` recréé à chaque rendu ferait
-  // désabonner/réabonner chaque ligne à chaque re-rendu de la liste. Et une
-  // ligne sans uid (canal) ne s'abonne pas du tout — sinon chaque événement
-  // de présence réveillerait toutes les lignes visibles.
+  // STABLE identities: a `subscribe` recreated on every render would
+  // unsubscribe/resubscribe every row on every list re-render. And a row
+  // without a uid (channel) does not subscribe at all, otherwise every
+  // presence event would wake every visible row.
   const subscribe = useCallback(
     (reread: () => void) =>
       presence === null || uid === null ? NOTHING : presence.onChange(reread),
@@ -58,7 +58,7 @@ export function usePresence(uid: string | null): PresenceStatus | null {
   return useSyncExternalStore(subscribe, read);
 }
 
-// L'AUTRE participant d'un DM ne se DÉRIVE PAS du rid : sur 8.5 le rid d'un
-// DM est un ObjectId aléatoire, plus la concaténation des deux uids (vérifié
-// sur le serveur local). Il vient du document Rooms (`uids`) et vit dans la
-// colonne `salons.dm_autre_uid` — voir `versSalon`.
+// The OTHER participant of a DM is NOT DERIVED from the rid: on 8.5 a DM's
+// rid is a random ObjectId, no longer the concatenation of both uids
+// (checked on the local server). It comes from the Rooms document (`uids`)
+// and lives in the `salons.dm_autre_uid` column; see `toRoom`.

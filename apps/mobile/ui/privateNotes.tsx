@@ -1,9 +1,8 @@
 /**
- * Ce que le serveur me dit à moi seul dans un salon : la réponse d'une
- * commande slash (salon introuvable, `/help`). Volatile comme la présence :
- * un magasin en mémoire, pas de SQLite. La dernière note d'un salon remplace
- * la précédente ; elle s'affiche au-dessus du composer jusqu'à ce qu'on la
- * ferme.
+ * What the server tells me alone in a room: the reply to a slash command
+ * (room not found, `/help`). Volatile like presence: an in-memory store, no
+ * SQLite. A room's latest note replaces the previous one; it shows above the
+ * composer until dismissed.
  */
 
 import { useCallback, useMemo, useSyncExternalStore } from 'react';

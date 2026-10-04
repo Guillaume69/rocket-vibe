@@ -1,11 +1,11 @@
 /**
- * Le SEUL endroit de l'app qui appelle `Linking.openURL`.
+ * The ONLY place in the app that calls `Linking.openURL`.
  *
- * La décision (« cette chaîne peut-elle quitter le processus ? ») vit dans
- * `lib/externalLink.ts`, où elle se teste sans appareil ; ici il ne reste que
- * l'appel natif. Un seul point de passage, pour qu'ajouter demain une carte, un
- * bouton ou un menu qui « ouvre un lien » hérite de la garde au lieu d'avoir à
- * la recopier — c'est en la recopiant qu'on l'oublie.
+ * The decision ("may this string leave the process?") lives in
+ * `lib/externalLink.ts`, where it is testable without a device; only the
+ * native call is left here. A single choke point, so that a future card,
+ * button or menu that "opens a link" inherits the guard instead of copying it:
+ * copying it is how it gets forgotten.
  */
 
 import { Linking } from 'react-native';
@@ -13,9 +13,9 @@ import { Linking } from 'react-native';
 import { canLeaveProcess } from '../lib/externalLink.ts';
 
 /**
- * Ouvre `url` dans l'application du système, si et seulement si c'est du web
- * sans identifiant à nous. Sinon : rien, en silence — l'utilisateur a tapé sur
- * une donnée forgée, il n'y a rien à lui dire.
+ * Opens `url` in the system app, if and only if it is web with none of our
+ * credentials. Otherwise nothing, silently: the user tapped forged data, there
+ * is nothing to tell them.
  */
 export function openExternalLink(url: unknown): void {
   if (!canLeaveProcess(url)) return;

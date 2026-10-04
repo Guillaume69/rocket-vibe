@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 
 import { GROUP_WINDOW_MS, repeatedTimeIds, continuationIds } from './messageGrouping.ts';
 
-/** Un message minimal, ordinaire par défaut (`typeSysteme: null`). */
+/** A minimal message, ordinary by default (`systemType: null`). */
 const m = (id: string, ts: number, authorId: string, systemType: string | null = null) => ({
   id,
   ts,
@@ -11,38 +11,38 @@ const m = (id: string, ts: number, authorId: string, systemType: string | null =
   systemType,
 });
 
-describe('idsSuites', () => {
-  test('même auteur sous la fenêtre : la ligne du dessous est une suite — dans les deux ordres', () => {
-    // DESC (salon) : m2 est le plus récent, son précédent chronologique est
-    // l'élément SUIVANT du tableau.
+describe('continuationIds', () => {
+  test('same author within the window: the row below is a continuation, in both orders', () => {
+    // DESC (room): m2 is the newest, its chronological predecessor is the
+    // NEXT element of the array.
     const desc = [m('m2', 60_000, 'bob'), m('m1', 0, 'bob')];
     assert.deepEqual(continuationIds(desc, 'newest-first'), new Set(['m2']));
-    // ASC (fil) : même paire, tableau retourné — même conclusion.
+    // ASC (thread): same pair, array reversed, same conclusion.
     const asc = [m('m1', 0, 'bob'), m('m2', 60_000, 'bob')];
     assert.deepEqual(continuationIds(asc, 'oldest-first'), new Set(['m2']));
   });
 
-  test("un auteur différent rompt le groupe, puis le groupe reprend derrière", () => {
-    // bob, alice, bob, bob : seule la DERNIÈRE paire bob-bob se groupe.
+  test("a different author breaks the group, then the group resumes after", () => {
+    // bob, alice, bob, bob: only the LAST bob-bob pair groups.
     const desc = [m('m4', 3000, 'bob'), m('m3', 2000, 'bob'), m('m2', 1000, 'alice'), m('m1', 0, 'bob')];
     assert.deepEqual(continuationIds(desc, 'newest-first'), new Set(['m4']));
   });
 
-  test('la fenêtre de temps : exactement 5 min groupe encore, une ms de plus non', () => {
+  test('the time window: exactly 5 min still groups, one ms more does not', () => {
     const justBefore = [m('m2', GROUP_WINDOW_MS, 'bob'), m('m1', 0, 'bob')];
     assert.deepEqual(continuationIds(justBefore, 'newest-first'), new Set(['m2']));
     const tooFar = [m('m2', GROUP_WINDOW_MS + 1, 'bob'), m('m1', 0, 'bob')];
     assert.deepEqual(continuationIds(tooFar, 'newest-first'), new Set());
   });
 
-  test('la barre « nouveaux messages » rompt : le premier non-lu garde son en-tête', () => {
+  test('the "new messages" bar breaks: the first unread keeps its header', () => {
     const desc = [m('m2', 1000, 'bob'), { bar: true as const, id: 'barre-nouveaux' }, m('m1', 0, 'bob')];
     assert.deepEqual(continuationIds(desc, 'newest-first'), new Set());
   });
 
-  test('le séparateur de jour rompt : 23 h 58 puis 0 h 02 passent la fenêtre, pas la frontière', () => {
-    // Deux messages à 4 min d'écart mais de part et d'autre de minuit : le
-    // séparateur inséré entre eux (ui/daySeparator) casse le groupe.
+  test('the day separator breaks: 23:58 then 00:02 pass the window, not the boundary', () => {
+    // Two messages 4 min apart but on either side of midnight: the separator
+    // inserted between them (ui/daySeparator) breaks the group.
     const desc = [
       m('m2', 242_000, 'bob'),
       { day: true, id: 'jour-20260801', ts: 242_000 },
@@ -51,49 +51,49 @@ describe('idsSuites', () => {
     assert.deepEqual(continuationIds(desc, 'newest-first'), new Set());
   });
 
-  test('un message système ne se groupe ni comme suite ni comme tête de groupe', () => {
-    // bob écrit, « bob a rejoint » (uj), bob écrit : personne ne se groupe —
-    // le système rompt des deux côtés.
+  test('a system message groups neither as a continuation nor as a group head', () => {
+    // bob writes, "bob joined" (uj), bob writes: nobody groups, the system
+    // message breaks both sides.
     const desc = [m('m3', 2000, 'bob'), m('m2', 1000, 'bob', 'uj'), m('m1', 0, 'bob')];
     assert.deepEqual(continuationIds(desc, 'newest-first'), new Set());
   });
 
-  test("`e2e` se rend comme un message ordinaire : il se groupe normalement", () => {
+  test("`e2e` renders as an ordinary message: it groups normally", () => {
     const desc = [m('m2', 1000, 'bob', 'e2e'), m('m1', 0, 'bob', 'e2e')];
     assert.deepEqual(continuationIds(desc, 'newest-first'), new Set(['m2']));
   });
 
-  test('les bords : liste vide, message seul — jamais de suite', () => {
+  test('edges: empty list, lone message, never a continuation', () => {
     assert.deepEqual(continuationIds([], 'newest-first'), new Set());
     assert.deepEqual(continuationIds([m('m1', 0, 'bob')], 'oldest-first'), new Set());
   });
 });
 
-describe('idsHeuresRepetees', () => {
-  /** Projette comme les écrans : les suites d'abord, puis les heures répétées. */
+describe('repeatedTimeIds', () => {
+  /** Projects like the screens do: continuations first, then repeated times. */
   const project = (
     rows: Parameters<typeof continuationIds>[0],
     order: 'newest-first' | 'oldest-first',
   ) => repeatedTimeIds(rows, order, continuationIds(rows, order));
 
-  test("une suite dans la MÊME minute que le message d'au-dessus tait son heure — dans les deux ordres", () => {
-    // 0 ms et 59 999 ms : même minute affichée, l'heure de m2 est redondante.
+  test("a continuation in the SAME minute as the message above hides its time, in both orders", () => {
+    // 0 ms and 59,999 ms: same displayed minute, m2's time is redundant.
     const desc = [m('m2', 59_999, 'bob'), m('m1', 0, 'bob')];
     assert.deepEqual(project(desc, 'newest-first'), new Set(['m2']));
     const asc = [m('m1', 0, 'bob'), m('m2', 59_999, 'bob')];
     assert.deepEqual(project(asc, 'oldest-first'), new Set(['m2']));
   });
 
-  test('une suite dans la minute SUIVANTE garde son heure, même à une seconde près', () => {
-    // 59 999 ms puis 60 000 ms : 1 ms d'écart mais deux minutes affichées.
+  test('a continuation in the NEXT minute keeps its time, even one second apart', () => {
+    // 59,999 ms then 60,000 ms: 1 ms apart but two displayed minutes.
     const desc = [m('m2', 60_000, 'bob'), m('m1', 59_999, 'bob')];
     assert.deepEqual(project(desc, 'newest-first'), new Set());
   });
 
-  test("une chaîne : chaque rupture de minute réaffiche l'heure, les répétitions se taisent", () => {
-    // 11:03, 11:03, 11:04, 11:04 (en minutes epoch 3, 3, 4, 4) : la tête porte
-    // son heure d'en-tête, m2 se tait (même minute), m3 réaffiche (nouvelle
-    // minute), m4 se tait (même minute que m3, dont l'heure est rendue).
+  test("a chain: each minute break shows the time again, repetitions stay silent", () => {
+    // 11:03, 11:03, 11:04, 11:04 (epoch minutes 3, 3, 4, 4): the head shows its
+    // header time, m2 stays silent (same minute), m3 shows again (new minute), m4
+    // stays silent (same minute as m3, whose time is rendered).
     const desc = [
       m('m4', 4 * 60_000 + 30_000, 'bob'),
       m('m3', 4 * 60_000, 'bob'),
@@ -103,9 +103,9 @@ describe('idsHeuresRepetees', () => {
     assert.deepEqual(project(desc, 'newest-first'), new Set(['m2', 'm4']));
   });
 
-  test("une NON-suite n'est jamais concernée : l'en-tête réaffiché porte déjà l'heure", () => {
-    // Même minute mais auteurs différents : m2 n'est pas une suite, son
-    // en-tête (pseudo + heure) se rend entier — rien à taire.
+  test("a NON-continuation is never affected: the redisplayed header already carries the time", () => {
+    // Same minute but different authors: m2 is not a continuation, its header
+    // (username + time) renders whole, nothing to hide.
     const desc = [m('m2', 30_000, 'alice'), m('m1', 0, 'bob')];
     assert.deepEqual(project(desc, 'newest-first'), new Set());
   });

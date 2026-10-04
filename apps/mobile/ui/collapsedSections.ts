@@ -1,7 +1,7 @@
 /**
- * Sections repliées de la liste des salons : même patron que la langue
- * (`ui/i18n.ts`), un store module-level lu de façon SYNCHRONE au chargement,
- * pour que le premier rendu soit déjà replié. Globale à l'appareil.
+ * Collapsed sections of the room list: same pattern as the language
+ * (`ui/i18n.ts`), a module-level store read SYNCHRONOUSLY at load, so that the
+ * first render is already collapsed. Device-wide.
  */
 
 import * as SecureStore from 'expo-secure-store';

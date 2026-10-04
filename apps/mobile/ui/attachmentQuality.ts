@@ -1,25 +1,24 @@
 /**
- * Choix de qualité d'une pièce jointe média — la partie PURE, testée sous
- * Node : décider QUAND proposer la réduction. La réduction elle-même (effets :
- * expo-image-manipulator, module natif Media3) vit dans `preparerPieceJointe`.
+ * Quality choice for a media attachment, the PURE part, tested under Node:
+ * deciding WHEN to offer compression. The compression itself (effects:
+ * expo-image-manipulator, the native Media3 module) lives in `compressAttachment`.
  *
- * « Réduite » est le défaut : pousser 12 Mpx ou du 4K pour un aperçu de chat
- * gaspille le réseau — c'est ce que faisait déjà, en silence, la compression
- * d'images. « Originale » reste à un tap, pour les fois où la qualité est le
- * sujet du message.
+ * "Reduced" is the default: pushing 12 Mpx or 4K for a chat preview wastes
+ * the network, which is what image compression was already silently doing.
+ * "Original" stays one tap away, for when quality is the point of the message.
  */
 
 export type SendQuality = 'reduced' | 'original';
 
-/** Sous ce poids, réduire une image n'apporte rien — elle part telle quelle. */
+/** Below this size, compressing an image gains nothing: it is sent as is. */
 export const IMAGE_COMPRESSION_THRESHOLD_BYTES = 500_000;
 
 type MediaAttachment = { type: string; size: number | null };
 
 /**
- * Image assez lourde pour mériter le JPEG 1920 px. Le GIF est exclu (le JPEG
- * tuerait l'animation), et un poids inconnu passe tel quel — on ne sait pas si
- * la réduction paierait.
+ * Image heavy enough to deserve the 1920 px JPEG. GIF is excluded (JPEG would
+ * kill the animation), and an unknown size passes as is: we cannot tell
+ * whether compression would pay off.
  */
 export function imageCompressible(file: MediaAttachment): boolean {
   return (
@@ -30,16 +29,16 @@ export function imageCompressible(file: MediaAttachment): boolean {
 }
 
 /**
- * Toute vidéo est réductible, quel que soit son poids affiché : même une 720p
- * de téléphone est encodée au bitrate de captation (5 Mbps et plus), que le
- * réencodage divise. Le garde-fou est APRÈS coup : si la sortie n'est pas plus
- * légère que l'entrée, `reduireVideoSiPossible` rend l'original.
+ * Every video is compressible, whatever its displayed size: even a phone 720p
+ * is encoded at the capture bitrate (5 Mbps and up), which re-encoding
+ * divides. The safeguard comes AFTERWARDS: if the output is not lighter than
+ * the input, `compressVideoIfPossible` returns the original.
  */
 export function videoCompressible(file: MediaAttachment): boolean {
   return file.type.startsWith('video/');
 }
 
-/** Les pastilles Réduite/Originale ne s'affichent que si le choix a un effet. */
+/** The Reduced/Original chips only show when the choice has an effect. */
 export function compressionOffered(file: MediaAttachment): boolean {
   return imageCompressible(file) || videoCompressible(file);
 }

@@ -8,35 +8,35 @@ import {
   roomLoadedUnder,
 } from './loadedRooms.ts';
 
-describe('salonsCharges', () => {
+describe('loadedRooms', () => {
   beforeEach(() => forgetLoadedRooms());
 
-  test('un salon jamais ouvert n’est pas chargé', () => {
+  test('a never-opened room is not loaded', () => {
     assert.equal(roomLoadedUnder('r1', 3), false);
   });
 
-  test('sortir et rentrer sous la MÊME génération : rien à recharger', () => {
-    // Le cas de l'utilisateur : on quitte le salon, on y revient tout de suite.
+  test('leaving and entering under the SAME generation: nothing to reload', () => {
+    // The user's case: leave the room, come straight back.
     markRoomLoaded('r1', 3, sessionToken());
     assert.equal(roomLoadedUnder('r1', 3), true);
   });
 
-  test('après un raccordement, la garde tombe — le trou peut être de n’importe quelle taille', () => {
+  test('after a connection setup, the guard drops: the gap can be of any size', () => {
     markRoomLoaded('r1', 3, sessionToken());
     assert.equal(roomLoadedUnder('r1', 4), false);
   });
 
-  test('une génération ANTÉRIEURE ne vaut pas non plus (générations non monotones)', () => {
+  test('an EARLIER generation does not count either (generations are not monotonic)', () => {
     markRoomLoaded('r1', 4, sessionToken());
     assert.equal(roomLoadedUnder('r1', 3), false);
   });
 
-  test('les salons sont indépendants', () => {
+  test('rooms are independent', () => {
     markRoomLoaded('r1', 3, sessionToken());
     assert.equal(roomLoadedUnder('r2', 3), false);
   });
 
-  test('fin de session : tout le cache est oublié', () => {
+  test('end of session: the whole cache is forgotten', () => {
     markRoomLoaded('r1', 3, sessionToken());
     markRoomLoaded('r2', 3, sessionToken());
     forgetLoadedRooms();
@@ -44,10 +44,10 @@ describe('salonsCharges', () => {
     assert.equal(roomLoadedUnder('r2', 3), false);
   });
 
-  test('un historique qui ABOUTIT après la fin de session ne repeuple rien', () => {
-    // Le fetch est parti sous la session d'avant : sa marque vaudrait pour un
-    // serveur qu'on a quitté, et ferait sauter l'historique d'ouverture à la
-    // session suivante dès que son compteur atteint cette génération.
+  test('a history load that COMPLETES after the session ends repopulates nothing', () => {
+    // The fetch started under the previous session: its mark would belong to a
+    // server we left, and would skip the opening history in the next session as
+    // soon as its counter reaches this generation.
     const token = sessionToken();
     forgetLoadedRooms();
     markRoomLoaded('r1', 3, token);

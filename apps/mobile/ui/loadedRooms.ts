@@ -1,29 +1,28 @@
 /**
- * Quels salons ont déjà reçu leur historique d'ouverture, et SOUS QUELLE
- * génération de connexion.
+ * Which rooms already received their opening history, and UNDER WHICH
+ * connection generation.
  *
- * Le problème : l'écran salon est DÉMONTÉ quand on en sort (pile de
- * navigation). Son `useRef` de garde part avec lui, donc rentrer deux secondes
- * plus tard refaisait un `*.history?count=50` entier — ~31 Ko, plus la
- * ré-ingestion des 50 mêmes messages (150 statements SQLite), plus la barre de
- * synchro allumée le temps du fetch. Du travail intégralement redondant.
+ * The problem: the room screen is UNMOUNTED when left (navigation stack). Its
+ * guard `useRef` goes with it, so coming back two seconds later redid a whole
+ * `*.history?count=50`: ~31 KB, plus re-ingesting the same 50 messages (150
+ * SQLite statements), plus the sync bar lit for the fetch. Entirely redundant
+ * work.
  *
- * Pourquoi une génération plutôt qu'un « il y a moins de N secondes » : ce qui
- * décide de la validité d'un cache n'est pas un délai, c'est un fait — la
- * connexion a-t-elle tenu depuis ? `generation` est incrémentée à CHAQUE
- * raccordement (`ui/sync.tsx`), donc :
+ * Why a generation rather than "less than N seconds ago": what decides whether
+ * a cache is valid is not a delay but a fact: has the connection held since?
+ * `generation` is incremented on EVERY connection setup (`ui/sync.tsx`), so:
  *
- *  - sortir et rentrer sans incident → même génération → aucune requête, le
- *    cache s'affiche tout de suite ;
- *  - après une coupure, même brève → génération différente → historique
- *    rechargé, parce que le trou peut être de n'importe quelle taille.
+ *  - leave and come back without incident → same generation → no request,
+ *    the cache shows at once;
+ *  - after a drop, however brief → different generation → history reloaded,
+ *    because the gap can be any size.
  *
- * Le rattrapage, lui, ne part QUE si le salon n'est pas resté écouté entre-temps
- * (voir [[salonChaud]]) : sur un gros salon, cette lecture met plusieurs
- * secondes à répondre « rien de neuf ».
+ * Catch-up, for its part, only runs if the room was NOT kept listened to in
+ * between (see [[hotRooms]]): on a big room, that read takes several seconds to
+ * answer "nothing new".
  *
- * Store module-level, comme `ui/uploadProbe` : rien ne doit re-rendre l'arbre
- * de navigation quand cette table change.
+ * Module-level store, like `ui/uploadProbe`: nothing should re-render the
+ * navigation tree when this table changes.
  */
 
 import { invalidateSessionToken, sessionToken } from './sessionToken.ts';
@@ -31,13 +30,13 @@ import { invalidateSessionToken, sessionToken } from './sessionToken.ts';
 const payloads = new Map<string, number>();
 
 /**
- * Après un historique d'ouverture ABOUTI — jamais sur un échec réseau.
+ * After a SUCCESSFUL opening history, never on a network failure.
  *
- * `jeton` est celui capturé au LANCEMENT du chargement : une réponse qui
- * atterrit après la fin de session ne doit pas repeupler un cache qu'on vient
- * de vider (voir [[jetonSession]]). Sans lui, la marque survivait à la session,
- * et la suivante sautait l'historique d'ouverture du salon dès que son compteur
- * de génération — reparti de 0 — atteignait la valeur mémorisée.
+ * `token` is the one captured when the load STARTED: a response landing after
+ * the session ended must not refill a cache that was just cleared (see
+ * [[sessionToken]]). Without it, the mark outlived the session, and the next
+ * one skipped the room's opening history as soon as its generation counter,
+ * restarted from 0, reached the remembered value.
  */
 export function markRoomLoaded(rid: string, generation: number, token: number): void {
   if (token !== sessionToken()) return;
@@ -48,7 +47,7 @@ export function roomLoadedUnder(rid: string, generation: number): boolean {
   return payloads.get(rid) === generation;
 }
 
-/** Fin de session / changement de serveur : plus rien de ce cache ne vaut. */
+/** Session end / server change: nothing in this cache holds anymore. */
 export function forgetLoadedRooms(): void {
   payloads.clear();
   invalidateSessionToken();

@@ -1,31 +1,31 @@
 /**
- * Les salons qu'on continue d'ÉCOUTER après en être sorti.
+ * The rooms we keep LISTENING to after leaving them.
  *
- * Le problème, mesuré sur le serveur réel : rentrer dans un salon qu'on vient
- * de quitter relançait `chat.syncMessages`, qui met **3 secondes** à répondre
- * « rien de neuf » sur un gros salon (l'index Mongo est `{rid, ts, _updatedAt}` ;
- * filtrer sur `_updatedAt` seul oblige le serveur à trier tout le salon). Trois
- * secondes de barre de synchro pour zéro document.
+ * The problem, measured on the real server: re-entering a room just left
+ * restarted `chat.syncMessages`, which takes **3 seconds** to answer "nothing
+ * new" on a big room (the Mongo index is `{rid, ts, _updatedAt}`; filtering
+ * on `_updatedAt` alone forces the server to sort the whole room). Three
+ * seconds of sync bar for zero documents.
  *
- * Pourquoi cette requête partait : en quittant l'écran on relâchait les
- * souscriptions du salon (celles de `Fournisseur.souscriptionsSalon`), donc son
- * cache n'était plus tenu à jour par le temps réel, et seule une lecture pouvait
- * garantir qu'on n'avait rien manqué. La réponse n'est pas d'attendre moins,
- * c'est de ne pas créer le trou : on GARDE l'écoute ouverte en sortant. Rien
- * n'a pu être manqué, donc il n'y a rien à rattraper.
+ * Why that request went out: leaving the screen released the room's
+ * subscriptions (those of `Provider.roomSubscriptions`), so its cache was no
+ * longer kept current by realtime, and only a read could guarantee nothing was
+ * missed. The answer is not to wait less, it is not to create the gap: we KEEP
+ * listening on the way out. Nothing could be missed, so there is nothing to
+ * catch up.
  *
- * `ddp.souscrire` compte les références (`lib/ddp.ts`) : garder une référence
- * de plus n'envoie aucune `sub` supplémentaire sur le fil — le stream était
- * déjà là, on s'abstient simplement de le fermer.
+ * `ddp.subscribe` counts references (`lib/ddp.ts`): holding one more
+ * reference sends no extra `sub` on the wire; the stream was already there,
+ * we just refrain from closing it.
  *
- * Borné à `MAX` salons, en LRU : sans borne, une session qui visite 25 salons
- * finirait par tous les écouter. Au-delà, le plus anciennement quitté est
- * relâché — et redeviendra un salon à rattraper, ce qui est le comportement
- * d'origine, pas une régression.
+ * Bounded to `MAX` rooms, LRU: unbounded, a session visiting 25 rooms would
+ * end up listening to all of them. Beyond that, the least recently left is
+ * released, and becomes a room to catch up again, which is the original
+ * behaviour, not a regression.
  *
- * La `generation` de connexion garde le même rôle qu'ailleurs
- * ([[salonsCharges]]) : une coupure, même brève, invalide la couverture, parce
- * que le trou peut alors être de n'importe quelle taille.
+ * The connection `generation` plays the same role as elsewhere
+ * ([[loadedRooms]]): a drop, however brief, invalidates the coverage, because
+ * the gap can then be of any size.
  */
 
 import { invalidateSessionToken, sessionToken } from './sessionToken.ts';
@@ -34,12 +34,12 @@ type Release = () => void;
 
 const MAX = 3;
 
-/** Ordre d'insertion = ordre LRU (le premier est le plus anciennement quitté). */
+/** Insertion order = LRU order (the first is the least recently left). */
 const hot = new Map<string, { generation: number; releases: Release[] }>();
 
 /**
- * Ce salon est-il resté écouté sans interruption depuis sa dernière visite ?
- * Si oui, aucune lecture de rattrapage n'est nécessaire à sa réouverture.
+ * Has this room stayed listened to without interruption since its last visit?
+ * If so, no catch-up read is needed when it reopens.
  */
 export function roomCovered(rid: string, generation: number): boolean {
   const entry = hot.get(rid);
@@ -47,20 +47,19 @@ export function roomCovered(rid: string, generation: number): boolean {
 }
 
 /**
- * À la SORTIE d'un salon : on lui laisse ses souscriptions ouvertes et on
- * confie leurs relâcheurs ici.
+ * On LEAVING a room: its subscriptions stay open and their releasers are
+ * handed over here.
  *
- * Relâche toujours le jeu précédent du même salon : à la deuxième sortie, l'écran
- * a repris ses propres références au montage, et sans cela chaque aller-retour
- * en accumulerait une de plus.
+ * Always releases the previous set of the same room: on the second exit, the
+ * screen took its own references again at mount, and otherwise each round trip
+ * would pile up one more.
  *
- * `jeton` est celui capturé au MONTAGE, quand ces souscriptions ont été prises
- * (voir [[jetonSession]]). S'il ne correspond plus, la session à laquelle elles
- * appartenaient est finie — leur client DDP est déjà `reinitialiser()`. On
- * relâche alors sur-le-champ : mémoriser laisserait une entrée FANTÔME que
- * `libererSalonsChauds` ne repassera jamais nettoyer, et qui ferait répondre
- * « rien à rattraper » à la session suivante, pour un salon que sa socket n'a
- * jamais écouté.
+ * `token` is the one captured at MOUNT, when those subscriptions were taken
+ * (see [[sessionToken]]). If it no longer matches, the session they belonged
+ * to is over and their DDP client has already been `reset()`. We then release
+ * on the spot: storing would leave a GHOST entry that `releaseHotRooms` will
+ * never come back to clean, and that would make the next session answer
+ * "nothing to catch up" for a room its socket never listened to.
  */
 export function keepWarm(
   rid: string,
@@ -74,7 +73,7 @@ export function keepWarm(
   }
   const old = hot.get(rid);
   if (old !== undefined) for (const release of old.releases) release();
-  // Réinsertion en fin de Map : ce salon devient le plus récemment quitté.
+  // Reinsert at the end of the Map: this room becomes the most recently left.
   hot.delete(rid);
   hot.set(rid, { generation, releases });
 
@@ -87,13 +86,13 @@ export function keepWarm(
   }
 }
 
-/** Fin de session / changement de serveur : on ferme tout ce qu'on tenait. */
+/** End of session / server switch: close everything we held. */
 export function releaseHotRooms(): void {
   for (const entry of hot.values()) {
     for (const release of entry.releases) release();
   }
   hot.clear();
-  // Et plus rien de cette session n'a le droit de repeupler la table : les
-  // écrans encore montés vont appeler `garderAuChaud` en se démontant.
+  // And nothing from this session may repopulate the table any more: the
+  // screens still mounted will call `keepWarm` as they unmount.
   invalidateSessionToken();
 }

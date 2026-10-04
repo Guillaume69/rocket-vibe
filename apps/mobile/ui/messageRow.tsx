@@ -1,9 +1,9 @@
 /**
- * Ligne de message, partagée entre l'écran salon et l'écran fil (8.3).
+ * Message row, shared between the room screen and the thread screen (8.3).
  *
- * Extraite de `app/salon/[rid].tsx` : l'écran fil affiche exactement les
- * mêmes lignes (markdown, messages système, pièces jointes protégées,
- * statuts d'envoi) — la dupliquer aurait fait diverger les deux rendus.
+ * Extracted from `app/salon/[rid].tsx`: the thread screen shows exactly the
+ * same rows (markdown, system messages, protected attachments, send states);
+ * duplicating it would have made the two renderings diverge.
  */
 
 import { useRouter } from 'expo-router';
@@ -82,24 +82,24 @@ export const MessageRow = memo(function MessageRow({
   onRetry: (() => void) | null;
   onDiscard: ((id: string) => void) | null;
   onLongPress: ((id: string) => void) | null;
-  /** Toucher la ligne (liste des épinglés/favoris). Absent dans un flux. */
+  /** Tap on the row (pinned/starred list). Absent in a timeline. */
   onPress?: ((id: string) => void) | undefined;
-  /** Ouvre l'écran du fil. `null` dans l'écran fil lui-même. */
+  /** Opens the thread screen. `null` in the thread screen itself. */
   onOpenThread: ((id: string) => void) | null;
-  /** Mon username — marque mes réactions. `null` : rien n'est marqué mien. */
+  /** My username, marks my reactions. `null`: nothing is marked mine. */
   me: string | null;
-  /** Pose/retire une réaction. `null` : pastilles en lecture seule (recherche). */
+  /** Adds/removes a reaction. `null`: read-only chips (search). */
   onReact: ((rid: string, id: string, code: string, put: boolean) => void) | null;
   /**
-   * Continuation du message d'au-dessus (même auteur, sous 5 min — calculé par
-   * `ui/messageGrouping`) : ni avatar ni pseudo/heure, le corps seul sur la
-   * gouttière — les rafales d'un même auteur ne répètent pas son identité.
+   * Continuation of the message above (same author, within 5 min, computed by
+   * `ui/messageGrouping`): no avatar nor username/time, the body alone on the
+   * gutter, so one author's bursts do not repeat their identity.
    */
   continuation: boolean;
   /**
-   * Suite dont l'heure affichée (à la minute) est déjà rendue au-dessus
-   * (`ui/messageGrouping`, `idsHeuresRepetees`) : la gouttière reste vide —
-   * même logique que pour l'avatar, on ne réécrit pas ce qui est à l'écran.
+   * Continuation whose displayed time (to the minute) is already rendered above
+   * (`ui/messageGrouping`, `repeatedTimeIds`): the gutter stays empty. Same
+   * logic as for the avatar: what is on screen is not rewritten.
    */
   repeatedTime: boolean;
 }) {
@@ -107,41 +107,40 @@ export const MessageRow = memo(function MessageRow({
   const time = formatTime(message.ts);
 
   const longPress = onLongPress === null ? undefined : () => onLongPress(message.id);
-  // Pseudo à AFFICHER, résolu par UID (`ui/identities`) : `auteurNom` est
-  // l'instantané figé à l'ingestion, qui reste sur l'ANCIEN nom après un
-  // renommage (on ne re-télécharge pas l'historique). La table d'identités,
-  // tenue à jour, donne le pseudo courant ; on retombe sur l'instantané tant
-  // qu'un uid n'y est pas encore connu (premier rendu, hors-ligne).
+  // Username to DISPLAY, resolved by UID (`ui/identities`): `authorName` is the
+  // snapshot frozen at ingestion, which keeps the OLD name after a rename (the
+  // history is not re-downloaded). The identity table, kept up to date, gives the
+  // current username; we fall back on the snapshot while a uid is not known yet
+  // (first render, offline).
   const identities = useIdentities();
   const etags = useEtagsAvatars();
   const t = useT();
   const author = (identities.get(message.authorId) ?? message.authorName) ?? '?';
-  // Le pseudo prend la première teinte de sa propre tuile-avatar : nom et
-  // avatar s'accordent, la même personne garde sa couleur d'un message à l'autre.
+  // The username takes the first tint of its own avatar tile: name and avatar
+  // match, and the same person keeps their color from one message to the next.
   const authorTint = avatarGradient(author, c.avatarGradients)[0];
-  // Fiche de l'auteur au tap sur l'avatar ou le pseudo. Pas de fiche pour un
-  // auteur sans username (message chiffré indéchiffrable : `auteurNom` null).
-  // On ouvre par l'UID (`auteurId`), pas par le pseudo affiché : le pseudo est
-  // un instantané figé à l'ingestion et devient PÉRIMÉ si la personne se renomme
-  // (`users.info?username=ancien` → « user not found »). L'uid, lui, est
-  // immuable — la fiche résout donc toujours le profil courant.
-  // `ouvrirFicheProfil` précharge la fiche AVANT d'ouvrir la sheet (hauteur
-  // finale dès la première frame, pas de saut) — voir lib/profilePreload.
+  // Author card on tapping the avatar or username. No card for an author
+  // without a username (undecryptable encrypted message: `authorName` null).
+  // Opened by UID (`authorId`), not by the displayed username: the username is
+  // a snapshot frozen at ingestion and goes STALE if the person renames
+  // (`users.info?username=old` → "user not found"). The uid is immutable, so
+  // the card always resolves the current profile.
+  // `openProfileCard` preloads the card BEFORE opening the sheet (final height
+  // from the first frame, no jump), see lib/profilePreload.
   const openProfile =
     message.authorName === null
       ? undefined
       : () => void openProfileCard({ uid: message.authorId });
 
-  // Les pièces jointes, citations (`message_link`) séparées des fichiers : la
-  // citation se rend AU-DESSUS du corps — on lit d'abord ce à quoi on répond —
-  // les fichiers restent en dessous.
+  // Attachments: quotes (`message_link`) split from files. The quote renders
+  // ABOVE the body (one reads first what is being replied to); files stay below.
   const attachments = useMemo(() => parseAttachments(message.attachments), [message.attachments]);
   const quotes = attachments.filter((j) => isQuoteAttachment(j));
   const attachedFiles = attachments.filter((j) => !isQuoteAttachment(j));
 
-  // Les réactions, ENFIN lues : la colonne était écrite depuis le premier jour
-  // et rafraîchie par le stream, mais aucun rendu ne la projetait — réagir ne
-  // changeait rien à l'écran et rien n'était retirable (audit, chantier 11).
+  // Reactions, FINALLY read: the column was written from day one and refreshed
+  // by the stream, but no render projected it; reacting changed nothing on screen
+  // and nothing could be removed (audit, workstream 11).
   const reactions = useMemo(
     () => reactionList(message.reactions, me),
     [message.reactions, me],
@@ -152,9 +151,9 @@ export const MessageRow = memo(function MessageRow({
       onLongPress={longPress}
       onPress={onPress === undefined ? undefined : () => onPress(message.id)}
       delayLongPress={350}
-      // Sans quoi le Pressable fusionne la ligne en UN nœud d'accessibilité :
-      // TalkBack ne peut plus atteindre « réessayer », « abandonner » ni les
-      // pièces jointes individuellement.
+      // Otherwise the Pressable merges the row into ONE accessibility node:
+      // TalkBack can no longer reach "retry", "discard" or individual
+      // attachments.
       accessible={false}
       style={[
         styles.message,
@@ -163,15 +162,15 @@ export const MessageRow = memo(function MessageRow({
       ]}
     >
       {continuation && repeatedTime ? (
-        // L'heure de cette suite est déjà affichée au-dessus (même minute) :
-        // la gouttière garde sa largeur pour l'alignement, mais reste vide.
+        // This continuation's time is already shown above (same minute): the
+        // gutter keeps its width for alignment, but stays empty.
         <View style={styles.gutterTime} />
       ) : continuation ? (
-        // Une suite garde la GOUTTIÈRE de l'avatar (le corps reste aligné sur
-        // celui du message de tête) et y loge SON heure, en tout petit — le
-        // regroupement ne doit pas coûter l'information. `adjustsFontSizeToFit` :
-        // l'heure anglaise (« 2:05 PM ») déborde 34 px à taille pleine — elle
-        // se resserre plutôt que tronquer.
+        // A continuation keeps the avatar GUTTER (the body stays aligned with the
+        // head message's) and puts ITS time there, very small: grouping must not
+        // cost the information. `adjustsFontSizeToFit`: the English time
+        // ("2:05 PM") overflows 34 px at full size; it shrinks rather than
+        // truncating.
         <Text
           style={[styles.gutterTime, { color: c.tertiaryText }]}
           numberOfLines={1}
@@ -180,10 +179,10 @@ export const MessageRow = memo(function MessageRow({
           {time}
         </Text>
       ) : (
-      /* La ligne est `accessible={false}` pour que TalkBack atteigne
-          réessayer/abandonner/pièces jointes ; l'initiale décorative ne doit
-          pas devenir un nœud de plus, elle double la navigation au balayage.
-          (`importantForAccessibility` n'ôte que le nœud a11y — le tap marche.) */
+      /* The row is `accessible={false}` so TalkBack reaches
+          retry/discard/attachments; the decorative initial must not
+          become one more node, it would double swipe navigation.
+          (`importantForAccessibility` only removes the a11y node; tap still works.) */
       <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
         <Pressable
           onPress={openProfile}
@@ -194,15 +193,15 @@ export const MessageRow = memo(function MessageRow({
             c={c}
             key={author}
             initial={author.charAt(0) || '?'}
-            // Avatar visé par le username COURANT (`identites`), uid en repli.
-            // Par uid seul, l'URI `/avatar/uid/<uid>` ne change JAMAIS : le cache
-            // image RN garde l'ancien avatar après un renommage, alors que le
-            // reste de l'app (par `/avatar/<username>`) affiche le courant. Le
-            // username courant fait bouger l'URI au renommage → le cache se
-            // rafraîchit et reste cohérent avec l'écran profil.
-            // L'`etag` (version de la photo) est ce qui rafraîchit l'image
-            // quand la personne change d'avatar : par pseudo si on le connaît,
-            // par uid sinon — les deux index pointent la même version.
+            // Avatar addressed by the CURRENT username (`identities`), uid as fallback.
+            // By uid alone, the URI `/avatar/uid/<uid>` NEVER changes: RN's image
+            // cache keeps the old avatar after a rename, while the rest of the app
+            // (by `/avatar/<username>`) shows the current one. The current username
+            // moves the URI on rename → the cache refreshes and stays consistent
+            // with the profile screen.
+            // The `etag` (photo version) is what refreshes the image when the
+            // person changes avatar: by username if known, by uid otherwise; both
+            // indexes point to the same version.
             uri={urlAvatar(client, {
               username: identities.get(message.authorId),
               uid: message.authorId,
@@ -217,9 +216,9 @@ export const MessageRow = memo(function MessageRow({
       </View>
       )}
       <View style={styles.body}>
-        {/* Une suite tait le pseudo et l'heure — mais « modifié » et
-            « envoi… » restent dus au lecteur : leur ligne ne se rend que
-            quand l'un d'eux a quelque chose à dire. */}
+        {/* A continuation hides username and time, but "edited" and
+            "sending..." are still owed to the reader: their line only renders
+            when one of them has something to say. */}
         {(!continuation || message.editedAt !== null || sendStatus === 'en-attente') && (
           <View style={styles.header}>
             {!continuation && (
@@ -268,8 +267,8 @@ export const MessageRow = memo(function MessageRow({
                 key={reaction.code}
                 c={c}
                 reaction={reaction}
-                // Le tap BASCULE : `chat.react` sait aussi retirer — câbler
-                // `mettre` en dur à `true` rendait la réaction inannulable.
+                // The tap TOGGLES: `chat.react` can also remove; hard-wiring `put`
+                // to `true` made the reaction impossible to undo.
                 onPress={
                   onReact === null
                     ? undefined
@@ -306,19 +305,19 @@ export const MessageRow = memo(function MessageRow({
 });
 
 /**
- * Corps d'un message : markdown pour les messages ordinaires (`md` du serveur,
- * ou `parse()` local pour les VIEUX messages qui n'en ont pas — repli imposé
- * par le contrat 4.3), substitut sobre pour le chiffré et les messages
- * système (leur traduction arrive en 4.4).
+ * Message body: markdown for ordinary messages (server `md`, or local
+ * `parse()` for OLD messages that have none, a fallback required by contract
+ * 4.3), a plain stand-in for encrypted and system messages (their translation
+ * comes in 4.4).
  */
 function MessageContent({ c, message }: { c: Colors; message: MessageRowData }) {
   const t = useT();
-  // Clés = les CHAÎNES, stables à travers le barattage d'objets de
-  // `useRequeteVive` (qui défait le memo de LigneMessage) : sans cela, chaque
-  // écriture en base re-parserait le markdown de toutes les lignes visibles.
-  // Un message chiffré DÉCHIFFRÉ (déverrouillé) porte encore `t: 'e2e'` mais a
-  // un `texte` : il se rend alors comme un message ordinaire (son `md` est null,
-  // `arbreDuMessage` parse le texte clair). Verrouillé, `texte` est null.
+  // Keys = the STRINGS, stable across the object churn of
+  // `useCoalescedLiveQuery` (which defeats MessageRow's memo): otherwise every
+  // database write would re-parse the markdown of every visible row.
+  // A DECRYPTED (unlocked) encrypted message still carries `t: 'e2e'` but has
+  // a `text`: it then renders like an ordinary message (its `md` is null,
+  // `messageTree` parses the plaintext). Locked, `text` is null.
   const decryptedEncrypted = message.systemType === 'e2e' && message.text !== null;
   const isOrdinary = message.systemType === null || decryptedEncrypted;
   const tree = useMemo(
@@ -333,24 +332,24 @@ function MessageContent({ c, message }: { c: Colors; message: MessageRowData }) 
     return <CallCard c={c} callId={message.callId} />;
   }
   if (message.systemType !== null && !decryptedEncrypted) {
-    // La phrase suit le nom de l'auteur affiché juste au-dessus : « bob a
-    // rejoint le salon ». `texte` porte le PARAMÈTRE de l'action, pas une
-    // phrase — voir lib/systemMessages.ts.
+    // The sentence follows the author name shown just above: "bob joined the
+    // room". `text` carries the action's PARAMETER, not a sentence, see
+    // lib/systemMessages.ts.
     return <Placeholder c={c} text={systemText(t, message.systemType, message.text)} />;
   }
   if (tree === null) {
-    // Un message d'upload n'a souvent NI texte NI md : ses pièces jointes,
-    // rendues à côté, sont tout son contenu — rien à substituer.
+    // An upload message often has NEITHER text NOR md: its attachments,
+    // rendered alongside, are all its content; nothing to stand in for.
     if (message.attachments !== null) return null;
     return <Placeholder c={c} text={t('messageRow.emptyMessage')} />;
   }
   return (
-    // Le `md` est en dernier ressort une donnée d'autrui : une forme qui
-    // échappe aux validations ne doit coûter que ce message, pas l'écran.
-    // La `key` fait RENAÎTRE la garde quand le CONTENU change : sans elle,
-    // `casse` restait armé pour toujours et l'édition qui corrige un `md`
-    // mal formé laissait le message figé sur son texte nu jusqu'au recyclage
-    // de la cellule (le garde-fou était le seul maillon sans réarmement).
+    // The `md` is ultimately someone else's data: a shape that slips past
+    // validation must cost only this message, not the screen.
+    // The `key` REVIVES the guard when the CONTENT changes: without it,
+    // `letterCase` stayed armed forever and an edit fixing a malformed `md`
+    // left the message stuck on its bare text until the cell was recycled
+    // (the guard was the only link with no reset).
     <RenderGuard
       key={message.md ?? message.text ?? ''}
       fallback={<Text style={[styles.text, { color: c.text }]}>{message.text}</Text>}
@@ -365,10 +364,10 @@ function Placeholder({ c, text }: { c: Colors; text: string }) {
 }
 
 /**
- * Une pastille de réaction : l'emoji (glyphe standard, image custom, ou `:nom:`
- * littéral en dernier ressort — même ordre de résolution que le corps des
- * messages) et le compteur. Contour et compteur ACCENTUÉS quand ma réaction y
- * figure : c'est aussi l'indice que le tap retire au lieu d'ajouter.
+ * A reaction chip: the emoji (standard glyph, custom image, or literal `:name:`
+ * as a last resort, same resolution order as the message body) and the count.
+ * Border and count ACCENTED when my reaction is in it: that is also the hint
+ * that tapping removes instead of adding.
  */
 function ReactionChip({
   c,
@@ -417,13 +416,12 @@ function ReactionChip({
 }
 
 /**
- * Le message CITÉ, au-dessus de la réponse : trait accent, auteur, texte en
- * italique, SES pièces (images en vignette) et — s'il était lui-même une
- * réponse — sa propre citation, imbriquée. Rend la pièce jointe `message_link`
- * que le serveur attache à un message-citation (`lib/quote.ts`) — le même
- * bloc que dessinent les clients officiels, donc les citations croisées entre
- * apps restent lisibles. La chaîne s'arrête à `PROFONDEUR_MAX_CITATION` (2),
- * la taille que produit le serveur (`Message_QuoteChainLimit` par défaut).
+ * The QUOTED message, above the reply: accent bar, author, italic text, ITS
+ * attachments (images as thumbnails) and, if it was itself a reply, its own
+ * quote, nested. Renders the `message_link` attachment the server attaches to a
+ * quote message (`lib/quote.ts`), the same block the official clients draw, so
+ * cross-app quotes stay readable. The chain stops at `MAX_QUOTE_DEPTH` (2),
+ * the size the server produces (default `Message_QuoteChainLimit`).
  */
 function Quote({
   c,
@@ -439,8 +437,8 @@ function Quote({
   depth?: number;
 }) {
   const t = useT();
-  // Le cité peut être lui-même une réponse : on ne montre que ses mots, pas
-  // son permalien de citation — sa citation s'affiche en bloc imbriqué.
+  // The quoted message may itself be a reply: show only its words, not its
+  // quote permalink; its quote shows as a nested block.
   const text = stripQuotePrefix(attachment.text ?? '').trim();
   const author = typeof attachment.author_name === 'string' ? attachment.author_name : null;
   const nested = Array.isArray(attachment.attachments) ? attachment.attachments : [];
@@ -487,9 +485,9 @@ function Quote({
 }
 
 /**
- * Une pièce du message cité, en réduit : l'image en vignette tapable (la
- * visionneuse ouvre l'original), le reste en une ligne titrée — le bloc de
- * citation résume, il ne rejoue pas les lecteurs audio/vidéo.
+ * An attachment of the quoted message, scaled down: the image as a tappable
+ * thumbnail (the viewer opens the original), the rest as one titled line; the
+ * quote block summarizes, it does not replay audio/video players.
  */
 function QuotedFile({
   c,
@@ -504,7 +502,7 @@ function QuotedFile({
 }) {
   const t = useT();
   if (typeof attachment.image_url === 'string') {
-    // Bornes égales = largeur FIXE : une vignette, pas la pièce plein cadre.
+    // Equal bounds = FIXED width: a thumbnail, not the full-frame attachment.
     return (
       <AttachedImage
         attachment={attachment}
@@ -527,27 +525,26 @@ function QuotedFile({
   );
 }
 
-/** Largeur fixe des images citées : une vignette, pas la pièce plein cadre. */
+/** Fixed width of quoted images: a thumbnail, not the full-frame attachment. */
 const QUOTED_IMAGE_WIDTH = 200;
 
 /**
- * Une image jointe — du bloc citation comme du corps du message : choix de la
- * source, URL protégée, gabarit borné et ouverture en visionneuse. Était écrit
- * deux fois dans ce fichier, avec des bornes déjà divergées.
+ * An attached image, from the quote block as from the message body: source
+ * choice, protected URL, bounded frame and opening in the viewer. Was written
+ * twice in this file, with bounds that had already diverged.
  *
- * Rocket.Chat génère une VIGNETTE ~480 px (`image_url`) et conserve l'ORIGINAL
- * pleine résolution dans `title_link`. Afficher la vignette la rendait
- * pixelisée dès qu'on l'agrandissait : on prend donc l'original, en le
- * laissant se sous-échantillonner à la taille d'affichage. Repli sur
- * `image_url` si le serveur ne génère pas de vignette (l'original EST alors
- * `image_url`).
+ * Rocket.Chat generates a ~480 px THUMBNAIL (`image_url`) and keeps the
+ * full-resolution ORIGINAL in `title_link`. Showing the thumbnail made it
+ * pixelated as soon as it was enlarged, so we take the original and let it
+ * downsample to the display size. Falls back to `image_url` if the server
+ * generates no thumbnail (the original then IS `image_url`).
  *
- * Le gabarit : largeur naturelle bornée à [largeurMin, largeurMax] (bornes
- * égales = largeur fixe, le cas de la vignette citée), hauteur au ratio de
- * l'original bornée à [hauteurMin, hauteurMax] — un portrait très haut est
- * plafonné (et recadré par `cover`) : la vue en grand, au toucher, montre
- * l'image entière. `image_dimensions` décrit la vignette, mais son RATIO est
- * celui de l'original — parfait pour le gabarit ; carré quand il manque.
+ * The frame: natural width bounded to [minWidth, maxWidth] (equal bounds =
+ * fixed width, the quoted thumbnail case), height at the original's ratio
+ * bounded to [minHeight, maxHeight]; a very tall portrait is capped (and
+ * cropped by `cover`): the full view, on tap, shows the whole image.
+ * `image_dimensions` describes the thumbnail, but its RATIO is the original's,
+ * perfect for the frame; square when missing.
  */
 function AttachedImage({
   attachment,
@@ -566,10 +563,10 @@ function AttachedImage({
   maxWidth: number;
   minHeight: number;
   maxHeight: number;
-  /** L'habillage (rayon, marges, fond d'attente) reste à l'appelant. */
+  /** Styling (radius, margins, placeholder background) is left to the caller. */
   style: StyleProp<ImageStyle>;
   onLongPress: (() => void) | undefined;
-  /** Fichier clair déjà dans le cache (image chiffrée) : affiché tel quel. */
+  /** Plaintext file already in the cache (encrypted image): shown as is. */
   local?: string;
 }) {
   const viewer = useImageViewer();
@@ -612,10 +609,10 @@ function AttachedImage({
 }
 
 /**
- * Carte d'un message d'appel (`t: 'videoconf'`) : « Appel vidéo » et un bouton
- * Rejoindre qui ouvre l'écran d'appel (WebView Jitsi). Sans `callId` — vieux
- * message d'avant la persistance du bloc, ou bloc illisible — on n'offre pas de
- * jonction, juste l'étiquette : mieux qu'un bouton qui ne saurait où aller.
+ * Card of a call message (`t: 'videoconf'`): "Video call" and a Join button
+ * that opens the call screen (Jitsi WebView). Without a `callId` (an old message
+ * from before the block was persisted, or an unreadable block) no join is
+ * offered, just the label: better than a button that would not know where to go.
  */
 function CallCard({ c, callId }: { c: Colors; callId: string | null }) {
   const router = useRouter();
@@ -648,7 +645,7 @@ type Attachment = {
   image_url?: string;
   image_type?: string;
   image_size?: number;
-  /** Poids d'une pièce « fichier », en octets. */
+  /** Size of a "file" attachment, in bytes. */
   size?: number;
   audio_url?: string;
   audio_type?: string;
@@ -656,19 +653,19 @@ type Attachment = {
   video_url?: string;
   video_type?: string;
   video_size?: number;
-  /** Fichier d'un salon chiffré : sa clé et son compteur (`lib/e2e/crypto.ts`). */
+  /** File of an encrypted room: its key and counter (`lib/e2e/crypto.ts`). */
   encryption?: unknown;
   hashes?: unknown;
   image_dimensions?: { width?: number; height?: number };
-  /** Citation (reply-quote) : permalien du message cité — voir lib/quote.ts. */
+  /** Quote (reply-quote): permalink of the quoted message, see lib/quote.ts. */
   message_link?: string;
   author_name?: string;
   text?: string;
-  /** Pièces du message CITÉ (images, fichiers… et sa propre citation, niveau 2). */
+  /** Attachments of the QUOTED message (images, files... and its own quote, level 2). */
   attachments?: Attachment[];
 };
 
-/** `piecesJointes` (JSON sérialisé) en tableau — tolérant, comme tout ce qui vient d'autrui. */
+/** `attachments` (serialized JSON) as an array: tolerant, like everything from someone else. */
 function parseAttachments(raw: string | null): Attachment[] {
   if (raw === null) return [];
   try {
@@ -680,14 +677,13 @@ function parseAttachments(raw: string | null): Attachment[] {
 }
 
 /**
- * Pièces jointes (7.4) : `FileUpload_ProtectFiles = true` sur le serveur
- * cible — chaque URL de fichier reçoit `rc_uid`/`rc_token` en query, sinon
- * le serveur répond 403 et l'image reste blanche.
+ * Attachments (7.4): `FileUpload_ProtectFiles = true` on the target server, so
+ * every file URL gets `rc_uid`/`rc_token` in the query, otherwise the server
+ * answers 403 and the image stays blank.
  *
- * `surAppuiLong` est transmis à chaque élément tapable : un toucher qui
- * démarre sur un enfant Pressable ne remonte jamais au Pressable de la ligne,
- * et un message d'upload (sans texte) n'offrirait AUCUNE surface pour la
- * feuille d'actions.
+ * `onLongPress` is passed to every tappable element: a touch starting on a
+ * child Pressable never bubbles up to the row's Pressable, and an upload
+ * message (no text) would offer NO surface for the action sheet.
  */
 function Attachments({
   c,
@@ -748,9 +744,9 @@ function Attachments({
           );
         }
         if (typeof attachment?.video_url === 'string') {
-          // Une vidéo porte AUSSI `title_link` (l'original) : cette branche doit
-          // passer AVANT la branche « fichier » générique, sinon la vidéo n'y
-          // serait qu'un lien ouvert dans le navigateur.
+          // A video ALSO carries `title_link` (the original): this branch must
+          // come BEFORE the generic "file" branch, otherwise the video would only
+          // be a link opened in the browser.
           const url = protectedFileUrl(client, attachment.video_url);
           return (
             <VideoPlayer
@@ -785,13 +781,13 @@ function Attachments({
 }
 
 /**
- * Pièce jointe « fichier » (PDF, archive, tableur, APK…) : au toucher, le choix
- * — télécharger ou partager — vient AVANT tout téléchargement ; celui-ci suit
- * en fond, sa progression sous le nom (\`ui/attachmentActions.ts\`).
+ * "File" attachment (PDF, archive, spreadsheet, APK...): on tap, the choice
+ * (download or share) comes BEFORE any download; the download follows in the
+ * background, its progress under the name (\`ui/attachmentActions.ts\`).
  *
- * L'URL protégée (\`rc_uid\` et \`rc_token\` en query) ne quitte jamais le
- * processus : elle était remise à \`Linking.openURL\`, donc à Chrome, à son
- * historique et à sa synchronisation, et un \`rc_token\` vaut le compte entier.
+ * The protected URL (\`rc_uid\` and \`rc_token\` in the query) never leaves the
+ * process: it used to be handed to \`Linking.openURL\`, so to Chrome, its
+ * history and its sync, and an \`rc_token\` is worth the whole account.
  */
 function FileAttachment({
   c,
@@ -811,8 +807,8 @@ function FileAttachment({
   encryption?: FileEncryption | null;
 }) {
   const t = useT();
-  // Pas de MIME : \`attachments\` n'en porte pas pour un fichier (son \`type\`
-  // vaut « file »). C'est l'extension du nom qui oriente le système.
+  // No MIME: \`attachments\` carries none for a file (its \`type\` is
+  // "file"). The name's extension is what guides the system.
   const pick = () =>
     offerDownloadOrShare(
       { key: path, url: protectedFileUrl(client, path), title, type: null, size, encryption },
@@ -829,14 +825,14 @@ function FileAttachment({
   );
 }
 
-/** Au-delà, un média chiffré ne se déchiffre pas pour l'aperçu : il se partage ou s'enregistre. */
+/** Past this, an encrypted media file is not decrypted for preview: it is shared or saved. */
 const ENCRYPTED_PREVIEW_MAX = 25 * 1024 * 1024;
 
 /**
- * Pièce jointe d'un salon chiffré. Le serveur ne détient que du chiffré : une
- * image, un son ou une vidéo se télécharge et se déchiffre dans le cache avant
- * d'être montré, puis se rend comme en clair. Un autre fichier (ou un média
- * trop lourd) reste une carte, déchiffrée au partage ou à l'enregistrement.
+ * Attachment of an encrypted room. The server only holds ciphertext: an
+ * image, sound or video is downloaded and decrypted into the cache before
+ * being shown, then renders as in plaintext. Any other file (or a media file
+ * too heavy) stays a card, decrypted on share or save.
  */
 function EncryptedAttachment({
   c,
@@ -936,10 +932,10 @@ function EncryptedAttachment({
 
 const styles = StyleSheet.create({
   message: { flexDirection: 'row', gap: 10, paddingVertical: 6 },
-  // Suite d'un même auteur : collée au message de tête (l'écart intra-groupe
-  // se réduit au paddingBottom du dessus), gouttière = largeur de la tuile,
-  // occupée par l'heure du message. `lineHeight` = celle du corps : l'heure
-  // s'aligne sur la première ligne de texte.
+  // Continuation from the same author: stuck to the head message (the in-group
+  // gap shrinks to the paddingBottom above), gutter = tile width, taken by the
+  // message's time. `lineHeight` = the body's: the time aligns with the first
+  // line of text.
   messageContinuation: { paddingTop: 0 },
   gutterTime: {
     width: 34,
@@ -968,7 +964,7 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   quoteAuthor: { fontFamily: FONTS.bodyBold, fontSize: 12 },
-  // La largeur et la hauteur viennent du gabarit d'`ImageJointe`.
+  // Width and height come from `AttachedImage`'s frame.
   quotedImage: {
     maxWidth: '100%',
     borderRadius: 8,

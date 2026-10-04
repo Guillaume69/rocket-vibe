@@ -1,10 +1,10 @@
 /**
- * Transport d'upload côté app : `expo-file-system/legacy` `createUploadTask`
- * en MULTIPART. La progression vient de `totalBytesSent`.
+ * App-side upload transport: `expo-file-system/legacy` `createUploadTask`
+ * in MULTIPART. Progress comes from `totalBytesSent`.
  *
- * Deux variantes, un seul corps : le NOM DE CHAMP multipart diffère selon
- * l'endpoint — `file` pour `rooms.media` (pièce jointe), `image` pour
- * `users.setAvatar` (photo de profil). La factory le paramètre.
+ * Two variants, one body: the multipart FIELD NAME differs per endpoint:
+ * `file` for `rooms.media` (attachment), `image` for `users.setAvatar`
+ * (profile photo). The factory takes it as a parameter.
  */
 
 import * as FileSystem from 'expo-file-system/legacy';
@@ -15,9 +15,10 @@ import type { TransportUpload } from '../lib/upload.ts';
 import { reportUploadEnd } from './uploadProbe.ts';
 
 /**
- * Copie le fichier sous son vrai nom, dans un dossier à lui : le multipart part
- * sous le nom du fichier sur le disque. Rend `null` quand l'URI le porte déjà
- * ou que la copie échoue — le fichier part alors sous son nom de cache.
+ * Copies the file under its real name, into a folder of its own: the
+ * multipart goes out under the file's on-disk name. Returns `null` when the
+ * URI already carries it or the copy fails; the file then goes out under its
+ * cache name.
  */
 async function namedCopy(
   uri: string,
@@ -40,9 +41,9 @@ async function namedCopy(
 
 function expoTransportWith(field: string): TransportUpload {
   return async (url, headers, file, onProgress, onCancelable, fields) => {
-    // Un fichier de cache purgé par l'OS (kill entre la sélection et le rejeu)
-    // n'est PAS une panne réseau : erreur franche → statut « échec »,
-    // abandonnable — pas une attente éternelle.
+    // A cache file purged by the OS (kill between selection and replay) is NOT
+    // a network failure: a plain error → "failed" status, discardable, not an
+    // endless wait.
     const info = await FileSystem.getInfoAsync(file.uri);
     if (!info.exists) {
       throw new Error(`File not found (${file.name}), cache purged?`);
@@ -67,22 +68,22 @@ function expoTransportWith(field: string): TransportUpload {
         }
       },
     );
-    // Remonté AVANT le premier octet : « Abandonner » doit pouvoir mordre dès
-    // le début, sinon les octets continuent de monter après le geste et le
-    // fichier finit par apparaître dans le salon.
+    // Surfaced BEFORE the first byte: "Discard" must be able to bite from the
+    // start, otherwise the bytes keep going up after the gesture and the file
+    // ends up appearing in the room.
     onCancelable?.(() => task.cancelAsync());
 
     let result;
     try {
       result = await task.uploadAsync();
     } catch {
-      // `uploadAsync` ne rejette que quand AUCUNE réponse HTTP n'est arrivée :
-      // c'est le réseau. Statut 0 = la ligne reste « en-attente », le rejeu du
-      // prochain raccordement s'en charge — même sémantique que ClientRest.
+      // `uploadAsync` rejects only when NO HTTP response arrived: that is the
+      // network. Status 0 = the row stays 'en-attente', the replay on the next
+      // connection setup takes care of it; same semantics as ClientRest.
       throw new RestError('Upload: server unreachable.', 0);
     } finally {
-      // Réussi comme échoué : c'est le passage des octets qui fait tomber la
-      // socket, pas le verdict du serveur.
+      // Success or failure alike: it is the bytes going through that drop the
+      // socket, not the server's verdict.
       reportUploadEnd();
       if (copy !== null) {
         void FileSystem.deleteAsync(copy.folder, { idempotent: true }).catch(() => {});
@@ -95,7 +96,7 @@ function expoTransportWith(field: string): TransportUpload {
   };
 }
 
-/** Pièce jointe de salon (`rooms.media`), champ `file`. */
+/** Room attachment (`rooms.media`), field `file`. */
 export const transportExpo = expoTransportWith('file');
 
 /** Photo de profil (`users.setAvatar`), champ `image`. */

@@ -1,23 +1,23 @@
 /**
- * Le clavier ne redimensionne plus la fenêtre : l'edge-to-edge (imposé par
- * Android 15+, donc par le SDK 57) neutralise `adjustResize` — le système
- * livre les insets IME et laisse l'app réagir.
+ * The keyboard no longer resizes the window: edge-to-edge (forced by
+ * Android 15+, hence by SDK 57) neutralises `adjustResize`; the system
+ * delivers IME insets and lets the app react.
  *
- * Le suivi est piloté par la SharedValue de `react-native-keyboard-controller`
- * (`useReanimatedKeyboardAnimation().height`, 0 fermé → -hauteur ouvert),
- * alimentée frame par frame côté natif (`WindowInsetsAnimation`) : le
- * composer SUIT le clavier au lieu de sauter après coup. Même mécanique que
- * duogo, qui a écarté `KeyboardAvoidingView` (offset automatique défaillant) ;
- * les événements `Keyboard` de RN core ont été écartés aussi — uniques et
- * tardifs (`keyboardDidShow`), et amputés de la barre système
- * (`imeInsets.bottom - barInsets.bottom` dans `ReactRootView`).
+ * Tracking is driven by the `react-native-keyboard-controller` SharedValue
+ * (`useReanimatedKeyboardAnimation().height`, 0 closed to -height open), fed
+ * frame by frame on the native side (`WindowInsetsAnimation`): the composer
+ * FOLLOWS the keyboard instead of jumping afterwards. Same mechanism as duogo,
+ * which ruled out `KeyboardAvoidingView` (broken automatic offset); RN core's
+ * `Keyboard` events were ruled out too: one-shot and late (`keyboardDidShow`),
+ * and minus the system bar (`imeInsets.bottom - barInsets.bottom` in
+ * `ReactRootView`).
  *
- * `max(inset bas, hauteur clavier)` : clavier fermé, la marge de la barre de
- * navigation (le contenu passe dessous en edge-to-edge) ; ouvert, sa hauteur
- * pleine — mesurée depuis le bas de la fenêtre, qui est aussi le bas du
- * conteneur d'écran, donc sans mesure de vue ni offset de header. Remplace
- * `SafeAreaView edges={['bottom']}` sur les écrans à saisie ; les autres
- * gardent SafeAreaView.
+ * `max(bottom inset, keyboard height)`: keyboard closed, the navigation bar
+ * margin (content runs under it edge-to-edge); open, its full height,
+ * measured from the bottom of the window, which is also the bottom of the
+ * screen container, so no view measurement or header offset. Replaces
+ * `SafeAreaView edges={['bottom']}` on input screens; the others keep
+ * SafeAreaView.
  */
 
 import { type ReactNode } from 'react';
@@ -34,8 +34,8 @@ export function KeyboardAvoidingContainer({ children }: { children: ReactNode })
   const avoidance = useAnimatedStyle(() => ({
     paddingBottom: Math.max(insets.bottom, -height.value),
   }));
-  // Racine d'écran par construction : `flex: 1` et le fond vivent ici, pas
-  // en triplet de style recopié à chaque point d'appel.
+  // Screen root by construction: `flex: 1` and the background live here, not
+  // in a style triplet copied at every call site.
   return (
     <Animated.View style={[{ flex: 1, backgroundColor: c.background }, avoidance]}>
       {children}

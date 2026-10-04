@@ -1,25 +1,24 @@
 /**
- * Regroupement visuel des messages consécutifs d'un même auteur : la ligne qui
- * CONTINUE celle du dessus n'affiche ni avatar ni en-tête — juste son corps,
- * aligné sur la gouttière (ce que font les clients Rocket.Chat et Discord).
- * Projection PURE, extraite des écrans pour être testable sous Node ; c'est
- * `LigneMessage` (prop `suite`) qui traduit le marquage en rendu compact.
+ * Visual grouping of consecutive messages from the same author: the row that
+ * CONTINUES the one above shows neither avatar nor header, just its body,
+ * aligned on the gutter (as the Rocket.Chat and Discord clients do). PURE
+ * projection, pulled out of the screens to be testable under Node;
+ * `MessageRow` (prop `continuation`) turns the marking into compact rendering.
  *
- * Une ligne est une « suite » quand AUCUNE rupture ne la sépare du message
- * d'au-dessus :
- *   - auteur différent ;
- *   - plus de `FENETRE_GROUPE_MS` d'écart — sans borne de temps, une réponse
- *     des heures plus tard collerait au message d'hier sans repère ;
- *   - l'un des deux est un message SYSTÈME (« a rejoint », appel vidéo…) —
- *     sauf `e2e`, qui se rend comme un message ordinaire (déchiffré, ou son
- *     substitut « message chiffré ») et se groupe donc normalement ;
- *   - une ligne intercalée — barre « nouveaux messages », séparateur de jour :
- *     le premier non-lu comme le premier message du jour gardent leur en-tête,
- *     rien ne coupe un groupe en deux moitiés anonymes. (Le séparateur attrape
- *     aussi le cas que la fenêtre laisse passer : 23 h 58 puis 0 h 02.)
+ * A row is a "continuation" when NO break separates it from the message above:
+ *   - different author;
+ *   - more than `GROUP_WINDOW_MS` apart: without a time bound, a reply hours
+ *     later would stick to yesterday's message with no landmark;
+ *   - either is a SYSTEM message ("joined", video call...), except `e2e`,
+ *     which renders like an ordinary message (decrypted, or its "encrypted
+ *     message" stand-in) and so groups normally;
+ *   - an inserted row ("new messages" bar, day separator): the first unread and
+ *     the first message of the day keep their header, nothing splits a group
+ *     into two anonymous halves. (The separator also catches the case the
+ *     window lets through: 23:58 then 00:02.)
  */
 
-/** 5 min — la valeur par défaut de `Message_GroupingPeriod` côté Rocket.Chat. */
+/** 5 min, Rocket.Chat's default `Message_GroupingPeriod`. */
 export const GROUP_WINDOW_MS = 5 * 60_000;
 
 type Groupable = {
@@ -30,10 +29,10 @@ type Groupable = {
 };
 
 /**
- * Les ids des lignes qui continuent le message d'au-dessus. `ordre` dit comment
- * lire le tableau : l'écran salon projette en DESC (`'recent-en-tete'`, liste
- * inversée), l'écran fil en ASC (`'ancien-en-tete'`) — se tromper d'ordre
- * grouperait les messages sous leur SUIVANT, pas leur précédent.
+ * The ids of the rows that continue the message above. `order` says how to
+ * read the array: the room screen projects DESC (`'newest-first'`, inverted
+ * list), the thread screen ASC (`'oldest-first'`); the wrong order would group
+ * messages under their NEXT one, not their predecessor.
  */
 export function continuationIds(
   rows: readonly (Groupable | { id: string })[],
@@ -54,12 +53,12 @@ export function continuationIds(
 }
 
 /**
- * Parmi les `suites`, les lignes dont l'heure AFFICHÉE (heure:minute) est celle
- * du message d'au-dessus : leur gouttière reste vide — même logique que pour
- * l'avatar et le pseudo, une information déjà à l'écran ne se répète pas. Au
- * sein d'une chaîne de même minute, comparer chaque ligne à son prédécesseur
- * DIRECT suffit : la dernière heure rendue au-dessus est forcément celle de la
- * chaîne (« même minute » est transitive).
+ * Among `continuations`, the rows whose DISPLAYED time (hour:minute) is that
+ * of the message above: their gutter stays empty. Same logic as for avatar
+ * and username: information already on screen is not repeated. Within a
+ * same-minute chain, comparing each row to its DIRECT predecessor is enough:
+ * the last time rendered above is necessarily the chain's ("same minute" is
+ * transitive).
  */
 export function repeatedTimeIds(
   rows: readonly (Groupable | { id: string })[],
@@ -80,11 +79,11 @@ export function repeatedTimeIds(
 }
 
 /**
- * Deux horodatages dans la même minute EPOCH s'affichent avec la même
- * heure:minute quel que soit le fuseau : tous les décalages (Inde +5:30,
- * Népal +5:45 compris) sont des multiples entiers de la minute, une frontière
- * de minute epoch reste donc une frontière de minute locale. Comparer cette
- * valeur équivaut à comparer la chaîne rendue, sans dépendre du formateur.
+ * Two timestamps in the same EPOCH minute show the same hour:minute in any
+ * time zone: all offsets (India +5:30, Nepal +5:45 included) are whole
+ * multiples of a minute, so an epoch minute boundary stays a local minute
+ * boundary. Comparing this value equals comparing the rendered string, without
+ * depending on the formatter.
  */
 function shownMinute(ms: number): number {
   return Math.floor(ms / 60_000);
@@ -94,7 +93,7 @@ function groups(m: Groupable): boolean {
   return m.systemType === null || m.systemType === 'e2e';
 }
 
-/** Un message, par opposition aux lignes insérées (barre de non-lus, séparateur de jour). */
+/** A message, as opposed to inserted rows (unread bar, day separator). */
 function isMessage(l: Groupable | { id: string }): l is Groupable {
   return typeof (l as Groupable).authorId === 'string';
 }

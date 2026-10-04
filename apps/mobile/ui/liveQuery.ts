@@ -1,34 +1,32 @@
 /**
- * `useRequeteVive` — un `useLiveQuery` qui COALESCE les rafales d'écriture.
+ * `useCoalescedLiveQuery`: a `useLiveQuery` that COALESCES write bursts.
  *
- * Le `useLiveQuery` de drizzle-orm/expo-sqlite ré-exécute la requête ENTIÈRE à
- * CHAQUE événement d'`addDatabaseChangeListener`. Or `sqlite3_update_hook` (la
- * source de ces événements) fire une fois PAR LIGNE, au moment où chaque
- * `INSERT`/`UPDATE` s'exécute — pas au commit. Ingérer un lot de N messages
- * (historique, rattrapage d'un backlog…) émet donc N événements, chacun
- * re-rendant une grosse liste.
+ * drizzle-orm/expo-sqlite's `useLiveQuery` reruns the WHOLE query on EVERY
+ * `addDatabaseChangeListener` event. But `sqlite3_update_hook` (the source of
+ * those events) fires once PER ROW, as each `INSERT`/`UPDATE` runs, not at
+ * commit. Ingesting a batch of N messages (history, backlog catch-up...)
+ * therefore emits N events, each re-rendering a big list.
  *
- * Pire : un rafraîchissement À FRONT MONTANT (rendre dès le premier événement)
- * BLOQUE le thread JS pendant le rendu, ce qui retarde l'upsert SUIVANT de la
- * même transaction — le rendu étale la transaction, les événements s'espacent
- * du temps d'un rendu, et une fenêtre de regroupement courte ne les rattrape
- * plus. Mesuré sur le Pixel : une transaction de 50 upserts s'étirait sur ~8 s
- * (~50 rendus), et un gros rattrapage sur PLUSIEURS MINUTES — la barre de synchro
- * tournant « à l'infini ».
+ * Worse: a LEADING-EDGE refresh (render on the first event) BLOCKS the JS
+ * thread during the render, which delays the NEXT upsert of the same
+ * transaction: rendering stretches the transaction, events get spaced by a
+ * render's duration, and a short grouping window no longer catches them.
+ * Measured on the Pixel: a 50-upsert transaction stretched over ~8 s (~50
+ * renders), and a big catch-up over SEVERAL MINUTES, the sync bar spinning
+ * "forever".
  *
- * D'où un debounce PUR (trailing) : on NE rend PAS pendant la rafale. Le thread
- * reste libre, la transaction s'enchaîne en quelques millisecondes, les
- * événements se serrent, et on rafraîchit UNE fois une fois le silence revenu.
- * Un plafond `ATTENTE_MAX_MS` évite qu'un flot d'écritures ininterrompu ne fige
- * l'affichage : on rafraîchit au moins à cette cadence. On filtre par table
- * (comme drizzle) pour ne pas relire sur le changement d'une autre table, et par
- * FICHIER de base pour ne pas relire sur l'écriture d'un autre compte — voir
- * `fichierDeLaRequete`.
+ * Hence a PURE (trailing) debounce: NO render during the burst. The thread
+ * stays free, the transaction runs in a few milliseconds, events bunch up, and
+ * we refresh ONCE when quiet returns. A `MAX_WAIT_MS` cap keeps a nonstop
+ * stream of writes from freezing the display: we refresh at least at that
+ * rate. We filter by table (like drizzle) to skip rereads on another table's
+ * change, and by database FILE to skip rereads on another account's writes,
+ * see `queryFile`.
  *
- * API identique à `useLiveQuery` (`{ data }`) : remplacement mécanique. On ne
- * gère que les requêtes SELECT (`base.select()…`), les seules utilisées ici ;
- * une requête relationnelle (`base.query.*`) tomberait dans le repli « écoute
- * toutes les tables » — correct, juste un peu moins ciblé.
+ * Same API as `useLiveQuery` (`{ data }`): a drop-in replacement. Only SELECT
+ * queries (`base.select()...`) are handled, the only ones used here; a
+ * relational query (`base.query.*`) would fall back to "listen to all
+ * tables": correct, just less targeted.
  */
 
 import { is } from 'drizzle-orm';
@@ -36,37 +34,37 @@ import { getTableConfig, SQLiteTable } from 'drizzle-orm/sqlite-core';
 import { addDatabaseChangeListener } from 'expo-sqlite';
 import { useEffect, useState, type DependencyList } from 'react';
 
-/** Silence à attendre après la dernière écriture avant de rafraîchir. */
+/** Quiet time to wait after the last write before refreshing. */
 const WINDOW_MS = 48;
-/** …mais on rafraîchit au moins aussi souvent si les écritures ne cessent pas. */
+/** ...but refresh at least this often if writes never stop. */
 const MAX_WAIT_MS = 400;
 
-/** Dernier segment d'un chemin — `…/rv_chat.barrut.me_abc.db` → `rv_chat.barrut.me_abc.db`. */
+/** Last segment of a path: `.../rv_chat.barrut.me_abc.db` → `rv_chat.barrut.me_abc.db`. */
 function fileName(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1);
 }
 
 /**
- * Le fichier de la base sur laquelle porte cette requête, ou `null` si on n'a
- * pas su le lire.
+ * The file of the database this query targets, or `null` if it could not be
+ * read.
  *
- * `addDatabaseChangeListener` est GLOBAL à toutes les bases ouvertes, et
- * `db/client.ts` en garde une par couple (serveur, compte) pour la vie du
- * process : sans ce filtre, une écriture sur la base d'un compte visité plus tôt
- * relancerait les requêtes de l'écran courant.
+ * `addDatabaseChangeListener` is GLOBAL to all open databases, and
+ * `db/client.ts` keeps one per (server, account) pair for the life of the
+ * process: without this filter, a write to the database of an account visited
+ * earlier would rerun the current screen's queries.
  *
- * On lit `session.client` du builder drizzle (drizzle-orm/expo-sqlite range là
- * le `SQLiteDatabase`) : chemin interne, donc sondé défensivement. On compare le
- * NOM DE FICHIER et non le chemin entier, parce que les deux valeurs ne
- * viennent pas de la même source — `databasePath` est ce que JS a passé à
- * l'ouverture, `databaseFilePath` ce que le natif rapporte — et qu'une
- * normalisation différente ferait tout filtrer. Nos noms sont uniques par
- * (serveur, compte) (db/fileName.ts), le nom seul suffit donc à discriminer.
+ * We read `session.client` off the drizzle builder (drizzle-orm/expo-sqlite
+ * keeps the `SQLiteDatabase` there): an internal path, so probed defensively.
+ * We compare the FILE NAME, not the full path, because the two values come
+ * from different sources (`databasePath` is what JS passed at open,
+ * `databaseFilePath` what native reports) and a different normalization would
+ * filter everything out. Our names are unique per (server, account)
+ * (db/fileName.ts), so the name alone discriminates.
  *
- * Relevé sur l'AVD le 2026-07-28, une trace posée des deux côtés :
- *   attendu `rocket-vibe-10_0_2_2_3300-6a5615….db`
- *   reçu    `/data/data/com.rocketvibe.app/files/SQLite/rocket-vibe-10_0_2_2_3300-6a5615….db`
- *   `databaseName` = `main` — d'où le choix de `databaseFilePath`.
+ * Observed on the AVD on 2026-07-28, traced on both sides:
+ *   expected `rocket-vibe-10_0_2_2_3300-6a5615….db`
+ *   received `/data/data/com.rocketvibe.app/files/SQLite/rocket-vibe-10_0_2_2_3300-6a5615….db`
+ *   `databaseName` = `main`, hence the choice of `databaseFilePath`.
  */
 function queryFile(query: unknown): string | null {
   const path = (query as { session?: { client?: { databasePath?: unknown } } }).session?.client
@@ -88,18 +86,17 @@ export function useCoalescedLiveQuery<L>(
           if (!canceled) setData(rows);
         },
         () => {
-          // Un échec de lecture (base fermée en plein démontage) ne doit pas
-          // remonter : l'ancienne valeur reste affichée, la prochaine écriture
-          // relira.
+          // A read failure (database closed mid-unmount) must not propagate: the
+          // old value stays on screen, the next write rereads.
         },
       );
     };
     // Premier remplissage, comme `useLiveQuery`.
     reread();
 
-    // La table écoutée est extraite de la requête SELECT (`.config.table`),
-    // comme le fait drizzle en interne. Requête sans table identifiable → on
-    // écoute tout (repli sûr).
+    // The watched table is taken from the SELECT query (`.config.table`), as
+    // drizzle does internally. Query without an identifiable table → listen to
+    // everything (safe fallback).
     const table = (query as { config?: { table?: unknown } }).config?.table;
     const watchedTable = is(table, SQLiteTable) ? getTableConfig(table).name : null;
     const file = queryFile(query);
@@ -113,19 +110,18 @@ export function useCoalescedLiveQuery<L>(
     };
     const sub = addDatabaseChangeListener(({ tableName, databaseFilePath }) => {
       if (watchedTable !== null && tableName !== watchedTable) return;
-      // `databaseName` de l'événement ne discrimine RIEN : c'est le nom SQLite
-      // interne du schéma attaché, donc `main` pour toutes nos bases. Le fichier
-      // est le seul champ qui distingue deux comptes.
+      // The event's `databaseName` discriminates NOTHING: it is SQLite's internal
+      // name of the attached schema, so `main` for all our databases. The file is
+      // the only field that tells two accounts apart.
       if (file !== null && typeof databaseFilePath === 'string' && databaseFilePath !== '') {
         if (fileName(databaseFilePath) !== file) return;
       }
       const now = Date.now();
       if (burstStart === 0) burstStart = now;
       if (timer !== null) clearTimeout(timer);
-      // Debounce : attendre le silence (`FENETRE_MS`) — SANS jamais rendre
-      // pendant la rafale, pour ne pas la ralentir — mais sans dépasser
-      // `ATTENTE_MAX_MS` depuis son début, pour ne pas figer l'affichage sous un
-      // flot continu.
+      // Debounce: wait for quiet (`WINDOW_MS`), NEVER rendering during the burst
+      // so as not to slow it, but never past `MAX_WAIT_MS` from its start, so a
+      // continuous stream does not freeze the display.
       const leftBeforeCap = MAX_WAIT_MS - (now - burstStart);
       timer = setTimeout(refresh, Math.max(0, Math.min(WINDOW_MS, leftBeforeCap)));
     });
@@ -135,8 +131,8 @@ export function useCoalescedLiveQuery<L>(
       if (timer !== null) clearTimeout(timer);
       sub.remove();
     };
-    // `requete` change de référence à chaque rendu ; comme `useLiveQuery`, ce
-    // sont les `deps` fournies qui déterminent quand relancer l'effet.
+    // `query` changes reference on every render; as with `useLiveQuery`, the
+    // provided `deps` decide when to rerun the effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 

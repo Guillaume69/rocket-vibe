@@ -1,12 +1,12 @@
 /**
- * Texte cliquable avec retour visuel au tap. React Native n'anime pas le press
- * d'un `<Text>` sous Android (contrairement à `Pressable`), donc on baisse
- * l'opacité à la main via `onPressIn`/`onPressOut`. Reste un `<Text>` — donc
- * utilisable INLINE dans un paragraphe, ce qu'exige une mention `@user` nichée
- * au fil du texte.
+ * Tappable text with visual feedback on tap. React Native does not animate
+ * the press of a `<Text>` on Android (unlike `Pressable`), so we lower the
+ * opacity by hand via `onPressIn`/`onPressOut`. It stays a `<Text>`, so it is
+ * usable INLINE in a paragraph, as an `@user` mention nested in the text
+ * requires.
  *
- * `onPress` absent ⇒ simple texte stylé, sans retour ni rôle bouton (cas d'un
- * auteur sans username : message chiffré indéchiffrable).
+ * No `onPress` ⇒ plain styled text, with no feedback nor button role (an
+ * author without a username: an undecryptable encrypted message).
  */
 
 import { useState } from 'react';

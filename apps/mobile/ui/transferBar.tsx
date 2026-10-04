@@ -4,10 +4,10 @@ import { type Colors, FONTS } from './theme.ts';
 import { progressLabel, useProgress } from './transfers.ts';
 
 /**
- * Progression d'un transfert de pièce jointe, là où la pièce s'affiche. Deux
- * formes : une ligne (piste + pourcentage) sous un fichier, ou une
- * superposition sur une image ou une vidéo — un filet au bas de la vignette et
- * une pastille « ⬇ 37 % ». Rien quand aucun transfert n'est en cours.
+ * Progress of an attachment transfer, where the attachment is shown. Two
+ * forms: a row (track + percentage) under a file, or an overlay on an image
+ * or a video: a thin line at the bottom of the thumbnail and a "⬇ 37 %"
+ * chip. Nothing when no transfer is in progress.
  */
 export function TransferBar({
   key,
@@ -16,7 +16,7 @@ export function TransferBar({
 }: {
   key: string | null;
   c: Colors;
-  /** Superposition sur un média, aux coins de ce rayon ; absent = forme ligne. */
+  /** Overlay on a media, with corners of this radius; absent = row form. */
   radius?: number;
 }) {
   const p = useProgress(key);

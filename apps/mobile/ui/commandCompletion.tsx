@@ -1,8 +1,8 @@
 /**
- * Autocomplétion des commandes slash dans le composer : la liste du serveur
- * (lue une fois par session, `lib/commands.ts`), filtrée par mes permissions
- * dans le salon, et la bande qui les propose après un `/` en tête de message.
- * L'insertion passe par la même mécanique que les emojis et les mentions.
+ * Slash command autocompletion in the composer: the server's list (read once
+ * per session, `lib/commands.ts`), filtered by my permissions in the room, and
+ * the strip that offers them after a `/` at the start of a message. Insertion
+ * uses the same mechanics as emojis and mentions.
  */
 
 import { eq } from 'drizzle-orm';
@@ -25,8 +25,8 @@ import { useSync } from './sync.tsx';
 import { type Colors, LIST_PRESS_DELAY, FONTS } from './theme.ts';
 
 /**
- * Les commandes du serveur et mes permissions dans `rid` (`null` tant
- * qu'elles ne sont pas connues : rien n'est masqué, le serveur tranchera).
+ * The server's commands and my permissions in `rid` (`null` until they are
+ * known: nothing is hidden, the server will decide).
  */
 export function useCommands(
   client: ClientRest,
@@ -78,7 +78,7 @@ export function CommandCompletionBanner({
   commands: readonly Command[];
   granted: readonly string[] | null;
   c: Colors;
-  /** Reçoit le texte à insérer (`/nom`) et le `debut` du jeton (toujours 0). */
+  /** Receives the text to insert (`/name`) and the token's `start` (always 0). */
   onPick: (insertion: string, start: number) => void;
 }) {
   const items = useMemo(() => {
@@ -90,8 +90,8 @@ export function CommandCompletionBanner({
 
   return (
     <ScrollView
-      // VITAL : sans lui, le premier toucher défocalise le champ et la
-      // suggestion est perdue (même leçon que les autres bandeaux).
+      // VITAL: without it, the first touch blurs the field and the suggestion is
+      // lost (same lesson as the other strips).
       keyboardShouldPersistTaps="always"
       style={[styles.strip, { backgroundColor: c.card, borderTopColor: c.border }]}
     >

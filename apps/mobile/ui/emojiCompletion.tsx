@@ -1,23 +1,23 @@
 /**
- * Autocomplétion des emojis dans le composer : un hook qui gère le curseur, et
- * une bande de suggestions au-dessus du champ.
+ * Emoji autocompletion in the composer: a hook that handles the cursor, and a
+ * suggestion strip above the field.
  *
- * On donne au bandeau le texte et la position du curseur ; il repère le jeton
- * `:xxx` en cours de frappe (`lib/emojiCompletion.ts`), classe les codes courts
- * qui matchent (standard + custom du serveur) et les propose dans une bande
- * horizontale défilante. `null` — donc rien à l'écran — dès qu'il n'y a pas de
- * jeton ouvert ou aucune correspondance.
+ * The strip gets the text and the cursor position; it spots the `:xxx` token
+ * being typed (`lib/emojiCompletion.ts`), ranks the matching shortcodes
+ * (standard + server customs) and offers them in a horizontal scrolling
+ * strip. `null`, so nothing on screen, as soon as no token is open or nothing
+ * matches.
  *
- * L'INSERTION diffère selon le type, et c'est ici qu'on tranche, parce qu'ici
- * seulement on a les résolveurs :
- *   - standard → le GLYPHE (`unicodeDeCodeCourt`), comme Slack/Discord : l'emoji
- *     apparaît tout de suite dans le champ ;
- *   - custom → `:nom:`, car il n'a pas de glyphe — le serveur le re-parsera et
- *     le rendu en fera l'image (aucun aperçu inline possible dans un `TextInput`).
- * Les deux repassent par le pipeline de rendu des messages à l'envoi.
+ * INSERTION differs by type, and it is decided here, because only here do we
+ * have the resolvers:
+ *   - standard: the GLYPH (`unicodeOfShortcode`), like Slack/Discord: the emoji
+ *     shows up in the field right away;
+ *   - custom: `:name:`, since it has no glyph; the server re-parses it and the
+ *     renderer turns it into the image (no inline preview possible in a `TextInput`).
+ * Both go back through the message rendering pipeline on send.
  *
- * `keyboardShouldPersistTaps="always"` est VITAL : sans lui, le premier toucher
- * ne fait que défocaliser le champ et la suggestion est perdue.
+ * `keyboardShouldPersistTaps="always"` is VITAL: without it, the first touch
+ * only blurs the field and the suggestion is lost.
  */
 
 import { useCallback, useMemo, useState } from 'react';
@@ -45,16 +45,15 @@ import { Tappable } from './tappable.tsx';
 type Selection = { start: number; end: number };
 
 /**
- * L'état de curseur et les gestionnaires que les DEUX composers (salon et fil)
- * partagent — un seul endroit à corriger, jamais deux copies qui divergent.
+ * The cursor state and handlers that BOTH composers (room and thread) share:
+ * one place to fix, never two copies drifting apart.
  *
- * `curseur` est RÉACTIF : il pilote le bandeau (les suggestions suivent la
- * position), mais ne contrôle pas le champ. `selection` n'est IMPOSÉE au champ
- * qu'un instant, juste après qu'on a déplacé le caret nous-mêmes (insertion,
- * vidage), puis relâchée (`undefined`) dès que le natif a suivi. Piloter la
- * sélection en permanence fait sauter le caret en arrière pendant la frappe
- * rapide sur Android (course entre `value` et `selection`) : on ne le pilote
- * donc que quand c'est nous qui bougeons le caret.
+ * `cursor` is REACTIVE: it drives the strip (suggestions follow the position),
+ * but does not control the field. `selection` is IMPOSED on the field only for
+ * an instant, right after we moved the caret ourselves (insertion, clearing),
+ * then released (`undefined`) once native has followed. Driving the selection
+ * permanently makes the caret jump back during fast typing on Android (race
+ * between `value` and `selection`), so we only drive it when we move the caret.
  */
 export function useCompletionEmoji(
   draft: string,
@@ -74,8 +73,8 @@ export function useCompletionEmoji(
   const onSelection = useCallback(
     (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
       setCursor(e.nativeEvent.selection.start);
-      // Relâche : le natif reprend la main sur le caret. `undefined` → `undefined`
-      // est un no-op côté React, donc aucun rendu de trop pendant la frappe.
+      // Release: native takes the caret back. `undefined` to `undefined` is a no-op
+      // for React, so no extra render while typing.
       setSelection(undefined);
     },
     [],
@@ -93,11 +92,11 @@ export function useCompletionEmoji(
   );
 
   /**
-   * Insère un glyphe (ou `:code:`) à la position du curseur, SANS espace de
-   * fin — au contraire de `choisirEmoji`, qui clôt un mot. Le navigateur pose
-   * les emojis les uns contre les autres, comme le clavier emoji du système.
-   * Le champ peut être défocalisé (panneau ouvert) : `curseur` garde la dernière
-   * position connue, et `selection` replace le caret au retour au clavier.
+   * Inserts a glyph (or `:code:`) at the cursor, WITHOUT a trailing space,
+   * unlike `pickEmoji`, which closes a word. The picker places emojis side by
+   * side, like the system emoji keyboard. The field may be blurred (panel open):
+   * `cursor` keeps the last known position, and `selection` puts the caret back
+   * on return to the keyboard.
    */
   const insertAtCursor = useCallback(
     (insertion: string) => {
@@ -112,7 +111,7 @@ export function useCompletionEmoji(
     [draft, cursor, setDraft, saveDraft],
   );
 
-  // À l'envoi (champ vidé) : caret au début, imposé une fois.
+  // On send (field cleared): caret at the start, imposed once.
   const reset = useCallback(() => {
     setCursor(0);
     setSelection({ start: 0, end: 0 });
@@ -121,30 +120,30 @@ export function useCompletionEmoji(
   return { cursor, selection, onSelection, pickEmoji, insertAtCursor, reset };
 }
 
-/** Ce qu'on affiche et ce qu'on insère pour une suggestion résolue. */
+/** What is shown and what is inserted for a resolved suggestion. */
 export type RenderedSuggestion = {
   suggestion: SuggestionEmoji;
-  /** Glyphe Unicode (standard) — `null` pour un custom. */
+  /** Unicode glyph (standard), `null` for a custom. */
   glyph: string | null;
-  /** URL de l'image (custom) — `null` pour un standard. */
+  /** Image URL (custom), `null` for a standard. */
   uri: string | null;
-  /** Ce qu'on écrit dans le champ à la sélection : glyphe, ou `:nom:`. */
+  /** What is written into the field on selection: glyph, or `:name:`. */
   insertion: string;
 };
 
 /**
- * Résout un code court en ce qu'on AFFICHE (glyphe standard ou image custom) et
- * ce qu'on INSÈRE (le glyphe, ou `:nom:` pour un custom sans glyphe). Partagé
- * avec le navigateur d'emojis (`ui/emojiPicker.tsx`) : un seul endroit qui
- * tranche standard vs custom.
+ * Resolves a shortcode into what is SHOWN (standard glyph or custom image) and
+ * what is INSERTED (the glyph, or `:name:` for a glyph-less custom). Shared
+ * with the emoji picker (`ui/emojiPicker.tsx`): one place deciding standard
+ * vs custom.
  */
 export function resolve(s: SuggestionEmoji): RenderedSuggestion {
   if (s.type === 'custom') {
     return { suggestion: s, glyph: null, uri: urlEmojiCustom(s.code), insertion: `:${s.code}:` };
   }
   const glyph = unicodeOfShortcode(s.code);
-  // `glyphe` ne devrait jamais être null (le code vient de la table), mais si
-  // ça arrivait, `:nom:` reste un repli lisible et envoyable.
+  // `glyph` should never be null (the code comes from the table), but if it
+  // were, `:name:` stays a readable, sendable fallback.
   return { suggestion: s, glyph, uri: null, insertion: glyph ?? `:${s.code}:` };
 }
 
@@ -157,16 +156,16 @@ export function EmojiCompletionBanner({
   text: string;
   cursor: number;
   c: Colors;
-  /** Reçoit le texte à insérer et le `debut` du jeton détecté à ce moment. */
+  /** Receives the text to insert and the `start` of the token detected at that moment. */
   onPick: (insertion: string, start: number) => void;
 }) {
   const result = useMemo(() => {
     const token = detectEmojiToken(text, cursor);
     if (token === null) return null;
-    // Dépend de (texte, curseur) seulement. Un rafraîchissement des customs en
-    // pleine frappe (synchro 1×/session, au raccordement) n'est pas reflété tant
-    // que la frappe n'a pas repris — angle mort assumé : la synchro tombe avant
-    // qu'on compose, et la frappe suivante recalcule.
+    // Depends on (text, cursor) only. A refresh of the customs mid-typing (sync
+    // once per session, at connection setup) is not reflected until typing
+    // resumes. Accepted blind spot: the sync lands before composing, and the next
+    // keystroke recomputes.
     const suggestions = completeEmoji(
       token.query,
       codesEmojiStandard(),
@@ -211,12 +210,12 @@ export function EmojiCompletionBanner({
 }
 
 const styles = StyleSheet.create({
-  // Hauteur bornée : la bande ne doit pas repousser la liste de moitié d'écran.
+  // Bounded height: the strip must not push the list up by half a screen.
   strip: { maxHeight: 44, borderTopWidth: StyleSheet.hairlineWidth },
   content: { alignItems: 'center', paddingHorizontal: 6, gap: 4 },
-  // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
-  // découpe l'ondulation en pilule — borderRadius sur le Pressable est
-  // ignoré par le masque du ripple sous Fabric.
+  // The radius lives on the WRAPPER: only a parent's clip (`overflow`) cuts the
+  // ripple into a pill; borderRadius on the Pressable is ignored by the ripple
+  // mask under Fabric.
   bulletWrapper: { borderRadius: 999, overflow: 'hidden' },
   bullet: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 6 },
   glyph: { fontSize: 20 },

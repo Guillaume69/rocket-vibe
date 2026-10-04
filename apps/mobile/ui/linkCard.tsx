@@ -1,12 +1,12 @@
 /**
- * Aperçus de lien dans le fil : image directe, ou carte « unfurl »
- * (titre/description/vignette/site) à partir des métadonnées serveur
- * (`lib/linkPreview.ts`). Aucune WebView, aucun scraping — on projette ce que
- * Rocket.Chat a déjà parsé dans `message.urls`.
+ * Link previews in the timeline: direct image, or "unfurl" card
+ * (title/description/thumbnail/site) from server metadata
+ * (`lib/linkPreview.ts`). No WebView, no scraping: we project what
+ * Rocket.Chat already parsed into `message.urls`.
  *
- * L'image d'un aperçu est une URL PUBLIQUE (og:image, vignette oEmbed, ou lien
- * image direct) : `Image` simple, sans `rc_uid`/`rc_token` — contrairement aux
- * pièces jointes, qui sont des fichiers protégés du serveur.
+ * A preview image is a PUBLIC URL (og:image, oEmbed thumbnail, or direct
+ * image link): plain `Image`, no `rc_uid`/`rc_token`, unlike attachments,
+ * which are protected server files.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -26,7 +26,7 @@ import { openExternalLink } from './externalLink.ts';
 import { type Colors, availableBodyWidth, FONTS } from './theme.ts';
 import { useImageViewer } from './imageViewer.tsx';
 
-/** Rend un aperçu par lien exploitable dans `urls` (rien si aucun). */
+/** Renders one preview per usable link in `urls` (nothing if none). */
 export function LinkPreviews({
   c,
   urls,
@@ -40,7 +40,7 @@ export function LinkPreviews({
   const previews = useMemo(() => linkPreviews(urls), [urls]);
   if (previews.length === 0) return null;
 
-  // Même largeur disponible que les images jointes — voir `largeurDispoCorps`.
+  // Same available width as attached images, see `availableBodyWidth`.
   const availableWidth = availableBodyWidth(screenWidth);
 
   return (
@@ -68,7 +68,7 @@ export function LinkPreviews({
   );
 }
 
-/** Un lien qui EST une image : affichée, tapable pour agrandir. */
+/** A link that IS an image: shown, tappable to enlarge. */
 function ImagePreview({
   c,
   url,
@@ -103,11 +103,11 @@ function ImagePreview({
     };
   }, [url]);
 
-  // Un lien image cassé (404, hôte injoignable) ne laisse rien s'afficher.
+  // A broken image link (404, unreachable host) leaves nothing on screen.
   if (error) return null;
 
-  // Pas d'agrandissement au-delà de la taille native ; plancher pour rester
-  // tapable. Ratio par défaut le temps de connaître les dimensions réelles.
+  // No upscaling past the native size; a floor to stay tappable. Default
+  // ratio until the real dimensions are known.
   const width = Math.max(Math.min(dims?.w ?? availableWidth, availableWidth), 120);
   const ratio = dims ? dims.h / Math.max(dims.w, 1) : 0.66;
   const height = Math.min(Math.round(width * ratio), 400);
@@ -204,7 +204,7 @@ function CardPreview({
 
 const styles = StyleSheet.create({
   list: { gap: 6, marginTop: 4 },
-  // Les fonds d'attente (`fondImageAttente`) viennent du thème, posés au rendu.
+  // Placeholder backgrounds (`pendingImageBackground`) come from the theme, set at render.
   image: { borderRadius: 10 },
   imagePending: {
     borderRadius: 10,

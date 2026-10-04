@@ -1,17 +1,17 @@
 /**
- * Langue active de l'application : store abonnable + hooks React.
+ * The app's active language: subscribable store + React hooks.
  *
- * Même patron que `ui/identities` : un store module-level plutôt qu'un Provider.
- * Envelopper la pile pour la langue REMONTERAIT tout l'arbre de navigation à
- * chaque bascule ; ici chaque composant s'abonne via `useSyncExternalStore` et
- * ne se re-rend qu'au vrai changement de langue. Le noyau PUR (catalogue,
- * `traduire`, détection Intl, types) vit dans `ui/messages.ts`, testable sous
- * Node ; ce module-ci porte le SEUL morceau plateforme : la persistance.
+ * Same pattern as `ui/identities`: a module-level store rather than a Provider.
+ * Wrapping the stack for the language would REMOUNT the whole navigation tree
+ * on every switch; here each component subscribes via `useSyncExternalStore`
+ * and only re-renders on an actual language change. The PURE core (catalogue,
+ * `translate`, Intl detection, types) lives in `ui/messages.ts`, testable under
+ * Node; this module carries the ONLY platform piece: persistence.
  *
- * La préférence est lue de FAÇON SYNCHRONE au chargement du module
- * (`SecureStore.getItem`) : le premier rendu a déjà la bonne langue, aucun flash
- * « français puis anglais » au démarrage. Elle est GLOBALE à l'appareil (pas par
- * serveur, contrairement aux sessions) : une seule clé.
+ * The preference is read SYNCHRONOUSLY at module load (`SecureStore.getItem`):
+ * the first render already has the right language, no "French then English"
+ * flash at startup. It is GLOBAL to the device (not per server, unlike
+ * sessions): a single key.
  */
 
 import * as SecureStore from 'expo-secure-store';
@@ -32,10 +32,10 @@ import {
 const KEY = 'langue-preferee';
 
 /**
- * `SecureStore.getItem` est SYNCHRONE (SDK 50+) : on lit la préférence avant le
- * premier rendu. Toute valeur autre que `fr`/`en` (absence, stockage corrompu)
- * retombe sur « automatique » ; un accès qui échoue au démarrage ne doit jamais
- * briquer l'app, d'où le `try`.
+ * `SecureStore.getItem` is SYNCHRONOUS (SDK 50+): the preference is read before
+ * the first render. Any value other than `fr`/`en` (absent, corrupt storage)
+ * falls back to "automatic"; an access failing at startup must never brick the
+ * app, hence the `try`.
  */
 function readPreference(): LanguagePreference {
   try {
@@ -55,15 +55,15 @@ let activeLanguage: Language = resolve(preference);
 const listeners = new Set<() => void>();
 
 /**
- * Change la langue. `'auto'` EFFACE la clé (on retombe sur la langue du
- * téléphone), une langue explicite l'écrit. L'écriture est asynchrone et
- * best-effort : l'UI bascule tout de suite, le disque suit.
+ * Changes the language. `'auto'` DELETES the key (back to the phone's
+ * language), an explicit language writes it. The write is async and
+ * best-effort: the UI switches at once, the disk follows.
  */
 export function setLanguage(pref: LanguagePreference): void {
   preference = pref;
   activeLanguage = resolve(pref);
   if (pref === 'auto') void SecureStore.deleteItemAsync(KEY);
-  // iOS : lue aussi par la Notification Service Extension, écran verrouillé.
+  // iOS: also read by the Notification Service Extension, on the lock screen.
   else void SecureStore.setItemAsync(KEY, pref, { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK });
   for (const e of listeners) e();
 }
@@ -75,20 +75,20 @@ function subscribe(cb: () => void): () => void {
   };
 }
 
-/** La langue RÉSOLUE ('fr' | 'en'). Re-rend l'appelant à chaque bascule. */
+/** The RESOLVED language ('fr' | 'en'). Re-renders the caller on every switch. */
 export function useLanguage(): Language {
   return useSyncExternalStore(subscribe, () => activeLanguage);
 }
 
-/** La PRÉFÉRENCE ('fr' | 'en' | 'auto'), pour cocher la bonne option du sélecteur. */
+/** The PREFERENCE ('fr' | 'en' | 'auto'), to tick the right option in the picker. */
 export function useLanguagePreference(): LanguagePreference {
   return useSyncExternalStore(subscribe, () => preference);
 }
 
 /**
- * Le traducteur lié à la langue courante. Stable tant que la langue ne change
- * pas (`useCallback`) : passé en dépendance d'un `useMemo`/`useEffect`, il ne
- * les invalide qu'à une vraie bascule.
+ * The translator bound to the current language. Stable while the language
+ * does not change (`useCallback`): passed as a dependency of a
+ * `useMemo`/`useEffect`, it only invalidates them on an actual switch.
  */
 export function useT(): TranslateFn {
   const language = useLanguage();
@@ -96,26 +96,26 @@ export function useT(): TranslateFn {
 }
 
 /**
- * L'heure des messages dans la langue courante. Mémoïsé sur la langue : le
- * `Intl.DateTimeFormat` sous-jacent n'est reconstruit qu'à une vraie bascule,
- * pas à chaque ligne de message rendue.
+ * Message times in the current language. Memoised on the language: the
+ * underlying `Intl.DateTimeFormat` is only rebuilt on an actual switch, not on
+ * every message row rendered.
  */
 export function useTimeFormatter(): (ms: number) => string {
   const language = useLanguage();
   return useMemo(() => timeFormatter(language), [language]);
 }
 
-/** Le libellé des séparateurs de jour (« Aujourd'hui », « Hier », la date). */
+/** The day separator label (« Aujourd'hui », « Hier », the date). */
 export function useDayFormatter(): (ms: number) => string {
   const language = useLanguage();
   return useMemo(() => dayFormatter(language), [language]);
 }
 
 /**
- * Traduit avec la langue ACTIVE, HORS de tout composant (handlers natifs,
- * callbacks module-level qui n'ont pas accès aux hooks). Reflète le choix
- * courant de l'utilisateur — à préférer à `traduire(langueAppareil(), …)`, qui
- * ignorerait une langue explicitement sélectionnée dans les paramètres.
+ * Translates with the ACTIVE language, OUTSIDE any component (native handlers,
+ * module-level callbacks with no access to hooks). Reflects the user's current
+ * choice: prefer it to `translate(deviceLanguage(), …)`, which would ignore a
+ * language explicitly selected in settings.
  */
 export function translateCurrent(key: TranslationKey, params?: TranslationParams): string {
   return translate(activeLanguage, key, params);

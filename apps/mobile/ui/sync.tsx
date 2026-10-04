@@ -1,22 +1,22 @@
 /**
- * Branche le moteur de synchro sur la session courante.
+ * Plugs the sync engine into the current session.
  *
- * Dès que la base du compte est migrée, l'état passe à « pret » : l'UI
- * projette SQLite immédiatement, même hors ligne. Le raccordement réseau
- * (DDP puis chargement REST initial) part ensuite en tir-et-oublie — s'il
- * échoue, la liste montre le cache, et l'étape 5.1 apportera la reconnexion.
- * Le `.catch` final ne couvre donc QUE la mise en place de la base : seule
- * une base locale inutilisable justifie un écran d'erreur.
+ * As soon as the account's database is migrated, the state becomes "ready":
+ * the UI projects SQLite immediately, even offline. The network setup (DDP
+ * then the initial REST load) then runs fire-and-forget: if it fails, the
+ * list shows the cache, and step 5.1 will bring reconnection. The final
+ * `.catch` therefore covers ONLY the database setup: only an unusable local
+ * database justifies an error screen.
  *
- * La base est celle du couple (serveur, compte) : les salons, aperçus et
- * non-lus sont des données du compte, pas du serveur.
+ * The database belongs to the (server, account) pair: rooms, previews and
+ * unread counts are account data, not server data.
  *
- * Ordre du raccordement : la lecture REST qui GARANTIT est celle qui suit
- * l'armement des souscriptions — rien ne peut alors se perdre entre les deux
- * transports, et si les deux se recouvrent, les upserts sont idempotents et
- * arbitrés par `_updatedAt`. Une lecture part quand même AVANT, sans attendre
- * la socket : sinon l'utilisateur paierait le timeout de négociation DDP à
- * chaque retour de l'arrière-plan. Voir `lib/connectionSetup.ts`.
+ * Setup order: the REST read that GUARANTEES is the one that follows arming
+ * the subscriptions, so nothing can be lost between the two transports, and
+ * if both overlap, the upserts are idempotent and arbitrated by `_updatedAt`.
+ * A read still goes out BEFORE, without waiting for the socket: otherwise the
+ * user would pay the DDP negotiation timeout on every return from the
+ * background. See `lib/connectionSetup.ts`.
  */
 
 import * as Crypto from 'expo-crypto';
@@ -88,55 +88,54 @@ export type SyncState =
   | {
       phase: 'ready';
       base: BaseLocale;
-      /** Brouillons de composer — dans la file d'écritures, comme le reste. */
+      /** Composer drafts, in the write queue like everything else. */
       drafts: DraftStore;
       engine: SyncEngine;
       outbox: Outbox;
       files: FileOutbox;
       ddp: Listener;
       /**
-       * La façade complète du serveur courant. C'est par elle que les écrans
-       * chargent l'historique, un fil, et arment les souscriptions d'un salon —
-       * jamais en nommant un endpoint ou un stream Rocket.Chat en direct.
-       * `actions`/`capacites`/`ddp` ci-contre n'en sont que des raccourcis.
+       * The full facade of the current server. Screens load history, a thread,
+       * and arm a room's subscriptions through it, never by naming a Rocket.Chat
+       * endpoint or stream directly. `actions`/`capabilities`/`ddp` alongside are
+       * just shortcuts into it.
        */
       provider: Provider;
-      /** Actions unitaires sur les messages, routées vers le bon serveur. */
+      /** Single-message actions, routed to the right server. */
       actions: ProviderActions;
-      /** Ce que le serveur courant sait faire — les écrans masquent le reste. */
+      /** What the current server can do: screens hide the rest. */
       capabilities: Capabilities;
       /**
-       * L'écran salon se déclare à l'ouverture et rend sa déclaration à la
-       * fermeture : le rattrapage `chat.syncMessages` — un salon à la fois,
-       * rate-limité — ne vise QUE le salon du dessus.
+       * The room screen registers itself on open and gives the registration back
+       * on close: the `chat.syncMessages` catch-up (one room at a time,
+       * rate-limited) targets ONLY the topmost room.
        *
-       * Une PILE, pas une variable : la navigation peut empiler deux écrans
-       * salon (`ui/notifications.tsx` fait un `push` depuis n'importe où,
-       * `app/profile.tsx` un `replace`). Avec une variable unique, le retour
-       * arrière posait `null` alors qu'un salon restait affiché, et plus aucun
-       * raccordement ne rattrapait quoi que ce soit.
+       * A STACK, not a variable: navigation can stack two room screens
+       * (`ui/notifications.tsx` does a `push` from anywhere, `app/profile.tsx` a
+       * `replace`). With a single variable, going back set `null` while a room was
+       * still shown, and no connection setup caught anything up anymore.
        */
       declareOpenRoom: (rid: string) => () => void;
-      /** Présence volatile (8.4) — à lire via le hook `usePresence`. */
+      /** Volatile presence (8.4), read through the `usePresence` hook. */
       presence: PresenceEngine;
       /**
-       * Activité réseau de fond — à lire via `useActivite`. Compte les fetches
-       * en vol par portée (`'global'`, un `rid`) pour l'indicateur d'en-tête.
+       * Background network activity, read through `useActivity`. Counts in-flight
+       * fetches per scope (`'global'`, a `rid`) for the header indicator.
        */
       activity: ActivityEngine;
-      /** Moteur E2EE — à observer via `souscrire`/`estDeverrouille` (lecture). */
+      /** E2EE engine, observed through `subscribe`/`isUnlocked` (read side). */
       e2e: E2EEngine;
       /**
-       * Déverrouille les salons chiffrés (mot de passe E2E), puis déchiffre les
-       * messages déjà en base. Lève `ErreurE2E` si le mot de passe est faux.
+       * Unlocks encrypted rooms (E2E password), then decrypts the messages
+       * already stored. Throws `E2EError` if the password is wrong.
        */
       unlockE2E: (password: string) => Promise<void>;
-      /** Reverrouille : oublie la clé et re-masque le clair local. */
+      /** Relocks: forgets the key and re-masks the local plaintext. */
       lockE2E: () => Promise<void>;
       /**
-       * Incrémentée à chaque raccordement réussi. Un écran qui a raté son
-       * chargement initial (ouvert hors ligne) la met dans les deps de son
-       * effet : le retour du réseau le refait partir.
+       * Incremented on each successful connection setup. A screen whose initial
+       * load failed (opened offline) puts it in its effect's deps: the network
+       * coming back restarts it.
        */
       generation: number;
     }
@@ -150,7 +149,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (state.phase !== 'connected') {
-      // L'index emoji du serveur quitté ne doit pas servir au prochain.
+      // The emoji index of the server left behind must not serve the next one.
       clearCustomEmojis();
       setSync({ phase: 'idle' });
       return;
@@ -165,24 +164,22 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     let reconnector: Reconnector | null = null;
     let onAbort: (() => void) | null = null;
 
-    // Tout téléversement — pièce jointe COMME photo de profil, même transport —
-    // peut faire tomber la socket DDP sans que le WebSocket n'appelle jamais
-    // son `onclose` : sockets en CLOSE-WAIT côté OS, client toujours
-    // « authentifié », plus un seul message reçu ensuite. Le chien de garde de
-    // `lib/ddp.ts` finit par le voir, mais il lui faut un ping serveur manqué
-    // (45 s). La fin d'un upload est un signal EXACT : on sonde tout de suite.
-    // Socket saine, ça coûte un ping/pong ; socket morte, la sonde nettoie,
-    // `surPerte` part et le pilote reconnecte.
+    // Any upload (attachment AND profile photo, same transport) can drop the
+    // DDP socket without the WebSocket ever calling its `onclose`: sockets in
+    // CLOSE-WAIT on the OS side, client still "authenticated", not a single
+    // message received afterwards. The `lib/ddp.ts` watchdog ends up seeing it,
+    // but it needs a missed server ping (45 s). The end of an upload is an EXACT
+    // signal: probe right away. Healthy socket, it costs a ping/pong; dead
+    // socket, the probe cleans up, `onLoss` fires and the reconnector reconnects.
     armUploadProbe(() => {
       void ddp.checkAlive().catch(() => {});
     });
 
-    // Rotation du jeton FCM. L'enregistrement plus bas n'a lieu qu'UNE FOIS par
-    // session ; si FCM fait tourner le jeton pendant qu'on tourne, le serveur
-    // continue de pousser vers l'ancien — donc dans le vide, sans erreur nulle
-    // part, jusqu'au prochain démarrage à froid. `push.token` est idempotent, et
-    // le nouveau jeton est retenu au Keystore comme celui de l'enregistrement :
-    // c'est lui que la déconnexion devra dé-enregistrer.
+    // FCM token rotation. The registration below happens only ONCE per session;
+    // if FCM rotates the token while we run, the server keeps pushing to the old
+    // one, so into the void, with no error anywhere, until the next cold start.
+    // `push.token` is idempotent, and the new token is kept in the Keystore like
+    // the registered one: it is the one logout will have to unregister.
     const stopTokenListener = onTokenRotation((token) => {
       if (discarded) return;
       void rememberPushToken(token).catch(() => {});
@@ -191,33 +188,33 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       setSync({ phase: 'preparing' });
-      // La file d'écritures vient AVEC la connexion : elle sérialise les
-      // transactions d'un SQLite, donc elle doit être unique par SQLite. Cet
-      // effet se rejoue sur un simple renommage (objet `session` neuf pour le
-      // même compte) ; la créer ici en fabriquait une seconde, et les deux
-      // moteurs s'entrelaçaient (voir db/writeQueue.ts).
+      // The write queue comes WITH the connection: it serializes the
+      // transactions of one SQLite, so it must be unique per SQLite. This
+      // effect replays on a mere rename (new `session` object for the same
+      // account); creating it here made a second one, and the two engines
+      // interleaved (see db/writeQueue.ts).
       const { base, raw, writeQueue } = openDatabase(session.baseUrl, session.userId);
       await migrateDatabase(session.baseUrl, session.userId);
       if (discarded) return;
-      // Moteur E2EE (lecture) : déchiffre au fil de l'ingestion dès qu'une clé
-      // de salon est disponible. La clé privée est rangée au Keystore par
-      // (SERVEUR, COMPTE) — comme la base SQLite juste au-dessus, et pour la
-      // même raison : c'est une donnée du compte. Indexée par serveur seul,
-      // elle était réimportée pour le compte SUIVANT, qui se croyait alors
-      // déverrouillé sans rien pouvoir lire.
+      // E2EE engine (read side): decrypts during ingestion as soon as a room key
+      // is available. The private key is stored in the Keystore per
+      // (SERVER, ACCOUNT), like the SQLite database just above, and for the same
+      // reason: it is account data. Keyed by server alone, it was reimported for
+      // the NEXT account, which then believed itself unlocked without being able
+      // to read anything.
       const e2e = new E2EEngine({
         client,
-        uid: session.userId, // sel PBKDF2 des clés privées héritées (v1)
+        uid: session.userId, // PBKDF2 salt of legacy (v1) private keys
         storage: {
           read: () => readE2EPrivateKey(session.baseUrl, session.userId),
           save: (jwk) => saveE2EPrivateKey(session.baseUrl, session.userId, jwk),
           clear: () => clearE2EPrivateKey(session.baseUrl, session.userId),
         },
       });
-      // L'entrée de l'ancien format ne sera plus jamais lue — mais elle porte
-      // un JWK RSA DÉCHIFFRÉ, et le Keystore n'énumère pas ses clés : si on ne
-      // l'efface pas ici, plus rien ne saura la retrouver. Tir-et-oublie : un
-      // Keystore qui refuse une suppression ne doit pas retenir le démarrage.
+      // The old-format entry will never be read again, but it holds a DECRYPTED
+      // RSA JWK, and the Keystore does not enumerate its keys: if we do not erase
+      // it here, nothing will ever find it again. Fire-and-forget: a Keystore that
+      // refuses a deletion must not hold up startup.
       void purgeLegacyE2EKey(session.baseUrl).catch(() => {});
       const engine = new SyncEngine(
         createStore(raw, writeQueue),
@@ -232,22 +229,21 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
           await engine.ingestMessages([doc]);
         },
         {
-          // Une ligne soldée emporte son fichier de cache — la garde
-          // « est-ce bien à nous ? » vit dans `ui/temporaryFiles.ts`.
+          // A settled row takes its cache file with it; the "is it really ours?"
+          // guard lives in `ui/temporaryFiles.ts`.
           deleteLocalFile: deleteIfTemporary,
-          // Payé UNIQUEMENT quand un `file_id` déjà persisté oblige à savoir
-          // si le message existe et que la base locale ne le sait pas — le
-          // redémarrage après kill, sans écran de salon monté, donc sans
-          // `stream-room-messages` pour l'avoir livré. Sans ce rattrapage
-          // ciblé, on re-confirmerait, et le serveur poste alors un DOUBLON
-          // (sondé sur 8.5 : il répond 200 en rendant le premier message).
-          // `estAbandonne`, et non `() => false` : une passe de rattrapage
-          // n'abandonne que si TOUS ses demandeurs ont lâché
-          // (`lib/catchUp.ts`). Avec un prédicat toujours faux, celle-ci ne
-          // pouvait JAMAIS s'arrêter — elle continuait de paginer
-          // `chat.syncMessages` avec un jeton mort après la déconnexion, sur
-          // une route plafonnée à 10 appels/min, et écrivait dans la base du
-          // compte quitté. Elle contaminait en plus toute demande fondue dedans.
+          // Paid ONLY when an already persisted `file_id` requires knowing
+          // whether the message exists and the local database does not know:
+          // the restart after a kill, with no room screen mounted, so no
+          // `stream-room-messages` to have delivered it. Without this targeted
+          // catch-up, we would re-confirm, and the server then posts a DUPLICATE
+          // (probed on 8.5: it answers 200 returning the first message).
+          // `isDiscarded`, not `() => false`: a catch-up pass gives up only if
+          // ALL its requesters have let go (`lib/catchUp.ts`). With an
+          // always-false predicate, this one could NEVER stop: it kept paginating
+          // `chat.syncMessages` with a dead token after logout, on a route capped
+          // at 10 calls/min, and wrote into the database of the account left
+          // behind. It also contaminated every request merged into it.
           refreshRoom: (rid) => provider.catchUpRoom(engine, rid, isDiscarded),
           encryption: {
             roomEncrypted: (rid) => outboxStore.roomEncrypted(rid),
@@ -265,8 +261,8 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         e2e,
       );
       const emojiStore = createEmojiStore(raw, writeQueue);
-      // Les écrans salon montés : le sommet est celui que l'utilisateur
-      // regarde, le seul que le rattrapage vise. Voir `ui/openRooms.ts`.
+      // The mounted room screens: the top is the one the user is looking at,
+      // the only one the catch-up targets. See `ui/openRooms.ts`.
       const openRooms = createOpenRoomsStack();
       let registeredPushToken = false;
       let syncedEmojis = false;
@@ -274,47 +270,46 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       let retentionApplied = false;
       const presence = new PresenceEngine();
       const activity = new ActivityEngine();
-      // Emojis custom : l'index mémoire depuis SQLite AVANT « pret », pour que
-      // le premier rendu résolve déjà `:party_parrot:` (offline compris). Le
-      // rafraîchissement réseau vient au raccordement. Un échec de lecture ne
-      // doit pas retenir l'écran — les customs dégraderaient en `:nom:`.
+      // Custom emojis: the in-memory index from SQLite BEFORE "ready", so the
+      // first render already resolves `:party_parrot:` (offline included). The
+      // network refresh comes with the connection setup. A read failure must not
+      // hold up the screen: customs would degrade to `:name:`.
       await restoreCustomEmojis(session.baseUrl, emojiStore, isDiscarded).catch(() => {});
       if (discarded) return;
 
-      // Reprise E2EE silencieuse : si la clé privée est déjà au Keystore
-      // (déverrouillé lors d'une session passée), on réimporte sans mot de
-      // passe. Un échec (clé absente/abîmée) laisse simplement verrouillé.
-      // Force un re-rendu de l'arbre après une transition E2EE : `MoteurE2E`
-      // notifie déjà ses abonnés (`useE2EDeverrouille`), mais rafraîchir la
-      // valeur de contexte garantit que la liste (cadenas, aperçu) reflète
-      // l'état, sans dépendre du timing d'un abonnement externe.
+      // Silent E2EE resume: if the private key is already in the Keystore
+      // (unlocked in a past session), reimport without a password. A failure
+      // (missing/damaged key) simply leaves it locked.
+      // Forces a re-render of the tree after an E2EE transition: `E2EEngine`
+      // already notifies its subscribers (`useE2EUnlocked`), but refreshing the
+      // context value guarantees the list (padlock, preview) reflects the state,
+      // without depending on the timing of an external subscription.
       //
-      // Une nouvelle IDENTITÉ d'objet suffit — `useContext` compare par
-      // `Object.is`. Surtout, ne PAS bumper `generation` : ce compteur répond à
-      // « la connexion a-t-elle tenu ? » et sert de critère de validité aux
-      // caches de salon (`ui/loadedRooms.ts`, `ui/hotRooms.ts`) comme de
-      // dépendance aux effets d'ouverture. Le bumper ici jetait ces caches sans
-      // qu'aucune connexion n'ait été perdue : au démarrage sur un compte dont
-      // la clé est au Keystore, le seul `e2e.reprendre()` relançait un
-      // `channels.history` complet PLUS un `chat.syncMessages` — 3 à 4 s sur un
-      // gros salon pour rapporter zéro document.
+      // A new object IDENTITY is enough: `useContext` compares with `Object.is`.
+      // Above all, do NOT bump `generation`: that counter answers "did the
+      // connection hold?" and serves as the validity criterion for the room
+      // caches (`ui/loadedRooms.ts`, `ui/hotRooms.ts`) and as a dependency of the
+      // opening effects. Bumping it here threw those caches away with no
+      // connection lost: at startup on an account whose key is in the Keystore,
+      // `e2e.resume()` alone relaunched a full `channels.history` PLUS a
+      // `chat.syncMessages`, 3 to 4 s on a big room to report zero documents.
       const refreshE2E = (): void =>
         setSync((s) => (s.phase === 'ready' ? { ...s } : s));
       const unlockE2E = async (password: string): Promise<void> => {
-        await e2e.unlock(password); // lève ErreurE2E si faux
-        await engine.e2eUnlocked(); // éclaire les messages déjà en base
+        await e2e.unlock(password); // throws E2EError if wrong
+        await engine.e2eUnlocked(); // reveals the messages already stored
         refreshE2E();
-        outbox.process().catch(() => {}); // ce qui attendait une clé de salon
+        outbox.process().catch(() => {}); // what was waiting for a room key
         files.process().catch(() => {});
       };
       const lockE2E = async (): Promise<void> => {
         await e2e.lock();
-        await engine.e2eRelocked(); // re-masque le clair local
+        await engine.e2eRelocked(); // re-masks the local plaintext
         refreshE2E();
       };
 
-      // « pret » dès la base disponible : l'UI montre le cache local sans
-      // attendre le réseau.
+      // "ready" as soon as the database is available: the UI shows the local
+      // cache without waiting for the network.
       setSync({
         phase: 'ready',
         base,
@@ -335,20 +330,19 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         generation: 0,
       });
 
-      // Après « pret » : reprise E2EE hors du chemin critique. Si une clé était
-      // en Keystore, on déchiffre les messages déjà chargés — l'UI (requête
-      // vive) se rafraîchit d'elle-même.
+      // After "ready": E2EE resume off the critical path. If a key was in the
+      // Keystore, decrypt the messages already loaded; the UI (live query)
+      // refreshes by itself.
       e2e
         .resume()
         .then(async (ok) => {
           if (!ok) {
-            // Verrouillé, et pourtant la base peut porter du clair E2E : celui
-            // qu'une session déverrouillée y a écrit. Le cas se produit pour de
-            // bon depuis que la clé privée est indexée par COMPTE — l'entrée
-            // de l'ancien format n'est plus lue, donc la reprise échoue une
-            // fois, et l'app affichait alors du clair tout en se déclarant
-            // verrouillée. Le `chiffreBrut` est conservé : le masquage est
-            // exactement ce que fait le bouton « Verrouiller », donc réversible.
+            // Locked, and yet the database may hold E2E plaintext: what an
+            // unlocked session wrote there. It really happens since the private
+            // key is keyed by ACCOUNT: the old-format entry is no longer read, so
+            // the resume fails once, and the app then showed plaintext while
+            // claiming to be locked. `encryptedRaw` is kept: masking is exactly
+            // what the "Lock" button does, so it is reversible.
             await engine.e2eRelocked();
             if (!discarded) refreshE2E();
             return;
@@ -366,92 +360,91 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         const note = provider.privateNote(event);
         if (note !== null) setPrivateNote(note.rid, note.text);
         engine.apply(event).catch(() => {
-          // Une écriture qui échoue ne doit pas tuer l'écouteur ; le
-          // rattrapage REST de l'étape 5.2 refera passer le document.
+          // A failing write must not kill the listener; the step 5.2 REST
+          // catch-up will bring the document through again.
         });
       });
-      // Déclarées AVANT toute connexion : `souscrire` mémorise l'intention,
-      // et chaque `connecter` (première fois comme reconnexion) rejoue tout.
-      // Le fournisseur sait quels streams l'intéressent.
+      // Declared BEFORE any connection: `subscribe` records the intent,
+      // and each `connect` (first time as well as reconnection) replays it all.
+      // The provider knows which streams it cares about.
       for (const [name, key] of provider.initialSubscriptions()) ddp.subscribe(name, key);
 
-      // Le PREMIER raccordement passe par le même pilote que les reconnexions
-      // (backoff 1 s → 30 s avec gigue) : hors ligne au lancement, ça
-      // retentera tout seul. À chaque nouvelle socket : login, re-souscription
-      // de tous les streams, rechargement, et flush de la file d'envoi.
-      // Le gros en deux requêtes delta (`updatedSince`), puis le salon que
-      // l'utilisateur regarde — un seul `chat.syncMessages`. Enveloppés dans
-      // `activite` : l'en-tête (liste / salon) allume sa barre de synchro le
-      // temps du fetch (`suivre` rejette comme l'original, le backoff du pilote
-      // garde sa main).
+      // The FIRST connection setup goes through the same reconnector as
+      // reconnections (backoff 1 s → 30 s with jitter): offline at launch, it
+      // retries on its own. On each new socket: login, resubscription of all
+      // streams, reload, and flush of the send queue.
+      // The bulk in two delta requests (`updatedSince`), then the room the
+      // user is looking at, a single `chat.syncMessages`. Wrapped in
+      // `activity`: the header (list / room) lights its sync bar for the
+      // duration of the fetch (`track` rejects like the original, the
+      // reconnector's backoff keeps control).
       const catchUpAll = async (): Promise<void> => {
         await activity.track('global', provider.catchUpGlobal(engine, isDiscarded));
         const activeRoom = openRooms.top();
         if (activeRoom === undefined) return;
-        // Le rattrapage d'UN salon part en TIR-ET-OUBLIE : ni attendu, ni fatal.
-        // Chaque page est bornée à 50 documents (`lib/catchUp.ts`), donc plus
-        // rien ne peut y timeouter sur un gros backlog ; mais l'attendre
-        // bloquerait quand même `connecter` pour un travail que le stream DDP et
-        // l'historique d'ouverture couvrent déjà.
+        // Catching up ONE room is FIRE-AND-FORGET: neither awaited nor fatal.
+        // Each page is capped at 50 documents (`lib/catchUp.ts`), so nothing can
+        // time out there on a big backlog anymore; but awaiting it would still
+        // block `connect` for work the DDP stream and the opening history already
+        // cover.
         //
-        // Aucune garde d'empilement ICI, et c'est délibéré : elle vivait à cet
-        // endroit et AVALAIT la seconde lecture du raccordement — précisément
-        // celle qui, partant une fois les souscriptions armées, garantit que
-        // rien n'est tombé entre les deux transports (lib/connectionSetup.ts). Le
-        // cas nominal étant que la première lecture court encore, la garantie
-        // n'était jamais rendue. La sérialisation est descendue dans
-        // `lib/catchUp.ts`, au seul point où TOUS les chemins se rejoignent
-        // (celui-ci et l'effet d'ouverture de l'écran) : une pagination à la
-        // fois par salon, et aucune demande perdue.
+        // NO stacking guard HERE, and that is deliberate: it lived here and
+        // SWALLOWED the second read of the connection setup, precisely the one
+        // that, going out once the subscriptions are armed, guarantees nothing
+        // fell between the two transports (lib/connectionSetup.ts). Since the
+        // nominal case is the first read still running, the guarantee was never
+        // delivered. Serialization moved down into `lib/catchUp.ts`, the only
+        // point where ALL paths meet (this one and the screen's opening effect):
+        // one pagination at a time per room, and no request lost.
         void activity
           .track(activeRoom, provider.catchUpRoom(engine, activeRoom, isDiscarded))
-          .catch((e: unknown) => console.warn('rattraperSalon: échec ignoré', e));
+          .catch((e: unknown) => console.warn('catchUpRoom: failure ignored', e));
       };
 
-      // Ce qui suit le rattrapage sans dépendre du stream. Joué une fois par
-      // raccordement, même si la socket a échoué : ces travaux sont du REST.
+      // What follows the catch-up without depending on the stream. Run once per
+      // connection setup, even if the socket failed: this work is REST.
       const afterCatchUp = (): void => {
-        // Ce qui attendait le réseau part maintenant. Pas d'await : un
-        // échec d'envoi ne doit pas compter comme un échec de connexion.
+        // What was waiting for the network goes now. No await: a send
+        // failure must not count as a connection failure.
         outbox.process().catch(() => {});
         files.process().catch(() => {});
-        // Présence : photo complète à chaque raccordement, puis le stream.
-        // Ornement, un échec ne compte jamais comme un échec de raccordement.
+        // Presence: full snapshot on each connection setup, then the stream.
+        // Decoration: a failure never counts as a setup failure.
         void presence.load(client);
-        // Liste des emojis custom : rafraîchie UNE fois par session (comme le
-        // jeton push), pas à chaque flap réseau — c'est un download complet et
-        // une réécriture de toute la table. La version SQLite a déjà servi le
-        // premier rendu ; les nouveaux emojis apparaissent au rendu suivant.
-        // `estAbandonne` empêche un fetch tardif de réarmer l'index d'un
-        // serveur qu'on a quitté. Échec → non armé, retenté au prochain flap.
+        // Custom emoji list: refreshed ONCE per session (like the push
+        // token), not on every network flap: it is a full download and a
+        // rewrite of the whole table. The SQLite version already served the
+        // first render; new emojis appear on the next render.
+        // `isDiscarded` keeps a late fetch from re-arming the index of a
+        // server we left. Failure → not armed, retried on the next flap.
         if (!syncedEmojis) {
           syncedEmojis = true;
           syncCustomEmojis(client, emojiStore, isDiscarded).catch(() => {
             syncedEmojis = false;
           });
         }
-        // Cycle de vie du jeton push (6.1) : enregistré au premier
-        // raccordement de la session. Idempotent côté serveur ; un échec
-        // sera retenté au prochain raccordement.
+        // Push token lifecycle (6.1): registered on the session's first
+        // connection setup. Idempotent on the server; a failure is retried
+        // on the next setup.
         if (!registeredPushToken) {
           registeredPushToken = true;
           getFcmToken()
             .then((r) => {
-              // `obtenirJetonFcm` ne REJETTE jamais : son échec est un RÉSULTAT
-              // (`ok:false`, lib/push.ts). N'écouter que le rejet laissait donc
-              // le drapeau armé après un échec des Play Services — plus aucune
-              // notification de TOUTE la session, alors que le commentaire
-              // ci-dessus promet un rejeu au raccordement suivant.
-              // Un refus de permission, lui, ne se réarme pas : ce serait
-              // rejouer le prompt système à chaque flap réseau.
+              // `getFcmToken` NEVER rejects: its failure is a RESULT
+              // (`ok:false`, lib/push.ts). Listening only for rejection thus left
+              // the flag armed after a Play Services failure: no notification for
+              // the WHOLE session, while the comment above promises a retry on
+              // the next connection setup.
+              // A permission refusal, however, does not re-arm: that would replay
+              // the system prompt on every network flap.
               if (!r.ok) {
                 if (r.reason === 'failed') registeredPushToken = false;
                 return undefined;
               }
-              // Retenu au Keystore À L'ENREGISTREMENT : c'est la déconnexion
-              // qui en aura besoin, et elle ne doit pas le redemander à FCM —
-              // `obtenirJetonFcm` demande la permission système au passage, et
-              // ne rend rien sur un appareil sans Play Services.
+              // Kept in the Keystore AT REGISTRATION: logout is what will need
+              // it, and it must not ask FCM again: `getFcmToken` requests the
+              // system permission along the way, and returns nothing on a device
+              // without Play Services.
               void rememberPushToken(r.token).catch(() => {});
               return registerToken(client, r.token, 'gcm');
             })
@@ -459,30 +452,29 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
               registeredPushToken = false;
             });
         }
-        // Réconciliation anti-fantômes (une fois par session, comme les
-        // emojis) : purge les salons supprimés côté serveur dont l'événement
-        // 'removed' a été raté. Full `subscriptions.get` — on ne le refait
-        // pas à chaque flap réseau. Échec → non armé, retenté au prochain.
+        // Ghost reconciliation (once per session, like emojis): purges
+        // rooms deleted server-side whose 'removed' event was missed. Full
+        // `subscriptions.get`, so not redone on every network flap.
+        // Failure → not armed, retried next time.
         if (!reconciledRooms) {
           reconciledRooms = true;
           provider.reconcile(engine, isDiscarded).catch(() => {
             reconciledRooms = false;
           });
         }
-        // Rétention (une fois par session, comme au-dessus) : au-delà de 500
-        // messages par salon, on coupe par le bas. Sans elle `messages` ne
-        // cesse jamais de croître pour un salon vivant — et ce sont surtout
-        // les blobs JSON (`md`, `pieces_jointes`, `reactions`, `urls`) qui
-        // pèsent. On ne perd rien : l'app ne lit jamais au-delà de sa
-        // pagination et sait re-télécharger. Purement local, donc APRÈS le
-        // rattrapage — couper avant l'aurait fait re-télécharger dans la
-        // foulée. Un échec n'a pas à réarmer quoi que ce soit : la place se
-        // reprendra au prochain lancement.
+        // Retention (once per session, as above): beyond 500 messages per
+        // room, trim from the bottom. Without it `messages` never stops
+        // growing for a live room, and the JSON blobs (`md`,
+        // `pieces_jointes`, `reactions`, `urls`) weigh the most. Nothing is
+        // lost: the app never reads beyond its pagination and can download
+        // again. Purely local, hence AFTER the catch-up: trimming before
+        // would have re-downloaded right away. A failure need not re-arm
+        // anything: the space will be reclaimed at the next launch.
         if (!retentionApplied) {
           retentionApplied = true;
           engine.syncStore.applyRetention(MESSAGES_KEPT_PER_ROOM).catch(() => {});
         }
-        // Réveille les écrans dont le chargement initial a raté hors ligne.
+        // Wakes the screens whose initial load failed offline.
         setSync((s) => (s.phase === 'ready' ? { ...s, generation: s.generation + 1 } : s));
       };
 
@@ -490,14 +482,14 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         connect: async () => {
           if (discarded) return;
           await hookUp({
-            // « Authentifié » veut dire que les souscriptions désirées ont été
-            // rejouées : le stream couvre déjà, la lecture qui suit garantira à
-            // elle seule.
+            // "Authenticated" means the desired subscriptions were replayed:
+            // the stream already covers, the read that follows will guarantee
+            // on its own.
             streamAlreadyActive: () => ddp.state === 'authenticated',
-            // Ne reconnecter QUE si la socket est tombée : après un échec du
-            // seul rattrapage REST, le DDP est encore authentifié et
-            // `connecter` lèverait « déjà connecté » — la retentative ne
-            // rejouerait alors jamais le rattrapage.
+            // Reconnect ONLY if the socket dropped: after a failure of the
+            // REST catch-up alone, DDP is still authenticated and `connect`
+            // would throw "already connected"; the retry would then never
+            // replay the catch-up.
             openStream: () =>
               ddp.state === 'closed' ? ddp.connect(session.authToken) : Promise.resolve(),
             streamArmed: () => ddp.armedSubscriptions(),
@@ -508,36 +500,36 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         },
       });
       ddp.onLoss(() => {
-        // La présence ne vit que par le stream : sans socket, ce qu'on en sait
-        // fige à l'instant de la coupure. On l'oublie plutôt que d'afficher
-        // des pastilles vertes de l'entrée dans le tunnel (`lib/presence.ts`).
+        // Presence only lives through the stream: without a socket, what we
+        // know freezes at the moment of the drop. Forget it rather than show
+        // green dots from the tunnel entrance (`lib/presence.ts`).
         presence.invalidate();
         reconnector?.trigger();
       });
       reconnector.trigger();
 
-      // Cycle de vie de la socket (6.2). En ARRIÈRE-PLAN : fermeture propre
-      // et volontaire — l'OS la tuerait de toute façon (Doze), le push prend
-      // le relais, et « volontaire » évite que le pilote reconnecte dans le
-      // vide pendant le fond. Les souscriptions désirées survivent. Au
-      // RETOUR : la sonde de vie couvre le cas d'une socket restée « ouverte »
-      // mais morte (gel sans passage par background), et `declencher` refait
-      // tout — reconnexion, re-login, re-souscriptions, rattrapage.
+      // Socket lifecycle (6.2). In the BACKGROUND: clean, deliberate close.
+      // The OS would kill it anyway (Doze), push takes over, and "deliberate"
+      // keeps the reconnector from reconnecting into the void while in the
+      // background. The desired subscriptions survive. On RETURN: the liveness
+      // probe covers a socket left "open" but dead (frozen without going through
+      // background), and `trigger` redoes everything: reconnection, re-login,
+      // resubscriptions, catch-up.
       //
-      // `fermer()` ne SUFFIT PAS à tenir cette promesse : il ne dit rien au
-      // pilote. Une minuterie de backoff déjà armée tirait quand même, et
-      // l'échec d'une tentative en vol relançait la boucle — donc des sockets
-      // rouvertes en fond, chacune payée d'un `rattraperTout()` REST
-      // rate-limité, et tuées par Doze, ce qui redéclenchait `surPerte`.
-      // D'où la suspension, réversible, AVANT la fermeture : sinon la perte
-      // constatée entre les deux réarmerait le pilote qu'on vient de calmer.
+      // `close()` is NOT ENOUGH to keep that promise: it tells the reconnector
+      // nothing. An already armed backoff timer still fired, and the failure of
+      // an in-flight attempt restarted the loop: sockets reopened in the
+      // background, each paid with a rate-limited REST `catchUpAll()`, and
+      // killed by Doze, which retriggered `onLoss`. Hence the suspension,
+      // reversible, BEFORE the close: otherwise a loss seen in between would
+      // re-arm the reconnector we just calmed down.
       const appStateSub = AppState.addEventListener('change', (appState) => {
         if (discarded) return;
         if (appState === 'background') {
           reconnector?.suspend();
           ddp.close();
-          // Ce qu'on croit savoir de la présence date de l'instant d'avant :
-          // aucun stream ne la corrigera plus tant qu'on est en fond.
+          // What we think we know of presence dates from the moment before:
+          // no stream will correct it while in the background.
           presence.invalidate();
           return;
         }
@@ -548,23 +540,22 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       });
       onAbort = () => {
         appStateSub.remove();
-        // Le clair E2E ne survit pas à la fin de session. `deverrouillageE2E`
-        // écrit le texte déchiffré dans la colonne `texte` (lib/sync.ts), et le
-        // projet reconnaît déjà que ce clair doit pouvoir disparaître — c'est
-        // le bouton « Verrouiller ». Il était incohérent que le geste le plus
-        // fort, la déconnexion, protège moins que le plus faible.
+        // E2E plaintext does not survive the end of the session. `e2eUnlocked`
+        // writes the decrypted text into the `texte` column (lib/sync.ts), and
+        // the project already acknowledges that this plaintext must be able to
+        // disappear: that is the "Lock" button. It was inconsistent for the
+        // strongest gesture, logout, to protect less than the weakest.
         //
-        // Ici plutôt que dans `deconnecter()` : le moteur et sa file
-        // d'écritures vivent dans cette portée. La connexion SQLite, elle,
-        // reste ouverte pour la durée du process (db/client.ts), donc cette
-        // écriture-là ne court sous personne — la file la sérialise derrière
-        // les transactions en vol. Tir-et-oublie : un cleanup ne peut pas
-        // attendre, et le masquage se rejoue de toute façon au démarrage
-        // suivant tant qu'on est verrouillé.
+        // Here rather than in `logOut()`: the engine and its write queue live
+        // in this scope. The SQLite connection, however, stays open for the
+        // process lifetime (db/client.ts), so this write runs under no one's
+        // feet: the queue serializes it behind in-flight transactions.
+        // Fire-and-forget: a cleanup cannot wait, and the masking replays
+        // anyway at the next startup while locked.
         void engine.e2eRelocked().catch(() => {});
       };
     })().catch((e: unknown) => {
-      // Ici, même la base locale n'est pas utilisable : écran d'erreur.
+      // Here even the local database is unusable: error screen.
       if (!discarded) {
         setSync({
           phase: 'error',
@@ -575,30 +566,30 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       discarded = true;
-      // L'ordre compte : arrêter le pilote AVANT de fermer, sinon la
-      // fermeture pourrait encore programmer une tentative.
+      // Order matters: stop the reconnector BEFORE closing, otherwise the
+      // close could still schedule an attempt.
       reconnector?.stop();
       onAbort?.();
-      armUploadProbe(null); // plus de sonde vers un client rangé
-      stopTokenListener(); // ni de réenregistrement vers un serveur quitté
-      // Les caches « ceci a déjà son chargement d'ouverture » sont indexés par
-      // génération, dont le compteur repart de zéro à la session suivante :
-      // sans purge, un salon d'un AUTRE serveur pourrait passer pour déjà
-      // chargé. Chacune de ces purges invalide aussi le jeton de session, ce
-      // qui interdit aux écrans encore montés de les repeupler en se démontant
-      // — leur cleanup court APRÈS celui-ci (voir `ui/sessionToken.ts`).
+      armUploadProbe(null); // no more probing a stowed client
+      stopTokenListener(); // nor re-registering with a server left behind
+      // The "this already had its opening load" caches are keyed by
+      // generation, whose counter restarts from zero in the next session:
+      // without a purge, a room from ANOTHER server could pass as already
+      // loaded. Each of these purges also invalidates the session token, which
+      // forbids still-mounted screens from repopulating them while unmounting:
+      // their cleanup runs AFTER this one (see `ui/sessionToken.ts`).
       forgetLoadedRooms();
       forgetLoadedThreads();
-      // Et les salons qu'on gardait à l'écoute après en être sorti : leurs
-      // souscriptions ne valent plus rien sur une socket qu'on ferme.
+      // And the rooms we kept listening to after leaving them: their
+      // subscriptions are worthless on a socket being closed.
       releaseHotRooms();
-      // La règle « tout store de module se purge en fin de session », sans
-      // exception cette fois. Chacun de ceux-ci laissait passer une donnée du
-      // compte quitté vers le suivant : le permalien d'une citation en suspens
-      // (qui embarque l'ANCIENNE baseUrl), les pseudos et les versions de photo
-      // — dont un etag périmé fait resservir l'ancienne image par le cache
-      // d'Android —, le verdict de disponibilité des appels, la liste des
-      // salons chiffrés et le badge d'icône, et les fiches de profil brutes.
+      // The rule "every module store is purged at session end", with no
+      // exception this time. Each of these let account data leak from the
+      // account left to the next: the permalink of a pending quote (which
+      // carries the OLD baseUrl), the usernames and photo versions (a stale
+      // etag makes Android's cache serve the old image again), the call
+      // availability verdict, the list of encrypted rooms and the icon badge,
+      // and the raw profile records.
       forgetReplies();
       forgetIdentities();
       forgetCallAvailability();

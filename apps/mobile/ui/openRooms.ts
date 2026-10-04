@@ -1,32 +1,32 @@
 /**
- * Quels écrans salon sont montés, et lequel l'utilisateur regarde.
+ * Which room screens are mounted, and which one the user is looking at.
  *
- * `chat.syncMessages` traite UN salon à la fois et le REST est rate-limité :
- * le rattrapage ne vise donc que le salon affiché. Encore faut-il savoir
- * lequel c'est.
+ * `chat.syncMessages` handles ONE room at a time and REST is rate-limited, so
+ * catch-up only targets the room on screen. That still means knowing which
+ * one it is.
  *
- * Une variable unique (`salonActif = rid` au montage, `null` au démontage) ne
- * suffit pas : la pile de navigation peut contenir DEUX écrans salon —
- * `ui/notifications.tsx` fait un `push` depuis n'importe où, `app/profile.tsx`
- * un `replace`. Au retour arrière, le cleanup de celui du dessus posait `null`
- * alors qu'un salon restait affiché, et `rattraperTout` sortait sans rattraper
- * quoi que ce soit. Le défaut était masqué par le rattrapage REDONDANT que
- * l'écran lançait de son côté ; l'avoir supprimé (`lib/catchUp.ts` sérialise
- * désormais) transformerait cette dette en perte réelle.
+ * A single variable (`activeRoom = rid` on mount, `null` on unmount) is not
+ * enough: the navigation stack can hold TWO room screens.
+ * `ui/notifications.tsx` does a `push` from anywhere, `app/profile.tsx` a
+ * `replace`. On going back, the top one's cleanup set `null` while a room was
+ * still shown, and `catchUpAll` returned without catching up anything. The
+ * defect was hidden by the REDUNDANT catch-up the screen ran on its own side;
+ * having removed it (`lib/catchUp.ts` now serializes) would turn that debt
+ * into real loss.
  *
- * Des OBJETS, pas des chaînes : deux écrans peuvent porter le même rid (lien
- * profond sur un salon déjà ouvert), et c'est la déclaration EXACTE qu'il faut
- * retirer, pas la première occurrence venue.
+ * OBJECTS, not strings: two screens can carry the same rid (deep link to an
+ * already open room), and it is the EXACT declaration that must be removed,
+ * not the first matching occurrence.
  *
- * Une pile PAR SESSION — d'où la fabrique : elle vit dans la closure de
- * `ui/sync.tsx`, pas au niveau du module. Un écran survivant à une fin de
- * session ne doit pas déclarer un salon à la session suivante.
+ * One stack PER SESSION, hence the factory: it lives in the closure of
+ * `ui/sync.tsx`, not at module level. A screen surviving the end of a session
+ * must not declare a room to the next session.
  */
 
 export type OpenRoomsStack = {
-  /** À l'ouverture d'un écran salon. Rend de quoi le retirer en partant. */
+  /** On opening a room screen. Returns what removes it on leaving. */
   declare: (rid: string) => () => void;
-  /** Le salon du dessus — celui que l'utilisateur regarde. */
+  /** The top room: the one the user is looking at. */
   top: () => string | undefined;
 };
 

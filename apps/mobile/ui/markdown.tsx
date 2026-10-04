@@ -1,20 +1,18 @@
 /**
- * Rendu de l'AST `@rocket.chat/message-parser` en `<Text>` imbriqués — que du
- * natif, pas de WebView ni de bibliothèque de rendu markdown (contrainte
- * ROADMAP §4.2).
+ * Renders the `@rocket.chat/message-parser` AST as nested `<Text>`: native
+ * only, no WebView nor markdown rendering library (constraint ROADMAP §4.2).
  *
- * Tolérant par construction : un type de nœud inconnu (nouvelle version du
- * serveur, KaTeX, couleurs…) s'aplatit en texte via `texteDe` au lieu de
- * disparaître ou de planter. Les liens n'ouvrent que http(s) — un `md` forgé
- * ne doit pas pouvoir déclencher un intent arbitraire.
+ * Tolerant by construction: an unknown node type (new server version, KaTeX,
+ * colors...) flattens to text via `textOf` instead of vanishing or crashing.
+ * Links only open http(s): a forged `md` must not be able to fire an arbitrary
+ * intent.
  *
- * Les emojis STANDARD sont des caractères, rendus par la police du système :
- * le serveur ne livre que le code court (`:smile:`), que `lib/emojis.ts`
- * résout. Les emojis PERSONNALISÉS, eux, sont des images distantes
- * (`lib/customEmojis.ts`) : `rendreEmoji` en fait une `<Image>` inline, animée
- * (GIF via Fresco), chargée depuis `/emoji-custom/:nom.:ext` — URL publique,
- * sans jeton. La priorité va au caractère : un code court qui est à la fois
- * Unicode et custom rend le glyphe.
+ * STANDARD emojis are characters, rendered by the system font: the server only
+ * sends the shortcode (`:smile:`), which `lib/emojis.ts` resolves. CUSTOM
+ * emojis are remote images (`lib/customEmojis.ts`): `renderEmoji` makes them
+ * an inline `<Image>`, animated (GIF via Fresco), loaded from
+ * `/emoji-custom/:name.:ext`, a public URL, no token. The character wins: a
+ * shortcode that is both Unicode and custom renders the glyph.
  */
 
 import type { BigEmoji, Blocks, Inlines, Paragraph } from '@rocket.chat/message-parser';
@@ -30,16 +28,16 @@ import { type Colors, FONTS } from './theme.ts';
 
 const MONO_FONT = Platform.select({ android: 'monospace', default: 'Menlo' });
 
-// La garde qui vivait ici (« uniquement le web : `javascript:`, `intent:`,
-// `file:` restent lettre morte ») est passée dans `ui/externalLink.ts`, pour que
-// les cartes d'aperçu et d'embed en héritent au lieu de s'en passer.
+// The guard that lived here ("web only: `javascript:`, `intent:`, `file:` are
+// dead letters") moved to `ui/externalLink.ts`, so preview and embed cards
+// inherit it instead of going without.
 const openLink = openExternalLink;
 
 /**
- * Fiche de l'utilisateur mentionné. `ouvrirFicheProfil` (précharge + navigation)
- * et non un hook : les fonctions de rendu de ce fichier sont de simples
- * fonctions, pas des composants — le client vient du singleton posé par la
- * session. `@all` / `@here` ne désignent personne — pas de fiche.
+ * Card of the mentioned user. `openProfileCard` (preload + navigation) and not
+ * a hook: this file's render functions are plain functions, not components;
+ * the client comes from the singleton set by the session. `@all` / `@here`
+ * name nobody: no card.
  */
 function openProfile(username: string): void {
   if (username === '' || username === 'all' || username === 'here') return;
@@ -47,17 +45,17 @@ function openProfile(username: string): void {
 }
 
 /**
- * Garde-fou de rendu, par message : le `md` vient de la base, donc en dernier
- * ressort d'autrui. Une forme inattendue qui échapperait aux validations ne
- * doit coûter QUE le message fautif — jamais l'écran du salon, qui replanterait
- * à chaque ouverture puisque le `md` est persisté.
+ * Render guard, per message: the `md` comes from the database, so ultimately
+ * from someone else. An unexpected shape slipping past validation must cost
+ * ONLY the faulty message, never the room screen, which would crash again on
+ * every open since the `md` is persisted.
  *
- * `casse` ne se réarme pas TOUT SEUL : l'appelant doit poser une `key` dérivée
- * du contenu (`message.md ?? message.texte`), qui fait renaître la garde quand
- * l'ÉDITION corrige le `md` — et seulement là. Un `componentDidUpdate` sur
- * l'identité de `children` réessaierait à CHAQUE re-rendu du parent (le
- * barattage d'objets de `useRequeteVive` en produit un par écriture en base),
- * soit un parse + throw + catch par écriture et par message cassé.
+ * `letterCase` does not reset ON ITS OWN: the caller must set a `key` derived
+ * from the content (`message.md ?? message.text`), which revives the guard when
+ * an EDIT fixes the `md`, and only then. A `componentDidUpdate` on the identity
+ * of `children` would retry on EVERY parent re-render (the object churn of
+ * `useCoalescedLiveQuery` yields one per database write), i.e. a parse + throw
+ * + catch per write and per broken message.
  */
 export class RenderGuard extends Component<
   { fallback: React.ReactNode; children: React.ReactNode },
@@ -75,9 +73,9 @@ export class RenderGuard extends Component<
 }
 
 /**
- * L'appui long de la ligne qui porte ce texte. Un lien ou une mention est un
- * `Text` tactile : il garde le toucher pour lui, et l'appui long de la ligne
- * ne se déclenchait jamais dessus.
+ * Long press of the row carrying this text. A link or mention is a touchable
+ * `Text`: it keeps the touch for itself, and the row's long press never fired
+ * on it.
  */
 export const MessageLongPress = createContext<(() => void) | undefined>(undefined);
 
@@ -162,10 +160,10 @@ function Block({ block, c }: { block: Paragraph | Blocks | BigEmoji; c: Colors }
       return <List c={c} items={block.value} bullet={(t) => (t.status === true ? '☑' : '☐')} />;
 
     case 'BIG_EMOJI': {
-      // Le parseur ne VALIDE aucun code court : `:pas_un_emoji:` seul sur sa
-      // ligne sort du serveur en `BIG_EMOJI`, exactement comme `:smile:`. On
-      // ne grossit donc que si CHAQUE nœud se résout — en glyphe Unicode OU en
-      // image custom ; sinon, paragraphe littéral.
+      // The parser VALIDATES no shortcode: `:not_an_emoji:` alone on its line
+      // leaves the server as `BIG_EMOJI`, exactly like `:smile:`. So we only
+      // enlarge if EVERY node resolves, to a Unicode glyph OR a custom image;
+      // otherwise, a literal paragraph.
       const nodes = Array.isArray(block.value) ? block.value : [];
       const rendered = nodes.map((e, i) => renderEmoji(e, i, 'large'));
       if (rendered.length > 0 && rendered.every((r) => r !== null)) {
@@ -187,12 +185,12 @@ function Block({ block, c }: { block: Paragraph | Blocks | BigEmoji; c: Colors }
       return <View style={styles.lineBreak} />;
 
     default:
-      // Nœud non pris en charge (KaTeX…) : son texte plutôt que rien.
+      // Unsupported node (KaTeX...): its text rather than nothing.
       return <Text style={[styles.paragraph, { color: c.text }]}>{textOf(block)}</Text>;
   }
 }
 
-/** Couvre listes à puces, numérotées et tâches : seuls le marqueur diffère. */
+/** Covers bulleted, numbered and task lists: only the marker differs. */
 function List<T extends { value: Inlines[] }>({
   c,
   items,
@@ -217,8 +215,8 @@ function List<T extends { value: Inlines[] }>({
 }
 
 function renderInlines(nodes: Inlines[], c: Colors): React.ReactNode[] {
-  // Un `md` corrompu peut mettre autre chose qu'un tableau ici : son texte,
-  // plutôt qu'un TypeError qui coûterait tout l'écran.
+  // A corrupt `md` can put something other than an array here: its text,
+  // rather than a TypeError that would cost the whole screen.
   if (!Array.isArray(nodes)) return [textOf(nodes)];
   return nodes.map((node, i) => renderInline(node, i, c));
 }
@@ -272,24 +270,24 @@ function renderInline(node: Inlines, key: number, c: Colors): React.ReactNode {
       );
 
     case 'EMOJI': {
-      // Glyphe Unicode, sinon image custom, sinon `:nom:` littéral.
+      // Unicode glyph, else custom image, else literal `:name:`.
       const rendered = renderEmoji(node, key, 'inline');
       return rendered ?? textOf(node);
     }
 
     default:
-      // TIMESTAMP, COLOR, IMAGE, KaTeX inline… : le texte, plutôt que rien.
+      // TIMESTAMP, COLOR, IMAGE, inline KaTeX...: the text, rather than nothing.
       return textOf(node);
   }
 }
 
 /**
- * Un nœud `EMOJI` en glyphe (chaîne, stylé par le `<Text>` parent) ou en
- * `<Image>` custom (animée : le GIF s'anime via Fresco `animated-gif`, activé
- * dans le build). `null` si le code court n'est ni Unicode ni un custom connu —
- * l'appelant décide alors du repli (`:nom:` inline, paragraphe pour un
- * `BIG_EMOJI` non résolu). L'image s'imbrique nativement dans le texte, aucun
- * calcul de layout côté JS.
+ * An `EMOJI` node as a glyph (string, styled by the parent `<Text>`) or a
+ * custom `<Image>` (animated: the GIF animates via Fresco `animated-gif`,
+ * enabled in the build). `null` if the shortcode is neither Unicode nor a known
+ * custom; the caller then picks the fallback (inline `:name:`, paragraph for an
+ * unresolved `BIG_EMOJI`). The image nests natively in the text, no JS-side
+ * layout computation.
  */
 function renderEmoji(
   node: unknown,
@@ -310,8 +308,8 @@ function renderEmoji(
       key={key}
       source={{ uri }}
       style={size === 'large' ? styles.largeCustomEmoji : styles.emojiCustomInline}
-      // `contain` : un emoji non carré (bannière, mascotte large) doit tenir
-      // entier dans sa boîte, pas être rogné par le `cover` par défaut.
+      // `contain`: a non-square emoji (banner, wide mascot) must fit whole in
+      // its box, not be cropped by the default `cover`.
       resizeMode="contain"
       accessibilityLabel={`:${shortCode}:`}
     />
@@ -320,11 +318,11 @@ function renderEmoji(
 
 const styles = StyleSheet.create({
   body: { gap: 2 },
-  // `fontFamily` PARTOUT où du texte se rend : le `<Text>` d'un bloc n'est
-  // imbriqué dans aucun `<Text>` parent (que des `<View>`), rien n'est hérité —
-  // sans famille, le corps sortirait en police système à côté du reste de
-  // l'app en Nunito. Et une famille PAR graisse, jamais de `fontWeight`
-  // (faux-gras synthétique d'Android — voir POLICES, ui/theme.ts).
+  // `fontFamily` EVERYWHERE text renders: a block's `<Text>` is nested in no
+  // parent `<Text>` (only `<View>`s), nothing is inherited; without a family,
+  // the body would come out in the system font next to the rest of the app in
+  // Nunito. And one family PER weight, never `fontWeight` (Android's synthetic
+  // fake bold, see FONTS, ui/theme.ts).
   paragraph: { fontFamily: FONTS.body, fontSize: 15, lineHeight: 21 },
   title: { fontFamily: FONTS.title, lineHeight: 26 },
   quote: { borderLeftWidth: 3, paddingLeft: 10, marginVertical: 2, gap: 2 },
@@ -334,8 +332,8 @@ const styles = StyleSheet.create({
   listItem: { flexDirection: 'row', gap: 8 },
   itemText: { fontFamily: FONTS.body, flexShrink: 1 },
   bigEmoji: { fontSize: 36, lineHeight: 44 },
-  // Emojis custom : au fil du texte (aligné sur la hauteur de ligne) et en
-  // grand pour un BIG_EMOJI. `<Image>` inline dans `<Text>` = alignement natif.
+  // Custom emojis: inline in the text (aligned on the line height) and large
+  // for a BIG_EMOJI. Inline `<Image>` in `<Text>` = native alignment.
   emojiCustomInline: { width: 18, height: 18 },
   largeCustomEmoji: { width: 36, height: 36 },
   lineBreak: { height: 8 },

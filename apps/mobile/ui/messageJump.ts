@@ -1,15 +1,15 @@
 /**
- * Saut vers un message — canal entre la liste des épinglés/favoris et l'écran
- * du salon resté dessous. Même famille que `ui/reply.ts` : la liste arme la
- * cible et se referme ; le salon, déjà monté, l'amène dans sa fenêtre, défile
- * jusqu'à elle, puis la consomme. Clé = `rid`. Mémoire seule.
+ * Jump to a message: channel between the pinned/starred list and the room
+ * screen still underneath. Same family as `ui/reply.ts`: the list arms the
+ * target and closes; the room, already mounted, brings it into its window,
+ * scrolls to it, then consumes it. Key = `rid`. Memory only.
  */
 
 import { useSyncExternalStore } from 'react';
 
 export type JumpTarget = {
   id: string;
-  /** Pour savoir jusqu'où remonter l'historique quand le message n'est pas en base. */
+  /** To know how far back to load history when the message is not stored. */
   ts: number;
 };
 

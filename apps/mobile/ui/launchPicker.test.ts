@@ -9,8 +9,8 @@ const viewTreeNpe = new Error(
     "android.view.View.dispatchCancelPendingInputEvents()' on a null object reference",
 );
 
-describe('lancerSelecteurAvecReprise', () => {
-  test('le NPE d’arbre de vues est repris, après la pause', async () => {
+describe('launchPickerWithRetry', () => {
+  test('the view-tree NPE is retried, after the pause', async () => {
     let calls = 0;
     let pause = 0;
     const result = await launchPickerWithRetry(
@@ -22,20 +22,20 @@ describe('lancerSelecteurAvecReprise', () => {
     );
     assert.equal(result, 'ok');
     assert.equal(calls, 2);
-    assert.ok(pause > 0, 'la reprise attend la fin de l’animation de la sheet');
+    assert.ok(pause > 0, 'the retry waits for the end of the sheet animation');
   });
 
-  test('PLUSIEURS reprises : une seule ne suffisait pas en usage réel', async () => {
+  test('SEVERAL retries: a single one was not enough in real use', async () => {
     let calls = 0;
     const result = await launchPickerWithRetry(
       () => (++calls < 4 ? Promise.reject(viewTreeNpe) : Promise.resolve('ok')),
       () => Promise.resolve(),
     );
     assert.equal(result, 'ok');
-    assert.equal(calls, 4, 'trois reprises après le premier essai');
+    assert.equal(calls, 4, 'three retries after the first attempt');
   });
 
-  test('les pauses vont CROISSANT — laisser plus de temps à chaque échec', async () => {
+  test('pauses GROW: more time after each failure', async () => {
     const pauses: number[] = [];
     await assert.rejects(
       launchPickerWithRetry(
@@ -46,13 +46,13 @@ describe('lancerSelecteurAvecReprise', () => {
         },
       ),
     );
-    assert.ok(pauses.length >= 3, `au moins trois reprises, vu ${pauses.length}`);
+    assert.ok(pauses.length >= 3, `at least three retries, got ${pauses.length}`);
     for (let i = 1; i < pauses.length; i++) {
       assert.ok(pauses[i] > pauses[i - 1], `pause ${i} (${pauses[i]}) > ${pauses[i - 1]}`);
     }
   });
 
-  test('un échec qui persiste finit par ressortir — pas de boucle infinie', async () => {
+  test('a persistent failure eventually surfaces: no infinite loop', async () => {
     let calls = 0;
     await assert.rejects(
       launchPickerWithRetry(
@@ -61,10 +61,10 @@ describe('lancerSelecteurAvecReprise', () => {
       ),
       /dispatchCancelPendingInputEvents/,
     );
-    assert.equal(calls, 4, 'un essai puis trois reprises, et on rend les armes');
+    assert.equal(calls, 4, 'one attempt then three retries, then we give up');
   });
 
-  test('tout autre rejet (permission, refus réel) ressort SANS reprise', async () => {
+  test('any other rejection (permission, real refusal) surfaces WITHOUT retry', async () => {
     let calls = 0;
     await assert.rejects(
       launchPickerWithRetry(() => (++calls, Promise.reject(new Error('User rejected permissions')))),
@@ -73,13 +73,13 @@ describe('lancerSelecteurAvecReprise', () => {
     assert.equal(calls, 1);
   });
 
-  test('le premier essai qui réussit passe tel quel', async () => {
+  test('the first successful attempt passes through', async () => {
     assert.equal(await launchPickerWithRetry(() => Promise.resolve(42)), 42);
   });
 });
 
-describe('estRejetArbreDeVues', () => {
-  test('reconnaît le NPE d’Android, et lui seul', () => {
+describe('isViewTreeRejection', () => {
+  test('recognises the Android NPE, and only it', () => {
     assert.equal(isViewTreeRejection(viewTreeNpe), true);
     assert.equal(isViewTreeRejection(new Error('User rejected permissions')), false);
     assert.equal(isViewTreeRejection('dispatchCancelPendingInputEvents'), false);

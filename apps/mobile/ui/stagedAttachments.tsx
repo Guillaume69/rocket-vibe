@@ -1,9 +1,9 @@
 /**
- * Les pièces jointes qui ATTENDENT l'envoi, en pastilles au-dessus du champ —
- * comme Rocket.Chat web. Chaque pastille montre une vignette (image, vidéo) ou
- * une tuile à emoji, le nom, le format et le poids, et un ✕ pour la retirer ;
- * la toucher ouvre un aperçu. Un vocal garde son lecteur, pour se réécouter.
- * Le texte tapé part en légende de la PREMIÈRE pièce (voir `ui/composer.tsx`).
+ * Attachments WAITING to be sent, as chips above the field, like Rocket.Chat
+ * web. Each chip shows a thumbnail (image, video) or an emoji tile, the name,
+ * the format and the size, and a ✕ to remove it; tapping it opens a preview.
+ * A voice message keeps its player, to listen back.
+ * The typed text goes as the caption of the FIRST attachment (see `ui/composer.tsx`).
  */
 
 import { LinearGradient } from 'expo-linear-gradient';
@@ -35,11 +35,11 @@ export function StagedAttachments({
 }: {
   c: Colors;
   attachments: StagedAttachment[];
-  /** Envoi en cours : retrait et choix de qualité gelés. */
+  /** Send in progress: removal and quality choice frozen. */
   busy: boolean;
   onRemove: (key: number) => void;
   onOpen: (attachment: StagedAttachment) => void;
-  /** `null` quand aucune pièce n'est réductible. Vaut pour toutes celles qui le sont. */
+  /** `null` when no attachment can be shrunk. Applies to all those that can. */
   quality: SendQuality | null;
   onQuality: (quality: SendQuality) => void;
 }) {
@@ -109,8 +109,8 @@ function Chip({
   onOpen: () => void;
 }) {
   const t = useT();
-  // Une vidéo locale a sa première image décodée par le pipeline d'images
-  // d'Android ; ailleurs (ou en cas d'échec), la tuile à emoji.
+  // A local video gets its first frame decoded by Android's image pipeline;
+  // elsewhere (or on failure), the emoji tile.
   const [withoutThumbnail, setWithoutThumbnail] = useState(false);
   const thumbnail =
     !withoutThumbnail && (isImage(attachment.type) || attachment.type.startsWith('video/'));

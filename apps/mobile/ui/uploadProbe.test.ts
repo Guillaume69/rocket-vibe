@@ -3,23 +3,23 @@ import { beforeEach, describe, test } from 'node:test';
 
 import { armUploadProbe, reportUploadEnd } from './uploadProbe.ts';
 
-/** Module à état : chaque test repart débranché. */
+/** Stateful module: each test starts unplugged. */
 beforeEach(() => {
   armUploadProbe(null);
 });
 
-describe('sonde de fin de téléversement', () => {
-  test('une fois branchée, CHAQUE fin d’upload la déclenche', () => {
+describe('upload completion probe', () => {
+  test('once plugged in, EVERY upload completion triggers it', () => {
     let calls = 0;
     armUploadProbe(() => calls++);
 
     reportUploadEnd();
     reportUploadEnd();
 
-    assert.equal(calls, 2, 'pas seulement le premier téléversement');
+    assert.equal(calls, 2, 'not just the first upload');
   });
 
-  test('débranchée, plus rien ne part vers une session rangée', () => {
+  test('unplugged, nothing goes to a closed session any more', () => {
     let calls = 0;
     armUploadProbe(() => calls++);
     reportUploadEnd();
@@ -27,14 +27,14 @@ describe('sonde de fin de téléversement', () => {
     armUploadProbe(null);
     reportUploadEnd();
 
-    assert.equal(calls, 1, 'le signal d’après le débranchement est ignoré');
+    assert.equal(calls, 1, 'the signal after unplugging is ignored');
   });
 
-  test('sans sonde branchée, signaler ne jette pas', () => {
+  test('with no probe plugged in, signalling does not throw', () => {
     assert.doesNotThrow(() => reportUploadEnd());
   });
 
-  test('une nouvelle session remplace la sonde de l’ancienne', () => {
+  test("a new session replaces the old one's probe", () => {
     let old = 0;
     let next = 0;
     armUploadProbe(() => old++);
@@ -42,7 +42,7 @@ describe('sonde de fin de téléversement', () => {
 
     reportUploadEnd();
 
-    assert.equal(old, 0, 'l’ancien client ne doit plus être sondé');
+    assert.equal(old, 0, 'the old client must no longer be probed');
     assert.equal(next, 1);
   });
 });

@@ -1,10 +1,10 @@
 /**
- * En-tête de l'écran salon : retour, tuile, nom, présence du correspondant
- * (DM), appel, recherche, barre de synchro.
+ * Room screen header: back, tile, name, peer presence (DM), call, search,
+ * sync bar.
  *
- * Déplacé tel quel de `app/salon/[rid].tsx` (chantier 14) : props uniquement,
- * aucun couplage avec le moteur de liste — le fichier de l'écran mélangeait
- * trois responsabilités sur 1 400 lignes.
+ * Moved as is from `app/salon/[rid].tsx` (workstream 14): props only, no
+ * coupling with the list engine; the screen file mixed three
+ * responsibilities over 1,400 lines.
  */
 
 import { useRouter } from 'expo-router';
@@ -27,7 +27,7 @@ import { Tappable } from './tappable.tsx';
 
 type RoomRow = typeof rooms.$inferSelect;
 
-/** En-tête du salon : retour, tuile, nom, présence du correspondant (DM), recherche. */
+/** Room header: back, tile, name, peer presence (DM), search. */
 export function RoomHeader({
   c,
   rid,
@@ -47,21 +47,21 @@ export function RoomHeader({
   insetTop: number;
   onBack: () => void;
   onSearch: () => void;
-  /** Ouvre les messages épinglés et favoris du salon. */
+  /** Opens the room's pinned and starred messages. */
   onMarked: () => void;
 }) {
   const name = room ? (room.displayName ?? room.name ?? room.rid) : '…';
   const isDM = room?.type === 'd';
-  // Chargement de l'historique (ouverture) et rattrapage du salon (reconnexion)
-  // allument la barre — même portée `rid` que le fetch enveloppé par l'écran.
+  // History loading (opening) and room catch-up (reconnection) light up the
+  // bar: same `rid` scope as the fetch wrapped by the screen.
   const syncing = useActivity(rid);
   const router = useRouter();
   const t = useT();
   const sync = useSync();
   const unlocked = useE2EUnlocked(sync.phase === 'ready' ? sync.e2e : null);
 
-  // Disponibilité de la visioconférence : masque le bouton là où aucun
-  // fournisseur n'est configuré (Docker local), l'affiche sur la cible (Jitsi).
+  // Video conference availability: hides the button where no provider is
+  // configured (local Docker), shows it on the target (Jitsi).
   const [callAvailable, setCallAvailable] = useState(false);
   const [starting, setStarting] = useState(false);
   useEffect(() => {
@@ -79,8 +79,8 @@ export function RoomHeader({
     setStarting(true);
     void (async () => {
       try {
-        // `start` crée la conférence, poste le message d'appel dans le salon,
-        // et renvoie le callId — l'écran d'appel s'occupe de `join` + WebView.
+        // `start` creates the conference, posts the call message in the room, and
+        // returns the callId; the call screen handles `join` + WebView.
         const callId = await startConference(client, rid);
         router.push({ pathname: '/call/[callId]', params: { callId, title: name } });
       } catch {
@@ -96,9 +96,8 @@ export function RoomHeader({
       <Pressable onPress={onBack} hitSlop={10} accessibilityRole="button" accessibilityLabel={t('room.back')}>
         <Text style={[styles.back, { color: c.purple }]}>‹</Text>
       </Pressable>
-      {/* Le nom (et l'avatar) ouvrent la fiche : celle de l'INTERLOCUTEUR pour
-          un DM (visé par `dmAutreUid` — le `name` d'un DM est null localement),
-          celle du salon sinon. */}
+      {/* The name (and avatar) open the profile: the PEER's for a DM (targeted by
+          `dmOtherUid`, a DM's `name` is null locally), the room's otherwise. */}
       <View style={styles.headerWrapper}>
         <Tappable
           onPress={() =>
@@ -184,11 +183,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   back: { fontFamily: FONTS.title, fontSize: 26, paddingRight: 2 },
-  // Reprend la géométrie qu'avaient avatar + bloc en enfants directs de
-  // l'en-tête (ligne, même gap, extension) — le Pressable est transparent.
-  // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
-  // découpe l'ondulation — borderRadius sur le Pressable est ignoré par le
-  // masque du ripple sous Fabric. L'enveloppe porte le flex de l'en-tête.
+  // Reproduces the geometry avatar + block had as direct children of the
+  // header (row, same gap, flex): the Pressable is transparent. The radius
+  // lives on the WRAPPER: only a parent's clip (`overflow`) cuts the ripple;
+  // borderRadius on the Pressable is ignored by the ripple mask under Fabric.
+  // The wrapper carries the header's flex.
   headerWrapper: { flex: 1, minWidth: 0, borderRadius: 12, overflow: 'hidden' },
   headerSheet: { flexDirection: 'row', alignItems: 'center', gap: 11 },
   headerBlock: { flex: 1, minWidth: 0 },

@@ -1,17 +1,17 @@
 /**
- * Mise en phrase des refus de validation d'upload (taille, type MIME, fichiers
- * chiffrés désactivés sur le serveur).
+ * Wording for upload validation refusals (size, MIME type, encrypted files
+ * disabled on the server).
  *
- * `lib/uploadQueue.ts` est pur et testé sous Node : il n'embarque aucune
- * langue et porte le refus en DONNÉE (`ErreurValidation.detail`). C'est ici,
- * côté UI, que le code devient une phrase du catalogue — le SEUL endroit, pour
- * que le composer du salon et l'écran de partage disent la même chose.
+ * `lib/uploadQueue.ts` is pure and tested under Node: it ships no language and
+ * carries the refusal as DATA (`ValidationError.detail`). Here, on the UI side,
+ * the code becomes a catalogue sentence: the ONLY place, so that the room
+ * composer and the share screen say the same thing.
  */
 
 import { ValidationError } from '../lib/uploadQueue.ts';
 import type { TranslateFn } from './messages.ts';
 
-/** `null` si l'erreur n'est pas un refus de validation — au repli de l'appelant. */
+/** `null` if the error is not a validation refusal: up to the caller's fallback. */
 export function phraseValidation(e: unknown, t: TranslateFn): string | null {
   if (!(e instanceof ValidationError)) return null;
   if (e.detail.code === 'size') return t('common.fileTooLarge', { mb: e.detail.maxMb });

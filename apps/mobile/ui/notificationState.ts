@@ -1,40 +1,40 @@
 /**
- * L'état de notification qui vit HORS de l'arbre React.
+ * Notification state that lives OUTSIDE the React tree.
  *
- * Module feuille, sans aucun import de `synchro`/`session` — comme
- * [[salonsCharges]], [[filsCharges]] et [[salonChaud]]. C'est délibéré : ces
- * stores sont purgés depuis le cleanup de `SynchroProvider`, et un import
- * croisé y ferait un cycle dont la résolution dépendrait de l'ordre
- * d'évaluation des modules — donc du bundler, donc du mode de build.
+ * A leaf module, importing nothing from `sync`/`session`, like
+ * [[loadedRooms]], [[loadedThreads]] and [[hotRooms]]. Deliberately: these
+ * stores are purged from `SyncProvider`'s cleanup, and a cross import would
+ * make a cycle whose resolution depends on module evaluation order, hence on
+ * the bundler, hence on the build mode.
  *
- * Deux choses vivent ici parce que deux choses survivent au démontage :
+ * Two things live here because two things outlive unmounting:
  *
- * - la liste des salons chiffrés, consultée par le handler global de
- *   notifications, lui-même installé au CHARGEMENT DU MODULE. Elle n'était
- *   remplie et vidée que par un composant qui disparaît avec la session : la
- *   liste du compte quitté restait donc en mémoire et continuait de décider du
- *   sort des notifications suivantes ;
- * - le badge d'icône, posé au même endroit. Après une déconnexion, l'icône
- *   gardait le nombre de non-lus de l'ancien compte — indéfiniment, sur un
- *   appareil qui reste déconnecté.
+ * - the list of encrypted rooms, consulted by the global notification
+ *   handler, itself installed at MODULE LOAD. It was only filled and cleared
+ *   by a component that goes away with the session: the list of the account
+ *   left behind stayed in memory and kept deciding the fate of the following
+ *   notifications;
+ * - the icon badge, set in the same place. After a logout, the icon kept the
+ *   old account's unread count, indefinitely on a device that stays logged
+ *   out.
  */
 
 import * as Notifications from 'expo-notifications';
 
 const encryptedRids = new Set<string>();
 
-/** Ce salon est-il chiffré ? Consulté au moment d'afficher une notification. */
+/** Is this room encrypted? Checked when a notification is shown. */
 export function isRoomEncrypted(rid: string): boolean {
   return encryptedRids.has(rid);
 }
 
-/** Remplace la liste connue — les salons chiffrés du compte courant. */
+/** Replaces the known list: the current account's encrypted rooms. */
 export function setEncryptedRooms(rids: Iterable<string>): void {
   encryptedRids.clear();
   for (const rid of rids) encryptedRids.add(rid);
 }
 
-/** Fin de session / changement de serveur : plus rien de ce compte ne vaut. */
+/** End of session / server switch: nothing from this account holds anymore. */
 export function forgetNotificationState(): void {
   encryptedRids.clear();
   Notifications.setBadgeCountAsync(0).catch(() => {});

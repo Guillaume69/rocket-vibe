@@ -1,13 +1,13 @@
 /**
- * Indicateur d'ouverture de fiche — le retour visuel du préchargement
- * (`lib/profilePreload`). Un tap sur un avatar/pseudo/mention déclenche un
- * aller-retour réseau AVANT d'ouvrir la sheet ; ce composant n'apparaît que si
- * l'attente dépasse le seuil (voir `SEUIL_INDICATEUR_MS`). Sous le seuil — le
- * cas normal — la sheet s'ouvre sans que rien ne clignote.
+ * Profile opening indicator, the visual feedback of preloading
+ * (`lib/profilePreload`). A tap on an avatar/username/mention triggers a
+ * network round trip BEFORE opening the sheet; this component only appears
+ * if the wait exceeds the threshold (see `INDICATOR_THRESHOLD_MS`). Below the
+ * threshold, the normal case, the sheet opens with nothing flashing.
  *
- * Monté une seule fois, au-dessus de la pile (`app/_layout.tsx`). `pointerEvents:
- * none` : purement décoratif, il ne capture aucun geste (la sheet arrive juste
- * après). Discret : une petite pastille centrée, pas de scrim bloquant.
+ * Mounted once, above the stack (`app/_layout.tsx`). `pointerEvents: none`:
+ * purely decorative, it captures no gesture (the sheet comes right after).
+ * Discreet: a small centred pill, no blocking scrim.
  */
 
 import { useEffect, useState } from 'react';

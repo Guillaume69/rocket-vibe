@@ -1,11 +1,11 @@
 /**
- * Cycle de vie de la session, exposé à tous les écrans.
+ * Session lifecycle, exposed to every screen.
  *
- * Au démarrage, la session stockée est reprise **avec optimisme** : on se
- * déclare connecté immédiatement, et la validation réseau court en arrière-plan.
- * Seul un 401 — le serveur a révoqué le jeton — déconnecte ; un serveur
- * injoignable n'est pas une raison de jeter une session, c'est le quotidien
- * d'un client mobile hors ligne.
+ * At startup, the stored session is resumed **optimistically**: we declare
+ * ourselves connected immediately, and network validation runs in the
+ * background. Only a 401 (the server revoked the token) logs out; an
+ * unreachable server is no reason to throw a session away, it is an offline
+ * mobile client's daily life.
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
@@ -38,21 +38,21 @@ export type SessionState =
 
 type SessionContext = {
   state: SessionState;
-  /** Persiste la session et bascule l'app en mode connecté. */
+  /** Persists the session and switches the app to connected mode. */
   connect: (session: Session) => Promise<void>;
-  /** Efface la session locale ; le logout serveur est best-effort. */
+  /** Clears the local session; the server logout is best-effort. */
   logOut: () => Promise<void>;
   /**
-   * Bascule vers un autre serveur connu SANS toucher aux sessions : chacune
-   * vit sous sa propre clé. Rend true si une session y existait ; sinon,
-   * l'état retombe sur « deconnecte » et l'écran de connexion se pré-remplit.
+   * Switches to another known server WITHOUT touching the sessions: each lives
+   * under its own key. Returns true if a session existed there; otherwise the
+   * state falls back to "disconnected" and the login screen is prefilled.
    */
   switchServer: (baseUrl: string) => Promise<boolean>;
   /**
-   * Met à jour les infos de profil PORTÉES par la session (le pseudo) après une
-   * édition réussie, et re-persiste. Le pseudo de la session alimente Paramètres
-   * (`@username`) et l'avatar de « Mon profil » : sans ce rafraîchissement, ils
-   * garderaient l'ancien pseudo jusqu'à une déconnexion/reconnexion.
+   * Updates the profile info CARRIED by the session (the username) after a
+   * successful edit, and persists again. The session's username feeds Settings
+   * (`@username`) and the "My profile" avatar: without this refresh, they would
+   * keep the old username until a logout/login.
    */
   updateSessionProfile: (update: { username?: string }) => Promise<void>;
 };
@@ -60,10 +60,10 @@ type SessionContext = {
 const Context = createContext<SessionContext | null>(null);
 
 /**
- * Point de création UNIQUE des clients de la vie courante — les trois chemins
- * (démarrage, connexion, bascule de serveur) passent par ici. C'est ce qui
- * permet d'y brancher la révocation une seule fois et de couvrir tous les
- * appels de l'app, sans toucher un seul site d'appel.
+ * The SINGLE creation point for everyday clients: all three paths (startup,
+ * login, server switch) come through here. That is what lets revocation be
+ * wired once and cover every call in the app, without touching a single call
+ * site.
  */
 function clientFor(session: Session, onTokenRejected: (token: string) => void): ClientRest {
   const client = new ClientRest(session.baseUrl);
@@ -73,19 +73,19 @@ function clientFor(session: Session, onTokenRejected: (token: string) => void): 
 }
 
 /**
- * Tout ce qu'une session laisse au Keystore, effacé d'un bloc.
+ * Everything a session leaves in the Keystore, cleared in one go.
  *
- * Rangé ici plutôt qu'inline aux quatre sorties (déconnexion, révocation, et
- * les deux 401 de validation) parce qu'un oubli à l'une d'elles ne se voit
- * pas : la clé privée E2EE survivait à la déconnexion, et c'est un JWK RSA
- * **déchiffré**. Les trois effacements sont indépendants, donc en parallèle.
+ * Kept here rather than inline at the four exits (logout, revocation, and the
+ * two validation 401s) because forgetting one of them does not show: the E2EE
+ * private key survived logout, and it is a **decrypted** RSA JWK. The three
+ * deletions are independent, hence in parallel.
  */
 async function clearTraces(session: Session): Promise<void> {
   await Promise.all([
     clearSession(session.baseUrl),
     clearE2EPrivateKey(session.baseUrl, session.userId),
-    // L'entrée de l'ancien format, si le balayage de démarrage ne l'a pas
-    // encore emportée : sans elle, cette fonction mentirait sur son contrat.
+    // The old-format entry, if the startup sweep has not taken it yet: without
+    // it, this function would lie about its contract.
     purgeLegacyE2EKey(session.baseUrl),
   ]);
 }
@@ -93,50 +93,49 @@ async function clearTraces(session: Session): Promise<void> {
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<SessionState>({ phase: 'starting' });
 
-  // Jeton de la session actuellement affichée. La validation de démarrage s'y
-  // compare avant d'agir : sans cela, un 401 tardif sur un jeton déjà remplacé
-  // (déconnexion puis reconnexion pendant que la requête volait) effacerait la
-  // session toute neuve — même serveur, donc même clé de stockage.
+  // Token of the session currently shown. Startup validation compares against
+  // it before acting: otherwise, a late 401 on an already replaced token
+  // (logout then login while the request was in flight) would clear the
+  // brand-new session, same server, hence same storage key.
   const currentToken = useRef<string | null>(null);
   useEffect(() => {
     currentToken.current = state.phase === 'connected' ? state.session.authToken : null;
-    // Le préchargement de fiche (`lib/profilePreload`) ouvre `/profile` depuis des
-    // fonctions de rendu sans client sous la main : on lui pose le client actif.
+    // Profile preloading (`lib/profilePreload`) opens `/profile` from render
+    // functions with no client at hand: we set the active client on it.
     setProfileClient(state.phase === 'connected' ? state.client : null);
   }, [state]);
 
   /**
-   * Le serveur a refusé ce jeton EN COURS DE SESSION.
+   * The server refused this token MID-SESSION.
    *
-   * Déclenché par `ClientRest.surJetonRefuse`, donc par n'importe quel appel de
-   * la vie courante — rattrapage, `chat.syncMessages`, envoi, présence. Sans
-   * lui, un jeton révoqué ailleurs (mot de passe changé, `Accounts_LoginExpiration`,
-   * `logoutOtherClients`) laissait l'app tourner sur le cache de la veille avec
-   * une barre de synchro qui bat : indiscernable d'une panne réseau, et sans
-   * aucun chemin de sortie avant un redémarrage.
+   * Triggered by `ClientRest.onTokenRejected`, so by any everyday call:
+   * catch-up, `chat.syncMessages`, send, presence. Without it, a token revoked
+   * elsewhere (password changed, `Accounts_LoginExpiration`,
+   * `logoutOtherClients`) left the app running on yesterday's cache with a
+   * pulsing sync bar: indistinguishable from a network outage, and with no way
+   * out short of a restart.
    *
-   * Deux gardes, pas une : `estJetonRefuse` a déjà écarté tout ce qui n'est pas
-   * une révocation (lib/rest.ts) ; ici on écarte le 401 **périmé**, celui qui
-   * atterrit sur un jeton déjà remplacé — déconnexion puis reconnexion pendant
-   * que la requête volait, même serveur donc même clé de stockage. Sans cette
-   * comparaison, un 401 tardif effacerait une session toute neuve.
+   * Two guards, not one: `isTokenRejected` already ruled out everything that is
+   * not a revocation (lib/rest.ts); here we rule out the **stale** 401, the one
+   * landing on an already replaced token (logout then login while the request
+   * was in flight, same server hence same storage key). Without this
+   * comparison, a late 401 would clear a brand-new session.
    *
-   * Aucun `POST /logout` : le jeton est déjà mort côté serveur, l'appeler ne
-   * ferait que reprendre un 401. On efface, et on rend l'écran de connexion.
+   * No `POST /logout`: the token is already dead server-side, calling it would
+   * only earn another 401. Clear, and show the login screen.
    */
   const revoke = useCallback((session: Session, token: string) => {
     if (currentToken.current !== token) return;
     void (async () => {
-      // On REGARDE avant de détruire. `connecter()` persiste la session neuve
-      // AVANT de basculer l'état, donc entre le drapeau lu ci-dessus et cette
-      // ligne, une reconnexion a pu écrire un jeton tout neuf sous la même clé
-      // — le stockage est indexé par serveur, pas par session. Effacer en
-      // aveugle emporterait cette session-là, et l'app démarrerait déconnectée
-      // alors qu'un compte valide venait d'être ouvert.
+      // LOOK before destroying. `connect()` persists the new session BEFORE
+      // switching state, so between the flag read above and this line, a login
+      // may have written a brand-new token under the same key: storage is keyed by
+      // server, not by session. Clearing blindly would take that session with it,
+      // and the app would start logged out right after a valid account was opened.
       const stored = await readSession(session.baseUrl);
       if (stored !== null && stored.authToken !== token) return;
       await clearTraces(session);
-      // Relu APRÈS l'attente, pour la même raison.
+      // Read again AFTER the wait, for the same reason.
       if (currentToken.current === token) setState({ phase: 'disconnected' });
     })();
   }, []);
@@ -144,10 +143,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let discarded = false;
 
-    // Les déconnexions que le réseau avait interrompues. Indépendant de la
-    // session qui démarre — on peut très bien reprendre une session sur un
-    // serveur pendant qu'on solde une déconnexion sur un autre. Tir-et-oublie :
-    // rien ici ne doit retenir l'écran.
+    // Logouts the network had interrupted. Independent of the starting session:
+    // a session can resume on one server while a logout settles on another.
+    // Fire-and-forget: nothing here may hold the screen.
     finishPendingLogouts(
       { list: listPendingLogouts, remove: removePendingLogout },
       (entry) => {
@@ -157,10 +155,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       },
     ).catch(() => {});
 
-    // Les clés privées E2EE de l'ANCIEN format, indexées par serveur seul. Ici
-    // et pas dans `SynchroProvider` : celui-ci ne monte que sur session active,
-    // donc il ne verrait jamais l'orpheline d'un serveur que l'utilisateur a
-    // quitté — précisément le cas que la migration doit servir.
+    // OLD-format E2EE private keys, keyed by server alone. Here and not in
+    // `SyncProvider`: that one only mounts on an active session, so it would
+    // never see the orphan of a server the user left, precisely the case the
+    // migration must serve.
     purgeAllLegacyE2EKeys().catch(() => {});
 
     (async () => {
@@ -175,15 +173,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       const client = clientFor(session, (token) => revoke(session, token));
       setState({ phase: 'connected', session, client });
 
-      // Validation en arrière-plan. Un jeton révoqué répond 401 : on efface.
-      // Tout autre échec (réseau coupé, serveur en maintenance) laisse la
-      // session en place — la resynchronisation s'en chargera.
+      // Background validation. A revoked token answers 401: clear. Any other
+      // failure (network down, server in maintenance) leaves the session in
+      // place; resync will take care of it.
       try {
-        // La reprise renvoie le profil COURANT du serveur. Si le pseudo a changé
-        // (renommage depuis un autre appareil, ou pendant que l'app était
-        // fermée), on l'adopte — sinon l'ancienne valeur stockée resterait
-        // affichée dans Paramètres jusqu'à une reconnexion. Le jeton et l'uid ne
-        // bougent pas, donc le `client` reste valable tel quel.
+        // Resume returns the server's CURRENT profile. If the username changed
+        // (renamed from another device, or while the app was closed), adopt it;
+        // otherwise the old stored value would stay shown in Settings until a
+        // login. The token and uid do not move, so the `client` stays valid as is.
         const fresh = await resumeSession(client, session.authToken);
         if (
           !discarded &&
@@ -199,35 +196,35 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (e) {
         const expired = currentToken.current !== session.authToken;
-        // `estJetonRefuse` et non un `statut === 401` nu : `reprendreSession`
-        // part en `anonyme` (le jeton voyage dans le CORPS), donc le crochet
-        // `surJetonRefuse` ne la couvre pas — cette validation garde sa propre
-        // détection, et elle doit être la même. Un 401 de proxy en HTML tombait
-        // ici en plein, et déconnectait une session valide.
+        // `isTokenRejected` and not a bare `status === 401`: `resumeSession` goes
+        // out `anonymous` (the token travels in the BODY), so the `onTokenRejected`
+        // hook does not cover it; this validation keeps its own detection, and it
+        // must be the same. A proxy 401 in HTML landed right here, and logged out a
+        // valid session.
         if (discarded || expired || !isTokenRejected(e)) return;
-        // La clé privée E2EE part avec la session : rangée par (serveur,
-        // compte), elle n'a plus de compte à qui appartenir.
+        // The E2EE private key leaves with the session: stored by (server, account),
+        // it no longer has an account to belong to.
         await clearTraces(session);
         if (!discarded && currentToken.current === session.authToken) {
           setState({ phase: 'disconnected' });
         }
       }
     })().catch(() => {
-      // `SecureStore` qui échoue au démarrage = pas de session lisible.
+      // `SecureStore` failing at startup = no readable session.
       if (!discarded) setState({ phase: 'disconnected' });
     });
     return () => {
       discarded = true;
     };
-    // `revoquer` est stable (useCallback sans dépendance) : le citer ne fait
-    // pas rejouer cet effet, qui doit courir une fois et une seule.
+    // `revoke` is stable (useCallback with no dependency): citing it does not
+    // replay this effect, which must run once and only once.
   }, [revoke]);
 
   const connect = useCallback(async (session: Session) => {
-    // Persister AVANT de basculer l'UI : si l'écriture échoue, l'utilisateur
-    // reste sur l'écran de connexion avec une erreur, plutôt que de découvrir
-    // au prochain démarrage que sa session n'a jamais existé. Les trois
-    // écritures sont indépendantes, donc en parallèle.
+    // Persist BEFORE switching the UI: if the write fails, the user stays on
+    // the login screen with an error, rather than finding out at the next
+    // startup that their session never existed. The three writes are
+    // independent, hence in parallel.
     await Promise.all([
       saveSession(session),
       saveLastServer(session.baseUrl),
@@ -241,10 +238,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, [revoke]);
 
   const switchServer = useCallback(async (baseUrl: string) => {
-    // Lire AVANT d'écrire quoi que ce soit : s'il n'y a pas de session
-    // là-bas, on ne bouge ni l'état ni le pointeur — déconnecter l'utilisateur
-    // et déplacer le pointeur de reprise vers un serveur sans session ferait
-    // démarrer l'app déconnectée alors qu'une session valide existe ailleurs.
+    // Read BEFORE writing anything: if there is no session over there, move
+    // neither the state nor the pointer. Logging the user out and moving the
+    // resume pointer to a server without a session would start the app logged
+    // out while a valid session exists elsewhere.
     const session = await readSession(baseUrl);
     if (session === null) return false;
 
@@ -252,9 +249,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     const client = clientFor(session, (token) => revoke(session, token));
     setState({ phase: 'connected', session, client });
 
-    // Même règle qu'au démarrage : validation en arrière-plan, seul un 401
-    // (jeton révoqué) déconnecte — et seulement si cette session est encore
-    // celle affichée.
+    // Same rule as at startup: background validation, only a 401 (revoked
+    // token) logs out, and only if this session is still the one shown.
     resumeSession(client, session.authToken).catch(async (e: unknown) => {
       if (isTokenRejected(e) && currentToken.current === session.authToken) {
         await clearTraces(session);
@@ -269,25 +265,24 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     const { client, session } = state;
     setState({ phase: 'disconnected' });
     try {
-      // Le jeton FCM vient du Keystore, où il a été retenu À SON ENREGISTREMENT
-      // (`ui/sync.tsx`). Le redemander ici à `obtenirJetonFcm()` créait le
-      // canal de notification et demandait la permission POST_NOTIFICATIONS :
-      // se déconnecter pouvait faire surgir un prompt système. Et sur un
-      // appareil sans Play Services, il ne rendait rien — donc aucun `DELETE`
-      // n'était même tenté, alors que le jeton, lui, avait bien été enregistré.
+      // The FCM token comes from the Keystore, where it was kept AT REGISTRATION
+      // (`ui/sync.tsx`). Asking `getFcmToken()` for it again here created the
+      // notification channel and requested the POST_NOTIFICATIONS permission:
+      // logging out could pop a system prompt. And on a device without Play
+      // Services, it returned nothing, so no `DELETE` was even attempted, even
+      // though the token had indeed been registered.
       const pushToken = await readRememberedPushToken().catch(() => null);
 
-      // Dé-enregistrer le jeton push AVANT le logout : l'appel exige encore
-      // l'authentification. Un 404 est un succès (`lib/pushToken.ts`).
+      // Unregister the push token BEFORE logout: the call still requires
+      // authentication. A 404 is a success (`lib/pushToken.ts`).
       const pushRemoved =
         pushToken === null ? true : await unregisterToken(client, pushToken).then(() => true, () => false);
       const closedSession = await logOut(client);
 
-      // Ce que le réseau n'a pas laissé aboutir se rejoue au prochain
-      // démarrage. Sans cette file, un logout hors ligne laissait la session
-      // ouverte côté serveur ET le jeton push enregistré : l'appareil
-      // continuait de recevoir des « Nouveau message » fantômes pour un compte
-      // dont il n'a plus rien, jusqu'à la désinstallation.
+      // What the network did not let through is replayed at the next startup.
+      // Without this queue, an offline logout left the session open server-side
+      // AND the push token registered: the device kept receiving ghost "Nouveau
+      // message" pushes for an account it has nothing left of, until uninstall.
       if (!pushRemoved || !closedSession) {
         await addPendingLogout({
           baseUrl: session.baseUrl,
@@ -297,14 +292,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
-      // La clé privée E2EE part AVEC la session. C'est le JWK RSA déchiffré :
-      // la laisser derrière faisait que le geste le plus fort de l'app —
-      // « Se déconnecter » — protégeait moins que le bouton « Verrouiller ».
-      // EN DERNIER : la file ci-dessus a besoin du jeton, et `effacerTraces`
-      // ne le lit pas mais l'ordre rend l'intention lisible.
+      // The E2EE private key leaves WITH the session. It is the decrypted RSA
+      // JWK: leaving it behind made the app's strongest gesture, "Log out",
+      // protect less than the "Lock" button.
+      // LAST: the queue above needs the token; `clearTraces` does not read it,
+      // but the order makes the intent readable.
       await clearTraces(session);
     } catch {
-      // L'état local est déjà déconnecté ; rien d'utile à remonter.
+      // Local state is already logged out; nothing useful to report.
     }
   }, [state]);
 
@@ -312,8 +307,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     async (update: { username?: string }) => {
       if (state.phase !== 'connected') return;
       const session = { ...state.session, ...update };
-      // Persister AVANT de basculer l'UI, comme `connecter` : le client garde
-      // ses identifiants (jeton + uid inchangés), seul le pseudo affiché change.
+      // Persist BEFORE switching the UI, like `connect`: the client keeps its
+      // credentials (token + uid unchanged), only the displayed username changes.
       await saveSession(session);
       setState({ phase: 'connected', session, client: state.client });
     },

@@ -1,20 +1,18 @@
 /**
- * Lecture d'une pièce jointe vidéo (expo-video).
+ * Playback of a video attachment (expo-video).
  *
- * Avant : une vidéo tombait dans la branche générique « 📄 fichier » et ne
- * s'ouvrait que dans le navigateur — donc illisible dans l'app. Ici on montre
- * dans le fil une CARTE d'aperçu themée (bannière « aurore » + gros bouton de
- * lecture), et un toucher ouvre le lecteur PLEIN ÉCRAN, contrôles natifs
- * (play/pause, glissière, plein écran), sur le modèle de la visionneuse image.
+ * In the thread we show a themed preview CARD ("aurora" banner + big play
+ * button), and a tap opens the FULL-SCREEN player with native controls
+ * (play/pause, scrubber, full screen), modeled on the image viewer.
  *
- * Deux partis pris :
- *  - **Le player n'existe que lorsqu'on regarde.** `useVideoPlayer` crée une
- *    instance native coûteuse ; un fil peut aligner plusieurs vidéos. On ne
- *    monte `ModaleVideo` (et donc le player) qu'à l'ouverture, et il est libéré
- *    à la fermeture (démontage). La carte, elle, ne coûte rien.
- *  - **L'URL protégée reste en mémoire.** Comme pour l'image, elle porte
- *    `rc_uid`/`rc_token` : jamais dans un paramètre de route, seulement dans une
- *    `Modal` native au-dessus de la pile.
+ * Two choices:
+ *  - **The player only exists while watching.** `useVideoPlayer` creates a
+ *    costly native instance; a thread can line up several videos. We mount
+ *    `VideoModal` (and hence the player) only on open, and it is released on
+ *    close (unmount). The card, for its part, costs nothing.
+ *  - **The protected URL stays in memory.** As for images, it carries
+ *    `rc_uid`/`rc_token`: never in a route param, only in a native `Modal`
+ *    above the stack.
  */
 
 import { LinearGradient } from 'expo-linear-gradient';
@@ -37,7 +35,7 @@ export function VideoPlayer({
   url: string;
   title?: string | null;
   onLongPress?: (() => void) | undefined;
-  /** Rendue par-dessus la carte (progression d'un téléchargement). */
+  /** Rendered over the card (download progress). */
   overlay?: React.ReactNode;
 }) {
   const t = useT();
@@ -53,8 +51,8 @@ export function VideoPlayer({
         accessibilityRole="button"
         accessibilityLabel={title ? t('videoPlayer.playWithTitle', { title: title }) : t('videoPlayer.play')}
       >
-        {/* Aurore comète, tamisée par un voile sombre : un rappel de couleur
-            sans que la carte crie. */}
+        {/* Comet aurora, dimmed by a dark scrim: a touch of color
+            without the card shouting. */}
         <LinearGradient
           colors={c.brandGradient}
           start={{ x: 0, y: 0 }}
@@ -69,7 +67,7 @@ export function VideoPlayer({
           end={{ x: 1, y: 1 }}
           style={styles.button}
         >
-          {/* Triangle DESSINÉ, pas un emoji (« ▶ » sort orange sur Android). */}
+          {/* A DRAWN triangle, not an emoji ("▶" renders orange on Android). */}
           <View style={[styles.playIcon, { borderLeftColor: c.onAccent }]} />
         </LinearGradient>
 
@@ -99,9 +97,9 @@ export function VideoModal({
 }) {
   const t = useT();
   const insets = useSafeAreaInsets();
-  // Le player naît ici (donc à l'ouverture) et meurt au démontage : pas
-  // d'instance native pour les vidéos qu'on ne regarde pas. Lecture immédiate,
-  // l'utilisateur a touché « lire ».
+  // The player is born here (so on open) and dies on unmount: no native
+  // instance for videos nobody watches. Immediate playback, the user tapped
+  // "play".
   const player = useVideoPlayer(url, (p) => {
     p.play();
   });
@@ -125,7 +123,7 @@ export function VideoModal({
         />
       </View>
 
-      {/* Croix de fermeture, sa propre cible au-dessus du lecteur. */}
+      {/* Close cross, its own target above the player. */}
       <Pressable
         onPress={onClose}
         hitSlop={12}
@@ -173,7 +171,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 18,
     borderTopColor: 'transparent',
     borderBottomColor: 'transparent',
-    marginLeft: 4, // recentrage optique du triangle
+    marginLeft: 4, // optical centering of the triangle
   },
   footer: {
     position: 'absolute',
@@ -182,7 +180,7 @@ const styles = StyleSheet.create({
     bottom: 8,
   },
   label: { fontFamily: FONTS.bodySemi, fontSize: 12 },
-  // La couleur (`fondPleinEcran`) vient du thème, posée au rendu.
+  // The color (`fullScreenBackground`) comes from the theme, set at render.
   background: {
     flex: 1,
     alignItems: 'center',

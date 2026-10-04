@@ -9,28 +9,28 @@ import {
   reportSheetMounted,
 } from './attachmentSource.ts';
 
-/** Le canal est un module à état : chaque test repart d'une feuille absente. */
+/** The channel is a stateful module: each test starts with no sheet. */
 beforeEach(() => {
   answerSource(null);
   if (isSheetMounted()) reportSheetUnmounted();
 });
 
-describe('sourcePieceJointe', () => {
-  test('la feuille répond AU TAP, sans se fermer — c’est tout l’enjeu', async () => {
+describe('attachmentSource', () => {
+  test('the sheet answers ON TAP, without closing: that is the whole point', async () => {
     const wait = requestSource();
     reportSheetMounted();
 
-    answerSource('library'); // le tap
+    answerSource('library'); // the tap
 
     assert.equal(await wait, 'library');
     assert.equal(
       isSheetMounted(),
       true,
-      'la feuille reste montée : le sélecteur part sur un arbre de vues immobile',
+      'the sheet stays mounted: the picker launches on a still view tree',
     );
   });
 
-  test('fermée sans choix (balayage, retour matériel) : la demande est soldée à null', async () => {
+  test('closed without a choice (swipe, hardware back): the request settles to null', async () => {
     const wait = requestSource();
     reportSheetMounted();
 
@@ -40,28 +40,28 @@ describe('sourcePieceJointe', () => {
     assert.equal(isSheetMounted(), false);
   });
 
-  test('après le démontage, le composeur ne doit PLUS fermer — sinon il dépile le salon', () => {
+  test('after unmount, the composer must NO LONGER close, or it pops the room', () => {
     requestSource();
     reportSheetMounted();
     assert.equal(isSheetMounted(), true);
 
-    // L’usager balaie la feuille pendant que le sélecteur s’ouvre.
+    // The user swipes the sheet away while the picker opens.
     reportSheetUnmounted();
 
-    assert.equal(isSheetMounted(), false, 'le garde de `fermerFeuilleJoindre` doit être faux');
+    assert.equal(isSheetMounted(), false, 'the `closeAttachSheet` guard must be false');
   });
 
-  test('le démontage qui SUIT un choix ne réécrit rien — repondreSource est idempotent', async () => {
+  test('the unmount that FOLLOWS a choice rewrites nothing: answerSource is idempotent', async () => {
     const wait = requestSource();
     reportSheetMounted();
 
     answerSource('photo');
-    reportSheetUnmounted(); // le back() du composeur, une fois le sélecteur revenu
+    reportSheetUnmounted(); // the composer's back(), once the picker returns
 
-    assert.equal(await wait, 'photo', 'le choix survit au démontage');
+    assert.equal(await wait, 'photo', 'the choice survives the unmount');
   });
 
-  test('une nouvelle demande solde la précédente, restée en attente', async () => {
+  test('a new request settles the previous, still pending one', async () => {
     const first = requestSource();
     const second = requestSource();
 
@@ -71,7 +71,7 @@ describe('sourcePieceJointe', () => {
     assert.equal(await second, 'file');
   });
 
-  test('répondre sans demande en cours ne jette pas', () => {
+  test('answering with no request pending does not throw', () => {
     assert.doesNotThrow(() => answerSource('video'));
   });
 });

@@ -1,33 +1,32 @@
 /**
- * Canal impératif entre le composeur d'un salon et la feuille « joindre ».
+ * Imperative channel between a room's composer and the "attach" sheet.
  *
- * La feuille (`app/attach.tsx`) est une route formSheet native : elle ne peut
- * pas renvoyer de valeur par `routeur.back()`. Le composeur ARME une demande
- * avant d'ouvrir la feuille, l'attend, et la feuille la RÉSOUT en choisissant
- * une source. Fermée sans choix → `null`.
+ * The sheet (`app/attach.tsx`) is a native formSheet route: it cannot return
+ * a value through `router.back()`. The composer ARMS a request before opening
+ * the sheet and awaits it, and the sheet RESOLVES it by picking a source.
+ * Closed without a choice → `null`.
  *
- * QUI FERME LA FEUILLE, ET QUAND — c'est tout l'enjeu, pas un détail.
- * Longtemps la feuille se fermait elle-même au tap et ne répondait qu'à son
- * démontage ; le composeur lançait donc le sélecteur natif pendant que
- * react-native-screens escamotait encore la feuille. Or Android, au lancement
- * d'une activité, parcourt récursivement l'arbre de vues et déréférence chaque
- * enfant SANS tester sa nullité : une vue retirée en cours de route et tout
- * lancement d'activité échoue — durablement, jusqu'au redémarrage de l'app
- * (`ui/launchPicker.ts` détaille le NPE).
+ * WHO CLOSES THE SHEET, AND WHEN: that is the whole point, not a detail.
+ * For a long time the sheet closed itself on tap and only answered on unmount;
+ * the composer thus launched the native picker while react-native-screens was
+ * still tearing the sheet down. But when launching an activity, Android walks
+ * the view tree recursively and dereferences each child WITHOUT a null check:
+ * one view removed along the way and every activity launch fails, durably,
+ * until the app restarts (`ui/launchPicker.ts` details the NPE).
  *
- * Désormais la feuille répond AU TAP, en restant ouverte : au moment du
- * lancement, l'arbre de vues est immobile, il n'y a plus de course à perdre.
- * C'est le composeur qui referme, une fois le sélecteur revenu — d'où
- * `feuilleEstMontee` : sans lui, un `back()` de trop fermerait le SALON quand
- * l'usager a balayé la feuille pendant que le sélecteur s'ouvrait.
+ * Now the sheet answers ON TAP and stays open: at launch time the view tree
+ * is still, there is no race left to lose. The composer closes it once the
+ * picker returns, hence `isSheetMounted`: without it, one `back()` too many
+ * would close the ROOM when the user swiped the sheet away while the picker
+ * was opening.
  *
- * Ni délai ni pari sur une durée d'animation : on ne ferme jamais AVANT, donc
- * il n'y a rien à attendre.
+ * No delay and no bet on an animation duration: we never close BEFORE, so
+ * there is nothing to wait for.
  *
- * Une seule demande vit à la fois (l'UI n'ouvre qu'une feuille, et le 📎 est
- * gelé tant qu'une pièce est en attente) ; par sécurité, une nouvelle demande
- * solde la précédente, et `repondreSource` est idempotent — le démontage de la
- * feuille l'appelle après un éventuel choix, sans effet.
+ * Only one request lives at a time (the UI opens only one sheet, and 📎 is
+ * frozen while an attachment is pending); to be safe, a new request settles
+ * the previous one, and `answerSource` is idempotent: the sheet's unmount
+ * calls it after a possible choice, to no effect.
  */
 export type AttachmentSource = 'photo' | 'video' | 'library' | 'file';
 
@@ -47,22 +46,22 @@ export function answerSource(source: AttachmentSource | null): void {
   r?.(source);
 }
 
-/** La feuille s'annonce à son montage. */
+/** The sheet announces itself on mount. */
 export function reportSheetMounted(): void {
   sheetMounted = true;
 }
 
 /**
- * La feuille s'annonce à son démontage — quelle qu'en soit la cause : balayage,
- * retour matériel, ou le `back()` du composeur. Solde une demande restée en
- * attente (feuille fermée sans choix → `null`).
+ * The sheet announces itself on unmount, whatever the cause: swipe, hardware
+ * back, or the composer's `back()`. Settles a request still pending (sheet
+ * closed without a choice → `null`).
  */
 export function reportSheetUnmounted(): void {
   sheetMounted = false;
   answerSource(null);
 }
 
-/** Le composeur n'a le droit de fermer que si la feuille est ENCORE là. */
+/** The composer may only close the sheet if it is STILL there. */
 export function isSheetMounted(): boolean {
   return sheetMounted;
 }

@@ -1,7 +1,7 @@
 /**
- * Hook d'observation du verrouillage E2EE. `MoteurE2E` notifie ses écouteurs à
- * chaque transition ; `useSyncExternalStore` reflète `estDeverrouille` dans le
- * rendu sans état React dupliqué.
+ * Hook observing the E2EE lock. `E2EEngine` notifies its listeners on every
+ * transition; `useSyncExternalStore` reflects `isUnlocked` in the render
+ * without duplicated React state.
  */
 
 import { useSyncExternalStore } from 'react';

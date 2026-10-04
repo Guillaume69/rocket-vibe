@@ -1,8 +1,8 @@
 /**
- * Bandeau « Réponse à … » au-dessus du composer : trait accent, auteur cité,
- * extrait sur une ligne (vignette si le cité porte une image), ✕ pour annuler.
- * Partagé entre le composer du salon et celui du fil — la cible vient du store
- * `ui/reply.ts`.
+ * "Reply to …" banner above the composer: accent bar, quoted author,
+ * one-line excerpt (thumbnail if the quoted message carries an image), ✕ to
+ * cancel. Shared by the room composer and the thread composer; the target
+ * comes from the `ui/reply.ts` store.
  */
 
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -21,7 +21,7 @@ export function ReplyBanner({
 }: {
   c: Colors;
   target: ReplyTarget;
-  /** Les fichiers du serveur cible exigent `rc_uid`/`rc_token` (vignette). */
+  /** The target server's files require `rc_uid`/`rc_token` (thumbnail). */
   client: ClientRest;
   onCancel: () => void;
 }) {

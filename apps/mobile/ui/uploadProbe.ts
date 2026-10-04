@@ -1,32 +1,32 @@
 /**
- * Sonde de fin de téléversement — canal entre le transport d'upload et la
- * session DDP.
+ * End-of-upload probe: a channel between the upload transport and the DDP
+ * session.
  *
- * Pourquoi elle existe : un upload multipart peut faire tomber la socket DDP
- * sans que le WebSocket n'appelle jamais son `onclose`. Le client se croit
- * alors authentifié pour toujours, `surPerte` ne part pas, le pilote de
- * reconnexion n'est jamais réveillé, et plus aucun message n'arrive (voir le
- * chien de garde de `lib/ddp.ts`, qui rattrape le cas mais doit attendre un
- * ping serveur manqué). La fin d'un upload, elle, est un signal EXACT.
+ * Why it exists: a multipart upload can drop the DDP socket without the
+ * WebSocket ever calling its `onclose`. The client then believes itself
+ * authenticated forever, `onLoss` does not fire, the reconnector is never
+ * woken, and no message arrives anymore (see the `lib/ddp.ts` watchdog,
+ * which catches the case but must wait for a missed server ping). The end of
+ * an upload, however, is an EXACT signal.
  *
- * Pourquoi ici, et pas chez l'appelant : la PHOTO DE PROFIL emprunte le même
- * transport que les pièces jointes — seul le nom de champ multipart diffère.
- * Accrocher la sonde au transport, c'est couvrir d'un coup tous les endpoints
- * d'upload, présents et à venir.
+ * Why here, and not at the caller: the PROFILE PHOTO uses the same transport
+ * as attachments; only the multipart field name differs. Hooking the probe to
+ * the transport covers all upload endpoints at once, present and future.
  *
- * Module à état SANS dépendance native (même patron que `sourcePieceJointe`) :
- * `ui/transportUpload.ts` importe `expo-file-system`, que Node ne sait pas
- * charger — la logique vit donc ici, où elle se teste pour de vrai.
+ * Stateful module WITHOUT native dependencies (same pattern as
+ * `ui/attachmentSource.ts`): `ui/transportUpload.ts` imports
+ * `expo-file-system`, which Node cannot load, so the logic lives here, where
+ * it is tested for real.
  */
 
 let probe: (() => void) | null = null;
 
-/** Branchée par `ui/sync.tsx`. `null` pour débrancher, au démontage. */
+/** Plugged in by `ui/sync.tsx`. `null` to unplug, on unmount. */
 export function armUploadProbe(next: (() => void) | null): void {
   probe = next;
 }
 
-/** Sans sonde branchée (tests, session fermée) : sans effet, jamais d'erreur. */
+/** With no probe plugged in (tests, closed session): no effect, never an error. */
 export function reportUploadEnd(): void {
   probe?.();
 }

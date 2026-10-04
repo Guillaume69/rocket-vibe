@@ -3,27 +3,27 @@ import { describe, test } from 'node:test';
 
 import { advanceBound, boundIsStuck, pageMovedBack, MAX_PAGES_AT_BOUND } from './roomPagination.ts';
 
-describe('avancerBorne / borneImmobile', () => {
-  test('première demande : la borne naît à une page', () => {
+describe('advanceBound / boundIsStuck', () => {
+  test('first request: the bound starts at one page', () => {
     assert.deepEqual(advanceBound(null, 'm1'), { id: 'm1', pages: 1 });
   });
 
-  test('même borne : on compte ; borne neuve : on repart à 1', () => {
+  test('same bound: we count; new bound: back to 1', () => {
     const two = advanceBound({ id: 'm1', pages: 1 }, 'm1');
     assert.deepEqual(two, { id: 'm1', pages: 2 });
     assert.deepEqual(advanceBound(two, 'm0'), { id: 'm0', pages: 1 });
   });
 
-  test(`le filet tolère ${MAX_PAGES_AT_BOUND} pages immobiles, la suivante déclare l'épuisement`, () => {
+  test(`the safety net tolerates ${MAX_PAGES_AT_BOUND} stuck pages, the next one declares exhaustion`, () => {
     let bound = advanceBound(null, 'm1');
-    assert.equal(boundIsStuck(bound), false, 'première page : on demande');
+    assert.equal(boundIsStuck(bound), false, 'first page: request');
     bound = advanceBound(bound, 'm1');
-    assert.equal(boundIsStuck(bound), false, 'deuxième page sur la même borne : encore permis');
+    assert.equal(boundIsStuck(bound), false, 'second page on the same bound: still allowed');
     bound = advanceBound(bound, 'm1');
-    assert.equal(boundIsStuck(bound), true, 'troisième : la pagination n’avance plus, on coupe');
+    assert.equal(boundIsStuck(bound), true, 'third: pagination no longer moves, cut off');
   });
 
-  test('une borne qui progresse ne déclenche jamais le filet', () => {
+  test('a moving bound never trips the safety net', () => {
     let bound = advanceBound(null, 'm3');
     bound = advanceBound(bound, 'm2');
     bound = advanceBound(bound, 'm1');
@@ -31,25 +31,25 @@ describe('avancerBorne / borneImmobile', () => {
   });
 });
 
-describe('pageARecule', () => {
-  test('un message STRICTEMENT plus ancien que la borne : la page a reculé', () => {
+describe('pageMovedBack', () => {
+  test('a message STRICTLY older than the bound: the page moved back', () => {
     assert.equal(pageMovedBack(100, 200), true);
   });
 
-  test('LE piège du 429 : une page pleine de jumeaux ex æquo n’a PAS reculé', () => {
-    // `inclusive: true` renvoie la borne ET tous ses jumeaux de la même
-    // milliseconde (rafale de bot, import). Compter `n > 1` concluait « il
-    // reste du passé » pour toujours : `passeEpuise` jamais armé, la
-    // ré-ingestion re-déclenchait `onEndReached` (FlashList v2 le réarme à
-    // chaque changement de data), et la boucle tenait jusqu'au 429.
+  test('THE 429 trap: a page full of tied twins has NOT moved back', () => {
+    // `inclusive: true` returns the bound AND all its twins of the same
+    // millisecond (bot burst, import). Counting `n > 1` concluded "there is past
+    // left" forever: `passExhausted` never set, re-ingestion re-triggered
+    // `onEndReached` (FlashList v2 re-arms it on every data change), and the
+    // loop held until the 429.
     assert.equal(pageMovedBack(200, 200), false);
   });
 
-  test('page vide (null) : rien derrière, pas de recul', () => {
+  test('empty page (null): nothing behind, no move back', () => {
     assert.equal(pageMovedBack(null, 200), false);
   });
 
-  test('page plus RÉCENTE que la borne (réponse aberrante) : pas un recul non plus', () => {
+  test('page NEWER than the bound (aberrant response): not a move back either', () => {
     assert.equal(pageMovedBack(300, 200), false);
   });
 });

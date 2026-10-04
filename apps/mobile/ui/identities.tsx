@@ -1,26 +1,26 @@
 /**
- * Résolution `uid → pseudo COURANT` pour l'affichage des auteurs de messages,
- * et `qui → version de sa photo` (`avatarETag`) pour l'affichage des avatars.
+ * Resolves `uid → CURRENT username` to display message authors, and
+ * `who → their photo version` (`avatarETag`) to display avatars.
  *
- * Les deux sortent de la MÊME table (`utilisateurs`) et de la même requête
- * vive, mais alimentent deux stores distincts : un renommage ne doit pas
- * re-rendre ce qui ne regarde que les photos, ni l'inverse.
+ * Both come from the SAME table (`utilisateurs`) and the same live query, but
+ * feed two separate stores: a rename must not re-render what only concerns
+ * photos, nor the reverse.
  *
- * Le pseudo Rocket.Chat est MUABLE, l'uid non : `messages.auteur_nom` n'est
- * qu'un instantané figé à l'ingestion (repli). La table `utilisateurs`,
- * alimentée à chaque message, donne le pseudo à jour — y compris pour les
- * messages postés AVANT un renommage, qu'on ne re-télécharge pas.
+ * The Rocket.Chat username is MUTABLE, the uid is not: `messages.authorName` is
+ * only a snapshot frozen at ingestion (fallback). The `utilisateurs` table, fed
+ * by every message, gives the current username, including for messages posted
+ * BEFORE a rename, which are not downloaded again.
  *
- * Store module-level abonnable (même patron que `lib/profilePreload`) plutôt
- * qu'un Provider qui envelopperait la pile : basculer un composant-parent quand
- * la base devient prête REMONTERAIT tout l'arbre de navigation. Ici,
- * `SuiviIdentites` est un frère (comme `GestionNotifications`), et
- * `LigneMessage` s'abonne au store via `useSyncExternalStore` — re-rendu
- * uniquement à un VRAI changement d'identité.
+ * Subscribable module-level store (same pattern as `lib/profilePreload`)
+ * rather than a Provider wrapping the stack: toggling a parent component when
+ * the database becomes ready would REMOUNT the whole navigation tree. Here,
+ * `IdentityTracker` is a sibling (like `NotificationHandler`), and
+ * `MessageRow` subscribes to the store via `useSyncExternalStore`, re-rendering
+ * only on an ACTUAL identity change.
  *
- * Les stores eux-mêmes vivent dans [[storeIdentites]], qui n'importe rien de
- * l'arbre : ce fichier-ci ne garde que le composant qui les ALIMENTE. Voir là-bas
- * pourquoi la séparation n'est pas cosmétique.
+ * The stores themselves live in [[identityStore]], which imports nothing from
+ * the tree: this file only keeps the component that FEEDS them. See there for
+ * why the split is not cosmetic.
  */
 
 import { useCoalescedLiveQuery } from './liveQuery.ts';
@@ -39,8 +39,8 @@ export {
 } from './identityStore.ts';
 
 /**
- * Alimente le store depuis la table `utilisateurs` et la session. Frère de la
- * pile (monté dans `_layout`), il ne rend rien : il pousse dans le store.
+ * Feeds the store from the `utilisateurs` table and the session. A sibling of
+ * the stack (mounted in `_layout`), it renders nothing: it pushes into the store.
  */
 export function IdentityTracker() {
   const sync = useSync();
@@ -52,8 +52,8 @@ function Feed() {
   const sync = useSync();
   const { state } = useSession();
   const base = sync.phase === 'ready' ? sync.base : null;
-  // La session porte MON pseudo courant, rafraîchi à l'édition/à la reprise plus
-  // tôt qu'un message ré-ingéré : on la superpose à la table (autoritaire pour moi).
+  // The session carries MY current username, refreshed on edit/resume earlier
+  // than a re-ingested message: overlay it on the table (authoritative for me).
   const myUid = state.phase === 'connected' ? state.session.userId : null;
   const myUsername = state.phase === 'connected' ? state.session.username : null;
 

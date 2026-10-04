@@ -1,16 +1,16 @@
 /**
- * Les stores d'identité, hors de l'arbre React.
+ * The identity stores, outside the React tree.
  *
- * Séparés de `ui/identities.tsx` — qui, lui, contient le composant qui les
- * ALIMENTE — pour la même raison que [[etatNotifications]] : ils sont purgés
- * depuis le cleanup de `SynchroProvider`, et un module qui importe `synchro`
- * ne peut pas être importé PAR `synchro` sans faire un cycle dont la
- * résolution dépendrait de l'ordre d'évaluation du bundler. Tous les autres
- * stores purgés en fin de session ([[salonsCharges]], [[filsCharges]],
- * [[salonChaud]]) sont des feuilles ; ceux-ci le deviennent.
+ * Kept apart from `ui/identities.tsx`, which holds the component that FEEDS
+ * them, for the same reason as [[notificationState]]: they are purged from
+ * `SyncProvider`'s cleanup, and a module that imports `sync` cannot be
+ * imported BY `sync` without a cycle whose resolution would depend on the
+ * bundler's evaluation order. All the other stores purged at session end
+ * ([[loadedRooms]], [[loadedThreads]], [[hotRooms]]) are leaves; these
+ * become leaves too.
  *
- * Deux stores et non un : un renommage ne doit pas re-rendre ce qui ne regarde
- * que les photos, ni l'inverse.
+ * Two stores, not one: a rename must not re-render what only concerns photos,
+ * nor the reverse.
  */
 
 import { useSyncExternalStore } from 'react';
@@ -30,15 +30,15 @@ function subscribe(cb: () => void): () => void {
   };
 }
 
-/** Map `uid → pseudo courant`. Re-rend l'appelant quand une identité change. */
+/** Map `uid → current username`. Re-renders the caller when an identity changes. */
 export function useIdentities(): ReadonlyMap<string, string> {
   return useSyncExternalStore(subscribe, () => identities);
 }
 
 /**
- * Versions de photo connues, indexées des DEUX façons dont les écrans visent
- * un avatar : par pseudo (messages, mentions, fiche, mon profil) et par uid
- * (l'autre d'un DM, dont on n'a souvent que l'uid).
+ * Known photo versions, indexed BOTH ways screens target an avatar: by
+ * username (messages, mentions, profile, my profile) and by uid (the other
+ * party of a DM, of whom often only the uid is known).
  */
 export type EtagsAvatars = {
   byUid: ReadonlyMap<string, string>;
@@ -56,9 +56,9 @@ function sameMap(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>)
 }
 
 /**
- * Ne notifie qu'à un VRAI changement de version. La requête vive rejoue à
- * chaque écriture dans `utilisateurs` — un simple message ingéré, donc — et
- * chaque notification re-rendrait tous les avatars montés à l'écran.
+ * Notifies only on an ACTUAL version change. The live query replays on every
+ * write to `utilisateurs` (a mere ingested message, then), and each
+ * notification would re-render every avatar mounted on screen.
  */
 export function setEtags(added: EtagsAvatars): void {
   if (sameMap(etags.byUid, added.byUid) && sameMap(etags.byUsername, added.byUsername)) {
@@ -76,25 +76,24 @@ function subscribeEtags(cb: () => void): () => void {
 }
 
 /**
- * Versions de photo à injecter dans `urlAvatar` — c'est ce qui fait bouger
- * l'URI quand quelqu'un change sa photo, cache image compris. Un avatar dont
- * l'etag est encore inconnu s'affiche exactement comme avant : l'URL sans
- * query reste valable.
+ * Photo versions to inject into `urlAvatar`: this is what moves the URI when
+ * someone changes their photo, image cache included. An avatar whose etag is
+ * still unknown shows exactly as before: the URL without query stays valid.
  */
 export function useEtagsAvatars(): EtagsAvatars {
   return useSyncExternalStore(subscribeEtags, () => etags);
 }
 
 /**
- * Fin de session / changement de serveur : ni pseudo ni version de photo ne
- * traversent.
+ * End of session / server switch: neither username nor photo version carries
+ * over.
  *
- * `SuiviIdentites` se débranche dès que la synchro n'est plus « pret », donc
- * plus personne ne pousse — et les deux stores gardaient la dernière valeur du
- * compte précédent. À la session suivante, les écrans servaient ses pseudos et
- * ses etags jusqu'à ce que la requête vive rejoue. Sur le MÊME serveur, un etag
- * périmé est pire qu'un pseudo périmé : l'URL d'avatar ne bouge pas, donc le
- * cache image d'Android sert l'ancienne photo, et rien ne la fait sortir.
+ * `IdentityTracker` unplugs as soon as sync is no longer "ready", so nobody
+ * pushes any more, and both stores kept the previous account's last value. In
+ * the next session, screens served its usernames and etags until the live
+ * query replayed. On the SAME server, a stale etag is worse than a stale
+ * username: the avatar URL does not move, so Android's image cache serves the
+ * old photo, and nothing evicts it.
  */
 export function forgetIdentities(): void {
   setIdentities(new Map());

@@ -1,31 +1,30 @@
 /**
- * Les prédicats d'épuisement de la pagination d'historique — extraits de
- * `chargerPlus` (écran salon) pour être testables sous Node.
+ * History pagination exhaustion predicates, extracted from `loadMore` (room
+ * screen) to be testable under Node.
  *
- * Ils encodent deux leçons payées en 429 :
+ * They encode two lessons paid for in 429s:
  *
- *   - `inclusive: true` renvoie la borne ET tous ses jumeaux de la même
- *     milliseconde (rafale de bot, import). « La page contient plus d'un
- *     message » ne prouve donc PAS qu'elle a reculé : un groupe d'ex æquo en
- *     queue d'historique gardait `n > 1` pour toujours, `passeEpuise` jamais
- *     armé, et la ré-ingestion re-déclenchait `onEndReached` (FlashList v2 le
- *     réarme à CHAQUE changement de data) — boucle auto-entretenue jusqu'au
- *     429. Le seul critère fiable : un message STRICTEMENT plus ancien que la
- *     borne (`pageARecule`).
+ *   - `inclusive: true` returns the bound AND all its twins of the same
+ *     millisecond (bot burst, import). "The page holds more than one message"
+ *     therefore does NOT prove it moved back: a group of ties at the tail of
+ *     history kept `n > 1` forever, `passExhausted` never set, and
+ *     re-ingestion re-triggered `onEndReached` (FlashList v2 re-arms it on
+ *     EVERY data change), a self-sustaining loop until the 429. The only
+ *     reliable criterion: a message STRICTLY older than the bound
+ *     (`pageMovedBack`).
  *
- *   - Et comme filet indépendant du contenu des réponses : si le
- *     message-borne n'a pas changé après deux pages consécutives, la
- *     pagination n'avance plus, quoi qu'en disent les réponses
- *     (`avancerBorne` + `borneImmobile`).
+ *   - And as a net independent of response content: if the bound message
+ *     has not changed after two consecutive pages, pagination is no longer
+ *     advancing, whatever the responses say (`advanceBound` + `boundIsStuck`).
  */
 
-/** Le message-borne courant et le nombre de pages demandées SUR cette borne. */
+/** The current bound message and the number of pages requested ON that bound. */
 export type PaginationBound = { id: string; pages: number };
 
-/** Pages tolérées sur une borne immobile avant de déclarer le passé épuisé. */
+/** Pages tolerated on a stuck bound before declaring the past exhausted. */
 export const MAX_PAGES_AT_BOUND = 2;
 
-/** À chaque demande de page : même borne → on compte ; borne neuve → repart à 1. */
+/** On every page request: same bound → count; new bound → back to 1. */
 export function advanceBound(
   previous: PaginationBound | null,
   oldestId: string,
@@ -35,15 +34,15 @@ export function advanceBound(
     : { id: oldestId, pages: 1 };
 }
 
-/** Vrai quand la borne a déjà consommé ses pages : le passé est déclaré épuisé. */
+/** True once the bound has used up its pages: the past is declared exhausted. */
 export function boundIsStuck(bound: PaginationBound): boolean {
   return bound.pages > MAX_PAGES_AT_BOUND;
 }
 
 /**
- * Vrai si la page a VRAIMENT reculé dans le passé : elle contient un message
- * strictement plus ancien que la borne demandée. `plusAncienDeLaPage` est
- * `null` pour une page vide.
+ * True if the page REALLY moved back into the past: it holds a message
+ * strictly older than the requested bound. `pageOldest` is `null` for an
+ * empty page.
  */
 export function pageMovedBack(
   pageOldest: number | null,

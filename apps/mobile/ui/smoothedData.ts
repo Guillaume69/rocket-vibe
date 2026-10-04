@@ -1,20 +1,20 @@
 /**
- * Lissage d'une valeur qui change en rafale — extrait de l'écran salon
- * (`app/` n'a aucun test) pour que la décision de cadence soit prouvable sous
- * Node, et partageable (le fil a le même besoin).
+ * Smoothing of a value that changes in bursts, extracted from the room screen
+ * (`app/` has no tests) so the pacing decision is provable under Node, and
+ * shareable (the thread has the same need).
  *
- * Throttle avant/arrière : la valeur suit, mais jamais plus vite que
- * `delaiMs`. À l'écran salon, chaque prepend décale le contenu de sa hauteur
- * quand on est remonté dans l'historique : grouper la rafale en un seul
- * décalage. On lisse la PROJECTION, pas la base.
+ * Leading/trailing throttle: the value follows, but never faster than
+ * `timeoutMs`. On the room screen, each prepend shifts the content by its
+ * height when scrolled up into history: group the burst into a single shift.
+ * We smooth the PROJECTION, not the database.
  */
 
 import { useEffect, useRef, useState } from 'react';
 
 /**
- * La décision pure : publier tout de suite, ou dans combien de temps.
- * `dernierRenduMs` vaut 0 avant le premier rendu — l'écoulé dépasse alors
- * n'importe quel délai, donc la première valeur passe immédiatement.
+ * The pure decision: publish now, or in how long.
+ * `lastRenderMs` is 0 before the first render: the elapsed time then exceeds
+ * any delay, so the first value goes through immediately.
  */
 export function smoothingDecision(
   lastRenderMs: number,
@@ -29,7 +29,7 @@ export function smoothingDecision(
 export function useSmoothedData<T>(
   value: T,
   timeoutMs: number,
-  /** Horloge injectable — les tests du hook restent possibles sans attendre. */
+  /** Injectable clock: the hook's tests stay possible without waiting. */
   now: () => number = Date.now,
 ): T {
   const [smoothed, setSmoothed] = useState(value);

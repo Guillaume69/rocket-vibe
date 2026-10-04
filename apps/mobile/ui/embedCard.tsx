@@ -1,18 +1,17 @@
 /**
- * Carte d'aperçu pour un lien vidéo « embed » (YouTube, Dailymotion, Vimeo).
+ * Preview card for an "embed" video link (YouTube, Dailymotion, Vimeo).
  *
- * La lecture vraiment intégrée exigerait une WebView (interdite hors de
- * l'écran d'appel, ROADMAP §4.2) :
- * on montre donc une carte dans le même langage que la carte vidéo locale —
- * vignette publique en bannière, voile sombre, bouton de lecture dégradé, et un
- * pied qui porte le titre de la vidéo et sa chaîne quand le serveur les a
- * récoltés (`metasVideo`) — un toucher OUVRE l'appli native
- * (YouTube/Dailymotion) ou le navigateur via `Linking`. Pas de WebView, pas de
- * flux à extraire.
+ * Truly embedded playback would require a WebView (forbidden outside the
+ * call screen, ROADMAP §4.2): we thus show a card in the same language as
+ * the local video card (public thumbnail as banner, dark scrim, gradient play
+ * button, and a footer carrying the video's title and channel when the server
+ * harvested them (`metasVideo`)). A tap OPENS the native app
+ * (YouTube/Dailymotion) or the browser through `Linking`. No WebView, no
+ * stream to extract.
  *
- * La vignette est une URL PUBLIQUE (pas un fichier protégé Rocket.Chat) : `Image`
- * simple, sans `rc_uid`/`rc_token`. Si elle manque (Vimeo, ou 404), on retombe
- * sur la bannière dégradée « aurore ».
+ * The thumbnail is a PUBLIC URL (not a protected Rocket.Chat file): a plain
+ * `Image`, without `rc_uid`/`rc_token`. If it is missing (Vimeo, or 404), we
+ * fall back to the "aurora" gradient banner.
  */
 
 import { LinearGradient } from 'expo-linear-gradient';
@@ -25,7 +24,7 @@ import { useT } from './i18n.ts';
 import { openExternalLink } from './externalLink.ts';
 import { type Colors, FONTS } from './theme.ts';
 
-/** Rend une carte par lien vidéo détecté dans `texte` (rien si aucun). */
+/** Renders one card per video link detected in `text` (nothing if none). */
 export function EmbedLinks({
   c,
   text,
@@ -34,7 +33,7 @@ export function EmbedLinks({
 }: {
   c: Colors;
   text: string | null;
-  /** `message.urls` : le titre de la vidéo s'y trouve, récolté par le serveur. */
+  /** `message.urls`: the video title is there, harvested by the server. */
   urls: string | null;
   onLongPress?: (() => void) | undefined;
 }) {
@@ -64,7 +63,7 @@ function EmbedCard({
 }: {
   c: Colors;
   link: VideoLink;
-  /** `null` tant que le serveur n'a pas (encore) décrit le lien. */
+  /** `null` as long as the server has not described the link (yet). */
   meta: MetaVideo | null;
   onLongPress?: (() => void) | undefined;
 }) {
@@ -99,8 +98,8 @@ function EmbedCard({
           style={StyleSheet.absoluteFill}
         />
       )}
-      {/* Voile : contraste pour que le bouton et l'étiquette ressortent sur
-          n'importe quelle vignette. */}
+      {/* Scrim: contrast so the button and label stand out on any
+          thumbnail. */}
       <View style={[StyleSheet.absoluteFill, { backgroundColor: c.lightMediaScrim }]} />
 
       <LinearGradient
@@ -109,7 +108,7 @@ function EmbedCard({
         end={{ x: 1, y: 1 }}
         style={styles.button}
       >
-        {/* Triangle DESSINÉ, pas un emoji (« ▶ » sort orange sur Android). */}
+        {/* DRAWN triangle, not an emoji ("▶" renders orange on Android). */}
         <View style={[styles.playIcon, { borderLeftColor: c.onAccent }]} />
       </LinearGradient>
       </View>
@@ -133,7 +132,7 @@ function EmbedCard({
 
 const styles = StyleSheet.create({
   list: { gap: 6, marginTop: 4 },
-  // Les couleurs (`fondImageAttente`, `voileMediaLeger`) viennent du thème.
+  // The colours (`pendingImageBackground`, `lightMediaScrim`) come from the theme.
   card: {
     width: 240,
     maxWidth: '100%',
@@ -157,7 +156,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 18,
     borderTopColor: 'transparent',
     borderBottomColor: 'transparent',
-    marginLeft: 4, // recentrage optique du triangle
+    marginLeft: 4, // optical recentring of the triangle
   },
   footer: { paddingHorizontal: 10, paddingVertical: 8, gap: 4 },
   sourceRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },

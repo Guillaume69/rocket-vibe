@@ -1,7 +1,7 @@
 /**
- * `Pressable` dont le retour visuel est l'ondulation Android. iOS ignore
- * `android_ripple` : sans rien d'autre, le doigt n'y laisse aucune trace. On y
- * atténue l'élément pendant la pression, par-dessus son propre style.
+ * `Pressable` whose visual feedback is the Android ripple. iOS ignores
+ * `android_ripple`: with nothing else, the finger leaves no trace there. So
+ * the element is dimmed while pressed, on top of its own style.
  */
 
 import { Platform, Pressable, type PressableProps, StyleSheet } from 'react-native';

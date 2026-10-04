@@ -1,20 +1,20 @@
 /**
- * Visionneuse d'image plein écran (« lightbox ») avec zoom.
+ * Full-screen image viewer ("lightbox") with zoom.
  *
- * Un toucher sur une pièce jointe image ouvre l'ORIGINAL pleine résolution
- * (voir `messageRow.tsx` : on affiche `title_link`, pas la vignette 480 px de
- * Rocket.Chat). Interactions : pincer pour zoomer, déplacer une fois zoomé,
- * double-tap pour (dé)zoomer, glisser vers le bas pour fermer.
+ * A tap on an image attachment opens the full-resolution ORIGINAL (see
+ * `messageRow.tsx`: `title_link` is shown, not Rocket.Chat's 480 px
+ * thumbnail). Interactions: pinch to zoom, pan once zoomed, double-tap to
+ * zoom in/out, swipe down to close.
  *
- * Contrainte clef : l'URL protégée porte `rc_uid`/`rc_token` en query. Elle ne
- * doit JAMAIS transiter par un paramètre de route expo-router — ce serait un
- * secret dans une URL sérialisable. On la garde donc en mémoire, dans l'état
- * d'un contexte, et on l'affiche via une `Modal` native de react-native : la
- * Modal se rend dans une fenêtre au-dessus de toute la pile de navigation.
+ * Key constraint: the protected URL carries `rc_uid`/`rc_token` in its query.
+ * It must NEVER go through an expo-router route param: that would be a secret
+ * in a serialisable URL. So it is kept in memory, in a context's state, and
+ * shown through a react-native native `Modal`: the Modal renders in a window
+ * above the whole navigation stack.
  *
- * Une `Modal` est une fenêtre native SÉPARÉE : le `GestureHandlerRootView` de
- * la racine ne la couvre pas. Il en faut un DÉDIÉ à l'intérieur, sinon aucun
- * geste n'y est capté.
+ * A `Modal` is a SEPARATE native window: the root `GestureHandlerRootView`
+ * does not cover it. It needs a DEDICATED one inside, otherwise no gesture is
+ * caught there.
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
@@ -42,23 +42,23 @@ import { FONTS, useColors } from './theme.ts';
 import { progressLabel, useProgress } from './transfers.ts';
 
 export type ImageTarget = {
-  /** URL absolue déjà authentifiée (rc_uid/rc_token inclus). */
+  /** Absolute, already authenticated URL (rc_uid/rc_token included). */
   uri: string;
   width?: number | null;
   height?: number | null;
   title?: string | null;
-  /** MIME de l'image, quand le message le porte : nomme le fichier enregistré. */
+  /** The image's MIME, when the message carries it: names the saved file. */
   type?: string | null;
-  /** Chemin serveur, sans jeton : la clé du transfert, partagée avec la ligne du message. */
+  /** Server path, without token: the transfer key, shared with the message row. */
   key?: string | null;
-  /** Poids du fichier annoncé par le message, en octets. */
+  /** File size announced by the message, in bytes. */
   size?: number | null;
-  /** Fichier de l'appareil (pièce pas encore envoyée) : rien à télécharger. */
+  /** Device file (attachment not sent yet): nothing to download. */
   local?: boolean;
 };
 
 type ViewerContext = {
-  /** Ouvre l'image en plein écran. */
+  /** Opens the image full screen. */
   open: (target: ImageTarget) => void;
 };
 
@@ -66,7 +66,7 @@ const Context = createContext<ViewerContext | null>(null);
 
 const ZOOM_MAX = 5;
 const ZOOM_DOUBLE_TAP = 2.5;
-/** Glisser au-delà de ce seuil (non zoomé) ferme la visionneuse. */
+/** Swiping past this threshold (unzoomed) closes the viewer. */
 const CLOSE_THRESHOLD = 120;
 
 export function ImageViewerProvider({ children }: { children: React.ReactNode }) {
@@ -111,8 +111,7 @@ function ImageModal({ target, onClose }: { target: ImageTarget | null; onClose: 
         key: transferKey,
         url: target.uri,
         title: target.title ?? null,
-        // Une visionneuse ne montre que des images : faute de MIME, le fichier
-        // part quand même vers la galerie.
+        // A viewer only shows images: without a MIME, the file still goes to the gallery.
         type: target.type ?? 'image/jpeg',
         size: target.size ?? null,
       },
@@ -127,8 +126,8 @@ function ImageModal({ target, onClose }: { target: ImageTarget | null; onClose: 
   const xMem = useSharedValue(0);
   const yMem = useSharedValue(0);
 
-  // La Modal est réutilisée d'une image à l'autre : on remet le zoom à plat à
-  // chaque ouverture, sinon la suivante s'afficherait déjà zoomée/décalée.
+  // The Modal is reused from one image to the next: reset the zoom on each
+  // open, otherwise the next one would show already zoomed/offset.
   useEffect(() => {
     if (target !== null) {
       scale.value = 1;
@@ -166,8 +165,8 @@ function ImageModal({ target, onClose }: { target: ImageTarget | null; onClose: 
       y.value = yMem.value + e.translationY;
     })
     .onEnd((e) => {
-      // Non zoomé : un franc glissé vers le bas ferme ; sinon on revient au
-      // centre. Zoomé : le déplacement est conservé.
+      // Unzoomed: a firm swipe down closes; otherwise snap back to the centre.
+      // Zoomed: the offset is kept.
       if (scale.value <= 1) {
         if (e.translationY > CLOSE_THRESHOLD) {
           runOnJS(onClose)();
@@ -195,7 +194,7 @@ function ImageModal({ target, onClose }: { target: ImageTarget | null; onClose: 
   const simpleTap = Gesture.Tap()
     .numberOfTaps(1)
     .onEnd(() => {
-      // Zoomé, un simple tap dézoome ; sinon il ferme.
+      // Zoomed, a single tap zooms out; otherwise it closes.
       if (scale.value > 1) flatten();
       else runOnJS(onClose)();
     });
@@ -217,7 +216,7 @@ function ImageModal({ target, onClose }: { target: ImageTarget | null; onClose: 
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      {/* La Modal est une fenêtre native séparée : son propre root de gestes. */}
+      {/* The Modal is a separate native window: its own gesture root. */}
       <GestureHandlerRootView style={styles.root}>
         <View style={[styles.background, { backgroundColor: c.fullScreenBackground }]}>
           {target !== null && (
@@ -231,8 +230,8 @@ function ImageModal({ target, onClose }: { target: ImageTarget | null; onClose: 
                     source={{ uri: target.uri }}
                     style={styles.image}
                     resizeMode="contain"
-                    // Décodage pleine résolution puis mise à l'échelle GPU : le
-                    // zoom révèle le vrai détail. Sans risque — une seule image.
+                    // Full-resolution decode then GPU scaling: zoom reveals real detail. Safe:
+                    // a single image.
                     resizeMethod="scale"
                     onLoadEnd={() => setLoaded(true)}
                     accessibilityLabel={target.title ?? t('viewer.image')}
@@ -243,7 +242,7 @@ function ImageModal({ target, onClose }: { target: ImageTarget | null; onClose: 
           )}
         </View>
 
-        {/* Croix de fermeture, au-dessus des gestes, avec sa propre cible. */}
+        {/* Close cross, above the gestures, with its own target. */}
         <Pressable
           onPress={onClose}
           hitSlop={12}
@@ -287,7 +286,7 @@ function ImageModal({ target, onClose }: { target: ImageTarget | null; onClose: 
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  // La couleur (`fondPleinEcran`) vient du thème, posée au rendu.
+  // The colour (`fullScreenBackground`) comes from the theme, set at render.
   background: {
     flex: 1,
     alignItems: 'center',

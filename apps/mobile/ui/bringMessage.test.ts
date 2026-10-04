@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 
 import { bringMessage } from './bringMessage.ts';
 
-/** Un salon simulé : `local` = horodatages en base, `serveur` = tout l'historique. */
+/** A simulated room: `local` = timestamps in the database, `server` = the whole history. */
 function room(local: number[], server: number[], page = 3) {
   const base = new Set(local);
   const pages: number[] = [];
@@ -21,15 +21,15 @@ function room(local: number[], server: number[], page = 3) {
   };
 }
 
-describe('amenerMessage', () => {
-  test('déjà en base : son rang, sans aucune requête', async () => {
+describe('bringMessage', () => {
+  test('already in the database: its rank, without any request', async () => {
     const s = room([10, 20, 30], [10, 20, 30]);
     const rank = await bringMessage({ ts: 20, rank: s.rankOf(20), ...s });
     assert.equal(rank, 1);
     assert.deepEqual(s.pages, []);
   });
 
-  test('absent : remonte page par page depuis le plus vieux local, sans trou', async () => {
+  test('missing: walks back page by page from the oldest local one, no gap', async () => {
     const server = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     const s = room([9, 10], server);
     const rank = await bringMessage({ ts: 3, rank: s.rankOf(3), ...s });
@@ -37,7 +37,7 @@ describe('amenerMessage', () => {
     assert.equal(rank, 7);
   });
 
-  test('borné : au-delà de `pagesMax`, abandon', async () => {
+  test('bounded: beyond `pagesMax`, gives up', async () => {
     const server = Array.from({ length: 100 }, (_, i) => i + 1);
     const s = room([99, 100], server);
     const rank = await bringMessage({ ts: 1, rank: s.rankOf(1), ...s, pagesMax: 2 });
@@ -45,14 +45,14 @@ describe('amenerMessage', () => {
     assert.equal(s.pages.length, 2);
   });
 
-  test('cible hors du flux principal : on s’arrête dès qu’on l’a dépassée', async () => {
+  test('target outside the main stream: stops as soon as it is passed', async () => {
     const s = room([2, 9, 10], [2, 9, 10]);
     const rank = await bringMessage({ ts: 5, rank: s.rankOf(5), ...s });
     assert.equal(rank, null);
     assert.deepEqual(s.pages, []);
   });
 
-  test('passé épuisé : une page qui ne recule plus arrête la remontée', async () => {
+  test('history exhausted: a page that no longer moves back stops the walk', async () => {
     const s = room([9, 10], [9, 10]);
     const rank = await bringMessage({ ts: 3, rank: s.rankOf(3), ...s });
     assert.equal(rank, null);

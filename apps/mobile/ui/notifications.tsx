@@ -1,17 +1,17 @@
 /**
- * Notifications (6.3) : deep link vers le salon, badge cohérent avec les
- * non-lus, et substitution du contenu d'un salon chiffré.
+ * Notifications (6.3): deep link to the room, badge consistent with unreads,
+ * and content substitution for an encrypted room.
  *
- * Rocket.Chat met dans `data.ejson` un JSON qui porte `rid` : c'est notre
- * route. Le tap est écouté en marche ET relu au démarrage à froid
- * (`getLastNotificationResponseAsync`) — le chemin exact « app tuée, tap sur
- * la notification ».
+ * Rocket.Chat puts in `data.ejson` a JSON carrying `rid`: that is our route.
+ * The tap is listened to while running AND read again on cold start
+ * (`getLastNotificationResponseAsync`), the exact "app killed, tap on the
+ * notification" path.
  *
- * `Push_show_message = true` sur le serveur cible : une notification venant
- * d'un salon chiffré transporte du CIPHERTEXT. Quand c'est l'app qui affiche
- * (premier plan, fenêtres de reconnexion), on remplace par un texte
- * générique. App tuée, le service FCM natif (plugins/with-fcm-deeplink.js)
- * affiche « Message chiffré » dès que l'ejson porte `messageType: 'e2e'`.
+ * `Push_show_message = true` on the target server: a notification from an
+ * encrypted room carries CIPHERTEXT. When the app does the displaying
+ * (foreground, reconnection windows), we replace it with generic text. With
+ * the app killed, the native FCM service (plugins/with-fcm-deeplink.js) shows
+ * "Message chiffré" as soon as the ejson carries `messageType: 'e2e'`.
  */
 
 import * as Notifications from 'expo-notifications';
@@ -26,7 +26,7 @@ import { roomNotificationId } from '../lib/notificationId.ts';
 import { translateCurrent } from './i18n.ts';
 import { useSync } from './sync.tsx';
 
-/** Le salon d'un push, et le serveur d'où il vient (multi-session). */
+/** A push's room, and the server it comes from (multi-session). */
 type NotificationTarget = { rid: string; host: string | null };
 
 function notificationTarget(content: Notifications.NotificationContent): NotificationTarget | null {
@@ -45,7 +45,7 @@ Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const target = notificationTarget(notification.request.content);
     if (target !== null && isRoomEncrypted(target.rid)) {
-      // Ne pas afficher le ciphertext : on republie un texte générique.
+      // Never show the ciphertext: repost a generic text.
       Notifications.scheduleNotificationAsync({
         content: {
           title: translateCurrent('notifications.encryptedTitle'),
@@ -73,32 +73,32 @@ export function NotificationHandler() {
   const router = useRouter();
   const sync = useSync();
 
-  // Tap sur une notification : en marche, et au démarrage à froid.
+  // Tap on a notification: while running, and on cold start.
   //
-  // Ce chemin ne dessert QUE les notifications postées par expo (pushes de
-  // repli sans bloc `notification`, ou sans `rid` groupable). Les notifications
-  // de message natives (`plugins/with-fcm-deeplink.js`) ouvrent le salon par
-  // leur propre deep-link `rocketvibe://salon/<rid>`, routé par expo-router,
-  // sans jamais passer par ici. Sous iOS, en revanche, TOUS les taps passent
-  // ici : l'extension de notification range `rid` et `host` dans `ejson`.
+  // This path serves ONLY notifications posted by expo (fallback pushes
+  // without a `notification` block, or without a groupable `rid`). Native
+  // message notifications (`plugins/with-fcm-deeplink.js`) open the room
+  // through their own `rocketvibe://salon/<rid>` deep link, routed by
+  // expo-router, never going through here. On iOS, however, ALL taps come
+  // through here: the notification extension stores `rid` and `host` in `ejson`.
   useEffect(() => {
-    // Une même réponse peut arriver par LES DEUX voies (le listener ET
-    // `getLastNotificationResponse` au démarrage) : on ne route qu'une fois.
+    // The same response can arrive BOTH ways (the listener AND
+    // `getLastNotificationResponse` at startup): route only once.
     let alreadyRouted: string | null = null;
     const open = (response: Notifications.NotificationResponse) => {
-      // « Répondre » sous iOS est traité en natif (modules/notification-reply), app
-      // en arrière-plan : naviguer ici poserait le salon sous les yeux au
-      // prochain retour dans l'app.
+      // "Reply" on iOS is handled natively (modules/notification-reply), app in
+      // the background: navigating here would put the room in front of the user
+      // the next time they return to the app.
       if (response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
       const id = response.notification.request.identifier;
       if (id === alreadyRouted) return;
       alreadyRouted = id;
       const target = notificationTarget(response.notification.request.content);
       if (target === null) return;
-      // Le `host` voyage avec le rid, comme dans le deep-link natif : plusieurs
-      // sessions coexistent et poussent toutes les deux. Sans lui, un rid d'un
-      // autre serveur atterrissait sur un écran salon sans ligne pour ce rid,
-      // donc sur un indicateur d'activité définitif.
+      // The `host` travels with the rid, as in the native deep link: several
+      // sessions coexist and both push. Without it, a rid from another server
+      // landed on a room screen with no row for that rid, hence on a permanent
+      // activity indicator.
       router.push({
         pathname: '/salon/[rid]',
         params: target.host === null ? { rid: target.rid } : { rid: target.rid, host: target.host },
@@ -109,11 +109,11 @@ export function NotificationHandler() {
       .then((last) => {
         if (last === null) return;
         open(last);
-        // IMPÉRATIF (doc expo-notifications) : une fois la route choisie,
-        // EFFACER la réponse. Sinon elle persiste et, rejouée à un montage
-        // ultérieur — ou par la file `pendingNotificationResponses` de
-        // NotificationManager, jamais purgée côté natif — renaviguerait vers un
-        // salon PÉRIMÉ : un « mauvais salon » au lancement suivant.
+        // MANDATORY (expo-notifications docs): once the route is chosen, CLEAR the
+        // response. Otherwise it persists and, replayed on a later mount (or by
+        // NotificationManager's `pendingNotificationResponses` queue, never purged
+        // natively), would navigate again to a STALE room: a "wrong room" on the
+        // next launch.
         Notifications.clearLastNotificationResponseAsync().catch(() => {});
       })
       .catch(() => {});
@@ -124,7 +124,7 @@ export function NotificationHandler() {
   return <BadgeAndEncryptedTracking />;
 }
 
-/** Vit seulement quand la base est prête : badge, retrait des lus, chiffré. */
+/** Lives only once the database is ready: badge, removal of read ones, encrypted. */
 function BadgeAndEncryptedTracking() {
   const sync = useSync();
   const base = sync.phase === 'ready' ? sync.base : null;
@@ -137,18 +137,18 @@ function BadgeAndEncryptedTracking() {
     Notifications.setBadgeCountAsync(total).catch(() => {});
   }, [subscriptionRows]);
 
-  // Salon lu ⇒ sa notification s'en va. `setAutoCancel(true)` ne la retire qu'au
-  // TAP : lire #general depuis l'icône laissait ses trois messages dans la barre
-  // d'état, et le suivant s'y ajoutait en quatrième ligne — les notifications de
-  // la voie native étant groupées ET cumulatives. Le compteur de non-lus suit
-  // déjà le serveur en temps réel, y compris quand c'est un AUTRE appareil qui
-  // a lu : c'est la source la moins menteuse dont on dispose ici.
+  // Room read ⇒ its notification goes away. `setAutoCancel(true)` only removes
+  // it on TAP: reading #general from the icon left its three messages in the
+  // status bar, and the next one was added as a fourth line, native-path
+  // notifications being grouped AND cumulative. The unread counter already
+  // follows the server in real time, including when ANOTHER device did the
+  // reading: the least lying source available here.
   //
-  // Le `Set` mémorise ce qui a déjà été retiré, sinon chaque re-rendu rejouerait
-  // l'appel pour tous les salons lus. Le premier passage n'est PAS sauté : à
-  // l'ouverture de l'app, un salon déjà lu ailleurs peut très bien avoir sa
-  // notification en attente dans la barre. Retirer une notification absente est
-  // un `NotificationManagerCompat.cancel` sur un id inconnu — sans effet.
+  // The `Set` remembers what was already removed, otherwise every re-render
+  // would replay the call for all read rooms. The first pass is NOT skipped:
+  // when the app opens, a room already read elsewhere may well have its
+  // notification pending in the bar. Removing an absent notification is a
+  // `NotificationManagerCompat.cancel` on an unknown id: no effect.
   const removed = useRef(new Set<string>());
   useEffect(() => {
     const toRemove: string[] = [];
@@ -172,9 +172,9 @@ function BadgeAndEncryptedTracking() {
 }
 
 /**
- * Android : l'id natif dérive du rid (`lib/notificationId.ts`). iOS : chaque
- * push est sa propre notification, groupée par `threadIdentifier` ; on retrouve
- * celles du salon par le `rid` que l'extension a rangé dans `ejson`.
+ * Android: the native id derives from the rid (`lib/notificationId.ts`). iOS:
+ * each push is its own notification, grouped by `threadIdentifier`; the
+ * room's ones are found by the `rid` the extension stored in `ejson`.
  */
 function removeRoomNotifications(rids: string[]): void {
   if (Platform.OS !== 'ios') {

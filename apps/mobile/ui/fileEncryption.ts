@@ -1,7 +1,7 @@
 /**
- * Câblage natif du chiffrement d'un fichier à envoyer dans un salon chiffré :
- * lecture du clair, chiffrement (`lib/e2e/crypto.ts`), écriture du chiffré dans
- * un fichier temporaire du cache, que la file téléverse puis efface.
+ * Native wiring for encrypting a file sent to an encrypted room: read the
+ * plaintext, encrypt (`lib/e2e/crypto.ts`), write the ciphertext to a cache
+ * temp file, which the queue uploads then deletes.
  */
 
 import { Buffer } from 'buffer';

@@ -1,35 +1,34 @@
 /**
- * Lecteur de message audio, avec visualiseur de fréquence « comète arc-en-ciel ».
+ * Audio message player, with a "rainbow comet" frequency visualiser.
  *
- * Avant : une pièce jointe audio n'était qu'un lien `🎵` ouvert dans le
- * navigateur. Ici on lit EN PLACE (expo-audio, déjà lié pour l'enregistrement),
- * avec play/pause, barre de progression tapable, et un visualiseur dont les
- * barres DANSENT par bande de fréquence avec le son réel.
+ * An audio attachment used to be just a `🎵` link opened in the browser. Here
+ * it plays IN PLACE (expo-audio, already linked for recording), with
+ * play/pause, a tappable progress bar, and a visualiser whose bars DANCE per
+ * frequency band with the real sound.
  *
- * Le direct vient de `useAudioSampleListener` : expo-audio livre les frames PCM
- * de la sortie en temps réel. On en fait une **FFT** (analyse fréquentielle) →
- * une magnitude par bande log-espacée (grave à gauche, aigu à droite). Sur
- * Android l'échantillonnage de sortie passe par un Visualizer qui exige
- * `RECORD_AUDIO` — déjà au manifeste et accordé pour l'enregistrement. S'il
- * échoue, la lecture marche quand même, barres au repos : dégradation propre.
+ * The live feed comes from `useAudioSampleListener`: expo-audio delivers the
+ * output's PCM frames in real time. We run an **FFT** on them (frequency
+ * analysis) → one magnitude per log-spaced band (bass on the left, treble on
+ * the right). On Android, output sampling goes through a Visualizer that
+ * requires `RECORD_AUDIO`, already in the manifest and granted for recording.
+ * If it fails, playback still works with resting bars: clean degradation.
  *
- * Deux réglages qui font la fluidité et évitent la saturation :
- *  - **Contrôle de gain auto** : le plafond monte vite, redescend lentement ;
- *    on normalise par lui, donc le pic ≈ pleine hauteur sans jamais clipper.
- *  - **Lissage** : chaque barre glisse (`withTiming`) vers sa cible, au lieu de
- *    sauter à chaque échantillon.
+ * Two settings make it smooth and avoid saturation:
+ *  - **Automatic gain control**: the ceiling rises fast and falls slowly;
+ *    we normalise by it, so the peak ≈ full height without ever clipping.
+ *  - **Smoothing**: each bar glides (`withTiming`) towards its target instead
+ *    of jumping on every sample.
  *
- * **Le player n'existe que lorsqu'on écoute** — même parti pris que
- * `ui/videoPlayer.tsx`, et pour les mêmes raisons en pire : `useAudioPlayer`
- * au corps du composant faisait naître, PAR MESSAGE VOCAL SIMPLEMENT VISIBLE,
- * un ExoPlayer qui bufférise immédiatement l'URL distante (porteuse de
- * `rc_uid`/`rc_token`), une MediaSession, une coroutine périodique et un
- * `Visualizer` système. Faire défiler vingt vocaux téléchargeait ~20 Mo pour
- * zéro seconde d'écoute. La carte au repos ne coûte rien ; `LecteurAudioActif`
- * (player + FFT + visualiseur) ne se monte qu'au premier « lire », et la
- * lecture part à son montage.
+ * **The player only exists while listening**: same stance as
+ * `ui/videoPlayer.tsx`, for the same reasons only worse. `useAudioPlayer` in
+ * the component body created, PER MERELY VISIBLE VOICE MESSAGE, an ExoPlayer
+ * that immediately buffers the remote URL (carrying `rc_uid`/`rc_token`), a
+ * MediaSession, a periodic coroutine and a system `Visualizer`. Scrolling past
+ * twenty voice messages downloaded ~20 MB for zero seconds of listening. The
+ * resting card costs nothing; `ActiveAudioPlayer` (player + FFT + visualiser)
+ * only mounts on the first "play", and playback starts on mount.
  *
- * Un seul lecteur à la fois (coordinateur au niveau module).
+ * One player at a time (module-level coordinator).
  */
 
 import { useAudioPlayer, useAudioPlayerStatus, useAudioSampleListener } from 'expo-audio';
@@ -58,18 +57,18 @@ const BAR_COUNT = 28;
 const H_MAX = 30;
 const H_MIN = 3;
 
-// --- FFT (Cooley-Tukey itérative, radix-2) -----------------------------------
+// --- FFT (iterative Cooley-Tukey, radix-2) -----------------------------------
 
 const FFT_SIZE = 512;
 const HALF_FFT = FFT_SIZE / 2;
 
-/** Fenêtre de Hann : atténue les fuites spectrales des bords du buffer. */
+/** Hann window: dampens spectral leakage at the buffer edges. */
 const WINDOW = new Float64Array(FFT_SIZE);
 for (let n = 0; n < FFT_SIZE; n++) {
   WINDOW[n] = 0.5 - 0.5 * Math.cos((2 * Math.PI * n) / (FFT_SIZE - 1));
 }
 
-/** Permutation par inversion de bits (préalable au papillon en place). */
+/** Bit-reversal permutation (prerequisite to the in-place butterfly). */
 const BIT_REVERSE = new Uint16Array(FFT_SIZE);
 {
   let j = 0;
@@ -90,11 +89,11 @@ for (let i = 0; i < HALF_FFT; i++) {
 }
 
 /**
- * Bandes log-espacées, bornées à l'aigu UTILE : au-delà de ~bin 100 (~8-9 kHz
- * selon la fréquence d'échantillonnage), voix et musique n'ont presque rien —
- * étaler les barres jusqu'au Nyquist (~22 kHz) laissait le tiers droit vide.
+ * Log-spaced bands, capped at the USEFUL treble: beyond ~bin 100 (~8-9 kHz
+ * depending on the sample rate), voice and music carry almost nothing.
+ * Spreading the bars up to Nyquist (~22 kHz) left the right third empty.
  */
-const BIN_MIN = 2; // on saute le DC (bin 0-1)
+const BIN_MIN = 2; // skip DC (bins 0-1)
 const BIN_MAX = 100;
 const BANDS: [number, number][] = [];
 for (let b = 0; b < BAR_COUNT; b++) {
@@ -104,19 +103,19 @@ for (let b = 0; b < BAR_COUNT; b++) {
 }
 
 /**
- * L'énergie audio décroît fortement vers l'aigu (spectre « basse-lourd ») :
- * sans compensation, seules les barres de gauche bougent. On relève donc
- * progressivement les hautes bandes — pente douce, le rendu reste fidèle.
+ * Audio energy falls sharply towards the treble (a "bass-heavy" spectrum):
+ * without compensation, only the left bars move. So the high bands are
+ * lifted progressively: a gentle slope, the rendering stays faithful.
  */
 const WEIGHTS = new Float64Array(BAR_COUNT);
 for (let b = 0; b < BAR_COUNT; b++) WEIGHTS[b] = 1 + 2.2 * (b / (BAR_COUNT - 1));
 
-// Buffers de travail réutilisés : un seul lecteur échantillonne à la fois
-// (coordinateur), et chaque appel est synchrone — pas de réentrance.
+// Reused work buffers: only one player samples at a time (coordinator), and
+// each call is synchronous, so no reentrancy.
 const RE = new Float64Array(FFT_SIZE);
 const IM = new Float64Array(FFT_SIZE);
 
-/** FFT en place : RE contient l'entrée (déjà fenêtrée), IM vaut 0. */
+/** In-place FFT: RE holds the input (already windowed), IM is 0. */
 function fft(): void {
   for (let i = 0; i < FFT_SIZE; i++) {
     const j = BIT_REVERSE[i]!;
@@ -171,7 +170,7 @@ function mix(a: string, b: string, t: number): string {
   const m = (x: number, y: number) => Math.round(x + (y - x) * t);
   return `rgb(${m(ar, br)}, ${m(ag, bg)}, ${m(ab, bb)})`;
 }
-/** `n` couleurs interpolées le long des `arrets` (la comète : rose→violet→cyan). */
+/** `n` colours interpolated along the `stops` (the comet: pink→violet→cyan). */
 function spreadRainbow(stops: readonly string[], n: number): string[] {
   const out: string[] = [];
   for (let i = 0; i < n; i++) {
@@ -191,10 +190,10 @@ function Bar({
   index: number;
   color: string;
 }) {
-  // Chaque barre GLISSE vers sa cible : fluide malgré le pas d'échantillonnage.
+  // Each bar GLIDES towards its target: smooth despite the sampling step.
   const style = useAnimatedStyle(() => ({
-    // Tween court et LINÉAIRE : entre deux échantillons (~16 ms), un pont
-    // continu et net — pas de mollesse d'ease-out en fin de course.
+    // Short, LINEAR tween: between two samples (~16 ms), a continuous, crisp
+    // bridge, without the ease-out sluggishness at the end.
     height: withTiming(H_MIN + (levels.value[index] ?? 0) * (H_MAX - H_MIN), {
       duration: 45,
       easing: Easing.linear,
@@ -219,8 +218,8 @@ export function AudioPlayer({ c, url, title, onLongPress }: PlayerProps) {
     return <ActiveAudioPlayer c={c} url={url} title={title} onLongPress={onLongPress} />;
   }
 
-  // La carte AU REPOS : même gabarit que la carte active (le montage du player
-  // ne fait pas bouger la ligne d'un pixel), barres à plat, aucun natif.
+  // The RESTING card: same layout as the active card (mounting the player
+  // moves the row by not one pixel), flat bars, nothing native.
   const activate = () => setActive(true);
   return (
     <View
@@ -259,8 +258,8 @@ export function AudioPlayer({ c, url, title, onLongPress }: PlayerProps) {
         <View style={[styles.track, { backgroundColor: c.border }]} />
       </Pressable>
 
-      {/* La durée n'est pas connue sans player (l'attachement ne la porte pas) :
-          l'emplacement reste réservé pour que le montage ne décale rien. */}
+      {/* The duration is unknown without a player (the attachment does not carry it):
+          the slot stays reserved so that mounting shifts nothing. */}
       <Text style={[styles.time, { color: c.dimmed }]} />
     </View>
   );
@@ -273,25 +272,25 @@ function ActiveAudioPlayer({ c, url, title, onLongPress }: PlayerProps) {
   const levels = useSharedValue<number[]>(new Array(BAR_COUNT).fill(0));
   const width = useRef(0);
   const lastSample = useRef(0);
-  const ceiling = useRef(1e-4); // contrôle de gain automatique, par lecteur
-  const smoothed = useRef(new Float64Array(BAR_COUNT)); // état de lissage temporel
+  const ceiling = useRef(1e-4); // automatic gain control, per player
+  const smoothed = useRef(new Float64Array(BAR_COUNT)); // temporal smoothing state
   const me = useRef<{ pause: () => void }>({ pause: () => {} });
   me.current.pause = () => {
     try {
       player.pause();
     } catch {
-      // Le player a pu être libéré par le recyclage de la liste.
+      // The player may have been released by the list's recycling.
     }
   };
 
   const colors = useMemo(() => spreadRainbow(c.brandGradient, BAR_COUNT), [c.brandGradient]);
 
-  // Monté = « lire » vient d'être touché : lecture immédiate, en prenant le
-  // relais du lecteur en cours — même coordinateur que `basculer`.
+  // Mounted = "play" was just tapped: play at once, taking over from the
+  // current player, same coordinator as `toggle`.
   //
-  // (L'ancien `setAudioSamplingEnabled(true)` explicite a disparu :
-  // `useAudioSampleListener` le fait déjà, APRÈS avoir vérifié
-  // `isAudioSamplingSupported` — ce que notre appel ne faisait pas.)
+  // (The former explicit `setAudioSamplingEnabled(true)` is gone:
+  // `useAudioSampleListener` already does it, AFTER checking
+  // `isAudioSamplingSupported`, which our call did not.)
   useEffect(() => {
     if (activePlayer !== null && activePlayer !== me.current) activePlayer.pause();
     activePlayer = me.current;
@@ -302,10 +301,10 @@ function ActiveAudioPlayer({ c, url, title, onLongPress }: PlayerProps) {
     const frames = sample.channels?.[0]?.frames;
     if (!frames || frames.length === 0) return;
     const now = Date.now();
-    if (now - lastSample.current < 16) return; // jusqu'à ~60 Hz : fluidité
+    if (now - lastSample.current < 16) return; // up to ~60 Hz: smoothness
     lastSample.current = now;
 
-    // Derniers TAILLE_FFT frames, fenêtrés (zéro-pad si le buffer est court).
+    // Last FFT_SIZE frames, windowed (zero-padded if the buffer is short).
     const available = Math.min(frames.length, FFT_SIZE);
     const start = frames.length - available;
     for (let n = 0; n < FFT_SIZE; n++) {
@@ -314,33 +313,33 @@ function ActiveAudioPlayer({ c, url, title, onLongPress }: PlayerProps) {
     }
     fft();
 
-    // Magnitude moyenne par bande, et pic de la trame pour le gain auto.
+    // Mean magnitude per band, and the frame's peak for the automatic gain.
     const raw = new Array<number>(BAR_COUNT);
     let peak = 0;
     for (let b = 0; b < BAR_COUNT; b++) {
       const [lo, hi] = BANDS[b]!;
       let sum = 0;
       for (let k = lo; k < hi; k++) sum += Math.sqrt(RE[k]! * RE[k]! + IM[k]! * IM[k]!);
-      // Pondération d'aigu : compense la pente naturelle basse-lourde.
+      // Treble weighting: compensates the natural bass-heavy slope.
       const avg = (sum / Math.max(hi - lo, 1)) * WEIGHTS[b]!;
       raw[b] = avg;
       if (avg > peak) peak = avg;
     }
-    // Plafond adaptatif : bondit sur un pic, redescend doucement (~0,5 s). Le
-    // pic ≈ pleine hauteur, les passages calmes restent bas — plus de clipping.
+    // Adaptive ceiling: jumps on a peak, falls back gently (~0.5 s). The peak ≈
+    // full height, quiet passages stay low: no more clipping.
     ceiling.current = Math.max(peak, ceiling.current * 0.93, 1e-4);
 
-    // Lissage TEMPOREL par bande : attaque instantanée sur un pic, chute douce
-    // (~0,2 s). C'est le mouvement d'analyseur de spectre — lisible, au lieu
-    // d'un fourmillement. Racine : étale les faibles amplitudes.
+    // TEMPORAL smoothing per band: instant attack on a peak, gentle decay
+    // (~0.2 s). That is the spectrum analyser motion: readable, instead of a
+    // flicker. Square root: spreads the low amplitudes.
     const smooth = smoothed.current;
     for (let b = 0; b < BAR_COUNT; b++) {
       const target = Math.sqrt(Math.min(1, raw[b]! / ceiling.current));
-      // Attaque instantanée, chute assez vive (~90 ms) : nerveux, pas mou.
+      // Instant attack, fairly quick decay (~90 ms): lively, not sluggish.
       smooth[b] = target > smooth[b]! ? target : smooth[b]! * 0.68 + target * 0.32;
     }
-    // Lissage SPATIAL léger : lie juste assez les voisines pour une forme
-    // cohérente, sans écraser les pics (sinon ça retombe dans le mou).
+    // Light SPATIAL smoothing: ties neighbours just enough for a coherent shape,
+    // without flattening the peaks (otherwise it turns sluggish again).
     const arr = levels.value.slice();
     for (let b = 0; b < BAR_COUNT; b++) {
       const g = b > 0 ? smooth[b - 1]! : smooth[b]!;
@@ -350,7 +349,7 @@ function ActiveAudioPlayer({ c, url, title, onLongPress }: PlayerProps) {
     levels.value = arr;
   });
 
-  // À l'arrêt, les barres retombent (le lissage anime la descente).
+  // When stopped, the bars fall back (smoothing animates the descent).
   useEffect(() => {
     if (!status.playing) {
       levels.value = new Array(BAR_COUNT).fill(0);
@@ -417,8 +416,8 @@ function ActiveAudioPlayer({ c, url, title, onLongPress }: PlayerProps) {
           end={{ x: 1, y: 1 }}
           style={styles.button}
         >
-          {/* Icônes DESSINÉES, pas des emojis : un « ⏸ » emoji s'affiche
-              toujours en orange sur Android, sourd à la couleur du thème. */}
+          {/* DRAWN icons, not emojis: a "⏸" emoji always renders orange on
+              Android, deaf to the theme colour. */}
           {busy ? (
             <ActivityIndicator color={c.onAccent} size="small" />
           ) : status.playing ? (
@@ -479,7 +478,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 13,
     borderTopColor: 'transparent',
     borderBottomColor: 'transparent',
-    marginLeft: 3, // recentrage optique du triangle
+    marginLeft: 3, // optical recentring of the triangle
   },
   pauseIcon: { flexDirection: 'row', gap: 4 },
   pauseBar: { width: 4, height: 15, borderRadius: 1.5 },

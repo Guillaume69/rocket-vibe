@@ -1803,6 +1803,9 @@ impl ChatPage {
                     rv_core::timeline::group(self.native_crypto_rows.borrow().clone()),
                     &session.info.user_id,
                 );
+                if let Some(thread) = self.thread.borrow().as_ref() {
+                    thread.reload();
+                }
                 return;
             }
             self.composer.validate_native_reply(&session.store);

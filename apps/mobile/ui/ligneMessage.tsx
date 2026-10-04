@@ -81,6 +81,7 @@ export const LigneMessage = memo(function LigneMessage({
   suite,
   heureRepetee,
   libelleEchec,
+  libelleFil,
 }: {
   c: Couleurs;
   message: LigneDeMessage;
@@ -110,6 +111,8 @@ export const LigneMessage = memo(function LigneMessage({
    */
   heureRepetee: boolean;
   libelleEchec?: string;
+  /** Enables starting a retained private thread, also before its first reply. */
+  libelleFil?: string;
 }) {
   const formatHeure = useHeure();
   const heure = formatHeure(message.horodatage);
@@ -285,13 +288,13 @@ export const LigneMessage = memo(function LigneMessage({
             ))}
           </View>
         )}
-        {surOuvrirFil !== null && message.filReponses > 0 && (
+        {surOuvrirFil !== null && (message.filReponses > 0 || libelleFil !== undefined) && (
           <Pressable
             onPress={() => surOuvrirFil(message.id)}
             style={[styles.puceFil, { backgroundColor: c.carte, borderColor: c.bordure }]}
           >
             <Text style={[styles.puceFilTexte, { color: c.cyan }]}>
-              💬 {t('ligneMessage.reponses', { n: message.filReponses })}
+              💬 {libelleFil ?? t('ligneMessage.reponses', { n: message.filReponses })}
               {message.filDernier !== null && ` · ${formatHeure(message.filDernier)}`}
             </Text>
           </Pressable>

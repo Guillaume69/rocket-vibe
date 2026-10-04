@@ -391,7 +391,15 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    le journal à deux acteurs, rotation, page altérée, positions exactes et retrait
    signé mémorisé ; l'instrumentation Android exerce brouillons / messages privés
    et réouverture avec le vrai Keystore / ABI, sur reçus synthétiques.
-   Renouvellement, récupération / révocation visibles, fils / actions / recherche
+   Les écrans de fil Android / GTK / SwiftUI lisent maintenant racine et réponses
+   depuis le même préfixe privé vérifié, avec brouillon séparé et reprise de
+   l’intention originale. La racine doit appartenir à la même portée / grant /
+   admission, être conservée et ne pas être elle-même une réponse. Le serveur
+   vérifie aussi l’admission du destinataire à la racine lors de la soumission.
+   Les compteurs bornés reflètent seulement les réponses retenues. Racine évincée :
+   réponses disponibles lisibles, nouvel envoi refusé ; aucune récupération
+   depuis SQL ordinaire. La qualification GUI installée reste ouverte.
+   Renouvellement, récupération / révocation visibles, actions / recherche
    privés et qualification GUI complète restent ouverts ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.
 6. Revue indépendante du protocole applicatif / stockage et qualification des

@@ -110,7 +110,14 @@ positions exactes et retrait signé persistant après omission. L'instrumentatio
 Android exerce le vrai Keystore / ABI / coffre, avec brouillons et messages
 privés, réouverture et reçu substitué ; ses reçus sont synthétiques. Cela ne
 qualifie pas encore le parcours complet de l'application installée contre HTTP.
-Fils visibles, citations / actions / recherche, archive et fichiers restent
+Les fils utilisent l’écran existant, une projection de racine / réponses dans
+le même journal privé et un brouillon distinct du salon. Les compteurs sont
+ceux des réponses retenues ; une racine évincée ou provenant d’un autre grant
+ne permet pas de préparer un nouvel envoi. Les parcours Rust à deux acteurs et
+l’instrumentation Android exercent aussi une vraie réponse MLS après réouverture,
+sa racine, les compteurs et le refus d’un fil imbriqué. Les reçus Android restent
+synthétiques ; les qualifications GUI et HTTP installées restent distinctes.
+Citations / actions / recherche, archive et fichiers restent
 ouverts, ainsi que la qualification physique et la revue. Aucun masque activé.
 
 Prérequis : Rust 1.97, cibles `aarch64-linux-android` et `x86_64-linux-android`,

@@ -357,6 +357,19 @@ impl ChatPage {
                 this.handle_event(event, true);
             }
         });
+        if thread.is_private() {
+            let target = Rc::downgrade(&thread);
+            thread.composer.connect_submit(move |text| {
+                if let Some(thread) = target.upgrade() {
+                    thread.send_private(text);
+                }
+            });
+            self.room_nav.push(&thread.page);
+            self.thread.replace(Some(thread.clone()));
+            thread.reload();
+            thread.composer.grab_focus();
+            return;
+        }
         let (weak, s, target, opening, r, root_id) = (
             Rc::downgrade(self),
             session.clone(),
@@ -465,7 +478,16 @@ impl ChatPage {
     pub(super) fn native_row_event(self: &Rc<Self>, event: RowEvent, in_thread: bool) {
         if self.current.borrow().as_ref().is_some_and(|r| r.encrypted) {
             match event {
-                RowEvent::Retry(id) => self.crypto_retry(id, false),
+                RowEvent::OpenThread(root) if !in_thread => self.open_native_thread(&root),
+                RowEvent::Retry(id) => {
+                    if in_thread {
+                        if let Some(thread) = self.thread.borrow().as_ref() {
+                            thread.retry_private(&id, false);
+                        }
+                    } else {
+                        self.crypto_retry(id, false);
+                    }
+                }
                 RowEvent::Menu { row, anchor, x, y } => {
                     let popover = gtk::Popover::builder().has_arrow(false).build();
                     popover.set_parent(&anchor);
@@ -478,13 +500,31 @@ impl ChatPage {
                         menu.popdown();
                     });
                     list.append(&copy);
+                    if !in_thread && row.outbox_status.is_none() && row.thread_id.is_none() {
+                        let button =
+                            gtk::Button::builder().label(t("actions.reply_thread")).css_classes(["flat"]).build();
+                        let (weak, id, menu) = (Rc::downgrade(self), row.id.clone(), popover.clone());
+                        button.connect_clicked(move |_| {
+                            if let Some(page) = weak.upgrade() {
+                                page.open_native_thread(&id);
+                            }
+                            menu.popdown();
+                        });
+                        list.append(&button);
+                    }
                     if row.outbox_status.is_some() {
                         for (key, cancel) in [("native.retry", false), ("native.abandon", true)] {
                             let button = gtk::Button::builder().label(t(key)).css_classes(["flat"]).build();
                             let (weak, id, menu) = (Rc::downgrade(self), row.id.clone(), popover.clone());
                             button.connect_clicked(move |_| {
                                 if let Some(page) = weak.upgrade() {
-                                    page.crypto_retry(id.clone(), cancel);
+                                    if in_thread {
+                                        if let Some(thread) = page.thread.borrow().as_ref() {
+                                            thread.retry_private(&id, cancel);
+                                        }
+                                    } else {
+                                        page.crypto_retry(id.clone(), cancel);
+                                    }
                                 }
                                 menu.popdown();
                             });

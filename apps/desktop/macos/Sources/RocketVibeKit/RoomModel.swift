@@ -528,7 +528,15 @@ public final class RoomModel {
 
     public func actions(for message: MessageItem) -> [MessageAction] {
         guard active else { return [] }
-        if privateMode { return [.copy] }
+        if privateMode {
+            var result: [MessageAction] = [.copy]
+            if threadId == nil, message.threadId == nil,
+               privateMessages.contains(where: { $0.id == message.id && $0.delivery == .journaled }),
+               provider.native?.supportedFeatures().contains("threads") == true {
+                result.append(.replyInThread)
+            }
+            return result
+        }
         if provider.native != nil && message.system != nil { return [] }
         guard let chat else {
             loadNativeActions(message)
@@ -558,6 +566,9 @@ public final class RoomModel {
         active && privateMode && privateMessages.contains { $0.id == id && $0.delivery != .journaled && $0.delivery != .cancelled }
     }
     public var messageTimeHelp: String { privateMode ? L("crypto.observed_time") : "" }
+    public func repliesTitle(_ count: Int64) -> String {
+        L(privateMode ? "crypto.retained_replies" : "message.replies", count: Int(count))
+    }
 
     private func loadNativeActions(_ message: MessageItem) {
         guard active, message.delivery == .sent, nativeActions[message.id] == nil,

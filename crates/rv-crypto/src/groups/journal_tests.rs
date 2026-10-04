@@ -180,9 +180,16 @@ fn group(submission: &Submission, position: u64, welcome: Option<&str>) -> http:
     }
 }
 fn send(account: &Account, id: &str, position: u64) -> http::DeliveryEvent {
+    send_document(account, messages::message(id), position)
+}
+fn send_document(
+    account: &Account,
+    document: rv_protocol::SendMessage,
+    position: u64,
+) -> http::DeliveryEvent {
     let submission = account
         .coordinator()
-        .prepare_message(&messages::observation(account), &messages::message(id), NOW)
+        .prepare_message(&messages::observation(account), &document, NOW)
         .unwrap();
     let receipt = messages::ack(&submission, position);
     account
@@ -198,6 +205,169 @@ fn send(account: &Account, id: &str, position: u64) -> http::DeliveryEvent {
             ciphertext: wire.ciphertext,
         }),
     }
+}
+#[test]
+fn retained_thread_roots_and_counts_share_the_verified_prefix_grant_and_retirement_barrier() {
+    let (alice, bob, _, initial) = fixture(false);
+    let observed = observation(&alice);
+    let first = page(&observed, 0, 1, vec![group(&initial, 1, None)], None);
+    for account in [&alice, &bob] {
+        account
+            .coordinator()
+            .receive_journal(&observed, &first, NOW)
+            .unwrap();
+    }
+    let root_id = format!("stored-{}", BASE + 1);
+    let mut root = messages::message("root-document");
+    root.reply_to = None;
+    let mut reply = messages::message("reply-document");
+    reply.reply_to = Some(root_id.clone());
+    let mut other = messages::message("another-root-document");
+    other.reply_to = None;
+    let mut unrelated = messages::message("another-reply-document");
+    unrelated.reply_to = Some(format!("stored-{}", BASE + 3));
+    let mut latest = messages::message("latest-reply-document");
+    latest.reply_to = Some(root_id.clone());
+    let events = vec![
+        send_document(&alice, root, BASE + 1),
+        send_document(&alice, reply, BASE + 2),
+        send_document(&alice, other, BASE + 3),
+        send_document(&alice, unrelated, BASE + 4),
+        send_document(&alice, latest, BASE + 5),
+    ];
+    let prefix = page(&observed, 1, BASE + 5, events, None);
+    for account in [&alice, &bob] {
+        account
+            .coordinator()
+            .receive_journal(&observed, &prefix, NOW)
+            .unwrap();
+    }
+    let query = ProjectionQuery {
+        before: None,
+        limit: 1,
+        thread: Some(root_id.clone()),
+    };
+    let projection = bob
+        .reopened()
+        .journal_projection(&observed, &query, NOW)
+        .unwrap();
+    assert_eq!(
+        projection
+            .root
+            .as_ref()
+            .unwrap()
+            .message
+            .message()
+            .unwrap()
+            .operation_id,
+        "root-document"
+    );
+    assert_eq!(projection.messages.len(), 1);
+    assert_eq!(
+        projection.messages[0]
+            .message
+            .message()
+            .unwrap()
+            .operation_id,
+        "latest-reply-document"
+    );
+    assert!(projection.has_older);
+    assert_eq!(projection.retained_replies[&root_id], 2);
+    assert_eq!(
+        projection.retained_replies[&format!("stored-{}", BASE + 3)],
+        1
+    );
+    let older = bob
+        .reopened()
+        .journal_projection(
+            &observed,
+            &ProjectionQuery {
+                before: Some(BASE + 3),
+                ..query
+            },
+            NOW,
+        )
+        .unwrap();
+    assert_eq!(older.root.unwrap().message.receipt.message, root_id);
+    assert_eq!(
+        older.messages[0].message.message().unwrap().operation_id,
+        "reply-document"
+    );
+    for invalid in ["unseen-root".to_string(), format!("stored-{}", BASE + 2)] {
+        let filtered = bob
+            .reopened()
+            .journal_projection(
+                &observed,
+                &ProjectionQuery {
+                    before: None,
+                    limit: 50,
+                    thread: Some(invalid),
+                },
+                NOW,
+            )
+            .unwrap();
+        assert!(filtered.root.is_none() && filtered.messages.is_empty());
+    }
+    let room = bob
+        .reopened()
+        .journal_projection(
+            &observed,
+            &ProjectionQuery {
+                before: None,
+                limit: 50,
+                thread: None,
+            },
+            NOW,
+        )
+        .unwrap();
+    assert!(room.root.is_none());
+    assert_eq!(room.messages.len(), 2);
+    // A previously retained root cannot cross the personal grant fence.
+    let mut changed = observation(&alice);
+    changed
+        .current
+        .roster
+        .members
+        .retain(|m| m.user != bob.root.user);
+    assert!(
+        bob.reopened()
+            .journal_projection(
+                &changed,
+                &ProjectionQuery {
+                    before: None,
+                    limit: 50,
+                    thread: Some(root_id.clone())
+                },
+                NOW
+            )
+            .is_err()
+    );
+    let coordinator = bob.coordinator();
+    bob.manager
+        .transact(|_, records| {
+            coordinator
+                .retire_message_admission(records, "room", NOW)
+                .unwrap();
+            Ok(())
+        })
+        .unwrap();
+    let retired = bob
+        .reopened()
+        .journal_projection(
+            &observed,
+            &ProjectionQuery {
+                before: None,
+                limit: 50,
+                thread: Some(root_id),
+            },
+            NOW,
+        )
+        .unwrap();
+    assert!(
+        retired.root.is_none()
+            && retired.messages.is_empty()
+            && retired.retained_replies.is_empty()
+    );
 }
 fn page(
     observed: &JournalObservation,

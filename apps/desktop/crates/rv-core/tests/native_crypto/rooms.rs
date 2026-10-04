@@ -443,6 +443,62 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     dialog.refresh().await.unwrap();
     dialog.close();
     assert_eq!(reopened.refresh(None, 50).await.unwrap().messages.len(), 1);
+    let unavailable = message_settings(&pilot).await.messages("room".into(), Some("unseen-root".into())).await.unwrap();
+    assert!(!unavailable.refresh(None, 50).await.unwrap().can_send);
+    assert!(
+        unavailable
+            .send(rv_protocol::SendMessage {
+                operation_id: "invalid-private-thread".into(),
+                text: "private-message-cleartext wrong thread".into(),
+                reply_to: Some("unseen-root".into()),
+                quotes: vec![],
+                cards: vec![]
+            })
+            .await
+            .is_err()
+    );
+    assert_eq!(book.lock().unwrap().message_posts, 1);
+    unavailable.close();
+    let thread =
+        message_settings(&pilot).await.messages("room".into(), Some("private-message-1".into())).await.unwrap();
+    let view = thread.refresh(None, 50).await.unwrap();
+    assert!(view.can_send && view.messages.len() == 1 && view.messages[0].row.thread_id.is_none());
+    reopened.set_draft("private-message-cleartext room draft".into()).await.unwrap();
+    thread.set_draft("private-message-cleartext thread draft".into()).await.unwrap();
+    assert_eq!(reopened.draft().await.unwrap(), "private-message-cleartext room draft");
+    book.lock().unwrap().lose_message_reply = true;
+    assert!(
+        thread
+            .send(rv_protocol::SendMessage {
+                operation_id: "private-thread-one".into(),
+                text: "private-message-cleartext thread draft".into(),
+                reply_to: Some("private-message-1".into()),
+                quotes: vec![],
+                cards: vec![]
+            })
+            .await
+            .is_err()
+    );
+    assert_eq!(book.lock().unwrap().message_posts, 2);
+    thread.close();
+    let thread =
+        message_settings(&pilot).await.messages("room".into(), Some("private-message-1".into())).await.unwrap();
+    thread.refresh(Some("9007199254740995".into()), 50).await.unwrap();
+    assert_eq!(thread.draft().await.unwrap(), "private-message-cleartext thread draft");
+    thread.resume("private-thread-one".into()).await.unwrap();
+    assert_eq!(book.lock().unwrap().message_posts, 2);
+    assert!(thread.draft().await.unwrap().is_empty());
+    let view = thread.refresh(None, 50).await.unwrap();
+    assert!(view.can_send && view.messages.len() == 2);
+    assert_eq!(view.messages[0].row.id, "private-message-1");
+    assert_eq!(view.messages[0].row.thread_count, 1);
+    assert_eq!(view.messages[1].row.thread_id.as_deref(), Some("private-message-1"));
+    assert_eq!(reopened.refresh(None, 50).await.unwrap().messages[0].row.thread_count, 1);
+    let nested =
+        message_settings(&pilot).await.messages("room".into(), Some("private-message-2".into())).await.unwrap();
+    let view = nested.refresh(None, 50).await.unwrap();
+    assert!(!view.can_send && view.messages.is_empty());
+    nested.close();
     // Ordinary native tables and every SQL sidecar remain free of the body.
     for file in std::fs::read_dir(pilot.directory.path()).unwrap().flatten() {
         if file.file_type().unwrap().is_file() {
@@ -451,9 +507,10 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
         }
     }
     snapshot(&pilot, false);
+    assert!(thread.refresh(None, 50).await.is_err());
     assert!(reopened.draft().await.is_err());
     assert!(reopened.set_draft("Late private draft".into()).await.is_err());
     snapshot(&pilot, true);
     assert!(reopened.refresh(None, 50).await.is_err());
-    assert_eq!(book.lock().unwrap().message_posts, 1);
+    assert_eq!(book.lock().unwrap().message_posts, 2);
 }

@@ -49,6 +49,17 @@ pub struct JournalProjection {
     pub complete: bool,
     pub has_older: bool,
     pub messages: Vec<ProjectedMessage>,
+    /// Root of the requested thread, only when retained in this same verified
+    /// prefix and personal grant. Never recovered from the ordinary app cache.
+    pub root: Option<ProjectedMessage>,
+    /// Counts of retained replies, not remote/full-archive thread counts.
+    pub retained_replies: BTreeMap<String, u32>,
+}
+pub(super) struct RetainedProjection {
+    pub messages: Vec<ProjectedMessage>,
+    pub has_older: bool,
+    pub root: Option<ProjectedMessage>,
+    pub replies: BTreeMap<String, u32>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -394,15 +405,17 @@ impl Coordinator {
             return Err(Error::Limit);
         }
         self.journal_inspect(observation, now, |records, cursor, grant| {
-            let (messages, has_older) =
+            let retained =
                 self.project_journal(records, &cursor.scope, grant, cursor.after, query)?;
             Ok(JournalProjection {
                 head: cursor.head.clone(),
                 admission: cursor.admission,
                 after: cursor.after,
                 complete: cursor.through.is_none(),
-                has_older,
-                messages,
+                has_older: retained.has_older,
+                messages: retained.messages,
+                root: retained.root,
+                retained_replies: retained.replies,
             })
         })
     }

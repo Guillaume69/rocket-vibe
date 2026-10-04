@@ -81,20 +81,40 @@ citations / actions / recherche, archives et fichiers privés restent ouverts,
 ainsi que les essais des applications installées et la qualification physique.
 Aucun masque E2EE activé. La livraison iOS est hors périmètre de RFC 0001.
 
+Fils privés raccordés ensuite aux écrans Android / GTK / SwiftUI existants :
+racine et réponses issues du même préfixe vérifié, brouillon propre au fil et
+envoi / reprise du ciphertext original. La racine est bornée à la même portée,
+grant et admission ; une réponse ne devient pas racine d’un fil imbriqué.
+Racine absente du coffre : réponses disponibles lisibles, nouvel envoi refusé,
+sans repli sur SQL ordinaire. Les compteurs indiquent les réponses conservées,
+pas l’archive complète. GTK ferme la projection en quittant la vue ; Android
+réutilise son cycle focus / suspension et la borne d’adhésion existante.
+Les 1299 tests mobiles, typecheck / lint et export Hermes passent. Les huit
+tests du pont Rust couvrent aussi une vraie réponse MLS à deux acteurs ; les
+155 tests du moteur passent (un enfant de crash ignoré volontairement, un test
+long de rétention inchangé non rejoué). Le parcours desktop HTTP / MLS / SQLite
+vérifie racine, brouillons séparés, réponse perdue / redémarrage sans second POST,
+compteurs et retrait. Clippy strict moteur / pont / cœur / FFI passe. Les deux
+ABI Android compilent et les cinq tests du vrai Keystore / ABI passent, avec
+réponse de fil réouverte et compteur privé ; reçus synthétiques.
+Compilation des interfaces GTK / SwiftUI à confirmer par la CI de ce lot ; GUI
+installé, archive, citations / actions / recherche et fichiers restent ouverts.
+Aucun masque E2EE de production activé.
+
 | Jalon | Développement livré | Travail restant pour le fermer |
 |---|---|---|
 | J0 | Contrats, fixtures communes, inventaire et backlog de parité | Conditions opérateur / export et décisions crypto liées aux jalons suivants |
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android | Renouvellement / récupération / révocation visibles, fin des fils / actions / recherche privés, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils privés dans les trois interfaces | Renouvellement / récupération / révocation visibles, actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison qui passe toutes les CI existantes (`a41ea44`) passe les neuf jobs de la CI
-`37225596519` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison qui passe toutes les CI existantes (`fbe6e8b`) passe les neuf jobs de la CI
+`37229357337` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
-Le job Android `37225596505` passe aussi les deux ABI, le vrai Keystore, la
-cérémonie d'association, les contrôles de confiance et les groupes sur émulateur.
+Le job Android `37229357344` passe aussi les deux ABI, le vrai Keystore, la
+cérémonie d'association, les contrôles de confiance, groupes et conversations sur émulateur.
 L'application macOS du lot conversations `220ffc5` passe sa compilation, son packaging et son
 démarrage (`37211906510`). Groupes, projection et composeur dans les interfaces
 existantes compilent et passent ces régressions. Le parcours GUI E2EE complet

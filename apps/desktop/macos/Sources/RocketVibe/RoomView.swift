@@ -505,7 +505,7 @@ struct MessageRow: View, Equatable {
         if message.edited || message.delivery != .sent || message.threadCount > 0 {
             HStack(spacing: 10) {
                 if message.threadCount > 0 {
-                    Button("💬 " + L("message.replies", count: Int(message.threadCount))) { app.openThread(message.id) }
+                    Button("💬 " + (model?.repliesTitle(message.threadCount) ?? L("message.replies", count: Int(message.threadCount)))) { app.openThread(message.id) }
                         .buttonStyle(.link)
                         .foregroundStyle(Vibe.pinkSoft)
                 }

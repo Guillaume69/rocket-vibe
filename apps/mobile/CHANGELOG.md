@@ -7,6 +7,16 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Fils chiffrés RocketVibe sur Android
+
+- Ouverture et réponse dans l’écran de fil existant, avec racine et réponses
+  issues du journal privé, ordre exact et brouillon distinct du salon.
+- Reprise / abandon d’un envoi et restauration de son brouillon dans le même
+  coffre. Quitter l’écran ou suspendre l’app ferme la vue et retire le clair.
+- Les compteurs indiquent les réponses conservées sur cet appareil. Une racine
+  absente du coffre laisse les réponses disponibles lisibles et empêche un
+  nouvel envoi. Les archives complètes restent à livrer ; E2EE expérimental.
+
 ### Conversations chiffrées RocketVibe sur Android
 
 - Lecture et envoi de texte dans la liste et le composeur existants, avec
@@ -17,7 +27,7 @@ release, et ses notes sont la section de la version ici.
 - Reprise de l'intention originale par reçu après réponse perdue, abandon
   durable et restauration du document abandonné dans un brouillon vide.
 - Les heures sont des observations locales ; l'historique est celui retenu
-  dans le coffre. Les actions, citations, fils visibles, recherche, archives et
+  dans le coffre. Les actions, citations, recherche, archives et
   fichiers privés restent à raccorder. Aucun masque E2EE de production activé.
 
 ### Groupes chiffrés RocketVibe sur Android

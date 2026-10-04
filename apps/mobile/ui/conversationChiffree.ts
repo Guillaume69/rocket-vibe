@@ -8,7 +8,7 @@ import type {Outbox} from '../lib/fournisseur.ts';
 import {NativeError} from '../fournisseurs/rocketvibe/transport.ts';
 /** The existing room list consumes a volatile native projection. Blur,
  * suspension and membership changes dispose it; no lissage retains clear rows. */
-export function useConversationChiffree(chat:NativeChat|undefined,room:string,membership:string|null|undefined,enabled:boolean) {
+export function useConversationChiffree(chat:NativeChat|undefined,room:string,membership:string|null|undefined,enabled:boolean,thread:string|null=null) {
   const [view,setView]=useState<CryptoConversationView|null>(null),[failed,setFailed]=useState(false);
   const [busy,setBusy]=useState(false),[composer,setComposer]=useState(0);
   const [initial,setInitial]=useState<string|null>(null);
@@ -23,7 +23,7 @@ export function useConversationChiffree(chat:NativeChat|undefined,room:string,me
     let completed=false,result:T|undefined;
     try {
       if(!access.current) {
-        opening.current??=chat.cryptoConversation(CryptoNative,room,membership,visible);
+        opening.current??=chat.cryptoConversation(CryptoNative,room,membership,visible,thread);
         const a=await opening.current;
         if(!visible()){void a.close();throw Error('Private conversation closed');}access.current=a;
       }
@@ -45,7 +45,7 @@ export function useConversationChiffree(chat:NativeChat|undefined,room:string,me
       }
       if(visible()){clear();setFailed(true);}throw error;
     } finally {if(visible())setBusy(false);}
-  },[chat,room,membership,enabled,clear]);
+  },[chat,room,membership,enabled,thread,clear]);
   const reload=useCallback(()=>{
     if(job.current!==null || !enabled)return;
     const n=epoch.current;job.current=n;
@@ -69,8 +69,8 @@ export function useConversationChiffree(chat:NativeChat|undefined,room:string,me
     void access.current?.saveDraft(text).catch(()=>{if(focused.current){clear();setFailed(true);}});
   },[clear]);
   const outbox=useMemo<Outbox>(()=>({
-    envoyer:async(target,text,thread,_jointes,quotes=[])=>{
-      if(target!==room || thread || _jointes || quotes.length)throw Error('Private document unavailable');
+    envoyer:async(target,text,replyTo,_jointes,quotes=[])=>{
+      if(target!==room || (replyTo??null)!==thread || _jointes || quotes.length)throw Error('Private document unavailable');
       return run(a=>a.send(text),false,true);
     },
     traiter:async()=>{
@@ -80,6 +80,6 @@ export function useConversationChiffree(chat:NativeChat|undefined,room:string,me
     reessayer:async id=>{const row=view?.messages.find(v=>v.id===id);if(!row)throw Error('Private intention unavailable');
       await run(a=>row.status==='cancelled'?a.restore(row.operation):a.resume(row.operation),row.status==='cancelled');},
     abandonner:async id=>{const row=view?.messages.find(v=>v.id===id);if(!row)throw Error('Private intention unavailable');await run(a=>a.cancel(row.operation));},
-  }),[room,run,view]);
+  }),[room,thread,run,view]);
   return {view,initial,composer,failed,busy,outbox,save,reload};
 }

@@ -1,5 +1,5 @@
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
-import { asc, eq, or, sql } from 'drizzle-orm';
+import { and, asc, eq, or, sql } from 'drizzle-orm';
 import { useRequeteVive } from '../../ui/requeteVive.ts';
 import * as Haptics from 'expo-haptics';
 import { Redirect, Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -8,7 +8,11 @@ import { ActivityIndicator, AppState, StyleSheet, Text, View } from 'react-nativ
 
 import type { BaseLocale } from '../../db/client.ts';
 import type { DepotBrouillons } from '../../db/depot.ts';
-import { messages, salons, sortie } from '../../db/schema.ts';
+import { messages, salons, sortie, nativeRoomAccess } from '../../db/schema.ts';
+import {CryptoNative} from '../../modules/crypto-native/index.ts';
+import {lignesPrivees} from '../../fournisseurs/rocketvibe/cryptoProjection.ts';
+import {useConversationChiffree} from '../../ui/conversationChiffree.ts';
+import {Appuyable} from '../../ui/appuyable.tsx';
 import type { MoteurActivite } from '../../lib/activite.ts';
 import type { ActionsFournisseur, Fournisseur, Listener, Outbox } from '../../lib/fournisseur.ts';
 import type { ClientRest } from '../../lib/rest.ts';
@@ -42,7 +46,7 @@ import { useCouleurs, type Couleurs, POLICES } from '../../ui/theme.ts';
  */
 
 export default function EcranFil() {
-  const { id, message } = useLocalSearchParams<{ id: string;message?:string }>();
+  const { id, message, rid } = useLocalSearchParams<{ id: string;message?:string;rid?:string }>();
   const { etat } = useSession();
   const synchro = useSynchro();
   const c = useCouleurs();
@@ -68,6 +72,7 @@ export default function EcranFil() {
     <FilCadre
       c={c}
       filId={id}
+      salonId={typeof rid==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(rid)?rid:null}
       cibleMessage={typeof message==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(message)?message:null}
       base={synchro.base}
       brouillons={synchro.brouillons}
@@ -86,7 +91,7 @@ export default function EcranFil() {
 
 function FilCadre(props:Omit<Parameters<typeof Fil>[0],'membership'>){
   const {data}=useRequeteVive(props.base.select({rid:messages.rid}).from(messages).where(or(eq(messages.id,props.filId),eq(messages.filId,props.filId))).limit(1),[props.filId]);
-  const rid=data?.[0]?.rid;
+  const rid=props.salonId??data?.[0]?.rid;
   if(!props.fournisseur.native)return <Fil {...props}/>;
   return rid?<BorneAdhesionSalon base={props.base} rid={rid}>{membership=><Fil {...props} membership={membership}/>}</BorneAdhesionSalon>:<Fil {...props} membership={null}/>;
 }
@@ -107,10 +112,12 @@ function Fil({
   generation,
   membership,
   cibleMessage,
+  salonId,
 }: {
   c: Couleurs;
   filId: string;
   cibleMessage:string|null;
+  salonId:string|null;
   base: BaseLocale;
   brouillons: DepotBrouillons;
   moteur: MoteurSynchro;
@@ -129,8 +136,8 @@ function Fil({
   const enSynchro = useActivite(filId);
   // La racine du fil — elle porte le titre et le `rid`.
   const { data: lignesRacine } = useRequeteVive(
-    base.select().from(messages).where(eq(messages.id, filId)).limit(1),
-    [filId],
+    base.select().from(messages).where(and(eq(messages.id, filId),fournisseur.native && salonId?eq(messages.rid,salonId):undefined)).limit(1),
+    [filId,salonId],
   );
   const racine = lignesRacine?.[0];
 
@@ -138,7 +145,7 @@ function Fil({
     base
       .select()
       .from(messages)
-      .where(eq(messages.filId, filId))
+      .where(and(eq(messages.filId, filId),fournisseur.native && salonId?eq(messages.rid,salonId):undefined))
       // Clé secondaire `id` (même raison que l'écran salon) : un ex æquo à la
       // milliseconde près est départagé de façon déterministe, pas par l'ordre
       // d'insertion. Ordre ASC ici pour rester cohérent avec le tri DESC du
@@ -148,14 +155,14 @@ function Fil({
         asc(sql`length((SELECT position FROM native_positions WHERE id=${messages.id}))`),
         asc(sql`(SELECT position FROM native_positions WHERE id=${messages.id})`),
       ]:[]),asc(messages.horodatage), asc(messages.id)),
-    [filId],
+    [filId,salonId],
   );
 
   // `rid` : par la racine, ou À DÉFAUT par une réponse (lien direct à froid —
   // `chat.getThreadMessages` ne renvoie jamais la racine, mais chaque réponse
   // porte le rid). Sans ce repli, l'écran ne pourrait ni s'abonner au stream
   // ni répondre tant que la racine n'est pas arrivée.
-  const rid = racine?.rid ?? (lignesReponses ?? [])[0]?.rid;
+  const rid = fournisseur.native && salonId ? salonId : racine?.rid ?? (lignesReponses ?? [])[0]?.rid;
 
   // Les drapeaux du salon : mêmes interdits que le composer du salon —
   // promettre une réponse dans un salon chiffré ou en lecture seule, c'est
@@ -169,6 +176,11 @@ function Fil({
     [rid],
   );
   const salon = lignesSalon?.[0];
+  const native=fournisseur.native;
+  const protege=!!native && salon?.chiffre===true;
+  const cryptoDisponible=!!CryptoNative && native?.chat.capabilities?.e2ee===true && native.chat.capabilities.device_sessions===true;
+  const conversation=useConversationChiffree(native?.chat,rid??'',membership,protege && cryptoDisponible,filId);
+  const {data:droitsNatifs}=useRequeteVive(base.select().from(nativeRoomAccess).where(eq(nativeRoomAccess.rid,rid??'')).limit(1),[rid]);
   const { data: lignesSortie } = useRequeteVive(
     base.select().from(sortie).where(eq(sortie.filId, filId)),
     [filId],
@@ -180,9 +192,11 @@ function Fil({
 
   // Racine en tête, réponses en ordre chronologique — un fil se lit du haut.
   const donnees = useMemo<LigneDeMessage[]>(() => {
+    if(protege)return lignesPrivees(conversation.view,rid??'',true);
+    if(native && salon===undefined)return [];
     const reponses = lignesReponses ?? [];
     return racine === undefined ? reponses : [racine, ...reponses];
-  }, [racine, lignesReponses]);
+  }, [racine,lignesReponses,protege,conversation.view,rid,native,salon]);
 
   // Séparateurs de jour puis regroupement des rafales d'un même auteur
   // (`ui/separateurJour`, `ui/groupeMessages`) — données ASC ici, l'inverse
@@ -206,6 +220,7 @@ function Fil({
     filChargeSous(filId, generation),
   );
   useEffect(() => {
+    if(protege || native && salonId && !salon)return;
     // Ce chargement ne se rejoue QUE si ce fil n'a pas déjà été chargé sous
     // cette génération de connexion. `generation` étant dans les deps, chaque
     // raccordement — donc chaque retour au premier plan, chaque flap réseau —
@@ -236,7 +251,7 @@ function Fil({
     return () => {
       annule = true;
     };
-  }, [fournisseur, moteur, filId, generation, activite]);
+  }, [fournisseur,moteur,filId,generation,activite,protege,native,salonId,salon]);
 
   // Les réponses arrivent par le stream du SALON : on s'y abonne aussi d'ici,
   // pour que le fil vive même ouvert par un lien direct (souscription
@@ -267,14 +282,14 @@ function Fil({
     },
     [routeur, filId],
   );
-  const reessayer = useCallback(() => {
-    envoi.traiter().catch(() => {});
-  }, [envoi]);
+  const reessayer = useCallback((idMessage:string) => {
+    (protege?conversation.outbox.reessayer!(idMessage):envoi.traiter()).catch(() => {});
+  }, [envoi,protege,conversation.outbox]);
   const abandonner = useCallback(
     (idMessage: string) => {
-      envoi.abandonner(idMessage).catch(() => {});
+      (protege?conversation.outbox:envoi).abandonner(idMessage).catch(() => {});
     },
-    [envoi],
+    [envoi,protege,conversation.outbox],
   );
   // Tir-et-oublie, comme l'écran salon : l'écho du stream réécrit
   // `messages.reactions`, la requête vive re-rend la pastille.
@@ -291,25 +306,28 @@ function Fil({
         return <SeparateurJour c={c} horodatage={item.horodatage} />;
       }
       const etatEnvoi = sortieParId.get(item.id);
+      const prive=protege?conversation.view?.messages.find(row=>row.id===item.id):undefined;
+      const interrompu=prive && ['pending','cancelling','cancelled'].includes(prive.status);
       return (
         <View style={item.id===cibleMessage?{backgroundColor:c.surfaceActive}:undefined}><LigneMessage
           c={c}
           message={item}
           client={client}
-          statutEnvoi={etatEnvoi?.statut ?? null}
-          surReessayer={etatEnvoi?.statut === 'echec' ? reessayer : null}
-          surAbandonner={etatEnvoi?.statut === 'echec' ? abandonner : null}
-          surAppuiLong={etatEnvoi === undefined ? ouvrirActions : null}
+          statutEnvoi={protege?interrompu?'echec':prive?.status==='accepted'?'en-attente':null:etatEnvoi?.statut??null}
+          libelleEchec={interrompu?t(prive.status==='cancelled'?'conversation.cancelled':'conversation.pending'):undefined}
+          surReessayer={(protege?interrompu && !conversation.busy:etatEnvoi?.statut==='echec')?()=>reessayer(item.id):null}
+          surAbandonner={(protege?interrompu && prive.status!=='cancelled' && !conversation.busy:etatEnvoi?.statut==='echec')?abandonner:null}
+          surAppuiLong={!protege && etatEnvoi === undefined ? ouvrirActions : null}
           // On EST dans le fil : pas d'indicateur « N réponses » sur la racine.
           surOuvrirFil={null}
           moi={moi}
-          surReagir={etatEnvoi === undefined ? reagir : null}
+          surReagir={!protege && etatEnvoi === undefined ? reagir : null}
           suite={suites.has(item.id)}
           heureRepetee={heuresRepetees.has(item.id)}
         /></View>
       );
     },
-    [c, client, sortieParId, reessayer, abandonner, ouvrirActions, moi, reagir, suites, heuresRepetees,cibleMessage],
+    [c,client,sortieParId,reessayer,abandonner,ouvrirActions,moi,reagir,suites,heuresRepetees,cibleMessage,protege,conversation.view,conversation.busy,t],
   );
 
   const liste = useRef<FlashListRef<LigneDeMessage | LigneJour>>(null);
@@ -346,18 +364,20 @@ function Fil({
 
   // Brouillon du fil (8.7), clé `rid:tmid` : isolé du brouillon du salon.
   // `null` tant que le rid n'est pas connu — le composer attend.
-  const native=fournisseur.native;
-  const surSaisie=useCallback((active:boolean)=>{if(rid)void native?.chat.setTyping(rid,active,filId,membership??undefined);},[native,rid,filId,membership]);
+  const surSaisie=useCallback((active:boolean)=>{if(rid && !protege)void native?.chat.setTyping(rid,active,filId,membership??undefined);},[native,rid,filId,membership,protege]);
   const depot=useMemo(()=>native?native.store.drafts({room:rid??'',membership:membership??null}):brouillons,[native,brouillons,rid,membership]);
-  const persistance = useBrouillon(depot, rid === undefined ? null : `${rid}:${filId}`);
-  const envoiLie=useMemo<Outbox>(()=>native?{...envoi,envoyer:(room,text,root,_jointes,quotes)=>native.chat.send(room,text,{membership:membership??null},quotes,root)}:envoi,[native,envoi,membership]);
+  const persistanceOrdinaire = useBrouillon(depot, rid===undefined || protege || native && !salon ? null : `${rid}:${filId}`);
+  const sauverPrive=conversation.save;
+  const effacerPrive=useCallback(()=>sauverPrive(''),[sauverPrive]);
+  const persistance=protege?{initial:conversation.initial,sauver:conversation.save,effacer:effacerPrive}:persistanceOrdinaire;
+  const envoiLie=useMemo<Outbox>(()=>protege?conversation.outbox:native?{...envoi,envoyer:(room,text,root,_jointes,quotes)=>native.chat.send(room,text,{membership:membership??null},quotes,root)}:envoi,[native,envoi,membership,protege,conversation.outbox]);
   const lecture=useMemo(()=>new LectureObservee(async id=>{if(native && membership)await native.chat.markObservedThreadRead(filId,id,membership);}),[native,membership,filId]);
   useEffect(()=>()=>lecture.fermer(),[lecture]);
   useFocusEffect(useCallback(()=>{
-    const active=()=>lecture.activer(!!native && membership!=null && AppState.currentState==='active');
+    const active=()=>lecture.activer(!!native && !protege && membership!=null && AppState.currentState==='active');
     active();const listener=AppState.addEventListener('change',active);
     return()=>{listener.remove();lecture.activer(false);};
-  },[lecture,native,membership]));
+  },[lecture,native,membership,protege]));
   const onVisible=useCallback(({viewableItems}:{viewableItems:{item:LigneDeMessage|LigneJour;index:number|null}[]})=>{
     const latest=viewableItems.filter(token=>!('jour' in token.item) && token.item.filId===filId && !sortieParId.has(token.item.id)).sort((a,b)=>(b.index??-1)-(a.index??-1))[0];
     if(latest && !('jour' in latest.item))lecture.observer(latest.item.id);
@@ -377,9 +397,13 @@ function Fil({
           juste sous lui. Sans elle, le fil se réécrivait intégralement sans
           qu'aucun signal ne l'indique. */}
       <BarreSynchro c={c} actif={enSynchro} />
+      {protege && <View style={styles.avisPrive}>
+        <Text style={[styles.textePrive,{color:c.attenue}]}>{t(conversation.failed || !cryptoDisponible?'conversation.failed':conversation.view && !conversation.view.root?'conversation.rootMissing':'conversation.observed')}</Text>
+        <Appuyable onPress={conversation.reload} disabled={conversation.busy || !cryptoDisponible} accessibilityRole="button"><Text style={{color:c.cyan}}>{t('devices.refresh')}</Text></Appuyable>
+      </View>}
       {donnees.length === 0 ? (
         <View style={styles.centre}>
-          {premierPassageFini ? (
+          {(protege?conversation.view!==null || conversation.failed || !cryptoDisponible:premierPassageFini) ? (
             <Text style={[styles.vide, { color: c.attenue }]}>{t('fil.introuvable')}</Text>
           ) : (
             <ActivityIndicator />
@@ -398,8 +422,8 @@ function Fil({
             'jour' in item ? 'jour' : suites.has(item.id) ? 'suite' : 'message'
           }
           renderItem={rendreLigne}
-          onViewableItemsChanged={native?onVisible:undefined}
-          viewabilityConfig={native?viewability:undefined}
+          onViewableItemsChanged={native && !protege?onVisible:undefined}
+          viewabilityConfig={native && !protege?viewability:undefined}
           contentContainerStyle={styles.contenu}
           // Un fil se LIT depuis sa racine : ouverture en haut — l'idiome
           // INVERSÉ du salon (8.10) n'aurait pas de sens ici. On garde donc
@@ -415,7 +439,7 @@ function Fil({
           est null : pas de pièces jointes ni de vocal dans un fil. */}
       {rid !== undefined && salon !== undefined && persistance.initial !== null && (
         <Composer
-          key={JSON.stringify([rid,filId,membership])}
+          key={JSON.stringify([rid,filId,membership,protege?conversation.view?.admission:null,protege?conversation.composer:null])}
           c={c}
           rid={rid}
           filId={filId}
@@ -423,8 +447,10 @@ function Fil({
           fichiers={null}
           client={client}
           candidatsMention={candidatsMention}
-          lectureSeule={salon.lectureSeule || !!native && (membership==null || !racine)}
+          lectureSeule={protege?droitsNatifs?.[0]?.canSend!==true || conversation.view?.can_send!==true || conversation.view.catching_up:salon.lectureSeule || !!native && (membership==null || !racine)}
           chiffre={salon.chiffre}
+          nativeEncryptedReady={protege && conversation.view!==null}
+          citationsDisponibles={!protege}
           placeholder={t('fil.repondre')}
           apresEnvoi={apresEnvoi}
           brouillonInitial={persistance.initial}
@@ -438,6 +464,8 @@ function Fil({
 }
 
 const styles = StyleSheet.create({
+  avisPrive:{paddingHorizontal:16,paddingVertical:8,gap:4},
+  textePrive:{fontSize:12},
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   contenu: { paddingHorizontal: 16, paddingVertical: 8 },
   vide: { textAlign: 'center', padding: 24, fontSize: 14 },

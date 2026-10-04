@@ -27,6 +27,21 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "Heure locale de préparation ou de lecture de ce message chiffré",
         "Local preparation or observation time for this encrypted message",
     ),
+    (
+        "crypto.retained_replies",
+        "{n} réponse conservée | {n} réponses conservées",
+        "{n} retained reply | {n} retained replies",
+    ),
+    (
+        "crypto.thread_root_missing",
+        "La racine de ce fil n’est plus conservée sur cet appareil. Un nouvel envoi nécessite la racine.",
+        "This thread’s root is no longer retained on this device. Sending requires the root.",
+    ),
+    (
+        "crypto.retained_threads",
+        "Historique et réponses conservés sur cet appareil ; heures locales de réception.",
+        "History and replies retained on this device; local receipt times.",
+    ),
     ("crypto.group_title", "Chiffrement du salon", "Room encryption"),
     (
         "crypto.group_help",

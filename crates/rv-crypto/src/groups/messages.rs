@@ -1016,7 +1016,7 @@ impl Coordinator {
         grant: &Member,
         through: u64,
         query: &super::journal::ProjectionQuery,
-    ) -> Result<(Vec<super::journal::ProjectedMessage>, bool)> {
+    ) -> Result<super::journal::RetainedProjection> {
         let ledger = self.message_ledger(records)?;
         let mut entries = ledger
             .cache
@@ -1027,9 +1027,7 @@ impl Coordinator {
                     && entry.journaled
                     && entry.grant == *grant
                     && receipt.header.scope == *scope
-                    && receipt.position <= through
-                    && query.before.is_none_or(|p| receipt.position < p)
-                    && receipt.header.thread == query.thread)
+                    && receipt.position <= through)
                     .then_some((receipt.position, entry))
             })
             .collect::<Vec<_>>();
@@ -1037,22 +1035,45 @@ impl Coordinator {
         if entries.windows(2).any(|pair| pair[0].0 == pair[1].0) {
             return Err(Error::JournalOrder);
         }
+        let projected = |entry: &Entry| -> Result<super::journal::ProjectedMessage> {
+            Ok(super::journal::ProjectedMessage {
+                message: ClearMessage {
+                    receipt: entry.receipt.as_ref().ok_or(Error::Changed)?.clone(),
+                    payload: Zeroizing::new(entry.plaintext.to_vec()),
+                },
+                observed_at: entry.created,
+            })
+        };
+        let mut replies = BTreeMap::new();
+        let mut root = None;
+        for (_, entry) in &entries {
+            let receipt = entry.receipt.as_ref().ok_or(Error::Changed)?;
+            if let Some(thread) = &receipt.header.thread {
+                *replies.entry(thread.clone()).or_insert(0u32) += 1;
+            } else if query.thread.as_ref() == Some(&receipt.message) {
+                root = Some(projected(entry)?);
+            }
+        }
+        entries.retain(|(position, entry)| {
+            query.before.is_none_or(|p| *position < p)
+                && entry
+                    .receipt
+                    .as_ref()
+                    .is_some_and(|r| r.header.thread == query.thread)
+        });
         let older = entries.len() > query.limit;
         let skip = entries.len().saturating_sub(query.limit);
         let messages = entries
             .into_iter()
             .skip(skip)
-            .map(|(_, entry)| {
-                Ok(super::journal::ProjectedMessage {
-                    message: ClearMessage {
-                        receipt: entry.receipt.as_ref().ok_or(Error::Changed)?.clone(),
-                        payload: Zeroizing::new(entry.plaintext.to_vec()),
-                    },
-                    observed_at: entry.created,
-                })
-            })
+            .map(|(_, entry)| projected(entry))
             .collect::<Result<Vec<_>>>()?;
-        Ok((messages, older))
+        Ok(super::journal::RetainedProjection {
+            messages,
+            has_older: older,
+            root,
+            replies,
+        })
     }
     pub(super) fn retire_message_admission(
         &self,

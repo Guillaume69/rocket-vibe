@@ -13,7 +13,8 @@ export type ConversationTransport={
 };
 export type CryptoMessage={id:string;operation:string;author:string;document:SendMessage;position:string|null;
   observed_at:string;status:'journaled'|'pending'|'accepted'|'cancelling'|'cancelled'};
-export type CryptoConversationView={admission:string;after:string;catching_up:boolean;has_older:boolean;can_send:boolean;draft:string;messages:CryptoMessage[]};
+export type CryptoConversationView={admission:string;after:string;catching_up:boolean;has_older:boolean;can_send:boolean;draft:string;messages:CryptoMessage[];
+  root:CryptoMessage|null;retained_replies:Record<string,number>};
 const id=(v:unknown):v is string=>typeof v==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(v);
 function integrity():never {throw new NativeError(0,'crypto_integrity_failed');}
 function object(v:unknown):Record<string,unknown> {if(!v || typeof v!=='object' || Array.isArray(v))integrity();return v as Record<string,unknown>;}
@@ -25,16 +26,22 @@ function projection(value:unknown,thread:string|null):CryptoConversationView {
   if(typeof v.admission!=='string' || !/^[0-9a-f]{64}$/.test(v.admission) || !position(v.after)
     || typeof v.catching_up!=='boolean' || typeof v.has_older!=='boolean' || typeof v.can_send!=='boolean'
     || typeof v.draft!=='string' || v.draft.length>65536 || !Array.isArray(v.messages) || v.messages.length>264)integrity();
-  const messages=v.messages.map(raw=>{
+  const decodeRow=(raw:unknown,target:string|null):CryptoMessage=>{
     const row=object(raw),document=decodeNative('SendMessage',row.document);
     if(!id(row.id) || !id(row.operation) || !id(row.author) || (row.position!==null && !position(row.position,false))
       || !position(row.observed_at) || BigInt(row.observed_at)>253402300799n
       || !['journaled','pending','accepted','cancelling','cancelled'].includes(String(row.status))
-      || document.operation_id!==row.operation || (document.reply_to??null)!==thread)integrity();
+      || document.operation_id!==row.operation || (document.reply_to??null)!==target)integrity();
     return {...row,document} as CryptoMessage;
-  });
+  };
+  const messages=v.messages.map(raw=>decodeRow(raw,thread));
   if(new Set(messages.map(v=>v.operation)).size!==messages.length || new Set(messages.map(v=>v.id)).size!==messages.length)integrity();
-  return {...v,messages} as CryptoConversationView;
+  const root=v.root===null?null:decodeRow(v.root,null),replies=object(v.retained_replies);
+  if(root && (!thread || root.id!==thread || root.status!=='journaled' || root.position===null
+    || BigInt(root.position)>BigInt(v.after) || messages.some(v=>v.id===root.id || v.operation===root.operation)))integrity();
+  if(thread && !root && v.can_send)integrity();
+  if(Object.entries(replies).length>64 || Object.entries(replies).some(([key,n])=>!id(key) || !Number.isInteger(n) || Number(n)<1 || Number(n)>64))integrity();
+  return {...v,messages,root,retained_replies:replies} as CryptoConversationView;
 }
 const absent=(error:unknown)=>error instanceof NativeError && error.status===404 && error.code==='not_found';
 /** Public HTTP packets only; clear render documents are transient. The original

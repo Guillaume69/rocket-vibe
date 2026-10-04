@@ -197,6 +197,21 @@ impl CryptoInstallation {
                 )?;
                 let admission = HEXLOWER.encode(&projection.admission);
                 self.conversation_binding(&key, current, Some(admission.clone()))?;
+                let root = projection
+                    .root
+                    .map(|entry| {
+                        let receipt = &entry.message.receipt;
+                        Ok::<_, CryptoBridgeError>(row(
+                            &receipt.header,
+                            entry.message.message()?,
+                            receipt.message.clone(),
+                            Some(receipt.position.to_string()),
+                            entry.observed_at,
+                            "journaled",
+                        ))
+                    })
+                    .transpose()?;
+                let thread_ready = request.thread.is_none() || root.is_some();
                 let mut rows = Vec::new();
                 for entry in projection.messages {
                     let receipt = &entry.message.receipt;
@@ -239,8 +254,9 @@ impl CryptoInstallation {
                     }
                 }
                 json!({"admission":admission,"after":projection.after.to_string(),"catching_up":!projection.complete,
-                    "has_older":projection.has_older,"can_send":c.can_prepare_message(current,time)?,
-                    "draft":c.draft(&current.roster,request.thread,time)?.as_str(),"messages":rows})
+                    "has_older":projection.has_older,"can_send":thread_ready && c.can_prepare_message(current,time)?,
+                    "draft":c.draft(&current.roster,request.thread,time)?.as_str(),"messages":rows,
+                    "root":root,"retained_replies":projection.retained_replies})
             }
             Command::Draft { text } => {
                 if let Some(text) = text {
@@ -251,6 +267,21 @@ impl CryptoInstallation {
                 }
             }
             Command::Prepare { text } => {
+                if request.thread.is_some()
+                    && c.journal_projection(
+                        &observation,
+                        &engine::ProjectionQuery {
+                            before: None,
+                            limit: 1,
+                            thread: request.thread.clone(),
+                        },
+                        time,
+                    )?
+                    .root
+                    .is_none()
+                {
+                    return Err(CryptoBridgeError::Integrity);
+                }
                 if c.outgoing_messages(&current.roster, time)?.iter().any(|v| {
                     !v.cancelled
                         && v.header.thread == request.thread

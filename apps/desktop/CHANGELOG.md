@@ -9,6 +9,13 @@ section here.
 
 ### Added
 
+- Existing GTK and SwiftUI thread screens can experimentally display a root and
+  its replies from the protected journal, author separate private drafts and
+  resume the original reply after a lost response or restart. A root must be
+  retained under the same admission and grant before another reply can be sent;
+  counters describe retained replies, not the full archive. GTK disposes the
+  private view when leaving the thread. Production E2EE remains disabled.
+
 - Existing GTK and SwiftUI conversations can experimentally read the protected
   encrypted journal, keep drafts in the registered coffer and send through the
   private MLS outbox. Original interrupted sends can be reconciled without a

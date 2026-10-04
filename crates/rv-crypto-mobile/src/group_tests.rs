@@ -489,6 +489,135 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
         ),
         "separate private thread"
     );
+    let missing = conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        Some("unknown-root"),
+        json!({"action":"view","before":null,"limit":200}),
+    );
+    assert_eq!(missing["can_send"], false);
+    assert!(missing["root"].is_null());
+    assert!(alice.conversation_action(serde_json::to_string(&own).unwrap(), json!({"roster":roster,"state":state,"thread":"unknown-root","command":{"action":"prepare","text":"wrong thread"}}).to_string()).is_err());
+    let thread_view = conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        Some("first-message"),
+        json!({"action":"view","before":null,"limit":200}),
+    );
+    assert_eq!(thread_view["root"]["document"]["text"], "private original");
+    assert_eq!(thread_view["can_send"], true);
+    conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        Some("first-message"),
+        json!({"action":"draft","text":"private thread reply"}),
+    );
+    let reply = conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        Some("first-message"),
+        json!({"action":"prepare","text":"private thread reply"}),
+    );
+    let reply_operation = reply["operation"].as_str().unwrap();
+    let reply_packet: http::ApplicationSubmission = serde_json::from_value(conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        Some("first-message"),
+        json!({"action":"retry","operation":reply_operation}),
+    ))
+    .unwrap();
+    let reply_proof = rv_crypto_public::messages::Proof::from_bytes(
+        &B64.decode(reply_packet.proof.as_bytes()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(reply_proof.header.thread.as_deref(), Some("first-message"));
+    let reply_receipt = http::ApplicationReceipt {
+        scope: own.scope.clone(),
+        room_id: "room".into(),
+        operation_id: reply_operation.into(),
+        header: B64.encode(&serde_json::to_vec(&reply_proof.header).unwrap()),
+        fingerprint: HEXLOWER.encode(&reply_proof.fingerprint().unwrap()),
+        message_id: "thread-reply".into(),
+        position: "9007199254740995".into(),
+    };
+    conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        Some("first-message"),
+        json!({"action":"acknowledge","receipt":reply_receipt}),
+    );
+    let reply_page = http::DeliveryPage {
+        scope: own.scope.clone(),
+        room_id: "room".into(),
+        incarnation: ack.incarnation.clone(),
+        after: "9007199254740994".into(),
+        through: reply_receipt.position.clone(),
+        events: vec![http::DeliveryEvent {
+            position: reply_receipt.position.clone(),
+            content: http::DeliveryContent::Message(http::ApplicationMessage {
+                receipt: reply_receipt,
+                proof: reply_packet.proof,
+                ciphertext: reply_packet.ciphertext,
+            }),
+        }],
+        next: None,
+    };
+    for (actor, directory) in [(&*alice, &own), (&*bob, &peer)] {
+        conversation(
+            actor,
+            directory,
+            &roster,
+            &state,
+            Some("first-message"),
+            json!({"action":"receive","page":reply_page}),
+        );
+        let thread = conversation(
+            actor,
+            directory,
+            &roster,
+            &state,
+            Some("first-message"),
+            json!({"action":"view","before":null,"limit":200}),
+        );
+        assert_eq!(thread["root"]["id"], "first-message");
+        assert_eq!(
+            thread["messages"][0]["document"]["reply_to"],
+            "first-message"
+        );
+        assert_eq!(thread["retained_replies"]["first-message"], 1);
+        let root = conversation(
+            actor,
+            directory,
+            &roster,
+            &state,
+            None,
+            json!({"action":"view","before":null,"limit":200}),
+        );
+        assert_eq!(root["messages"].as_array().unwrap().len(), 1);
+        assert_eq!(root["retained_replies"]["first-message"], 1);
+        let nested = conversation(
+            actor,
+            directory,
+            &roster,
+            &state,
+            Some("thread-reply"),
+            json!({"action":"view","before":null,"limit":200}),
+        );
+        assert!(nested["root"].is_null());
+        assert_eq!(nested["can_send"], false);
+    }
     let pending = conversation(
         &alice,
         &own,

@@ -149,6 +149,7 @@ impl Access {
             .crypto
             .journal_projection(&room.0.id, groups::ProjectionQuery { before, limit, thread: self.0.thread.clone() })
             .await?;
+        let can_send = can_send && (self.0.thread.is_none() || projection.root.is_some());
         self.check()?;
         if self.0.state.lock().unwrap().admission.is_some_and(|old| old != projection.admission) {
             self.close();
@@ -158,8 +159,8 @@ impl Access {
         let outgoing = room.0.crypto.outgoing_messages(roster.clone()).await?;
         let (names, _) = room.names().await?;
         self.check()?;
-        let mut messages = Vec::with_capacity(projection.messages.len() + outgoing.len());
-        for entry in projection.messages {
+        let mut messages = Vec::with_capacity(projection.messages.len() + outgoing.len() + 1);
+        for entry in projection.root.into_iter().chain(projection.messages) {
             let receipt = &entry.message.receipt;
             let document = entry.message.message().map_err(rv_crypto::delivery::Error::from)?;
             messages.push(message(
@@ -200,6 +201,11 @@ impl Access {
                 )?);
             }
         }
+        for message in &mut messages {
+            if message.row.thread_id.is_none() {
+                message.row.thread_count = i64::from(*projection.retained_replies.get(&message.row.id).unwrap_or(&0));
+            }
+        }
         let revision = {
             let mut state = self.0.state.lock().unwrap();
             state.revision += 1;
@@ -228,6 +234,18 @@ impl Access {
         }
         let roster = self.roster()?;
         let crypto = &self.0.room.0.crypto;
+        if self.0.thread.is_some()
+            && crypto
+                .journal_projection(
+                    &self.0.room.0.id,
+                    groups::ProjectionQuery { before: None, limit: 1, thread: self.0.thread.clone() },
+                )
+                .await?
+                .root
+                .is_none()
+        {
+            return Err(crate::native::Error::Protocol("crypto_thread_root_not_retained").into());
+        }
         for entry in crypto.outgoing_messages(roster.clone()).await? {
             let original = entry.message().map_err(rv_crypto::delivery::Error::from)?;
             if !entry.cancelled

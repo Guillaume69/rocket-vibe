@@ -893,9 +893,9 @@ function Salon({
   );
   const ouvrirFil = useCallback(
     (id: string) => {
-      routeur.push({ pathname: '/fil/[id]', params: { id } });
+      routeur.push({ pathname: '/fil/[id]', params: { id, ...(protege?{rid}:{}) } });
     },
-    [routeur],
+    [routeur,protege,rid],
   );
 
   const reessayer = useCallback((id?: string) => {
@@ -957,7 +957,8 @@ function Salon({
             // été accepté par le serveur — `chat.delete`/`chat.update` dessus ne
             // peuvent qu'échouer. Ses vraies actions sont réessayer/abandonner.
             surAppuiLong={!protege && etatEnvoi === undefined ? ouvrirActions : null}
-            surOuvrirFil={protege || fournisseur.capacites.fils === false ? null : ouvrirFil}
+            surOuvrirFil={(protege?prive?.status!=='journaled':fournisseur.capacites.fils===false)?null:ouvrirFil}
+            libelleFil={protege?t(item.filReponses>0?'conversation.retainedReplies':'fil.repondre',{n:item.filReponses}):undefined}
             moi={moi}
             surReagir={!protege && etatEnvoi === undefined && fournisseur.capacites.reactions !== false ? reagir : null}
             suite={suites.has(item.id)}
@@ -1143,7 +1144,7 @@ function Salon({
             fichiers={protege || fournisseur.capacites.fichiers === false ? null : fichiers}
             client={client}
             candidatsMention={candidatsMention}
-            lectureSeule={protege ? peutEcrire!==true || conversation.view?.can_send!==true : fournisseur.native && fournisseur.capacites.infosSalon ? peutEcrire!==true : salon.lectureSeule}
+            lectureSeule={protege ? peutEcrire!==true || conversation.view?.can_send!==true || conversation.view.catching_up : fournisseur.native && fournisseur.capacites.infosSalon ? peutEcrire!==true : salon.lectureSeule}
             chiffre={salon.chiffre}
             nativeEncryptedReady={protege && conversation.view!==null}
             citationsDisponibles={!protege}

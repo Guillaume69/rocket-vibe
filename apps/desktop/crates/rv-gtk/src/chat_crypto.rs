@@ -3,6 +3,9 @@ use rv_core::native::{crypto::enrollment::rooms::messages, security::Guard};
 
 impl ChatPage {
     pub(super) fn close_native_crypto(&self) {
+        if let Some(thread) = self.thread.borrow().as_ref() {
+            thread.close_private();
+        }
         if let Some(access) = self.native_crypto.take() {
             access.close();
         }
@@ -65,7 +68,7 @@ impl ChatPage {
         match result {
             Ok((access, view)) => {
                 self.native_crypto.replace(Some(access.clone()));
-                self.list.root.set_tooltip_text(Some(t("crypto.observed_time")));
+                self.list.root.set_tooltip_text(Some(t("crypto.retained_threads")));
                 if !self.native_crypto_restored.replace(true) {
                     self.composer.bind_private(access, &rid, &view.draft);
                 }

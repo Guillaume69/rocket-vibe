@@ -22,6 +22,7 @@ import {previewImageIdentity} from './linkPreviews.ts';
 import {publicMeetingUrl,privateMeetingUrl} from './meetings.ts';
 import {CryptoStorageAccess} from './cryptoStorage.ts';
 import {CryptoIdentityAccess} from './cryptoIdentity.ts';
+import {CryptoPeerAccess} from './cryptoPeers.ts';
 import type {CryptoStorageBridge} from '../../modules/crypto-native/index.ts';
 
 type MeetingScope={room:string;membership:string;generation:number;projection:number;alive:()=>boolean};
@@ -582,6 +583,11 @@ export class NativeChat {
   async cryptoIdentity(bridge:import('../../modules/crypto-native/index.ts').CryptoIdentityBridge,
     visible:()=>boolean=()=>true):Promise<CryptoIdentityAccess> {
     return new CryptoIdentityAccess(await this.cryptoStorage(bridge,visible),bridge,this.transport);
+  }
+  async cryptoPeer(bridge:import('../../modules/crypto-native/index.ts').CryptoPeerBridge,user:string,
+    visible:()=>boolean=()=>true):Promise<CryptoPeerAccess> {
+    if(!user || user.length>256)throw new NativeError(400,'invalid_request');
+    return new CryptoPeerAccess(await this.cryptoIdentity(bridge,visible),bridge,user);
   }
   /** Capture the connected runner generation, never expose a raw transport to
    * a retained settings callback after logout, suspension or account switch. */

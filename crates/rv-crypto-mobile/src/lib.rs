@@ -11,7 +11,9 @@ use std::{
 };
 use zeroize::Zeroizing;
 mod identity;
+mod peers;
 pub use identity::{IdentityApproval, IdentityPhase, IdentityStatus};
+pub use peers::{PeerApproval, PeerReview};
 
 uniffi::setup_scaffolding!();
 
@@ -103,6 +105,8 @@ pub struct CryptoInstallation {
     serial: Mutex<()>,
     closed: AtomicBool,
     approval: Mutex<Option<(String, rv_crypto::account::Approval)>>,
+    peer_review: Mutex<Option<(String, rv_crypto::account::peers::View)>>,
+    peer_approval: Mutex<Option<(String, rv_crypto::account::peers::Approval)>>,
 }
 impl CryptoInstallation {
     fn check(&self) -> Result<()> {
@@ -172,11 +176,19 @@ impl CryptoInstallation {
             serial: Mutex::new(()),
             closed: AtomicBool::new(false),
             approval: Mutex::new(None),
+            peer_review: Mutex::new(None),
+            peer_approval: Mutex::new(None),
         }))
     }
     pub fn stop(&self) {
         self.closed.store(true, Ordering::SeqCst);
         if let Ok(mut approval) = self.approval.lock() {
+            *approval = None;
+        }
+        if let Ok(mut review) = self.peer_review.lock() {
+            *review = None;
+        }
+        if let Ok(mut approval) = self.peer_approval.lock() {
             *approval = None;
         }
     }

@@ -33,10 +33,10 @@ export class CryptoIdentityAccess {
   }
   get isClosed():boolean {return this.storage.isClosed;}
   close():Promise<void> {return this.storage.close();}
-  private async directory(scope:CryptoAccount,check:()=>Promise<void>):Promise<string> {
+  private async directory(scope:CryptoAccount,check:()=>Promise<void>,user=scope.user):Promise<string> {
     let complete:Directory|null=null,after:string|undefined,previous=0n;
     for(let page=0;page<128;page++) {
-      await check();const next=decodeNative('Directory',await this.remote.cryptoDirectory(scope.user,after));await check();
+      await check();const next=decodeNative('Directory',await this.remote.cryptoDirectory(user,after));await check();
       if(next.scope.instance_id!==scope.instance || next.scope.data_epoch!==scope.dataEpoch
         || next.devices.length>64)throw new NativeError(409,'crypto_scope_changed');
       if(complete && (JSON.stringify(next.identity)!==JSON.stringify(complete.identity)
@@ -53,6 +53,10 @@ export class CryptoIdentityAccess {
   }
   view():Promise<CryptoIdentityStatus> {return this.storage.withNative(async(handle,scope,check)=>
     status(await this.bridge.identityView(handle,await this.directory(scope,check))));}
+  /** Native peer/group adapters share this terminal view and signed directory reader. */
+  withIdentity<T>(action:(handle:string,ownDirectory:string,read:(user:string)=>Promise<string>,check:()=>Promise<void>)=>Promise<T>):Promise<T> {
+    return this.storage.withNative(async(handle,scope,check)=>action(handle,await this.directory(scope,check),user=>this.directory(scope,check,user),check));
+  }
   begin(expectedRoot:string):Promise<CryptoIdentityStatus> {return this.storage.withNative(async(handle,scope,check)=>
     status(await this.bridge.identityBegin(handle,await this.directory(scope,check),expectedRoot)));}
   preview(request:string):Promise<CryptoIdentityApproval> {return this.storage.withNative(async(handle,scope,check)=>{

@@ -29,6 +29,64 @@ class ProtectedInstallationTest {
     try { action(); fail("A changed, inaccessible or retired coffer must be refused") }
     catch (_: CryptoBridgeException) { }
   }
+  private fun enroll(installation: CryptoInstallation, account: CryptoAccount): String {
+    val scope = JSONObject().put("instance_id", account.instance).put("data_epoch", account.dataEpoch)
+    val wire = JSONObject().put("scope", scope).put("identity", JSONObject.NULL).put("devices", JSONArray())
+      .put("revocations", JSONArray()).put("next_revocation", JSONObject.NULL)
+    val created = installation.identityBegin(wire.toString(), "")
+    val preview = installation.identityPreview(wire.toString(), created.requestCode)
+    val grant = installation.identityApprove(wire.toString(), preview.id)
+    installation.identityInstall(wire.toString(), grant)
+    val registration = JSONObject(installation.identityPending(wire.toString()))
+    val flags = Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+    val certificate = JSONObject(String(Base64.decode(registration.getString("grant"), flags), Charsets.UTF_8)).getJSONObject("certificate")
+    val device = certificate.getJSONObject("device")
+    fun encode(value: JSONObject) = Base64.encodeToString(value.toString().toByteArray(Charsets.UTF_8), flags)
+    val incarnation = installation.status().incarnation
+    wire.put("identity", JSONObject().put("user_id", account.user).put("root", encode(device.getJSONObject("root")))
+      .put("fingerprint", created.rootFingerprint).put("revision", "1"))
+    wire.put("devices", JSONArray().put(JSONObject().put("device_id", account.device).put("incarnation", incarnation)
+      .put("certificate", encode(certificate)).put("revision", "1").put("expires_at", device.getString("expires_at"))))
+    val receipt = JSONObject().put("scope", scope).put("operation_id", registration.getString("operation_id"))
+      .put("kind", "register_device").put("device_id", account.device).put("incarnation", incarnation)
+      .put("device_revision", "1").put("root_fingerprint", created.rootFingerprint).put("key_package_refs", JSONArray())
+    assertEquals(IdentityPhase.READY, installation.identityAcknowledge(wire.toString(), receipt.toString()).phase)
+    return wire.toString()
+  }
+
+  @Test fun peerIdentityAndDeviceApprovalPersistInActualAndroidCoffer() {
+    val context = InstrumentationRegistry.getInstrumentation().targetContext
+    val root = AndroidProtectedKeystore.privateDirectory(File(context.noBackupFilesDir, "crypto-peer-test-" + UUID.randomUUID()))
+    val directory = AndroidProtectedKeystore.privateDirectory(File(root, "coffer"))
+    val platform = File(root, "platform")
+    val aliceAccount = CryptoAccount("https://crypto.example.org", "test-instance", "test-epoch", "alice", UUID.randomUUID().toString())
+    val bobAccount = CryptoAccount("https://crypto.example.org", "test-instance", "test-epoch", "bob", UUID.randomUUID().toString())
+    var alice = CryptoInstallation.open(directory.absolutePath, aliceAccount, AndroidProtectedKeystore(platform))
+    val bob = CryptoInstallation.open(directory.absolutePath, bobAccount, AndroidProtectedKeystore(platform))
+    try {
+      val own = enroll(alice, aliceAccount)
+      val peer = enroll(bob, bobAccount)
+      val initial = alice.peerView(own, bobAccount.user, peer)
+      val fingerprint = JSONObject(initial.statusJson).getString("fingerprint")
+      assertEquals("unknown", JSONObject(initial.statusJson).getString("trust"))
+      refused { alice.peerView(own, "mallory", peer) }
+      val pinned = alice.peerPin(own, peer, initial.id, "first_contact", fingerprint, "")
+      assertEquals("unverified", JSONObject(pinned.statusJson).getString("trust"))
+      val verified = alice.peerPin(own, peer, pinned.id, "verify", fingerprint, fingerprint)
+      assertEquals("verified", JSONObject(verified.statusJson).getString("trust"))
+      val approval = alice.peerPreview(own, peer, verified.id, bobAccount.device)
+      val approved = alice.peerApprove(own, peer, approval.id)
+      assertTrue(JSONObject(approved.statusJson).getJSONArray("devices").getJSONObject(0).getBoolean("approved"))
+      refused { alice.peerApprove(own, peer, approval.id) }
+      alice.stop(); alice.destroy()
+      alice = CryptoInstallation.open(directory.absolutePath, aliceAccount, AndroidProtectedKeystore(platform))
+      val reopened = alice.peerView(own, bobAccount.user, peer)
+      assertEquals("verified", JSONObject(reopened.statusJson).getString("trust"))
+      assertTrue(JSONObject(reopened.statusJson).getJSONArray("devices").getJSONObject(0).getBoolean("approved"))
+    } finally {
+      alice.stop(); alice.destroy(); bob.stop(); bob.destroy(); root.deleteRecursively()
+    }
+  }
 
   @Test fun actualNativeIdentityCeremonyKeepsOriginalRegistrationAcrossReopen() {
     val context = InstrumentationRegistry.getInstrumentation().targetContext

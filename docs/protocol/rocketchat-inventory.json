@@ -335,6 +335,7 @@
     "apps/mobile/ui/completionEmoji.tsx",
     "apps/mobile/ui/completionMention.tsx",
     "apps/mobile/ui/composer.tsx",
+    "apps/mobile/ui/confianceChiffree.tsx",
     "apps/mobile/ui/donneesLissees.ts",
     "apps/mobile/ui/e2e.ts",
     "apps/mobile/ui/enTeteSalon.tsx",
@@ -3031,73 +3032,73 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 320,
+      "line": 340,
       "kind": "endpoint",
       "surface": "e2e.titre"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 321,
+      "line": 341,
       "kind": "endpoint",
       "surface": "e2e.explication"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 323,
+      "line": 343,
       "kind": "endpoint",
       "surface": "e2e.champ"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 324,
+      "line": 344,
       "kind": "endpoint",
       "surface": "e2e.deverrouiller"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 325,
+      "line": 345,
       "kind": "endpoint",
       "surface": "e2e.erreurMotDePasse"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 326,
+      "line": 346,
       "kind": "endpoint",
       "surface": "e2e.erreurGenerique"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 910,
+      "line": 950,
       "kind": "endpoint",
       "surface": "e2e.titre"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 911,
+      "line": 951,
       "kind": "endpoint",
       "surface": "e2e.explication"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 913,
+      "line": 953,
       "kind": "endpoint",
       "surface": "e2e.champ"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 914,
+      "line": 954,
       "kind": "endpoint",
       "surface": "e2e.deverrouiller"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 915,
+      "line": 955,
       "kind": "endpoint",
       "surface": "e2e.erreurMotDePasse"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 916,
+      "line": 956,
       "kind": "endpoint",
       "surface": "e2e.erreurGenerique"
     }

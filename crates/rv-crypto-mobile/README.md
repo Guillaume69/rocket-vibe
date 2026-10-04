@@ -42,6 +42,16 @@ Les réglages mobiles existants portent ce parcours, derrière les capacités
 expérimentales du serveur. L'état `ready` du coffre demeure distinct de celui
 de l'identité enregistrée et des futurs groupes MLS.
 
+Les fiches utilisateur existantes utilisent aussi les contrôles de confiance
+`rv-crypto::account::peers`, avec le même `Pins` privé que les groupes / desktop.
+La consultation n'accepte aucune nouvelle racine. Premier contact, vérification
+et remplacement sont explicites ; remplacement exige l'ancienne empreinte
+exacte et la nouvelle comparée. L'aperçu d'appareil conserve son consentement
+dans Rust, lié à l'annuaire signé et au handle natif. Les retraits signés d'une
+racine déjà épinglée sont mémorisés avant de refuser un aperçu périmé et restent
+bloquants après omission / réouverture. Seul un état public borné passe par Expo.
+Ces contrôles ne publient aucun package et n'admettent aucun membre de groupe.
+
 `Ready` signifie **stockage prêt**. Aucune identité ou groupe n'est créé, aucun
 appareil n'est enregistré et aucun masque E2EE de production n'est activé.
 L'association / renouvellement, les groupes et les conversations mobiles
@@ -73,5 +83,10 @@ ces tests sur émulateur. Les tests JS couvrent aussi le runner mobile existant,
 le changement d'identité / appareil, les capacités désactivées et les résultats
 tardifs, pagination exacte au-delà de 2^53 et réponse HTTP perdue sans second POST.
 Le test Rust du pont associe deux vrais appareils et mémorise leur révocation.
+Deux autres scénarios vérifient premier contact / comparaison / remplacement,
+consentement d'appareil et retrait d'un correspondant. Le quatrième test Android
+associe deux identités via le vrai moteur et vérifie la réouverture des pins /
+approbations dans le Keystore. Les tests JS vérifient les gardes lors des requêtes
+publiques et le refus d'un consentement pour un autre utilisateur.
 L'émulateur ne qualifie pas le matériel, les coupures électriques ou
 le parcours E2EE complet dans une application installée.

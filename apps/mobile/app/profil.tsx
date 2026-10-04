@@ -14,7 +14,10 @@
 
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import type {ReactNode} from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {SectionConfianceChiffree} from '../ui/confianceChiffree.tsx';
+import {CryptoNative} from '../modules/crypto-native/index.ts';
 
 import { appelDisponibleMemo, contexteAppel, demarrerConference, sonderAppelDisponible } from '../lib/appel.ts';
 import type { StatutPresence } from '../lib/presence.ts';
@@ -289,7 +292,7 @@ export default function EcranProfil() {
   const erreurAvantProfil = profil === null && erreur !== null;
 
   return (
-    <View style={[styles.feuille, { backgroundColor: c.carteProfonde, paddingBottom: margeBas }]}>
+    <CorpsProfil c={c} bas={margeBas} scrollable={client?.genre==='rocketvibe' && CryptoNative!==null && chat?.capabilities?.e2ee===true && chat.capabilities.device_sessions===true}>
       <Stack.Screen options={{ headerShown: false }} />
 
       <View style={styles.entete}>
@@ -350,6 +353,7 @@ export default function EcranProfil() {
       {erreur !== null && (
         <Text style={[styles.erreur, { color: c.texteErreur }]}>{erreur}</Text>
       )}
+      {client?.genre==='rocketvibe' && profil && <SectionConfianceChiffree c={c} user={profil.uid}/>}
 
       {/* Actions présentes dès le squelette (Message désactivé le temps du
           chargement) : leur hauteur ne change pas à l'arrivée des données.
@@ -394,8 +398,14 @@ export default function EcranProfil() {
           )}
         </View>
       )}
-    </View>
+    </CorpsProfil>
   );
+}
+
+function CorpsProfil({c,bas,scrollable,children}:{c:ReturnType<typeof useCouleurs>;bas:number;scrollable:boolean;children:ReactNode}) {
+  const content=[styles.feuille,{backgroundColor:c.carteProfonde,paddingBottom:bas}];
+  return scrollable ? <ScrollView style={{backgroundColor:c.carteProfonde}} contentContainerStyle={content} keyboardShouldPersistTaps="handled">{children}</ScrollView>
+    : <View style={content}>{children}</View>;
 }
 
 const styles = StyleSheet.create({

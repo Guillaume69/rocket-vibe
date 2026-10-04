@@ -39,19 +39,30 @@ lint et les seize parcours crypto du cœur desktop passent. Les deux ABI compile
 Le parcours GUI installé, groupes / conversations mobiles, iOS et qualification
 physique restent ouverts. L'E2EE de production demeure désactivé.
 
+Contrôles de confiance Android ajoutés dans les fiches utilisateur actuelles :
+premier contact non vérifié, comparaison explicite, ancienne empreinte retenue
+lors d'un changement de racine, remplacement contrôlé et aperçu / approbation
+séparés des appareils. La consultation ne crée pas de pin ; seuls les retraits
+signés d'une racine déjà connue sont appris implicitement. Les consentements
+restent opaques et liés à la vue native / annuaire complet. Les six tests Rust
+du pont, quatre instrumentations Android réelles et 1286 tests mobiles passent ;
+typecheck / lint et Clippy strict du moteur passent. Les deux ABI compilent.
+Groupes / conversations mobiles et qualification GUI installée restent ouverts.
+
 | Jalon | Développement livré | Travail restant pour le fermer |
 |---|---|---|
 | J0 | Contrats, fixtures communes, inventaire et backlog de parité | Conditions opérateur / export et décisions crypto liées aux jalons suivants |
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre et association Android | Renouvellement / récupération / révocation visibles, fin des actions privées, parcours GUI E2EE complet, raccordement groupes / conversations mobile, iOS, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance des correspondants Android | Renouvellement / récupération / révocation visibles, fin des actions privées, parcours GUI E2EE complet, raccordement groupes / conversations mobile, iOS, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison qui passe toutes les CI existantes (`0d17cdc`) passe les neuf jobs de la CI
-`37216648404` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison qui passe toutes les CI existantes (`e4a40da`) passe les neuf jobs de la CI
+`37220016734` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
-Le job Android `37216648514` passe aussi les deux ABI et le vrai Keystore sur émulateur.
+Le job Android `37220016701` passe aussi les deux ABI, le vrai Keystore et la
+cérémonie d'association sur émulateur.
 L'application macOS du lot conversations `220ffc5` passe sa compilation, son packaging et son
 démarrage (`37211906510`). Groupes, projection et composeur dans les interfaces
 existantes compilent et passent ces régressions. Le parcours GUI E2EE complet

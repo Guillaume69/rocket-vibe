@@ -6,6 +6,8 @@ import com.rocketvibe.crypto.engine.CryptoInstallation
 import com.rocketvibe.crypto.engine.InstallationStatus
 import com.rocketvibe.crypto.engine.IdentityStatus
 import com.rocketvibe.crypto.engine.IdentityApproval
+import com.rocketvibe.crypto.engine.PeerApproval
+import com.rocketvibe.crypto.engine.PeerReview
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.io.File
@@ -36,6 +38,11 @@ class CryptoNativeModule : Module() {
     "id" to value.id, "rootFingerprint" to value.rootFingerprint,
     "requestFingerprint" to value.requestFingerprint, "device" to value.device, "expiresAt" to value.expiresAt,
   )
+  private fun peerDto(value: PeerReview) = mapOf("id" to value.id, "statusJson" to value.statusJson)
+  private fun peerApprovalDto(value: PeerApproval) = mapOf(
+    "id" to value.id, "user" to value.user, "rootFingerprint" to value.rootFingerprint,
+    "device" to value.device, "fingerprint" to value.fingerprint, "incarnation" to value.incarnation, "expiresAt" to value.expiresAt,
+  )
 
   override fun definition() = ModuleDefinition {
     Name("CryptoNative")
@@ -56,6 +63,18 @@ class CryptoNativeModule : Module() {
       } catch (error: Exception) { instance.stop(); instance.destroy(); throw error }
     } }
     AsyncFunction("status") { handle: String -> synchronized(lock) { dto(view(handle).status()) } }
+    AsyncFunction("peerView") { handle: String, own: String, user: String, peer: String -> synchronized(lock) {
+      peerDto(view(handle).peerView(own, user, peer))
+    } }
+    AsyncFunction("peerPin") { handle: String, own: String, peer: String, id: String, choice: String, confirmed: String, old: String -> synchronized(lock) {
+      peerDto(view(handle).peerPin(own, peer, id, choice, confirmed, old))
+    } }
+    AsyncFunction("peerPreview") { handle: String, own: String, peer: String, id: String, device: String -> synchronized(lock) {
+      peerApprovalDto(view(handle).peerPreview(own, peer, id, device))
+    } }
+    AsyncFunction("peerApprove") { handle: String, own: String, peer: String, id: String -> synchronized(lock) {
+      peerDto(view(handle).peerApprove(own, peer, id))
+    } }
     AsyncFunction("identityView") { handle: String, directory: String -> synchronized(lock) {
       identityDto(view(handle).identityView(directory))
     } }

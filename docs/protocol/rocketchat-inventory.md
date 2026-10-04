@@ -2,7 +2,7 @@
 
 Commande : `node scripts/inventory-rocketchat.mjs`. Contrôle : ajouter `--check`.
 
-389 fichiers de production parcourus ; 450 occurrences.
+390 fichiers de production parcourus ; 450 occurrences.
 Les appels à premier argument dynamique restent visibles : leur résolution est
 consignée dans [le contrat de parité](PARITY.md). Les lignes sont des repères de
 source au moment de la génération. Le JSON conserve le périmètre et tous les fichiers.
@@ -447,15 +447,15 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/mobile/plugins/with-fcm-deeplink.js:1067](../../apps/mobile/plugins/with-fcm-deeplink.js#L1067) | url | /api/v1/chat.sendMessage |
 | [apps/mobile/plugins/with-fcm-deeplink.js:1161](../../apps/mobile/plugins/with-fcm-deeplink.js#L1161) | url | /api/v1/push.get |
 | [apps/mobile/plugins/with-fcm-deeplink.js:1179](../../apps/mobile/plugins/with-fcm-deeplink.js#L1179) | url | /api/v1/push.get |
-| [apps/mobile/ui/messages.ts:320](../../apps/mobile/ui/messages.ts#L320) | endpoint | e2e.titre |
-| [apps/mobile/ui/messages.ts:321](../../apps/mobile/ui/messages.ts#L321) | endpoint | e2e.explication |
-| [apps/mobile/ui/messages.ts:323](../../apps/mobile/ui/messages.ts#L323) | endpoint | e2e.champ |
-| [apps/mobile/ui/messages.ts:324](../../apps/mobile/ui/messages.ts#L324) | endpoint | e2e.deverrouiller |
-| [apps/mobile/ui/messages.ts:325](../../apps/mobile/ui/messages.ts#L325) | endpoint | e2e.erreurMotDePasse |
-| [apps/mobile/ui/messages.ts:326](../../apps/mobile/ui/messages.ts#L326) | endpoint | e2e.erreurGenerique |
-| [apps/mobile/ui/messages.ts:910](../../apps/mobile/ui/messages.ts#L910) | endpoint | e2e.titre |
-| [apps/mobile/ui/messages.ts:911](../../apps/mobile/ui/messages.ts#L911) | endpoint | e2e.explication |
-| [apps/mobile/ui/messages.ts:913](../../apps/mobile/ui/messages.ts#L913) | endpoint | e2e.champ |
-| [apps/mobile/ui/messages.ts:914](../../apps/mobile/ui/messages.ts#L914) | endpoint | e2e.deverrouiller |
-| [apps/mobile/ui/messages.ts:915](../../apps/mobile/ui/messages.ts#L915) | endpoint | e2e.erreurMotDePasse |
-| [apps/mobile/ui/messages.ts:916](../../apps/mobile/ui/messages.ts#L916) | endpoint | e2e.erreurGenerique |
+| [apps/mobile/ui/messages.ts:340](../../apps/mobile/ui/messages.ts#L340) | endpoint | e2e.titre |
+| [apps/mobile/ui/messages.ts:341](../../apps/mobile/ui/messages.ts#L341) | endpoint | e2e.explication |
+| [apps/mobile/ui/messages.ts:343](../../apps/mobile/ui/messages.ts#L343) | endpoint | e2e.champ |
+| [apps/mobile/ui/messages.ts:344](../../apps/mobile/ui/messages.ts#L344) | endpoint | e2e.deverrouiller |
+| [apps/mobile/ui/messages.ts:345](../../apps/mobile/ui/messages.ts#L345) | endpoint | e2e.erreurMotDePasse |
+| [apps/mobile/ui/messages.ts:346](../../apps/mobile/ui/messages.ts#L346) | endpoint | e2e.erreurGenerique |
+| [apps/mobile/ui/messages.ts:950](../../apps/mobile/ui/messages.ts#L950) | endpoint | e2e.titre |
+| [apps/mobile/ui/messages.ts:951](../../apps/mobile/ui/messages.ts#L951) | endpoint | e2e.explication |
+| [apps/mobile/ui/messages.ts:953](../../apps/mobile/ui/messages.ts#L953) | endpoint | e2e.champ |
+| [apps/mobile/ui/messages.ts:954](../../apps/mobile/ui/messages.ts#L954) | endpoint | e2e.deverrouiller |
+| [apps/mobile/ui/messages.ts:955](../../apps/mobile/ui/messages.ts#L955) | endpoint | e2e.erreurMotDePasse |
+| [apps/mobile/ui/messages.ts:956](../../apps/mobile/ui/messages.ts#L956) | endpoint | e2e.erreurGenerique |

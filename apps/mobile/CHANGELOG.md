@@ -7,6 +7,18 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Identités des correspondants RocketVibe
+
+- Fiche utilisateur existante : consultation explicite de l'identité chiffrée,
+  premier contact épinglé mais non vérifié, comparaison d'empreinte et
+  remplacement d'une racine changée avec conservation de l'ancienne empreinte.
+- Aperçu opaque puis confirmation séparée des appareils. Pins / consentements
+  restent dans le coffre Rust. Une révocation signée apprise reste bloquante
+  après réouverture et omission serveur ; changement de compte / appareil ou
+  fermeture empêche une action tardive.
+- Le panneau reste derrière les capacités E2EE expérimentales. La fiche peut
+  défiler lorsqu'il est disponible pour garder les actions accessibles.
+
 ### Association chiffrée RocketVibe sur Android
 
 - Réglages existants raccordés à la cérémonie d'identité Rust partagée avec le

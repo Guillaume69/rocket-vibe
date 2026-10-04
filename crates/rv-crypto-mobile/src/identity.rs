@@ -49,7 +49,7 @@ pub struct IdentityApproval {
     pub expires_at: String,
 }
 impl CryptoInstallation {
-    fn identity_call<T>(
+    pub(super) fn identity_call<T>(
         &self,
         directory: &str,
         action: impl FnOnce(

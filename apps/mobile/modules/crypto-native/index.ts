@@ -37,5 +37,21 @@ export type CryptoIdentityBridge = CryptoStorageBridge & {
   identityPending: (handle: string, directory: string) => Promise<string>;
   identityAcknowledge: (handle: string, directory: string, receipt: string) => Promise<CryptoIdentityStatus>;
 };
+export type CryptoPeerStatus = {
+  user: string; fingerprint: string; previous_fingerprint: string;
+  trust: 'unknown' | 'unverified' | 'verified' | 'changed';
+  devices: {id: string; incarnation: string; fingerprint: string; expires_at: string; approved: boolean}[];
+};
+export type CryptoPeerView = CryptoPeerStatus & {id: string};
+export type CryptoPeerApproval = {
+  id: string; user: string; rootFingerprint: string; device: string;
+  fingerprint: string; incarnation: string; expiresAt: string;
+};
+export type CryptoPeerBridge = CryptoIdentityBridge & {
+  peerView: (handle:string,ownDirectory:string,user:string,peerDirectory:string)=>Promise<{id:string;statusJson:string}>;
+  peerPin: (handle:string,ownDirectory:string,peerDirectory:string,viewId:string,choice:string,confirmed:string,old:string)=>Promise<{id:string;statusJson:string}>;
+  peerPreview: (handle:string,ownDirectory:string,peerDirectory:string,viewId:string,device:string)=>Promise<CryptoPeerApproval>;
+  peerApprove: (handle:string,ownDirectory:string,peerDirectory:string,approvalId:string)=>Promise<{id:string;statusJson:string}>;
+};
 /** Keys and protected records remain between Rust and Kotlin, outside this API. */
-export const CryptoNative = requireOptionalNativeModule<CryptoIdentityBridge>('CryptoNative');
+export const CryptoNative = requireOptionalNativeModule<CryptoPeerBridge>('CryptoNative');

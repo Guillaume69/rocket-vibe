@@ -233,6 +233,157 @@ fn open(path: &std::path::Path, key: Arc<Keystore>) -> Arc<CryptoInstallation> {
     }
     CryptoInstallation::open(path.to_string_lossy().into(), account(), key).unwrap()
 }
+fn registered(
+    path: &std::path::Path,
+    selected: CryptoAccount,
+    key: Arc<Keystore>,
+) -> (Arc<CryptoInstallation>, rv_protocol::e2ee::Directory) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let installation =
+        CryptoInstallation::open(path.to_string_lossy().into(), selected, key).unwrap();
+    let mut wire = empty_directory();
+    let empty = serde_json::to_string(&wire).unwrap();
+    let created = installation
+        .identity_begin(empty.clone(), String::new())
+        .unwrap();
+    let preview = installation
+        .identity_preview(empty.clone(), created.request_code)
+        .unwrap();
+    let grant = installation
+        .identity_approve(empty.clone(), preview.id)
+        .unwrap();
+    installation.identity_install(empty.clone(), grant).unwrap();
+    let (receipt, identity, device) =
+        registration_public(&installation.identity_pending(empty).unwrap());
+    wire.identity = Some(identity);
+    wire.devices.push(device);
+    installation
+        .identity_acknowledge(
+            serde_json::to_string(&wire).unwrap(),
+            serde_json::to_string(&receipt).unwrap(),
+        )
+        .unwrap();
+    (installation, wire)
+}
+#[test]
+fn peer_controls_keep_first_contact_unverified_require_explicit_approval_and_remember_signed_withdrawals()
+ {
+    let path = tempfile::tempdir().unwrap();
+    let key = Arc::new(Keystore::default());
+    let (alice, own) = registered(path.path(), account(), key.clone());
+    let mut bob_account = account();
+    bob_account.user = "bob".into();
+    bob_account.device = "bob-phone".into();
+    let (bob, mut peer) = registered(path.path(), bob_account, key.clone());
+    let own = serde_json::to_string(&own).unwrap();
+    let public = serde_json::to_string(&peer).unwrap();
+    let writes = *key.writes.lock().unwrap();
+    let view = alice
+        .peer_view(own.clone(), "bob".into(), public.clone())
+        .unwrap();
+    let status: serde_json::Value = serde_json::from_str(&view.status_json).unwrap();
+    assert_eq!(status["trust"], "unknown");
+    assert_eq!(status["devices"][0]["approved"], false);
+    assert_eq!(*key.writes.lock().unwrap(), writes);
+    assert!(
+        alice
+            .peer_view(own.clone(), "mallory".into(), public.clone())
+            .is_err()
+    );
+    let view = alice
+        .peer_view(own.clone(), "bob".into(), public.clone())
+        .unwrap();
+    let fp = peer.identity.as_ref().unwrap().fingerprint.clone();
+    let view = alice
+        .peer_pin(
+            own.clone(),
+            public.clone(),
+            view.id,
+            "first_contact".into(),
+            fp.clone(),
+            String::new(),
+        )
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&view.status_json).unwrap()["trust"],
+        "unverified"
+    );
+    let view = alice
+        .peer_pin(
+            own.clone(),
+            public.clone(),
+            view.id,
+            "verify".into(),
+            fp.clone(),
+            fp.clone(),
+        )
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&view.status_json).unwrap()["trust"],
+        "verified"
+    );
+    let approval = alice
+        .peer_preview(own.clone(), public.clone(), view.id, "bob-phone".into())
+        .unwrap();
+    let approved = alice
+        .peer_approve(own.clone(), public.clone(), approval.id.clone())
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&approved.status_json).unwrap()["devices"][0]["approved"],
+        true
+    );
+    assert!(
+        alice
+            .peer_approve(own.clone(), public.clone(), approval.id)
+            .is_err()
+    );
+    let preview = alice
+        .peer_preview(own.clone(), public.clone(), approved.id, "bob-phone".into())
+        .unwrap();
+    let manager = bob.slot.load().unwrap().unwrap();
+    let signed = manager
+        .inspect(|_, records| {
+            let issuer = rv_crypto::identity::Issuer::load(records, "instance", "bob").unwrap();
+            let incarnation: [u8; 16] = data_encoding::HEXLOWER
+                .decode(manager.scope().incarnation.as_bytes())
+                .unwrap()
+                .try_into()
+                .unwrap();
+            Ok(issuer.revoke("bob-phone", incarnation).unwrap())
+        })
+        .unwrap();
+    peer.revocations.push(rv_protocol::e2ee::Revocation {
+        position: "9007199254740993".into(),
+        signed: data_encoding::BASE64URL_NOPAD.encode(&serde_json::to_vec(&signed).unwrap()),
+    });
+    assert!(
+        alice
+            .peer_approve(
+                own.clone(),
+                serde_json::to_string(&peer).unwrap(),
+                preview.id
+            )
+            .is_err()
+    );
+    alice.stop();
+    let alice = open(path.path(), key);
+    let omitted = alice
+        .peer_view(own.clone(), "bob".into(), public.clone())
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&omitted.status_json).unwrap()["devices"][0]["approved"],
+        false
+    );
+    assert!(
+        alice
+            .peer_preview(own, public, omitted.id, "bob-phone".into())
+            .is_err()
+    );
+}
 #[test]
 fn scope_read_does_not_initialize_and_explicit_storage_reopens_only_original_incarnation() {
     let directory = tempfile::tempdir().unwrap();
@@ -286,6 +437,86 @@ fn copied_coffer_and_substituted_account_cannot_open_the_original_platform_recor
     );
 }
 
+#[test]
+fn changed_peer_root_requires_the_exact_previous_pin_and_new_compared_fingerprint() {
+    let path = tempfile::tempdir().unwrap();
+    let key = Arc::new(Keystore::default());
+    let (alice, own) = registered(path.path(), account(), key.clone());
+    let mut bob = account();
+    bob.user = "bob".into();
+    bob.device = "original-bob".into();
+    let (_, old) = registered(path.path(), bob.clone(), key.clone());
+    bob.device = "replacement-bob".into();
+    let (_, new) = registered(path.path(), bob, key.clone());
+    let own = serde_json::to_string(&own).unwrap();
+    let old_wire = serde_json::to_string(&old).unwrap();
+    let new_wire = serde_json::to_string(&new).unwrap();
+    let old_fp = old.identity.unwrap().fingerprint;
+    let new_fp = new.identity.unwrap().fingerprint;
+    let original = alice
+        .peer_view(own.clone(), "bob".into(), old_wire.clone())
+        .unwrap();
+    let pinned = alice
+        .peer_pin(
+            own.clone(),
+            old_wire.clone(),
+            original.id,
+            "first_contact".into(),
+            old_fp.clone(),
+            String::new(),
+        )
+        .unwrap();
+    let approval = alice
+        .peer_preview(own.clone(), old_wire, pinned.id, "original-bob".into())
+        .unwrap();
+    let changed = alice
+        .peer_view(own.clone(), "bob".into(), new_wire.clone())
+        .unwrap();
+    let status: serde_json::Value = serde_json::from_str(&changed.status_json).unwrap();
+    assert_eq!(status["trust"], "changed");
+    assert_eq!(status["previous_fingerprint"], old_fp);
+    assert_eq!(status["devices"][0]["approved"], false);
+    assert!(
+        alice
+            .peer_approve(own.clone(), new_wire.clone(), approval.id)
+            .is_err()
+    );
+    assert!(
+        alice
+            .peer_pin(
+                own.clone(),
+                new_wire.clone(),
+                changed.id,
+                "replace".into(),
+                new_fp.clone(),
+                "00".repeat(32)
+            )
+            .is_err()
+    );
+    let changed = alice
+        .peer_view(own.clone(), "bob".into(), new_wire.clone())
+        .unwrap();
+    let replaced = alice
+        .peer_pin(
+            own.clone(),
+            new_wire.clone(),
+            changed.id,
+            "replace".into(),
+            new_fp.clone(),
+            old_fp,
+        )
+        .unwrap();
+    let status: serde_json::Value = serde_json::from_str(&replaced.status_json).unwrap();
+    assert_eq!(status["trust"], "verified");
+    assert_eq!(status["devices"][0]["approved"], false);
+    alice.stop();
+    let fresh = open(path.path(), key);
+    let persisted = fresh.peer_view(own, "bob".into(), new_wire).unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&persisted.status_json).unwrap()["fingerprint"],
+        new_fp
+    );
+}
 #[test]
 fn origin_normalization_keeps_distinct_base_paths_and_rejects_credentials_or_queries() {
     let directory = tempfile::tempdir().unwrap();

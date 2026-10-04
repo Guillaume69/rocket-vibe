@@ -370,6 +370,10 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    reprise par reçu après réponse perdue. Le moteur vérifie les annuaires
    signés et mémorise le retrait local ; la cérémonie passe sur le vrai
    Keystore / ABI de l'émulateur et deux appareils Rust partagent une racine.
+   Les fiches utilisateur Android portent aussi le premier contact non vérifié,
+   la comparaison / remplacement de racine et l'aperçu / approbation séparés
+   des appareils. Les pins privés et retraits persistants sont partagés avec
+   le moteur de groupe ; ces écrans ne publient ni package ni admission.
    Renouvellement, récupération / révocation visibles, actions privées et
    raccordement groupes / conversations mobile restent ouverts ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.

@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, sync::Arc};
 
 const RECORD: &str = "crypto-enrollment-ui-v1";
+pub mod peers;
 const LIFETIME: u64 = 86400 * 30;
 #[derive(thiserror::Error)]
 pub enum Error {
@@ -54,6 +55,7 @@ fn private<T>(
 
 /// Complete signed public directory. Its constructor validates every proof;
 /// deserialization cannot create an already verified observation.
+#[derive(Clone)]
 pub struct Directory {
     wire: http::Directory,
     account: crate::installation::Account,

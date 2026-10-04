@@ -600,6 +600,9 @@ mod admission;
 
 #[path = "changes_tests.rs"]
 mod changes;
+#[cfg(feature = "native-http")]
+#[path = "delivery_tests.rs"]
+mod delivery_tests;
 #[path = "incoming_tests.rs"]
 mod incoming_commits;
 #[path = "wire_tests.rs"]

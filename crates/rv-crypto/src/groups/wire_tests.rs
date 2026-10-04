@@ -2,7 +2,7 @@ use super::incoming_commits as incoming;
 use super::*;
 use rv_protocol::e2ee as http;
 
-fn observation(value: &Roster, head: Option<&Receipt>) -> http::GroupRoster {
+pub(super) fn observation(value: &Roster, head: Option<&Receipt>) -> http::GroupRoster {
     http::GroupRoster {
         scope: http::Scope {
             instance_id: value.scope.instance.clone(),
@@ -22,7 +22,7 @@ fn observation(value: &Roster, head: Option<&Receipt>) -> http::GroupRoster {
         group: head.map(|h| h.to_wire().unwrap()),
     }
 }
-fn available(account: &Account) -> http::AvailableKeyPackage {
+pub(super) fn available(account: &Account) -> http::AvailableKeyPackage {
     let bytes = account.package();
     let provider = OpenMlsRustCrypto::default();
     let package = KeyPackageIn::tls_deserialize_exact(&bytes)

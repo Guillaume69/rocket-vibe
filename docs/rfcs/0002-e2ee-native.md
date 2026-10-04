@@ -273,8 +273,12 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    feuille et outbox conservant le commit original jusqu'au reçu exact livrés.
    Conversions HTTP contrôlées via DTOs partagés, en-têtes / métadonnées de
    packages reliés au vrai TLS, encodages / entiers canoniques et pages chaînées
-   livrés ; réponses du SDK bornées avant le JSON. Ordonnanceur connecté et
-   réconciliation des refus encore ouverts.
+   livrés ; réponses du SDK bornées avant le JSON. Worker HTTP asynchrone
+   optionnel : scope courant contrôlé, tâches privées possédées, reçu recherché
+   avant renvoi original, cooldown durable et preview / confirmation des
+   événements livrés. Banc HTTP à fixture avec vrai MLS / coffre réussi ;
+   banc combiné contre PostgreSQL, publication réseau des packages,
+   planification dans les fournisseurs et réconciliation des refus ouverts.
    Rattrapage complet à travers les adhésions et livraison des messages
    chiffrés restent ouverts ;
    aucune capacité activée.

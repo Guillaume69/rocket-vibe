@@ -106,8 +106,8 @@ jobs:
             native-crypto-${{ runner.os }}-${{ hashFiles('crates/rv-crypto/Cargo.lock') }}-
             native-crypto-${{ runner.os }}-
       - run: cargo fmt --manifest-path crates/rv-crypto/Cargo.toml -- --check
-      - run: cargo clippy --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore --target-dir target/native-crypto --all-targets -- -D warnings
-      - run: cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore --target-dir target/native-crypto
+      - run: cargo clippy --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore,native-http --target-dir target/native-crypto --all-targets -- -D warnings
+      - run: cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore,native-http --target-dir target/native-crypto
       - run: cargo build --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore --target-dir target/native-crypto --example protected_smoke
       - name: Real Linux Secret Service, restart and forced process termination
         if: runner.os == 'Linux'

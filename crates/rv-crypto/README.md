@@ -100,7 +100,8 @@ effacer les copies d'un SSD, du WAL ou d'une sauvegarde. La politique de clés
 J4. [Exigences du stockage OpenMLS](https://book.openmls.tech/user_manual/persistence.html).
 
 MLS n'est pas l'archive récupérable demandée par la RFC. Cette crate ne fournit
-encore ni raccordement HTTP, ni archive / fichiers, ni pont Android. Le module
+encore ni archive / fichiers, ni pont Android. Le worker HTTP optionnel demeure
+expérimental et n'est pas raccordé aux applications. Le module
 [`identity`](IDENTITY.md) fournit racines Ed25519, certificats, pins / confirmations
 explicites et révocations ; la cérémonie de nouvel appareil, la récupération
 et la politique d'admission de salon restent à intégrer. Le parcours interne
@@ -161,7 +162,12 @@ La [frontière HTTP](GROUP_HTTP.md) convertit maintenant roster / packages /
 préparations / reçus / admissions / successeurs via les DTOs partagés, avec
 encodages canoniques, révisions exactes, digests et chaînage des pages vérifiés.
 Les conversions n'accordent aucune confiance ni permission d'envoyer. Le SDK
-borne les réponses crypto avant le JSON ; l'ordonnanceur connecté reste à intégrer.
+borne les réponses crypto avant le JSON. La feature `native-http` fournit un
+worker asynchrone : scope du compte / appareil vérifié, travail privé possédé,
+reçu consulté avant renvoi original et cooldown POST durable après recréation.
+Admission / successeur exigent leur preview et confirmation avec roster courant.
+Le banc HTTP utilise une fixture déterministe avec le vrai MLS / coffre ; le
+banc combiné contre PostgreSQL et la planification dans les apps restent ouverts.
 
 Réception des messages, rattrapage complet
 et politique de chaque envoi, transport et ponts vers les apps restent ouverts ; E2EE demeure

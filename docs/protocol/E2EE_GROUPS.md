@@ -205,6 +205,18 @@ Le SDK Rust refuse également succès et erreurs crypto dépassant 4 Mio, avant
 JSON et même en chunks. Six tests de conversion, quatre tests réseau de limite
 et les 14 scénarios de routes PostgreSQL passent. Suite privée : 96 réussis.
 
+La feature privée `native-http` ajoute un worker asynchrone au-dessus du SDK :
+identité / génération / session courante vérifiées, crypto dans des tâches
+possédées, reçu recherché avant POST original et cooldown durable. Réception
+de page puis preview / confirmation restent distinctes avec roster courant.
+Cinq scénarios HTTP à fixture déterministe exercent le vrai MLS / coffre, dont
+réponses de genèse / rotation perdues, mêmes nouveaux secrets chez le pair,
+reçu divergent, changement d'activation, recréation après 429 et arrêt partagé.
+Suite complète initiale : 100 succès ; les cinq scénarios sont revérifiés
+après ajout de la rotation. Le banc combiné worker / serveur / PostgreSQL,
+la publication réseau des packages et la planification dans les fournisseurs
+restent ouverts. Aucune capacité E2EE n'est activée.
+
 Les limites se cumulent : 128 membres, 256 appareils, index MLS ≤ 4 095,
 preuve ≤ 256 Kio, arbre / commit / Welcome individuel ≤ 1 Mio, charges opaques
 cumulées ≤ 2 Mio et requête HTTP ≤ 4 Mio. Une page comporte au plus 16 événements

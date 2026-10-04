@@ -315,6 +315,27 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
 
+- P19 / J4, worker HTTP privé expérimental (4 octobre 2026) : feature
+  optionnelle `native-http` utilisant le SDK existant. Instance / génération,
+  compte et unique session courante vérifiés ; clones arrêtés ensemble,
+  travail privé possédé hors réseau. Reçu recherché avant retry exact de
+  genèse / successeur ou lot de packages, outbox conservée après réponse
+  perdue / refus, fusion au reçu exact. Délai POST 429 sauvegardé dans le
+  coffre et respecté après recréation, GET de reçu toujours disponible.
+  Réception depuis le reçu local, validation de page puis preview /
+  confirmation avec roster de nouveau observé. Suite complète initiale :
+  100 succès en 45,17 s, plus enfant de crash exécuté par son parent ; cinq
+  parcours HTTP ciblés revérifiés après ajout de la rotation perdue, avec
+  égalité des nouveaux secrets du pair et aucun POST supplémentaire à la
+  réconciliation. Formatage / Clippy strict passent. Ces parcours utilisent
+  une fixture réseau déterministe, le vrai MLS et les coffres sur disque ;
+  banc combiné worker / serveur / PostgreSQL et publication réseau des
+  packages encore ouverts. Planification dans les apps, refus définitifs,
+  rattrapage complet / retrait / retour, messages, pont Android, archives /
+  fichiers / import, qualifications et revue restent ouverts. Capacité E2EE
+  désactivée. CI étendue à cette feature sur les trois OS ; la CI du lot
+  précédent `37167174920` est entièrement verte, y compris GTK / Swift / Windows.
+
 - P19 / J4, frontière HTTP du coordinateur (4 octobre 2026) : les DTOs partagés
   portent maintenant genèse / changement, packages, préparation originale,
   reçu et événement vers / depuis le coffre. Scope / roster / nonces contrôlés,
@@ -327,7 +348,7 @@ les parcours Android / bureau et les garanties restantes ci-dessus.
   complète du coffre : 96 réussis, plus enfant de crash exécuté par son parent,
   en 43,66 secondes. Chaînage final revérifié par les six tests ciblés ; fmt /
   Clippy strict passent. La CI de préparation `37165856413` est entièrement
-  verte sur les trois OS ; CI de ce lot suivie après publication.
+  verte sur les trois OS ; CI de ce lot `37167174920` entièrement verte.
   Ordonnanceur connecté / refus / rattrapage complet, retrait local / retour,
   messages chiffrés, pont Android / apps, archives / fichiers / import et
   qualifications / revue restent ouverts. Capacité E2EE désactivée.

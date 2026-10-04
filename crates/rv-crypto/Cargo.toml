@@ -8,6 +8,7 @@ publish = false
 
 [features]
 system-keystore = ["dep:keyring"]
+native-http = ["dep:rv-client", "dep:tokio"]
 
 [[example]]
 name = "protected_smoke"
@@ -16,6 +17,8 @@ required-features = ["system-keystore"]
 [dependencies]
 rv-crypto-public = { path = "../rv-crypto-public" }
 rv-protocol = { path = "../rv-protocol" }
+rv-client = { path = "../rv-client", optional = true }
+tokio = { version = "1", optional = true, features = ["rt-multi-thread", "sync", "macros"] }
 chacha20poly1305 = "=0.10.1"
 data-encoding = "2"
 ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["std", "fast", "zeroize"] }

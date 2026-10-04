@@ -1072,7 +1072,8 @@ impl Coordinator {
             save(records, &state)
         })
     }
-    pub fn ready_epoch(&self, room: &str) -> Result<u64> {
+    /// Accepted local head for catchup/reconciliation, never permission to send.
+    pub fn accepted_receipt(&self, room: &str) -> Result<Receipt> {
         self.inspect(|provider, records| {
             let state = read(records, room)?.ok_or(Error::NotReady)?;
             self.scope(&state.scope)?;
@@ -1084,8 +1085,11 @@ impl Coordinator {
             .map_err(|_| Error::Mls)?
             .ok_or(Error::Changed)?;
             check_actual(group.public_group(), &active.transition.plan)?;
-            Ok(group.epoch().as_u64())
+            Ok(active.receipt)
         })
+    }
+    pub fn ready_epoch(&self, room: &str) -> Result<u64> {
+        self.accepted_receipt(room).map(|receipt| receipt.epoch)
     }
 }
 fn check_admission(admission: &Admission) -> Result<(Transition, Fingerprint)> {

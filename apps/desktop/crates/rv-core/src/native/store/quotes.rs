@@ -13,6 +13,54 @@ pub struct QuoteSelection {
     pub membership_version: String,
 }
 
+pub struct PublicQuoteSource {
+    pub id: String,
+    pub excerpt: QuoteExcerpt,
+}
+pub struct PublicQuoteSources {
+    pub membership: String,
+    pub messages: Vec<PublicQuoteSource>,
+}
+/// Only ordinary source rows may cross into a volatile encrypted reader.
+pub(super) fn public_sources(
+    conn: &Connection,
+    rid: &str,
+    ids: &[String],
+) -> rusqlite::Result<Option<PublicQuoteSources>> {
+    // At most 265 rendered rows, eight sources and eight children per source.
+    if !identifier(rid) || ids.len() > 20_000 || ids.iter().any(|id| !identifier(id)) {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    let room: Option<String> =
+        conn.query_row("SELECT payload FROM native_rooms WHERE id=?1", [rid], |r| r.get(0)).optional()?;
+    let Some(room) = room else { return Ok(None) };
+    let room: Room = serde_json::from_str(&room).map_err(|_| rusqlite::Error::InvalidQuery)?;
+    if room.encrypted {
+        return Ok(None);
+    }
+    let Some(membership) = read_states::state_in(conn, rid)?.and_then(|s| s.membership_version) else {
+        return Ok(None);
+    };
+    let mut query = conn.prepare(
+        "SELECT payload FROM native_quote_sources WHERE id=?1 AND rid=?2 AND membership=?3 AND payload IS NOT NULL",
+    )?;
+    let mut messages = Vec::new();
+    for id in ids {
+        let value: Option<String> = query.query_row(params![id, rid, membership], |r| r.get(0)).optional()?;
+        if let Some(value) = value {
+            let excerpt: QuoteExcerpt = serde_json::from_str(&value).map_err(|_| rusqlite::Error::InvalidQuery)?;
+            if excerpt.membership_version != membership
+                || position(&excerpt.revision)? == 0
+                || excerpt.text.chars().count() > 1024
+            {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+            messages.push(PublicQuoteSource { id: id.clone(), excerpt });
+        }
+    }
+    Ok(Some(PublicQuoteSources { membership, messages }))
+}
+
 pub(super) fn selection(
     conn: &Connection,
     identity: &Identity,

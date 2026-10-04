@@ -1,7 +1,7 @@
 import type {CryptoConversationBridge} from '../../modules/crypto-native/index.ts';
 import {CryptoGroupAccess,type CryptoRoomAction} from './cryptoGroups.ts';
 import type {ApplicationReceipt,ApplicationSettlement,ApplicationSubmission,DeliveryPage,GroupRoster,GroupState,SendMessage} from './protocol.generated.ts';
-import type {NativeQuoteAttachment,NativeQuoteSelection} from './quotes.ts';
+import type {NativeQuoteAttachment,NativeQuoteSelection,PublicQuoteSources} from './quotes.ts';
 import {privateQuoteCards,type PrivateQuoteSelection,type PrivateQuotePreview,type PrivateQuoteRoom} from './cryptoQuotes.ts';
 import {NativeError} from './transport.ts';
 import {decodeNative} from './validation.ts';
@@ -15,7 +15,7 @@ export type ConversationTransport={
   cancelCryptoMessage:(room:string,input:ApplicationSubmission)=>Promise<ApplicationSettlement>;
 };
 export type CryptoMessage={id:string;operation:string;author:string;document:SendMessage;position:string|null;
-  observed_at:string;status:'journaled'|'pending'|'accepted'|'cancelling'|'cancelled'};
+  author_label?:string;observed_at:string;status:'journaled'|'pending'|'accepted'|'cancelling'|'cancelled'};
 export type CryptoConversationView={admission:string;after:string;catching_up:boolean;has_older:boolean;can_send:boolean;draft:string;messages:CryptoMessage[];
   root:CryptoMessage|null;retained_replies:Record<string,number>;quote_cards?:Record<string,NativeQuoteAttachment[]>};
 const id=(v:unknown):v is string=>typeof v==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(v);
@@ -67,14 +67,26 @@ export class CryptoConversationAccess {
   private draftQueue:Promise<void>=Promise.resolve();
   private readonly membership:string|null;
   private readonly sourceMembership:(room:string)=>Promise<string|null>;
+  private readonly publicSources:(room:string,ids:readonly string[])=>Promise<PublicQuoteSources|null>;
   constructor(groups:CryptoGroupAccess,bridge:CryptoConversationBridge,remote:ConversationTransport,room:string,thread:string|null=null,
-    membership:string|null=null,sourceMembership:(room:string)=>Promise<string|null>=async()=>null) {
+    membership:string|null=null,sourceMembership:(room:string)=>Promise<string|null>=async()=>null,
+    publicSources:(room:string,ids:readonly string[])=>Promise<PublicQuoteSources|null>=async()=>null) {
     this.groups=groups;this.bridge=bridge;this.remote=remote;this.room=room;this.thread=thread;
     this.membership=membership;this.sourceMembership=sourceMembership;
+    this.publicSources=publicSources;
   }
   private async source(room:string,rpc:Parameters<CryptoRoomAction<void>>[0],peers:Parameters<CryptoRoomAction<void>>[2],
-    scope:Parameters<CryptoRoomAction<void>>[3],call:Parameters<CryptoRoomAction<void>>[4]):Promise<PrivateQuoteRoom|null> {
+    scope:Parameters<CryptoRoomAction<void>>[3],call:Parameters<CryptoRoomAction<void>>[4],ids:readonly string[]=[]):Promise<PrivateQuoteRoom|null> {
     if(!id(room))integrity();
+    const clear=await call(()=>this.publicSources(room,ids));
+    if(clear) {
+      // Card-only adaptation: these are ordinary reader-authorized excerpts,
+      // never protected journal records or authority to prepare an MLS source.
+      const messages:CryptoMessage[]=clear.messages.map(({id,excerpt})=>({id,operation:id,author:excerpt.author.id,author_label:excerpt.author.username,
+        document:{operation_id:id,text:excerpt.text,quotes:excerpt.references??[],reply_to:null,cards:[]},
+        position:excerpt.revision,observed_at:'0',status:'journaled'}));
+      return {room,membership:clear.membership,admission:null,messages,observation:null};
+    }
     const membership=await this.sourceMembership(room);if(membership===null)return null;
     try {
       const roster=decodeNative('GroupRoster',await call(()=>this.remote.cryptoGroupRoster(room)));
@@ -99,12 +111,18 @@ export class CryptoConversationAccess {
     let refs=rows.flatMap(m=>m.document.quotes??[]);
     if(!refs.length)return view;
     const sources=new Map<string,PrivateQuoteRoom|null>();
+    const requested=new Map<string,Set<string>>();
     for(let depth=0;depth<2;depth++) {
-      for(const room of new Set(refs.map(r=>r.room_id)))if(!sources.has(room))sources.set(room,await this.source(room,rpc,peers,scope,call));
+      const changed=new Set<string>();
+      for(const r of refs) {
+        if(!requested.has(r.room_id))requested.set(r.room_id,new Set());
+        const ids=requested.get(r.room_id)!;if(!ids.has(r.message_id)){ids.add(r.message_id);changed.add(r.room_id);}
+      }
+      for(const room of changed)sources.set(room,await this.source(room,rpc,peers,scope,call,[...requested.get(room)!]));
       if(depth===0)refs=refs.flatMap(r=>sources.get(r.room_id)?.messages.find(m=>m.id===r.message_id)?.document.quotes??[]);
     }
     for(const [room,old] of sources)if(old) {
-      const fresh=await this.source(room,rpc,peers,scope,call);
+      const fresh=await this.source(room,rpc,peers,scope,call,[...requested.get(room)!]);
       sources.set(room,fresh?.membership===old.membership && fresh.admission===old.admission?fresh:null);
     }
     const own=sources.has(this.room)?sources.get(this.room):await this.source(this.room,rpc,peers,scope,call);
@@ -205,7 +223,7 @@ export class CryptoConversationAccess {
           || !source.messages.some(m=>m.id===q.reference.message_id && m.position===q.reference.revision))integrity();
       }
       for(const source of sources)if(await this.sourceMembership(source.room)!==source.membership)integrity();
-      const prepared=object(await rpc({action:'prepare',text,quotes:selected,sources:sources.filter(s=>s.room!==this.room).map(s=>s.observation)}));if(!id(prepared.operation))integrity();
+      const prepared=object(await rpc({action:'prepare',text,quotes:selected,sources:sources.filter(s=>s.room!==this.room && s.observation!==null).map(s=>s.observation)}));if(!id(prepared.operation))integrity();
       // Once prepared, an uncertain HTTP result leaves this exact intention in
       // the private outbox. A retry never prepares a second ciphertext.
       try {await this.resumeInner(prepared.operation,rpc,call);}

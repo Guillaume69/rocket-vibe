@@ -25,6 +25,8 @@ pub struct NativePrivateQuoteSelection {
     pub instance: String,
     pub data_epoch: String,
     pub membership: String,
+    /// Empty for an ordinary source; exactly 32 bytes for a protected source.
+    /// The shared SDK checks the source type, membership and revision again.
     pub admission: Vec<u8>,
 }
 #[derive(Clone, uniffi::Record)]
@@ -42,7 +44,7 @@ fn preview(value: messages::QuotePreview, username: &str) -> NativePrivateQuoteP
             instance: selected.instance,
             data_epoch: selected.data_epoch,
             membership: selected.membership,
-            admission: selected.admission.to_vec(),
+            admission: selected.admission.map(|a| a.to_vec()).unwrap_or_default(),
         },
         quote: crate::model::quote(
             rv_core::content::Quote {
@@ -69,10 +71,16 @@ fn selection(value: NativePrivateQuoteSelection) -> Result<messages::QuoteSelect
         instance: value.instance,
         data_epoch: value.data_epoch,
         membership: value.membership,
-        admission: value
-            .admission
-            .try_into()
-            .map_err(|_| RvError::Local { message: "crypto_quote_unavailable".into() })?,
+        admission: if value.admission.is_empty() {
+            None
+        } else {
+            Some(
+                value
+                    .admission
+                    .try_into()
+                    .map_err(|_| RvError::Local { message: "crypto_quote_unavailable".into() })?,
+            )
+        },
     })
 }
 #[derive(Clone, uniffi::Record)]
@@ -186,6 +194,17 @@ impl NativeCryptoMessages {
     }
     pub fn cancel_quote(&self) {
         self.access.cancel_quote();
+    }
+    pub async fn select_source_quote(
+        &self,
+        room_id: String,
+        message_id: String,
+    ) -> Result<NativePrivateQuotePreview, RvError> {
+        let access = self.access.clone();
+        let value =
+            on_tokio(async move { access.select_source_quote(room_id, message_id).await }).await.map_err(error)?;
+        self.access.check().map_err(error)?;
+        Ok(preview(value, &self.username))
     }
     pub async fn send_quotes(
         &self,

@@ -518,21 +518,57 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     assert_eq!(selected.selection.reference.revision, "9007199254740994");
     assert_eq!(selected.text, "private-message-cleartext thread draft");
     assert!(thread.select_source_quote("unseen-room".into(), "private-message-2".into()).await.is_err());
+    let mut public_room = room();
+    public_room.id = "plain-origin".into();
+    let mut read = pilot.session.store.read_state("room").unwrap().unwrap();
+    read.room_id = public_room.id.clone();
+    read.membership_version = Some("plain-membership".into());
+    public_room.read_state = Some(Box::new(read));
+    let fixture: Value = serde_json::from_str(include_str!("../../../../../../docs/protocol/v1.fixture.json")).unwrap();
+    let mut clear_message: rv_protocol::Message = serde_json::from_value(fixture["message"].clone()).unwrap();
+    clear_message.id = "plain-source".into();
+    clear_message.room_id = public_room.id.clone();
+    clear_message.text = "Ordinary source words".into();
+    clear_message.position = "10".into();
+    clear_message.revision = "10".into();
+    clear_message.quotes = vec![rv_protocol::MessageQuote {
+        reference: selected.selection.reference.clone(),
+        excerpt: None,
+        view_position: "10".into(),
+        source_membership_version: Some("private-membership".into()),
+    }];
+    pilot
+        .session
+        .store
+        .batch(&rv_protocol::SyncBatch {
+            protocol_version: 1,
+            cursor: "plain-source".into(),
+            has_more: false,
+            changes: vec![
+                rv_protocol::Change::RoomUpsert(public_room),
+                rv_protocol::Change::MessageUpsert(clear_message.clone()),
+            ],
+        })
+        .unwrap();
+    let clear_selection = reopened.select_source_quote("plain-origin".into(), "plain-source".into()).await.unwrap();
+    assert!(clear_selection.selection.admission.is_none());
+    assert_eq!(clear_selection.text, "Ordinary source words");
     let quoted = rv_protocol::SendMessage {
         operation_id: "private-quote-one".into(),
         text: String::new(),
         reply_to: None,
-        quotes: vec![selected.selection.reference.clone()],
+        quotes: vec![selected.selection.reference.clone(), clear_selection.selection.reference.clone()],
         cards: vec![],
     };
     assert!(reopened.send(quoted.clone()).await.is_err(), "references require a current private selection");
-    for field in 0..4 {
+    for field in 0..5 {
         let mut stale = selected.selection.clone();
         match field {
             0 => stale.membership.push('x'),
-            1 => stale.admission[0] ^= 1,
+            1 => stale.admission.as_mut().unwrap()[0] ^= 1,
             2 => stale.instance.push('x'),
-            _ => stale.reference.revision = "9007199254740995".into(),
+            3 => stale.reference.revision = "9007199254740995".into(),
+            _ => stale.admission = None,
         }
         let mut invalid = quoted.clone();
         invalid.quotes = vec![stale.reference.clone()];
@@ -540,7 +576,12 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     }
     assert_eq!(book.lock().unwrap().message_posts, 2);
     book.lock().unwrap().lose_message_reply = true;
-    assert!(reopened.send_selected(quoted, vec![selected.selection.clone()]).await.is_err());
+    assert!(
+        reopened
+            .send_selected(quoted, vec![selected.selection.clone(), clear_selection.selection.clone()])
+            .await
+            .is_err()
+    );
     assert_eq!(book.lock().unwrap().message_posts, 3);
     reopened.close();
     let reopened = message_settings(&pilot).await.messages("room".into(), None).await.unwrap();
@@ -549,11 +590,38 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     assert_eq!(book.lock().unwrap().message_posts, 3, "quoted original resumes by receipt GET");
     let view = reopened.refresh(None, 50).await.unwrap();
     let quote = view.messages.iter().find(|m| m.operation == "private-quote-one").unwrap();
-    assert_eq!(quote.quotes, vec![selected.selection.reference]);
+    assert_eq!(quote.quotes, vec![selected.selection.reference, clear_selection.selection.reference]);
     assert_eq!(quote.row.text.as_deref(), Some(""));
     let cards: serde_json::Value = serde_json::from_str(quote.row.attachments.as_ref().unwrap()).unwrap();
     assert_eq!(cards[0]["text"], "private-message-cleartext thread draft");
     assert_eq!(cards[0]["native_unavailable"], false);
+    assert_eq!(cards[1]["text"], "Ordinary source words");
+    assert_eq!(cards[1]["attachments"][0]["text"], "private-message-cleartext thread draft");
+    clear_message.text = "Updated ordinary source words".into();
+    clear_message.revision = "11".into();
+    clear_message.position = "11".into();
+    pilot.session.store.ingest(&[clear_message]).unwrap();
+    let refreshed = reopened.refresh(None, 50).await.unwrap();
+    let row = refreshed.messages.iter().find(|m| m.operation == "private-quote-one").unwrap();
+    let cards: Value = serde_json::from_str(row.row.attachments.as_ref().unwrap()).unwrap();
+    assert_eq!(cards[1]["text"], "Updated ordinary source words");
+    pilot
+        .session
+        .store
+        .batch(&rv_protocol::SyncBatch {
+            protocol_version: 1,
+            cursor: "plain-withdrawn".into(),
+            has_more: false,
+            changes: vec![rv_protocol::Change::RoomRemoved { room_id: "plain-origin".into() }],
+        })
+        .unwrap();
+    assert!(reopened.refresh(None, 50).await.is_err(), "a source withdrawal invalidates the old public projection");
+    let reopened = message_settings(&pilot).await.messages("room".into(), None).await.unwrap();
+    let refreshed = reopened.refresh(None, 50).await.unwrap();
+    let row = refreshed.messages.iter().find(|m| m.operation == "private-quote-one").unwrap();
+    let cards: Value = serde_json::from_str(row.row.attachments.as_ref().unwrap()).unwrap();
+    assert_eq!(cards[1]["native_unavailable"], true);
+    assert!(cards[1].get("attachments").is_none());
     let selected = reopened.select_quote("private-message-3".into()).await.unwrap();
     assert!(selected.text.is_empty(), "quote-only sources do not copy their children's words");
     assert!(reopened.refresh(None, 50).await.unwrap().selected_quote.is_some());

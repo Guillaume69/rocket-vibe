@@ -7,6 +7,16 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Lecture de citations mixtes dans les salons chiffrés
+
+- Les cartes privées existantes lisent aussi les sources en clair de leur
+  cache, avec vérification de l’adhésion et du statut non chiffré du salon.
+  Édition ou retrait actualisent l’extrait ; une ancienne adhésion et les
+  lignes ordinaires d’un salon devenu chiffré ne peuvent le rétablir.
+- Les descendants chiffrés sont reconstruits dans la vue volatile, sans copie
+  de leurs mots dans SQLite. La composition de références en clair dans un
+  envoi MLS Android et l’affichage dans un salon ordinaire restent à raccorder.
+
 ### Citations chiffrées RocketVibe sur Android
 
 - Le menu et le bandeau de réponse existants citent un message privé conservé,

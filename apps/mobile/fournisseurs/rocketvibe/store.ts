@@ -674,6 +674,9 @@ export class NativeStore {
   quoteSelection(rid:string,id:string):Promise<NativeQuoteSelection> {
     return this.queue(async()=>{if(!await this.sameGeneration())throw new Error('Native quote generation unavailable');return this.quotes.selection(rid,id);});
   }
+  publicQuoteSources(rid:string,ids:readonly string[]):Promise<import('./quotes.ts').PublicQuoteSources|null> {
+    return this.queue(async()=>await this.sameGeneration()?this.quotes.publicSources(rid,ids):null);
+  }
   enqueue(id: string, rid: string, text: string,scope?:{membership:string|null},selected:readonly NativeQuoteSelection[]=[],replyTo?:string|null): Promise<void> {
     return this.atomic(async () => {
       if (!await this.sameGeneration() || !await this.db.getFirstAsync('SELECT rid FROM salons WHERE rid=?', [rid])) throw new Error('Room unavailable in this generation');

@@ -35,6 +35,21 @@ async function cards(h:ReturnType<typeof setup>):Promise<NativeQuoteAttachment[]
 async function unavailable(h:ReturnType<typeof setup>) {
   const values=await cards(h);assert.equal(values.length,1);assert.equal(values[0].native_unavailable,true);assert.equal(values[0].text,'');assert.equal(values[0].author_name,undefined);
 }
+
+test('ordinary source lookup cannot expose an encrypted room or an excerpt from an old membership',async()=>{
+  const h=setup();try {
+    await h.store.applySnapshot(initial());
+    const source=await h.store.publicQuoteSources('origin',['source']);
+    assert.equal(source?.membership,'source-grant');assert.equal(source?.messages[0].excerpt.revision,'10');
+    assert.deepEqual((await h.store.publicQuoteSources('destination',['source']))?.messages,[]);
+    await h.store.applyBatch(batch([{type:'room_upsert',data:{...room('origin','2','source-grant'),encrypted:true}}]));
+    assert.equal(await h.store.publicQuoteSources('origin',['source']),null);
+    await h.store.applyBatch(batch([{type:'room_upsert',data:room('origin','3','new-grant')} ]));
+    assert.deepEqual((await h.store.publicQuoteSources('origin',['source']))?.messages,[]);
+    await h.store.applyBatch(batch([{type:'room_removed',data:{room_id:'origin'}}]));
+    assert.equal(await h.store.publicQuoteSources('origin',['source']),null);
+  }finally{h.db.close();}
+});
 function batch(changes:SyncBatch['changes']):SyncBatch {return {protocol_version:1,changes,cursor:'next',has_more:false};}
 
 test('quoted files work without fabricated source history and disappear with source deletion or grant loss',async()=>{

@@ -74,6 +74,38 @@ fn store() -> NativeStore {
 }
 
 #[test]
+fn ordinary_quote_sources_are_reader_scoped_and_never_return_rows_of_encrypted_rooms() {
+    let store = store();
+    let ids = vec!["source".into()];
+    let source = store.public_quote_sources("origin", &ids).unwrap().unwrap();
+    assert_eq!(source.membership, "source-grant");
+    assert_eq!(source.messages[0].excerpt.revision, "10");
+    assert!(store.public_quote_sources("destination", &ids).unwrap().unwrap().messages.is_empty());
+    let mut encrypted = room("origin", "2", "source-grant");
+    encrypted.encrypted = true;
+    store
+        .batch(&SyncBatch {
+            protocol_version: 1,
+            cursor: "ciphered".into(),
+            has_more: false,
+            changes: vec![Change::RoomUpsert(encrypted)],
+        })
+        .unwrap();
+    assert!(store.public_quote_sources("origin", &ids).unwrap().is_none(), "old ordinary rows are not private sources");
+    store
+        .batch(&SyncBatch {
+            protocol_version: 1,
+            cursor: "rejoined".into(),
+            has_more: false,
+            changes: vec![Change::RoomUpsert(room("origin", "3", "new-grant"))],
+        })
+        .unwrap();
+    assert!(store.public_quote_sources("origin", &ids).unwrap().unwrap().messages.is_empty());
+    store.clear().unwrap();
+    assert!(store.public_quote_sources("origin", &ids).unwrap().is_none());
+}
+
+#[test]
 fn nested_cards_use_each_grant_and_parents_keep_no_private_descendant_copy() {
     let store = NativeStore::open(Path::new(":memory:"), identity("epoch")).unwrap();
     let mut snapshot = initial();

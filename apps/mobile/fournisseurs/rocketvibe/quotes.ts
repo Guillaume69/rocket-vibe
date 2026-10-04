@@ -9,6 +9,7 @@ import {fileDescriptor,nativeFileAttachments} from './fileDescriptors.ts';
 type SourceRow={rid:string;membership:string|null;view_position:string;payload:string|null};
 export type NativeQuoteAttachment={message_link:string;native_reference:QuoteReference;native_unavailable:boolean;text:string;author_name?:string;attachments?:(NativeQuoteAttachment|Record<string,unknown>)[]};
 export type NativeQuoteSelection={reference:QuoteReference;instance_id:string;data_epoch:string;membership_version:string;crypto_admission?:string};
+export type PublicQuoteSources={membership:string;messages:{id:string;excerpt:QuoteExcerpt}[]};
 function position(value:string):bigint {
   const n=readDecimal(value);
   if(n>9223372036854775807n)throw new Error('Invalid native quote position');
@@ -24,6 +25,23 @@ export class NativeQuoteCache {
     const grant=await this.membership(rid);
     if(!row || grant===null || !roomIdentifier(id) || !roomIdentifier(rid) || position(row.revision)===0n)throw new Error('Native quote source unavailable');
     return {reference:{message_id:id,room_id:rid,revision:row.revision},...this.identity,membership_version:grant};
+  }
+  async publicSources(rid:string,ids:readonly string[]):Promise<PublicQuoteSources|null> {
+    if(!roomIdentifier(rid) || ids.length>20000 || ids.some(id=>!roomIdentifier(id)))throw Error('Invalid native quote source window');
+    const room=await this.db.getFirstAsync<{chiffre:number}>('SELECT chiffre FROM salons WHERE rid=?',[rid]);
+    if(!room || room.chiffre!==0)return null;
+    const membership=await this.membership(rid);if(membership===null)return null;
+    const messages:PublicQuoteSources['messages']=[];
+    for(let offset=0;offset<ids.length;offset+=64) {
+      const selected=ids.slice(offset,offset+64);
+      const rows:{id:string;payload:string}[]=await this.db.getAllAsync<{id:string;payload:string}>(`SELECT id,payload FROM native_quote_sources WHERE rid=? AND membership=? AND payload IS NOT NULL AND id IN (${selected.map(()=>'?').join(',')})`,[rid,membership,...selected]);
+      for(const row of rows) {
+        const excerpt:QuoteExcerpt=decodeNative('QuoteExcerpt',JSON.parse(row.payload));
+        if(excerpt.membership_version!==membership || position(excerpt.revision)===0n || Array.from(excerpt.text).length>1024)throw Error('Invalid native quote source');
+        messages.push({id:row.id,excerpt});
+      }
+    }
+    return {membership,messages};
   }
   async enqueue(id:string,rid:string,selected:readonly NativeQuoteSelection[]):Promise<QuoteReference[]> {
     if(selected.length>8)throw new Error('Too many native quote references');

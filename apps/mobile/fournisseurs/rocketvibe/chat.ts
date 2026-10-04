@@ -620,7 +620,13 @@ export class NativeChat {
       this.roomOperationGeneration(generation);if(!visible() || projection!==this.store.projectionToken())throw new NativeError(0,'session_closed');
       return access?.encrypted?access.membership:null;
     };
-    return new CryptoConversationAccess(await this.cryptoGroup(bridge,room,membership,visible),bridge,this.transport,room,thread,membership,sourceMembership);
+    const publicSources=async(source:string,ids:readonly string[])=>{
+      this.roomOperationGeneration(generation);if(!visible() || projection!==this.store.projectionToken())throw new NativeError(0,'session_closed');
+      const result=await this.store.publicQuoteSources(source,ids);
+      this.roomOperationGeneration(generation);if(!visible() || projection!==this.store.projectionToken())throw new NativeError(0,'session_closed');
+      return result;
+    };
+    return new CryptoConversationAccess(await this.cryptoGroup(bridge,room,membership,visible),bridge,this.transport,room,thread,membership,sourceMembership,publicSources);
   }
   /** Capture the connected runner generation, never expose a raw transport to
    * a retained settings callback after logout, suspension or account switch. */

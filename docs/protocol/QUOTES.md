@@ -42,7 +42,32 @@ Une sélection portant une admission crypto est refusée par la file SQL
 ordinaire, avant toute écriture. Aucun texte privé ne transite dans les
 paramètres de navigation.
 
-Citations mêlant sources en clair et chiffrées, fichiers cités, sources
+### Sources en clair dans une conversation chiffrée
+
+Les lecteurs GTK / SwiftUI / Android réunissent maintenant les sources du
+coffre et les extraits ordinaires déjà conservés. La lecture ordinaire est
+bornée aux identifiants demandés, à la génération de cache et à l’adhésion
+actuelle ; le salon source doit être connu et non chiffré. Une ancienne ligne
+SQLite d’un salon devenu chiffré ne sert jamais de source privée. Les extraits
+du cache portent leur révision publique courante et seulement les références
+de leurs descendants. Les mots d’un descendant privé sont reconstruits dans
+la carte volatile depuis son propre coffre, jamais enregistrés dans ce parent.
+Relecture avant exposition, deux niveaux et cycles par salon / message
+restent appliqués. Source éditée : nouvel extrait ; source retirée ou d’une
+ancienne adhésion : parent indisponible et aucun descendant. Un retrait qui
+invalide la projection ferme la vue ; une nouvelle vue reconstruit les cartes.
+
+Le SDK bureau et UniFFI peuvent aussi sélectionner une source ordinaire pour
+un document MLS, après vérification de sa révision et de son adhésion. Seules
+ses références sont envoyées. La sélection distingue explicitement source
+ordinaire et admission protégée ; effacer l’admission d’une sélection privée
+ne la rend pas ordinaire. Après réponse perdue, le même ciphertext reste
+repris par reçu, même si la source a changé. Les sélecteurs intersalons dans
+les interfaces, la composition de références ordinaires sur Android et les
+cartes privées dans les salons ordinaires restent à raccorder. Ces parcours
+ne transmettent aucun extrait privé à d’autres membres.
+
+Parité complète des citations mixtes, fichiers cités, sources
 hors de la fenêtre retenue, évolution des révisions avec l'édition privée et
 qualification GUI installée restent ouverts. La capacité E2EE de production
 reste désactivée ; ce lot ne ferme ni P07 ni J4.

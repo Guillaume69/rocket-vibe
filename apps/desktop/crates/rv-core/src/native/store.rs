@@ -16,7 +16,7 @@ use super::Identity;
 pub use files::FileIntent;
 pub use notifications::{Notification, NotificationReply};
 pub use profiles::{AvatarUpload, DirectPeer, ProfileOperation, SavedProfileOperation};
-pub use quotes::QuoteSelection;
+pub use quotes::{PublicQuoteSources, QuoteSelection};
 pub use read_intents::{PendingRead, SavedFavorite};
 pub use room_access::RoomAccess;
 pub use room_operations::{RoomOperation, SavedRoomOperation};
@@ -834,6 +834,13 @@ impl NativeStore {
             return Err(rusqlite::Error::InvalidQuery);
         }
         quotes::selection(&conn, &self.identity, rid, id)
+    }
+    pub fn public_quote_sources(&self, rid: &str, ids: &[String]) -> rusqlite::Result<Option<PublicQuoteSources>> {
+        let conn = self.conn.lock().unwrap();
+        if !self.same(&conn)? {
+            return Ok(None);
+        }
+        quotes::public_sources(&conn, rid, ids)
     }
     pub fn enqueue_quoted(
         &self,

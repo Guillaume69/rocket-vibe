@@ -17,14 +17,15 @@ const ack=decodeNative('ApplicationReceipt',fixture.parity.e2ee_application_rece
 const state=decodeNative('GroupState',fixture.parity.e2ee_group_state);
 const scope:CryptoAccount={origin:'https://example.org',instance:packet.scope.instance_id,dataEpoch:packet.scope.data_epoch,user:'alice',device:'phone'};
 const fp='ab'.repeat(32);
-async function setup(thread:string|null=null) {
+async function setup(thread:string|null=null,mixed=false) {
   let current=scope,closed=false,readOnly=false,accepted=false,cancelling=false,cancelled=false,prepared=false,draft='';
   let posts=0,retries=0,prepares=0,cancels=0,nativeDrafts=0,scopeReads=0,admission=fp,lose=false;
   let membership:string|null='member';
   let sourceRetained=true,preparedText='private text';
+  let publicMembership:string|null='plain-grant',publicText='ordinary source words';
   let selectedQuotes: import('./protocol.generated.ts').QuoteReference[]=[];
   const source={id:'private-source',operation:'source-op',author:scope.user,
-    document:{operation_id:'source-op',text:'private quoted reply',reply_to:'source-root',quotes:[],cards:[]},position:'9007199254740993',observed_at:'1700000000',status:'journaled'};
+    document:{operation_id:'source-op',text:'private quoted reply',reply_to:'source-root',quotes:mixed?[{room_id:'plain-room',message_id:'plain-source',revision:'10'}]:[],cards:[]},position:'9007199254740993',observed_at:'1700000000',status:'journaled'};
   const forbidden=async()=>{throw Error('No identity, pin, group or plaintext SQL operation');};
   const roster={scope:packet.scope,room_id:ack.room_id,authority_version:'authority',members:[{user_id:scope.user,access_version:'access',activation_version:'active'}],group:state.receipt};
   const page={scope:packet.scope,room_id:ack.room_id,incarnation:state.receipt.incarnation,after:'0',through:'0',events:[],next:null};
@@ -69,11 +70,23 @@ async function setup(thread:string|null=null) {
       if(lose){lose=false;throw new NativeError(0,'network_or_protocol_error');}
       return {kind:'cancelled',data:{scope:ack.scope,room_id:ack.room_id,operation_id:ack.operation_id,header:ack.header,fingerprint:ack.fingerprint}};}};
   const group=new CryptoGroupAccess(identity,bridge,remote,ack.room_id,async mutation=>{if(mutation && readOnly)throw new NativeError(403,'room_access_denied');});
-  const access=new CryptoConversationAccess(group,bridge,remote,ack.room_id,thread,'member',async()=>membership);
+  const access=new CryptoConversationAccess(group,bridge,remote,ack.room_id,thread,'member',async room=>room===ack.room_id?membership:null,
+    async(room,ids)=>mixed && room==='plain-room' && publicMembership!==null?{membership:publicMembership,messages:ids.includes('plain-source')?[{id:'plain-source',excerpt:{author:{id:'bob',username:'bob',display_name:'Bob'},text:publicText,created_at:'2026-10-04T08:00:00Z',revision:'10',membership_version:publicMembership,references:[]}}]:[]}:null);
   return {access,remote,get posts(){return posts;},get retries(){return retries;},get prepares(){return prepares;},get cancels(){return cancels;},get nativeDrafts(){return nativeDrafts;},get scopeReads(){return scopeReads;},
     lose:()=>{lose=true;},readOnly:()=>{readOnly=true;},switchDevice:()=>{current={...scope,device:'replacement'};},changeAdmission:()=>{admission='cd'.repeat(32);},
-    wrongRoot:()=>{if(root)root={...root,id:'foreign-root'};},evictRoot:()=>{root=null;},evictSource:()=>{sourceRetained=false;},withdrawSource:()=>{membership=null;}};
+    wrongRoot:()=>{if(root)root={...root,id:'foreign-root'};},evictRoot:()=>{root=null;},evictSource:()=>{sourceRetained=false;},withdrawSource:()=>{membership=null;},
+    editPublic:()=>{publicText='edited ordinary words';},withdrawPublic:()=>{publicMembership=null;}};
 }
+
+test('an encrypted reader resolves mixed private and ordinary source cards without persisting private descendants',async()=>{
+  const f=await setup(null,true);await f.access.refresh();const selected=await f.access.selectQuote('private-source');
+  await f.access.send('',[selected.selection]);
+  const first=await f.access.refresh();assert.equal(first.quote_cards?.[packet.operation_id][0].attachments?.[0].text,'ordinary source words');
+  f.editPublic();const edited=await f.access.refresh();assert.equal(edited.quote_cards?.[packet.operation_id][0].attachments?.[0].text,'edited ordinary words');
+  f.withdrawPublic();const withdrawn=await f.access.refresh();const child=withdrawn.quote_cards?.[packet.operation_id][0].attachments?.[0];
+  assert.equal(child?.native_unavailable,true);assert.equal(child?.text,'');assert.equal(child?.author_name,undefined);
+  assert.equal(f.posts,1);assert.equal(f.prepares,1);
+});
 
 test('private quote-only send keeps typed references, masks evicted sources and resumes the accepted original',async()=>{
   const f=await setup();await f.access.refresh();const selected=await f.access.selectQuote('private-source');

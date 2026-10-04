@@ -3,7 +3,7 @@
 Date de lancement : 30 septembre 2026. Branche : `feature/rocketvibe-server`.
 Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 
-## État synthétique au 4 octobre 2026
+## État synthétique au 5 octobre 2026
 
 Conversations de texte, fils et citations privées raccordés aux interfaces
 GTK / SwiftUI / Android existantes : lecture du journal conservé dans le coffre,
@@ -142,6 +142,25 @@ commit ; l'envoi des artefacts a échoué sur un timeout GitHub et est relancé.
 La CI du lot courant reste à confirmer. Sources mixtes, autres actions /
 recherche, archives / fichiers privés, revue indépendante et qualification GUI
 installée restent ouverts. Aucun masque E2EE de production activé.
+
+Lecture mixte ajoutée aux cartes privées GTK / SwiftUI / Android : sources
+retenues du coffre et extraits en clair déjà conservés, avec generation /
+adhésion / statut non chiffré vérifiés, descendants reconstruits sans copie
+de clair privé dans SQLite et relecture avant exposition. Édition actualise
+l’extrait ; retrait, ancienne adhésion et passage du salon source en mode
+chiffré le masquent. Le SDK bureau / UniFFI sélectionne aussi une source
+ordinaire pour un envoi MLS contenant seulement ses références ; retirer
+l’admission d’une sélection privée ne contourne pas sa validation. Le banc
+HTTP / MLS / SQLite vérifie une citation seule à sources mixtes, réponse
+perdue / réouverture sans second POST, édition et retrait avec nouvelle vue.
+Les 16 parcours desktop et 15 tests du cache des citations passent ; 1 307
+tests mobiles, typecheck / lint et Hermes passent. Clippy strict cœur / FFI,
+construction de la DLL et génération des vrais bindings Swift passent aussi.
+La compilation des interfaces et la qualification CI du lot restent à confirmer.
+Les sélecteurs intersalons,
+la composition Android et les cartes privées dans les salons ordinaires
+restent ouverts, ainsi que fichiers, archive, édition privée et qualification
+GUI installée. Aucun masque E2EE de production activé.
 
 | Jalon | Développement livré | Travail restant pour le fermer |
 |---|---|---|

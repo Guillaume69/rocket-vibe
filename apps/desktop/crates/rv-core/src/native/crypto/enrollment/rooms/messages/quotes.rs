@@ -9,7 +9,7 @@ pub struct QuoteSelection {
     pub instance: String,
     pub data_epoch: String,
     pub membership: String,
-    pub admission: [u8; 32],
+    pub admission: Option<[u8; 32]>,
 }
 pub struct QuotePreview {
     pub selection: QuoteSelection,
@@ -23,7 +23,7 @@ struct Source {
 }
 struct RoomSources {
     membership: String,
-    admission: [u8; 32],
+    admission: Option<[u8; 32]>,
     messages: BTreeMap<String, Source>,
 }
 fn unavailable() -> Error {
@@ -82,7 +82,42 @@ impl Access {
                 return Err(room_changed());
             }
         }
-        Ok(Some(RoomSources { membership, admission: projection.admission, messages }))
+        Ok(Some(RoomSources { membership, admission: Some(projection.admission), messages }))
+    }
+    async fn reader_sources(&self, room: &str, ids: &[String]) -> Result<Option<RoomSources>> {
+        self.check()?;
+        let session = self.0.room.0.session.upgrade().ok_or_else(room_changed)?;
+        let rooms = session.store.rooms().map_err(crate::native::Error::from)?;
+        let Some(source_room) = rooms.iter().find(|r| r.id == room) else { return Ok(None) };
+        if source_room.encrypted {
+            return self.sources(room).await;
+        }
+        let Some(source) = session.store.public_quote_sources(room, ids).map_err(crate::native::Error::from)? else {
+            return Ok(None);
+        };
+        let messages = source
+            .messages
+            .into_iter()
+            .map(|entry| {
+                let doc = entry.excerpt;
+                (
+                    entry.id.clone(),
+                    Source {
+                        position: doc.revision,
+                        author: doc.author.username,
+                        document: SendMessage {
+                            operation_id: entry.id,
+                            text: doc.text,
+                            reply_to: None,
+                            quotes: doc.references,
+                            cards: vec![],
+                        },
+                    },
+                )
+            })
+            .collect();
+        self.check()?;
+        Ok(Some(RoomSources { membership: source.membership, admission: None, messages }))
     }
     fn preview(&self, selection: &QuoteSelection, source: &RoomSources) -> Option<QuotePreview> {
         let scope = self.0.room.0.crypto.scope();
@@ -106,7 +141,7 @@ impl Access {
     pub async fn select_source_quote(&self, room: String, id: String) -> Result<QuotePreview> {
         let _serial = self.0.serial.lock().await;
         self.0.room.current().await?;
-        let source = self.sources(&room).await?.ok_or_else(unavailable)?;
+        let source = self.reader_sources(&room, std::slice::from_ref(&id)).await?.ok_or_else(unavailable)?;
         let entry = source.messages.get(&id).ok_or_else(unavailable)?;
         let scope = self.0.room.0.crypto.scope();
         let selection = QuoteSelection {
@@ -135,14 +170,34 @@ impl Access {
                 return Err(unavailable());
             }
             if !rooms.contains_key(&selected.reference.room_id) {
-                rooms.insert(selected.reference.room_id.clone(), self.sources(&selected.reference.room_id).await?);
+                let ids = selections
+                    .iter()
+                    .filter(|s| s.reference.room_id == selected.reference.room_id)
+                    .map(|s| s.reference.message_id.clone())
+                    .collect::<Vec<_>>();
+                rooms.insert(
+                    selected.reference.room_id.clone(),
+                    self.reader_sources(&selected.reference.room_id, &ids).await?,
+                );
             }
             if rooms[&selected.reference.room_id].as_ref().and_then(|r| self.preview(selected, r)).is_none() {
                 return Err(unavailable());
             }
         }
-        for (room, sources) in rooms {
-            if sources.as_ref().map(|s| &s.membership) != self.source_membership(&room)?.as_ref() {
+        for (room, old) in rooms {
+            let ids = selections
+                .iter()
+                .filter(|s| s.reference.room_id == room)
+                .map(|s| s.reference.message_id.clone())
+                .collect::<Vec<_>>();
+            let fresh = self.reader_sources(&room, &ids).await?;
+            if fresh.as_ref().map(|s| (&s.membership, s.admission))
+                != old.as_ref().map(|s| (&s.membership, s.admission))
+                || selections
+                    .iter()
+                    .filter(|s| s.reference.room_id == room)
+                    .any(|s| fresh.as_ref().and_then(|r| self.preview(s, r)).is_none())
+            {
                 return Err(unavailable());
             }
         }
@@ -155,13 +210,18 @@ impl Access {
             references.push(s.reference.clone());
         }
         let mut sources = BTreeMap::new();
+        let mut requested = BTreeMap::<String, BTreeSet<String>>::new();
         // Fetch once per source room, then only the children of readable parents.
         for depth in 0..2 {
-            let rooms = references.iter().map(|r| r.room_id.clone()).collect::<BTreeSet<_>>();
-            for room in rooms {
-                if !sources.contains_key(&room) {
-                    sources.insert(room.clone(), self.sources(&room).await?);
+            let mut changed = BTreeSet::new();
+            for r in &references {
+                if requested.entry(r.room_id.clone()).or_default().insert(r.message_id.clone()) {
+                    changed.insert(r.room_id.clone());
                 }
+            }
+            for room in changed {
+                let ids = requested[&room].iter().cloned().collect::<Vec<_>>();
+                sources.insert(room.clone(), self.reader_sources(&room, &ids).await?);
             }
             if depth == 0 {
                 references = references
@@ -175,7 +235,8 @@ impl Access {
         // room. Re-observe the signed private authority before exposing excerpts.
         for (room, value) in &mut sources {
             if let Some(previous) = value {
-                let fresh = self.sources(room).await?;
+                let ids = requested[room].iter().cloned().collect::<Vec<_>>();
+                let fresh = self.reader_sources(room, &ids).await?;
                 if fresh
                     .as_ref()
                     .is_none_or(|s| s.membership != previous.membership || s.admission != previous.admission)
@@ -277,7 +338,7 @@ mod tests {
             "room-a".into(),
             Some(RoomSources {
                 membership: "a".into(),
-                admission: [1; 32],
+                admission: Some([1; 32]),
                 messages: BTreeMap::from([(
                     "same-id".into(),
                     entry(&"🐾".repeat(1025), vec![child.clone(), hidden.clone(), parent.clone()]),
@@ -288,7 +349,7 @@ mod tests {
             "room-b".into(),
             Some(RoomSources {
                 membership: "b".into(),
-                admission: [2; 32],
+                admission: Some([2; 32]),
                 messages: BTreeMap::from([
                     ("same-id".into(), entry("**current source**", vec![grandchild])),
                     ("terminal".into(), entry("must not expose a third level", vec![])),

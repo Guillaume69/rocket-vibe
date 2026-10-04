@@ -4,6 +4,8 @@ import com.rocketvibe.crypto.engine.CryptoAccount
 import com.rocketvibe.crypto.engine.CryptoBridgeException
 import com.rocketvibe.crypto.engine.CryptoInstallation
 import com.rocketvibe.crypto.engine.InstallationStatus
+import com.rocketvibe.crypto.engine.IdentityStatus
+import com.rocketvibe.crypto.engine.IdentityApproval
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.io.File
@@ -23,6 +25,16 @@ class CryptoNativeModule : Module() {
     "phase" to status.phase.name.lowercase(),
     "accountFingerprint" to status.accountFingerprint,
     "incarnation" to status.incarnation,
+  )
+  private fun identityDto(status: IdentityStatus) = mapOf(
+    "phase" to status.phase.name.lowercase(),
+    "rootFingerprint" to status.rootFingerprint, "remoteFingerprint" to status.remoteFingerprint,
+    "requestFingerprint" to status.requestFingerprint, "requestCode" to status.requestCode,
+    "controlsRoot" to status.controlsRoot,
+  )
+  private fun approvalDto(value: IdentityApproval) = mapOf(
+    "id" to value.id, "rootFingerprint" to value.rootFingerprint,
+    "requestFingerprint" to value.requestFingerprint, "device" to value.device, "expiresAt" to value.expiresAt,
   )
 
   override fun definition() = ModuleDefinition {
@@ -44,6 +56,27 @@ class CryptoNativeModule : Module() {
       } catch (error: Exception) { instance.stop(); instance.destroy(); throw error }
     } }
     AsyncFunction("status") { handle: String -> synchronized(lock) { dto(view(handle).status()) } }
+    AsyncFunction("identityView") { handle: String, directory: String -> synchronized(lock) {
+      identityDto(view(handle).identityView(directory))
+    } }
+    AsyncFunction("identityBegin") { handle: String, directory: String, expectedRoot: String -> synchronized(lock) {
+      identityDto(view(handle).identityBegin(directory, expectedRoot))
+    } }
+    AsyncFunction("identityPreview") { handle: String, directory: String, request: String -> synchronized(lock) {
+      approvalDto(view(handle).identityPreview(directory, request))
+    } }
+    AsyncFunction("identityApprove") { handle: String, directory: String, id: String -> synchronized(lock) {
+      view(handle).identityApprove(directory, id)
+    } }
+    AsyncFunction("identityInstall") { handle: String, directory: String, grant: String -> synchronized(lock) {
+      identityDto(view(handle).identityInstall(directory, grant))
+    } }
+    AsyncFunction("identityPending") { handle: String, directory: String -> synchronized(lock) {
+      view(handle).identityPending(directory)
+    } }
+    AsyncFunction("identityAcknowledge") { handle: String, directory: String, receipt: String -> synchronized(lock) {
+      identityDto(view(handle).identityAcknowledge(directory, receipt))
+    } }
     AsyncFunction("initialize") { handle: String, fingerprint: String -> synchronized(lock) {
       dto(view(handle).initialize(fingerprint))
     } }

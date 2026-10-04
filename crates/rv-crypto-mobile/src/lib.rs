@@ -10,6 +10,8 @@ use std::{
     },
 };
 use zeroize::Zeroizing;
+mod identity;
+pub use identity::{IdentityApproval, IdentityPhase, IdentityStatus};
 
 uniffi::setup_scaffolding!();
 
@@ -100,6 +102,7 @@ pub struct CryptoInstallation {
     fingerprint: String,
     serial: Mutex<()>,
     closed: AtomicBool,
+    approval: Mutex<Option<(String, rv_crypto::account::Approval)>>,
 }
 impl CryptoInstallation {
     fn check(&self) -> Result<()> {
@@ -168,10 +171,14 @@ impl CryptoInstallation {
             fingerprint,
             serial: Mutex::new(()),
             closed: AtomicBool::new(false),
+            approval: Mutex::new(None),
         }))
     }
     pub fn stop(&self) {
         self.closed.store(true, Ordering::SeqCst);
+        if let Ok(mut approval) = self.approval.lock() {
+            *approval = None;
+        }
     }
     pub fn is_closed(&self) -> bool {
         self.check().is_err()

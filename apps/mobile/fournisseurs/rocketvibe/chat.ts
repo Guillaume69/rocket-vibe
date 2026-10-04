@@ -21,6 +21,7 @@ import {checkSecurityScope,type SecurityScope} from './reauthenticationVault.ts'
 import {previewImageIdentity} from './linkPreviews.ts';
 import {publicMeetingUrl,privateMeetingUrl} from './meetings.ts';
 import {CryptoStorageAccess} from './cryptoStorage.ts';
+import {CryptoIdentityAccess} from './cryptoIdentity.ts';
 import type {CryptoStorageBridge} from '../../modules/crypto-native/index.ts';
 
 type MeetingScope={room:string;membership:string;generation:number;projection:number;alive:()=>boolean};
@@ -562,6 +563,9 @@ export class NativeChat {
       const discovery=await this.transport.discover();checkIdentity(this.session,discovery);
       this.roomOperationGeneration(generation);if(!visible())throw new NativeError(0,'session_closed');
       if(!discovery.capabilities.e2ee || !discovery.capabilities.device_sessions)throw new NativeError(501,'unsupported_feature');
+      const user=await this.transport.me();
+      this.roomOperationGeneration(generation);if(!visible())throw new NativeError(0,'session_closed');
+      if(user.id!==this.session.userId)throw new NativeError(409,'invalid_native_session');
       const devices=await this.deviceSessions();
       this.roomOperationGeneration(generation);if(!visible())throw new NativeError(0,'session_closed');
       const current=devices.find(device=>device.current)!;
@@ -574,6 +578,10 @@ export class NativeChat {
     // Suspension closes every live settings view.
     this.cryptoViews.add(access);
     return access;
+  }
+  async cryptoIdentity(bridge:import('../../modules/crypto-native/index.ts').CryptoIdentityBridge,
+    visible:()=>boolean=()=>true):Promise<CryptoIdentityAccess> {
+    return new CryptoIdentityAccess(await this.cryptoStorage(bridge,visible),bridge,this.transport);
   }
   /** Capture the connected runner generation, never expose a raw transport to
    * a retained settings callback after logout, suspension or account switch. */

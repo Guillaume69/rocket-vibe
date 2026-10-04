@@ -26,19 +26,33 @@ mobiles et le typecheck passent. Cette preuve concerne le stockage et son cycle
 de session ; association, groupes, messages et qualification physique Android
 restent ouverts. [Détails du pont](../crates/rv-crypto-mobile/README.md).
 
+Association Android raccordée ensuite dans les réglages existants : la cérémonie
+locale est maintenant commune au desktop et au pont natif (`rv-crypto::account`).
+Création explicite, comparaison de racine sur un autre appareil, demande publique,
+aperçu / consentement distincts, approbation et enregistrement original protégé
+avant HTTP. La reprise consulte le reçu et ne répète pas un POST déjà accepté.
+La révocation signée de l'appareil est mémorisée malgré une omission ultérieure.
+Quatre tests du pont Rust passent, dont une association de deux appareils ; les
+trois tests Android passent sur le vrai Keystore / ABI, dont la cérémonie et sa
+réouverture avec refus d'un reçu substitué. Les 1285 tests mobiles, typecheck,
+lint et les seize parcours crypto du cœur desktop passent. Les deux ABI compilent.
+Le parcours GUI installé, groupes / conversations mobiles, iOS et qualification
+physique restent ouverts. L'E2EE de production demeure désactivé.
+
 | Jalon | Développement livré | Travail restant pour le fermer |
 |---|---|---|
 | J0 | Contrats, fixtures communes, inventaire et backlog de parité | Conditions opérateur / export et décisions crypto liées aux jalons suivants |
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, socle de coffre Android | Renouvellement / récupération / révocation visibles, fin des actions privées, parcours GUI E2EE complet, raccordement identité / groupes / conversations mobile, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre et association Android | Renouvellement / récupération / révocation visibles, fin des actions privées, parcours GUI E2EE complet, raccordement groupes / conversations mobile, iOS, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison qui passe toutes les CI existantes (`220ffc5`) passe les neuf jobs de la CI
-`37211906515` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison qui passe toutes les CI existantes (`0d17cdc`) passe les neuf jobs de la CI
+`37216648404` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
-L'application macOS du même lot passe aussi sa compilation, son packaging et son
+Le job Android `37216648514` passe aussi les deux ABI et le vrai Keystore sur émulateur.
+L'application macOS du lot conversations `220ffc5` passe sa compilation, son packaging et son
 démarrage (`37211906510`). Groupes, projection et composeur dans les interfaces
 existantes compilent et passent ces régressions. Le parcours GUI E2EE complet
 avec plusieurs applications installées reste un critère de sortie distinct.

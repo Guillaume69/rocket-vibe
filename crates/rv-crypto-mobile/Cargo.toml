@@ -20,6 +20,8 @@ required-features = ["bindgen"]
 
 [dependencies]
 rv-crypto = { path = "../rv-crypto" }
+rv-protocol = { path = "../rv-protocol" }
+getrandom = "0.4"
 data-encoding = "2"
 serde_json = "1"
 sha2 = "0.11"

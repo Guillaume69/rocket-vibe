@@ -7,6 +7,18 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Association chiffrée RocketVibe sur Android
+
+- Réglages existants raccordés à la cérémonie d'identité Rust partagée avec le
+  desktop : création explicite, comparaison d'empreinte sur un autre appareil,
+  aperçu puis approbation séparée et transfert manuel des codes publics.
+- Enregistrement original conservé dans le coffre avant HTTP. Une réponse
+  perdue se reprend par lecture du reçu sans seconde soumission ; changement
+  d'appareil / compte, fermeture et révocation signée refusent les actions tardives.
+- Parcours testé via les bindings Kotlin et le vrai Android Keystore sur
+  émulateur. L'E2EE de production reste désactivé ; groupes / conversations
+  mobiles et parcours complet dans l'app installée restent à qualifier.
+
 ### Coffre crypto RocketVibe sur Android
 
 - Module Expo local Kotlin / Rust raccordé au cycle de session du fournisseur

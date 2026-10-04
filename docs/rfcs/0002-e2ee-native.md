@@ -199,7 +199,11 @@ Le vrai Secret Service Linux est vérifié avec nouveaux processus et bus,
 verrou concurrent, arrêt forcé après commit / avant checkpoint, reprise et
 retrait. Le [pont Android](../../crates/rv-crypto-mobile/README.md) fournit maintenant
 un coffre protégé par Android Keystore, avec bindings Kotlin et lease système
-testés sur émulateur. L'association et les conversations mobiles, sauvegardes
+testés sur émulateur. L'association mobile utilise maintenant la cérémonie
+Rust commune au desktop et les réglages existants : empreinte comparée,
+consentement opaque, codes publics et reçu original récupéré après réouverture.
+Le test Android passe la cérémonie réelle sans export de clé ; groupes et
+conversations mobiles, sauvegardes
 du trousseau, Windows / macOS installés et coupure électrique restent ouverts.
 
 Le coffre durable ne revendique pas encore la forward secrecy du stockage :
@@ -361,8 +365,13 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    avec fermeture terminale après retrait / nouvelle adhésion. Le socle Android
    relie le même coffre privé au Keystore et au compte / appareil HTTP courant,
    sans transfert de clés vers JS ni création implicite d'identité.
+   Les réglages Android raccordent maintenant création / association manuelle,
+   aperçu et confirmation distincts, enregistrement original avant HTTP et
+   reprise par reçu après réponse perdue. Le moteur vérifie les annuaires
+   signés et mémorise le retrait local ; la cérémonie passe sur le vrai
+   Keystore / ABI de l'émulateur et deux appareils Rust partagent une racine.
    Renouvellement, récupération / révocation visibles, actions privées et
-   raccordement identité / groupes / conversations mobile restent ouverts ; archive / fichiers,
+   raccordement groupes / conversations mobile restent ouverts ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.
 6. Revue indépendante du protocole applicatif / stockage et qualification des
    trousseaux, Android / Hermes, GTK / SwiftUI. Activation seulement après preuve.

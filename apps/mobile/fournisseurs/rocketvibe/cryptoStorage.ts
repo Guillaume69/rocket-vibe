@@ -54,7 +54,13 @@ export class CryptoStorageAccess {
   private check():void {if(this.closed || !this.alive())throw new NativeError(0,'session_closed');}
   private async validateScope():Promise<void> {
     this.check();
-    const scope=await this.readScope();this.check();
+    let scope:CryptoAccount;
+    try {scope=await this.readScope();}
+    catch(error) {
+      if(error instanceof NativeError && ['server_identity_changed','unsupported_feature','invalid_native_session','session_closed'].includes(error.code))void this.close();
+      throw error;
+    }
+    this.check();
     if(!sameAccount(scope,this.scope)){void this.close();throw new NativeError(409,'crypto_scope_changed');}
   }
   private run<T>(action:()=>Promise<T>):Promise<T> {
@@ -68,6 +74,10 @@ export class CryptoStorageAccess {
     });
     this.queue=request.then(()=>{},()=>{});
     return request;
+  }
+  /** Serialize public ceremony RPCs on the same terminal native view. */
+  withNative<T>(action:(handle:string,scope:CryptoAccount,check:()=>Promise<void>)=>Promise<T>):Promise<T> {
+    return this.run(()=>action(this.handle,{...this.scope},()=>this.validateScope()));
   }
   status():Promise<CryptoInstallationStatus> {return this.run(async()=>{
     const value=await this.bridge.status(this.handle);validStatus(value);

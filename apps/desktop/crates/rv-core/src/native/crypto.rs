@@ -27,6 +27,8 @@ pub enum Error {
     Storage(#[from] rv_crypto::vault::Error),
     #[error(transparent)]
     Identity(#[from] rv_crypto::identity::Error),
+    #[error(transparent)]
+    Account(#[from] rv_crypto::account::Error),
 }
 type Result<T> = std::result::Result<T, Error>;
 fn closed() -> super::Error {

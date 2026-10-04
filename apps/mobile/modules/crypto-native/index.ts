@@ -20,5 +20,22 @@ export type CryptoStorageBridge = {
   retire: (handle: string, expectedFingerprint: string) => Promise<void>;
   close: (handle: string) => Promise<void>;
 };
+export type CryptoIdentityStatus = {
+  phase: 'missing' | 'identity_created' | 'waiting_for_approval' | 'registering' | 'ready';
+  rootFingerprint: string; remoteFingerprint: string; requestFingerprint: string;
+  requestCode: string; controlsRoot: boolean;
+};
+export type CryptoIdentityApproval = {
+  id: string; rootFingerprint: string; requestFingerprint: string; device: string; expiresAt: string;
+};
+export type CryptoIdentityBridge = CryptoStorageBridge & {
+  identityView: (handle: string, directory: string) => Promise<CryptoIdentityStatus>;
+  identityBegin: (handle: string, directory: string, expectedRoot: string) => Promise<CryptoIdentityStatus>;
+  identityPreview: (handle: string, directory: string, request: string) => Promise<CryptoIdentityApproval>;
+  identityApprove: (handle: string, directory: string, approvalId: string) => Promise<string>;
+  identityInstall: (handle: string, directory: string, grant: string) => Promise<CryptoIdentityStatus>;
+  identityPending: (handle: string, directory: string) => Promise<string>;
+  identityAcknowledge: (handle: string, directory: string, receipt: string) => Promise<CryptoIdentityStatus>;
+};
 /** Keys and protected records remain between Rust and Kotlin, outside this API. */
-export const CryptoNative = requireOptionalNativeModule<CryptoStorageBridge>('CryptoNative');
+export const CryptoNative = requireOptionalNativeModule<CryptoIdentityBridge>('CryptoNative');

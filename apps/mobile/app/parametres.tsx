@@ -22,6 +22,7 @@ import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui
 import { Appuyable } from '../ui/appuyable.tsx';
 import {SectionAppareils} from '../ui/appareils.tsx';
 import {SectionSecuriteNative} from '../ui/securiteNative.tsx';
+import {SectionIdentiteChiffree} from '../ui/identiteChiffree.tsx';
 import {usePreferencesNatives} from '../ui/preferencesNatives.ts';
 
 /**
@@ -220,7 +221,7 @@ function Parametres({
 
       {client.genre !== 'rocketvibe' && <SectionE2E c={c} t={t} />}
 
-      {client.genre === 'rocketvibe' && <><SectionSecuriteNative c={c}/><SectionAppareils c={c}/></>}
+      {client.genre === 'rocketvibe' && <><SectionSecuriteNative c={c}/><SectionAppareils c={c}/><SectionIdentiteChiffree c={c}/></>}
 
       <Text style={[styles.sectionTitre, { color: c.attenue }]}>{t('parametres.sectionCompte')}</Text>
       <View style={[styles.carte, { backgroundColor: c.carteProfonde, borderColor: c.bordure }]}>

@@ -44,6 +44,9 @@ pub struct Installation {
     storage: Arc<dyn Storage>,
 }
 impl Installation {
+    pub fn account(&self) -> &Account {
+        &self.account
+    }
     pub fn new(
         directory: PathBuf,
         account: Account,

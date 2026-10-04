@@ -13,7 +13,7 @@ test('the mobile runner selects the verified HTTP device and fences storage on s
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
   const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',
     genre:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
-  for(const scenario of ['normal','disabled','missing-current-device','changed-device','changed-epoch','suspended-during-open'] as const){
+  for(const scenario of ['normal','disabled','missing-current-device','changed-device','changed-user','changed-epoch','suspended-during-open'] as const){
     const {db,adapter}=nativeTestDatabase(),store=new NativeStore(adapter,creerFileEcritures(),session);
     await store.applySnapshot({protocol_version:1,rooms:[],messages:[],cursor:'initial'});
     let changed=false,mutations=0,opened=0;
@@ -23,7 +23,7 @@ test('the mobile runner selects the verified HTTP device and fences storage on s
       baseUrl:session.baseUrl,
       discover:async()=>({...fixture.discovery,data_epoch:scenario==='changed-epoch'&&changed?'another-epoch':fixture.discovery.data_epoch,
         capabilities:{...fixture.discovery.capabilities,e2ee:scenario!=='disabled',device_sessions:true}}),
-      me:async()=>fixture.session.user,changes:async()=>({protocol_version:1,changes:[],cursor:'initial',has_more:false}),
+      me:async()=>({...fixture.session.user,id:scenario==='changed-user' && changed?'other-user':fixture.session.user.id}),changes:async()=>({protocol_version:1,changes:[],cursor:'initial',has_more:false}),
       socketUrl:async()=>'ws://localhost/fake',
       deviceSessions:async()=>scenario==='missing-current-device'?[]:[{id:changed?'another-device':'http-current',current:true}],
     } as unknown as NativeTransport;
@@ -53,10 +53,11 @@ test('the mobile runner selects the verified HTTP device and fences storage on s
       const access=await opening;
       assert.deepEqual(chosen,{origin:session.baseUrl,instance:session.nativeInstanceId,dataEpoch:session.nativeDataEpoch,
         user:session.userId,device:'http-current'});
-      changed=scenario==='changed-device' || scenario==='changed-epoch';
+      changed=scenario==='changed-device' || scenario==='changed-epoch' || scenario==='changed-user';
       if(changed){
-        await assert.rejects(access.initialize('ab'.repeat(32)),scenario==='changed-device'?/crypto_scope_changed/:/server_identity_changed/);
+        await assert.rejects(access.initialize('ab'.repeat(32)),scenario==='changed-device'?/crypto_scope_changed/:scenario==='changed-user'?/invalid_native_session/:/server_identity_changed/);
         assert.equal(mutations,0);
+        assert.equal(access.isClosed,true);
       } else {
         await access.initialize('ab'.repeat(32));assert.equal(mutations,1);
         chat.suspend();await assert.rejects(access.status(),/session_closed/);await access.close();

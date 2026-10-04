@@ -83,19 +83,19 @@ export async function compressVideoIfPossible(
 ): Promise<PendingFile> {
   if (VideoCompressor === null || !videoCompressible(file)) return file;
   try {
-    const outbox = await VideoCompressor.compress(file.uri, VIDEO_MAX_SHORT_SIDE, VIDEO_BITRATE);
+    const output = await VideoCompressor.compress(file.uri, VIDEO_MAX_SHORT_SIDE, VIDEO_BITRATE);
     // An already modest video can come out heavier from the re-encode: in that
     // case the original goes out, and the rewritten MP4 is deleted.
-    if (file.size !== null && outbox.size >= file.size) {
-      void deleteIfTemporary(outbox.uri);
+    if (file.size !== null && output.size >= file.size) {
+      void deleteIfTemporary(output.uri);
       return file;
     }
     const name = `${file.name.replace(/\.\w+$/, '')}.mp4`;
     return {
-      uri: await renameCompressed(outbox.uri, name),
+      uri: await renameCompressed(output.uri, name),
       name,
       type: 'video/mp4',
-      size: outbox.size,
+      size: output.size,
     };
   } catch {
     // Transcode impossible (exotic codec, truncated file...): the original goes

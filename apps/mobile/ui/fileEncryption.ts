@@ -19,9 +19,9 @@ export async function encryptLocalFile(uri: string): Promise<EncryptedFile> {
   const { encrypted, key, iv, sha256 } = encryptFile(plain);
   const folder = `${cache}envoi-chiffre/`;
   await FileSystem.makeDirectoryAsync(folder, { intermediates: true });
-  const outbox = `${folder}${Date.now()}-${Math.random().toString(36).slice(2)}.bin`;
-  await FileSystem.writeAsStringAsync(outbox, encrypted.toString('base64'), BASE64);
-  return { uri: outbox, key, iv, sha256, size: plain.length };
+  const output = `${folder}${Date.now()}-${Math.random().toString(36).slice(2)}.bin`;
+  await FileSystem.writeAsStringAsync(output, encrypted.toString('base64'), BASE64);
+  return { uri: output, key, iv, sha256, size: plain.length };
 }
 
 export function hashedName(name: string): string {

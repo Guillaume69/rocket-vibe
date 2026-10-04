@@ -1,0 +1,47 @@
+# Features index
+
+What the apps do. Each doc describes the feature, then its `## Mobile` and
+`## Desktop` sides (GTK, with SwiftUI differences) and their parity. The
+checklist of parity itself is `apps/desktop/docs/PARITY.md`. Back to
+[../BRAIN.md](../BRAIN.md).
+
+## Session and data
+
+| Doc | What's here |
+|---|---|
+| [login-and-servers.md](login-and-servers.md) | Server probe, password login, 2FA (TOTP, email, password), optimistic session resume, revocation on a real 401, deferred sign-out; one account per server on mobile, several per server on desktop. |
+| [offline-and-sync.md](offline-and-sync.md) | Catch-up layers (global delta, history, per-room `chat.syncMessages`, reconciliation), mobile hot rooms and connection generations, write queue and outbox, retention, desktop's `__my_messages__` stream, known differences. |
+| [settings.md](settings.md) | What is stored where, each app's settings sections: notifications, language, background and login start, updates, logs. |
+
+## Reading
+
+| Doc | What's here |
+|---|---|
+| [room-list.md](room-list.md) | Unread, Favourites, Channels and Direct-messages sections and their rules, folding, ordering by activity, previews, badges, presence, encrypted rooms. |
+| [room-view.md](room-view.md) | History window and keyset paging, live messages, edits and deletions, author grouping, day separators, new-messages bar, mark-as-read, markdown, system messages, quotes and cards, jumps, typing indicator. |
+| [threads.md](threads.md) | Root and replies fetched apart, paging by 100 up to 20 pages, reconnection guard, live replies, the thread composer and its limits. |
+| [search.md](search.md) | Debounced server search with stale answers dropped: `spotlight` for people and channels, `chat.search` in a room. |
+| [media-playback.md](media-playback.md) | Protected-file URLs, original images, viewers, lazily created players, GStreamer and CPU-frame paths on desktop, video-site cards. |
+| [avatars.md](avatars.md) | Avatar URLs, `?etag=` cache busting and where the version comes from, the no-photo marker, the placeholder, setting your own photo. |
+| [emoji.md](emoji.md) | The shortcode table generated from emoji-toolkit, rendering order, the custom emoji index, `:` completion, pickers. |
+| [room-info-and-profiles.md](room-info-and-profiles.md) | Room info, user profiles (local time, Message, Call), mobile profile prefetch, editing my own profile and status. |
+
+## Writing
+
+| Doc | What's here |
+|---|---|
+| [composer.md](composer.md) | Where a send goes (outbox, upload queue, `commands.run`), drafts per room and thread, quote replies, `@` mentions, editing, GTK formatting and spell check, staged attachments. |
+| [slash-commands.md](slash-commands.md) | `commands.list` with i18n keys, completion filtered by permissions, `commands.run`, unknown names sent as text, the private answer above the composer. |
+| [uploads.md](uploads.md) | `rooms.media` then `rooms.mediaConfirm` behind a persisted queue, the saved `fileId` and the local check that avoids duplicates, re-arming after a kill, retries, progress, validation, protected downloads. |
+| [voice-messages.md](voice-messages.md) | AAC `.m4a` on mobile and SwiftUI, Ogg/Opus through GStreamer on GTK, replay and caption before sending, playback. |
+| [message-actions.md](message-actions.md) | Which actions show (time limits, permissions, encrypted and system messages), the endpoints, the menus per app, pinned and starred lists. |
+
+## Around the chat
+
+| Doc | What's here |
+|---|---|
+| [notifications.md](notifications.md) | Mobile FCM chain (native token, patched server bundle, data-only push, `push.get` for hidden content, WorkManager catch-up, inline reply, iOS extension, badge); desktop notifier on D-Bus, WinRT or UserNotifications, and badge. |
+| [e2ee.md](e2ee.md) | Encrypted rooms for the user: lock tile, placeholders, unlock, key kept across launches, encrypted sends and media, notifications without ciphertext. |
+| [calls.md](calls.md) | Jitsi over `video-conference.*`, availability probe, the mobile WebView exception and its origin lock, desktop call windows per platform. |
+| [sharing-and-links.md](sharing-and-links.md) | `rocketvibe://salon/<rid>?host=` deep links, the incoming share screen, the outgoing-link guard, desktop drag and paste. |
+| [desktop-updates.md](desktop-updates.md) | GitHub release discovery, cached check and dismissal, in-place replacement on Linux, installer on Windows, DMG on macOS. |

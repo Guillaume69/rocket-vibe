@@ -1,15 +1,15 @@
 /**
- * Fiche d'un utilisateur — sheet native (`presentation: 'formSheet'` déclarée
- * dans `app/_layout.tsx`, même mécanique que la feuille d'actions de message).
+ * User profile, a native sheet (`presentation: 'formSheet'` declared in
+ * `app/_layout.tsx`, same mechanism as the message actions sheet).
  *
- * Ouverte par : l'avatar ou le nom d'auteur d'un message, une mention
- * `@username` dans un corps de message. Paramètre : `username`.
+ * Opened by: a message's author avatar or name, an `@username` mention in a
+ * message body. Parameter: `username`.
  *
- * Le contenu vient d'UN appel `users.info` : nom, statut de présence, rôles,
- * fuseau (`utcOffset`) — l'heure locale de l'interlocuteur est l'information
- * la plus utile avant de le déranger. Les actions : ouvrir (ou créer) le DM,
- * et appeler — le bouton n'apparaît que si un fournisseur de visioconférence
- * est configuré (`sonderAppelDisponible`), comme dans l'en-tête du salon.
+ * The content comes from ONE `users.info` call: name, presence status, roles,
+ * time zone (`utcOffset`); the other person's local time is the most useful
+ * information before disturbing them. Actions: open (or create) the DM, and
+ * call; the button only appears if a video conference provider is
+ * configured (`probeCallAvailable`), as in the room header.
  */
 
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
@@ -36,14 +36,14 @@ type Profile = {
   username: string;
   name: string | null;
   status: PresenceStatus;
-  /** Décalage UTC en heures (peut être fractionnaire : 5.5 pour l'Inde). */
+  /** UTC offset in hours (may be fractional: 5.5 for India). */
   utcOffset: number | null;
   roles: string[];
   bio: string | null;
   /**
-   * Version de sa photo. `users.info` est le SEUL rattrapage possible pour un
-   * avatar changé pendant que l'app était fermée : on la range en base au
-   * passage, pour que la liste et les messages en profitent aussi.
+   * Version of their photo. `users.info` is the ONLY possible catch-up for an
+   * avatar changed while the app was closed: we store it in the database on
+   * the way, so the list and the messages benefit too.
    */
   avatarEtag: string | null;
 };
@@ -71,14 +71,14 @@ function profileOf(raw: Record<string, unknown> | undefined): Profile | null {
   };
 }
 
-/** L'erreur du préchargement, en langue : la clé se traduit ICI — le module
- *  `lib/profilePreload.ts` est du lib/ pur, il ne porte que la clé. */
+/** The preload error, as text: the key is translated HERE; the module
+ *  `lib/profilePreload.ts` is pure lib/, it only carries the key. */
 function profileErrorText(e: ProfileError | null): string | null {
   if (e === null) return null;
   return 'message' in e ? e.message : translateCurrent(e.key);
 }
 
-/** `14:07 (UTC+2)` — l'heure qu'il est CHEZ LUI, calculée du décalage serveur. */
+/** `14:07 (UTC+2)`: the time it is WHERE THEY ARE, computed from the server offset. */
 function localTime(utcOffset: number): string {
   const remoteNow = new Date(Date.now() + utcOffset * 3_600_000);
   const h = String(remoteNow.getUTCHours()).padStart(2, '0');
@@ -92,14 +92,14 @@ function localTime(utcOffset: number): string {
 
 export default function ProfileScreen() {
   const bottomMargin = useSheetBottomMargin();
-  // `username` (mentions, lignes de message) OU `uid` (en-tête d'un DM, où
-  // seul `dmAutreUid` est connu localement) — `users.info` accepte les deux.
+  // `username` (mentions, message rows) OR `uid` (DM header, where only
+  // `dmOtherUid` is known locally): `users.info` accepts both.
   const { username, uid } = useLocalSearchParams<{ username?: string; uid?: string }>();
   const { state } = useSession();
   const sync = useSync();
   const c = useColors();
   const router = useRouter();
-  // Pour lire la pile sous la feuille — voir « Message » plus bas.
+  // To read the stack under the sheet; see "Message" below.
   const navigation = useNavigation();
   const t = useT();
 
@@ -109,11 +109,11 @@ export default function ProfileScreen() {
   const actions = sync.phase === 'ready' ? sync.actions : null;
   const etags = useEtagsAvatars();
 
-  // Fiche préchargée AVANT l'ouverture (`lib/profilePreload`) : présente, on
-  // démarre DÉJÀ avec le profil complet et la disponibilité d'appel connue → la
-  // sheet `fitToContents` se mesure à sa hauteur finale dès la première frame,
-  // sans saut. Absente (réseau lent qui a fait sauter le plafond, ou pas de
-  // client) : on retombe sur le chargement async ci-dessous, avec le squelette.
+  // Profile preloaded BEFORE opening (`lib/profilePreload`): if present, we
+  // start ALREADY with the full profile and call availability known, so the
+  // `fitToContents` sheet measures at its final height from the first frame,
+  // without a jump. If absent (slow network that blew the cap, or no
+  // client): we fall back to the async load below, with the skeleton.
   const [preloaded] = useState(() => readPreloadedProfile({ username, uid }));
   const [profile, setProfile] = useState<Profile | null>(() =>
     preloaded !== undefined ? profileOf(preloaded.user) : null,
@@ -130,7 +130,7 @@ export default function ProfileScreen() {
   const inFlight = useRef(false);
 
   useEffect(() => {
-    // Déjà préchargé : ne rien recharger — un second rendu rebougerait la hauteur.
+    // Already preloaded: reload nothing; a second render would move the height again.
     if (preloaded !== undefined) return;
     const params =
       typeof username === 'string' && username !== ''
@@ -159,10 +159,10 @@ export default function ProfileScreen() {
     };
   }, [client, username, uid, preloaded]);
 
-  // Ce que la fiche vient d'apprendre profite au reste de l'app : pseudo courant
-  // et version de photo rangés en base, donc la liste des salons et les messages
-  // affichent la MÊME photo, tout de suite. Le SQL ne touche la ligne que si
-  // quelque chose a vraiment changé (voir `UPSERT_IDENTITE`).
+  // What the profile just learned benefits the rest of the app: current
+  // username and photo version stored in the database, so the room list and
+  // the messages show the SAME photo, right away. The SQL only touches the row
+  // if something really changed (see `UPSERT_IDENTITY`).
   useEffect(() => {
     if (profile === null || engine === null) return;
     void engine.syncStore
@@ -172,11 +172,11 @@ export default function ProfileScreen() {
         avatarEtag: profile.avatarEtag,
       })
       .catch(() => {
-        // Une base indisponible ne doit pas empêcher d'afficher la fiche.
+        // An unavailable database must not prevent showing the profile.
       });
   }, [profile, engine]);
 
-  /** Ouvre (ou crée) le DM, puis y va — la sheet est REMPLACÉE par le salon. */
+  /** Opens (or creates) the DM, then goes there: the sheet is REPLACED by the room. */
   const openDm = useCallback(
     async (toCall: boolean) => {
       if (client === null || actions === null || profile === null || inFlight.current) return;
@@ -187,35 +187,32 @@ export default function ProfileScreen() {
         const { rid, rawRoom } = await actions.openOrCreateDm(profile.username);
         if (engine !== null) await engine.ingestRooms([rawRoom]);
         if (toCall) {
-          // `start` crée la conférence et poste le message d'appel dans le DM ;
-          // l'écran d'appel fait le `join`. Au retour (back), on retombe là où
-          // la fiche avait été ouverte.
+          // `start` creates the conference and posts the call message in the DM;
+          // the call screen does the `join`. On return (back), we land where
+          // the profile was opened.
           const callId = await startConference(client, rid);
           router.replace({
             pathname: '/call/[callId]',
             params: { callId, title: profile.name ?? profile.username },
           });
         } else {
-          // `im.create` est idempotent : ouverte depuis un DM, la fiche rend le
-          // rid de l'écran qui est JUSTE dessous. Un `replace` y fabriquait
-          // quand même une nouvelle clé de route, donc une SECONDE instance
-          // vivante du même salon — deux minuteries `marquerLu` (deux
-          // `subscriptions.read` sur une route à 10/min), deux
-          // `signalerSalonActif`, deux écouteurs de saisie, deux FlashList — et
-          // un retour arrière qui a l'air de ne rien faire.
+          // `im.create` is idempotent: opened from a DM, the profile returns the
+          // rid of the screen RIGHT below. A `replace` still produced a new route
+          // key there, hence a SECOND live instance of the same room: two
+          // `markRead` timers (two `subscriptions.read` on a 10/min route), two
+          // `declareOpenRoom`, two typing listeners, two FlashLists, and a back
+          // navigation that seems to do nothing.
           //
-          // Dans ce cas on se contente de refermer la feuille. Volontairement
-          // défensif plutôt qu'un `navigate` : celui-ci dépilerait bien jusqu'à
-          // l'écran existant, mais dans le cas NOMINAL (le DM n'est pas encore
-          // ouvert) il empilerait le salon PAR-DESSUS la fiche, qui
-          // réapparaîtrait au retour. Si la pile n'a pas la forme attendue, on
-          // retombe sur le `replace` d'avant : au pire ce code ne fait rien,
-          // jamais pire qu'avant.
+          // In that case we just close the sheet. Deliberately defensive rather
+          // than a `navigate`: that would pop down to the existing screen, but in
+          // the NOMINAL case (the DM is not open yet) it would stack the room ON TOP
+          // of the profile, which would reappear on back. If the stack does not have
+          // the expected shape, we fall back to the previous `replace`: at worst this
+          // code does nothing, never worse than before.
           const stack = navigation.getState()?.routes ?? [];
           const below = stack.length >= 2 ? stack[stack.length - 2] : undefined;
-          // Le `name` d'une route expo-router est son chemin de fichier
-          // (`salon/[rid]`) ; on tolère une éventuelle barre de tête plutôt que
-          // de parier sur la forme exacte.
+          // An expo-router route's `name` is its file path (`salon/[rid]`); we
+          // tolerate a possible leading slash rather than bet on the exact shape.
           const alreadyOpen =
             below !== undefined &&
             below.name.replace(/^\//, '').startsWith('salon/') &&
@@ -228,22 +225,22 @@ export default function ProfileScreen() {
         inFlight.current = false;
         setBusy(false);
       }
-      // Succès : on a navigué, l'écran se démonte — ne pas re-setter l'état.
+      // Success: we navigated, the screen unmounts; do not set state again.
     },
     [client, actions, profile, engine, router, navigation, t],
   );
 
-  // Ce qu'on sait DÈS le tap (avatar + @username, ou uid pour un DM) : on rend
-  // l'en-tête RÉEL à la première frame, à sa hauteur définitive. La sheet
-  // `fitToContents` monte alors une seule fois, pile à la bonne taille — pas de
-  // plancher (donc pas de vide sous les boutons), pas de saut. Seuls les détails
-  // optionnels (rôles, heure locale, bio) se posent ensuite, vers le bas.
+  // What we know AS SOON AS the tap happens (avatar + @username, or uid for a
+  // DM): we render the REAL header on the first frame, at its final height. The
+  // `fitToContents` sheet then rises once, at exactly the right size: no floor
+  // (so no gap under the buttons), no jump. Only the optional details (roles,
+  // local time, bio) arrive afterwards, below.
   const knownUsername = typeof username === 'string' && username !== '' ? username : null;
   const shownUsername = profile?.username ?? knownUsername;
   const shownName = profile?.name ?? shownUsername ?? '';
-  // L'etag vient de la fiche fraîchement lue, sinon de la base (l'affichage
-  // reste alors identique à celui de la ligne de message d'où l'on vient — pas
-  // de photo qui saute d'une version à l'autre entre les deux écrans).
+  // The etag comes from the freshly read profile, otherwise from the database
+  // (the display then stays identical to the message row we came from: no
+  // photo jumping from one version to another between the two screens).
   const knownEtag =
     (shownUsername !== null ? etags.byUsername.get(shownUsername) : undefined) ??
     (typeof uid === 'string' ? etags.byUid.get(uid) : undefined) ??
@@ -273,8 +270,8 @@ export default function ProfileScreen() {
           uri={avatarUri ?? undefined}
         />
         <View style={styles.identity}>
-          {/* `|| ' '` réserve la hauteur de ligne tant que le nom n'est pas là
-              (cas du DM ouvert par uid), pour que rien ne bouge à l'arrivée. */}
+          {/* `|| ' '` reserves the line height while the name is not there yet
+              (DM opened by uid), so nothing moves when it arrives. */}
           <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
             {shownName || ' '}
           </Text>
@@ -322,9 +319,9 @@ export default function ProfileScreen() {
         <Text style={[styles.error, { color: c.errorText }]}>{error}</Text>
       )}
 
-      {/* Actions présentes dès le squelette (Message désactivé le temps du
-          chargement) : leur hauteur ne change pas à l'arrivée des données.
-          Masquées si c'est moi, ou si le chargement a échoué avant tout profil. */}
+      {/* Actions present from the skeleton on (Message disabled while
+          loading): their height does not change when the data arrives.
+          Hidden if it is me, or if loading failed before any profile. */}
       {!isMe && !errorBeforeProfile && (
         <View style={styles.actions}>
           <Tappable

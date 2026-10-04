@@ -1,14 +1,14 @@
 /**
- * Choix de l'arbre markdown d'un message, et son aplatissement en texte brut.
+ * Choice of a message's markdown tree, and its flattening to plain text.
  *
- * Le serveur pré-parse chaque message dans `msg.md` — c'est la source
- * préférée, garantie cohérente avec ce que les autres clients affichent.
- * **Mais `md` est absent des vieux messages** (antérieurs à son introduction)
- * et pourrait être corrompu en base : le repli sur `parse()` local n'est pas
- * une option, c'est le contrat de l'étape 4.3.
+ * The server pre-parses every message into `msg.md`: the preferred source,
+ * guaranteed consistent with what other clients show. **But `md` is missing
+ * from old messages** (older than its introduction) and could be corrupted in
+ * the database: falling back to a local `parse()` is not optional, it is the
+ * contract of step 4.3.
  *
- * Module pur, sans React : la logique de choix et l'aplatissement se testent
- * sous Node. Le rendu en <Text> imbriqués vit dans `ui/markdown.tsx`.
+ * Pure module, no React: the choice logic and the flattening are testable under
+ * Node. The nested <Text> rendering lives in `ui/markdown.tsx`.
  */
 
 import { parse, type Root } from '@rocket.chat/message-parser';
@@ -19,12 +19,12 @@ import { unicodeOfShortcode } from './emojis.ts';
 export type { Root };
 
 /**
- * Le caractère d'un nœud `EMOJI`, ou `null` si ce n'en est pas un.
+ * The character of an `EMOJI` node, or `null` if it is not one.
  *
- * Le serveur livre soit `unicode` (l'auteur a tapé le glyphe), soit un
- * `shortCode` NON VALIDÉ — le parseur accepte `:n_importe_quoi:`. C'est donc
- * ici, et nulle part ailleurs, qu'on tranche « emoji ou pas » : le rendu s'en
- * sert pour refuser de grossir un `BIG_EMOJI` qui n'en est pas un.
+ * The server delivers either `unicode` (the author typed the glyph) or an
+ * UNVALIDATED `shortCode`: the parser accepts `:anything:`. So this is where,
+ * and nowhere else, "emoji or not" is decided: rendering uses it to refuse to
+ * enlarge a `BIG_EMOJI` that is not one.
  */
 export function unicodeDEmoji(node: unknown): string | null {
   if (typeof node !== 'object' || node === null) return null;
@@ -35,15 +35,15 @@ export function unicodeDEmoji(node: unknown): string | null {
   return null;
 }
 
-/** Un nœud plausible : un objet avec un `type` chaîne. Le reste est du poison. */
+/** A plausible node: an object with a string `type`. Anything else is poison. */
 function plausibleNode(n: unknown): boolean {
   return typeof n === 'object' && n !== null && typeof (n as { type?: unknown }).type === 'string';
 }
 
 export function messageTree(md: string | null, text: string | null): Root | null {
-  // Le permalien d'une citation (`[ ](…?msg=…)`) est retiré du corps : la
-  // citation se rend à part (pièce jointe `message_link`) — et pour un envoi
-  // optimiste, l'aperçu local. Un message qui n'était QUE la citation rend null.
+  // A quote's permalink (`[ ](…?msg=…)`) is stripped from the body: the quote
+  // renders separately (`message_link` attachment), and for an optimistic send,
+  // as the local preview. A message that was ONLY the quote returns null.
   const stripped = (tree: Root): Root | null => {
     const filter = withoutQuoteLinks(tree);
     return filter.length > 0 ? filter : null;
@@ -51,23 +51,23 @@ export function messageTree(md: string | null, text: string | null): Root | null
   if (md !== null) {
     try {
       const tree = JSON.parse(md) as Root;
-      // La forme des ÉLÉMENTS compte autant que celle du tableau : un
-      // `[null]` ou un nœud sans `type` passerait jusqu'au rendu et
-      // planterait l'écran entier — durablement, puisque le `md` est
-      // persisté. On préfère re-parser le texte : le contenu survit.
+      // The shape of the ELEMENTS matters as much as the array's: a `[null]`
+      // or a node without `type` would reach rendering and crash the whole
+      // screen, durably, since `md` is persisted. Re-parsing the text is
+      // better: the content survives.
       if (Array.isArray(tree) && tree.length > 0 && tree.every(plausibleNode)) {
         return stripped(tree);
       }
     } catch {
-      // `md` illisible : on retombe sur le texte, comme s'il n'existait pas.
+      // Unreadable `md`: fall back to the text, as if it did not exist.
     }
   }
   if (text !== null && text.trim() !== '') {
     try {
       return stripped(parse(text));
     } catch {
-      // Le parseur (grammaire PEG générée) peut lever sur une entrée qu'il ne
-      // consomme pas : le texte brut vaut mieux qu'un écran mort.
+      // The parser (generated PEG grammar) may throw on input it does not
+      // consume: raw text beats a dead screen.
       return [{ type: 'PARAGRAPH', value: [{ type: 'PLAIN_TEXT', value: text }] }];
     }
   }
@@ -75,8 +75,8 @@ export function messageTree(md: string | null, text: string | null): Root | null
 }
 
 /**
- * Texte brut d'un nœud, récursivement. Sert d'ultime repli : un type de nœud
- * que le rendu ne connaît pas doit afficher son contenu, pas disparaître.
+ * Plain text of a node, recursively. The last-resort fallback: a node type the
+ * renderer does not know must show its content, not disappear.
  */
 export function textOf(node: unknown): string {
   if (typeof node === 'string') return node;
@@ -91,16 +91,16 @@ export function textOf(node: unknown): string {
     };
     if (obj.type === 'EMOJI') {
       const glyph = unicodeDEmoji(obj);
-      // Code court inconnu (emoji personnalisé du serveur, coquille) : le
-      // littéral se lit, un carré blanc non.
+      // Unknown short code (server custom emoji, typo): the literal is
+      // readable, a white square is not.
       if (glyph !== null) return glyph;
       if (typeof obj.shortCode === 'string') return `:${obj.shortCode}:`;
     }
     if (typeof obj.unicode === 'string') return obj.unicode;
     const byValue = 'value' in obj ? textOf(obj.value) : '';
     if (byValue !== '') return byValue;
-    // TIMESTAMP (et consorts) : `value` est un objet opaque, mais le parseur
-    // fournit `fallback`, un nœud Plain prévu exactement pour ce cas.
+    // TIMESTAMP (and the like): `value` is an opaque object, but the parser
+    // provides `fallback`, a Plain node meant for exactly this case.
     if ('fallback' in obj) return textOf(obj.fallback);
   }
   return '';
@@ -141,7 +141,7 @@ function online(node: unknown): string {
   }
 }
 
-/** Un message sur une ligne, sans syntaxe : l'aperçu de la liste des salons. */
+/** A message on one line, without syntax: the room list preview. */
 export function textPreview(text: string): string {
   const tree = messageTree(null, text);
   if (tree === null) return text;

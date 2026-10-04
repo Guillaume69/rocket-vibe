@@ -1,24 +1,24 @@
 /**
- * Appels vidéo — la visioconférence Rocket.Chat.
+ * Video calls: Rocket.Chat video conferencing.
  *
- * Le moteur est le fournisseur configuré CÔTÉ SERVEUR (Jitsi sur la cible
- * `chat.barrut.me`). Comme partout, on AGIT en REST — jamais de méthode DDP,
- * dépréciée depuis 8.0 :
+ * The engine is the provider configured SERVER-SIDE (Jitsi on the target
+ * `chat.barrut.me`). As everywhere, we ACT over REST, never a DDP method,
+ * deprecated since 8.0:
  *
- *   - `video-conference.start`  crée la conférence ET poste le message d'appel
- *     dans le salon ; renvoie un `callId`.
- *   - `video-conference.join`   renvoie l'URL du fournisseur (JWT inclus) qu'on
- *     ouvre pour entrer dans l'appel.
- *   - `video-conference.capabilities` sert de SONDE de disponibilité : le serveur
- *     répond 400 `no-videoconf-provider-app` quand aucun fournisseur n'est
- *     branché (cas du Docker local) — on masque alors le bouton d'appel.
+ *   - `video-conference.start`  creates the conference AND posts the call message
+ *     in the room; returns a `callId`.
+ *   - `video-conference.join`   returns the provider URL (JWT included) to open
+ *     to enter the call.
+ *   - `video-conference.capabilities` is the availability PROBE: the server
+ *     answers 400 `no-videoconf-provider-app` when no provider is plugged in
+ *     (the local Docker case), so we hide the call button.
  *
- * Le RENDU de l'appel vit dans une WebView (`app/call/[callId].tsx`) : Jitsi
- * est une web-app, donc la charger dans une WebView est le seul chemin IN-APP
- * raisonnable. Le SDK natif Jitsi vise `react-native ~0.79` (on est en 0.86) et
- * embarque react-native-webrtc — trop risqué sous New Architecture pour le gain.
+ * The call is RENDERED in a WebView (`app/call/[callId].tsx`): Jitsi is a web
+ * app, so loading it in a WebView is the only reasonable IN-APP path. The native
+ * Jitsi SDK targets `react-native ~0.79` (we are on 0.86) and ships
+ * react-native-webrtc, too risky under the New Architecture for the gain.
  *
- * Module sans `react-native` : il ne dépend que du client REST, comme `rest.ts`.
+ * Module without `react-native`: it depends only on the REST client, like `rest.ts`.
  */
 
 import { RestError, isTokenRejected } from './rest.ts';
@@ -30,10 +30,10 @@ type StartResponse = { data?: { callId?: unknown } };
 type JoinResponse = { url?: unknown };
 
 /**
- * Démarre une conférence dans le salon `roomId` et renvoie son `callId`. C'est
- * aussi cet appel qui fait apparaître le message « appel démarré » chez tous les
- * membres du salon — c'est ainsi qu'un correspondant est prévenu, puisque la
- * sonnerie mobile (`VideoConf_Mobile_Ringing`) est désactivée sur la cible.
+ * Starts a conference in room `roomId` and returns its `callId`. This call is
+ * also what makes the "call started" message appear for every room member:
+ * that is how the other party is notified, since mobile ringing
+ * (`VideoConf_Mobile_Ringing`) is disabled on the target.
  */
 export async function startConference(client: ClientRest, roomId: string): Promise<string> {
   const r = await client.post<StartResponse>('video-conference.start', { body: { roomId } });
@@ -43,9 +43,9 @@ export async function startConference(client: ClientRest, roomId: string): Promi
 }
 
 /**
- * URL du fournisseur à ouvrir pour REJOINDRE l'appel `callId` (JWT inclus si le
- * serveur exige l'authentification Jitsi). `etat` pré-règle caméra/micro à
- * l'entrée ; omis, on laisse le fournisseur décider.
+ * Provider URL to open to JOIN call `callId` (JWT included if the server
+ * requires Jitsi authentication). `state` presets camera/mic on entry; omitted,
+ * the provider decides.
  */
 export async function joinConference(
   client: ClientRest,
@@ -61,16 +61,16 @@ export async function joinConference(
 }
 
 /**
- * Disponibilité de la visioconférence, MÉMOÏSÉE par serveur : la sonde ne coûte
- * qu'un appel par session, quel que soit le nombre de salons ouverts.
+ * Video conferencing availability, MEMOIZED per server: the probe costs only
+ * one call per session, however many rooms are opened.
  *
- * Un fournisseur absent (400) est un « non » DÉFINITIF pour la session → mémoïsé.
- * Une panne réseau (`statut === 0`) est incertaine → on ne la mémoïse pas, la
- * prochaine ouverture de salon retentera. En cas de doute, on renvoie `false` :
- * mieux vaut un bouton qui manque qu'un bouton qui échoue au tap.
+ * A missing provider (400) is a DEFINITIVE "no" for the session, so memoized.
+ * A network failure (`status === 0`) is uncertain, so not memoized: the next
+ * room opening retries. When in doubt, return `false`: a missing button beats
+ * a button that fails on tap.
  *
- * « Par session » n'était pas tenu : le store est au niveau module, donc c'était
- * par PROCESS. D'où `oublierDisponibiliteAppel`, appelé en fin de session.
+ * "Per session" did not hold: the store is module-level, so it was per
+ * PROCESS. Hence `forgetCallAvailability`, called at session end.
  */
 const availabilityByServer = new Map<string, boolean>();
 
@@ -82,9 +82,9 @@ export async function probeCallAvailable(client: ClientRest): Promise<boolean> {
     availabilityByServer.set(client.baseUrl, true);
     return true;
   } catch (e) {
-    // Un 401 ne dit rien de la visioconférence — il dit que la session est
-    // finie. Le mémoïser éteignait le bouton 📞 pour la vie du process, y
-    // compris après une reconnexion réussie, et aucun geste n'en sortait.
+    // A 401 says nothing about video conferencing, it says the session is over.
+    // Memoizing it turned the 📞 button off for the life of the process, even
+    // after a successful reconnection, and no gesture got out of it.
     if (e instanceof RestError && e.status !== 0 && !isTokenRejected(e)) {
       availabilityByServer.set(client.baseUrl, false);
     }
@@ -92,15 +92,15 @@ export async function probeCallAvailable(client: ClientRest): Promise<boolean> {
   }
 }
 
-/** Fin de session / changement de serveur : le verdict est celui d'un compte. */
+/** Session end / server change: the verdict belongs to one account. */
 export function forgetCallAvailability(): void {
   availabilityByServer.clear();
 }
 
 /**
- * Lecture SYNCHRONE du memo, sans sonder : `false` tant qu'on ne sait pas (même
- * défaut prudent que la sonde). Sert à figer la présence du bouton « Appeler »
- * dès la première frame quand la sonde a déjà tourné (fiche préchargée).
+ * SYNCHRONOUS read of the memo, without probing: `false` while unknown (same
+ * cautious default as the probe). Pins the "Call" button's presence from the
+ * first frame when the probe has already run (preloaded profile).
  */
 export function memoizedCallAvailable(client: ClientRest): boolean {
   return availabilityByServer.get(client.baseUrl) ?? false;

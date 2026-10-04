@@ -15,15 +15,15 @@ import { useSession } from '../ui/session.tsx';
 import { type Colors, FONTS, useColors } from '../ui/theme.ts';
 
 /**
- * Écran de connexion, en trois temps : serveur → identifiants → second facteur.
+ * Login screen, in three steps: server -> credentials -> second factor.
  *
- * Le second facteur n'est pas deviné : `ErreurDeuxFacteurs.methode` dit ce que
- * le serveur attend. `totp` et `email` envoient le code saisi ; `password`
- * attend le SHA-256 du mot de passe ressaisi — jamais le clair
- * (`preparerCodeDeuxFacteurs` s'en charge).
+ * The second factor is not guessed: `TwoFactorError.method` says what the
+ * server expects. `totp` and `email` send the typed code; `password` expects
+ * the SHA-256 of the retyped password, never the plaintext
+ * (`prepareTwoFactorCode` handles it).
  *
- * Le client REST vit DANS les variantes de `Phase` : il existe exactement
- * quand un serveur a été validé, et l'état ne peut pas se désynchroniser.
+ * The REST client lives IN the `Phase` variants: it exists exactly when a
+ * server has been validated, and the state cannot fall out of sync.
  */
 
 type Phase =
@@ -53,16 +53,15 @@ export default function LoginScreen() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  // Garde de réentrance dans une ref, pas dans `occupe` : deux événements de
-  // la même frame (Entrée clavier + tape sur le bouton) liraient tous deux
-  // l'ancienne valeur de l'état et enverraient deux logins — dont deux
-  // consommations du même code TOTP à usage unique.
+  // Reentrancy guard in a ref, not in `busy`: two events in the same frame
+  // (keyboard Enter + tap on the button) would both read the old state value
+  // and send two logins, i.e. two uses of the same one-time TOTP code.
   const inFlight = useRef(false);
   const query = useRef<AbortController | null>(null);
   useEffect(() => () => query.current?.abort(), []);
 
-  // Pré-remplir avec le dernier serveur utilisé, sans écraser une saisie déjà
-  // commencée — et charger le registre des serveurs connus (5.3).
+  // Prefill with the last server used, without overwriting input already
+  // started, and load the registry of known servers (5.3).
   const [knownServers, setKnownServers] = useState<string[]>([]);
   useEffect(() => {
     let discarded = false;
@@ -83,10 +82,9 @@ export default function LoginScreen() {
     };
   }, []);
 
-  // Bascule multi-serveurs : chaque session vit sous sa propre clé, changer
-  // de serveur ne déconnecte personne. Réentrance gardée : deux taps rapides
-  // sur deux serveurs feraient courir deux bascules dont les écritures
-  // s'entrelacent.
+  // Multi-server switch: each session lives under its own key, switching
+  // servers logs nobody out. Reentrancy guarded: two quick taps on two
+  // servers would race two switches whose writes interleave.
   const toggle = useCallback(
     async (url: string) => {
       if (inFlight.current) return;
@@ -97,8 +95,8 @@ export default function LoginScreen() {
         if (existingSession) {
           router.replace('/');
         } else {
-          // Pas de session là-bas : on reste connecté ici, le formulaire se
-          // pré-remplit simplement.
+          // No session over there: we stay logged in here, the form is simply
+          // prefilled.
           setAddress(url);
           setMessage(null);
           setPhase({ name: 'server' });
@@ -123,9 +121,8 @@ export default function LoginScreen() {
       const profile = await probeServer(address, controller.signal);
       if (controller.signal.aborted) return;
       if (!profile.loginForm) {
-        // `Accounts_ShowFormLogin = false` : le serveur ne propose que du SSO.
-        // L'API accepte parfois quand même un login direct — on prévient sans
-        // bloquer.
+        // `Accounts_ShowFormLogin = false`: the server only offers SSO. The API
+        // sometimes accepts a direct login anyway: we warn without blocking.
         setMessage(t('login.noPasswordLogin'));
       }
       setPhase({ name: 'credentials', profile, client: new ClientRest(profile.baseUrl) });
@@ -151,18 +148,18 @@ export default function LoginScreen() {
           { user: user.trim(), password },
           twoFactor,
         );
-        // `Site_Url` vient du sondage, pas du login : c'est ICI qu'il entre
-        // dans la session persistée — voir `Session.siteUrl` (lib/auth.ts).
+        // `Site_Url` comes from the probe, not the login: this is WHERE it enters
+        // the persisted session; see `Session.siteUrl` (lib/auth.ts).
         await connect({ ...session, siteUrl: phase.profile.siteUrl });
-        // Navigation explicite : le <Redirect> en tête de rendu couvre la
-        // reprise de session, mais il est neutralisé quand on est venu par
-        // « changer de serveur » (`?changer=1`) — sans ceci, un login réussi
-        // depuis ce chemin laisserait l'utilisateur planté ici.
+        // Explicit navigation: the <Redirect> at the top of the render covers
+        // session resume, but it is neutralised when we came through
+        // "change server" (`?change=1`); without this, a successful login
+        // from that path would leave the user stuck here.
         router.replace('/');
       } catch (e) {
         if (e instanceof TwoFactorError) {
-          // Le serveur veut un second facteur — ou refuse celui qu'on vient
-          // d'envoyer, auquel cas il relève la même erreur.
+          // The server wants a second factor, or rejects the one we just
+          // sent, in which case it raises the same error.
           const sameMethod = phase.name === 'twoFactor' && phase.error.method === e.method;
           setCode('');
           setPhase({
@@ -170,8 +167,8 @@ export default function LoginScreen() {
             profile: phase.profile,
             client: phase.client,
             error: e,
-            // Un code email déjà parti ne « repart » pas parce que le serveur
-            // relève l'erreur avec `codeGenerated: false` (renvoi limité).
+            // An email code already sent does not "resend" because the server
+            // raises the error with `codeGenerated: false` (resending is limited).
             codeSent: e.generatedCode || (sameMethod && phase.codeSent),
           });
           if (twoFactor !== undefined && sameMethod) setMessage(t('login.codeRejected'));
@@ -179,7 +176,7 @@ export default function LoginScreen() {
           e instanceof RestError &&
           (e.error === 'totp-invalid' || e.errorType === 'totp-invalid')
         ) {
-          // Même dualité error/errorType que `totp-required` : voir lib/rest.ts.
+          // Same error/errorType duality as `totp-required`: see lib/rest.ts.
           setMessage(t('login.codeRejected'));
         } else if (e instanceof RestError && e.status === 401) {
           setMessage(t('login.credentialsRejected'));
@@ -200,7 +197,7 @@ export default function LoginScreen() {
       const prepare = await prepareTwoFactorCode(phase.error, code, hash);
       await tryLogin(prepare);
     } catch (e) {
-      // Un `hacher` qui échoue ne doit pas rendre le bouton muet.
+      // A failing `hash` must not leave the button dead.
       setMessage(e instanceof Error ? e.message : t('login.codePrepareFailed'));
     }
   }, [phase, code, tryLogin, t]);
@@ -228,14 +225,14 @@ export default function LoginScreen() {
     setPhase({ name: 'server' });
   }, []);
 
-  // Déjà connecté (reprise au démarrage, ou login qui vient d'aboutir) : cet
-  // écran n'a rien à montrer — SAUF si on vient exprès changer de serveur.
+  // Already logged in (resume at startup, or a login that just succeeded):
+  // this screen has nothing to show, UNLESS we came on purpose to change server.
   if (state.phase === 'connected' && change !== '1') return <Redirect href="/" />;
 
   const onServer = phase.name === 'server';
-  // Route « changer de serveur » (poussée depuis l'accueil) : on GARDE l'en-tête
-  // natif — son bouton retour est la seule sortie vers l'app, et il porte le
-  // titre accessible. Le login racine, lui, reste sans en-tête (logo plein).
+  // "Change server" route (pushed from home): we KEEP the native header; its
+  // back button is the only way back to the app, and it carries the
+  // accessible title. The root login stays headerless (full logo).
   const changeRoute = change === '1';
 
   return (
@@ -357,7 +354,7 @@ export default function LoginScreen() {
   );
 }
 
-/** En-tête de la marque : licorne, barres arc-en-ciel, logotype, sous-titre. */
+/** Brand header: unicorn, rainbow bars, logotype, subtitle. */
 function BrandHeader({ c }: { c: Colors }) {
   const t = useT();
   return (
@@ -374,7 +371,7 @@ function BrandHeader({ c }: { c: Colors }) {
   );
 }
 
-/** Retour vers l'étape serveur, en tête des phases identifiants / 2FA. */
+/** Back to the server step, at the top of the credentials / 2FA phases. */
 function LoginResult({
   c,
   onBack,
@@ -414,8 +411,8 @@ function TwoFactorSection({
 }) {
   const t = useT();
   if (error.method === 'email' && !codeSent) {
-    // `codeGenerated: false` : aucun code n'est encore parti, il faut le
-    // demander explicitement avant d'afficher un champ de saisie.
+    // `codeGenerated: false`: no code has been sent yet, it must be requested
+    // explicitly before showing an input field.
     return (
       <>
         <TwoFactorCrest c={c} subtitle={t('login.introEmail')} />
@@ -464,7 +461,7 @@ function TwoFactorSection({
   );
 }
 
-/** Blason « Vérification magique » : icône bouclier en dégradé + sous-titre. */
+/** "Magic verification" crest: gradient shield icon + subtitle. */
 function TwoFactorCrest({ c, subtitle }: { c: Colors; subtitle: string }) {
   const t = useT();
   return (
@@ -483,8 +480,8 @@ function TwoFactorCrest({ c, subtitle }: { c: Colors; subtitle: string }) {
 }
 
 /**
- * Ciel étoilé décoratif, en fond d'écran. Purement ornemental. `memo` car `c`
- * est stable (palette forcée) : inutile de le re-rendre à chaque frappe.
+ * Decorative starry sky, as the screen background. Purely ornamental. `memo`
+ * because `c` is stable (forced palette): no need to re-render on every keystroke.
  */
 const StarrySky = memo(function StarrySky({ c }: { c: Colors }) {
   const starred: { top: number; left: number; size: number; color: string; opacity: number }[] = [

@@ -1,15 +1,15 @@
-# Upload : légende tapée AVANT le 📎 (elle part avec le fichier), sélection
-# dans le picker système (le harnais a poussé ${FICHIER} dans Téléchargements),
-# puis la légende apparaît en message — preuve que rooms.media + mediaConfirm
-# ont abouti.
+# Upload: caption typed BEFORE the 📎 (it goes out with the file), selection
+# in the system picker (the harness pushed ${FICHIER} into Downloads), then
+# the caption appears as a message: proof that rooms.media + mediaConfirm
+# succeeded.
 appId: com.rocketvibe.app
 ---
-# `stopApp: false` : tuer et relancer un BUILD DEV recharge tout le bundle
-# depuis Metro et retombe parfois sur le launcher du dev-client — inutile ici,
-# la session du flow précédent est déjà au premier plan.
+# `stopApp: false`: killing and relaunching a DEV BUILD reloads the whole
+# bundle from Metro and sometimes lands back on the dev-client launcher;
+# useless here, the previous flow's session is already in the foreground.
 - launchApp:
     stopApp: false
-# Si on est malgré tout sur le launcher du dev-client, on reprend la main.
+# If we are on the dev-client launcher anyway, take back control.
 - runFlow:
     when:
       visible: 'Development Servers'
@@ -23,21 +23,21 @@ appId: com.rocketvibe.app
     visible: 'Message'
     timeout: 15000
 - tapOn: 'Message'
-# Un brouillon restauré (8.7) peut occuper le champ : partir de zéro.
+# A restored draft (8.7) may occupy the field: start from scratch.
 - eraseText
 - inputText: '${LEGENDE}'
-# PAS de hideKeyboard ici : sur Android il se traduit parfois par un BACK,
-# qui sort de l'écran salon. Le 📎 reste visible clavier ouvert.
+# NO hideKeyboard here: on Android it sometimes turns into a BACK, which
+# leaves the room screen. The 📎 stays visible with the keyboard open.
 - tapOn: 'Joindre un fichier'
-# Picker système (documentsui) : le fichier fraîchement poussé est visible
-# dans « Récents ».
+# System picker (documentsui): the freshly pushed file is visible in
+# "Recent".
 - extendedWaitUntil:
     visible: '${FICHIER}'
     timeout: 20000
 - tapOn: '${FICHIER}'
-# Retour dans l'app : compression + upload + confirm, puis le message-légende
-# redescend par le stream — en scrollant : la barre du clavier peut couvrir
-# le bas de la liste.
+# Back in the app: compression + upload + confirm, then the caption message
+# comes back down the stream; scrolling, since the keyboard bar may cover
+# the bottom of the list.
 - scrollUntilVisible:
     element:
       text: '${LEGENDE}'

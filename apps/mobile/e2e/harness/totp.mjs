@@ -1,5 +1,5 @@
-// Code TOTP (RFC 6238, SHA-1, 6 chiffres, 30 s) depuis un secret base32.
-// Aucune dépendance : node:crypto suffit.
+// TOTP code (RFC 6238, SHA-1, 6 digits, 30 s) from a base32 secret.
+// No dependency: node:crypto is enough.
 //
 //   node e2e/harness/totp.mjs <SECRET_BASE32>
 
@@ -35,11 +35,11 @@ export function totp(secretBase32, when = Date.now()) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const secret = process.argv[2];
-  // Décalage optionnel en secondes : `+30` = code de la fenêtre SUIVANTE,
-  // encore valide (tolérance ±1) pendant toute la durée d'un flow Maestro.
+  // Optional offset in seconds: `+30` = code of the NEXT window, still valid
+  // (±1 tolerance) for the whole length of a Maestro flow.
   const offset = Number(process.argv[3] ?? 0) * 1000;
   if (!secret) {
-    console.error('usage: node totp.mjs <SECRET_BASE32> [décalage_s]');
+    console.error('usage: node totp.mjs <SECRET_BASE32> [offset_s]');
     process.exit(1);
   }
   console.log(totp(secret, Date.now() + offset));

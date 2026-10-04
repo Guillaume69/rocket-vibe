@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 
 import { hookUp } from './connectionSetup.ts';
 
-/** Promesse dont le test décide quand — et comment — elle retombe. */
+/** A promise whose settling (when and how) the test decides. */
 function deferred<T>() {
   let resolve!: (v: T) => void;
   let reject!: (e: unknown) => void;
@@ -14,20 +14,20 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-/** Rend la main aux microtâches en attente, sans dormir. */
+/** Yields to pending microtasks, without sleeping. */
 const letRun = async (turns = 6): Promise<void> => {
   for (let i = 0; i < turns; i++) await Promise.resolve();
 };
 
 /**
- * Banc : un stream et un armement qu'on fait retomber à la main, dans
- * n'importe quel ordre. Aucune horloge — c'est tout l'objet du module.
+ * Bench: a stream and an arming settled by hand, in any order. No clock,
+ * which is the whole point of the module.
  */
 function bench(options: { alreadyActive?: boolean } = {}) {
   const stream = deferred<void>();
   const arming = deferred<void>();
   const order: string[] = [];
-  /** Ce que le stream couvrait au DÉMARRAGE de chaque lecture. */
+  /** What the stream covered at the START of each read. */
   const coverage: boolean[] = [];
   let armed = options.alreadyActive ?? false;
 
@@ -36,7 +36,7 @@ function bench(options: { alreadyActive?: boolean } = {}) {
     arming,
     order,
     coverage,
-    /** Le serveur a armé les souscriptions : à partir d'ici, le fil couvre. */
+    /** The server armed the subscriptions: from here on, the stream covers. */
     armer() {
       armed = true;
       arming.resolve();
@@ -57,12 +57,12 @@ function bench(options: { alreadyActive?: boolean } = {}) {
   };
 }
 
-describe('raccorder', () => {
-  test('stream instantané : la lecture ne l’attend pas, la seconde la couvre', async () => {
+describe('hookUp', () => {
+  test('instant stream: the read does not wait for it, the second one covers it', async () => {
     const b = bench();
     const done = hookUp(b.options);
 
-    // La lecture part sans rien attendre — c'est ce que l'utilisateur voit.
+    // The read starts without waiting for anything: this is what the user sees.
     await letRun();
     assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite']);
 
@@ -71,37 +71,36 @@ describe('raccorder', () => {
     await done;
 
     assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite', 'lecture']);
-    // La première a lu avant l'armement, la seconde après : c'est elle qui
-    // garantit qu'aucun intervalle n'échappe aux deux transports.
+    // The first read before arming, the second after: the second guarantees
+    // that no window escapes both transports.
     assert.deepEqual(b.coverage, [false, true]);
   });
 
-  test('stream très lent : rien ne change — même ordre, mêmes garanties', async () => {
+  test('very slow stream: nothing changes, same order, same guarantees', async () => {
     const b = bench();
     const done = hookUp(b.options);
 
     await letRun();
-    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite'], 'lecture déjà faite');
+    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite'], 'read already done');
 
-    // Le stream met « longtemps » — ici, un nombre arbitraire de tours de
-    // boucle. Aucune constante de temps ne s'applique : rien ne se décide
-    // pendant ce laps.
+    // The stream takes "a long time", here an arbitrary number of loop turns.
+    // No time constant applies: nothing is decided during that span.
     await letRun(50);
     assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite']);
 
     b.stream.resolve();
     await letRun();
-    // Toujours pas de seconde lecture : les souscriptions ne sont pas armées.
+    // Still no second read: the subscriptions are not armed.
     assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite']);
 
     b.armer();
     await done;
-    assert.deepEqual(b.coverage, [false, true], 'la seconde lecture couvre');
+    assert.deepEqual(b.coverage, [false, true], 'the second read covers');
   });
 
-  test('stream déjà actif : une seule lecture, et elle couvre', async () => {
+  test('stream already active: a single read, and it covers', async () => {
     const b = bench({ alreadyActive: true });
-    b.stream.resolve(); // socket vivante : `ouvrirStream` ne fait rien
+    b.stream.resolve(); // live socket: `openStream` does nothing
 
     await hookUp(b.options);
 
@@ -109,7 +108,7 @@ describe('raccorder', () => {
     assert.deepEqual(b.coverage, [true]);
   });
 
-  test("l'échec du stream est relayé — mais après que l'utilisateur a eu ses messages", async () => {
+  test('the stream failure is relayed, but after the user got their messages', async () => {
     const b = bench();
     const done = hookUp(b.options);
     const expected = done.then(
@@ -118,20 +117,20 @@ describe('raccorder', () => {
     );
 
     await letRun();
-    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite'], 'la lecture a eu lieu');
+    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite'], 'the read happened');
 
     b.stream.reject(new Error('pas de « connected » en 10000 ms'));
     const error = await expected;
 
-    // Relayé pour que le pilote de reconnexion garde son backoff…
+    // Relayed so the reconnect driver keeps its backoff...
     assert.ok(error instanceof Error);
     assert.match(error.message, /connected/);
-    // …et sans seconde lecture : sans stream, il n'y a pas d'intervalle à
-    // couvrir, et la prochaine tentative refera l'ensemble.
+    // ...and without a second read: without a stream there is no window to
+    // cover, and the next attempt redoes the whole thing.
     assert.deepEqual(b.coverage, [false]);
   });
 
-  test('une lecture qui échoue fait échouer le raccordement (le pilote retentera)', async () => {
+  test('a failing read fails the connection setup (the driver will retry)', async () => {
     const b = bench({ alreadyActive: true });
     b.stream.resolve();
     await assert.rejects(
@@ -140,7 +139,7 @@ describe('raccorder', () => {
     );
   });
 
-  test('session terminée avant la lecture : on ne touche plus à rien', async () => {
+  test('session ended before the read: nothing is touched any more', async () => {
     const b = bench();
     b.stream.resolve();
     await hookUp({ ...b.options, isDiscarded: () => true });
@@ -148,14 +147,14 @@ describe('raccorder', () => {
     assert.deepEqual(b.order, ['stream:demande']);
   });
 
-  test('session terminée pendant la lecture : pas de seconde passe', async () => {
+  test('session ended during the read: no second pass', async () => {
     const b = bench();
     let discarded = false;
     const done = hookUp({
       ...b.options,
       catchUp: async () => {
         b.order.push('lecture');
-        discarded = true; // l'utilisateur se déconnecte pendant la lecture
+        discarded = true; // the user logs out during the read
       },
       isDiscarded: () => discarded,
     });

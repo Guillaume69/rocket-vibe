@@ -3,13 +3,13 @@ import { describe, test } from 'node:test';
 
 import { isWebLink, canLeaveProcess, carriesCredentials } from './externalLink.ts';
 
-describe('estLienWeb', () => {
-  test('http et https, quelle que soit la casse', () => {
+describe('isWebLink', () => {
+  test('http and https, whatever the case', () => {
     assert.equal(isWebLink('https://exemple.org/a'), true);
     assert.equal(isWebLink('HTTP://exemple.org'), true);
   });
 
-  test('tout autre schéma est refusé', () => {
+  test('any other scheme is refused', () => {
     for (const u of [
       'javascript:alert(1)',
       'intent://scan#Intent;scheme=zxing;end',
@@ -24,41 +24,41 @@ describe('estLienWeb', () => {
     }
   });
 
-  test('ce qui n’est pas une chaîne est refusé', () => {
+  test('anything that is not a string is refused', () => {
     for (const v of [null, undefined, 42, {}, ['https://x']]) {
       assert.equal(isWebLink(v), false, JSON.stringify(v));
     }
   });
 });
 
-describe('porteUnIdentifiant', () => {
-  test('reconnaît nos deux paramètres, où qu’ils soient dans la query', () => {
+describe('carriesCredentials', () => {
+  test('recognises our two parameters, wherever they are in the query', () => {
     assert.equal(carriesCredentials('https://h/f?rc_uid=u&rc_token=t'), true);
     assert.equal(carriesCredentials('https://h/f?etag=1&rc_token=t'), true);
     assert.equal(carriesCredentials('https://h/f?RC_TOKEN=t'), true);
   });
 
-  test('une URL ordinaire n’en porte pas', () => {
+  test('an ordinary URL carries none', () => {
     assert.equal(carriesCredentials('https://h/f?etag=abc'), false);
     assert.equal(carriesCredentials('https://github.com/RocketChat/Rocket.Chat'), false);
   });
 });
 
-describe('peutSortirDuProcessus', () => {
-  test('un lien web ordinaire peut sortir', () => {
+describe('canLeaveProcess', () => {
+  test('an ordinary web link may leave', () => {
     assert.equal(canLeaveProcess('https://github.com/RocketChat/Rocket.Chat'), true);
   });
 
-  test('AUCUNE URL portant le jeton ne sort — c’est l’invariant du chantier', () => {
-    // La forme exacte que produisait `urlFichierProtege` avant la correction :
-    // elle partait dans un intent VIEW, donc dans Chrome et son historique.
+  test('NO URL carrying the token leaves, the invariant of this workstream', () => {
+    // The exact form `protectedFileUrl` produced before the fix: it went into a
+    // VIEW intent, hence into Chrome and its history.
     const leak =
       'https://chat.barrut.me/file-upload/BsN3iJ/rapport.pdf?rc_uid=uid-alice&rc_token=jeton-alice';
-    assert.equal(isWebLink(leak), true, 'c’est bien du web…');
-    assert.equal(canLeaveProcess(leak), false, '…et pourtant elle ne sort pas');
+    assert.equal(isWebLink(leak), true, 'it is indeed web...');
+    assert.equal(canLeaveProcess(leak), false, '...and yet it does not leave');
   });
 
-  test('un schéma non web ne sort pas non plus', () => {
+  test('a non-web scheme does not leave either', () => {
     assert.equal(canLeaveProcess('file:///sdcard/x.pdf'), false);
   });
 });

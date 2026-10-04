@@ -1,13 +1,13 @@
 /**
- * Fiche d'un salon (canal ou groupe privé) — sheet native, ouverte par le tap
- * sur le nom dans l'en-tête du salon. Pour un DM, l'en-tête route directement
- * vers la fiche de l'interlocuteur (`/profile`) : la « fiche du salon » d'un
- * tête-à-tête, c'est l'autre personne.
+ * Room info (channel or private group), a native sheet opened by tapping the
+ * name in the room header. For a DM, the header routes straight to the other
+ * person's profile (`/profile`): the "room info" of a one-to-one is the other
+ * person.
  *
- * Le squelette (nom, type, chiffré/lecture seule) vient de la base locale —
- * affiché immédiatement, même hors ligne. Description, sujet, annonce et
- * nombre de membres viennent de `rooms.info` (non stockés localement : ils ne
- * servent qu'ici) et se posent à l'arrivée.
+ * The skeleton (name, type, encrypted/read-only) comes from the local
+ * database, shown immediately, even offline. Description, topic, announcement
+ * and member count come from `rooms.info` (not stored locally: they are only
+ * used here) and arrive later.
  */
 
 import { eq } from 'drizzle-orm';
@@ -53,9 +53,9 @@ export default function RoomInfoScreen() {
   const sync = useSync();
   const c = useColors();
 
-  // L'écran ne s'ouvre que depuis un salon affiché : session et synchro sont
-  // forcément là. La garde (avant tout hook du contenu, qui déréférence la
-  // base) couvre un démontage pendant une déconnexion.
+  // The screen only opens from a displayed room: session and sync are
+  // necessarily there. The guard (before any content hook, which dereferences
+  // the database) covers an unmount during a logout.
   if (state.phase !== 'connected' || sync.phase !== 'ready' || typeof rid !== 'string') {
     return null;
   }
@@ -92,8 +92,8 @@ function RoomInfoContent({
   const favorite = (subscriptionRows ?? [])[0]?.favorite === true;
   const [favoriteToggle, setFavoriteToggle] = useState(false);
   const [favoriteError, setFavoriteError] = useState(false);
-  // Le serveur d'abord : la ligne locale ne change qu'une fois l'étoile posée,
-  // le flux des abonnements confirmera de lui-même.
+  // Server first: the local row only changes once the star is set; the
+  // subscriptions stream will confirm on its own.
   const toggleFavorite = (): void => {
     if (favoriteToggle) return;
     setFavoriteToggle(true);
@@ -122,8 +122,8 @@ function RoomInfoContent({
         });
       })
       .catch((e: unknown) => {
-        // La base locale a déjà rempli l'essentiel : l'échec ne coûte que les
-        // sections complémentaires.
+        // The local database already filled in the essentials: failure only costs
+        // the extra sections.
         if (alive) setError(e instanceof Error ? e.message : translateCurrent('roomInfo.detailsUnavailable'));
       });
     return () => {
@@ -228,9 +228,9 @@ function Section({
 }
 
 const styles = StyleSheet.create({
-  // `minHeight` : la sheet `fitToContents` se mesure au PREMIER rendu, avant
-  // l'arrivée de rooms.info — sans plancher, elle fige à la hauteur du seul
-  // en-tête et le contenu qui pousse ensuite est rogné.
+  // `minHeight`: the `fitToContents` sheet measures itself on the FIRST render,
+  // before rooms.info arrives; without a floor, it freezes at the height of the
+  // header alone and the content that grows afterwards is clipped.
   sheet: { padding: 20, paddingBottom: 28, gap: 16, minHeight: 300 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   identity: { flex: 1, gap: 2 },

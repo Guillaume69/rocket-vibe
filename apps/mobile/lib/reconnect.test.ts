@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 
 import { Reconnector } from './reconnect.ts';
 
-/** Horloge simulée : les minuteries partent quand ON le décide. */
+/** Simulated clock: timers fire when WE decide. */
 function fakeClock() {
   let nextId = 1;
   const scheduled = new Map<number, { fn: () => void; ms: number }>();
@@ -14,13 +14,13 @@ function fakeClock() {
       return id as unknown as ReturnType<typeof setTimeout>;
     },
     cancel: (m: ReturnType<typeof setTimeout>) => void scheduled.delete(m as unknown as number),
-    /** Fait partir la prochaine minuterie et rend son délai. */
+    /** Fires the next timer and returns its delay. */
     async advance(): Promise<number | null> {
       const [id, entry] = [...scheduled.entries()][0] ?? [];
       if (id === undefined || entry === undefined) return null;
       scheduled.delete(id);
       entry.fn();
-      // Laisser la promesse de `essayer` se dérouler.
+      // Let the `tryConnect` promise run.
       await new Promise((r) => setImmediate(r));
       await new Promise((r) => setImmediate(r));
       return entry.ms;
@@ -29,8 +29,8 @@ function fakeClock() {
   };
 }
 
-describe('Reconnecteur', () => {
-  test('première tentative immédiate, puis backoff exponentiel plafonné', async () => {
+describe('Reconnector', () => {
+  test('first attempt immediate, then capped exponential backoff', async () => {
     const clock = fakeClock();
     const delays: number[] = [];
     let succeedAfter = 99;
@@ -40,7 +40,7 @@ describe('Reconnecteur', () => {
         attempts++;
         if (attempts <= succeedAfter) throw new Error('pas encore');
       },
-      random: () => 1, // gigue déterministe : plein délai
+      random: () => 1, // deterministic jitter: full delay
       schedule: clock.schedule,
       cancel: clock.cancel,
     });
@@ -50,18 +50,18 @@ describe('Reconnecteur', () => {
       const ms = await clock.advance();
       if (ms !== null) delays.push(ms);
     }
-    // 0 (immédiat), puis 1 s, 2 s, 4 s, 8 s, 16 s, puis plafond 30 s.
+    // 0 (immediate), then 1 s, 2 s, 4 s, 8 s, 16 s, then the 30 s cap.
     assert.deepEqual(delays, [0, 1000, 2000, 4000, 8000, 16000, 30000, 30000]);
 
-    // Un succès remet le compteur à zéro.
+    // A success resets the counter.
     succeedAfter = 0;
     await clock.advance();
     r.trigger();
     const afterSuccess = await clock.advance();
-    assert.equal(afterSuccess, 0, 'après un succès, la tentative suivante est immédiate');
+    assert.equal(afterSuccess, 0, 'after a success, the next attempt is immediate');
   });
 
-  test('la gigue borne le délai entre la moitié et le plein', async () => {
+  test('jitter bounds the delay between half and full', async () => {
     for (const [random, expected] of [
       [0, 500],
       [1, 1000],
@@ -76,13 +76,13 @@ describe('Reconnecteur', () => {
         cancel: clock.cancel,
       });
       r.trigger();
-      await clock.advance(); // tentative 0, immédiate, échoue
-      const ms = await clock.advance(); // tentative 1 : 1 s plein
+      await clock.advance(); // attempt 0, immediate, fails
+      const ms = await clock.advance(); // attempt 1: full 1 s
       assert.equal(ms, expected);
     }
   });
 
-  test('declencher est idempotent : une seule tentative programmée à la fois', () => {
+  test('trigger is idempotent: a single attempt scheduled at a time', () => {
     const clock = fakeClock();
     const r = new Reconnector({
       connect: async () => {},
@@ -95,7 +95,7 @@ describe('Reconnecteur', () => {
     assert.equal(clock.pending(), 1);
   });
 
-  test('arreter annule la tentative prévue et bloque les suivantes', async () => {
+  test('stop cancels the scheduled attempt and blocks the next ones', async () => {
     const clock = fakeClock();
     let attempts = 0;
     const r = new Reconnector({
@@ -107,16 +107,16 @@ describe('Reconnecteur', () => {
     });
     r.trigger();
     r.stop();
-    assert.equal(clock.pending(), 0, 'la minuterie est annulée');
+    assert.equal(clock.pending(), 0, 'the timer is cancelled');
     r.trigger();
-    assert.equal(clock.pending(), 0, 'plus rien ne se programme');
+    assert.equal(clock.pending(), 0, 'nothing gets scheduled any more');
     assert.equal(attempts, 0);
   });
 
-  test('un declencher pendant une tentative qui RÉUSSIT est rejoué, pas avalé', async () => {
-    // Scénario réel : la socket retombe pendant le rechargement REST d'une
-    // tentative qui va « réussir ». Sans relance, le signal était perdu et
-    // plus rien ne reconnectait jamais — cache figé jusqu'au redémarrage.
+  test('a trigger during an attempt that SUCCEEDS is replayed, not swallowed', async () => {
+    // Real scenario: the socket drops during the REST reload of an
+    // attempt that will "succeed". Without a retry, the signal was lost and
+    // nothing ever reconnected again: cache frozen until restart.
     const clock = fakeClock();
     const valve: { open: (() => void) | null } = { open: null };
     let attempts = 0;
@@ -130,21 +130,21 @@ describe('Reconnecteur', () => {
       cancel: clock.cancel,
     });
     r.trigger();
-    await clock.advance(); // tentative 1 en vol, bloquée sur la vanne
-    r.trigger(); // la socket vient de retomber : à MÉMORISER
+    await clock.advance(); // attempt 1 in flight, blocked on the gate
+    r.trigger(); // the socket just dropped: to REMEMBER
     valve.open?.();
     await new Promise((s) => setImmediate(s));
     await new Promise((s) => setImmediate(s));
-    assert.equal(clock.pending(), 1, 'une nouvelle tentative est programmée');
+    assert.equal(clock.pending(), 1, 'a new attempt is scheduled');
     await clock.advance();
     assert.equal(attempts, 2);
   });
 
-  test('suspendre annule la minuterie prévue et bloque les demandes', () => {
-    // En arrière-plan, le handler AppState ferme volontairement la socket et
-    // « le push prend le relais ». Sans suspension, une minuterie de backoff
-    // déjà armée tire quand même : chaque tentative rouvre une socket que
-    // Doze tuera, et entraîne un rattraperTout() REST rate-limité.
+  test('suspend cancels the scheduled timer and blocks requests', () => {
+    // In the background, the AppState handler deliberately closes the socket and
+    // "push takes over". Without suspension, an already armed backoff timer
+    // fires anyway: each attempt reopens a socket that
+    // Doze will kill, and triggers a rate-limited REST catchUpAll().
     const clock = fakeClock();
     let attempts = 0;
     const r = new Reconnector({
@@ -158,16 +158,16 @@ describe('Reconnecteur', () => {
     assert.equal(clock.pending(), 1);
 
     r.suspend();
-    assert.equal(clock.pending(), 0, 'la minuterie armée est désarmée');
+    assert.equal(clock.pending(), 0, 'the armed timer is disarmed');
     r.trigger();
-    assert.equal(clock.pending(), 0, 'plus aucune demande ne programme');
+    assert.equal(clock.pending(), 0, 'no request schedules anything any more');
     assert.equal(attempts, 0);
   });
 
-  test("l'échec d'une tentative EN VOL ne relance pas la boucle après suspendre", async () => {
-    // L'autre chemin : la minuterie a déjà tiré, la tentative est partie, et
-    // c'est son `catch` qui rappellera `declencher()`. Le drapeau doit tenir
-    // là aussi, sinon le passage en arrière-plan ne suspend qu'une moitié.
+  test("the failure of an attempt IN FLIGHT does not restart the loop after suspend", async () => {
+    // The other path: the timer already fired, the attempt is running, and
+    // its `catch` will call `trigger()` again. The flag must hold
+    // there too, otherwise going to the background only suspends one half.
     const clock = fakeClock();
     const valve: { fail: ((e: Error) => void) | null } = { fail: null };
     const r = new Reconnector({
@@ -179,17 +179,17 @@ describe('Reconnecteur', () => {
       cancel: clock.cancel,
     });
     r.trigger();
-    await clock.advance(); // tentative en vol
+    await clock.advance(); // attempt in flight
 
-    r.suspend(); // l'app passe en arrière-plan pendant la tentative
+    r.suspend(); // the app goes to the background during the attempt
     valve.fail?.(new Error('réseau coupé'));
     await new Promise((s) => setImmediate(s));
     await new Promise((s) => setImmediate(s));
 
-    assert.equal(clock.pending(), 0, 'rien ne se reprogramme en fond');
+    assert.equal(clock.pending(), 0, 'nothing gets rescheduled in the background');
   });
 
-  test('une relance mémorisée pendant une tentative RÉUSSIE ne survit pas à suspendre', async () => {
+  test('a retry remembered during a SUCCESSFUL attempt does not survive suspend', async () => {
     const clock = fakeClock();
     const valve: { open: (() => void) | null } = { open: null };
     const r = new Reconnector({
@@ -202,8 +202,8 @@ describe('Reconnecteur', () => {
     });
     r.trigger();
     await clock.advance();
-    r.trigger(); // la socket retombe : relance mémorisée
-    r.suspend(); // …puis l'app part en arrière-plan
+    r.trigger(); // the socket drops: retry remembered
+    r.suspend(); // …then the app goes to the background
     valve.open?.();
     await new Promise((s) => setImmediate(s));
     await new Promise((s) => setImmediate(s));
@@ -211,10 +211,10 @@ describe('Reconnecteur', () => {
     assert.equal(clock.pending(), 0);
   });
 
-  test('reprendre réarme, et la tentative est IMMÉDIATE — pas au bout du backoff', async () => {
-    // Le backoff accumulé décrit un réseau observé écran éteint. Au retour au
-    // premier plan la situation est neuve, et c'est un geste de l'utilisateur :
-    // le faire attendre 30 s serait la punition que ce chantier veut lever.
+  test('resume rearms, and the attempt is IMMEDIATE, not at the end of the backoff', async () => {
+    // The accumulated backoff describes a network observed with the screen off. Back in
+    // the foreground the situation is new, and it is a user gesture:
+    // making them wait 30 s would be the penalty this workstream wants to remove.
     const clock = fakeClock();
     let attempts = 0;
     const r = new Reconnector({
@@ -227,30 +227,30 @@ describe('Reconnecteur', () => {
       cancel: clock.cancel,
     });
     r.trigger();
-    for (let i = 0; i < 6; i++) await clock.advance(); // le backoff monte
+    for (let i = 0; i < 6; i++) await clock.advance(); // the backoff climbs
     assert.equal(attempts, 6);
 
     r.suspend();
     r.resume();
     r.trigger();
-    assert.equal(await clock.advance(), 0, 'immédiate au retour');
+    assert.equal(await clock.advance(), 0, 'immediate on return');
     assert.equal(attempts, 7);
   });
 
-  test('reprendre ne ressuscite pas un pilote arrêté', () => {
+  test('resume does not revive a stopped driver', () => {
     const clock = fakeClock();
     const r = new Reconnector({
       connect: async () => {},
       schedule: clock.schedule,
       cancel: clock.cancel,
     });
-    r.stop(); // démontage : définitif
+    r.stop(); // unmount: final
     r.resume();
     r.trigger();
     assert.equal(clock.pending(), 0);
   });
 
-  test('un declencher PENDANT une tentative en vol ne double pas', async () => {
+  test('a trigger DURING an attempt in flight does not double up', async () => {
     const clock = fakeClock();
     const valve: { open: (() => void) | null } = { open: null };
     let attempts = 0;
@@ -264,8 +264,8 @@ describe('Reconnecteur', () => {
       cancel: clock.cancel,
     });
     r.trigger();
-    await clock.advance(); // lance la tentative, qui bloque sur la vanne
-    r.trigger(); // en vol : ne doit rien programmer
+    await clock.advance(); // starts the attempt, which blocks on the gate
+    r.trigger(); // in flight: must not schedule anything
     assert.equal(clock.pending(), 0);
     valve.open?.();
     await new Promise((s) => setImmediate(s));

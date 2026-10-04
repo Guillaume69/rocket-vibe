@@ -5,28 +5,27 @@ const expoConfig = require("eslint-config-expo/flat");
 module.exports = defineConfig([
   expoConfig,
   {
-    // `lib/emojis.generated.ts` : 260 Ko sur une ligne, produits par
-    // `npm run emojis:generate`. Rien à y corriger à la main.
+    // `lib/emojis.generated.ts`: 260 KB on one line, produced by
+    // `npm run emojis:generate`. Nothing to fix there by hand.
     ignores: ['dist/*', 'db/migrations/*', 'lib/emojis.generated.ts'],
   },
   {
     files: ['lib/**/*.ts', 'db/**/*.ts'],
     rules: {
-      // Les modules de `lib/` et `db/` doivent rester chargeables par Node,
-      // qui ne sait que DÉPOUILLER les types, pas les compiler. Une
-      // « parameter property » (`constructor(private x: T)`) ou une `enum`
-      // émettent du code : Node refuse le fichier, et les tests ne tournent
-      // plus. Deux fois piégé, une fois interdit.
+      // The `lib/` and `db/` modules must stay loadable by Node, which can only
+      // STRIP types, not compile them. A "parameter property"
+      // (`constructor(private x: T)`) or an `enum` emit code: Node refuses the
+      // file, and the tests no longer run. Bitten twice, forbidden once.
       'no-restricted-syntax': [
         'error',
         {
           selector: 'TSParameterProperty',
           message:
-            'Syntaxe non effaçable : utilise un champ ordinaire, sinon Node ne peut plus charger le module (et donc plus le tester).',
+            'Non-erasable syntax: use a plain field, otherwise Node can no longer load the module (and so no longer test it).',
         },
         {
           selector: 'TSEnumDeclaration',
-          message: 'Syntaxe non effaçable : utilise un objet `as const` ou une union de littéraux.',
+          message: 'Non-erasable syntax: use an `as const` object or a union of literals.',
         },
       ],
     },

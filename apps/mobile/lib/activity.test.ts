@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 
 import { ActivityEngine } from './activity.ts';
 
-/** Une promesse qu'on résout à la main, pour tenir un fetch « en vol ». */
+/** A promise resolved by hand, to hold a fetch "in flight". */
 function deferred<T = void>() {
   let resolve!: (v: T) => void;
   let reject!: (e: unknown) => void;
@@ -14,21 +14,21 @@ function deferred<T = void>() {
   return { promise, resolve, reject };
 }
 
-describe('MoteurActivite', () => {
-  test('la portée est allumée le temps du fetch, éteinte à sa résolution', async () => {
+describe('ActivityEngine', () => {
+  test('the scope is on during the fetch, off once it resolves', async () => {
     const m = new ActivityEngine();
     const d = deferred();
 
-    assert.equal(m.active('global'), false, 'au repos');
+    assert.equal(m.active('global'), false, 'idle');
     const tracking = m.track('global', d.promise);
-    assert.equal(m.active('global'), true, 'allumé dès le lancement (synchrone)');
+    assert.equal(m.active('global'), true, 'on as soon as it starts (synchronous)');
 
     d.resolve();
     await tracking;
-    assert.equal(m.active('global'), false, 'éteint à la fin');
+    assert.equal(m.active('global'), false, 'off at the end');
   });
 
-  test('un fetch qui échoue éteint quand même la portée, et rejette', async () => {
+  test('a failing fetch still switches the scope off, and rejects', async () => {
     const m = new ActivityEngine();
     const d = deferred();
 
@@ -36,10 +36,10 @@ describe('MoteurActivite', () => {
     d.reject(new Error('réseau'));
 
     await assert.rejects(tracking, /réseau/);
-    assert.equal(m.active('r1'), false, 'pas de compteur bloqué en l’air');
+    assert.equal(m.active('r1'), false, 'no stuck counter');
   });
 
-  test('deux fetches concurrents : la portée reste allumée tant qu’il en reste un', async () => {
+  test('two concurrent fetches: the scope stays on while one remains', async () => {
     const m = new ActivityEngine();
     const a = deferred();
     const b = deferred();
@@ -50,26 +50,26 @@ describe('MoteurActivite', () => {
 
     a.resolve();
     await its;
-    assert.equal(m.active('r1'), true, 'il en reste un — toujours allumé');
+    assert.equal(m.active('r1'), true, 'one remains, still on');
 
     b.resolve();
     await sb;
-    assert.equal(m.active('r1'), false, 'le dernier éteint');
+    assert.equal(m.active('r1'), false, 'the last one switches off');
   });
 
-  test('les portées sont indépendantes', async () => {
+  test('scopes are independent', async () => {
     const m = new ActivityEngine();
     const d = deferred();
     const tracking = m.track('global', d.promise);
 
     assert.equal(m.active('global'), true);
-    assert.equal(m.active('r1'), false, 'une autre portée n’est pas touchée');
+    assert.equal(m.active('r1'), false, 'another scope is untouched');
 
     d.resolve();
     await tracking;
   });
 
-  test('n’avertit qu’aux BASCULES booléennes (0→1, 1→0), pas sur un concurrent', async () => {
+  test('notifies only on boolean FLIPS (0→1, 1→0), not on a concurrent one', async () => {
     const m = new ActivityEngine();
     let notices = 0;
     m.onChange(() => {
@@ -78,22 +78,22 @@ describe('MoteurActivite', () => {
 
     const a = deferred();
     const b = deferred();
-    m.track('r1', a.promise); // 0→1 : un avis
-    m.track('r1', b.promise); // 1→2 : aucun
+    m.track('r1', a.promise); // 0→1: one notice
+    m.track('r1', b.promise); // 1→2: none
     assert.equal(notices, 1);
 
     a.resolve();
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(notices, 1, '2→1 : toujours allumé, aucun avis');
+    assert.equal(notices, 1, '2→1: still on, no notice');
 
     b.resolve();
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(notices, 2, '1→0 : un avis d’extinction');
+    assert.equal(notices, 2, '1→0: a switch-off notice');
   });
 
-  test('surChangement rend un désabonnement qui coupe les avis', async () => {
+  test('onChange returns an unsubscribe that stops the notices', async () => {
     const m = new ActivityEngine();
     let notices = 0;
     const detacher = m.onChange(() => {
@@ -105,6 +105,6 @@ describe('MoteurActivite', () => {
     const tracking = m.track('global', d.promise);
     d.resolve();
     await tracking;
-    assert.equal(notices, 0, 'plus abonné');
+    assert.equal(notices, 0, 'no longer subscribed');
   });
 });

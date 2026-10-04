@@ -35,7 +35,7 @@ before(async () => {
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const a = server.address();
-  if (typeof a === 'string' || a === null) throw new Error('adresse inattendue');
+  if (typeof a === 'string' || a === null) throw new Error('unexpected address');
   base = `http://127.0.0.1:${a.port}`;
 });
 
@@ -55,7 +55,7 @@ const LOGIN_SUCCESS = {
 };
 
 describe('auth', () => {
-  test('un login sans 2FA renvoie une session', async () => {
+  test('a login without 2FA returns a session', async () => {
     handle = (_q, res) => json(res, 200, LOGIN_SUCCESS);
     const s = await logIn(new ClientRest(base), {
       user: 'alice',
@@ -67,14 +67,14 @@ describe('auth', () => {
       userId: 'u1',
       username: 'alice',
       genre: 'rocketchat',
-      // `Site_Url` ne vient pas du login : l'écran de connexion le complète
-      // depuis son sondage avant de persister.
+      // `Site_Url` does not come from the login: the login screen fills it in
+      // from its probe before persisting.
       siteUrl: null,
     });
     assert.deepEqual(received[0].body, { user: 'alice', password: 'secret' });
   });
 
-  test("le login n'envoie pas d'en-têtes d'authentification", async () => {
+  test('the login sends no auth headers', async () => {
     handle = (_q, res) => json(res, 200, LOGIN_SUCCESS);
     const c = new ClientRest(base);
     c.auth = { authToken: 'ancien', userId: 'vieux' };
@@ -82,7 +82,7 @@ describe('auth', () => {
     assert.equal(received[0].headers['x-auth-token'], undefined);
   });
 
-  test('une 2FA requise lève ErreurDeuxFacteurs avec sa méthode', async () => {
+  test('a required 2FA throws TwoFactorError with its method', async () => {
     handle = (_q, res) =>
       json(res, 401, {
         success: false,
@@ -99,13 +99,13 @@ describe('auth', () => {
     );
   });
 
-  test('un code TOTP est transmis tel quel', async () => {
+  test('a TOTP code is sent as is', async () => {
     const error = new TwoFactorError('totp', ['totp'], false);
     const code = await prepareTwoFactorCode(error, ' 123456 ', hash);
     assert.deepEqual(code, { method: 'totp', code: '123456' });
   });
 
-  test("pour la méthode `password`, c'est le SHA-256 qui part, pas le clair", async () => {
+  test('for the `password` method, the SHA-256 is sent, not the plain text', async () => {
     const error = new TwoFactorError('password', [], false);
     const code = await prepareTwoFactorCode(error, 'mon-mot-de-passe', hash);
     assert.equal(code.method, 'password');
@@ -114,7 +114,7 @@ describe('auth', () => {
     assert.match(code.code, /^[0-9a-f]{64}$/);
   });
 
-  test('le rejeu avec le code envoie les en-têtes 2FA', async () => {
+  test('the replay with the code sends the 2FA headers', async () => {
     handle = (_q, res) => json(res, 200, LOGIN_SUCCESS);
     await logIn(
       new ClientRest(base),
@@ -125,14 +125,14 @@ describe('auth', () => {
     assert.equal(received[0].headers['x-2fa-method'], 'totp');
   });
 
-  test('reprendreSession envoie `resume`, pas de mot de passe', async () => {
+  test('resumeSession sends `resume`, no password', async () => {
     handle = (_q, res) => json(res, 200, LOGIN_SUCCESS);
     const s = await resumeSession(new ClientRest(base), 'jeton-stocke');
     assert.deepEqual(received[0].body, { resume: 'jeton-stocke' });
     assert.equal(s.userId, 'u1');
   });
 
-  test('une réponse de login sans jeton est rejetée proprement', async () => {
+  test('a login response without a token is rejected cleanly', async () => {
     handle = (_q, res) => json(res, 200, { status: 'success', data: { me: {} } });
     await assert.rejects(
       logIn(new ClientRest(base), { user: 'a', password: 'b' }),
@@ -140,9 +140,9 @@ describe('auth', () => {
     );
   });
 
-  test('un login à 200 sans corps ne produit pas de TypeError brute', async () => {
-    // `ClientRest` rend `{}` sur un 200 vide (nécessaire pour /logout) : sans
-    // garde, `reponse.data.authToken` lèverait un TypeError incompréhensible.
+  test('a 200 login without a body does not produce a raw TypeError', async () => {
+    // `ClientRest` returns `{}` on an empty 200 (needed for /logout): without a
+    // guard, `response.data.authToken` would throw an unintelligible TypeError.
     handle = (_q, res) => {
       res.writeHead(200);
       res.end();
@@ -157,15 +157,15 @@ describe('auth', () => {
     );
   });
 
-  test('seDeconnecter est best-effort : un 401 ne rejette pas', async () => {
+  test('logOut is best-effort: a 401 does not reject', async () => {
     handle = (_q, res) => json(res, 401, { success: false, error: 'invalid' });
     const c = new ClientRest(base);
     c.auth = { authToken: 'x', userId: 'y' };
-    await logOut(c); // ne doit pas lever
-    assert.equal(c.auth, null, 'un jeton déjà invalide ne doit pas rester en mémoire');
+    await logOut(c); // must not throw
+    assert.equal(c.auth, null, 'an already invalid token must not stay in memory');
   });
 
-  test('appliquerSession branche les identifiants sur le client', () => {
+  test('applySession plugs the credentials into the client', () => {
     const c = new ClientRest(base);
     applySession(c, {
       baseUrl: base,

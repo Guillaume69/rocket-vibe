@@ -1,21 +1,19 @@
 /**
- * Orchestration E2EE : la clé privée en mémoire, le cache des clés de salon, et
- * le déverrouillage. La crypto pure vit dans `crypto.ts` ; ici on gère l'état
- * (verrouillé / déverrouillé), le stockage sécurisé de la clé et le REST.
+ * E2EE orchestration: the private key in memory, the room key cache, and
+ * unlocking. Pure crypto lives in `crypto.ts`; this handles the state
+ * (locked / unlocked), secure storage of the key, and REST.
  *
- * Modèle d'usage :
- *   1. `reprendre()` au démarrage : si une clé privée est en Keystore, on
- *      réimporte sans mot de passe → déverrouillé silencieusement.
- *   2. sinon `deverrouiller(motDePasse)` au tap sur un salon chiffré : va
- *      chercher la clé privée chiffrée (`e2e.fetchMyKeys`), la déchiffre, la
- *      persiste.
- *   3. `enregistrerCleSalon(rid, E2EKey)` met la clé AES d'un salon en cache
- *      (déchiffrée par RSA une fois) ; `dechiffrerContenu(rid, content)` est
- *      alors SYNCHRONE, donc branchable au fil de l'ingestion ; `chiffrer(rid,
- *      charge)` l'est aussi, pour l'envoi.
- *   4. `verrouiller()` oublie tout, en mémoire et en Keystore.
+ * Usage:
+ *   1. `resume()` at startup: if a private key is in the Keystore, it is
+ *      reimported without a password, so unlocked silently.
+ *   2. otherwise `unlock(password)` on tapping an encrypted room: fetches the
+ *      encrypted private key (`e2e.fetchMyKeys`), decrypts it, persists it.
+ *   3. `saveRoomKey(rid, E2EKey)` caches a room's AES key (RSA-decrypted
+ *      once); `decryptContent(rid, content)` is then SYNCHRONOUS, so it can be
+ *      plugged into ingestion; `encrypt(rid, payload)` is too, for sending.
+ *   4. `lock()` forgets everything, in memory and in the Keystore.
  *
- * `estDeverrouille` est observable (`souscrire`) pour piloter l'UI via
+ * `isUnlocked` is observable (`subscribe`) to drive the UI through
  * `useSyncExternalStore`.
  */
 
@@ -31,12 +29,12 @@ import {
   type EncryptedContent,
 } from './crypto.ts';
 
-/** Le strict nécessaire de `ClientRest` — pour tester le moteur sans réseau. */
+/** The bare minimum of `ClientRest`, to test the engine without a network. */
 export interface ClientE2E {
   get<T>(path: string, options?: { params?: Record<string, unknown> }): Promise<T>;
 }
 
-/** Accès au Keystore, injecté (pour tester sans `expo-secure-store`). */
+/** Keystore access, injected (to test without `expo-secure-store`). */
 export interface E2EKeyStorage {
   read(): Promise<string | null>;
   save(jwkJson: string): Promise<void>;
@@ -48,13 +46,13 @@ type FetchMyKeysResponse = { public_key?: string; private_key?: string };
 export class E2EEngine {
   private readonly client: ClientE2E;
   private readonly storage: E2EKeyStorage;
-  /** userId du compte — sel PBKDF2 des clés privées v1 (héritage). */
+  /** Account userId, the PBKDF2 salt of v1 private keys (legacy). */
   private readonly uid: string;
 
   private privateKey: RsaPrivateKey | null = null;
-  /** rid → octets bruts de la clé AES du salon (déchiffrée une fois). */
+  /** rid -> raw bytes of the room AES key (decrypted once). */
   private readonly roomKeys = new Map<string, Buffer>();
-  /** rid → `E2EKey` d'abonnement connu, pour (re)calculer la clé au besoin. */
+  /** rid -> known subscription `E2EKey`, to (re)compute the key when needed. */
   private readonly e2eKeys = new Map<string, string>();
   private readonly listeners = new Set<() => void>();
 
@@ -68,7 +66,7 @@ export class E2EEngine {
     return this.privateKey !== null;
   }
 
-  /** Observe les transitions verrouillé ↔ déverrouillé (pour useSyncExternalStore). */
+  /** Observes locked <-> unlocked transitions (for useSyncExternalStore). */
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -79,9 +77,9 @@ export class E2EEngine {
   }
 
   /**
-   * Reprise silencieuse au démarrage : réimporte la clé privée déjà en Keystore.
-   * Rend `true` si on est déverrouillé après coup. Une clé corrompue est effacée
-   * plutôt que de bloquer.
+   * Silent resume at startup: reimports the private key already in the
+   * Keystore. Returns `true` if unlocked afterwards. A corrupt key is cleared
+   * rather than blocking.
    */
   async resume(): Promise<boolean> {
     if (this.privateKey !== null) return true;
@@ -98,24 +96,24 @@ export class E2EEngine {
   }
 
   /**
-   * Déverrouille avec le mot de passe E2E : récupère la clé privée chiffrée,
-   * la déchiffre, la persiste. Lève `ErreurE2E` si le mot de passe est faux.
+   * Unlocks with the E2E password: fetches the encrypted private key, decrypts
+   * it, persists it. Throws `E2EError` if the password is wrong.
    */
   async unlock(password: string): Promise<void> {
     const res = await this.client.get<FetchMyKeysResponse>('e2e.fetchMyKeys');
     if (typeof res.private_key !== 'string') {
       throw new E2EError('no E2E key on this account');
     }
-    // `dechiffrerClePrivee` détecte le schéma (v1/v2) ; le uid sert de sel v1.
-    const jwk = decryptPrivateKey(res.private_key, password, this.uid); // lève ErreurE2E si faux
+    // `decryptPrivateKey` detects the scheme (v1/v2); the uid is the v1 salt.
+    const jwk = decryptPrivateKey(res.private_key, password, this.uid); // throws E2EError if wrong
     this.privateKey = importRsaPrivateKey(jwk);
     await this.storage.save(jwk);
-    // Les clés de salon connues peuvent maintenant se recalculer à la demande.
+    // Known room keys can now be recomputed on demand.
     this.roomKeys.clear();
     this.notifier();
   }
 
-  /** Oublie toute clé — mémoire et Keystore. */
+  /** Forgets every key, memory and Keystore. */
   async lock(): Promise<void> {
     this.privateKey = null;
     this.roomKeys.clear();
@@ -124,16 +122,16 @@ export class E2EEngine {
   }
 
   /**
-   * Mémorise (et déchiffre si possible) la clé AES d'un salon depuis l'`E2EKey`
-   * de son abonnement. Sûr à appeler verrouillé (mémorise l'`E2EKey`, remettra
-   * la main dessus au déverrouillage) et de façon répétée — idempotent tant que
-   * l'`E2EKey` ne CHANGE pas.
+   * Stores (and decrypts if possible) a room's AES key from its
+   * subscription's `E2EKey`. Safe to call while locked (it keeps the `E2EKey`
+   * and picks it up on unlock) and repeatedly: idempotent as long as the
+   * `E2EKey` does not CHANGE.
    *
-   * Quand elle change, c'est une ROTATION (un membre retiré du salon en
-   * provoque une) : le cache `clesSalon` porte alors la clé AES périmée, et
-   * `dechiffrerContenu` la consulte EN PREMIER — tous les messages suivants se
-   * figeraient au placeholder 🔒 jusqu'au redémarrage, sans indice de cause.
-   * D'où la purge : la clé se recalculera à la demande, depuis la neuve.
+   * When it changes, it is a ROTATION (removing a member from the room causes
+   * one): the `roomKeys` cache then holds the stale AES key, and
+   * `decryptContent` checks it FIRST, so every later message would freeze on
+   * the 🔒 placeholder until restart, with no hint of the cause. Hence the
+   * purge: the key is recomputed on demand from the new one.
    */
   saveRoomKey(rid: string, e2eKey: string | null): void {
     if (e2eKey === null || e2eKey === '') return;
@@ -144,23 +142,22 @@ export class E2EEngine {
     try {
       this.roomKeys.set(rid, decryptRoomKey(e2eKey, this.privateKey));
     } catch {
-      // Clé illisible (autre keyID, blob abîmé) : on n'a rien à cacher, les
-      // messages de ce salon resteront au placeholder.
+      // Unreadable key (other keyID, damaged blob): nothing to cache, this
+      // room's messages stay on the placeholder.
     }
   }
 
-  /** Le keyID (UUID) attendu pour un salon, ou `null` si son `E2EKey` est inconnu. */
+  /** The keyID (UUID) expected for a room, or `null` if its `E2EKey` is unknown. */
   roomKeyId(rid: string): string | null {
     const k = this.e2eKeys.get(rid);
     return k === undefined ? null : keyIdOfE2EKey(k);
   }
 
   /**
-   * Déchiffre un objet `content` pour un salon : son texte, et les pièces
-   * jointes (JSON) d'un fichier. SYNCHRONE : se branche au fil de l'ingestion.
-   * Rend `null` si verrouillé, si la clé du salon manque, ou si le contenu est
-   * illisible — l'appelant garde alors le ciphertext pour retenter après
-   * déverrouillage.
+   * Decrypts a `content` object for a room: its text, and a file's
+   * attachments (JSON). SYNCHRONOUS: plugs into ingestion. Returns `null` if
+   * locked, if the room key is missing, or if the content is unreadable; the
+   * caller then keeps the ciphertext to retry after unlocking.
    */
   decryptContent(rid: string, content: EncryptedContent): { text: string; attachments: string | null } | null {
     const key = this.roomKey(rid);
@@ -174,9 +171,9 @@ export class E2EEngine {
   }
 
   /**
-   * Chiffre une charge (`{msg}`…) pour un salon, sous sa clé courante et son
-   * keyID. Rend `null` si verrouillé ou si la clé du salon manque : l'envoi
-   * attend alors, il ne part jamais en clair.
+   * Encrypts a payload (`{msg}`...) for a room, under its current key and
+   * keyID. Returns `null` if locked or if the room key is missing: sending
+   * then waits, it never goes out in plaintext.
    */
   encrypt(rid: string, payload: object): EncryptedContent | null {
     const key = this.roomKey(rid);
@@ -193,7 +190,7 @@ export class E2EEngine {
     if (this.privateKey === null) return null;
     const known = this.roomKeys.get(rid);
     if (known !== undefined) return known;
-    // Pas encore en cache : tenter depuis l'`E2EKey` connu.
+    // Not cached yet: try from the known `E2EKey`.
     const e2eKey = this.e2eKeys.get(rid);
     if (e2eKey === undefined) return null;
     try {

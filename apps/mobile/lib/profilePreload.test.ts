@@ -1,17 +1,17 @@
 /**
- * La mécanique d'ouverture de fiche : la course entre `users.info`, la sonde
- * d'appel et le plafond de 2 s, l'indicateur différé anti-flash, la garde de
- * réentrance. Testable depuis que le module est du lib/ PUR (chantier 15) : la
- * navigation est injectée (`definirNavigateurProfil`), plus d'expo-router.
+ * The profile opening mechanics: the race between `users.info`, the call probe
+ * and the 2 s cap, the deferred anti-flash indicator, the reentrancy guard.
+ * Testable since the module became PURE lib/ (workstream 15): navigation is
+ * injected (`setProfileNavigator`), no more expo-router.
  *
- * Timers et `Date` mockés (`t.mock.timers`) : aucune attente réelle. Entre
- * chaque `tick`, on draine les microtâches — les chaînes de `then` du module
- * avancent d'un cran par tour.
+ * Timers and `Date` mocked (`t.mock.timers`): no real waiting. Between each
+ * `tick`, microtasks are drained: the module's `then` chains advance one step
+ * per turn.
  *
- * PIÈGE du mock (vérifié sur Node 24) : `tick(n)` pose `Date.now()` à la CIBLE
- * avant d'exécuter les callbacks en route — un callback armé à 450 lirait 2000
- * dans un `tick(2000)`, et l'anti-flash calculerait une attente de plus jamais
- * tickée (pendaison). On tick donc PAR ÉCHÉANCE, jamais d'un bloc.
+ * Mock TRAP (verified on Node 24): `tick(n)` sets `Date.now()` to the TARGET
+ * before running the callbacks on the way: a callback armed at 450 would read
+ * 2000 in a `tick(2000)`, and the anti-flash would compute a wait never ticked
+ * (hang). So tick PER DEADLINE, never in one block.
  */
 
 import assert from 'node:assert/strict';
@@ -50,12 +50,12 @@ function fakeClient(handles: {
   } as unknown as ClientRest;
 }
 
-/** Assez de tours pour épuiser les chaînes de `then`/`await` du module. */
+/** Enough turns to exhaust the module's `then`/`await` chains. */
 async function drain(): Promise<void> {
   for (let i = 0; i < 25; i++) await Promise.resolve();
 }
 
-describe('ouvrirFicheProfil', () => {
+describe('openProfileCard', () => {
   let navigations: ProfileParams[];
 
   beforeEach(() => {
@@ -65,7 +65,7 @@ describe('ouvrirFicheProfil', () => {
     setProfileNavigator((p) => navigations.push(p));
   });
 
-  test('réponse rapide : fiche en cache, navigation, indicateur jamais montré', async (t: TestContext) => {
+  test('fast answer: profile cached, navigation, indicator never shown', async (t: TestContext) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
     setProfileClient(
       fakeClient({
@@ -85,16 +85,16 @@ describe('ouvrirFicheProfil', () => {
       user: USER,
       error: null,
     });
-    // `sabonnerOuvertureProfil` rejoue l'état courant (false) à l'abonnement ;
-    // rien d'autre ne doit s'être affiché sous le seuil.
+    // `subscribeProfileOpening` replays the current state (false) on subscribe;
+    // nothing else may have shown under the threshold.
     assert.deepEqual(busy, [false]);
     unsubscribe();
   });
 
-  test("la sonde d'appel participe au plafond : elle traîne, on ouvre à 2 s sans fiche", async (t: TestContext) => {
+  test('the call probe counts toward the cap: it lags, opening at 2 s without a profile', async (t: TestContext) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
-    // `users.info` répond tout de suite — c'est la SONDE qui pend : le
-    // `Promise.all` ne doit pas résoudre, et seul le plafond ouvre.
+    // `users.info` answers right away, the PROBE is what hangs: the
+    // `Promise.all` must not resolve, and only the cap opens.
     setProfileClient(
       fakeClient({
         usersInfo: () => Promise.resolve({ user: USER }),
@@ -104,20 +104,20 @@ describe('ouvrirFicheProfil', () => {
 
     const end = openProfileCard({ username: 'alice' });
     await drain();
-    assert.deepEqual(navigations, [], 'rien ne doit ouvrir avant le plafond');
+    assert.deepEqual(navigations, [], 'nothing may open before the cap');
 
-    t.mock.timers.tick(450); // l'indicateur, à SON heure (voir l'en-tête)
-    t.mock.timers.tick(1550); // puis le plafond
+    t.mock.timers.tick(450); // the indicator, at ITS time (see the header)
+    t.mock.timers.tick(1550); // then the cap
     await drain();
     await end;
 
     assert.deepEqual(navigations, [{ username: 'alice' }]);
-    // Plafond dépassé : l'entrée est PURGÉE — l'écran refera son chargement,
-    // plutôt que de servir une fiche dont la hauteur mentirait.
+    // Cap exceeded: the entry is PURGED, the screen will redo its load rather
+    // than serve a profile whose height would lie.
     assert.equal(readPreloadedProfile({ username: 'alice' }), undefined);
   });
 
-  test("tout traîne : l'indicateur s'affiche à 450 ms et s'éteint à l'ouverture", async (t: TestContext) => {
+  test('everything lags: the indicator shows at 450 ms and turns off on opening', async (t: TestContext) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
     setProfileClient(
       fakeClient({
@@ -132,19 +132,19 @@ describe('ouvrirFicheProfil', () => {
     await drain();
     t.mock.timers.tick(450);
     await drain();
-    assert.deepEqual(busy, [false, true], 'le seuil passé, la pastille est là');
+    assert.deepEqual(busy, [false, true], 'past the threshold, the pill is there');
 
     t.mock.timers.tick(1550);
     await drain();
     await end;
 
-    // Affichée depuis 1 550 ms > minimum 400 : extinction immédiate, ouverture.
+    // Shown for 1,550 ms > minimum 400: immediate turn-off, opening.
     assert.deepEqual(busy, [false, true, false]);
     assert.deepEqual(navigations, [{ username: 'alice' }]);
     unsubscribe();
   });
 
-  test('anti-flash : une réponse juste après le seuil retient la pastille 400 ms', async (t: TestContext) => {
+  test('anti-flash: an answer just after the threshold holds the pill 400 ms', async (t: TestContext) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
     const card = deferred<unknown>();
     setProfileClient(
@@ -163,9 +163,9 @@ describe('ouvrirFicheProfil', () => {
     card.resolve({ user: USER });
     await drain();
 
-    // Réponse à 500 ms, pastille née à 450 : elle doit tenir jusqu'à 850.
+    // Answer at 500 ms, pill born at 450: it must hold until 850.
     assert.deepEqual(busy, [false, true]);
-    assert.deepEqual(navigations, [], "l'ouverture attend la fin de la pastille");
+    assert.deepEqual(navigations, [], 'the opening waits for the pill to end');
 
     t.mock.timers.tick(349);
     await drain();
@@ -179,7 +179,7 @@ describe('ouvrirFicheProfil', () => {
     unsubscribe();
   });
 
-  test('réentrance : même cible fondue dans le vol en cours, autre cible non bloquée', async (t: TestContext) => {
+  test('reentrancy: same target merged into the flight in progress, other target not blocked', async (t: TestContext) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
     const card = deferred<unknown>();
     setProfileClient(
@@ -191,9 +191,9 @@ describe('ouvrirFicheProfil', () => {
 
     const first = openProfileCard({ username: 'alice' });
     await drain();
-    // Second tap sur la MÊME fiche pendant le vol : absorbé par la garde.
+    // Second tap on the SAME profile during the flight: absorbed by the guard.
     const duplicate = openProfileCard({ username: 'alice' });
-    // Un tap sur une AUTRE fiche, lui, part — un verrou global l'avalerait.
+    // A tap on ANOTHER profile goes through: a global lock would swallow it.
     const other = openProfileCard({ username: 'bob' });
     await drain();
 
@@ -201,11 +201,11 @@ describe('ouvrirFicheProfil', () => {
     await drain();
     await Promise.all([first, duplicate, other]);
 
-    // Alice d'abord : sa chaîne s'est abonnée la première à la fiche partagée —
-    // l'ordre suit les microtâches, pas la « prise de main » de la garde.
+    // Alice first: her chain subscribed first to the shared profile; the order
+    // follows the microtasks, not the guard's "takeover".
     assert.deepEqual(navigations, [{ username: 'alice' }, { username: 'bob' }]);
 
-    // Le vol fini, la garde est rendue : rouvrir navigue à nouveau.
+    // Flight over, the guard is released: reopening navigates again.
     await openProfileCard({ username: 'alice' });
     await drain();
     assert.equal(navigations.length, 3);

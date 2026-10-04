@@ -1,68 +1,67 @@
 /**
- * Ouvrir une pièce jointe « fichier » (PDF, archive, tableur…) SANS laisser
- * sortir le jeton.
+ * Opening a "file" attachment (PDF, archive, spreadsheet…) WITHOUT letting the
+ * token out.
  *
- * L'URL d'un fichier protégé porte `rc_uid`/`rc_token` en query — le middleware
- * de Rocket.Chat s'authentifie ainsi, pas par en-tête (basculer sur
- * `X-Auth-Token` serait un 403 déguisé en correctif). La confier à
- * `Linking.openURL` la déposait dans Chrome, son historique et sa
- * synchronisation ; l'image et la vidéo, elles, respectaient déjà l'invariant
- * de `ui/imageViewer.tsx` en gardant l'URL en mémoire.
+ * A protected file's URL carries `rc_uid`/`rc_token` in the query: that is how
+ * Rocket.Chat's middleware authenticates, not by header (switching to
+ * `X-Auth-Token` would be a 403 disguised as a fix). Handing it to
+ * `Linking.openURL` dropped it into Chrome, its history and its sync; images
+ * and videos already honoured the `ui/imageViewer.tsx` invariant by keeping
+ * the URL in memory.
  *
- * On fait donc ce que fait la visionneuse, en deux temps : **télécharger dans
- * le cache** (la requête authentifiée reste dans le processus), puis **partager
- * le fichier LOCAL** via la feuille de partage Android — qui reçoit un
- * `content://` de notre FileProvider, sans un octet de secret.
+ * So this does what the viewer does, in two steps: **download into the cache**
+ * (the authenticated request stays in the process), then **share the LOCAL
+ * file** through the Android share sheet, which receives a `content://` from
+ * our FileProvider, without a single byte of secret.
  *
- * Module pur : les trois capacités natives (créer un dossier, télécharger,
- * partager) sont injectées, `ui/attachment.ts` les câble. Même patron que
+ * Pure module: the three native capabilities (create a folder, download,
+ * share) are injected, `ui/attachment.ts` wires them. Same pattern as
  * `TransportUpload` (lib/upload.ts).
  */
 
 import { isQuoteAttachment } from './quote.ts';
 import { attachmentEncryption, type FileEncryption } from './e2e/crypto.ts';
 
-/** Crée un dossier et ses parents. Doit être sans effet s'il existe déjà. */
+/** Creates a folder and its parents. Must be a no-op if it already exists. */
 export type CreateFolder = (path: string) => Promise<void>;
 
-/** Télécharge `url` (authentifiée) vers `destination`, un `file://` local. */
+/** Downloads `url` (authenticated) to `destination`, a local `file://`. */
 export type DownloadFile = (url: string, destination: string) => Promise<void>;
 
-/** Ouvre la feuille de partage du système sur un fichier LOCAL. */
+/** Opens the system share sheet on a LOCAL file. */
 export type ShareFile = (localFile: string, type: string | null) => Promise<void>;
 
-/** Nom de dernier recours, quand le message n'en propose aucun d'exploitable. */
+/** Last-resort name, when the message offers no usable one. */
 const FALLBACK_NAME = 'fichier';
 
-/** Sous-dossier de dernier recours, quand l'URL ne porte pas d'identifiant. */
+/** Last-resort subfolder, when the URL carries no identifier. */
 const FALLBACK_KEY = 'divers';
 
 /**
- * Caractères qu'un nom de fichier ne doit pas porter : contrôles, et ceux que
- * les systèmes de fichiers (ou les applications réceptrices) traitent à part.
+ * Characters a file name must not carry: controls, and those that file systems
+ * (or receiving apps) treat specially.
  *
- * On s'écarte ici du `[A-Za-z0-9._-]` prescrit par l'audit, qui aurait rendu
- * `résumé-2026.pdf` en `r_sum_-2026.pdf` sous les yeux de l'utilisateur. Ce
- * qu'il faut garantir est plus étroit : que le nom ne puisse pas s'échapper du
- * dossier de destination. Les séparateurs sont retirés en amont (on ne garde
- * que le dernier segment), les points de tête et de queue aussi — donc ni `.`,
- * ni `..`, ni chemin. Le reste des lettres peut vivre.
+ * This departs from the `[A-Za-z0-9._-]` prescribed by the audit, which would
+ * have turned `résumé-2026.pdf` into `r_sum_-2026.pdf` before the user's eyes.
+ * What must be guaranteed is narrower: that the name cannot escape the
+ * destination folder. Separators are removed upstream (only the last segment
+ * is kept), leading and trailing dots too, so no `.`, no `..`, no path. The
+ * other letters may live.
  */
 const HOSTILE =/[\u0000-\u001f\u007f\\/:*?"<>|]/g;
 
-/** Longueur max d'un nom de fichier — sous la limite ext4 (255 octets). */
+/** Max file name length, under the ext4 limit (255 bytes). */
 const MAX_NAME = 120;
 
 function cap(name: string): string {
   if (name.length <= MAX_NAME) return name;
   const dot = name.lastIndexOf('.');
-  // Extension conservée seulement si elle en a l'air : c'est elle qui décide de
-  // l'application qui s'ouvrira.
+  // Extension kept only if it looks like one: it decides which app will open.
   const ext = dot > 0 && name.length - dot <= 12 ? name.slice(dot) : '';
   return name.slice(0, MAX_NAME - ext.length) + ext;
 }
 
-/** Segments non vides du CHEMIN d'une URL (query et fragment retirés). */
+/** Non-empty segments of a URL's PATH (query and fragment removed). */
 function segments(url: string): string[] {
   const path = url.split(/[?#]/)[0] ?? '';
   return path.split('/').filter((s) => s !== '' && s !== '.');
@@ -72,20 +71,20 @@ function decoder(s: string): string {
   try {
     return decodeURIComponent(s);
   } catch {
-    // Un `%` isolé dans le nom : on garde la forme brute plutôt que rien.
+    // A lone `%` in the name: keep the raw form rather than nothing.
     return s;
   }
 }
 
 /**
- * Nom de destination sûr à partir d'un nom proposé par autrui (le `title` du
- * message, ou le dernier segment de l'URL). Ne peut jamais désigner autre chose
- * qu'un fichier du dossier de destination.
+ * Safe destination name from a name proposed by someone else (the message
+ * `title`, or the URL's last segment). Can never designate anything but a file
+ * of the destination folder.
  */
 export function safeFileName(proposed: string | null | undefined): string {
   const raw = typeof proposed === 'string' ? proposed : '';
-  // `../../evil.sh` → `evil.sh` : seul le dernier segment est retenu, ce qui
-  // neutralise la remontée de dossier avant même l'assainissement.
+  // `../../evil.sh` → `evil.sh`: only the last segment is kept, which defuses
+  // directory traversal before sanitising even starts.
   const parts = raw.split(/[/\\]/).filter((s) => s !== '');
   const last = parts.length > 0 ? parts[parts.length - 1]! : '';
   const clean = last.replace(HOSTILE, '_').replace(/^[.\s]+|[.\s]+$/g, '');
@@ -93,13 +92,13 @@ export function safeFileName(proposed: string | null | undefined): string {
 }
 
 /**
- * Identifiant du fichier côté serveur, extrait de l'URL
- * (`/file-upload/<_id>/<nom>`), pour servir de SOUS-DOSSIER de cache.
+ * The server-side file id, extracted from the URL (`/file-upload/<_id>/<name>`),
+ * used as the cache SUBFOLDER.
  *
- * Sans lui, deux pièces jointes nommées `facture.pdf` se recouvriraient dans le
- * cache — et un partage lancé sur l'une pourrait présenter l'autre. L'`_id`
- * Rocket.Chat est immuable, le dossier est donc stable d'une ouverture à
- * l'autre.
+ * Without it, two attachments named `invoice.pdf` would overwrite each other in
+ * the cache, and a share started on one could present the other. The
+ * Rocket.Chat `_id` is immutable, so the folder is stable from one opening to
+ * the next.
  */
 export function fileKey(url: string): string {
   const parts = segments(url);
@@ -129,9 +128,9 @@ const EXTENSIONS_BY_TYPE: Record<string, string> = {
 const HAS_EXTENSION = /\.[A-Za-z0-9]{1,8}$/;
 
 /**
- * Complète un nom sans extension d'après le MIME. C'est l'extension qui décide
- * de l'application qui ouvrira le fichier, et de l'endroit où la galerie le
- * range : un `photo` nu y serait classé comme une image quelconque.
+ * Completes a name without an extension from the MIME. The extension decides
+ * which app opens the file, and where the gallery files it: a bare `photo`
+ * would be filed there as some generic image.
  */
 export function withExtension(name: string, type: string | null | undefined): string {
   if (HAS_EXTENSION.test(name) || typeof type !== 'string') return name;
@@ -149,8 +148,8 @@ const EXTENSIONS_MEDIA = new Set([
 ]);
 
 /**
- * Photo, vidéo ou son : la galerie (MediaStore) sait les ranger. Tout le
- * reste (PDF, archive…) va dans un dossier choisi par l'utilisateur.
+ * Photo, video or audio: the gallery (MediaStore) knows where to file them.
+ * Everything else (PDF, archive…) goes to a folder the user picks.
  */
 export function toGallery(name: string, type: string | null | undefined): boolean {
   if (typeof type === 'string' && /^(image|video|audio)\//i.test(type)) return true;
@@ -159,19 +158,19 @@ export function toGallery(name: string, type: string | null | undefined): boolea
 }
 
 /**
- * Télécharge la pièce jointe dans le cache et rend son chemin local.
+ * Downloads the attachment into the cache and returns its local path.
  *
- * `url` porte le jeton et ne quitte JAMAIS cette fonction : elle n'est passée
- * qu'à `telecharger`, dont l'implémentation fait une requête HTTP interne.
+ * `url` carries the token and NEVER leaves this function: it is only passed to
+ * `download`, whose implementation makes an in-process HTTP request.
  */
 export async function downloadAttachment(options: {
-  /** URL protégée, jeton compris. */
+  /** Protected URL, token included. */
   url: string;
-  /** `title` du message — proposé par autrui, donc assaini. */
+  /** The message `title`: proposed by someone else, so sanitised. */
   title: string | null | undefined;
-  /** MIME annoncé : complète l'extension quand le nom n'en a pas. */
+  /** Announced MIME: completes the extension when the name has none. */
   type: string | null | undefined;
-  /** Dossier de cache de l'app (`file:///…/cache/`). */
+  /** The app's cache folder (`file:///…/cache/`). */
   folder: string;
   createFolder: CreateFolder;
   download: DownloadFile;
@@ -180,9 +179,9 @@ export async function downloadAttachment(options: {
 
   const root = folder.endsWith('/') ? folder : `${folder}/`;
   const subFolder = `${root}jointes/${fileKey(url)}/`;
-  // Le `title` d'abord (c'est ce que l'utilisateur voit dans le fil), le dernier
-  // segment de l'URL en repli — décodé, sans quoi `mon%20rapport.pdf`
-  // s'écrirait avec son `%20`.
+  // The `title` first (it is what the user sees in the conversation), the URL's
+  // last segment as fallback, decoded, otherwise `my%20report.pdf` would be
+  // written with its `%20`.
   const fromUrl = segments(url).at(-1);
   const name = withExtension(
     safeFileName(
@@ -202,13 +201,13 @@ export async function downloadAttachment(options: {
 }
 
 /**
- * Télécharge la pièce jointe et ouvre la feuille de partage dessus. Rend le
- * chemin local ; `partager` ne reçoit que lui, jamais l'URL.
+ * Downloads the attachment and opens the share sheet on it. Returns the local
+ * path; `share` only receives that, never the URL.
  */
 export async function openAttachment(options: {
   url: string;
   title: string | null | undefined;
-  /** MIME annoncé, passé tel quel à la feuille de partage. */
+  /** Announced MIME, passed as is to the share sheet. */
   type: string | null | undefined;
   folder: string;
   createFolder: CreateFolder;
@@ -222,13 +221,13 @@ export async function openAttachment(options: {
 }
 
 export type ShareableAttachment = {
-  /** Chemin (relatif au serveur) de l'ORIGINAL, sans jeton. */
+  /** Path (relative to the server) of the ORIGINAL, without a token. */
   path: string;
   title: string | null;
   type: string | null;
-  /** Poids annoncé par le message, en octets : la progression s'y rapporte quand le serveur tait le sien. */
+  /** Size announced by the message, in bytes: progress is measured against it when the server withholds its own. */
   size: number | null;
-  /** Fichier d'un salon chiffré : sa clé, pour le rendre en clair. */
+  /** File of an encrypted room: its key, to decrypt it. */
   encryption: FileEncryption | null;
 };
 
@@ -256,9 +255,9 @@ function asString(v: unknown): string | null {
 }
 
 /**
- * La première pièce jointe du message qu'on peut partager comme FICHIER :
- * `title_link` d'abord, qui désigne l'original là où `image_url` n'est que la
- * vignette. Les citations sont ignorées : on partage ce que le message porte.
+ * The message's first attachment that can be shared as a FILE: `title_link`
+ * first, which designates the original where `image_url` is only the
+ * thumbnail. Quotes are skipped: what is shared is what the message carries.
  */
 export function attachmentToShare(attachments: string | null): ShareableAttachment | null {
   let raw: unknown;
@@ -286,9 +285,9 @@ export function attachmentToShare(attachments: string | null): ShareableAttachme
 }
 
 /**
- * Fraction téléchargée. Le serveur de fichiers ne répond pas toujours avec sa
- * taille (réponse en `chunked`) : on se rapporte alors au poids annoncé par le
- * message, plafonné à 1. `null` si on ne sait rien du tout.
+ * Downloaded fraction. The file server does not always answer with its size
+ * (`chunked` response): the size announced by the message is used instead,
+ * capped at 1. `null` if nothing at all is known.
  */
 export function downloadedFraction(
   written: number,
@@ -300,10 +299,10 @@ export function downloadedFraction(
 }
 
 /**
- * Le nom sous lequel téléverser un fichier local, quand celui de son URI n'est
- * pas le sien. Le multipart d'`expo-file-system` prend le nom du fichier sur
- * le disque, et le serveur le garde tel quel : une copie de cache (sélecteur,
- * réduction) partirait sous un nom aléatoire. `null` : l'URI porte déjà le bon.
+ * The name to upload a local file under, when its URI's name is not its own.
+ * `expo-file-system`'s multipart takes the file name on disk, and the server
+ * keeps it as is: a cache copy (picker, downscale) would leave under a random
+ * name. `null`: the URI already carries the right one.
  */
 export function uploadName(uri: string, name: string): string | null {
   const wanted = safeFileName(name);

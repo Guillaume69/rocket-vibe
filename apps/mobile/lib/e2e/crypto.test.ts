@@ -19,18 +19,18 @@ import {
 } from './crypto.ts';
 
 /**
- * Test croisé, hors-ligne, sans secret commité : WebCrypto (l'implémentation
- * du client web officiel) CHIFFRE dans le format exact de Rocket.Chat, notre
- * module `node:crypto` DÉCHIFFRE. Si les deux mondes s'accordent, le module
- * respecte bien le format `rc.v2.aes-sha2`. Le spike de Phase 0 a prouvé l'autre
- * moitié (contre un vrai serveur) ; ensemble ils tiennent la chaîne.
+ * Cross test, offline, with no committed secret: WebCrypto (the official web
+ * client's implementation) ENCRYPTS in Rocket.Chat's exact format, our
+ * `node:crypto` module DECRYPTS. If both sides agree, the module does follow
+ * the `rc.v2.aes-sha2` format. The Phase 0 spike proved the other half
+ * (against a real server); together they cover the chain.
  */
 
 const { subtle } = webcrypto;
 const enc = new TextEncoder();
 const b64 = (u8: Uint8Array): string => Buffer.from(u8).toString('base64');
-// Tableaux adossés à un ArrayBuffer (et non ArrayBufferLike) pour satisfaire
-// `BufferSource` des types WebCrypto — friction TS classique.
+// Arrays backed by an ArrayBuffer (not ArrayBufferLike) to satisfy the
+// WebCrypto types' `BufferSource`, a classic TS friction.
 const rand = (n: number): Uint8Array<ArrayBuffer> => {
   const a = new Uint8Array(n);
   webcrypto.getRandomValues(a);
@@ -45,17 +45,17 @@ const bytes = (s: string): Uint8Array<ArrayBuffer> => {
 
 const PASSWORD = 'oppose update message economy float mail palace drive horse';
 const SALT = 'v2:osR3JzQEiM2H77m46:d280e4f2-c685-4813-80f7-13438befaddd';
-const ITERATIONS = 1000; // bas pour la vitesse du test ; le code lit la valeur de l'enveloppe
+const ITERATIONS = 1000; // low for test speed; the code reads the envelope's value
 const MESSAGE = 'message secret e2e alice 42';
 
-/** Fabrique un jeu de données chiffré complet dans le format RC, via WebCrypto. */
+/** Builds a full encrypted dataset in the RC format, via WebCrypto. */
 async function make(): Promise<{
   wrapper: PrivateKeyEnvelope;
   e2eKey: string;
   content: EncryptedContent;
   keyId: string;
 }> {
-  // 1. paire RSA-OAEP/SHA-256, clé privée exportée en JWK.
+  // 1. RSA-OAEP/SHA-256 pair, private key exported as JWK.
   const pair = await subtle.generateKey(
     { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
     true,
@@ -63,7 +63,7 @@ async function make(): Promise<{
   );
   const privateJwk = JSON.stringify(await subtle.exportKey('jwk', pair.privateKey));
 
-  // 2. clé maître PBKDF2 → AES-GCM, chiffre le JWK privé.
+  // 2. PBKDF2 master key -> AES-GCM, encrypts the private JWK.
   const base = await subtle.importKey('raw', bytes(PASSWORD), 'PBKDF2', false, ['deriveKey']);
   const masterKey = await subtle.deriveKey(
     { name: 'PBKDF2', salt: bytes(SALT), iterations: ITERATIONS, hash: 'SHA-256' },
@@ -83,14 +83,14 @@ async function make(): Promise<{
     iterations: ITERATIONS,
   };
 
-  // 3. clé de salon AES-GCM, chiffrée RSA-OAEP pour la clé publique, préfixée du keyID.
+  // 3. AES-GCM room key, RSA-OAEP-encrypted for the public key, prefixed with the keyID.
   const roomKey = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
   const roomJwk = JSON.stringify(await subtle.exportKey('jwk', roomKey));
   const rk = new Uint8Array(await subtle.encrypt({ name: 'RSA-OAEP' }, pair.publicKey, bytes(roomJwk)));
-  const keyId = webcrypto.randomUUID(); // 36 caractères
+  const keyId = webcrypto.randomUUID(); // 36 characters
   const e2eKey = keyId + b64(rk);
 
-  // 4. message chiffré avec la clé de salon.
+  // 4. message encrypted with the room key.
   const ivMsg = rand(12);
   const ctMsg = new Uint8Array(
     await subtle.encrypt({ name: 'AES-GCM', iv: ivMsg }, roomKey, bytes(JSON.stringify({ msg: MESSAGE }))),
@@ -106,11 +106,11 @@ async function make(): Promise<{
 }
 
 /**
- * Jeu au format HÉRITÉ v1 (compte ancien, mesuré sur chat.barrut.me) :
- *   - clé privée `{"$binary": base64(IV(16) || AES-CBC)}`, sel = userId, 1000 iters ;
- *   - clé de salon avec keyID de 12 caractères (`E2EKey` de 356) ;
- *   - message, lui, en v2 (`content` GCM) — un salon v1 dont les nouveaux
- *     messages sont chiffrés par le client récent.
+ * Fixture in the LEGACY v1 format (old account, measured on chat.barrut.me):
+ *   - private key `{"$binary": base64(IV(16) || AES-CBC)}`, salt = userId, 1000 iters;
+ *   - room key with a 12-character keyID (356-char `E2EKey`);
+ *   - the message itself in v2 (GCM `content`): a v1 room whose new messages
+ *     are encrypted by the recent client.
  */
 async function makeV1(): Promise<{
   privateKey: string;
@@ -126,7 +126,7 @@ async function makeV1(): Promise<{
   );
   const privateJwk = JSON.stringify(await subtle.exportKey('jwk', pair.privateKey));
 
-  // clé maître v1 : PBKDF2(mot de passe, sel = uid, 1000, SHA-256) → AES-CBC.
+  // v1 master key: PBKDF2(password, salt = uid, 1000, SHA-256) -> AES-CBC.
   const base = await subtle.importKey('raw', bytes(PASSWORD), 'PBKDF2', false, ['deriveKey']);
   const master = await subtle.deriveKey(
     { name: 'PBKDF2', salt: bytes(uid), iterations: 1000, hash: 'SHA-256' },
@@ -140,16 +140,16 @@ async function makeV1(): Promise<{
   const inner = new Uint8Array(iv.length + ct.length);
   inner.set(iv);
   inner.set(ct, iv.length);
-  const privateKey = JSON.stringify({ $binary: b64(inner) }); // emballage EJSON comme en prod
+  const privateKey = JSON.stringify({ $binary: b64(inner) }); // EJSON wrapping as in prod
 
-  // clé de salon v1 : AES-128, keyID de 12 caractères + base64(RSA(sessionJWK)) → E2EKey de 356.
+  // v1 room key: AES-128, 12-character keyID + base64(RSA(sessionJWK)) -> 356-char E2EKey.
   const roomKey = await subtle.generateKey({ name: 'AES-GCM', length: 128 }, true, ['encrypt', 'decrypt']);
   const roomJwk = JSON.stringify(await subtle.exportKey('jwk', roomKey));
   const rk = new Uint8Array(await subtle.encrypt({ name: 'RSA-OAEP' }, pair.publicKey, bytes(roomJwk)));
-  const keyId = 'af587341640c'; // 12 caractères, comme le relevé prod
+  const keyId = 'af587341640c'; // 12 characters, as measured in prod
   const e2eKey = keyId + b64(rk);
 
-  // message v2 (content GCM) avec la clé de salon.
+  // v2 message (GCM content) with the room key.
   const ivM = rand(12);
   const ctM = new Uint8Array(
     await subtle.encrypt({ name: 'AES-GCM', iv: ivM }, roomKey, bytes(JSON.stringify({ msg: MESSAGE }))),
@@ -159,32 +159,32 @@ async function makeV1(): Promise<{
   return { privateKey, uid, e2eKey, content };
 }
 
-describe('crypto e2e — format hérité v1', () => {
-  test('clé privée $binary/CBC + clé de salon keyID 12 + message v2 → clair', async () => {
+describe('crypto e2e: legacy v1 format', () => {
+  test('$binary/CBC private key + keyID-12 room key + v2 message -> plaintext', async () => {
     const { privateKey, uid, e2eKey, content } = await makeV1();
 
     const jwk = decryptPrivateKey(privateKey, PASSWORD, uid);
     assert.match(jwk, /"kty"\s*:\s*"RSA"/);
 
     const priv = importRsaPrivateKey(jwk);
-    assert.equal(e2eKey.length, 356); // même longueur que le relevé prod
-    assert.equal(keyIdOfE2EKey(e2eKey), 'af587341640c'); // keyID de 12 calculé, pas 36
+    assert.equal(e2eKey.length, 356); // same length as measured in prod
+    assert.equal(keyIdOfE2EKey(e2eKey), 'af587341640c'); // keyID of 12 computed, not 36
 
     const key = decryptRoomKey(e2eKey, priv);
-    assert.equal(key.length, 16); // A128, comme le relevé prod
+    assert.equal(key.length, 16); // A128, as measured in prod
     assert.equal(decryptMessage(content, key), MESSAGE);
   });
 
-  test('mauvais mot de passe sur une clé v1 → ErreurE2E', async () => {
+  test('wrong password on a v1 key -> E2EError', async () => {
     const { privateKey, uid } = await makeV1();
     assert.throws(() => decryptPrivateKey(privateKey, 'mauvais', uid), E2EError);
   });
 });
 
 /**
- * Octets bruts d'une clé AES (Buffer) + clé WebCrypto AES-CBC. Une clé de salon
- * créée par l'ancien client web fait 16 octets (JWK `A128CBC`, relevé sur
- * chat.barrut.me) ; un salon récent, 32.
+ * Raw bytes of an AES key (Buffer) + WebCrypto AES-CBC key. A room key
+ * created by the old web client is 16 bytes (`A128CBC` JWK, measured on
+ * chat.barrut.me); a recent room, 32.
  */
 async function aesKey(size: 16 | 32) {
   const raw = rand(size);
@@ -192,8 +192,8 @@ async function aesKey(size: 16 | 32) {
   return { keyBytes: Buffer.from(raw), wc };
 }
 
-for (const size of [16, 32] as const) describe(`crypto e2e — messages CBC, clé de salon de ${size} octets`, () => {
-  test('rc.v1 : ciphertext = keyID(12) + base64(IV(16) || CBC) → clair', async () => {
+for (const size of [16, 32] as const) describe(`crypto e2e: CBC messages, ${size}-byte room key`, () => {
+  test('rc.v1: ciphertext = keyID(12) + base64(IV(16) || CBC) -> plaintext', async () => {
     const { keyBytes, wc } = await aesKey(size);
     const iv = rand(16);
     const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-CBC', iv }, wc, bytes(JSON.stringify({ msg: MESSAGE }))));
@@ -204,7 +204,7 @@ for (const size of [16, 32] as const) describe(`crypto e2e — messages CBC, cl�
     assert.equal(decryptMessage(content, keyBytes), MESSAGE);
   });
 
-  test('rc.v2 CBC : iv de 16 octets séparé → clair', async () => {
+  test('rc.v2 CBC: separate 16-byte iv -> plaintext', async () => {
     const { keyBytes, wc } = await aesKey(size);
     const iv = rand(16);
     const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-CBC', iv }, wc, bytes(JSON.stringify({ msg: MESSAGE }))));
@@ -212,7 +212,7 @@ for (const size of [16, 32] as const) describe(`crypto e2e — messages CBC, cl�
     assert.equal(decryptMessage(content, keyBytes), MESSAGE);
   });
 
-  test('message hérité au texte brut (pas de JSON) → texte tel quel', async () => {
+  test('legacy raw-text message (no JSON) -> text as is', async () => {
     const { keyBytes, wc } = await aesKey(size);
     const iv = rand(16);
     const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-CBC', iv }, wc, bytes('coucou sans json')));
@@ -220,7 +220,7 @@ for (const size of [16, 32] as const) describe(`crypto e2e — messages CBC, cl�
     assert.equal(decryptMessage(content, keyBytes), 'coucou sans json');
   });
 
-  test('rc.v2 GCM : iv de 12 octets → clair', async () => {
+  test('rc.v2 GCM: 12-byte iv -> plaintext', async () => {
     const raw = rand(size);
     const wc = await subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt']);
     const iv = rand(12);
@@ -230,13 +230,13 @@ for (const size of [16, 32] as const) describe(`crypto e2e — messages CBC, cl�
   });
 });
 
-test('clé de salon de taille inattendue → ErreurE2E, pas un crash', () => {
+test('room key of unexpected size -> E2EError, not a crash', () => {
   const content: EncryptedContent = { algorithm: 'rc.v2.aes-sha2', kid: 'k', iv: b64(rand(16)), ciphertext: b64(rand(32)) };
   assert.throws(() => decryptMessage(content, Buffer.from(rand(20))), E2EError);
 });
 
-describe('crypto e2e — chaîne complète', () => {
-  test('WebCrypto chiffre, forge déchiffre → message clair', async () => {
+describe('crypto e2e: full chain', () => {
+  test('WebCrypto encrypts, we decrypt -> plaintext message', async () => {
     const { wrapper, e2eKey, content } = await make();
 
     const privateJwk = decryptPrivateKey(JSON.stringify(wrapper), PASSWORD, 'uid-ignore');
@@ -244,28 +244,28 @@ describe('crypto e2e — chaîne complète', () => {
 
     const privateKey = importRsaPrivateKey(privateJwk);
     const roomKey = decryptRoomKey(e2eKey, privateKey);
-    assert.equal(roomKey.length, 32); // AES-256 = 32 octets
+    assert.equal(roomKey.length, 32); // AES-256 = 32 bytes
 
     const plain = decryptMessage(content, roomKey);
     assert.equal(plain, MESSAGE);
   });
 
-  test('le keyID du message correspond au keyID de la clé de salon', async () => {
+  test('the message keyID matches the room key keyID', async () => {
     const { e2eKey, content, keyId } = await make();
     assert.equal(keyIdOfE2EKey(e2eKey), keyId);
     assert.equal(content.kid, keyId);
   });
 
-  test('mauvais mot de passe → ErreurE2E, pas un crash', async () => {
+  test('wrong password -> E2EError, not a crash', async () => {
     const { wrapper } = await make();
     assert.throws(() => decryptPrivateKey(JSON.stringify(wrapper), 'mauvais', 'uid'), E2EError);
   });
 
-  test('message falsifié (tag GCM invalide) → ErreurE2E', async () => {
+  test('tampered message (invalid GCM tag) -> E2EError', async () => {
     const { wrapper, e2eKey, content } = await make();
     const privateKey = importRsaPrivateKey(decryptPrivateKey(JSON.stringify(wrapper), PASSWORD, 'uid'));
     const roomKey = decryptRoomKey(e2eKey, privateKey);
-    // Corrompre un octet du ciphertext.
+    // Corrupt one ciphertext byte.
     const keyBytes = Buffer.from(content.ciphertext, 'base64');
     keyBytes[0] ^= 0xff;
     const forged: EncryptedContent = { ...content, ciphertext: keyBytes.toString('base64') };
@@ -273,14 +273,14 @@ describe('crypto e2e — chaîne complète', () => {
   });
 });
 
-describe('crypto e2e — chiffrement des messages envoyés', () => {
+describe('crypto e2e: encrypting sent messages', () => {
   const cases = [
     { size: 16, algo: { name: 'AES-CBC' }, ivSize: 16 },
     { size: 32, algo: { name: 'AES-GCM' }, ivSize: 12 },
   ] as const;
 
   for (const { size, algo, ivSize } of cases) {
-    test(`clé de ${size} octets : WebCrypto (le client web) relit ce que l'on chiffre`, async () => {
+    test(`${size}-byte key: WebCrypto (the web client) reads back what we encrypt`, async () => {
       const raw = rand(size);
       const payload = { msg: 'réponse chiffrée 🔒' };
       const content = encryptMessage(payload, Buffer.from(raw), 'eyJhbGciOiJB');
@@ -297,7 +297,7 @@ describe('crypto e2e — chiffrement des messages envoyés', () => {
     });
   }
 
-  test('deux envois du même texte ne se ressemblent pas (IV neuf)', () => {
+  test('two sends of the same text do not look alike (fresh IV)', () => {
     const key = Buffer.from(rand(32));
     const a = encryptMessage({ msg: 'pareil' }, key, 'k');
     const b = encryptMessage({ msg: 'pareil' }, key, 'k');
@@ -305,12 +305,12 @@ describe('crypto e2e — chiffrement des messages envoyés', () => {
     assert.notEqual(a.ciphertext, b.ciphertext);
   });
 
-  test('clé de taille inattendue → ErreurE2E', () => {
+  test('key of unexpected size -> E2EError', () => {
     assert.throws(() => encryptMessage({ msg: 'x' }, Buffer.from(rand(20)), 'k'), E2EError);
   });
 });
 
-test('la charge d’un fichier : texte et pièces jointes, clé du fichier comprise', () => {
+test('a file payload: text and attachments, file key included', () => {
   const key = Buffer.from(rand(32));
   const attachments = [{ title: 'photo.jpg', encryption: { key: { k: 'abc' }, iv: 'aXY=' } }];
   const content = encryptMessage({ msg: 'légende', attachments }, key, 'k');
@@ -318,8 +318,8 @@ test('la charge d’un fichier : texte et pièces jointes, clé du fichier compr
   assert.deepEqual(decryptPayload(encryptMessage({ msg: 'rien' }, key, 'k'), key), { msg: 'rien', attachments: null });
 });
 
-describe('crypto e2e — fichiers', () => {
-  /** Ce que fait le client web : clé AES-CTR 256 neuve, compteur de 16 octets, empreinte du clair. */
+describe('crypto e2e: files', () => {
+  /** What the web client does: fresh AES-CTR 256 key, 16-byte counter, plaintext digest. */
   async function webFile(plain: Uint8Array<ArrayBuffer>) {
     const key = await subtle.generateKey({ name: 'AES-CTR', length: 256 }, true, ['encrypt']);
     const iv = rand(16);
@@ -330,7 +330,7 @@ describe('crypto e2e — fichiers', () => {
     return { encrypted: Buffer.from(encrypted), attachment };
   }
 
-  test('ce que le client web chiffre, on le relit', async () => {
+  test('what the web client encrypts, we read back', async () => {
     const plain = rand(60_000);
     const { encrypted, attachment } = await webFile(plain);
     const encryption = attachmentEncryption(attachment);
@@ -338,7 +338,7 @@ describe('crypto e2e — fichiers', () => {
     assert.deepEqual(decryptFile(encrypted, encryption!), Buffer.from(plain));
   });
 
-  test('un octet altéré ou une autre clé : refusé par l’empreinte', async () => {
+  test('an altered byte or another key: rejected by the digest', async () => {
     const { encrypted, attachment } = await webFile(rand(1000));
     const encryption = attachmentEncryption(attachment)!;
     const tampered = Buffer.from(encrypted);
@@ -348,7 +348,7 @@ describe('crypto e2e — fichiers', () => {
     assert.throws(() => decryptFile(encrypted, attachmentEncryption(other.attachment)!), E2EError);
   });
 
-  test('ce que l’on chiffre, le client web le relit (clé JWK réimportable)', async () => {
+  test('what we encrypt, the web client reads back (reimportable JWK key)', async () => {
     const plain = rand(50_000);
     const { encrypted, key, iv, sha256 } = encryptFile(Buffer.from(plain));
     const webKey = await subtle.importKey('jwk', key, { name: 'AES-CTR' }, true, ['encrypt', 'decrypt']);
@@ -363,7 +363,7 @@ describe('crypto e2e — fichiers', () => {
     assert.deepEqual(decryptFile(encrypted, attachmentEncryption(attachment)!), Buffer.from(plain));
   });
 
-  test('une pièce jointe ordinaire n’a pas de chiffrement', () => {
+  test('an ordinary attachment has no encryption', () => {
     assert.equal(attachmentEncryption({ title: 'a.pdf', title_link: '/file-upload/x/a.pdf' }), null);
     assert.equal(attachmentEncryption({ encryption: { iv: 'x' } }), null);
     assert.equal(attachmentEncryption(null), null);

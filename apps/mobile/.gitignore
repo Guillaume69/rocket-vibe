@@ -1,4 +1,4 @@
-# Secrets — jamais dans le dépôt.
+# Secrets: never in the repo.
 .env
 .env.local
 google-services.json
@@ -6,12 +6,12 @@ GoogleService-Info.plist
 *-service-account*.json
 *firebase-adminsdk*.json
 
-# Génération native continue (CNG) : android/ et ios/ sont des artefacts.
-# Toute personnalisation native passe par un config plugin.
+# Continuous native generation (CNG): android/ and ios/ are artefacts.
+# Any native customisation goes through a config plugin.
 /android/
 /ios/
-# Les modules Expo locaux (modules/) sont DU SOURCE, versionné — mais pas
-# leurs artefacts de build gradle.
+# Local Expo modules (modules/) are SOURCE, versioned, but not their
+# gradle build artefacts.
 modules/*/android/build/
 
 # Node
@@ -32,7 +32,7 @@ web-build/
 *.keystore
 !debug.keystore
 
-# Système
+# System
 .DS_Store
 *.log
 

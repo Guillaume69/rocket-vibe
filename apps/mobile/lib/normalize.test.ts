@@ -5,9 +5,9 @@ import { toSubscription, toEpoch, toMessage, toRoom } from './normalize.ts';
 
 const base = { _id: 'm1', rid: 'r1', ts: 1000, u: { _id: 'u1', username: 'alice' } };
 
-describe('versMessage — message de visioconférence', () => {
-  test('extrait le callId du bloc video_conf (pas du _id)', () => {
-    // Sur la source RC, le callId vit dans le bloc ; le _id du message diffère.
+describe('toMessage: video conference message', () => {
+  test('takes the callId from the video_conf block (not from _id)', () => {
+    // In the RC source the callId lives in the block; the message _id differs.
     const m = toMessage({
       ...base,
       t: 'videoconf',
@@ -20,13 +20,13 @@ describe('versMessage — message de visioconférence', () => {
     assert.equal(m?.callId, 'call-abc');
   });
 
-  test('un bloc sans callId ni type attendu laisse appelId à null', () => {
+  test('a block without callId or the expected type leaves callId null', () => {
     const m = toMessage({ ...base, t: 'videoconf', blocks: [{ type: 'section' }] });
     assert.equal(m?.callId, null);
   });
 
-  test('un message ordinaire n’a pas d’appelId, même avec des blocks', () => {
-    // On ne lit les blocs QUE pour un `t: 'videoconf'` : pas de faux positif.
+  test('an ordinary message has no callId, even with blocks', () => {
+    // Blocks are read ONLY for a `t: 'videoconf'`: no false positive.
     const m = toMessage({
       ...base,
       msg: 'coucou',
@@ -37,44 +37,44 @@ describe('versMessage — message de visioconférence', () => {
   });
 });
 
-describe('versMessage — épinglage et étoiles', () => {
-  test('lit `pinned` et réduit `starred` aux uids', () => {
+describe('toMessage: pins and stars', () => {
+  test('reads `pinned` and reduces `starred` to uids', () => {
     const m = toMessage({ ...base, msg: 'x', pinned: true, starred: [{ _id: 'u1' }, { _id: 'u2' }] });
     assert.equal(m?.pinned, true);
     assert.equal(m?.starred, '["u1","u2"]');
   });
 
-  test('absents ou vides : ni épinglé ni étoilé', () => {
+  test('absent or empty: neither pinned nor starred', () => {
     const m = toMessage({ ...base, msg: 'x', starred: [] });
     assert.equal(m?.pinned, false);
     assert.equal(m?.starred, null);
   });
 });
 
-describe('versEpoch — les trois formes que le serveur envoie', () => {
-  test('un nombre passe tel quel', () => {
+describe('toEpoch: the three shapes the server sends', () => {
+  test('a number passes through', () => {
     assert.equal(toEpoch(1_700_000_000_000), 1_700_000_000_000);
   });
 
-  test('une chaîne ISO est parsée', () => {
+  test('an ISO string is parsed', () => {
     assert.equal(toEpoch('2026-07-25T10:00:00.000Z'), Date.parse('2026-07-25T10:00:00.000Z'));
   });
 
-  test('la forme EJSON { $date } est déballée, nombre comme chaîne', () => {
+  test('the EJSON { $date } shape is unwrapped, number or string', () => {
     assert.equal(toEpoch({ $date: 1234 }), 1234);
     assert.equal(toEpoch({ $date: '2026-07-25T10:00:00.000Z' }), Date.parse('2026-07-25T10:00:00.000Z'));
   });
 
-  test('tout le reste rend null, jamais NaN', () => {
-    // Un NaN qui part en base y reste : SQLite l'accepte, et toute comparaison
-    // d'horodatage devient fausse en silence.
+  test('everything else returns null, never NaN', () => {
+    // A NaN written to the database stays there: SQLite accepts it, and every
+    // timestamp comparison silently becomes false.
     for (const v of [undefined, null, '', 'pas une date', {}, { $date: 'pas une date' }, [], true, NaN, Infinity]) {
-      assert.equal(toEpoch(v), null, `${JSON.stringify(v) ?? String(v)} devrait rendre null`);
+      assert.equal(toEpoch(v), null, `${JSON.stringify(v) ?? String(v)} should return null`);
     }
   });
 });
 
-describe('versSalon — le DM et son correspondant', () => {
+describe('toRoom: the DM and its correspondent', () => {
   const ME = 'guillaume';
   const MY_UID = 'uMoi';
   const dm = (o: Record<string, unknown> = {}) => ({
@@ -86,74 +86,74 @@ describe('versSalon — le DM et son correspondant', () => {
     ...o,
   });
 
-  test('le correspondant est celui des deux qui n’est pas moi', () => {
+  test('the correspondent is whichever of the two is not me', () => {
     const s = toRoom(dm(), ME, MY_UID);
     assert.equal(s?.dmOtherUid, 'uBob');
     assert.equal(s?.dmOtherUsername, 'bob');
     assert.equal(s?.displayName, 'bob');
   });
 
-  test('uids et usernames NE SONT PAS alignés : l’appariement n’est pas par index', () => {
-    // Vérifié sur 8.5. Un appariement positionnel rendrait ici « guillaume »
-    // pour l'uid de Bob — donc MON pseudo, et mon avatar, collés sur lui.
+  test('uids and usernames are NOT aligned: matching is not by index', () => {
+    // Checked on 8.5. Positional matching would return "guillaume" here for
+    // Bob's uid, so MY username, and my avatar, pinned on him.
     const s = toRoom(dm({ uids: [MY_UID, 'uBob'], usernames: ['bob', ME] }), ME, MY_UID);
     assert.equal(s?.dmOtherUid, 'uBob');
     assert.equal(s?.dmOtherUsername, 'bob');
   });
 
-  test('MOI PÉRIMÉ (renommé depuis le web) : on ne devine pas, on se tait', () => {
-    // C'est le cœur du défaut : `moi` est figé à la construction du traducteur.
-    // Sans preuve que je figure dans `usernames`, exclure « celui qui n'est pas
-    // moi » retient le PREMIER venu — moi une fois sur deux — et ce pseudo part
-    // en base sous l'uid de l'autre, SANS garde d'horodatage.
+  test('STALE me (renamed from the web): no guessing, say nothing', () => {
+    // The heart of the bug: `me` is frozen when the translator is built.
+    // Without proof that I am in `usernames`, excluding "whoever is not me"
+    // keeps the FIRST one, me half the time, and that username goes to the
+    // database under the other user's uid, WITHOUT a timestamp guard.
     const s = toRoom(dm({ usernames: ['ancien-pseudo', 'bob'] }), ME, MY_UID);
-    assert.equal(s?.dmOtherUid, 'uBob', 'l’uid, lui, reste sûr');
-    assert.equal(s?.dmOtherUsername, null, 'aucune identité inventée');
+    assert.equal(s?.dmOtherUid, 'uBob', 'the uid stays reliable');
+    assert.equal(s?.dmOtherUsername, null, 'no made-up identity');
   });
 
-  test('session sans pseudo (username vide) : même prudence', () => {
+  test('session without a username (empty): same caution', () => {
     assert.equal(toRoom(dm(), '', MY_UID)?.dmOtherUsername, null);
     assert.equal(toRoom(dm(), null, MY_UID)?.dmOtherUsername, null);
     assert.equal(toRoom(dm(), undefined, MY_UID)?.dmOtherUsername, null);
   });
 
-  test('DM avec soi-même : je suis mon propre correspondant', () => {
+  test('DM with oneself: I am my own correspondent', () => {
     const s = toRoom(dm({ uids: [MY_UID], usernames: [ME] }), ME, MY_UID);
     assert.equal(s?.dmOtherUid, MY_UID);
     assert.equal(s?.dmOtherUsername, ME);
     assert.equal(s?.displayName, ME);
   });
 
-  test('DM de GROUPE : pas UNE présence à montrer, donc pas de correspondant', () => {
+  test('GROUP DM: no SINGLE presence to show, so no correspondent', () => {
     const s = toRoom(dm({ uids: [MY_UID, 'uBob', 'uCarol'], usernames: [ME, 'bob', 'carol'] }), ME, MY_UID);
     assert.equal(s?.dmOtherUid, null);
     assert.equal(s?.dmOtherUsername, null);
     assert.equal(s?.displayName, 'bob, carol');
   });
 
-  test('sans mon uid, aucun correspondant n’est dérivé', () => {
+  test('without my uid, no correspondent is derived', () => {
     assert.equal(toRoom(dm(), ME)?.dmOtherUid, null);
     assert.equal(toRoom(dm(), ME)?.dmOtherUsername, null);
   });
 
-  test('fname l’emporte sur le nom dérivé des usernames', () => {
+  test('fname wins over the name derived from usernames', () => {
     assert.equal(toRoom(dm({ fname: 'Bob Martin' }), ME, MY_UID)?.displayName, 'Bob Martin');
   });
 });
 
-describe('versSalon — aperçu du dernier message', () => {
+describe('toRoom: last message preview', () => {
   const room = (lastMessage?: Record<string, unknown>, o: Record<string, unknown> = {}) =>
     toRoom({ _id: 'r1', t: 'c', _updatedAt: { $date: 100 }, ...o, ...(lastMessage ? { lastMessage } : {}) });
 
-  test('le texte du message', () => {
+  test('the message text', () => {
     const s = room({ _id: 'm1', msg: 'coucou', ts: { $date: 50 } });
     assert.equal(s?.lastMessage, 'coucou');
     assert.equal(s?.lastMessageType, null);
     assert.equal(s?.lastMessageTs, 50);
   });
 
-  test('un message qui n’est QU’une pièce jointe retombe sur sa légende, sinon son nom', () => {
-    // `msg: ''` est la forme d'un upload sondée sur 8.5.
+  test('a message that is ONLY an attachment falls back on its caption, else its name', () => {
+    // `msg: ''` is the shape of an upload, probed on 8.5.
     assert.equal(
       room({ _id: 'm1', msg: '', attachments: [{ title: 'note.pdf', description: 'le compte-rendu' }] })
         ?.lastMessage,
@@ -165,49 +165,49 @@ describe('versSalon — aperçu du dernier message', () => {
     );
   });
 
-  test('APPEL VIDÉO : pas de texte, mais un type — la ligne ne sera pas vide', () => {
-    // Son contenu vit dans `blocks`. Sans le type, l'aperçu tombait à null et
-    // le salon remontait en tête de liste avec une ligne blanche.
+  test('VIDEO CALL: no text but a type, so the row will not be empty', () => {
+    // Its content lives in `blocks`. Without the type the preview dropped to
+    // null and the room rose to the top of the list with a blank row.
     const s = room({ _id: 'm1', msg: '', t: 'videoconf', ts: { $date: 50 } });
     assert.equal(s?.lastMessage, null);
     assert.equal(s?.lastMessageType, 'videoconf');
   });
 
-  test('salon VIDÉ : plus de lastMessage du tout, les deux à null', () => {
-    // La seule façon d'apprendre qu'un salon a été vidé — à ne pas confondre
-    // avec « dernier message sans texte à montrer ».
+  test('EMPTIED room: no lastMessage at all, both null', () => {
+    // The only way to learn that a room was emptied, not to be confused with
+    // "last message with no text to show".
     const s = room(undefined, { lm: { $date: 40 } });
     assert.equal(s?.lastMessage, null);
     assert.equal(s?.lastMessageType, null);
-    assert.equal(s?.lastMessageTs, 40, 'lm survit à la suppression');
+    assert.equal(s?.lastMessageTs, 40, 'lm survives the deletion');
   });
 
-  test('salon CHIFFRÉ : ni aperçu ni type, le serveur ne détient que du ciphertext', () => {
+  test('ENCRYPTED room: no preview or type, the server only holds ciphertext', () => {
     const s = room({ _id: 'm1', msg: 'AAAAbase64==', t: 'e2e', ts: { $date: 50 } }, { encrypted: true });
     assert.equal(s?.encrypted, true);
     assert.equal(s?.lastMessage, null);
     assert.equal(s?.lastMessageType, null);
   });
 
-  test('avatarETag ABSENT vaut null — « rien à dire », pas « efface »', () => {
+  test('ABSENT avatarETag is null: "nothing to say", not "clear"', () => {
     assert.equal(room()?.avatarEtag, null);
     assert.equal(toRoom({ _id: 'r1', t: 'c', avatarETag: 'abc' })?.avatarEtag, 'abc');
   });
 
-  test('sans _updatedAt, misAJourLe vaut 0 — le document le plus vieux possible', () => {
-    // Il arbitre le `WHERE excluded.mis_a_jour_le >=` de l'UPSERT : un défaut à
-    // « maintenant » ferait gagner un document partiel sur un document frais.
+  test('without _updatedAt, updatedAt is 0: the oldest possible document', () => {
+    // It settles the UPSERT's `WHERE excluded.updated_at >=`: defaulting to
+    // "now" would let a partial document win over a fresh one.
     assert.equal(toRoom({ _id: 'r1', t: 'c' })?.updatedAt, 0);
   });
 
-  test('un document sans _id ou sans t n’est pas normalisable', () => {
+  test('a document without _id or t cannot be normalized', () => {
     assert.equal(toRoom({ t: 'c' }), null);
     assert.equal(toRoom({ _id: 'r1' }), null);
   });
 });
 
-describe('versAbonnement', () => {
-  test('les compteurs absents valent 0, les drapeaux false', () => {
+describe('toSubscription', () => {
+  test('absent counters are 0, flags false', () => {
     const a = toSubscription({ rid: 'r1' });
     assert.deepEqual(a, {
       rid: 'r1',
@@ -226,7 +226,7 @@ describe('versAbonnement', () => {
     });
   });
 
-  test('un abonnement complet est repris champ par champ', () => {
+  test('a full subscription is copied field by field', () => {
     const a = toSubscription({
       _id: 's1',
       rid: 'r1',
@@ -259,13 +259,13 @@ describe('versAbonnement', () => {
     });
   });
 
-  test('sans rid, rien à écrire', () => {
+  test('without rid, nothing to write', () => {
     assert.equal(toSubscription({ _id: 's1' }), null);
   });
 
-  test('un drapeau « truthy » qui n’est pas true reste false', () => {
-    // `booleen` compare à `true` : un 1 ou une chaîne venus d'une charge
-    // inattendue ne doivent pas allumer une pastille de non-lus.
+  test('a "truthy" flag that is not true stays false', () => {
+    // `boolean` compares with `true`: a 1 or a string from an unexpected
+    // payload must not light an unread badge.
     const a = toSubscription({ rid: 'r1', alert: 1, open: 'oui' });
     assert.equal(a?.alert, false);
     assert.equal(a?.open, false);

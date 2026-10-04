@@ -1,8 +1,8 @@
 /**
- * Moteur de synchronisation. Le WebSocket et le REST **écrivent tous deux dans
- * SQLite** ; l'UI observe la base. Rien ne remonte de l'UI vers le réseau ici.
+ * Sync engine. The WebSocket and REST **both write into
+ * SQLite**; the UI observes the database. Nothing flows from the UI to the network here.
  *
- * Pur : la base est derrière l'interface `Depot`, donc ce module se teste sans
+ * Pure: the database sits behind the `Store` interface, so this module is tested without
  * `expo-sqlite`.
  */
 
@@ -11,9 +11,9 @@ import type { SyncChange, Translator } from './provider.ts';
 import type { LocalSubscription, MessageLocal, LocalRoom } from './normalize.ts';
 
 /**
- * Ce que la synchro attend du moteur E2EE, structurellement (pas d'import de
- * `lib/e2e`, donc pas de cycle) : `MoteurE2E` s'y conforme. Déchiffrement
- * SYNCHRONE — forge l'est — branchable au fil de l'ingestion.
+ * What sync expects from the E2EE engine, structurally (no import of
+ * `lib/e2e`, so no cycle): `E2EEngine` conforms to it. SYNCHRONOUS
+ * decryption (forge is) that can be plugged in along ingestion.
  */
 export interface E2EDecryptor {
   decryptContent(
@@ -31,84 +31,84 @@ export interface Store {
   deleteRoom(rid: string): Promise<void>;
   deleteSubscription(rid: string): Promise<void>;
   /**
-   * Départ d'un salon signalé par le rattrapage : les `remove[]` d'abonnements
-   * ne portent que le `_id` de l'abonnement. Efface l'abonnement ET le salon.
+   * A room departure reported by the catch-up: subscription `remove[]` entries
+   * only carry the subscription `_id`. Deletes the subscription AND the room.
    */
   deleteBySubId(subId: string): Promise<void>;
   /**
-   * Tous les `rid` que la base connaît, toutes tables confondues. À relever
-   * AVANT la requête réseau de la réconciliation : c'est cet instantané qui
-   * borne la purge, et donc qui épargne un salon né pendant le vol.
+   * Every `rid` the database knows, across all tables. To be read
+   * BEFORE the reconciliation network request: this snapshot bounds
+   * the purge, and so spares a room created while the request was in flight.
    */
   listKnownRids(): Promise<string[]>;
   /**
-   * Réconciliation anti-fantômes : efface tout ce dont le `rid` figurait dans
-   * l'instantané `ridsConnus` et ne figure PAS dans la liste vivante. Nettoie
-   * les salons supprimés côté serveur dont l'événement 'removed' a été raté —
-   * salon, abonnement, messages, mais aussi files d'envoi, brouillons et
-   * curseurs. Ne fait RIEN sur une liste vide (garde-fou anti-purge-totale).
+   * Anti-ghost reconciliation: deletes everything whose `rid` was in
+   * the `knownRids` snapshot and is NOT in the live list. Cleans up
+   * rooms deleted server-side whose 'removed' event was missed:
+   * room, subscription, messages, but also outboxes, drafts and
+   * cursors. Does NOTHING on an empty list (guard against a total purge).
    */
   purgeMissingRooms(aliveRids: string[], knownRids: string[]): Promise<void>;
   /**
-   * Rétention : ne garder que les `nbMax` messages les plus récents de CHAQUE
-   * salon, en épargnant les optimistes et les racines de fil référencées.
+   * Retention: keep only the `nbMax` most recent messages of EACH
+   * room, sparing optimistic ones and referenced thread roots.
    */
   applyRetention(nbMax: number): Promise<void>;
-  /** Curseurs de rattrapage. `lireCurseur` rend null si jamais écrit. */
+  /** Catch-up cursors. `readCursor` returns null if never written. */
   readCursor(scope: string, stream: string): Promise<number | null>;
-  /** N'avance jamais à rebours (garanti par le SQL). */
+  /** Never moves backwards (guaranteed by the SQL). */
   writeCursor(scope: string, stream: string, updatedSince: number): Promise<void>;
   /**
-   * Le plus grand `_updatedAt` déjà ingéré pour un salon (null si aucun message
-   * local). Sert à ré-ancrer le curseur quand `chat.syncMessages` échoue sur un
-   * backlog trop gros — voir `rattraperSalon`.
+   * The largest `_updatedAt` already ingested for a room (null if no local
+   * message). Used to re-anchor the cursor when `chat.syncMessages` fails on a
+   * backlog that is too big: see `catchUpRoom`.
    */
   lastMessageUpdatedAt(rid: string): Promise<number | null>;
-  /** Clés de salon connues (E2EKey des abonnements) — pour la passe E2EE. */
+  /** Known room keys (E2EKey of subscriptions), for the E2EE pass. */
   listRoomKeys(): Promise<{ rid: string; e2eKey: string }[]>;
-  /** Messages chiffrés encore illisibles (`chiffre_brut` présent, `texte` null). */
+  /** Encrypted messages still unreadable (`encryptedRaw` present, `text` null). */
   messagesToDecrypt(): Promise<{ id: string; rid: string; encryptedRaw: string }[]>;
-  /** Pose le clair d'un message (et ses pièces jointes) après déchiffrement au déverrouillage. */
+  /** Sets a message's plaintext (and its attachments) after decryption at unlock. */
   updateMessageText(id: string, text: string, attachments: string | null): Promise<void>;
-  /** Épinglage et étoiles posés localement après un geste réussi (`lib/marks.ts`). */
+  /** Pinning and stars set locally after a successful gesture (`lib/marks.ts`). */
   updateMessageMarks(id: string, pinned: boolean, starred: string | null): Promise<void>;
   /**
-   * Pose la version d'avatar (`avatarETag`) d'un utilisateur, désigné par son
-   * PSEUDO — c'est la seule clé que porte le stream. Sans effet sur un pseudo
-   * inconnu localement.
+   * Sets the avatar version (`avatarETag`) of a user, designated by their
+   * USERNAME: it is the only key the stream carries. No effect on a username
+   * unknown locally.
    */
   updateUserAvatar(username: string, etag: string): Promise<void>;
-  /** Idem pour un salon, désigné par son `rid`. */
+  /** Same for a room, designated by its `rid`. */
   updateRoomAvatar(rid: string, etag: string): Promise<void>;
   /**
-   * Identité autoritaire (`me`, `users.info`) : pseudo courant et version
-   * d'avatar d'un uid. C'est le seul chemin qui puisse CRÉER la ligne d'un
-   * utilisateur qui n'a encore posté aucun message — mon propre compte, le
-   * plus souvent.
+   * Authoritative identity (`me`, `users.info`): current username and avatar
+   * version of a uid. It is the only path that can CREATE the row of a
+   * user who has not posted any message yet: my own account, most
+   * often.
    */
   saveIdentity(identity: {
     uid: string;
     username: string;
     avatarEtag: string | null;
   }): Promise<void>;
-  /** Re-masque le clair de tous les messages chiffrés (au verrouillage). */
+  /** Re-masks the plaintext of every encrypted message (on lock). */
   hideEncryptedMessages(): Promise<void>;
-  /** Rafraîchit l'aperçu de liste des salons chiffrés (dernier message déchiffré). */
+  /** Refreshes the list preview of encrypted rooms (last decrypted message). */
   updateEncryptedPreview(): Promise<void>;
   /**
-   * Regroupe des écritures en une transaction. Une page d'historique de 50
-   * messages doit produire UN commit et UN événement de changement — pas 50
-   * ré-exécutions de chaque requête vive de l'UI.
+   * Groups writes into one transaction. A history page of 50
+   * messages must produce ONE commit and ONE change event, not 50
+   * re-runs of each live UI query.
    *
-   * `fn` reçoit l'écrivain À UTILISER pour ses écritures : sur SQLite, les
-   * méthodes du dépôt lui-même passent par une file qui attend la fin de la
-   * transaction ouverte — les appeler depuis `fn` s'interbloquerait. La
-   * signature rend l'erreur impossible à écrire.
+   * `fn` receives the writer TO USE for its writes: on SQLite, the
+   * store's own methods go through a queue that waits for the open
+   * transaction to end, so calling them from `fn` would deadlock. The
+   * signature makes the mistake impossible to write.
    */
   transaction(fn: (tx: StoreWrites) => Promise<void>): Promise<void>;
 }
 
-/** Le sous-ensemble d'écritures utilisable à l'intérieur d'une transaction. */
+/** The subset of writes usable inside a transaction. */
 export type StoreWrites = Pick<
   Store,
   | 'upsertMessage'
@@ -125,7 +125,7 @@ export const STREAM_MESSAGES = 'stream-room-messages';
 export const STREAM_NOTIFY_USER = 'stream-notify-user';
 export const STREAM_NOTIFY_ROOM = 'stream-notify-room';
 
-/** Compteurs exposés à l'écran debug : ce qui a été vu, ce qui a été ignoré. */
+/** Counters shown on the debug screen: what was seen, what was ignored. */
 export type Stats = {
   messages: number;
   rooms: number;
@@ -143,13 +143,13 @@ export class SyncEngine {
     ignores: 0,
   };
 
-  // Champs ordinaires, pas des « parameter properties » : ces dernières ne
-  // sont pas une syntaxe effaçable, et empêcheraient de charger le module sous
-  // Node — donc de le tester.
+  // Plain fields, not "parameter properties": the latter are not
+  // erasable syntax, and would prevent loading the module under
+  // Node, and so testing it.
   private readonly store: Store;
-  /** Décode les `Evenement` et documents bruts du serveur : toute la quirk RC est là. */
+  /** Decodes the server's `DdpEvent`s and raw documents: all the RC quirks live there. */
   private readonly translator: Translator;
-  /** Déchiffreur E2EE, ou `null` : un message chiffré reste alors au placeholder. */
+  /** E2EE decryptor, or `null`: an encrypted message then stays on the placeholder. */
   private decryptor: E2EDecryptor | null;
 
   constructor(store: Store, translator: Translator, decryptor: E2EDecryptor | null = null) {
@@ -159,10 +159,10 @@ export class SyncEngine {
   }
 
   /**
-   * Passe de déchiffrement au déverrouillage E2EE : charge toutes les clés de
-   * salon connues dans le déchiffreur, puis déchiffre les messages restés
-   * illisibles (ingérés verrouillés). Rend le nombre de messages éclaircis.
-   * Idempotent : un message déjà en clair n'est plus dans `messagesADechiffrer`.
+   * Decryption pass at E2EE unlock: loads every known room key
+   * into the decryptor, then decrypts the messages left
+   * unreadable (ingested while locked). Returns the number of messages made readable.
+   * Idempotent: a message already in plaintext is no longer in `messagesToDecrypt`.
    */
   async e2eUnlocked(): Promise<number> {
     if (this.decryptor === null) return 0;
@@ -183,22 +183,22 @@ export class SyncEngine {
         n++;
       }
     }
-    // Rafraîchit l'aperçu de liste TOUJOURS : à la reprise (clé déjà en
-    // Keystore), les messages sont déjà en clair → `n` vaut 0, mais l'aperçu
-    // reste à poser depuis ces messages déchiffrés lors d'une session passée.
+    // ALWAYS refreshes the list preview: on resume (key already in the
+    // Keystore), messages are already in plaintext → `n` is 0, but the preview
+    // still has to be set from these messages decrypted in a past session.
     await this.store.updateEncryptedPreview();
     return n;
   }
 
-  /** Verrouillage : efface le clair local des messages chiffrés (placeholder à nouveau). */
+  /** Lock: clears the local plaintext of encrypted messages (placeholder again). */
   async e2eRelocked(): Promise<void> {
     await this.store.hideEncryptedMessages();
   }
 
   /**
-   * Déchiffre sur place le `texte` d'un message chiffré, si on a la clé. Sans
-   * clé (verrouillé, salon pas encore déverrouillé) : `texte` reste null, le
-   * `chiffreBrut` conservé permettra une passe au déverrouillage.
+   * Decrypts in place the `text` of an encrypted message, if we have the key. Without
+   * a key (locked, room not unlocked yet): `text` stays null, the kept
+   * `encryptedRaw` will allow a pass at unlock.
    */
   private decrypt(message: MessageLocal): void {
     if (message.encryptedRaw === null || this.decryptor === null) return;
@@ -215,10 +215,10 @@ export class SyncEngine {
   }
 
   /**
-   * Applique un événement temps réel. Le traducteur du fournisseur le décode ;
-   * le moteur n'écrit plus que des formes neutres. Une anomalie (stream
-   * inattendu) est **comptée, jamais planquée** ; un `silence` attendu
-   * (`user-activity`) ne compte pas.
+   * Applies a real-time event. The provider's translator decodes it;
+   * the engine only writes neutral shapes. An anomaly (unexpected
+   * stream) is **counted, never hidden**; an expected `silence`
+   * (`user-activity`) does not count.
    */
   async apply(event: DdpEvent): Promise<void> {
     const translation = this.translator.translateEvent(event);
@@ -230,14 +230,14 @@ export class SyncEngine {
     await this.applyChange(translation.change);
   }
 
-  /** Écrit un changement déjà normalisé dans le dépôt. Le seul chemin d'écriture. */
+  /** Writes an already normalized change into the store. The only write path. */
   private async applyChange(change: SyncChange): Promise<void> {
     switch (change.type) {
       case 'message':
         this.decrypt(change.doc);
         await this.store.upsertMessage(change.doc);
         this.stats.messages++;
-        // Un message chiffré déchiffré en direct rafraîchit l'aperçu de liste.
+        // An encrypted message decrypted live refreshes the list preview.
         if (change.doc.encryptedRaw !== null && change.doc.text !== null) {
           await this.store.updateEncryptedPreview();
         }
@@ -264,8 +264,8 @@ export class SyncEngine {
         this.stats.deletions++;
         return;
       case 'avatar':
-        // Ni compté ni ignoré : ce n'est pas un document, juste la version
-        // d'une photo. Une cible sans pseudo NI rid n'existe pas côté serveur.
+        // Neither counted nor ignored: it is not a document, just the version
+        // of a photo. A target with neither username NOR rid does not exist server-side.
         if (change.username !== null) {
           await this.store.updateUserAvatar(change.username, change.etag);
         }
@@ -277,11 +277,11 @@ export class SyncEngine {
   }
 
   /**
-   * Ingestion d'un lot REST : mêmes upserts, mêmes garanties d'idempotence,
-   * mais en une seule transaction — voir `Depot.transaction`.
+   * Ingestion of a REST batch: same upserts, same idempotence guarantees,
+   * but in a single transaction: see `Store.transaction`.
    *
-   * Rend le plus grand `_updatedAt` ingéré (ou null) : c'est la matière des
-   * curseurs de rattrapage — un curseur bâti sur l'horloge locale mentirait.
+   * Returns the largest ingested `_updatedAt` (or null): it is what the
+   * catch-up cursors are made of; a cursor built on the local clock would lie.
    */
   async ingestMessages(rawItems: Record<string, unknown>[]): Promise<number | null> {
     let latest: number | null = null;
@@ -342,7 +342,7 @@ export class SyncEngine {
     return latest;
   }
 
-  /** Accès au dépôt pour le rattrapage (curseurs, suppressions). */
+  /** Store access for the catch-up (cursors, deletions). */
   get syncStore(): Store {
     return this.store;
   }

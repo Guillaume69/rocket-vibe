@@ -31,7 +31,7 @@ function fakeStore(encrypted: ReadonlySet<string> = new Set()) {
   return { store, outbox, messages };
 }
 
-/** Client REST réel, fetch simulé : on éprouve la vraie sérialisation. */
+/** Real REST client, simulated fetch: exercises the real serialisation. */
 function fakeClient(
   reply: (body: Record<string, unknown>) => Promise<Response>,
   replyGet?: (url: string) => Promise<Response>,
@@ -40,7 +40,7 @@ function fakeClient(
   const client = new ClientRest('http://x', {
     fetch: async (url, init) => {
       if (init?.body === undefined) {
-        // GET (chat.getMessage) : introuvable par défaut.
+        // GET (chat.getMessage): not found by default.
         return replyGet
           ? replyGet(String(url))
           : ok({ success: false, error: 'not-found' });
@@ -79,16 +79,16 @@ function testEngine(options: {
   return { engine, outbox, messages, queries, ingested };
 }
 
-describe('idDepuisOctets', () => {
-  test('24 hexadécimaux, déterministes depuis les octets', () => {
+describe('idFromBytes', () => {
+  test('24 hex digits, deterministic from the bytes', () => {
     const id = idFromBytes(new Uint8Array([0, 1, 255, 16, 32, 64, 128, 200, 9, 10, 11, 12]));
     assert.match(id, /^[0-9a-f]{24}$/);
     assert.equal(id, '0001ff10204080c8090a0b0c');
   });
 });
 
-describe('MoteurEnvoi', () => {
-  test('envoyer : affichage optimiste AVANT le réseau, puis envoi et réconciliation', async () => {
+describe('OutboxEngine', () => {
+  test('send: optimistic display BEFORE the network, then send and reconciliation', async () => {
     const { engine, outbox, messages, queries, ingested } = testEngine({
       reply: async (body) => {
         const m = (body.message ?? {}) as Record<string, unknown>;
@@ -98,20 +98,20 @@ describe('MoteurEnvoi', () => {
 
     const id = await engine.send('r1', 'bonjour');
 
-    assert.equal(messages.length, 1, 'le message optimiste est écrit en base');
+    assert.equal(messages.length, 1, 'the optimistic message is written to the database');
     assert.equal(messages[0].id, id);
-    assert.equal(messages[0].updatedAt, 0, 'toujours écrasable par le serveur');
+    assert.equal(messages[0].updatedAt, 0, 'always overwritable by the server');
 
     assert.equal(queries.length, 1);
     const sent = (queries[0].message ?? {}) as Record<string, unknown>;
-    assert.equal(sent._id, id, 'le serveur reçoit le MÊME _id : sa clé de déduplication');
+    assert.equal(sent._id, id, 'the server receives the SAME _id: its deduplication key');
     assert.equal(sent.msg, 'bonjour');
 
-    assert.equal(outbox.size, 0, 'la file est vidée au succès');
-    assert.equal(ingested.length, 1, 'le document du serveur repasse par la synchro');
+    assert.equal(outbox.size, 0, 'the queue is emptied on success');
+    assert.equal(ingested.length, 1, 'the server document goes back through sync');
   });
 
-  test('réponse de fil : `tmid` part au serveur, `filId` persiste pour le rejeu (8.3)', async () => {
+  test('thread reply: `tmid` goes to the server, `threadId` persists for the replay (8.3)', async () => {
     const { engine, outbox, queries } = testEngine({
       reply: async (body) => {
         const m = (body.message ?? {}) as Record<string, unknown>;
@@ -123,13 +123,13 @@ describe('MoteurEnvoi', () => {
     assert.equal(sent.tmid, 'racine-du-fil-000000000');
     assert.equal(outbox.size, 0);
 
-    // Un message ORDINAIRE n'a pas de clé `tmid` du tout — pas un null.
+    // An ORDINARY message has no `tmid` key at all, not a null.
     await engine.send('r1', 'hors fil');
     const ordinary = (queries[1].message ?? {}) as Record<string, unknown>;
     assert.ok(!('tmid' in ordinary));
   });
 
-  test('réseau injoignable : la ligne RESTE en-attente, prête pour le rejeu', async () => {
+  test('network unreachable: the row STAYS en-attente, ready for the replay', async () => {
     const { engine, outbox } = testEngine({
       reply: async () => {
         throw new TypeError('Network request failed');
@@ -138,10 +138,10 @@ describe('MoteurEnvoi', () => {
     await engine.send('r1', 'hors ligne');
     const rows = [...outbox.values()];
     assert.equal(rows.length, 1);
-    assert.equal(rows[0].status, 'en-attente', "pas un échec : le réseau reviendra");
+    assert.equal(rows[0].status, 'en-attente', 'not a failure: the network will come back');
   });
 
-  test('refus du serveur : échec actionnable, PAS de suppression', async () => {
+  test('server refusal: actionable failure, NO deletion', async () => {
     const { engine, outbox } = testEngine({
       reply: async () => ok({ success: false, error: 'error-not-allowed' }),
     });
@@ -152,10 +152,10 @@ describe('MoteurEnvoi', () => {
     assert.equal(rows[0].attempts, 1);
   });
 
-  test('un rejeu refusé mais DÉJÀ LIVRÉ est réconcilié, pas marqué échec', async () => {
-    // Rocket.Chat 8.5 répond 400 sur un `_id` déjà accepté (vérifié : « Cannot
-    // read properties of undefined (reading 'starred') ») : aucun doublon,
-    // mais la réponse ne vaut pas refus — on demande à chat.getMessage.
+  test('a refused but ALREADY DELIVERED replay is reconciled, not marked failed', async () => {
+    // Rocket.Chat 8.5 answers 400 on an already accepted `_id` (checked: "Cannot
+    // read properties of undefined (reading 'starred')"): no duplicate, but the
+    // response is not a refusal, so ask chat.getMessage.
     const { engine, outbox } = testEngine({
       reply: async () =>
         ok({ success: false, error: "Cannot read properties of undefined (reading 'starred')" }),
@@ -165,10 +165,10 @@ describe('MoteurEnvoi', () => {
       },
     });
     await engine.send('r1', 'rejoué après crash');
-    assert.equal(outbox.size, 0, 'livré = réconcilié');
+    assert.equal(outbox.size, 0, 'delivered = reconciled');
   });
 
-  test('le document du « déjà livré » est INGÉRÉ : la version serveur remplace l’optimiste', async () => {
+  test('the "already delivered" document is INGESTED: the server version replaces the optimistic one', async () => {
     const { engine, ingested } = testEngine({
       reply: async () => ok({ success: false, error: 'starred…' }),
       replyGet: async (url) => {
@@ -182,12 +182,12 @@ describe('MoteurEnvoi', () => {
   });
 
   /**
-   * La vérification « déjà livré ? » peut elle-même échouer — et « je n'ai pas
-   * pu demander » n'est PAS « le serveur dit que non ». Conclure à l'échec sur
-   * un réseau mort affiche « non envoyé » sur un message que le serveur a
-   * peut-être accepté ; l'utilisateur le retape, il en aura deux.
+   * The "already delivered?" check can itself fail, and "I could not ask" is
+   * NOT "the server says no". Concluding failure on a dead network shows "not
+   * sent" on a message the server may have accepted; the user types it again
+   * and gets two.
    */
-  test('vérification impossible (réseau mort) : la ligne reste en-attente, pas en échec', async () => {
+  test('check impossible (dead network): the row stays en-attente, not failed', async () => {
     const { engine, outbox } = testEngine({
       reply: async () => ok({ success: false, error: 'starred…' }),
       replyGet: async () => {
@@ -197,16 +197,16 @@ describe('MoteurEnvoi', () => {
     await engine.send('r1', 'peut-être livré');
     const rows = [...outbox.values()];
     assert.equal(rows.length, 1);
-    assert.equal(rows[0].status, 'en-attente', 'dans le doute, on ne condamne pas');
-    assert.equal(rows[0].attempts, 0, 'et on ne consomme pas une tentative');
+    assert.equal(rows[0].status, 'en-attente', 'when in doubt, do not condemn');
+    assert.equal(rows[0].attempts, 0, 'and do not use up an attempt');
   });
 
   /**
-   * `chat.getMessage` subit la même limite REST de 10/min que `chat.sendMessage`
-   * (CLAUDE.md) : une rafale d'envois épuise le quota et TOUTES les
-   * vérifications retombent en 429, après les trois rejeux de `ClientRest`.
+   * `chat.getMessage` is under the same 10/min REST limit as `chat.sendMessage`
+   * (CLAUDE.md): a burst of sends exhausts the quota and ALL checks fall back
+   * to 429, after `ClientRest`'s three retries.
    */
-  test('vérification rate-limitée (429) : la ligne reste en-attente', async () => {
+  test('rate-limited check (429): the row stays en-attente', async () => {
     let gets = 0;
     const { engine, outbox } = testEngine({
       reply: async () => ok({ success: false, error: 'starred…' }),
@@ -216,21 +216,21 @@ describe('MoteurEnvoi', () => {
       },
     });
     await engine.send('r1', 'quota épuisé');
-    assert.ok(gets > 1, 'ClientRest rejoue bien le 429 avant d’abandonner');
+    assert.ok(gets > 1, 'ClientRest does retry the 429 before giving up');
     assert.equal([...outbox.values()][0]?.status, 'en-attente');
   });
 
-  test('le serveur qui répond « ce message n’existe pas » vaut, LUI, un échec', async () => {
+  test('the server answering "this message does not exist" IS a failure', async () => {
     const { engine, outbox } = testEngine({
       reply: async () => ok({ success: false, error: 'starred…' }),
-      // Réponse HTTP franche : le serveur a parlé, le message n'est pas là.
+      // A clear HTTP answer: the server spoke, the message is not there.
       replyGet: async () => ok({ success: false, error: 'error-invalid-message' }),
     });
     await engine.send('r1', 'vraiment refusé');
-    assert.equal([...outbox.values()][0]?.status, 'echec', 'un verdict du serveur tranche');
+    assert.equal([...outbox.values()][0]?.status, 'echec', 'a server verdict decides');
   });
 
-  test('abandonner efface la ligne de sortie ET le message optimiste', async () => {
+  test('discard deletes the outbox row AND the optimistic message', async () => {
     const { engine, outbox, messages } = testEngine({
       reply: async () => ok({ success: false, error: 'refus définitif' }),
     });
@@ -239,12 +239,12 @@ describe('MoteurEnvoi', () => {
 
     await engine.discard(id);
     assert.equal(outbox.size, 0);
-    assert.equal(messages.length, 0, "l'optimiste ne doit pas hanter le salon");
+    assert.equal(messages.length, 0, 'the optimistic message must not haunt the room');
   });
 
-  test('un envoi pendant le flush est repris par une repasse, pas oublié', async () => {
-    // Course réelle : envoyer('b') pendant que le POST de 'a' est en vol.
-    // Sans repasse, 'b' resterait « ⏳ » jusqu'au prochain déclencheur.
+  test('a send during the flush is picked up by a rerun, not forgotten', async () => {
+    // Real race: send('b') while the POST of 'a' is in flight.
+    // Without a rerun, 'b' would stay "⏳" until the next trigger.
     const valve: { open: (() => void) | null } = { open: null };
     let first = true;
     const { engine, queries, outbox } = testEngine({
@@ -259,17 +259,17 @@ describe('MoteurEnvoi', () => {
     });
 
     const p1 = engine.send('r1', 'a');
-    await new Promise((r) => setImmediate(r)); // 'a' atteint le réseau
-    const p2 = engine.send('r1', 'b'); // pendant le vol de 'a'
+    await new Promise((r) => setImmediate(r)); // 'a' reaches the network
+    const p2 = engine.send('r1', 'b'); // while 'a' is in flight
     await new Promise((r) => setImmediate(r));
     valve.open?.();
     await Promise.all([p1, p2]);
 
-    assert.equal(queries.length, 2, "la repasse a envoyé 'b'");
+    assert.equal(queries.length, 2, "the rerun sent 'b'");
     assert.equal(outbox.size, 0);
   });
 
-  test('le rejeu retente les échecs comme les attentes', async () => {
+  test('the replay retries failures as well as pending rows', async () => {
     let refuser = true;
     const { engine, outbox } = testEngine({
       reply: async (body) => {
@@ -283,12 +283,12 @@ describe('MoteurEnvoi', () => {
 
     refuser = false;
     await engine.process();
-    assert.equal(outbox.size, 0, 'le rejeu a vidé la file');
+    assert.equal(outbox.size, 0, 'the replay emptied the queue');
   });
 
-  test('deux traiter() concurrents ne doublent pas les requêtes', async () => {
-    // Propriété d'objet et non variable locale : TypeScript ne voit pas
-    // l'affectation faite dans l'exécuteur de la promesse.
+  test('two concurrent process() calls do not double the requests', async () => {
+    // Object property, not a local variable: TypeScript does not see the
+    // assignment made in the promise executor.
     const valve: { open: (() => void) | null } = { open: null };
     const { engine, queries } = testEngine({
       reply: (body) =>
@@ -300,10 +300,10 @@ describe('MoteurEnvoi', () => {
         }),
     });
     const p1 = engine.send('r1', 'x');
-    // Laisser la première passe atteindre le réseau (et bloquer sur la vanne).
+    // Let the first pass reach the network (and block on the valve).
     await new Promise((r) => setImmediate(r));
-    // Pendant que l'envoi est en vol, un second passage ne doit rien faire —
-    // et surtout ne pas bloquer : on ne l'attend qu'après avoir ouvert la vanne.
+    // While the send is in flight, a second pass must do nothing, and above
+    // all not block: it is only awaited after opening the valve.
     const p2 = engine.process();
     valve.open?.();
     await Promise.all([p1, p2]);
@@ -311,7 +311,7 @@ describe('MoteurEnvoi', () => {
   });
 });
 
-describe('MoteurEnvoi — salon chiffré', () => {
+describe('OutboxEngine, encrypted room', () => {
   const echo = async (body: Record<string, unknown>) => {
     const m = (body.message ?? {}) as Record<string, unknown>;
     return ok({ success: true, message: { ...m, ts: { $date: 2000 }, u: { _id: 'u1' } } });
@@ -325,15 +325,15 @@ describe('MoteurEnvoi — salon chiffré', () => {
     }),
   };
 
-  test('le texte part chiffré, jamais en clair, avec ses mentions et son fil', async () => {
+  test('the text leaves encrypted, never in plaintext, with its mentions and thread', async () => {
     const { engine, messages, queries, outbox } = testEngine({ reply: echo, encrypted: new Set(['p1']), encryptor });
 
     await engine.send('p1', 'salut @bob', 'racine');
 
-    assert.equal(messages[0].systemType, 'e2e', "l'optimiste est un message chiffré…");
-    assert.equal(messages[0].text, 'salut @bob', '…affiché en clair localement');
+    assert.equal(messages[0].systemType, 'e2e', 'the optimistic message is an encrypted message…');
+    assert.equal(messages[0].text, 'salut @bob', '…shown in plaintext locally');
     const sent = (queries[0].message ?? {}) as Record<string, unknown>;
-    assert.equal(sent.msg, undefined, 'aucun clair sur le réseau');
+    assert.equal(sent.msg, undefined, 'no plaintext on the network');
     assert.equal(sent.t, 'e2e');
     assert.equal(sent.e2e, 'pending');
     assert.equal(sent.tmid, 'racine');
@@ -344,7 +344,7 @@ describe('MoteurEnvoi — salon chiffré', () => {
     assert.equal(outbox.size, 0);
   });
 
-  test('verrouillé : la ligne attend sans échouer, les autres salons partent', async () => {
+  test('locked: the row waits without failing, the other rooms go out', async () => {
     let key = false;
     const { engine, queries, outbox } = testEngine({
       reply: echo,
@@ -365,7 +365,7 @@ describe('MoteurEnvoi — salon chiffré', () => {
     assert.equal(outbox.size, 0);
   });
 
-  test('sans chiffreur, un salon chiffré ne reçoit rien', async () => {
+  test('without an encryptor, an encrypted room receives nothing', async () => {
     const { engine, queries, outbox } = testEngine({ reply: echo, encrypted: new Set(['p1']) });
     await engine.send('p1', 'secret');
     assert.equal(queries.length, 0);

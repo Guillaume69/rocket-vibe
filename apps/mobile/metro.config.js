@@ -2,18 +2,18 @@
 const { getDefaultConfig } = require('expo/metro-config');
 
 const config = getDefaultConfig(__dirname);
-// Sans cela, Metro refuse de résoudre les migrations `.sql` de drizzle-kit.
+// Without this, Metro refuses to resolve drizzle-kit's `.sql` migrations.
 config.resolver.sourceExts.push('sql');
 
-// E2EE : `lib/e2e/crypto.ts` importe l'API `node:crypto`. Dans le bundle RN,
-// on la résout vers `react-native-quick-crypto` (module natif Nitro, même API
-// OpenSSL). Sous Node (tests) l'alias ne s'applique pas → `node:crypto` natif.
+// E2EE: `lib/e2e/crypto.ts` imports the `node:crypto` API. In the RN bundle,
+// we resolve it to `react-native-quick-crypto` (Nitro native module, same
+// OpenSSL API). Under Node (tests) the alias does not apply -> native `node:crypto`.
 const standardResolver = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
-  // `buffer` pointe vers l'implé feuille (@craftzdog/react-native-buffer), PAS
-  // vers le barrel quick-crypto : ce dernier importe lui-même `buffer` à
-  // l'init, l'aliaser vers son propre barrel crée un cycle (`require` renvoie
-  // un module à moitié initialisé → `Cannot read property 'Certificate'`).
+  // `buffer` points to the leaf implementation (@craftzdog/react-native-buffer),
+  // NOT to the quick-crypto barrel: the latter itself imports `buffer` at init,
+  // aliasing it to its own barrel creates a cycle (`require` returns a
+  // half-initialised module -> `Cannot read property 'Certificate'`).
   if (moduleName === 'crypto') {
     return context.resolveRequest(context, 'react-native-quick-crypto', platform);
   }

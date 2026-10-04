@@ -1,13 +1,13 @@
 /**
- * Traduction des charges utiles Rocket.Chat vers les lignes locales.
+ * Translates Rocket.Chat payloads into local rows.
  *
- * Module pur : aucun accès réseau, aucune base. C'est ici que se concentrent
- * les bizarreries du serveur, pour qu'elles ne se répandent pas ailleurs.
+ * Pure module: no network, no database. The server's quirks are gathered
+ * here so they do not spread anywhere else.
  */
 
 import { starredIds } from './marks.ts';
 
-/** Le serveur envoie soit `{"$date": epochMs}` (EJSON), soit une chaîne ISO. */
+/** The server sends either `{"$date": epochMs}` (EJSON) or an ISO string. */
 export function toEpoch(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
@@ -41,20 +41,20 @@ export type MessageLocal = {
   md: string | null;
   attachments: string | null;
   reactions: string | null;
-  /** Métadonnées de lien parsées par le serveur (`urls`), sérialisées. */
+  /** Link metadata parsed by the server (`urls`), serialized. */
   urls: string | null;
-  /** `callId` d'un message d'appel (`t: 'videoconf'`), extrait du bloc. */
+  /** `callId` of a call message (`t: 'videoconf'`), taken from its block. */
   callId: string | null;
   /**
-   * Objet `content` d'un message chiffré (`rc.v2.aes-sha2`), sérialisé. On le
-   * GARDE — contrairement au reste, où le blob chiffré est jeté — pour pouvoir
-   * déchiffrer APRÈS coup, au déverrouillage (E2EE, étape 10). `null` hors
-   * message chiffré, ou pour un chiffrement hérité `rc.v1` (dans `msg`, non
-   * pris en charge). Ce n'est pas du clair : rien à afficher tel quel.
+   * `content` object of an encrypted message (`rc.v2.aes-sha2`), serialized.
+   * KEPT, unlike the rest where the encrypted blob is dropped, so it can be
+   * decrypted LATER, on unlock (E2EE, step 10). `null` outside an encrypted
+   * message, or for legacy `rc.v1` encryption (in `msg`, unsupported). This is
+   * not plaintext: nothing to display as is.
    */
   encryptedRaw: string | null;
   pinned: boolean;
-  /** Uids qui ont étoilé le message, sérialisés (`lib/marks.ts`). */
+  /** Uids that starred the message, serialized (`lib/marks.ts`). */
   starred: string | null;
   updatedAt: number;
 };
@@ -66,31 +66,31 @@ export type LocalRoom = {
   displayName: string | null;
   encrypted: boolean;
   readOnly: boolean;
-  /** L'autre participant d'un DM à deux — voir `versSalon`. */
+  /** The other participant of a two-person DM, see `toRoom`. */
   dmOtherUid: string | null;
   /**
-   * Son PSEUDO. **Transporté, pas stocké dans `salons`** : il sert au dépôt à
-   * inscrire l'autre dans `utilisateurs` (uid ↔ pseudo). Sans cette ligne,
-   * l'événement `updateAvatar` — qui ne désigne l'utilisateur QUE par son
-   * pseudo — ne trouve rien à mettre à jour, et l'avatar du DM reste figé :
-   * la liste des salons affiche des gens dont aucun message n'a été ingéré.
+   * Their USERNAME. **Carried, not stored in `rooms`**: the store uses it to
+   * record the other user in `users` (uid <-> username). Without that row the
+   * `updateAvatar` event, which names the user ONLY by username, finds nothing
+   * to update and the DM avatar stays frozen: the room list shows people none
+   * of whose messages were ingested.
    */
   dmOtherUsername: string | null;
   lastMessage: string | null;
   /**
-   * Le `t` du dernier message — ce qui sépare « salon vidé » de « dernier
-   * message sans texte à montrer ». Voir `db/schema.ts` et `apercuDuDernier`.
+   * The `t` of the last message: what tells "room emptied" from "last message
+   * with no text to show". See `db/schema.ts` and `lastMessagePreview`.
    */
   lastMessageType: string | null;
   lastMessageTs: number | null;
-  /** `avatarETag` : version de la photo du salon, cache-buster de son URL. */
+  /** `avatarETag`: version of the room photo, cache-buster for its URL. */
   avatarEtag: string | null;
   updatedAt: number;
 };
 
 export type LocalSubscription = {
   rid: string;
-  /** `_id` de l'abonnement — la seule clé que portent les `remove[]` du rattrapage. */
+  /** Subscription `_id`, the only key the catch-up `remove[]` entries carry. */
   subId: string | null;
   unread: number;
   mentions: number;
@@ -99,11 +99,11 @@ export type LocalSubscription = {
   open: boolean;
   favorite: boolean;
   lastSeen: number | null;
-  /** `E2EKey` : clé AES du salon chiffrée RSA pour ce membre (keyID + base64). */
+  /** `E2EKey`: the room AES key, RSA-encrypted for this member (keyID + base64). */
   e2eKey: string | null;
-  /** `e2eKeyId` : UUID de la clé de salon, quand le serveur le fournit à part. */
+  /** `e2eKeyId`: UUID of the room key, when the server provides it separately. */
   e2eKeyId: string | null;
-  /** Mes rôles dans le salon, sérialisés — `null` si le document n'en porte pas. */
+  /** My roles in the room, serialized; `null` if the document carries none. */
   roles: string | null;
   updatedAt: number;
 };
@@ -114,17 +114,17 @@ const boolean = (v: unknown): boolean => v === true;
 const jsonOrNull = (v: unknown): string | null =>
   v === undefined || v === null ? null : JSON.stringify(v);
 
-/** Un message chiffré n'est pas déchiffrable ici : on n'expose jamais le blob. */
+/** An encrypted message cannot be decrypted here: the blob is never exposed. */
 export const ENCRYPTED_TYPE = 'e2e';
 
-/** Type système d'un message de visioconférence Rocket.Chat. */
+/** System type of a Rocket.Chat video conference message. */
 export const CALL_TYPE = 'videoconf';
 
 /**
- * Le message d'appel porte son `callId` dans un bloc `video_conf` (`appId:
- * 'videoconf-core'`), PAS dans son `_id` : les deux diffèrent (vérifié sur la
- * source RC). On extrait le premier bloc de ce type ; le reste des `blocks`
- * (UI-kit générique) ne nous sert pas et n'est pas conservé.
+ * The call message carries its `callId` in a `video_conf` block (`appId:
+ * 'videoconf-core'`), NOT in its `_id`: the two differ (checked in the RC
+ * source). The first block of that type is taken; the other `blocks` (generic
+ * UI kit) are of no use and are not kept.
  */
 function blockCallId(blocks: unknown): string | null {
   if (!Array.isArray(blocks)) return null;
@@ -146,8 +146,8 @@ export function toMessage(raw: Record<string, unknown>): MessageLocal | null {
   if (id === null || rid === null || ts === null || authorId === null) return null;
 
   const systemType = asString(raw.t);
-  // `msg` d'un message chiffré contient du base64 opaque. Le stocker inviterait
-  // à l'afficher un jour par accident.
+  // The `msg` of an encrypted message holds opaque base64. Storing it would
+  // invite displaying it by accident one day.
   const encrypted = systemType === ENCRYPTED_TYPE;
 
   return {
@@ -166,37 +166,37 @@ export function toMessage(raw: Record<string, unknown>): MessageLocal | null {
     md: encrypted ? null : jsonOrNull(raw.md),
     attachments: encrypted ? null : jsonOrNull(raw.attachments),
     reactions: jsonOrNull(raw.reactions),
-    // Rien à prévisualiser pour un salon chiffré ; sinon on garde `urls` brut,
-    // parsé au rendu (`lib/linkPreview.ts`).
+    // Nothing to preview in an encrypted room; otherwise `urls` is kept raw,
+    // parsed at render time (`lib/linkPreview.ts`).
     urls: encrypted ? null : jsonOrNull(raw.urls),
     callId: systemType === CALL_TYPE ? blockCallId(raw.blocks) : null,
-    // Le `content` chiffré est conservé pour un déchiffrement différé ; le `msg`
-    // opaque, lui, ne l'est jamais (voir `texte`).
+    // The encrypted `content` is kept for deferred decryption; the opaque `msg`
+    // never is (see `text`).
     encryptedRaw: encrypted ? jsonOrNull(raw.content) : null,
     pinned: boolean(raw.pinned),
     starred: starredIds(raw.starred),
-    // `_updatedAt` est l'horloge du serveur : c'est elle qui arbitre les
-    // conflits entre le WebSocket et un rattrapage REST plus lent.
+    // `_updatedAt` is the server clock: it settles conflicts between the
+    // WebSocket and a slower REST catch-up.
     updatedAt: toEpoch(raw._updatedAt) ?? ts,
   };
 }
 
 /**
- * Le texte d'aperçu d'un `lastMessage`, pour la liste des salons.
+ * The preview text of a `lastMessage`, for the room list.
  *
- * Un message qui n'est QU'une pièce jointe a `msg: ''` (sondé sur 8.5, stream
- * comme `rooms.get`). Rendre `null` là-dessus faisait garder l'aperçu du
- * message PRÉCÉDENT : la liste annonçait un échange qui n'était plus le
- * dernier. On retombe donc sur ce que le serveur sait dire du fichier — sa
- * légende (`description`), sinon son nom (`title`).
+ * A message that is ONLY an attachment has `msg: ''` (probed on 8.5, stream
+ * and `rooms.get` alike). Returning `null` there kept the preview of the
+ * PREVIOUS message: the list showed an exchange that was no longer the last.
+ * So it falls back on what the server can say about the file: its caption
+ * (`description`), else its name (`title`).
  *
- * Un `null` qui SORT d'ici veut dire « ce message n'a rien à montrer », ce qui
- * n'est PAS la même chose que « ce salon n'a plus de dernier message » — depuis
- * que `dernier_message` n'est plus COALESCÉ, les deux effacent la ligne. C'est
- * `dernierMessageType` qui les départage : renseigné dans le premier cas, null
- * dans le second. Le cas concret est le message d'appel vidéo (`t: 'videoconf'`,
- * `msg: ''`, contenu dans `blocks`), qui faisait remonter le salon en tête de
- * liste avec un aperçu vide.
+ * A `null` coming OUT of here means "this message has nothing to show", which
+ * is NOT the same as "this room no longer has a last message": since
+ * `last_message` is no longer COALESCEd, both clear the row. `lastMessageType`
+ * tells them apart: set in the first case, null in the second. The concrete
+ * case is the video call message (`t: 'videoconf'`, `msg: ''`, content in
+ * `blocks`), which brought the room to the top of the list with an empty
+ * preview.
  */
 function lastMessagePreview(last: Record<string, unknown> | undefined): string | null {
   const text = asString(last?.msg);
@@ -212,12 +212,12 @@ function lastMessagePreview(last: Record<string, unknown> | undefined): string |
 }
 
 /**
- * @param me — nom d'utilisateur du compte courant. Un message direct n'a ni
- * `name` ni `fname` dans `rooms.get` : son nom d'affichage se dérive de
- * `usernames`, en s'excluant soi-même. Sans `moi`, le DM resterait sans nom.
- * @param myUid — uid du compte courant, pour extraire l'AUTRE participant
- * d'un DM depuis `uids` (présence, 8.4). `uids` et `usernames` ne sont PAS
- * alignés entre eux (vérifié sur 8.5) : seul le filtrage par uid est sûr.
+ * @param me username of the current account. A direct message has neither
+ * `name` nor `fname` in `rooms.get`: its display name derives from
+ * `usernames`, excluding oneself. Without `me` the DM would stay nameless.
+ * @param myUid uid of the current account, to pick the OTHER participant of
+ * a DM from `uids` (presence, 8.4). `uids` and `usernames` are NOT aligned
+ * with each other (checked on 8.5): only filtering by uid is safe.
  */
 export function toRoom(
   raw: Record<string, unknown>,
@@ -231,11 +231,11 @@ export function toRoom(
   const encrypted = boolean(raw.encrypted);
   const last = raw.lastMessage as Record<string, unknown> | undefined;
 
-  // `moi` est FIGÉ à la construction du traducteur (`session.username`) : après
-  // un renommage depuis le web, ou pour une session dont le pseudo est vide
-  // (`lib/auth.ts`), il ne figure plus dans `usernames`. S'exclure « par
-  // différence » sans le vérifier retient alors le PREMIER nom venu — le mien
-  // une fois sur deux. On ne s'exclut donc que si l'exclusion est prouvée.
+  // `me` is FROZEN when the translator is built (`session.username`): after a
+  // rename from the web, or for a session with an empty username
+  // (`lib/auth.ts`), it is no longer in `usernames`. Excluding oneself "by
+  // difference" without checking then keeps the FIRST name that comes, mine
+  // half the time. So oneself is excluded only when the exclusion is proven.
   const dmNames = Array.isArray(raw.usernames)
     ? raw.usernames.filter((u): u is string => typeof u === 'string' && u !== '')
     : [];
@@ -243,31 +243,31 @@ export function toRoom(
 
   let displayName = asString(raw.fname) ?? asString(raw.name);
   if (displayName === null && type === 'd' && Array.isArray(raw.usernames)) {
-    // Sans exclusion prouvée, on n'a rien de mieux à proposer que la liste
-    // entière — mieux vaut un nom de trop qu'un correspondant sous mon pseudo.
+    // Without a proven exclusion there is nothing better than the whole list:
+    // one name too many beats a correspondent shown under my username.
     const others = iAmIn ? dmNames.filter((u) => u !== me) : dmNames;
-    // Un DM avec soi-même a `usernames: [moi]` : `autres` est vide, on garde moi.
+    // A DM with oneself has `usernames: [me]`: `others` is empty, keep me.
     displayName = others.length > 0 ? others.join(', ') : (me ?? null);
   }
 
   let dmOtherUid: string | null = null;
   if (type === 'd' && typeof myUid === 'string' && Array.isArray(raw.uids)) {
     const uids = raw.uids.filter((u): u is string => typeof u === 'string' && u !== '');
-    // À deux seulement : un DM de groupe n'a pas UNE présence à montrer.
+    // Two people only: a group DM has no SINGLE presence to show.
     if (uids.length <= 2 && uids.includes(myUid)) {
       dmOtherUid = uids.find((u) => u !== myUid) ?? myUid;
     }
   }
 
-  // Le PSEUDO de l'autre, apparié au même endroit et par la même règle que son
-  // uid (« celui des deux qui n'est pas moi ») — surtout PAS par index, les deux
-  // tableaux ne sont pas alignés. Il ne se déduit pas de `nomAffiche`, qui peut
-  // être un nom réel (`fname`) quand le serveur en pose un.
+  // The other user's USERNAME, matched in the same place and by the same rule
+  // as their uid ("whichever of the two is not me"), and above all NOT by
+  // index: the two arrays are not aligned. It is not derived from
+  // `displayName`, which can be a real name (`fname`) when the server sets one.
   //
-  // Celui-ci part en base sous l'uid de l'autre (`UPSERT_IDENTITE`, sans garde
-  // d'horodatage) : se tromper y colle MON pseudo — et donc mon avatar — sur
-  // Bob, jusqu'à ce qu'il poste. On préfère donc ne rien dire : `UPSERT_SALON`
-  // n'écrit rien sur un `null`, et le premier message de l'autre le posera.
+  // It goes to the database under the other user's uid (`UPSERT_IDENTITY`,
+  // with no timestamp guard): a mistake pins MY username, and so my avatar, on
+  // Bob until he posts. Better to say nothing: `UPSERT_ROOM` writes nothing on
+  // a `null`, and the other user's first message will set it.
   let dmOtherUsername: string | null = null;
   if (dmOtherUid !== null && dmNames.length <= 2) {
     if (dmNames.length === 1) dmOtherUsername = dmNames[0]!;
@@ -283,24 +283,24 @@ export function toRoom(
     readOnly: boolean(raw.ro),
     dmOtherUid,
     dmOtherUsername,
-    // L'aperçu d'un salon chiffré est du ciphertext : jamais affiché. Le sien
-    // est posé localement, après déchiffrement (`MAJ_APERCU_CHIFFRE`) — d'où
-    // le `null` ici, que l'UPSERT sait ne pas prendre pour un effacement.
+    // The preview of an encrypted room is ciphertext: never displayed. Its
+    // preview is set locally after decryption (`UPDATE_ENCRYPTED_PREVIEW`),
+    // hence the `null` here, which the UPSERT knows not to take as a clear.
     //
-    // Ailleurs, `null` VEUT dire « plus de dernier message » : quand le dernier
-    // message d'un salon est supprimé, le document Room perd complètement son
-    // `lastMessage` (sondé sur 8.5, stream ET `rooms.get`). C'est la seule
-    // façon d'apprendre qu'un salon a été vidé.
+    // Elsewhere `null` DOES mean "no last message any more": when a room's last
+    // message is deleted, the Room document loses its `lastMessage` entirely
+    // (probed on 8.5, stream AND `rooms.get`). It is the only way to learn that
+    // a room was emptied.
     lastMessage: encrypted ? null : lastMessagePreview(last),
-    // Null pour un salon chiffré, comme l'aperçu : là-bas c'est la base locale
-    // qui désigne le dernier message (`MAJ_APERCU_CHIFFRE`), et elle écarte les
-    // messages système — garder le `t` du serveur ferait décrire un message par
-    // le type d'un AUTRE.
+    // Null for an encrypted room, like the preview: there the local database
+    // picks the last message (`UPDATE_ENCRYPTED_PREVIEW`) and skips system
+    // messages; keeping the server's `t` would describe one message by the
+    // type of ANOTHER.
     lastMessageType: encrypted ? null : asString(last?.t),
     lastMessageTs: toEpoch(last?.ts) ?? toEpoch(raw.lm),
-    // Absent tant que le salon n'a pas de photo, et absent des documents
-    // partiels : `null` veut dire « rien à dire », jamais « efface » (le
-    // COALESCE de `UPSERT_SALON` le garantit).
+    // Absent while the room has no photo, and absent from partial documents:
+    // `null` means "nothing to say", never "clear" (the COALESCE in
+    // `UPSERT_ROOM` guarantees it).
     avatarEtag: asString(raw.avatarETag),
     updatedAt: toEpoch(raw._updatedAt) ?? 0,
   };

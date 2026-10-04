@@ -1,19 +1,19 @@
 /**
- * Rattrapage après une coupure ou un passage en arrière-plan.
+ * Catch-up after a connection loss or a stint in the background.
  *
- * Deux étages, aux coûts très différents :
+ * Two tiers, with very different costs:
  *
- * 1. **Global** — `rooms.get?updatedSince=` + `subscriptions.get?updatedSince=`
- *    couvrent tous les salons et compteurs en DEUX requêtes, avec leurs
- *    `remove[]` pour les départs. Sans curseur (premier passage), l'appel se
- *    fait sans `updatedSince` : c'est le chargement complet.
- * 2. **Par salon** — `chat.syncMessages` traite UN salon à la fois et le REST
- *    est rate-limité : on ne l'appelle QUE pour le salon actif (l'écran
- *    ouvert). Les autres se rattrapent à leur ouverture, par l'historique.
- *    Il est appelé en mode CURSEUR, plafonné — voir `PAGE` / `PAGES_MAX`.
+ * 1. **Global**: `rooms.get?updatedSince=` + `subscriptions.get?updatedSince=`
+ *    cover every room and counter in TWO requests, with their
+ *    `remove[]` for departures. Without a cursor (first pass), the call is
+ *    made without `updatedSince`: that is the full load.
+ * 2. **Per room**: `chat.syncMessages` handles ONE room at a time and REST
+ *    is rate-limited: we call it ONLY for the active room (the open
+ *    screen). The others catch up when opened, through history.
+ *    It is called in CURSOR mode, capped: see `PAGE` / `PAGES_MAX`.
  *
- * Les curseurs sont les plus grands `_updatedAt` INGÉRÉS — jamais l'horloge
- * locale, qui peut mentir — et ne régressent jamais (garanti par le SQL).
+ * Cursors are the largest INGESTED `_updatedAt` values, never the local
+ * clock, which can lie, and never go backwards (guaranteed by the SQL).
  */
 
 import { readMyIdentity } from './myProfile.ts';
@@ -45,15 +45,15 @@ export async function catchUpGlobal(
     client.get<DeltaResponse>('subscriptions.get', {
       params: { updatedSince: fromSubscriptions === null ? undefined : iso(fromSubscriptions) },
     }),
-    // MA fiche : `me` porte `avatarETag`, seul moyen de rattraper une photo
-    // changée pendant que l'app était fermée (aucun stream n'a pu l'annoncer).
-    // En parallèle des deux deltas, donc sans allonger le rattrapage, et
-    // best-effort : mon avatar ne vaut pas d'échouer une resynchronisation.
+    // MY record: `me` carries `avatarETag`, the only way to catch up a photo
+    // changed while the app was closed (no stream could announce it).
+    // In parallel with the two deltas, so without lengthening the catch-up, and
+    // best-effort: my avatar is not worth failing a resync.
     readMyIdentity(client).catch(() => null),
   ]);
 
-  // Une réponse qui atterrit après la déconnexion n'écrit pas dans la base
-  // d'une session terminée.
+  // A response that lands after logout does not write into the database
+  // of a finished session.
   if (isDiscarded()) return;
 
   if (me !== null) await store.saveIdentity(me);
@@ -66,8 +66,8 @@ export async function catchUpGlobal(
 
   const recentSubscriptions = await engine.ingestSubscriptions(subscriptions.update ?? []);
   for (const removed of subscriptions.remove ?? []) {
-    // Projection serveur `{_id, _deletedAt}` : le `_id` de l'ABONNEMENT est la
-    // seule clé (vérifié contre le source 8.5). D'où la colonne `sub_id`.
+    // Server projection `{_id, _deletedAt}`: the SUBSCRIPTION `_id` is the
+    // only key (checked against the 8.5 source). Hence the `sub_id` column.
     if (typeof removed._id === 'string') await store.deleteBySubId(removed._id);
   }
   if (recentSubscriptions !== null) {
@@ -80,28 +80,28 @@ type SubscriptionsResponse = {
 };
 
 /**
- * Réconciliation anti-fantômes. La synchro par curseur ne repasse jamais sur
- * un salon déjà connu : un salon supprimé côté serveur dont l'événement
- * 'removed' a été raté (hors ligne, ou avant le correctif temps réel) resterait
- * en FANTÔME à vie. Ici on récupère la liste COMPLÈTE des abonnements — sans
- * `updatedSince`, donc l'état COURANT, la source de vérité de « ce que je dois
- * voir » — et on purge tout salon local absent.
+ * Anti-ghost reconciliation. Cursor sync never revisits
+ * an already known room: a room deleted server-side whose
+ * 'removed' event was missed (offline, or before the real-time fix) would stay
+ * a GHOST forever. Here we fetch the FULL list of subscriptions, without
+ * `updatedSince`, so the CURRENT state, the source of truth for "what I should
+ * see", and purge every absent local room.
  *
- * `subscriptions.get` renvoie l'ensemble en une réponse (pas de pagination :
- * c'est la même donnée que la charge d'abonnements du login). Garde-fou : une
- * réponse VIDE ne purge rien — un compte actif a toujours des abonnements, une
- * liste vide trahit une réponse anormale (proxy, erreur muette), pas « plus
- * aucun salon ».
+ * `subscriptions.get` returns the whole set in one response (no pagination:
+ * it is the same data as the login's subscription load). Guard: an
+ * EMPTY response purges nothing. An active account always has subscriptions; an
+ * empty list betrays an abnormal response (proxy, silent error), not "no
+ * rooms any more".
  *
- * L'INSTANTANÉ des rids connus se relève AVANT la requête, et c'est tout le
- * correctif : pendant les ~200 ms de l'aller-retour, le stream DDP continue
- * d'écrire. Un DM ouvert par un collègue à cet instant n'est pas dans la
- * réponse du serveur — elle a été calculée avant qu'il existe — et purger sur
- * la seule liste vivante effaçait ses trois lignes. Le salon ne revenait qu'au
- * prochain rattrapage global, et la notification push renvoyait entre-temps
- * sur un salon absent. Borner la purge à ce qui était connu AVANT l'appel
- * l'épargne : il n'y figure pas non plus. C'est l'ordre des deux lectures qui
- * porte la justesse — aucun délai, aucune hypothèse sur la latence.
+ * The SNAPSHOT of known rids is taken BEFORE the request, and that is the whole
+ * fix: during the ~200 ms round trip, the DDP stream keeps
+ * writing. A DM opened by a colleague at that moment is not in the
+ * server's response (it was computed before the DM existed), and purging on
+ * the live list alone deleted its three rows. The room only came back at the
+ * next global catch-up, and the push notification meanwhile led
+ * to a missing room. Bounding the purge to what was known BEFORE the call
+ * spares it: it is not in there either. The order of the two reads is what
+ * makes it correct: no delay, no assumption about latency.
  */
 export async function reconcileRooms(
   client: ClientRest,
@@ -124,82 +124,82 @@ export async function reconcileRooms(
 type SyncResult = {
   updated?: Record<string, unknown>[];
   deleted?: { _id?: string; _deletedAt?: unknown }[];
-  /** Présent SEULEMENT en mode curseur — c'est notre test de support. */
+  /** Present ONLY in cursor mode: it is our support test. */
   cursor?: { next?: string | null; previous?: string | null } | null;
 };
 
 type SyncMessagesResponse = { result?: SyncResult };
 
 /**
- * Pourquoi la pagination par curseur, et pas une fenêtre de temps.
+ * Why cursor pagination, and not a time window.
  *
- * `chat.syncMessages?lastUpdate=` n'a AUCUNE borne : `count` y est ignoré, le
- * serveur renvoie tout ce qui a changé depuis la date. Mesuré contre un canal
- * de 3 000 messages : **1,85 Mo et 3 000 documents** en une réponse.
+ * `chat.syncMessages?lastUpdate=` has NO bound: `count` is ignored there, the
+ * server returns everything that changed since the date. Measured against a channel
+ * of 3,000 messages: **1.85 MB and 3,000 documents** in one response.
  *
- * Et aucune borne TEMPORELLE côté client n'y peut rien, parce que le serveur
- * réécrit `_updatedAt` en masse : `BaseRaw.updateMany()` l'estampille
- * automatiquement, et un simple changement de PSEUDO déclenche
- * `Messages.updateAllUsernamesByUserId` — un `updateMany` sur `{'u._id': uid}`,
- * donc TOUS les messages de cette personne, TOUS salons confondus, datés de
- * « maintenant ». Une fenêtre de 24 h les contient tous. C'est l'origine du
- * « chargement trop long » de `#general` après une édition de profil.
+ * And no client-side TIME bound can help, because the server
+ * rewrites `_updatedAt` in bulk: `BaseRaw.updateMany()` stamps it
+ * automatically, and a mere USERNAME change triggers
+ * `Messages.updateAllUsernamesByUserId`, an `updateMany` on `{'u._id': uid}`,
+ * so ALL of that person's messages, across ALL rooms, dated
+ * "now". A 24 h window contains them all. That is the origin of the
+ * "loading too long" of `#general` after a profile edit.
  *
- * Depuis la 7.5, la route accepte `type` + `next`/`previous` + `count` et rend
- * un curseur keyset. Mesuré sur 8.5 (même canal de 3 000 messages) :
+ * Since 7.5, the route accepts `type` + `next`/`previous` + `count` and returns
+ * a keyset cursor. Measured on 8.5 (same 3,000-message channel):
  *
- * | requête                             | octets    | documents |
+ * | request                             | bytes     | documents |
  * |-------------------------------------|-----------|-----------|
- * | `lastUpdate=<vieux>`                | 1 848 832 |      3000 |
- * | `lastUpdate=<vieux>&count=50`       | 1 848 832 |      3000 |
+ * | `lastUpdate=<old>`                  | 1 848 832 |      3000 |
+ * | `lastUpdate=<old>&count=50`         | 1 848 832 |      3000 |
  * | `type=UPDATED&next=<ms>&count=50`   |    30 743 |        50 |
  *
- * La pagination est monotone, et exhaustive tant qu'un groupe d'ex æquo tient
- * dans une page : mesuré 60 pages, 3 000/3 000, aucun message sauté malgré 510
- * groupes d'`_updatedAt` identiques (jusqu'à 11 messages sur la même
- * milliseconde). On peut donc PLAFONNER un passage et reprendre au suivant : le
- * curseur du serveur reprend exactement où on s'est arrêté.
+ * Pagination is monotonic, and exhaustive as long as a group of ties fits
+ * in a page: measured 60 pages, 3,000/3,000, no message skipped despite 510
+ * groups of identical `_updatedAt` (up to 11 messages on the same
+ * millisecond). So we can CAP a pass and resume at the next one: the
+ * server cursor resumes exactly where we stopped.
  *
- * **La limite, structurelle :** le serveur avance en `$gt` STRICT sur
- * `_updatedAt`. Un groupe d'ex æquo plus grand qu'une page est donc tronqué, et
- * son reste sauté définitivement — `$gte` n'est pas offert, aucune stratégie
- * client ne le rattrape. C'est exactement le cas d'un `updateMany`, qui
- * estampille tout d'une SEULE milliseconde : mesuré sur le renommage du compte
- * auteur de ces 3 000 messages, l'ouverture suivante coûte **une page de 31 Ko**
- * là où `lastUpdate` en redemandait 594 Ko et montait vers 1,85 Mo.
+ * **The limit, structural:** the server advances with a STRICT `$gt` on
+ * `_updatedAt`. A group of ties larger than a page is therefore truncated, and
+ * its remainder skipped for good: `$gte` is not offered, no client
+ * strategy can catch it up. That is exactly the case of an `updateMany`, which
+ * stamps everything with ONE millisecond: measured on renaming the account
+ * that authored those 3,000 messages, the next opening costs **one 31 KB page**
+ * where `lastUpdate` asked again for 594 KB and climbed towards 1.85 MB.
  *
- * Et ce qui est sauté ne s'affiche pas : le delta d'un renommage est
- * `u.username`, or l'app résout le pseudo par UID depuis la table
- * `utilisateurs` (`ui/identities.tsx`, `ui/messageRow.tsx`) —
- * `messages.auteur_nom` n'est qu'un repli figé. Le nouveau pseudo s'affiche donc
- * sur TOUS les messages, rattrapés ou non. Seule exception, cosmétique : le
- * serveur réécrit aussi le TEXTE des messages qui MENTIONNENT l'ancien pseudo
- * (`updateUsernameAndMessageOfMentionByIdAndOldUsername`) ; au-delà d'une page,
- * ces mentions restent affichées sous l'ancien nom jusqu'à ce que l'ouverture ou
- * la pagination recharge ces messages.
+ * And what is skipped is not displayed: the delta of a rename is
+ * `u.username`, but the app resolves the username by UID from the
+ * `users` table (`ui/identities.tsx`, `ui/messageRow.tsx`);
+ * `messages.authorName` is only a frozen fallback. The new username is therefore shown
+ * on ALL messages, caught up or not. Only exception, cosmetic: the
+ * server also rewrites the TEXT of messages that MENTION the old username
+ * (`updateUsernameAndMessageOfMentionByIdAndOldUsername`); beyond one page,
+ * those mentions stay displayed under the old name until opening or
+ * pagination reloads those messages.
  */
 const PAGE = 50;
 
 /**
- * Pages au plus par passage et par sens (mises à jour / suppressions). Deux
- * pages = 100 messages, la borne demandée. Ce qui dépasse est repris au
- * passage suivant, curseur en main.
+ * Max pages per pass and per direction (updates / deletions). Two
+ * pages = 100 messages, the requested bound. What exceeds it is picked up at the
+ * next pass, cursor in hand.
  */
 const PAGES_MAX = 2;
 
-/** Curseur des suppressions : timeline `_deletedAt`, distincte d'`_updatedAt`. */
+/** Deletions cursor: the `_deletedAt` timeline, distinct from `_updatedAt`. */
 const DELETED_STREAM = 'messages-supprimes';
 
 /**
- * Fenêtre du REPLI temporel, pour un serveur antérieur au mode curseur (< 7.5).
- * Voir `rattraperParDate` : c'est le moins mauvais qu'on puisse faire quand le
- * serveur refuse de borner lui-même.
+ * Window of the time-based FALLBACK, for a server older than cursor mode (< 7.5).
+ * See `catchUpByDate`: it is the least bad we can do when the
+ * server refuses to bound itself.
  */
 const MAX_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Une page en mode curseur. Rend `null` quand le serveur ne connaît pas ce mode
- * — soit il refuse les paramètres (400), soit il répond sans `cursor`.
+ * One page in cursor mode. Returns `null` when the server does not know this mode:
+ * either it rejects the parameters (400), or it answers without `cursor`.
  */
 async function cursorPage(
   client: ClientRest,
@@ -210,16 +210,16 @@ async function cursorPage(
   let response: SyncMessagesResponse;
   try {
     response = await client.get<SyncMessagesResponse>('chat.syncMessages', {
-      // `lastUpdate` est EXCLU délibérément : présent, il GAGNE sur `type`/`next`
-      // et la réponse retombe en mode non borné (vérifié sur 8.5). Le curseur est
-      // un epoch ms en clair, donc forgeable depuis celui qu'on a déjà — aucun
-      // appel d'amorçage nécessaire.
+      // `lastUpdate` is deliberately EXCLUDED: when present, it WINS over `type`/`next`
+      // and the response falls back to unbounded mode (checked on 8.5). The cursor is
+      // a plain epoch ms, so it can be forged from the one we already have: no
+      // bootstrap call needed.
       params: { roomId: rid, type, next: String(next), count: PAGE },
     });
   } catch (e) {
-    // SEUL un 400 signe des paramètres que le serveur ne comprend pas. Un
-    // timeout, un 429 ou une coupure doivent remonter : basculer en mode non
-    // borné sur un réseau qui flanche serait exactement le contraire du but.
+    // ONLY a 400 signals parameters the server does not understand. A
+    // timeout, a 429 or a disconnection must propagate: switching to unbounded
+    // mode on a faltering network would be exactly the opposite of the goal.
     if (e instanceof RestError && e.status === 400) return null;
     throw e;
   }
@@ -235,14 +235,14 @@ async function cursorPage(
 }
 
 /**
- * La boucle de pagination, commune aux deux timelines (`UPDATED` / `DELETED`).
- * Elle a coûté un correctif écrit DEUX fois (ffe1f7c, même hunk dans les deux
- * copies) : elle n'existe plus qu'ici. `appliquer` ingère une page et rend le
- * plus grand horodatage traité — ce qui fait avancer le curseur quand le
- * serveur n'a plus de `next` à offrir.
+ * The pagination loop, shared by both timelines (`UPDATED` / `DELETED`).
+ * It cost a fix written TWICE (ffe1f7c, same hunk in both
+ * copies): it now exists only here. `apply` ingests a page and returns the
+ * largest timestamp processed, which moves the cursor forward when the
+ * server has no more `next` to offer.
  *
- * Rend `false` si le serveur refuse le mode curseur dès la PREMIÈRE page
- * (mode inconnu, l'appelant se replie) ; `true` sinon.
+ * Returns `false` if the server rejects cursor mode on the FIRST page
+ * (unknown mode, the caller falls back); `true` otherwise.
  */
 async function paginateCursor(
   client: ClientRest,
@@ -257,34 +257,34 @@ async function paginateCursor(
   let cursor = since;
   for (let page = 0; page < PAGES_MAX; page++) {
     const response = await cursorPage(client, rid, type, cursor);
-    // Refus dès la PREMIÈRE page = serveur sans mode curseur → repli. Plus loin,
-    // le mode est déjà prouvé : on garde ce qui a été ingéré, sans se replier.
+    // Rejected on the FIRST page = server without cursor mode → fallback. Further on,
+    // the mode is already proven: we keep what was ingested, without falling back.
     if (response === null) return page !== 0;
-    // Une réponse qui atterrit après la déconnexion n'écrit pas dans la base
-    // d'une session terminée.
+    // A response that lands after logout does not write into the database
+    // of a finished session.
     if (isDiscarded()) return true;
 
     const recent = await apply(response.result);
 
-    // On avance sur le curseur du SERVEUR, pas sur le plus grand horodatage
-    // ingéré : lui seul reprend la pagination exactement où elle s'est arrêtée,
-    // groupes d'ex æquo compris. `ecrireCurseur` interdit déjà toute régression.
+    // We advance on the SERVER cursor, not on the largest ingested
+    // timestamp: only it resumes pagination exactly where it stopped,
+    // groups of ties included. `writeCursor` already forbids any regression.
     const next = response.next;
     if (next === null || next <= cursor) {
-      // DERNIÈRE page — et c'est le cas NOMINAL, pas un cas limite : mesuré sur
-      // 8.5, le serveur rend `cursor.next = null` dès qu'il ne reste rien après,
-      // page PLEINE comprise (50 documents rendus, `next` nul). Un rattrapage
-      // qui tient en une page n'a donc jamais de curseur serveur à recopier.
+      // LAST page, and it is the NOMINAL case, not an edge case: measured on
+      // 8.5, the server returns `cursor.next = null` as soon as nothing is left after,
+      // FULL page included (50 documents returned, `next` null). A catch-up
+      // that fits in one page therefore never has a server cursor to copy.
       //
-      // Sortir sans rien écrire, comme on le faisait, figeait le curseur À VIE :
-      // chaque ouverture du salon redemandait la même tranche, la ré-ingérait, et
-      // la tranche GROSSISSAIT à chaque message posté depuis. D'où la comète qui
-      // tournait plusieurs secondes à chaque entrée dans un salon, même en
-      // sortant et rentrant aussitôt.
+      // Leaving without writing anything, as we used to, froze the cursor FOREVER:
+      // each opening of the room asked again for the same slice, re-ingested it, and
+      // the slice GREW with every message posted since. Hence the comet that
+      // spun for several seconds on each entry into a room, even when
+      // leaving and coming back right away.
       //
-      // On avance donc sur le plus grand horodatage INGÉRÉ. Sûr ici, et
-      // seulement ici : le serveur vient d'affirmer qu'il n'y a plus rien
-      // au-delà, donc aucun ex æquo ne peut rester en attente derrière ce point.
+      // So we advance on the largest INGESTED timestamp. Safe here, and
+      // only here: the server just stated there is nothing left
+      // beyond, so no tie can remain pending behind this point.
       if (recent !== null && recent > cursor) {
         await store.writeCursor(rid, stream, recent);
       }
@@ -293,14 +293,14 @@ async function paginateCursor(
     cursor = next;
     await store.writeCursor(rid, stream, cursor);
   }
-  // Jamais en silence : une troncature muette se lirait comme « tout est à jour ».
+  // Never silently: a silent truncation would read as "everything is up to date".
   console.warn(
-    `rattraperSalon(${rid}): plafond de ${PAGES_MAX} pages atteint (${type}), reprise au prochain passage`,
+    `catchUpRoom(${rid}): cap of ${PAGES_MAX} pages reached (${type}), resuming at the next pass`,
   );
   return true;
 }
 
-/** Rend `false` si le serveur ne sait pas paginer — l'appelant se replie. */
+/** Returns `false` if the server cannot paginate: the caller falls back. */
 function catchUpUpdated(
   client: ClientRest,
   engine: SyncEngine,
@@ -330,9 +330,9 @@ async function catchUpDeleted(
   const store = engine.syncStore;
   const since = await store.readCursor(rid, DELETED_STREAM);
   if (since === null) {
-    // Premier passage : on ne rapatrie pas l'historique des suppressions depuis
-    // l'origine. L'ouverture a chargé l'état COURANT des 50 derniers ; on cale
-    // donc la timeline des suppressions sur ce qu'on connaît déjà du salon.
+    // First pass: we do not fetch the deletion history since
+    // the origin. The opening loaded the CURRENT state of the last 50; so we align
+    // the deletions timeline on what we already know of the room.
     await store.writeCursor(rid, DELETED_STREAM, messagesCursor);
     return;
   }
@@ -345,10 +345,10 @@ async function catchUpDeleted(
     since,
     isDiscarded,
     async (result) => {
-      // Le plus grand `_deletedAt` de la page — l'équivalent, sur cette
-      // timeline, du `_updatedAt` que rend `ingererMessages` : c'est lui qui
-      // clôt la dernière page, sans quoi les MÊMES suppressions se
-      // re-joueraient à chaque ouverture, à vie.
+      // The largest `_deletedAt` of the page: the equivalent, on this
+      // timeline, of the `_updatedAt` returned by `ingestMessages`: it is what
+      // closes the last page, otherwise the SAME deletions would
+      // be replayed at each opening, forever.
       let recent: number | null = null;
       for (const erased of result.deleted ?? []) {
         if (typeof erased._id === 'string') await store.deleteMessage(erased._id);
@@ -362,17 +362,17 @@ async function catchUpDeleted(
 }
 
 /**
- * REPLI pour un serveur sans mode curseur (< 7.5) : l'appel non borné, la
- * fenêtre rabotée à 24 h, et le ré-ancrage sur échec.
+ * FALLBACK for a server without cursor mode (< 7.5): the unbounded call, the
+ * window trimmed to 24 h, and re-anchoring on failure.
  *
- * Le ré-ancrage existe parce que la requête non bornée TIMEOUTE sur un gros
- * backlog : le curseur ne s'avançant qu'APRÈS ingestion, il resterait coincé et
- * la requête re-échouerait à chaque raccordement — barre de synchro « à
- * l'infini ». On le ré-ancre donc sur le message local le plus récent (jamais à
- * rebours) : la prochaine tentative ne vise plus qu'une petite fenêtre. Ré-ancrer
- * sur ce qu'on A DÉJÀ ne saute aucun message jamais vu ; on y perd les
- * éditions/suppressions ANCIENNES de l'intervalle, que l'ouverture et la
- * pagination re-téléchargent à jour.
+ * Re-anchoring exists because the unbounded request TIMES OUT on a big
+ * backlog: since the cursor only advances AFTER ingestion, it would stay stuck and
+ * the request would fail again at every connection setup: a sync bar "forever".
+ * So we re-anchor it on the most recent local message (never
+ * backwards): the next attempt only targets a small window. Re-anchoring
+ * on what we ALREADY HAVE skips no never-seen message; we lose the
+ * OLD edits/deletions of the interval, which opening and
+ * pagination download again up to date.
  */
 async function catchUpByDate(
   client: ClientRest,
@@ -383,7 +383,7 @@ async function catchUpByDate(
   now: () => number,
 ): Promise<void> {
   const store = engine.syncStore;
-  // Jamais à rebours du curseur : on ne redemande pas ce qu'on a déjà ingéré.
+  // Never backwards from the cursor: we do not ask again for what we already ingested.
   const bound = Math.max(since, now() - MAX_WINDOW_MS);
 
   let response: SyncMessagesResponse;
@@ -408,14 +408,14 @@ async function catchUpByDate(
 }
 
 /**
- * Rattrape UN salon. Sans curseur (jamais ouvert, ou premier passage),
- * ne fait rien : l'historique d'ouverture de l'écran couvre ce cas, et
- * repartir de l'origine re-téléchargerait tout.
+ * Catches up ONE room. Without a cursor (never opened, or first pass),
+ * does nothing: the screen's opening history covers that case, and
+ * starting from the origin would download everything again.
  *
- * `maintenant` ne sert qu'au repli temporel (serveur < 7.5).
+ * `now` is only used by the time-based fallback (server < 7.5).
  *
- * Passer par `rattraperSalon` — jamais d'appel direct : c'est le sérialiseur
- * ci-dessous qui garantit qu'une seule pagination court à la fois par salon.
+ * Go through `catchUpRoom`, never a direct call: the serializer
+ * below is what guarantees a single pagination runs at a time per room.
  */
 async function catchUpRawRoom(
   client: ClientRest,
@@ -427,12 +427,12 @@ async function catchUpRawRoom(
   const since = await engine.syncStore.readCursor(rid, 'messages');
   if (since === null) return;
 
-  // En SÉRIE, délibérément. Les deux flux sont indépendants et les paralléliser
-  // gagnerait ~0,6 s sur la première ouverture d'un gros salon — mais rendrait
-  // l'ordre des requêtes non déterministe, ce que les tests d'ici lisent pour
-  // vérifier la pagination. Depuis que la réouverture d'un salon resté écouté ne
-  // rattrape plus du tout (`ui/hotRooms.ts`), ce chemin ne sert qu'à la
-  // PREMIÈRE ouverture, où l'historique se charge de toute façon en parallèle.
+  // In SERIES, deliberately. The two streams are independent and parallelizing them
+  // would save ~0.6 s on the first opening of a big room, but would make
+  // the request order non-deterministic, which the tests here read to
+  // check pagination. Since reopening a room still being listened to no longer
+  // catches up at all (`ui/hotRooms.ts`), this path only serves the
+  // FIRST opening, where history loads in parallel anyway.
   if (!(await catchUpUpdated(client, engine, rid, since, isDiscarded))) {
     await catchUpByDate(client, engine, rid, since, isDiscarded, now);
     return;
@@ -442,59 +442,59 @@ async function catchUpRawRoom(
 }
 
 /**
- * Une passe de rattrapage sur un salon : celle qui court, ou celle déjà
- * programmée derrière elle.
+ * A catch-up pass on a room: the running one, or the one already
+ * scheduled behind it.
  */
 type Pass = {
   /**
-   * La session propriétaire. Une passe d'un client rangé (déconnexion,
-   * changement de serveur) ne se rejoint pas : elle écrit avec un jeton mort.
+   * The owning session. A pass of a put-away client (logout,
+   * server switch) is not joined: it writes with a dead token.
    */
   client: ClientRest;
   /**
-   * Les `estAbandonne` de TOUS les demandeurs de cette passe. Elle n'abandonne
-   * que si CHACUN a lâché — le premier arrivé peut disparaître (effet rejoué,
-   * écran démonté) pendant qu'un autre attend toujours cette lecture.
+   * The `isDiscarded` of ALL the requesters of this pass. It only gives up
+   * if EACH one has let go: the first one may disappear (replayed effect,
+   * unmounted screen) while another is still waiting for this read.
    */
   aborts: (() => boolean)[];
-  /** Faux tant que la passe attend celle qui la précède. */
+  /** False while the pass waits for the one before it. */
   started: boolean;
   end: Promise<void>;
 };
 
-/** Une entrée par salon : la passe la plus récemment PROGRAMMÉE. */
+/** One entry per room: the most recently SCHEDULED pass. */
 const passes = new Map<string, Pass>();
 
 /**
- * Rattrape UN salon, une pagination à la fois.
+ * Catches up ONE room, one pagination at a time.
  *
- * Deux chemins mènent ici à chaque raccordement, et ils se marchaient dessus :
- * `ui/sync.tsx` (le salon déclaré actif) et `app/salon/[rid].tsx` (son effet
- * d'ouverture, réveillé par le bump de `generation` que ce même raccordement
- * vient de poser). Deux paginations partaient donc sur le MÊME curseur, pour
- * redemander la même tranche — jusqu'à 8 `chat.syncMessages` là où 4 suffisent,
- * sur une route plafonnée à 10 appels/min. Rien ne se corrompait (le curseur ne
- * régresse pas, les upserts sont idempotents) : tout était fait en double.
+ * Two paths lead here at each connection setup, and they trampled each other:
+ * `ui/sync.tsx` (the room declared active) and `app/salon/[rid].tsx` (its opening
+ * effect, woken by the `generation` bump that this same connection setup
+ * just made). Two paginations therefore started from the SAME cursor, to
+ * ask again for the same slice: up to 8 `chat.syncMessages` where 4 suffice,
+ * on a route capped at 10 calls/min. Nothing got corrupted (the cursor does not
+ * regress, upserts are idempotent): everything was done twice.
  *
- * La règle appliquée ici tient en deux phrases, et elle arbitre deux exigences
- * contraires :
+ * The rule applied here fits in two sentences, and it arbitrates two opposite
+ * requirements:
  *
- * 1. **Jamais deux paginations concurrentes** sur un même salon. Une demande
- *    arrivée avant que la passe en cours n'ait lu son curseur se FOND dedans :
- *    cette passe couvrira tout ce qu'elle voulait voir.
- * 2. **Jamais une demande avalée.** Une demande arrivée APRÈS le départ de la
- *    passe obtient la sienne, chaînée derrière. C'est ce qui rend sa promesse à
- *    `lib/connectionSetup.ts` : la seconde lecture d'un raccordement, celle qui
- *    part une fois les souscriptions ARMÉES, est justement celle qui garantit
- *    qu'aucun document n'est tombé entre les deux transports. La refuser sous
- *    prétexte qu'une pagination court déjà — le cas NOMINAL, puisque la
- *    première lecture part sans attendre la socket — laissait un trou que plus
- *    rien ne redemandait, le curseur ayant avancé.
+ * 1. **Never two concurrent paginations** on the same room. A request
+ *    arriving before the running pass has read its cursor MERGES into it:
+ *    that pass will cover everything it wanted to see.
+ * 2. **Never a swallowed request.** A request arriving AFTER the pass
+ *    started gets its own, chained behind. That is what keeps its promise to
+ *    `lib/connectionSetup.ts`: the second read of a connection setup, the one that
+ *    starts once the subscriptions are ARMED, is precisely the one guaranteeing
+ *    that no document fell between the two transports. Refusing it on the
+ *    grounds that a pagination is already running (the NOMINAL case, since the
+ *    first read starts without waiting for the socket) left a gap that nothing
+ *    asked for again, the cursor having advanced.
  *
- * Une passe chaînée ne coûte pas une seconde pagination : elle part du curseur
- * que la précédente vient d'avancer, donc d'une réponse quasi vide (~92 octets
- * mesurés). C'est un booléen d'ordonnancement, jamais un délai : la justesse ne
- * dépend ni de la latence ni de l'état du réseau.
+ * A chained pass does not cost a second pagination: it starts from the cursor
+ * the previous one just advanced, so from a nearly empty response (~92 bytes
+ * measured). It is a scheduling boolean, never a delay: correctness depends
+ * neither on latency nor on the network state.
  */
 export function catchUpRoom(
   client: ClientRest,
@@ -505,12 +505,12 @@ export function catchUpRoom(
 ): Promise<void> {
   const scheduled = passes.get(rid);
   const sameSession = scheduled !== undefined && scheduled.client === client;
-  // (1) Elle n'a pas encore lu son curseur : ce demandeur-ci se fond dedans.
+  // (1) It has not read its cursor yet: this requester merges into it.
   if (sameSession && !scheduled.started) {
     scheduled.aborts.push(isDiscarded);
     return scheduled.end;
   }
-  // (2) Sinon une passe neuve — derrière celle qui court, jamais à côté.
+  // (2) Otherwise a fresh pass, behind the running one, never beside it.
   const previous = sameSession ? scheduled.end : null;
   const pass: Pass = {
     client,
@@ -519,8 +519,8 @@ export function catchUpRoom(
     end: Promise.resolve(),
   };
   pass.end = (async () => {
-    // L'échec de la précédente n'annule pas la demande de celle-ci : ses
-    // demandeurs attendent une lecture, pas le sort de la lecture d'autrui.
+    // The failure of the previous one does not cancel this one's request: its
+    // requesters are waiting for a read, not for the fate of someone else's read.
     if (previous !== null) await previous.catch(() => {});
     pass.started = true;
     await catchUpRawRoom(
@@ -531,9 +531,9 @@ export function catchUpRoom(
       now,
     );
   })().finally(() => {
-    // Seulement si personne n'a pris la place derrière : sinon on effacerait
-    // l'entrée d'une passe encore à venir, qui deviendrait invisible aux
-    // demandes suivantes — et deux paginations repartiraient de front.
+    // Only if nobody took the place behind: otherwise we would delete
+    // the entry of a pass still to come, which would become invisible to
+    // later requests, and two paginations would start side by side.
     if (passes.get(rid) === pass) passes.delete(rid);
   });
   passes.set(rid, pass);

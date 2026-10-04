@@ -1,13 +1,13 @@
 /**
- * Contrat d'un fournisseur de chat. Rocket.Chat en est la seule
- * implémentation ; kChat (Mattermost) est la seconde visée. Tout ce qui, dans
- * l'app, nomme un endpoint `/api/v1/*` ou un stream `stream-*` doit à terme
- * passer par ici — le reste (`db/`, `Depot`, rendu, `Reconnecteur`) est déjà neutre.
+ * Contract of a chat provider. Rocket.Chat is its only implementation; kChat
+ * (Mattermost) is the second target. Everything in the app that names a
+ * `/api/v1/*` endpoint or a `stream-*` stream must eventually go through here;
+ * the rest (`db/`, `Store`, rendering, `Reconnector`) is already neutral.
  *
- * Choix porteur : le cœur de synchro ne parle pas le format wire d'un serveur.
- * Chaque fournisseur TRADUIT son flux temps réel brut en `ChangementSync`
- * neutre ; `MoteurSynchro` applique bêtement. Ainsi les données Mattermost ne
- * sont jamais coulées dans la forme Rocket.Chat.
+ * Load-bearing choice: the sync core does not speak a server's wire format.
+ * Each provider TRANSLATES its raw real-time feed into a neutral `SyncChange`;
+ * `SyncEngine` applies it blindly. So Mattermost data is never poured into the
+ * Rocket.Chat shape.
  */
 
 import type { DdpEvent, DdpState } from './ddp.ts';
@@ -18,10 +18,10 @@ import type { SyncEngine } from './sync.ts';
 import type { FileToSend, TransportUpload } from './upload.ts';
 
 /**
- * Un changement de synchro déjà normalisé, prêt à écrire dans le `Depot`. Le
- * traducteur d'un fournisseur en émet ; `MoteurSynchro.appliquer` les route
- * vers les upserts/suppressions. Les cas de suppression reprennent les trois
- * formes que le serveur RC distingue (message, salon, ou juste un `subId`).
+ * An already normalised sync change, ready to write into the `Store`. A
+ * provider's translator emits them; `SyncEngine.apply` routes them to the
+ * upserts/deletes. The delete cases follow the three shapes the RC server
+ * distinguishes (message, room, or just a `subId`).
  */
 export type SyncChange =
   | { type: 'message'; doc: MessageLocal }
@@ -31,27 +31,27 @@ export type SyncChange =
   | { type: 'room-deleted'; rid: string }
   | { type: 'subscription-deleted-by-sub'; subId: string }
   /**
-   * Nouvelle version de la photo d'un utilisateur (par pseudo) OU d'un salon
-   * (par rid) — l'une des deux clés, jamais les deux. `etag` est le
-   * cache-buster de l'URL d'avatar ; il vaut `AVATAR_SANS_PHOTO` quand la
-   * photo a été RETIRÉE, ce qui doit changer l'URI tout autant qu'un ajout.
+   * New version of the photo of a user (by username) OR of a room (by rid):
+   * one of the two keys, never both. `etag` is the avatar URL cache-buster; it
+   * is `AVATAR_NO_PHOTO` when the photo was REMOVED, which must change the URI
+   * just as much as an addition.
    */
   | { type: 'avatar'; username: string | null; rid: string | null; etag: string };
 
 /**
- * Le type de serveur d'une session. Persisté avec elle : il décide quel driver
- * instancier au démarrage. Un seul membre aujourd'hui ; `mattermost` s'ajoute
- * avec son driver (kChat).
+ * A session's server type. Persisted with it: it decides which driver to
+ * instantiate at startup. A single member today; `mattermost` comes with its
+ * driver (kChat).
  */
 export type ProviderKind = 'rocketchat';
 
 const KINDS: readonly ProviderKind[] = ['rocketchat'];
 
 /**
- * Ramène une valeur stockée à un `Genre` connu. Les sessions d'avant l'ajout du
- * champ n'en ont pas : elles retombent sur `rocketchat` (le seul serveur
- * possible à l'époque). Migration sans écriture — la valeur se corrige à la
- * lecture. Défaut `rocketchat` pour toute valeur inconnue.
+ * Brings a stored value back to a known `ProviderKind`. Sessions from before
+ * the field was added have none: they fall back on `rocketchat` (the only
+ * possible server at the time). Migration without a write: the value is fixed
+ * on read. Defaults to `rocketchat` for any unknown value.
  */
 export function normalizeProviderKind(value: unknown): ProviderKind {
   return typeof value === 'string' && (KINDS as readonly string[]).includes(value)
@@ -60,10 +60,10 @@ export function normalizeProviderKind(value: unknown): ProviderKind {
 }
 
 /**
- * Ce que chaque fournisseur sait faire. Les écrans lisent ces drapeaux pour
- * masquer ce qui n'existe pas plutôt que de raboter au plus petit dénominateur ;
- * une action non supportée jette. `modeleFil` : Rocket.Chat imbrique par `tmid`,
- * Mattermost aplatit par `root_id` — les deux se ramènent à « id du post parent ».
+ * What each provider can do. Screens read these flags to hide what does not
+ * exist rather than trimming down to the lowest common denominator; an
+ * unsupported action throws. `threadTemplate`: Rocket.Chat nests by `tmid`,
+ * Mattermost flattens by `root_id`; both reduce to "id of the parent post".
  */
 export type Capabilities = {
   typing: boolean;
@@ -77,38 +77,38 @@ export type Capabilities = {
 };
 
 /**
- * L'écoute temps réel. Exactement la surface publique de `ClientDdp` (le pilote
- * `Reconnecteur` et `ui/sync.tsx` en dépendent) : `ClientDdp` s'y conforme
- * sans emballage. Un driver Mattermost implémenterait la même interface au-dessus
- * d'un WebSocket JSON, en émettant des `Evenement` (enveloppe neutre
- * `{collection, cleEvenement, args}`) que son `Traducteur` sait décoder.
+ * Real-time listening. Exactly the public surface of `ClientDdp` (the
+ * `Reconnector` driver and `ui/sync.tsx` depend on it): `ClientDdp` conforms
+ * without wrapping. A Mattermost driver would implement the same interface on
+ * top of a JSON WebSocket, emitting `DdpEvent`s (neutral envelope
+ * `{collection, eventKey, args}`) that its `Translator` can decode.
  */
 export interface Listener {
-  /** Champ public, pas un getter — comme `ClientDdp.etat`. */
+  /** Public field, not a getter, like `ClientDdp.state`. */
   readonly state: DdpState;
   connect(authToken: string): Promise<void>;
-  /** Enregistre une souscription désirée ; rend la fonction de relâche. Rejouée à chaque (re)connexion. */
+  /** Registers a desired subscription; returns the release function. Replayed on every (re)connection. */
   subscribe(name: string, eventKey: string): () => void;
-  /** Rend la fonction de désabonnement. */
+  /** Returns the unsubscribe function. */
   onEvent(listener: (event: DdpEvent) => void): () => void;
   onLoss(listener: () => void): () => void;
   close(): void;
   checkAlive(): Promise<boolean>;
   /**
-   * Résolue quand le serveur a armé les souscriptions désirées — le signal
-   * exact du moment où le stream commence à couvrir. Le raccordement s'en sert
-   * pour ordonner sa lecture REST sans jamais parier sur un délai.
+   * Resolved when the server has armed the desired subscriptions: the exact
+   * signal of when the stream starts covering. Connection setup uses it to
+   * order its REST read without ever betting on a delay.
    */
   armedSubscriptions(): Promise<void>;
   reset(): void;
 }
 
 /**
- * Résultat de la traduction d'un `Evenement` brut. Reproduit exactement les
- * trois issues du switch RC historique : un changement à écrire, une anomalie
- * (stream inattendu — à COMPTER pour le débogage), ou un silence attendu
- * (`user-activity` de saisie, traité ailleurs — à NE PAS compter, sinon les
- * battements de frappe noient le compteur d'anomalies).
+ * Result of translating a raw `DdpEvent`. Reproduces exactly the three
+ * outcomes of the historical RC switch: a change to write, an anomaly
+ * (unexpected stream, to COUNT for debugging), or an expected silence
+ * (typing `user-activity`, handled elsewhere, NOT to count, or the keystroke
+ * beats drown the anomaly counter).
  */
 export type Translation =
   | { kind: 'change'; change: SyncChange }
@@ -116,52 +116,51 @@ export type Translation =
   | { kind: 'silence' };
 
 /**
- * La part spécifique au serveur de la synchro : décoder ses `Evenement` bruts et
- * ses documents REST en formes neutres. `MoteurSynchro` ne dépend que de cette
- * interface — il ne connaît plus aucun nom de stream ni aucune quirk de wire.
- * Un fournisseur en fournit une (RC : `TraducteurRC` ; Mattermost : la sienne).
+ * The server-specific part of sync: decoding its raw `DdpEvent`s and its REST
+ * documents into neutral shapes. `SyncEngine` depends only on this interface:
+ * it no longer knows any stream name or wire quirk. Each provider supplies one
+ * (RC: `RcTranslator`; Mattermost: its own).
  */
 export interface Translator {
-  /** Flux temps réel : un `Evenement` du `Listener` → un changement, une anomalie, ou un silence. */
+  /** Real-time feed: a `Listener` `DdpEvent` → a change, an anomaly, or a silence. */
   translateEvent(event: DdpEvent): Translation;
-  /** Lots REST (rattrapage, historique) : document brut → ligne locale, ou null si irrécupérable. */
+  /** REST batches (catch-up, history): raw document → local row, or null if unrecoverable. */
   toMessage(raw: Record<string, unknown>): MessageLocal | null;
   toRoom(raw: Record<string, unknown>): LocalRoom | null;
   toSubscription(raw: Record<string, unknown>): LocalSubscription | null;
 }
 
 /**
- * Actions unitaires sur les messages (chemin d'écriture central). L'envoi de
- * texte et de fichiers passe par les moteurs à outbox (`MoteurEnvoi`,
- * `MoteurTeleversement`), fabriqués par le fournisseur, pas par ces méthodes.
+ * Single actions on messages (the central write path). Sending text and files
+ * goes through the outbox engines (`OutboxEngine`, `UploadEngine`), built by
+ * the provider, not through these methods.
  *
- * Les lectures secondaires (profil, recherche, info salon, spotlight) seront
- * ajoutées ici quand leurs écrans seront routés — elles portent des DTO qu'on
- * ne définit pas à l'avance.
+ * Secondary reads (profile, search, room info, spotlight) will be added here
+ * when their screens are routed; they carry DTOs we don't define in advance.
  */
 export interface ProviderActions {
   react(rid: string, mid: string, emoji: string, put: boolean): Promise<void>;
-  /** `chiffreur` : le message est chiffré, sa nouvelle version aussi. */
+  /** `encryptor`: the message is encrypted, so is its new version. */
   edit(rid: string, mid: string, text: string, encryptor?: OutboxEncryptor): Promise<void>;
   delete(rid: string, mid: string): Promise<void>;
   pin(rid: string, mid: string): Promise<void>;
   unpin(rid: string, mid: string): Promise<void>;
   star(rid: string, mid: string, put: boolean): Promise<void>;
-  /** Les messages épinglés d'un salon, les plus récents d'abord. Une requête par appel. */
+  /** A room's pinned messages, newest first. One request per call. */
   listPinned(rid: string): Promise<MessageLocal[]>;
-  /** Mes messages favoris dans un salon, les plus récents d'abord. */
+  /** My starred messages in a room, newest first. */
   listStarred(rid: string): Promise<MessageLocal[]>;
   markRead(rid: string): Promise<void>;
   /**
-   * Ouvre (ou crée — idempotent côté serveur) le DM avec `username`. Rend le
-   * `rid` et le document salon brut, à ingérer pour naviguer sans attendre le
-   * stream. Était écrit deux fois (fiche profil, recherche), avec deux
-   * validations différentes de la réponse.
+   * Opens (or creates, idempotent server-side) the DM with `username`. Returns
+   * the `rid` and the raw room document, to ingest so we can navigate without
+   * waiting for the stream. Was written twice (profile card, search), with two
+   * different validations of the response.
    */
   openOrCreateDm(username: string): Promise<{ rid: string; rawRoom: Record<string, unknown> }>;
 }
 
-/** Capacités de Rocket.Chat. E2EE dégradé (lecture seule), push par gateway hors périmètre. */
+/** Rocket.Chat capabilities. E2EE degraded (read-only), gateway push out of scope. */
 export const ROCKETCHAT_CAPABILITIES: Capabilities = {
   typing: true,
   presence: true,
@@ -173,14 +172,14 @@ export const ROCKETCHAT_CAPABILITIES: Capabilities = {
   threadTemplate: 'tmid',
 };
 
-/** Réinjecte dans la synchro un document renvoyé par un envoi (écho optimiste). */
+/** Feeds back into sync a document returned by a send (optimistic echo). */
 export type Ingest = (doc: Record<string, unknown>) => Promise<void>;
 
-/** File d'envoi de texte persistée (outbox), rejouée à la reconnexion. */
+/** Persisted text send queue (outbox), replayed on reconnection. */
 export interface Outbox {
-  /** Rend l'`_id` client du message posé. `filId` = post parent (fil), ou null.
-   *  `jointesLocales` : pièces jointes (JSON) pour le seul affichage optimiste
-   *  (aperçu d'une citation) — jamais envoyées, écrasées par l'écho serveur. */
+  /** Returns the client `_id` of the posted message. `threadId` = parent post (thread), or null.
+   *  `localAttachments`: attachments (JSON) for the optimistic display only
+   *  (quote preview), never sent, overwritten by the server echo. */
   send(
     rid: string,
     text: string,
@@ -191,12 +190,12 @@ export interface Outbox {
   discard(id: string): Promise<void>;
 }
 
-/** File d'envoi de fichiers persistée. `progression` : 0..1 par id, pour l'UI. */
+/** Persisted file send queue. `progress`: 0..1 per id, for the UI. */
 export interface FileOutbox {
   readonly progress: Map<string, number>;
-  /** S'abonner aux changements de `progression` — rend le désabonnement. */
+  /** Subscribe to `progress` changes; returns the unsubscribe. */
   subscribe(listener: () => void): () => void;
-  /** Rejette (`ErreurValidation`) une pièce que le serveur refuserait — sans rien envoyer. */
+  /** Rejects (`ValidationError`) a file the server would refuse, without sending anything. */
   validate(file: { type: string; size: number | null }, rid?: string): Promise<void>;
   send(
     rid: string,
@@ -205,50 +204,49 @@ export interface FileOutbox {
   ): Promise<void>;
   process(): Promise<void>;
   /**
-   * Le geste explicite « Réessayer ». Indispensable depuis que le rejeu
-   * automatique ignore les lignes en échec : un simple `traiter()` ne les
-   * verrait plus.
+   * The explicit "Retry" action. Required since the automatic replay skips
+   * failed rows: a plain `process()` would no longer see them.
    */
   retry(id: string): Promise<void>;
-  /** `uri` permet d'effacer aussi le fichier temporaire. */
+  /** `uri` also allows erasing the temporary file. */
   discard(id: string, uri?: string): Promise<void>;
 }
 
 /**
- * Un fournisseur de chat assemblé pour une session : tout le spécifique-serveur
- * du chemin de synchro et d'action, derrière une seule façade. `ui/sync.tsx`
- * l'orchestre sans nommer Rocket.Chat ; le driver Mattermost fournira le même
- * objet. Les ornements encore RC-only (présence, emojis custom, push, E2EE)
- * restent hors de cette façade en 4a, gardés par `capacites`, à absorber ensuite.
+ * A chat provider assembled for a session: everything server-specific in the
+ * sync and action path, behind a single facade. `ui/sync.tsx` orchestrates it
+ * without naming Rocket.Chat; the Mattermost driver will supply the same
+ * object. The still RC-only extras (presence, custom emojis, push, E2EE) stay
+ * outside this facade in 4a, guarded by `capabilities`, to absorb later.
  */
 export interface Provider {
   readonly capabilities: Capabilities;
-  /** Transport temps réel (RC : DDP ; MM : WebSocket JSON). */
+  /** Real-time transport (RC: DDP; MM: JSON WebSocket). */
   readonly listener: Listener;
-  /** Décodeur d'`Evenement`/documents bruts vers formes neutres. */
+  /** Decoder from raw `DdpEvent`s/documents to neutral shapes. */
   readonly translator: Translator;
-  /** Actions unitaires sur les messages. */
+  /** Single actions on messages. */
   readonly actions: ProviderActions;
-  /** Souscriptions désirées `[nom, cle]`, déclarées avant la 1re connexion (rejouées à chaque reconnexion). */
+  /** Desired subscriptions `[name, key]`, declared before the 1st connection (replayed on every reconnection). */
   initialSubscriptions(): readonly (readonly [nom: string, cle: string])[];
   /**
-   * Souscriptions PAR SALON — celles que l'écran salon (et un fil) arme à
-   * l'ouverture, symétriques de `souscriptionsInitiales`. Le format des clés
-   * (`rid`, `rid/sujet`…) appartient au fournisseur : les écrans bouclent sur
-   * le résultat sans le connaître. Refcountées par le `Listener` : plusieurs
-   * écrans sur le même salon ne coûtent qu'un `sub`.
+   * PER-ROOM subscriptions: the ones the room screen (and a thread) arms on
+   * open, the counterpart of `initialSubscriptions`. The key format (`rid`,
+   * `rid/topic`...) belongs to the provider: screens loop over the result
+   * without knowing it. Refcounted by the `Listener`: several screens on the
+   * same room cost a single `sub`.
    */
   roomSubscriptions(rid: string): readonly (readonly [nom: string, cle: string])[];
   /**
-   * Ce qu'un événement du transport me dit à moi seul dans un salon (la
-   * réponse d'une commande slash), ou `null` s'il ne s'agit pas de cela.
+   * What a transport event tells me alone in a room (a slash command's reply),
+   * or `null` if it is not that.
    */
   privateNote(event: DdpEvent): { rid: string; text: string } | null;
   /**
-   * Une page d'historique du salon (les plus récents d'abord), ingérée dans le
-   * moteur. `type` : le type du salon tel que stocké (`salons.type`) ; `latest` :
-   * borne keyset ISO — absente, la page part du présent. Rend le plus ancien
-   * horodatage de la page : le critère de recul de la pagination de l'écran.
+   * A page of the room's history (newest first), ingested into the engine.
+   * `type`: the room type as stored (`salons.type`); `latest`: ISO keyset
+   * bound; absent, the page starts from now. Returns the page's oldest
+   * timestamp: the screen's pagination step-back criterion.
    */
   loadHistory(
     engine: SyncEngine,
@@ -257,8 +255,8 @@ export interface Provider {
     latest?: string,
   ): Promise<{ oldest: number | null }>;
   /**
-   * Le fil `filId` en entier (racine comprise), ingéré dans le moteur.
-   * Rejouable — mêmes upserts idempotents que le reste de la synchro.
+   * The whole `threadId` thread (root included), ingested into the engine.
+   * Replayable: the same idempotent upserts as the rest of sync.
    */
   loadThread(engine: SyncEngine, threadId: string, isDiscarded: () => boolean): Promise<void>;
   createOutbox(store: OutboxStore, ingest: Ingest, encryptor?: OutboxEncryptor): Outbox;
@@ -267,22 +265,22 @@ export interface Provider {
     transport: TransportUpload,
     ingest: Ingest,
     /**
-     * Deux crochets qui ne peuvent pas vivre dans `lib/` : le premier touche
-     * `expo-file-system`, le second le rattrapage REST. Optionnels — sans eux
-     * le moteur reste correct, seulement moins bon (cache qui enfle, doublon
-     * possible sur un `mediaConfirm` perdu).
+     * Two hooks that cannot live in `lib/`: the first touches
+     * `expo-file-system`, the second the REST catch-up. Optional: without them
+     * the engine stays correct, only worse (growing cache, possible duplicate
+     * on a lost `mediaConfirm`).
      */
     hooks?: {
       deleteLocalFile?: (uri: string) => Promise<void>;
       refreshRoom?: (rid: string) => Promise<void>;
-      /** Envoi dans un salon chiffré : sans lui, un fichier y attend indéfiniment. */
+      /** Sending into an encrypted room: without it, a file waits there forever. */
       encryption?: UploadEncryption;
     },
   ): FileOutbox;
-  /** Rattrapage REST global (salons + abonnements delta). */
+  /** Global REST catch-up (rooms + subscriptions delta). */
   catchUpGlobal(engine: SyncEngine, isDiscarded: () => boolean): Promise<void>;
-  /** Rattrapage d'UN salon (l'ouvert). Rate-limité, non borné côté RC : voir `ui/sync.tsx`. */
+  /** Catch-up of ONE room (the open one). Rate-limited, unbounded on the RC side: see `ui/sync.tsx`. */
   catchUpRoom(engine: SyncEngine, rid: string, isDiscarded: () => boolean): Promise<void>;
-  /** Réconciliation anti-fantômes (une fois par session). */
+  /** Anti-ghost reconciliation (once per session). */
   reconcile(engine: SyncEngine, isDiscarded: () => boolean): Promise<void>;
 }

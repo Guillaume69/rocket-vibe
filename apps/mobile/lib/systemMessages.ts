@@ -1,25 +1,25 @@
 /**
- * Traduction des messages système Rocket.Chat (`t` sur le message).
+ * Translation of Rocket.Chat system messages (`t` on the message).
  *
- * Conventions du serveur, relevées sur 8.5 : pour la plupart des types, `msg`
- * porte le PARAMÈTRE de l'action (le nom de l'utilisateur ajouté, le nouveau
- * nom du salon, le sujet…), pas une phrase. C'est `u` (l'auteur) qui a agi.
+ * Server conventions, observed on 8.5: for most types, `msg` carries the
+ * action's PARAMETER (the added user's name, the room's new name, the
+ * topic...), not a sentence. `u` (the author) is who acted.
  *
- * Un type inconnu rend une phrase générique plutôt que rien : le serveur en
- * ajoute à chaque version, et un salon qui « perd » des événements est plus
- * déroutant qu'une mention neutre.
+ * An unknown type yields a generic sentence rather than nothing: the server
+ * adds some with every version, and a room that "loses" events is more
+ * confusing than a neutral mention.
  *
- * Les phrases elles-mêmes vivent dans le catalogue (`ui/messages`, clés `sys.*`) :
- * ce module reste PUR — le traducteur `t` est INJECTÉ (import de type seul, aucun
- * import plateforme), donc ses tests tournent sous Node avec un `t` réel.
+ * The sentences themselves live in the catalogue (`ui/messages`, `sys.*` keys):
+ * this module stays PURE, the translator `t` is INJECTED (type-only import, no
+ * platform import), so its tests run under Node with a real `t`.
  */
 
 import type { TranslateFn } from '../ui/messages.ts';
 
 /**
- * Table type → clé de traduction. Les types dont le rendu dépend d'un paramètre
- * (`{p}`) le reçoivent à l'appel ; les cas où un `msg` VIDE change la phrase
- * (sujet effacé, bienvenue anonyme) sont traités à part dans `texteSysteme`.
+ * Type → translation key table. Types whose rendering depends on a parameter
+ * (`{p}`) receive it at call time; cases where an EMPTY `msg` changes the
+ * sentence (topic cleared, anonymous welcome) are handled apart in `systemText`.
  */
 const KEYS = {
   uj: 'sys.uj',
@@ -33,11 +33,11 @@ const KEYS = {
   uploaded: 'sys.uploaded',
   message_pinned: 'sys.messagePinned',
   message_unpinned: 'sys.messageUnpinned',
-  // Épingler dans un salon CHIFFRÉ produit un type distinct côté serveur —
-  // relevé dans le bundle 8.5.1 : `originalMessage.t === 'e2e' ?
-  // 'message_pinned_e2e' : 'message_pinned'`. Sans ces deux lignes, la ligne
-  // s'affiche « (action système « message_pinned_e2e ») ». Le libellé est le
-  // même : ce qui est épinglé reste un message.
+  // Pinning in an ENCRYPTED room produces a distinct type server-side, read in
+  // the 8.5.1 bundle: `originalMessage.t === 'e2e' ?
+  // 'message_pinned_e2e' : 'message_pinned'`. Without these two lines, the row
+  // shows "(system action "message_pinned_e2e")". The label is the same: what
+  // is pinned is still a message.
   message_pinned_e2e: 'sys.messagePinned',
   message_unpinned_e2e: 'sys.messageUnpinned',
   room_changed_avatar: 'sys.roomChangedAvatar',
@@ -55,7 +55,7 @@ const KEYS = {
   'message-deleted-notification': 'sys.messageDeleted',
 } as const satisfies Record<string, Parameters<TranslateFn>[0]>;
 
-/** Types dont un `msg` VIDE efface la partie « : … » — traités hors table. */
+/** Types where an EMPTY `msg` drops the ": ..." part, handled outside the table. */
 const WITH_EMPTY_CASE = {
   room_changed_topic: { removed: 'sys.topicRemoved', full: 'sys.topic' },
   room_changed_announcement: { removed: 'sys.announcementRemoved', full: 'sys.announcement' },
@@ -63,13 +63,13 @@ const WITH_EMPTY_CASE = {
 } as const satisfies Record<string, { removed: Parameters<TranslateFn>[0]; full: Parameters<TranslateFn>[0] }>;
 
 /**
- * Phrase d'un message système, dans la langue portée par `t`. `parametre` est
- * le `msg` brut du message — vide pour les actions qui n'en ont pas.
+ * A system message's sentence, in the language carried by `t`. `param` is the
+ * message's raw `msg`, empty for actions that have none.
  */
 export function systemText(t: TranslateFn, type: string, param: string | null): string {
   const p = param ?? '';
 
-  // Bienvenue : `msg` vide = accueil anonyme (« bienvenue ! »), sinon nominatif.
+  // Welcome: empty `msg` = anonymous welcome ("welcome!"), otherwise named.
   if (type === 'wm') return p === '' ? t('sys.wmEmpty') : t('sys.wm', { p });
 
   const cases = WITH_EMPTY_CASE[type as keyof typeof WITH_EMPTY_CASE];
@@ -78,23 +78,21 @@ export function systemText(t: TranslateFn, type: string, param: string | null): 
   const key = KEYS[type as keyof typeof KEYS];
   if (key !== undefined) return t(key, { p });
 
-  // Type inconnu : phrase générique. Le deux-points ne pend pas quand `msg` est vide.
+  // Unknown type: generic sentence. No dangling colon when `msg` is empty.
   return p === '' ? t('sys.unknown', { type }) : t('sys.unknownWithParam', { type, p });
 }
 
 /**
- * Libellé d'APERÇU pour la liste des salons, quand le dernier message n'a aucun
- * texte à montrer (`dernier_message` null alors que le salon a bien un dernier
- * message — voir `dernierMessageType`). `null` = rien à dire, la ligne reste
- * vide comme avant.
+ * PREVIEW label for the room list, when the last message has no text to show
+ * (`lastMessage` null although the room does have a last message, see
+ * `lastMessageType`). `null` = nothing to say, the row stays empty as before.
  *
- * Volontairement SÉPARÉ de `texteSysteme` : ses phrases sont des prédicats, qui
- * se lisent à la suite du nom d'auteur affiché juste au-dessus dans le fil
- * (« bob » + « a rejoint le salon »). La liste des salons n'affiche aucun
- * auteur : y coller le même texte donnerait « a rejoint le salon », sans sujet.
- * D'où un libellé autonome, et seulement pour les types qui en ont besoin —
- * aujourd'hui l'appel vidéo, le seul dont le contenu vive entièrement dans
- * `blocks`.
+ * Deliberately SEPARATE from `systemText`: its sentences are predicates, read
+ * after the author name shown just above in the timeline ("bob" + "joined the
+ * room"). The room list shows no author: the same text there would read
+ * "joined the room", with no subject. Hence a standalone label, and only for
+ * the types that need one: today the video call, the only one whose content
+ * lives entirely in `blocks`.
  */
 export function systemPreview(t: TranslateFn, type: string | null): string | null {
   return type === 'videoconf' ? t('home.callPreview') : null;

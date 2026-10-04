@@ -19,69 +19,68 @@ import { darkColors, FONTS } from '../ui/theme.ts';
 import { ImageViewerProvider } from '../ui/imageViewer.tsx';
 
 /**
- * Racine de navigation. `Stack` d'expo-router s'appuie sur le stack natif de
- * react-native-screens : les transitions et le geste de retour sont ceux du
- * système, pas une réimplémentation JS.
+ * Navigation root. expo-router's `Stack` sits on react-native-screens' native
+ * stack: transitions and the back gesture are the system's, not a JS
+ * reimplementation.
  *
- * Aucune migration ici : chaque base est migrée par qui l'ouvre —
- * `SynchroProvider` pour la base de la session. Bloquer toute l'app sur la
- * migration d'une base que la session n'utilise peut-être pas retarderait le
- * démarrage pour rien, et un fichier corrompu sans rapport la briquerait
- * entière.
+ * No migration here: each database is migrated by whoever opens it,
+ * `SyncProvider` for the session's database. Blocking the whole app on the
+ * migration of a database the session may not even use would delay startup
+ * for nothing, and an unrelated corrupt file would brick all of it.
  */
 export default function RootLayout() {
-  // Le préchargement de fiche (`lib/profilePreload.ts`, du lib/ pur, chargeable
-  // sous Node) ne connaît pas expo-router : on lui prête la navigation d'ici,
-  // sur le modèle de `definirClientProfil` posé par `SessionProvider`.
+  // Profile preloading (`lib/profilePreload.ts`, pure lib/, loadable under
+  // Node) does not know expo-router: we lend it navigation from here, on the
+  // model of `setProfileClient` set by `SessionProvider`.
   useEffect(() => {
     setProfileNavigator((p) => router.push({ pathname: '/profile', params: p }));
     return () => setProfileNavigator(null);
   }, []);
 
-  // iOS coupe par défaut le son d'une app au bouton silencieux : un vocal
-  // resterait muet. Sans effet sous Android.
+  // iOS mutes an app on the silent switch by default: a voice message would
+  // stay silent. No effect on Android.
   useEffect(() => {
     setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
   }, []);
 
   return (
-    // Racine des gestes (pincer/déplacer de la visionneuse). La Modal, fenêtre
-    // native séparée, a le sien en propre — celui-ci couvre la pile.
+    // Gesture root (pinch/pan in the viewer). The Modal, a separate native
+    // window, has its own; this one covers the stack.
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
-        {/* Cible de partage Android (ACTION_SEND). Doit envelopper les autres
-            providers : son module natif lit l'intent au tout premier rendu.
-            `resetOnBackground: false` — repasser par une autre app pour vérifier
-            un détail ne doit pas jeter le fichier qu'on s'apprête à partager. */}
+        {/* Android share target (ACTION_SEND). Must wrap the other
+            providers: its native module reads the intent on the very first render.
+            `resetOnBackground: false`: switching to another app to check a detail
+            must not drop the file about to be shared. */}
         <ShareIntentProvider options={{ resetOnBackground: false }}>
-          {/* Alimente la SharedValue clavier de `ui/keyboard.tsx` (suivi
-              frame-par-frame via WindowInsetsAnimation, edge-to-edge natif). */}
+          {/* Feeds the keyboard SharedValue of `ui/keyboard.tsx` (frame-by-frame
+              tracking via WindowInsetsAnimation, native edge-to-edge). */}
           <KeyboardProvider>
             <SessionProvider>
               <SyncProvider>
-                {/* La visionneuse d'image monte UNE Modal partagée au-dessus de
-                    toute la pile : une pièce jointe s'ouvre en grand depuis
-                    n'importe quel écran (salon, fil). */}
+                {/* The image viewer mounts ONE shared Modal above the
+                    whole stack: an attachment opens full screen from
+                    any screen (room, thread). */}
                 <ImageViewerProvider>
-                  {/* Titre par défaut : sans lui, les rendus précoces du portier
-                      (démarrage, redirection) affichent le nom brut de la route. */}
+                  {/* Default title: without it, the gatekeeper's early renders
+                      (startup, redirect) show the raw route name. */}
                   <Stack
                     screenOptions={{
                       title: 'rocket-vibe',
                       headerStyle: { backgroundColor: darkColors.background },
                       headerTintColor: darkColors.text,
                       headerTitleStyle: { fontFamily: FONTS.title },
-                      // Fond sombre PENDANT les transitions natives : sans lui, un
-                      // écran pas encore re-skiné flashe en blanc au push/pop.
+                      // Dark background DURING native transitions: without it, a
+                      // screen not yet re-skinned flashes white on push/pop.
                       contentStyle: { backgroundColor: darkColors.background },
                     }}
                   >
-                    {/* `presentation` doit être connue à la CRÉATION de l'écran
-                        natif : posée par `<Stack.Screen>` depuis l'écran lui-même,
-                        elle arrive après coup (setOptions) et peut être ignorée.
-                        `fitToContents` : la sheet épouse la hauteur de son contenu
-                        au lieu de remplir l'écran (défaut `[1.0]`). Grabber + coins
-                        arrondis natifs, pas d'en-tête — c'est un menu, pas une page. */}
+                    {/* `presentation` must be known when the native screen is
+                        CREATED: set by `<Stack.Screen>` from the screen itself,
+                        it arrives late (setOptions) and may be ignored.
+                        `fitToContents`: the sheet fits its content's height
+                        instead of filling the screen (default `[1.0]`). Native grabber
+                        and rounded corners, no header: it is a menu, not a page. */}
                     <Stack.Screen
                       name="message-actions"
                       options={{
@@ -94,9 +93,9 @@ export default function RootLayout() {
                         contentStyle: { backgroundColor: darkColors.deepCard },
                       }}
                     />
-                    {/* Feuille « joindre » : le menu de sources d'une pièce jointe
-                        (photo, vidéo, bibliothèque, fichier). Même sheet native que
-                        les actions de message. */}
+                    {/* "Attach" sheet: the source menu for an attachment
+                        (photo, video, library, file). Same native sheet as
+                        the message actions. */}
                     <Stack.Screen
                       name="attach"
                       options={{
@@ -109,7 +108,7 @@ export default function RootLayout() {
                         contentStyle: { backgroundColor: darkColors.deepCard },
                       }}
                     />
-                    {/* Déverrouillage E2EE : mot de passe de chiffrement. */}
+                    {/* E2EE unlock: encryption password. */}
                     <Stack.Screen
                       name="unlock-e2e"
                       options={{
@@ -122,7 +121,7 @@ export default function RootLayout() {
                         contentStyle: { backgroundColor: darkColors.deepCard },
                       }}
                     />
-                    {/* Fiche d'un salon (tap sur le nom dans l'en-tête). */}
+                    {/* Room info (tap on the name in the header). */}
                     <Stack.Screen
                       name="room-info"
                       options={{
@@ -135,8 +134,8 @@ export default function RootLayout() {
                         contentStyle: { backgroundColor: darkColors.deepCard },
                       }}
                     />
-                    {/* Fiche d'un utilisateur (avatar/nom d'auteur, mention).
-                        Même sheet native que les actions de message. */}
+                    {/* User profile (author avatar/name, mention).
+                        Same native sheet as the message actions. */}
                     <Stack.Screen
                       name="profile"
                       options={{
@@ -149,28 +148,28 @@ export default function RootLayout() {
                         contentStyle: { backgroundColor: darkColors.deepCard },
                       }}
                     />
-                    {/* Écran de partage : ouvert par la feuille système d'Android
-                        (ACTION_SEND) via `GardePartage`. Modal glissant du bas —
-                        c'est une action ponctuelle par-dessus l'app, pas une page. */}
+                    {/* Share screen: opened by Android's system share sheet
+                        (ACTION_SEND) via `ShareGuard`. Modal sliding from the bottom:
+                        a one-off action on top of the app, not a page. */}
                     <Stack.Screen name="share" options={{ presentation: 'modal' }} />
                   </Stack>
                   <NotificationHandler />
-                  {/* Tient à jour la résolution `uid → pseudo courant` des
-                      auteurs de messages (renommages). Frère de la pile — ne rend
-                      rien, alimente un store abonnable. */}
+                  {/* Keeps the `uid -> current username` resolution of message
+                      authors up to date (renames). Sibling of the stack: renders
+                      nothing, feeds a subscribable store. */}
                   <IdentityTracker />
-                  {/* Retour visuel du préchargement de fiche : au-dessus de la
-                      pile, ne s'affiche que si l'ouverture traîne (>seuil). */}
+                  {/* Visual feedback for profile preloading: above the
+                      stack, only shows if opening drags on (>threshold). */}
                   <ProfileOpeningIndicator />
                   <ToastHost />
-                  {/* Redirige vers l'écran de partage dès qu'un intent arrive. */}
+                  {/* Redirects to the share screen as soon as an intent arrives. */}
                   <ShareGuard />
                 </ImageViewerProvider>
               </SyncProvider>
             </SessionProvider>
           </KeyboardProvider>
         </ShareIntentProvider>
-        {/* Thème forcé sombre : icônes claires sur le fond indigo. */}
+        {/* Forced dark theme: light icons on the indigo background. */}
         <StatusBar style="light" />
       </SafeAreaProvider>
     </GestureHandlerRootView>
@@ -178,14 +177,14 @@ export default function RootLayout() {
 }
 
 /**
- * Aiguilleur du partage entrant. Le module natif d'`expo-share-intent` publie
- * l'intent `ACTION_SEND` dans le contexte ; on ouvre alors l'écran `/share`.
+ * Router for incoming shares. `expo-share-intent`'s native module publishes
+ * the `ACTION_SEND` intent in the context; we then open the `/share` screen.
  *
- * `traite` garde le front montant : on ne pousse QU'UNE fois par intent, même
- * si le contexte se re-rend. Quand l'écran de partage réinitialise l'intent
- * (`resetShareIntent`), `hasShareIntent` retombe à false et le garde se réarme
- * pour le partage suivant — sans dépendre du pathname, donc sans re-pousser
- * `/share` par-dessus le salon où l'on vient d'envoyer.
+ * `handled` keeps the rising edge: we push ONCE per intent, even if the
+ * context re-renders. When the share screen resets the intent
+ * (`resetShareIntent`), `hasShareIntent` drops back to false and the guard
+ * re-arms for the next share, without depending on the pathname, so without
+ * pushing `/share` again over the room we just sent to.
  */
 function ShareGuard() {
   const { hasShareIntent } = useShareIntentContext();

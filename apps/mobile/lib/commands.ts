@@ -1,12 +1,12 @@
 /**
- * Commandes slash : la liste du serveur (`commands.list`), ce que le composer
- * propose après un `/` en tête de message, et le brouillon qu'un envoi
- * transforme en commande (`commands.run`).
+ * Slash commands: the server's list (`commands.list`), what the composer
+ * suggests after a leading `/`, and the draft a send turns into a command
+ * (`commands.run`).
  *
- * `commands.run` répond `{ success: true }` même quand la commande échoue :
- * sa réponse (erreur, `/help`) arrive en message privé sur
- * `stream-notify-user` / `<uid>/message`, jamais dans la réponse REST (sondé
- * sur 8.5). Même logique que `apps/desktop/crates/rv-core/src/commands.rs`.
+ * `commands.run` answers `{ success: true }` even when the command fails: its
+ * reply (error, `/help`) arrives as a private message on
+ * `stream-notify-user` / `<uid>/message`, never in the REST response (probed on
+ * 8.5). Same logic as `apps/desktop/crates/rv-core/src/commands.rs`.
  */
 
 import type { ClientRest } from './rest.ts';
@@ -15,16 +15,16 @@ type Language = 'fr' | 'en';
 
 export type Command = {
   name: string;
-  /** Affichés après le nom, tels qu'à taper : `@username`, `#channel`, « ton message ». */
+  /** Shown after the name, as to be typed: `@username`, `#channel`, "your message". */
   params: string;
   description: string;
-  /** L'une suffit ; vide, tout le monde peut la lancer. */
+  /** Any one suffices; empty, anyone can run it. */
   permissions: string[];
 };
 
 export const COMMAND_SUGGESTION_LIMIT = 8;
 
-/** (clé, français, anglais) des descriptions et paramètres des commandes du cœur. */
+/** (key, French, English) of the core commands' descriptions and parameters. */
 const WORDS: readonly (readonly [string, string, string])[] = [
   ['Archive', 'Archiver le salon', 'Archive the room'],
   ['Unarchive', 'Désarchiver le salon', 'Unarchive the room'],
@@ -65,9 +65,9 @@ const WORDS: readonly (readonly [string, string, string])[] = [
 ];
 
 /**
- * Le serveur envoie des clés i18n (`Slash_Shrug_Description`) là où le client
- * web a son catalogue : le nôtre couvre les commandes du cœur, et la clé
- * d'une app se lit au moins comme des mots.
+ * The server sends i18n keys (`Slash_Shrug_Description`) where the web client
+ * has its catalogue: ours covers the core commands, and an app's key at least
+ * reads as words.
  */
 export function words(key: string, language: Language): string {
   const known = WORDS.find(([k]) => k === key);
@@ -78,7 +78,7 @@ export function words(key: string, language: Language): string {
 
 const asString = (v: unknown): string => (typeof v === 'string' ? v : '');
 
-/** Les commandes que rend `commands.list`, leurs clés i18n mises en mots. */
+/** The commands `commands.list` returns, their i18n keys put into words. */
 export function readCommands(response: unknown, language: Language): Command[] {
   const list = (response as { commands?: unknown } | null)?.commands;
   if (!Array.isArray(list)) return [];
@@ -100,8 +100,8 @@ export function readCommands(response: unknown, language: Language): Command[] {
 }
 
 /**
- * Le nom de commande en cours de frappe : le brouillon commence par `/` et
- * le curseur n'a pas quitté son premier mot.
+ * The command name being typed: the draft starts with `/` and the cursor has
+ * not left its first word.
  */
 export function detectCommandToken(text: string, cursor: number): { query: string } | null {
   const before = text.slice(0, Math.max(0, Math.min(cursor, text.length)));
@@ -112,9 +112,8 @@ export function detectCommandToken(text: string, cursor: number): { query: strin
 }
 
 /**
- * Les commandes dont le nom commence par `requete`, celles que j'ai le droit
- * de lancer quand mes permissions sont connues (`null` : on laisse le serveur
- * trancher), triées par nom.
+ * The commands whose name starts with `query`, those I am allowed to run when
+ * my permissions are known (`null`: the server decides), sorted by name.
  */
 export function completeCommand(
   commands: readonly Command[],
@@ -131,8 +130,8 @@ export function completeCommand(
 }
 
 /**
- * (nom, paramètres) d'un brouillon qui se lit comme une commande : `/nom` en
- * tête, puis ce qui suit. L'appelant vérifie que le serveur connaît ce nom.
+ * (name, parameters) of a draft that reads as a command: a leading `/name`,
+ * then what follows. The caller checks that the server knows this name.
  */
 export function splitCommand(text: string): { name: string; params: string } | null {
   const rest = text.trimStart();
@@ -144,10 +143,10 @@ export function splitCommand(text: string): { name: string; params: string } | n
   return { name, params: firstSpace === -1 ? '' : body.slice(firstSpace).trim() };
 }
 
-/** Clé d'événement des messages privés, sur `stream-notify-user`. */
+/** Event key of private messages, on `stream-notify-user`. */
 export const PRIVATE_MESSAGE_EVENT = 'message';
 
-/** `<uid>/message` args : `[{ rid, msg, private: true, … }]` → (rid, texte). */
+/** `<uid>/message` args: `[{ rid, msg, private: true, … }]` → (rid, text). */
 export function privateMessage(args: readonly unknown[]): { rid: string; text: string } | null {
   const m = args[0] as { rid?: unknown; msg?: unknown } | undefined;
   const rid = asString(m?.rid);
@@ -158,7 +157,7 @@ export function privateMessage(args: readonly unknown[]): { rid: string; text: s
 
 const cached = new Map<string, Promise<unknown>>();
 
-/** `commands.list`, lu une fois par session et par compte ; un échec n'est pas retenu. */
+/** `commands.list`, read once per session and account; a failure is not cached. */
 export function rawList(client: Pick<ClientRest, 'get' | 'baseUrl' | 'auth'>): Promise<unknown> {
   const key = `${client.baseUrl}|${client.auth?.userId ?? ''}`;
   const known = cached.get(key);
@@ -170,8 +169,8 @@ export function rawList(client: Pick<ClientRest, 'get' | 'baseUrl' | 'auth'>): P
 }
 
 /**
- * Lance `texte` comme commande quand il en nomme une que le serveur connaît :
- * `false` quand c'est un message à envoyer. Rejette si le serveur la refuse.
+ * Runs `text` as a command when it names one the server knows: `false` when it
+ * is a message to send. Rejects if the server refuses it.
  */
 export async function runCommand(
   client: Pick<ClientRest, 'get' | 'post' | 'baseUrl' | 'auth'>,

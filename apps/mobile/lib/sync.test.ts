@@ -16,24 +16,24 @@ import { SyncEngine, type E2EDecryptor, type Store } from './sync.ts';
 import { AVATAR_NO_PHOTO } from './upload.ts';
 import { RcTranslator } from '../providers/rocketchat/translator.ts';
 
-describe('versEpoch', () => {
-  test('accepte l’EJSON de Rocket.Chat', () => {
+describe('toEpoch', () => {
+  test('accepts Rocket.Chat EJSON', () => {
     assert.equal(toEpoch({ $date: 1_700_000_000_000 }), 1_700_000_000_000);
   });
-  test('accepte une chaîne ISO', () => {
+  test('accepts an ISO string', () => {
     assert.equal(toEpoch('2026-07-10T00:00:00.000Z'), Date.parse('2026-07-10T00:00:00.000Z'));
   });
-  test('accepte un nombre brut', () => {
+  test('accepts a raw number', () => {
     assert.equal(toEpoch(42), 42);
   });
-  test('rend null sur ce qu’il ne comprend pas, plutôt que NaN', () => {
+  test('returns null on what it does not understand, rather than NaN', () => {
     assert.equal(toEpoch(undefined), null);
     assert.equal(toEpoch('pas une date'), null);
     assert.equal(toEpoch({}), null);
   });
 });
 
-describe('versMessage', () => {
+describe('toMessage', () => {
   const base = {
     _id: 'm1',
     rid: 'r1',
@@ -43,7 +43,7 @@ describe('versMessage', () => {
     _updatedAt: { $date: 2000 },
   };
 
-  test('traduit un message ordinaire', () => {
+  test('translates an ordinary message', () => {
     const m = toMessage(base) as MessageLocal;
     assert.equal(m.id, 'm1');
     assert.equal(m.text, 'bonjour');
@@ -53,43 +53,43 @@ describe('versMessage', () => {
     assert.equal(m.systemType, null);
   });
 
-  test('un message chiffré ne stocke JAMAIS son contenu', () => {
+  test('an encrypted message NEVER stores its content', () => {
     const m = toMessage({ ...base, t: 'e2e', msg: 'blob-base64-opaque' }) as MessageLocal;
     assert.equal(m.systemType, 'e2e');
-    assert.equal(m.text, null, 'le blob ne doit pas atteindre la base');
+    assert.equal(m.text, null, 'the blob must not reach the database');
     assert.equal(m.md, null);
     assert.equal(m.attachments, null);
   });
 
-  test('`_updatedAt` absent retombe sur l’horodatage du message', () => {
+  test('missing `_updatedAt` falls back to the message timestamp', () => {
     const { _updatedAt, ...without } = base;
     void _updatedAt;
     const m = toMessage(without) as MessageLocal;
     assert.equal(m.updatedAt, 1000);
   });
 
-  test('un document sans `_id`, `rid`, `ts` ou auteur est rejeté', () => {
+  test('a document without `_id`, `rid`, `ts` or author is rejected', () => {
     assert.equal(toMessage({ ...base, _id: undefined }), null);
     assert.equal(toMessage({ ...base, rid: undefined }), null);
     assert.equal(toMessage({ ...base, ts: undefined }), null);
     assert.equal(toMessage({ ...base, u: {} }), null);
   });
 
-  test('`md` et `attachments` sont sérialisés, `undefined` devient null', () => {
+  test('`md` and `attachments` are serialized, `undefined` becomes null', () => {
     const m = toMessage({ ...base, md: [{ type: 'PARAGRAPH' }] }) as MessageLocal;
     assert.equal(m.md, '[{"type":"PARAGRAPH"}]');
     assert.equal(m.attachments, null);
   });
 
-  test('`urls` (métadonnées de lien serveur) est sérialisé ; absent → null', () => {
+  test('`urls` (server link metadata) is serialized; missing → null', () => {
     const withValue = toMessage({ ...base, urls: [{ url: 'https://x', meta: { ogTitle: 'T' } }] }) as MessageLocal;
     assert.equal(withValue.urls, '[{"url":"https://x","meta":{"ogTitle":"T"}}]');
     assert.equal((toMessage(base) as MessageLocal).urls, null);
-    // Un salon chiffré ne stocke jamais d'aperçu.
+    // An encrypted room never stores a preview.
     assert.equal((toMessage({ ...base, t: 'e2e', urls: [{ url: 'https://x' }] }) as MessageLocal).urls, null);
   });
 
-  test('fils : `tmid`, `tcount`, `tlm` et `tshow` sont capturés (8.3)', () => {
+  test('threads: `tmid`, `tcount`, `tlm` and `tshow` are captured (8.3)', () => {
     const root = toMessage({
       ...base,
       tcount: 3,
@@ -102,12 +102,12 @@ describe('versMessage', () => {
 
     const response = toMessage({ ...base, _id: 'm2', tmid: 'm1', tshow: true }) as MessageLocal;
     assert.equal(response.threadId, 'm1');
-    assert.equal(response.threadShown, true, 'tshow = aussi visible dans le flux principal');
+    assert.equal(response.threadShown, true, 'tshow = also visible in the main timeline');
   });
 });
 
-describe('versSalon', () => {
-  test('un salon chiffré n’expose pas d’aperçu', () => {
+describe('toRoom', () => {
+  test('an encrypted room exposes no preview', () => {
     const s = toRoom({
       _id: 'r1',
       t: 'p',
@@ -117,14 +117,14 @@ describe('versSalon', () => {
       _updatedAt: { $date: 9 },
     }) as LocalRoom;
     assert.equal(s.encrypted, true);
-    assert.equal(s.lastMessage, null, "l'aperçu d'un salon chiffré est du ciphertext");
-    assert.equal(s.lastMessageTs, 5, 'mais son horodatage sert au tri');
+    assert.equal(s.lastMessage, null, "an encrypted room's preview is ciphertext");
+    assert.equal(s.lastMessageTs, 5, 'but its timestamp is used for sorting');
   });
 
-  test('un message SANS TEXTE (pièce jointe seule) donne quand même un aperçu', () => {
-    // Sondé sur 8.5 : un message qui n'est qu'un fichier a `msg: ''`. Sans
-    // repli, la liste gardait l'aperçu du message PRÉCÉDENT — elle annonçait
-    // un échange qui n'était plus le dernier.
+  test('a message WITHOUT TEXT (attachment only) still yields a preview', () => {
+    // Probed on 8.5: a message that is only a file has `msg: ''`. Without a
+    // fallback, the list kept the preview of the PREVIOUS message: it announced
+    // an exchange that was no longer the latest.
     const withoutCaption = toRoom({
       _id: 'r1',
       t: 'c',
@@ -137,41 +137,41 @@ describe('versSalon', () => {
       t: 'c',
       lastMessage: { msg: '', attachments: [{ title: 'photo.jpg', description: 'le chat' }] },
     }) as LocalRoom;
-    assert.equal(withCaption.lastMessage, 'le chat', 'la légende prime sur le nom du fichier');
+    assert.equal(withCaption.lastMessage, 'le chat', 'the caption wins over the file name');
   });
 
-  test('salon VIDÉ : `lastMessage` disparaît, l’aperçu doit devenir null', () => {
-    // Supprimer le dernier message retire le champ du document Room. C'est le
-    // seul signal disponible — l'UPSERT s'en sert pour EFFACER l'aperçu.
+  test('EMPTIED room: `lastMessage` disappears, the preview must become null', () => {
+    // Deleting the last message removes the field from the Room document. It is the
+    // only signal available: the UPSERT uses it to CLEAR the preview.
     const s = toRoom({ _id: 'r1', t: 'c', lm: { $date: 5 } }) as LocalRoom;
     assert.equal(s.lastMessage, null);
-    assert.equal(s.lastMessageTs, 5, 'mais `lm` survit, et le tri avec');
+    assert.equal(s.lastMessageTs, 5, 'but `lm` survives, and sorting with it');
   });
 
-  test('`fname` prime sur `name` pour l’affichage', () => {
+  test('`fname` wins over `name` for display', () => {
     const s = toRoom({ _id: 'r1', t: 'c', name: 'slug', fname: 'Nom Affiché' }) as LocalRoom;
     assert.equal(s.displayName, 'Nom Affiché');
     assert.equal(s.name, 'slug');
   });
 
-  test('sans `fname`, on retombe sur `name`', () => {
+  test('without `fname`, we fall back to `name`', () => {
     const s = toRoom({ _id: 'r1', t: 'c', name: 'slug' }) as LocalRoom;
     assert.equal(s.displayName, 'slug');
   });
 
-  test('un DM sans nom se nomme depuis `usernames`, en s’excluant soi-même', () => {
-    // `rooms.get` renvoie les DM sans `name` ni `fname` : seul `usernames`
-    // permet de les nommer, et il contient AUSSI l'utilisateur courant.
+  test('a DM without a name is named from `usernames`, excluding oneself', () => {
+    // `rooms.get` returns DMs without `name` or `fname`: only `usernames`
+    // can name them, and it ALSO contains the current user.
     const s = toRoom({ _id: 'r1', t: 'd', usernames: ['alice', 'bob'] }, 'alice') as LocalRoom;
     assert.equal(s.displayName, 'bob');
   });
 
-  test('un DM avec soi-même garde son propre nom', () => {
+  test('a DM with oneself keeps its own name', () => {
     const s = toRoom({ _id: 'r1', t: 'd', usernames: ['alice'] }, 'alice') as LocalRoom;
     assert.equal(s.displayName, 'alice');
   });
 
-  test('un DM de groupe joint les autres participants', () => {
+  test('a group DM joins the other participants', () => {
     const s = toRoom(
       { _id: 'r1', t: 'd', usernames: ['alice', 'bob', 'carol'] },
       'alice',
@@ -180,47 +180,47 @@ describe('versSalon', () => {
   });
 });
 
-describe('versSalon — dmAutreUid (8.4)', () => {
-  test('extrait l’autre uid d’un DM à deux ; jamais pour un groupe ou sans moiUid', () => {
+describe('toRoom: dmOtherUid (8.4)', () => {
+  test('extracts the other uid of a two-person DM; never for a group or without myUid', () => {
     const raw = { _id: 'r1', t: 'd', uids: ['moi-uid', 'lui-uid'], usernames: ['alice', 'bob'] };
     assert.equal(toRoom(raw, 'alice', 'moi-uid')?.dmOtherUid, 'lui-uid');
-    // DM avec soi-même : l'autre, c'est moi.
+    // DM with oneself: the other one is me.
     assert.equal(
       toRoom({ ...raw, uids: ['moi-uid'] }, 'alice', 'moi-uid')?.dmOtherUid,
       'moi-uid',
     );
-    // DM de GROUPE (3+) : pas UNE présence à montrer.
+    // GROUP DM (3+): not ONE presence to show.
     assert.equal(
       toRoom({ ...raw, uids: ['moi-uid', 'lui-uid', 'eux-uid'] }, 'alice', 'moi-uid')
         ?.dmOtherUid,
       null,
     );
-    // Sans moiUid (vieux appelants) : null, pas de devinette.
+    // Without myUid (old callers): null, no guessing.
     assert.equal(toRoom(raw, 'alice')?.dmOtherUid, null);
-    // Un canal n'en a jamais.
+    // A channel never has one.
     assert.equal(toRoom({ ...raw, t: 'c' }, 'alice', 'moi-uid')?.dmOtherUid, null);
   });
 
-  test('extrait AUSSI son pseudo — sans lui, l’avatar d’un DM jamais ouvert reste figé', () => {
-    // Vécu sur l'émulateur : la liste affiche l'avatar d'alice alors qu'aucun de
-    // ses messages n'est ingéré. `updateAvatar` ne désignant l'utilisateur que
-    // par son pseudo, il ne trouvait AUCUNE ligne à mettre à jour.
+  test('ALSO extracts their username: without it, the avatar of a never-opened DM stays frozen', () => {
+    // Seen on the emulator: the list shows alice's avatar while none of
+    // her messages has been ingested. Since `updateAvatar` only designates the user
+    // by username, it found NO row to update.
     const raw = { _id: 'r1', t: 'd', uids: ['moi-uid', 'lui-uid'], usernames: ['alice', 'bob'] };
     assert.equal(toRoom(raw, 'alice', 'moi-uid')?.dmOtherUsername, 'bob');
-    // DM avec soi-même : l'autre, c'est moi — des deux côtés.
+    // DM with oneself: the other one is me, on both sides.
     assert.equal(
       toRoom({ ...raw, uids: ['moi-uid'], usernames: ['alice'] }, 'alice', 'moi-uid')
         ?.dmOtherUsername,
       'alice',
     );
-    // Pas de pseudo sans uid apparié : on n'invente pas d'identité.
+    // No username without a paired uid: we do not invent an identity.
     assert.equal(toRoom({ ...raw, uids: undefined }, 'alice', 'moi-uid')?.dmOtherUsername, null);
     assert.equal(toRoom({ ...raw, usernames: undefined }, 'alice', 'moi-uid')?.dmOtherUsername, null);
   });
 });
 
-describe('versAbonnement', () => {
-  test('les compteurs absents valent 0, pas NaN', () => {
+describe('toSubscription', () => {
+  test('missing counters are 0, not NaN', () => {
     const a = toSubscription({ rid: 'r1' }) as LocalSubscription;
     assert.equal(a.unread, 0);
     assert.equal(a.mentions, 0);
@@ -229,7 +229,7 @@ describe('versAbonnement', () => {
   });
 });
 
-/** Dépôt en mémoire : on observe ce que le moteur décide d'écrire. */
+/** In-memory store: we observe what the engine decides to write. */
 function makeStore() {
   const messages: MessageLocal[] = [];
   const rooms: LocalRoom[] = [];
@@ -238,11 +238,11 @@ function makeStore() {
   const deletedRooms: string[] = [];
   const deletedBySubId: string[] = [];
   const cursors = new Map<string, number>();
-  /** Versions d'avatar écrites, clé `u:<pseudo>` ou `r:<rid>`. */
+  /** Avatar versions written, key `u:<username>` or `r:<rid>`. */
   const avatars = new Map<string, string>();
   const identities: { uid: string; username: string; avatarEtag: string | null }[] = [];
-  // Le piège rejoue l'invariant de `db/store.ts` : pendant une transaction,
-  // seules les écritures du `tx` reçu passent — celles du dépôt jettent.
+  // The trap replays the `db/store.ts` invariant: during a transaction,
+  // only writes through the received `tx` go through; the store's own throw.
   const store: Store = withTransactionTrap({
     upsertMessage: async (m) => void messages.push(m),
     upsertRoom: async (s) => void rooms.push(s),
@@ -300,8 +300,8 @@ const event = (collection: string, eventKey: string, args: unknown[]): DdpEvent 
   args,
 });
 
-describe('MoteurSynchro', () => {
-  test('un message du stream est écrit', async () => {
+describe('SyncEngine', () => {
+  test('a stream message is written', async () => {
     const { store, messages } = makeStore();
     const engine = new SyncEngine(store, new RcTranslator());
     await engine.apply(
@@ -313,10 +313,10 @@ describe('MoteurSynchro', () => {
     assert.equal(engine.stats.messages, 1);
   });
 
-  test('`subscriptions-changed` livre [action, document] : le document est le SECOND argument', async () => {
-    // Relevé contre un serveur 8.5 : args[0] vaut la chaîne « updated ».
-    // Traiter args[0] comme le document ferait disparaître en silence tous les
-    // changements d'abonnement — donc tous les compteurs de non-lus.
+  test('`subscriptions-changed` delivers [action, document]: the document is the SECOND argument', async () => {
+    // Recorded against an 8.5 server: args[0] is the string "updated".
+    // Treating args[0] as the document would silently drop every
+    // subscription change, and so every unread counter.
     const { store, abonnements: subscriptions } = makeStore();
     const engine = new SyncEngine(store, new RcTranslator());
     await engine.apply(
@@ -330,7 +330,7 @@ describe('MoteurSynchro', () => {
     assert.equal(engine.stats.ignores, 0);
   });
 
-  test('la forme sans action est acceptée aussi', async () => {
+  test('the form without action is accepted too', async () => {
     const { store, abonnements: subscriptions } = makeStore();
     await new SyncEngine(store, new RcTranslator()).apply(
       event('stream-notify-user', 'u1/subscriptions-changed', [{ rid: 'r1', unread: 1 }]),
@@ -338,7 +338,7 @@ describe('MoteurSynchro', () => {
     assert.equal(subscriptions.length, 1);
   });
 
-  test('`rooms-changed` écrit un salon', async () => {
+  test('`rooms-changed` writes a room', async () => {
     const { store, salons: rooms } = makeStore();
     await new SyncEngine(store, new RcTranslator()).apply(
       event('stream-notify-user', 'u1/rooms-changed', ['updated', { _id: 'r1', t: 'c' }]),
@@ -346,21 +346,21 @@ describe('MoteurSynchro', () => {
     assert.equal(rooms.length, 1);
   });
 
-  test('`subscriptions-changed` action "removed" supprime par subId — fin du fantôme', async () => {
-    // Le bug historique : l'action 'removed' était consommée puis IGNORÉE, et
-    // le document (juste { _id }) tentait un upsert. Un salon supprimé côté
-    // serveur restait donc en cache à vie. Ici on vérifie la suppression.
+  test('`subscriptions-changed` action "removed" deletes by subId: no more ghost', async () => {
+    // The historical bug: the 'removed' action was consumed then IGNORED, and
+    // the document (just { _id }) attempted an upsert. A room deleted server-side
+    // therefore stayed in the cache forever. Here we check the deletion.
     const { store, deletedBySubId, abonnements: subscriptions } = makeStore();
     const engine = new SyncEngine(store, new RcTranslator());
     await engine.apply(
       event('stream-notify-user', 'u1/subscriptions-changed', ['removed', { _id: 'sub1' }]),
     );
     assert.deepEqual(deletedBySubId, ['sub1']);
-    assert.equal(subscriptions.length, 0, 'aucun upsert : le salon ne ressuscite pas');
+    assert.equal(subscriptions.length, 0, 'no upsert: the room does not come back to life');
     assert.equal(engine.stats.deletions, 1);
   });
 
-  test('`rooms-changed` action "removed" supprime le salon', async () => {
+  test('`rooms-changed` action "removed" deletes the room', async () => {
     const { store, deletedRooms, salons: rooms } = makeStore();
     const engine = new SyncEngine(store, new RcTranslator());
     await engine.apply(
@@ -371,7 +371,7 @@ describe('MoteurSynchro', () => {
     assert.equal(engine.stats.deletions, 1);
   });
 
-  test('`deleteMessage` supprime', async () => {
+  test('`deleteMessage` deletes', async () => {
     const { store, deleted } = makeStore();
     const engine = new SyncEngine(store, new RcTranslator());
     await engine.apply(event('stream-notify-room', 'r1/deleteMessage', [{ _id: 'm1' }]));
@@ -379,19 +379,19 @@ describe('MoteurSynchro', () => {
     assert.equal(engine.stats.deletions, 1);
   });
 
-  test('`updateAvatar` pose la version de la photo d’un utilisateur, par PSEUDO', async () => {
-    // Le stream ne désigne jamais l'utilisateur par son uid (relevé sur 8.5) :
-    // c'est ce qui impose d'indexer les versions par pseudo AUSSI.
+  test('`updateAvatar` sets the photo version of a user, by USERNAME', async () => {
+    // The stream never designates the user by uid (recorded on 8.5):
+    // that is what forces indexing versions by username TOO.
     const { store, avatars } = makeStore();
     const engine = new SyncEngine(store, new RcTranslator());
     await engine.apply(
       event('stream-notify-logged', 'updateAvatar', [{ username: 'bob', etag: 'e1' }]),
     );
     assert.equal(avatars.get('u:bob'), 'e1');
-    assert.equal(engine.stats.ignores, 0, 'un avatar n’est pas une anomalie');
+    assert.equal(engine.stats.ignores, 0, 'an avatar is not an anomaly');
   });
 
-  test('`updateAvatar` d’un SALON vise le rid', async () => {
+  test('`updateAvatar` of a ROOM targets the rid', async () => {
     const { store, avatars } = makeStore();
     await new SyncEngine(store, new RcTranslator()).apply(
       event('stream-notify-logged', 'updateAvatar', [{ rid: 'r1', etag: 'e2' }]),
@@ -399,10 +399,10 @@ describe('MoteurSynchro', () => {
     assert.equal(avatars.get('r:r1'), 'e2');
   });
 
-  test('une photo RETIRÉE (etag absent) pose quand même un marqueur', async () => {
-    // `users.resetAvatar` n'envoie pas d'etag. Sans marqueur, l'URL retomberait
-    // sur sa forme d'avant — celle que le cache image sert avec l'ANCIENNE
-    // photo : l'avatar supprimé resterait affiché.
+  test('a REMOVED photo (missing etag) still sets a marker', async () => {
+    // `users.resetAvatar` sends no etag. Without a marker, the URL would fall back
+    // to its previous form, the one the image cache serves with the OLD
+    // photo: the deleted avatar would stay displayed.
     const { store, avatars } = makeStore();
     await new SyncEngine(store, new RcTranslator()).apply(
       event('stream-notify-logged', 'updateAvatar', [{ username: 'bob' }]),
@@ -410,24 +410,24 @@ describe('MoteurSynchro', () => {
     assert.equal(avatars.get('u:bob'), AVATAR_NO_PHOTO);
   });
 
-  test('la présence transite par le même stream mais n’est PAS une anomalie', async () => {
+  test('presence goes through the same stream but is NOT an anomaly', async () => {
     const { store } = makeStore();
     const engine = new SyncEngine(store, new RcTranslator());
     await engine.apply(
       event('stream-notify-logged', 'user-status', [['u1', 'alice', 1, '']]),
     );
-    assert.equal(engine.stats.ignores, 0, 'sinon chaque aller-retour gonfle le compteur');
+    assert.equal(engine.stats.ignores, 0, 'otherwise each round trip inflates the counter');
   });
 
-  test('un stream inconnu est ignoré, mais compté', async () => {
+  test('an unknown stream is ignored, but counted', async () => {
     const { store } = makeStore();
     const engine = new SyncEngine(store, new RcTranslator());
     await engine.apply(event('stream-livechat-inquiry', 'x', [{}]));
     await engine.apply(event('stream-notify-user', 'u1/webrtc', ['updated', {}]));
-    assert.equal(engine.stats.ignores, 2, 'ignoré ne veut pas dire invisible');
+    assert.equal(engine.stats.ignores, 2, 'ignored does not mean invisible');
   });
 
-  test('une charge utile malformée n’interrompt pas le flux', async () => {
+  test('a malformed payload does not interrupt the stream', async () => {
     const { store, messages } = makeStore();
     const engine = new SyncEngine(store, new RcTranslator());
     await engine.apply(event('stream-room-messages', 'r1', ['pas un objet']));
@@ -436,7 +436,7 @@ describe('MoteurSynchro', () => {
     assert.equal(engine.stats.ignores, 2);
   });
 
-  test('un lot REST passe par les mêmes upserts que le WebSocket', async () => {
+  test('a REST batch goes through the same upserts as the WebSocket', async () => {
     const { store, messages } = makeStore();
     const engine = new SyncEngine(store, new RcTranslator());
     await engine.ingestMessages([
@@ -449,7 +449,7 @@ describe('MoteurSynchro', () => {
   });
 });
 
-/** Message chiffré `rc.v2.aes-sha2` : ciphertext dans `content`, `msg` vide. */
+/** `rc.v2.aes-sha2` encrypted message: ciphertext in `content`, empty `msg`. */
 const encryptedMsg = (id: string, ct: string): Record<string, unknown> => ({
   _id: id,
   rid: 'r1',
@@ -461,8 +461,8 @@ const encryptedMsg = (id: string, ct: string): Record<string, unknown> => ({
   _updatedAt: 1,
 });
 
-describe('MoteurSynchro — déchiffrement E2EE', () => {
-  test('déchiffre à l’ingestion quand la clé est disponible', async () => {
+describe('SyncEngine: E2EE decryption', () => {
+  test('decrypts at ingestion when the key is available', async () => {
     const { store, messages } = makeStore();
     const decryptor: E2EDecryptor = {
       decryptContent: (_rid, content) =>
@@ -472,10 +472,10 @@ describe('MoteurSynchro — déchiffrement E2EE', () => {
     const engine = new SyncEngine(store, new RcTranslator('moi', 'uid'), decryptor);
     await engine.ingestMessages([encryptedMsg('m1', 'CT')]);
     assert.equal(messages[0].text, 'clair !');
-    assert.notEqual(messages[0].encryptedRaw, null); // ciphertext gardé
+    assert.notEqual(messages[0].encryptedRaw, null); // ciphertext kept
   });
 
-  test('verrouillé : reste illisible, puis la passe de déverrouillage l’éclaire', async () => {
+  test('locked: stays unreadable, then the unlock pass makes it readable', async () => {
     const { store, messages } = makeStore();
     let unlocked = false;
     const decryptor: E2EDecryptor = {
@@ -485,7 +485,7 @@ describe('MoteurSynchro — déchiffrement E2EE', () => {
     };
     const engine = new SyncEngine(store, new RcTranslator('moi', 'uid'), decryptor);
     await engine.ingestMessages([encryptedMsg('m1', 'CT')]);
-    assert.equal(messages[0].text, null); // verrouillé → placeholder
+    assert.equal(messages[0].text, null); // locked → placeholder
 
     unlocked = true;
     const n = await engine.e2eUnlocked();
@@ -493,7 +493,7 @@ describe('MoteurSynchro — déchiffrement E2EE', () => {
     assert.equal(messages[0].text, 'clair !');
   });
 
-  test('un fichier chiffré : ses pièces jointes viennent du clair, à l’ingestion comme au déverrouillage', async () => {
+  test('an encrypted file: its attachments come from the plaintext, at ingestion as at unlock', async () => {
     const attachments = JSON.stringify([{ title: 'photo.jpg', encryption: { iv: 'aXY=' } }]);
     const { store, messages } = makeStore();
     let unlocked = false;
@@ -503,7 +503,7 @@ describe('MoteurSynchro — déchiffrement E2EE', () => {
     };
     const engine = new SyncEngine(store, new RcTranslator('moi', 'uid'), decryptor);
     await engine.ingestMessages([{ ...encryptedMsg('m1', 'CT'), attachments: [{ title: 'haché.bin' }] }]);
-    assert.equal(messages[0].attachments, null, 'jamais celles du serveur, opaques');
+    assert.equal(messages[0].attachments, null, 'never the server ones, opaque');
 
     unlocked = true;
     await engine.e2eUnlocked();
@@ -513,9 +513,9 @@ describe('MoteurSynchro — déchiffrement E2EE', () => {
     assert.equal(messages[1].attachments, attachments);
   });
 
-  test('sans déchiffreur, un message chiffré garde son ciphertext et reste illisible', async () => {
+  test('without a decryptor, an encrypted message keeps its ciphertext and stays unreadable', async () => {
     const { store, messages } = makeStore();
-    const engine = new SyncEngine(store, new RcTranslator('moi', 'uid')); // pas de déchiffreur
+    const engine = new SyncEngine(store, new RcTranslator('moi', 'uid')); // no decryptor
     await engine.ingestMessages([encryptedMsg('m1', 'CT')]);
     assert.equal(messages[0].text, null);
     assert.notEqual(messages[0].encryptedRaw, null);

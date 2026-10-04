@@ -1,8 +1,8 @@
 /**
- * Les mentions d'un message chiffré. Le serveur ne lit pas le texte, donc il ne
- * sait notifier que ce qu'on lui déclare dans `e2eMentions` (sondé sur 8.5 :
- * `e2eUserMentions: ['@bob']` donne la mention `bob`). Même règle que le client
- * web : un `@` ou un `#` en début de texte ou après un blanc.
+ * The mentions of an encrypted message. The server cannot read the text, so it
+ * can only notify what it is told in `e2eMentions` (probed on 8.5:
+ * `e2eUserMentions: ['@bob']` yields the mention `bob`). Same rule as the web
+ * client: an `@` or a `#` at the start of the text or after whitespace.
  */
 
 const NAME = '[0-9a-zA-Z-_.]+';

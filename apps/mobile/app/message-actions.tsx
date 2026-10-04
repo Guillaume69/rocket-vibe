@@ -47,25 +47,25 @@ import { LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
 import { Tappable } from '../ui/tappable.tsx';
 
 /**
- * Feuille d'actions d'un message (8.2) — `presentation: 'formSheet'` déclarée
- * dans `app/_layout.tsx` : le bottom sheet NATIF de react-native-screens
- * (contrainte : pas de @gorhom/bottom-sheet). La sheet épouse la hauteur de son
- * contenu (`sheetAllowedDetents: 'fitToContents'`), PLAFONNÉE à 80 % de l'écran
- * ici (`maxHeight`) — au-delà, le champ d'édition défile en interne. La décision
- * d'affichage vient de la fonction pure `actionsPossibles` ; le serveur reste
- * l'autorité en cas de refus.
+ * Message actions sheet (8.2), `presentation: 'formSheet'` declared in
+ * `app/_layout.tsx`: the NATIVE bottom sheet of react-native-screens
+ * (constraint: no @gorhom/bottom-sheet). The sheet fits its content's height
+ * (`sheetAllowedDetents: 'fitToContents'`), CAPPED at 80% of the screen here
+ * (`maxHeight`); beyond that, the edit field scrolls internally. What to show
+ * comes from the pure function `actionsPossibles`; the server stays the
+ * authority if it refuses.
  */
 
-// `chat.react` refuse l'unicode brut (« Invalid emoji provided ») : il veut le
-// SHORTNAME Rocket.Chat. On envoie le code, on affiche le glyphe que la table
-// en tire — une seule source de vérité, la même qui rend les messages.
+// `chat.react` refuses raw unicode ("Invalid emoji provided"): it wants the
+// Rocket.Chat SHORTNAME. We send the code and show the glyph the table
+// derives from it: a single source of truth, the same one that renders messages.
 const CODES_REACTION = ['+1', 'heart', 'joy', 'tada', 'open_mouth', 'pray'];
 
 /**
- * Réglages messages : une lecture par SERVEUR (clef `baseUrl` — un cache
- * global survivrait à un changement de serveur et appliquerait les règles de
- * l'ancien au nouveau). L'échec n'est jamais mémoïsé : hors ligne, on retombe
- * sur des règles permissives le temps de l'ouverture — le serveur tranchera.
+ * Message settings: one read per SERVER (keyed by `baseUrl`; a global cache
+ * would survive a server switch and apply the old server's rules to the new
+ * one). Failure is never memoised: offline, we fall back to permissive rules
+ * while the sheet is open; the server will decide.
  */
 const rulesByServer = new Map<string, MessageRules>();
 async function readRules(client: ClientRest): Promise<MessageRules> {
@@ -88,7 +88,7 @@ type Payload = {
   message: {
     id: string;
     rid: string;
-    /** `tmid` : la racine du fil si ce message en est déjà une réponse. */
+    /** `tmid`: the thread root if this message is already a reply in it. */
     threadId: string | null;
     systemType: string | null;
     text: string | null;
@@ -98,14 +98,14 @@ type Payload = {
     pinned: boolean;
     starred: string | null;
   };
-  /** De quoi bâtir le permalien d'une citation (`lib/quote.ts`). */
+  /** What is needed to build a quote's permalink (`lib/quote.ts`). */
   room: { type: string; name: string | null };
   actions: ActionMessage[];
 };
 
 export default function MessageActionsScreen() {
-  // `fil` : présent quand la feuille est ouverte DEPUIS l'écran d'un fil — la
-  // cible de réponse est alors adressée au composer de ce fil, pas du salon.
+  // `thread`: present when the sheet is opened FROM a thread screen; the reply
+  // target is then addressed to that thread's composer, not the room's.
   const { id, thread } = useLocalSearchParams<{ id: string; thread?: string }>();
   const { state } = useSession();
   const sync = useSync();
@@ -114,13 +114,13 @@ export default function MessageActionsScreen() {
   const t = useT();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  // Plafond de la sheet : au-delà, le contenu (le champ d'édition) défile.
+  // Sheet cap: beyond it, the content (the edit field) scrolls.
   const maxHeight = Math.round(height * 0.8);
-  // Marge basse : sous la barre de gestes, plus une respiration.
+  // Bottom margin: below the gesture bar, plus some breathing room.
   const bottom = insets.bottom + 12;
 
-  // Message et actions calculées naissent du même chargement : UN état, pour
-  // qu'ils ne puissent pas se désynchroniser.
+  // Message and computed actions come from the same load: ONE state, so
+  // they cannot fall out of sync.
   const [payload, setPayload] = useState<Payload | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -134,24 +134,24 @@ export default function MessageActionsScreen() {
   const client = state.phase === 'connected' ? state.client : null;
   const me = state.phase === 'connected' ? state.session.userId : null;
   const siteUrl = state.phase === 'connected' ? state.session.siteUrl : null;
-  // Les réactions se jugent au USERNAME (le serveur ne stocke que les pseudos),
-  // là où `actionsPossibles` raisonne par uid — les deux identités servent.
+  // Reactions are judged by USERNAME (the server only stores usernames),
+  // whereas `actionsPossibles` reasons by uid: both identities are used.
   const myUsername = state.phase === 'connected' ? state.session.username : null;
 
   useEffect(() => {
     if (!ready || base === null || client === null || me === null) return;
     let canceled = false;
     (async () => {
-      // Les règles ne dépendent de rien de local : la requête part tout de
-      // suite, en parallèle des lectures SQLite.
+      // The rules depend on nothing local: the request goes out right
+      // away, in parallel with the SQLite reads.
       const rulesPromise = readRules(client);
-      // Hors ligne ou refusées : `null`, les droits d'un simple membre.
+      // Offline or refused: `null`, the rights of a plain member.
       const sourcesPromise = sourcesPermissions(client).catch(() => null);
       const rows = await base.select().from(messages).where(eq(messages.id, id)).limit(1);
       const raw = rows[0];
       if (canceled) return;
       if (raw === undefined) {
-        // Supprimé entre l'appui long et l'ouverture (stream deleteMessage).
+        // Deleted between the long press and the opening (deleteMessage stream).
         setError(t('messageActions.messageNotFound'));
         return;
       }
@@ -179,8 +179,8 @@ export default function MessageActionsScreen() {
           pinned: raw.pinned,
           starred: raw.starred,
         },
-        // Ligne de salon absente (lien profond avant synchro) : repli `c`/rid —
-        // le serveur ne lit de toute façon que le `?msg=` du permalien.
+        // Room row missing (deep link before sync): fall back to `c`/rid; the
+        // server only reads the permalink's `?msg=` anyway.
         room: { type: roomRows[0]?.type ?? 'c', name: roomRows[0]?.name ?? null },
         actions: actionsPossibles({
           message: {
@@ -212,9 +212,9 @@ export default function MessageActionsScreen() {
     };
   }, [ready, id, thread, base, client, me, t]);
 
-  // Mes réactions déjà posées sur ce message : contour accentué, et le tap
-  // RETIRE au lieu d'ajouter — `chat.react` sait faire les deux, le câblage en
-  // dur à `mettre: true` rendait toute réaction inannulable.
+  // My reactions already set on this message: accented outline, and the tap
+  // REMOVES instead of adding. `chat.react` does both; hard-wiring it to add
+  // made every reaction impossible to undo.
   const myReactions = useMemo(
     () =>
       new Set(
@@ -225,16 +225,16 @@ export default function MessageActionsScreen() {
     [payload, myUsername],
   );
 
-  // Garde de réentrance dans une ref : l'état React d'un rendu passé
-  // laisserait un double-tap déclencher l'action deux fois — et deux
-  // `routeur.back()`, dont le second éjecte du salon.
+  // Reentrancy guard in a ref: the React state of a past render would let
+  // a double tap trigger the action twice, and two `router.back()`, the
+  // second of which ejects from the room.
   const inFlight = useRef(false);
   const act = useCallback(
     async (action: () => Promise<unknown>) => {
       if (inFlight.current) return;
       inFlight.current = true;
-      // Tick de sélection à la confirmation de l'action (réaction, épingler,
-      // supprimer, enregistrer) — retour haptique léger.
+      // Selection tick on action confirmation (reaction, pin, delete, save):
+      // light haptic feedback.
       void Haptics.selectionAsync();
       setBusy(true);
       setError(null);
@@ -265,8 +265,8 @@ export default function MessageActionsScreen() {
   const { message, room, actions } = payload;
   const isEditing = editing !== null;
 
-  // Arme la cible de réponse pour le composer d'origine (salon ou fil) puis se
-  // referme — l'envoi lui-même se joue là-bas, avec le texte tapé ensuite.
+  // Arms the reply target for the originating composer (room or thread), then
+  // closes; the send itself happens there, with the text typed next.
   const reply = () => {
     void Haptics.selectionAsync();
     const permalink = messagePermalink({
@@ -293,9 +293,9 @@ export default function MessageActionsScreen() {
     router.back();
   };
 
-  // Un fichier joint part COMME fichier ; sinon le texte. La légende d'une
-  // image reste à « Copier ». Le fichier se télécharge EN FOND : la feuille se
-  // referme tout de suite, la progression s'affiche sur le message.
+  // An attached file goes out AS a file; otherwise the text. An image's
+  // caption stays under "Copy". The file downloads IN THE BACKGROUND: the sheet
+  // closes right away, progress shows on the message.
   const attachment = attachmentToShare(message.attachments);
   const toForward =
     attachment === null
@@ -319,8 +319,8 @@ export default function MessageActionsScreen() {
     if (toForward !== null) saveInBackground(toForward, t);
   };
 
-  // Le serveur ne rediffuse pas toujours le message marqué (voir
-  // `lib/marks.ts`) : l'état local se pose ici, après le succès.
+  // The server does not always rebroadcast the marked message (see
+  // `lib/marks.ts`): the local state is set here, after success.
   const pin = async (put: boolean) => {
     if (put) await trigger.pin(message.rid, message.id);
     else await trigger.unpin(message.rid, message.id);
@@ -354,8 +354,8 @@ export default function MessageActionsScreen() {
                   {
                     backgroundColor: c.surfaceActive,
                     opacity: pressed ? 0.6 : 1,
-                    // Toujours une bordure (transparente au repos) : son
-                    // apparition ne doit pas faire bouger la rangée d'un pixel.
+                    // Always a border (transparent at rest): its appearance must
+                    // not move the row by a pixel.
                     borderColor: alreadySet ? c.accent : 'transparent',
                   },
                 ]}
@@ -411,10 +411,10 @@ export default function MessageActionsScreen() {
         </View>
       ) : (
         <View style={styles.actionList}>
-          {/* Aucune action possible (message système : arrivée, départ,
-              renommage) : le dire. Sans ce repli la feuille montait sur une
-              bande de 30 px sans un mot, et l'appui long avait vibré pour
-              rien — l'utilisateur croit à un bug d'affichage. */}
+          {/* No action possible (system message: join, leave,
+              rename): say so. Without this fallback the sheet rose as a
+              wordless 30 px strip, and the long press had vibrated for
+              nothing: the user thinks it is a display bug. */}
           {actions.length === 0 && (
             <Text style={[styles.noAction, { color: c.dimmed }]}>
               {t('messageActions.noActions')}
@@ -528,12 +528,12 @@ export default function MessageActionsScreen() {
                 void act(async () => {
                   try {
                     await trigger.delete(message.rid, message.id);
-                    // La ligne locale tombera par le stream `deleteMessage`.
+                    // The local row will go via the `deleteMessage` stream.
                   } catch (e) {
-                    // Fantôme : déjà supprimé d'un AUTRE client pendant que
-                    // l'app était fermée — le serveur ne le connaît plus,
-                    // seule la ligne locale reste. La purger EST la
-                    // suppression demandée ; toute autre erreur reste fatale.
+                    // Ghost: already deleted from ANOTHER client while
+                    // the app was closed; the server no longer knows it,
+                    // only the local row remains. Purging it IS the
+                    // requested deletion; any other error stays fatal.
                     if (!(await messageGoneFromServer(client, message.id))) throw e;
                     await engine.syncStore.deleteMessage(message.id);
                   }
@@ -551,7 +551,7 @@ export default function MessageActionsScreen() {
   );
 }
 
-/** Une ligne d'action pleine largeur : icône + libellé, ondulation Android. */
+/** A full-width action row: icon + label, Android ripple. */
 function ActionRow({
   c,
   icon,
@@ -568,8 +568,8 @@ function ActionRow({
   destructive?: boolean;
 }) {
   return (
-    // Le clip de l'enveloppe (`overflow`) découpe l'ondulation en coins
-    // doux : le masque du ripple borné ignore borderRadius sous Fabric.
+    // The wrapper's clip (`overflow`) cuts the ripple into soft corners: the
+    // bounded ripple mask ignores borderRadius under Fabric.
     <View style={styles.rowWrapper}>
       <Tappable
         disabled={disabled}
@@ -588,7 +588,7 @@ function ActionRow({
 }
 
 const styles = StyleSheet.create({
-  // Pas de flex:1 : `fitToContents` mesure la hauteur réelle du contenu.
+  // No flex:1: `fitToContents` measures the content's real height.
   sheet: { paddingHorizontal: 16, paddingTop: 10, gap: 6 },
   center: { minHeight: 96, alignItems: 'center', justifyContent: 'center' },
   emojiRow: {
@@ -631,7 +631,7 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
     fontSize: 15,
     minHeight: 80,
-    // Plafond du champ : au-delà, il défile en interne (la sheet ne s'emballe pas).
+    // Field cap: beyond it, it scrolls internally (the sheet does not run away).
     maxHeight: 200,
   },
   editRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },

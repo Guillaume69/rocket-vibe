@@ -1,9 +1,9 @@
 /**
- * Assemble un `Fournisseur` Rocket.Chat pour une session : réunit derrière la
- * façade neutre le DDP (listener), le traducteur, les actions, et les fabriques
- * d'envoi/rattrapage liées au `ClientRest`. `ui/sync.tsx` l'orchestre sans
- * nommer Rocket.Chat. Le driver Mattermost fournira `creerFournisseurMattermost`
- * rendant le même objet.
+ * Assembles a Rocket.Chat `Provider` for a session: gathers behind the
+ * neutral facade the DDP (listener), the translator, the actions, and the
+ * send/catch-up factories bound to the `ClientRest`. `ui/sync.tsx`
+ * orchestrates it without naming Rocket.Chat. The Mattermost driver will
+ * provide a `createMattermostProvider` returning the same object.
  */
 
 import type { Session } from '../../lib/auth.ts';
@@ -51,12 +51,12 @@ export function createRcProvider(
       return [
         [STREAM_NOTIFY_USER, `${session.userId}/subscriptions-changed`],
         [STREAM_NOTIFY_USER, `${session.userId}/rooms-changed`],
-        // La réponse d'une commande slash (`lib/commands.ts`).
+        // The response to a slash command (`lib/commands.ts`).
         [STREAM_NOTIFY_USER, `${session.userId}/${PRIVATE_MESSAGE_EVENT}`],
         [STREAM_NOTIFY_LOGGED, PRESENCE_EVENT],
-        // Photos de profil et de salon : le serveur diffuse la nouvelle version
-        // (`etag`) à TOUS les connectés. Sans cet abonnement, un avatar changé
-        // reste figé jusqu'au prochain `me`/`users.info` — voir `urlAvatar`.
+        // Profile and room photos: the server broadcasts the new version (`etag`)
+        // to EVERYONE connected. Without this subscription, a changed avatar stays
+        // frozen until the next `me`/`users.info`; see `urlAvatar`.
         [STREAM_NOTIFY_LOGGED, AVATAR_EVENT],
       ];
     },
@@ -66,8 +66,8 @@ export function createRcProvider(
       return privateMessage(event.args);
     },
     roomSubscriptions(rid: string): readonly (readonly [string, string])[] {
-      // Le format « rid » / « rid/sujet » est CELUI de Rocket.Chat : fabriqué
-      // ici, parsé par `sujetDe` dans le traducteur — nulle part ailleurs.
+      // The "rid" / "rid/topic" format is Rocket.Chat's: built here, parsed by
+      // `topicOf` in the translator, nowhere else.
       return [
         [STREAM_MESSAGES, rid],
         [STREAM_NOTIFY_ROOM, `${rid}/deleteMessage`],

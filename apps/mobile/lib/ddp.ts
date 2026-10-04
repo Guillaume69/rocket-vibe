@@ -1,21 +1,20 @@
 /**
- * Mini-client DDP pour Rocket.Chat — **écoute seule**.
+ * Mini DDP client for Rocket.Chat, **listening only**.
  *
- * Les appels de méthodes DDP sont dépréciés depuis Rocket.Chat 8.0, avec
- * retrait annoncé en 9.0 : on agit en REST, on écoute en DDP. La seule méthode
- * qu'on appelle est `login`, indispensable — le spike 1.7 l'a établi, une `sub`
- * sans session authentifiée reçoit `nosub: not-allowed`, **même sur un canal
- * public**.
+ * DDP method calls are deprecated since Rocket.Chat 8.0, with removal
+ * announced for 9.0: we act over REST, we listen over DDP. The only method we
+ * call is `login`, which is required: spike 1.7 established that a `sub`
+ * without an authenticated session gets `nosub: not-allowed`, **even on a
+ * public channel**.
  *
- * Écrit depuis la spécification DDP et l'observation du trafic. On ne recopie
- * pas `@rocket.chat/ddp-client`, dont la licence est ambiguë.
+ * Written from the DDP specification and from observing the traffic. We do not
+ * copy `@rocket.chat/ddp-client`, whose licence is ambiguous.
  *
- * Le `WebSocket` est injecté : celui de React Native et celui de Node exposent
- * la même API navigateur, donc ce module tourne sous Node et se teste pour de
- * vrai.
+ * The `WebSocket` is injected: React Native's and Node's expose the same
+ * browser API, so this module runs under Node and is tested for real.
  */
 
-/** Le sous-ensemble de `WebSocket` dont on dépend. */
+/** The subset of `WebSocket` we depend on. */
 export type WebSocketLike = {
   send(data: string): void;
   close(): void;
@@ -26,11 +25,11 @@ export type WebSocketLike = {
 };
 
 export type DdpEvent = {
-  /** Nom du stream, p. ex. `stream-room-messages`. */
+  /** Stream name, e.g. `stream-room-messages`. */
   collection: string;
-  /** Clé de l'événement : un `rid`, ou `<uid>/subscriptions-changed`. */
+  /** Event key: a `rid`, or `<uid>/subscriptions-changed`. */
   eventKey: string;
-  /** Charge utile. Le premier élément porte l'essentiel. */
+  /** Payload. The first element carries the essentials. */
   args: unknown[];
 };
 
@@ -54,43 +53,44 @@ type Pending = {
 
 export type OptionsDdp = {
   createWebSocket?: (url: string) => WebSocketLike;
-  /** Délai au-delà duquel une `method` ou une `sub` est considérée perdue. */
+  /** Delay after which a `method` or a `sub` is considered lost. */
   timeoutMs?: number;
   /**
-   * Silence serveur au-delà duquel la socket est tenue pour suspecte. Voir
-   * `SILENCE_MAX_MS`. Réglable pour les tests, pas pour la production.
+   * Server silence after which the socket is held suspect. See
+   * `SILENCE_MAX_MS`. Tunable for tests, not for production.
    */
   silenceMaxMs?: number;
-  /** Cadence du chien de garde. Voir `GARDE_MS`. */
+  /** Watchdog period. See `GUARD_MS`. */
   watchdogMs?: number;
 };
 
 /**
- * Le serveur DDP ping ses clients **toutes les 30 s** — mesuré contre
- * Rocket.Chat 8.5 (premier ping à +15 s de `connected`, puis 30 s pile). Le
- * protocole GARANTIT donc un trafic descendant régulier, même salon muet.
+ * The DDP server pings its clients **every 30 s**, measured against
+ * Rocket.Chat 8.5 (first ping at +15 s from `connected`, then exactly 30 s).
+ * The protocol therefore GUARANTEES regular downstream traffic, even in a
+ * silent room.
  *
- * Passé un ping entier manqué, la socket ne peut plus être saine : on tient le
- * silence pour une mort. Le seuil ne parie donc pas sur la latence du réseau —
- * il découle du rythme que le serveur s'impose.
+ * Past one whole missed ping, the socket can no longer be healthy: we take the
+ * silence for a death. So the threshold does not bet on network latency; it
+ * follows from the rhythm the server imposes on itself.
  */
 const SILENCE_MAX_MS = 45_000;
-/** Cadence de vérification : assez fine pour ne pas ajouter au seuil. */
+/** Check period: fine enough not to add to the threshold. */
 const GUARD_MS = 15_000;
 
 type DesiredSubscription = {
   name: string;
   eventKey: string;
-  /** Nombre d'appelants. La `sub` ne part qu'une fois, l'`unsub` qu'au dernier départ. */
+  /** Number of callers. The `sub` goes out only once, the `unsub` only on the last departure. */
   refs: number;
-  /** Identifiant sur le fil, ou `null` si rien n'est établi (socket tombée, pas encore authentifié). */
+  /** Wire identifier, or `null` if nothing is established (socket down, not yet authenticated). */
   id: string | null;
-  /** `sub` en cours de négociation sur le fil. */
+  /** `sub` being negotiated on the wire. */
   inFlight: boolean;
   /**
-   * La négociation en cours, vue comme une promesse qui ne rejette JAMAIS :
-   * elle retombe sur le `ready` du serveur, sur un `nosub`, ou sur la mort de
-   * la socket. C'est ce que `souscriptionsArmees()` attend.
+   * The ongoing negotiation, as a promise that NEVER rejects: it settles on
+   * the server's `ready`, on a `nosub`, or on the socket's death. That is what
+   * `armedSubscriptions()` waits for.
    */
   ready: Promise<void> | null;
 };
@@ -104,9 +104,9 @@ type MessageDdp = {
   error?: unknown;
   result?: unknown;
   fields?: { eventName?: string; args?: unknown[] };
-  /** Sur `msg: 'error'` : la raison du refus, en clair. */
+  /** On `msg: 'error'`: the reason for the refusal, in plain text. */
   reason?: string;
-  /** Sur `msg: 'error'` : le message refusé, tel qu'on l'avait envoyé. */
+  /** On `msg: 'error'`: the refused message, as we sent it. */
   offendingMessage?: { id?: string };
 };
 
@@ -122,34 +122,34 @@ export class ClientDdp {
   private readonly listeners = new Set<(e: DdpEvent) => void>();
   private readonly lossListeners = new Set<() => void>();
   /**
-   * Souscriptions **désirées**, indexées par `nom|clé`. Survivent à une
-   * fermeture de socket, pour que l'étape 5.1 puisse les rejouer : c'est le
-   * seul état qui doit traverser une reconnexion.
+   * **Desired** subscriptions, indexed by `name|key`. They survive a socket
+   * close, so step 5.1 can replay them: it is the only state that must cross a
+   * reconnection.
    *
-   * `refs` compte les appelants. Deux écrans qui observent le même salon ne
-   * doivent produire qu'une seule `sub` sur le fil — sinon le serveur envoie
-   * chaque message en double, ce que `ROADMAP.md` reproche à l'app officielle.
+   * `refs` counts the callers. Two screens watching the same room must produce
+   * a single `sub` on the wire, otherwise the server sends every message twice,
+   * which `ROADMAP.md` holds against the official app.
    */
   private readonly wanted = new Map<string, DesiredSubscription>();
   private readonly createWebSocket: (url: string) => WebSocketLike;
   private readonly timeoutMs: number;
   /**
-   * Rejette la négociation en cours. Elle vit hors de `attentes` (elle n'a pas
-   * d'`id` DDP) : sans ce crochet, un `fermer()` pendant `connecter()`
-   * laisserait la promesse pendre jusqu'à son délai — dix secondes de zombie
-   * à chaque démontage un peu rapide.
+   * Rejects the ongoing handshake. It lives outside `pending` (it has no DDP
+   * `id`): without this hook, a `close()` during `connect()` would leave the
+   * promise hanging until its timeout, ten seconds of zombie on every slightly
+   * quick unmount.
    */
   private cancelHandshake: ((reason: unknown) => void) | null = null;
   private readonly silenceMaxMs: number;
   private readonly watchdogMs: number;
-  /** Date du dernier octet reçu du serveur, tous messages confondus. */
+  /** Time of the last byte received from the server, all messages included. */
   private lastTraffic = 0;
   private watchdog: ReturnType<typeof setInterval> | null = null;
-  /** Une seule sonde à la fois : le chien de garde tique plus vite qu'elle. */
+  /** One probe at a time: the watchdog ticks faster than it. */
   private probeInFlight = false;
   /**
-   * `nettoyer()` a déjà couru sur cette socket. Vrai au départ : un client
-   * neuf n'a rien à nettoyer. Remis à faux par `connecter()`.
+   * `cleanUp()` has already run on this socket. True at first: a new client
+   * has nothing to clean up. Reset to false by `connect()`.
    */
   private cleanedUp = true;
 
@@ -162,14 +162,14 @@ export class ClientDdp {
       options.createWebSocket ?? ((u) => new WebSocket(u) as unknown as WebSocketLike);
   }
 
-  /** Souscriptions réellement établies sur le fil — l'écran debug de 3.6 s'en sert. */
+  /** Subscriptions actually established on the wire; the 3.6 debug screen uses it. */
   get subscriptionCount(): number {
     let n = 0;
     for (const s of this.wanted.values()) if (s.id !== null) n++;
     return n;
   }
 
-  /** Souscriptions demandées, établies ou non. Diffère de la précédente si la socket est tombée. */
+  /** Requested subscriptions, established or not. Differs from the previous one if the socket is down. */
   get wantedSubscriptionCount(): number {
     return this.wanted.size;
   }
@@ -180,9 +180,9 @@ export class ClientDdp {
   }
 
   /**
-   * Prévenu quand la connexion se perd SANS qu'on l'ait demandé — jamais sur
-   * `fermer()`. C'est le signal du pilote de reconnexion (5.1) : notifier une
-   * fermeture volontaire déclencherait une reconnexion après la déconnexion.
+   * Notified when the connection is lost WITHOUT us asking for it, never on
+   * `close()`. It is the reconnection driver's signal (5.1): notifying a
+   * deliberate close would trigger a reconnection after logout.
    */
   onLoss(listener: () => void): () => void {
     this.lossListeners.add(listener);
@@ -190,9 +190,9 @@ export class ClientDdp {
   }
 
   /**
-   * Ouvre la socket, négocie DDP, puis s'authentifie avec le jeton REST.
-   * `authToken` est celui de `POST /api/v1/login` : un seul secret pour les
-   * deux transports.
+   * Opens the socket, negotiates DDP, then authenticates with the REST token.
+   * `authToken` is the one from `POST /api/v1/login`: a single secret for both
+   * transports.
    */
   async connect(authToken: string): Promise<void> {
     if (this.state !== 'closed') throw new DdpError('Client already connected.');
@@ -201,9 +201,9 @@ export class ClientDdp {
     this.cleanedUp = false;
 
     await new Promise<void>((resolve, reject) => {
-      // Le timeout NETTOIE, il ne fait pas que rejeter : sinon l'état reste
-      // « connexion » avec une socket ouverte, et toute retentative du pilote
-      // de reconnexion échouerait à jamais sur « déjà connecté ».
+      // The timeout CLEANS UP, it does not just reject: otherwise the state
+      // stays "connecting" with an open socket, and every retry from the
+      // reconnection driver would fail forever on "already connected".
       const timer = setTimeout(() => {
         const error = new DdpError(`No "connected" within ${this.timeoutMs} ms.`);
         this.ws?.close();
@@ -217,10 +217,10 @@ export class ClientDdp {
       const ws = this.createWebSocket(this.url);
       this.ws = ws;
 
-      // Le `close` d'une socket abandonnée arrive de façon asynchrone, souvent
-      // APRÈS qu'une nouvelle a été ouverte. Sans cette garde d'identité, son
-      // `onclose` remettrait `this.ws` à null et l'état à « fermé » sous les
-      // pieds de la connexion en cours : le `connect` ne partirait jamais.
+      // An abandoned socket's `close` arrives asynchronously, often AFTER a new
+      // one was opened. Without this identity guard, its `onclose` would reset
+      // `this.ws` to null and the state to "closed" under the ongoing
+      // connection's feet: the `connect` would never go out.
       const isCurrent = () => this.ws === ws;
 
       ws.onerror = () => {
@@ -236,14 +236,14 @@ export class ClientDdp {
       };
       ws.onmessage = (e) => {
         if (!isCurrent()) return;
-        // AVANT tout traitement : ce qui compte pour le chien de garde est
-        // qu'un octet soit arrivé, pas qu'il ait été compris.
+        // BEFORE any processing: what matters to the watchdog is that a byte
+        // arrived, not that it was understood.
         this.lastTraffic = Date.now();
         let m: MessageDdp;
         try {
           m = JSON.parse(String(e.data)) as MessageDdp;
         } catch {
-          return; // Le serveur ne devrait pas, mais on ne meurt pas pour autant.
+          return; // The server should not, but we don't die for it.
         }
         if (m.msg === 'connected') {
           clearTimeout(timer);
@@ -256,7 +256,7 @@ export class ClientDdp {
         if (m.msg === 'failed') {
           clearTimeout(timer);
           this.cancelHandshake = null;
-          // Même exigence que le timeout : laisser le client réutilisable.
+          // Same requirement as the timeout: leave the client reusable.
           const error = new DdpError('DDP version refused by the server.');
           ws.close();
           this.cleanUp(error);
@@ -273,8 +273,8 @@ export class ClientDdp {
     try {
       await this.call('login', { resume: authToken });
     } catch (e) {
-      // Sans cela, la socket reste ouverte et l'état bloqué sur « connecte » :
-      // tout `connecter()` ultérieur lèverait « déjà connecté ».
+      // Without this, the socket stays open and the state stuck on "connected":
+      // any later `connect()` would throw "already connected".
       this.ws?.close();
       this.cleanUp(e);
       throw e;
@@ -282,22 +282,22 @@ export class ClientDdp {
     this.state = 'authenticated';
     this.startWatchdog();
 
-    // Rejouer les souscriptions désirées : celles demandées avant
-    // l'authentification, et celles d'une socket précédente. C'est ce qui
-    // permet à un écran de souscrire sans se soucier de l'état du transport —
-    // et c'est le mécanisme que la reconnexion (5.1) réutilisera tel quel.
+    // Replay the desired subscriptions: those requested before authentication,
+    // and those of a previous socket. That is what lets a screen subscribe
+    // without caring about the transport state, and it is the mechanism the
+    // reconnection (5.1) reuses as is.
     for (const entry of this.wanted.values()) this.establish(entry);
   }
 
   /**
-   * Déclare l'intérêt pour un stream et rend la fonction qui le relâche.
+   * Declares interest in a stream and returns the function that releases it.
    *
-   * **Synchrone et indépendant de l'état du transport** : appelée avant
-   * l'authentification ou après une coupure, la souscription est simplement
-   * mémorisée et établie dès que possible — `connecter()` rejoue toutes les
-   * désirées à l'authentification. L'ancienne API rendait l'identifiant du
-   * fil : il meurt avec la socket, et un écran qui s'en servait pour se
-   * désabonner après une coupure laissait fuir sa référence pour toujours.
+   * **Synchronous and independent of the transport state**: called before
+   * authentication or after a drop, the subscription is simply remembered and
+   * established as soon as possible; `connect()` replays all the desired ones
+   * on authentication. The old API returned the wire identifier: it dies with
+   * the socket, and a screen that used it to unsubscribe after a drop leaked
+   * its reference forever.
    */
   subscribe(name: string, eventKey: string): () => void {
     const key = `${name}|${eventKey}`;
@@ -313,8 +313,8 @@ export class ClientDdp {
     this.wanted.set(key, entry);
     this.establish(entry);
 
-    // Idempotente par appelant : un double appel ne doit pas voler la
-    // référence d'un autre écran.
+    // Idempotent per caller: a double call must not steal another screen's
+    // reference.
     let rendered = false;
     return () => {
       if (rendered) return;
@@ -324,12 +324,12 @@ export class ClientDdp {
   }
 
   /**
-   * Envoie la `sub` sur le fil si l'état le permet. Une seule par entrée :
-   * deux appelants du même tick partagent la négociation (`enVol`), sinon le
-   * serveur reçoit deux `sub` et duplique chaque événement.
+   * Sends the `sub` on the wire if the state allows. One per entry: two
+   * callers in the same tick share the negotiation (`inFlight`), otherwise the
+   * server receives two `sub`s and duplicates every event.
    *
-   * `params` reçoit toujours l'objet `{ useCollection: false, args: [] }` en
-   * dernier argument : c'est la convention des « streamers » de Rocket.Chat.
+   * `params` always gets the `{ useCollection: false, args: [] }` object as
+   * last argument: that is the convention of Rocket.Chat "streamers".
    */
   private establish(entry: DesiredSubscription): void {
     if (this.state !== 'authenticated' || entry.id !== null || entry.inFlight) return;
@@ -341,16 +341,16 @@ export class ClientDdp {
       .then(() => {
         entry.inFlight = false;
         if (this.wanted.get(key) !== entry) {
-          // Relâchée pendant la négociation : le serveur vient de l'établir,
-          // on la coupe aussitôt plutôt que de la laisser fuir.
+          // Released during the negotiation: the server just established it,
+          // we cut it at once rather than let it leak.
           this.send({ msg: 'unsub', id });
           return;
         }
         entry.id = id;
       })
       .catch(() => {
-        // `nosub` ou socket morte : `id` reste null. L'entrée reste désirée
-        // et sera retentée à la prochaine authentification.
+        // `nosub` or dead socket: `id` stays null. The entry stays desired and
+        // will be retried on the next authentication.
         entry.inFlight = false;
       });
 
@@ -362,14 +362,14 @@ export class ClientDdp {
     });
   }
 
-  /** Ne coupe la souscription sur le fil que lorsque le dernier appelant s'en va. */
+  /** Cuts the subscription on the wire only when the last caller leaves. */
   private release(key: string): void {
     const entry = this.wanted.get(key);
     if (entry === undefined) return;
     if (--entry.refs > 0) return;
     this.wanted.delete(key);
-    // Si une négociation est en vol, son `.then` verra l'entrée disparue et
-    // enverra l'`unsub` lui-même.
+    // If a negotiation is in flight, its `.then` will see the entry gone and
+    // send the `unsub` itself.
     if (entry.id !== null) this.send({ msg: 'unsub', id: entry.id });
   }
 
@@ -380,17 +380,18 @@ export class ClientDdp {
   }
 
   /**
-   * Résolue quand le serveur a ARMÉ les souscriptions désirées à l'instant de
-   * l'appel : leur `ready` reçu, leur `nosub` constaté, ou la socket morte.
+   * Resolved when the server has ARMED the subscriptions desired at the time
+   * of the call: their `ready` received, their `nosub` seen, or the socket
+   * dead.
    *
-   * C'est le seul signal EXACT du moment où le stream commence à couvrir. Une
-   * lecture REST démarrée après lui ne peut plus laisser de trou : tout ce que
-   * le serveur publie ensuite arrive par le fil. Le raccordement s'en sert au
-   * lieu d'un délai — la justesse ne doit dépendre ni de la latence ni de la
-   * qualité du réseau (voir `lib/connectionSetup.ts`).
+   * It is the only EXACT signal of when the stream starts covering. A REST
+   * read started after it can no longer leave a gap: everything the server
+   * publishes afterwards comes over the wire. Connection setup uses it instead
+   * of a delay; correctness must depend neither on latency nor on network
+   * quality (see `lib/connectionSetup.ts`).
    *
-   * Ne rejette jamais : une souscription qui échoue reste désirée et sera
-   * rejouée à la prochaine authentification.
+   * Never rejects: a failing subscription stays desired and will be replayed
+   * on the next authentication.
    */
   async armedSubscriptions(): Promise<void> {
     const negotiations: Promise<void>[] = [];
@@ -401,21 +402,21 @@ export class ClientDdp {
   }
 
   /**
-   * Chien de garde du silence. Une socket peut mourir SANS que le WebSocket
-   * n'appelle jamais `onclose` : le serveur envoie son FIN, la socket part en
-   * CLOSE-WAIT côté OS, et rien ne remonte au JS. Le client se croit alors
-   * `authentifie` pour toujours — `surPerte` ne part pas, le pilote de
-   * reconnexion n'est jamais réveillé, et plus aucun message n'arrive.
+   * Silence watchdog. A socket can die WITHOUT the WebSocket ever calling
+   * `onclose`: the server sends its FIN, the socket goes to CLOSE-WAIT on the
+   * OS side, and nothing reaches JS. The client then believes itself
+   * `authenticated` forever: `onLoss` does not fire, the reconnection driver is
+   * never woken, and no message arrives any more.
    *
-   * Constaté en vrai, reproduit sur l'AVD : après un téléversement de pièce
-   * jointe, quatre sockets vers le serveur en CLOSE-WAIT, aucun événement DDP,
-   * et les messages suivants jamais reçus — jusqu'à un passage en arrière-plan
-   * (qui sondait, lui) ou un redémarrage de l'app.
+   * Seen for real, reproduced on the AVD: after an attachment upload, four
+   * sockets to the server in CLOSE-WAIT, no DDP event, and the following
+   * messages never received, until a move to the background (which did probe)
+   * or an app restart.
    *
-   * Le seuil n'est pas un pari sur le réseau mais une lecture du protocole :
-   * le serveur ping toutes les 30 s (mesuré), donc un silence de 45 s prouve
-   * qu'un ping s'est perdu. On ne coupe pas pour autant — on SONDE, et c'est
-   * l'absence de pong qui tranche.
+   * The threshold is not a bet on the network but a reading of the protocol:
+   * the server pings every 30 s (measured), so a 45 s silence proves a ping
+   * was lost. We don't cut for all that: we PROBE, and the missing pong
+   * decides.
    */
   private startWatchdog(): void {
     this.stopWatchdog();
@@ -438,31 +439,31 @@ export class ClientDdp {
   }
 
   /**
-   * Sonde de vie : un ping DDP dont on attend le pong. Une socket à moitié
-   * morte (NAT tombé pendant la veille, sans FIN ni RST) ne répondra jamais
-   * ET ne fermera jamais — on la nettoie nous-mêmes, ce qui notifie
-   * `surPerte` et laisse le pilote de reconnexion reprendre la main.
+   * Liveness probe: a DDP ping whose pong we wait for. A half-dead socket (NAT
+   * dropped during sleep, with neither FIN nor RST) will never answer AND never
+   * close: we clean it up ourselves, which notifies `onLoss` and lets the
+   * reconnection driver take over.
    */
   async checkAlive(): Promise<boolean> {
-    // Une NÉGOCIATION en cours ne se sonde pas. Sondé sur le banc 8.5.1 : un
-    // `ping` envoyé avant le `connect` reçoit `{msg:'error', reason:'Must
-    // connect first', offendingMessage:{id}}`, jamais de `pong`. Le `catch`
-    // ci-dessous fermerait alors une socket qui, dix secondes plus tard, a
-    // terminé son login et rejoué ses souscriptions. La négociation a déjà
-    // son propre délai (`delaiMs`) : elle n'a pas besoin qu'on la surveille.
+    // An ongoing NEGOTIATION is not probed. Probed on the 8.5.1 bench: a
+    // `ping` sent before the `connect` gets `{msg:'error', reason:'Must
+    // connect first', offendingMessage:{id}}`, never a `pong`. The `catch`
+    // below would then close a socket that, ten seconds later, has finished
+    // its login and replayed its subscriptions. The negotiation already has
+    // its own timeout (`timeoutMs`): it does not need watching.
     //
-    // L'état `connecte` (handshake fait, login pas encore répondu) est en
-    // revanche bien sondable — même sonde, `pong` reçu.
+    // The `connected` state (handshake done, login not yet answered), on the
+    // other hand, can be probed: same probe, `pong` received.
     if (this.state !== 'connected' && this.state !== 'authenticated') return false;
     const id = `v${++this.counter}`;
     try {
-      const promise = this.waitFor(id, 'sonde de vie');
+      const promise = this.waitFor(id, 'liveness probe');
       this.send({ msg: 'ping', id });
       await promise;
       return true;
     } catch {
-      // Le cast : TypeScript ne voit pas que `etat` a pu changer pendant
-      // l'await (une coupure concurrente a pu déjà nettoyer).
+      // The cast: TypeScript does not see that `state` may have changed during
+      // the await (a concurrent drop may already have cleaned up).
       if ((this.state as DdpState) !== 'closed') {
         this.ws?.close();
         this.cleanUp(new DdpError('Liveness probe unanswered: socket dead.'));
@@ -471,7 +472,7 @@ export class ClientDdp {
     }
   }
 
-  /** Seule méthode DDP encore appelée : `login`. Voir l'en-tête du fichier. */
+  /** The only DDP method still called: `login`. See the file header. */
   private call(method: string, ...params: unknown[]): Promise<unknown> {
     const id = `m${++this.counter}`;
     const promise = this.waitFor(id, `method ${method}`);
@@ -500,13 +501,13 @@ export class ClientDdp {
   private receive(m: MessageDdp): void {
     switch (m.msg) {
       case 'ping':
-        // Le serveur coupe la socket sans pong. L'`id` n'est présent que si le
-        // ping en portait un.
+        // The server cuts the socket without a pong. The `id` is present only
+        // if the ping carried one.
         this.send(m.id === undefined ? { msg: 'pong' } : { msg: 'pong', id: m.id });
         break;
 
       case 'pong':
-        // Réponse à NOTRE ping (sonde de vie).
+        // Answer to OUR ping (liveness probe).
         if (m.id !== undefined) this.finish(m.id, 'pong');
         break;
 
@@ -531,11 +532,11 @@ export class ClientDdp {
         break;
 
       case 'error': {
-        // Refus d'un message mal formé ou hors séquence. Le serveur ne
-        // répondra JAMAIS à l'id fautif : sans ce cas, l'attente pend
-        // jusqu'à `delaiMs` et son échec est mis sur le compte de la socket.
-        // Relevé sur le banc 8.5.1 — l'erreur porte bien le message refusé,
-        // donc son `id` : on peut rejeter la bonne attente, pas toutes.
+        // Refusal of a malformed or out-of-sequence message. The server will
+        // NEVER answer the offending id: without this case, the wait hangs
+        // until `timeoutMs` and its failure is blamed on the socket. Recorded
+        // on the 8.5.1 bench: the error does carry the refused message, hence
+        // its `id`, so we can reject the right wait, not all of them.
         const id = m.offendingMessage?.id;
         if (typeof id === 'string') {
           this.finish(id, undefined, new DdpError(`Message refused: ${m.reason ?? 'no reason'}`));
@@ -544,8 +545,8 @@ export class ClientDdp {
       }
 
       case 'changed': {
-        // Format des streamers : `collection` = nom du stream, la clé est dans
-        // `fields.eventName`, la charge utile dans `fields.args`.
+        // Streamer format: `collection` = stream name, the key is in
+        // `fields.eventName`, the payload in `fields.args`.
         const eventKey = m.fields?.eventName;
         if (m.collection === undefined || eventKey === undefined) break;
         const event: DdpEvent = {
@@ -553,19 +554,19 @@ export class ClientDdp {
           eventKey,
           args: m.fields?.args ?? [],
         };
-        // Un écouteur qui lève ne doit pas empêcher les autres de recevoir.
+        // A listener that throws must not stop the others from receiving.
         for (const listener of [...this.listeners]) {
           try {
             listener(event);
           } catch {
-            /* ignoré volontairement */
+            /* deliberately ignored */
           }
         }
         break;
       }
 
       default:
-        // `added`, `removed`, `updated` : sans objet quand useCollection=false.
+        // `added`, `removed`, `updated`: moot when useCollection=false.
         break;
     }
   }
@@ -575,30 +576,30 @@ export class ClientDdp {
   }
 
   /**
-   * Rejette tout ce qui est en vol : sans cela, les promesses pendraient.
+   * Rejects everything in flight: without this, the promises would hang.
    *
-   * Les souscriptions **désirées** survivent : ce sont elles que l'étape 5.1
-   * rejouera à la reconnexion. Seuls leurs identifiants de fil sont oubliés,
-   * puisqu'ils appartenaient à la socket morte.
+   * The **desired** subscriptions survive: they are what step 5.1 replays on
+   * reconnection. Only their wire identifiers are forgotten, since they
+   * belonged to the dead socket.
    *
-   * **Idempotent.** Une socket qui meurt pendant le login passe ici deux fois :
-   * une par `onclose`, une par le `catch` de `connecter()` — l'attente du login
-   * ayant été rejetée par le premier passage. Sans sortie anticipée, `surPerte`
-   * partirait deux fois, et le second passage réémettrait l'événement sur un
-   * objet déjà entièrement vidé.
+   * **Idempotent.** A socket dying during login comes through here twice: once
+   * via `onclose`, once via `connect()`'s `catch`, the login wait having been
+   * rejected by the first pass. Without an early exit, `onLoss` would fire
+   * twice, and the second pass would re-emit the event on an already fully
+   * emptied object.
    */
   private cleanUp(reason: unknown): void {
     if (this.cleanedUp) return;
     this.cleanedUp = true;
     this.stopWatchdog();
-    // Détacher les gestionnaires : une socket abandonnée ne doit plus rien dire.
+    // Detach the handlers: an abandoned socket must say nothing more.
     if (this.ws !== null) {
       this.ws.onopen = null;
       this.ws.onmessage = null;
       this.ws.onclose = null;
       this.ws.onerror = null;
     }
-    // Une négociation en vol est rejetée tout de suite — pas au bout du délai.
+    // An in-flight negotiation is rejected at once, not at the end of the timeout.
     this.cancelHandshake?.(reason);
     this.cancelHandshake = null;
     for (const [id] of this.pending) this.finish(id, undefined, reason);
@@ -616,13 +617,13 @@ export class ClientDdp {
         try {
           listener();
         } catch {
-          /* un écouteur qui lève ne bloque pas les autres */
+          /* a throwing listener does not block the others */
         }
       }
     }
   }
 
-  /** Oublie tout, y compris les souscriptions désirées. À la déconnexion. */
+  /** Forgets everything, desired subscriptions included. On logout. */
   reset(): void {
     this.wanted.clear();
   }

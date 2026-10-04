@@ -4,7 +4,7 @@ import { describe, test } from 'node:test';
 import { withTransactionTrap } from './testStore.ts';
 import type { Store } from './sync.ts';
 
-/** Le plus petit faux possible : on ne teste ici QUE le piège. */
+/** The smallest possible fake: ONLY the trap is tested here. */
 function makeBareStore() {
   const written: string[] = [];
   const bare: Omit<Store, 'transaction'> = {
@@ -36,15 +36,15 @@ function makeBareStore() {
 
 const message = { id: 'm1' } as Parameters<Store['upsertMessage']>[0];
 
-describe('avecPiegeTransaction', () => {
-  test('hors transaction, tout passe et atteint le faux', async () => {
+describe('withTransactionTrap', () => {
+  test('outside a transaction, everything goes through and reaches the fake', async () => {
     const { store, written } = makeBareStore();
     await store.upsertMessage(message);
     await store.writeCursor('r1', 'messages', 7);
     assert.deepEqual(written, ['message:m1', 'curseur:r1|messages|7']);
   });
 
-  test('les écritures du `tx` reçu passent — c’est le contrat nominal', async () => {
+  test('writes through the received `tx` go through, the nominal contract', async () => {
     const { store, written } = makeBareStore();
     await store.transaction(async (tx) => {
       await tx.upsertMessage(message);
@@ -53,9 +53,9 @@ describe('avecPiegeTransaction', () => {
     assert.deepEqual(written, ['message:m1', 'curseur:r1|messages|7']);
   });
 
-  test('une écriture de PREMIER NIVEAU pendant la transaction jette — l’interblocage devient détectable', async () => {
+  test('a TOP-LEVEL write during the transaction throws, so the deadlock becomes detectable', async () => {
     const { store, written } = makeBareStore();
-    // Le régresseur type : `depot.upsertMessage` au lieu de `tx.upsertMessage`.
+    // The typical regression: `store.upsertMessage` instead of `tx.upsertMessage`.
     await assert.rejects(
       store.transaction(async () => {
         await store.upsertMessage(message);
@@ -63,8 +63,8 @@ describe('avecPiegeTransaction', () => {
       /outside the queue during a transaction/,
     );
     assert.deepEqual(written, []);
-    // Les méthodes de file NON membres d'`EcrituresDepot` sont piégées aussi :
-    // sur SQLite, elles passent par la même file (`db/store.ts`).
+    // Queued methods NOT in `StoreWrites` are trapped too: on SQLite they go
+    // through the same queue (`db/store.ts`).
     await assert.rejects(
       store.transaction(async () => {
         await store.updateMessageText('m1', 'clair', null);
@@ -73,7 +73,7 @@ describe('avecPiegeTransaction', () => {
     );
   });
 
-  test('les LECTURES restent permises en transaction — hors file dans db/store.ts', async () => {
+  test('READS stay allowed in a transaction, outside the queue in db/store.ts', async () => {
     const { store } = makeBareStore();
     let read: number | null = null;
     await store.transaction(async () => {
@@ -82,7 +82,7 @@ describe('avecPiegeTransaction', () => {
     assert.equal(read, 42);
   });
 
-  test('une transaction imbriquée jette, et le piège se désarme même sur échec', async () => {
+  test('a nested transaction throws, and the trap disarms even on failure', async () => {
     const { store, written } = makeBareStore();
     await assert.rejects(
       store.transaction(async () => {
@@ -90,7 +90,7 @@ describe('avecPiegeTransaction', () => {
       }),
       /nested transaction/,
     );
-    // Le `finally` a bien rendu la main : le dépôt refonctionne après l'échec.
+    // The `finally` did hand back: the store works again after the failure.
     await store.upsertMessage(message);
     assert.deepEqual(written, ['message:m1']);
   });

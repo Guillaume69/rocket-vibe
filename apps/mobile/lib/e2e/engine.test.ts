@@ -8,7 +8,7 @@ import { E2EEngine, type ClientE2E, type E2EKeyStorage } from './engine.ts';
 const { subtle } = webcrypto;
 const enc = new TextEncoder();
 const b64 = (u8: Uint8Array): string => Buffer.from(u8).toString('base64');
-// ArrayBuffer-backed (pas ArrayBufferLike) pour satisfaire `BufferSource`.
+// ArrayBuffer-backed (not ArrayBufferLike) to satisfy `BufferSource`.
 const rand = (n: number): Uint8Array<ArrayBuffer> => {
   const a = new Uint8Array(n);
   webcrypto.getRandomValues(a);
@@ -25,7 +25,7 @@ const RID = '6a5548728d3f0c034622efbc';
 const PASSWORD = 'correct horse battery staple';
 const MESSAGE = 'message secret e2e alice 42';
 
-/** Jeu chiffré au format RC via WebCrypto (comme le ferait le client officiel). */
+/** Encrypted fixture in the RC format via WebCrypto (as the official client would). */
 async function make(): Promise<{
   fetchMyKeys: { public_key: string; private_key: string };
   e2eKey: string;
@@ -69,8 +69,8 @@ async function make(): Promise<{
 }
 
 /**
- * Une clé de salon DE PLUS, sous la même paire RSA — de quoi simuler la
- * rotation que provoque le retrait d'un membre du salon.
+ * One MORE room key, under the same RSA pair, to simulate the rotation caused
+ * by removing a member from the room.
  */
 async function makeRoomKey(
   publicJwk: string,
@@ -109,38 +109,38 @@ function faux(fetchMyKeys: unknown): { client: ClientE2E; storage: E2EKeyStorage
   return { client, storage, read: () => stored };
 }
 
-describe('MoteurE2E', () => {
-  test('déverrouille, cache la clé de salon, déchiffre un message', async () => {
+describe('E2EEngine', () => {
+  test('unlocks, caches the room key, decrypts a message', async () => {
     const { fetchMyKeys, e2eKey, content } = await make();
     const { client, storage, read } = faux(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
 
     assert.equal(m.isUnlocked, false);
-    assert.equal(m.decryptContent(RID, content), null); // verrouillé → null
+    assert.equal(m.decryptContent(RID, content), null); // locked -> null
 
     await m.unlock(PASSWORD);
     assert.equal(m.isUnlocked, true);
-    assert.notEqual(read(), null); // clé privée persistée
+    assert.notEqual(read(), null); // private key persisted
 
     m.saveRoomKey(RID, e2eKey);
     assert.equal(m.decryptContent(RID, content)?.text, MESSAGE);
   });
 
-  test('déchiffre même si enregistrerCleSalon a lieu avant le déverrouillage', async () => {
+  test('decrypts even if saveRoomKey happens before unlocking', async () => {
     const { fetchMyKeys, e2eKey, content } = await make();
     const { client, storage } = faux(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
-    m.saveRoomKey(RID, e2eKey); // E2EKey connu avant d'avoir la clé privée
+    m.saveRoomKey(RID, e2eKey); // E2EKey known before the private key
     await m.unlock(PASSWORD);
     assert.equal(m.decryptContent(RID, content)?.text, MESSAGE);
   });
 
-  test('une ROTATION de clé de salon est prise en compte, pas ignorée', async () => {
-    // Retirer un membre du salon fait tourner sa clé : le serveur pousse un
-    // NOUVEL E2EKey sur le même rid. Le cache `clesSalon` porte alors la clé
-    // AES périmée, et `dechiffrerContenu` le consulte EN PREMIER — sans
-    // invalidation, tous les messages suivants restaient au placeholder 🔒
-    // jusqu'au redémarrage de l'app, sans aucun indice de cause.
+  test('a room key ROTATION is taken into account, not ignored', async () => {
+    // Removing a member from the room rotates its key: the server pushes a NEW
+    // E2EKey on the same rid. The `roomKeys` cache then holds the stale AES
+    // key, and `decryptContent` checks it FIRST; without invalidation, every
+    // later message stayed on the 🔒 placeholder until the app restarted, with
+    // no hint of the cause.
     const { fetchMyKeys, e2eKey, content } = await make();
     const { client, storage } = faux(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
@@ -155,7 +155,7 @@ describe('MoteurE2E', () => {
     assert.equal(m.roomKeyId(RID), rot.e2eKey.slice(0, 36));
   });
 
-  test('réenregistrer la MÊME clé ne casse rien (idempotent)', async () => {
+  test('saving the SAME key again breaks nothing (idempotent)', async () => {
     const { fetchMyKeys, e2eKey, content } = await make();
     const { client, storage } = faux(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
@@ -166,10 +166,10 @@ describe('MoteurE2E', () => {
     assert.equal(m.decryptContent(RID, content)?.text, MESSAGE);
   });
 
-  test('reprendre() réimporte la clé du Keystore sans mot de passe', async () => {
+  test('resume() reimports the Keystore key without a password', async () => {
     const { fetchMyKeys, e2eKey, content } = await make();
     const { client, storage } = faux(fetchMyKeys);
-    await new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' }).unlock(PASSWORD); // remplit le Keystore
+    await new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' }).unlock(PASSWORD); // fills the Keystore
 
     const m2 = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
     assert.equal(await m2.resume(), true);
@@ -178,7 +178,7 @@ describe('MoteurE2E', () => {
     assert.equal(m2.decryptContent(RID, content)?.text, MESSAGE);
   });
 
-  test('verrouiller() oublie tout et vide le Keystore', async () => {
+  test('lock() forgets everything and clears the Keystore', async () => {
     const { fetchMyKeys, e2eKey, content } = await make();
     const { client, storage, read } = faux(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
@@ -191,7 +191,7 @@ describe('MoteurE2E', () => {
     assert.equal(m.decryptContent(RID, content), null);
   });
 
-  test('mauvais mot de passe → ErreurE2E, reste verrouillé', async () => {
+  test('wrong password -> E2EError, stays locked', async () => {
     const { fetchMyKeys } = await make();
     const { client, storage, read } = faux(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
@@ -200,7 +200,7 @@ describe('MoteurE2E', () => {
     assert.equal(read(), null);
   });
 
-  test('souscrire est notifié au déverrouillage et au verrouillage', async () => {
+  test('subscribe is notified on unlock and on lock', async () => {
     const { fetchMyKeys } = await make();
     const { client, storage } = faux(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
@@ -212,8 +212,8 @@ describe('MoteurE2E', () => {
   });
 });
 
-describe('MoteurE2E — chiffrer', () => {
-  test('verrouillé ou sans clé de salon → null, jamais de clair', async () => {
+describe('E2EEngine: encrypt', () => {
+  test('locked or without a room key -> null, never plaintext', async () => {
     const { fetchMyKeys, e2eKey } = await make();
     const { client, storage } = faux(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
@@ -223,7 +223,7 @@ describe('MoteurE2E — chiffrer', () => {
     assert.equal(m.encrypt('autre-salon', { msg: 'x' }), null);
   });
 
-  test('chiffre sous la clé et le keyID du salon — relu par dechiffrerContenu', async () => {
+  test('encrypts under the room key and keyID, read back by decryptContent', async () => {
     const { fetchMyKeys, e2eKey } = await make();
     const { client, storage } = faux(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
@@ -236,7 +236,7 @@ describe('MoteurE2E — chiffrer', () => {
     assert.equal(m.decryptContent(RID, content as EncryptedContent)?.text, 'envoyé chiffré');
   });
 
-  test('après une rotation, chiffre sous la NOUVELLE clé', async () => {
+  test('after a rotation, encrypts under the NEW key', async () => {
     const { fetchMyKeys, e2eKey } = await make();
     const { client, storage } = faux(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });

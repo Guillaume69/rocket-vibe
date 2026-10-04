@@ -1,12 +1,13 @@
 /**
- * Nom du fichier SQLite d'un serveur **et d'un compte**. Isolé dans son propre
- * module — sans dépendance à `expo-sqlite` — pour être testé sans le recopier.
+ * SQLite file name for a server **and an account**. Isolated in its own
+ * module, with no dependency on `expo-sqlite`, so it can be tested without
+ * copying it.
  *
- * Il décide de l'isolation : deux serveurs distincts donnent deux bases, et
- * deux comptes du même serveur aussi — salons, aperçus et compteurs de non-lus
- * sont des données *du compte* ; les partager ferait voir à l'un les messages
- * directs de l'autre. Le même serveur écrit avec ou sans schéma, avec ou sans
- * barre finale, donne la même base.
+ * It decides isolation: two distinct servers give two databases, and so do
+ * two accounts on the same server; rooms, previews and unread counts are
+ * *account* data, sharing them would show one the other's direct messages.
+ * The same server written with or without scheme, with or without trailing
+ * slash, gives the same database.
  */
 export function databaseFileName(baseUrl: string, userId?: string): string {
   const withoutScheme = baseUrl.replace(/^https?:\/\//i, '').replace(/\/+$/, '');

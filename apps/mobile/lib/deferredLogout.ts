@@ -1,22 +1,20 @@
 /**
- * Terminer une déconnexion que le réseau a interrompue.
+ * Finish a logout that the network interrupted.
  *
- * Se déconnecter, c'est deux gestes serveur : retirer le jeton FCM
- * (`DELETE push.token`) et invalider la session (`POST logout`). Hors ligne,
- * les deux échouent en silence — l'UI est déjà repartie sur l'écran de
- * connexion — et le serveur, lui, n'a rien appris. Il continue donc de pousser
- * des notifications vers un appareil sans compte, et la session reste ouverte
- * côté serveur jusqu'à son expiration.
+ * Logging out is two server actions: remove the FCM token
+ * (`DELETE push.token`) and invalidate the session (`POST logout`). Offline,
+ * both fail silently (the UI is already back on the login screen) and the
+ * server has learned nothing. It keeps pushing notifications to a device with
+ * no account, and the session stays open server-side until it expires.
  *
- * D'où cette file, rejouée au démarrage suivant. Ce qu'elle persiste est le
- * jeton d'authentification d'une session que l'utilisateur vient de quitter :
- * ce n'est pas anodin, et c'est pourtant le bon compromis. Le jeton est
- * **encore vivant côté serveur** — c'est exactement le problème —, il vit au
- * Keystore comme la session dont il sort, et le garder est le seul moyen de le
- * TUER. Le jeter, c'est le laisser ouvert.
+ * Hence this queue, replayed on the next startup. What it persists is the auth
+ * token of a session the user just left: not trivial, yet the right trade-off.
+ * The token is **still alive server-side** (that is exactly the problem), it
+ * lives in the Keystore like the session it comes from, and keeping it is the
+ * only way to KILL it. Dropping it leaves it open.
  *
- * Volontairement **sans import de `expo`** : la file est injectée, donc toute
- * cette logique se teste sous Node, sans appareil.
+ * Deliberately **no `expo` import**: the queue is injected, so all this logic
+ * is tested under Node, without a device.
  */
 
 import { unregisterToken } from './pushToken.ts';
@@ -26,7 +24,7 @@ export type PendingLogout = {
   baseUrl: string;
   userId: string;
   authToken: string;
-  /** Jeton FCM à retirer. `null` si l'appareil n'en avait pas à enregistrer. */
+  /** FCM token to remove. `null` if the device had none to register. */
   jetonPush: string | null;
 };
 
@@ -36,21 +34,21 @@ export type LogoutQueue = {
 };
 
 /**
- * Rejoue les deux gestes, puis solde l'entrée — ou la garde pour plus tard.
+ * Replays both actions, then settles the entry, or keeps it for later.
  *
- * Trois issues, et c'est la troisième qui compte :
+ * Three outcomes, and the third is the one that matters:
  *
- * - **tout passe** → l'entrée est retirée ;
- * - **panne réseau** (`statut 0`) → l'entrée reste, on retentera au prochain
- *   démarrage. C'est le cas nominal d'une déconnexion faite dans le métro ;
- * - **le serveur refuse le jeton** (401) → l'entrée est retirée elle aussi. Le
- *   jeton est déjà mort : `logout` a pu aboutir là où le `DELETE` avait échoué,
- *   ou le serveur l'a expiré de lui-même. Il n'y a plus rien à tuer, et
- *   retenter éternellement une entrée inutilisable serait pire que de l'oublier
- *   — le jeton push, lui, part avec la session côté serveur.
+ * - **everything succeeds** → the entry is removed;
+ * - **network failure** (`status 0`) → the entry stays, retried on the next
+ *   startup. The nominal case of a logout done in the subway;
+ * - **the server rejects the token** (401) → the entry is removed too. The
+ *   token is already dead: `logout` may have succeeded where the `DELETE`
+ *   failed, or the server expired it on its own. There is nothing left to
+ *   kill, and retrying an unusable entry forever would be worse than
+ *   forgetting it; the push token goes away with the session server-side.
  *
- * Un `DELETE push.token` sur un jeton déjà retiré répond 404, que
- * `desenregistrerJeton` traite déjà comme un succès : le rejeu est donc sûr.
+ * A `DELETE push.token` on an already removed token answers 404, which
+ * `unregisterToken` already treats as success: replaying is safe.
  */
 export async function finishPendingLogouts(
   file: LogoutQueue,
@@ -60,8 +58,8 @@ export async function finishPendingLogouts(
   for (const entry of entries) {
     const client = createClient(entry);
     let networkFailure = false;
-    // Séquentiel et non `Promise.all` : `logout` invalide le jeton dont le
-    // `DELETE` a besoin. L'ordre est le même qu'à la déconnexion nominale.
+    // Sequential, not `Promise.all`: `logout` invalidates the token the
+    // `DELETE` needs. Same order as the nominal logout.
     const pushToken = entry.jetonPush;
     if (pushToken !== null) {
       networkFailure = !(await attempt(() => unregisterToken(client, pushToken)));
@@ -72,8 +70,8 @@ export async function finishPendingLogouts(
 }
 
 /**
- * Vrai si le geste est SOLDÉ — abouti, ou définitivement sans objet. Faux
- * seulement si le retenter a un sens.
+ * True if the action is SETTLED: done, or permanently moot. False only if
+ * retrying it makes sense.
  */
 async function attempt(gesture: () => Promise<unknown>): Promise<boolean> {
   try {

@@ -31,12 +31,12 @@ function authenticatedClient(postResponses: Record<string, unknown>) {
 
 const file = { uri: 'file:///x/mini.png', name: 'mini.png', type: 'image/png' };
 
-describe('televerserOctets', () => {
-  test('poste sur rooms.media, authentifié, et rend le fileId — SANS rien confirmer', async () => {
+describe('uploadBytes', () => {
+  test('posts to rooms.media, authenticated, and returns the fileId WITHOUT confirming anything', async () => {
     const calls: string[] = [];
     const transport: TransportUpload = async (url, headers) => {
       calls.push(url);
-      assert.equal(headers['X-Auth-Token'], 'jeton-alice', "l'upload est authentifié");
+      assert.equal(headers['X-Auth-Token'], 'jeton-alice', 'the upload is authenticated');
       return { status: 200, body: JSON.stringify({ file: { _id: 'f1' }, success: true }) };
     };
     const { client, posts } = authenticatedClient({});
@@ -44,11 +44,11 @@ describe('televerserOctets', () => {
     const fileId = await uploadBytes({ client, transport, rid: 'r1', file });
 
     assert.deepEqual(calls, ['http://x/api/v1/rooms.media/r1']);
-    assert.equal(fileId, 'f1', 'c’est LUI qu’on persiste avant d’aller plus loin');
-    assert.equal(posts.length, 0, 'les deux temps sont bien séparés');
+    assert.equal(fileId, 'f1', 'THIS is what gets persisted before going further');
+    assert.equal(posts.length, 0, 'the two steps are kept separate');
   });
 
-  test('un refus de rooms.media est une erreur claire', async () => {
+  test('a rooms.media refusal is a clear error', async () => {
     const transport: TransportUpload = async () => ({
       status: 413,
       body: JSON.stringify({ success: false, error: 'File too large' }),
@@ -61,13 +61,13 @@ describe('televerserOctets', () => {
     assert.equal(posts.length, 0);
   });
 
-  test('une réponse non JSON (reverse proxy) ne plante pas en TypeError', async () => {
+  test('a non-JSON response (reverse proxy) does not crash with a TypeError', async () => {
     const transport: TransportUpload = async () => ({ status: 502, body: '<html>bad gateway' });
     const { client } = authenticatedClient({});
     await assert.rejects(uploadBytes({ client, transport, rid: 'r1', file }), UploadError);
   });
 
-  test('l’interrupteur de la tâche est remonté à l’appelant', async () => {
+  test('the task interrupter is handed up to the caller', async () => {
     let cancel: (() => Promise<void>) | null = null;
     let canceled = false;
     const transport: TransportUpload = async (_u, _e, _f, _p, onCancelable) => {
@@ -82,14 +82,14 @@ describe('televerserOctets', () => {
       file,
       onCancelable: (a) => void (cancel = a),
     });
-    assert.notEqual(cancel, null, 'sans lui, « Abandonner » ne serait qu’un DELETE');
+    assert.notEqual(cancel, null, 'without it, "Discard" would only be a DELETE');
     await (cancel as unknown as () => Promise<void>)();
     assert.ok(canceled);
   });
 });
 
 describe('confirmerMedia', () => {
-  test('c’est mediaConfirm qui CRÉE le message — rooms.media seul laisse un orphelin', async () => {
+  test('mediaConfirm is what CREATES the message; rooms.media alone leaves an orphan', async () => {
     const { client, posts } = authenticatedClient({
       'rooms.mediaConfirm/r1/f1': { success: true, message: { _id: 'm1', rid: 'r1' } },
     });
@@ -99,26 +99,26 @@ describe('confirmerMedia', () => {
     assert.equal(message._id, 'm1');
   });
 
-  test('sans légende, le corps est VIDE (additionalProperties: false)', async () => {
+  test('without a caption, the body is EMPTY (additionalProperties: false)', async () => {
     const { client, posts } = authenticatedClient({
       'rooms.mediaConfirm/r1/f1': { success: true, message: { _id: 'm1' } },
     });
     await confirmerMedia({ client, rid: 'r1', fileId: 'f1' });
-    assert.deepEqual(posts[0]?.body, {}, 'le serveur refuserait toute clé en trop');
+    assert.deepEqual(posts[0]?.body, {}, 'the server would reject any extra key');
   });
 
-  test('une confirmation sans message est une erreur, pas un succès silencieux', async () => {
+  test('a confirmation without a message is an error, not a silent success', async () => {
     const { client } = authenticatedClient({ 'rooms.mediaConfirm/r1/f1': { success: true } });
     await assert.rejects(confirmerMedia({ client, rid: 'r1', fileId: 'f1' }), UploadError);
   });
 });
 
-describe('definirAvatar', () => {
-  test('poste vers users.setAvatar, authentifié', async () => {
+describe('setAvatar', () => {
+  test('posts to users.setAvatar, authenticated', async () => {
     let seenUrl = '';
     const transport: TransportUpload = async (url, headers) => {
       seenUrl = url;
-      assert.equal(headers['X-Auth-Token'], 'jeton-alice', "l'upload d'avatar est authentifié");
+      assert.equal(headers['X-Auth-Token'], 'jeton-alice', 'the avatar upload is authenticated');
       return { status: 200, body: JSON.stringify({ success: true }) };
     };
     const { client } = authenticatedClient({});
@@ -126,7 +126,7 @@ describe('definirAvatar', () => {
     assert.equal(seenUrl, 'http://x/api/v1/users.setAvatar');
   });
 
-  test('un refus serveur devient une ErreurUpload claire', async () => {
+  test('a server refusal becomes a clear UploadError', async () => {
     const transport: TransportUpload = async () => ({
       status: 400,
       body: JSON.stringify({ success: false, error: 'Avatar change disabled' }),
@@ -138,15 +138,15 @@ describe('definirAvatar', () => {
     );
   });
 
-  test('une réponse non JSON ne plante pas en TypeError', async () => {
+  test('a non-JSON response does not crash with a TypeError', async () => {
     const transport: TransportUpload = async () => ({ status: 502, body: '<html>' });
     const { client } = authenticatedClient({});
     await assert.rejects(setAvatar({ client, transport, file }), UploadError);
   });
 });
 
-describe('urlFichierProtege', () => {
-  test('ajoute rc_uid et rc_token — FileUpload_ProtectFiles les exige', () => {
+describe('protectedFileUrl', () => {
+  test('adds rc_uid and rc_token, which FileUpload_ProtectFiles requires', () => {
     const { client } = authenticatedClient({});
     assert.equal(
       protectedFileUrl(client, '/file-upload/f1/mini.png'),
@@ -154,39 +154,39 @@ describe('urlFichierProtege', () => {
     );
   });
 
-  test('respecte une query déjà présente', () => {
+  test('respects an existing query', () => {
     const { client } = authenticatedClient({});
     assert.match(protectedFileUrl(client, '/file-upload/f1/x.png?a=1'), /\?a=1&rc_uid=/);
   });
 
-  test('un chemin ABSOLU vers un autre hôte ne reçoit PAS le jeton', () => {
-    // `title_link` vient d'un `attachments` de message, que `chat.sendMessage`
-    // accepte tel quel : un lien absolu forgé repartait d'ici avec rc_uid et
-    // rc_token collés dessus, et une `<Image>` les livrait à cet hôte.
+  test('an ABSOLUTE path to another host does NOT get the token', () => {
+    // `title_link` comes from a message's `attachments`, which `chat.sendMessage`
+    // accepts as is: a forged absolute link left from here with rc_uid and
+    // rc_token stuck on it, and an `<Image>` delivered them to that host.
     const { client } = authenticatedClient({});
     const url = protectedFileUrl(client, 'https://evil.example/collecte.png');
     assert.equal(url, 'https://evil.example/collecte.png');
     assert.ok(!url.includes('rc_token'));
   });
 
-  test('un hôte dont le nôtre est un préfixe reste un autre hôte', () => {
+  test('a host that ours is a prefix of is still another host', () => {
     const { client } = authenticatedClient({});
     assert.ok(!protectedFileUrl(client, 'http://x.evil.example/f.png').includes('rc_token'));
   });
 
-  test("un userinfo qui imite notre hôte n'obtient rien non plus", () => {
+  test('a userinfo imitating our host gets nothing either', () => {
     const { client } = authenticatedClient({});
     assert.ok(!protectedFileUrl(client, 'http://x@evil.example/f.png').includes('rc_token'));
   });
 
-  test('une URL absolue vers NOTRE serveur reste authentifiée', () => {
+  test('an absolute URL to OUR server stays authenticated', () => {
     const { client } = authenticatedClient({});
     assert.match(protectedFileUrl(client, 'http://x/file-upload/f1/x.png'), /rc_token=jeton-alice/);
   });
 });
 
 describe('urlAvatar', () => {
-  test('vise par uid, authentifié — Accounts_AvatarBlockUnauthenticatedAccess l\'exige', () => {
+  test('targets by uid, authenticated, as Accounts_AvatarBlockUnauthenticatedAccess requires', () => {
     const { client } = authenticatedClient({});
     assert.equal(
       urlAvatar(client, { uid: 'u123' }),
@@ -194,34 +194,33 @@ describe('urlAvatar', () => {
     );
   });
 
-  test('un pseudo prime sur l\'uid, et est encodé', () => {
+  test('a username wins over the uid, and is encoded', () => {
     const { client } = authenticatedClient({});
     assert.match(urlAvatar(client, { username: 'a b', uid: 'u1' }) ?? '', /\/avatar\/a%20b\?/);
   });
 
-  test('un canal vise /avatar/room/<rid>', () => {
+  test('a channel targets /avatar/room/<rid>', () => {
     const { client } = authenticatedClient({});
     assert.match(urlAvatar(client, { rid: 'GENERAL' }) ?? '', /\/avatar\/room\/GENERAL\?/);
   });
 
-  test('rend null si rien ne désigne de cible — l\'appelant garde sa tuile', () => {
+  test('returns null if nothing designates a target; the caller keeps its tile', () => {
     const { client } = authenticatedClient({});
     assert.equal(urlAvatar(client, { uid: null, username: '', rid: undefined }), null);
   });
 
-  test('la version de la photo entre dans l\'URI — sinon le cache image la fige à vie', () => {
-    // Le serveur ignore le paramètre ; c'est le CACHE d'Android qu'il vise. Sans
-    // lui, `/avatar/alice` reste identique après un changement de photo et
-    // l'ancienne image s'affiche pour toujours (aucun ETag HTTP côté serveur,
-    // relevé sur 8.5).
+  test('the photo version goes into the URI, otherwise the image cache freezes it forever', () => {
+    // The server ignores the parameter; it targets Android's CACHE. Without it,
+    // `/avatar/alice` stays identical after a photo change and the old image
+    // shows forever (no HTTP ETag on the server side, observed on 8.5).
     const { client } = authenticatedClient({});
     const before = urlAvatar(client, { username: 'alice', etag: 'e1' });
     const after = urlAvatar(client, { username: 'alice', etag: 'e2' });
     assert.match(before ?? '', /\/avatar\/alice\?etag=e1&rc_uid=/);
-    assert.notEqual(before, after, 'une nouvelle version doit donner une nouvelle URI');
+    assert.notEqual(before, after, 'a new version must give a new URI');
   });
 
-  test('sans version connue, l\'URI reste celle d\'avant — rien ne régresse', () => {
+  test('without a known version, the URI stays as before: nothing regresses', () => {
     const { client } = authenticatedClient({});
     assert.equal(
       urlAvatar(client, { username: 'alice', etag: null }),
@@ -229,7 +228,7 @@ describe('urlAvatar', () => {
     );
   });
 
-  test('la version d\'un salon est encodée elle aussi', () => {
+  test('a room version is encoded too', () => {
     const { client } = authenticatedClient({});
     assert.match(urlAvatar(client, { rid: 'r 1', etag: 'a/b' }) ?? '', /\/avatar\/room\/r%201\?etag=a%2Fb&/);
   });

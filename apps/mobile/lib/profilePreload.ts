@@ -1,68 +1,67 @@
 /**
- * Préchargement de la fiche utilisateur AVANT d'ouvrir la sheet `/profile`.
+ * Preloading the user profile BEFORE opening the `/profile` sheet.
  *
- * La sheet est une `formSheet` `sheetAllowedDetents: 'fitToContents'` : elle se
- * mesure au PREMIER rendu. Si le contenu (nom, rôles, bio, fuseau, bouton
- * « Appeler ») arrive ensuite en async, la hauteur bondit — le « saut » que
- * l'utilisateur voyait. On casse ça en récupérant `users.info` ET en figeant la
- * sonde d'appel AVANT de naviguer : au montage, l'écran lit cette fiche depuis
- * le cache et démarre déjà complet, à sa hauteur définitive.
+ * The sheet is a `formSheet` with `sheetAllowedDetents: 'fitToContents'`: it
+ * measures itself on the FIRST render. If the content (name, roles, bio, time
+ * zone, "Call" button) then arrives async, the height jumps: the "jump" the
+ * user saw. We break that by fetching `users.info` AND settling the call probe
+ * BEFORE navigating: on mount, the screen reads this profile from the cache and
+ * starts already complete, at its final height.
  *
- * Le cache n'est PAS un cache de fraîcheur : c'est un tampon de passage entre
- * l'appel pré-navigation et la première frame de l'écran. Chaque ouverture
- * refait l'appel et réécrit l'entrée, donc la fiche affichée est toujours celle
- * qu'on vient de chercher.
+ * The cache is NOT a freshness cache: it is a hand-off buffer between the
+ * pre-navigation call and the screen's first frame. Every opening redoes the
+ * call and rewrites the entry, so the profile shown is always the one just
+ * fetched.
  *
- * `client` et navigation en singletons (posés depuis `ui/` — `SessionProvider`
- * pour le client, le layout racine pour le navigateur) et non passés en
- * paramètre : une mention `@user` dans un corps de message est rendue par de
- * simples fonctions (`ui/markdown.tsx`), sans rien sous la main. C'est aussi ce
- * qui garde ce module CHARGEABLE SOUS NODE : ni `expo-router` ni i18n ici — la
- * navigation est injectée, l'erreur voyage en clé à traduire à l'affichage.
+ * `client` and navigation are singletons (set from `ui/`: `SessionProvider` for
+ * the client, the root layout for the navigator), not parameters: an `@user`
+ * mention in a message body is rendered by plain functions (`ui/markdown.tsx`),
+ * with nothing at hand. It is also what keeps this module LOADABLE UNDER NODE:
+ * no `expo-router` nor i18n here, navigation is injected, the error travels as
+ * a key translated at display time.
  */
 
-import type { TranslationKey } from '../ui/messages.ts'; // import type seul : consigné, comme lib/systemMessages.ts
+import type { TranslationKey } from '../ui/messages.ts'; // type-only import: recorded, like lib/systemMessages.ts
 import { probeCallAvailable } from './call.ts';
 import type { ClientRest } from './rest.ts';
 
-/** Une des deux formes acceptées par `users.info` (jamais les deux à la fois). */
+/** One of the two forms `users.info` accepts (never both at once). */
 export type ProfileParams = { username?: string; uid?: string };
 
 /**
- * Pourquoi `user` manque : une clé du catalogue — traduite à l'AFFICHAGE, ce
- * module est du lib/ pur — ou le message d'une `ErreurRest`, déjà en langue.
+ * Why `user` is missing: a catalogue key (translated at DISPLAY time, this
+ * module is pure lib/) or the message of a `RestError`, already localized.
  */
 export type ProfileError = { key: TranslationKey } | { message: string };
 
-/** Brut `users.info` mis en cache : `user` absent ⇒ échec décrit par `erreur`. */
+/** Raw cached `users.info`: `user` missing ⇒ failure described by `error`. */
 export type RawProfile = { user: Record<string, unknown> | undefined; error: ProfileError | null };
 
 /**
- * Plafond d'attente avant d'ouvrir malgré tout. Sur réseau normal, `users.info`
- * répond bien en-dessous et la sheet s'ouvre déjà complète ; au-delà (réseau qui
- * traîne), on ouvre quand même — l'écran retombe sur son chargement async, avec
- * son squelette. Mieux vaut un tap qui répond qu'un tap qui semble mort.
+ * Wait cap before opening anyway. On a normal network, `users.info` answers
+ * well below it and the sheet opens already complete; beyond it (sluggish
+ * network), it opens anyway and the screen falls back on its async load, with
+ * its skeleton. A tap that responds beats a tap that seems dead.
  */
 const CAP_MS = 2000;
 
 /**
- * Anti-clignotement de l'indicateur, en deux temps :
+ * Indicator anti-flicker, in two parts:
  *
- * - `SEUIL_INDICATEUR_MS` : délai avant de l'AFFICHER. Sous ce délai — le cas
- *   normal — rien ne s'affiche, la sheet s'ouvre, tap perçu instantané. Réglé
- *   assez haut pour que la latence prod ordinaire passe DESSOUS et ne déclenche
- *   rien.
- * - `DUREE_MIN_VISIBLE_MS` : une fois affiché, il y RESTE au moins ce temps,
- *   quitte à retarder un peu l'ouverture. Sans ça, un chargement qui finit juste
- *   après le seuil ferait apparaître la pastille pour la masquer aussitôt — le
- *   flash. Un loader qui clignote fait plus « cassé » que « lent ».
+ * - `INDICATOR_THRESHOLD_MS`: delay before SHOWING it. Under this delay (the
+ *   normal case) nothing shows, the sheet opens, the tap feels instant. Set
+ *   high enough that ordinary prod latency stays BELOW it and triggers nothing.
+ * - `MIN_VISIBLE_MS`: once shown, it STAYS at least this long, even if that
+ *   delays the opening a little. Without it, a load finishing just after the
+ *   threshold would show the pill only to hide it at once: the flash. A
+ *   flickering loader looks more "broken" than "slow".
  */
 const INDICATOR_THRESHOLD_MS = 450;
 const MIN_VISIBLE_MS = 400;
 
 let activeClient: ClientRest | null = null;
 
-/** Posé par `SessionProvider` à chaque changement de session. */
+/** Set by `SessionProvider` on every session change. */
 export function setProfileClient(client: ClientRest | null): void {
   activeClient = client;
 }
@@ -70,18 +69,18 @@ export function setProfileClient(client: ClientRest | null): void {
 let activeBrowser: ((p: ProfileParams) => void) | null = null;
 
 /**
- * Posé par le layout racine (`app/_layout.tsx`) : c'est LUI qui sait pousser
- * `/profile` — ce module, du lib/ pur, ne connaît pas expo-router. Même modèle
- * que `definirClientProfil`. Sans navigateur posé (jamais le cas une fois
- * l'app montée), l'ouverture est un no-op silencieux.
+ * Set by the root layout (`app/_layout.tsx`): IT knows how to push `/profile`,
+ * this pure lib/ module does not know expo-router. Same model as
+ * `setProfileClient`. Without a navigator set (never the case once the app is
+ * mounted), opening is a silent no-op.
  */
 export function setProfileNavigator(nav: ((p: ProfileParams) => void) | null): void {
   activeBrowser = nav;
 }
 
-// --- Indicateur d'ouverture (différé) --------------------------------------
-// Store minimal, hors React (ce module est du `lib/`) : l'UI s'y abonne via
-// `ui/openingIndicator`. `poserBusy` ne notifie que sur changement réel.
+// --- Opening indicator (deferred) ------------------------------------------
+// Minimal store, outside React (this module is `lib/`): the UI subscribes via
+// `ui/openingIndicator`. `setBusy` only notifies on a real change.
 type BusyListener = (active: boolean) => void;
 const listeners = new Set<BusyListener>();
 let busy = false;
@@ -92,7 +91,7 @@ function setBusy(v: boolean): void {
   for (const e of listeners) e(v);
 }
 
-/** Abonne un écouteur à l'état « ouverture en cours » ; renvoie le désabonnement. */
+/** Subscribes a listener to the "opening in progress" state; returns the unsubscribe. */
 export function subscribeProfileOpening(cb: BusyListener): () => void {
   listeners.add(cb);
   cb(busy);
@@ -109,20 +108,20 @@ function key(p: ProfileParams): string {
     : `i:${p.uid ?? ''}`;
 }
 
-/** Fiche préchargée pour ces params, ou `undefined` si l'écran doit charger lui-même. */
+/** Preloaded profile for these params, or `undefined` if the screen must load it itself. */
 export function readPreloadedProfile(p: ProfileParams): RawProfile | undefined {
   return cache.get(key(p));
 }
 
 /**
- * Fin de session / changement de serveur.
+ * Session end / server change.
  *
- * Le cache retient des fiches `users.info` BRUTES — rôles, bio, fuseau, champs
- * personnalisés — sous une clé qui ne porte ni serveur ni compte. Le chemin
- * nominal ne peut pas les servir à un autre compte (`prechargerPuisOuvrir`
- * réécrit l'entrée avant de pousser l'écran), mais les laisser en mémoire pour
- * la vie du process est une résidence de données personnelles que rien ne
- * justifie — et une course étroite suffit à les afficher.
+ * The cache holds RAW `users.info` profiles (roles, bio, time zone, custom
+ * fields) under a key carrying neither server nor account. The nominal path
+ * cannot serve them to another account (`preloadThenOpen` rewrites the entry
+ * before pushing the screen), but keeping them in memory for the life of the
+ * process is a residence of personal data nothing justifies, and a narrow race
+ * is enough to display them.
  */
 export function forgetProfileCards(): void {
   cache.clear();
@@ -131,27 +130,26 @@ export function forgetProfileCards(): void {
 
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-/** La CIBLE dont l'ouverture est en vol — voir la garde de `ouvrirFicheProfil`. */
+/** The TARGET whose opening is in flight: see the guard in `openProfileCard`. */
 let currentKey: string | null = null;
 
 /**
- * Précharge la fiche puis ouvre `/profile`. À utiliser à la place d'un
- * `router.push('/profile')` direct, partout où l'on ouvre une fiche.
+ * Preloads the profile then opens `/profile`. Use instead of a direct
+ * `router.push('/profile')`, wherever a profile is opened.
  *
- * Réentrance gardée : la fonction attend jusqu'à `PLAFOND_MS` avant de pousser
- * l'écran, et l'indicateur d'attente est monté en `pointerEvents="none"` — rien
- * n'arrêtait donc un second tap. On récoltait deux `push`, donc deux fiches
- * empilées à refermer, et le `finally` de la première exécution éteignait
- * l'indicateur alors que la seconde volait encore (`poserBusy` est un booléen
- * global, pas un compteur). Garde d'ÉTAT, comme partout ailleurs dans le dépôt
- * (app/message-actions.tsx, app/search.tsx, app/profile.tsx) : aucun délai
- * ajouté.
+ * Reentrancy guarded: the function waits up to `CAP_MS` before pushing the
+ * screen, and the waiting indicator is mounted with `pointerEvents="none"`, so
+ * nothing stopped a second tap. We got two `push`es, so two stacked profiles to
+ * close, and the first run's `finally` turned the indicator off while the
+ * second was still in flight (`setBusy` is a global boolean, not a counter).
+ * A STATE guard, as everywhere else in the repo (app/message-actions.tsx,
+ * app/search.tsx, app/profile.tsx): no delay added.
  *
- * La garde porte sur la CIBLE, pas sur « une ouverture quelconque » : un verrou
- * global aurait avalé, jusqu'à 2,4 s durant et sans le moindre retour visuel
- * (l'indicateur n'apparaît qu'après `SEUIL_INDICATEUR_MS`), un tap sur un AUTRE
- * profil — que l'utilisateur aurait dû retaper. Deux cibles différentes gardent
- * donc le comportement d'avant.
+ * The guard is on the TARGET, not on "any opening": a global lock would have
+ * swallowed, for up to 2.4 s and without any visual feedback (the indicator
+ * only appears after `INDICATOR_THRESHOLD_MS`), a tap on ANOTHER profile, which
+ * the user would have had to tap again. Two different targets therefore keep
+ * the previous behaviour.
  */
 export async function openProfileCard(p: ProfileParams): Promise<void> {
   const k = key(p);
@@ -160,7 +158,7 @@ export async function openProfileCard(p: ProfileParams): Promise<void> {
   try {
     await preloadThenOpen(p);
   } finally {
-    // Une ouverture plus récente a pris la main : ne pas effacer SA clé.
+    // A more recent opening took over: do not clear ITS key.
     if (currentKey === k) currentKey = null;
   }
 }
@@ -169,9 +167,9 @@ async function preloadThenOpen(p: ProfileParams): Promise<void> {
   const client = activeClient;
   const k = key(p);
 
-  // Sans client (cas improbable : avant que la session soit posée) — on ouvre
-  // directement, l'écran fera l'appel. On purge toute entrée d'une ouverture
-  // précédente pour ne pas servir du périmé.
+  // No client (unlikely: before the session is set): open directly, the screen
+  // will make the call. Purge any entry from a previous opening so as not to
+  // serve stale data.
   if (client === null) {
     cache.delete(k);
     activeBrowser?.(p);
@@ -195,15 +193,15 @@ async function preloadThenOpen(p: ProfileParams): Promise<void> {
       error: e instanceof Error ? { message: e.message } : { key: 'profile.profileNotFound' },
     }));
 
-  // Indicateur différé : ne s'affiche QUE si l'attente dépasse le seuil, et
-  // reste alors visible un minimum (anti-flash — voir les constantes).
+  // Deferred indicator: shows ONLY if the wait exceeds the threshold, and then
+  // stays visible a minimum time (anti-flash, see the constants).
   let shownAt: number | null = null;
   const timer = setTimeout(() => {
     setBusy(true);
     shownAt = Date.now();
   }, INDICATOR_THRESHOLD_MS);
-  // On attend AUSSI la sonde d'appel (mémoïsée par serveur) : c'est elle qui
-  // décide de la présence du bouton « Appeler », donc de la hauteur finale.
+  // ALSO wait for the call probe (memoized per server): it decides whether the
+  // "Call" button is present, hence the final height.
   let raw: RawProfile | null;
   try {
     raw = await Promise.race<RawProfile | null>([
@@ -213,8 +211,8 @@ async function preloadThenOpen(p: ProfileParams): Promise<void> {
   } finally {
     clearTimeout(timer);
     if (shownAt !== null) {
-      // Pastille affichée : la maintenir jusqu'à son minimum avant de masquer
-      // et d'ouvrir — sinon flash. On ouvre donc pile quand elle disparaît.
+      // Pill shown: keep it up to its minimum before hiding and opening,
+      // otherwise flash. So the opening happens right as it disappears.
       const remainingMs = MIN_VISIBLE_MS - (Date.now() - shownAt);
       if (remainingMs > 0) await delay(remainingMs);
     }
@@ -224,8 +222,8 @@ async function preloadThenOpen(p: ProfileParams): Promise<void> {
   if (raw !== null) {
     cache.set(k, raw);
   } else {
-    // Plafond dépassé : ouvrir sans servir une entrée périmée d'avant — l'écran
-    // relira un miss et fera son propre chargement async.
+    // Cap exceeded: open without serving a stale earlier entry; the screen
+    // will read a miss and do its own async load.
     cache.delete(k);
   }
   activeBrowser?.(p);

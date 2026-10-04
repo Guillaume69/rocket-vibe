@@ -30,13 +30,13 @@ import { useSync } from '../../ui/sync.tsx';
 import { useColors, type Colors, FONTS } from '../../ui/theme.ts';
 
 /**
- * Écran d'un fil (8.3). `id` = `_id` du message racine (`tmid` de ses
- * réponses). Même architecture que le salon : SQLite projeté par requêtes
- * vives, le réseau (REST `chat.getThreadMessages` + stream) écrit dans SQLite.
+ * Thread screen (8.3). `id` = `_id` of the root message (`tmid` of its
+ * replies). Same architecture as the room: SQLite projected by live queries,
+ * the network (REST `chat.getThreadMessages` + stream) writes to SQLite.
  *
- * Un fil est court et fini : le fournisseur le charge en entier à l'ouverture
- * (`chat.getThreadMessages` par pages de 100, 20 pages au plus), sans
- * pagination à l'écran.
+ * A thread is short and finite: the provider loads it whole on opening
+ * (`chat.getThreadMessages` in pages of 100, 20 pages at most), with no
+ * on-screen pagination.
  */
 
 export default function ThreadScreen() {
@@ -106,14 +106,14 @@ function Thread({
   provider: Provider;
   actions: ProviderActions;
   client: ClientRest;
-  /** Mon username — marque mes réactions dans les lignes. */
+  /** My username: marks my reactions in the rows. */
   me: string;
   activity: ActivityEngine;
   generation: number;
 }) {
   const t = useT();
   const syncing = useActivity(threadId);
-  // La racine du fil — elle porte le titre et le `rid`.
+  // The thread root: it carries the title and the `rid`.
   const { data: rootRows } = useCoalescedLiveQuery(
     base.select().from(messages).where(eq(messages.id, threadId)).limit(1),
     [threadId],
@@ -125,23 +125,23 @@ function Thread({
       .select()
       .from(messages)
       .where(eq(messages.threadId, threadId))
-      // Clé secondaire `id` (même raison que l'écran salon) : un ex æquo à la
-      // milliseconde près est départagé de façon déterministe, pas par l'ordre
-      // d'insertion. Ordre ASC ici pour rester cohérent avec le tri DESC du
-      // salon — deux messages liés gardent la même relation dans les deux vues.
+      // Secondary key `id` (same reason as the room screen): a tie to the
+      // millisecond is broken deterministically, not by insertion order. ASC
+      // order here to stay consistent with the room's DESC sort: two linked
+      // messages keep the same relation in both views.
       .orderBy(asc(messages.ts), asc(messages.id)),
     [threadId],
   );
 
-  // `rid` : par la racine, ou À DÉFAUT par une réponse (lien direct à froid —
-  // `chat.getThreadMessages` ne renvoie jamais la racine, mais chaque réponse
-  // porte le rid). Sans ce repli, l'écran ne pourrait ni s'abonner au stream
-  // ni répondre tant que la racine n'est pas arrivée.
+  // `rid`: from the root, or FAILING THAT from a reply (cold direct link;
+  // `chat.getThreadMessages` never returns the root, but every reply carries
+  // the rid). Without this fallback, the screen could neither subscribe to the
+  // stream nor reply until the root has arrived.
   const rid = root?.rid ?? (replyRows ?? [])[0]?.rid;
 
-  // Les drapeaux du salon : mêmes interdits que le composer du salon —
-  // promettre une réponse dans un salon chiffré ou en lecture seule, c'est
-  // promettre un `error-not-allowed`.
+  // The room's flags: same prohibitions as the room composer; promising a
+  // reply in an encrypted or read-only room means promising an
+  // `error-not-allowed`.
   const { data: roomRows } = useCoalescedLiveQuery(
     base
       .select()
@@ -160,15 +160,15 @@ function Thread({
     [outboxRows],
   );
 
-  // Racine en tête, réponses en ordre chronologique — un fil se lit du haut.
+  // Root first, replies in chronological order: a thread reads from the top.
   const data = useMemo<MessageRowData[]>(() => {
     const responses = replyRows ?? [];
     return root === undefined ? responses : [root, ...responses];
   }, [root, replyRows]);
 
-  // Séparateurs de jour puis regroupement des rafales d'un même auteur
-  // (`ui/daySeparator`, `ui/messageGrouping`) — données ASC ici, l'inverse
-  // de l'écran salon.
+  // Day separators then grouping of bursts by the same author
+  // (`ui/daySeparator`, `ui/messageGrouping`): ASC data here, the reverse of
+  // the room screen.
   const listData = useMemo<(MessageRowData | DayRow)[]>(
     () => insertDaySeparators(data, 'oldest-first'),
     [data],
@@ -179,38 +179,38 @@ function Thread({
     [listData, continuations],
   );
 
-  // Le fil complet, depuis le serveur : rejouable, mêmes upserts idempotents.
-  // `generation` : un fil ouvert hors ligne se remplit au raccordement.
-  // Un fil déjà chargé sous cette génération n'a pas de premier passage à
-  // attendre : sans cet état initial, sauter le fetch laisserait « chargement »
-  // affiché à vie (même piège que l'écran salon).
+  // The full thread, from the server: replayable, same idempotent upserts.
+  // `generation`: a thread opened offline fills in at connection setup.
+  // A thread already loaded under this generation has no first pass to wait
+  // for: without this initial state, skipping the fetch would leave "loading"
+  // shown for life (same trap as the room screen).
   const [firstPassDone, setFirstPassDone] = useState(() =>
     threadLoadedUnder(threadId, generation),
   );
   useEffect(() => {
-    // Ce chargement ne se rejoue QUE si ce fil n'a pas déjà été chargé sous
-    // cette génération de connexion. `generation` étant dans les deps, chaque
-    // raccordement — donc chaque retour au premier plan, chaque flap réseau —
-    // relançait `chat.getMessage` PUIS toute la pagination du fil, pour
-    // ré-ingérer les mêmes documents. Voir `ui/loadedThreads.ts`.
+    // This loading is only replayed IF this thread has not already been loaded
+    // under this connection generation. With `generation` in the deps, each
+    // connection setup (so each return to the foreground, each network flap)
+    // restarted `chat.getMessage` THEN the whole thread pagination, to
+    // re-ingest the same documents. See `ui/loadedThreads.ts`.
     if (threadLoadedUnder(threadId, generation)) return;
     let canceled = false;
     const token = sessionToken();
-    // Portée d'activité = le fil lui-même, pas son salon : `rid` n'est pas
-    // encore connu quand ce chargement part (fil ouvert par lien direct, la
-    // racine n'est pas en base) et il apparaîtrait EN COURS de fetch — la barre
-    // écouterait alors une portée que personne n'a alimentée.
-    // Le chargement (racine puis pagination défensive des réponses) vit chez
-    // le fournisseur — voir `chargerFil` côté Rocket.Chat pour ses quirks.
+    // Activity scope = the thread itself, not its room: `rid` is not yet known
+    // when this loading starts (thread opened by direct link, the root is not in
+    // the database) and it would appear DURING the fetch; the bar would then
+    // listen to a scope nobody fed.
+    // The loading (root then defensive pagination of replies) lives in the
+    // provider; see `loadThread` on the Rocket.Chat side for its quirks.
     void activity
       .track(threadId, provider.loadThread(engine, threadId, () => canceled))
       .then(() => {
-        // Marqué au SUCCÈS seulement : un fil ouvert hors ligne doit repartir
-        // au raccordement suivant, pas rester vide.
+        // Marked on SUCCESS only: a thread opened offline must start again at the
+        // next connection setup, not stay empty.
         if (!canceled) markThreadLoaded(threadId, generation, token);
       })
       .catch(() => {
-        // Hors ligne : le cache local suffit.
+        // Offline: the local cache is enough.
       })
       .finally(() => {
         if (!canceled) setFirstPassDone(true);
@@ -220,14 +220,13 @@ function Thread({
     };
   }, [provider, engine, threadId, generation, activity]);
 
-  // Les réponses arrivent par le stream du SALON : on s'y abonne aussi d'ici,
-  // pour que le fil vive même ouvert par un lien direct (souscription
-  // refcountée — voir ddp.souscrire). On arme TOUT ce que le fournisseur
-  // déclare pour un salon, y compris l'activité de saisie que cet écran
-  // n'affiche pas : dans le cas courant (fil empilé sur son salon), le
-  // refcount fait qu'aucun `sub` de plus ne part ; par lien direct à froid,
-  // ces battements sont classés « silence » par le traducteur — le prix d'une
-  // façade qui ne détaille pas ses clés.
+  // Replies arrive through the ROOM's stream: we subscribe to it from here as
+  // well, so the thread lives even when opened by a direct link (refcounted
+  // subscription; see ddp.subscribe). We arm EVERYTHING the provider declares
+  // for a room, including the typing activity this screen does not show: in
+  // the common case (thread stacked on its room), the refcount means no extra
+  // `sub` goes out; by cold direct link, these beats are classified "silence"
+  // by the translator, the price of a facade that does not detail its keys.
   useEffect(() => {
     if (rid === undefined) return;
     const releases = provider
@@ -241,10 +240,10 @@ function Thread({
   const router = useRouter();
   const openActions = useCallback(
     (idMessage: string) => {
-      // « Pop » à l'ouverture de la feuille — confirme que l'appui long a pris.
+      // "Pop" when the sheet opens: confirms the long press registered.
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      // `fil` : une éventuelle cible de réponse revient au composer de CE fil,
-      // pas à celui du salon empilé dessous.
+      // `thread`: a possible reply target goes back to THIS thread's composer,
+      // not to that of the room stacked below.
       router.push({ pathname: '/message-actions', params: { id: idMessage, thread: threadId } });
     },
     [router, threadId],
@@ -258,8 +257,8 @@ function Thread({
     },
     [outboxQueue],
   );
-  // Tir-et-oublie, comme l'écran salon : l'écho du stream réécrit
-  // `messages.reactions`, la requête vive re-rend la pastille.
+  // Fire-and-forget, like the room screen: the stream's echo rewrites
+  // `messages.reactions`, the live query re-renders the chip.
   const react = useCallback(
     (ridMessage: string, idMessage: string, code: string, put: boolean) => {
       actions.react(ridMessage, idMessage, code, put).catch(() => {});
@@ -282,7 +281,7 @@ function Thread({
           onRetry={sendState?.status === 'echec' ? retry : null}
           onDiscard={sendState?.status === 'echec' ? discard : null}
           onLongPress={sendState === undefined ? openActions : null}
-          // On EST dans le fil : pas d'indicateur « N réponses » sur la racine.
+          // We ARE in the thread: no "N replies" indicator on the root.
           onOpenThread={null}
           me={me}
           onReact={sendState === undefined ? react : null}
@@ -295,18 +294,18 @@ function Thread({
   );
 
   const list = useRef<FlashListRef<MessageRowData | DayRow>>(null);
-  // La liste s'ouvre sur la RACINE : sans défilement après envoi, la réponse
-  // optimiste naît sous le pli et l'envoi semble n'avoir rien fait. On attend
-  // l'`_id` rendu par `envoi.envoyer` DANS les données — c'est le rendu qui
-  // recale la liste, pas une horloge. Le `setTimeout(250)` d'avant perdait la
-  // course dès que la file d'écritures était occupée : la chaîne écriture
-  // SQLite → `addDatabaseChangeListener` → `useRequeteVive` (débounce plafonné
-  // à 400 ms) n'a AUCUNE borne supérieure garantie sous ce délai — et la règle
-  // permanente du projet interdit les correctifs par temps d'attente.
-  // Une ref, pas un état : « quel envoi attend son défilement » ne rend rien.
-  // `envoyer` résout à l'ÉCRITURE locale, et la projection de cette écriture
-  // arrive forcément après (débounce ≥ 48 ms de la requête vive) : la ref est
-  // toujours posée avant le changement de `donnees` qui la consomme.
+  // The list opens on the ROOT: without scrolling after sending, the optimistic
+  // reply is born below the fold and the send seems to have done nothing. We
+  // wait for the `_id` returned by `outbox.send` IN the data: it is the render
+  // that readjusts the list, not a clock. The former `setTimeout(250)` lost
+  // the race as soon as the write queue was busy: the chain SQLite write ->
+  // `addDatabaseChangeListener` -> `useCoalescedLiveQuery` (debounce capped at
+  // 400 ms) has NO guaranteed upper bound under that delay, and the project's
+  // standing rule forbids fixes by waiting time.
+  // A ref, not a state: "which send is waiting for its scroll" renders nothing.
+  // `send` resolves on the local WRITE, and the projection of that write
+  // necessarily arrives later (live query debounce >= 48 ms): the ref is
+  // always set before the `data` change that consumes it.
   const sendToFollow = useRef<string | null>(null);
   const afterSend = useCallback((idMessage: string) => {
     sendToFollow.current = idMessage;
@@ -318,22 +317,22 @@ function Thread({
     list.current?.scrollToEnd({ animated: true });
   }, [data]);
 
-  // Brouillon du fil (8.7), clé `rid:tmid` : isolé du brouillon du salon.
-  // `null` tant que le rid n'est pas connu — le composer attend.
+  // Thread draft (8.7), key `rid:tmid`: isolated from the room's draft.
+  // `null` while the rid is not known; the composer waits.
   const persistence = useDraft(drafts, rid === undefined ? null : `${rid}:${threadId}`);
 
-  // Candidats à la mention (@) : ceux du SALON, pas seulement du fil — on
-  // mentionne souvent dans un fil quelqu'un qui a parlé dans le flux principal.
-  // `rid` encore inconnu → requête sur '' : liste vide, le composer n'est de
-  // toute façon pas monté.
+  // Mention candidates (@): the ROOM's, not only the thread's; people often
+  // mention in a thread someone who spoke in the main stream.
+  // `rid` still unknown -> query on '': empty list, the composer is not
+  // mounted anyway.
   const mentionCandidates = useMentionCandidates(base, rid ?? '');
 
   return (
     <KeyboardAvoidingContainer>
       <Stack.Screen options={{ title: t('thread.title') }} />
-      {/* L'en-tête est natif ici (pas d'`EnTeteSalon`) : la barre se pose donc
-          juste sous lui. Sans elle, le fil se réécrivait intégralement sans
-          qu'aucun signal ne l'indique. */}
+      {/* The header is native here (no `RoomHeader`): the bar therefore sits
+          right below it. Without it, the thread rewrote itself entirely with
+          no signal showing it. */}
       <SyncBar c={c} active={syncing} />
       {data.length === 0 ? (
         <View style={styles.center}>
@@ -348,25 +347,25 @@ function Thread({
           ref={list}
           data={listData}
           keyExtractor={(m) => m.id}
-          // Trois gabarits (tête avec avatar / suite sans / séparateur de
-          // jour) : typés pour que le recyclage de FlashList ne les mélange pas.
+          // Three templates (head with avatar / follow-up without / day
+          // separator): typed so FlashList's recycling does not mix them.
           getItemType={(item) =>
             'day' in item ? 'day' : continuations.has(item.id) ? 'continuation' : 'message'
           }
           renderItem={renderRow}
           contentContainerStyle={styles.content}
-          // Un fil se LIT depuis sa racine : ouverture en haut — l'idiome
-          // INVERSÉ du salon (8.10) n'aurait pas de sens ici. On garde donc
-          // le mVCP pour suivre les réponses entrantes près du bas, avec son
-          // recalage JS pendant l'animation du clavier — liste courte, à
-          // porter si le ressenti l'exige.
+          // A thread is READ from its root: it opens at the top; the room's
+          // INVERTED idiom (8.10) would make no sense here. So we keep mVCP to
+          // follow incoming replies near the bottom, with its JS readjustment
+          // during the keyboard animation: a short list, to port if the feel
+          // demands it.
           maintainVisibleContentPosition={{ autoscrollToBottomThreshold: 0.2 }}
         />
       )}
-      {/* Le composer COMMUN (ui/composer.tsx) : les variantes chiffré /
-          lecture seule vivent dedans — dans un salon chiffré, il propose
-          désormais le déverrouillage E2E, comme l'écran salon. `fichiers`
-          est null : pas de pièces jointes ni de vocal dans un fil. */}
+      {/* The SHARED composer (ui/composer.tsx): the encrypted / read-only
+          variants live inside it; in an encrypted room, it now offers the
+          E2E unlock, like the room screen. `files` is null: no attachments
+          or voice messages in a thread. */}
       {rid !== undefined && room !== undefined && persistence.initial !== null && (
         <Composer
           key={`${rid}:${threadId}`}

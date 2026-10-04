@@ -34,11 +34,11 @@ const base = {
   readOnly: false,
   encrypted: false,
   inThread: false,
-  now: 1_000_000 + 60_000, // une minute plus tard
+  now: 1_000_000 + 60_000, // one minute later
 };
 
 describe('actionsPossibles', () => {
-  test('mon message récent : tout est permis', () => {
+  test('my recent message: everything allowed', () => {
     assert.deepEqual(actionsPossibles(base), [
       'react',
       'reply',
@@ -52,14 +52,14 @@ describe('actionsPossibles', () => {
     ]);
   });
 
-  test('le DÉLAI d’édition vient des settings, pas des permissions', () => {
-    // 6 minutes après, avec BlockEditInMinutes = 5 : plus d'édition —
-    // mais la suppression (délai 0 = illimité) reste.
+  test('the edit TIME LIMIT comes from settings, not permissions', () => {
+    // 6 minutes later, with BlockEditInMinutes = 5: no more editing, but
+    // deleting (limit 0 = unlimited) stays.
     const late = { ...base, now: base.message.ts + 6 * 60_000 };
     assert.deepEqual(actionsPossibles(late), ['react', 'reply', 'replyInThread', 'copy', 'share', 'delete', 'pin', 'star']);
   });
 
-  test('`bypass-time-limit-edit-and-delete` rouvre l’édition après le délai', () => {
+  test('`bypass-time-limit-edit-and-delete` reopens editing after the limit', () => {
     const admin = {
       ...base,
       now: base.message.ts + 6 * 60_000,
@@ -68,7 +68,7 @@ describe('actionsPossibles', () => {
     assert.ok(actionsPossibles(admin).includes('edit'));
   });
 
-  test('`edit-message` permet de modifier le message d’AUTRUI', () => {
+  test('`edit-message` allows editing SOMEONE ELSE’s message', () => {
     const moderator = {
       ...base,
       message: { ...base.message, authorId: 'lui' },
@@ -77,12 +77,12 @@ describe('actionsPossibles', () => {
     assert.ok(actionsPossibles(moderator).includes('edit'));
   });
 
-  test('le message d’AUTRUI ne se modifie ni ne se supprime (sans permission)', () => {
+  test('SOMEONE ELSE’s message can be neither edited nor deleted (without permission)', () => {
     const others = { ...base, message: { ...base.message, authorId: 'lui' } };
     assert.deepEqual(actionsPossibles(others), ['react', 'reply', 'replyInThread', 'copy', 'share', 'pin', 'star']);
   });
 
-  test('lecture seule : ni réaction ni réponse ; message système : rien du tout', () => {
+  test('read-only: no reaction or reply; system message: nothing at all', () => {
     const readOnly = actionsPossibles({ ...base, readOnly: true });
     assert.ok(!readOnly.includes('react'));
     assert.ok(!readOnly.includes('reply'));
@@ -93,24 +93,25 @@ describe('actionsPossibles', () => {
     );
   });
 
-  // Ces trois cas remplacent un test qui passait `chiffre: true` en laissant
-  // `typeSysteme: null` — une combinaison qui n'existe PAS en base : un message
-  // d'un salon chiffré porte toujours le marqueur `e2e`, que `db/upserts.ts` ne
-  // retire pas au déchiffrement. Le test affirmait donc « réagir reste » alors
-  // que la sortie sèche sur `typeSysteme !== null` rendait un tableau vide.
-  test('salon chiffré, message DÉCHIFFRÉ : tout, sauf répondre en citant', () => {
+  // These three cases replace a test that passed `encrypted: true` with
+  // `systemType: null`, a combination that does NOT exist in the database: a
+  // message of an encrypted room always carries the `e2e` marker, which
+  // `db/upserts.ts` does not remove on decryption. The test thus claimed
+  // "react stays" while the early return on `systemType !== null` returned an
+  // empty array.
+  test('encrypted room, DECRYPTED message: everything except quote-reply', () => {
     const readable = actionsPossibles({
       ...base,
       encrypted: true,
       message: { ...base.message, systemType: 'e2e', text: 'clair' },
     });
     assert.deepEqual(readable, ['react', 'replyInThread', 'copy', 'share', 'edit', 'delete', 'pin', 'star']);
-    // La carte de citation est bâtie par le serveur depuis le texte, qu'il ne
-    // lit pas dans un salon chiffré.
+    // The quote card is built by the server from the text, which it cannot
+    // read in an encrypted room.
     assert.ok(!readable.includes('reply'));
   });
 
-  test('salon chiffré, message ENCORE OPAQUE : aucune action', () => {
+  test('encrypted room, STILL OPAQUE message: no action', () => {
     assert.deepEqual(
       actionsPossibles({
         ...base,
@@ -121,7 +122,7 @@ describe('actionsPossibles', () => {
     );
   });
 
-  test('un vrai message système reste fermé, même avec un texte', () => {
+  test('a real system message stays closed, even with a text', () => {
     assert.deepEqual(
       actionsPossibles({
         ...base,
@@ -131,19 +132,19 @@ describe('actionsPossibles', () => {
     );
   });
 
-  test('depuis l’écran d’un fil : répondre, mais pas ouvrir un fil', () => {
+  test('from a thread screen: reply, but not open a thread', () => {
     const actions = actionsPossibles({ ...base, inThread: true });
     assert.ok(actions.includes('reply'));
     assert.ok(!actions.includes('replyInThread'));
   });
 
-  test('lecture seule : copier et partager restent', () => {
+  test('read-only: copy and share stay', () => {
     const readOnly = actionsPossibles({ ...base, readOnly: true });
     assert.ok(readOnly.includes('copy'));
     assert.ok(readOnly.includes('share'));
   });
 
-  test('image sans légende : partager et enregistrer le fichier, mais rien à copier', () => {
+  test('image without caption: share and save the file, but nothing to copy', () => {
     const image = JSON.stringify([
       { title: 'photo.jpg', title_link: '/file-upload/f1/photo.jpg', image_url: '/file-upload/t1/photo.jpg' },
     ]);
@@ -156,7 +157,7 @@ describe('actionsPossibles', () => {
     assert.ok(!actions.includes('copy'));
   });
 
-  test('sans texte ni fichier, ou citation sans un mot : ni copier ni partager', () => {
+  test('no text or file, or a quote without a word: neither copy nor share', () => {
     const link = '[ ](https://chat.example/channel/general?msg=abc)';
     for (const text of [null, '', '   ', link, `${link}  `]) {
       const actions = actionsPossibles({ ...base, message: { ...base.message, text } });
@@ -166,22 +167,22 @@ describe('actionsPossibles', () => {
   });
 });
 
-describe('texteACopier', () => {
-  test('retire le permalien de citation en tête', () => {
+describe('textToCopy', () => {
+  test('strips the leading quote permalink', () => {
     assert.equal(
       textToCopy('[ ](https://chat.example/channel/general?msg=abc) oui, **ça** marche'),
       'oui, **ça** marche',
     );
   });
 
-  test('rien à emporter : null', () => {
+  test('nothing to take: null', () => {
     assert.equal(textToCopy(null), null);
     assert.equal(textToCopy('  '), null);
   });
 });
 
-describe('reglesDepuisReglages', () => {
-  test('lit les réglages et retombe sur permissif quand ils manquent', () => {
+describe('rulesFromSettings', () => {
+  test('reads the settings and falls back to permissive when missing', () => {
     const r = rulesFromSettings([
       { _id: 'Message_AllowEditing', value: true },
       { _id: 'Message_AllowEditing_BlockEditInMinutes', value: 5 },
@@ -189,7 +190,7 @@ describe('reglesDepuisReglages', () => {
     ]);
     assert.equal(r.editBlockMinutes, 5);
     assert.equal(r.deleteAllowed, false);
-    assert.equal(r.pinAllowed, true, 'absent = permis, le serveur tranchera');
+    assert.equal(r.pinAllowed, true, 'missing = allowed, the server will decide');
     assert.equal(r.starAllowed, true);
     assert.equal(
       rulesFromSettings([{ _id: 'Message_AllowStarring', value: false }]).starAllowed,
@@ -198,21 +199,21 @@ describe('reglesDepuisReglages', () => {
   });
 });
 
-describe('actionsPossibles — permissions chargées', () => {
+describe('actionsPossibles: permissions loaded', () => {
   const others = { ...base.message, authorId: 'lui' };
 
-  test('simple membre : ses messages oui, pas d’épingle', () => {
+  test('plain member: own messages yes, no pinning', () => {
     const member = { ...base, permissions: ['delete-own-message'] };
     const actions = actionsPossibles(member);
     assert.ok(actions.includes('edit') && actions.includes('delete'));
     assert.ok(!actions.includes('pin'));
   });
 
-  test('sans delete-own-message, même son propre message ne se supprime pas', () => {
+  test('without delete-own-message, even one’s own message cannot be deleted', () => {
     assert.ok(!actionsPossibles({ ...base, permissions: [] }).includes('delete'));
   });
 
-  test('modérateur : modifie, supprime et épingle le message d’autrui, dans le délai', () => {
+  test('moderator: edits, deletes and pins someone else’s message, within the limit', () => {
     const moderator = {
       ...base,
       message: others,
@@ -222,11 +223,11 @@ describe('actionsPossibles — permissions chargées', () => {
     for (const x of ['edit', 'delete', 'pin'] as const) assert.ok(actions.includes(x), x);
 
     const late = actionsPossibles({ ...moderator, now: base.message.ts + 6 * 60_000 });
-    assert.ok(!late.includes('edit'), 'le délai vaut aussi pour edit-message');
-    assert.ok(late.includes('delete'), 'délai de suppression illimité (0)');
+    assert.ok(!late.includes('edit'), 'the limit also applies to edit-message');
+    assert.ok(late.includes('delete'), 'unlimited delete limit (0)');
   });
 
-  test('force-delete-message supprime même hors délai et suppression désactivée', () => {
+  test('force-delete-message deletes even past the limit and with deleting disabled', () => {
     const owner = {
       ...base,
       message: others,
@@ -238,15 +239,15 @@ describe('actionsPossibles — permissions chargées', () => {
   });
 });
 
-describe('actionsPossibles — épingler, étoiler', () => {
-  test('un message épinglé propose Désépingler, un message étoilé par moi Retirer des favoris', () => {
+describe('actionsPossibles: pin, star', () => {
+  test('a pinned message offers Unpin, a message starred by me Remove from favorites', () => {
     const mark = { ...base, message: { ...base.message, pinned: true, starred: true } };
     const actions = actionsPossibles(mark);
     assert.ok(actions.includes('unpin') && !actions.includes('pin'));
     assert.ok(actions.includes('unstar') && !actions.includes('star'));
   });
 
-  test('réglages fermés : ni épingle ni étoile', () => {
+  test('settings off: neither pin nor star', () => {
     const closed = {
       ...base,
       rules: { ...rules, pinAllowed: false, starAllowed: false },
@@ -258,29 +259,29 @@ describe('actionsPossibles — épingler, étoiler', () => {
   });
 });
 
-describe('messageDisparuDuServeur', () => {
+describe('messageGoneFromServer', () => {
   const client = (get: () => Promise<unknown>) => ({ get });
 
-  test('chat.getMessage répond : le message existe encore, vrai refus', async () => {
+  test('chat.getMessage answers: the message still exists, a real refusal', async () => {
     const c = client(() => Promise.resolve({ message: { _id: 'm1' } }));
     assert.equal(await messageGoneFromServer(c, 'm1'), false);
   });
 
-  test('400 : le serveur ne connaît plus ce message — fantôme confirmé', async () => {
+  test('400: the server no longer knows this message, ghost confirmed', async () => {
     const c = client(() =>
       Promise.reject(new RestError('No message found with the id of "m1".', 400)),
     );
     assert.equal(await messageGoneFromServer(c, 'm1'), true);
   });
 
-  test('statut 0 (réseau) ou 429 (rate limit) : on ne conclut PAS à la disparition', async () => {
+  test('status 0 (network) or 429 (rate limit): NOT concluded as gone', async () => {
     const offline = client(() => Promise.reject(new RestError('injoignable', 0)));
     assert.equal(await messageGoneFromServer(offline, 'm1'), false);
     const limit = client(() => Promise.reject(new RestError('too many requests', 429)));
     assert.equal(await messageGoneFromServer(limit, 'm1'), false);
   });
 
-  test('une erreur qui n’est pas une ErreurRest ne conclut pas non plus', async () => {
+  test('an error that is not a RestError does not conclude either', async () => {
     const c = client(() => Promise.reject(new Error('boom')));
     assert.equal(await messageGoneFromServer(c, 'm1'), false);
   });

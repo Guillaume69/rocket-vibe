@@ -1,29 +1,29 @@
 /**
- * Détection des liens vidéo « embed » (YouTube, Dailymotion, Vimeo) dans le
- * texte d'un message.
+ * Detection of "embed" video links (YouTube, Dailymotion, Vimeo) in a
+ * message's text.
  *
- * La DÉTECTION ne doit rien au serveur : reconnaître l'URL par motif, en tirer
- * l'identifiant, et reconstruire la VIGNETTE publique (prévisible chez YouTube
- * et Dailymotion) — une carte s'affiche donc même sur un message que le serveur
- * n'a pas (encore) décrit. Le titre, lui, vient de ce que le serveur a récolté
- * (`metasVideo`, `lib/linkPreview.ts`), rapproché par `idVideo`. La lecture
- * intégrée exigerait une WebView (interdite, ROADMAP §4.2) : la carte, au
- * toucher, ouvre l'appli native ou le navigateur (`Linking`).
+ * DETECTION owes nothing to the server: recognize the URL by pattern, extract
+ * the id, and rebuild the public THUMBNAIL (predictable on YouTube and
+ * Dailymotion), so a card shows even on a message the server has not (yet)
+ * described. The title comes from what the server collected (`metasVideo`,
+ * `lib/linkPreview.ts`), matched by `idVideo`. Inline playback would need a
+ * WebView (forbidden, ROADMAP §4.2): on tap, the card opens the native app or
+ * the browser (`Linking`).
  *
- * Vimeo n'a pas d'URL de vignette prévisible (il faut son API) : on le
- * reconnaît quand même, la carte tombe alors sur sa bannière dégradée.
+ * Vimeo has no predictable thumbnail URL (it needs its API): it is recognized
+ * anyway, and the card falls back to its degraded banner.
  */
 
 export type VideoProvider = 'youtube' | 'dailymotion' | 'vimeo';
 
 export type VideoLink = {
   provider: VideoProvider;
-  /** Nom du fournisseur (« YouTube »). */
+  /** Provider name ("YouTube"). */
   name: string;
   id: string;
-  /** URL normalisée à ouvrir en externe. */
+  /** Normalized URL to open externally. */
   url: string;
-  /** Vignette publique, ou `null` si le fournisseur n'en expose pas de stable. */
+  /** Public thumbnail, or `null` if the provider exposes no stable one. */
   thumbnail: string | null;
 };
 
@@ -39,15 +39,15 @@ const youTubeThumbnail = (id: string) => `https://i.ytimg.com/vi/${id}/hqdefault
 const urlYouTube = (id: string) => `https://www.youtube.com/watch?v=${id}`;
 
 /**
- * Ce qui peut précéder l'hôte : le début, ou un caractère qui ne peut pas
- * appartenir à un nom d'hôte ni à une adresse. Sans cette frontière, le motif
- * mordait au MILIEU d'un mot — `notyoutube.com/watch?v=…` et `x@youtube.com/…`
- * sortaient une carte, alors que Rocket.Chat ne les tient pas pour des liens
- * (son `urls` reste vide, la carte n'aurait même pas de titre). Non capturant :
- * le groupe 1 reste l'identifiant.
+ * What may precede the host: the start, or a character that cannot belong to
+ * a host name or an address. Without this boundary, the pattern bit in the
+ * MIDDLE of a word: `notyoutube.com/watch?v=…` and `x@youtube.com/…` produced a
+ * card, while Rocket.Chat does not treat them as links (its `urls` stays
+ * empty, the card would not even have a title). Non-capturing: group 1 stays
+ * the id.
  */
 const START = String.raw`(?:^|[^\w@.-])`;
-/** Le schéma et le sous-domaine sont optionnels — un lien se poste souvent nu. */
+/** Scheme and subdomain are optional: links are often posted bare. */
 const HOST = String.raw`(?:https?:\/\/)?(?:www\.|m\.)?`;
 
 const PATTERNS: readonly Pattern[] = [
@@ -62,7 +62,7 @@ const PATTERNS: readonly Pattern[] = [
     url: urlYouTube,
     thumbnail: youTubeThumbnail,
   },
-  // youtube.com/watch?...v=ID (le v= n'est pas forcément le premier paramètre)
+  // youtube.com/watch?...v=ID (v= is not necessarily the first parameter)
   {
     provider: 'youtube',
     name: 'YouTube',
@@ -78,7 +78,7 @@ const PATTERNS: readonly Pattern[] = [
     url: (id) => `https://www.dailymotion.com/video/${id}`,
     thumbnail: (id) => `https://www.dailymotion.com/thumbnail/video/${id}`,
   },
-  // vimeo.com/ID (numérique)
+  // vimeo.com/ID (numeric)
   {
     provider: 'vimeo',
     name: 'Vimeo',
@@ -89,9 +89,9 @@ const PATTERNS: readonly Pattern[] = [
 ];
 
 /**
- * Rend les liens vidéo trouvés dans `texte`, dans l'ordre d'apparition, sans
- * doublon (même fournisseur + même id), plafonnés à `max` pour qu'un message
- * truffé de liens ne noie pas le fil.
+ * Returns the video links found in `text`, in order of appearance, without
+ * duplicates (same provider + same id), capped at `max` so a message stuffed
+ * with links does not drown the timeline.
  */
 export function detectVideoLinks(text: string | null | undefined, max = 3): VideoLink[] {
   if (text === null || text === undefined || text === '') return [];
@@ -99,7 +99,7 @@ export function detectVideoLinks(text: string | null | undefined, max = 3): Vide
   const seen = new Set<string>();
 
   for (const m of PATTERNS) {
-    m.re.lastIndex = 0; // regex partagée + drapeau `g` : réarmer avant chaque balayage
+    m.re.lastIndex = 0; // shared regex + `g` flag: reset before each scan
     let r: RegExpExecArray | null;
     while ((r = m.re.exec(text)) !== null) {
       const id = r[1]!;
@@ -124,22 +124,22 @@ export function detectVideoLinks(text: string | null | undefined, max = 3): Vide
 }
 
 /**
- * Vrai si `url` est un lien vidéo déjà rendu par la carte embed (YouTube,
- * Dailymotion, Vimeo). Sert à la déduplication : les aperçus génériques
- * (`lib/linkPreview.ts`) sautent ces liens pour ne pas doubler la carte vidéo.
+ * True if `url` is a video link already rendered by the embed card (YouTube,
+ * Dailymotion, Vimeo). Used for deduplication: generic previews
+ * (`lib/linkPreview.ts`) skip these links so as not to double the video card.
  */
 export function isVideoLink(url: string): boolean {
   return idVideo(url) !== null;
 }
 
 /**
- * L'identifiant de la vidéo dans `url`, ou `null` si ce n'en est pas une. Sert à
- * rapprocher une entrée `urls[]` du serveur (qui porte l'URL BRUTE, avec sa
- * playlist et ses `utm_*`) de la carte détectée dans le texte.
+ * The video id in `url`, or `null` if it is not a video. Used to match a
+ * server `urls[]` entry (which carries the RAW URL, with its playlist and
+ * `utm_*`) with the card detected in the text.
  */
 export function idVideo(url: string): string | null {
   for (const m of PATTERNS) {
-    m.re.lastIndex = 0; // regex partagée + drapeau `g` : réarmer avant chaque test
+    m.re.lastIndex = 0; // shared regex + `g` flag: reset before each test
     const r = m.re.exec(url);
     if (r !== null) return r[1]!;
   }

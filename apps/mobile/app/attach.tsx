@@ -14,19 +14,18 @@ import { LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
 import { Tappable } from '../ui/tappable.tsx';
 
 /**
- * Feuille « joindre » : le menu de sources d'une pièce jointe, à la façon de
- * l'app officielle. `presentation: 'formSheet'` déclarée dans `app/_layout.tsx`
- * — le bottom sheet NATIF de react-native-screens (contrainte : pas de
- * @gorhom/bottom-sheet), même sheet que les actions de message.
+ * "Attach" sheet: the source menu for an attachment, like the official app.
+ * `presentation: 'formSheet'` declared in `app/_layout.tsx`: the NATIVE
+ * bottom sheet of react-native-screens (constraint: no
+ * @gorhom/bottom-sheet), same sheet as the message actions.
  *
- * La feuille ne FAIT pas le travail : elle renvoie la source choisie au
- * composeur (via `repondreSource`), qui lance le bon sélecteur natif. Toute la
- * logique fichier reste ainsi au même endroit, dans le salon.
+ * The sheet does not DO the work: it sends the chosen source back to the
+ * composer (via `answerSource`), which launches the right native picker. All
+ * the file logic thus stays in one place, in the room.
  *
- * Et elle ne se ferme pas non plus : c'est le composeur qui la referme, au
- * retour du sélecteur. La raison est dans `ui/attachmentSource.ts` — lancer
- * une activité pendant qu'une feuille s'escamote casse durablement TOUT
- * lancement d'activité sous Android.
+ * Nor does it close itself: the composer closes it, when the picker returns.
+ * The reason is in `ui/attachmentSource.ts`: launching an activity while a
+ * sheet is sliding away permanently breaks EVERY activity launch on Android.
  */
 
 const OPTIONS: { source: AttachmentSource; icon: string; key: TranslationKey }[] = [
@@ -41,15 +40,15 @@ export default function AttachScreen() {
   const t = useT();
   const insets = useSafeAreaInsets();
 
-  // La feuille NE SE FERME PAS en répondant : elle reste ouverte, immobile, le
-  // temps que le composeur lance le sélecteur natif — c'est lui qui refermera,
-  // au retour. Se fermer d'abord lançait l'activité pendant que la feuille
-  // s'escamotait encore, et Android déréférence alors une vue déjà retirée :
-  // tout lancement d'activité échoue ensuite, jusqu'au redémarrage de l'app
-  // (voir `ui/attachmentSource.ts` et `ui/launchPicker.ts`).
+  // The sheet DOES NOT CLOSE when answering: it stays open, still, while the
+  // composer launches the native picker; the composer closes it on return.
+  // Closing first launched the activity while the sheet was still sliding
+  // away, and Android then dereferences an already removed view: every
+  // activity launch fails afterwards, until the app restarts
+  // (see `ui/attachmentSource.ts` and `ui/launchPicker.ts`).
   //
-  // Le démontage — balayage, retour matériel, ou le `back()` du composeur —
-  // solde de toute façon une demande restée en attente.
+  // Unmounting (swipe, hardware back, or the composer's `back()`) settles a
+  // pending request either way.
   useEffect(() => {
     reportSheetMounted();
     return reportSheetUnmounted;
@@ -62,8 +61,8 @@ export default function AttachScreen() {
   return (
     <View style={[styles.sheet, { paddingBottom: insets.bottom + 12 }]}>
       {OPTIONS.map((o) => (
-        // Le clip de l'enveloppe (`overflow`) découpe l'ondulation en coins
-        // doux : le masque du ripple borné ignore borderRadius sous Fabric.
+        // The wrapper's clip (`overflow`) cuts the ripple into soft corners: the
+        // bounded ripple mask ignores borderRadius under Fabric.
         <View key={o.source} style={styles.rowWrapper}>
           <Tappable
             onPress={() => pick(o.source)}
@@ -83,7 +82,7 @@ export default function AttachScreen() {
 }
 
 const styles = StyleSheet.create({
-  // Pas de flex:1 : `fitToContents` mesure la hauteur réelle du contenu.
+  // No flex:1: `fitToContents` measures the content's real height.
   sheet: { paddingHorizontal: 16, paddingTop: 10, gap: 2 },
   rowWrapper: { borderRadius: 12, overflow: 'hidden' },
   row: {

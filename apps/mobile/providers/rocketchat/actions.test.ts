@@ -4,7 +4,7 @@ import { describe, test } from 'node:test';
 import type { ClientRest } from '../../lib/rest.ts';
 import { ActionsRC } from './actions.ts';
 
-/** Faux client : on observe le endpoint et le corps de chaque `post`. */
+/** Fake client: we observe the endpoint and body of each `post`. */
 function fakeClient(response: unknown = {}) {
   const calls: { path: string; body: unknown }[] = [];
   const client = {
@@ -17,7 +17,7 @@ function fakeClient(response: unknown = {}) {
 }
 
 describe('ActionsRC', () => {
-  test('reagir enveloppe le shortname en :code: et passe shouldReact', async () => {
+  test('react wraps the shortname in :code: and passes shouldReact', async () => {
     const { client, calls } = fakeClient();
     await new ActionsRC(client).react('r1', 'm1', '+1', true);
     assert.deepEqual(calls, [
@@ -25,7 +25,7 @@ describe('ActionsRC', () => {
     ]);
   });
 
-  test('modifier et supprimer ciblent roomId + msgId', async () => {
+  test('edit and delete target roomId + msgId', async () => {
     const { client, calls } = fakeClient();
     const a = new ActionsRC(client);
     await a.edit('r1', 'm1', 'salut');
@@ -37,7 +37,7 @@ describe('ActionsRC', () => {
     assert.deepEqual(calls[1], { path: 'chat.delete', body: { roomId: 'r1', msgId: 'm1' } });
   });
 
-  test('modifier un message chiffré envoie `content` et les mentions, jamais `text`', async () => {
+  test('editing an encrypted message sends `content` and the mentions, never `text`', async () => {
     const { client, calls } = fakeClient();
     const content = { algorithm: 'rc.v2.aes-sha2', kid: 'k', iv: 'aXY=', ciphertext: 'Y3Q=' };
     await new ActionsRC(client).edit('r1', 'm1', 'salut @bob', { encrypt: () => content });
@@ -54,13 +54,13 @@ describe('ActionsRC', () => {
     ]);
   });
 
-  test('modifier un message chiffré sans clé échoue sans rien envoyer', async () => {
+  test('editing an encrypted message without a key fails without sending anything', async () => {
     const { client, calls } = fakeClient();
     await assert.rejects(new ActionsRC(client).edit('r1', 'm1', 'x', { encrypt: () => null }));
     assert.equal(calls.length, 0);
   });
 
-  test('epingler et marquerLu', async () => {
+  test('pin and markRead', async () => {
     const { client, calls } = fakeClient();
     const a = new ActionsRC(client);
     await a.pin('r1', 'm1');
@@ -69,7 +69,7 @@ describe('ActionsRC', () => {
     assert.deepEqual(calls[1], { path: 'subscriptions.read', body: { rid: 'r1' } });
   });
 
-  test('desepingler et etoiler (poser, retirer)', async () => {
+  test('unpin and star (set, remove)', async () => {
     const { client, calls } = fakeClient();
     const a = new ActionsRC(client);
     await a.unpin('r1', 'm1');
@@ -82,7 +82,7 @@ describe('ActionsRC', () => {
     ]);
   });
 
-  test('listerEpingles / listerEtoiles : un GET par liste, normalisé, le plus récent en tête', async () => {
+  test('listPinned / listStarred: one GET per list, normalised, most recent first', async () => {
     const read: { path: string; params: unknown }[] = [];
     const u = { _id: 'u1', username: 'alice' };
     const client = {
@@ -113,7 +113,7 @@ describe('ActionsRC', () => {
     ]);
   });
 
-  test('ouvrirOuCreerDm rend le rid ET le document brut à ingérer', async () => {
+  test('openOrCreateDm returns the rid AND the raw document to ingest', async () => {
     const room = { _id: 'dm1', t: 'd' };
     const { client, calls } = fakeClient({ room });
     const result = await new ActionsRC(client).openOrCreateDm('lea');
@@ -121,8 +121,8 @@ describe('ActionsRC', () => {
     assert.deepEqual(result, { rid: 'dm1', rawRoom: room });
   });
 
-  test('ouvrirOuCreerDm rejette un 200 sans salon exploitable', async () => {
-    // Réponse sans `room`, puis `room` sans `_id` : les deux formes anormales.
+  test('openOrCreateDm rejects a 200 without a usable room', async () => {
+    // Response without `room`, then `room` without `_id`: the two abnormal shapes.
     await assert.rejects(new ActionsRC(fakeClient({}).client).openOrCreateDm('lea'));
     await assert.rejects(
       new ActionsRC(fakeClient({ room: { t: 'd' } }).client).openOrCreateDm('lea'),

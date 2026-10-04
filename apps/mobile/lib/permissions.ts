@@ -1,18 +1,18 @@
 /**
- * Permissions Rocket.Chat de l'utilisateur, calculées comme le serveur les
- * vérifie : une permission est accordée quand l'un des rôles qui la portent
- * (`permissions.listAll`) est l'un des miens — rôles globaux (`me.roles`) ou
- * rôles dans le salon (`subscription.roles`, en base).
+ * The user's Rocket.Chat permissions, computed the way the server checks them:
+ * a permission is granted when one of the roles carrying it
+ * (`permissions.listAll`) is one of mine, global roles (`me.roles`) or roles in
+ * the room (`subscription.roles`, in the database).
  *
- * `permissions.listAll` pèse ~270 Ko (1 000 permissions, sondé sur 8.5) et
- * bouge rarement : lu une fois par session et par compte, avec `me`, puis
- * gardé en mémoire. Un échec n'est pas retenu — l'appel suivant retente.
+ * `permissions.listAll` weighs ~270 KB (1,000 permissions, probed on 8.5) and
+ * rarely changes: read once per session and account, with `me`, then kept in
+ * memory. A failure is not cached; the next call retries.
  */
 
 import type { ClientRest } from './rest.ts';
 
 export type SourcesPermissions = {
-  /** Permission → rôles qui l'accordent. */
+  /** Permission → roles granting it. */
   roles: Map<string, string[]>;
   globalRoles: string[];
 };
@@ -34,7 +34,7 @@ export async function readPermissionSources(client: RestReader): Promise<Sources
   return { roles, globalRoles: asStrings(me.roles) };
 }
 
-/** La colonne `abonnements.roles` → liste ; illisible ou absente = aucun rôle. */
+/** The `subscriptions.roles` column → list; unreadable or missing = no role. */
 export function roomRoles(roles: string | null | undefined): string[] {
   if (roles == null) return [];
   try {

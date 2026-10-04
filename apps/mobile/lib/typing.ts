@@ -1,20 +1,19 @@
 /**
- * Indicateur de saisie (8.6) — ÉCOUTE seule.
+ * Typing indicator (8.6), LISTEN only.
  *
- * Le canal est `stream-notify-room` / `<rid>/user-activity` — PAS `/typing`,
- * déprécié. Format vérifié par sonde sur 8.5 :
- * `args = [username, ['user-typing'] | [], extra]` — le tableau vide signifie
- * « a arrêté ».
+ * The channel is `stream-notify-room` / `<rid>/user-activity`, NOT the
+ * deprecated `/typing`. Format checked by probe on 8.5:
+ * `args = [username, ['user-typing'] | [], extra]`, the empty array meaning
+ * "stopped".
  *
- * **Écart consigné : on n'ÉMET pas.** L'émission cliente passe par la method
- * DDP du streamer (`stream-notify-room`, vu dans `allowWrite` du bundle
- * serveur) et n'a AUCUN équivalent REST ; notre client DDP est volontairement
- * sans `call` (contrainte projet). Les autres ne voient donc pas notre
- * saisie — à réévaluer si la parité l'exige un jour (ajout borné).
+ * **Recorded gap: we do NOT emit.** Client emission goes through the
+ * streamer's DDP method (`stream-notify-room`, seen in `allowWrite` in the
+ * server bundle) and has NO REST equivalent; our DDP client deliberately has
+ * no `call` (project constraint). Others therefore do not see us typing; to
+ * revisit if parity ever requires it (bounded addition).
  *
- * Chaque entrée expire d'elle-même : l'événement « stop » d'un correspondant
- * qui perd le réseau ne viendra jamais, et un « écrit… » fantôme est pire
- * que pas d'indicateur.
+ * Each entry expires on its own: the "stop" event of a peer who loses the
+ * network will never come, and a ghost "typing..." is worse than no indicator.
  */
 
 import type { DdpEvent } from './ddp.ts';
@@ -35,12 +34,12 @@ export class TypingEngine {
 
   private timers = new Map<string, Cancellation>();
   private listeners = new Set<() => void>();
-  /** Figé entre deux notifications : `useSyncExternalStore` compare par référence. */
+  /** Frozen between two notifications: `useSyncExternalStore` compares by reference. */
   private snapshot: string[] = [];
 
   constructor(options: {
     rid: string;
-    /** Mon username : ma propre saisie ne s'affiche pas chez moi. */
+    /** My username: my own typing is not shown to me. */
     me: string | null;
     expirationMs?: number;
     schedule?: (fn: () => void, ms: number) => Cancellation;
@@ -93,7 +92,7 @@ export class TypingEngine {
     this.notifier();
   }
 
-  /** À la fermeture de l'écran : plus aucune minuterie ne doit survivre. */
+  /** When the screen closes: no timer may survive. */
   stop(): void {
     for (const timer of this.timers.values()) this.cancel(timer);
     this.timers.clear();
@@ -102,9 +101,9 @@ export class TypingEngine {
 
   private notifier(): void {
     const next = [...this.timers.keys()].sort();
-    // Ne notifier QUE sur changement réel : Rocket.Chat ré-émet
-    // « user-typing » en battement de cœur pendant toute la frappe — chaque
-    // battement re-rendrait sinon l'écran salon entier pour rien.
+    // Notify ONLY on a real change: Rocket.Chat re-emits "user-typing" as a
+    // heartbeat throughout typing, and each beat would otherwise re-render the
+    // whole room screen for nothing.
     if (
       next.length === this.snapshot.length &&
       next.every((name, i) => name === this.snapshot[i])
@@ -117,16 +116,16 @@ export class TypingEngine {
 }
 
 /**
- * La projection d'affichage : un nom, deux noms, ou le compte seul. La mise en
- * PHRASE appartient au catalogue (`salon.saisieUn/Deux/N`, ui/messages.ts) —
- * ce module, pur et testé sous Node, n'embarque aucune langue.
+ * The display projection: one name, two names, or just the count. Building
+ * the SENTENCE belongs to the catalogue (`room.typingOne/Two/N`,
+ * ui/messages.ts); this module, pure and tested under Node, carries no language.
  */
 export type TypingSummary =
   | { form: 'one'; name: string }
   | { form: 'two'; a: string; b: string }
   | { form: 'many'; n: number };
 
-/** null si personne n'écrit. */
+/** null if nobody is typing. */
 export function summarizeTyping(names: string[]): TypingSummary | null {
   if (names.length === 0) return null;
   if (names.length === 1) return { form: 'one', name: names[0] };

@@ -1,65 +1,64 @@
 /**
- * Autocomplétion des mentions `@xxx` dans le composer.
+ * `@xxx` mention autocompletion in the composer.
  *
- * Même architecture que `lib/emojiCompletion.ts` : des fonctions PURES, sans
- * React ni réseau, testables sous Node. La détection du jeton et le classement
- * vivent ici ; la source des candidats (les auteurs récents du salon, lus dans
- * la base locale) et l'affichage vivent dans `ui/mentionCompletion.tsx`.
+ * Same architecture as `lib/emojiCompletion.ts`: PURE functions, no React or
+ * network, testable under Node. Token detection and ranking live here; the
+ * candidate source (the room's recent authors, read from the local database)
+ * and the display live in `ui/mentionCompletion.tsx`.
  *
- * L'insertion est du texte brut `@username ` : le serveur re-parse les mentions
- * à l'envoi (champ `md`), il n'y a rien d'autre à transporter. Le remplacement
- * du jeton réutilise `appliquerCompletion` de `lib/emojiCompletion.ts` — même
- * mécanique, mêmes bords (espace finale, curseur replacé).
+ * The insertion is plain text `@username `: the server re-parses mentions on
+ * send (`md` field), there is nothing else to carry. Replacing the token
+ * reuses `applyCompletion` from `lib/emojiCompletion.ts`: same mechanics, same
+ * edges (trailing space, cursor repositioned).
  *
- * Candidats locaux seulement — PAS de `spotlight` REST à chaque frappe : on
- * mentionne presque toujours quelqu'un de la conversation, et le REST est
- * rate-limité (CLAUDE.md). Si le besoin d'élargir apparaît, il se traitera
- * comme un second étage, débouncé, à la façon de `app/search.tsx`.
+ * Local candidates only, NO REST `spotlight` on each keystroke: one almost
+ * always mentions someone from the conversation, and REST is rate-limited
+ * (CLAUDE.md). If widening is ever needed, it will be a second, debounced
+ * stage, the way `app/search.tsx` does it.
  */
 
 /**
- * Dès `@` seul on propose — contrairement aux emojis, le dictionnaire est la
- * poignée d'auteurs du salon, pas 6000 codes : montrer la liste au `@` nu est
- * le geste Slack/Discord attendu.
+ * Suggestions start at a bare `@`: unlike emojis, the dictionary is the
+ * handful of room authors, not 6000 codes, and showing the list on a bare `@`
+ * is the expected Slack/Discord behaviour.
  */
 export const MIN_MENTION_QUERY = 0;
-/** La bande défile horizontalement ; au-delà, le classement a déjà tranché. */
+/** The strip scrolls horizontally; beyond this, the ranking has already decided. */
 export const MENTION_SUGGESTION_LIMIT = 12;
 
 /**
- * Un candidat à la mention : le `username` exact (c'est lui qu'on insère et
- * qui sert d'avatar), et son `_id` serveur quand on le connaît (`null` pour
- * les mentions spéciales `all` / `here`).
+ * A mention candidate: the exact `username` (what gets inserted and what
+ * serves for the avatar), and its server `_id` when known (`null` for the
+ * special mentions `all` / `here`).
  */
 export type MentionCandidate = { username: string; uid: string | null };
 
 /**
- * Mentions spéciales de Rocket.Chat. Proposées après les personnes à qualité
- * de correspondance égale : `@a` doit d'abord montrer les Alice du salon,
- * `@all` reste à portée juste derrière.
+ * Rocket.Chat special mentions. Suggested after people at equal match
+ * quality: `@a` must first show the room's Alices, with `@all` right behind.
  */
 export const SPECIAL_MENTIONS: readonly string[] = ['all', 'here'];
 
 /**
- * Jeu de caractères d'un username Rocket.Chat (réglage serveur par défaut
- * `UTF8_User_Names_Validation = [0-9a-zA-Z-_.]`). Un caractère hors de ce jeu
- * ferme le jeton — taper `@alice bonjour` ne doit pas garder le bandeau ouvert
- * sur la requête `alice bonjour`.
+ * Character set of a Rocket.Chat username (default server setting
+ * `UTF8_User_Names_Validation = [0-9a-zA-Z-_.]`). A character outside this set
+ * closes the token: typing `@alice bonjour` must not keep the strip open on
+ * the query `alice bonjour`.
  */
 const VALID_USERNAME = /^[A-Za-z0-9._-]*$/;
 /**
- * Une lettre ou un chiffre Unicode — accents compris. Le `@` ne doit ouvrir un
- * jeton que s'il commence un mot : au milieu de `nom@domaine` (adresse email),
- * il ne déclenche pas.
+ * A Unicode letter or digit, accents included. The `@` opens a token only if
+ * it starts a word: in the middle of `name@domain` (an email address), it does
+ * not trigger.
  */
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
 
 /**
- * Le jeton `@xxx` en cours de frappe juste avant le curseur, ou `null`.
+ * The `@xxx` token being typed just before the cursor, or `null`.
  *
- * Mêmes gardes que `detecterJetonEmoji` : le `@` doit ouvrir un mot (début du
- * champ, ou précédé d'un caractère qui n'est ni lettre ni chiffre), et la
- * requête doit rester dans le jeu de caractères d'un username.
+ * Same guards as `detectEmojiToken`: the `@` must open a word (start of the
+ * field, or preceded by a character that is neither letter nor digit), and the
+ * query must stay within a username's character set.
  */
 export function detectMentionToken(
   text: string,
@@ -69,7 +68,7 @@ export function detectMentionToken(
   const before = text.slice(0, c);
   const atSign = before.lastIndexOf('@');
   if (atSign === -1) return null;
-  // `charAt` renvoie '' hors bornes : pas de garde d'index nécessaire.
+  // `charAt` returns '' out of bounds: no index guard needed.
   if (atSign > 0 && LETTER_OR_DIGIT.test(before.charAt(atSign - 1))) return null;
   const query = before.slice(atSign + 1);
   if (!VALID_USERNAME.test(query) || query.length < MIN_MENTION_QUERY) return null;
@@ -77,15 +76,15 @@ export function detectMentionToken(
 }
 
 /**
- * Les candidats qui correspondent à `requete`, du plus au moins pertinent.
+ * The candidates matching `query`, from most to least relevant.
  *
- * Ordre : correspondance exacte, puis préfixe, puis sous-chaîne ; à qualité
- * égale, une personne passe avant une mention spéciale, puis l'ordre d'ARRIVÉE
- * des candidats départage — l'appelant les fournit du plus récemment actif au
- * plus ancien, et cette fraîcheur est un meilleur signal que l'alphabet.
+ * Order: exact match, then prefix, then substring; at equal quality a person
+ * comes before a special mention, then the candidates' ARRIVAL order breaks
+ * ties: the caller supplies them from most recently active to oldest, and that
+ * recency is a better signal than the alphabet.
  *
- * Requête vide (`@` nu) : tous les candidats dans l'ordre d'arrivée, puis les
- * mentions spéciales.
+ * Empty query (bare `@`): all candidates in arrival order, then the special
+ * mentions.
  */
 export function completeMention(
   query: string,
@@ -109,8 +108,8 @@ export function completeMention(
   for (const c of candidates) add(c, false);
   for (const name of SPECIAL_MENTIONS) add({ username: name, uid: null }, true);
 
-  // Tri STABLE requis (l'ordre d'arrivée départage) : garanti par ECMAScript
-  // depuis ES2019, mais `ordre` le rend explicite et indépendant du moteur.
+  // A STABLE sort is required (arrival order breaks ties): guaranteed by
+  // ECMAScript since ES2019, but `order` makes it explicit and engine-independent.
   kept.sort((a, b) => a.rank - b.rank || a.order - b.order);
   return kept.slice(0, limit).map((x) => x.c);
 }

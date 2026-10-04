@@ -1,23 +1,23 @@
 /**
- * File d'envoi (outbox) et UI optimiste.
+ * Outbox and optimistic UI.
  *
- * Le `_id` du message est généré CÔTÉ CLIENT, 24 hexadécimaux, AVANT tout
- * affichage : c'est la clé de tout. Le message apparaît immédiatement (ligne
- * `messages` avec `misAJourLe = 0`, que n'importe quelle version serveur
- * écrase), la file `sortie` persiste l'intention. Un rejeu après crash ne crée
- * jamais de doublon : le serveur le refuse en 400 sur un `_id` déjà accepté, et
- * `chat.getMessage` tranche entre « déjà livré » et « refusé ».
+ * The message `_id` is generated CLIENT-SIDE, 24 hex digits, BEFORE anything is
+ * displayed: it is the key to everything. The message shows immediately (a
+ * `messages` row with `updatedAt = 0`, which any server version overwrites),
+ * the `outbox` queue persists the intent. A replay after a crash never creates
+ * a duplicate: the server refuses it with a 400 on an already accepted `_id`,
+ * and `chat.getMessage` decides between "already delivered" and "refused".
  *
- * Réseau injoignable (statut 0) : le message RESTE `en-attente`, le rejeu du
- * prochain démarrage ou retour de réseau l'emportera. Refus du serveur
- * (4xx/5xx) : `echec`, actionnable depuis l'UI.
+ * Network unreachable (status 0): the message STAYS `en-attente`, the replay at
+ * the next start or network return will carry it. Server refusal (4xx/5xx):
+ * `echec`, actionable from the UI.
  *
- * Salon chiffré : le texte est chiffré au moment de partir, jamais avant — la
- * file garde le clair, comme la base garde les messages déchiffrés. Sans clé
- * (verrouillé), la ligne attend le déverrouillage au lieu d'échouer.
+ * Encrypted room: the text is encrypted when it leaves, never before; the
+ * queue keeps the plaintext, as the database keeps decrypted messages. Without
+ * a key (locked), the row waits for the unlock instead of failing.
  *
- * Pur : la base est derrière `DepotEnvoi`, le REST derrière `ClientRest` —
- * tout se teste sous Node.
+ * Pure: the database is behind `OutboxStore`, REST behind `ClientRest`, so
+ * everything is testable under Node.
  */
 
 import type { EncryptedContent } from './e2e/crypto.ts';
@@ -40,24 +40,24 @@ export interface OutboxStore {
   markFailed(id: string, error: string): Promise<void>;
   deleteOutbox(id: string): Promise<void>;
   upsertMessage(m: MessageLocal): Promise<void>;
-  /** N'efface le message que s'il est encore optimiste (jamais livré). */
+  /** Deletes the message only if it is still optimistic (never delivered). */
   deleteOptimisticMessage(id: string): Promise<void>;
   roomEncrypted(rid: string): Promise<boolean>;
 }
 
-/** Le chiffrement E2EE d'une charge, ou `null` tant qu'il est impossible (verrouillé, clé absente). */
+/** E2EE encryption of a payload, or `null` while it is impossible (locked, key missing). */
 export interface OutboxEncryptor {
   encrypt(rid: string, payload: object): EncryptedContent | null;
 }
 
-/** 24 hexadécimaux depuis 12 octets — le format des `_id` Rocket.Chat. */
+/** 24 hex digits from 12 bytes: the Rocket.Chat `_id` format. */
 export function idFromBytes(bytes: Uint8Array): string {
   return Array.from(bytes.slice(0, 12), (o) => o.toString(16).padStart(2, '0')).join('');
 }
 
 type SendResponse = { message?: Record<string, unknown> };
 
-/** Verdict de `messageLivre` quand la question n'a pas pu être posée. */
+/** Verdict of `messageDelivered` when the question could not be asked. */
 const UNKNOWN = Symbol('delivery unknown');
 
 export class OutboxEngine {
@@ -66,7 +66,7 @@ export class OutboxEngine {
   private readonly me: { id: string; username: string };
   private readonly generateId: () => string;
   private readonly now: () => number;
-  /** Réconciliation : le document renvoyé par le serveur repasse par la synchro. */
+  /** Reconciliation: the document returned by the server goes back through sync. */
   private readonly ingest: (doc: Record<string, unknown>) => Promise<void>;
   private readonly encryptor: OutboxEncryptor | null;
   private inFlight = false;
@@ -90,12 +90,12 @@ export class OutboxEngine {
   }
 
   /**
-   * Affichage immédiat + persistance de l'intention, PUIS tentative d'envoi.
-   * Rend l'`_id` généré. `filId` (le `tmid` Rocket.Chat) fait de ce message
-   * une réponse de fil. `jointesLocales` (JSON `attachments`) n'existe que
-   * pour l'AFFICHAGE optimiste — une citation, typiquement : le serveur
-   * reconstruira les vraies pièces jointes depuis le texte, et sa version
-   * (misAJourLe réel) écrase celle-ci. RIEN n'en part sur le réseau.
+   * Immediate display + persisted intent, THEN a send attempt. Returns the
+   * generated `_id`. `threadId` (Rocket.Chat's `tmid`) makes this message a
+   * thread reply. `localAttachments` (`attachments` JSON) exists only for the
+   * optimistic DISPLAY, typically a quote: the server will rebuild the real
+   * attachments from the text, and its version (real updatedAt) overwrites
+   * this one. NOTHING of it goes over the network.
    */
   async send(
     rid: string,
@@ -126,8 +126,8 @@ export class OutboxEngine {
       encryptedRaw: null,
       pinned: false,
       starred: null,
-      // 0 : la version du serveur, quelle qu'elle soit, écrase l'optimiste —
-      // et l'optimiste n'écrase jamais un état réel.
+      // 0: the server version, whatever it is, overwrites the optimistic one,
+      // and the optimistic one never overwrites a real state.
       updatedAt: 0,
     });
     await this.store.insertOutbox(id, rid, text, threadId);
@@ -138,10 +138,10 @@ export class OutboxEngine {
   private rerun = false;
 
   /**
-   * Rejoue tout ce qui attend, dans l'ordre. Ré-entrant sans dégât : une
-   * seule passe à la fois — et une passe demandée PENDANT qu'une autre court
-   * est notée puis exécutée à la fin, sinon un message envoyé pendant le
-   * flush resterait « ⏳ » jusqu'au prochain déclencheur.
+   * Replays everything that is waiting, in order. Safely re-entrant: one pass
+   * at a time, and a pass requested WHILE another runs is noted then run at
+   * the end, otherwise a message sent during the flush would stay "⏳" until
+   * the next trigger.
    */
   async process(): Promise<void> {
     if (this.inFlight) {
@@ -159,7 +159,7 @@ export class OutboxEngine {
     }
   }
 
-  /** Rend `false` si le réseau est injoignable — inutile d'insister. */
+  /** Returns `false` if the network is unreachable: no point insisting. */
   private async runPass(): Promise<boolean> {
     for (const row of await this.store.listToSend()) {
       const message = await this.messageBody(row);
@@ -172,31 +172,31 @@ export class OutboxEngine {
         if (response.message !== undefined) await this.ingest(response.message);
       } catch (e) {
         if (e instanceof RestError && e.status === 0) {
-          // Injoignable : on n'y peut rien d'ici. La ligne reste telle
-          // quelle, le prochain `traiter()` retentera.
+          // Unreachable: nothing to be done from here. The row stays as is,
+          // the next `process()` will retry.
           return false;
         }
-        // Le rejeu d'un `_id` déjà accepté n'est PAS idempotent côté
-        // serveur : Rocket.Chat 8.5 répond 400 (« Cannot read properties of
-        // undefined (reading 'starred') », vérifié). Aucun doublon n'est
-        // créé, mais la réponse ne distingue pas « déjà livré » de
-        // « refusé » : on demande au serveur.
+        // Replaying an already accepted `_id` is NOT idempotent server-side:
+        // Rocket.Chat 8.5 answers 400 ("Cannot read properties of undefined
+        // (reading 'starred')", checked). No duplicate is created, but the
+        // response does not tell "already delivered" from "refused": ask the
+        // server.
         const delivered = await this.messageDelivered(row.id);
         if (delivered === UNKNOWN) {
-          // On n'a pas pu trancher. La ligne reste `en-attente` — donc
-          // rejouable — et la passe s'arrête : les lignes suivantes
-          // brûleraient le même quota pour le même verdict.
+          // Could not decide. The row stays `en-attente`, so replayable, and
+          // the pass stops: the following rows would burn the same quota for
+          // the same verdict.
           return false;
         }
         if (delivered !== null) {
-          // Ingérer le document récupéré : c'est la vraie version (ts du
-          // serveur), et son passage par le dépôt réconcilie la sortie.
+          // Ingest the fetched document: it is the real version (server ts),
+          // and passing it through the store reconciles the outbox.
           await this.ingest(delivered);
           await this.store.deleteOutbox(row.id);
           continue;
         }
-        // `derniere_erreur` est un DIAGNOSTIC (jamais affiché — l'UI montre
-        // `messageRow.failedRetry`) : pas une chaîne à traduire.
+        // `derniere_erreur` is a DIAGNOSTIC (never displayed, the UI shows
+        // `messageRow.failedRetry`): not a string to translate.
         const message = e instanceof Error ? e.message : 'Send refused.';
         await this.store.markFailed(row.id, message);
       }
@@ -204,7 +204,7 @@ export class OutboxEngine {
     return true;
   }
 
-  /** Le message tel qu'il part, ou `null` s'il doit attendre une clé de salon. */
+  /** The message as it leaves, or `null` if it must wait for a room key. */
   private async messageBody(row: OutboxRow): Promise<Record<string, unknown> | null> {
     const base = {
       _id: row.id,
@@ -217,20 +217,20 @@ export class OutboxEngine {
     return { ...base, t: ENCRYPTED_TYPE, e2e: 'pending', content, e2eMentions: mentionsE2E(row.text) };
   }
 
-  /** Abandon d'un échec définitif : la ligne de sortie ET l'optimiste s'en vont. */
+  /** Discarding a final failure: the outbox row AND the optimistic message go. */
   async discard(id: string): Promise<void> {
     await this.store.deleteOutbox(id);
     await this.store.deleteOptimisticMessage(id);
   }
 
   /**
-   * TROIS verdicts, pas deux : le document si le serveur l'a, `null` s'il
-   * répond que non, `'inconnu'` si on n'a PAS PU demander.
+   * THREE verdicts, not two: the document if the server has it, `null` if it
+   * says no, `UNKNOWN` if we COULD NOT ask.
    *
-   * La distinction n'est pas cosmétique. « Je n'ai pas pu vérifier » n'est pas
-   * « le serveur dit que non » : tout confondre en `null` faisait marquer
-   * `echec` — donc afficher « non envoyé » — sur un message que le serveur
-   * avait peut-être accepté. L'utilisateur le retape : il en a deux.
+   * The distinction is not cosmetic. "I could not check" is not "the server
+   * says no": folding everything into `null` marked `echec`, so displayed "not
+   * sent", on a message the server may have accepted. The user types it again:
+   * now there are two.
    */
   private async messageDelivered(
     id: string,
@@ -243,13 +243,12 @@ export class OutboxEngine {
       const doc = response.message;
       return doc !== undefined && doc._id === id ? doc : null;
     } catch (e) {
-      // Statut 0 : personne n'a répondu. 429 : `chat.getMessage` subit la même
-      // limite de 10/min que `chat.sendMessage` (CLAUDE.md), et une rafale
-      // d'envois l'épuise — après les trois rejeux de `ClientRest`, toutes les
-      // vérifications de la passe retombent en 429. Ni l'un ni l'autre n'est
-      // un démenti du serveur.
+      // Status 0: nobody answered. 429: `chat.getMessage` is under the same
+      // 10/min limit as `chat.sendMessage` (CLAUDE.md), and a burst of sends
+      // exhausts it: after `ClientRest`'s three retries, every check of the
+      // pass falls back to 429. Neither is a denial from the server.
       if (e instanceof RestError && (e.status === 0 || e.status === 429)) return UNKNOWN;
-      // Le serveur a parlé (404, droit refusé, message absent) : on tranche.
+      // The server spoke (404, permission denied, message missing): decide.
       return null;
     }
   }

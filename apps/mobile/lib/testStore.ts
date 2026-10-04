@@ -1,28 +1,27 @@
 /**
- * Piège de transaction pour les DÉPÔTS DE TEST — importé par les suites,
- * jamais par l'app.
+ * Transaction trap for TEST STORES, imported by the suites, never by the app.
  *
- * Sur SQLite (`db/store.ts`), toute écriture de premier niveau passe par la
- * file `enSerie`, et `transaction` DÉTIENT cette file le temps du lot : appeler
- * une méthode de premier niveau depuis l'intérieur d'une transaction
- * s'interbloque — payé en gel réel sur l'appareil. C'est pourquoi `fn` reçoit
- * un écrivain DIRECT (`EcrituresDepot`), hors file.
+ * On SQLite (`db/store.ts`), every top-level write goes through the
+ * `serially` queue, and `transaction` HOLDS that queue for the batch: calling
+ * a top-level method from inside a transaction deadlocks, paid for as a real
+ * freeze on the device. That is why `fn` receives a DIRECT writer
+ * (`StoreWrites`), outside the queue.
  *
- * Un faux dépôt qui fait `transaction: (fn) => fn(depot)` efface cet
- * invariant : un refactor qui écrirait `this.depot.upsertMessage` au lieu de
- * `tx.upsertMessage` passerait tsc et toute la suite, puis figerait le premier
- * lot de rattrapage sur l'appareil, pour toujours. Ce module rend le faux
- * aussi intransigeant que le vrai : pendant une transaction, chaque méthode DE
- * FILE du dépôt jette au lieu de réussir en silence. Les LECTURES restent
- * permises — `db/store.ts` les sert hors file, elles ne bloquent pas.
+ * A fake store doing `transaction: (fn) => fn(store)` erases this invariant:
+ * a refactor writing `this.store.upsertMessage` instead of `tx.upsertMessage`
+ * would pass tsc and the whole suite, then freeze the first catch-up batch on
+ * the device, forever. This module makes the fake as strict as the real one:
+ * during a transaction, every QUEUED method of the store throws instead of
+ * silently succeeding. READS stay allowed: `db/store.ts` serves them outside
+ * the queue, they do not block.
  */
 
 import type { Store, StoreWrites } from './sync.ts';
 
 /**
- * Enveloppe un faux dépôt (fourni SANS `transaction` : c'est le piège qui la
- * définit, on ne peut pas l'oublier) et rend un `Depot` complet qui fait
- * respecter l'invariant file/transaction.
+ * Wraps a fake store (supplied WITHOUT `transaction`: the trap defines it, so
+ * it cannot be forgotten) and returns a full `Store` that enforces the
+ * queue/transaction invariant.
  */
 export function withTransactionTrap(bare: Omit<Store, 'transaction'>): Store {
   let inTransaction = false;
@@ -42,8 +41,8 @@ export function withTransactionTrap(bare: Omit<Store, 'transaction'>): Store {
     };
   };
 
-  // Ce que `fn` reçoit : les écritures du faux, EN DIRECT — le miroir du
-  // `direct` de `db/store.ts`, qui contourne la file.
+  // What `fn` receives: the fake's writes, DIRECT, mirroring the `direct` of
+  // `db/store.ts`, which bypasses the queue.
   const directWriter: StoreWrites = {
     upsertMessage: (m) => bare.upsertMessage(m),
     upsertRoom: (s) => bare.upsertRoom(s),
@@ -56,8 +55,8 @@ export function withTransactionTrap(bare: Omit<Store, 'transaction'>): Store {
   };
 
   return {
-    // La liste EXACTE des méthodes servies par `enSerie` dans `db/store.ts` —
-    // si l'une y entre ou en sort là-bas, elle doit bouger ici aussi.
+    // The EXACT list of methods served by `serially` in `db/store.ts`: if one
+    // enters or leaves it there, it must move here too.
     upsertMessage: trap('upsertMessage', (m) => bare.upsertMessage(m)),
     upsertRoom: trap('upsertRoom', (s) => bare.upsertRoom(s)),
     upsertSubscription: trap('upsertSubscription', (a) => bare.upsertSubscription(a)),
@@ -66,17 +65,17 @@ export function withTransactionTrap(bare: Omit<Store, 'transaction'>): Store {
     deleteSubscription: trap('deleteSubscription', (rid) => bare.deleteSubscription(rid)),
     deleteBySubId: trap('deleteBySubId', (subId) => bare.deleteBySubId(subId)),
     writeCursor: trap('writeCursor', (p, f, v) => bare.writeCursor(p, f, v)),
-    purgeMissingRooms: trap('purgerSalonsAbsents', (v, c) => bare.purgeMissingRooms(v, c)),
-    applyRetention: trap('appliquerRetention', (n) => bare.applyRetention(n)),
-    updateMessageText: trap('majTexteMessage', (id, t, p) => bare.updateMessageText(id, t, p)),
-    updateMessageMarks: trap('majMarquesMessage', (id, p, e) => bare.updateMessageMarks(id, p, e)),
-    hideEncryptedMessages: trap('masquerMessagesChiffres', () => bare.hideEncryptedMessages()),
-    updateEncryptedPreview: trap('majApercuChiffre', () => bare.updateEncryptedPreview()),
-    updateUserAvatar: trap('majAvatarUtilisateur', (u, e) => bare.updateUserAvatar(u, e)),
-    updateRoomAvatar: trap('majAvatarSalon', (rid, e) => bare.updateRoomAvatar(rid, e)),
-    saveIdentity: trap('enregistrerIdentite', (i) => bare.saveIdentity(i)),
+    purgeMissingRooms: trap('purgeMissingRooms', (v, c) => bare.purgeMissingRooms(v, c)),
+    applyRetention: trap('applyRetention', (n) => bare.applyRetention(n)),
+    updateMessageText: trap('updateMessageText', (id, t, p) => bare.updateMessageText(id, t, p)),
+    updateMessageMarks: trap('updateMessageMarks', (id, p, e) => bare.updateMessageMarks(id, p, e)),
+    hideEncryptedMessages: trap('hideEncryptedMessages', () => bare.hideEncryptedMessages()),
+    updateEncryptedPreview: trap('updateEncryptedPreview', () => bare.updateEncryptedPreview()),
+    updateUserAvatar: trap('updateUserAvatar', (u, e) => bare.updateUserAvatar(u, e)),
+    updateRoomAvatar: trap('updateRoomAvatar', (rid, e) => bare.updateRoomAvatar(rid, e)),
+    saveIdentity: trap('saveIdentity', (i) => bare.saveIdentity(i)),
 
-    // Lectures : hors file dans `db/store.ts`, donc permises en transaction.
+    // Reads: outside the queue in `db/store.ts`, so allowed in a transaction.
     listKnownRids: () => bare.listKnownRids(),
     readCursor: (p, f) => bare.readCursor(p, f),
     lastMessageUpdatedAt: (rid) => bare.lastMessageUpdatedAt(rid),
@@ -85,7 +84,7 @@ export function withTransactionTrap(bare: Omit<Store, 'transaction'>): Store {
 
     async transaction(fn) {
       if (inTransaction) {
-        // `enSerie` dans `enSerie` : le vrai dépôt s'y interbloque aussi.
+        // `serially` inside `serially`: the real store deadlocks there too.
         throw new Error('transaction: nested transaction, deadlocks on the device');
       }
       inTransaction = true;

@@ -1,9 +1,9 @@
 /**
- * Feuille de déverrouillage E2EE — `presentation: 'formSheet'` (déclarée dans
- * `app/_layout.tsx`). Ouverte paresseusement au tap sur un salon chiffré
- * verrouillé, ou depuis les paramètres. Demande le mot de passe E2E, déverrouille
- * la clé privée (une fois pour l'appareil), puis déchiffre les messages déjà en
- * base — l'UI (requête vive) se rafraîchit d'elle-même.
+ * E2EE unlock sheet, `presentation: 'formSheet'` (declared in
+ * `app/_layout.tsx`). Opened lazily on tapping a locked encrypted room, or
+ * from the settings. Asks for the E2E password, unlocks the private key (once
+ * for the device), then decrypts the messages already in the database; the
+ * UI (live query) refreshes on its own.
  */
 
 import { Stack, useRouter } from 'expo-router';
@@ -38,10 +38,10 @@ export default function UnlockE2EScreen() {
     void (async () => {
       try {
         await unlock(password);
-        router.back(); // succès : la sheet se ferme, les messages s'éclairent
+        router.back(); // success: the sheet closes, the messages light up
       } catch (e) {
-        // Un mot de passe faux échoue à l'authentification GCM (ErreurE2E) ;
-        // tout le reste (réseau, clé absente) est générique.
+        // A wrong password fails GCM authentication (E2EError);
+        // everything else (network, missing key) is generic.
         setError(t(e instanceof E2EError ? 'e2e.wrongPassword' : 'e2e.genericError'));
         setBusy(false);
       }
@@ -62,8 +62,8 @@ export default function UnlockE2EScreen() {
         autoFocus
         autoCapitalize="none"
         autoCorrect={false}
-        // Engage le cadre d'autofill (Bitwarden, etc.) : sans hint, un champ
-        // `secureTextEntry` seul ne propose pas de remplissage sur Android.
+        // Engages the autofill framework (Bitwarden, etc.): without a hint, a lone
+        // `secureTextEntry` field offers no autofill on Android.
         autoComplete="password"
         textContentType="password"
         importantForAutofill="yes"

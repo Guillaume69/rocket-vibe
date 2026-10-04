@@ -1,37 +1,37 @@
 /**
- * Citation d'un message (« reply-quote ») — le mécanisme NATIF de Rocket.Chat.
+ * Message quoting ("reply-quote"), Rocket.Chat's NATIVE mechanism.
  *
- * Un message qui commence par `[ ](https://serveur/chemin?msg=<id>)` est reconnu
- * par le serveur (hook BeforeSaveJumpToMessage) : il attache le message cité en
- * pièce jointe (`message_link`, `author_name`, `text`) et marque l'URL
- * `ignoreParse` (pas d'aperçu OpenGraph). Rien à inventer côté client : nos
- * citations s'affichent donc aussi dans l'app officielle, et réciproquement.
+ * A message starting with `[ ](https://server/path?msg=<id>)` is recognized by
+ * the server (BeforeSaveJumpToMessage hook): it attaches the quoted message as
+ * an attachment (`message_link`, `author_name`, `text`) and marks the URL
+ * `ignoreParse` (no OpenGraph preview). Nothing to invent client-side: our
+ * quotes therefore also show in the official app, and vice versa.
  *
- * Module pur, sans React ni réseau — tout se teste sous Node.
+ * Pure module, no React or network: everything is testable under Node.
  */
 
 import type { Paragraph, Root } from '@rocket.chat/message-parser';
 
 /**
- * Permalien d'un message, au format canonique des clients officiels :
- * `/channel/<nom>` (public), `/group/<nom>` (privé), `/direct/<rid>` (DM).
- * Le serveur ne regarde que « commence par Site_Url et porte `?msg= »`, mais le
- * chemin canonique garde le lien navigable dans les autres clients.
+ * Permalink of a message, in the official clients' canonical format:
+ * `/channel/<name>` (public), `/group/<name>` (private), `/direct/<rid>` (DM).
+ * The server only checks "starts with Site_Url and carries `?msg=`", but the
+ * canonical path keeps the link navigable in other clients.
  *
- * D'où `siteUrl` : bâti sur la seule `baseUrl`, le lien n'était pas reconnu dès
- * qu'elle différait du réglage serveur (alias de proxy, IP, port — cas du banc
- * émulateur, `10.0.2.2:3300` vs `localhost:3300`). Pire qu'une citation
- * absente : l'affichage optimiste la MONTRAIT, puis l'écho serveur écrasait
- * `piecesJointes` et le rendu retirait le lien brut du corps — le message final
- * ne portait plus aucune trace de ce à quoi il répondait.
+ * Hence `siteUrl`: built on `baseUrl` alone, the link was not recognized as
+ * soon as it differed from the server setting (proxy alias, IP, port: the
+ * emulator bench case, `10.0.2.2:3300` vs `localhost:3300`). Worse than a
+ * missing quote: the optimistic display SHOWED it, then the server echo
+ * overwrote `attachments` and rendering stripped the raw link from the body, so
+ * the final message carried no trace of what it replied to.
  */
 export function messagePermalink(options: {
   baseUrl: string;
-  /** `Site_Url` de la session — null (réglage ou session d'avant) : repli `baseUrl`. */
+  /** The session's `Site_Url`; null (setting or older session): falls back to `baseUrl`. */
   siteUrl: string | null;
-  /** Type Rocket.Chat du salon : `c`, `p` ou `d`. */
+  /** Rocket.Chat room type: `c`, `p` or `d`. */
   type: string;
-  /** `name` du salon — null pour un DM. */
+  /** The room's `name`; null for a DM. */
   name: string | null;
   rid: string;
   msgId: string;
@@ -46,18 +46,18 @@ export function messagePermalink(options: {
   return `${base}/${path}?msg=${encodeURIComponent(options.msgId)}`;
 }
 
-/** Le texte à envoyer : le permalien invisible devant, la réponse derrière. */
+/** The text to send: the invisible permalink first, the reply after. */
 export function quote(permalink: string, text: string): string {
   return text === '' ? `[ ](${permalink})` : `[ ](${permalink}) ${text}`;
 }
 
-/** Un lien `[ ](…?msg=…)` en TÊTE de texte — répété pour les chaînes de citations. */
+/** A `[ ](…?msg=…)` link at the START of the text, repeated for quote chains. */
 const QUOTE_PREFIX = /^\s*\[ ?\]\(https?:\/\/[^)\s]+[?&]msg=[^)\s]*\)\s*/;
 
 /**
- * Retire le(s) permalien(s) de citation en tête d'un texte BRUT — pour
- * l'extrait affiché (bandeau de réponse, bloc de citation) : le message cité
- * peut lui-même être une réponse, on ne veut montrer que ses mots.
+ * Strips the leading quote permalink(s) from a RAW text, for the displayed
+ * excerpt (reply banner, quote block): the quoted message may itself be a
+ * reply, we only want to show its words.
  */
 export function stripQuotePrefix(text: string): string {
   let rest = text;
@@ -69,9 +69,8 @@ export function stripQuotePrefix(text: string): string {
 }
 
 /**
- * Le critère serveur (`isQuoteAttachment`) : une pièce jointe qui porte
- * `message_link` est une citation. Tout le reste (image, audio, fichier) n'en
- * est pas.
+ * The server criterion (`isQuoteAttachment`): an attachment carrying
+ * `message_link` is a quote. Everything else (image, audio, file) is not.
  */
 export function isQuoteAttachment(attachment: unknown): boolean {
   return (
@@ -81,23 +80,23 @@ export function isQuoteAttachment(attachment: unknown): boolean {
   );
 }
 
-/** Profondeur de rendu des citations imbriquées — celle que produit le serveur
- *  avec `Message_QuoteChainLimit` par défaut (2), et qu'affiche l'app officielle. */
+/** Rendering depth of nested quotes: what the server produces with the default
+ *  `Message_QuoteChainLimit` (2), and what the official app shows. */
 export const MAX_QUOTE_DEPTH = 2;
 
 /**
- * La pièce jointe de citation LOCALE (JSON `attachments` sérialisé), pour
- * l'affichage optimiste — même forme que `createQuoteAttachment` côté serveur
- * (8.5.1), même taille de chaîne : les pièces du message cité sont reprises
- * telles quelles (ses images s'affichent dans le bloc), ses propres citations
- * gardées mais purgées de LEURS citations — le niveau 3, que le serveur retire
- * aussi (`recursiveRemoveAttachments`, limite 2).
+ * The LOCAL quote attachment (serialized `attachments` JSON), for the
+ * optimistic display: same shape as the server's `createQuoteAttachment`
+ * (8.5.1), same chain length. The quoted message's attachments are kept as is
+ * (its images show in the block), its own quotes kept but purged of THEIR
+ * quotes: level 3, which the server also strips (`recursiveRemoveAttachments`,
+ * limit 2).
  */
 export function localQuoteAttachment(options: {
   permalink: string;
   author: string | null;
   text: string | null;
-  /** `piecesJointes` (JSON) du message cité, tel que stocké. */
+  /** The quoted message's `attachments` (JSON), as stored. */
   attachments: string | null;
 }): string {
   let nested: unknown[] = [];
@@ -105,7 +104,7 @@ export function localQuoteAttachment(options: {
     const raw = JSON.parse(options.attachments ?? '[]') as unknown;
     if (Array.isArray(raw)) nested = raw;
   } catch {
-    // Illisible : citation sans pièces, le texte reste.
+    // Unreadable: quote without attachments, the text stays.
   }
   const cleaned = nested.map((attachment) => {
     if (!isQuoteAttachment(attachment)) return attachment;
@@ -126,9 +125,9 @@ export function localQuoteAttachment(options: {
 }
 
 /**
- * L'URL (relative) de la première image du message cité — la vignette du
- * bandeau « Réponse à … ». Les citations imbriquées sont ignorées : on montre
- * ce que la personne citée a POSTÉ, pas ce qu'elle citait.
+ * The (relative) URL of the quoted message's first image: the thumbnail of the
+ * "Reply to …" banner. Nested quotes are ignored: we show what the quoted
+ * person POSTED, not what they quoted.
  */
 export function firstAttachmentImage(attachments: string | null): string | null {
   try {
@@ -140,14 +139,14 @@ export function firstAttachmentImage(attachments: string | null): string | null 
       if (typeof image === 'string') return image;
     }
   } catch {
-    // Illisible : pas de vignette.
+    // Unreadable: no thumbnail.
   }
   return null;
 }
 
 type InlineNode = { type?: unknown; value?: unknown };
 
-/** Aplatissement local minimal (éviter d'importer markdown.ts : il nous importe). */
+/** Minimal local flattening (avoids importing markdown.ts: it imports us). */
 function flatText(node: unknown): string {
   if (typeof node === 'string') return node;
   if (Array.isArray(node)) return node.map(flatText).join('');
@@ -157,8 +156,8 @@ function flatText(node: unknown): string {
   return '';
 }
 
-/** Un nœud LINK dont le label est vide/blanc et la cible porte `msg=` : le
- *  permalien d'une citation — il ne rend qu'un espace souligné, du bruit. */
+/** A LINK node with an empty/blank label and a target carrying `msg=`: a
+ *  quote permalink. It only renders an underlined space, noise. */
 function isQuoteLink(node: unknown): boolean {
   if (typeof node !== 'object' || node === null) return false;
   const n = node as { type?: unknown; value?: { src?: unknown; label?: unknown } };
@@ -169,17 +168,17 @@ function isQuoteLink(node: unknown): boolean {
 }
 
 /**
- * Retire les permaliens de citation d'un arbre markdown avant rendu — la
- * citation est affichée à part (pièce jointe `message_link`), le lien dans le
- * corps ne serait qu'un espace souligné suivi d'un blanc. Rend l'arbre
- * INCHANGÉ (même référence) quand il n'y a rien à retirer — le cas de presque
- * tous les messages, aucun coût.
+ * Strips quote permalinks from a markdown tree before rendering: the quote is
+ * shown separately (`message_link` attachment), the link in the body would
+ * only be an underlined space followed by a blank. Returns the tree UNCHANGED
+ * (same reference) when there is nothing to strip: the case of almost every
+ * message, at no cost.
  */
 export function withoutQuoteLinks(tree: Root): Root {
   if (!tree.some((block) => isParagraphWithQuote(block))) return tree;
 
-  // `Root` est un tuple-union (`[BigEmoji] | …`) : on construit sur le type
-  // d'ÉLÉMENT. Un arbre `[BigEmoji]` n'a jamais de citation — jamais mappé ici.
+  // `Root` is a tuple union (`[BigEmoji] | …`): build on the ELEMENT type. A
+  // `[BigEmoji]` tree never has a quote, never mapped here.
   const blocks: Root[number][] = [];
   for (const block of tree) {
     if (!isParagraphWithQuote(block)) {
@@ -188,14 +187,14 @@ export function withoutQuoteLinks(tree: Root): Root {
     }
     const paragraph = block as Paragraph;
     const remaining = paragraph.value.filter((n) => !isQuoteLink(n));
-    // L'espace qui suivait le permalien appartient à la syntaxe, pas au message.
+    // The space after the permalink belongs to the syntax, not the message.
     const first = remaining[0] as InlineNode | undefined;
     if (first !== undefined && first.type === 'PLAIN_TEXT' && typeof first.value === 'string') {
       const adjusted = first.value.replace(/^\s+/, '');
       if (adjusted === '') remaining.shift();
       else remaining[0] = { ...first, value: adjusted } as Paragraph['value'][number];
     }
-    // Un message qui n'était QUE le permalien : le paragraphe disparaît.
+    // A message that was ONLY the permalink: the paragraph disappears.
     if (remaining.length > 0) blocks.push({ ...paragraph, value: remaining });
   }
   return blocks as Root;

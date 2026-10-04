@@ -1,8 +1,8 @@
 /**
- * Actions unitaires Rocket.Chat sur les messages. Enveloppe fine sur `ClientRest`
- * — isole les endpoints RC (`chat.react`, `chat.update`, …) et leurs quirks de
- * paramètres, pour que les écrans ne les nomment plus. Le driver Mattermost
- * fournira son propre `ActionsFournisseur` (endpoints `/posts`, `/reactions`, …).
+ * Rocket.Chat unit actions on messages. A thin wrapper over `ClientRest`
+ * that isolates the RC endpoints (`chat.react`, `chat.update`, ...) and their
+ * parameter quirks, so screens no longer name them. The Mattermost driver
+ * will provide its own `ProviderActions` (endpoints `/posts`, `/reactions`, ...).
  */
 
 import { mentionsE2E } from '../../lib/e2e/mentions.ts';
@@ -12,8 +12,8 @@ import { toMessage, type MessageLocal } from '../../lib/normalize.ts';
 import type { ClientRest } from '../../lib/rest.ts';
 
 export class ActionsRC implements ProviderActions {
-  // Champ ordinaire, pas une « parameter property » : cette dernière n'est pas
-  // une syntaxe effaçable et empêcherait de charger le module sous Node (test).
+  // A plain field, not a "parameter property": the latter is not erasable
+  // syntax and would prevent loading the module under Node (tests).
   private readonly client: ClientRest;
 
   constructor(client: ClientRest) {
@@ -21,9 +21,9 @@ export class ActionsRC implements ProviderActions {
   }
 
   /**
-   * `emoji` est le SHORTNAME sans deux-points (`+1`, `heart`) : `chat.react`
-   * refuse l'unicode brut (« Invalid emoji provided ») et veut `:code:`.
-   * `mettre` mappe sur `shouldReact` — poser ou retirer sans ambiguïté de bascule.
+   * `emoji` is the SHORTNAME without colons (`+1`, `heart`): `chat.react`
+   * refuses raw unicode ("Invalid emoji provided") and wants `:code:`.
+   * `put` maps to `shouldReact`: set or remove with no toggle ambiguity.
    */
   async react(_rid: string, mid: string, emoji: string, put: boolean): Promise<void> {
     await this.client.post('chat.react', {
@@ -32,8 +32,8 @@ export class ActionsRC implements ProviderActions {
   }
 
   /**
-   * Un message chiffré se modifie par `content`, que le serveur n'accepte que
-   * sur un message `e2e` — et un `text` y serait refusé.
+   * An encrypted message is edited through `content`, which the server only
+   * accepts on an `e2e` message, and a `text` would be refused there.
    */
   async edit(rid: string, mid: string, text: string, encryptor?: OutboxEncryptor): Promise<void> {
     if (encryptor === undefined) {
@@ -95,8 +95,8 @@ export class ActionsRC implements ProviderActions {
     });
     const rawRoom = response.room;
     const rid = rawRoom?._id;
-    // Un 200 sans salon est anormal (proxy, réponse tronquée) : message de
-    // DIAGNOSTIC, pas une phrase d'écran — l'appelant met en phrase s'il veut.
+    // A 200 without a room is abnormal (proxy, truncated response): a
+    // DIAGNOSTIC message, not a screen sentence; the caller phrases it if it wants.
     if (rawRoom === undefined || typeof rid !== 'string') {
       throw new Error('im.create: response without a room');
     }

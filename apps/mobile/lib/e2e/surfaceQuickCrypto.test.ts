@@ -2,16 +2,16 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 /**
- * L'ALIAS Metro est la ligne dont dépend toute la crypto embarquée : si
- * `crypto` cesse de se résoudre vers `react-native-quick-crypto`, l'app charge
- * un polyfill pur JS (ou rien), et l'E2EE meurt sans qu'aucun test ne bouge.
- * On exécute ici le VRAI `metro.config.js` — pas une copie de sa logique —
- * avec un contexte factice qui enregistre ce que le résolveur demande.
+ * The Metro ALIAS is the line all on-device crypto depends on: if `crypto`
+ * stops resolving to `react-native-quick-crypto`, the app loads a pure-JS
+ * polyfill (or nothing), and E2EE dies without any test moving. This runs the
+ * REAL `metro.config.js`, not a copy of its logic, with a fake context that
+ * records what the resolver asks for.
  *
- * La surface de l'API quick-crypto, elle, est verrouillée par les assertions
- * de types de `surfaceQuickCrypto.ts` (vérifiées par `npx tsc --noEmit`) : le
- * module natif ne peut pas se CHARGER sous Node, on ne peut donc pas rejouer
- * les vecteurs de `crypto.test.ts` contre lui ici.
+ * The quick-crypto API surface is locked by the type assertions of
+ * `surfaceQuickCrypto.ts` (checked by `npx tsc --noEmit`): the native module
+ * cannot LOAD under Node, so the `crypto.test.ts` vectors cannot be replayed
+ * against it here.
  */
 
 type ResolutionContext = {
@@ -29,9 +29,9 @@ type MetroConfig = {
   };
 };
 
-// `metro.config.js` est du CommonJS : l'interop ESM le sert sous `default`.
-// Son chargement exécute `getDefaultConfig(__dirname)` — le vrai, celui
-// d'expo — donc ce test casse aussi si la config devient inchargeable.
+// `metro.config.js` is CommonJS: ESM interop serves it under `default`.
+// Loading it runs `getDefaultConfig(__dirname)`, expo's real one, so this
+// test also breaks if the config becomes unloadable.
 const config = (await import('../../metro.config.js')).default as MetroConfig;
 
 function resolve(module: string): { requests: string[]; rendered: unknown } {
@@ -48,30 +48,30 @@ function resolve(module: string): { requests: string[]; rendered: unknown } {
   return { requests, rendered: rendered === sentinel ? 'sentinelle' : rendered };
 }
 
-describe('alias Metro de la crypto embarquée', () => {
-  test('`crypto` se résout vers react-native-quick-crypto', () => {
+describe('Metro alias for on-device crypto', () => {
+  test('`crypto` resolves to react-native-quick-crypto', () => {
     const { requests, rendered } = resolve('crypto');
     assert.deepEqual(requests, ['react-native-quick-crypto']);
-    // Le résultat du résolveur standard est bien RENDU, pas avalé.
+    // The standard resolver's result is RETURNED, not swallowed.
     assert.equal(rendered, 'sentinelle');
   });
 
-  test('`buffer` se résout vers l’implémentation feuille, PAS le barrel quick-crypto', () => {
-    // L'aliaser vers le barrel créerait un cycle de require — voir le
-    // commentaire de metro.config.js. La cible exacte fait partie du contrat.
+  test('`buffer` resolves to the leaf implementation, NOT the quick-crypto barrel', () => {
+    // Aliasing it to the barrel would create a require cycle; see the comment
+    // in metro.config.js. The exact target is part of the contract.
     const { requests } = resolve('buffer');
     assert.deepEqual(requests, ['@craftzdog/react-native-buffer']);
   });
 
-  test('les deux cibles de l’alias sont installées', () => {
-    // Un `npm prune` ou une migration qui retire l'une d'elles rendrait
-    // l'alias pointé sur du vide — Metro n'échouerait qu'au build.
+  test('both alias targets are installed', () => {
+    // An `npm prune` or a migration removing one of them would leave the alias
+    // pointing at nothing; Metro would only fail at build time.
     for (const pkg of ['react-native-quick-crypto', '@craftzdog/react-native-buffer']) {
-      assert.doesNotThrow(() => import.meta.resolve(pkg), `${pkg} introuvable`);
+      assert.doesNotThrow(() => import.meta.resolve(pkg), `${pkg} not found`);
     }
   });
 
-  test('les migrations .sql restent résolubles (sourceExts)', () => {
+  test('.sql migrations stay resolvable (sourceExts)', () => {
     assert.ok(config.resolver.sourceExts.includes('sql'));
   });
 });

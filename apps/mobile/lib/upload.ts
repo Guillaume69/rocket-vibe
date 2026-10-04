@@ -1,16 +1,16 @@
 /**
- * Upload en deux temps — `rooms.upload` a été SUPPRIMÉ en 8.0.0 :
+ * Two-step upload, since `rooms.upload` was REMOVED in 8.0.0:
  *
- * 1. `POST /api/v1/rooms.media/:rid` — multipart, champ `file`. Ne poste
- *    AUCUN message : le fichier attend, orphelin, côté serveur.
- * 2. `POST /api/v1/rooms.mediaConfirm/:rid/:fileId` — c'est LUI qui crée le
- *    message. Schémas relevés contre le serveur 8.5 réel (incertitude n°7) :
- *    media → `{ file: { _id, url } }` ; mediaConfirm → `{ message }` complet
- *    (attachments[], file, md), qui repasse par l'ingestion normale.
+ * 1. `POST /api/v1/rooms.media/:rid`, multipart, field `file`. Posts NO
+ *    message: the file waits, orphaned, on the server.
+ * 2. `POST /api/v1/rooms.mediaConfirm/:rid/:fileId`: THIS is what creates the
+ *    message. Schemas read against the real 8.5 server (uncertainty #7):
+ *    media → `{ file: { _id, url } }`; mediaConfirm → a full `{ message }`
+ *    (attachments[], file, md), which goes through normal ingestion.
  *
- * Le POST multipart lui-même est délégué à un transport injecté :
- * `expo-file-system` dans l'app (progression native), n'importe quel `fetch`
- * dans les tests. Ce module reste pur.
+ * The multipart POST itself is delegated to an injected transport:
+ * `expo-file-system` in the app (native progress), any `fetch` in tests. This
+ * module stays pure.
  */
 
 import { sameOrigin } from './origin.ts';
@@ -19,13 +19,13 @@ import type { ClientRest } from './rest.ts';
 export type FileToSend = {
   uri: string;
   name: string;
-  /** MIME. Vérifié contre `FileUpload_MediaTypeWhiteList` AVANT l'appel. */
+  /** MIME. Checked against `FileUpload_MediaTypeWhiteList` BEFORE the call. */
   type: string;
 };
 
 /**
- * Envoie le multipart et rend le CORPS TEXTE de la réponse. L'implémentation
- * app utilise `expo-file-system` (createUploadTask) ; les tests, un fetch.
+ * Sends the multipart and returns the response's TEXT BODY. The app
+ * implementation uses `expo-file-system` (createUploadTask); tests, a fetch.
  */
 export type TransportUpload = (
   url: string,
@@ -33,13 +33,13 @@ export type TransportUpload = (
   file: FileToSend,
   onProgress?: (fraction: number) => void,
   /**
-   * Appelé UNE fois, dès que la tâche existe, avec de quoi l'interrompre.
-   * Sans cela « Abandonner » ne faisait qu'un DELETE en base : les octets
-   * continuaient de monter et le fichier finissait par apparaître dans le
-   * salon, après que l'utilisateur l'avait explicitement abandonné.
+   * Called ONCE, as soon as the task exists, with a way to interrupt it.
+   * Without it "Discard" only did a DELETE in the database: the bytes kept
+   * going up and the file ended up appearing in the room, after the user had
+   * explicitly discarded it.
    */
   onCancelable?: (cancel: () => Promise<void>) => void,
-  /** Champs texte ajoutés au multipart (le `content` chiffré d'un fichier de salon chiffré). */
+  /** Text fields added to the multipart (the encrypted `content` of a file in an encrypted room). */
   fields?: Record<string, string>,
 ) => Promise<{ status: number; body: string }>;
 
@@ -54,17 +54,17 @@ type MediaResponse = { file?: { _id?: string; url?: string } };
 type ConfirmResponse = { message?: Record<string, unknown> };
 
 /**
- * **Premier temps : les octets.** Rend le `fileId` du serveur — à PERSISTER
- * avant d'aller plus loin.
+ * **Step one: the bytes.** Returns the server's `fileId`, to PERSIST before
+ * going any further.
  *
- * Les deux temps sont séparés parce que l'intervalle entre eux est un point
- * de panne réel : `ClientRest` avorte à 15 s, et un `mediaConfirm` dont la
- * réponse se perd laissait tout reprendre à zéro au raccordement suivant —
- * les mêmes octets repoussés, un second message posté, un fichier orphelin de
- * plus. Avec le `fileId` en base, la reprise saute directement au confirm.
+ * The two steps are separate because the gap between them is a real failure
+ * point: `ClientRest` aborts at 15 s, and a `mediaConfirm` whose response got
+ * lost made everything restart from scratch at the next connection setup: the
+ * same bytes pushed again, a second message posted, one more orphaned file.
+ * With the `fileId` in the database, the retry jumps straight to the confirm.
  *
- * `surProgression` reçoit une fraction 0..1 ; `surAnnulable`, de quoi
- * interrompre la tâche.
+ * `onProgress` receives a 0..1 fraction; `onCancelable`, a way to interrupt
+ * the task.
  */
 export async function uploadBytes(options: {
   client: ClientRest;
@@ -106,19 +106,19 @@ export async function uploadBytes(options: {
 }
 
 /**
- * **Second temps : le message.** SANS cette confirmation, aucun message n'est
- * posté : le fichier reste orphelin côté serveur.
+ * **Step two: the message.** WITHOUT this confirmation no message is posted:
+ * the file stays orphaned on the server.
  *
- * Pas d'`_id` client ici pour dédupliquer — le schéma de `rooms.mediaConfirm`
- * est `additionalProperties: false`, le serveur refuserait le corps. La
- * déduplication se fait donc côté client, sur le `fileId` persisté.
+ * No client `_id` here to deduplicate: the `rooms.mediaConfirm` schema is
+ * `additionalProperties: false`, the server would reject the body.
+ * Deduplication therefore happens client-side, on the persisted `fileId`.
  */
 export async function confirmerMedia(options: {
   client: ClientRest;
   rid: string;
   fileId: string;
   message?: string;
-  /** Corps complet, à la place de `message` : celui d'un fichier chiffré. */
+  /** Full body, instead of `message`: the one of an encrypted file. */
   body?: Record<string, unknown>;
 }): Promise<Record<string, unknown>> {
   const { client, rid, fileId, message } = options;
@@ -132,11 +132,11 @@ export async function confirmerMedia(options: {
 }
 
 /**
- * Change MA photo de profil : `users.setAvatar`, multipart champ **`image`**
- * (et non `file`). Endpoint distinct du flux `rooms.media` — pas de
- * confirmation en deux temps, un seul POST. Le transport (injecté) porte le nom
- * de champ ; c'est le seul écart avec `televerser`. Pas de progression : un
- * avatar réduit est minuscule.
+ * Changes MY profile photo: `users.setAvatar`, multipart field **`image`**
+ * (not `file`). An endpoint separate from the `rooms.media` flow: no two-step
+ * confirmation, a single POST. The (injected) transport carries the field
+ * name; that is the only difference with `uploadBytes`. No progress: a
+ * downscaled avatar is tiny.
  */
 export async function setAvatar(options: {
   client: ClientRest;
@@ -169,17 +169,18 @@ export async function setAvatar(options: {
 }
 
 /**
- * Lecture protégée (7.4) : `FileUpload_ProtectFiles = true` sur le serveur
- * cible — `/file-upload/:id/:nom` exige `rc_uid`/`rc_token` en query.
+ * Protected read (7.4): `FileUpload_ProtectFiles = true` on the target server,
+ * so `/file-upload/:id/:name` requires `rc_uid`/`rc_token` in the query.
  *
- * **Le jeton n'est posé que sur une URL de NOTRE serveur.** `chemin` vient d'un
- * champ de message (`title_link`, `image_url`, `audio_url`, `video_url`), donc
- * en dernier ressort d'autrui : `chat.sendMessage` accepte un tableau
- * `attachments` arbitraire. Un `title_link` absolu vers un hôte tiers repartait
- * d'ici avec `rc_uid` et `rc_token` collés dessus — et il suffisait alors que
- * l'URL soit rendue par une `<Image>` pour que Fresco les livre à cet hôte,
- * sans un geste de l'utilisateur. Hors origine, on rend l'URL nue : le fichier
- * ne s'affichera pas s'il était protégé, ce qui est le bon échec.
+ * **The token is only added to a URL of OUR server.** `path` comes from a
+ * message field (`title_link`, `image_url`, `audio_url`, `video_url`), so
+ * ultimately from someone else: `chat.sendMessage` accepts an arbitrary
+ * `attachments` array. An absolute `title_link` to a third-party host left
+ * from here with `rc_uid` and `rc_token` stuck on it, and it was then enough
+ * for the URL to be rendered by an `<Image>` for Fresco to deliver them to
+ * that host, without a single user gesture. Off-origin, the URL is returned
+ * bare: the file will not show if it was protected, which is the right
+ * failure.
  */
 export function protectedFileUrl(client: ClientRest, path: string): string {
   const absolute = path.startsWith('http') ? path : `${client.baseUrl}${path}`;
@@ -190,38 +191,38 @@ export function protectedFileUrl(client: ClientRest, path: string): string {
 }
 
 /**
- * Valeur d'`etag` posée quand la photo a été RETIRÉE (`users.resetAvatar` :
- * l'événement `updateAvatar` arrive alors SANS etag, vérifié sur 8.5). Retirer
- * une photo doit changer l'URI autant qu'en poser une : sans ça, l'URL
- * retomberait sur sa forme d'avant, que le cache image sert encore avec
- * l'ancienne photo. Une constante suffit — l'URL correspondante rend un SVG,
- * que `<Image>` refuse, donc la tuile dégradée reprend sa place.
+ * `etag` value set when the photo was REMOVED (`users.resetAvatar`: the
+ * `updateAvatar` event then arrives WITHOUT an etag, checked on 8.5). Removing
+ * a photo must change the URI as much as setting one: otherwise the URL would
+ * fall back to its earlier form, which the image cache still serves with the
+ * old photo. A constant is enough: the matching URL returns an SVG, which
+ * `<Image>` rejects, so the fallback tile takes its place again.
  */
 export const AVATAR_NO_PHOTO = 'sans-photo';
 
 /**
- * URL d'avatar authentifiée. Le serveur cible a
- * `Accounts_AvatarBlockUnauthenticatedAccess = true` : sans `rc_uid`/`rc_token`
- * l'avatar répond 404/403 (vérifié sur 8.5). Rend `null` quand rien ne désigne
- * de cible — l'appelant garde alors sa tuile dégradée.
+ * Authenticated avatar URL. The target server has
+ * `Accounts_AvatarBlockUnauthenticatedAccess = true`: without
+ * `rc_uid`/`rc_token` the avatar answers 404/403 (checked on 8.5). Returns
+ * `null` when nothing designates a target; the caller then keeps its fallback
+ * tile.
  *
- * Astuce clef : Rocket.Chat sert une VRAIE image (`image/png`, `image/jpeg`)
- * quand une photo existe, mais un SVG généré à initiales (`image/svg+xml`)
- * sinon. `<Image>` d'Android (Fresco) ne décode pas le SVG et déclenche son
- * `onError` : ce seul signal distingue « pas de photo » de « photo ».
+ * Key trick: Rocket.Chat serves a REAL image (`image/png`, `image/jpeg`) when a
+ * photo exists, but a generated initials SVG (`image/svg+xml`) otherwise.
+ * Android's `<Image>` (Fresco) does not decode SVG and fires its `onError`:
+ * that signal alone tells "no photo" from "photo".
  *
- * `username` prime sur `uid` quand les deux sont fournis ; `rid` sert l'avatar
- * d'un canal.
+ * `username` wins over `uid` when both are given; `rid` serves a channel's
+ * avatar.
  *
- * **`etag` n'est pas un ornement.** `/avatar/<qui>` est une URI STABLE : le
- * cache image d'Android (Fresco) la garde indéfiniment, sans revalidation — le
- * serveur répond pourtant `Cache-Control: public, max-age=3600` et AUCUN
- * `ETag` HTTP (relevé sur 8.5). Changer sa photo ne changeait donc rien à
- * l'écran, pour toujours. L'`avatarETag` du serveur, ajouté en query (le
- * serveur ignore le paramètre), fait bouger l'URI à chaque version : c'est LUI
- * qui rafraîchit l'affichage. Il vient de la base locale (`utilisateurs`,
- * `salons`), alimentée par le stream `updateAvatar`, par `me` et par
- * `users.info` — voir `ui/identities.tsx`.
+ * **`etag` is not decoration.** `/avatar/<who>` is a STABLE URI: Android's
+ * image cache (Fresco) keeps it forever, without revalidation, even though the
+ * server answers `Cache-Control: public, max-age=3600` and NO HTTP `ETag`
+ * (observed on 8.5). Changing one's photo therefore changed nothing on screen,
+ * forever. The server's `avatarETag`, added to the query (the server ignores
+ * the parameter), moves the URI at each version: THAT is what refreshes the
+ * display. It comes from the local database (users, rooms), fed by the
+ * `updateAvatar` stream, by `me` and by `users.info`; see `ui/identities.tsx`.
  */
 export function urlAvatar(
   client: ClientRest,

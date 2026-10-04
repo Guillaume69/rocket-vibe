@@ -1,28 +1,28 @@
 /**
- * Primitives E2EE Rocket.Chat (schéma `rc.v2.aes-sha2`) : déchiffrement, et
- * chiffrement des messages envoyés.
+ * Rocket.Chat E2EE primitives (`rc.v2.aes-sha2` scheme): decryption, and
+ * encryption of sent messages.
  *
- * Fonctions PURES, sans React ni réseau — testables sous Node. Tout le savoir
- * cryptographique du client tient ici ; l'orchestration (session, clés en
- * mémoire, REST) vit dans `lib/e2e/engine.ts`.
+ * PURE functions, no React or network, testable under Node. All of the
+ * client's cryptographic knowledge lives here; orchestration (session, keys in
+ * memory, REST) lives in `lib/e2e/engine.ts`.
  *
- * La crypto passe par l'API `node:crypto` : sous Node (tests) c'est l'implé
- * native OpenSSL ; dans l'app RN, Metro alias `crypto` et `buffer` vers
- * `react-native-quick-crypto` (module natif Nitro, New-Arch) — même API, même
- * OpenSSL, PBKDF2 natif au lieu des ~400 ms en pur JS. Aliasing dans
- * `metro.config.js`.
+ * Crypto goes through the `node:crypto` API: under Node (tests) it is the
+ * native OpenSSL implementation; in the RN app, Metro aliases `crypto` and
+ * `buffer` to `react-native-quick-crypto` (native Nitro module, New Arch):
+ * same API, same OpenSSL, native PBKDF2 instead of ~400 ms in pure JS.
+ * Aliasing in `metro.config.js`.
  *
- * Les formats EXACTS sont vérifiés contre un vrai serveur 8.5 (mémoire
- * `e2ee-protocole-rc85`). En résumé :
- *   - clé privée : enveloppe JSON `{iv, ciphertext, salt, iterations}`, salt =
- *     chaîne ASCII littérale, PBKDF2-SHA256 → AES-GCM → JWK RSA ;
- *   - clé de salon : `E2EKey` = keyID (UUID 36 car.) + base64(RSA-OAEP) → JWK AES ;
- *   - message : objet `content` `{algorithm, kid, iv, ciphertext}` → AES-GCM →
- *     JSON `{"msg": "<clair>"}`.
+ * The EXACT formats are checked against a real 8.5 server (memory
+ * `e2ee-protocole-rc85`). In short:
+ *   - private key: JSON envelope `{iv, ciphertext, salt, iterations}`, salt =
+ *     literal ASCII string, PBKDF2-SHA256 -> AES-GCM -> RSA JWK;
+ *   - room key: `E2EKey` = keyID (36-char UUID) + base64(RSA-OAEP) -> AES JWK;
+ *   - message: `content` object `{algorithm, kid, iv, ciphertext}` -> AES-GCM ->
+ *     JSON `{"msg": "<plaintext>"}`.
  *
- * Convention GCM de WebCrypto (côté serveur/officiel) : le tag de 16 octets est
- * COLLÉ en fin de `ciphertext`. `createDecipheriv` le veut séparé via
- * `setAuthTag` — d'où le découpage.
+ * WebCrypto GCM convention (server/official side): the 16-byte tag is
+ * APPENDED to `ciphertext`. `createDecipheriv` wants it separate through
+ * `setAuthTag`, hence the split.
  */
 
 import {
@@ -38,24 +38,24 @@ import {
 } from 'crypto';
 import { Buffer } from 'buffer';
 
-/** Enveloppe de la clé privée telle que renvoyée par `e2e.fetchMyKeys`. */
+/** Private key envelope as returned by `e2e.fetchMyKeys`. */
 export type PrivateKeyEnvelope = {
-  /** base64, 12 octets (nonce GCM). */
+  /** base64, 12 bytes (GCM nonce). */
   iv: string;
-  /** base64, chiffré + tag GCM (16 derniers octets). */
+  /** base64, ciphertext + GCM tag (last 16 bytes). */
   ciphertext: string;
-  /** Chaîne ASCII littérale `v2:<uid>:<uuid>`, utilisée TELLE QUELLE (pas de base64). */
+  /** Literal ASCII string `v2:<uid>:<uuid>`, used AS IS (no base64). */
   salt: string;
   iterations: number;
 };
 
 /**
- * Objet `content` d'un message chiffré. Trois formes observées :
- *   - `rc.v2` GCM (serveur récent) : `{kid, iv(12 o), ciphertext(+tag)}` ;
- *   - `rc.v2` CBC (compte ancien) : `{kid, iv(16 o), ciphertext}` ;
- *   - `rc.v1` (hérité) : `{ciphertext}` seul, où `ciphertext = keyID(12) +
- *     base64(IV(16) || AES-CBC)` — pas de champ `iv`/`kid` séparé.
- * D'où `iv`/`kid` OPTIONNELS.
+ * `content` object of an encrypted message. Three observed shapes:
+ *   - `rc.v2` GCM (recent server): `{kid, iv(12 B), ciphertext(+tag)}`;
+ *   - `rc.v2` CBC (old account): `{kid, iv(16 B), ciphertext}`;
+ *   - `rc.v1` (legacy): `{ciphertext}` alone, where `ciphertext = keyID(12) +
+ *     base64(IV(16) || AES-CBC)`, with no separate `iv`/`kid` field.
+ * Hence OPTIONAL `iv`/`kid`.
  */
 export type EncryptedContent = {
   algorithm: string;
@@ -64,10 +64,10 @@ export type EncryptedContent = {
   iv?: string;
 };
 
-/** Clé privée RSA importée, opaque, à garder en mémoire le temps d'une session. */
+/** Imported RSA private key, opaque, kept in memory for a session. */
 export type RsaPrivateKey = KeyObject;
 
-/** Erreur de déchiffrement — un mot de passe faux tombe ici, pas en crash. */
+/** Decryption error: a wrong password lands here, not in a crash. */
 export class E2EError extends Error {
   constructor(message: string) {
     super(message);
@@ -76,13 +76,13 @@ export class E2EError extends Error {
 }
 
 const GCM_TAG_SIZE = 16;
-/** IV AES-CBC = 16 octets (l'IV GCM, lui, fait 12). Ici l'IV CBC de la v1. */
+/** AES-CBC IV = 16 bytes (the GCM IV is 12). Here the v1 CBC IV. */
 const CBC_IV_SIZE = 16;
 /**
- * Un `E2EKey` = keyID + base64(clé de salon chiffrée RSA-OAEP). La sortie
- * RSA-2048 fait 256 octets = 344 caractères base64. Le keyID est donc le
- * PRÉFIXE restant : 36 (UUID, schéma v2) ou 12 (schéma v1). On le CALCULE au
- * lieu de le coder en dur — un compte peut mêler les deux selon l'ancienneté.
+ * An `E2EKey` = keyID + base64(RSA-OAEP-encrypted room key). RSA-2048 output
+ * is 256 bytes = 344 base64 characters. The keyID is therefore the remaining
+ * PREFIX: 36 (UUID, v2 scheme) or 12 (v1 scheme). It is COMPUTED instead of
+ * hard-coded: an account can mix both depending on age.
  */
 const RSA_B64_LENGTH = 344;
 function longueurKeyId(e2eKey: string): number {
@@ -93,7 +93,7 @@ function base64ToBytes(b64: string): Buffer {
   return Buffer.from(b64, 'base64');
 }
 
-/** base64url (JWK) → octets. */
+/** base64url (JWK) -> bytes. */
 function base64urlToBytes(s: string): Buffer {
   let b = s.replace(/-/g, '+').replace(/_/g, '/');
   while (b.length % 4 !== 0) b += '=';
@@ -101,8 +101,8 @@ function base64urlToBytes(s: string): Buffer {
 }
 
 /**
- * Le chiffre AES qui correspond à la taille de la clé : une clé de salon créée
- * par l'ancien client web est un JWK `A128CBC` de 16 octets, pas 32.
+ * The AES cipher matching the key size: a room key created by the old web
+ * client is a 16-byte `A128CBC` JWK, not 32.
  */
 function bitsAes(key: Buffer): 128 | 192 | 256 | null {
   const bits = key.length * 8;
@@ -110,9 +110,9 @@ function bitsAes(key: Buffer): 128 | 192 | 256 | null {
 }
 
 /**
- * Déchiffre un bloc AES-GCM. `ctAvecTag` porte le tag de 16 octets en fin
- * (convention WebCrypto). Rend `null` si l'authentification échoue — la seule
- * façon fiable de détecter un mauvais mot de passe / une clé fausse.
+ * Decrypts an AES-GCM block. `ctWithTag` carries the 16-byte tag at the end
+ * (WebCrypto convention). Returns `null` if authentication fails, the only
+ * reliable way to detect a wrong password or key.
  */
 function decryptGcm(key: Buffer, iv: Buffer, ctWithTag: Buffer): Buffer | null {
   const bits = bitsAes(key);
@@ -128,7 +128,7 @@ function decryptGcm(key: Buffer, iv: Buffer, ctWithTag: Buffer): Buffer | null {
   }
 }
 
-/** Déchiffre un bloc AES-CBC (remplissage PKCS#7 vérifié par `final`). */
+/** Decrypts an AES-CBC block (PKCS#7 padding checked by `final`). */
 function decryptCbc(key: Buffer, iv: Buffer, ct: Buffer): Buffer | null {
   const bits = bitsAes(key);
   if (bits === null) return null;
@@ -141,14 +141,14 @@ function decryptCbc(key: Buffer, iv: Buffer, ct: Buffer): Buffer | null {
 }
 
 /**
- * `private_key` (tel que renvoyé par `e2e.fetchMyKeys`) → JWK JSON de la clé
- * privée RSA. Détecte le schéma :
- *   - **v2** : enveloppe JSON `{iv, ciphertext, salt, iterations}`, PBKDF2 →
- *     AES-GCM, salt dans l'enveloppe.
- *   - **v1** (héritage) : `{"$binary":"<b64>"}` (ou base64 nu), dont les octets
- *     sont `IV(16) || AES-CBC`. PBKDF2(mot de passe, salt = **userId**, **1000**
- *     itérations, SHA-256) → AES-CBC. Le `uid` sert de sel — d'où le paramètre.
- * Lève `ErreurE2E` si le mot de passe ne déchiffre pas.
+ * `private_key` (as returned by `e2e.fetchMyKeys`) -> JWK JSON of the RSA
+ * private key. Detects the scheme:
+ *   - **v2**: JSON envelope `{iv, ciphertext, salt, iterations}`, PBKDF2 ->
+ *     AES-GCM, salt in the envelope.
+ *   - **v1** (legacy): `{"$binary":"<b64>"}` (or bare base64), whose bytes are
+ *     `IV(16) || AES-CBC`. PBKDF2(password, salt = **userId**, **1000**
+ *     iterations, SHA-256) -> AES-CBC. The `uid` is the salt, hence the param.
+ * Throws `E2EError` if the password does not decrypt.
  */
 export function decryptPrivateKey(privateKey: string, password: string, uid: string): string {
   const raw = privateKey.trim();
@@ -159,7 +159,7 @@ export function decryptPrivateKey(privateKey: string, password: string, uid: str
     } catch {
       obj = null;
     }
-    // v2 : enveloppe complète.
+    // v2: full envelope.
     if (obj !== null && typeof obj.iterations === 'number' && typeof obj.salt === 'string') {
       const env = obj as unknown as PrivateKeyEnvelope;
       const masterKey = pbkdf2Sync(Buffer.from(password, 'utf8'), Buffer.from(env.salt, 'utf8'), env.iterations, 32, 'sha256');
@@ -167,21 +167,21 @@ export function decryptPrivateKey(privateKey: string, password: string, uid: str
       if (plain === null) throw new E2EError('invalid E2E password');
       return plain.toString('utf8');
     }
-    // v1 emballé en binaire EJSON.
+    // v1 wrapped in EJSON binary.
     if (obj !== null && typeof obj.$binary === 'string') {
       return decryptPrivateKeyV1(base64ToBytes(obj.$binary), password, uid);
     }
   }
-  // v1 en base64 nu.
+  // v1 as bare base64.
   return decryptPrivateKeyV1(base64ToBytes(raw), password, uid);
 }
 
 /**
- * Clé privée v1 : octets = `IV(16) || AES-CBC(JWK)`, clé maître dérivée du
- * userId (sel) et de 1000 itérations PBKDF2-SHA256. Un mauvais mot de passe
- * casse le remplissage PKCS#7 → `ErreurE2E`. Dans le cas rare où le remplissage
- * passe par hasard, le clair n'est pas un JWK valide → `JSON.parse` lève, qu'on
- * assimile à un mot de passe faux.
+ * v1 private key: bytes = `IV(16) || AES-CBC(JWK)`, master key derived from
+ * the userId (salt) and 1000 PBKDF2-SHA256 iterations. A wrong password breaks
+ * the PKCS#7 padding -> `E2EError`. In the rare case the padding passes by
+ * chance, the plaintext is not a valid JWK -> `JSON.parse` throws, which is
+ * treated as a wrong password.
  */
 function decryptPrivateKeyV1(bytes: Buffer, password: string, uid: string): string {
   const masterKey = pbkdf2Sync(Buffer.from(password, 'utf8'), Buffer.from(uid, 'utf8'), 1000, 32, 'sha256');
@@ -196,21 +196,21 @@ function decryptPrivateKeyV1(bytes: Buffer, password: string, uid: string): stri
   return text;
 }
 
-/** JWK JSON → objet clé privée RSA. `createPrivateKey` importe le JWK nativement. */
+/** JWK JSON -> RSA private key object. `createPrivateKey` imports the JWK natively. */
 export function importRsaPrivateKey(jwkJson: string): RsaPrivateKey {
   const jwk = JSON.parse(jwkJson) as JsonWebKey;
   return createPrivateKey({ key: jwk, format: 'jwk' });
 }
 
-/** Le keyID en tête d'un `E2EKey` (UUID v2 ou préfixe v1) — apparie au `content.kid`. */
+/** The keyID at the head of an `E2EKey` (v2 UUID or v1 prefix), matched to `content.kid`. */
 export function keyIdOfE2EKey(e2eKey: string): string {
   return e2eKey.substring(0, longueurKeyId(e2eKey));
 }
 
 /**
- * `E2EKey` d'abonnement → clé AES de salon (octets bruts). Retire le keyID (36
- * car. en v2, 12 en v1 — calculé), RSA-OAEP/SHA-256 avec la clé privée → JWK
- * AES, dont on rend le `k` brut.
+ * Subscription `E2EKey` -> room AES key (raw bytes). Strips the keyID (36
+ * chars in v2, 12 in v1, computed), RSA-OAEP/SHA-256 with the private key ->
+ * AES JWK, whose raw `k` is returned.
  */
 export function decryptRoomKey(e2eKey: string, privateKey: RsaPrivateKey): Buffer {
   const encrypted = base64ToBytes(e2eKey.substring(longueurKeyId(e2eKey)));
@@ -229,38 +229,38 @@ export function decryptRoomKey(e2eKey: string, privateKey: RsaPrivateKey): Buffe
 }
 
 /**
- * Ce que porte un message chiffré une fois ouvert : son texte, et pour un
- * fichier ses pièces jointes, qui détiennent la clé du fichier.
+ * What an encrypted message carries once opened: its text, and for a file its
+ * attachments, which hold the file key.
  */
 export type PlainPayload = { msg: string; attachments: unknown[] | null };
 
-/** Objet `content` + clé de salon (octets) → texte clair du message. */
+/** `content` object + room key (bytes) -> message plaintext. */
 export function decryptMessage(content: EncryptedContent, roomKeyBytes: Buffer): string {
   return decryptPayload(content, roomKeyBytes).msg;
 }
 
 /**
- * Objet `content` + clé de salon (octets) → charge claire. Le clair est un JSON
- * `{"msg": "...", "attachments": [...]}` (parfois `text`). Lève `ErreurE2E` si
- * l'auth échoue.
+ * `content` object + room key (bytes) -> plain payload. The plaintext is JSON
+ * `{"msg": "...", "attachments": [...]}` (sometimes `text`). Throws `E2EError`
+ * if authentication fails.
  */
 export function decryptPayload(content: EncryptedContent, roomKeyBytes: Buffer): PlainPayload {
   let plain: Buffer | null;
   if (typeof content.iv === 'string' && content.iv !== '') {
-    // Structure moderne : iv et ciphertext séparés. IV de 12 octets → GCM
-    // (tag collé en fin) ; de 16 → CBC (le schéma de ce compte ancien).
+    // Modern structure: separate iv and ciphertext. 12-byte IV -> GCM (tag
+    // appended); 16 -> CBC (the scheme of this old account).
     const iv = base64ToBytes(content.iv);
     const ct = base64ToBytes(content.ciphertext);
     plain = iv.length === 12 ? decryptGcm(roomKeyBytes, iv, ct) : decryptCbc(roomKeyBytes, iv, ct);
   } else {
-    // Structure héritée rc.v1 : ciphertext = keyID(12) + base64(IV(16) || CBC).
+    // Legacy rc.v1 structure: ciphertext = keyID(12) + base64(IV(16) || CBC).
     const blob = base64ToBytes(content.ciphertext.substring(12));
     plain = decryptCbc(roomKeyBytes, blob.subarray(0, CBC_IV_SIZE), blob.subarray(CBC_IV_SIZE));
   }
   if (plain === null) throw new E2EError('message decryption failed');
   const text = plain.toString('utf8');
-  // Le clair est en général un JSON `{"msg": "..."}` ; certains messages
-  // hérités portent le texte brut — on retombe dessus.
+  // The plaintext is usually JSON `{"msg": "..."}`; some legacy messages carry
+  // raw text, which is the fallback.
   try {
     const obj = JSON.parse(text) as { msg?: unknown; text?: unknown; attachments?: unknown };
     const attachments = Array.isArray(obj.attachments) ? obj.attachments : null;
@@ -268,17 +268,17 @@ export function decryptPayload(content: EncryptedContent, roomKeyBytes: Buffer):
     if (typeof obj.text === 'string') return { msg: obj.text, attachments };
     if (attachments !== null) return { msg: '', attachments };
   } catch {
-    // pas du JSON : texte brut.
+    // not JSON: raw text.
   }
   return { msg: text, attachments: null };
 }
 
 /**
- * Charge claire (`{msg}`, plus `attachments`/`files`/`file` pour un fichier) →
- * objet `content` `rc.v2.aes-sha2`, tel que le client web le produit. Le mode
- * suit la clé de salon, comme WebCrypto côté web où la clé est importée selon
- * l'`alg` de son JWK : `A128CBC` (16 octets) → CBC, IV de 16 ; `A256GCM` (32)
- * → GCM, IV de 12, tag collé en fin de `ciphertext`.
+ * Plain payload (`{msg}`, plus `attachments`/`files`/`file` for a file) ->
+ * `rc.v2.aes-sha2` `content` object, as the web client produces it. The mode
+ * follows the room key, like WebCrypto on the web where the key is imported
+ * according to its JWK `alg`: `A128CBC` (16 bytes) -> CBC, 16-byte IV;
+ * `A256GCM` (32) -> GCM, 12-byte IV, tag appended to `ciphertext`.
  */
 export function encryptMessage(payload: object, roomKeyBytes: Buffer, kid: string): EncryptedContent {
   const plain = Buffer.from(JSON.stringify(payload), 'utf8');
@@ -299,13 +299,13 @@ export function encryptMessage(payload: object, roomKeyBytes: Buffer, kid: strin
 }
 
 /**
- * Le chiffrement d'un fichier, tel que sa pièce jointe le décrit (dans le
- * clair du message) : une clé AES-CTR à lui (JWK), un compteur initial de 16
- * octets, et l'empreinte SHA-256 du fichier clair.
+ * A file's encryption, as its attachment describes it (in the message
+ * plaintext): its own AES-CTR key (JWK), a 16-byte initial counter, and the
+ * SHA-256 digest of the plain file.
  */
 export type FileEncryption = { key: { k: string }; iv: string; sha256: string | null };
 
-/** La description de chiffrement d'une pièce jointe, ou `null` si elle n'est pas chiffrée. */
+/** An attachment's encryption description, or `null` if it is not encrypted. */
 export function attachmentEncryption(attachment: unknown): FileEncryption | null {
   if (typeof attachment !== 'object' || attachment === null) return null;
   const { encryption, hashes } = attachment as { encryption?: unknown; hashes?: unknown };
@@ -319,9 +319,9 @@ export function attachmentEncryption(attachment: unknown): FileEncryption | null
 }
 
 /**
- * Octets téléchargés → fichier clair. AES-CTR : pas de remplissage ni de tag,
- * donc une clé fausse rend du bruit sans erreur — c'est l'empreinte SHA-256
- * qui tranche, quand l'expéditeur l'a fournie. Lève `ErreurE2E` sinon.
+ * Downloaded bytes -> plain file. AES-CTR has no padding or tag, so a wrong
+ * key yields noise without error: the SHA-256 digest decides, when the sender
+ * provided it. Throws `E2EError` otherwise.
  */
 export function decryptFile(bytes: Buffer, encryption: FileEncryption): Buffer {
   const key = base64urlToBytes(encryption.key.k);
@@ -336,18 +336,18 @@ export function decryptFile(bytes: Buffer, encryption: FileEncryption): Buffer {
   return plain;
 }
 
-/** SHA-256 en hexadécimal, la forme des `hashes.sha256` de Rocket.Chat. */
+/** SHA-256 in hex, the shape of Rocket.Chat `hashes.sha256`. */
 export function sha256Digest(bytes: Buffer): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-/** La clé d'un fichier envoyé, sous la forme JWK que le client web réimporte (AES-CTR, extractible). */
+/** A sent file's key, in the JWK shape the web client reimports (AES-CTR, extractable). */
 export type FileJwk = { kty: 'oct'; alg: 'A256CTR'; k: string; ext: true; key_ops: ['encrypt', 'decrypt'] };
 
 /**
- * Fichier clair → octets à téléverser, et de quoi le relire : une clé AES-CTR
- * 256 neuve, un compteur initial de 16 octets, l'empreinte SHA-256 du clair —
- * ce que le client web met dans la pièce jointe.
+ * Plain file -> bytes to upload, and what is needed to read it back: a fresh
+ * AES-CTR 256 key, a 16-byte initial counter, the SHA-256 digest of the
+ * plaintext; what the web client puts in the attachment.
  */
 export function encryptFile(plain: Buffer): {
   encrypted: Buffer;

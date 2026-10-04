@@ -1,55 +1,54 @@
 /**
- * Ce qui a le droit de SORTIR du processus.
+ * What is allowed to LEAVE the process.
  *
- * Ouvrir une URL avec `Linking.openURL`, c'est émettre un intent `VIEW` : la
- * chaîne part vers le navigateur (donc son historique, synchronisé vers le
- * compte Google) et vers toute application qui déclare gérer le schéma. Deux
- * choses doivent donc être vraies AVANT de la confier au système.
+ * Opening a URL with `Linking.openURL` emits a `VIEW` intent: the string goes
+ * to the browser (hence its history, synced to the Google account) and to any
+ * app that claims to handle the scheme. Two things must therefore be true
+ * BEFORE handing it to the system.
  *
- * 1. **Le schéma est du web.** `javascript:`, `intent:`, `file:`, `content:`
- *    restent lettre morte. Les URL affichées viennent du markdown, des aperçus
- *    de lien (`message.urls`) et des pièces jointes — toutes des données
- *    d'autrui, stockées brutes en base et projetées sans validation.
- * 2. **Elle ne porte aucun de nos identifiants.** `urlFichierProtege`
- *    (lib/upload.ts) colle `rc_uid` et `rc_token` en query, parce que le
- *    middleware de fichiers protégés de Rocket.Chat s'authentifie ainsi. Un
- *    `rc_token` vaut le compte entier. Une telle URL est faite pour être
- *    consommée DANS le processus (`<Image>`, lecteur vidéo, téléchargement) et
- *    nulle part ailleurs.
+ * 1. **The scheme is web.** `javascript:`, `intent:`, `file:`, `content:` go
+ *    nowhere. The URLs displayed come from markdown, link previews
+ *    (`message.urls`) and attachments: all other people's data, stored raw in
+ *    the database and projected without validation.
+ * 2. **It carries none of our credentials.** `protectedFileUrl`
+ *    (lib/upload.ts) puts `rc_uid` and `rc_token` in the query, because
+ *    Rocket.Chat's protected-file middleware authenticates that way. An
+ *    `rc_token` is worth the whole account. Such a URL is meant to be consumed
+ *    INSIDE the process (`<Image>`, video player, download) and nowhere else.
  *
- * Le second point est un filet, pas la correction : le chemin qui fuyait (la
- * branche « fichier » de `ui/messageRow.tsx`) ne passe plus du tout par
- * l'ouverture externe, il télécharge et partage un fichier LOCAL. Ce garde-fou
- * est là pour qu'une réintroduction du même défaut, ailleurs, échoue au lieu de
- * fuir en silence — et il se teste, lui.
+ * The second point is a safety net, not the fix: the path that leaked (the
+ * "file" branch of `ui/messageRow.tsx`) no longer goes through external
+ * opening at all, it downloads and shares a LOCAL file. This guard is there so
+ * that reintroducing the same defect elsewhere fails instead of leaking
+ * silently, and it can be tested.
  *
- * Module pur : `ui/externalLink.ts` porte l'appel à `Linking`.
+ * Pure module: `ui/externalLink.ts` makes the `Linking` call.
  */
 
-/** Seuls schémas confiés au système. */
+/** The only schemes handed to the system. */
 const WEB = /^https?:\/\//i;
 
 /**
- * Nos identifiants de session, tels que `urlFichierProtege` les pose en query.
- * Volontairement large (pas d'ancrage sur `?`/`&`) : mieux vaut refuser une URL
- * externe exotique qui contiendrait littéralement `rc_token=` que laisser
- * passer une forme à laquelle on n'aurait pas pensé.
+ * Our session credentials, as `protectedFileUrl` puts them in the query.
+ * Deliberately broad (no anchoring on `?`/`&`): better to refuse an exotic
+ * external URL literally containing `rc_token=` than to let through a form
+ * nobody thought of.
  */
 const CREDENTIALS = /\brc_(token|uid)=/i;
 
-/** Vrai si `url` est une chaîne `http(s)://…`. */
+/** True if `url` is an `http(s)://...` string. */
 export function isWebLink(url: unknown): url is string {
   return typeof url === 'string' && WEB.test(url);
 }
 
-/** Vrai si l'URL transporte `rc_uid` ou `rc_token`. */
+/** True if the URL carries `rc_uid` or `rc_token`. */
 export function carriesCredentials(url: string): boolean {
   return CREDENTIALS.test(url);
 }
 
 /**
- * La seule question à poser avant `Linking.openURL` : cette chaîne peut-elle
- * quitter le processus ?
+ * The only question to ask before `Linking.openURL`: may this string leave
+ * the process?
  */
 export function canLeaveProcess(url: unknown): url is string {
   return isWebLink(url) && !carriesCredentials(url);

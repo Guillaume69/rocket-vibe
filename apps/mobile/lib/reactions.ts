@@ -1,31 +1,30 @@
 /**
- * Les réactions d'un message, projetées pour le rendu.
+ * A message's reactions, projected for rendering.
  *
- * La colonne `messages.reactions` porte le JSON du serveur tel quel :
- * `{":+1:": {"usernames": ["alice","bob"], "names": [...]}}` — les clés sont
- * des codes courts ENTRE deux-points, et l'appartenance se juge au USERNAME
- * (pas à l'uid : le serveur ne stocke que les pseudos). Cette colonne était
- * écrite depuis le premier jour (`lib/normalize.ts`) mais lue nulle part :
- * l'utilisateur réagissait, la feuille se fermait, rien ne changeait à
- * l'écran. La projection vit ici, pure et testable ; le rendu des pastilles
- * est dans `ui/messageRow.tsx`.
+ * The `messages.reactions` column holds the server's JSON as is:
+ * `{":+1:": {"usernames": ["alice","bob"], "names": [...]}}`. The keys are
+ * shortcodes BETWEEN colons, and membership is judged by USERNAME (not uid:
+ * the server only stores usernames). This column was written from day one
+ * (`lib/normalize.ts`) but read nowhere: the user reacted, the sheet closed,
+ * nothing changed on screen. The projection lives here, pure and testable;
+ * the chips are rendered in `ui/messageRow.tsx`.
  */
 
 export type DisplayedReaction = {
-  /** Code court SANS les deux-points (`+1`, `party_parrot`). */
+  /** Shortcode WITHOUT the colons (`+1`, `party_parrot`). */
   code: string;
-  /** Nombre de personnes ayant posé cette réaction. */
+  /** Number of people who added this reaction. */
   total: number;
-  /** Mon username y figure : le contour s'accentue, et le tap RETIRE. */
+  /** My username is in it: the outline is emphasized, and a tap REMOVES. */
   byMe: boolean;
 };
 
 /**
- * `brut` = la colonne `reactions` (JSON sérialisé, ou null). `moi` = mon
- * username, ou null si inconnu (résultats de recherche) — `parMoi` reste alors
- * faux, les pastilles s'affichent sans être marquées. Tolérant comme tout ce
- * qui vient d'autrui : un JSON illisible ou une forme inattendue rend `[]`,
- * jamais une exception. L'ordre du serveur est préservé.
+ * `raw` = the `reactions` column (serialized JSON, or null). `me` = my
+ * username, or null if unknown (search results): `byMe` then stays false and
+ * the chips show unmarked. Tolerant like everything coming from others: an
+ * unreadable JSON or an unexpected shape returns `[]`, never an exception.
+ * The server's order is preserved.
  */
 export function reactionList(raw: string | null, me: string | null): DisplayedReaction[] {
   if (raw === null) return [];

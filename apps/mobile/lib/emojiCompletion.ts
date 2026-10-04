@@ -1,52 +1,51 @@
 /**
- * Autocomplétion des codes courts d'emoji dans le composer.
+ * Emoji shortcode autocompletion in the composer.
  *
- * Quand on tape `:te`, on veut voir `:test:`, `:tete:`… et pouvoir en choisir
- * un. Trois responsabilités PURES, sans React ni réseau — donc testables sous
- * Node :
+ * Typing `:te` should show `:test:`, `:tete:`... and let the user pick one.
+ * Three PURE responsibilities, no React or network, hence testable under Node:
  *
- *   1. `detecterJetonEmoji` — repérer le jeton `:xxx` en cours de frappe juste
- *      avant le curseur (et refuser un `http://`, `12:34`, un jeton déjà fermé).
- *   2. `completerEmoji` — classer les codes courts (standard + custom) qui
- *      correspondent à la requête.
- *   3. `appliquerCompletion` — remplacer le jeton par l'insertion choisie.
+ *   1. `detectEmojiToken`: find the `:xxx` token being typed just before the
+ *      cursor (and reject `http://`, `12:34`, an already closed token).
+ *   2. `completeEmoji`: rank the shortcodes (standard + custom) matching the
+ *      query.
+ *   3. `applyCompletion`: replace the token with the chosen insertion.
  *
- * L'insertion elle-même (glyphe Unicode pour un standard, `:nom:` pour un
- * custom) et l'aperçu se résolvent côté UI (`ui/emojiCompletion.tsx`), qui a
- * accès à `unicodeDeCodeCourt` et `urlEmojiCustom`. Ici, on ne manipule que des
- * noms — la donnée que ces deux mondes partagent.
+ * The insertion itself (Unicode glyph for a standard one, `:name:` for a
+ * custom one) and the preview are resolved in the UI (`ui/emojiCompletion.tsx`),
+ * which has `unicodeOfShortcode` and `urlEmojiCustom`. Here we only handle
+ * names, the data both sides share.
  */
 
 /**
- * Dès la PREMIÈRE lettre après `:` on propose — comme Slack/Discord. `:a`
- * matche des centaines d'emojis, mais le classement (exact, préfixe, sous-chaîne)
- * remonte les bons en tête et `LIMITE_SUGGESTIONS` borne la bande. En deçà (le
- * `:` seul), rien : ce serait tout le dictionnaire.
+ * Suggestions start at the FIRST letter after `:`, like Slack/Discord. `:a`
+ * matches hundreds of emojis, but the ranking (exact, prefix, substring) puts
+ * the right ones first and `SUGGESTION_LIMIT` bounds the strip. Below that (a
+ * bare `:`), nothing: it would be the whole dictionary.
  */
 export const MIN_QUERY = 1;
-/** Plafond de suggestions montrées : la bande défile, inutile d'en classer 2000. */
+/** Cap on suggestions shown: the strip scrolls, no point ranking 2000. */
 export const SUGGESTION_LIMIT = 30;
 
 export type TypeEmoji = 'standard' | 'custom';
 export type SuggestionEmoji = { code: string; type: TypeEmoji };
 
-/** Un code court n'est fait que de ces caractères (`+1`, `-1`, `party_parrot`…). */
+/** A shortcode is made only of these characters (`+1`, `-1`, `party_parrot`...). */
 const VALID_CODE = /^[A-Za-z0-9_+-]*$/;
 /**
- * Une lettre ou un chiffre Unicode — accents COMPRIS. Le `:` ne doit ouvrir un
- * jeton que s'il commence un mot ; `é`, `à`… sont des lettres au même titre que
- * `a`. Sans `\p{L}`, `résumé:tl` (sans espace) ouvrirait le bandeau à tort.
+ * A Unicode letter or digit, accents INCLUDED. The `:` opens a token only if
+ * it starts a word; `é`, `à`... are letters just like `a`. Without `\p{L}`,
+ * `résumé:tl` (no space) would wrongly open the strip.
  */
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
 
 /**
- * Le jeton `:xxx` en cours de frappe juste avant le curseur, ou `null`.
+ * The `:xxx` token being typed just before the cursor, or `null`.
  *
- * Le `:` doit OUVRIR un mot — début du champ, ou précédé d'un caractère qui
- * n'est ni lettre ni chiffre. Sans cette garde, on déclencherait au beau milieu
- * de `http://`, `12:34`, `clé:valeur`. Un jeton déjà fermé (`:smile:`) ne
- * déclenche pas : `lastIndexOf(':')` tombe alors sur le `:` de clôture et la
- * requête est vide.
+ * The `:` must OPEN a word: start of the field, or preceded by a character
+ * that is neither letter nor digit. Without this guard it would trigger in the
+ * middle of `http://`, `12:34`, `key:value`. An already closed token
+ * (`:smile:`) does not trigger: `lastIndexOf(':')` then lands on the closing
+ * `:` and the query is empty.
  */
 export function detectEmojiToken(
   text: string,
@@ -56,17 +55,17 @@ export function detectEmojiToken(
   const before = text.slice(0, c);
   const colon = before.lastIndexOf(':');
   if (colon === -1) return null;
-  // `charAt` renvoie toujours une chaîne ('' hors bornes) : pas de garde d'index.
+  // `charAt` always returns a string ('' out of bounds): no index guard needed.
   if (colon > 0 && LETTER_OR_DIGIT.test(before.charAt(colon - 1))) return null;
   const query = before.slice(colon + 1);
   if (!VALID_CODE.test(query) || query.length < MIN_QUERY) return null;
   return { start: colon, query: query.toLowerCase() };
 }
 
-// Le `Set` des codes standard est construit UNE fois : `codesEmojiStandard()`
-// rend toujours le même tableau (cache figé), donc l'identité suffit à savoir
-// qu'il n'a pas changé. Sans ce cache, chaque frappe rebâtissait un `Set` de
-// 6222 entrées sur le chemin chaud du composer.
+// The `Set` of standard codes is built ONCE: `codesEmojiStandard()` always
+// returns the same array (frozen cache), so identity is enough to know it has
+// not changed. Without this cache, every keystroke rebuilt a 6222-entry `Set`
+// on the composer's hot path.
 let refStandard: readonly string[] | null = null;
 let setStandard: Set<string> | null = null;
 function standardSet(codes: readonly string[]): Set<string> {
@@ -78,20 +77,21 @@ function standardSet(codes: readonly string[]): Set<string> {
 }
 
 /**
- * Les codes courts qui correspondent à `requete`, du plus au moins pertinent.
+ * The shortcodes matching `query`, from most to least relevant.
  *
- * Ordre : correspondance exacte, puis préfixe, puis sous-chaîne ; à qualité
- * égale, un custom passe avant un standard (c'est ce que l'utilisateur cherche
- * en priorité), puis le code le plus court, puis l'alphabétique.
+ * Order: exact match, then prefix, then substring; at equal quality a custom
+ * one comes before a standard one (that is what the user is looking for
+ * first), then the shortest code, then alphabetical.
  *
- * Casse : la requête est minusculée. Les codes standard le sont tous (table
- * générée), mais un nom custom vient du serveur et peut porter une majuscule —
- * on compare donc les customs en minuscules, tout en gardant le code ORIGINAL
- * (l'URL de l'image se bâtit sur le nom exact).
+ * Case: the query is lowercased. Standard codes all are (generated table), but
+ * a custom name comes from the server and may contain an uppercase letter, so
+ * customs are compared lowercased while keeping the ORIGINAL code (the image
+ * URL is built on the exact name).
  *
- * Un custom homonyme d'un standard est ÉCARTÉ (jamais ajouté deux fois) : au
- * rendu, le glyphe Unicode gagne sur l'image custom (`ui/markdown.tsx`), donc
- * la suggestion doit insérer le glyphe — on le traite en standard.
+ * A custom one with the same name as a standard one is DROPPED (never added
+ * twice): at render time the Unicode glyph wins over the custom image
+ * (`ui/markdown.tsx`), so the suggestion must insert the glyph; it is treated
+ * as standard.
  */
 export function completeEmoji(
   query: string,
@@ -104,19 +104,19 @@ export function completeEmoji(
 
   const candidates: { s: SuggestionEmoji; rank: number }[] = [];
   const add = (code: string, type: TypeEmoji): void => {
-    // Standard : déjà minuscule. Custom : minusculé pour la comparaison seule.
+    // Standard: already lowercase. Custom: lowercased for the comparison only.
     const haystack = type === 'custom' ? code.toLowerCase() : code;
     const i = haystack.indexOf(q);
     if (i === -1) return;
     const match = haystack === q ? 0 : i === 0 ? 1 : 2;
-    // custom (0) avant standard (1) à correspondance égale.
+    // custom (0) before standard (1) at equal match.
     const rank = match * 2 + (type === 'custom' ? 0 : 1);
     candidates.push({ s: { code, type }, rank });
   };
 
   const standard = standardSet(codesStandard);
   for (const code of codesCustom) {
-    if (standard.has(code.toLowerCase())) continue; // le glyphe standard l'emporte au rendu
+    if (standard.has(code.toLowerCase())) continue; // the standard glyph wins at render time
     add(code, 'custom');
   }
   for (const code of codesStandard) add(code, 'standard');
@@ -131,11 +131,11 @@ export function completeEmoji(
 }
 
 /**
- * Remplace le jeton `[debut, curseur)` par `insertion`, curseur juste après.
+ * Replaces the token `[start, cursor)` with `insertion`, cursor right after.
  *
- * Une espace suit l'insertion pour enchaîner la frappe — SAUF si le texte
- * qui suit commence déjà par une espace (sinon on en aurait deux). Le curseur
- * revient pile après ce qu'on vient d'écrire, jamais dans la suite du texte.
+ * A space follows the insertion so typing can continue, UNLESS the following
+ * text already starts with a space (there would be two). The cursor lands
+ * right after what was just written, never inside the rest of the text.
  */
 export function applyCompletion(
   text: string,

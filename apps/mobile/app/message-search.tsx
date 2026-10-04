@@ -19,15 +19,15 @@ import { useSession } from '../ui/session.tsx';
 import { useColors, type Colors, FONTS } from '../ui/theme.ts';
 
 /**
- * Recherche de messages dans UN salon (8.5) — `chat.search` exige un
- * `roomId`. Les résultats sont ÉPHÉMÈRES : rendus directement depuis la
- * réponse (normalisés par `versMessage`, comme tout document serveur),
- * jamais écrits en base — des messages isolés hors fenêtre n'ont rien à y
- * faire. Pas de saut vers le message dans l'historique : consigné, viendra
- * avec une vraie pagination arrière ciblée.
+ * Message search within ONE room (8.5): `chat.search` requires a `roomId`.
+ * Results are EPHEMERAL: rendered straight from the response (normalised by
+ * `toMessage`, like any server document), never written to the database;
+ * isolated messages outside the window have no business there. No jump to
+ * the message in history: noted, will come with a real targeted backward
+ * pagination.
  */
 
-/** Stable (module-level) : une valeur recréée à chaque rendu relancerait l'effet. */
+/** Stable (module-level): a value recreated on every render would rerun the effect. */
 const NO_MESSAGE: MessageLocal[] = [];
 
 export default function MessageSearchScreen() {
@@ -36,7 +36,7 @@ export default function MessageSearchScreen() {
   const c = useColors();
   const t = useT();
 
-  // Même portier que le salon : un lien profond peut atterrir ici sans session.
+  // Same gatekeeper as the room: a deep link can land here without a session.
   if (state.phase === 'disconnected') return <Redirect href="/login" />;
 
   if (state.phase !== 'connected' || typeof rid !== 'string') {
@@ -62,8 +62,8 @@ function MessageSearch({
   const t = useT();
   const [query, setQuery] = useState('');
 
-  // Les résultats sont normalisés dès la réponse (`versMessage`, comme tout
-  // document serveur) — jamais écrits en base, voir l'en-tête du fichier.
+  // Results are normalised on arrival (`toMessage`, like any server
+  // document), never written to the database; see the file header.
   const searchMessages = useCallback(
     (clean: string) =>
       client
@@ -111,21 +111,21 @@ function MessageSearch({
           <View style={styles.result}>
             <MessageRow
               c={c}
-              // MessageLocal et la ligne SQLite partagent exactement ces
-              // champs — c'est le même document serveur normalisé.
+              // MessageLocal and the SQLite row share exactly these
+              // fields: it is the same normalised server document.
               message={item}
               client={client}
               sendStatus={null}
               onRetry={null}
               onDiscard={null}
-              // Pas d'actions ici : la feuille lit la base par id, et un
-              // résultat ancien n'y est pas forcément — fausse promesse.
+              // No actions here: the sheet reads the database by id, and an
+              // old result is not necessarily there; a false promise.
               onLongPress={null}
               onOpenThread={null}
-              // Même raison pour les réactions : lecture seule, rien de marqué.
+              // Same reason for reactions: read only, nothing marked.
               me={null}
               onReact={null}
-              // Des résultats épars, pas un flux : chacun garde son en-tête.
+              // Scattered results, not a stream: each keeps its header.
               continuation={false}
               repeatedTime={false}
             />

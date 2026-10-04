@@ -1,24 +1,24 @@
 #!/usr/bin/env node
 /**
- * Génère `lib/emojis.generated.ts` : la table « code court → caractère Unicode »
- * que Rocket.Chat n'envoie PAS.
+ * Generates `lib/emojis.generated.ts`: the "shortcode -> Unicode character"
+ * table that Rocket.Chat does NOT send.
  *
  *   npm run emojis:generate
  *
- * Le serveur pré-parse `:smile:` en `{type:'EMOJI', shortCode:'smile'}` et
- * s'arrête là — vérifié sur 8.5, aucun champ `unicode` n'accompagne un code
- * court. La résolution appartient au client, et il lui faut donc la table.
+ * The server pre-parses `:smile:` into `{type:'EMOJI', shortCode:'smile'}` and
+ * stops there (checked on 8.5, no `unicode` field comes with a shortcode).
+ * Resolution belongs to the client, which therefore needs the table.
  *
- * Source : `emoji-toolkit` (JoyPixels), d'où Rocket.Chat tire ses shortnames —
- * même source, mêmes noms, `:+1:` compris. Sa LICENSE.md sépare nettement les
- * deux régimes : **artwork** sous licence JoyPixels restrictive, **« Javascript,
- * JSON, PHP, CSS, HTML files » sous MIT**. On ne prend que le JSON et on
- * n'embarque aucune image : les emojis sont rendus par la police du système
- * (Noto Color Emoji sur Android). D'où la dépendance de DÉVELOPPEMENT seule,
- * et cette table figée dans le dépôt — le runtime n'a rien à installer.
+ * Source: `emoji-toolkit` (JoyPixels), where Rocket.Chat gets its shortnames:
+ * same source, same names, `:+1:` included. Its LICENSE.md clearly separates
+ * the two regimes: **artwork** under the restrictive JoyPixels licence,
+ * **"Javascript, JSON, PHP, CSS, HTML files" under MIT**. We only take the
+ * JSON and ship no image: emojis are rendered by the system font (Noto Color
+ * Emoji on Android). Hence a DEVELOPMENT dependency only, and this table
+ * frozen in the repo: the runtime has nothing to install.
  *
- * Sortie déterministe (clés triées, un seul gagnant par collision) : relancer
- * le script sur la même version doit laisser `git diff` vide.
+ * Deterministic output (sorted keys, a single winner per collision): rerunning
+ * the script on the same version must leave `git diff` empty.
  */
 import { createRequire } from 'node:module';
 import { writeFileSync } from 'node:fs';
@@ -32,17 +32,17 @@ const OUTPUT = join(ROOT, 'lib', 'emojis.generated.ts');
 const emojis = require('emoji-toolkit/emoji.json');
 const version = require('emoji-toolkit/package.json').version;
 
-// `order` croissant, pour que le vainqueur d'une collision de code court ne
-// dépende pas de l'ordre des clés du JSON.
+// Ascending `order`, so the winner of a shortcode collision does not depend
+// on the JSON's key order.
 const entries = Object.entries(emojis).sort((a, b) => (a[1].order ?? 0) - (b[1].order ?? 0));
 
 const table = new Map();
 let collisions = 0;
 for (const [hex, e] of entries) {
-  // `display: 0` = retiré du sélecteur amont (doublons, codes obsolètes).
+  // `display: 0` = removed from the upstream picker (duplicates, obsolete codes).
   if (e.display !== 1) continue;
-  // `fully_qualified` et pas la clé : `:heart:` est `2764-fe0f`, avec le
-  // sélecteur de variante. Sans lui, la police rend un ❤ noir de texte.
+  // `fully_qualified` and not the key: `:heart:` is `2764-fe0f`, with the
+  // variation selector. Without it, the font renders a black text ❤.
   const points = e.code_points?.fully_qualified || e.code_points?.base || hex;
   for (const name of [e.shortname, ...(e.shortname_alternates ?? [])]) {
     const code = name.slice(1, -1); // `:smile:` → `smile`
@@ -56,16 +56,16 @@ for (const [hex, e] of entries) {
 
 const sorted = [...table].sort((a, b) => (a[0] < b[0] ? -1 : 1));
 
-// Échappe tout hors ASCII imprimable en `\uXXXX`, au niveau du JSON pour que
-// `JSON.parse` le restitue. Ce n'est pas de la coquetterie :
+// Escapes everything outside printable ASCII as `\uXXXX`, at the JSON level
+// so `JSON.parse` restores it. This is not vanity:
 //
-//   Hermes range chaque chaîne du bytecode en ASCII (1 o/car) ou en UTF-16
-//   (2 o/car), et un SEUL caractère non-ASCII bascule la chaîne ENTIÈRE.
+//   Hermes stores each bytecode string as ASCII (1 B/char) or UTF-16
+//   (2 B/char), and a SINGLE non-ASCII character switches the WHOLE string.
 //
-// La table en glyphes bruts pesait 399 054 o dans le bundle release (mesuré :
-// +399 968 o) — les 6222 clés ASCII payaient le double à cause des emojis. En
-// hexadécimal et sans le moindre octet haut (`piñata` compris), elle tombe à
-// 275 018 o. Le décodage coûte 236 ns par emoji rendu.
+// The table with raw glyphs weighed 399,054 B in the release bundle (measured:
+// +399,968 B); the 6222 ASCII keys paid double because of the emojis. In
+// hexadecimal and without a single high byte (`piñata` included), it drops
+// to 275,018 B. Decoding costs 236 ns per rendered emoji.
 const toAscii = (obj) =>
   JSON.stringify(obj).replace(
     /[^\x20-\x7e]/g,
@@ -73,15 +73,15 @@ const toAscii = (obj) =>
   );
 
 const json = toAscii(Object.fromEntries(sorted));
-if (!/^[\x00-\x7f]*$/.test(json)) throw new Error('la table doit rester ASCII pure');
+if (!/^[\x00-\x7f]*$/.test(json)) throw new Error('the table must stay pure ASCII');
 
-// Index des CATÉGORIES pour le navigateur d'emojis : codes de base (hors
-// variantes de teinte `_tone`, hors `shortname_alternates`), groupés par
-// catégorie et ordonnés par `order` — l'ordre canonique JoyPixels, celui que
-// l'œil attend (grinning, smiley, smile…). Les catégories techniques `regional`
-// (tuiles-lettres) et `modifier` (pastilles de teinte) sont écartées : on ne
-// pioche pas ça dans un navigateur. On ne garde qu'un code réellement présent
-// dans `table` — même juge que le rendu, aucune suggestion non résoluble.
+// CATEGORY index for the emoji browser: base codes (no `_tone` skin variants,
+// no `shortname_alternates`), grouped by category and ordered by `order`, the
+// canonical JoyPixels order, the one the eye expects (grinning, smiley,
+// smile...). The technical categories `regional` (letter tiles) and
+// `modifier` (skin tone swatches) are left out: nobody picks those in a
+// browser. Only a code really present in `table` is kept: same judge as the
+// rendering, no unresolvable suggestion.
 const CATEGORIES = [
   'people',
   'nature',
@@ -103,35 +103,35 @@ for (const e of orderedBase) {
   if (table.has(code)) byCategory[e.category].push(code);
 }
 const jsonCategories = toAscii(byCategory);
-if (!/^[\x00-\x7f]*$/.test(jsonCategories)) throw new Error('les catégories doivent rester ASCII pures');
+if (!/^[\x00-\x7f]*$/.test(jsonCategories)) throw new Error('the categories must stay pure ASCII');
 const baseCount = Object.values(byCategory).reduce((n, l) => n + l.length, 0);
 
-const file = `// ⚠️ GÉNÉRÉ par \`npm run emojis:generate\` — ne pas éditer à la main.
+const file = `// ⚠️ GENERATED by \`npm run emojis:generate\`: do not edit by hand.
 //
-// ${table.size} codes courts Rocket.Chat → points de code, extraits de
-// emoji-toolkit ${version} (JoyPixels), dont le JSON est sous licence MIT.
-// Aucune image n'est embarquée : la police du système rend les caractères.
-// Voir \`scripts/generate-emojis.mjs\` et \`lib/emojis.ts\`.
+// ${table.size} Rocket.Chat shortcodes -> code points, extracted from
+// emoji-toolkit ${version} (JoyPixels), whose JSON is MIT-licensed.
+// No image is shipped: the system font renders the characters.
+// See \`scripts/generate-emojis.mjs\` and \`lib/emojis.ts\`.
 //
-// Une CHAÎNE, pas un objet littéral : \`JSON.parse\` à la première demande
-// coûte moins que ${table.size} propriétés matérialisées au chargement du module,
-// pour un écran qui n'affiche parfois aucun emoji.
+// A STRING, not an object literal: \`JSON.parse\` on first request costs
+// less than ${table.size} properties materialised when the module loads,
+// for a screen that sometimes shows no emoji at all.
 //
-// Des POINTS DE CODE en hexadécimal, pas des glyphes : la chaîne reste ASCII,
-// que Hermes range sur un octet par caractère au lieu de deux (−124 Ko).
+// Hexadecimal CODE POINTS, not glyphs: the string stays ASCII, which
+// Hermes stores at one byte per character instead of two (-124 KB).
 
 export const EMOJI_CODES = ${JSON.stringify(json)};
 
-// Catégories du navigateur d'emojis : ${baseCount} codes de BASE (hors variantes de
-// teinte), groupés et ordonnés comme JoyPixels. Une chaîne \`JSON.parse\`-ée à la
-// demande, tout ASCII, pour la même raison que ci-dessus. On ne stocke que des
-// NOMS (pas les glyphes) : le rendu les résout via \`unicodeDeCodeCourt\`.
+// Emoji browser categories: ${baseCount} BASE codes (no skin tone
+// variants), grouped and ordered like JoyPixels. A string \`JSON.parse\`d on
+// demand, all ASCII, for the same reason as above. Only NAMES are stored
+// (not the glyphs): rendering resolves them via \`unicodeOfShortcode\`.
 export const EMOJIS_BY_CATEGORY = ${JSON.stringify(jsonCategories)};
 `;
 
 writeFileSync(OUTPUT, file);
 const bytes = new TextEncoder().encode(file).length;
 console.log(
-  `lib/emojis.generated.ts : ${table.size} codes courts + ${baseCount} de base classés, ${bytes} octets ` +
-    `(emoji-toolkit ${version}, ${collisions} collision(s) divergente(s) écartée(s))`,
+  `lib/emojis.generated.ts: ${table.size} shortcodes + ${baseCount} sorted base codes, ${bytes} bytes ` +
+    `(emoji-toolkit ${version}, ${collisions} diverging collision(s) dropped)`,
 );

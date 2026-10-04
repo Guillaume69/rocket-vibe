@@ -1,30 +1,31 @@
 /**
- * Aperçus de lien (« unfurl ») à partir des métadonnées que le SERVEUR attache
- * au message dans `urls[]` — OpenGraph, oEmbed, Twitter Cards, parsés côté
- * Rocket.Chat. On ne scrape RIEN côté client : ni requête réseau, ni WebView
- * (interdite, ROADMAP §4.2). On projette ce que le serveur a déjà récolté.
+ * Link previews ("unfurl") from the metadata the SERVER attaches to the
+ * message in `urls[]`: OpenGraph, oEmbed, Twitter Cards, parsed by
+ * Rocket.Chat. NOTHING is scraped client-side: no network request, no WebView
+ * (forbidden, ROADMAP §4.2). We project what the server already collected.
  *
- * Deux formes d'aperçu :
- *  - `image` : un lien qui EST une image (content-type `image/*`, ou extension
- *    d'URL quand le serveur n'a pas pu la charger) → on affiche l'image.
- *  - `carte` : un article, une vidéo, un tweet… → titre + description + vignette
- *    + nom du site, tapable pour ouvrir le lien.
+ * Two preview shapes:
+ *  - `image`: a link that IS an image (content-type `image/*`, or URL
+ *    extension when the server could not load it) → show the image.
+ *  - `card`: an article, a video, a tweet… → title + description + thumbnail
+ *    + site name, tappable to open the link.
  *
- * Relevé sur RC 8.5 (`chat.getMessage`) :
- *  - image joignable : `{ url, meta:{}, headers:{ contentType:"image/png" } }`
+ * Observed on RC 8.5 (`chat.getMessage`):
+ *  - reachable image: `{ url, meta:{}, headers:{ contentType:"image/png" } }`
  *  - article        : `meta:{ ogTitle, ogDescription, ogImage, ogSiteName, … }`
  *  - YouTube (oEmbed): `meta:{ oembedTitle, oembedThumbnailUrl, oembedProviderName, oembedHtml }`
- *  - tweet vivant (x.com ou twitter.com) : balises og normales →
- *    `meta:{ ogTitle:"… (@…) on X", ogDescription:<texte>, ogImage:<média>, ogSiteName:"X (formerly Twitter)" }`
- *    → carte avec l'image ET le texte, comme n'importe quel article.
- *  - lien sans balises (tweet supprimé, page nue) : `meta:{}` → rien à montrer.
+ *  - live tweet (x.com or twitter.com): normal og tags →
+ *    `meta:{ ogTitle:"… (@…) on X", ogDescription:<text>, ogImage:<media>, ogSiteName:"X (formerly Twitter)" }`
+ *    → card with the image AND the text, like any article.
+ *  - link without tags (deleted tweet, bare page): `meta:{}` → nothing to show.
  *
- * Rien ici n'est spécifique à un fournisseur : on ne lit que des champs
- * OpenGraph/oEmbed génériques. « Ça marche pour Twitter » n'est qu'un cas de
- * « ça marche pour toute URL que le serveur sait décrire ».
+ * Nothing here is provider-specific: only generic OpenGraph/oEmbed fields are
+ * read. "It works for Twitter" is just a case of "it works for any URL the
+ * server can describe".
  *
- * Les liens vidéo (YouTube/Dailymotion/Vimeo) sont EXCLUS : ils ont déjà leur
- * carte dédiée (`ui/embedCard.tsx`) — sans quoi le message porterait deux cartes.
+ * Video links (YouTube/Dailymotion/Vimeo) are EXCLUDED: they already have
+ * their dedicated card (`ui/embedCard.tsx`), otherwise the message would carry
+ * two cards.
  */
 
 import { isWebLink } from './externalLink.ts';
@@ -37,9 +38,9 @@ export type LinkPreview =
       url: string;
       title: string | null;
       description: string | null;
-      /** Vignette (URL publique), ou `null`. */
+      /** Thumbnail (public URL), or `null`. */
       image: string | null;
-      /** Nom du site (« GitHub »), ou l'hôte en repli. */
+      /** Site name ("GitHub"), or the host as fallback. */
       site: string | null;
     };
 
@@ -49,7 +50,7 @@ type UrlEntry = {
   headers?: { contentType?: unknown };
 };
 
-/** Extensions traitées comme image (SVG exclu : `Image` RN ne le rend pas). */
+/** Extensions treated as images (SVG excluded: RN `Image` does not render it). */
 const EXT_IMAGE = /\.(jpe?g|png|gif|webp|avif|bmp)$/i;
 
 const asString = (v: unknown): string | null => {
@@ -58,7 +59,7 @@ const asString = (v: unknown): string | null => {
   return t === '' ? null : t;
 };
 
-/** Décodage minimal des entités HTML que le serveur laisse parfois dans les métas. */
+/** Minimal decoding of the HTML entities the server sometimes leaves in metas. */
 function decodeEntities(s: string): string {
   if (!s.includes('&')) return s;
   return s
@@ -74,8 +75,8 @@ function decodeEntities(s: string): string {
 function isImage(entry: UrlEntry, url: string): boolean {
   const ct = typeof entry.headers?.contentType === 'string' ? entry.headers.contentType : '';
   if (ct.startsWith('image/') && !ct.includes('svg')) return true;
-  // Repli sur l'extension : le serveur ne peut pas toujours charger l'image
-  // (hôte qui bloque son bot) et ne renvoie alors ni headers ni meta.
+  // Fall back on the extension: the server cannot always load the image (host
+  // blocking its bot) and then returns neither headers nor meta.
   const path = url.split(/[?#]/)[0]!;
   return EXT_IMAGE.test(path);
 }
@@ -88,7 +89,7 @@ function host(url: string): string | null {
   }
 }
 
-/** Un premier des candidats non vide, `null` si tous vides. */
+/** The first non-empty candidate, `null` if all are empty. */
 function first(meta: Record<string, unknown>, keys: readonly string[]): string | null {
   for (const key of keys) {
     const v = asString(meta[key]);
@@ -99,8 +100,8 @@ function first(meta: Record<string, unknown>, keys: readonly string[]): string |
 
 function cardFromMeta(url: string, meta: Record<string, unknown>): LinkPreview | null {
   const title = first(meta, ['ogTitle', 'oembedTitle', 'twitterTitle', 'pageTitle']);
-  // La vignette part dans une `<Image>` : un `file://` y ferait lire le disque
-  // de l'app, un `data:` y injecterait une image arbitraire. Seul le web.
+  // The thumbnail goes into an `<Image>`: a `file://` would read the app's
+  // disk, a `data:` would inject an arbitrary image. Web only.
   const rawImage = first(meta, ['ogImage', 'twitterImage', 'oembedThumbnailUrl']);
   const image = isWebLink(rawImage) ? rawImage : null;
   const description = first(meta, [
@@ -111,21 +112,21 @@ function cardFromMeta(url: string, meta: Record<string, unknown>): LinkPreview |
   ]);
   const site = first(meta, ['ogSiteName', 'oembedProviderName']) ?? host(url);
 
-  // Sans titre NI image, il n'y a rien à prévisualiser (ex. tweet dont X a
-  // bloqué le scraping, ou lien sans balises) : on laisse le lien en texte.
+  // Without a title OR an image there is nothing to preview (e.g. a tweet whose
+  // scraping X blocked, or a link without tags): the link stays as text.
   if (title === null && image === null) return null;
   return { type: 'card', url, title, description, image, site };
 }
 
-/** Ce que le serveur sait d'une vidéo, pour la carte embed. */
+/** What the server knows about a video, for the embed card. */
 export type MetaVideo = { title: string | null; author: string | null };
 
 /**
- * Les métas des liens VIDÉO de `urls`, indexées par identifiant de vidéo — le
- * pendant de `apercusDeLien`, qui les saute (la carte embed les rend elle-même).
- * Sans ça la carte n'a que le nom du fournisseur à afficher, alors que le
- * serveur a déjà le titre : YouTube passe par oEmbed (`oembedTitle`,
- * `oembedAuthorName`), les autres par OpenGraph.
+ * The metas of the VIDEO links in `urls`, keyed by video id: the counterpart
+ * of `linkPreviews`, which skips them (the embed card renders them itself).
+ * Without it the card has only the provider name to show, while the server
+ * already has the title: YouTube goes through oEmbed (`oembedTitle`,
+ * `oembedAuthorName`), the others through OpenGraph.
  */
 export function metasVideo(urlsJson: string | null | undefined): Map<string, MetaVideo> {
   const byId = new Map<string, MetaVideo>();
@@ -153,9 +154,9 @@ export function metasVideo(urlsJson: string | null | undefined): Map<string, Met
 }
 
 /**
- * Projette `urls` (JSON sérialisé, tel que stocké) en aperçus affichables.
- * Déduplique par URL, saute les liens vidéo (carte dédiée), et plafonne à `max`
- * pour qu'un message truffé de liens ne noie pas le fil.
+ * Projects `urls` (serialized JSON, as stored) into displayable previews.
+ * Dedupes by URL, skips video links (dedicated card), and caps at `max` so a
+ * message stuffed with links does not drown the timeline.
  */
 export function linkPreviews(urlsJson: string | null | undefined, max = 3): LinkPreview[] {
   if (urlsJson === null || urlsJson === undefined || urlsJson === '') return [];
@@ -173,14 +174,14 @@ export function linkPreviews(urlsJson: string | null | undefined, max = 3): Link
   for (const item of raw) {
     if (previews.length >= max) break;
     const entry = item as UrlEntry;
-    // Filtré ICI, à la source : ce qui n'est pas du web ne doit ni s'afficher
-    // (`file:///…jpg` dans une `<Image>`) ni devenir tapable (`javascript:`,
-    // `intent:`). `message.urls` est stocké brut (lib/normalize.ts) et n'a
-    // jamais été validé — c'est de la donnée d'autrui.
+    // Filtered HERE, at the source: anything that is not web must neither
+    // display (`file:///…jpg` in an `<Image>`) nor become tappable
+    // (`javascript:`, `intent:`). `message.urls` is stored raw
+    // (lib/normalize.ts) and never validated: it is someone else's data.
     const rawUrl = entry?.url;
     const url = isWebLink(rawUrl) ? rawUrl : null;
     if (url === null || seen.has(url)) continue;
-    if (isVideoLink(url)) continue; // déjà rendu par la carte vidéo
+    if (isVideoLink(url)) continue; // already rendered by the video card
 
     let preview: LinkPreview | null = null;
     if (isImage(entry, url)) {

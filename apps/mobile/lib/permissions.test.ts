@@ -36,7 +36,7 @@ function fakeClient(failures = 0) {
 }
 
 describe('permissions', () => {
-  test('accordée quand un rôle global OU du salon la porte', async () => {
+  test('granted when a global OR room role carries it', async () => {
     const sources = await readPermissionSources(fakeClient().client);
     assert.deepEqual(grantedPermissions(sources, []).sort(), ['delete-own-message']);
     assert.deepEqual(grantedPermissions(sources, ['owner']).sort(), [
@@ -46,14 +46,14 @@ describe('permissions', () => {
     ]);
   });
 
-  test('rolesDuSalon lit la colonne, et ne lève jamais', () => {
+  test('roomRoles reads the column, and never throws', () => {
     assert.deepEqual(roomRoles('["owner","moderator"]'), ['owner', 'moderator']);
     assert.deepEqual(roomRoles(null), []);
     assert.deepEqual(roomRoles('{pas du json'), []);
     assert.deepEqual(roomRoles('"owner"'), []);
   });
 
-  test('une lecture par compte, et un échec n’est pas retenu', async () => {
+  test('one read per account, and a failure is not cached', async () => {
     const { client, calls } = fakeClient(1);
     await assert.rejects(sourcesPermissions(client));
     await sourcesPermissions(client);

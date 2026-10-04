@@ -1,18 +1,18 @@
 /**
- * « Mon profil » — édition de MES propres informations, comme le compte de
- * l'app officielle. Une vraie page (pas une formSheet : il y a un clavier), sur
- * le modèle de `Paramètres`.
+ * "My profile": editing MY own information, like the official app's account
+ * page. A real page (not a formSheet: there is a keyboard), modelled on
+ * `Settings`.
  *
- * Trois leviers serveur, réunis derrière un seul bouton « Enregistrer » qui
- * n'appelle QUE les endpoints des champs réellement modifiés (`lib/myProfile`,
- * `lib/upload`) :
- *  - présence + texte de statut → `users.setStatus`
- *  - nom, bio, e-mail, nom d'utilisateur → `users.updateOwnBasicInfo`
- *  - photo → `users.setAvatar`
+ * Three server levers, gathered behind a single "Save" button that calls ONLY
+ * the endpoints of the fields actually changed (`lib/myProfile`,
+ * `lib/upload`):
+ *  - presence + status text -> `users.setStatus`
+ *  - name, bio, email, username -> `users.updateOwnBasicInfo`
+ *  - photo -> `users.setAvatar`
  *
- * Changer l'e-mail ou le nom d'utilisateur est sensible : le serveur exige le
- * mot de passe courant et lève souvent la 2FA. On rejoue alors avec le code,
- * via la MÊME machinerie que le login (`preparerCodeDeuxFacteurs`).
+ * Changing the email or the username is sensitive: the server requires the
+ * current password and often raises 2FA. We then replay with the code, via
+ * the SAME machinery as login (`prepareTwoFactorCode`).
  */
 
 import { Redirect, Stack, useRouter } from 'expo-router';
@@ -47,10 +47,10 @@ import { type Colors, LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts'
 import { transportAvatarExpo } from '../ui/transportUpload.ts';
 import { Tappable } from '../ui/tappable.tsx';
 
-/** Les quatre statuts choisissables — couleurs et libellés : ui/presence.ts. */
+/** The four selectable statuses; colours and labels: ui/presence.ts. */
 const PRESENCES: readonly DefaultStatus[] = ['online', 'away', 'busy', 'offline'];
 
-/** Les clés `common.presence*` sont en minuscule ; ici, entrées d'un sélecteur. */
+/** The `common.presence*` keys are lowercase; here, entries of a picker. */
 const capitalize = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
 type Banner = { type: 'success' | 'error' | 'info'; text: string };
@@ -58,8 +58,8 @@ type Banner = { type: 'success' | 'error' | 'info'; text: string };
 export default function MyProfileScreen() {
   const { state } = useSession();
   const c = useColors();
-  // Atteint depuis Paramètres ; un état déconnecté (déconnexion en cours)
-  // renvoie au login plutôt que de crasher sur `client`.
+  // Reached from Settings; a logged-out state (logout in progress) sends
+  // back to login rather than crashing on `client`.
   if (state.phase !== 'connected') return <Redirect href="/login" />;
   return <MyProfileForm c={c} client={state.client} username={state.session.username} />;
 }
@@ -77,14 +77,14 @@ function MyProfileForm({
   const router = useRouter();
   const { updateSessionProfile } = useSession();
   const sync = useSync();
-  // Le dépôt local, pour y ranger la version de ma photo après l'avoir changée.
-  // `null` tant que la base n'est pas prête — l'enregistrement marche quand même,
-  // le rattrapage du prochain raccordement (`me`) posera l'etag.
+  // The local store, to save my photo's version there after changing it.
+  // `null` while the database is not ready; saving works anyway, the catch-up
+  // of the next connection setup (`me`) will set the etag.
   const store = sync.phase === 'ready' ? sync.engine.syncStore : null;
   const etags = useEtagsAvatars();
-  // `initial` = référence lue au chargement ; `form` = valeurs en cours d'édition.
-  // Le diff des deux décide quels endpoints appeler. Après un enregistrement
-  // réussi, `form` DEVIENT la nouvelle référence (le diff repart à zéro).
+  // `initial` = reference read on load; `form` = values being edited.
+  // Their diff decides which endpoints to call. After a successful save,
+  // `form` BECOMES the new reference (the diff starts from zero).
   const [initial, setInitial] = useState<MyProfile | null>(null);
   const [form, setForm] = useState<MyProfile | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -94,12 +94,12 @@ function MyProfileForm({
   const [busy, setBusy] = useState(false);
   const [banner, setBanner] = useState<Banner | null>(null);
 
-  // Second facteur demandé par `users.updateOwnBasicInfo` (e-mail/pseudo).
+  // Second factor requested by `users.updateOwnBasicInfo` (email/username).
   const [twoFactorRequest, setTwoFactorRequest] = useState<TwoFactorError | null>(null);
   const [code, setCode] = useState('');
 
-  // Garde de réentrance en ref (pas dans `occupe`) : deux events d'une même
-  // frame liraient tous deux l'ancienne valeur — même raison qu'au login.
+  // Reentrancy guard in a ref (not in `busy`): two events in the same
+  // frame would both read the old value; same reason as at login.
   const inFlight = useRef(false);
 
   useEffect(() => {
@@ -158,27 +158,26 @@ function MyProfileForm({
       setBusy(true);
       setBanner(null);
       try {
-        // Chaque étape réussie devient ACQUISE sur-le-champ (`initial` mis à
-        // jour champ par champ, `avatarLocal` vidé dès la photo posée) : une
-        // réémission après l'échec d'une étape SUIVANTE ne rejoue alors que ce
-        // qui reste. Avant, le `catch` unique laissait `initial` intact : la
-        // réémission rejouait un pseudo déjà accepté, que le serveur refusait
-        // (« déjà pris »), et l'écran devenait inutilisable pour la seule étape
-        // restante. Le bandeau d'erreur, lui, ne porte plus que l'étape qui a
-        // vraiment échoué.
+        // Each successful step becomes SETTLED at once (`initial` updated field by
+        // field, `avatarLocal` cleared as soon as the photo is set): a resubmission
+        // after a LATER step fails then replays only what remains. Before, the
+        // single `catch` left `initial` intact: the resubmission replayed an
+        // already accepted username, which the server refused ("already taken"),
+        // and the screen became unusable for the only remaining step. The error
+        // banner now only carries the step that really failed.
 
-        // Les infos de base EN PREMIER : seul appel susceptible d'exiger la 2FA.
-        // S'il la réclame, il lève AVANT tout effet de bord (statut, avatar) —
-        // on prompte, puis on rejoue toute la fonction avec le code.
+        // Basic info FIRST: the only call likely to require 2FA. If it asks for it,
+        // it throws BEFORE any side effect (status, avatar); we prompt, then replay
+        // the whole function with the code.
         if (Object.keys(info).length > 0) {
           const data: BasicInfo = { ...info };
           if (requiresPassword(info)) data.currentPassword = await hash(password);
           await saveBasicInfo(client, data, twoFactor);
           setInitial((i) => (i === null ? i : { ...i, ...info }));
           setPassword('');
-          // Le pseudo est porté par la session (Paramètres, avatar de cet
-          // écran) : le rafraîchir tout de suite, sinon il resterait à
-          // l'ancienne valeur jusqu'à une reconnexion.
+          // The username is carried by the session (Settings, this screen's
+          // avatar): refresh it right away, otherwise it would keep the old value
+          // until a reconnection.
           if (info.username !== undefined) await updateSessionProfile({ username: info.username });
         }
         if (statusChanged) {
@@ -192,13 +191,13 @@ function MyProfileForm({
           setAvatarLocal(null);
         }
 
-        // La nouvelle VERSION de la photo (`avatarETag`), relue à la source et
-        // rangée en base : c'est elle qui fait bouger l'URI d'avatar partout
-        // ailleurs (liste des salons, messages, Paramètres) — sans quoi le cache
-        // image d'Android continuerait de servir l'ancienne photo. Le stream
-        // `updateAvatar` le dirait aussi, mais on ne fait pas dépendre le retour
-        // visuel d'une socket qui peut être tombée. Best-effort : la photo est
-        // déjà enregistrée côté serveur, l'échec ici ne remet rien en cause.
+        // The photo's new VERSION (`avatarETag`), reread at the source and stored in
+        // the database: it is what moves the avatar URI everywhere else (room list,
+        // messages, Settings); otherwise Android's image cache would keep serving
+        // the old photo. The `updateAvatar` stream would say so too, but the visual
+        // feedback is not made to depend on a socket that may have dropped.
+        // Best-effort: the photo is already saved server-side, a failure here
+        // undoes nothing.
         if ((avatarChange || info.username !== undefined) && store !== null) {
           const me = await readMyIdentity(client).catch(() => null);
           if (me !== null) await store.saveIdentity(me).catch(() => {});
@@ -209,8 +208,8 @@ function MyProfileForm({
         setBanner({ type: 'success', text: t('myProfile.profileSaved') });
       } catch (e) {
         if (e instanceof TwoFactorError) {
-          // Le serveur veut un second facteur — ou refuse celui qu'on vient
-          // d'envoyer, auquel cas il relève la même erreur.
+          // The server wants a second factor, or rejects the one we just
+          // sent, in which case it raises the same error.
           if (twoFactor !== undefined) setBanner({ type: 'error', text: t('myProfile.codeRejected') });
           setCode('');
           setTwoFactorRequest(e);
@@ -271,7 +270,7 @@ function MyProfileForm({
     <KeyboardAvoidingContainer>
       <Stack.Screen options={{ title: t('myProfile.title') }} />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        {/* Avatar — tap pour changer. Aperçu immédiat de la photo choisie. */}
+        {/* Avatar: tap to change. Immediate preview of the chosen photo. */}
         <View style={styles.avatarBlock}>
           <Pressable
             onPress={() => void pickPhoto()}
@@ -296,7 +295,7 @@ function MyProfileForm({
           </Pressable>
         </View>
 
-        {/* Présence */}
+        {/* Presence */}
         <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('myProfile.sectionPresence')}</Text>
         <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
           {PRESENCES.map((p, i) => {
@@ -372,7 +371,7 @@ function MyProfileForm({
           multiline
         />
 
-        {/* Compte — sensible : e-mail et nom d'utilisateur exigent le mot de passe. */}
+        {/* Account, sensitive: email and username require the password. */}
         <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('myProfile.sectionAccount')}</Text>
         <Text style={[styles.help, { color: c.dimmed }]}>{t('myProfile.accountHelp')}</Text>
         <PillField
@@ -474,7 +473,7 @@ function MyProfileForm({
   );
 }
 
-/** Sous-titre du bloc 2FA selon la méthode réclamée par le serveur. */
+/** Subtitle of the 2FA block depending on the method the server asks for. */
 function twoFactorLabel(method: TwoFactorError['method']): TranslationKey {
   if (method === 'totp') return 'myProfile.help2faTotp';
   if (method === 'email') return 'myProfile.help2faEmail';
@@ -509,9 +508,9 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   card: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 16 },
-  // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
-  // découpe l'ondulation — borderRadius sur le Pressable est ignoré par le
-  // masque du ripple sous Fabric. Invisible au repos (pas de fond).
+  // The radius lives on the WRAPPER: only a parent's clip (`overflow`) cuts
+  // the ripple; borderRadius on the Pressable is ignored by the ripple mask
+  // under Fabric. Invisible at rest (no background).
   presenceWrapper: { borderRadius: 12, overflow: 'hidden' },
   presenceRow: {
     flexDirection: 'row',

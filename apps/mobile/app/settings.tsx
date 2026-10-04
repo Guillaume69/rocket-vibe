@@ -22,17 +22,18 @@ import { type Colors, LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts'
 import { Tappable } from '../ui/tappable.tsx';
 
 /**
- * Écran « Paramètres » : ce qui traînait en bas de la liste des conversations
- * (compte, serveur, jeton FCM, déconnexion), plus la préférence de notification
- * push — le point vraiment neuf.
+ * "Settings" screen: what used to sit at the bottom of the conversation list
+ * (account, server, FCM token, logout), plus the push notification
+ * preference, the genuinely new part.
  *
- * La préférence est GLOBALE au compte (`settings.preferences.pushNotifications`
- * de Rocket.Chat), pas par salon : c'est le défaut « quand me notifier sur cet
- * appareil ». Lue via `GET me`, écrite via `POST users.setPreferences`
- * (`{ data: { pushNotifications } }`). Le serveur connaît un 4ᵉ niveau
- * `'default'` (suivre le réglage serveur) ; on n'expose que les trois que
- * réclame l'app originale — si le compte est sur `'default'`, aucune option
- * n'est cochée jusqu'au premier choix, ce qui est honnête plutôt que trompeur.
+ * The preference is GLOBAL to the account (Rocket.Chat's
+ * `settings.preferences.pushNotifications`), not per room: it is the default
+ * "when to notify me on this device". Read via `GET me`, written via
+ * `POST users.setPreferences` (`{ data: { pushNotifications } }`). The server
+ * knows a 4th level `'default'` (follow the server setting); we only expose
+ * the three the original app asks for. If the account is on `'default'`, no
+ * option is checked until the first choice, which is honest rather than
+ * misleading.
  */
 
 type PushLevel = 'all' | 'mention' | 'nothing';
@@ -45,8 +46,8 @@ const OPTIONS_PUSH: { value: PushLevel; key: TranslationKey }[] = [
 export default function SettingsScreen() {
   const c = useColors();
   const { state } = useSession();
-  // Atteint depuis l'accueil connecté ; en garde-fou, un état déconnecté
-  // (déconnexion en cours) renvoie au login plutôt que de crasher sur `client`.
+  // Reached from the logged-in home; as a safeguard, a logged-out state
+  // (logout in progress) sends back to login rather than crashing on `client`.
   if (state.phase !== 'connected') return <Redirect href="/login" />;
   return (
     <Settings
@@ -61,15 +62,14 @@ export default function SettingsScreen() {
 type MeResponse = { settings?: { preferences?: { pushNotifications?: string } } };
 
 /**
- * Lit et écrit la préférence de push. `valeur === null` = encore en train de
- * lire. L'écriture est OPTIMISTE : on bascule l'UI tout de suite et on revient
- * en arrière si le serveur refuse — un réglage doit répondre au doigt, pas au
- * réseau.
+ * Reads and writes the push preference. `value === null` = still reading.
+ * The write is OPTIMISTIC: we switch the UI right away and roll back if the
+ * server refuses; a setting must respond to the finger, not to the network.
  */
 function usePreferencePush(client: ClientRest) {
   const [value, setValue] = useState<string | null>(null);
-  // L'erreur est stockée comme CLÉ de traduction, pas comme phrase : le
-  // composant la traduit au rendu, dans la langue courante.
+  // The error is stored as a translation KEY, not a sentence: the component
+  // translates it at render, in the current language.
   const [error, setError] = useState<TranslationKey | null>(null);
 
   useEffect(() => {
@@ -87,10 +87,10 @@ function usePreferencePush(client: ClientRest) {
     };
   }, [client]);
 
-  // Numéro de séquence : deux choix rapprochés lancent deux POST concurrents,
-  // et sans lui le `catch` du PREMIER restaurait la valeur d'AVANT le second
-  // choix — l'UI affichait un niveau que le serveur ne porte pas. Seul le
-  // DERNIER choix garde le droit de rollback et de message d'erreur.
+  // Sequence number: two choices in quick succession launch two concurrent
+  // POSTs, and without it the FIRST one's `catch` restored the value from
+  // BEFORE the second choice; the UI showed a level the server does not hold.
+  // Only the LATEST choice keeps the right to roll back and show an error.
   const sequence = useRef(0);
   const set = useCallback(
     async (next: PushLevel) => {
@@ -130,16 +130,16 @@ function Settings({
   const { logOut } = useSession();
   const push = usePreferencePush(client);
   const [logout, setLogout] = useState(false);
-  // Version de MA photo : sans elle, la carte de profil garderait l'ancienne
-  // image même après l'avoir changée dans « Mon profil » (cache image figé).
+  // Version of MY photo: without it, the profile card would keep the old
+  // image even after changing it in "My profile" (frozen image cache).
   const etags = useEtagsAvatars();
 
   const handleLogOut = useCallback(() => {
     if (logout) return;
     setLogout(true);
-    // `deconnecter` bascule la session en « deconnecte » de façon synchrone
-    // (avant son premier await) : l'accueil, révélé par le back, redirige alors
-    // vers /connexion. Le logout réseau finit best-effort en arrière-plan.
+    // `logOut` switches the session to "disconnected" synchronously (before
+    // its first await): home, revealed by the back, then redirects to /login.
+    // The network logout finishes best-effort in the background.
     void logOut();
     router.back();
   }, [logout, logOut, router]);
@@ -225,7 +225,7 @@ function Settings({
   );
 }
 
-/** Liste radio des trois niveaux de notification. Rien de coché tant qu'on lit. */
+/** Radio list of the three notification levels. Nothing checked while reading. */
 function NotificationChoice({
   c,
   push,
@@ -282,10 +282,10 @@ function NotificationChoice({
 }
 
 /**
- * Sélecteur de langue : « Automatique » (suit le téléphone) puis chaque langue
- * en endonyme. Même liste radio que les notifications. La bascule est immédiate
- * (`definirLangue` pousse dans le store abonnable) : tout l'écran, titre compris,
- * se re-rend dans la nouvelle langue sans rechargement.
+ * Language picker: "Automatic" (follows the phone) then each language by its
+ * endonym. Same radio list as notifications. The switch is immediate
+ * (`setLanguage` pushes into the subscribable store): the whole screen, title
+ * included, re-renders in the new language without a reload.
  */
 function LanguagePicker({ c, t }: { c: Colors; t: TranslateFn }) {
   const preference = useLanguagePreference();
@@ -336,7 +336,7 @@ function LanguagePicker({ c, t }: { c: Colors; t: TranslateFn }) {
   );
 }
 
-/** Diagnostic push : prouve l'obtention du jeton FCM natif. Déplacé de l'accueil. */
+/** Push diagnostics: proves the native FCM token was obtained. Moved from home. */
 function FcmTokenSection({ c, t }: { c: Colors; t: TranslateFn }) {
   const [token, setToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -346,10 +346,10 @@ function FcmTokenSection({ c, t }: { c: Colors; t: TranslateFn }) {
     const r = await getFcmToken();
     if (r.ok) {
       setToken(r.token);
-      console.log('JETON_FCM', r.token);
+      console.log('FCM_TOKEN', r.token);
     } else {
       setError(`${r.reason}${r.detail ? ` — ${r.detail}` : ''}`);
-      console.log('JETON_FCM_ECHEC', r.reason, r.detail ?? '');
+      console.log('FCM_TOKEN_FAILED', r.reason, r.detail ?? '');
     }
   }, []);
 
@@ -357,8 +357,8 @@ function FcmTokenSection({ c, t }: { c: Colors; t: TranslateFn }) {
     <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
       <Tappable
         onPress={ask}
-        // Lien texte : vague ronde `borderless` — le masque du ripple borné
-        // ignore borderRadius sous Fabric, un rayon calibré fait le travail.
+        // Text link: round `borderless` ripple; the bounded ripple mask ignores
+        // borderRadius under Fabric, a calibrated radius does the job.
         android_ripple={{ color: c.ripple, borderless: true, radius: 24 }}
         unstable_pressDelay={LIST_PRESS_DELAY}
       >
@@ -375,9 +375,9 @@ function FcmTokenSection({ c, t }: { c: Colors; t: TranslateFn }) {
 }
 
 /**
- * Section chiffrement : état verrouillé/déverrouillé de l'appareil. Verrouillé,
- * un lien ouvre la feuille de déverrouillage ; déverrouillé, un bouton oublie
- * la clé (re-masque le clair local).
+ * Encryption section: the device's locked/unlocked state. Locked, a link
+ * opens the unlock sheet; unlocked, a button forgets the key (re-masks the
+ * local plaintext).
  */
 function SectionE2E({ c, t }: { c: Colors; t: TranslateFn }) {
   const router = useRouter();
@@ -467,9 +467,9 @@ const styles = StyleSheet.create({
   settingTitle: { fontFamily: FONTS.title, fontSize: 16 },
   settingHelp: { fontFamily: FONTS.body, fontSize: 13, lineHeight: 18 },
   options: { marginTop: 2 },
-  // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
-  // découpe l'ondulation — borderRadius sur le Pressable est ignoré par le
-  // masque du ripple sous Fabric. Invisible au repos (pas de fond).
+  // The radius lives on the WRAPPER: only a parent's clip (`overflow`) cuts
+  // the ripple; borderRadius on the Pressable is ignored by the ripple mask
+  // under Fabric. Invisible at rest (no background).
   optionWrapper: { borderRadius: 12, overflow: 'hidden' },
   optionRow: {
     flexDirection: 'row',

@@ -72,59 +72,58 @@ import { useSync } from '../../ui/sync.tsx';
 import { type Colors, FONTS, useColors } from '../../ui/theme.ts';
 
 /**
- * Écran d'un salon.
+ * Room screen.
  *
- * La liste projette SQLite (`useRequeteVive`), le réseau écrit dans SQLite :
- * l'historique REST initial et le stream DDP convergent dans les mêmes
- * upserts idempotents.
+ * The list projects SQLite (`useCoalescedLiveQuery`), the network writes to
+ * SQLite: the initial REST history and the DDP stream converge in the same
+ * idempotent upserts.
  *
- * **Liste INVERSÉE, mVCP coupé** (idiome duogo, adopté en 8.10) : le plus
- * récent est en `data[0]`, à l'offset natif 0 = le bas visuel. Le bas reste
- * collé au composer PAR CONSTRUCTION, même quand le clavier anime la hauteur
- * du conteneur frame par frame — aucune compensation JS. L'ancien montage
- * (données croissantes + `startRenderingFromBottom` +
- * `autoscrollToBottomThreshold`) recalait le défilement en JS après coup :
- * liste visiblement décorrélée du composer pendant l'animation du clavier,
- * constaté sur le Pixel. `maintainVisibleContentPosition` est DÉSACTIVÉ :
- * à l'offset 0, un prepend s'affiche de lui-même, et le recalage natif du
- * mVCP partait avant nos effets et écrasait le snap manuel (cicatrice
- * duogo). Suivi des entrants : `scrollToOffset(0)` si le message est de moi
- * ou si on est près du bas. COMPROMIS assumé, le même que duogo : remonté
- * dans l'historique, pas de snap, mais un prepend décale quand même le
- * contenu de sa hauteur — c'est ce que le mVCP corrigerait — et le lissage
- * de 200 ms groupe les rafales en un seul décalage.
- * La requête `DESC LIMIT n` alimente la liste TELLE QUELLE — l'inversion
- * visuelle est native, plus de `reverse()` ; le passé se charge par
- * `onEndReached` (la fin des DONNÉES est le haut visuel).
+ * **INVERTED list, mVCP off** (duogo idiom, adopted in 8.10): the most recent
+ * is at `data[0]`, at native offset 0 = the visual bottom. The bottom stays
+ * glued to the composer BY CONSTRUCTION, even when the keyboard animates the
+ * container's height frame by frame, with no JS compensation. The old setup
+ * (ascending data + `startRenderingFromBottom` +
+ * `autoscrollToBottomThreshold`) readjusted the scroll in JS afterwards: list
+ * visibly out of step with the composer during the keyboard animation, seen
+ * on the Pixel. `maintainVisibleContentPosition` is DISABLED: at offset 0, a
+ * prepend shows by itself, and mVCP's native readjustment fired before our
+ * effects and overwrote the manual snap (duogo scar). Following incoming
+ * messages: `scrollToOffset(0)` if the message is mine or if we are near the
+ * bottom. Deliberate TRADE-OFF, the same as duogo: scrolled up in history, no
+ * snap, but a prepend still shifts the content by its height (which mVCP
+ * would correct), and the 200 ms smoothing groups bursts into a single shift.
+ * The `DESC LIMIT n` query feeds the list AS IS: the visual inversion is
+ * native, no more `reverse()`; the past loads through `onEndReached` (the
+ * end of the DATA is the visual top).
  */
 
 const PAGE = 50;
-/** Sous ce défilement (px depuis le bas), un entrant nous ramène au bas. */
+/** Below this scroll (px from the bottom), an incoming message brings us back to the bottom. */
 const NEAR_BOTTOM_PX = 120;
 
-/** Regroupe la rafale d'entrants avant de marquer lu. */
+/** Groups the burst of incoming messages before marking read. */
 const READ_DEBOUNCE_MS = 1_500;
 /**
- * Cadence PLANCHER de `marquerLu` : le débounce seul ne borne que l'écart entre
- * deux appels, pas leur nombre — un message toutes les 2 s produisait 30
- * `subscriptions.read` par minute sur une route limitée à 10/min, et chaque 429
- * coûtait à `lib/rest.ts` jusqu'à trois siestes de 30 s pour un travail
- * idempotent. Rien n'est perdu à espacer : l'appel marque tout lu jusqu'à
- * MAINTENANT, le suivant englobe les précédents.
+ * FLOOR rate of `markRead`: the debounce alone only bounds the gap between
+ * two calls, not their number; one message every 2 s produced 30
+ * `subscriptions.read` per minute on a route limited to 10/min, and each 429
+ * cost `lib/rest.ts` up to three 30 s sleeps for idempotent work. Nothing is
+ * lost by spacing them: the call marks everything read up to NOW, the next
+ * one covers the previous ones.
  */
 const READ_FLOOR_MS = 10_000;
 
 export default function RoomScreen() {
-  // `host` vient du deep-link d'une notification (natif comme expo) : il dit de
-  // QUEL serveur ce message parle. Absent pour toute navigation interne — le
-  // comportement est alors exactement celui d'avant.
+  // `host` comes from a notification's deep link (native or expo): it says
+  // WHICH server this message is about. Absent for any internal navigation;
+  // the behaviour is then exactly as before.
   const { rid, host } = useLocalSearchParams<{ rid: string; host?: string }>();
   const { state } = useSession();
   const sync = useSync();
   const c = useColors();
 
-  // Ce garde est le pendant de celui d'index.tsx : un lien profond (le tap
-  // sur une notification, étape 6.2) peut atterrir ici sans session.
+  // This guard is the counterpart of index.tsx's: a deep link (tapping a
+  // notification, step 6.2) can land here without a session.
   if (state.phase === 'disconnected') return <Redirect href="/login" />;
 
   if (sync.phase === 'error') {
@@ -143,18 +142,17 @@ export default function RoomScreen() {
     );
   }
 
-  // Notification d'un AUTRE serveur que celui affiché. Les sessions coexistent
-  // (`changerDeServeur` n'en efface aucune) et le jeton push est enregistré sur
-  // chacune : les deux serveurs poussent. Sans ce garde, on tombait dans le
-  // salon avec un rid que la base locale ne connaît pas — `type === undefined`
-  // court-circuite l'effet de chargement, `premierPassageFini` reste faux, et
-  // l'écran garde son indicateur d'activité POUR TOUJOURS.
+  // Notification from ANOTHER server than the one shown. Sessions coexist
+  // (`switchServer` erases none) and the push token is registered on each:
+  // both servers push. Without this guard, we landed in the room with a rid the
+  // local database does not know: `type === undefined` short-circuits the
+  // loading effect, `firstPassDone` stays false, and the screen keeps its
+  // activity indicator FOREVER.
   //
-  // On travaille sur l'ORIGINE, pas sur la chaîne reçue : elle vient d'un intent
-  // que n'importe quelle app peut émettre. Ce qui n'est pas une URL web n'est
-  // pas un serveur Rocket.Chat — on l'ignore, et le comportement redevient
-  // exactement celui d'avant plutôt que d'afficher au premier plan un texte
-  // arbitraire de longueur arbitraire.
+  // We work on the ORIGIN, not on the received string: it comes from an intent
+  // any app can emit. What is not a web URL is not a Rocket.Chat server; we
+  // ignore it, and the behaviour goes back to exactly as before rather than
+  // showing arbitrary text of arbitrary length in the foreground.
   const hostOrigin = typeof host === 'string' ? originOf(host) : null;
   if (hostOrigin !== null && !sameOrigin(host!, state.session.baseUrl)) {
     return <OtherServer c={c} host={hostOrigin} rid={rid} />;
@@ -182,11 +180,11 @@ export default function RoomScreen() {
 }
 
 /**
- * Le message pointé par la notification vit sur un autre serveur que celui
- * affiché. On ne bascule PAS tout seul : `changerDeServeur` déplace le pointeur
- * de reprise, ferme la socket, rouvre une autre base — un tap sur une
- * notification ne doit pas emporter ça sans qu'on le demande. Geste explicite,
- * donc, et le libellé dit où l'on va.
+ * The message the notification points to lives on another server than the
+ * one shown. We do NOT switch on our own: `switchServer` moves the resume
+ * pointer, closes the socket, reopens another database; a tap on a
+ * notification must not trigger all that unasked. An explicit gesture,
+ * then, and the label says where we are going.
  */
 function OtherServer({ c, host, rid }: { c: Colors; host: string; rid: string }) {
   const t = useT();
@@ -200,9 +198,9 @@ function OtherServer({ c, host, rid }: { c: Colors; host: string; rid: string })
     setFailure(false);
     switchServer(host).then(
       (ok) => {
-        // Succès : `replace` retire le `host` de l'URL. Le laisser rejouerait ce
-        // même écran si l'utilisateur repassait plus tard sur l'autre serveur.
-        // Aucun `setState` sur ce chemin : l'écran est déjà en train de partir.
+        // Success: `replace` removes the `host` from the URL. Leaving it would replay
+        // this same screen if the user later came back to the other server.
+        // No `setState` on this path: the screen is already leaving.
         if (ok) router.replace({ pathname: '/salon/[rid]', params: { rid } });
         else {
           setBusy(false);
@@ -267,7 +265,7 @@ function Room({
   provider: Provider;
   actions: ProviderActions;
   client: ClientRest;
-  /** Mon username — ma propre saisie ne s'affiche pas chez moi. */
+  /** My username: my own typing is not shown to me. */
   me: string;
   declareOpenRoom: (rid: string) => () => void;
   activity: ActivityEngine;
@@ -275,11 +273,11 @@ function Room({
 }) {
   const t = useT();
   const [limit, setLimit] = useState(PAGE);
-  // Tant que le premier passage d'historique n'est pas retombé, une base
-  // vide signifie « chargement », pas « salon vide ».
-  // Un salon déjà chargé sous cette génération n'a pas de premier passage à
-  // attendre : sans cet état initial, sauter le fetch laisserait « chargement »
-  // affiché à vie (rien ne viendrait plus poser le drapeau).
+  // Until the first history pass has settled, an empty database means
+  // "loading", not "empty room".
+  // A room already loaded under this generation has no first pass to wait
+  // for: without this initial state, skipping the fetch would leave "loading"
+  // shown for life (nothing would ever set the flag).
   const [firstPassDone, setFirstPassDone] = useState(() =>
     roomLoadedUnder(rid, generation),
   );
@@ -290,66 +288,66 @@ function Room({
   );
   const room = roomRows?.[0];
   const insets = useSafeAreaInsets();
-  // Sous-titre d'en-tête HONNÊTE : le nombre de membres en ligne n'est pas dans
-  // le schéma, mais la présence du correspondant d'un DM, si — sinon, rien.
+  // HONEST header subtitle: the number of online members is not in the
+  // schema, but the presence of a DM's other party is; otherwise, nothing.
   const dmStatus = usePresence(room?.dmOtherUid ?? null);
 
   const { data: raw } = useCoalescedLiveQuery(
     base
       .select()
       .from(messages)
-      // Une réponse de fil vit dans SON fil, pas dans le flux principal —
-      // sauf si l'expéditeur a coché « aussi dans le salon » (`tshow`).
+      // A thread reply lives in ITS thread, not in the main stream, unless the
+      // sender ticked "also send to room" (`tshow`).
       .where(
         and(eq(messages.rid, rid), or(isNull(messages.threadId), eq(messages.threadShown, true))),
       )
-      // Clé secondaire `id` : deux messages à la MÊME milliseconde (rafale de
-      // bot, intégration) n'ont sinon aucun ordre défini — SQLite les rend dans
-      // l'ordre d'INSERTION (rowid), qui diffère selon le chemin de chargement.
-      // La pagination d'historique insère le plus récent d'abord : une telle
-      // paire s'affichait alors À L'ENVERS après un rechargement. Départager par
-      // `id` rend l'ordre DÉTERMINISTE, identique quel que soit le chargement.
-      // (Rocket.Chat n'expose aucun signal sous la milliseconde : l'ordre exact
-      // d'un vrai ex æquo reste indécidable, mais au moins il est stable.)
+      // Secondary key `id`: two messages in the SAME millisecond (bot burst,
+      // integration) otherwise have no defined order; SQLite returns them in
+      // INSERTION order (rowid), which differs by loading path. History
+      // pagination inserts the most recent first: such a pair then showed
+      // BACKWARDS after a reload. Breaking ties by `id` makes the order
+      // DETERMINISTIC, identical whatever the loading.
+      // (Rocket.Chat exposes no sub-millisecond signal: the exact order of a true
+      // tie stays undecidable, but at least it is stable.)
       .orderBy(desc(messages.ts), desc(messages.id))
       .limit(limit),
     [rid, limit],
   );
-  // Statuts d'envoi (en-attente / échec) : table séparée, requête vive
-  // séparée — même raison que la liste des salons, `useRequeteVive` n'écoute
-  // que la table du FROM.
+  // Send statuses (pending / failed): separate table, separate live query,
+  // same reason as the room list, `useCoalescedLiveQuery` only listens to the
+  // FROM table.
   const { data: outboxRows } = useCoalescedLiveQuery(
     base.select().from(outbox).where(eq(outbox.rid, rid)),
     [rid],
   );
-  // TOUS les téléversements de ce salon, quel que soit leur statut.
+  // ALL uploads of this room, whatever their status.
   //
-  // Le filtre `statut === 'echec'` d'avant laissait un trou béant : un fichier
-  // envoyé hors ligne reste `en-attente`, `envoyer()` résout normalement — donc
-  // l'aperçu, le brouillon et la citation se vident — et l'écran ne montrait
-  // RIEN. La photo disparaissait sans le moindre signe ; l'utilisateur la
-  // renvoyait, il en avait deux.
+  // The former `status === 'echec'` filter left a gaping hole: a file sent
+  // offline stays `en-attente`, `send()` resolves normally (so the preview,
+  // the draft and the quote are cleared), and the screen showed NOTHING. The
+  // photo vanished without the slightest sign; the user sent it again and
+  // ended up with two.
   const { data: uploadRows } = useCoalescedLiveQuery(
     base.select().from(uploads).where(eq(uploads.rid, rid)),
     [rid],
   );
   const filesInProgress = uploadRows ?? [];
-  // La fraction d'avancement ne vit qu'en mémoire du moteur : aucune écriture
-  // SQLite ne la porte, donc `useRequeteVive` ne la verrait jamais bouger.
+  // The progress fraction only lives in the engine's memory: no SQLite write
+  // carries it, so `useCoalescedLiveQuery` would never see it move.
   const progressions = useFileProgress(files);
-  // Les décisions (pagination) se prennent sur la valeur FRAÎCHE ; seul
-  // l'affichage est lissé.
+  // Decisions (pagination) are made on the FRESH value; only the display is
+  // smoothed.
   const fresh = useMemo(() => raw ?? [], [raw]);
-  // Lissage des entrants (200 ms) : à l'offset 0, l'inversion absorbe les
-  // prepends nativement, mais une rafale re-rendrait l'écran à chaque
-  // écriture — et REMONTÉ dans l'historique, chaque prepend décale le
-  // contenu de sa hauteur (mVCP coupé, voir l'en-tête) : autant grouper la
-  // rafale en un seul décalage. On lisse la projection, pas la base.
+  // Smoothing of incoming messages (200 ms): at offset 0, the inversion absorbs
+  // prepends natively, but a burst would re-render the screen on every write,
+  // and SCROLLED UP in history, each prepend shifts the content by its height
+  // (mVCP off, see the header): might as well group the burst into a single
+  // shift. We smooth the projection, not the database.
   const data = useSmoothedData(fresh, 200);
 
-  // Non-lus (8.1). La barre « nouveaux messages » se place sur un INSTANTANÉ
-  // de `ls` pris au montage : si elle suivait la valeur vive, le
-  // `subscriptions.read` qui suit l'effacerait avant qu'on l'ait vue.
+  // Unread (8.1). The "new messages" bar is placed on a SNAPSHOT of `ls` taken
+  // on mount: if it followed the live value, the `subscriptions.read` that
+  // follows would erase it before it was seen.
   const [lastSeen, setLastSeen] = useState<number | null | undefined>(undefined);
   useEffect(() => {
     let canceled = false;
@@ -369,15 +367,15 @@ function Room({
     };
   }, [base, rid]);
 
-  // Marquer lu : à l'ouverture, puis à chaque nouvel entrant écran ouvert.
-  // Débounce (regrouper la rafale) + PLANCHER de cadence (voir PLANCHER_LU_MS).
+  // Mark read: on opening, then on each new incoming message while the screen
+  // is open. Debounce (group the burst) + rate FLOOR (see READ_FLOOR_MS).
   //
-  // Un appel déjà programmé ABSORBE les entrants suivants au lieu d'être
-  // réarmé : `subscriptions.read` marque tout lu jusqu'à maintenant, donc
-  // l'appel en attente couvre ce qui arrive d'ici son départ — et un timer
-  // qu'on ne repousse jamais ne peut pas être affamé par un flot continu
-  // (l'ancien débounce réarmé à chaque entrant, PIRE que la cadence : sous un
-  // message/seconde il ne partait JAMAIS).
+  // An already scheduled call ABSORBS the following incoming messages instead
+  // of being re-armed: `subscriptions.read` marks everything read up to now,
+  // so the pending call covers what arrives until it fires, and a timer that
+  // is never pushed back cannot be starved by a continuous flow (the old
+  // debounce re-armed on every incoming message, WORSE than the rate: at one
+  // message per second it NEVER fired).
   const lastReceivedId = fresh[0]?.id;
   const readTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRead = useRef(0);
@@ -392,11 +390,11 @@ function Room({
     }, Math.max(READ_DEBOUNCE_MS, rest));
   }, [actions, rid, lastReceivedId]);
 
-  // L'appel EN ATTENTE part tout de suite quand l'écran se ferme ou que l'app
-  // passe en arrière-plan : différé par le plancher, il serait sinon perdu (le
-  // démontage l'annule, l'arrière-plan gèle les timers JS) et le salon
-  // resterait « non lu » sur les autres appareils. Rien en attente → rien à
-  // envoyer : la sortie d'un salon déjà marqué ne coûte aucune requête.
+  // The PENDING call fires right away when the screen closes or the app goes
+  // to the background: deferred by the floor, it would otherwise be lost
+  // (unmount cancels it, the background freezes JS timers) and the room would
+  // stay "unread" on the other devices. Nothing pending -> nothing to send:
+  // leaving an already marked room costs no request.
   const flushRead = useCallback(() => {
     if (readTimer.current === null) return;
     clearTimeout(readTimer.current);
@@ -414,9 +412,9 @@ function Room({
     };
   }, [flushRead]);
 
-  // Les données de la liste : la barre « nouveaux messages » puis les
-  // séparateurs de jour, insérés par les projections de `ui/` (testées sous
-  // Node). L'ordre compte : les séparateurs se posent au-dessus de la barre.
+  // The list's data: the "new messages" bar then the day separators, inserted
+  // by the `ui/` projections (tested under Node). Order matters: separators go
+  // above the bar.
   type ListRow = MessageRowData | BarRow | DayRow;
   const dataWithBar = useMemo(
     () => insertUnreadBar(data, lastSeen, client.auth?.userId),
@@ -427,18 +425,18 @@ function Room({
     [dataWithBar],
   );
 
-  // Regroupement des rafales d'un même auteur (`ui/messageGrouping`) : calculé
-  // APRÈS les insertions — barre et séparateur rompent les groupes. Données DESC.
+  // Grouping of bursts by the same author (`ui/messageGrouping`): computed
+  // AFTER the insertions; bar and separator break groups. DESC data.
   const continuations = useMemo(() => continuationIds(listData, 'newest-first'), [listData]);
   const repeatedTimes = useMemo(
     () => repeatedTimeIds(listData, 'newest-first', continuations),
     [listData, continuations],
   );
 
-  // Suivi des entrants (idiome duogo) : à l'offset 0, un nouveau `data[0]`
-  // s'affiche tout seul — natif. Légèrement remonté, on snappe au bas si le
-  // message est de moi ou qu'on était près du bas ; en pleine lecture
-  // d'historique, on ne bouge pas. Refs : le défilement ne re-rend rien.
+  // Following incoming messages (duogo idiom): at offset 0, a new `data[0]`
+  // shows on its own, natively. Slightly scrolled up, we snap to the bottom if
+  // the message is mine or if we were near the bottom; in the middle of reading
+  // history, we do not move. Refs: scrolling re-renders nothing.
   const list = useRef<FlashListRef<ListRow>>(null);
   const nearBottom = useRef(true);
   const lastTracked = useRef<{ id: string; ts: number } | null>(null);
@@ -466,11 +464,11 @@ function Room({
     if (latest === undefined || lastTracked.current?.id === latest.id) return;
     const prev = lastTracked.current;
     lastTracked.current = { id: latest.id, ts: latest.ts };
-    // Premier remplissage : la liste inversée naît déjà calée en bas.
+    // First fill: the inverted list is born already pinned to the bottom.
     if (prev === null) return;
-    // Un head PLUS ANCIEN que le précédent n'est pas un entrant : c'est la
-    // SUPPRESSION du plus récent (stream deleteMessage, abandon d'un envoi).
-    // Snapper là-dessus arracherait le lecteur à l'historique.
+    // A head OLDER than the previous one is not an incoming message: it is the
+    // DELETION of the most recent (deleteMessage stream, discarded send).
+    // Snapping on that would tear the reader away from history.
     if (latest.ts < prev.ts) return;
     const fromMe = latest.authorId === client.auth?.userId;
     if (fromMe || nearBottom.current) {
@@ -478,39 +476,39 @@ function Room({
     }
   }, [latest, client]);
 
-  // La génération au moment de la SORTIE, lue par le cleanup. En dépendance de
-  // l'effet ci-dessous, elle le rejouerait à chaque raccordement — pour rien,
-  // les souscriptions désirées étant déjà rejouées par le client DDP.
+  // The generation at the time of LEAVING, read by the cleanup. As a
+  // dependency of the effect below, it would rerun it at every connection
+  // setup, for nothing, the desired subscriptions being already replayed by
+  // the DDP client.
   const generationRef = useRef(generation);
   useEffect(() => {
     generationRef.current = generation;
   }, [generation]);
 
-  // `sub` à l'ouverture. `souscrire` est synchrone et indépendant de l'état du
-  // transport : demandé trop tôt (lien profond au démarrage), le stream
-  // s'établit tout seul à l'authentification.
+  // `sub` on opening. `subscribe` is synchronous and independent of the
+  // transport state: requested too early (deep link at startup), the stream
+  // sets itself up on authentication.
   //
-  // À la SORTIE, on ne relâche PAS : on confie les références à `salonChaud`,
-  // qui garde le salon écouté. Couper l'écoute ouvrait un trou que seule une
-  // lecture pouvait combler — et cette lecture coûte 3 s sur un gros salon,
-  // barre de synchro allumée, pour n'annoncer aucun changement. Voir
-  // `ui/hotRooms.ts` : les références sont comptées, garder la nôtre n'envoie
-  // aucune `sub` de plus.
+  // On LEAVING, we do NOT release: we hand the references to `hotRooms`, which
+  // keeps the room listened to. Cutting the listening opened a gap only a read
+  // could fill, and that read costs 3 s on a big room, sync bar lit, to
+  // announce no change. See `ui/hotRooms.ts`: the references are counted,
+  // keeping ours sends no extra `sub`.
   useEffect(() => {
-    // Capturé ICI, avec les souscriptions : c'est la session à laquelle ces
-    // références appartiennent. Le provider peut être démonté AVANT cet
-    // écran — son cleanup court en premier — et les relâcheurs pointeraient
-    // alors sur un client déjà rangé. Voir `ui/sessionToken.ts`.
+    // Captured HERE, with the subscriptions: it is the session these references
+    // belong to. The provider can be unmounted BEFORE this screen (its cleanup
+    // runs first) and the releasers would then point to a client already put
+    // away. See `ui/sessionToken.ts`.
     const token = sessionToken();
-    // Les streams et leurs clés sont l'affaire du fournisseur — on arme ce
-    // qu'il déclare, sans en connaître le format.
+    // The streams and their keys are the provider's business: we arm what it
+    // declares, without knowing the format.
     const releases = provider
       .roomSubscriptions(rid)
       .map(([name, key]) => ddp.subscribe(name, key));
-    // Le rattrapage (`chat.syncMessages`, un salon à la fois) vise le salon
-    // que l'utilisateur regarde : on se déclare, et on rend la déclaration en
-    // partant — jamais un `null` global, qui effacerait l'écran salon resté
-    // dessous quand on dépile celui du dessus.
+    // The catch-up (`chat.syncMessages`, one room at a time) targets the room the
+    // user is looking at: we declare ourselves, and hand the declaration back on
+    // leaving; never a global `null`, which would erase the room screen left
+    // below when popping the one on top.
     const renderDeclaration = declareOpenRoom(rid);
     return () => {
       renderDeclaration();
@@ -518,8 +516,8 @@ function Room({
     };
   }, [ddp, provider, rid, declareOpenRoom]);
 
-  // Indicateur de saisie (8.6) : volatil, propre à l'écran — écoute seule,
-  // voir lib/typing.ts pour l'écart consigné sur l'émission.
+  // Typing indicator (8.6): volatile, specific to the screen; listening only,
+  // see lib/typing.ts for the recorded deviation on emitting.
   const typingEngine = useMemo(() => new TypingEngine({ rid, me }), [rid, me]);
   useEffect(() => {
     const detacher = ddp.onEvent((event) => typingEngine.apply(event));
@@ -542,56 +540,54 @@ function Room({
           ? t('room.typingTwo', { a: typingSummary.a, b: typingSummary.b })
           : t('room.typingN', { n: typingSummary.n });
 
-  // Brouillon persistant (8.7) — le hook vit ICI : le composer ne monte
-  // qu'une fois la valeur initiale lue.
+  // Persistent draft (8.7): the hook lives HERE: the composer only mounts
+  // once the initial value is read.
   const persistence = useDraft(drafts, rid);
 
-  // Candidats à la mention (@) : le hook vit ICI, où `base` est en scope — le
-  // composer reçoit la liste toute prête, comme le brouillon.
+  // Mention candidates (@): the hook lives HERE, where `base` is in scope; the
+  // composer receives the ready-made list, like the draft.
   const mentionCandidates = useMentionCandidates(base, rid);
 
-  // Le chargement lui-même (endpoint, quirks de pagination, naissance du
-  // curseur de rattrapage) vit chez le fournisseur — l'écran ne garde que le
-  // critère de recul (`plusAncien`) pour sa pagination.
+  // The loading itself (endpoint, pagination quirks, birth of the catch-up
+  // cursor) lives in the provider; the screen only keeps the backward
+  // criterion (`oldest`) for its pagination.
   const loadHistory = useCallback(
     (type: string, latest?: string) => provider.loadHistory(engine, rid, type, latest),
     [provider, engine, rid],
   );
 
-  // Ouverture du salon. Deux travaux de nature différente, tous deux
-  // conditionnels.
+  // Opening the room. Two jobs of a different nature, both conditional.
   //
-  // 1. `rattraperSalon` part sauf si le salon est resté écouté (`salonCouvert`).
-  //    C'est lui qui couvre le trou : un salon relâché par `garderAuChaud` (voir
-  //    plus haut) n'est plus tenu à jour par le temps réel. Sa pagination
-  //    par curseur reprend exactement où elle en était, et ne coûte que ~92
-  //    octets quand rien n'a bougé. Il porte aussi les suppressions
-  //    (`type=DELETED`), que l'historique ne peut PAS voir : un message effacé
-  //    côté serveur est simplement absent de la page, sa ligne locale resterait
-  //    en fantôme à vie — et `chat.delete` dessus répond « No message found ».
-  //    Tir-et-oublie : chaque page est bornée, l'ouverture n'attend rien.
+  // 1. `catchUpRoom` runs unless the room stayed listened to (`roomCovered`).
+  //    It is what covers the gap: a room released by `keepWarm` (see above) is
+  //    no longer kept up to date by real time. Its cursor pagination resumes
+  //    exactly where it was, and only costs ~92 bytes when nothing moved. It
+  //    also carries deletions (`type=DELETED`), which history CANNOT see: a
+  //    message erased server-side is simply absent from the page, its local
+  //    row would stay a ghost for life, and `chat.delete` on it answers "No
+  //    message found". Fire-and-forget: each page is bounded, opening waits
+  //    for nothing.
   //
-  // 2. L'historique complet (les 50 derniers) ne se rejoue QUE si ce salon n'a
-  //    pas déjà été chargé sous cette génération de connexion. L'écran étant
-  //    démonté à la sortie, un `useRef` de garde ne survivait pas : ressortir et
-  //    rentrer refaisait 31 Ko et ré-ingérait 50 messages identiques, barre de
-  //    synchro allumée — pur gaspillage. Le critère est causal, pas temporel :
-  //    `generation` change à chaque raccordement, donc une coupure, même brève,
-  //    fait retomber la garde (le trou peut être de n'importe quelle taille,
-  //    au-delà de ce que les 100 messages de `rattraperSalon` couvrent).
-  //    Voir `ui/loadedRooms.ts`.
+  // 2. The full history (the last 50) is only replayed IF this room has not
+  //    already been loaded under this connection generation. The screen being
+  //    unmounted on leaving, a guard `useRef` did not survive: leaving and
+  //    coming back redid 31 KB and re-ingested 50 identical messages, sync bar
+  //    lit, pure waste. The criterion is causal, not temporal: `generation`
+  //    changes at every connection setup, so an outage, even a brief one, drops
+  //    the guard (the gap can be of any size, beyond what the 100 messages of
+  //    `catchUpRoom` cover). See `ui/loadedRooms.ts`.
   const type = room?.type;
   useEffect(() => {
     if (type === undefined) return;
     let canceled = false;
     const token = sessionToken();
-    // Rattrapage SAUTÉ quand le salon est resté écouté sans interruption : rien
-    // n'a pu être manqué, et la lecture coûterait plusieurs secondes pour zéro
-    // document sur un gros salon.
+    // Catch-up SKIPPED when the room stayed listened to without interruption:
+    // nothing could have been missed, and the read would cost several seconds
+    // for zero documents on a big room.
     if (!roomCovered(rid, generation)) {
       void activity
         .track(rid, provider.catchUpRoom(engine, rid, () => canceled))
-        .catch((e: unknown) => console.warn('rattraperSalon (ouverture): échec ignoré', e));
+        .catch((e: unknown) => console.warn('catchUpRoom (opening): failure ignored', e));
     }
 
     if (roomLoadedUnder(rid, generation)) {
@@ -599,20 +595,20 @@ function Room({
         canceled = true;
       };
     }
-    // Enveloppé dans `activite` : l'en-tête allume sa barre de synchro le temps
-    // du fetch, même quand le cache local remplit déjà la liste (rien ne
-    // signalait sinon qu'on la rafraîchit).
+    // Wrapped in `activity`: the header lights its sync bar for the duration of
+    // the fetch, even when the local cache already fills the list (nothing
+    // otherwise signalled that it is being refreshed).
     activity
       .track(rid, loadHistory(type))
       .then(() => {
-        // Marqué au SUCCÈS seulement. Un échec (hors ligne) laisse la garde
-        // ouverte : la prochaine génération refera partir le chargement.
+        // Marked on SUCCESS only. A failure (offline) leaves the guard open: the
+        // next generation will start the loading again.
         if (!canceled) markRoomLoaded(rid, generation, token);
       })
       .catch((e: unknown) => {
-        // Hors ligne : le cache local suffit. Mais pas en silence — un échec
-        // systématique ici a déjà masqué un vrai bug.
-        console.warn('salon: historique initial échoué', e);
+        // Offline: the local cache is enough. But not silently: a systematic failure
+        // here has already hidden a real bug.
+        console.warn('room: initial history failed', e);
       })
       .finally(() => {
         if (!canceled) setFirstPassDone(true);
@@ -622,18 +618,18 @@ function Room({
     };
   }, [type, loadHistory, generation, activity, rid, provider, engine]);
 
-  // Remonter vers le passé : élargir la fenêtre locale, et si elle est déjà
-  // épuisée, demander la page plus ancienne au serveur (pagination keyset sur
-  // `latest`, jamais d'offset).
+  // Scrolling back to the past: widen the local window, and if it is already
+  // exhausted, ask the server for the older page (keyset pagination on
+  // `latest`, never an offset).
   const inFlight = useRef(false);
-  // `onEndReached` (FlashList v2) se réarme à CHAQUE changement de data, pas
-  // seulement au défilement : passé épuisé et utilisateur garé au haut
-  // visuel, chaque entrant redemanderait la même page vide au REST
-  // rate-limité. Ce verrou s'arme à la première page vide et ne se relâche
-  // plus — le passé d'un salon ne repousse pas.
+  // `onEndReached` (FlashList v2) re-arms on EVERY data change, not only on
+  // scrolling: with the past exhausted and the user parked at the visual top,
+  // each incoming message would ask the rate-limited REST for the same empty
+  // page again. This lock arms on the first empty page and never releases:
+  // a room's past does not grow back.
   const passExhausted = useRef(false);
-  // Filet : si le message-borne n'a pas changé après deux pages consécutives,
-  // la pagination n'avance plus — quoi qu'en dise le contenu des réponses.
+  // Safety net: if the boundary message has not changed after two consecutive
+  // pages, pagination no longer advances, whatever the responses contain.
   const previousBound = useRef<{ id: string; pages: number } | null>(null);
   const loadMore = useCallback(() => {
     const exhausted = fresh.length < limit;
@@ -645,12 +641,12 @@ function Room({
       return;
     }
     const older = fresh[fresh.length - 1];
-    // Prédicats extraits dans `ui/roomPagination.ts`, testés sous Node — ils
-    // encodent les deux leçons payées en 429 (ex æquo, borne immobile).
+    // Predicates extracted into `ui/roomPagination.ts`, tested under Node; they
+    // encode the two lessons paid for in 429s (ties, motionless boundary).
     previousBound.current = advanceBound(previousBound.current, older.id);
     if (boundIsStuck(previousBound.current)) {
       passExhausted.current = true;
-      console.warn(`salon ${rid}: pagination immobile sur ${older.id}, passé déclaré épuisé`);
+      console.warn(`room ${rid}: pagination stuck on ${older.id}, past declared exhausted`);
       return;
     }
     inFlight.current = true;
@@ -662,15 +658,15 @@ function Room({
           passExhausted.current = true;
         }
       })
-      .catch((e: unknown) => console.warn('salon: page d’historique échouée', e))
+      .catch((e: unknown) => console.warn('room: history page failed', e))
       .finally(() => {
         inFlight.current = false;
       });
   }, [fresh, limit, type, loadHistory, rid]);
 
-  // Saut vers un message choisi dans les épinglés/favoris (`ui/messageJump.ts`) :
-  // l'amener dans la fenêtre (`ui/bringMessage.ts`), attendre qu'il figure
-  // dans les données de la liste, défiler jusqu'à lui et le surligner.
+  // Jump to a message chosen in the pinned/favourites (`ui/messageJump.ts`):
+  // bring it into the window (`ui/bringMessage.ts`), wait until it appears in
+  // the list's data, scroll to it and highlight it.
   const jumpTarget = useJump(rid);
   const [targetJump, setTargetJump] = useState<string | null>(null);
   useEffect(() => {
@@ -740,8 +736,8 @@ function Room({
     if (alreadyScrolled.current !== targetJump) {
       alreadyScrolled.current = targetJump;
       scroll();
-      // Les hauteurs au-delà de la zone rendue sont estimées : le premier
-      // défilement tombe à peu près, le second, lignes mesurées, juste.
+      // Heights beyond the rendered area are estimated: the first scroll lands
+      // roughly, the second, with rows measured, exactly.
       realign = setTimeout(scroll, 450);
     }
     const turnOff = setTimeout(() => {
@@ -757,7 +753,7 @@ function Room({
   const router = useRouter();
   const openActions = useCallback(
     (id: string) => {
-      // « Pop » à l'ouverture de la feuille — confirme que l'appui long a pris.
+      // "Pop" when the sheet opens: confirms the long press registered.
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       router.push({ pathname: '/message-actions', params: { id } });
     },
@@ -779,8 +775,8 @@ function Room({
     },
     [outboxQueue],
   );
-  // Tir-et-oublie : l'écho du stream réécrit `messages.reactions`, et la
-  // requête vive re-rend la pastille — pas d'état optimiste à tenir ici.
+  // Fire-and-forget: the stream's echo rewrites `messages.reactions`, and the
+  // live query re-renders the chip; no optimistic state to hold here.
   const react = useCallback(
     (ridMessage: string, id: string, code: string, put: boolean) => {
       actions.react(ridMessage, id, code, put).catch(() => {});
@@ -822,9 +818,9 @@ function Room({
             sendStatus={sendState?.status ?? null}
             onRetry={sendState?.status === 'echec' ? retry : null}
             onDiscard={sendState?.status === 'echec' ? discard : null}
-            // Pas d'actions sur une ligne d'outbox : son `_id` client n'a pas
-            // été accepté par le serveur — `chat.delete`/`chat.update` dessus ne
-            // peuvent qu'échouer. Ses vraies actions sont réessayer/abandonner.
+            // No actions on an outbox row: its client `_id` has not been accepted by
+            // the server; `chat.delete`/`chat.update` on it can only fail. Its real
+            // actions are retry/discard.
             onLongPress={sendState === undefined ? openActions : null}
             onOpenThread={openThread}
             me={me}
@@ -848,16 +844,16 @@ function Room({
         client={client}
         dmStatus={dmStatus}
         insetTop={insets.top}
-        // Repli si le salon est la RACINE (deep-link à froid) : `back()` n'a
-        // alors aucune cible et laisserait l'utilisateur coincé.
+        // Fallback if the room is the ROOT (cold deep link): `back()` then has no
+        // target and would leave the user stuck.
         onBack={() => (router.canGoBack() ? router.back() : router.replace('/'))}
         onSearch={() => router.push({ pathname: '/message-search', params: { rid } })}
         onMarked={() => router.push({ pathname: '/marked-messages', params: { rid } })}
       />
       {listData.length === 0 ? (
-        // Vide : indicateur, puis mention explicite. (L'ancien piège mVCP
-        // « viewport sous le contenu » a disparu avec l'inversion ; attendre
-        // le premier lot reste la bonne UX — une liste qui clignote non.)
+        // Empty: indicator, then an explicit notice. (The old mVCP trap "viewport
+        // below the content" went away with the inversion; waiting for the first
+        // batch remains the right UX, a flickering list does not.)
         <View style={styles.center}>
           {firstPassDone ? (
             <Text style={[styles.empty, { color: c.dimmed }]}>{t('room.noMessages')}</Text>
@@ -879,13 +875,13 @@ function Room({
               returnState.current = onBackToLatestSwipe(returnState.current);
             }}
             data={listData}
-            // Coupé : à l'offset 0, un prepend s'affiche de lui-même, et le
-            // recalage natif partait avant le snap JS et l'écrasait.
+            // Off: at offset 0, a prepend shows by itself, and the native readjustment
+            // fired before the JS snap and overwrote it.
             maintainVisibleContentPosition={{ disabled: true }}
             keyExtractor={(m) => m.id}
-            // Contenu HÉTÉROGÈNE (messages, suites sans avatar, barre de
-            // non-lus, séparateurs de jour) : sans type d'item, le recyclage
-            // de FlashList mélange les gabarits.
+            // HETEROGENEOUS content (messages, follow-ups without avatar, unread bar,
+            // day separators): without an item type, FlashList's recycling mixes the
+            // templates.
             getItemType={(item) =>
               'bar' in item
                 ? 'bar'
@@ -899,7 +895,7 @@ function Room({
             extraData={highlighted}
             onScroll={onScroll}
             scrollEventThrottle={16}
-            // Inversé : la fin des DONNÉES est le haut visuel — le passé.
+            // Inverted: the end of the DATA is the visual top, the past.
             onEndReached={loadMore}
             onEndReachedThreshold={0.4}
             contentContainerStyle={styles.content}
@@ -943,10 +939,10 @@ function Room({
             >
               {label}
             </Text>
-            {/* « Réessayer » n'a de sens que sur un échec — et il lui faut
-                l'id : le rejeu automatique ne voit plus les lignes en échec,
-                un simple `traiter()` passerait à côté. Une ligne `en-attente`
-                ou `envoi`, elle, part déjà toute seule. */}
+            {/* "Retry" only makes sense on a failure, and it needs the id: the
+                automatic replay no longer sees failed rows, a plain `process()`
+                would miss it. An `en-attente` or `envoi` row goes out on its
+                own already. */}
             {failed && (
               <Pressable onPress={() => void files.retry(upload.id)}>
                 <Text style={[styles.time, { color: c.accent }]}>{t('room.retry')}</Text>
@@ -958,9 +954,9 @@ function Room({
           </View>
         );
       })}
-      {/* Une réponse de FIL refusée n'a aucune ligne dans ce flux (filtrée par
-          fil_id) : sans ce bandeau, son échec ne serait visible qu'en
-          rouvrant le fil exact — silencieusement jamais, en pratique. */}
+      {/* A refused THREAD reply has no row in this stream (filtered by
+          threadId): without this banner, its failure would only be visible by
+          reopening that exact thread, i.e. silently never, in practice. */}
       {(outboxRows ?? [])
         .filter((s) => s.status === 'echec' && s.threadId !== null)
         .map((s) => (
@@ -981,18 +977,18 @@ function Room({
             </Pressable>
           </View>
         ))}
-      {/* Indicateur de saisie EN FLUX, juste au-dessus du composer : sa hauteur
-          s'ouvre par un ressort (voir `IndicateurSaisie`) et, la liste étant
-          `flex: 1`, ce gain comprime la liste et fait remonter nativement le
-          dernier message au lieu de le masquer. Replié à 0, aucune bande morte. */}
+      {/* Typing indicator IN THE FLOW, right above the composer: its height
+          opens with a spring (see `TypingIndicator`) and, the list being
+          `flex: 1`, this gain compresses the list and natively lifts the last
+          message instead of hiding it. Collapsed to 0, no dead strip. */}
       <View style={styles.composerBottom}>
         <TypingIndicator c={c} phrase={typingSentence} />
-        {/* Tant que la ligne du salon n'est pas là (lien profond vers un salon
-            pas encore synchronisé), on ne promet pas un envoi : `chiffre` et
-            `lectureSeule` sont peut-être vrais. */}
-        {/* `key={rid}` + attente du brouillon chargé : le composer naît avec
-            son état initial déjà juste — ni restauration après coup, ni fuite
-            du texte d'un salon vers un autre. */}
+        {/* As long as the room row is not there (deep link to a room not yet
+            synced), we do not promise a send: `encrypted` and `readOnly`
+            may be true. */}
+        {/* `key={rid}` + waiting for the loaded draft: the composer is born with
+            its initial state already right; no restoring afterwards, no leak of
+            one room's text into another. */}
         {room !== undefined && persistence.initial !== null && (
           <Composer
             key={rid}

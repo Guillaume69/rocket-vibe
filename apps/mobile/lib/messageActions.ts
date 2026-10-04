@@ -1,14 +1,13 @@
 /**
- * Décision d'affichage des actions message — UNE fonction pure (8.2).
+ * Which message actions to show: ONE pure function (8.2).
  *
- * Le délai d'édition vient des SETTINGS (`Message_AllowEditing_BlockEditInMinutes`),
- * pas des permissions : c'est le piège noté dans EXECUTION.md. Les permissions
- * accordées (`lib/permissions.ts`) arrivent en paramètre, et les règles sont
- * celles du serveur 8.5 (`canDeleteMessageAsync`, `updateMessage`,
- * `pinMessage`). Tant qu'elles ne sont pas chargées (`null`), on propose ce
- * que peut un membre sur ses messages, plus l'épingle, et le serveur reste
- * l'autorité — une action affichée à tort échoue proprement avec son message
- * d'erreur.
+ * The edit window comes from SETTINGS (`Message_AllowEditing_BlockEditInMinutes`),
+ * not permissions: the trap noted in EXECUTION.md. Granted permissions
+ * (`lib/permissions.ts`) come in as a parameter, and the rules are the 8.5
+ * server's (`canDeleteMessageAsync`, `updateMessage`, `pinMessage`). Until they
+ * are loaded (`null`), we offer what a member can do on their own messages,
+ * plus pinning, and the server stays the authority: a wrongly shown action
+ * fails cleanly with its error message.
  */
 
 import { stripQuotePrefix } from './quote.ts';
@@ -18,7 +17,7 @@ import { RestError } from './rest.ts';
 
 export type MessageRules = {
   editAllowed: boolean;
-  /** 0 = pas de limite. */
+  /** 0 = no limit. */
   editBlockMinutes: number;
   deleteAllowed: boolean;
   deleteBlockMinutes: number;
@@ -28,9 +27,8 @@ export type MessageRules = {
 
 export type ActionContext = {
   /**
-   * `texte` sert à distinguer un message chiffré LISIBLE (déchiffré en base par
-   * `deverrouillageE2E`) d'un message encore opaque — voir la garde de
-   * `actionsPossibles`.
+   * `text` tells a READABLE encrypted message (decrypted in the database by the
+   * E2E unlock) from a still opaque one: see the guard in `actionsPossibles`.
    */
   message: {
     authorId: string;
@@ -39,20 +37,20 @@ export type ActionContext = {
     text: string | null;
     attachments: string | null;
     pinned: boolean;
-    /** Étoilé par MOI (`lib/marks.ts`). */
+    /** Starred by ME (`lib/marks.ts`). */
     starred: boolean;
   };
   me: string;
   rules: MessageRules;
-  /** Permissions accordées dans ce salon ; `null` : pas (encore) connues. */
+  /** Permissions granted in this room; `null`: not known (yet). */
   permissions: string[] | null;
   readOnly: boolean;
   /**
-   * Salon chiffré : on y répond dans un fil, pas en citant — la citation est
-   * une carte que le serveur bâtit depuis le texte, et il ne lit pas celui-ci.
+   * Encrypted room: replies go in a thread, not as quotes. A quote is a card the
+   * server builds from the text, and it cannot read this one.
    */
   encrypted: boolean;
-  /** Feuille ouverte depuis l'écran d'un fil : on y répond déjà. */
+  /** Sheet opened from a thread screen: replies already go there. */
   inThread: boolean;
   now: number;
 };
@@ -72,7 +70,7 @@ export type ActionMessage =
   | 'unstar';
 
 function withinDelay(context: ActionContext, minutes: number): boolean {
-  if (minutes <= 0) return true; // 0 = illimité
+  if (minutes <= 0) return true; // 0 = unlimited
   return context.now - context.message.ts <= minutes * 60_000;
 }
 
@@ -80,21 +78,19 @@ export function actionsPossibles(context: ActionContext): ActionMessage[] {
   const actions: ActionMessage[] = [];
   const { message, me, rules, permissions, readOnly, encrypted, inThread } = context;
 
-  // Un message système ne se modifie pas, ne s'épingle pas, ne se commente
-  // pas d'un emoji.
+  // A system message cannot be edited, pinned, or reacted to.
   //
-  // MAIS `e2e` n'est pas un type système au sens de l'affichage : c'est un
-  // message ORDINAIRE dont le corps est chiffré, et `db/upserts.ts` ne remplit
-  // que `texte` au déchiffrement — le marqueur, lui, reste. Une fois lisible,
-  // ui/messageRow.tsx le rend comme n'importe quel autre message ; la sortie
-  // sèche ci-dessous ouvrait donc une feuille d'actions VIDE sur la totalité
-  // d'un salon chiffré.
+  // BUT `e2e` is not a system type for display purposes: it is an ORDINARY
+  // message whose body is encrypted, and `db/upserts.ts` only fills `text` on
+  // decryption, the marker stays. Once readable, ui/messageRow.tsx renders it
+  // like any other message; the early return below therefore opened an EMPTY
+  // action sheet on every message of an encrypted room.
   const readableEncrypted = message.systemType === ENCRYPTED_TYPE && message.text !== null;
   if (message.systemType !== null && !readableEncrypted) return actions;
 
   if (!readOnly) actions.push('react');
-  // Répondre en citant (`lib/quote.ts`) : n'importe quel message d'autrui ou
-  // de soi, tant qu'on PEUT poster dans le salon.
+  // Reply by quoting (`lib/quote.ts`): any message, someone else's or one's
+  // own, as long as one CAN post in the room.
   if (!readOnly && !encrypted) actions.push('reply');
   if (!readOnly && !inThread) actions.push('replyInThread');
   const text = textToCopy(message.text) !== null;
@@ -104,12 +100,12 @@ export function actionsPossibles(context: ActionContext): ActionMessage[] {
   if (file) actions.push('save');
 
   const mine = message.authorId === me;
-  // Inconnues : ses propres messages et l'épingle restent proposés, rien de plus.
+  // Unknown: own messages and pinning stay offered, nothing more.
   const a = (permission: string, ifUnknown: boolean): boolean =>
     permissions === null ? ifUnknown : permissions.includes(permission);
-  // `bypass-time-limit-edit-and-delete` lève les délais (édition ET
-  // suppression) ; `edit-message` et `delete-message` ouvrent les messages
-  // d'autrui, DANS le délai ; `force-delete-message` supprime sans condition.
+  // `bypass-time-limit-edit-and-delete` lifts the time limits (edit AND
+  // delete); `edit-message` and `delete-message` open other people's messages,
+  // WITHIN the limit; `force-delete-message` deletes unconditionally.
   const immediate = a('bypass-time-limit-edit-and-delete', false);
   if (
     (a('edit-message', false) || (mine && rules.editAllowed)) &&
@@ -133,7 +129,7 @@ export function actionsPossibles(context: ActionContext): ActionMessage[] {
   return actions;
 }
 
-/** Le texte que « Copier » et « Partager » emportent : sans le permalien de citation. */
+/** The text "Copy" and "Share" take: without the quote permalink. */
 export function textToCopy(text: string | null): string | null {
   const words = stripQuotePrefix(text ?? '').trim();
   return words === '' ? null : words;
@@ -144,16 +140,15 @@ type MessageReader = {
 };
 
 /**
- * Après un échec de `chat.delete` : le message existe-t-il encore côté
- * serveur ? Le fantôme classique — supprimé d'un AUTRE client pendant que
- * cette app était fermée, réconciliation ratée — fait répondre « No message
- * found with the id … » ; l'objectif de l'utilisateur est pourtant déjà
- * atteint, il ne reste qu'à purger la ligne locale. Plutôt que de dépendre du
- * LIBELLÉ de l'erreur (fragile entre versions serveur), on confirme par
- * `chat.getMessage`, comme `outbox.ts` confirme une livraison : un 400 ici =
- * le serveur ne connaît plus ce message (vérifié sur 8.5 : `API.v1.failure`).
- * Toute autre issue — message encore là, erreur réseau (statut 0), 429 —
- * vaut « on ne sait pas » : l'erreur d'origine reste la bonne réponse.
+ * After a `chat.delete` failure: does the message still exist server-side?
+ * The classic ghost (deleted from ANOTHER client while this app was closed,
+ * reconciliation missed) answers "No message found with the id …"; yet the
+ * user's goal is already reached, only the local row is left to purge. Rather
+ * than depend on the error's WORDING (fragile across server versions), confirm
+ * with `chat.getMessage`, as `outbox.ts` confirms a delivery: a 400 here = the
+ * server no longer knows this message (verified on 8.5: `API.v1.failure`).
+ * Any other outcome (message still there, network error (status 0), 429)
+ * means "we don't know": the original error stays the right answer.
  */
 export async function messageGoneFromServer(
   client: MessageReader,
@@ -169,7 +164,7 @@ export async function messageGoneFromServer(
 
 type PublicSetting = { _id?: string; value?: unknown };
 
-/** À croiser avec la lecture `count=0` de settings.public (le `query` est mort en 7.0). */
+/** To match against the `count=0` read of settings.public (`query` died in 7.0). */
 export function rulesFromSettings(settings: PublicSetting[]): MessageRules {
   const values = new Map<string, unknown>();
   for (const r of settings) {

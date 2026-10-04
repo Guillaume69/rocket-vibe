@@ -10,7 +10,7 @@ const event = (args: unknown[]) => ({
   args,
 });
 
-/** Client REST réel, fetch simulé — on éprouve l'URL réellement construite. */
+/** Real REST client, mocked fetch: exercises the URL actually built. */
 function fakeClient(reply: (url: string) => unknown) {
   const urls: string[] = [];
   const client = new ClientRest('http://x', {
@@ -28,8 +28,8 @@ function fakeClient(reply: (url: string) => unknown) {
   return { client, urls };
 }
 
-describe('MoteurPresence — stream', () => {
-  test('un événement user-status met à jour le statut et notifie', () => {
+describe('PresenceEngine: stream', () => {
+  test('a user-status event updates the status and notifies', () => {
     const engine = new PresenceEngine();
     let notifications = 0;
     engine.onChange(() => notifications++);
@@ -42,7 +42,7 @@ describe('MoteurPresence — stream', () => {
     assert.equal(engine.statusOf('u1'), 'offline');
   });
 
-  test('collection ou clé étrangère, numéro inconnu, uid vide : ignorés sans bruit', () => {
+  test('foreign collection or key, unknown number, empty uid: silently ignored', () => {
     const engine = new PresenceEngine();
     let notifications = 0;
     engine.onChange(() => notifications++);
@@ -62,8 +62,8 @@ describe('MoteurPresence — stream', () => {
   });
 });
 
-describe('MoteurPresence — users.presence', () => {
-  test('photo complète, JAMAIS de from (curseur d’horloge locale interdit)', async () => {
+describe('PresenceEngine: users.presence', () => {
+  test('full snapshot, NEVER a from (local-clock cursor forbidden)', async () => {
     const engine = new PresenceEngine();
     const { client, urls } = fakeClient(() => ({
       users: [
@@ -80,23 +80,23 @@ describe('MoteurPresence — users.presence', () => {
     assert.equal(engine.statusOf('u2'), 'busy');
   });
 
-  test('un uid CONNU absent de la photo passe offline — les inconnus restent inconnus', async () => {
+  test('a KNOWN uid absent from the snapshot goes offline; unknowns stay unknown', async () => {
     const engine = new PresenceEngine();
     engine.apply(event([['u1', 'bob', 1, '']]));
     const { client } = fakeClient(() => ({ users: [{ _id: 'u2', status: 'away' }], full: true }));
 
     await engine.load(client);
-    assert.equal(engine.statusOf('u1'), 'offline', 'la photo n’inclut que les non-offline');
+    assert.equal(engine.statusOf('u1'), 'offline', 'the snapshot only includes non-offline users');
     assert.equal(engine.statusOf('u2'), 'away');
-    assert.equal(engine.statusOf('u3'), null, 'jamais vu : toujours inconnu');
+    assert.equal(engine.statusOf('u3'), null, 'never seen: still unknown');
   });
 
-  test('un événement STREAM arrivé pendant la requête gagne sur la photo', async () => {
+  test('a STREAM event arriving during the request wins over the snapshot', async () => {
     const engine = new PresenceEngine();
     let deliver: () => void = () => {};
     const { client } = fakeClient(() => ({ users: [{ _id: 'u1', status: 'online' }] }));
-    // On intercale l'événement entre le départ de la requête et sa réponse :
-    // le faux fetch est synchrone, on passe par une promesse de contrôle.
+    // The event is slipped in between the request leaving and its response:
+    // the fake fetch is synchronous, so a control promise is used.
     const slowClient = {
       get: async (...args: unknown[]) => {
         await new Promise<void>((r) => {
@@ -107,30 +107,30 @@ describe('MoteurPresence — users.presence', () => {
     } as unknown as typeof client;
 
     const loading = engine.load(slowClient);
-    await Promise.resolve(); // laisse `unePhoto` prendre son seuil et partir
-    engine.apply(event([['u1', 'bob', 0, '']])); // offline, PLUS FRAIS
+    await Promise.resolve(); // lets `snapshot` take its threshold and leave
+    engine.apply(event([['u1', 'bob', 0, '']])); // offline, FRESHER
     deliver();
     await loading;
 
-    assert.equal(engine.statusOf('u1'), 'offline', 'la photo (antérieure) ne régresse pas u1');
+    assert.equal(engine.statusOf('u1'), 'offline', 'the (older) snapshot does not regress u1');
   });
 
-  test('échec REST : silencieux, l’état connu survit (dégradation gracieuse)', async () => {
+  test('REST failure: silent, the known state survives (graceful degradation)', async () => {
     const engine = new PresenceEngine();
     engine.apply(event([['u1', 'bob', 1, '']]));
     const { client } = fakeClient(() => new TypeError('Network request failed'));
 
-    await engine.load(client); // ne doit pas jeter
+    await engine.load(client); // must not throw
     assert.equal(engine.statusOf('u1'), 'online');
   });
 });
 
-describe('MoteurPresence — invalidation', () => {
-  test('invalider rend TOUT inconnu et notifie', () => {
-    // Le contrat de l'en-tête du module : « une présence périmée affichée
-    // depuis un cache est pire que pas de présence du tout ». Il n'était tenu
-    // que contre la persistance ; en mémoire, la pastille verte d'avant le
-    // tunnel restait affichée jusqu'au raccordement suivant.
+describe('PresenceEngine: invalidation', () => {
+  test('invalidate makes EVERYTHING unknown and notifies', () => {
+    // The contract of the module header: "a stale presence shown from a cache
+    // is worse than no presence at all". It was only kept against
+    // persistence; in memory, the green dot from before the tunnel stayed on
+    // screen until the next connection setup.
     const engine = new PresenceEngine();
     engine.apply(event([['u1', 'bob', 1, '']]));
     engine.apply(event([['u2', 'ana', 2, '']]));
@@ -139,24 +139,24 @@ describe('MoteurPresence — invalidation', () => {
 
     engine.invalidate();
 
-    assert.equal(engine.statusOf('u1'), null, 'l’UI n’affiche plus rien, au lieu de mentir');
+    assert.equal(engine.statusOf('u1'), null, 'the UI shows nothing any more, instead of lying');
     assert.equal(engine.statusOf('u2'), null);
-    assert.equal(notifications, 1, 'les écrans montés doivent se redessiner');
+    assert.equal(notifications, 1, 'mounted screens must redraw');
   });
 
-  test('invalider sans rien à oublier ne réveille pas les écrans', () => {
+  test('invalidate with nothing to forget does not wake screens', () => {
     const engine = new PresenceEngine();
     let notifications = 0;
     engine.onChange(() => notifications++);
     engine.invalidate();
     engine.invalidate();
-    assert.equal(notifications, 0, 'un flap réseau sur une app muette ne redessine rien');
+    assert.equal(notifications, 0, 'a network flap on a silent app redraws nothing');
   });
 
-  test('une photo PARTIE avant l’invalidation ne ressuscite pas les statuts effacés', async () => {
-    // Course réelle : la socket meurt pendant que `users.presence` est en vol.
-    // Sa réponse décrit le monde d'AVANT la coupure — l'appliquer remettrait
-    // exactement les pastilles que l'invalidation venait d'éteindre.
+  test('a snapshot SENT before the invalidation does not revive cleared statuses', async () => {
+    // Real race: the socket dies while `users.presence` is in flight. Its
+    // response describes the world BEFORE the cut; applying it would restore
+    // exactly the dots the invalidation had just turned off.
     const engine = new PresenceEngine();
     let deliver: () => void = () => {};
     const { client } = fakeClient(() => ({
@@ -175,16 +175,16 @@ describe('MoteurPresence — invalidation', () => {
     } as unknown as typeof client;
 
     const loading = engine.load(slowClient);
-    await Promise.resolve(); // la requête est partie
-    engine.invalidate(); // le transport meurt
+    await Promise.resolve(); // the request has left
+    engine.invalidate(); // the transport dies
     deliver();
     await loading;
 
-    assert.equal(engine.statusOf('u1'), null, 'la photo d’avant la coupure est jetée');
+    assert.equal(engine.statusOf('u1'), null, 'the snapshot from before the cut is dropped');
     assert.equal(engine.statusOf('u2'), null);
   });
 
-  test('après invalidation, une NOUVELLE photo repeuple normalement', async () => {
+  test('after invalidation, a NEW snapshot repopulates normally', async () => {
     const engine = new PresenceEngine();
     engine.apply(event([['u1', 'bob', 1, '']]));
     engine.invalidate();
@@ -194,10 +194,10 @@ describe('MoteurPresence — invalidation', () => {
     assert.equal(engine.statusOf('u1'), 'away');
   });
 
-  test('un événement STREAM postérieur à l’invalidation gagne sur la photo en vol', async () => {
-    // Le compteur de séquence doit rester MONOTONE à travers l'invalidation :
-    // le remettre à zéro ferait repasser un événement frais pour antérieur au
-    // seuil pris par la photo, et la photo l'écraserait.
+  test('a STREAM event after the invalidation wins over the in-flight snapshot', async () => {
+    // The sequence counter must stay MONOTONIC across the invalidation:
+    // resetting it would make a fresh event look older than the threshold the
+    // snapshot took, and the snapshot would overwrite it.
     const engine = new PresenceEngine();
     for (let i = 0; i < 5; i++) engine.apply(event([[`u${i}`, 'x', 1, '']]));
     let deliver: () => void = () => {};
@@ -214,7 +214,7 @@ describe('MoteurPresence — invalidation', () => {
     const loading = engine.load(slowClient);
     await Promise.resolve();
     engine.invalidate();
-    engine.apply(event([['u1', 'bob', 0, '']])); // reçu APRÈS, donc vrai
+    engine.apply(event([['u1', 'bob', 0, '']])); // received AFTER, so true
     deliver();
     await loading;
 

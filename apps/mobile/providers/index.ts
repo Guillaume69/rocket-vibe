@@ -1,11 +1,12 @@
 /**
- * Sélection du fournisseur d'après le `genre` de la session. Un seul driver
- * aujourd'hui (Rocket.Chat) ; `mattermost` s'ajoute ici en une clause quand son
- * driver existe. Le `switch` exhaustif force à traiter tout nouveau `Genre` :
- * ajouter un membre sans clause casse la compilation.
+ * Provider selection from the session's `kind`. A single driver today
+ * (Rocket.Chat); `mattermost` is added here as one clause when its driver
+ * exists. The exhaustive `switch` forces handling any new `ProviderKind`:
+ * adding a member without a clause breaks compilation.
  *
- * Note transitoire : `client` est un `ClientRest` (RC). Le driver Mattermost
- * aura son propre client REST — la création du client passera par le genre en 4b.
+ * Transitional note: `client` is a `ClientRest` (RC). The Mattermost driver
+ * will have its own REST client; client creation will go through the kind
+ * in 4b.
  */
 
 import type { Session } from '../lib/auth.ts';

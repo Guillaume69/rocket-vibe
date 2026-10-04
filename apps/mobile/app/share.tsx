@@ -1,15 +1,15 @@
 /**
- * Écran de partage entrant (cible ACTION_SEND d'Android).
+ * Incoming share screen (Android ACTION_SEND target).
  *
- * Ouvert par la feuille de partage système via `GardePartage` (app/_layout).
- * On y voit le contenu partagé — fichier(s) ou texte — on peut ajouter une
- * légende, puis on choisit une conversation existante (canal, groupe ou MP)
- * dans la liste locale. L'envoi réutilise les mêmes moteurs que le composeur
- * du salon : `fichiers.envoyer` pour les pièces jointes, `envoi.envoyer` pour
- * le texte seul. Aucune destination inventée : uniquement ce qu'on a déjà.
+ * Opened by the system share sheet via `ShareGuard` (app/_layout).
+ * It shows the shared content (file(s) or text), a caption can be added,
+ * then an existing conversation (channel, group or DM) is chosen from the
+ * local list. Sending reuses the same engines as the room composer:
+ * `files.send` for attachments, `outbox.send` for text alone. No invented
+ * destination: only what we already have.
  *
- * Le module natif d'`expo-share-intent` a déjà copié les `content://` vers des
- * chemins accessibles (`file.path`) — d'où l'usage direct comme `uri`.
+ * `expo-share-intent`'s native module has already copied the `content://`
+ * URIs to accessible paths (`file.path`), hence their direct use as `uri`.
  */
 
 import { desc } from 'drizzle-orm';
@@ -50,13 +50,12 @@ import { Tappable } from '../ui/tappable.tsx';
 type RoomRow = typeof rooms.$inferSelect;
 
 /**
- * Pièce partagée, à clé stable. On sépare CE QU'ON AFFICHE de CE QU'ON ENVOIE :
- * `origine` (l'URI d'origine) alimente l'aperçu et n'est JAMAIS modifiée ;
- * `aEnvoyer` porte la version compressée, calculée au montage. Sans cette
- * séparation, remplacer l'URI affichée par celle du fichier compressé faisait
- * RECHARGER l'`Image` de la vignette — le clignotement quand on partage
- * plusieurs photos (toutes les images rechargent d'un coup en fin de
- * compression).
+ * Shared item, with a stable key. WHAT WE SHOW is kept apart from WHAT WE
+ * SEND: `origin` (the original URI) feeds the preview and is NEVER modified;
+ * `toSend` carries the compressed version, computed on mount. Without this
+ * split, replacing the displayed URI with the compressed file's made the
+ * thumbnail's `Image` RELOAD: the flicker when sharing several photos (all
+ * images reload at once when compression ends).
  */
 type StagedAttachment = { key: number; origin: PendingFile; toSend: PendingFile };
 
@@ -67,10 +66,10 @@ export default function ShareScreen() {
   const { shareIntent, resetShareIntent } = useShareIntentContext();
   const t = useT();
 
-  // Quitter cet écran — par envoi, retour ou geste — doit TOUJOURS solder
-  // l'intent : sinon `hasShareIntent` resterait vrai et le garde rouvrirait
-  // `/share`. Via une ref, pour n'appeler que le dernier `resetShareIntent`
-  // une seule fois au démontage, sans dépendre de la stabilité de son identité.
+  // Leaving this screen (by sending, back or gesture) must ALWAYS settle the
+  // intent: otherwise `hasShareIntent` would stay true and the guard would
+  // reopen `/share`. Through a ref, to call only the latest `resetShareIntent`
+  // once on unmount, without depending on the stability of its identity.
   const resetRef = useRef(resetShareIntent);
   useEffect(() => {
     resetRef.current = resetShareIntent;
@@ -131,13 +130,13 @@ function Share({
   const router = useRouter();
   const t = useT();
 
-  // Fichiers partagés → pièces en attente. Construites UNE fois, au montage :
-  // le partage entrant est figé pour la vie de l'écran, et l'objet `shareIntent`
-  // peut changer d'identité à chaque rendu du provider (s'en servir comme
-  // dépendance relancerait la compression en boucle). `path` est déjà un chemin
-  // local accessible (le module natif a copié les content://). `origine` et
-  // `aEnvoyer` pointent d'abord sur le MÊME fichier : tant que la compression
-  // n'a pas fini, on enverrait l'original — acceptable (juste plus lourd).
+  // Shared files -> pending items. Built ONCE, on mount: the incoming share is
+  // frozen for the screen's lifetime, and the `shareIntent` object may change
+  // identity on every render of the provider (using it as a dependency would
+  // rerun compression in a loop). `path` is already an accessible local path
+  // (the native module copied the content:// URIs). `origin` and `toSend` first
+  // point to the SAME file: until compression finishes, we would send the
+  // original, which is acceptable (just heavier).
   const [attachments, setAttachments] = useState<StagedAttachment[]>(() =>
     (shareIntent.files ?? []).map((f, i) => {
       const file: PendingFile = {
@@ -150,12 +149,11 @@ function Share({
     }),
   );
 
-  // Compression des images au montage. SÉQUENTIELLE — plusieurs grosses photos
-  // décodées en parallèle saturent le CPU et saccadent l'arrivée sur l'écran —
-  // puis UNE SEULE mise à jour groupée. On ne touche QUE `aEnvoyer` : `origine`
-  // (ce que la vignette affiche) reste identique, donc aucune `Image` ne
-  // recharge et rien ne clignote. On associe par `cle` (pas par référence) :
-  // une pièce retirée entre-temps n'est pas ressuscitée.
+  // Image compression on mount. SEQUENTIAL (several big photos decoded in
+  // parallel saturate the CPU and make the screen's arrival stutter), then ONE
+  // grouped update. We touch ONLY `toSend`: `origin` (what the thumbnail shows)
+  // stays identical, so no `Image` reloads and nothing flickers. We match by
+  // `key` (not by reference): an item removed in the meantime is not revived.
   useEffect(() => {
     let alive = true;
     void (async () => {
@@ -173,25 +171,25 @@ function Share({
     return () => {
       alive = false;
     };
-    // Au montage uniquement : les pièces initiales ne changent qu'ici.
+    // On mount only: the initial items only change here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Texte partagé (ou lien) : légende quand un fichier l'accompagne, sinon
-  // c'est le message lui-même.
+  // Shared text (or link): caption when a file comes with it, otherwise it is
+  // the message itself.
   const [caption, setCaption] = useState(shareIntent.text ?? shareIntent.webUrl ?? '');
   const [filter, setFilter] = useState('');
   const [busy, setBusy] = useState(false);
-  // Salon vers lequel l'envoi est en cours : le spinner s'affiche SUR sa ligne
-  // (pas en voile flottant), pour qu'on voie quelle destination reçoit.
+  // Room being sent to: the spinner shows ON its row (not as a floating
+  // overlay), so one sees which destination is receiving.
   const [currentRid, setCurrentRid] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
 
   const hasFiles = attachments.length > 0;
 
-  // Même source que l'accueil : deux requêtes vives (une par table), fusionnées
-  // en JS, ordonnées par récence. On ne garde que les salons visibles.
+  // Same source as home: two live queries (one per table), merged in JS,
+  // ordered by recency. Only visible rooms are kept.
   const { data: roomRows } = useCoalescedLiveQuery(
     base.select().from(rooms).orderBy(desc(rooms.lastMessageTs)),
   );
@@ -206,16 +204,15 @@ function Share({
     });
 
   /**
-   * Retirer une pièce efface ses fichiers de cache. Il y en a jusqu'à DEUX :
-   * la copie faite par le module de partage (`origine`) et, quand la
-   * compression a mordu, le JPEG réécrit (`aEnvoyer`). Aucune ligne de
-   * téléversement ne les a jamais connus — le ménage de la file, qui part du
-   * dépôt, ne les atteindrait donc jamais. `supprimerSiTemporaire` refuse tout
-   * ce qui n'est pas sous le cache de l'app.
+   * Removing an item deletes its cache files. There are up to TWO: the copy
+   * made by the share module (`origin`) and, when compression kicked in, the
+   * rewritten JPEG (`toSend`). No upload row ever knew them, so the queue's
+   * cleanup, which starts from the store, would never reach them.
+   * `deleteIfTemporary` refuses anything not under the app's cache.
    */
   const removeAttachment = useCallback(
     (key: number) => {
-      // Hors de l'updater : React peut le rejouer, une suppression non.
+      // Outside the updater: React may replay it, a deletion cannot be replayed.
       const outgoing = attachments.find((x) => x.key === key);
       if (outgoing !== undefined) {
         void deleteIfTemporary(outgoing.origin.uri);
@@ -237,14 +234,14 @@ function Share({
       setBusy(true);
       setCurrentRid(rid);
       setError(null);
-      // Ce qui est DÉJÀ parti, pour ne pas le renvoyer si la boucle s'arrête en
-      // route. Local à l'appel : aucun rendu déclenché tant que l'envoi court.
+      // What has ALREADY gone out, so it is not resent if the loop stops midway.
+      // Local to the call: no render triggered while sending runs.
       const gone: number[] = [];
       let captionPart = false;
       try {
         if (hasFiles) {
-          // Un message par fichier ; la légende n'accompagne que le premier,
-          // sinon elle se répéterait sous chaque pièce.
+          // One message per file; the caption only goes with the first,
+          // otherwise it would repeat under each item.
           for (let i = 0; i < attachments.length; i++) {
             const captionCarrier = i === 0 && cleanCaption !== '';
             await files.send(
@@ -252,30 +249,30 @@ function Share({
               attachments[i].toSend,
               captionCarrier ? cleanCaption : undefined,
             );
-            // Ce qui est parti est noté, mais l'état n'est PAS amputé ici :
-            // `pieces.length` pilote le mode d'affichage des aperçus (carte
-            // pleine largeur à 1, bande de vignettes au-delà), qui basculerait
-            // alors EN PLEIN ENVOI — la liste des destinations sauterait sous
-            // le doigt alors que `scrollEnabled={!occupe}` la fige justement.
-            // L'amputation se fait dans le `catch`, seul endroit où elle sert.
+            // What went out is recorded, but the state is NOT trimmed here:
+            // `attachments.length` drives the preview layout (full-width card
+            // at 1, thumbnail strip beyond), which would then switch IN THE MIDDLE
+            // OF SENDING; the destination list would jump under the finger while
+            // `scrollEnabled={!busy}` is precisely freezing it.
+            // The trimming happens in the `catch`, the only place it matters.
             gone.push(attachments[i].key);
             if (captionCarrier) captionPart = true;
           }
         } else {
           await outboxQueue.send(rid, cleanCaption);
         }
-        // Succès : on ouvre la conversation. Le démontage soldera l'intent.
+        // Success: we open the conversation. Unmounting will settle the intent.
         router.replace({ pathname: '/salon/[rid]', params: { rid } });
       } catch (e) {
-        // Seul un refus de validation (taille/type) rejette ici. Un refus
-        // serveur comme un réseau injoignable deviennent une ligne du bandeau
-        // du salon — qui montre maintenant aussi les `en-attente`, sans quoi un
-        // partage fait hors ligne disparaissait sans laisser de trace.
+        // Only a validation refusal (size/type) rejects here. A server refusal
+        // as well as an unreachable network become a line in the room's banner,
+        // which now also shows `en-attente` ones; otherwise a share made offline
+        // disappeared without a trace.
         //
-        // Amputer de ce qui est DÉJÀ parti : l'utilisateur reste sur cet écran,
-        // retire la pièce fautive et retape sur le salon — sans cela les
-        // précédentes seraient postées une seconde fois. La légende suit : elle
-        // accompagnait la première pièce, elle est partie avec elle.
+        // Trim what has ALREADY gone out: the user stays on this screen, removes
+        // the faulty item and taps the room again; without this the previous ones
+        // would be posted a second time. The caption follows: it went with the
+        // first item, it went out with it.
         if (gone.length > 0) {
           setAttachments((prev) => prev.filter((x) => !gone.includes(x.key)));
           if (captionPart) setCaption('');
@@ -297,13 +294,12 @@ function Share({
       <Stack.Screen options={{ title: t('share.title'), headerShown: true }} />
       <View style={styles.top}>
         {/*
-          Un seul fichier : la carte pleine largeur (nom, type, taille) alignée
-          sur les champs. Plusieurs : une BANDE de vignettes carrées défilable
-          horizontalement — empilées verticalement, quelques photos suffisaient
-          à repousser la liste des salons hors de l'écran, et l'espacement entre
-          cartes paraissait trop grand. La bande a une hauteur fixe, quel que
-          soit le nombre de pièces.
-        */}
+          One file: the full-width card (name, type, size) aligned with the
+          fields. Several: a horizontally scrollable STRIP of square
+          thumbnails; stacked vertically, a few photos were enough to push
+          the room list off screen, and the spacing between cards looked too
+          large. The strip has a fixed height, whatever the number of items.
+         */}
         {attachments.length === 1 && (
           <AttachmentPreview
             key={attachments[0].key}
@@ -346,8 +342,8 @@ function Share({
         data={targets}
         keyExtractor={(s) => s.rid}
         keyboardShouldPersistTaps="handled"
-        // Pendant l'envoi, on fige la liste : le spinner reste sur la ligne
-        // choisie plutôt que de flotter au-dessus d'un contenu qui défile.
+        // While sending, the list is frozen: the spinner stays on the chosen row
+        // rather than floating above scrolling content.
         scrollEnabled={!busy}
         style={styles.list}
         contentContainerStyle={styles.listContent}
@@ -370,9 +366,9 @@ function Share({
 }
 
 /**
- * Une conversation cible. Salon chiffré ou en lecture seule : on ne peut pas y
- * poster (le serveur rejette le clair en E2EE, et le lecteur seul est muet) —
- * la ligne est grisée et non sélectionnable, avec la raison.
+ * A target conversation. Encrypted or read-only room: posting there is
+ * impossible (the server rejects plaintext in E2EE, and a read-only reader is
+ * mute); the row is greyed out and not selectable, with the reason.
  */
 function TargetRow({
   c,
@@ -386,7 +382,7 @@ function TargetRow({
   room: RoomRow;
   client: ClientRest;
   busy: boolean;
-  /** Cette ligne est la destination de l'envoi en cours : elle porte le spinner. */
+  /** This row is the destination of the ongoing send: it carries the spinner. */
   sending: boolean;
   onPick: () => void;
 }) {
@@ -394,8 +390,8 @@ function TargetRow({
   const name = room.displayName ?? room.name ?? room.rid;
   const blocked = room.encrypted || room.readOnly;
   const reason = room.encrypted ? t('share.encrypted') : room.readOnly ? t('share.readOnly') : null;
-  // Bloqué, ou une autre destination pendant un envoi : la ligne s'estompe pour
-  // concentrer l'attention sur celle qui reçoit.
+  // Blocked, or another destination during a send: the row fades to focus
+  // attention on the one receiving.
   const dimmed = blocked || (busy && !sending);
 
   return (
@@ -417,11 +413,11 @@ function TargetRow({
         avatarEtag={room.avatarEtag}
         client={client}
       />
-      {/* Pas de `chiffreDeverrouille` ici, et c'est voulu : dans cet écran un
-          salon chiffré est BLOQUÉ quoi qu'il arrive (`bloque` ci-dessus), le
-          serveur rejetant le clair en E2EE. Le cadenas fermé dit exactement
-          l'état de la ligne — un avatar ordinaire sur une ligne grisée et non
-          sélectionnable serait moins juste, pas plus. */}
+      {/* No `encryptedUnlocked` here, on purpose: on this screen an
+          encrypted room is BLOCKED no matter what (`blocked` above), since the
+          server rejects plaintext in E2EE. The closed lock says exactly the
+          row's state; an ordinary avatar on a greyed-out, non-selectable row
+          would be less accurate, not more. */}
       <View style={styles.rowBody}>
         <Text style={[styles.targetName, { color: c.text }]} numberOfLines={1}>
           {name}
@@ -439,9 +435,9 @@ function TargetRow({
 }
 
 /**
- * Bande d'aperçus compacte pour PLUSIEURS pièces : des vignettes carrées côte à
- * côte, défilables horizontalement. La hauteur est fixe quel que soit le nombre
- * de pièces, donc la liste des salons reste toujours visible dessous.
+ * Compact preview strip for SEVERAL items: square thumbnails side by side,
+ * horizontally scrollable. The height is fixed whatever the number of items,
+ * so the room list always stays visible below.
  */
 function PreviewStrip({
   c,
@@ -577,9 +573,9 @@ const styles = StyleSheet.create({
   },
   list: { flex: 1, marginTop: 4 },
   listContent: { paddingBottom: 16 },
-  // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
-  // découpe l'ondulation — borderRadius sur le Pressable est ignoré par le
-  // masque du ripple sous Fabric. Invisible au repos (pas de fond).
+  // The radius lives on the WRAPPER: only a parent's clip (`overflow`) cuts
+  // the ripple; borderRadius on the Pressable is ignored by the ripple mask
+  // under Fabric. Invisible at rest (no background).
   rowWrapper: { borderRadius: 18, overflow: 'hidden' },
   row: {
     flexDirection: 'row',

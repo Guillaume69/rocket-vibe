@@ -14,12 +14,12 @@ import { ClientRest, RestError } from './rest.ts';
 import type { FileJwk } from './e2e/crypto.ts';
 import type { TransportUpload } from './upload.ts';
 
-describe('validerFichier', () => {
-  test('la taille maximale du serveur est respectée AVANT le moindre octet', () => {
+describe('validateFile', () => {
+  test('the server max size is enforced BEFORE a single byte', () => {
     const rules = { maxSize: 1000, acceptedTypes: null, encryptedFiles: true };
     validateFile(rules, { type: 'image/png', size: 999 });
-    // Le refus porte une DONNÉE (code + params), pas une phrase : c'est le
-    // contrat du point d'affichage (ui/fileValidation.ts).
+    // The refusal carries DATA (code + params), not a sentence: that is the
+    // contract of the display point (ui/fileValidation.ts).
     assert.throws(
       () => validateFile(rules, { type: 'image/png', size: 1001 }),
       (e: unknown) =>
@@ -29,7 +29,7 @@ describe('validerFichier', () => {
     );
   });
 
-  test('la liste blanche accepte les jokers `image/*`', () => {
+  test('the whitelist accepts `image/*` wildcards', () => {
     const rules = { maxSize: null, acceptedTypes: ['image/*', 'application/pdf'], encryptedFiles: true };
     validateFile(rules, { type: 'image/png', size: null });
     validateFile(rules, { type: 'application/pdf', size: null });
@@ -40,13 +40,13 @@ describe('validerFichier', () => {
     );
   });
 
-  test('sans réglage, tout passe — le serveur tranchera', () => {
+  test('without settings, everything passes: the server will decide', () => {
     validateFile({ maxSize: null, acceptedTypes: null, encryptedFiles: true }, { type: 'x/y', size: 1e12 });
   });
 });
 
-describe('lireReglesUpload', () => {
-  test('lit MaxFileSize et MediaTypeWhiteList depuis settings.public', async () => {
+describe('readUploadRules', () => {
+  test('reads MaxFileSize and MediaTypeWhiteList from settings.public', async () => {
     const client = new ClientRest('http://x', {
       fetch: async () =>
         new Response(
@@ -67,15 +67,14 @@ describe('lireReglesUpload', () => {
 });
 
 /**
- * Dépôt en mémoire qui REPRODUIT la sémantique du SQL — en particulier le
- * filtre sur `en-attente` et l'atomicité de la prise en charge. Un faux plus
- * permissif que la vraie base ferait passer des tests que la production
- * échouerait.
+ * In-memory store that REPRODUCES the SQL semantics, in particular the filter
+ * on `en-attente` and the atomic claim. A fake more permissive than the real
+ * database would pass tests that production would fail.
  */
 function fakeStore() {
   const rows = new Map<string, UploadRow>();
   const posted = new Set<string>();
-  /** Journal des appels : c'est lui qui distingue « pas marqué » de « marqué en attente ». */
+  /** Call log: it is what tells "not marked" from "marked pending". */
   const calls: string[] = [];
   const store: UploadStore = {
     insert: async (l) => void rows.set(l.id, { ...l, status: 'en-attente', fileId: null }),
@@ -125,7 +124,7 @@ function fakeStore() {
 
 const FILE = { uri: 'file:///a.png', name: 'a.png', type: 'image/png', size: 10 };
 
-/** Une promesse qu'on dénoue à la main — jamais un délai. */
+/** A promise resolved by hand, never a delay. */
 function lock() {
   let open!: () => void;
   const waitFor = new Promise<void>((r) => {
@@ -149,8 +148,8 @@ function confirmingClient() {
   });
 }
 
-describe('MoteurTeleversement', () => {
-  test('valider refuse sans rien persister, et les réglages ne sont lus qu’une fois', async () => {
+describe('UploadEngine', () => {
+  test('validate refuses without persisting anything, and the settings are read only once', async () => {
     const { store, rows } = fakeStore();
     let reads = 0;
     const client = new ClientRest('http://x', {
@@ -171,7 +170,7 @@ describe('MoteurTeleversement', () => {
     const engine = new UploadEngine({
       store,
       client,
-      transport: async () => assert.fail('valider ne téléverse rien'),
+      transport: async () => assert.fail('validate uploads nothing'),
       generateId: () => 'id-fichier-000000000000',
       ingest: async () => {},
     });
@@ -187,12 +186,12 @@ describe('MoteurTeleversement', () => {
     assert.equal(reads, 1);
   });
 
-  test('persiste AVANT l’envoi, téléverse, confirme, ingère, purge', async () => {
+  test('persists BEFORE sending, uploads, confirms, ingests, purges', async () => {
     const { store, rows } = fakeStore();
     const ingested: unknown[] = [];
     const transport: TransportUpload = async (_url, _headers, _file, onProgress) => {
       onProgress?.(0.5);
-      assert.equal(rows.size, 1, "l'intention est persistée avant que l'octet parte");
+      assert.equal(rows.size, 1, 'the intent is persisted before the byte leaves');
       return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
     };
     const engine = new UploadEngine({
@@ -205,11 +204,11 @@ describe('MoteurTeleversement', () => {
 
     await engine.send('r1', { uri: 'file:///a.png', name: 'a.png', type: 'image/png', size: 10 });
 
-    assert.equal(rows.size, 0, 'purgé au succès');
-    assert.equal(ingested.length, 1, 'le message confirmé repasse par la synchro');
+    assert.equal(rows.size, 0, 'purged on success');
+    assert.equal(ingested.length, 1, 'the confirmed message goes back through sync');
   });
 
-  test('un refus serveur marque `echec`, rejouable', async () => {
+  test('a server refusal marks `echec`, replayable', async () => {
     const { store, rows } = fakeStore();
     const transport: TransportUpload = async () => ({
       status: 413,
@@ -224,19 +223,19 @@ describe('MoteurTeleversement', () => {
     });
     await engine.send('r1', { uri: 'file:///a.png', name: 'a.png', type: 'image/png', size: 10 });
     assert.equal([...rows.values()][0]?.status, 'echec');
-    assert.equal(engine.progress.size, 0, 'la progression ne survit pas à l’échec');
+    assert.equal(engine.progress.size, 0, 'progress does not survive the failure');
   });
 
   /**
-   * Le SEUL chemin qui laissait une ligne invisible : le réseau injoignable
-   * n'est pas un refus. La ligne doit rester `en-attente` — c'est ce statut
-   * que le bandeau du salon doit afficher, sans quoi le fichier disparaît de
-   * l'écran sans le moindre signe et l'utilisateur le renvoie.
+   * The ONLY path that left a row invisible: an unreachable network is not a
+   * refusal. The row must stay `en-attente`: that is the status the room
+   * banner must show, otherwise the file vanishes from the screen without a
+   * sign and the user sends it again.
    */
-  test('réseau injoignable : la ligne reste `en-attente`, rien n’est marqué en échec', async () => {
+  test('network unreachable: the row stays `en-attente`, nothing is marked failed', async () => {
     const { store, rows, calls } = fakeStore();
     const transport: TransportUpload = async () => {
-      throw new RestError('Upload : serveur injoignable.', 0);
+      throw new RestError('Upload: server unreachable.', 0);
     };
     const engine = new UploadEngine({
       store,
@@ -248,21 +247,21 @@ describe('MoteurTeleversement', () => {
 
     await engine.send('r1', FILE);
 
-    assert.equal(rows.size, 1, 'l’intention survit — le rejeu la reprendra');
+    assert.equal(rows.size, 1, 'the intent survives: the replay will pick it up');
     assert.equal([...rows.values()][0]?.status, 'en-attente');
     assert.ok(
       !calls.some((a) => a.startsWith('echec:')),
-      'un injoignable n’est pas un refus : marquerEchec ne doit PAS être appelé',
+      'unreachable is not a refusal: markFailed must NOT be called',
     );
-    assert.equal(engine.progress.size, 0, 'la progression est vidée même sur abandon de passe');
+    assert.equal(engine.progress.size, 0, 'progress is cleared even when the pass is abandoned');
   });
 
-  test('un injoignable arrête la passe : la ligne suivante n’est pas tentée', async () => {
+  test('unreachable stops the pass: the next row is not attempted', async () => {
     const { store, rows, calls } = fakeStore();
     let attempts = 0;
     const transport: TransportUpload = async () => {
       attempts++;
-      throw new RestError('Upload : serveur injoignable.', 0);
+      throw new RestError('Upload: server unreachable.', 0);
     };
     const engine = new UploadEngine({
       store,
@@ -276,10 +275,9 @@ describe('MoteurTeleversement', () => {
 
     await engine.process();
 
-    assert.equal(attempts, 1, 'insister sur un réseau mort gaspille les octets de t2');
-    assert.equal(calls.filter((a) => a === 'lister').length, 1, 'aucune passe supplémentaire');
-    // Les DEUX doivent rester rejouables : t1 ré-armée après sa prise en
-    // charge, t2 jamais touchée.
+    assert.equal(attempts, 1, 'insisting on a dead network wastes the bytes of t2');
+    assert.equal(calls.filter((a) => a === 'lister').length, 1, 'no extra pass');
+    // BOTH must stay replayable: t1 rearmed after its claim, t2 never touched.
     assert.deepEqual(
       [...rows.values()].map((l) => l.status),
       ['en-attente', 'en-attente'],
@@ -287,15 +285,15 @@ describe('MoteurTeleversement', () => {
   });
 
   /**
-   * Le piège du statut `envoi` : il sort la ligne du listage. Si une panne
-   * réseau la laissait dans cet état, le fichier ne repartirait plus jamais
-   * — le défaut d'origine, en pire, puisqu'il survivrait au redémarrage.
+   * The trap of the `envoi` status: it takes the row out of the listing. If a
+   * network failure left it in that state, the file would never leave again:
+   * the original defect, only worse, since it would survive a restart.
    */
-  test('une ligne prise en charge puis coupée redevient rejouable, pas figée en `envoi`', async () => {
+  test('a claimed then cut row becomes replayable again, not frozen in `envoi`', async () => {
     const { store, rows } = fakeStore();
     let cut = true;
     const transport: TransportUpload = async () => {
-      if (cut) throw new RestError('Upload : serveur injoignable.', 0);
+      if (cut) throw new RestError('Upload: server unreachable.', 0);
       return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
     };
     const engine = new UploadEngine({
@@ -312,10 +310,10 @@ describe('MoteurTeleversement', () => {
 
     cut = false;
     await engine.process();
-    assert.equal(rows.size, 0, 'le réseau revenu, la même ligne part enfin');
+    assert.equal(rows.size, 0, 'with the network back, the same row finally leaves');
   });
 
-  test('un `envoi` orphelin d’un processus tué est repris au premier `traiter()`', async () => {
+  test('an orphaned `envoi` of a killed process is picked up at the first `process()`', async () => {
     const { store, rows } = fakeStore();
     const transport: TransportUpload = async () => ({
       status: 200,
@@ -328,17 +326,17 @@ describe('MoteurTeleversement', () => {
       generateId: () => 'x',
       ingest: async () => {},
     });
-    // L'état que laisse un kill en plein téléversement.
+    // The state a kill mid-upload leaves behind.
     await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
     await store.claim('t1');
     assert.equal([...rows.values()][0]?.status, 'envoi');
 
     await engine.process();
 
-    assert.equal(rows.size, 0, 'sans le ré-armement, la ligne serait restée hors du listage');
+    assert.equal(rows.size, 0, 'without the rearm, the row would have stayed out of the listing');
   });
 
-  test('un échec n’est PAS rejoué tout seul ; « Réessayer » le ré-arme', async () => {
+  test('a failure is NOT replayed on its own; "Retry" rearms it', async () => {
     const { store, rows } = fakeStore();
     let refused = true;
     let attempts = 0;
@@ -360,23 +358,23 @@ describe('MoteurTeleversement', () => {
     assert.equal([...rows.values()][0]?.status, 'echec');
     assert.equal(attempts, 1);
 
-    // Ce que fait `apresRattrapage` à CHAQUE raccordement.
+    // What `afterCatchUp` does at EVERY connection setup.
     await engine.process();
     await engine.process();
-    assert.equal(attempts, 1, 'la vidéo refusée ne repousse plus ses octets à chaque flap');
+    assert.equal(attempts, 1, 'the refused video no longer pushes its bytes at every flap');
 
     refused = false;
     await engine.retry('t1');
-    assert.equal(attempts, 2, 'le geste explicite, LUI, retente');
+    assert.equal(attempts, 2, 'the explicit gesture DOES retry');
     assert.equal(rows.size, 0);
   });
 
   /**
-   * Le cas de la réponse perdue : les octets sont partis, le serveur a créé le
-   * message, mais `mediaConfirm` n'a jamais répondu. Rejouer depuis le début
-   * postait un DOUBLON et laissait un orphelin de plus sur le serveur.
+   * The lost response case: the bytes left, the server created the message,
+   * but `mediaConfirm` never answered. Replaying from the start posted a
+   * DUPLICATE and left one more orphan on the server.
    */
-  test('un `mediaConfirm` perdu ne re-téléverse rien et ne poste pas de doublon', async () => {
+  test('a lost `mediaConfirm` uploads nothing again and posts no duplicate', async () => {
     const { store, rows, posted, calls } = fakeStore();
     let bytes = 0;
     let confirms = 0;
@@ -388,7 +386,7 @@ describe('MoteurTeleversement', () => {
       fetch: async (url) => {
         if (String(url).includes('mediaConfirm')) {
           confirms++;
-          // La réponse se perd : `ClientRest` en fait un statut 0.
+          // The response gets lost: `ClientRest` turns it into a status 0.
           throw new TypeError('Network request failed');
         }
         return new Response(JSON.stringify({ settings: [] }), {
@@ -411,21 +409,21 @@ describe('MoteurTeleversement', () => {
     await engine.process();
     assert.equal(bytes, 1);
     assert.equal(confirms, 1);
-    assert.ok(calls.includes('fileId:t1=f1'), 'le fileId est noté AVANT le confirm');
-    assert.equal([...rows.values()][0]?.status, 'en-attente', 'rejouable');
+    assert.ok(calls.includes('fileId:t1=f1'), 'the fileId is recorded BEFORE the confirm');
+    assert.equal([...rows.values()][0]?.status, 'en-attente', 'replayable');
 
-    // Entre-temps, le stream DDP a livré le message que le confirm avait créé.
+    // Meanwhile, the DDP stream delivered the message the confirm had created.
     posted.add('f1');
 
     await engine.process();
 
-    assert.equal(bytes, 1, 'les octets ne repartent pas — c’est tout l’objet de file_id');
-    assert.equal(confirms, 1, 'et AUCUN second message n’est posté');
-    assert.equal(rows.size, 0, 'la ligne est soldée sur la foi de la base locale');
-    assert.equal(ingested.length, 0, 'le message est déjà là, ingéré par le stream');
+    assert.equal(bytes, 1, 'the bytes do not leave again: that is the whole point of file_id');
+    assert.equal(confirms, 1, 'and NO second message is posted');
+    assert.equal(rows.size, 0, 'the row is settled on the word of the local database');
+    assert.equal(ingested.length, 0, 'the message is already there, ingested by the stream');
   });
 
-  test('reprise après réponse perdue : si le message n’est PAS là, seul le confirm repart', async () => {
+  test('resume after a lost response: if the message is NOT there, only the confirm goes again', async () => {
     const { store, rows } = fakeStore();
     let bytes = 0;
     let confirms = 0;
@@ -467,20 +465,20 @@ describe('MoteurTeleversement', () => {
     await engine.process();
     await engine.process();
 
-    assert.equal(bytes, 1, 'un seul passage des octets');
-    assert.equal(confirms, 2, 'le confirm, lui, est bien retenté');
+    assert.equal(bytes, 1, 'a single pass of the bytes');
+    assert.equal(confirms, 2, 'the confirm, however, is retried');
     assert.equal(rows.size, 0);
     assert.equal(ingested.length, 1);
   });
 
   /**
-   * Le trou du garde-fou local : au redémarrage après un kill, aucun écran de
-   * salon n'est monté, donc `stream-room-messages` n'est souscrit sur rien et
-   * la base ignore le message créé par le confirm perdu. Sans rafraîchissement
-   * ciblé, on re-confirmerait — et le serveur POSTE alors un doublon (sondé
-   * sur 8.5 : il répond 200 en rendant le premier message).
+   * The hole in the local safeguard: at restart after a kill, no room screen
+   * is mounted, so `stream-room-messages` is subscribed to nothing and the
+   * database does not know the message created by the lost confirm. Without a
+   * targeted refresh, it would confirm again, and the server then POSTS a
+   * duplicate (probed on 8.5: it answers 200 returning the first message).
    */
-  test('base locale muette : on rafraîchit le salon AVANT de conclure, une seule fois', async () => {
+  test('silent local database: the room is refreshed BEFORE concluding, only once', async () => {
     const { store, rows, posted } = fakeStore();
     let confirms = 0;
     const refreshed: string[] = [];
@@ -507,7 +505,7 @@ describe('MoteurTeleversement', () => {
       transport,
       generateId: () => 'x',
       ingest: async () => {},
-      // Le rattrapage rapporte le message : c'est ce que fait `rattraperSalon`.
+      // The catch-up brings the message back: that is what `catchUpRoom` does.
       refreshRoom: async (rid) => {
         refreshed.push(rid);
         posted.add('f1');
@@ -515,18 +513,18 @@ describe('MoteurTeleversement', () => {
     });
     await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
 
-    await engine.process(); // les octets partent, le confirm se perd
+    await engine.process(); // the bytes leave, the confirm gets lost
     assert.equal(confirms, 1);
-    assert.deepEqual(refreshed, [], 'aucun rafraîchissement sur le chemin nominal');
+    assert.deepEqual(refreshed, [], 'no refresh on the nominal path');
 
-    await engine.process(); // reprise : la base ne sait pas encore
+    await engine.process(); // resume: the database does not know yet
 
-    assert.deepEqual(refreshed, ['r1'], 'un appel ciblé, sur CE salon');
-    assert.equal(confirms, 1, 'et surtout : pas de second confirm');
+    assert.deepEqual(refreshed, ['r1'], 'one targeted call, on THIS room');
+    assert.equal(confirms, 1, 'and above all: no second confirm');
     assert.equal(rows.size, 0);
   });
 
-  test('rafraîchissement impossible : on ne bloque pas la file dessus', async () => {
+  test('refresh impossible: the queue does not block on it', async () => {
     const { store, rows } = fakeStore();
     let confirms = 0;
     const transport: TransportUpload = async () => ({
@@ -561,7 +559,7 @@ describe('MoteurTeleversement', () => {
       generateId: () => 'x',
       ingest: async () => {},
       refreshRoom: async () => {
-        throw new Error('rattrapage impossible');
+        throw new Error('catch-up impossible');
       },
     });
     await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
@@ -569,13 +567,13 @@ describe('MoteurTeleversement', () => {
     await engine.process();
     await engine.process();
 
-    // Choix assumé : dans le doute, confirmer. Perdre le fichier serait pire
-    // qu'un doublon visible et effaçable.
+    // Deliberate choice: when in doubt, confirm. Losing the file would be worse
+    // than a visible, deletable duplicate.
     assert.equal(confirms, 2);
-    assert.equal(rows.size, 0, 'la ligne finit soldée, pas bloquée à vie');
+    assert.equal(rows.size, 0, 'the row ends up settled, not blocked forever');
   });
 
-  test('abandonner interrompt la tâche en vol et n’ingère rien', async () => {
+  test('discard interrupts the task in flight and ingests nothing', async () => {
     const { store, rows } = fakeStore();
     const entry = lock();
     const barrier = lock();
@@ -587,8 +585,8 @@ describe('MoteurTeleversement', () => {
       });
       entry.open();
       await barrier.waitFor;
-      // Une tâche annulée ne rend pas de fileId : `uploadAsync` a rendu null.
-      if (canceled) throw new Error('Téléversement annulé.');
+      // A canceled task returns no fileId: `uploadAsync` returned null.
+      if (canceled) throw new Error('Upload canceled.');
       return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
     };
     const ingested: unknown[] = [];
@@ -608,26 +606,26 @@ describe('MoteurTeleversement', () => {
     await engine.discard('t1', FILE.uri);
     await pass;
 
-    assert.ok(canceled, 'la FileSystemUploadTask est vraiment interrompue');
+    assert.ok(canceled, 'the FileSystemUploadTask is really interrupted');
     assert.equal(rows.size, 0);
-    assert.equal(ingested.length, 0, 'le fichier ne doit pas apparaître après un abandon');
-    assert.deepEqual(deleted, [FILE.uri], 'et le temporaire part avec lui');
+    assert.equal(ingested.length, 0, 'the file must not appear after a discard');
+    assert.deepEqual(deleted, [FILE.uri], 'and the temporary file goes with it');
   });
 
   /**
-   * L'annulation peut PERDRE la course : `cancelAsync` n'a plus de prise une
-   * fois `rooms.media` terminé. Deux gardes couvrent cette fenêtre, et il faut
-   * les éprouver séparément — la première évite de poster, la seconde évite
-   * d'afficher ce qu'on n'a pas pu ne pas poster.
+   * The cancellation can LOSE the race: `cancelAsync` has no hold any more once
+   * `rooms.media` is done. Two guards cover that window, and they must be
+   * tested separately: the first avoids posting, the second avoids displaying
+   * what could not be kept from being posted.
    */
-  test('abandon entre les octets et le confirm : AUCUN message n’est posté', async () => {
+  test('discard between the bytes and the confirm: NO message is posted', async () => {
     const { store, rows } = fakeStore();
     const entry = lock();
     const barrier = lock();
     let confirms = 0;
     const transport: TransportUpload = async () => {
       entry.open();
-      await barrier.waitFor; // l'abandon tombe ici, l'upload est fini
+      await barrier.waitFor; // the discard lands here, the upload is done
       return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
     };
     const client = new ClientRest('http://x', {
@@ -656,12 +654,12 @@ describe('MoteurTeleversement', () => {
     barrier.open();
     await pass;
 
-    assert.equal(confirms, 0, 'c’est le confirm qui CRÉE le message : ne pas l’envoyer');
+    assert.equal(confirms, 0, 'the confirm is what CREATES the message: do not send it');
     assert.equal(ingested.length, 0);
     assert.equal(rows.size, 0);
   });
 
-  test('abandon PENDANT le confirm : le message posté n’est pas ingéré', async () => {
+  test('discard DURING the confirm: the posted message is not ingested', async () => {
     const { store } = fakeStore();
     const entry = lock();
     const barrier = lock();
@@ -673,7 +671,7 @@ describe('MoteurTeleversement', () => {
       fetch: async (url) => {
         if (String(url).includes('mediaConfirm')) {
           entry.open();
-          await barrier.waitFor; // l'abandon tombe pendant la requête
+          await barrier.waitFor; // the discard lands during the request
         }
         return new Response(JSON.stringify({ success: true, message: { _id: 'm1' } }), {
           status: 200,
@@ -698,13 +696,13 @@ describe('MoteurTeleversement', () => {
     barrier.open();
     await pass;
 
-    // Honnêteté du test : le serveur A créé le message, et le stream DDP le
-    // livrera. On ne prétend pas l'avoir dé-posté — seulement ne pas l'avoir
-    // nous-mêmes remonté à l'écran.
-    assert.equal(ingested.length, 0, 'ce moteur n’ingère pas ce que l’usager a abandonné');
+    // Test honesty: the server DID create the message, and the DDP stream will
+    // deliver it. This does not claim to have unposted it, only not to have
+    // brought it to the screen ourselves.
+    assert.equal(ingested.length, 0, 'this engine does not ingest what the user discarded');
   });
 
-  test('le fichier temporaire est effacé au succès', async () => {
+  test('the temporary file is deleted on success', async () => {
     const { store } = fakeStore();
     const deleted: string[] = [];
     const transport: TransportUpload = async () => ({
@@ -722,10 +720,10 @@ describe('MoteurTeleversement', () => {
 
     await engine.send('r1', FILE);
 
-    assert.deepEqual(deleted, [FILE.uri], 'sinon le cache enfle sans fin');
+    assert.deepEqual(deleted, [FILE.uri], 'otherwise the cache grows forever');
   });
 
-  test('un échec d’effacement ne fait pas échouer l’envoi', async () => {
+  test('a failed deletion does not fail the send', async () => {
     const { store, rows } = fakeStore();
     const transport: TransportUpload = async () => ({
       status: 200,
@@ -738,23 +736,23 @@ describe('MoteurTeleversement', () => {
       generateId: () => 'id-fichier-000000000000',
       ingest: async () => {},
       deleteLocalFile: async () => {
-        throw new Error('fichier déjà purgé par Android');
+        throw new Error('file already purged by Android');
       },
     });
 
     await engine.send('r1', FILE);
 
-    assert.equal(rows.size, 0, 'le message est posté : le ménage est secondaire');
+    assert.equal(rows.size, 0, 'the message is posted: the cleanup is secondary');
   });
 
   /**
-   * `traiter()` est appelé à chaque raccordement ET à chaque envoi : deux
-   * passes simultanées re-téléverseraient les mêmes octets. La garde
-   * `enVol`/`repasser` doit fondre la demande concurrente dans une SEULE
-   * repasse — sinon un fichier envoyé pendant le flush resterait en attente
-   * jusqu'au prochain déclencheur.
+   * `process()` is called at every connection setup AND at every send: two
+   * simultaneous passes would upload the same bytes again. The
+   * `inFlight`/`rerun` guard must fold the concurrent request into a SINGLE
+   * rerun, otherwise a file sent during the flush would stay pending until
+   * the next trigger.
    */
-  test('un `traiter()` concurrent devient une repasse, pas une passe simultanée', async () => {
+  test('a concurrent `process()` becomes a rerun, not a simultaneous pass', async () => {
     const { store, calls } = fakeStore();
     const entry = lock();
     const barrier = lock();
@@ -777,12 +775,12 @@ describe('MoteurTeleversement', () => {
     await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
 
     const firstPass = engine.process();
-    await entry.waitFor; // la passe est VRAIMENT en vol — aucun délai d'attente
-    await engine.process(); // doit se contenter de noter la repasse et rendre
+    await entry.waitFor; // the pass is REALLY in flight, no waiting delay
+    await engine.process(); // must only note the rerun and return
     assert.equal(
       calls.filter((a) => a === 'lister').length,
       1,
-      'la demande concurrente ne relit pas la file pendant que l’autre passe court',
+      'the concurrent request does not reread the queue while the other pass runs',
     );
 
     barrier.open();
@@ -791,12 +789,12 @@ describe('MoteurTeleversement', () => {
     assert.equal(
       calls.filter((a) => a === 'lister').length,
       2,
-      'la repasse notée est bien exécutée À LA FIN de la première',
+      'the noted rerun does run AT THE END of the first',
     );
     assert.equal(engine.progress.size, 0);
   });
 
-  test('la progression est vidée après un succès', async () => {
+  test('progress is cleared after a success', async () => {
     const { store } = fakeStore();
     const seen: number[] = [];
     const transport: TransportUpload = async (_u, _e, _f, onProgress) => {
@@ -816,12 +814,12 @@ describe('MoteurTeleversement', () => {
 
     await engine.send('r1', FILE);
 
-    assert.deepEqual(seen, [1], 'la fraction est bien tenue à jour pendant l’envoi');
-    assert.equal(engine.progress.size, 0, 'et retirée ensuite — sinon la barre reste à 100 %');
+    assert.deepEqual(seen, [1], 'the fraction is kept up to date during the send');
+    assert.equal(engine.progress.size, 0, 'and removed afterwards, otherwise the bar stays at 100 %');
   });
 });
 
-describe('MoteurTeleversement — salon chiffré', () => {
+describe('UploadEngine, encrypted room', () => {
   const CONTENT = { algorithm: 'rc.v2.aes-sha2', kid: 'k', iv: 'aXY=', ciphertext: 'Y3Q=' };
   const JWK: FileJwk = { kty: 'oct', alg: 'A256CTR', k: 'Y2xl', ext: true, key_ops: ['encrypt', 'decrypt'] };
 
@@ -859,7 +857,7 @@ describe('MoteurTeleversement — salon chiffré', () => {
     });
   }
 
-  test('le fichier part chiffré sous l’empreinte de son nom ; nom, clé et légende ne voyagent que chiffrés', async () => {
+  test('the file leaves encrypted under the hash of its name; name, key and caption only travel encrypted', async () => {
     const { store, rows } = fakeStore();
     const { encryption: c, payloads } = encryption();
     const sends: { file: unknown; fields: unknown }[] = [];
@@ -896,7 +894,7 @@ describe('MoteurTeleversement — salon chiffré', () => {
     assert.equal(rows.size, 0);
   });
 
-  test('verrouillé : rien ne part, la ligne attend sans échouer', async () => {
+  test('locked: nothing leaves, the row waits without failing', async () => {
     const { store, rows, calls } = fakeStore();
     let key = false;
     const { encryption: c } = encryption({ key: () => key });
@@ -924,7 +922,7 @@ describe('MoteurTeleversement — salon chiffré', () => {
     assert.equal(rows.size, 0);
   });
 
-  test('clé perdue entre les deux temps (processus tué) : le fichier repart, chiffré à neuf', async () => {
+  test('key lost between the two steps (killed process): the file goes again, freshly encrypted', async () => {
     const { store, rows } = fakeStore();
     const { encryption: c, encryptedFiles } = encryption();
     await store.insert({ id: 'l1', rid: 'p1', uri: 'file:///cache/a.png', name: 'a.png', type: 'image/png', caption: null });
@@ -945,12 +943,12 @@ describe('MoteurTeleversement — salon chiffré', () => {
     assert.equal(rows.size, 0);
   });
 
-  test('serveur sans fichiers chiffrés : refusé dès la pose', async () => {
+  test('server without encrypted files: refused as soon as it is added', async () => {
     const { store } = fakeStore();
     const engine = new UploadEngine({
       store,
       client: confirmingClient([], [{ _id: 'E2E_Enable_Encrypt_Files', value: false }]),
-      transport: async () => assert.fail('rien ne part'),
+      transport: async () => assert.fail('nothing leaves'),
       generateId: () => 'x',
       ingest: async () => {},
       encryption: encryption().encryption,
@@ -962,11 +960,11 @@ describe('MoteurTeleversement — salon chiffré', () => {
   });
 });
 
-describe('jointeDeFichierChiffre', () => {
+describe('encryptedFileAttachment', () => {
   const key: FileJwk = { kty: 'oct', alg: 'A256CTR', k: 'k', ext: true, key_ops: ['encrypt', 'decrypt'] };
   const common = { fileId: 'f1', url: '/file-upload/f1/h', size: 42, key, iv: 'iv', sha256: 'abc' };
 
-  test('une image s’annonce comme image', () => {
+  test('an image announces itself as an image', () => {
     const j = encryptedFileAttachment({ ...common, name: 'a.jpg', type: 'image/jpeg' });
     assert.equal(j.image_url, '/file-upload/f1/h');
     assert.equal(j.image_type, 'image/jpeg');
@@ -974,7 +972,7 @@ describe('jointeDeFichierChiffre', () => {
     assert.equal(j.title_link, '/file-upload/f1/h');
   });
 
-  test('un autre fichier porte son poids et son format', () => {
+  test('another file carries its size and format', () => {
     const j = encryptedFileAttachment({ ...common, name: 'Rapport.PDF', type: 'application/pdf' });
     assert.equal(j.size, 42);
     assert.equal(j.format, 'pdf');

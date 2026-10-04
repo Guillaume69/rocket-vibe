@@ -21,18 +21,18 @@ import { type Colors, LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts'
 import { Tappable } from '../ui/tappable.tsx';
 
 /**
- * Démarrer une conversation (5.4) : sans cet écran, l'app ne fait que lister
- * l'existant. `GET spotlight?query=` cherche utilisateurs ET canaux publics ;
- * un utilisateur → DM via `actions.ouvrirOuCreerDm`, un canal →
- * `channels.join`. Dans les deux cas, le salon rendu par le serveur est ingéré
- * immédiatement — la navigation n'attend pas le stream.
+ * Start a conversation (5.4): without this screen, the app only lists what
+ * exists. `GET spotlight?query=` searches users AND public channels; a user
+ * leads to a DM via `actions.openOrCreateDm`, a channel to `channels.join`. In
+ * both cases, the room returned by the server is ingested immediately: the
+ * navigation does not wait for the stream.
  */
 
 type User = { _id: string; username?: string; name?: string };
 type PublicRoom = { _id: string; name?: string; t?: string };
 type SpotlightResponse = { users?: User[]; rooms?: PublicRoom[] };
 
-/** Stable (module-level) : une valeur recréée à chaque rendu relancerait l'effet. */
+/** Stable (module-level): a value recreated on every render would rerun the effect. */
 const NO_RESULT: SpotlightResponse = {};
 
 export default function SearchScreen() {
@@ -221,9 +221,9 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
     fontSize: 16,
   },
-  // Le rayon vit sur l'ENVELOPPE : seul le clip d'un parent (`overflow`)
-  // découpe l'ondulation — borderRadius sur le Pressable est ignoré par le
-  // masque du ripple sous Fabric. Invisible au repos (pas de fond).
+  // The radius lives on the WRAPPER: only a parent's clip (`overflow`) cuts
+  // the ripple; borderRadius on the Pressable is ignored by the ripple mask
+  // under Fabric. Invisible at rest (no background).
   rowWrapper: { borderRadius: 18, overflow: 'hidden' },
   row: {
     flexDirection: 'row',

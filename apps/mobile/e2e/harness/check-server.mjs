@@ -1,13 +1,13 @@
-// Vérité SERVEUR après un flow : les asserts Maestro peuvent être satisfaits
-// par le rendu optimiste (02) ou par la légende encore dans le composer (04).
+// SERVER truth after a flow: Maestro asserts can be satisfied by the
+// optimistic render (02) or by the caption still in the composer (04).
 //
-//   node e2e/harness/check-server.mjs <texte> [--fichier]
+//   node e2e/harness/check-server.mjs <text> [--file]
 
 const BASE = process.env.ROOT_URL ?? 'http://localhost:3000';
 const text = process.argv[2];
-const requireFile = process.argv.includes('--fichier');
+const requireFile = process.argv.includes('--file');
 if (!text) {
-  console.error('usage: check-server.mjs <texte> [--fichier]');
+  console.error('usage: check-server.mjs <text> [--file]');
   process.exit(1);
 }
 
@@ -31,7 +31,7 @@ const found = messages.find(
   (m) => m.msg === text && (!requireFile || typeof m.file?.name === 'string'),
 );
 if (!found) {
-  console.error(`ABSENT DU SERVEUR : « ${text} »${requireFile ? ' (avec fichier)' : ''}`);
+  console.error(`MISSING FROM THE SERVER: "${text}"${requireFile ? ' (with file)' : ''}`);
   process.exit(1);
 }
-console.log(`serveur ok : « ${text} »${requireFile ? ` + fichier ${found.file.name}` : ''}`);
+console.log(`server ok: "${text}"${requireFile ? ` + file ${found.file.name}` : ''}`);

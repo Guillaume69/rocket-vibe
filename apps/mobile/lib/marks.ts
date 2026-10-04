@@ -1,17 +1,17 @@
 /**
- * Messages épinglés et favoris (étoilés).
+ * Pinned and favourite (starred) messages.
  *
- * `starred` arrive en `[{_id: uid}, …]` : on n'en garde que les uids, et
- * « étoilé par moi » se décide à la lecture, avec l'uid de la session — comme
- * les réactions, jugées au pseudo à l'affichage.
+ * `starred` arrives as `[{_id: uid}, ...]`: only the uids are kept, and
+ * "starred by me" is decided on read, with the session's uid, like reactions,
+ * judged by username at display time.
  *
- * `chat.pinMessage` ne diffuse PAS le message épinglé sur
- * `stream-room-messages` (sondé sur 8.5 : seul le message système
- * `message_pinned` arrive ; `unPin`, lui, diffuse). L'état local se pose donc
- * à la main après chaque geste réussi (`etoilesApres`, `Depot.majMarquesMessage`).
+ * `chat.pinMessage` does NOT broadcast the pinned message on
+ * `stream-room-messages` (probed on 8.5: only the `message_pinned` system
+ * message arrives; `unPin` does broadcast). Local state is therefore set by
+ * hand after each successful action (`starredAfter`, `Store.updateMessageMarks`).
  */
 
-/** `starred` brut → uids sérialisés, `null` si personne. */
+/** Raw `starred` → serialized uids, `null` if nobody. */
 export function starredIds(starred: unknown): string | null {
   if (!Array.isArray(starred)) return null;
   const ids: string[] = [];
@@ -36,7 +36,7 @@ export function starredBy(starred: string | null, uid: string): boolean {
   return read(starred).includes(uid);
 }
 
-/** La colonne `etoiles` après que `uid` a (dés)étoilé le message. */
+/** The `starred` column after `uid` (un)starred the message. */
 export function starredAfter(starred: string | null, uid: string, put: boolean): string | null {
   const others = read(starred).filter((x) => x !== uid);
   const ids = put ? [...others, uid] : others;

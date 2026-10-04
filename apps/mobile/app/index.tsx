@@ -28,9 +28,9 @@ import { type Colors, LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts'
 import { Tappable } from '../ui/tappable.tsx';
 
 /**
- * Portier et liste des salons. Sans session on va se connecter ; avec session,
- * la liste projette SQLite via `useRequeteVive` — le moteur de synchro écrit, la
- * liste se rafraîchit, aucun des deux ne connaît l'autre.
+ * Gatekeeper and room list. Without a session we go log in; with one, the
+ * list projects SQLite via `useCoalescedLiveQuery`: the sync engine writes,
+ * the list refreshes, neither knows about the other.
  */
 export default function HomeScreen() {
   const { state } = useSession();
@@ -47,11 +47,11 @@ export default function HomeScreen() {
   if (state.phase === 'disconnected') return <Redirect href="/login" />;
 
   return (
-    // Pas de saisie sur cet écran ; s'il en gagne une, passer à
-    // `VueEvitantLeClavier` (ui/keyboard.tsx) — SafeAreaView ignore le clavier.
+    // No input on this screen; if it ever gains one, switch to
+    // `KeyboardAvoidingContainer` (ui/keyboard.tsx): SafeAreaView ignores the keyboard.
     <SafeAreaView style={[styles.full, { backgroundColor: c.background }]} edges={['top', 'bottom']}>
-      {/* En-tête à logo dessiné par l'écran : l'en-tête natif ne sait pas
-          rendre le wordmark dégradé. */}
+      {/* Logo header drawn by the screen: the native header cannot
+          render the gradient wordmark. */}
       <Stack.Screen options={{ headerShown: false }} />
       <ListHeader c={c} />
       <RoomList c={c} client={state.client} />
@@ -59,12 +59,12 @@ export default function HomeScreen() {
   );
 }
 
-/** Bandeau supérieur : licorne + logotype dégradé, roue des réglages. */
+/** Top banner: unicorn + gradient logotype, settings wheel. */
 function ListHeader({ c }: { c: Colors }) {
   const router = useRouter();
   const t = useT();
-  // Le rattrapage global (ouverture de l'app, retour au premier plan) allume
-  // la barre — le cache est déjà là, ceci dit qu'on le rafraîchit.
+  // The global catch-up (app opening, return to foreground) lights the bar:
+  // the cache is already there, this says we are refreshing it.
   const syncing = useActivity('global');
   return (
     <View style={[styles.header, { borderBottomColor: c.softBorder }]}>
@@ -120,22 +120,21 @@ function Rooms({
 }) {
   const t = useT();
   const unlocked = useE2EUnlocked(e2e);
-  // Deux requêtes vives, une PAR TABLE : `useRequeteVive` n'écoute
-  // que la table du FROM. Avec une jointure, une écriture qui ne touche que
-  // `abonnements` (lecture sur un autre appareil, salon masqué) ne
-  // rafraîchirait JAMAIS la liste. La fusion se fait donc ici, en JS.
+  // Two live queries, one PER TABLE: `useCoalescedLiveQuery` only listens to
+  // the FROM table. With a join, a write touching only `subscriptions` (read
+  // on another device, hidden room) would NEVER refresh the list. The merge
+  // therefore happens here, in JS.
   //
-  // La requête ordonne déjà par récence décroissante (les `null` en dernier).
-  // Les `filter` de regroupement ci-dessous PRÉSERVENT cet ordre : chaque
-  // section reste du plus récent au plus ancien sans re-tri explicite.
+  // The query already orders by descending recency (`null`s last). The
+  // grouping `filter`s below PRESERVE that order: each section stays newest
+  // to oldest without an explicit re-sort.
   const { data: roomRows } = useCoalescedLiveQuery(
     base.select().from(rooms).orderBy(desc(rooms.lastMessageTs)),
   );
   const { data: subscriptionRows } = useCoalescedLiveQuery(base.select().from(subscriptions));
 
-  // Fusion, masquage, remontée des non-lus, répartition, sections vides
-  // retirées : la projection vit dans `ui/homeSections.ts`, testée sous
-  // Node.
+  // Merging, hiding, unread lifting, splitting, empty sections removed: the
+  // projection lives in `ui/homeSections.ts`, tested under Node.
   const collapsed = useCollapsedSections();
   const sections: RoomsSection[] = collapseSections(
     buildSections(roomRows, subscriptionRows, {
@@ -160,7 +159,7 @@ function Rooms({
           unlocked={unlocked}
         />
       )}
-      // Un en-tête isolé (une seule section peuplée) n'apprend rien : on le tait.
+      // A lone header (only one populated section) tells nothing: we hide it.
       renderSectionHeader={({ section }) =>
         sections.length > 1 ? <SectionHeader c={c} section={section} /> : null
       }
@@ -180,8 +179,8 @@ type RoomEntry = HomeEntry<RoomRecord, SubscriptionRow>;
 type RoomsSection = DisplayedSection<RoomEntry>;
 
 /**
- * Titre de section de la liste : « Non lus », « Salons », « Messages privés ».
- * Un appui la replie ; repliée, elle affiche son effectif.
+ * List section title: "Unread", "Rooms", "Direct messages".
+ * A tap collapses it; collapsed, it shows its count.
  */
 function SectionHeader({ c, section }: { c: Colors; section: RoomsSection }) {
   const t = useT();
@@ -225,26 +224,27 @@ function RoomRow({
   room: RoomRecord;
   subscription: SubscriptionRow | null;
   client: ClientRest;
-  /** E2EE déverrouillé sur l'appareil — pilote l'aperçu et l'icône cadenas. */
+  /** E2EE unlocked on the device: drives the preview and the lock icon. */
   unlocked: boolean;
 }) {
   const router = useRouter();
   const t = useT();
-  // Pastille de présence (8.4), DM à deux seulement (`dm_autre_uid` est null
-  // ailleurs). Statut inconnu, ou diffusion coupée côté serveur
-  // (Presence_broadcast_disabled) : rien — l'UI n'en dépend jamais.
+  // Presence dot (8.4), two-person DMs only (`dmOtherUid` is null elsewhere).
+  // Unknown status, or broadcast turned off server-side
+  // (Presence_broadcast_disabled): nothing; the UI never depends on it.
   const status = usePresence(room.dmOtherUid);
   const name = room.displayName ?? room.name ?? room.rid;
   const unread = subscription?.unread ?? 0;
   const alerting = subscription?.alert === true || unread > 0;
-  // Salon chiffré : tant qu'aucun message n'est déchiffré (`dernier_message`
-  // null — le ciphertext n'est jamais stocké), le placeholder cadenas. Une fois
-  // déverrouillé, `majApercuChiffre` y a posé le dernier message clair.
+  // Encrypted room: as long as no message is decrypted (`lastMessage` null,
+  // the ciphertext is never stored), the lock placeholder. Once unlocked,
+  // `updateEncryptedPreview` has put the last plaintext message there.
   //
-  // Sinon, un `dernier_message` null a DEUX sens (voir `db/schema.ts`) : salon
-  // vidé — rien à écrire —, ou dernier message sans texte à montrer, auquel cas
-  // `dernier_message_type` dit lequel et le libellé se traduit ICI, au rendu :
-  // la langue est commutable à chaud, une phrase figée en base y résisterait.
+  // Otherwise a null `lastMessage` has TWO meanings (see `db/schema.ts`): room
+  // emptied (nothing to write), or last message with no text to show, in
+  // which case `lastMessageType` says which and the label is translated HERE,
+  // at render: the language switches live, a sentence frozen in the database
+  // would resist it.
   const preview =
     room.encrypted && room.lastMessage === null
       ? t('home.encryptedMessages')
@@ -253,9 +253,9 @@ function RoomRow({
         ' ');
 
   return (
-    // L'enveloppe arrondie + `overflow: 'hidden'` est ce qui ARRONDIT
-    // l'ondulation : le masque du ripple borné ignore borderRadius sous
-    // Fabric (vérifié sur l'émulateur), seul le clip d'un PARENT le découpe.
+    // The rounded wrapper + `overflow: 'hidden'` is what ROUNDS the ripple: the
+    // bounded ripple mask ignores borderRadius under Fabric (checked on the
+    // emulator), only a PARENT's clip cuts it.
     <View style={styles.rowWrapper}>
       <Tappable
         onPress={() => router.push({ pathname: '/salon/[rid]', params: { rid: room.rid } })}
@@ -311,7 +311,7 @@ function RoomRow({
   );
 }
 
-/** Première ligne, fixe en tête de liste : démarrer une conversation. */
+/** First row, fixed at the top of the list: start a conversation. */
 function NewConversationRow({ c }: { c: Colors }) {
   const router = useRouter();
   const t = useT();
@@ -352,9 +352,9 @@ const styles = StyleSheet.create({
   headerWheel: { padding: 4 },
   headerWheelGlyph: { fontSize: 21 },
   content: { paddingBottom: 8 },
-  // Le rayon vit sur l'ENVELOPPE : c'est son clip (`overflow`) qui découpe
-  // l'ondulation — borderRadius sur le Pressable lui-même est ignoré par le
-  // masque du ripple sous Fabric. Invisible au repos (pas de fond).
+  // The radius lives on the WRAPPER: its clip (`overflow`) cuts the ripple;
+  // borderRadius on the Pressable itself is ignored by the ripple mask under
+  // Fabric. Invisible at rest (no background).
   rowWrapper: { borderRadius: 18, overflow: 'hidden' },
   row: {
     flexDirection: 'row',
@@ -378,7 +378,7 @@ const styles = StyleSheet.create({
   alertingName: { fontFamily: FONTS.bodyStrong },
   preview: { fontFamily: FONTS.body, fontSize: 12.5 },
   encryptedPreview: { fontStyle: 'italic' },
-  /** Petit cadenas devant le nom d'un salon chiffré : « ce salon est E2EE ». */
+  /** Small lock before an encrypted room's name: "this room is E2EE". */
   encryptedBadge: { fontSize: 12 },
   next: { fontFamily: FONTS.title, fontSize: 15.5 },
   sectionHeader: {

@@ -20,17 +20,19 @@ import { useSession } from '../../ui/session.tsx';
 import { type Colors, FONTS, useColors } from '../../ui/theme.ts';
 
 /**
- * Écran d'appel : la conférence Jitsi dans une WebView plein écran.
+ * Call screen: the Jitsi conference in a full-screen WebView.
  *
- * Jitsi est une web-app — on charge l'URL rendue par `video-conference.join`
- * (JWT inclus) plutôt que d'embarquer le SDK natif (peer RN ~0.79 vs 0.86, New
- * Arch fragile). La WebView reste STRICTEMENT cantonnée à l'appel : ailleurs,
- * elle est interdite (ROADMAP §4.2) et l'app rend tout en natif.
+ * Jitsi is a web app: we load the URL returned by `video-conference.join`
+ * (JWT included) rather than embedding the native SDK (peer RN ~0.79 vs
+ * 0.86, fragile New Arch). The WebView stays STRICTLY confined to the call:
+ * elsewhere it is forbidden (ROADMAP §4.2) and the app renders everything
+ * natively.
  *
- * Caméra/micro : sur `getUserMedia`, `react-native-webview` mappe la demande web
- * vers les permissions Android (`CAMERA`, `RECORD_AUDIO`) et les accorde si l'app
- * les détient, sinon déclenche le dialogue système. On les demande donc EN AMONT
- * (ci-dessous) pour que l'invite apparaisse avant l'écran d'appel, pas au milieu.
+ * Camera/mic: on `getUserMedia`, `react-native-webview` maps the web request
+ * to the Android permissions (`CAMERA`, `RECORD_AUDIO`) and grants them if the
+ * app holds them, otherwise triggers the system dialog. We therefore request
+ * them UPFRONT (below) so the prompt appears before the call screen, not in
+ * the middle of it.
  */
 
 async function requestCameraMic(): Promise<void> {
@@ -41,17 +43,17 @@ async function requestCameraMic(): Promise<void> {
       PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
     ]);
   } catch {
-    // Un refus n'empêche pas d'ouvrir l'appel : Jitsi affichera « pas de
-    // caméra », et la WebView redemandera au premier getUserMedia.
+    // A refusal does not prevent opening the call: Jitsi will show "no
+    // camera", and the WebView will ask again on the first getUserMedia.
   }
 }
 
 /**
- * `meet.jit.si` affiche sur mobile un interstitiel « ouvrir dans l'app » : y
- * cliquer tente un lien `intent://` vers l'app Jitsi (non installée) et la
- * WebView échoue en `ERR_UNKNOWN_URL_SCHEME`. Ce drapeau de config Jitsi, passé
- * dans le hash de l'URL, supprime l'interstitiel — la conférence se charge
- * directement dans la WebView. Un Jitsi auto-hébergé sans deep-link l'ignore.
+ * On mobile, `meet.jit.si` shows an "open in the app" interstitial: tapping
+ * it tries an `intent://` link to the Jitsi app (not installed) and the
+ * WebView fails with `ERR_UNKNOWN_URL_SCHEME`. This Jitsi config flag, passed
+ * in the URL hash, removes the interstitial: the conference loads straight
+ * in the WebView. A self-hosted Jitsi without deep links ignores it.
  */
 function withoutJitsiInterstitial(url: string): string {
   if (url.includes('disableDeepLinking')) return url;
@@ -60,32 +62,32 @@ function withoutJitsiInterstitial(url: string): string {
 }
 
 /**
- * User-agent d'un Chrome mobile ORDINAIRE, sans le marqueur « ; wv » qu'ajoute
- * une WebView : la détection de navigateur de Jitsi (et de bien des sites)
- * restreint les WebView identifiées comme telles. On se présente donc comme un
- * navigateur supporté.
+ * User agent of an ORDINARY mobile Chrome, without the "; wv" marker a
+ * WebView adds: Jitsi's browser detection (and that of many sites) restricts
+ * WebViews identified as such. So we present ourselves as a supported
+ * browser.
  */
 const UA_MOBILE =
   'Mozilla/5.0 (Linux; Android 14; Pixel) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36';
 
 /**
- * Scheme + authority de l'URL de conférence — le VERROU de cette WebView.
+ * Scheme + authority of the conference URL: the LOCK of this WebView.
  *
- * L'app détient `CAMERA` et `RECORD_AUDIO` pendant l'appel (elle vient de les
- * demander), et `react-native-webview` répond alors à `onPermissionRequest`
- * SANS invite, quelle que soit l'origine de la page : Android ne nous laisse
- * pas arbitrer par origine. Le seul levier qui reste est la NAVIGATION. Elle
- * n'était filtrée que par schéma (`^(https?|about|blob|data):`) avec un
- * `originWhitelist={['*']}` : n'importe quelle redirection vers un https
- * arbitraire était suivie, et cette page-là ouvrait caméra et micro en silence.
+ * The app holds `CAMERA` and `RECORD_AUDIO` during the call (it just asked
+ * for them), and `react-native-webview` then answers `onPermissionRequest`
+ * WITHOUT a prompt, whatever the page's origin: Android does not let us
+ * arbitrate by origin. The only lever left is NAVIGATION. It used to be
+ * filtered by scheme only (`^(https?|about|blob|data):`) with an
+ * `originWhitelist={['*']}`: any redirect to an arbitrary https was
+ * followed, and that page silently opened camera and mic.
  *
- * On ne garde donc que l'origine que le SERVEUR a désignée
- * (`video-conference.join`) — plus `about:blank`, que la WebView charge
- * elle-même entre deux pages. Une URL de conférence dont on ne sait pas lire
- * l'origine n'est pas chargée du tout : c'est le bon échec.
+ * So we keep only the origin the SERVER designated
+ * (`video-conference.join`), plus `about:blank`, which the WebView loads
+ * itself between two pages. A conference URL whose origin cannot be read is
+ * not loaded at all: that is the right failure.
  *
- * `origineDe`/`memeOrigine` viennent de `lib/origin.ts` — mêmes primitives que
- * la garde du jeton, avec la raison de ne pas utiliser `new URL().origin`.
+ * `originOf`/`sameOrigin` come from `lib/origin.ts`: the same primitives as
+ * the token guard, with the reason not to use `new URL().origin`.
  */
 
 export default function CallScreen() {
@@ -93,8 +95,8 @@ export default function CallScreen() {
   const { state } = useSession();
   const { callId, title } = useLocalSearchParams<{ callId: string; title?: string }>();
   const t = useT();
-  // Atteint depuis un salon connecté ; un état déconnecté (session expirée)
-  // renvoie au login plutôt que de crasher sur `client`.
+  // Reached from a logged-in room; a logged-out state (expired session)
+  // sends back to login rather than crashing on `client`.
   if (state.phase !== 'connected') return <Redirect href="/login" />;
   return <Call c={c} client={state.client} callId={callId} title={title ?? t('call.videoCall')} />;
 }
@@ -115,22 +117,23 @@ function Call({
   const t = useT();
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Incrémenté par « Réessayer » : relance l'effet de chargement sans dupliquer
-  // sa logique dans un handler.
+  // Incremented by "Retry": reruns the loading effect without duplicating its
+  // logic in a handler.
   const [attempt, setAttempt] = useState(0);
 
-  // Le `join` (URL du fournisseur) et la demande de permissions vivent DANS
-  // l'effet : `setState` n'y arrive qu'après un `await`, jamais synchrone (sinon
-  // cascades de rendus). `vivant` neutralise une réponse qui arrive après démontage.
+  // The `join` (provider URL) and the permission request live INSIDE the
+  // effect: `setState` only arrives there after an `await`, never synchronously
+  // (otherwise render cascades). `alive` neutralises a response arriving after
+  // unmount.
   useEffect(() => {
     let alive = true;
     void (async () => {
       try {
         await requestCameraMic();
         const u = await joinConference(client, callId);
-        // Une URL de conférence sans origine lisible (schéma exotique, réponse
-        // tronquée) ne donnerait pas de verrou à poser sur la WebView : on
-        // refuse plutôt que de charger sans garde.
+        // A conference URL without a readable origin (exotic scheme, truncated
+        // response) would give no lock to put on the WebView: we refuse rather
+        // than load without a guard.
         if (alive) {
           if (originOf(u) === null) setError(t('call.joinFailed'));
           else setUrl(u);
@@ -144,7 +147,7 @@ function Call({
     };
   }, [client, callId, attempt, t]);
 
-  // Handler (hors effet) : y remettre l'état à zéro est légitime.
+  // Handler (outside the effect): resetting the state there is legitimate.
   const retry = useCallback(() => {
     setError(null);
     setUrl(null);
@@ -153,8 +156,8 @@ function Call({
 
   const finish = useCallback(() => router.back(), [router]);
 
-  // Non nulle dès que `url` l'est : l'effet ci-dessus refuse une URL dont
-  // l'origine ne se lit pas. Le rendu le revérifie quand même — c'est le verrou.
+  // Non-null as soon as `url` is: the effect above refuses a URL whose origin
+  // cannot be read. The render checks again anyway: it is the lock.
   const origin = useMemo(() => (url === null ? null : originOf(url)), [url]);
 
   return (
@@ -196,33 +199,33 @@ function Call({
           source={{ uri: withoutJitsiInterstitial(url) }}
           style={styles.full}
           userAgent={UA_MOBILE}
-          // Jitsi lance l'audio/vidéo sans geste explicite de l'utilisateur.
+          // Jitsi starts audio/video without an explicit user gesture.
           mediaPlaybackRequiresUserAction={false}
           allowsInlineMediaPlayback
-          // iOS : accorde caméra/micro sans redemander à chaque fois (no-op Android).
+          // iOS: grants camera/mic without asking each time (no-op on Android).
           mediaCapturePermissionGrantType="grant"
           domStorageEnabled
           originWhitelist={[origin]}
-          // Un lien Jitsi en target=_blank reste dans la WebView au lieu d'ouvrir
-          // une fenêtre fantôme qu'on ne verrait jamais.
+          // A Jitsi link with target=_blank stays in the WebView instead of opening
+          // a ghost window we would never see.
           setSupportMultipleWindows={false}
-          // Fond noir + spinner pendant le chargement : pas d'éclair blanc.
+          // Black background + spinner while loading: no white flash.
           startInLoadingState
           renderLoading={() => (
             <View style={styles.veil}>
               <ActivityIndicator color={c.accent} size="large" />
             </View>
           )}
-          // Ne laisse naviguer QUE sur l'origine de la conférence. Un lien d'app
-          // (intent://, org.jitsi.meet://) planterait en ERR_UNKNOWN_URL_SCHEME,
-          // et un https quelconque hériterait de caméra et micro sans invite —
-          // voir `origineDe` en tête de fichier.
+          // Only lets navigation happen on the conference's origin. An app link
+          // (intent://, org.jitsi.meet://) would crash with ERR_UNKNOWN_URL_SCHEME,
+          // and any https would inherit camera and mic without a prompt; see
+          // `originOf` at the top of the file.
           onShouldStartLoadWithRequest={(req) =>
             req.url === 'about:blank' || sameOrigin(req.url, origin)
           }
           onNavigationStateChange={(nav) => {
-            // Raccrocher mène Jitsi vers une page « close » : on rend la main au
-            // salon. Le bouton « Terminer » reste la sortie garantie.
+            // Hanging up sends Jitsi to a "close" page: we hand control back to the
+            // room. The "End" button remains the guaranteed exit.
             if (/\/close\d*(\.html)?/.test(nav.url)) finish();
           }}
           onError={() => setError(t('call.loadFailed'))}

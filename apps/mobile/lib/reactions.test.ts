@@ -3,8 +3,8 @@ import { describe, it } from 'node:test';
 
 import { reactionList } from './reactions.ts';
 
-describe('listeReactions', () => {
-  it('rend [] sur null, un JSON illisible ou une forme inattendue', () => {
+describe('reactionList', () => {
+  it('returns [] on null, unreadable JSON or an unexpected shape', () => {
     assert.deepEqual(reactionList(null, 'alice'), []);
     assert.deepEqual(reactionList('{pas du json', 'alice'), []);
     assert.deepEqual(reactionList('42', 'alice'), []);
@@ -12,7 +12,7 @@ describe('listeReactions', () => {
     assert.deepEqual(reactionList('null', 'alice'), []);
   });
 
-  it('projette codes (sans deux-points), totaux et appartenance, dans l’ordre du serveur', () => {
+  it('projects codes (without colons), totals and membership, in server order', () => {
     const raw = JSON.stringify({
       ':+1:': { usernames: ['alice', 'bob'] },
       ':party_parrot:': { usernames: ['bob'] },
@@ -23,28 +23,28 @@ describe('listeReactions', () => {
     ]);
   });
 
-  it('`moi` null : les pastilles s’affichent, aucune n’est marquée mienne', () => {
+  it('null `me`: the chips show, none is marked as mine', () => {
     const raw = JSON.stringify({ ':heart:': { usernames: ['alice'] } });
     assert.deepEqual(reactionList(raw, null), [{ code: 'heart', total: 1, byMe: false }]);
   });
 
-  it('ignore une entrée sans username exploitable, sans jeter le reste', () => {
+  it('ignores an entry without a usable username, without dropping the rest', () => {
     const raw = JSON.stringify({
       ':tada:': { usernames: [] },
       ':joy:': {},
       ':pray:': null,
       ':heart:': { usernames: [42, 'bob', null] },
     });
-    // Les non-chaînes sont filtrées : `heart` ne compte que bob.
+    // Non-strings are filtered out: `heart` only counts bob.
     assert.deepEqual(reactionList(raw, 'bob'), [{ code: 'heart', total: 1, byMe: true }]);
   });
 
-  it('tolère une clé sans deux-points (défensif : elle reste telle quelle)', () => {
+  it('tolerates a key without colons (defensive: it stays as is)', () => {
     const raw = JSON.stringify({ '+1': { usernames: ['alice'] } });
     assert.deepEqual(reactionList(raw, 'alice'), [{ code: '+1', total: 1, byMe: true }]);
   });
 
-  it('ne confond pas un username qui CONTIENT le mien', () => {
+  it('does not mistake a username that CONTAINS mine', () => {
     const raw = JSON.stringify({ ':+1:': { usernames: ['alice-bis'] } });
     assert.equal(reactionList(raw, 'alice')[0]?.byMe, false);
   });

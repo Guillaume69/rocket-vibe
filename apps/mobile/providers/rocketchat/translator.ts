@@ -1,12 +1,12 @@
 /**
- * Traducteur Rocket.Chat : la part serveur-spécifique de la synchro. Décode les
- * `Evenement` bruts des streams RC et les documents REST en formes neutres
- * (`ChangementSync`, lignes locales). Tout ce que `MoteurSynchro` savait de
- * Rocket.Chat vit désormais ici — le cœur de synchro n'en connaît plus rien.
+ * Rocket.Chat translator: the server-specific part of sync. Decodes the raw
+ * `DdpEvent`s of the RC streams and the REST documents into neutral shapes
+ * (`SyncChange`, local rows). Everything `SyncEngine` knew about Rocket.Chat
+ * now lives here; the sync core no longer knows anything about it.
  *
- * Le routage reproduit à l'identique l'ancien `MoteurSynchro.appliquer` (mêmes
- * garanties : charges inconnues ignorées mais comptées, `user-activity` tu en
- * silence, `removed` distingué de l'upsert).
+ * The routing reproduces the former `SyncEngine.apply` exactly (same
+ * guarantees: unknown payloads ignored but counted, `user-activity` silenced,
+ * `removed` told apart from the upsert).
  */
 
 import type { DdpEvent } from '../../lib/ddp.ts';
@@ -24,9 +24,9 @@ import { STREAM_MESSAGES, STREAM_NOTIFY_ROOM, STREAM_NOTIFY_USER } from '../../l
 import { AVATAR_NO_PHOTO } from '../../lib/upload.ts';
 
 /**
- * Changement de photo, utilisateur ou salon : `args = [{username, etag}]` ou
- * `[{rid, etag}]` (relevé par sonde sur 8.5). L'`etag` MANQUE quand la photo
- * est retirée — voir `AVATAR_SANS_PHOTO`.
+ * Photo change, user or room: `args = [{username, etag}]` or
+ * `[{rid, etag}]` (probed on 8.5). The `etag` is MISSING when the photo is
+ * removed; see `AVATAR_NO_PHOTO`.
  */
 export const AVATAR_EVENT = 'updateAvatar';
 
@@ -34,8 +34,8 @@ const IGNORE: Translation = { kind: 'ignore' };
 const SILENCE: Translation = { kind: 'silence' };
 
 export class RcTranslator implements Translator {
-  // Servent à nommer les DM (versSalon) : le nom d'utilisateur et l'uid du
-  // compte courant. Portés par le traducteur, plus par le moteur de synchro.
+  // Used to name DMs (toRoom): the username and uid of the current account.
+  // Carried by the translator, no longer by the sync engine.
   private readonly me: string | null;
   private readonly myUid: string | null;
 
@@ -59,7 +59,7 @@ export class RcTranslator implements Translator {
   translateEvent(event: DdpEvent): Translation {
     switch (event.collection) {
       case STREAM_MESSAGES: {
-        // Ici, et ici seulement, `args[0]` est directement le document.
+        // Here, and here only, `args[0]` is directly the document.
         const document = objectOrNull(event.args[0]);
         if (document === null) return IGNORE;
         const message = toMessage(document);
@@ -74,9 +74,9 @@ export class RcTranslator implements Translator {
       }
 
       case STREAM_NOTIFY_LOGGED: {
-        // La présence transite par le MÊME stream, mais elle est volatile et
-        // traitée par `MoteurPresence` : silence, pas anomalie — sinon chaque
-        // aller-retour d'un contact gonflerait le compteur d'ignorés.
+        // Presence goes through the SAME stream, but it is volatile and handled by
+        // `PresenceEngine`: silence, not an anomaly; otherwise every round trip of a
+        // contact would inflate the ignored counter.
         if (event.eventKey === PRESENCE_EVENT) return SILENCE;
         if (event.eventKey !== AVATAR_EVENT) return IGNORE;
         return translateAvatar(event);
@@ -84,9 +84,9 @@ export class RcTranslator implements Translator {
 
       case STREAM_NOTIFY_ROOM: {
         const topic = topicOf(event.eventKey);
-        // `user-activity` est ATTENDU (l'écran salon s'y abonne pour la saisie)
-        // mais traité ailleurs : le compter en anomalie noierait le compteur
-        // sous des battements de frappe.
+        // `user-activity` is EXPECTED (the room screen subscribes to it for typing)
+        // but handled elsewhere: counting it as an anomaly would drown the counter
+        // in typing beats.
         if (topic === 'user-activity') return SILENCE;
         if (topic !== 'deleteMessage') return IGNORE;
         const document = objectOrNull(event.args[0]);
@@ -100,10 +100,10 @@ export class RcTranslator implements Translator {
   }
 
   /**
-   * `subscriptions-changed` livre `[action, document]`. 'removed' : le compte a
-   * quitté le salon (ou il a été supprimé) ; RC n'envoie que le `_id` de
-   * l'ABONNEMENT — de quoi le retrouver, pas de quoi le reconstruire. Sans ce
-   * cas, un upsert maintiendrait un salon supprimé en FANTÔME.
+   * `subscriptions-changed` delivers `[action, document]`. 'removed': the
+   * account left the room (or it was deleted); RC only sends the
+   * SUBSCRIPTION's `_id`: enough to find it, not enough to rebuild it. Without
+   * this case, an upsert would keep a deleted room as a GHOST.
    */
   private translateSubscription(event: DdpEvent): Translation {
     const document = notificationDocument(event);
@@ -129,9 +129,9 @@ export class RcTranslator implements Translator {
 }
 
 /**
- * `updateAvatar` : une seule des deux clés est présente. L'`etag` absent
- * signale un avatar RETIRÉ (`users.resetAvatar`) — on pose alors le marqueur
- * `AVATAR_SANS_PHOTO` plutôt que rien, pour que l'URI change quand même.
+ * `updateAvatar`: only one of the two keys is present. A missing `etag`
+ * signals a REMOVED avatar (`users.resetAvatar`); we then set the
+ * `AVATAR_NO_PHOTO` marker rather than nothing, so the URI changes anyway.
  */
 function translateAvatar(event: DdpEvent): Translation {
   const document = objectOrNull(event.args[0]);
@@ -156,16 +156,16 @@ function topicOf(eventKey: string): string {
 }
 
 /**
- * `stream-notify-user` envoie `args: ['updated', {…}]` (vérifié 8.5) : le
- * document est le SECOND argument quand le premier est une action. Certaines
- * versions envoient directement le document — on accepte les deux formes.
+ * `stream-notify-user` sends `args: ['updated', {...}]` (checked on 8.5): the
+ * document is the SECOND argument when the first is an action. Some versions
+ * send the document directly; we accept both shapes.
  */
 function notificationDocument(event: DdpEvent): Record<string, unknown> | null {
   if (typeof event.args[0] === 'string') return objectOrNull(event.args[1]);
   return objectOrNull(event.args[0]);
 }
 
-/** L'ACTION d'une notification `[action, document]`, ou null si le document vient directement. */
+/** The ACTION of an `[action, document]` notification, or null if the document comes directly. */
 function notificationAction(event: DdpEvent): string | null {
   return typeof event.args[0] === 'string' ? event.args[0] : null;
 }

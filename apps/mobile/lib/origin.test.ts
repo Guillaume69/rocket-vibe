@@ -3,71 +3,71 @@ import { describe, test } from 'node:test';
 
 import { sameOrigin, originOf } from './origin.ts';
 
-describe('origineDe', () => {
-  test('scheme + authority, sans le chemin', () => {
+describe('originOf', () => {
+  test('scheme + authority, without the path', () => {
     assert.equal(originOf('https://chat.barrut.me/file-upload/abc/x.pdf'), 'https://chat.barrut.me');
     assert.equal(originOf('http://10.0.2.2:3300/api/v1/me'), 'http://10.0.2.2:3300');
   });
 
-  test('le port fait partie de l’origine', () => {
+  test('the port is part of the origin', () => {
     assert.notEqual(originOf('http://h:3300/x'), originOf('http://h:3301/x'));
   });
 
-  test('la casse de l’hôte ne compte pas', () => {
+  test('host case does not matter', () => {
     assert.equal(originOf('https://Chat.Barrut.ME/x'), originOf('https://chat.barrut.me/x'));
   });
 
-  test('sans chemin, avec ou sans barre finale', () => {
+  test('no path, with or without a trailing slash', () => {
     assert.equal(originOf('https://chat.barrut.me'), 'https://chat.barrut.me');
     assert.equal(originOf('https://chat.barrut.me/'), 'https://chat.barrut.me');
   });
 
-  test('query ou fragment collés à l’hôte ne débordent pas dans l’origine', () => {
+  test('a query or fragment stuck to the host does not spill into the origin', () => {
     assert.equal(originOf('https://chat.barrut.me?x=1'), 'https://chat.barrut.me');
     assert.equal(originOf('https://chat.barrut.me#a'), 'https://chat.barrut.me');
   });
 
-  test('ce qui n’est pas du web rend null', () => {
+  test('anything that is not web returns null', () => {
     for (const u of ['javascript:alert(1)', 'file:///etc/passwd', 'intent://x', 'ftp://h/x', '', '/x']) {
       assert.equal(originOf(u), null, u);
     }
   });
 
-  test('le userinfo reste DANS l’autorité — sinon il masquerait le vrai hôte', () => {
-    // Piège classique : `https://chat.barrut.me@evil.com/x` est servi par
-    // evil.com. Réduire son origine à `https://chat.barrut.me` autoriserait la
-    // fuite qu’on cherche justement à fermer.
+  test('userinfo stays IN the authority, otherwise it would hide the real host', () => {
+    // Classic trap: `https://chat.barrut.me@evil.com/x` is served by evil.com.
+    // Reducing its origin to `https://chat.barrut.me` would allow the very leak
+    // this closes.
     assert.equal(originOf('https://chat.barrut.me@evil.com/x'), 'https://chat.barrut.me@evil.com');
   });
 });
 
-describe('memeOrigine', () => {
-  test('vrai sur le même serveur, chemin et query quelconques', () => {
+describe('sameOrigin', () => {
+  test('true on the same server, whatever the path and query', () => {
     assert.equal(sameOrigin('https://h/file-upload/a/b.pdf?rc_uid=1', 'https://h'), true);
     assert.equal(sameOrigin('https://h/x', 'https://h/api/v1/'), true);
   });
 
-  test('un hôte dont le nôtre est un PRÉFIXE est refusé', () => {
-    // `startsWith` aurait dit oui : c’est le défaut que ce module évite.
+  test('a host ours is a PREFIX of is refused', () => {
+    // `startsWith` would have said yes: that is the defect this module avoids.
     assert.equal(sameOrigin('https://h.evil.com/x', 'https://h'), false);
     assert.equal(sameOrigin('https://chat.barrut.me.evil.com/x', 'https://chat.barrut.me'), false);
   });
 
-  test('scheme et port comptent', () => {
+  test('scheme and port count', () => {
     assert.equal(sameOrigin('http://h/x', 'https://h'), false);
     assert.equal(sameOrigin('https://h:8443/x', 'https://h'), false);
   });
 
-  test('un userinfo qui imite notre hôte est refusé', () => {
+  test('a userinfo imitating our host is refused', () => {
     assert.equal(sameOrigin('https://chat.barrut.me@evil.com/x', 'https://chat.barrut.me'), false);
   });
 
-  test('une URL non web n’est jamais de notre origine', () => {
+  test('a non-web URL is never of our origin', () => {
     assert.equal(sameOrigin('javascript:alert(1)', 'https://h'), false);
     assert.equal(sameOrigin('about:blank', 'https://h'), false);
   });
 
-  test('une origine de référence illisible ne valide rien', () => {
+  test('an unreadable reference origin validates nothing', () => {
     assert.equal(sameOrigin('https://h/x', 'pas-une-url'), false);
   });
 });

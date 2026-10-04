@@ -1,8 +1,8 @@
 /**
- * Chargement REST des messages — l'historique d'un salon et le fil complet.
- * C'est l'implémentation Rocket.Chat de `Fournisseur.chargerHistorique` et
- * `Fournisseur.chargerFil` : les noms d'endpoints et leurs quirks vivent ici,
- * plus dans `app/` (chantiers 14 puis 15).
+ * REST loading of messages: a room's history and the full thread.
+ * It is the Rocket.Chat implementation of `Provider.loadHistory` and
+ * `Provider.loadThread`: endpoint names and their quirks live here, no
+ * longer in `app/` (workstreams 14 then 15).
  */
 
 import { toEpoch } from '../../lib/normalize.ts';
@@ -10,8 +10,8 @@ import type { ClientRest } from '../../lib/rest.ts';
 import type { SyncEngine } from '../../lib/sync.ts';
 
 /**
- * Endpoint d'historique Rocket.Chat selon le type du salon — trois routes pour
- * la même chose, héritage de l'API. `l` (livechat) est hors périmètre.
+ * Rocket.Chat history endpoint by room type: three routes for the same
+ * thing, an API legacy. `l` (livechat) is out of scope.
  */
 export function historyPath(type: string): string {
   if (type === 'c') return 'channels.history';
@@ -19,7 +19,7 @@ export function historyPath(type: string): string {
   return 'im.history';
 }
 
-/** Taille de page serveur — le même pas que la fenêtre SQLite de l'écran. */
+/** Server page size: the same step as the screen's SQLite window. */
 const PAGE = 50;
 
 export async function loadHistory(
@@ -32,36 +32,36 @@ export async function loadHistory(
   const response = await client.get<{ messages?: Record<string, unknown>[] }>(
     historyPath(type),
     {
-      // `inclusive` : deux messages peuvent partager la même milliseconde.
-      // Sans lui, le jumeau du message-borne serait un trou permanent dans
-      // l'historique. Les upserts idempotents absorbent le recouvrement.
-      // `showThreadMessages: false` — EXPLICITE bien que ce soit le défaut
-      // vérifié sur 8.5 : le filtre serveur (tmid absent OU tshow) doit
-      // rester identique au filtre local du flux, sinon une page entière
-      // de réponses masquées ferait boucler la pagination keyset sur
-      // place (le `latest` vient de la liste FILTRÉE).
+      // `inclusive`: two messages can share the same millisecond.
+      // Without it, the boundary message's twin would be a permanent hole in
+      // the history. The idempotent upserts absorb the overlap.
+      // `showThreadMessages: false`, EXPLICIT although it is the default
+      // checked on 8.5: the server filter (tmid absent OR tshow) must stay
+      // identical to the stream's local filter, otherwise a whole page of
+      // hidden replies would make the keyset pagination loop in place (the
+      // `latest` comes from the FILTERED list).
       params: { roomId: rid, count: PAGE, latest, inclusive: true, showThreadMessages: false },
     },
   );
   const lot = response.messages ?? [];
   const recent = await engine.ingestMessages(lot);
-  // Le plus ancien `ts` de la page : c'est LUI qui dit à l'écran si la page a
-  // vraiment reculé dans le passé (voir `chargerPlus` et `pageARecule`).
+  // The page's oldest `ts`: IT tells the screen whether the page really went
+  // back into the past (see `loadMore` and `pageMovedBack`).
   let oldest: number | null = null;
   for (const raw of lot) {
     const ts = toEpoch((raw as { ts?: unknown }).ts);
     if (ts !== null && (oldest === null || ts < oldest)) oldest = ts;
   }
-  // Le curseur de rattrapage du salon NAÎT ici — et RIEN DE PLUS. Sans lui,
-  // `rattraperSalon` no-ope à vie (`depuis === null`) ; avec, il reprend la
-  // pagination par curseur là où elle en est.
+  // The room's catch-up cursor is BORN here, and NOTHING MORE. Without it,
+  // `catchUpRoom` no-ops for life (`since === null`); with it, it resumes the
+  // cursor pagination where it stands.
   //
-  // Il ne se RÉ-ANCRE plus à chaque ouverture. Ce saut en avant n'existait
-  // que pour garder minuscule la fenêtre d'un `chat.syncMessages?lastUpdate=`
-  // non borné, au prix des éditions et suppressions de l'intervalle sauté.
-  // Depuis que le rattrapage pagine par curseur et se plafonne lui-même
-  // (`lib/catchUp.ts`), la fenêtre n'a plus besoin d'être petite : le
-  // curseur peut redevenir honnête.
+  // It is no longer RE-ANCHORED on each opening. That forward jump only
+  // existed to keep tiny the window of an unbounded
+  // `chat.syncMessages?lastUpdate=`, at the cost of the edits and deletions of
+  // the skipped interval. Since the catch-up paginates by cursor and caps
+  // itself (`lib/catchUp.ts`), the window no longer needs to be small: the
+  // cursor can be honest again.
   if (recent !== null) {
     const existing = await engine.syncStore.readCursor(rid, 'messages');
     if (existing === null) {
@@ -72,10 +72,10 @@ export async function loadHistory(
 }
 
 /**
- * Pagination DÉFENSIVE du fil : `count: 0` (« tout ») dépend de
- * `API_Allow_Infinite_Count`, un réglage serveur — désactivé, il retombe
- * silencieusement sur 50 et tronquerait le fil sans indice. On pagine par
- * pages pleines, bornées à 20 (2 000 réponses), à l'abri du réglage.
+ * DEFENSIVE thread pagination: `count: 0` ("everything") depends on
+ * `API_Allow_Infinite_Count`, a server setting; disabled, it silently falls
+ * back to 50 and would truncate the thread with no hint. We paginate in full
+ * pages, bounded at 20 (2,000 replies), safe from the setting.
  */
 const THREAD_PAGE = 100;
 const MAX_THREAD_PAGES = 20;
@@ -86,9 +86,9 @@ export async function loadThread(
   threadId: string,
   isDiscarded: () => boolean,
 ): Promise<void> {
-  // La racine d'abord : `chat.getThreadMessages` ne la renvoie JAMAIS (elle n'a
-  // pas de tmid). Ouverte par lien direct à froid, elle n'existerait nulle part
-  // sans cet appel.
+  // The root first: `chat.getThreadMessages` NEVER returns it (it has no
+  // tmid). Opened by cold direct link, it would exist nowhere without this
+  // call.
   await client
     .get<{ message?: Record<string, unknown> }>('chat.getMessage', {
       params: { msgId: threadId },

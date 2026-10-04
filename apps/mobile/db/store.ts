@@ -1,14 +1,13 @@
 /**
- * Implémentation du `Depot` sur `expo-sqlite`.
+ * `Store` implementation on `expo-sqlite`.
  *
- * On passe par `runAsync` avec le SQL et les constructeurs de paramètres de
- * `db/upserts.ts` plutôt que par le constructeur de requêtes de Drizzle : c'est
- * **exactement** ce que les tests exécutent sur `node:sqlite`. Un
- * `onConflictDoUpdate` reconstruit ici pourrait diverger du SQL testé sans que
- * rien ne le signale.
+ * We go through `runAsync` with the SQL and parameter builders of
+ * `db/upserts.ts` rather than Drizzle's query builder: it is **exactly** what
+ * the tests run on `node:sqlite`. An `onConflictDoUpdate` rebuilt here could
+ * drift from the tested SQL without anything flagging it.
  *
- * Les écritures passent par la connexion ouverte avec `enableChangeListener`,
- * donc `useRequeteVive` les voit : l'UI se rafraîchit sans qu'on la prévienne.
+ * Writes go through the connection opened with `enableChangeListener`, so
+ * `useCoalescedLiveQuery` sees them: the UI refreshes without being told.
  */
 
 import type { SQLiteDatabase } from 'expo-sqlite';
@@ -82,17 +81,16 @@ import {
   userParams,
 } from './upserts.ts';
 
-/** Le quota de rétention, par salon. Voir `APPLIQUER_RETENTION`. */
+/** The retention quota, per room. See `APPLY_RETENTION`. */
 export const MESSAGES_KEPT_PER_ROOM = 500;
 
 export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
   /**
-   * Ce qu'un salon laisse derrière lui et que personne ne peut plus atteindre :
-   * sa file d'envoi, sa file de téléversements, ses brouillons, ses curseurs.
-   * Aucun écran ne lit ces lignes hors du salon ouvert — donc plus aucun
-   * bouton « abandonner » — mais le rejeu, lui, les reprend à chaque
-   * raccordement. Les messages, eux, restent à la charge de la
-   * réconciliation, comme avant : c'est elle qui balaye les orphelins.
+   * What a room leaves behind that nobody can reach anymore: its outbox, its
+   * upload queue, its drafts, its cursors. No screen reads these rows outside
+   * the open room, so no "discard" button either, but the replay picks them up
+   * at every connection setup. Messages stay the reconciliation's job, as
+   * before: it sweeps the orphans.
    */
   const clearSatellites = async (rid: string): Promise<void> => {
     await raw.runAsync(DELETE_ROOM_OUTBOX, [rid]);
@@ -101,35 +99,35 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
     await raw.runAsync(DELETE_ROOM_CURSORS, [rid]);
   };
 
-  // Les écritures DIRECTES, sans file : c'est ce que reçoit le `fn` d'une
-  // transaction (la file attend la fin de la transaction ouverte — passer
-  // par elle depuis `fn` s'interbloquerait, la signature de
-  // `Depot.transaction` l'interdit).
+  // DIRECT writes, without the queue: this is what a transaction's `fn`
+  // receives (the queue waits for the open transaction to end; going through
+  // it from `fn` would deadlock, the signature of `Store.transaction` forbids
+  // it).
   const direct: StoreWrites = {
     async upsertMessage(m) {
       await raw.runAsync(UPSERT_MESSAGE, paramsMessage(m));
-      // L'identité de l'auteur (`uid → pseudo courant`) se dérive de chaque
-      // message : le plus récent par uid fait foi. Un message chiffré
-      // indéchiffrable n'a pas de pseudo (`auteurNom` null) — rien à noter.
+      // The author's identity (`uid -> current username`) derives from each
+      // message: the most recent per uid wins. An undecryptable encrypted message
+      // has no username (`authorName` null): nothing to record.
       if (m.authorName !== null) {
         await raw.runAsync(
           UPSERT_USER,
           userParams({ uid: m.authorId, username: m.authorName, updatedAt: m.updatedAt }),
         );
       }
-      // Réconciliation de la file d'envoi : ce dépôt ne reçoit QUE des
-      // documents d'origine serveur (stream, historique, réponse d'envoi).
-      // L'un d'eux qui porte notre `_id` prouve la livraison — la ligne de
-      // sortie n'a plus de raison d'être, quel que soit son statut.
+      // Outbox reconciliation: this store receives ONLY server-origin documents
+      // (stream, history, send response). One of them carrying our `_id` proves
+      // delivery: the outbox row has no reason to exist anymore, whatever its
+      // status.
       await raw.runAsync(DELETE_OUTBOX, [m.id]);
     },
     async upsertRoom(s) {
       await raw.runAsync(UPSERT_ROOM, roomParams(s));
-      // L'AUTRE d'un DM entre dans `utilisateurs` dès l'ingestion du salon, sans
-      // attendre qu'un de ses messages soit chargé : la liste montre sa photo, et
-      // le stream `updateAvatar` ne sait la rattacher qu'à une ligne existante
-      // (il ne désigne l'utilisateur que par son pseudo). Sans cela, l'avatar
-      // d'un DM jamais ouvert ne se rafraîchirait jamais.
+      // The OTHER party of a DM enters `users` as soon as the room is ingested,
+      // without waiting for one of their messages to load: the list shows their
+      // photo, and the `updateAvatar` stream can only attach it to an existing row
+      // (it only names the user by username). Without this, the avatar of a DM
+      // never opened would never refresh.
       if (s.dmOtherUid !== null && s.dmOtherUsername !== null) {
         await raw.runAsync(
           UPSERT_IDENTITY,
@@ -142,12 +140,12 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
     },
     async deleteMessage(id) {
       await raw.runAsync(DELETE_MESSAGE, [id]);
-      // L'aperçu de liste d'un salon CHIFFRÉ n'a pas de source serveur — le
-      // stream ne porte que du ciphertext. Effacer le dernier message y
-      // laisserait donc son texte en aperçu, indéfiniment. On le recalcule sur
-      // les messages restants ; le SQL ne touche rien s'il n'a rien à changer,
-      // et c'est un no-op sans salon chiffré. Les salons en clair, eux, sont
-      // couverts par le `rooms-changed` qui suit toute suppression.
+      // The list preview of an ENCRYPTED room has no server source: the stream only
+      // carries ciphertext. Deleting the last message would therefore leave its text
+      // as the preview, indefinitely. We recompute it from the remaining messages;
+      // the SQL touches nothing if it has nothing to change, and it is a no-op
+      // without an encrypted room. Plaintext rooms are covered by the
+      // `rooms-changed` that follows any deletion.
       await raw.runAsync(UPDATE_ENCRYPTED_PREVIEW);
     },
     async deleteRoom(rid) {
@@ -161,8 +159,8 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
       const row = await raw.getFirstAsync<{ rid: string }>(RID_BY_SUB_ID, [subId]);
       if (row === null) return;
       await raw.runAsync(DELETE_SUBSCRIPTION, [row.rid]);
-      // Quitter un salon le fait disparaître de la liste — le document Rooms
-      // existe toujours côté serveur, mais plus pour ce compte.
+      // Leaving a room makes it vanish from the list: the Rooms document still
+      // exists server-side, but no longer for this account.
       await raw.runAsync(DELETE_ROOM, [row.rid]);
       await clearSatellites(row.rid);
     },
@@ -184,14 +182,14 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
       return rows.map((l) => l.rid);
     },
     purgeMissingRooms(aliveRids, knownRids) {
-      // Garde-fou : jamais de purge totale sur une liste vide (réponse serveur
-      // muette ou tronquée). L'appelant garde aussi ce test — ceinture et
-      // bretelles, car `NOT IN (rien)` effacerait tout ce qui est connu.
+      // Safeguard: never a full purge on an empty list (mute or truncated server
+      // response). The caller also keeps this test, belt and braces, because
+      // `NOT IN (nothing)` would erase everything known.
       if (aliveRids.length === 0 || knownRids.length === 0) return Promise.resolve();
       const alive = JSON.stringify(aliveRids);
       const known = JSON.stringify(knownRids);
-      // Les sept DELETE en UNE transaction : un seul rafraîchissement
-      // des requêtes vives, et pas de fenêtre où les tables sont incohérentes.
+      // The seven DELETEs in ONE transaction: a single refresh of the live
+      // queries, and no window where the tables are inconsistent.
       return serially(() =>
         raw.withTransactionAsync(async () => {
           for (const sql of [
@@ -213,8 +211,8 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
         await raw.runAsync(APPLY_RETENTION, [nbMax]);
       }),
     async readCursor(scope, stream) {
-      // Lecture : pas de file. Elle peut voir un lot non commis — sans
-      // conséquence, les curseurs ne s'écrivent qu'après le retour du lot.
+      // Read: no queue. It may see an uncommitted batch, without consequence:
+      // cursors are only written after the batch returns.
       const row = await raw.getFirstAsync<{ mis_a_jour_depuis: number }>(READ_CURSOR, [
         scope,
         stream,
@@ -222,8 +220,8 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
       return row?.mis_a_jour_depuis ?? null;
     },
     async lastMessageUpdatedAt(rid) {
-      // Lecture directe (pas de file), comme `lireCurseur`. `MAX(...)` d'un
-      // salon sans message local rend `NULL` → `null`.
+      // Direct read (no queue), like `readCursor`. `MAX(...)` of a room with no
+      // local message returns `NULL` -> `null`.
       const row = await raw.getFirstAsync<{ mis_a_jour_le: number | null }>(
         LAST_MESSAGE_UPDATED_AT,
         [rid],
@@ -241,8 +239,8 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
       );
       return rows.map((l) => ({ id: l.id, rid: l.rid, encryptedRaw: l.chiffre_brut }));
     },
-    // La passe de déverrouillage écrit le clair : elle passe par la file, comme
-    // toute écriture, pour ne pas s'intercaler dans une transaction ouverte.
+    // The unlock pass writes the plaintext: it goes through the queue, like any
+    // write, so as not to slip into an open transaction.
     updateMessageText: (id, text, attachments) =>
       serially(async () => {
         await raw.runAsync(UPDATE_MESSAGE_TEXT, [text, attachments, id]);
@@ -260,8 +258,8 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
       serially(async () => {
         await raw.runAsync(UPDATE_ENCRYPTED_PREVIEW);
       }),
-    // Versions d'avatar. L'etag est passé deux fois : le SQL ne touche la ligne
-    // que s'il CHANGE (voir `MAJ_AVATAR_UTILISATEUR`).
+    // Avatar versions. The etag is passed twice: the SQL only touches the row
+    // if it CHANGES (see `UPDATE_USER_AVATAR`).
     updateUserAvatar: (username, etag) =>
       serially(async () => {
         await raw.runAsync(UPDATE_USER_AVATAR, [etag, username, etag]);
@@ -275,19 +273,19 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
         await raw.runAsync(UPSERT_IDENTITY, identityParams(identity));
       }),
     transaction(fn) {
-      // Un lot = un commit = UN rafraîchissement des requêtes vives,
-      // au lieu d'une ré-exécution de chaque requête vive par ligne insérée.
+      // One batch = one commit = ONE refresh of the live queries,
+      // instead of rerunning every live query for each inserted row.
       return serially(() => raw.withTransactionAsync(() => fn(direct)));
     },
   };
 }
 
 /**
- * Emojis custom : même connexion, même file que les autres dépôts (un `BEGIN`
- * concurrent hors file mourrait sur « no transaction is active »). Le
- * remplacement est un `DELETE`+`INSERT` sous UNE transaction — donc UN seul
- * rafraîchissement des requêtes vives, et pas de fenêtre où la table
- * est vide.
+ * Custom emojis: same connection, same queue as the other stores (a
+ * concurrent `BEGIN` outside the queue would die on "no transaction is
+ * active"). The replacement is a `DELETE`+`INSERT` under ONE transaction,
+ * hence ONE refresh of the live queries, and no window where the table is
+ * empty.
  */
 export function createEmojiStore(raw: SQLiteDatabase, serially: WriteQueue): EmojiStore {
   return {
@@ -311,9 +309,9 @@ export function createEmojiStore(raw: SQLiteDatabase, serially: WriteQueue): Emo
       return rows.map((l) => ({
         name: l.nom,
         extension: l.extension,
-        // `aliases` est du JSON écrit par nous ; un `catch` évite qu'une ligne
-        // corrompue prive tout le salon de ses autres emojis. Le même filtre
-        // (`filtrerAliases`) qu'à l'ingestion réseau, une fois le JSON parsé.
+        // `aliases` is JSON written by us; a `catch` keeps one corrupt row from
+        // depriving the whole room of its other emojis. The same filter
+        // (`filterAliases`) as at network ingestion, once the JSON is parsed.
         aliases: parseAliases(l.aliases),
       }));
     },
@@ -338,9 +336,9 @@ type RawOutbox = {
 };
 
 export function createOutboxStore(raw: SQLiteDatabase, serially: WriteQueue): OutboxStore {
-  // Écritures dans la MÊME file que les lots de synchro : émises hors file
-  // pendant un lot ouvert, elles rejoindraient sa transaction — un rollback
-  // du lot emporterait alors le message que l'utilisateur vient d'envoyer.
+  // Writes in the SAME queue as the sync batches: issued outside the queue
+  // during an open batch, they would join its transaction, and a rollback of
+  // the batch would then take away the message the user just sent.
   return {
     insertOutbox(id, rid, text, threadId) {
       return serially(() =>
@@ -377,7 +375,7 @@ export function createOutboxStore(raw: SQLiteDatabase, serially: WriteQueue): Ou
   };
 }
 
-/** Le SQL rend `file_id` en snake — la remise en `fileId` est explicite, ci-dessous. */
+/** The SQL returns `file_id` in snake case; mapping it to `fileId` is explicit, below. */
 type RawUpload = {
   id: string;
   rid: string;
@@ -423,8 +421,8 @@ export function createUploadStore(
       }));
     },
     async claim(id) {
-      // Hors `enSerie` : on a besoin du nombre de lignes touchées, et c'est LUI
-      // qui dit si une autre passe nous a devancés.
+      // Outside `serially`: we need the number of rows touched, and IT tells
+      // whether another pass got ahead of us.
       const r = await raw.runAsync(MARK_UPLOAD_IN_FLIGHT, [id]);
       return r.changes > 0;
     },
@@ -455,14 +453,14 @@ export function createUploadStore(
 }
 
 /**
- * Brouillons de composer. Ils écrivaient jusqu'ici en direct sur la connexion
- * partagée, hors file — le seul chemin d'écriture du dépôt à le faire. Le
- * débounce de 400 ms qui tombait pendant l'ingestion d'une page de 50 messages
- * faisait entrer l'INSERT dans le `BEGIN` du lot (`withTransactionAsync` n'est
- * pas exclusif), et un échec du lot annulait le brouillon en silence.
+ * Composer drafts. Until now they wrote directly on the shared connection,
+ * outside the queue, the only write path of the store to do so. The 400 ms
+ * debounce firing during the ingestion of a 50-message page made the INSERT
+ * enter the batch's `BEGIN` (`withTransactionAsync` is not exclusive), and a
+ * failed batch silently rolled back the draft.
  */
 export type DraftStore = {
-  /** `null` si aucun brouillon pour cette clé. */
+  /** `null` if there is no draft for this key. */
   read: (key: string) => Promise<string | null>;
   write: (key: string, text: string) => Promise<void>;
   delete: (key: string) => Promise<void>;

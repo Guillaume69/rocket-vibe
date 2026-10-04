@@ -1,45 +1,45 @@
 /**
- * Emojis personnalisés du serveur.
+ * The server's custom emojis.
  *
- * `msg.md` livre `:party_parrot:` comme n'importe quel code court —
- * `{type:'EMOJI', shortCode:'party_parrot'}`, sans `unicode` — indistinguable
- * d'un emoji inconnu. Ce qui le distingue vit ici : la liste `emoji-custom.list`
- * du serveur, qui donne le nom de FICHIER (`party_parrot.png`) à afficher.
- * Le rendu tranche donc dans cet ordre : caractère Unicode (`lib/emojis.ts`),
- * sinon image custom (ici), sinon `:nom:` littéral.
+ * `msg.md` delivers `:party_parrot:` like any other shortcode,
+ * `{type:'EMOJI', shortCode:'party_parrot'}` without `unicode`, which is
+ * indistinguishable from an unknown emoji. What tells it apart lives here: the
+ * server's `emoji-custom.list`, which gives the FILE name (`party_parrot.png`)
+ * to display. Rendering therefore decides in this order: Unicode character
+ * (`lib/emojis.ts`), else custom image (here), else literal `:name:`.
  *
- * L'URL est PUBLIQUE : `/emoji-custom/:nom.:ext` répond sans `rc_token`, à la
- * différence des fichiers et avatars (`FileUpload_ProtectFiles` ne couvre pas
- * les emojis — vérifié sur 8.5). On la construit depuis le nom CANONIQUE :
- * `/emoji-custom/:alias.:ext` renvoie un SVG de secours, pas l'image.
+ * The URL is PUBLIC: `/emoji-custom/:name.:ext` answers without `rc_token`,
+ * unlike files and avatars (`FileUpload_ProtectFiles` does not cover emojis,
+ * checked on 8.5). It is built from the CANONICAL name:
+ * `/emoji-custom/:alias.:ext` returns a fallback SVG, not the image.
  *
- * État de MODULE, résolu synchrone comme `unicodeDeCodeCourt` : le rendu
- * markdown n'est pas réactif, et une lecture async par emoji serait absurde.
- * La base SQLite étant par (serveur, compte), on n'indexe qu'un serveur à la
- * fois — celui de la session active, posé par `definirEmojisCustom`.
+ * MODULE state, resolved synchronously like `unicodeOfShortcode`: markdown
+ * rendering is not reactive, and an async read per emoji would be absurd.
+ * Since the SQLite database is per (server, account), only one server is
+ * indexed at a time: the active session's, set by `setCustomEmojis`.
  */
 
 export type EmojiCustom = { name: string; extension: string; aliases: string[] };
 
-/** Persistance des emojis custom. Implémentée sur SQLite (`db/store.ts`). */
+/** Custom emoji persistence. Implemented on SQLite (`db/store.ts`). */
 export interface EmojiStore {
-  /** Remplace TOUTE la table par `entrees` (la liste serveur est complète). */
+  /** Replaces the WHOLE table with `entries` (the server list is complete). */
   replace(entries: EmojiCustom[]): Promise<void>;
   list(): Promise<EmojiCustom[]>;
 }
 
 type Target = { name: string; extension: string };
 
-/** Un `unknown` (réseau ou JSON de la base) vers une liste d'alias propre. */
+/** An `unknown` (network or database JSON) to a clean alias list. */
 export function filterAliases(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((a): a is string => typeof a === 'string') : [];
 }
 
 /**
- * Déplie noms et alias en un index `code court → fichier`. **Deux passes** :
- * tous les noms canoniques d'abord, les alias ensuite — ainsi un nom ne peut
- * JAMAIS être masqué par l'alias homonyme d'une autre entrée, quel que soit
- * l'ordre du serveur. Entre deux entrées valides, la première posée gagne.
+ * Unfolds names and aliases into a `shortcode → file` index. **Two passes**:
+ * all canonical names first, then the aliases, so a name can NEVER be hidden
+ * by another entry's alias of the same name, whatever the server's order.
+ * Between two valid entries, the first one set wins.
  */
 export function buildIndex(entries: EmojiCustom[]): Map<string, Target> {
   const index = new Map<string, Target>();
@@ -61,23 +61,23 @@ export function buildIndex(entries: EmojiCustom[]): Map<string, Target> {
 
 let index = new Map<string, Target>();
 let activeBase: string | null = null;
-// Cache de `codesEmojiCustom()` : rebâti seulement quand l'index change, pas à
-// chaque frappe du composer. Invalidé partout où `index` est réassigné.
+// Cache of `codesEmojiCustom()`: rebuilt only when the index changes, not on
+// every composer keystroke. Invalidated wherever `index` is reassigned.
 let codesCache: readonly string[] | null = null;
 
-// L'index doit être OBSERVABLE par l'UI : le navigateur d'emojis ne se démonte
-// jamais (`usePanneauEmoji` le monte une fois pour toutes), donc « lu au
-// montage » signifie « figé pour la session » — à la première installation,
-// `synchroniserEmojisCustom` court APRÈS le montage et l'onglet ⭐ n'existait
-// pas. `surChangementEmojisCustom` + `codesEmojiCustom` forment le contrat
-// `useSyncExternalStore` : le cache gelé ci-dessus EST l'instantané stable.
+// The index must be OBSERVABLE by the UI: the emoji picker never unmounts
+// (`useEmojiPanel` mounts it once and for all), so "read on mount" means
+// "frozen for the session". On first install, `syncCustomEmojis` runs AFTER
+// mount and the ⭐ tab did not exist. `onCustomEmojisChange` + `codesEmojiCustom`
+// form the `useSyncExternalStore` contract: the frozen cache above IS the
+// stable snapshot.
 const subscribers = new Set<() => void>();
 
 function notifyChange(): void {
   for (const subscriber of [...subscribers]) subscriber();
 }
 
-/** S'abonner aux réassignations de l'index — rend le désabonnement. */
+/** Subscribes to index reassignments; returns the unsubscribe. */
 export function onCustomEmojisChange(subscriber: () => void): () => void {
   subscribers.add(subscriber);
   return () => {
@@ -85,7 +85,7 @@ export function onCustomEmojisChange(subscriber: () => void): () => void {
   };
 }
 
-/** Pose l'index du serveur actif. Appelé au démarrage puis après un fetch. */
+/** Sets the active server's index. Called at startup, then after a fetch. */
 export function setCustomEmojis(baseUrl: string, entries: EmojiCustom[]): void {
   activeBase = baseUrl.replace(/\/+$/, '');
   index = buildIndex(entries);
@@ -93,7 +93,7 @@ export function setCustomEmojis(baseUrl: string, entries: EmojiCustom[]): void {
   notifyChange();
 }
 
-/** À la déconnexion : un index survivant servirait les emojis de l'ancien serveur. */
+/** On logout: a surviving index would serve the previous server's emojis. */
 export function clearCustomEmojis(): void {
   index = new Map();
   activeBase = null;
@@ -102,8 +102,8 @@ export function clearCustomEmojis(): void {
 }
 
 /**
- * URL absolue de l'image d'un code court custom, ou `null` si ce n'en est pas
- * un. `Map.get` ne remonte pas le prototype d'`Object` — pas de garde à ajouter.
+ * Absolute image URL of a custom shortcode, or `null` if it is not one.
+ * `Map.get` does not walk `Object`'s prototype, so no guard is needed.
  */
 export function urlEmojiCustom(shortCode: string): string | null {
   const target = index.get(shortCode);
@@ -112,16 +112,16 @@ export function urlEmojiCustom(shortCode: string): string | null {
 }
 
 /**
- * Tous les codes courts custom connus (noms canoniques ET alias), pour
- * l'autocomplétion. GELÉ et mis en cache : le même tableau est rendu tant que
- * l'index ne change pas (invalidé par `definir`/`viderEmojisCustom`), donc pas
- * de recopie ni de risque de mutation à chaque frappe.
+ * All known custom shortcodes (canonical names AND aliases), for
+ * autocompletion. FROZEN and cached: the same array is returned as long as the
+ * index does not change (invalidated by `setCustomEmojis`/`clearCustomEmojis`),
+ * so no copy and no mutation risk on each keystroke.
  */
 export function codesEmojiCustom(): readonly string[] {
   return (codesCache ??= Object.freeze([...index.keys()]));
 }
 
-/** Un `unknown` du réseau vers une entrée propre, ou `null` si inexploitable. */
+/** An `unknown` from the network to a clean entry, or `null` if unusable. */
 export function normalizeEntry(raw: unknown): EmojiCustom | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const o = raw as { name?: unknown; extension?: unknown; aliases?: unknown };
@@ -131,7 +131,7 @@ export function normalizeEntry(raw: unknown): EmojiCustom | null {
 
 type ListResponse = { emojis?: { update?: unknown[] } };
 
-/** Le sous-ensemble de `ClientRest` dont on a besoin — pour tester sans lui. */
+/** The subset of `ClientRest` needed here, to test without it. */
 type ReadClient = {
   baseUrl: string;
   get: <T>(
@@ -141,20 +141,20 @@ type ReadClient = {
 };
 
 /**
- * Charge `emoji-custom.list` (complet), remplace la table et pose l'index.
- * Complet et non incrémental : la liste est petite, un delta et ses `remove[]`
- * seraient une complexité sans gain. Silencieux à l'échec — hors ligne, la
- * table SQLite déjà chargée fait foi, et les customs dégradent en `:nom:`.
+ * Loads `emoji-custom.list` (in full), replaces the table and sets the index.
+ * Full rather than incremental: the list is small, and a delta with its
+ * `remove[]` would be complexity for no gain. Silent on failure: offline, the
+ * already loaded SQLite table is authoritative and customs degrade to `:name:`.
  *
- * SANS paramètre : `emoji-custom.list` n'accepte QUE `updatedSince` — un `count`
- * répond « must NOT have additional properties » (vérifié sur 8.5). Et on ne
- * remplace la table QUE sur une liste réellement reçue : un appel raté, dont
- * l'`update` serait `undefined`, ne doit pas VIDER le cache offline.
+ * NO parameters: `emoji-custom.list` accepts ONLY `updatedSince`; a `count`
+ * answers "must NOT have additional properties" (checked on 8.5). And the
+ * table is replaced ONLY on a list actually received: a failed call, whose
+ * `update` would be `undefined`, must not EMPTY the offline cache.
  *
- * `estAbandonne` : l'index est un état de MODULE, partagé par toutes les
- * sessions. Un fetch lancé par le serveur A qui résout APRÈS une déconnexion
- * ou un changement de serveur ne doit pas réarmer l'index (il ferait fuiter
- * les images de A dans l'UI de B, et une requête non authentifiée vers A).
+ * `isDiscarded`: the index is MODULE state, shared by all sessions. A fetch
+ * started for server A that resolves AFTER a logout or a server switch must
+ * not re-arm the index (it would leak A's images into B's UI, plus an
+ * unauthenticated request to A).
  */
 export async function syncCustomEmojis(
   client: ReadClient,
@@ -170,7 +170,7 @@ export async function syncCustomEmojis(
   setCustomEmojis(client.baseUrl, entries);
 }
 
-/** Au démarrage : la table SQLite (offline) vers l'index mémoire. */
+/** At startup: the (offline) SQLite table to the in-memory index. */
 export async function restoreCustomEmojis(
   baseUrl: string,
   store: EmojiStore,

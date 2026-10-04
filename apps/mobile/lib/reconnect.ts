@@ -1,20 +1,20 @@
 /**
- * Pilote de reconnexion : backoff exponentiel avec gigue, 1 s → 30 s.
+ * Reconnection driver: exponential backoff with jitter, 1 s → 30 s.
  *
- * La gigue n'est pas décorative : sans elle, tous les clients coupés par le
- * même incident retentent à la même seconde et se marchent dessus (troupeau
- * tonnant). Gigue « égale » : moitié fixe, moitié aléatoire.
+ * The jitter is not decorative: without it, every client cut off by the
+ * same incident retries in the same second and they trample each other
+ * (thundering herd). "Equal" jitter: half fixed, half random.
  *
- * `declencher()` est volontairement idempotent — la perte de socket, l'échec
- * d'une tentative et un signal externe peuvent tous le demander sans créer de
- * tentatives concurrentes.
+ * `trigger()` is deliberately idempotent: socket loss, a failed attempt
+ * and an external signal can all request it without creating concurrent
+ * attempts.
  *
- * Pur : l'horloge et l'aléa sont injectés, tout se teste sous Node sans
- * attendre une vraie seconde.
+ * Pure: the clock and the randomness are injected, everything is tested under
+ * Node without waiting a real second.
  */
 
 export type ReconnectOptions = {
-  /** La tentative complète : connexion + login. Rejette = on retentera. */
+  /** The full attempt: connection + login. Rejects = we will retry. */
   connect: () => Promise<void>;
   minDelayMs?: number;
   maxDelayMs?: number;
@@ -36,7 +36,7 @@ export class Reconnector {
   private inFlight = false;
   private rerunRequested = false;
   private stopped = false;
-  /** Réversible, contrairement à `arrete` : le temps d'un passage en fond. */
+  /** Reversible, unlike `stopped`: for the duration of a background stint. */
   private suspended = false;
 
   constructor(options: ReconnectOptions) {
@@ -48,7 +48,7 @@ export class Reconnector {
     this.cancelTimer = options.cancel ?? ((m) => clearTimeout(m));
   }
 
-  /** Prochain délai : 0 pour la première tentative, puis 1 s, 2 s… plafonné à 30 s. */
+  /** Next delay: 0 for the first attempt, then 1 s, 2 s… capped at 30 s. */
   private delay(): number {
     if (this.attempt === 0) return 0;
     const full = Math.min(this.maxDelayMs, this.minDelayMs * 2 ** (this.attempt - 1));
@@ -56,11 +56,11 @@ export class Reconnector {
   }
 
   /**
-   * Demande une (re)connexion. Sans effet si une tentative est déjà prévue —
-   * et si une tentative est EN VOL, la demande est mémorisée puis rejouée à
-   * la fin : une perte de socket qui survient pendant une tentative « réussie »
-   * (la socket retombe pendant le rechargement REST) serait sinon avalée, et
-   * plus rien ne reconnecterait jamais.
+   * Requests a (re)connection. No effect if an attempt is already scheduled,
+   * and if an attempt is IN FLIGHT, the request is remembered then replayed at
+   * the end: a socket loss during a "successful" attempt (the socket drops
+   * during the REST reload) would otherwise be swallowed, and nothing would
+   * ever reconnect again.
    */
   trigger(): void {
     if (this.stopped || this.suspended || this.timer !== null) return;
@@ -94,7 +94,7 @@ export class Reconnector {
     }
   }
 
-  /** À la déconnexion ou au démontage : plus aucune tentative ne partira. */
+  /** On logout or unmount: no attempt will ever start again. */
   stop(): void {
     this.stopped = true;
     if (this.timer !== null) {
@@ -104,14 +104,14 @@ export class Reconnector {
   }
 
   /**
-   * Le temps d'un passage en arrière-plan. Contrairement à `arreter()`, c'est
-   * réversible — et ça ferme les DEUX chemins qui rouvraient une socket en
-   * fond : la minuterie déjà armée, qu'on désarme ici, et la relance que
-   * l'échec (ou la mémorisation) d'une tentative en vol demanderait ensuite,
-   * que le drapeau bloque dans `declencher()`.
+   * For the duration of a background stint. Unlike `stop()`, this is
+   * reversible, and it closes BOTH paths that reopened a socket in the
+   * background: the already armed timer, disarmed here, and the retry that
+   * the failure (or the remembered request) of an attempt in flight would
+   * then ask for, which the flag blocks in `trigger()`.
    *
-   * Chaque tentative en fond coûte une socket que Doze tuera — ce qui
-   * redéclenche `surPerte` — et un `rattraperTout()` REST rate-limité.
+   * Each background attempt costs a socket that Doze will kill (which
+   * triggers `onLoss` again) and a rate-limited REST `catchUpAll()`.
    */
   suspend(): void {
     this.suspended = true;
@@ -122,12 +122,12 @@ export class Reconnector {
   }
 
   /**
-   * Au retour au premier plan. Le backoff accumulé décrit un réseau observé
-   * écran éteint : on le remet à zéro pour que la tentative suivante parte
-   * tout de suite. Sans quoi le retour d'un utilisateur — un geste, donc une
-   * cadence bornée par lui — se paierait jusqu'à trente secondes d'attente.
+   * Back in the foreground. The accumulated backoff describes a network observed
+   * with the screen off: it is reset so the next attempt starts right
+   * away. Otherwise a user's return (a gesture, so a pace bounded by them)
+   * would cost up to thirty seconds of waiting.
    *
-   * Ne ressuscite pas un pilote `arreter()` : ce chemin-là est définitif.
+   * Does not revive a `stop()`ped driver: that path is final.
    */
   resume(): void {
     this.suspended = false;

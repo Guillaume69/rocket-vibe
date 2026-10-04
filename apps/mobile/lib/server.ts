@@ -1,17 +1,17 @@
 /**
- * Sonde un serveur Rocket.Chat **sans authentification**.
+ * Probes a Rocket.Chat server **without authentication**.
  *
- * `GET /api/info` et `GET /api/v1/settings.public` sont ouverts et suffisent à
- * découvrir la version, les méthodes d'authentification activées et les
- * réglages qui changent le comportement du client. C'est ce que fera l'écran de
- * connexion avant d'afficher quoi que ce soit.
+ * `GET /api/info` and `GET /api/v1/settings.public` are open and are enough to
+ * discover the version, the enabled authentication methods and the settings
+ * that change client behaviour. The login screen does this before showing
+ * anything.
  *
- * Le transport vient de `ClientRest` (délai, annulation, JSON défensif, rejeu
- * sur 429) — **y compris `/api/info`**, qui ne vit pas sous `/api/v1/` et
- * passe donc par l'option `horsApiV1`. Il en était exclu, sur un `fetch` nu :
- * une requête restée pendante (reverse proxy, portail captif) laissait le
- * `Promise.all` ci-dessous pendre à vie, donc l'écran de connexion mort et
- * muet, son garde `enVol` armé pour toujours.
+ * Transport comes from `ClientRest` (timeout, cancellation, defensive JSON,
+ * retry on 429), **including `/api/info`**, which does not live under
+ * `/api/v1/` and so goes through the `outsideApiV1` option. It used to be left
+ * out, on a bare `fetch`: a request left hanging (reverse proxy, captive
+ * portal) left the `Promise.all` below hanging forever, so the login screen
+ * dead and silent, its `inFlight` guard armed for good.
  */
 
 import { ClientRest, type Dependencies, RestError } from './rest.ts';
@@ -23,9 +23,9 @@ export type TwoFactor = {
 };
 
 export type ServerProfile = {
-  /** L'URL normalisée par `normaliserUrl` : celle que le sondage a réellement
-   * interrogée. L'appelant construit son client dessus, plutôt que de
-   * re-normaliser la saisie de son côté et risquer de viser un autre hôte. */
+  /** The URL normalized by `normalizeUrl`: the one the probe actually
+   * queried. The caller builds its client on it, rather than re-normalizing
+   * the input on its side and risking another host. */
   baseUrl: string;
   version: string;
   siteUrl: string | null;
@@ -38,7 +38,7 @@ export type ServerProfile = {
   avatarsProtected: boolean;
 };
 
-/** Le champ `value` de `settings.public` est hétérogène : on ne le contraint pas. */
+/** The `value` field of `settings.public` is heterogeneous: it is not constrained. */
 type PublicSetting = { _id: string; value: unknown };
 
 export class ServerError extends Error {
@@ -52,11 +52,11 @@ export class ServerError extends Error {
 }
 
 /**
- * Accepte « chat.example.com », « http://192.168.1.106:3000 » ou une URL avec
- * barre finale. Sans schéma, on suppose `https://`.
+ * Accepts "chat.example.com", "http://192.168.1.106:3000" or a URL with a
+ * trailing slash. Without a scheme, `https://` is assumed.
  *
- * Le **sous-chemin est conservé** : un Rocket.Chat servi derrière un reverse
- * proxy vit souvent sous `/chat`, et `new URL(…).origin` le supprimerait.
+ * The **sub-path is kept**: a Rocket.Chat served behind a reverse proxy often
+ * lives under `/chat`, and `new URL(...).origin` would drop it.
  */
 export function normalizeUrl(entry: string): string {
   const raw = entry.trim();
@@ -86,10 +86,10 @@ function indexSettings(payload: unknown): Map<string, unknown> {
 const trueIf = (v: unknown): boolean => v === true;
 
 /**
- * `/api/info` vit hors de `/api/v1/`, d'où `horsApiV1` — mais il hérite ainsi
- * du délai maximal, du relais d'annulation, du rejeu sur 429 et du parsage
- * défensif. Non authentifié, il rend `{version: '8.5', success: true}` sur
- * 8.5.1 : la version MINEURE seulement, affichée à la connexion.
+ * `/api/info` lives outside `/api/v1/`, hence `outsideApiV1`, but that way it
+ * inherits the maximum timeout, cancellation relay, retry on 429 and
+ * defensive parsing. Unauthenticated, it returns `{version: '8.5', success:
+ * true}` on 8.5.1: the MINOR version only, shown at login.
  */
 async function fetchVersion(
   client: ClientRest,
@@ -109,7 +109,7 @@ async function fetchVersion(
 export async function probeServer(
   entry: string,
   signal?: AbortSignal,
-  /** Même seam que `ClientRest` : les tests éprouvent la borne sans dormir. */
+  /** Same seam as `ClientRest`: tests exercise the timeout without sleeping. */
   dep?: Partial<Dependencies>,
 ): Promise<ServerProfile> {
   const base = normalizeUrl(entry);
@@ -121,8 +121,8 @@ export async function probeServer(
   if (signal?.aborted) controller.abort();
 
   try {
-    // Les deux appels sont indépendants : les enchaîner doublerait la latence.
-    // `count=0` désactive la pagination, sans quoi on n'obtient qu'une page.
+    // The two calls are independent: chaining them would double the latency.
+    // `count=0` disables pagination, otherwise only one page comes back.
     const pVersion = fetchVersion(client, controller.signal);
     const settingsPromise = client.get<unknown>('settings.public', {
       params: { count: 0 },
@@ -137,7 +137,7 @@ export async function probeServer(
     try {
       [version, rawSettings] = await Promise.all([pVersion, settingsPromise]);
     } catch (e) {
-      controller.abort(); // Ne pas laisser la requête sœur traîner.
+      controller.abort(); // Do not leave the sibling request lingering.
       if (e instanceof ServerError) throw e;
       if (e instanceof RestError) throw new ServerError(e.message, e);
       if (e instanceof Error && e.name === 'AbortError') throw e;

@@ -1,62 +1,62 @@
 /**
- * Ordonnancement d'un raccordement : le stream et le rattrapage REST.
+ * Ordering of a connection setup: the stream and the REST catch-up.
  *
- * Les deux transports sont indépendants — REST pour lire, DDP pour écouter —
- * mais leur ORDRE décide de ce qui peut se perdre :
+ * The two transports are independent (REST to read, DDP to listen) but their
+ * ORDER decides what can be lost:
  *
- * - Une lecture REST démarrée APRÈS l'armement des souscriptions ne laisse
- *   aucun trou : tout ce que le serveur publie ensuite arrive par le fil.
- * - Une lecture démarrée AVANT peut être évaluée côté serveur pendant que le
- *   stream n'écoute pas encore. Ce que le serveur publie dans cet intervalle
- *   n'est vu par personne — et comme la lecture a fait avancer les curseurs,
- *   plus rien ne le redemande.
+ * - A REST read started AFTER the subscriptions are armed leaves no gap:
+ *   everything the server publishes afterwards arrives over the stream.
+ * - A read started BEFORE can be evaluated server-side while the stream is not
+ *   listening yet. What the server publishes in that window is seen by no
+ *   one, and since the read moved the cursors forward, nothing asks for it
+ *   again.
  *
- * D'où deux lectures, et non une course entre elles :
+ * Hence two reads, not a race between them:
  *
- * 1. **Tout de suite**, sans attendre le stream — c'est ce que l'utilisateur
- *    voit. Séquencer cette lecture derrière la socket faisait payer le timeout
- *    de négociation DDP à chaque retour de l'arrière-plan : le salon ouvert
- *    restait figé et on croyait n'avoir rien reçu (17 s mesurées entre le
- *    retour et l'affichage d'un message déjà posté, jusqu'à deux minutes quand
- *    plusieurs sockets échouaient de suite).
- * 2. **Après l'armement des souscriptions** — c'est celle qui GARANTIT. Elle
- *    attend un signal (`souscriptionsArmees`, le `ready` du serveur), jamais un
- *    délai : la justesse ne dépend donc ni de la latence ni de la qualité du
- *    réseau, seulement de l'ordre des événements.
+ * 1. **Right away**, without waiting for the stream: this is what the user
+ *    sees. Sequencing this read behind the socket made every return from the
+ *    background pay the DDP negotiation timeout: the open room stayed frozen
+ *    and looked like nothing had arrived (17 s measured between the return
+ *    and the display of an already posted message, up to two minutes when
+ *    several sockets failed in a row).
+ * 2. **After the subscriptions are armed**: this is the one that GUARANTEES.
+ *    It waits for a signal (`streamArmed`, the server's `ready`), never a
+ *    delay: correctness therefore depends neither on latency nor on network
+ *    quality, only on the order of events.
  *
- * La seconde saute quand le stream était DÉJÀ actif au départ : la lecture (1)
- * a alors elle-même démarré après l'armement, elle garantit à elle seule. C'est
- * le cas de toute retentative sur socket vivante — donc de la majorité.
+ * The second one is skipped when the stream was ALREADY active at the start:
+ * read (1) then itself started after arming, and guarantees on its own. That
+ * is the case of every retry on a live socket, so of most of them.
  *
- * L'échec du stream reste l'échec du raccordement — le pilote de reconnexion
- * garde son backoff — mais il n'est relayé qu'à la FIN : l'utilisateur a
- * d'abord eu ses messages.
+ * A stream failure is still a connection setup failure (the reconnect driver
+ * keeps its backoff) but it is relayed only at the END: the user got their
+ * messages first.
  *
- * Pur : tout se teste sous Node, sans réseau et sans horloge.
+ * Pure: everything is tested under Node, with no network and no clock.
  */
 
 export type HookupOptions = {
   /**
-   * Le stream est-il DÉJÀ actif, souscriptions armées ? Évalué avant tout le
-   * reste : c'est ce qui dit si la première lecture garantit à elle seule.
+   * Is the stream ALREADY active, subscriptions armed? Evaluated before
+   * anything else: it tells whether the first read guarantees on its own.
    */
   streamAlreadyActive: () => boolean;
   /**
-   * Ouvre le stream, s'authentifie et rejoue les souscriptions désirées. Se
-   * résout immédiatement si la socket est déjà vivante.
+   * Opens the stream, authenticates and replays the desired subscriptions.
+   * Resolves immediately if the socket is already live.
    */
   openStream: () => Promise<void>;
-  /** Résolue quand le serveur a armé les souscriptions. Ne rejette pas. */
+  /** Resolves when the server has armed the subscriptions. Never rejects. */
   streamArmed: () => Promise<void>;
-  /** Rattrapage REST. Appelé une fois, deux si le stream vient d'être branché. */
+  /** REST catch-up. Called once, twice if the stream was just connected. */
   catchUp: () => Promise<void>;
   /**
-   * Ce qui suit la lecture sans dépendre du stream (files d'envoi, présence,
-   * réveil des écrans). Joué UNE fois, avant que l'échec éventuel du stream ne
-   * soit relayé.
+   * What follows the read without depending on the stream (outboxes,
+   * presence, waking screens). Run ONCE, before any stream failure is
+   * relayed.
    */
   then?: () => void;
-  /** Coupe court : session terminée pendant le raccordement. */
+  /** Cuts short: session ended during the connection setup. */
   isDiscarded?: () => boolean;
 };
 
@@ -70,13 +70,13 @@ export async function hookUp(options: HookupOptions): Promise<void> {
     isDiscarded = () => false,
   } = options;
 
-  // Lu AVANT d'ouvrir quoi que ce soit : la question est bien « le stream
-  // couvrait-il déjà quand la lecture ci-dessous a démarré ? ».
+  // Read BEFORE opening anything: the question is indeed "was the stream
+  // already covering when the read below started?".
   const alreadyCovered = streamAlreadyActive();
 
-  // L'issue du stream est observée TOUT DE SUITE — sans cette absorption, son
-  // rejet pendant la lecture remonterait en « unhandled rejection ». L'erreur
-  // est conservée comme VALEUR, pour être relevée à la fin.
+  // The stream outcome is observed RIGHT AWAY: without this absorption, its
+  // rejection during the read would surface as an "unhandled rejection". The
+  // error is kept as a VALUE, to be raised at the end.
   const streamFailure = openStream().then(
     (): Error | null => null,
     (e: unknown): Error => (e instanceof Error ? e : new Error(String(e))),
@@ -91,14 +91,14 @@ export async function hookUp(options: HookupOptions): Promise<void> {
 
   const error = await streamFailure;
   if (error !== null) throw error;
-  // Sans stream, il n'y a pas d'intervalle à couvrir : la prochaine tentative
-  // du pilote refera l'ensemble.
+  // Without a stream there is no window to cover: the driver's next attempt
+  // redoes the whole thing.
   if (alreadyCovered || isDiscarded()) return;
 
-  // Le stream vient d'être branché : on attend que le serveur ait ARMÉ nos
-  // souscriptions, puis on relit. Cette lecture-là a forcément démarré après
-  // l'armement — quelle que soit la latence — donc plus rien ne peut tomber
-  // entre les deux transports. Curseurs frais : la réponse est quasi vide.
+  // The stream was just connected: wait for the server to have ARMED our
+  // subscriptions, then read again. That read necessarily started after
+  // arming, whatever the latency, so nothing can fall between the two
+  // transports any more. Fresh cursors: the response is almost empty.
   await streamArmed();
   if (isDiscarded()) return;
   await catchUp();

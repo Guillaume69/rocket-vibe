@@ -21,8 +21,8 @@ const LIST = {
   ],
 };
 
-describe('lireCommandes', () => {
-  test('lit la liste et met ses clés en mots', () => {
+describe('readCommands', () => {
+  test('reads the list and puts its keys into words', () => {
     const c = readCommands(LIST, 'en');
     assert.equal(c.length, 4);
     assert.equal(c[0]!.params, 'your message (optional)');
@@ -34,19 +34,19 @@ describe('lireCommandes', () => {
     assert.equal(c[3]!.params, 'question');
   });
 
-  test('en français', () => {
+  test('in French', () => {
     assert.equal(readCommands(LIST, 'fr')[1]!.description, "Retirer quelqu'un du salon");
     assert.equal(words('Slash_Topic_Params', 'fr'), 'sujet');
   });
 
-  test('une réponse sans liste ne donne rien', () => {
+  test('a response without a list yields nothing', () => {
     assert.deepEqual(readCommands(null, 'en'), []);
     assert.deepEqual(readCommands({ commands: 'non' }, 'en'), []);
   });
 });
 
-describe('detecterJetonCommande', () => {
-  test('propose tant que le premier mot est en cours', () => {
+describe('detectCommandToken', () => {
+  test('suggests while the first word is being typed', () => {
     assert.deepEqual(detectCommandToken('/', 1), { query: '' });
     assert.deepEqual(detectCommandToken('/sh', 3), { query: 'sh' });
     assert.equal(detectCommandToken('/shrug ', 7), null);
@@ -57,23 +57,23 @@ describe('detecterJetonCommande', () => {
   });
 });
 
-describe('completerCommande', () => {
+describe('completeCommand', () => {
   const commands = readCommands(LIST, 'en');
   const names = (c: { name: string }[]) => c.map((x) => x.name);
 
-  test('triées par nom, filtrées par préfixe', () => {
+  test('sorted by name, filtered by prefix', () => {
     assert.deepEqual(names(completeCommand(commands, '', null)), ['kick', 'leave', 'poll', 'shrug']);
     assert.deepEqual(names(completeCommand(commands, 'K', null)), ['kick']);
     assert.equal(completeCommand(commands, '', null, 2).length, 2);
   });
 
-  test('seulement celles que je peux lancer, quand on le sait', () => {
+  test('only those I can run, when known', () => {
     assert.deepEqual(names(completeCommand(commands, '', ['leave-p'])), ['leave', 'poll', 'shrug']);
   });
 });
 
-describe('decouperCommande', () => {
-  test('sépare le nom de ses paramètres', () => {
+describe('splitCommand', () => {
+  test('splits the name from its parameters', () => {
     assert.deepEqual(splitCommand('/shrug'), { name: 'shrug', params: '' });
     assert.deepEqual(splitCommand('/me  salue \n tout le monde '), {
       name: 'me',
@@ -86,8 +86,8 @@ describe('decouperCommande', () => {
   });
 });
 
-describe('messagePrive', () => {
-  test('porte son salon', () => {
+describe('privateMessage', () => {
+  test('carries its room', () => {
     const args = [{ _id: '1', rid: 'R1', msg: 'The channel `#nope` does not exist.', private: true }];
     assert.deepEqual(privateMessage(args), { rid: 'R1', text: 'The channel `#nope` does not exist.' });
     assert.equal(privateMessage([{ rid: 'R1', msg: '  ' }]), null);
@@ -96,7 +96,7 @@ describe('messagePrive', () => {
   });
 });
 
-describe('lancerCommande', () => {
+describe('runCommand', () => {
   function fakeClient() {
     const posts: { path: string; body: unknown }[] = [];
     let user = 0;
@@ -112,7 +112,7 @@ describe('lancerCommande', () => {
     return { client, posts };
   }
 
-  test('lance une commande connue, dans le fil le cas échéant', async () => {
+  test('runs a known command, in the thread if any', async () => {
     const { client, posts } = fakeClient();
     assert.equal(await runCommand(client, 'R1', '/shrug lol', 'F1'), true);
     assert.equal(posts.length, 1);
@@ -125,14 +125,14 @@ describe('lancerCommande', () => {
     assert.ok(body.triggerId !== undefined && body.triggerId.length > 0);
   });
 
-  test('un nom inconnu ou du texte reste un message', async () => {
+  test('an unknown name or plain text stays a message', async () => {
     const { client, posts } = fakeClient();
     assert.equal(await runCommand(client, 'R1', '/inconnue', null), false);
     assert.equal(await runCommand(client, 'R1', 'bonjour', null), false);
     assert.equal(posts.length, 0);
   });
 
-  test('un refus du serveur remonte', async () => {
+  test('a server refusal propagates', async () => {
     const { client } = fakeClient();
     client.post = async () => {
       throw new Error('refusée');

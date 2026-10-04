@@ -1,17 +1,16 @@
 /**
- * File de téléversements (7.2) — le pendant de `MoteurEnvoi` pour les
- * fichiers. L'intention (uri locale, nom, type, légende) est persistée AVANT
- * l'envoi : un kill pendant l'upload se rejoue au prochain démarrage.
+ * Upload queue (7.2), the counterpart of `OutboxEngine` for files. The intent
+ * (local uri, name, type, caption) is persisted BEFORE sending: a kill during
+ * the upload is replayed at the next start.
  *
- * Validation (7.3) : `FileUpload_MaxFileSize` et
- * `FileUpload_MediaTypeWhiteList` sont lus dans `settings.public` et vérifiés
- * AVANT de pousser le moindre octet — refuser après coup gaspille le réseau
- * et laisse des orphelins.
+ * Validation (7.3): `FileUpload_MaxFileSize` and
+ * `FileUpload_MediaTypeWhiteList` are read from `settings.public` and checked
+ * BEFORE pushing a single byte: refusing afterwards wastes the network and
+ * leaves orphans.
  *
- * Salon chiffré : le fichier part chiffré (une clé AES-CTR à lui), sous
- * l'empreinte de son nom ; son vrai nom, son type, sa clé et la légende ne
- * voyagent que dans le contenu chiffré sous la clé du salon — ce que fait le
- * client web.
+ * Encrypted room: the file leaves encrypted (with its own AES-CTR key), under
+ * the hash of its name; its real name, type, key and the caption only travel
+ * inside the content encrypted under the room key, as the web client does.
  */
 
 import type { EncryptedContent, FileJwk } from './e2e/crypto.ts';
@@ -32,22 +31,22 @@ export type UploadRow = {
   type: string;
   caption: string | null;
   status: 'en-attente' | 'envoi' | 'echec';
-  /** Rendu par `rooms.media`. Non nul = les octets sont déjà chez le serveur. */
+  /** Returned by `rooms.media`. Non-null = the bytes are already on the server. */
   fileId: string | null;
 };
 
 export interface UploadStore {
   insert(row: Omit<UploadRow, 'status' | 'fileId'>): Promise<void>;
-  /** Les `en-attente` seulement, dans l'ordre de création. */
+  /** Only the `en-attente` rows, in creation order. */
   listToSend(): Promise<UploadRow[]>;
-  /** Saisit la ligne (`en-attente` → `envoi`). `false` si une autre passe l'a prise. */
+  /** Claims the row (`en-attente` → `envoi`). `false` if another pass took it. */
   claim(id: string): Promise<boolean>;
-  /** Rend au rejeu les `envoi` orphelins d'un processus tué, SAUF ceux encore en vol ici. */
+  /** Hands back to the replay the orphaned `envoi` rows of a killed process, EXCEPT those still in flight here. */
   rearmInFlight(inFlightHere: string[]): Promise<void>;
-  /** Le geste « Réessayer » : un échec redevient candidat. */
+  /** The "Retry" gesture: a failure becomes a candidate again. */
   rearm(id: string): Promise<void>;
   recordFileId(id: string, fileId: string): Promise<void>;
-  /** Le message portant ce fichier est-il DÉJÀ en base ? Local, jamais réseau. */
+  /** Is the message carrying this file ALREADY in the database? Local, never network. */
   fileAlreadyPosted(rid: string, fileId: string): Promise<boolean>;
   markFailed(id: string, error: string): Promise<void>;
   delete(id: string): Promise<void>;
@@ -55,32 +54,32 @@ export interface UploadStore {
 
 export type UploadRules = {
   maxSize: number | null;
-  /** Liste blanche MIME, `null` = tout accepté. */
+  /** MIME whitelist, `null` = everything accepted. */
   acceptedTypes: string[] | null;
-  /** `E2E_Enable_Encrypt_Files` : sans lui, un salon chiffré n'accepte aucun fichier. */
+  /** `E2E_Enable_Encrypt_Files`: without it, an encrypted room accepts no file. */
   encryptedFiles: boolean;
 };
 
-/** Un fichier chiffré dans un fichier temporaire, prêt à téléverser. */
+/** An encrypted file in a temporary file, ready to upload. */
 export type EncryptedFile = { uri: string; key: FileJwk; iv: string; sha256: string; size: number };
 
-/** Ce que la file demande pour envoyer dans un salon chiffré. */
+/** What the queue needs to send into an encrypted room. */
 export interface UploadEncryption {
   roomEncrypted(rid: string): Promise<boolean>;
-  /** Contenu chiffré pour ce salon, `null` sans clé (verrouillé). */
+  /** Content encrypted for this room, `null` without a key (locked). */
   encrypt(rid: string, payload: object): EncryptedContent | null;
   encryptFile(uri: string): Promise<EncryptedFile>;
-  /** Empreinte SHA-256 (hexadécimal) d'un texte : le nom sous lequel le fichier part. */
+  /** SHA-256 hash (hex) of a text: the name the file leaves under. */
   hashedName(name: string): string;
 }
 
-/** La clé du salon manque : la ligne attend le déverrouillage, elle n'échoue pas. */
+/** The room key is missing: the row waits for the unlock, it does not fail. */
 class KeyWait extends Error {}
 
 /**
- * La pièce jointe d'un fichier chiffré, telle que le client web la bâtit et la
- * relit : `title_link` désigne le chiffré, la clé et l'empreinte le rendent
- * lisible, et une image, un son ou une vidéo s'annonce comme tel.
+ * The attachment of an encrypted file, as the web client builds and reads it:
+ * `title_link` designates the ciphertext, the key and hash make it readable,
+ * and an image, audio or video announces itself as such.
  */
 export function encryptedFileAttachment(options: {
   fileId: string;
@@ -113,13 +112,12 @@ export function encryptedFileAttachment(options: {
 type PublicSetting = { _id?: string; value?: unknown };
 
 /**
- * Lit les deux réglages qui gouvernent l'upload. Mémoïsé par l'appelant.
+ * Reads the settings that govern the upload. Memoised by the caller.
  *
- * ATTENTION : le paramètre `query` de `settings.public` a été SUPPRIMÉ en
- * 7.0 — le serveur l'ignore et pagine à 50, sans jamais renvoyer les
- * `FileUpload_*` (vérifié contre le 8.5 réel : la validation était un
- * no-op). On demande TOUT (`count=0`, comme le relevé de connexion) et on
- * filtre côté client.
+ * WARNING: the `query` parameter of `settings.public` was REMOVED in 7.0: the
+ * server ignores it and pages at 50, never returning the `FileUpload_*` ones
+ * (checked against the real 8.5: the validation was a no-op). Ask for
+ * EVERYTHING (`count=0`, like the login survey) and filter client-side.
  */
 export async function readUploadRules(client: ClientRest): Promise<UploadRules> {
   const response = await client.get<{ settings?: PublicSetting[] }>('settings.public', {
@@ -145,18 +143,18 @@ export async function readUploadRules(client: ClientRest): Promise<UploadRules> 
 }
 
 /**
- * Lignes que CE runtime JS a en vol, tous moteurs confondus. Volontairement au
- * niveau du module et non de l'instance : `SynchroProvider` peut construire un
- * second `MoteurTeleversement` sans arrêter le premier (objet `session` neuf
- * pour le même compte), et les deux partagent la même connexion SQLite. C'est
- * la seule portée où « en vol ici » a un sens.
+ * Rows THIS JS runtime has in flight, across all engines. Deliberately at
+ * module level and not per instance: `SyncProvider` can build a second
+ * `UploadEngine` without stopping the first (new `session` object for the
+ * same account), and both share the same SQLite connection. It is the only
+ * scope where "in flight here" makes sense.
  */
 const IN_FLIGHT_HERE = new Set<string>();
 
 /**
- * Un refus de validation porte une DONNÉE (code + paramètres), pas une phrase :
- * ce module est pur et testé sous Node, il n'embarque aucune langue. La mise en
- * phrase se fait au point d'affichage (`phraseValidation`, ui/fileValidation.ts).
+ * A validation refusal carries DATA (code + parameters), not a sentence: this
+ * module is pure and tested under Node, it embeds no language. The wording
+ * happens at the display point (`phraseValidation`, ui/fileValidation.ts).
  */
 export type DetailValidation =
   | { code: 'size'; maxMb: string }
@@ -167,7 +165,7 @@ export class ValidationError extends Error {
   readonly detail: DetailValidation;
 
   constructor(detail: DetailValidation) {
-    // `message` est un diagnostic (logs) — jamais la chaîne affichée.
+    // `message` is a diagnostic (logs), never the displayed string.
     super(
       detail.code === 'size'
         ? `size > ${detail.maxMb} MB`
@@ -180,7 +178,7 @@ export class ValidationError extends Error {
   }
 }
 
-/** `image/*` dans la liste blanche accepte `image/png`, etc. */
+/** `image/*` in the whitelist accepts `image/png`, etc. */
 export function validateFile(
   rules: UploadRules,
   file: { type: string; size: number | null },
@@ -213,21 +211,21 @@ export class UploadEngine {
   private readonly refreshRoom: ((rid: string) => Promise<void>) | undefined;
   private readonly encryption: UploadEncryption | undefined;
   /**
-   * Clé de chaque fichier chiffré déjà téléversé, en attente de son confirm.
-   * En mémoire seulement : un processus tué entre les deux temps la perd, et
-   * le fichier repart alors, chiffré sous une clé neuve.
+   * Key of each encrypted file already uploaded, waiting for its confirm. In
+   * memory only: a process killed between the two steps loses it, and the
+   * file then goes again, encrypted under a new key.
    */
   private readonly encrypted = new Map<string, EncryptedFile & { hashedName: string }>();
   private inFlight = false;
   private rerun = false;
-  /** Progression 0..1 du téléversement en cours, par id — pour l'UI. */
+  /** 0..1 progress of the running upload, by id, for the UI. */
   readonly progress = new Map<string, number>();
   private rules: UploadRules | null = null;
-  /** Faux tant que les `envoi` orphelins du processus d'avant n'ont pas été rendus. */
+  /** False until the orphaned `envoi` rows of the previous process have been handed back. */
   private rearmed = false;
-  /** Ids abandonnés pendant leur propre envoi — vérifiés avant de poster. */
+  /** Ids discarded during their own send, checked before posting. */
   private readonly discarded = new Set<string>();
-  /** Interrupteurs des tâches en vol, posés par le transport. */
+  /** Interrupters of the tasks in flight, set by the transport. */
   private readonly cancellations = new Map<string, () => Promise<void>>();
   private readonly observers = new Set<() => void>();
 
@@ -238,17 +236,17 @@ export class UploadEngine {
     generateId: () => string;
     ingest: (doc: Record<string, unknown>) => Promise<void>;
     /**
-     * Efface le fichier local d'une ligne soldée (succès ou abandon). Injecté
-     * plutôt qu'importé : `expo-file-system` n'existe pas sous Node, et ce
-     * module doit rester testable sans lui. L'implémentation décide seule si
-     * l'URI est bien dans le cache de l'app — on n'efface JAMAIS un fichier
-     * que l'utilisateur a choisi ailleurs.
+     * Deletes the local file of a settled row (success or discard). Injected
+     * rather than imported: `expo-file-system` does not exist under Node, and
+     * this module must stay testable without it. The implementation alone
+     * decides whether the URI really is in the app cache: a file the user
+     * picked elsewhere is NEVER deleted.
      */
     deleteLocalFile?: (uri: string) => Promise<void>;
     /**
-     * Rapatrie les messages récents d'un salon. Appelé UNIQUEMENT quand un
-     * `file_id` déjà persisté oblige à savoir si le message existe et que la
-     * base locale ne le sait pas — donc jamais sur le chemin nominal.
+     * Fetches a room's recent messages. Called ONLY when an already persisted
+     * `file_id` requires knowing whether the message exists and the local
+     * database does not know, so never on the nominal path.
      */
     refreshRoom?: (rid: string) => Promise<void>;
     encryption?: UploadEncryption;
@@ -264,9 +262,9 @@ export class UploadEngine {
   }
 
   /**
-   * S'abonner aux changements de `progression` — c'est ce qui fait bouger la
-   * barre du bandeau. Un `useRequeteVive` ne suffit pas : la fraction ne vit
-   * qu'en mémoire, aucune écriture SQLite ne la porte.
+   * Subscribe to `progress` changes: that is what moves the banner's bar. A
+   * `useCoalescedLiveQuery` is not enough: the fraction lives only in memory,
+   * no SQLite write carries it.
    */
   subscribe(listener: () => void): () => void {
     this.observers.add(listener);
@@ -281,26 +279,26 @@ export class UploadEngine {
     if (this.rules !== null) return this.rules;
     try {
       const rules = await readUploadRules(this.client);
-      this.rules = rules; // seul un SUCCÈS est mémoïsé —
+      this.rules = rules; // only a SUCCESS is memoised:
       return rules;
     } catch {
-      // — un repli permissif mis en cache après un passage hors ligne
-      // désactiverait la validation pour toute la session.
+      // a permissive fallback cached after an offline spell would disable
+      // validation for the whole session.
       return { maxSize: null, acceptedTypes: null, encryptedFiles: true };
     }
   }
 
   /**
-   * La validation seule, sans rien persister : le composer refuse une pièce
-   * dès qu'on la pose, pas au moment d'envoyer. `envoyer` revalide de toute
-   * façon — la pièce a pu être réduite entre-temps.
+   * Validation alone, persisting nothing: the composer refuses an attachment as
+   * soon as it is added, not at send time. `send` validates again anyway: the
+   * attachment may have been downscaled in between.
    */
   async validate(file: { type: string; size: number | null }, rid?: string): Promise<void> {
     const encrypted = rid !== undefined && (await this.encryption?.roomEncrypted(rid)) === true;
     validateFile(await this.uploadRules(), file, encrypted);
   }
 
-  /** Valide (7.3) PUIS persiste l'intention PUIS tente l'envoi. */
+  /** Validates (7.3) THEN persists the intent THEN attempts the send. */
   async send(
     rid: string,
     file: FileToSend & { size: number | null },
@@ -320,7 +318,7 @@ export class UploadEngine {
     await this.process();
   }
 
-  /** Rejoue la file, une passe à la fois — même discipline que MoteurEnvoi. */
+  /** Replays the queue, one pass at a time: same discipline as OutboxEngine. */
   async process(): Promise<void> {
     if (this.inFlight) {
       this.rerun = true;
@@ -328,10 +326,10 @@ export class UploadEngine {
     }
     this.inFlight = true;
     try {
-      // Une seule fois par processus, AVANT la première lecture de la file :
-      // un `envoi` ne peut avoir été posé que par une exécution précédente,
-      // tuée en plein téléversement. Sans ce geste, sa ligne resterait hors du
-      // listage à vie et le fichier ne partirait jamais.
+      // Once per process, BEFORE the first read of the queue: an `envoi` can
+      // only have been set by a previous run, killed mid-upload. Without this,
+      // its row would stay out of the listing forever and the file would never
+      // leave.
       if (!this.rearmed) {
         this.rearmed = true;
         await this.store.rearmInFlight([...IN_FLIGHT_HERE]);
@@ -345,7 +343,7 @@ export class UploadEngine {
     }
   }
 
-  /** Le geste explicite « Réessayer » — le seul qui sorte une ligne de l'échec. */
+  /** The explicit "Retry" gesture, the only one that takes a row out of failure. */
   async retry(id: string): Promise<void> {
     await this.store.rearm(id);
     await this.process();
@@ -353,7 +351,7 @@ export class UploadEngine {
 
   private async runPass(): Promise<boolean> {
     for (const row of await this.store.listToSend()) {
-      // Saisie atomique : si une autre passe l'a déjà prise, on la laisse.
+      // Atomic claim: if another pass already took it, leave it.
       if (!(await this.store.claim(row.id))) continue;
       IN_FLIGHT_HERE.add(row.id);
       try {
@@ -362,8 +360,8 @@ export class UploadEngine {
         if (!(await this.post(row))) return false;
       } catch (e) {
         if (this.discarded.has(row.id)) {
-          // L'annulation a fait échouer la tâche, c'est le résultat voulu :
-          // la ligne est déjà supprimée, il n'y a rien à marquer.
+          // The cancellation made the task fail, which is the intended outcome:
+          // the row is already deleted, there is nothing to mark.
           continue;
         }
         if (e instanceof KeyWait) {
@@ -371,13 +369,13 @@ export class UploadEngine {
           continue;
         }
         if (e instanceof RestError && e.status === 0) {
-          // Injoignable. La ligne doit REDEVENIR `en-attente` : la laisser en
-          // `envoi` la sortirait du listage jusqu'au prochain lancement.
+          // Unreachable. The row must GO BACK to `en-attente`: leaving it in
+          // `envoi` would take it out of the listing until the next launch.
           await this.store.rearm(row.id);
           return false;
         }
-        // `derniere_erreur` est un DIAGNOSTIC (jamais affiché — l'UI montre
-        // `messageRow.failedRetry`) : pas une chaîne à traduire.
+        // `derniere_erreur` is a DIAGNOSTIC (never displayed, the UI shows
+        // `messageRow.failedRetry`): not a string to translate.
         await this.store.markFailed(row.id, e instanceof Error ? e.message : 'Send refused.');
       } finally {
         IN_FLIGHT_HERE.delete(row.id);
@@ -391,8 +389,8 @@ export class UploadEngine {
   }
 
   /**
-   * Une ligne, en deux temps séparés par une écriture. Rend `false` quand le
-   * réseau est mort et qu'il faut arrêter la passe.
+   * One row, in two steps separated by a write. Returns `false` when the
+   * network is dead and the pass must stop.
    */
   private async post(row: UploadRow): Promise<boolean> {
     if ((await this.encryption?.roomEncrypted(row.rid)) === true) {
@@ -409,19 +407,19 @@ export class UploadEngine {
         onProgress: (fraction) => this.recordProgress(row.id, fraction),
         onCancelable: (cancel) => void this.cancellations.set(row.id, cancel),
       });
-      // AVANT le confirm : c'est tout l'objet de la colonne.
+      // BEFORE the confirm: that is the whole point of the column.
       await this.store.recordFileId(row.id, fileId);
     } else if (await this.alreadyPosted(row.rid, fileId)) {
-      // Les octets étaient déjà partis ET le message est là : le confirm avait
-      // abouti, seule sa réponse s'est perdue. Re-confirmer posterait un
-      // doublon. On solde la ligne, sans rien envoyer.
+      // The bytes had already left AND the message is there: the confirm had
+      // succeeded, only its response got lost. Confirming again would post a
+      // duplicate. Settle the row, without sending anything.
       await this.solder(row);
       return true;
     }
 
-    // Dernière fenêtre où « Abandonner » peut encore empêcher le message
-    // d'exister : après le confirm, le serveur l'a créé et le stream DDP le
-    // livrera de toute façon — on ne peut plus le dé-poster.
+    // Last window where "Discard" can still keep the message from existing:
+    // after the confirm, the server has created it and the DDP stream will
+    // deliver it anyway; it can no longer be unposted.
     if (this.discarded.has(row.id)) return true;
 
     const message = await confirmerMedia({
@@ -436,8 +434,8 @@ export class UploadEngine {
   }
 
   /**
-   * Le pendant chiffré de `poster`, mêmes deux temps. Rien ne part tant que la
-   * clé du salon manque : ni les octets, ni le message.
+   * The encrypted counterpart of `post`, same two steps. Nothing leaves while
+   * the room key is missing: neither the bytes nor the message.
    */
   private async postEncrypted(
     row: UploadRow,
@@ -520,20 +518,20 @@ export class UploadEngine {
   }
 
   /**
-   * « Ce fichier est-il déjà posté ? » — la question dont dépend tout le
-   * chantier, parce que **le serveur ne sait pas y répondre** : un second
-   * `rooms.mediaConfirm` sur le même `fileId` répond 200 en rendant le PREMIER
-   * message, alors qu'il vient d'en créer un second (sondé sur 8.5, voir
-   * CLAUDE.md). La réponse est donc indiscernable d'un succès ; seule la base
-   * locale peut trancher.
+   * "Is this file already posted?": the question the whole workstream hinges
+   * on, because **the server cannot answer it**: a second
+   * `rooms.mediaConfirm` on the same `fileId` answers 200 returning the FIRST
+   * message, while it has just created a second one (probed on 8.5, see
+   * CLAUDE.md). The response is therefore indistinguishable from a success;
+   * only the local database can decide.
    *
-   * Encore faut-il qu'elle SACHE. Le cas qui la prend en défaut est justement
-   * celui qu'on vise : au redémarrage après un kill, aucun écran de salon n'est
-   * monté, donc `stream-room-messages` n'est souscrit sur rien et la table
-   * `messages` ignore tout du message créé par le confirm perdu. On ne re-pose
-   * alors pas la question au hasard : on RAFRAÎCHIT ce salon-là, une fois, puis
-   * on redemande. Un appel REST ciblé, payé seulement dans le cas rare d'une
-   * réponse perdue — jamais sur le chemin nominal.
+   * It still has to KNOW. The case that catches it out is precisely the one
+   * targeted: at restart after a kill, no room screen is mounted, so
+   * `stream-room-messages` is subscribed to nothing and the `messages` table
+   * knows nothing of the message created by the lost confirm. So the question
+   * is not asked again blindly: that one room is REFRESHED, once, then asked
+   * again. One targeted REST call, paid only in the rare case of a lost
+   * response, never on the nominal path.
    */
   private async alreadyPosted(rid: string, fileId: string): Promise<boolean> {
     if (await this.store.fileAlreadyPosted(rid, fileId)) return true;
@@ -541,23 +539,23 @@ export class UploadEngine {
     try {
       await this.refreshRoom(rid);
     } catch {
-      // Rafraîchissement impossible : on ne sait toujours pas. Voir plus bas
-      // le choix assumé entre le doublon et la perte.
+      // Refresh impossible: still unknown. See below for the deliberate choice
+      // between the duplicate and the loss.
       return false;
     }
     return this.store.fileAlreadyPosted(rid, fileId);
   }
 
-  /** Ligne soldée : plus de file, plus de fichier temporaire. */
+  /** Settled row: no more queue entry, no more temporary file. */
   private async solder(row: UploadRow): Promise<void> {
     await this.store.delete(row.id);
     await this.deleteLocalFile?.(row.uri).catch(() => {});
   }
 
   /**
-   * Ne réveille l'UI qu'au changement de POURCENT ENTIER. Le transport rend la
-   * main à chaque bloc : re-rendre l'écran de salon à cette cadence coûterait
-   * plus cher que le téléversement lui-même.
+   * Wakes the UI only when the WHOLE PERCENT changes. The transport yields at
+   * each chunk: re-rendering the room screen at that rate would cost more than
+   * the upload itself.
    */
   private recordProgress(id: string, fraction: number): void {
     const before = this.progress.get(id) ?? 0;
@@ -566,13 +564,13 @@ export class UploadEngine {
   }
 
   /**
-   * Abandon. Trois gestes, pas un : la ligne part de la file, la tâche en vol
-   * est INTERROMPUE (sans quoi les octets continuaient de monter et le fichier
-   * apparaissait dans le salon après l'abandon), et l'intention est notée pour
-   * que la passe qui court n'ingère rien.
+   * Discard. Three actions, not one: the row leaves the queue, the task in
+   * flight is INTERRUPTED (otherwise the bytes kept going up and the file
+   * appeared in the room after the discard), and the intent is noted so the
+   * running pass ingests nothing.
    *
-   * `uri` permet d'effacer aussi le fichier temporaire — l'appelant l'a sous
-   * la main, le moteur non (la ligne vient d'être supprimée).
+   * `uri` also allows deleting the temporary file: the caller has it at hand,
+   * the engine does not (the row was just deleted).
    */
   async discard(id: string, uri?: string): Promise<void> {
     this.discarded.add(id);

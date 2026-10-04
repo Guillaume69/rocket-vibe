@@ -1,40 +1,40 @@
 /**
- * Origine d'une URL web — scheme + authority — et comparaison d'origines.
+ * A web URL's origin (scheme + authority) and origin comparison.
  *
- * Trois endroits en dépendent, tous du même chantier « ce qui sort du processus
- * est choisi par nous » : le jeton n'est posé que sur une URL de notre serveur
- * (`lib/upload.ts`), la WebView d'appel ne navigue que sur l'origine de la
- * conférence (`app/call/[callId].tsx`), et le push natif ne s'authentifie que
- * vers le serveur d'une session connue (`plugins/with-fcm-deeplink.js`, en
- * Kotlin — même règle, écrite deux fois faute de langage commun).
+ * Three places depend on it, all from the same workstream "what leaves the
+ * process is chosen by us": the token is only set on a URL of our server
+ * (`lib/upload.ts`), the call WebView only navigates on the conference's
+ * origin (`app/call/[callId].tsx`), and native push only authenticates to the
+ * server of a known session (`plugins/with-fcm-deeplink.js`, in Kotlin: same
+ * rule, written twice for lack of a common language).
  *
- * **Pourquoi pas `new URL(u).origin`.** Le `URL` de React Native n'est pas celui
- * de Node : c'est un polyfill à base de regex
- * (`react-native/Libraries/Blob/URL.js`) qui ne LÈVE JAMAIS sur une entrée
- * invalide et dont `origin` rend `''` au lieu de rejeter. Un `try/catch` autour
- * y serait décoratif, et surtout le banc Node validerait un comportement que
- * l'appareil n'a pas — exactement le genre d'écart qui fait passer un test vert
- * sur du code faux. Une regex explicite se comporte pareil des deux côtés.
+ * **Why not `new URL(u).origin`.** React Native's `URL` is not Node's: it is a
+ * regex-based polyfill (`react-native/Libraries/Blob/URL.js`) that NEVER
+ * THROWS on invalid input and whose `origin` returns `''` instead of
+ * rejecting. A `try/catch` around it would be decorative, and above all the
+ * Node bench would validate a behaviour the device does not have, exactly the
+ * kind of gap that turns a test green on wrong code. An explicit regex behaves
+ * the same on both sides.
  *
- * L'autorité est prise TELLE QUELLE, `userinfo` compris : `https://serveur@evil`
- * ne doit surtout pas se réduire à `https://serveur`.
+ * The authority is taken AS IS, `userinfo` included: `https://server@evil`
+ * must never reduce to `https://server`.
  */
 
 const ORIGIN = /^(https?:\/\/[^/?#]+)/i;
 
-/** Scheme + authority en minuscules, `null` si ce n'est pas une URL web. */
+/** Lowercase scheme + authority, `null` if it is not a web URL. */
 export function originOf(url: string): string | null {
   const m = ORIGIN.exec(url);
   return m === null ? null : m[1]!.toLowerCase();
 }
 
 /**
- * Vrai si `url` est servie par `origine`.
+ * True if `url` is served by `origin`.
  *
- * Surtout PAS `url.startsWith(origine)` : `https://serveur` est un préfixe de
- * `https://serveur.evil.com/x`. On ré-extrait l'origine des deux côtés et on
- * compare les deux chaînes entières — la frontière est alors dans la regex, pas
- * dans une arithmétique d'index qu'on peut rater.
+ * Above all NOT `url.startsWith(origin)`: `https://server` is a prefix of
+ * `https://server.evil.com/x`. The origin is re-extracted on both sides and
+ * the two whole strings are compared: the boundary then lives in the regex,
+ * not in index arithmetic that can go wrong.
  */
 export function sameOrigin(url: string, origin: string): boolean {
   const theirs = originOf(url);

@@ -3,16 +3,16 @@ import { describe, test } from 'node:test';
 
 import { normalizeProviderKind } from './provider.ts';
 
-describe('normaliserGenre', () => {
-  test('garde un genre connu', () => {
+describe('normalizeProviderKind', () => {
+  test('keeps a known kind', () => {
     assert.equal(normalizeProviderKind('rocketchat'), 'rocketchat');
   });
 
-  test('les sessions d’avant le champ (undefined) retombent sur rocketchat', () => {
+  test('sessions from before the field (undefined) fall back on rocketchat', () => {
     assert.equal(normalizeProviderKind(undefined), 'rocketchat');
   });
 
-  test('toute valeur inconnue ou non-chaîne retombe sur rocketchat', () => {
+  test('any unknown or non-string value falls back on rocketchat', () => {
     assert.equal(normalizeProviderKind('slack'), 'rocketchat');
     assert.equal(normalizeProviderKind(42), 'rocketchat');
     assert.equal(normalizeProviderKind(null), 'rocketchat');

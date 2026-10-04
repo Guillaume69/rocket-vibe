@@ -3,12 +3,12 @@ import { describe, it } from 'node:test';
 
 import { starredBy, starredAfter, starredIds } from './marks.ts';
 
-describe('idsEtoiles', () => {
-  it('réduit `starred` aux uids, sans doublon', () => {
+describe('starredIds', () => {
+  it('reduces `starred` to uids, without duplicates', () => {
     assert.equal(starredIds([{ _id: 'u1' }, { _id: 'u2' }, { _id: 'u1' }]), '["u1","u2"]');
   });
 
-  it('rend null sans étoile ou sur une forme inattendue', () => {
+  it('returns null with no star or on an unexpected shape', () => {
     assert.equal(starredIds(undefined), null);
     assert.equal(starredIds([]), null);
     assert.equal(starredIds('u1'), null);
@@ -16,8 +16,8 @@ describe('idsEtoiles', () => {
   });
 });
 
-describe('etoilePar', () => {
-  it('dit si l’uid a étoilé le message', () => {
+describe('starredBy', () => {
+  it('tells whether the uid starred the message', () => {
     assert.equal(starredBy('["u1","u2"]', 'u2'), true);
     assert.equal(starredBy('["u1"]', 'u2'), false);
     assert.equal(starredBy(null, 'u1'), false);
@@ -25,13 +25,13 @@ describe('etoilePar', () => {
   });
 });
 
-describe('etoilesApres', () => {
-  it('ajoute l’uid une seule fois', () => {
+describe('starredAfter', () => {
+  it('adds the uid only once', () => {
     assert.equal(starredAfter(null, 'u1', true), '["u1"]');
     assert.equal(starredAfter('["u2","u1"]', 'u1', true), '["u2","u1"]');
   });
 
-  it('retire l’uid et rend null quand il ne reste personne', () => {
+  it('removes the uid and returns null when nobody is left', () => {
     assert.equal(starredAfter('["u1","u2"]', 'u1', false), '["u2"]');
     assert.equal(starredAfter('["u1"]', 'u1', false), null);
     assert.equal(starredAfter(null, 'u1', false), null);

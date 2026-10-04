@@ -16,12 +16,12 @@ import { useSync } from '../ui/sync.tsx';
 import { type Colors, FONTS, useColors } from '../ui/theme.ts';
 
 /**
- * Messages épinglés du salon et mes favoris (étoilés) dans ce salon. Comme la
- * recherche, les listes sont ÉPHÉMÈRES : rendues depuis la réponse REST, jamais
- * écrites en base. Chaque onglet ne se charge qu'à sa première ouverture — une
- * requête par onglet et par visite, sur une route limitée à 10 par minute.
- * Toucher un message referme l'écran et fait défiler le salon jusqu'à lui
- * (`ui/messageJump.ts`) ; une réponse de fil ouvre son fil.
+ * The room's pinned messages and my favourites (starred) in this room. Like
+ * search, the lists are EPHEMERAL: rendered from the REST response, never
+ * written to the database. Each tab only loads on its first opening: one
+ * request per tab and per visit, on a route limited to 10 per minute.
+ * Tapping a message closes the screen and scrolls the room to it
+ * (`ui/messageJump.ts`); a thread reply opens its thread.
  */
 
 type Tab = 'pinned' | 'starred';

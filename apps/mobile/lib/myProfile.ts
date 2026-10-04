@@ -1,23 +1,23 @@
 /**
- * Mon profil — lecture et écriture de MES propres informations.
+ * My profile: reading and writing MY own information.
  *
- * Deux endpoints REST, aux règles bien différentes :
- *  - `users.setStatus` : présence (online/away/busy/offline) ET texte de statut
- *    (le champ `message`). Léger, jamais gardé par un second facteur.
- *  - `users.updateOwnBasicInfo` : nom, bio, e-mail, nom d'utilisateur. Changer
- *    l'e-mail ou le nom d'utilisateur est SENSIBLE : le serveur exige le mot de
- *    passe courant — haché en SHA-256, jamais en clair, comme la méthode 2FA
- *    `password` (cf. lib/auth.ts) — dans `data.currentPassword`, et lève souvent
- *    la 2FA générique (`totp-required`). L'appelant rejoue alors avec le code
- *    préparé, via les en-têtes `x-2fa-*` (même mécanique que le login).
+ * Two REST endpoints, with quite different rules:
+ *  - `users.setStatus`: presence (online/away/busy/offline) AND status text
+ *    (the `message` field). Lightweight, never guarded by a second factor.
+ *  - `users.updateOwnBasicInfo`: name, bio, email, username. Changing the
+ *    email or username is SENSITIVE: the server requires the current password
+ *    (SHA-256 hashed, never in clear, like the `password` 2FA method, see
+ *    lib/auth.ts) in `data.currentPassword`, and often raises the generic 2FA
+ *    (`totp-required`). The caller then replays with the prepared code, via the
+ *    `x-2fa-*` headers (same mechanism as login).
  *
- * Comme le reste de lib/, ce module n'importe pas react-native : le hachage du
- * mot de passe est fait par l'appelant (expo-crypto dans l'app), pas ici.
+ * Like the rest of lib/, this module does not import react-native: the
+ * password is hashed by the caller (expo-crypto in the app), not here.
  */
 
 import type { ClientRest, TwoFactorCode } from './rest.ts';
 
-/** Statut CHOISI par l'utilisateur (statusDefault), distinct de la présence live. */
+/** Status CHOSEN by the user (statusDefault), distinct from live presence. */
 export type DefaultStatus = 'online' | 'away' | 'busy' | 'offline';
 
 export type MyProfile = {
@@ -35,7 +35,7 @@ function isStatus(v: unknown): v is DefaultStatus {
   return typeof v === 'string' && (STATUSES as readonly string[]).includes(v);
 }
 
-/** Toujours une chaîne : les champs de formulaire ne veulent pas d'`undefined`. */
+/** Always a string: form fields do not want `undefined`. */
 function asString(v: unknown): string {
   return typeof v === 'string' ? v : '';
 }
@@ -44,18 +44,18 @@ type MeResponse = {
   _id?: unknown;
   username?: unknown;
   name?: unknown;
-  /** Version de MA photo de profil — cache-buster de l'URL d'avatar. */
+  /** Version of MY profile photo: the avatar URL cache-buster. */
   avatarETag?: unknown;
-  /** Présence LIVE (fluctue avec la connexion) — pas ce qu'on édite. */
+  /** LIVE presence (fluctuates with the connection): not what is edited. */
   status?: unknown;
-  /** Statut CHOISI (sticky) — ce que l'éditeur doit refléter. */
+  /** CHOSEN status (sticky): what the editor must reflect. */
   statusDefault?: unknown;
   statusText?: unknown;
   bio?: unknown;
   emails?: unknown;
 };
 
-/** Premier e-mail du compte (`emails[0].address`), '' s'il n'y en a pas. */
+/** The account's first email (`emails[0].address`), '' if none. */
 function firstEmail(emails: unknown): string {
   if (!Array.isArray(emails) || emails.length === 0) return '';
   const p: unknown = emails[0];
@@ -69,8 +69,8 @@ export function profileFromMe(raw: MeResponse): MyProfile {
     username: asString(raw.username),
     name: asString(raw.name),
     email: firstEmail(raw.emails),
-    // `statusDefault` (le choix) prime sur `status` (la présence live, qui
-    // vaut « offline » à froid tant que la session DDP n'est pas établie).
+    // `statusDefault` (the choice) takes precedence over `status` (live
+    // presence, which is "offline" on a cold start until the DDP session is up).
     status: isStatus(raw.statusDefault)
       ? raw.statusDefault
       : isStatus(raw.status)
@@ -86,10 +86,10 @@ export function readMyProfile(client: ClientRest): Promise<MyProfile> {
 }
 
 /**
- * Mon identité telle que la base locale la range : uid, pseudo courant, et
- * version de ma photo. C'est le SEUL rattrapage possible d'un avatar changé
- * pendant que l'app était fermée — aucun stream n'a pu l'annoncer. `me` la
- * porte sans requête supplémentaire dédiée (vérifié sur 8.5).
+ * My identity as the local database stores it: uid, current username, and my
+ * photo's version. It is the ONLY possible catch-up of an avatar changed while
+ * the app was closed: no stream could announce it. `me` carries it without a
+ * dedicated extra request (verified on 8.5).
  */
 export type MyIdentity = { uid: string; username: string; avatarEtag: string | null };
 
@@ -106,9 +106,9 @@ export function readMyIdentity(client: ClientRest): Promise<MyIdentity | null> {
 }
 
 /**
- * Présence + texte de statut. On envoie TOUJOURS les deux : `users.setStatus`
- * remplace le message par une chaîne vide si on l'omet — poster que le statut
- * effacerait donc le texte, et inversement.
+ * Presence + status text. ALWAYS send both: `users.setStatus` replaces the
+ * message with an empty string if omitted, so posting only the status would
+ * erase the text, and vice versa.
  */
 export function saveStatus(
   client: ClientRest,
@@ -122,7 +122,7 @@ export function saveStatus(
     .then(() => undefined);
 }
 
-/** Champs de `users.updateOwnBasicInfo`. `currentPassword` = SHA-256 du mdp. */
+/** Fields of `users.updateOwnBasicInfo`. `currentPassword` = SHA-256 of the password. */
 export type BasicInfo = {
   name?: string;
   username?: string;
@@ -142,9 +142,9 @@ export function saveBasicInfo(
 }
 
 /**
- * Ne retient que les champs de base réellement modifiés (hors mot de passe, qui
- * n'est pas dans le profil lu). Un `updateOwnBasicInfo` vide est inutile — et
- * renvoyer l'e-mail inchangé relancerait une vérification côté serveur.
+ * Keeps only the basic fields actually changed (password aside, it is not in
+ * the read profile). An empty `updateOwnBasicInfo` is useless, and resending an
+ * unchanged email would restart a server-side verification.
  */
 export function diffInfos(initial: MyProfile, current: MyProfile): BasicInfo {
   const d: BasicInfo = {};
@@ -155,7 +155,7 @@ export function diffInfos(initial: MyProfile, current: MyProfile): BasicInfo {
   return d;
 }
 
-/** Vrai si le diff touche à l'e-mail ou au nom d'utilisateur → mot de passe requis. */
+/** True if the diff touches the email or username → password required. */
 export function requiresPassword(info: BasicInfo): boolean {
   return info.email !== undefined || info.username !== undefined;
 }

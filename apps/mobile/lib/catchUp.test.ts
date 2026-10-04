@@ -19,11 +19,11 @@ function fullFakeStore() {
   const purges: { alive: string[]; known: string[] }[] = [];
   const identities: { uid: string; username: string; avatarEtag: string | null }[] = [];
   const retentions: number[] = [];
-  /** Les rids « déjà en base », mutables : le stream écrit pendant le vol. */
+  /** The rids "already in the database", mutable: the stream writes while the request is in flight. */
   const known: string[] = [];
   let lastLocal: number | null = null;
-  // Le piège rejoue l'invariant de `db/store.ts` : pendant une transaction,
-  // seules les écritures du `tx` reçu passent — celles du dépôt jettent.
+  // The trap replays the `db/store.ts` invariant: during a transaction,
+  // only writes through the received `tx` go through; the store's own throw.
   const store: Store = withTransactionTrap({
     upsertMessage: async (m) => void messages.push(m.id),
     upsertRoom: async (s) => void rooms.push(s.rid),
@@ -73,9 +73,9 @@ function fullFakeStore() {
 }
 
 /**
- * Client réel, fetch simulé : on vérifie les VRAIS paramètres d'URL.
- * `pendantLeVol` joue au moment où le serveur répond — c'est là que le stream
- * DDP écrit, dans le dos de la réponse qu'on est en train de recevoir.
+ * Real client, simulated fetch: we check the REAL URL parameters.
+ * `duringFlight` runs when the server answers: that is when the DDP stream
+ * writes, behind the back of the response being received.
  */
 function fakeClient(responses: Record<string, unknown>, duringFlight?: (path: string) => void) {
   const urls: string[] = [];
@@ -95,8 +95,8 @@ function fakeClient(responses: Record<string, unknown>, duringFlight?: (path: st
   return { client, urls };
 }
 
-describe('rattraperGlobal', () => {
-  test('sans curseur : chargement complet (pas d’updatedSince), puis curseurs posés', async () => {
+describe('catchUpGlobal', () => {
+  test('without a cursor: full load (no updatedSince), then cursors set', async () => {
     const d = fullFakeStore();
     const engine = new SyncEngine(d.store, new RcTranslator());
     const { client, urls } = fakeClient({
@@ -112,21 +112,21 @@ describe('rattraperGlobal', () => {
 
     await catchUpGlobal(client, engine);
 
-    assert.ok(!urls.some((u) => u.includes('updatedSince')), 'premier passage = complet');
+    assert.ok(!urls.some((u) => u.includes('updatedSince')), 'first pass = full');
     assert.deepEqual(d.salons, ['r1']);
-    assert.equal(d.cursors.get('*|salons'), 500, 'curseur = plus grand _updatedAt INGÉRÉ');
+    assert.equal(d.cursors.get('*|salons'), 500, 'cursor = largest INGESTED _updatedAt');
     assert.equal(d.cursors.get('*|abonnements'), 700);
   });
 
-  test('avec curseur : updatedSince est envoyé, les remove font le ménage', async () => {
+  test('with a cursor: updatedSince is sent, the removes clean up', async () => {
     const d = fullFakeStore();
     d.cursors.set('*|salons', 1000);
     d.cursors.set('*|abonnements', 1000);
     const engine = new SyncEngine(d.store, new RcTranslator());
     const { client, urls } = fakeClient({
-      // Projections réelles du serveur 8.5 : `remove[]` de rooms.get porte le
-      // `_id` du SALON supprimé ; celui de subscriptions.get porte le `_id`
-      // de l'ABONNEMENT (jamais le rid).
+      // Real projections of the 8.5 server: the rooms.get `remove[]` carries the
+      // `_id` of the deleted ROOM; the subscriptions.get one carries the `_id`
+      // of the SUBSCRIPTION (never the rid).
       'rooms.get': { update: [], remove: [{ _id: 'r-detruit' }] },
       'subscriptions.get': { update: [], remove: [{ _id: 'sub-quitte' }] },
     });
@@ -136,17 +136,17 @@ describe('rattraperGlobal', () => {
     const roomsUrl = urls.find((u) => u.includes('rooms.get'));
     assert.ok(
       roomsUrl?.includes(`updatedSince=${encodeURIComponent(new Date(1000).toISOString())}`),
-      'le delta part du curseur',
+      'the delta starts from the cursor',
     );
     assert.deepEqual(d.deletedRooms, ['r-detruit']);
     assert.deepEqual(d.deletedBySubId, ['sub-quitte']);
-    assert.equal(d.cursors.get('*|salons'), 1000, 'rien d’ingéré : le curseur ne bouge pas');
+    assert.equal(d.cursors.get('*|salons'), 1000, 'nothing ingested: the cursor does not move');
   });
 
-  test('MA version d’avatar est rattrapée par `me` — le seul chemin après une app fermée', async () => {
-    // Photo changée depuis un autre client pendant que l'app dormait : aucun
-    // stream ne l'a annoncé. Sans cette lecture, l'ancienne photo resterait
-    // affichée jusqu'au prochain changement.
+  test('MY avatar version is caught up through `me`: the only path after the app was closed', async () => {
+    // Photo changed from another client while the app was asleep: no
+    // stream announced it. Without this read, the old photo would stay
+    // displayed until the next change.
     const d = fullFakeStore();
     const engine = new SyncEngine(d.store, new RcTranslator());
     const { client } = fakeClient({
@@ -160,7 +160,7 @@ describe('rattraperGlobal', () => {
     assert.deepEqual(d.identities, [{ uid: 'u1', username: 'alice', avatarEtag: 'etag-frais' }]);
   });
 
-  test('un `me` en échec ne fait pas échouer le rattrapage', async () => {
+  test('a failing `me` does not fail the catch-up', async () => {
     const d = fullFakeStore();
     const engine = new SyncEngine(d.store, new RcTranslator());
     const client = new ClientRest('http://x', {
@@ -177,12 +177,12 @@ describe('rattraperGlobal', () => {
 
     await catchUpGlobal(client, engine);
 
-    assert.deepEqual(d.salons, ['r1'], 'les salons passent quand même');
+    assert.deepEqual(d.salons, ['r1'], 'the rooms go through anyway');
     assert.equal(d.identities.length, 0);
   });
 });
 
-/** Réponses servies DANS L'ORDRE — c'est ce qui permet de tester la pagination. */
+/** Responses served IN ORDER: that is what lets us test pagination. */
 function clientSequence(responses: (Record<string, unknown> | number)[]) {
   const urls: string[] = [];
   let i = 0;
@@ -203,7 +203,7 @@ function clientSequence(responses: (Record<string, unknown> | number)[]) {
   return { client, urls };
 }
 
-/** Une page en mode curseur, telle que le serveur 8.5 la rend. */
+/** One cursor-mode page, as the 8.5 server returns it. */
 const page = (updated: unknown[], next: string | null, deleted: unknown[] = []) => ({
   result: { updated, deleted, cursor: { next, previous: '0' } },
 });
@@ -217,8 +217,8 @@ const msg = (id: string, update: number) => ({
   _updatedAt: { $date: update },
 });
 
-describe('rattraperSalon', () => {
-  test('sans curseur : ne fait RIEN — repartir de l’origine re-téléchargerait tout', async () => {
+describe('catchUpRoom', () => {
+  test('without a cursor: does NOTHING, starting from the origin would download everything again', async () => {
     const d = fullFakeStore();
     const engine = new SyncEngine(d.store, new RcTranslator());
     const { client, urls } = fakeClient({});
@@ -226,10 +226,10 @@ describe('rattraperSalon', () => {
     assert.equal(urls.length, 0);
   });
 
-  test('mode curseur : type/next/count, et SURTOUT pas de lastUpdate', async () => {
-    // `lastUpdate`, s'il est présent, GAGNE sur `type`/`next` : la réponse
-    // retombe en mode non borné (1,85 Mo mesurés). Son absence est le cœur du
-    // correctif, pas un détail de forme.
+  test('cursor mode: type/next/count, and ESPECIALLY no lastUpdate', async () => {
+    // `lastUpdate`, when present, WINS over `type`/`next`: the response
+    // falls back to unbounded mode (1.85 MB measured). Its absence is the core of the
+    // fix, not a formal detail.
     const d = fullFakeStore();
     d.cursors.set('r1|messages', 2000);
     const engine = new SyncEngine(d.store, new RcTranslator());
@@ -242,13 +242,13 @@ describe('rattraperSalon', () => {
     assert.ok(urls[0]?.includes('type=UPDATED'));
     assert.ok(urls[0]?.includes('next=2000'));
     assert.ok(urls[0]?.includes('count=50'));
-    assert.ok(!urls[0]?.includes('lastUpdate'), `lastUpdate doit être absent, vu ${urls[0]}`);
+    assert.ok(!urls[0]?.includes('lastUpdate'), `lastUpdate must be absent, saw ${urls[0]}`);
     assert.deepEqual(d.messages, ['m1']);
   });
 
-  test('le curseur avance APRÈS CHAQUE page, dernière comprise', async () => {
-    // C'est ce qui rend le plafonnement sûr : interrompu à n'importe quelle
-    // page, le passage suivant reprend là où on s'est arrêté.
+  test('the cursor advances AFTER EACH page, the last one included', async () => {
+    // That is what makes capping safe: interrupted at any
+    // page, the next pass resumes where we stopped.
     const d = fullFakeStore();
     d.cursors.set('r1|messages', 1000);
     d.cursors.set('r1|messages-supprimes', 9_000_000);
@@ -263,21 +263,21 @@ describe('rattraperSalon', () => {
 
     await catchUpRoom(client, engine, 'r1');
 
-    // Page 1 : le curseur du SERVEUR (2000), pas le plus grand `_updatedAt`
-    // ingéré (1500) — lui seul reprend la pagination, groupes d'ex æquo compris.
-    // Page 2 : `next: null`, il n'y a plus de curseur serveur à recopier, on
-    // avance donc sur ce qu'on a ingéré (2500).
+    // Page 1: the SERVER cursor (2000), not the largest ingested
+    // `_updatedAt` (1500): only it resumes pagination, groups of ties included.
+    // Page 2: `next: null`, there is no more server cursor to copy, so
+    // we advance on what we ingested (2500).
     assert.deepEqual(seen, [2000, 2500]);
     assert.deepEqual(d.messages, ['m1', 'm2']);
   });
 
-  test('deux ouvertures d’affilée : la seconde ne redemande PAS la même tranche', async () => {
-    // Le symptôme vécu : sortir d'un salon et y rentrer aussitôt relançait un
-    // rattrapage de plusieurs secondes. Le serveur rend `cursor.next = null` dès
-    // qu'il ne reste rien après la page — donc le cas NOMINAL, un retard qui
-    // tient en une page, n'avait aucun curseur serveur à recopier. Le curseur
-    // restait figé à vie, la tranche était redemandée à chaque ouverture, et
-    // elle grossissait à chaque message posté depuis.
+  test('two openings in a row: the second does NOT ask again for the same slice', async () => {
+    // The symptom seen: leaving a room and coming back right away restarted a
+    // catch-up of several seconds. The server returns `cursor.next = null` as soon
+    // as nothing is left after the page, so the NOMINAL case, a lag that
+    // fits in one page, had no server cursor to copy. The cursor
+    // stayed frozen forever, the slice was requested again at each opening, and
+    // it grew with every message posted since.
     const d = fullFakeStore();
     d.cursors.set('r1|messages', 1000);
     d.cursors.set('r1|messages-supprimes', 9_000_000);
@@ -288,19 +288,19 @@ describe('rattraperSalon', () => {
     await catchUpRoom(client, engine, 'r1');
 
     const updates = urls.filter((u) => u.includes('type=UPDATED'));
-    assert.equal(updates.length, 2, 'une requête par ouverture');
+    assert.equal(updates.length, 2, 'one request per opening');
     assert.ok(updates[0]?.includes('next=1000'));
-    assert.ok(updates[1]?.includes('next=1500'), `la 2e ouverture repart de 1500, vu ${updates[1]}`);
+    assert.ok(updates[1]?.includes('next=1500'), `the 2nd opening starts again from 1500, saw ${updates[1]}`);
   });
 
-  test('plafond : 2 pages au plus, même si le serveur en promet d’autres', async () => {
-    // Sans plafond, une tempête `_updatedAt` (changement de pseudo → tous les
-    // messages réécrits) redescendrait 60 pages, soit 1,85 Mo.
+  test('cap: 2 pages at most, even if the server promises more', async () => {
+    // Without a cap, an `_updatedAt` storm (username change → all
+    // messages rewritten) would pull down 60 pages, i.e. 1.85 MB.
     const d = fullFakeStore();
     d.cursors.set('r1|messages', 1000);
     d.cursors.set('r1|messages-supprimes', 9_000_000);
     const engine = new SyncEngine(d.store, new RcTranslator());
-    // Chaque page promet une suite : seul le plafond peut arrêter la boucle.
+    // Each page promises more: only the cap can stop the loop.
     const { client, urls } = clientSequence([
       page([msg('m1', 1500)], '2000'),
       page([msg('m2', 2500)], '3000'),
@@ -310,12 +310,12 @@ describe('rattraperSalon', () => {
     await catchUpRoom(client, engine, 'r1');
 
     const updates = urls.filter((u) => u.includes('type=UPDATED'));
-    assert.equal(updates.length, 2, 'la 3e page ne doit pas être demandée');
+    assert.equal(updates.length, 2, 'the 3rd page must not be requested');
     assert.deepEqual(d.messages, ['m1', 'm2']);
-    assert.equal(d.cursors.get('r1|messages'), 3000, 'le reste est repris au prochain passage');
+    assert.equal(d.cursors.get('r1|messages'), 3000, 'the rest is picked up at the next pass');
   });
 
-  test('un curseur qui n’avance pas arrête la boucle — pas de sur-place', async () => {
+  test('a cursor that does not advance stops the loop: no spinning in place', async () => {
     const d = fullFakeStore();
     d.cursors.set('r1|messages', 5000);
     d.cursors.set('r1|messages-supprimes', 9_000_000);
@@ -327,8 +327,8 @@ describe('rattraperSalon', () => {
     assert.equal(urls.filter((u) => u.includes('type=UPDATED')).length, 1);
   });
 
-  test('suppressions : premier passage = on cale le curseur, sans rien rapatrier', async () => {
-    // Sinon on redescendrait toute la corbeille du salon depuis l'origine.
+  test('deletions: first pass = the cursor is set, without fetching anything', async () => {
+    // Otherwise we would pull down the room's whole trash since the origin.
     const d = fullFakeStore();
     d.cursors.set('r1|messages', 4000);
     const engine = new SyncEngine(d.store, new RcTranslator());
@@ -340,7 +340,7 @@ describe('rattraperSalon', () => {
     assert.equal(d.cursors.get('r1|messages-supprimes'), 4000);
   });
 
-  test('suppressions : passage suivant → les messages effacés côté serveur partent', async () => {
+  test('deletions: next pass → messages deleted server-side go away', async () => {
     const d = fullFakeStore();
     d.cursors.set('r1|messages', 4000);
     d.cursors.set('r1|messages-supprimes', 4000);
@@ -359,14 +359,14 @@ describe('rattraperSalon', () => {
     assert.equal(d.cursors.get('r1|messages-supprimes'), 5000);
   });
 
-  test('suppressions : la dernière page avance le curseur sur `_deletedAt`', async () => {
-    // Même piège que pour les mises à jour : sans cela, les MÊMES suppressions
-    // se re-jouaient à chaque ouverture du salon.
+  test('deletions: the last page advances the cursor on `_deletedAt`', async () => {
+    // Same trap as for updates: without this, the SAME deletions
+    // were replayed at each opening of the room.
     const d = fullFakeStore();
     d.cursors.set('r1|messages', 4000);
     d.cursors.set('r1|messages-supprimes', 4000);
     const engine = new SyncEngine(d.store, new RcTranslator());
-    const erased = '2026-07-25T13:12:28.691Z'; // forme relevée sur 8.5
+    const erased = '2026-07-25T13:12:28.691Z'; // shape recorded on 8.5
     const { client } = clientSequence([
       page([], null),
       {
@@ -383,7 +383,7 @@ describe('rattraperSalon', () => {
     assert.equal(d.cursors.get('r1|messages-supprimes'), Date.parse(erased));
   });
 
-  test('abandonné entre la réponse et l’écriture : rien n’est écrit', async () => {
+  test('abandoned between the response and the write: nothing is written', async () => {
     const d = fullFakeStore();
     d.cursors.set('r1|messages', 2000);
     const engine = new SyncEngine(d.store, new RcTranslator());
@@ -392,10 +392,10 @@ describe('rattraperSalon', () => {
     assert.equal(d.messages.length, 0);
   });
 
-  test('un timeout REMONTE sans basculer en mode non borné', async () => {
-    // Le repli ne doit se déclencher que sur des paramètres refusés (400).
-    // Basculer sur `lastUpdate` parce que le réseau flanche rapporterait
-    // exactement les mégaoctets qu'on cherche à éviter.
+  test('a timeout PROPAGATES without switching to unbounded mode', async () => {
+    // The fallback must only trigger on rejected parameters (400).
+    // Switching to `lastUpdate` because the network falters would bring back
+    // exactly the megabytes we are trying to avoid.
     const d = fullFakeStore();
     d.cursors.set('r1|messages', 1000);
     const engine = new SyncEngine(d.store, new RcTranslator());
@@ -409,14 +409,14 @@ describe('rattraperSalon', () => {
 
     await assert.rejects(() => catchUpRoom(client, engine, 'r1'));
 
-    assert.ok(!urls.some((u) => u.includes('lastUpdate')), 'aucun repli sur un timeout');
-    assert.equal(d.cursors.get('r1|messages'), 1000, 'curseur intact : la reprise est exacte');
+    assert.ok(!urls.some((u) => u.includes('lastUpdate')), 'no fallback on a timeout');
+    assert.equal(d.cursors.get('r1|messages'), 1000, 'cursor intact: resuming is exact');
   });
 
-  describe('repli sur un serveur sans mode curseur (< 7.5)', () => {
+  describe('fallback on a server without cursor mode (< 7.5)', () => {
     const day = 24 * 60 * 60 * 1000;
 
-    test('400 sur la première page → lastUpdate, fenêtre ramenée à 24 h', async () => {
+    test('400 on the first page → lastUpdate, window brought back to 24 h', async () => {
       const now = 100 * day;
       const d = fullFakeStore();
       d.cursors.set('r1|messages', 2 * day); // 98 jours de retard
@@ -426,10 +426,10 @@ describe('rattraperSalon', () => {
       await catchUpRoom(client, engine, 'r1', () => false, () => now);
 
       const expected = encodeURIComponent(new Date(now - day).toISOString());
-      assert.ok(urls[1]?.includes(`lastUpdate=${expected}`), `vu ${urls[1]}`);
+      assert.ok(urls[1]?.includes(`lastUpdate=${expected}`), `saw ${urls[1]}`);
     });
 
-    test('une réponse SANS cursor vaut refus — le serveur ignore les paramètres', async () => {
+    test('a response WITHOUT cursor counts as a refusal: the server ignores the parameters', async () => {
       const d = fullFakeStore();
       d.cursors.set('r1|messages', 2000);
       const engine = new SyncEngine(d.store, new RcTranslator());
@@ -440,14 +440,14 @@ describe('rattraperSalon', () => {
 
       await catchUpRoom(client, engine, 'r1', () => false, () => 3000);
 
-      assert.ok(urls[1]?.includes('lastUpdate'), `vu ${urls[1]}`);
+      assert.ok(urls[1]?.includes('lastUpdate'), `saw ${urls[1]}`);
       assert.deepEqual(d.messages, ['m1']);
     });
 
-    test('le repli échoue → curseur RÉ-ANCRÉ sur le dernier message local', async () => {
-      // Sans mode curseur, la requête n'est pas bornée et timeoute sur un gros
-      // backlog. Le curseur ne s'avançant qu'APRÈS ingestion, il resterait
-      // coincé → boucle sans fin. Le ré-ancrage ne vaut que pour ce chemin-là.
+    test('the fallback fails → cursor RE-ANCHORED on the last local message', async () => {
+      // Without cursor mode, the request is unbounded and times out on a big
+      // backlog. Since the cursor only advances AFTER ingestion, it would stay
+      // stuck → endless loop. Re-anchoring only applies to that path.
       const d = fullFakeStore();
       d.cursors.set('r1|messages', 1000);
       d.setLastLocal(9000);
@@ -474,9 +474,9 @@ describe('rattraperSalon', () => {
 });
 
 /**
- * Client dont chaque réponse est RETENUE jusqu'à ce que le test l'ouvre. C'est
- * le seul moyen d'observer la concurrence : avec des réponses immédiates, tout
- * s'exécute déjà en file et on ne prouverait rien.
+ * Client whose every response is HELD until the test releases it. It is
+ * the only way to observe concurrency: with immediate responses, everything
+ * already runs in sequence and we would prove nothing.
  */
 function heldClient(responses: (Record<string, unknown> | number)[]) {
   const urls: string[] = [];
@@ -488,7 +488,7 @@ function heldClient(responses: (Record<string, unknown> | number)[]) {
       const r = responses[Math.min(i, responses.length - 1)];
       i++;
       await new Promise<void>((open) => gates.push(open));
-      if (r === 0) throw new Error('réseau coupé'); // 0 = échec de transport
+      if (r === 0) throw new Error('réseau coupé'); // 0 = transport failure
       const status = typeof r === 'number' ? r : 200;
       const body = typeof r === 'number' ? { success: false, error: 'params' } : r;
       return new Response(JSON.stringify(body), {
@@ -498,13 +498,13 @@ function heldClient(responses: (Record<string, unknown> | number)[]) {
     },
     sleep: async () => {},
   });
-  /** Laisse les promesses déjà prêtes se dérouler — jamais un délai. */
+  /** Lets already settled promises run: never a delay. */
   const turn = () => new Promise<void>((r) => setImmediate(r));
   return {
     client,
     urls,
     turn,
-    /** Ouvre les portes au fur et à mesure, jusqu'à ce qu'il n'en reste plus. */
+    /** Opens the gates one after another, until none is left. */
     openAll: async () => {
       for (let watchdog = 0; watchdog < 50; watchdog++) {
         const gate = gates.shift();
@@ -520,8 +520,8 @@ function heldClient(responses: (Record<string, unknown> | number)[]) {
   };
 }
 
-describe('rattraperSalon — une pagination à la fois par salon', () => {
-  /** Un dépôt déjà amorcé : curseurs posés sur les deux flux. */
+describe('catchUpRoom: one pagination at a time per room', () => {
+  /** An already primed store: cursors set on both streams. */
   function bench() {
     const d = fullFakeStore();
     d.cursors.set('r1|messages', 1000);
@@ -529,11 +529,11 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
     return { d, engine: new SyncEngine(d.store, new RcTranslator()) };
   }
 
-  test('trois demandes concurrentes ne lancent PAS trois paginations', async () => {
-    // Le défaut vécu : à chaque raccordement, `ui/sync.tsx` et l'effet
-    // d'ouverture de l'écran (réveillé par le bump de `generation` que ce même
-    // raccordement vient de poser) partaient tous deux sur le MÊME curseur,
-    // pour redemander la même tranche.
+  test('three concurrent requests do NOT start three paginations', async () => {
+    // The defect seen: at each connection setup, `ui/sync.tsx` and the screen's
+    // opening effect (woken by the `generation` bump that this same
+    // connection setup just made) both started from the SAME cursor,
+    // to ask again for the same slice.
     const { d, engine } = bench();
     const h = heldClient([page([], null)]);
 
@@ -544,37 +544,37 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
     ];
     await h.turn();
 
-    assert.equal(h.urls.length, 1, 'une seule requête en vol, pas trois');
+    assert.equal(h.urls.length, 1, 'a single request in flight, not three');
 
     await h.openAll();
     await Promise.all(requests);
     assert.equal(d.cursors.get('r1|messages'), 1000);
   });
 
-  test('mais aucune demande n’est AVALÉE : la seconde obtient sa lecture', async () => {
-    // C'est la contrainte inverse, et elle prime. `lib/connectionSetup.ts` lit
-    // DEUX fois par raccordement, et la seconde — celle qui part une fois les
-    // souscriptions armées — est la seule à garantir que rien n'est tombé
-    // entre les deux transports. La refuser laissait un trou définitif : le
-    // curseur avait avancé, plus rien ne redemandait cette fenêtre.
+  test('but no request is SWALLOWED: the second gets its read', async () => {
+    // This is the opposite constraint, and it wins. `lib/connectionSetup.ts` reads
+    // TWICE per connection setup, and the second read, the one that starts once the
+    // subscriptions are armed, is the only one guaranteeing nothing fell
+    // between the two transports. Refusing it left a permanent gap: the
+    // cursor had advanced, nothing asked for that window again.
     const { d, engine } = bench();
     const h = heldClient([page([], null)]);
 
     const p1 = catchUpRoom(h.client, engine, 'r1');
-    await h.turn(); // la première pagination est partie
+    await h.turn(); // the first pagination has started
     const p2 = catchUpRoom(h.client, engine, 'r1');
 
     await h.openAll();
     await Promise.all([p1, p2]);
 
     const updates = h.urls.filter((u) => u.includes('type=UPDATED'));
-    assert.equal(updates.length, 2, 'la demande arrivée en cours de route a bien lu');
+    assert.equal(updates.length, 2, 'the request that arrived midway did read');
     assert.equal(d.cursors.get('r1|messages'), 1000);
   });
 
-  test('la passe chaînée repart du curseur AVANCÉ — pas une seconde fois la même tranche', async () => {
-    // C'est ce qui rend la garantie peu coûteuse : la seconde lecture ne
-    // repagine pas, elle vérifie. ~92 octets mesurés quand rien n'a bougé.
+  test('the chained pass starts from the ADVANCED cursor, not the same slice a second time', async () => {
+    // That is what makes the guarantee cheap: the second read does not
+    // paginate again, it checks. ~92 bytes measured when nothing moved.
     const { d, engine } = bench();
     const h = heldClient([page([msg('m1', 1500)], null)]);
 
@@ -586,12 +586,12 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
     await Promise.all([p1, p2]);
 
     const updates = h.urls.filter((u) => u.includes('type=UPDATED'));
-    assert.ok(updates[0]?.includes('next=1000'), `1re passe, vu ${updates[0]}`);
-    assert.ok(updates[1]?.includes('next=1500'), `2e passe sur le curseur neuf, vu ${updates[1]}`);
-    assert.deepEqual(d.messages, ['m1', 'm1'], 'idempotent : la 2e ré-ingère sans dupliquer');
+    assert.ok(updates[0]?.includes('next=1000'), `1st pass, saw ${updates[0]}`);
+    assert.ok(updates[1]?.includes('next=1500'), `2nd pass on the new cursor, saw ${updates[1]}`);
+    assert.deepEqual(d.messages, ['m1', 'm1'], 'idempotent: the 2nd re-ingests without duplicating');
   });
 
-  test('les passes ne s’ENTRELACENT pas : la seconde attend la fin de la première', async () => {
+  test('passes do not INTERLEAVE: the second waits for the first to finish', async () => {
     const { engine } = bench();
     const h = heldClient([page([], null)]);
 
@@ -600,17 +600,17 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
     const p2 = catchUpRoom(h.client, engine, 'r1');
     await h.turn();
 
-    assert.equal(h.urls.length, 1, 'la 2e passe n’a rien envoyé tant que la 1re court');
+    assert.equal(h.urls.length, 1, 'the 2nd pass sent nothing while the 1st runs');
 
     await h.openAll();
     await Promise.all([p1, p2]);
   });
 
-  test('une passe REJOINTE n’abandonne que si TOUS ses demandeurs ont lâché', async () => {
-    // Le rejoignant hérite de la passe, pas de l'abandon du premier arrivé :
-    // un effet rejoué (changement de `generation`) pose `annule = true` sur
-    // l'ancien passage juste avant de relancer le nouveau. S'exclure sur le
-    // seul premier prédicat rendrait une promesse tenue sans avoir rien lu.
+  test('a JOINED pass only gives up if ALL its requesters let go', async () => {
+    // The joiner inherits the pass, not the first requester's abandonment:
+    // a replayed effect (`generation` change) sets `canceled = true` on
+    // the old pass right before starting the new one. Excluding oneself on the
+    // first predicate alone would resolve a promise without having read anything.
     const { d, engine } = bench();
     const h = heldClient([page([msg('m1', 1500)], null)]);
 
@@ -618,8 +618,8 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
     await h.turn();
     let unmounted = false;
     const p2 = catchUpRoom(h.client, engine, 'r1', () => unmounted);
-    const p3 = catchUpRoom(h.client, engine, 'r1'); // rejoint la passe de p2
-    unmounted = true; // l'écran de p2 s'en va, celui de p3 reste
+    const p3 = catchUpRoom(h.client, engine, 'r1'); // joins p2's pass
+    unmounted = true; // p2's screen goes away, p3's stays
 
     await h.openAll();
     await Promise.all([p1, p2, p3]);
@@ -627,14 +627,14 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
     assert.equal(
       h.urls.filter((u) => u.includes('type=UPDATED')).length,
       2,
-      'la passe rejointe a bien lu',
+      'the joined pass did read',
     );
     assert.deepEqual(d.messages, ['m1', 'm1']);
   });
 
-  test('… et elle abandonne bien quand ils ont TOUS lâché', async () => {
-    // Preuve par retrait du test précédent : sans ce cas, `every` pourrait
-    // n'être qu'un `some` déguisé et personne ne le verrait.
+  test('… and it does give up when they ALL let go', async () => {
+    // Proof by removing the previous test: without this case, `every` could
+    // be a disguised `some` and nobody would notice.
     const { d, engine } = bench();
     const h = heldClient([page([msg('m1', 1500)], null)]);
 
@@ -646,10 +646,10 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
     await h.openAll();
     await Promise.all([p1, p2, p3]);
 
-    assert.deepEqual(d.messages, ['m1'], 'seule la 1re passe a écrit');
+    assert.deepEqual(d.messages, ['m1'], 'only the 1st pass wrote');
   });
 
-  test('l’échec d’une passe n’annule pas la demande de la suivante', async () => {
+  test('the failure of a pass does not cancel the request for the next one', async () => {
     const { d, engine } = bench();
     const h = heldClient([0, page([msg('m1', 1500)], null)]);
 
@@ -658,16 +658,16 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
     const p2 = catchUpRoom(h.client, engine, 'r1');
 
     await h.openAll();
-    await assert.rejects(() => p1, 'l’échec reste l’échec de SON demandeur');
+    await assert.rejects(() => p1, 'the failure stays the failure of ITS requester');
     await p2;
 
-    assert.deepEqual(d.messages, ['m1'], 'la seconde a lu quand même');
+    assert.deepEqual(d.messages, ['m1'], 'the second read anyway');
   });
 
-  test('une passe d’une session RANGÉE ne retient pas celle de la nouvelle', async () => {
-    // Au changement de compte ou de serveur, le client d'avant est rangé et son
-    // `estAbandonne` restera vrai à jamais. Se chaîner derrière lui ferait
-    // attendre la session neuve pour rien — jusqu'au timeout de 15 s.
+  test('a pass from a CLOSED session does not hold back the new one', async () => {
+    // On an account or server switch, the previous client is put away and its
+    // `isDiscarded` will stay true forever. Chaining behind it would make
+    // the new session wait for nothing, until the 15 s timeout.
     const { engine } = bench();
     const old = heldClient([page([], null)]);
     const fresh = heldClient([page([], null)]);
@@ -677,16 +677,16 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
     const p2 = catchUpRoom(fresh.client, engine, 'r1');
     await fresh.turn();
 
-    assert.equal(fresh.urls.length, 1, 'la nouvelle session lit tout de suite');
+    assert.equal(fresh.urls.length, 1, 'the new session reads right away');
 
     await old.openAll();
     await fresh.openAll();
     await Promise.all([p1, p2]);
   });
 
-  test('une fois tout retombé, la demande suivante repart d’une passe neuve', async () => {
-    // Sinon l'entrée resterait dans la table à vie et chaque ouverture se
-    // chaînerait derrière une promesse morte.
+  test('once everything has settled, the next request starts a fresh pass', async () => {
+    // Otherwise the entry would stay in the table forever and each opening would
+    // chain behind a dead promise.
     const { engine } = bench();
     const h = heldClient([page([], null)]);
 
@@ -699,15 +699,15 @@ describe('rattraperSalon — une pagination à la fois par salon', () => {
 
     const p2 = catchUpRoom(h.client, engine, 'r1');
     await h.turn();
-    assert.ok(h.urls.length > before, 'elle est partie sans attendre personne');
+    assert.ok(h.urls.length > before, 'it started without waiting for anyone');
 
     await h.openAll();
     await p2;
   });
 });
 
-describe('reconcilierSalons', () => {
-  test('purge les rids absents de la liste vivante des abonnements', async () => {
+describe('reconcileRooms', () => {
+  test('purges the rids missing from the live list of subscriptions', async () => {
     const d = fullFakeStore();
     d.known.push('r1', 'r2', 'rFantome');
     const engine = new SyncEngine(d.store, new RcTranslator());
@@ -715,30 +715,30 @@ describe('reconcilierSalons', () => {
       'subscriptions.get': { update: [{ rid: 'r1' }, { rid: 'r2' }] },
     });
     await reconcileRooms(client, engine);
-    // Full : pas d'updatedSince — on veut l'état courant, pas un delta.
+    // Full: no updatedSince, we want the current state, not a delta.
     assert.match(urls[0], /\/subscriptions\.get(\?|$)/);
     assert.doesNotMatch(urls[0], /updatedSince/);
     assert.deepEqual(d.purges, [{ alive: ['r1', 'r2'], known: ['r1', 'r2', 'rFantome'] }]);
   });
 
-  test('l’instantané des connus est relevé AVANT la requête réseau', async () => {
+  test('the snapshot of known rids is taken BEFORE the network request', async () => {
     const d = fullFakeStore();
     d.known.push('r1', 'r2');
     const engine = new SyncEngine(d.store, new RcTranslator());
-    // Le stream DDP écrit un DM tout neuf pendant l'aller-retour. Il n'est ni
-    // dans la réponse du serveur (calculée avant qu'il existe), ni dans
-    // l'instantané — donc la purge ne doit pas pouvoir l'atteindre.
+    // The DDP stream writes a brand new DM during the round trip. It is neither
+    // in the server's response (computed before it existed), nor in
+    // the snapshot, so the purge must not be able to reach it.
     const { client } = fakeClient(
       { 'subscriptions.get': { update: [{ rid: 'r1' }] } },
       () => void d.known.push('rNeuf'),
     );
     await reconcileRooms(client, engine);
     assert.deepEqual(d.purges, [{ alive: ['r1'], known: ['r1', 'r2'] }]);
-    assert.ok(!d.purges[0].known.includes('rNeuf'), 'le DM né en vol est hors de portée');
+    assert.ok(!d.purges[0].known.includes('rNeuf'), 'the DM created in flight is out of reach');
   });
 
 
-  test('une liste vide ne purge RIEN — garde-fou anti-purge-totale', async () => {
+  test('an empty list purges NOTHING: guard against a total purge', async () => {
     const d = fullFakeStore();
     const engine = new SyncEngine(d.store, new RcTranslator());
     const { client } = fakeClient({ 'subscriptions.get': { update: [] } });
@@ -746,7 +746,7 @@ describe('reconcilierSalons', () => {
     assert.equal(d.purges.length, 0);
   });
 
-  test('abandonné en vol : aucune purge', async () => {
+  test('abandoned in flight: no purge', async () => {
     const d = fullFakeStore();
     const engine = new SyncEngine(d.store, new RcTranslator());
     const { client } = fakeClient({ 'subscriptions.get': { update: [{ rid: 'r1' }] } });

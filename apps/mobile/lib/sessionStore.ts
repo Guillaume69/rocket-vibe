@@ -1,12 +1,12 @@
 /**
- * Persistance de la session, **une par serveur**.
+ * Session persistence, **one per server**.
  *
- * Le jeton vit dans l'Android Keystore via `expo-secure-store`, jamais dans
- * `AsyncStorage`. La clé dérive du host : plusieurs serveurs cohabitent sans
- * qu'une déconnexion sur l'un touche à l'autre.
+ * The token lives in the Android Keystore through `expo-secure-store`, never in
+ * `AsyncStorage`. The key derives from the host: several servers coexist
+ * without a logout on one touching the other.
  *
- * Seul module de la couche transport à dépendre de la plateforme. Tout le
- * reste (`rest`, `auth`, `ddp`) tourne sous Node, donc se teste pour de vrai.
+ * The only transport-layer module that depends on the platform. All the rest
+ * (`rest`, `auth`, `ddp`) runs under Node, so it is tested for real.
  */
 
 import * as Crypto from 'expo-crypto';
@@ -22,23 +22,23 @@ import {
 import type { PendingLogout } from './deferredLogout.ts';
 import { normalizeProviderKind } from './provider.ts';
 
-/** SHA-256 hexadécimal — l'implémentation de `Hacheur` côté application. */
+/** Hex SHA-256: the app-side implementation of `Hasher`. */
 export function hash(text: string): Promise<string> {
   return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, text);
 }
 
 /**
- * La dérivation des noms de clés vit dans `lib/storageKeys.ts`, sans
- * dépendance à `expo`, parce que c'est elle qui décide de l'isolation entre
- * comptes — et que cela se prouve par des tests, pas par une relecture.
+ * Key name derivation lives in `lib/storageKeys.ts`, with no `expo`
+ * dependency, because it decides the isolation between accounts, and that is
+ * proven by tests, not by a reread.
  */
 const key = (baseUrl: string): Promise<string> => sessionStorageKey(baseUrl, hash);
 
 /**
- * iOS : lisible par la Notification Service Extension, qui tourne aussi
- * écran verrouillé (plugins/ios-notification-service). Le défaut
- * `WHEN_UNLOCKED` la cacherait à chaque push reçu téléphone en poche. Sans
- * effet sous Android.
+ * iOS: readable by the Notification Service Extension, which also runs with
+ * the screen locked (plugins/ios-notification-service). The default
+ * `WHEN_UNLOCKED` would hide it from every push received with the phone in a
+ * pocket. No effect on Android.
  */
 const PUSH_EXTENSION_ACCESS: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
@@ -53,15 +53,15 @@ export async function readSession(baseUrl: string): Promise<Session | null> {
   if (raw === null) return null;
   try {
     const session = JSON.parse(raw) as Session;
-    // Un stockage corrompu ou d'une ancienne version ne doit pas faire planter
-    // le démarrage : on le traite comme une absence de session.
+    // Corrupt storage or one from an older version must not crash startup:
+    // treat it as no session.
     if (typeof session?.authToken !== 'string' || typeof session?.userId !== 'string') return null;
-    // La clé dérive d'un condensé tronqué : on ne se fie pas à elle seule pour
-    // affirmer que cette session appartient bien au serveur demandé.
+    // The key derives from a truncated digest: we don't trust it alone to
+    // assert that this session belongs to the requested server.
     if (withoutTrailingSlash(session.baseUrl) !== withoutTrailingSlash(baseUrl)) return null;
-    // Migration à la lecture : les sessions d'avant les champs `genre` et
-    // `siteUrl` retombent sur leurs replis (`rocketchat`, null → `baseUrl` à
-    // l'usage), sans réécriture.
+    // Migration on read: sessions older than the `genre` and `siteUrl` fields
+    // fall back on their defaults (`rocketchat`, null → `baseUrl` at use),
+    // without rewriting.
     return {
       ...session,
       genre: normalizeProviderKind(session.genre),
@@ -77,17 +77,17 @@ export async function clearSession(baseUrl: string): Promise<void> {
 }
 
 /**
- * Clé privée E2EE déchiffrée (JWK JSON), rangée dans le Keystore par
- * **(serveur, compte)** — comme la base SQLite, et contrairement à la session,
- * qui est bien du serveur. Sa présence = ce compte est « déverrouillé » : au
- * redémarrage on réimporte sans redemander le mot de passe E2E. Verrouiller =
- * l'effacer. On stocke le JWK DÉCHIFFRÉ (le blob chiffré du serveur ne servirait
- * à rien sans le mot de passe) : c'est le même compromis que la session en clair
- * dans le Keystore — protégé par l'écran de verrouillage de l'appareil, hors
- * périmètre du modèle de menace E2EE (qui vise le serveur).
+ * Decrypted E2EE private key (JWK JSON), stored in the Keystore per
+ * **(server, account)**, like the SQLite database and unlike the session,
+ * which really is per server. Its presence = this account is "unlocked": on
+ * restart we reimport without asking for the E2E password again. Locking =
+ * erasing it. We store the DECRYPTED JWK (the server's encrypted blob would be
+ * useless without the password): the same trade-off as the plaintext session
+ * in the Keystore, protected by the device lock screen, outside the E2EE
+ * threat model (which targets the server).
  *
- * L'indexation par compte n'est pas une commodité : rangée par serveur seul,
- * la clé d'un compte était réimportée pour le suivant. Voir `storageKeys.ts`.
+ * Indexing by account is not a convenience: stored per server alone, one
+ * account's key was reimported for the next. See `storageKeys.ts`.
  */
 export async function saveE2EPrivateKey(
   baseUrl: string,
@@ -112,35 +112,34 @@ export async function clearE2EPrivateKey(
 }
 
 /**
- * Efface l'entrée E2EE de l'ANCIEN format, indexée par serveur seul.
+ * Erases the E2EE entry in the OLD format, indexed by server alone.
  *
- * Sans elle, la correction ci-dessus laisserait sur l'appareil, pour toujours,
- * un JWK RSA **déchiffré** que plus aucun code ne saurait retrouver —
- * `expo-secure-store` n'énumère pas ses clés. On ne la LIT jamais : la relire
- * pour la « migrer » rejouerait exactement le défaut corrigé, puisque rien ne
- * dit à quel compte elle appartenait.
+ * Without it, the fix above would leave on the device, forever, a
+ * **decrypted** RSA JWK that no code could find again: `expo-secure-store`
+ * does not enumerate its keys. We NEVER read it: reading it to "migrate" it
+ * would replay exactly the fixed defect, since nothing says which account it
+ * belonged to.
  *
- * Appelée au raccordement plutôt qu'à la déconnexion : un utilisateur qui ne
- * se déconnecte jamais est le cas courant, et c'est justement lui qui garde
- * l'orpheline.
+ * Called at connection setup rather than at logout: a user who never logs out
+ * is the common case, and precisely the one who keeps the orphan.
  */
 export async function purgeLegacyE2EKey(baseUrl: string): Promise<void> {
   await SecureStore.deleteItemAsync(await legacyE2eStorageKey(baseUrl, hash));
 }
 
 /**
- * Le même balayage, sur TOUS les serveurs où une session a existé.
+ * The same sweep, over ALL the servers where a session existed.
  *
- * Purger le seul serveur actif ne suffit pas, et c'est le piège de cette
- * migration : l'utilisateur qui avait déverrouillé E2E sur un serveur puis l'a
- * quitté — bascule, ou déconnexion d'avant la correction, qui n'effaçait pas la
- * clé — garde son JWK RSA déchiffré sous une clé que plus personne ne dérive.
- * « Introuvable » voudrait alors dire **indestructible**.
+ * Purging only the active server is not enough, and that is the trap of this
+ * migration: a user who unlocked E2E on a server then left it (switch, or a
+ * logout from before the fix, which did not erase the key) keeps their
+ * decrypted RSA JWK under a key nobody derives any more. "Unfindable" would
+ * then mean **indestructible**.
  *
- * Le registre `serveurs-connus` existe exactement pour contourner la
- * non-énumérabilité du Keystore, et il est déjà peuplé par les sessions
- * d'avant. Joué une fois par démarrage : quelques suppressions d'entrées
- * absentes, ce que `deleteItemAsync` traite sans erreur.
+ * The `serveurs-connus` registry exists exactly to work around the Keystore's
+ * non-enumerability, and it is already populated by earlier sessions. Run once
+ * per startup: a few deletions of absent entries, which `deleteItemAsync`
+ * handles without error.
  */
 export async function purgeAllLegacyE2EKeys(): Promise<void> {
   for (const url of await listKnownServers()) {
@@ -149,9 +148,9 @@ export async function purgeAllLegacyE2EKeys(): Promise<void> {
 }
 
 /**
- * Le serveur de la dernière session ouverte. Les sessions sont rangées par
- * condensé d'URL : sans ce pointeur, le démarrage ne saurait pas laquelle
- * reprendre. L'étape 5.3 (multi-serveurs) en fera le « serveur actif ».
+ * The server of the last opened session. Sessions are stored by URL digest:
+ * without this pointer, startup would not know which one to resume. Step 5.3
+ * (multi-server) makes it the "active server".
  */
 const LAST_SERVER_KEY = 'dernier-serveur';
 
@@ -164,9 +163,9 @@ export async function readLastServer(): Promise<string | null> {
 }
 
 /**
- * Registre des serveurs où une session a existé. Nécessaire parce que
- * `expo-secure-store` ne sait PAS énumérer ses clés : sans cette liste,
- * impossible de proposer « repasser sur tel serveur ».
+ * Registry of the servers where a session existed. Needed because
+ * `expo-secure-store` CANNOT enumerate its keys: without this list, there is
+ * no way to offer "switch back to that server".
  */
 const KNOWN_SERVERS_KEY = 'serveurs-connus';
 
@@ -189,15 +188,14 @@ export async function saveKnownServer(baseUrl: string): Promise<void> {
 }
 
 /**
- * Le dernier jeton FCM qu'on a enregistré auprès d'un serveur.
+ * The last FCM token we registered with a server.
  *
- * Retenu à l'ENREGISTREMENT, pas au moment de s'en servir. La déconnexion en
- * avait besoin et le redemandait à `obtenirJetonFcm()`, ce qui a deux défauts :
- * la fonction crée le canal de notification et appelle
- * `requestPermissionsAsync()` — se déconnecter pouvait donc faire surgir un
- * prompt système —, et sur un appareil sans Play Services elle ne rend rien du
- * tout, si bien qu'aucun `DELETE` n'était même tenté. Le jeton FCM est propre à
- * l'APPAREIL, pas au serveur : une seule clé suffit.
+ * Remembered at REGISTRATION, not when it is used. Logout needed it and asked
+ * `getFcmToken()` for it again, which has two defects: the function creates the
+ * notification channel and calls `requestPermissionsAsync()` (so logging out
+ * could pop a system prompt), and on a device without Play Services it returns
+ * nothing at all, so no `DELETE` was even attempted. The FCM token belongs to
+ * the DEVICE, not the server: a single key is enough.
  */
 const PUSH_TOKEN_KEY = 'jeton-push-appareil';
 
@@ -210,17 +208,17 @@ export function readRememberedPushToken(): Promise<string | null> {
 }
 
 /**
- * Déconnexions que le réseau n'a pas laissées aboutir, à terminer au prochain
- * démarrage. Voir `lib/deferredLogout.ts` pour le pourquoi.
+ * Logouts the network did not let through, to finish on the next startup. See
+ * `lib/deferredLogout.ts` for why.
  *
- * Même patron que `serveurs-connus` : `expo-secure-store` ne sait pas énumérer
- * ses clés, donc une liste JSON sous une clé fixe. Le nom ne commence
- * délibérément PAS par `session-` : le service natif de notifications balaye
- * les préférences en cherchant ce préfixe (`plugins/with-fcm-deeplink.js`), et
- * mieux vaut ne pas dépendre de ses gardes internes pour l'écarter.
+ * Same pattern as `serveurs-connus`: `expo-secure-store` cannot enumerate its
+ * keys, hence a JSON list under a fixed key. The name deliberately does NOT
+ * start with `session-`: the native notification service scans the
+ * preferences for that prefix (`plugins/with-fcm-deeplink.js`), and it is
+ * better not to rely on its internal guards to skip it.
  *
- * Une entrée par serveur, écrasée si elle existe : se déconnecter deux fois du
- * même serveur ne peut pas faire grandir la file.
+ * One entry per server, overwritten if it exists: logging out twice from the
+ * same server cannot grow the queue.
  */
 const LOGOUTS_KEY = 'deconnexions-en-suspens';
 
@@ -230,8 +228,8 @@ export async function listPendingLogouts(): Promise<PendingLogout[]> {
   try {
     const list = JSON.parse(raw) as unknown;
     if (!Array.isArray(list)) return [];
-    // Parse défensif, comme `lireSession` : une entrée d'une ancienne version
-    // ou tronquée ne doit pas faire échouer tout le démarrage.
+    // Defensive parse, like `readSession`: an entry from an older version or a
+    // truncated one must not fail the whole startup.
     return list.filter(
       (d): d is PendingLogout =>
         typeof (d as PendingLogout)?.baseUrl === 'string' &&

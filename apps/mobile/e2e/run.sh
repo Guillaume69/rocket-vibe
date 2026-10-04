@@ -1,64 +1,63 @@
 #!/usr/bin/env bash
-# Suite E2E Maestro (8.8) : login, envoi, reconnexion, upload, 2FA.
+# Maestro E2E suite (8.8): login, send, reconnect, upload, 2FA.
 #
-#   MAESTRO=/chemin/vers/maestro e2e/run.sh
+#   MAESTRO=/path/to/maestro e2e/run.sh
 #
-# Maestro s'installe depuis la release GitHub officielle (PAS le
-# curl | bash) : https://github.com/mobile-dev-inc/maestro/releases
-# → maestro.zip, décompresser, pointer MAESTRO sur bin/maestro.
+# Maestro is installed from the official GitHub release (NOT the
+# curl | bash): https://github.com/mobile-dev-inc/maestro/releases
+# -> maestro.zip, unzip, point MAESTRO to bin/maestro.
 #
-# Prérequis : AVD démarré, app installée (build dev + Metro), Rocket.Chat
-# local (docker compose up), `adb reverse` posés par scripts/env.sh.
-# Chaque flow est indépendant ; le harnais orchestre l'état entre deux
-# (coupure du lien, 2FA de bob, fichier poussé). En bash : la boucle de
-# travail interdit de compter sur zsh ici (globs, découpage).
+# Prerequisites: AVD started, app installed (dev build + Metro), local
+# Rocket.Chat (docker compose up), `adb reverse` set by scripts/env.sh.
+# Each flow is independent; the harness orchestrates the state between two
+# (link cut, bob's 2FA, pushed file). In bash: the work loop forbids relying
+# on zsh here (globs, word splitting).
 set -euo pipefail
 
 ICI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RACINE="$(dirname "$ICI")"
 MAESTRO="${MAESTRO:-maestro}"
 SERVEUR="${SERVEUR:-http://localhost:3000}"
-# TOUJOURS l'émulateur : un téléphone personnel branché ne doit jamais
-# recevoir la suite par accident.
+# ALWAYS the emulator: a personal phone plugged in must never receive the
+# suite by accident.
 export ANDROID_SERIAL="${ANDROID_SERIAL:-emulator-5554}"
 MAESTRO_ARGS=(--device "$ANDROID_SERIAL")
 HORODATAGE="$(date +%s)"
 FICHIER_SECRET="/tmp/rocket-vibe-e2e-2fa-secret"
 
-# Le dev-client crashe parfois en natif (SIGSEGV Fabric,
-# `MountingCoordinator::pullTransaction`, mesuré ~2 démarrages sur 8) au
-# premier chargement du bundle après `clearState` — jamais en release (0/8),
-# jamais une fois l'app lancée. Apparu avec reanimated 4.5 (8.9) ; en
-# attendant un correctif amont, les flows qui partent d'un état VIERGE ont
-# droit à un second essai. Pas les autres : rejouer 02/04 reposterait le
-# même message.
+# The dev-client sometimes crashes natively (Fabric SIGSEGV,
+# `MountingCoordinator::pullTransaction`, measured ~2 startups out of 8) on
+# the first bundle load after `clearState`; never in release (0/8), never
+# once the app is running. Appeared with reanimated 4.5 (8.9); until an
+# upstream fix, flows starting from a BLANK state get a second try. Not the
+# others: replaying 02/04 would post the same message again.
 maestro_retry_froid() {
   if ! "$MAESTRO" "${MAESTRO_ARGS[@]}" test "$@"; then
-    echo "   (second essai : crash connu du dev-client au démarrage à froid)"
+    echo "   (second try: known dev-client crash on cold start)"
     "$MAESTRO" "${MAESTRO_ARGS[@]}" test "$@"
   fi
 }
 
-# Un run précédent interrompu a pu laisser la 2FA de bob active — les flows
-# 03 et 05 en dépendent : on nettoie d'ENTRÉE avec le secret persisté.
+# An interrupted previous run may have left bob's 2FA active; flows 03 and
+# 05 depend on it: we clean up UP FRONT with the persisted secret.
 if [ -s "$FICHIER_SECRET" ]; then
   node "$ICI/harness/two-factor.mjs" disable "$(cat "$FICHIER_SECRET")" || true
   rm -f "$FICHIER_SECRET"
 fi
 
-echo "== 01 connexion (alice)"
+echo "== 01 login (alice)"
 maestro_retry_froid "$ICI/flows/01-login.yaml" \
   -e SERVEUR="$SERVEUR" -e UTILISATEUR=alice -e MOT_DE_PASSE=alice-dev-2026
 
-echo "== 02 envoi"
+echo "== 02 send"
 "$MAESTRO" "${MAESTRO_ARGS[@]}" test "$ICI/flows/02-send.yaml" -e MSG="e2e-envoi-$HORODATAGE"
-# L'assert Maestro serait satisfait par le rendu OPTIMISTE seul : la
-# vérité vient du serveur.
+# The Maestro assert would be satisfied by the OPTIMISTIC render alone: the
+# truth comes from the server.
 node "$ICI/harness/check-server.mjs" "e2e-envoi-$HORODATAGE"
 
-echo "== 03 reconnexion (coupure du lien pendant que bob poste)"
-# Quoi qu'il arrive entre la coupure et la fin, le lien est RÉTABLI :
-# sans ce trap, un échec au milieu laisserait l'émulateur hors ligne.
+echo "== 03 reconnect (link cut while bob posts)"
+# Whatever happens between the cut and the end, the link is RESTORED:
+# without this trap, a failure midway would leave the emulator offline.
 retablir_lien() { adb reverse tcp:3000 tcp:3000 >/dev/null 2>&1 || true; }
 trap retablir_lien EXIT
 adb reverse --remove tcp:3000 || true
@@ -68,9 +67,9 @@ retablir_lien
 trap - EXIT
 "$MAESTRO" "${MAESTRO_ARGS[@]}" test "$ICI/flows/03-reconnect.yaml" -e MSG="e2e-reconnexion-$HORODATAGE"
 
-echo "== 04 upload (picker système)"
+echo "== 04 upload (system picker)"
 FICHIER="e2e-image-$HORODATAGE.png"
-# Un PNG 1×1 valide, généré localement — rien à versionner.
+# A valid 1x1 PNG, generated locally: nothing to version.
 printf '\x89PNG\r\n\x1a\n' > "/tmp/$FICHIER"
 python3 - "$FICHIER" <<'PY'
 import struct, sys, zlib
@@ -86,34 +85,34 @@ adb push "/tmp/$FICHIER" "/sdcard/Download/$FICHIER" >/dev/null
 adb shell cmd media scan "/sdcard/Download/$FICHIER" >/dev/null 2>&1 || true
 "$MAESTRO" "${MAESTRO_ARGS[@]}" test "$ICI/flows/04-upload.yaml" \
   -e LEGENDE="e2e-upload-$HORODATAGE" -e FICHIER="$FICHIER"
-# L'assert Maestro peut matcher la légende encore dans le COMPOSER : la
-# vérité (message + fichier joint) vient du serveur.
-node "$ICI/harness/check-server.mjs" "e2e-upload-$HORODATAGE" --fichier
+# The Maestro assert can match the caption still in the COMPOSER: the
+# truth (message + attached file) comes from the server.
+node "$ICI/harness/check-server.mjs" "e2e-upload-$HORODATAGE" --file
 
-echo "== 05 deux facteurs (TOTP sur bob)"
+echo "== 05 two factors (TOTP on bob)"
 SECRET="$(node "$ICI/harness/two-factor.mjs" enable)"
 printf '%s' "$SECRET" > "$FICHIER_SECRET"
 nettoyer_2fa() { node "$ICI/harness/two-factor.mjs" disable "$SECRET" || true; }
 trap nettoyer_2fa EXIT
-# Le retry recalcule son TOTP : celui du premier essai serait périmé (et
-# Rocket.Chat refuse la RÉUTILISATION d'un code déjà consommé).
+# The retry recomputes its TOTP: the first try's would be stale (and
+# Rocket.Chat refuses REUSE of an already consumed code).
 if ! "$MAESTRO" "${MAESTRO_ARGS[@]}" test "$ICI/flows/05-two-factor.yaml" \
   -e SERVEUR="$SERVEUR" -e MOT_DE_PASSE=bob-dev-2026 \
   -e TOTP="$(node "$ICI/harness/totp.mjs" "$SECRET" +30)"; then
-  echo "   (second essai : crash connu du dev-client au démarrage à froid)"
+  echo "   (second try: known dev-client crash on cold start)"
   "$MAESTRO" "${MAESTRO_ARGS[@]}" test "$ICI/flows/05-two-factor.yaml" \
     -e SERVEUR="$SERVEUR" -e MOT_DE_PASSE=bob-dev-2026 \
     -e TOTP="$(node "$ICI/harness/totp.mjs" "$SECRET" +30)"
 fi
 trap - EXIT
-# Le nettoyage FINAL n'est pas optionnel : un disable raté avec un secret
-# perdu bloque tous les runs suivants (le || true du trap ne couvre que le
-# chemin d'ÉCHEC de la suite, où l'erreur d'origine prime).
+# The FINAL cleanup is not optional: a failed disable with a lost secret
+# blocks every following run (the trap's || true only covers the suite's
+# FAILURE path, where the original error takes precedence).
 node "$ICI/harness/two-factor.mjs" disable "$SECRET"
 rm -f "$FICHIER_SECRET"
 
-echo "== remise en état : session alice"
+echo "== restore: alice session"
 maestro_retry_froid "$ICI/flows/01-login.yaml" \
   -e SERVEUR="$SERVEUR" -e UTILISATEUR=alice -e MOT_DE_PASSE=alice-dev-2026
 
-echo "SUITE E2E VERTE ($RACINE)"
+echo "E2E SUITE GREEN ($RACINE)"

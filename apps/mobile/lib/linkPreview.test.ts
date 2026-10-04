@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 
 import { linkPreviews, metasVideo } from './linkPreview.ts';
 
-// Fixtures calquées sur le relevé réel de `chat.getMessage` (RC 8.5).
+// Fixtures modeled on real `chat.getMessage` output (RC 8.5).
 const IMAGE = {
   url: 'https://www.gstatic.com/webp/gallery/1.png',
   meta: {},
@@ -31,7 +31,7 @@ const YOUTUBE = {
   },
   headers: { contentType: 'application/json' },
 };
-// Tweet VIVANT : X sert des balises og normales (relevé réel sur x.com).
+// LIVE tweet: X serves normal og tags (observed on x.com).
 const LIVE_TWEET = {
   url: 'https://x.com/BarackObama/status/266031293945503744',
   meta: {
@@ -42,32 +42,32 @@ const LIVE_TWEET = {
   },
   headers: { contentType: 'text/html; charset=utf-8' },
 };
-// Lien nu : tweet supprimé (404) ou page sans balises → métas vides.
+// Bare link: deleted tweet (404) or page without tags → empty metas.
 const BARE_LINK = { url: 'https://x.com/qui/status/000', meta: {} };
 
 const json = (arr: unknown[]) => JSON.stringify(arr);
 
-describe('apercusDeLien', () => {
-  test('un lien image (content-type image/*) devient un aperçu image', () => {
+describe('linkPreviews', () => {
+  test('an image link (content-type image/*) becomes an image preview', () => {
     const r = linkPreviews(json([IMAGE]));
     assert.deepEqual(r, [{ type: 'image', url: IMAGE.url }]);
   });
 
-  test('un lien image sans headers est reconnu par son extension', () => {
+  test('an image link without headers is recognized by its extension', () => {
     const r = linkPreviews(json([{ url: 'https://ex.com/chat.jpg', meta: {} }]));
     assert.deepEqual(r, [{ type: 'image', url: 'https://ex.com/chat.jpg' }]);
   });
 
-  test("l'extension image tolère une query et un fragment", () => {
+  test("the image extension tolerates a query and a fragment", () => {
     const r = linkPreviews(json([{ url: 'https://ex.com/p.png?v=2#x', meta: {} }]));
     assert.equal(r.length, 1);
     assert.equal(r[0]!.type, 'image');
   });
 
-  test('un lien qui n’est pas du web ne devient RIEN — ni image, ni carte', () => {
-    // `message.urls` est stocké brut : sans ce filtre, `file:///…jpg`
-    // s'affichait dans le fil (lecture du disque de l'app) et `javascript:`
-    // devenait tapable, alors que le markdown, lui, gardait sa garde.
+  test('a non-web link becomes NOTHING: neither image nor card', () => {
+    // `message.urls` is stored raw: without this filter, `file:///…jpg`
+    // showed in the timeline (reading the app's disk) and `javascript:`
+    // became tappable, while markdown kept its guard.
     for (const u of [
       'file:///data/data/com.rocketvibe.app/files/x.jpg',
       'javascript:alert(1)',
@@ -79,7 +79,7 @@ describe('apercusDeLien', () => {
     }
   });
 
-  test('une vignette non web est retirée, la carte reste', () => {
+  test('a non-web thumbnail is removed, the card stays', () => {
     const r = linkPreviews(
       json([{ url: 'https://ex.com/a', meta: { ogTitle: 'Titre', ogImage: 'file:///etc/x.png' } }]),
     );
@@ -87,17 +87,17 @@ describe('apercusDeLien', () => {
     assert.equal(r[0]!.type === 'card' ? r[0]!.image : 'absente', null);
   });
 
-  test('une carte sans titre dont la vignette est retirée disparaît', () => {
+  test('an untitled card whose thumbnail is removed disappears', () => {
     const r = linkPreviews(json([{ url: 'https://ex.com/a', meta: { ogImage: 'file:///x.png' } }]));
     assert.deepEqual(r, []);
   });
 
-  test('un SVG n’est PAS traité comme image (Image RN ne le rend pas)', () => {
+  test('an SVG is NOT treated as an image (RN Image does not render it)', () => {
     const svg = { url: 'https://ex.com/logo.svg', meta: {}, headers: { contentType: 'image/svg+xml' } };
     assert.deepEqual(linkPreviews(json([svg])), []);
   });
 
-  test('un article OpenGraph devient une carte, og prioritaire sur pageTitle', () => {
+  test('an OpenGraph article becomes a card, og taking precedence over pageTitle', () => {
     const r = linkPreviews(json([ARTICLE]));
     assert.equal(r.length, 1);
     assert.deepEqual(r[0], {
@@ -110,7 +110,7 @@ describe('apercusDeLien', () => {
     });
   });
 
-  test('repli sur les balises twitter quand og manque', () => {
+  test('falls back on twitter tags when og is missing', () => {
     const tw = {
       url: 'https://ex.com/a',
       meta: {
@@ -126,17 +126,17 @@ describe('apercusDeLien', () => {
     assert.equal((r[0] as { image: string }).image, 'https://ex.com/tw.jpg');
   });
 
-  test("le nom de site retombe sur l'hôte (sans www) si absent des métas", () => {
+  test("the site name falls back on the host (without www) if missing from metas", () => {
     const a = { url: 'https://www.lemonde.fr/article', meta: { ogTitle: 'T' }, headers: { contentType: 'text/html' } };
     const r = linkPreviews(json([a]));
     assert.equal((r[0] as { site: string }).site, 'lemonde.fr');
   });
 
-  test('un lien vidéo (YouTube) est EXCLU — il a déjà sa carte dédiée', () => {
+  test('a video link (YouTube) is EXCLUDED: it already has its dedicated card', () => {
     assert.deepEqual(linkPreviews(json([YOUTUBE])), []);
   });
 
-  test('un tweet VIVANT rend une carte avec image ET texte (og génériques)', () => {
+  test('a LIVE tweet yields a card with image AND text (generic og)', () => {
     const r = linkPreviews(json([LIVE_TWEET]));
     assert.equal(r.length, 1);
     assert.deepEqual(r[0], {
@@ -149,11 +149,11 @@ describe('apercusDeLien', () => {
     });
   });
 
-  test('un lien nu (tweet supprimé, page sans balises) est ignoré', () => {
+  test('a bare link (deleted tweet, page without tags) is ignored', () => {
     assert.deepEqual(linkPreviews(json([BARE_LINK])), []);
   });
 
-  test('mélange réaliste : image + article + tweet, la vidéo et le lien nu sautés', () => {
+  test('realistic mix: image + article + tweet, video and bare link skipped', () => {
     const r = linkPreviews(json([IMAGE, ARTICLE, YOUTUBE, LIVE_TWEET, BARE_LINK]));
     assert.deepEqual(
       r.map((a) => a.type),
@@ -161,12 +161,12 @@ describe('apercusDeLien', () => {
     );
   });
 
-  test('déduplique par URL', () => {
+  test('dedupes by URL', () => {
     const r = linkPreviews(json([IMAGE, IMAGE]));
     assert.equal(r.length, 1);
   });
 
-  test('plafonne au maximum demandé', () => {
+  test('caps at the requested maximum', () => {
     const links = Array.from({ length: 5 }, (_, i) => ({
       url: `https://ex.com/${i}`,
       meta: { ogTitle: `T${i}` },
@@ -175,7 +175,7 @@ describe('apercusDeLien', () => {
     assert.equal(linkPreviews(json(links), 3).length, 3);
   });
 
-  test('décode les entités HTML des métas', () => {
+  test('decodes HTML entities in metas', () => {
     const a = {
       url: 'https://ex.com/x',
       meta: { ogTitle: 'Tom &amp; Jerry &#39;96&#39;', ogImage: 'https://ex.com/i.jpg' },
@@ -185,21 +185,21 @@ describe('apercusDeLien', () => {
     assert.equal((r[0] as { title: string }).title, "Tom & Jerry '96'");
   });
 
-  test('entrées invalides : null, JSON cassé, non-tableau → []', () => {
+  test('invalid input: null, broken JSON, non-array → []', () => {
     assert.deepEqual(linkPreviews(null), []);
     assert.deepEqual(linkPreviews(''), []);
     assert.deepEqual(linkPreviews('{pas du json'), []);
     assert.deepEqual(linkPreviews('{"a":1}'), []);
   });
 
-  test('une entrée sans titre ni image (lien nu) est ignorée', () => {
+  test('an entry without title or image (bare link) is ignored', () => {
     const bare = { url: 'https://ex.com/nu', meta: {}, headers: { contentType: 'text/html' } };
     assert.deepEqual(linkPreviews(json([bare])), []);
   });
 });
 
 describe('metasVideo', () => {
-  // L'URL brute du serveur porte playlist et `utm_*` : c'est l'id qui recolle.
+  // The server's raw URL carries playlist and `utm_*`: the id is what matches.
   const YT = {
     url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL1&utm_source=x',
     meta: {
@@ -209,7 +209,7 @@ describe('metasVideo', () => {
     },
   };
 
-  test('indexe titre et auteur par id de vidéo, entités décodées', () => {
+  test('indexes title and author by video id, entities decoded', () => {
     const m = metasVideo(json([YT]));
     assert.deepEqual(m.get('dQw4w9WgXcQ'), {
       title: 'Rick Astley - Never Gonna Give You Up',
@@ -217,13 +217,13 @@ describe('metasVideo', () => {
     });
   });
 
-  test('ignore ce qui n’est pas une vidéo, et les vidéos sans méta', () => {
+  test('ignores non-videos, and videos without meta', () => {
     const bare = { url: 'https://youtu.be/aaaaaaaaaaa', meta: {} };
     const m = metasVideo(json([ARTICLE, bare]));
     assert.equal(m.size, 0);
   });
 
-  test('entrées invalides → map vide', () => {
+  test('invalid input → empty map', () => {
     assert.equal(metasVideo(null).size, 0);
     assert.equal(metasVideo('{pas du json').size, 0);
   });

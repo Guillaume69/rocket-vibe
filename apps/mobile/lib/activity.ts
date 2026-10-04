@@ -1,25 +1,25 @@
 /**
- * Suivi de l'activité réseau de fond, pour l'indicateur « mise à jour… ».
+ * Tracking of background network activity, for the "updating..." indicator.
  *
- * Le raccordement — rattrapage global à l'ouverture, historique d'un salon à
- * son ouverture — part en tir-et-oublie (voir `ui/sync.tsx`) : le cache
- * s'affiche aussitôt, mais RIEN ne dit qu'un fetch le rafraîchit. Ce magasin
- * volatil compte les fetches EN VOL par portée (`'global'`, ou un `rid`) ;
- * l'UI le lit via `useSyncExternalStore` (`ui/activity.ts`), comme la présence.
+ * Connection setup (global catch-up on launch, a room's history when it is
+ * opened) runs fire-and-forget (see `ui/sync.tsx`): the cache shows at once,
+ * but NOTHING says a fetch is refreshing it. This volatile store counts the
+ * fetches IN FLIGHT per scope (`'global'`, or a `rid`); the UI reads it via
+ * `useSyncExternalStore` (`ui/activity.ts`), like presence.
  *
- * Un COMPTEUR, pas un booléen : deux fetches concurrents sur la même portée
- * (le rattrapage d'un salon pendant que son historique se charge) ne doivent
- * pas s'éteindre l'un l'autre — la portée reste allumée tant qu'il en reste un.
+ * A COUNTER, not a boolean: two concurrent fetches on the same scope (a room's
+ * catch-up while its history loads) must not switch each other off; the scope
+ * stays on as long as one remains.
  */
 export class ActivityEngine {
   private readonly counters = new Map<string, number>();
   private readonly subscribers = new Set<() => void>();
 
   /**
-   * Enveloppe un fetch : allume la portée le temps du travail, l'éteint à la
-   * fin — succès COMME échec (`finally`), pour ne jamais laisser un compteur
-   * bloqué en l'air. Rejette comme la promesse d'origine : l'appelant (le
-   * pilote de reconnexion) garde sa gestion d'erreur intacte.
+   * Wraps a fetch: switches the scope on for the duration of the work, off at
+   * the end, on success AND failure (`finally`), so a counter is never left
+   * stuck. Rejects like the original promise: the caller (the reconnect
+   * driver) keeps its error handling intact.
    */
   async track<T>(key: string, work: Promise<T>): Promise<T> {
     this.adjust(key, 1);
@@ -30,7 +30,7 @@ export class ActivityEngine {
     }
   }
 
-  /** `true` tant qu'au moins un fetch est en vol pour cette portée. */
+  /** `true` while at least one fetch is in flight for this scope. */
   active(key: string): boolean {
     return (this.counters.get(key) ?? 0) > 0;
   }
@@ -47,9 +47,9 @@ export class ActivityEngine {
     const after = before + delta;
     if (after <= 0) this.counters.delete(key);
     else this.counters.set(key, after);
-    // Ne notifier que si l'état BOOLÉEN de la portée a basculé : un second
-    // fetch concurrent (1→2, 2→1) ne re-rend personne — seuls comptent
-    // l'allumage (0→1) et l'extinction (1→0).
+    // Notify only if the scope's BOOLEAN state flipped: a second concurrent
+    // fetch (1→2, 2→1) re-renders nobody; only switching on (0→1) and off
+    // (1→0) count.
     if (before > 0 !== after > 0) {
       for (const reread of this.subscribers) reread();
     }

@@ -17,7 +17,7 @@ import {
 } from './attachment.ts';
 
 const PROTECTED_URL =
-  'https://chat.barrut.me/file-upload/BsN3iJPmA9pdCTNq7/rapport.pdf?rc_uid=uid-alice&rc_token=jeton-alice';
+  'https://chat.barrut.me/file-upload/BsN3iJPmA9pdCTNq7/report.pdf?rc_uid=uid-alice&rc_token=token-alice';
 
 type Log = {
   folders: string[];
@@ -108,8 +108,8 @@ describe('fileKey', () => {
 
   test('two files with the same name do not share a folder', () => {
     assert.notEqual(
-      fileKey('/file-upload/aaa/facture.pdf'),
-      fileKey('/file-upload/bbb/facture.pdf'),
+      fileKey('/file-upload/aaa/invoice.pdf'),
+      fileKey('/file-upload/bbb/invoice.pdf'),
     );
   });
 
@@ -129,7 +129,7 @@ describe('openAttachment', () => {
     const b = bench();
     await openAttachment({
       url: PROTECTED_URL,
-      title: 'rapport.pdf',
+      title: 'report.pdf',
       type: 'application/pdf',
       folder: 'file:///cache/',
       ...b.natives,
@@ -150,12 +150,12 @@ describe('openAttachment', () => {
     const b = bench();
     const destination = await openAttachment({
       url: PROTECTED_URL,
-      title: 'rapport.pdf',
+      title: 'report.pdf',
       type: null,
       folder: 'file:///cache/',
       ...b.natives,
     });
-    assert.equal(destination, 'file:///cache/jointes/BsN3iJPmA9pdCTNq7/rapport.pdf');
+    assert.equal(destination, 'file:///cache/jointes/BsN3iJPmA9pdCTNq7/report.pdf');
     assert.deepEqual(b.log.folders, ['file:///cache/jointes/BsN3iJPmA9pdCTNq7/']);
   });
 
@@ -187,25 +187,25 @@ describe('openAttachment', () => {
   test('without a title, the name comes from the URL, decoded and without the query', async () => {
     const b = bench();
     const destination = await openAttachment({
-      url: 'https://h/file-upload/id1/mon%20rapport.pdf?rc_uid=u&rc_token=t',
+      url: 'https://h/file-upload/id1/my%20report.pdf?rc_uid=u&rc_token=t',
       title: null,
       type: null,
       folder: 'file:///cache/',
       ...b.natives,
     });
-    assert.equal(destination, 'file:///cache/jointes/id1/mon rapport.pdf');
+    assert.equal(destination, 'file:///cache/jointes/id1/my report.pdf');
   });
 
   test('a blank title falls back to the URL name', async () => {
     const b = bench();
     const destination = await openAttachment({
-      url: 'https://h/file-upload/id1/vrai-nom.pdf',
+      url: 'https://h/file-upload/id1/real-name.pdf',
       title: '   ',
       type: null,
       folder: 'file:///cache/',
       ...b.natives,
     });
-    assert.equal(destination, 'file:///cache/jointes/id1/vrai-nom.pdf');
+    assert.equal(destination, 'file:///cache/jointes/id1/real-name.pdf');
   });
 
   test('an empty type is passed as null, not as an empty string', async () => {
@@ -247,16 +247,16 @@ describe('openAttachment', () => {
       type: null,
       folder: 'file:///cache/',
       createFolder: async () => {
-        order.push('dossier');
+        order.push('folder');
       },
       download: async () => {
-        order.push('telecharge');
+        order.push('download');
       },
       share: async () => {
-        order.push('partage');
+        order.push('share');
       },
     });
-    assert.deepEqual(order, ['dossier', 'telecharge', 'partage']);
+    assert.deepEqual(order, ['folder', 'download', 'share']);
   });
 });
 
@@ -295,7 +295,7 @@ describe('attachmentToShare', () => {
   test('file of an encrypted room: its key follows, to decrypt it', () => {
     const attachments = JSON.stringify([
       {
-        title: 'rapport.pdf',
+        title: 'report.pdf',
         title_link: '/file-upload/f1/5f2b.bin',
         encryption: { key: { kty: 'oct', k: 'Y2xl' }, iv: 'aXY=' },
         hashes: { sha256: 'abc' },
@@ -316,7 +316,7 @@ describe('attachmentToShare', () => {
 
   test('nothing usable: null', () => {
     assert.equal(attachmentToShare(null), null);
-    assert.equal(attachmentToShare('pas du json'), null);
+    assert.equal(attachmentToShare('not json'), null);
     assert.equal(attachmentToShare('{}'), null);
     assert.equal(attachmentToShare(JSON.stringify([{ text: 'embed' }])), null);
   });
@@ -348,9 +348,9 @@ describe('toGallery', () => {
   });
 
   test('the rest goes to a folder', () => {
-    assert.equal(toGallery('rapport.pdf', 'application/pdf'), false);
+    assert.equal(toGallery('report.pdf', 'application/pdf'), false);
     assert.equal(toGallery('archive.zip', null), false);
-    assert.equal(toGallery('sans-extension', null), false);
+    assert.equal(toGallery('no-extension', null), false);
   });
 });
 

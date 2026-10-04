@@ -36,7 +36,7 @@ describe('continuationIds', () => {
   });
 
   test('the "new messages" bar breaks: the first unread keeps its header', () => {
-    const desc = [m('m2', 1000, 'bob'), { bar: true as const, id: 'barre-nouveaux' }, m('m1', 0, 'bob')];
+    const desc = [m('m2', 1000, 'bob'), { bar: true as const, id: 'unread-bar' }, m('m1', 0, 'bob')];
     assert.deepEqual(continuationIds(desc, 'newest-first'), new Set());
   });
 
@@ -45,7 +45,7 @@ describe('continuationIds', () => {
     // inserted between them (ui/daySeparator) breaks the group.
     const desc = [
       m('m2', 242_000, 'bob'),
-      { day: true, id: 'jour-20260801', ts: 242_000 },
+      { day: true, id: 'day-20260801', ts: 242_000 },
       m('m1', 2_000, 'bob'),
     ];
     assert.deepEqual(continuationIds(desc, 'newest-first'), new Set());

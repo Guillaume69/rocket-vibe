@@ -16,7 +16,7 @@
 
 export type BarRow = { bar: true; id: string };
 
-export const UNREAD_BAR_ID = 'barre-nouveaux';
+export const UNREAD_BAR_ID = 'unread-bar';
 
 /**
  * `dataDesc`: the room's messages, newest to oldest.

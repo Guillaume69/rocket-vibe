@@ -403,24 +403,24 @@ mod tests {
     #[test]
     fn list_breaks_continue_bullets_and_numbers() {
         let at_end = |t: &str| list_break(t, t.chars().count()).map(|e| (e.text, e.start));
-        assert_eq!(at_end("- un"), Some(("- un\n- ".into(), 7)));
-        assert_eq!(at_end("intro\n* un"), Some(("intro\n* un\n* ".into(), 13)));
-        assert_eq!(at_end("9. neuf"), Some(("9. neuf\n10. ".into(), 12)));
-        assert_eq!(at_end("  - sous"), Some(("  - sous\n  - ".into(), 13)));
-        assert_eq!(at_end("- un\n- "), Some(("- un\n".into(), 5)));
-        assert_eq!(at_end("- un\n3. "), Some(("- un\n".into(), 5)));
+        assert_eq!(at_end("- one"), Some(("- one\n- ".into(), 8)));
+        assert_eq!(at_end("intro\n* one"), Some(("intro\n* one\n* ".into(), 14)));
+        assert_eq!(at_end("9. nine"), Some(("9. nine\n10. ".into(), 12)));
+        assert_eq!(at_end("  - sub"), Some(("  - sub\n  - ".into(), 12)));
+        assert_eq!(at_end("- one\n- "), Some(("- one\n".into(), 6)));
+        assert_eq!(at_end("- one\n3. "), Some(("- one\n".into(), 6)));
         assert_eq!(at_end("plain"), None);
         assert_eq!(at_end("-dash"), None);
         assert_eq!(at_end("```\n- in code"), None);
         assert_eq!(at_end("```\ncode\n```\n- after"), Some(("```\ncode\n```\n- after\n- ".into(), 23)));
-        assert_eq!(list_break("- un deux", 4).map(|e| e.text), Some("- un\n-  deux".into()));
-        assert_eq!(list_break("- un", 1), None);
+        assert_eq!(list_break("- one two", 5).map(|e| e.text), Some("- one\n-  two".into()));
+        assert_eq!(list_break("- one", 1), None);
     }
 
     #[test]
     fn fences_get_lines_of_their_own() {
-        assert_eq!(fenced("```\n- un\n- deux```"), "```\n- un\n- deux\n```");
-        assert_eq!(fenced("```- un\n- deux```"), "```\n- un\n- deux\n```");
+        assert_eq!(fenced("```\n- one\n- two```"), "```\n- one\n- two\n```");
+        assert_eq!(fenced("```- one\n- two```"), "```\n- one\n- two\n```");
         assert_eq!(fenced("```-ZOB-```"), "```\n-ZOB-\n```");
         assert_eq!(fenced("see ```x```"), "see ```x```");
         assert_eq!(fenced("```rust\nfn a() {}\n``` done"), "```rust\nfn a() {}\n```\ndone");
@@ -476,9 +476,9 @@ mod tests {
 
     #[test]
     fn words_worth_checking() {
-        let text = "Salut l'équipe, voyez https://x.fr @bob #général :smile: `codé` v2 à-propos *gras*";
+        let text = "Hello team's café, see https://x.org @bob #général :smile: `codé` v2 à-la-carte *bold*";
         let found: Vec<String> = words(text).iter().map(|&(a, b)| text.chars().skip(a).take(b - a).collect()).collect();
-        assert_eq!(found, ["Salut", "l'équipe", "voyez", "à-propos", "gras"]);
+        assert_eq!(found, ["Hello", "team's", "café", "see", "à-la-carte", "bold"]);
     }
 
     #[test]

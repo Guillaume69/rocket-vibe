@@ -92,7 +92,7 @@ function migratedDb(): DatabaseSync {
 function msg(o: Partial<LocalMessage> & { id: string; updatedAt: number }) {
   return messageParams({
     rid: 'rid-1',
-    text: 'bonjour',
+    text: 'hello',
     ts: 1000,
     authorId: 'u1',
     authorName: 'alice',
@@ -173,10 +173,10 @@ describe('upserts idempotents', () => {
   test('an OLDER event does not overwrite a more recent state', () => {
     // Real scenario: a REST catch-up, started after a reconnection, delivers the
     // version of a message that the WebSocket has updated since.
-    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'récent', updatedAt: 200 }));
-    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'ancien', updatedAt: 100 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'recent', updatedAt: 200 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'old', updatedAt: 100 }));
     const m = row(db.prepare('SELECT text, updated_at FROM messages WHERE id = ?').get('m1'));
-    assert.deepEqual(m, { text: 'récent', updated_at: 200 }, 'the past must not win');
+    assert.deepEqual(m, { text: 'recent', updated_at: 200 }, 'the past must not win');
   });
 
   test('threads (8.3): threadLast and threadShown round-trip, NON-default values', () => {
@@ -185,7 +185,7 @@ describe('upserts idempotents', () => {
     db.prepare(UPSERT_MESSAGE).run(
       ...msg({
         id: 'm1',
-        threadId: 'racine',
+        threadId: 'root',
         threadCount: 7,
         threadLast: 4242,
         threadShown: true,
@@ -201,7 +201,7 @@ describe('upserts idempotents', () => {
         .get('m1'),
     );
     assert.deepEqual(m, {
-      thread_id: 'racine',
+      thread_id: 'root',
       thread_count: 7,
       thread_last: 4242,
       thread_shown: 1,
@@ -246,10 +246,10 @@ describe('upserts idempotents', () => {
   });
 
   test('rooms follow the same precedence rule', () => {
-    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', name: 'récent', updatedAt: 200 }));
-    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', name: 'ancien', updatedAt: 100 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', name: 'recent', updatedAt: 200 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', name: 'old', updatedAt: 100 }));
     const s = row(db.prepare('SELECT name FROM rooms WHERE rid = ?').get('r1'));
-    assert.deepEqual(s, { name: 'récent' });
+    assert.deepEqual(s, { name: 'recent' });
   });
 
   test('a MORE RECENT partial document erases neither the name nor the timestamp', () => {
@@ -261,7 +261,7 @@ describe('upserts idempotents', () => {
       ...room({
         rid: 'r1',
         displayName: 'bob',
-        lastMessage: 'salut',
+        lastMessage: 'hi',
         lastMessageTs: 50,
         updatedAt: 100,
       }),
@@ -270,7 +270,7 @@ describe('upserts idempotents', () => {
       ...room({
         rid: 'r1',
         displayName: null,
-        lastMessage: 'salut',
+        lastMessage: 'hi',
         lastMessageTs: null,
         updatedAt: 200,
       }),
@@ -295,7 +295,7 @@ describe('upserts idempotents', () => {
     // stream and `rooms.get`). Preserving it froze the deleted message in the
     // list for life: no catch-up could dislodge it anymore.
     db.prepare(UPSERT_ROOM).run(
-      ...room({ rid: 'r1', lastMessage: 'le dernier', updatedAt: 100 }),
+      ...room({ rid: 'r1', lastMessage: 'the last one', updatedAt: 100 }),
     );
     db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', lastMessage: null, updatedAt: 200 }));
     const s = row(db.prepare('SELECT last_message FROM rooms WHERE rid = ?').get('r1'));
@@ -308,25 +308,25 @@ describe('upserts idempotents', () => {
     // locally decrypted messages; a `rooms-changed` must not sweep it away in
     // passing.
     db.prepare(UPSERT_ROOM).run(
-      ...room({ rid: 'r1', encrypted: true, lastMessage: 'clair local', updatedAt: 100 }),
+      ...room({ rid: 'r1', encrypted: true, lastMessage: 'local plaintext', updatedAt: 100 }),
     );
     db.prepare(UPSERT_ROOM).run(
       ...room({ rid: 'r1', encrypted: true, lastMessage: null, updatedAt: 200 }),
     );
     const s = row(db.prepare('SELECT last_message FROM rooms WHERE rid = ?').get('r1'));
-    assert.deepEqual(s, { last_message: 'clair local' });
+    assert.deepEqual(s, { last_message: 'local plaintext' });
   });
 
   test('a more recent non-null name does replace the old one', () => {
-    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', displayName: 'avant', updatedAt: 100 }));
-    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', displayName: 'après', updatedAt: 200 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', displayName: 'before', updatedAt: 100 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', displayName: 'after', updatedAt: 200 }));
     const s = row(db.prepare('SELECT display_name FROM rooms WHERE rid = ?').get('r1'));
-    assert.deepEqual(s, { display_name: 'après' });
+    assert.deepEqual(s, { display_name: 'after' });
   });
 
   test('subscriptions too: unread counts reset to zero do not reappear', () => {
-    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'r1', unread: 0, updatedAt: 200 })); // je viens de lire
-    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'r1', unread: 7, updatedAt: 100 })); // rattrapage
+    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'r1', unread: 0, updatedAt: 200 })); // I just read it
+    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'r1', unread: 7, updatedAt: 100 })); // catch-up
     const a = row(db.prepare('SELECT unread FROM subscriptions WHERE rid = ?').get('r1'));
     assert.deepEqual(a, { unread: 0 });
   });
@@ -377,14 +377,14 @@ describe('upserts idempotents', () => {
   test('an optimistic message (updated_at = 0) is ALWAYS overwritten by the server', () => {
     // The optimistic UI inserts with 0: any server version (>= 0) must win, and
     // the optimistic one must never overwrite a real version.
-    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'optimiste', updatedAt: 0 }));
-    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'serveur', updatedAt: 5 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'optimistic', updatedAt: 0 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'server', updatedAt: 5 }));
     let m = row(db.prepare('SELECT text FROM messages WHERE id = ?').get('m1'));
-    assert.deepEqual(m, { text: 'serveur' });
+    assert.deepEqual(m, { text: 'server' });
 
-    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'optimiste-rejoué', updatedAt: 0 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'optimistic-replayed', updatedAt: 0 }));
     m = row(db.prepare('SELECT text FROM messages WHERE id = ?').get('m1'));
-    assert.deepEqual(m, { text: 'serveur' }, "the optimistic one never downgrades the real one");
+    assert.deepEqual(m, { text: 'server' }, "the optimistic one never downgrades the real one");
   });
 
   test('the server `ts` corrects the optimistic timestamp (suspicious local clock)', () => {
@@ -409,15 +409,15 @@ describe('upserts idempotents', () => {
   });
 });
 
-describe('file d’envoi (outbox)', () => {
+describe('outbox', () => {
   test('the cycle pending -> failed -> resend -> deleted', () => {
-    db.prepare(INSERT_OUTBOX).run('a'.repeat(24), 'r1', 'bonjour', null, 1000);
+    db.prepare(INSERT_OUTBOX).run('a'.repeat(24), 'r1', 'hello', null, 1000);
 
     let wait = db.prepare(LIST_OUTBOX_TO_SEND).all().map(row);
     assert.equal(wait.length, 1);
     assert.equal(wait[0].status, 'pending');
 
-    db.prepare(MARK_OUTBOX_FAILED).run('500 oups', 'a'.repeat(24));
+    db.prepare(MARK_OUTBOX_FAILED).run('500 oops', 'a'.repeat(24));
     wait = db.prepare(LIST_OUTBOX_TO_SEND).all().map(row);
     assert.equal(wait.length, 1, 'a failure stays a replay candidate');
     assert.equal(wait[0].status, 'failed');
@@ -428,10 +428,10 @@ describe('file d’envoi (outbox)', () => {
   });
 
   test('the replay lists in creation order', () => {
-    db.prepare(INSERT_OUTBOX).run('b'.repeat(24), 'r1', 'deuxième', null, 2000);
-    db.prepare(INSERT_OUTBOX).run('c'.repeat(24), 'r1', 'premier', null, 1000);
+    db.prepare(INSERT_OUTBOX).run('b'.repeat(24), 'r1', 'second', null, 2000);
+    db.prepare(INSERT_OUTBOX).run('c'.repeat(24), 'r1', 'first', null, 1000);
     const orders = db.prepare(LIST_OUTBOX_TO_SEND).all().map((l) => row(l).text);
-    assert.deepEqual(orders, ['premier', 'deuxième']);
+    assert.deepEqual(orders, ['first', 'second']);
   });
 });
 
@@ -453,7 +453,7 @@ function upload(o: Partial<Record<string, unknown>> & { id: string }) {
 describe('upload queue', () => {
   test('the columns read back are EXACTLY those of the `UploadRow` type', () => {
     db.prepare(INSERT_UPLOAD).run(
-      ...upload({ id: 't1', caption: 'ma légende', uri: 'file:///photo.jpg' }),
+      ...upload({ id: 't1', caption: 'my caption', uri: 'file:///photo.jpg' }),
     );
     const rows = db.prepare(LIST_UPLOADS_TO_SEND).all().map(row);
     assert.equal(rows.length, 1);
@@ -465,7 +465,7 @@ describe('upload queue', () => {
       uri: 'file:///photo.jpg',
       name: 'a.png',
       type: 'image/png',
-      caption: 'ma légende',
+      caption: 'my caption',
       status: 'pending',
       // SNAKE column: `db/store.ts` must map it to `fileId`, as it already does
       // for `thread_id` in the outbox.
@@ -487,7 +487,7 @@ describe('upload queue', () => {
     db.prepare(INSERT_UPLOAD).run(...upload({ id: 't1' }));
     assert.equal(db.prepare(LIST_UPLOADS_TO_SEND).all().length, 1);
 
-    db.prepare(MARK_UPLOAD_FAILED).run('413 trop gros', 't1');
+    db.prepare(MARK_UPLOAD_FAILED).run('413 too large', 't1');
     assert.equal(
       db.prepare(LIST_UPLOADS_TO_SEND).all().length,
       0,
@@ -496,7 +496,7 @@ describe('upload queue', () => {
     // The row still EXISTS: it is what the banner shows.
     const stayed = row(db.prepare('SELECT status, last_error FROM uploads WHERE id = ?').get('t1'));
     assert.equal(stayed.status, 'failed');
-    assert.equal(stayed.last_error, '413 trop gros', "the reason is kept for the UI");
+    assert.equal(stayed.last_error, '413 too large', "the reason is kept for the UI");
 
     db.prepare(REARM_UPLOAD).run('t1');
     const rearmed = db.prepare(LIST_UPLOADS_TO_SEND).all().map(row);
@@ -530,7 +530,7 @@ describe('upload queue', () => {
     db.prepare(INSERT_UPLOAD).run(...upload({ id: 't1' }));
     db.prepare(INSERT_UPLOAD).run(...upload({ id: 't2' }));
     db.prepare(MARK_UPLOAD_IN_FLIGHT).run('t1');
-    db.prepare(MARK_UPLOAD_FAILED).run('refusé', 't2');
+    db.prepare(MARK_UPLOAD_FAILED).run('refused', 't2');
 
     db.prepare(REARM_IN_FLIGHT_UPLOADS).run(JSON.stringify([]));
 
@@ -548,14 +548,14 @@ describe('upload queue', () => {
    */
   test('a row still in flight in THIS runtime is NOT re-armed', () => {
     db.prepare(INSERT_UPLOAD).run(...upload({ id: 'enVol' }));
-    db.prepare(INSERT_UPLOAD).run(...upload({ id: 'orphelin' }));
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 'orphan' }));
     db.prepare(MARK_UPLOAD_IN_FLIGHT).run('enVol');
-    db.prepare(MARK_UPLOAD_IN_FLIGHT).run('orphelin');
+    db.prepare(MARK_UPLOAD_IN_FLIGHT).run('orphan');
 
     db.prepare(REARM_IN_FLIGHT_UPLOADS).run(JSON.stringify(['enVol']));
 
     const ids = db.prepare(LIST_UPLOADS_TO_SEND).all().map((l) => row(l).id);
-    assert.deepEqual(ids, ['orphelin'], 'seul l’orphelin repart');
+    assert.deepEqual(ids, ['orphan'], 'only the orphan goes again');
     const survivor = row(db.prepare('SELECT status FROM uploads WHERE id = ?').get('enVol'));
     assert.equal(survivor.status, 'sending', 'the in-flight row keeps its claim');
   });
@@ -563,11 +563,11 @@ describe('upload queue', () => {
   test('the replay order breaks ties between creations in the same millisecond', () => {
     // `app/share.tsx` inserts N items in a tight loop: `Date.now()` may return
     // the same value for several.
-    db.prepare(INSERT_UPLOAD).run(...upload({ id: 'b', name: 'deux', createdAt: 7 }));
-    db.prepare(INSERT_UPLOAD).run(...upload({ id: 'a', name: 'un', createdAt: 7 }));
-    db.prepare(INSERT_UPLOAD).run(...upload({ id: 'c', name: 'trois', createdAt: 8 }));
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 'b', name: 'two', createdAt: 7 }));
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 'a', name: 'one', createdAt: 7 }));
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 'c', name: 'three', createdAt: 8 }));
     const names = db.prepare(LIST_UPLOADS_TO_SEND).all().map((l) => row(l).name);
-    assert.deepEqual(names, ['un', 'deux', 'trois'], 'total order, never undefined');
+    assert.deepEqual(names, ['one', 'two', 'three'], 'total order, never undefined');
   });
 
   test('the `file_id` from `rooms.media` is persisted and read back', () => {
@@ -595,26 +595,26 @@ describe('upload queue', () => {
       'the fileId is in the attachment\'s title_link',
     );
     assert.equal(
-      db.prepare(MESSAGE_WITH_FILE).get('rid-1', 'jamais-vu'),
+      db.prepare(MESSAGE_WITH_FILE).get('rid-1', 'never-seen'),
       undefined,
       'an unposted file must not pass for a duplicate',
     );
     assert.equal(
-      db.prepare(MESSAGE_WITH_FILE).get('autre-salon', 'abc123'),
+      db.prepare(MESSAGE_WITH_FILE).get('other-room', 'abc123'),
       undefined,
       'the search is bounded to the room',
     );
   });
 
   test('the replay lists in creation order, not in id order', () => {
-    db.prepare(INSERT_UPLOAD).run(...upload({ id: 'zzz', name: 'premier', createdAt: 1000 }));
+    db.prepare(INSERT_UPLOAD).run(...upload({ id: 'zzz', name: 'first', createdAt: 1000 }));
     db.prepare(INSERT_UPLOAD).run(...upload({ id: 'aaa', name: 'second', createdAt: 2000 }));
     const names = db.prepare(LIST_UPLOADS_TO_SEND).all().map((l) => row(l).name);
-    assert.deepEqual(names, ['premier', 'second']);
+    assert.deepEqual(names, ['first', 'second']);
   });
 
   test('marking an unknown row as failed creates nothing', () => {
-    db.prepare(MARK_UPLOAD_FAILED).run('oups', 'fantome');
+    db.prepare(MARK_UPLOAD_FAILED).run('oops', 'ghost');
     assert.equal(db.prepare(LIST_UPLOADS_TO_SEND).all().length, 0);
   });
 });
@@ -711,19 +711,19 @@ describe('purge of ghost rooms (reconciliation)', () => {
   test('the purge ALSO takes outbox, uploads, drafts and cursors', () => {
     for (const rid of ['r1', 'r2']) {
       db.prepare(UPSERT_ROOM).run(...room({ rid, updatedAt: 100 }));
-      db.prepare(INSERT_OUTBOX).run(`${rid}-sortie`, rid, 'coucou', null, 1000);
+      db.prepare(INSERT_OUTBOX).run(`${rid}-outbox`, rid, 'hey', null, 1000);
       db.prepare(INSERT_UPLOAD).run(
         `${rid}-tlv`, rid, 'file:///a.jpg', 'a.jpg', 'image/jpeg', null, 1000,
       );
-      db.prepare(UPSERT_DRAFT).run(rid, 'brouillon de salon', 1000);
-      db.prepare(UPSERT_DRAFT).run(`${rid}:tmid`, 'brouillon de fil', 1000);
+      db.prepare(UPSERT_DRAFT).run(rid, 'room draft', 1000);
+      db.prepare(UPSERT_DRAFT).run(`${rid}:tmid`, 'thread draft', 1000);
       db.prepare(UPSERT_CURSOR).run(rid, 'messages', 5000);
     }
     db.prepare(UPSERT_CURSOR).run('*', 'rooms', 7000);
 
     purge(['r1', 'r2'], ['r1']);
 
-    assert.deepEqual(ids('outbox'), ['r1-sortie'], 'the zombie row will no longer be replayed');
+    assert.deepEqual(ids('outbox'), ['r1-outbox'], 'the zombie row will no longer be replayed');
     assert.deepEqual(ids('uploads'), ['r1-tlv']);
     const keys = (db.prepare('SELECT key FROM drafts ORDER BY key').all() as { key: string }[])
       .map((l) => l.key);
@@ -737,7 +737,7 @@ describe('purge of ghost rooms (reconciliation)', () => {
   test('an orphaned outbox (room already purged) is picked up', () => {
     // The zombie left by a purge from before this fix: no room, no subscription,
     // no message anymore, only the outbox row.
-    db.prepare(INSERT_OUTBOX).run('z'.repeat(24), 'rZombie', 'jamais parti', null, 1000);
+    db.prepare(INSERT_OUTBOX).run('z'.repeat(24), 'rZombie', 'never sent', null, 1000);
     db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', updatedAt: 100 }));
 
     const known = (db.prepare(LIST_KNOWN_RIDS).all() as { rid: string }[]).map((l) => l.rid);
@@ -750,7 +750,7 @@ describe('purge of ghost rooms (reconciliation)', () => {
   test('an EMPTY snapshot erases nothing: first launch', () => {
     db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', updatedAt: 100 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', rid: 'r1', updatedAt: 100 }));
-    purge([], ['rAutre']);
+    purge([], ['rOther']);
     assert.deepEqual(rids('rooms'), ['r1']);
     assert.deepEqual(ids('messages'), ['m1']);
   });
@@ -766,12 +766,12 @@ describe('purge of ghost rooms (reconciliation)', () => {
 describe('leaving a room: the satellite tables go with it', () => {
   test('outbox, uploads, drafts and cursors of the rid are erased', () => {
     for (const rid of ['r1', 'r2']) {
-      db.prepare(INSERT_OUTBOX).run(`${rid}-sortie`, rid, 'coucou', null, 1000);
+      db.prepare(INSERT_OUTBOX).run(`${rid}-outbox`, rid, 'hey', null, 1000);
       db.prepare(INSERT_UPLOAD).run(
         `${rid}-tlv`, rid, 'file:///a.jpg', 'a.jpg', 'image/jpeg', null, 1000,
       );
-      db.prepare(UPSERT_DRAFT).run(rid, 'brouillon', 1000);
-      db.prepare(UPSERT_DRAFT).run(`${rid}:tmid`, 'brouillon de fil', 1000);
+      db.prepare(UPSERT_DRAFT).run(rid, 'draft', 1000);
+      db.prepare(UPSERT_DRAFT).run(`${rid}:tmid`, 'thread draft', 1000);
       db.prepare(UPSERT_CURSOR).run(rid, 'messages', 5000);
     }
     db.prepare(UPSERT_CURSOR).run('*', 'rooms', 7000);
@@ -841,7 +841,7 @@ describe('retention: the last N messages per room', () => {
 
   test('a thread root still referenced is spared', () => {
     db.prepare(UPSERT_MESSAGE).run(
-      ...msg({ id: 'racine', ts: 1, updatedAt: 100, threadCount: 2 }),
+      ...msg({ id: 'root', ts: 1, updatedAt: 100, threadCount: 2 }),
     );
     for (let i = 1; i <= 3; i += 1) {
       db.prepare(UPSERT_MESSAGE).run(
@@ -849,16 +849,16 @@ describe('retention: the last N messages per room', () => {
       );
     }
     db.prepare(UPSERT_MESSAGE).run(
-      ...msg({ id: 'rep', ts: 5000, updatedAt: 100, threadId: 'racine' }),
+      ...msg({ id: 'rep', ts: 5000, updatedAt: 100, threadId: 'root' }),
     );
     db.prepare(APPLY_RETENTION).run(2);
-    assert.ok(ids().includes('racine'), 'without it, the thread screen has no head anymore');
+    assert.ok(ids().includes('root'), 'without it, the thread screen has no head anymore');
     assert.ok(ids().includes('rep'));
   });
 
   test('a root WITHOUT a local reply is not a special case', () => {
     db.prepare(UPSERT_MESSAGE).run(
-      ...msg({ id: 'racine', ts: 1, updatedAt: 100, threadCount: 2 }),
+      ...msg({ id: 'root', ts: 1, updatedAt: 100, threadCount: 2 }),
     );
     for (let i = 1; i <= 3; i += 1) {
       db.prepare(UPSERT_MESSAGE).run(
@@ -943,14 +943,14 @@ describe('versions d’avatar', () => {
   });
 
   test('an unknown username creates nothing: their photo is shown nowhere', () => {
-    db.prepare(UPDATE_USER_AVATAR).run('e1', 'fantome', 'e1');
+    db.prepare(UPDATE_USER_AVATAR).run('e1', 'ghost', 'e1');
     const n = db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number };
     assert.equal(n.n, 0);
   });
 
   test('the authoritative identity CREATES the row (my account, which has posted nothing)', () => {
-    db.prepare(UPSERT_IDENTITY).run(...identityParams({ uid: 'moi', username: 'guy', avatarEtag: 'e7' }));
-    assert.deepEqual(row(db.prepare(readUser).get('moi')), { username: 'guy', avatar_etag: 'e7' });
+    db.prepare(UPSERT_IDENTITY).run(...identityParams({ uid: 'me', username: 'guy', avatarEtag: 'e7' }));
+    assert.deepEqual(row(db.prepare(readUser).get('me')), { username: 'guy', avatar_etag: 'e7' });
   });
 
   test('`users.info` WITHOUT avatarETag does not erase the known version', () => {
@@ -991,32 +991,32 @@ describe('list preview of an encrypted room', () => {
 
   test('the preview follows the last decrypted message', () => {
     db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
-    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'un', ts: 10, updatedAt: 1 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'one', ts: 10, updatedAt: 1 }));
     db.prepare(UPSERT_MESSAGE).run(
-      ...msg({ id: 'm2', text: 'deux', ts: 20, updatedAt: 2 }),
+      ...msg({ id: 'm2', text: 'two', ts: 20, updatedAt: 2 }),
     );
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
-    assert.deepEqual(row(db.prepare(read).get('rid-1')), { last_message: 'deux' });
+    assert.deepEqual(row(db.prepare(read).get('rid-1')), { last_message: 'two' });
   });
 
   test('deleting the last message moves the preview BACK to the previous one', () => {
     // The server cannot tell us here: it only holds ciphertext. Only the local
     // database knows which message remains.
     db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
-    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'un', ts: 10, updatedAt: 1 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'one', ts: 10, updatedAt: 1 }));
     db.prepare(UPSERT_MESSAGE).run(
-      ...msg({ id: 'm2', text: 'deux', ts: 20, updatedAt: 2 }),
+      ...msg({ id: 'm2', text: 'two', ts: 20, updatedAt: 2 }),
     );
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
 
     db.prepare(DELETE_MESSAGE).run('m2');
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
-    assert.deepEqual(row(db.prepare(read).get('rid-1')), { last_message: 'un' });
+    assert.deepEqual(row(db.prepare(read).get('rid-1')), { last_message: 'one' });
   });
 
   test('EMPTIED encrypted room: the preview falls back to the placeholder', () => {
     db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
-    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'seul', ts: 10, updatedAt: 1 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'alone', ts: 10, updatedAt: 1 }));
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
 
     db.prepare(DELETE_MESSAGE).run('m1');
@@ -1029,7 +1029,7 @@ describe('list preview of an encrypted room', () => {
     // this guard, it would wake the whole list every time, including on an
     // account with no encrypted room at all.
     db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
-    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'un', ts: 10, updatedAt: 1 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'one', ts: 10, updatedAt: 1 }));
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
 
     const before = count();
@@ -1044,10 +1044,10 @@ describe('list preview of an encrypted room', () => {
     // thing this query computes.
     db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
     db.prepare(UPSERT_MESSAGE).run(
-      ...msg({ id: 'm1', text: 'clair', systemType: 'e2e', ts: 10, updatedAt: 1 }),
+      ...msg({ id: 'm1', text: 'plaintext', systemType: 'e2e', ts: 10, updatedAt: 1 }),
     );
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
-    assert.deepEqual(row(db.prepare(read).get('rid-1')), { last_message: 'clair' });
+    assert.deepEqual(row(db.prepare(read).get('rid-1')), { last_message: 'plaintext' });
   });
 
   test('a THREAD reply invisible in the room does not become the preview', () => {
@@ -1056,7 +1056,7 @@ describe('list preview of an encrypted room', () => {
     db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'visible', ts: 10, updatedAt: 1 }));
     db.prepare(UPSERT_MESSAGE).run(
-      ...msg({ id: 'm2', text: 'dans le fil', threadId: 'm1', ts: 20, updatedAt: 2 }),
+      ...msg({ id: 'm2', text: 'in the thread', threadId: 'm1', ts: 20, updatedAt: 2 }),
     );
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
     assert.deepEqual(row(db.prepare(read).get('rid-1')), { last_message: 'visible' });
@@ -1068,7 +1068,7 @@ describe('list preview of an encrypted room', () => {
     db.prepare(UPSERT_MESSAGE).run(
       ...msg({
         id: 'm2',
-        text: 'dans le fil ET dans le salon',
+        text: 'in the thread AND in the room',
         threadId: 'm1',
         threadShown: true,
         ts: 20,
@@ -1077,7 +1077,7 @@ describe('list preview of an encrypted room', () => {
     );
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
     assert.deepEqual(row(db.prepare(read).get('rid-1')), {
-      last_message: 'dans le fil ET dans le salon',
+      last_message: 'in the thread AND in the room',
     });
   });
 
@@ -1085,12 +1085,12 @@ describe('list preview of an encrypted room', () => {
     // The stream renders "alice" + "joined the room"; the `text` alone, used as
     // the preview, only showed "alice".
     db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', encrypted: true, updatedAt: 100 }));
-    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'vrai message', ts: 10, updatedAt: 1 }));
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'real message', ts: 10, updatedAt: 1 }));
     db.prepare(UPSERT_MESSAGE).run(
       ...msg({ id: 'm2', text: 'alice', systemType: 'uj', ts: 20, updatedAt: 2 }),
     );
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
-    assert.deepEqual(row(db.prepare(read).get('rid-1')), { last_message: 'vrai message' });
+    assert.deepEqual(row(db.prepare(read).get('rid-1')), { last_message: 'real message' });
   });
 
   test('two messages in the SAME millisecond: same winner as the stream', () => {
@@ -1108,13 +1108,13 @@ describe('list preview of an encrypted room', () => {
     // Its preview comes from the server (`lastMessage`), and the local history
     // is partial: recomputing it here would overwrite it with whatever is at hand.
     db.prepare(UPSERT_ROOM).run(
-      ...room({ rid: 'rid-1', encrypted: false, lastMessage: 'du serveur', updatedAt: 100 }),
+      ...room({ rid: 'rid-1', encrypted: false, lastMessage: 'from the server', updatedAt: 100 }),
     );
     db.prepare(UPSERT_MESSAGE).run(
       ...msg({ id: 'm1', text: 'local', ts: 10, updatedAt: 1 }),
     );
     db.prepare(UPDATE_ENCRYPTED_PREVIEW).run();
-    assert.deepEqual(row(db.prepare(read).get('rid-1')), { last_message: 'du serveur' });
+    assert.deepEqual(row(db.prepare(read).get('rid-1')), { last_message: 'from the server' });
   });
 });
 
@@ -1123,7 +1123,7 @@ describe('E2EE lock: mask without rewriting what already is', () => {
 
   test('masking erases the plaintext and leaves the ciphertext', () => {
     db.prepare(UPSERT_MESSAGE).run(
-      ...msg({ id: 'm1', text: 'clair', encryptedRaw: '{"ciphertext":"x"}', updatedAt: 1 }),
+      ...msg({ id: 'm1', text: 'plaintext', encryptedRaw: '{"ciphertext":"x"}', updatedAt: 1 }),
     );
     db.prepare(HIDE_ENCRYPTED_MESSAGES).run();
     assert.deepEqual(
@@ -1137,7 +1137,7 @@ describe('E2EE lock: mask without rewriting what already is', () => {
     // whole `messages` table and wake every live query sitting on it, hence
     // re-render the open room, for nothing.
     db.prepare(UPSERT_MESSAGE).run(
-      ...msg({ id: 'm1', text: 'clair', encryptedRaw: '{"ciphertext":"x"}', updatedAt: 1 }),
+      ...msg({ id: 'm1', text: 'plaintext', encryptedRaw: '{"ciphertext":"x"}', updatedAt: 1 }),
     );
     db.prepare(HIDE_ENCRYPTED_MESSAGES).run();
 
@@ -1148,7 +1148,7 @@ describe('E2EE lock: mask without rewriting what already is', () => {
 
   test('the already masked encrypted preview is not rewritten either', () => {
     db.prepare(UPSERT_ROOM).run(
-      ...room({ rid: 'rid-1', encrypted: true, lastMessage: 'clair', updatedAt: 100 }),
+      ...room({ rid: 'rid-1', encrypted: true, lastMessage: 'plaintext', updatedAt: 100 }),
     );
     db.prepare(HIDE_ENCRYPTED_PREVIEW).run();
     assert.deepEqual(
@@ -1194,11 +1194,11 @@ describe('list preview: the last message\'s type', () => {
       _id: 'r1',
       t: 'c',
       _updatedAt: { $date: 200 },
-      lastMessage: { _id: 'm2', msg: 'coucou', ts: { $date: 60 } },
+      lastMessage: { _id: 'm2', msg: 'hey', ts: { $date: 60 } },
     });
     db.prepare(UPSERT_ROOM).run(...roomParams(after!));
     assert.deepEqual(row(db.prepare(read).get('r1')), {
-      last_message: 'coucou',
+      last_message: 'hey',
       last_message_type: null,
     });
   });
@@ -1211,7 +1211,7 @@ describe('list preview: the last message\'s type', () => {
       _id: 'r1',
       t: 'c',
       _updatedAt: { $date: 100 },
-      lastMessage: { _id: 'm1', msg: 'coucou', ts: { $date: 50 } },
+      lastMessage: { _id: 'm1', msg: 'hey', ts: { $date: 50 } },
     });
     db.prepare(UPSERT_ROOM).run(...roomParams(full!));
 
@@ -1255,8 +1255,8 @@ describe('list preview: the server\'s real documents', () => {
   /** The Room document as `rooms-changed` delivers it, without its `lastMessage`. */
   const room = (updatedAt: number) => ({
     _id: 'r1',
-    fname: 'sonde',
-    name: 'sonde',
+    fname: 'probe',
+    name: 'probe',
     t: 'c',
     u: AUTHOR,
     ro: false,
@@ -1275,9 +1275,9 @@ describe('list preview: the server\'s real documents', () => {
     ingest({
       ...room(1784958546377),
       msgs: 1,
-      lastMessage: { _id: 'm1', msg: 'PREMIER', ts: { $date: 1784958546341 }, u: AUTHOR },
+      lastMessage: { _id: 'm1', msg: 'FIRST', ts: { $date: 1784958546341 }, u: AUTHOR },
     });
-    assert.deepEqual(row(db.prepare(read).get('r1')), { last_message: 'PREMIER' });
+    assert.deepEqual(row(db.prepare(read).get('r1')), { last_message: 'FIRST' });
 
     // The emptied room: the server no longer sends any `lastMessage` at all.
     ingest({ ...room(1784958558296), msgs: 0 });
@@ -1291,7 +1291,7 @@ describe('list preview: the server\'s real documents', () => {
   test('an attachment without a caption does not leave the previous preview', () => {
     ingest({
       ...room(1784958546377),
-      lastMessage: { _id: 'm1', msg: 'PREMIER', ts: { $date: 1784958546341 }, u: AUTHOR },
+      lastMessage: { _id: 'm1', msg: 'FIRST', ts: { $date: 1784958546341 }, u: AUTHOR },
     });
     ingest({
       ...room(1784958549011),
@@ -1322,16 +1322,16 @@ describe('drafts', () => {
   });
 
   test('writes then reads back a draft', () => {
-    db.prepare(UPSERT_DRAFT).run('r1', 'salut', 1000);
-    assert.deepEqual(row(db.prepare(READ_DRAFT).get('r1')), { text: 'salut' });
+    db.prepare(UPSERT_DRAFT).run('r1', 'hi', 1000);
+    assert.deepEqual(row(db.prepare(READ_DRAFT).get('r1')), { text: 'hi' });
   });
 
   test('a missing key returns nothing', () => {
-    assert.equal(db.prepare(READ_DRAFT).get('jamais-ecrit'), undefined);
+    assert.equal(db.prepare(READ_DRAFT).get('never-written'), undefined);
   });
 
   test('the latest keystroke overwrites the previous one, with no freshness guard', () => {
-    db.prepare(UPSERT_DRAFT).run('r1', 'premier', 2000);
+    db.prepare(UPSERT_DRAFT).run('r1', 'first', 2000);
     // OLDER timestamp: unlike the upserts coming from the network, it must block
     // nothing; the only source is typing, the latest wins.
     db.prepare(UPSERT_DRAFT).run('r1', 'second', 1000);
@@ -1339,22 +1339,22 @@ describe('drafts', () => {
   });
 
   test('a thread\'s draft does not touch the room\'s', () => {
-    db.prepare(UPSERT_DRAFT).run('r1', 'du salon', 1000);
-    db.prepare(UPSERT_DRAFT).run('r1:m9', 'du fil', 1000);
-    assert.deepEqual(row(db.prepare(READ_DRAFT).get('r1')), { text: 'du salon' });
-    assert.deepEqual(row(db.prepare(READ_DRAFT).get('r1:m9')), { text: 'du fil' });
+    db.prepare(UPSERT_DRAFT).run('r1', 'from the room', 1000);
+    db.prepare(UPSERT_DRAFT).run('r1:m9', 'from the thread', 1000);
+    assert.deepEqual(row(db.prepare(READ_DRAFT).get('r1')), { text: 'from the room' });
+    assert.deepEqual(row(db.prepare(READ_DRAFT).get('r1:m9')), { text: 'from the thread' });
   });
 
   test('deletion only targets its key', () => {
-    db.prepare(UPSERT_DRAFT).run('r1', 'du salon', 1000);
-    db.prepare(UPSERT_DRAFT).run('r2', 'ailleurs', 1000);
+    db.prepare(UPSERT_DRAFT).run('r1', 'from the room', 1000);
+    db.prepare(UPSERT_DRAFT).run('r2', 'elsewhere', 1000);
     db.prepare(DELETE_DRAFT).run('r1');
     assert.equal(db.prepare(READ_DRAFT).get('r1'), undefined);
-    assert.deepEqual(row(db.prepare(READ_DRAFT).get('r2')), { text: 'ailleurs' });
+    assert.deepEqual(row(db.prepare(READ_DRAFT).get('r2')), { text: 'elsewhere' });
   });
 
   test('deleting a missing key does not throw', () => {
-    db.prepare(DELETE_DRAFT).run('jamais-ecrit');
+    db.prepare(DELETE_DRAFT).run('never-written');
   });
 });
 
@@ -1375,8 +1375,8 @@ describe('attachments of an encrypted file', () => {
   test('a decrypted text without attachment does not erase them', () => {
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', ...encrypted, updatedAt: 1 }));
     db.prepare(UPDATE_MESSAGE_TEXT).run('', attachments, 'm1');
-    db.prepare(UPDATE_MESSAGE_TEXT).run('légende', null, 'm1');
-    assert.deepEqual(row(db.prepare(read).get('m1')), { text: 'légende', attachments: attachments });
+    db.prepare(UPDATE_MESSAGE_TEXT).run('caption', null, 'm1');
+    assert.deepEqual(row(db.prepare(read).get('m1')), { text: 'caption', attachments: attachments });
   });
 
   test('erased on lock: they carry the file\'s key', () => {
@@ -1389,6 +1389,6 @@ describe('attachments of an encrypted file', () => {
   test('an ordinary message always follows the server', () => {
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', attachments, updatedAt: 1 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', attachments: null, updatedAt: 2 }));
-    assert.deepEqual(row(db.prepare(read).get('m1')), { text: 'bonjour', attachments: null });
+    assert.deepEqual(row(db.prepare(read).get('m1')), { text: 'hello', attachments: null });
   });
 });

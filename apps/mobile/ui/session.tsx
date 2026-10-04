@@ -281,7 +281,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
       // What the network did not let through is replayed at the next startup.
       // Without this queue, an offline logout left the session open server-side
-      // AND the push token registered: the device kept receiving ghost "Nouveau
+      // AND the push token registered: the device kept receiving ghost "New
       // message" pushes for an account it has nothing left of, until uninstall.
       if (!pushRemoved || !closedSession) {
         await addPendingLogout({

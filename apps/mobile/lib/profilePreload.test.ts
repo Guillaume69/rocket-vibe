@@ -44,7 +44,7 @@ function fakeClient(handles: {
   capabilities: () => Promise<unknown>;
 }): RestClient {
   return {
-    baseUrl: 'http://banc.local',
+    baseUrl: 'http://bench.local',
     get: (path: string) =>
       path === 'users.info' ? handles.usersInfo() : handles.capabilities(),
   } as unknown as RestClient;

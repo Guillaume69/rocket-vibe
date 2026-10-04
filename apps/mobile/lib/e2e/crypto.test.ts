@@ -177,7 +177,7 @@ describe('crypto e2e: legacy v1 format', () => {
 
   test('wrong password on a v1 key -> E2EError', async () => {
     const { privateKey, uid } = await makeV1();
-    assert.throws(() => decryptPrivateKey(privateKey, 'mauvais', uid), E2EError);
+    assert.throws(() => decryptPrivateKey(privateKey, 'wrong', uid), E2EError);
   });
 });
 
@@ -215,9 +215,9 @@ for (const size of [16, 32] as const) describe(`crypto e2e: CBC messages, ${size
   test('legacy raw-text message (no JSON) -> text as is', async () => {
     const { keyBytes, wc } = await aesKey(size);
     const iv = rand(16);
-    const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-CBC', iv }, wc, bytes('coucou sans json')));
+    const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-CBC', iv }, wc, bytes('hey without json')));
     const content: EncryptedContent = { algorithm: 'rc.v1.aes-sha2', ciphertext: 'af587341640c' + b64(new Uint8Array([...iv, ...ct])) };
-    assert.equal(decryptMessage(content, keyBytes), 'coucou sans json');
+    assert.equal(decryptMessage(content, keyBytes), 'hey without json');
   });
 
   test('rc.v2 GCM: 12-byte iv -> plaintext', async () => {
@@ -258,7 +258,7 @@ describe('crypto e2e: full chain', () => {
 
   test('wrong password -> E2EError, not a crash', async () => {
     const { wrapper } = await make();
-    assert.throws(() => decryptPrivateKey(JSON.stringify(wrapper), 'mauvais', 'uid'), E2EError);
+    assert.throws(() => decryptPrivateKey(JSON.stringify(wrapper), 'wrong', 'uid'), E2EError);
   });
 
   test('tampered message (invalid GCM tag) -> E2EError', async () => {
@@ -282,7 +282,7 @@ describe('crypto e2e: encrypting sent messages', () => {
   for (const { size, algo, ivSize } of cases) {
     test(`${size}-byte key: WebCrypto (the web client) reads back what we encrypt`, async () => {
       const raw = rand(size);
-      const payload = { msg: 'réponse chiffrée 🔒' };
+      const payload = { msg: 'encrypted reply 🔒' };
       const content = encryptMessage(payload, Buffer.from(raw), 'eyJhbGciOiJB');
 
       assert.equal(content.algorithm, 'rc.v2.aes-sha2');
@@ -299,8 +299,8 @@ describe('crypto e2e: encrypting sent messages', () => {
 
   test('two sends of the same text do not look alike (fresh IV)', () => {
     const key = Buffer.from(rand(32));
-    const a = encryptMessage({ msg: 'pareil' }, key, 'k');
-    const b = encryptMessage({ msg: 'pareil' }, key, 'k');
+    const a = encryptMessage({ msg: 'same' }, key, 'k');
+    const b = encryptMessage({ msg: 'same' }, key, 'k');
     assert.notEqual(a.iv, b.iv);
     assert.notEqual(a.ciphertext, b.ciphertext);
   });
@@ -313,9 +313,9 @@ describe('crypto e2e: encrypting sent messages', () => {
 test('a file payload: text and attachments, file key included', () => {
   const key = Buffer.from(rand(32));
   const attachments = [{ title: 'photo.jpg', encryption: { key: { k: 'abc' }, iv: 'aXY=' } }];
-  const content = encryptMessage({ msg: 'légende', attachments }, key, 'k');
-  assert.deepEqual(decryptPayload(content, key), { msg: 'légende', attachments });
-  assert.deepEqual(decryptPayload(encryptMessage({ msg: 'rien' }, key, 'k'), key), { msg: 'rien', attachments: null });
+  const content = encryptMessage({ msg: 'caption', attachments }, key, 'k');
+  assert.deepEqual(decryptPayload(content, key), { msg: 'caption', attachments });
+  assert.deepEqual(decryptPayload(encryptMessage({ msg: 'nothing' }, key, 'k'), key), { msg: 'nothing', attachments: null });
 });
 
 describe('crypto e2e: files', () => {

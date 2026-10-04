@@ -14,7 +14,7 @@ import { ServerError, normalizeUrl, probeServer } from './server.ts';
 
 const SETTINGS = {
   settings: [
-    { _id: 'Site_Url', value: 'https://chat.exemple.fr/' },
+    { _id: 'Site_Url', value: 'https://chat.example.org/' },
     { _id: 'Accounts_ShowFormLogin', value: true },
     { _id: 'Accounts_TwoFactorAuthentication_Enabled', value: true },
     { _id: 'Accounts_TwoFactorAuthentication_By_TOTP_Enabled', value: true },
@@ -25,7 +25,7 @@ const SETTINGS = {
     { _id: 'E2E_Enable', value: true },
     { _id: 'FileUpload_ProtectFiles', value: true },
     { _id: 'Accounts_AvatarBlockUnauthenticatedAccess', value: true },
-    { _id: 'Sans_valeur', value: null },
+    { _id: 'No_value', value: null },
   ],
   success: true,
 };
@@ -68,14 +68,14 @@ function hangingResponse(init?: RequestInit): Promise<Response> {
 
 describe('normalizeUrl', () => {
   test('without a scheme, https is assumed', () => {
-    assert.equal(normalizeUrl('chat.exemple.fr'), 'https://chat.exemple.fr');
+    assert.equal(normalizeUrl('chat.example.org'), 'https://chat.example.org');
   });
 
   test('the SUB-PATH is kept: a Rocket.Chat behind a proxy lives under /chat', () => {
     // `new URL(...).origin` would drop it, and every request would target the
     // proxy root: 404 everywhere, with no hint.
-    assert.equal(normalizeUrl('https://exemple.fr/chat/'), 'https://exemple.fr/chat');
-    assert.equal(normalizeUrl('https://exemple.fr/chat///'), 'https://exemple.fr/chat');
+    assert.equal(normalizeUrl('https://example.org/chat/'), 'https://example.org/chat');
+    assert.equal(normalizeUrl('https://example.org/chat///'), 'https://example.org/chat');
   });
 
   test('explicit http and port are respected', () => {
@@ -83,18 +83,18 @@ describe('normalizeUrl', () => {
   });
 
   test('surrounding spaces are ignored', () => {
-    assert.equal(normalizeUrl('  chat.exemple.fr  '), 'https://chat.exemple.fr');
+    assert.equal(normalizeUrl('  chat.example.org  '), 'https://chat.example.org');
   });
 
   test('query and fragment are not part of a server address', () => {
     // A URL pasted from the browser often carries `?msg=...`: keeping it would
     // hit `settings.public` with stray parameters.
-    assert.equal(normalizeUrl('https://exemple.fr/chat?x=1#y'), 'https://exemple.fr/chat');
+    assert.equal(normalizeUrl('https://example.org/chat?x=1#y'), 'https://example.org/chat');
   });
 
   test('the host is lowercased, a port without a scheme survives', () => {
-    assert.equal(normalizeUrl('HTTPS://Chat.Exemple.fr'), 'https://chat.exemple.fr');
-    assert.equal(normalizeUrl('chat.exemple.fr:8443'), 'https://chat.exemple.fr:8443');
+    assert.equal(normalizeUrl('HTTPS://Chat.Example.org'), 'https://chat.example.org');
+    assert.equal(normalizeUrl('chat.example.org:8443'), 'https://chat.example.org:8443');
   });
 
   test('empty and invalid throw ServerError, not a raw TypeError', () => {
@@ -104,7 +104,7 @@ describe('normalizeUrl', () => {
     assert.throws(() => normalizeUrl(''), ServerError);
     assert.throws(() => normalizeUrl('   '), ServerError);
     assert.throws(() => normalizeUrl('https://'), ServerError);
-    assert.throws(() => normalizeUrl('chat exemple.fr'), ServerError);
+    assert.throws(() => normalizeUrl('chat example.org'), ServerError);
   });
 });
 
@@ -115,14 +115,14 @@ describe('probeServer', () => {
     const t = transport((u) =>
       u.endsWith('/api/info') ? json({ version: '8.5', success: true }) : json(SETTINGS),
     );
-    const profile = await probeServer('https://chat.exemple.fr', undefined, t);
+    const profile = await probeServer('https://chat.example.org', undefined, t);
 
     assert.equal(profile.version, '8.5');
     assert.ok(
-      t.urls.includes('https://chat.exemple.fr/api/info'),
-      `URL attendue absente : ${t.urls.join(' ')}`,
+      t.urls.includes('https://chat.example.org/api/info'),
+      `expected URL missing: ${t.urls.join(' ')}`,
     );
-    assert.ok(t.urls.some((u) => u.startsWith('https://chat.exemple.fr/api/v1/settings.public?')));
+    assert.ok(t.urls.some((u) => u.startsWith('https://chat.example.org/api/v1/settings.public?')));
   });
 
   test('the proxy sub-path is carried by BOTH calls', async () => {
@@ -132,19 +132,19 @@ describe('probeServer', () => {
     // RAW input: the probe must target the normalized URL, and `baseUrl` must
     // return it; the caller builds its client on it, not on its own
     // re-normalization of the input.
-    const p = await probeServer('exemple.fr/chat/', undefined, t);
-    assert.equal(p.baseUrl, 'https://exemple.fr/chat');
-    assert.ok(t.urls.every((u) => u.startsWith('https://exemple.fr/chat/')), t.urls.join(' '));
+    const p = await probeServer('example.org/chat/', undefined, t);
+    assert.equal(p.baseUrl, 'https://example.org/chat');
+    assert.ok(t.urls.every((u) => u.startsWith('https://example.org/chat/')), t.urls.join(' '));
   });
 
   test('the profile is taken from the public settings', async () => {
     const t = transport((u) =>
       u.endsWith('/api/info') ? json({ version: '8.5' }) : json(SETTINGS),
     );
-    const p = await probeServer('https://chat.exemple.fr', undefined, t);
+    const p = await probeServer('https://chat.example.org', undefined, t);
 
-    assert.equal(p.baseUrl, 'https://chat.exemple.fr');
-    assert.equal(p.siteUrl, 'https://chat.exemple.fr/');
+    assert.equal(p.baseUrl, 'https://chat.example.org');
+    assert.equal(p.siteUrl, 'https://chat.example.org/');
     assert.equal(p.loginForm, true);
     assert.deepEqual(p.twoFactor, { active: true, totp: true, email: false });
     assert.equal(p.ldap, false);
@@ -179,7 +179,7 @@ describe('probeServer', () => {
     // A captive portal readily answers a login page with a 200.
     const t = transport((u) =>
       u.endsWith('/api/info')
-        ? new Response('<html>Connectez-vous au Wi-Fi</html>', {
+        ? new Response('<html>Sign in to the Wi-Fi</html>', {
             status: 200,
             headers: { 'Content-Type': 'text/html' },
           })
@@ -292,15 +292,15 @@ describe('probeServer', () => {
       }) as unknown as typeof globalThis.fetch;
 
       const p = probeServer('https://x', undefined, { fetch: silentFetch });
-      let state = 'pendante';
+      let state = 'pending';
       void p.then(
-        () => (state = 'résolue'),
-        () => (state = 'rejetée'),
+        () => (state = 'resolved'),
+        () => (state = 'rejected'),
       );
 
       mock.timers.tick(14_999);
       await Promise.resolve();
-      assert.equal(state, 'pendante', 'no cut before the timeout');
+      assert.equal(state, 'pending', 'no cut before the timeout');
 
       mock.timers.tick(2);
       await assert.rejects(p, (e: unknown) => {

@@ -11,10 +11,10 @@ import {
 } from './homeSections.ts';
 
 const TITLES = {
-  unread: 'Non lus',
-  favorites: 'Favoris',
-  rooms: 'Salons',
-  directMessages: 'Messages privés',
+  unread: 'Unread',
+  favorites: 'Favorites',
+  rooms: 'Rooms',
+  directMessages: 'Direct messages',
 };
 
 /** A minimal room: the array order IS recency order (sorted query). */
@@ -32,7 +32,7 @@ const resume = (sections: { title: string; data: { room: { rid: string } }[] }[]
 describe('buildSections', () => {
   test('favourites get their section after unread, all types mixed', () => {
     // f1 (channel) and f2 (DM) are favourites; f3 too but has unreads: it stays
-    // in "Non lus", like any room with a message.
+    // in "Unread", like any room with a message.
     const sections = buildSections(
       [room('f1', 'c'), room('c1', 'c'), room('f2', 'd'), room('f3', 'p')],
       [
@@ -43,7 +43,7 @@ describe('buildSections', () => {
       ],
       TITLES,
     );
-    assert.deepEqual(resume(sections), ['Non lus: f3', 'Favoris: f1, f2', 'Salons: c1']);
+    assert.deepEqual(resume(sections), ['Unread: f3', 'Favorites: f1, f2', 'Rooms: c1']);
   });
 
   test('split into Rooms / Direct messages, recency order kept, empty sections removed', () => {
@@ -52,19 +52,19 @@ describe('buildSections', () => {
       [subscription('c1'), subscription('d1'), subscription('p1'), subscription('d2')],
       TITLES,
     );
-    assert.deepEqual(resume(sections), ['Salons: c1, p1', 'Messages privés: d1, d2']);
+    assert.deepEqual(resume(sections), ['Rooms: c1, p1', 'Direct messages: d1, d2']);
   });
 
   test('unread and mentions move to the top, ALL TYPES MIXED', () => {
     // d1 has unreads, c2 an alert (a mention can raise the flag without the
-    // counter moving): both go to "Non lus", the DM does NOT drop into
-    // "Messages privés".
+    // counter moving): both go to "Unread", the DM does NOT drop into
+    // "Direct messages".
     const sections = buildSections(
       [room('c1', 'c'), room('d1', 'd'), room('c2', 'c')],
       [subscription('c1'), subscription('d1', { unread: 3 }), subscription('c2', { alert: true })],
       TITLES,
     );
-    assert.deepEqual(resume(sections), ['Non lus: d1, c2', 'Salons: c1']);
+    assert.deepEqual(resume(sections), ['Unread: d1, c2', 'Rooms: c1']);
   });
 
   test('`open === false` hides the room; NO subscription → visible anyway', () => {
@@ -75,7 +75,7 @@ describe('buildSections', () => {
       [subscription('c1', { open: false }), subscription('c2')],
       TITLES,
     );
-    assert.deepEqual(resume(sections), ['Salons: c2, c3']);
+    assert.deepEqual(resume(sections), ['Rooms: c2, c3']);
     const entries = sections[0].data;
     assert.notEqual(entries[0].subscription, null);
     assert.equal(entries[1].subscription, null);
@@ -87,12 +87,12 @@ describe('buildSections', () => {
       [subscription('c1', { open: false, unread: 5 }), subscription('c2')],
       TITLES,
     );
-    assert.deepEqual(resume(sections), ['Salons: c2']);
+    assert.deepEqual(resume(sections), ['Rooms: c2']);
   });
 
-  test('all read → no "Non lus" section; no DM → no "Messages privés"', () => {
+  test('all read → no "Unread" section; no DM → no "Direct messages"', () => {
     const sections = buildSections([room('c1', 'c')], [subscription('c1')], TITLES);
-    assert.deepEqual(resume(sections), ['Salons: c1']);
+    assert.deepEqual(resume(sections), ['Rooms: c1']);
   });
 
   test('live queries not resolved yet (undefined): empty list, no crash', () => {
@@ -143,7 +143,7 @@ describe('collapsed sections', () => {
 
   test('storage missing, corrupt or unknown: nothing collapsed', () => {
     assert.equal(readCollapsedSections(null).size, 0);
-    assert.equal(readCollapsedSections('{pas du json').size, 0);
+    assert.equal(readCollapsedSections('{not json').size, 0);
     assert.equal(readCollapsedSections('{"rooms":true}').size, 0);
     assert.deepEqual([...readCollapsedSections('["rooms","archives",3]')], ['rooms']);
     assert.equal(readCollapsedSections('["constructor","toString"]').size, 0);

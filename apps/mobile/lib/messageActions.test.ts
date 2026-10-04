@@ -20,15 +20,15 @@ const rules = {
 
 const base = {
   message: {
-    authorId: 'moi',
+    authorId: 'me',
     ts: 1_000_000,
     systemType: null,
-    text: 'coucou',
+    text: 'hey',
     attachments: null as string | null,
     pinned: false,
     starred: false,
   },
-  me: 'moi',
+  me: 'me',
   rules,
   permissions: null as string[] | null,
   readOnly: false,
@@ -71,14 +71,14 @@ describe('possibleActions', () => {
   test('`edit-message` allows editing SOMEONE ELSE’s message', () => {
     const moderator = {
       ...base,
-      message: { ...base.message, authorId: 'lui' },
+      message: { ...base.message, authorId: 'them' },
       permissions: ['edit-message'],
     };
     assert.ok(possibleActions(moderator).includes('edit'));
   });
 
   test('SOMEONE ELSE’s message can be neither edited nor deleted (without permission)', () => {
-    const others = { ...base, message: { ...base.message, authorId: 'lui' } };
+    const others = { ...base, message: { ...base.message, authorId: 'them' } };
     assert.deepEqual(possibleActions(others), ['react', 'reply', 'replyInThread', 'copy', 'share', 'pin', 'star']);
   });
 
@@ -103,7 +103,7 @@ describe('possibleActions', () => {
     const readable = possibleActions({
       ...base,
       encrypted: true,
-      message: { ...base.message, systemType: 'e2e', text: 'clair' },
+      message: { ...base.message, systemType: 'e2e', text: 'plaintext' },
     });
     assert.deepEqual(readable, ['react', 'replyInThread', 'copy', 'share', 'edit', 'delete', 'pin', 'star']);
     // The quote card is built by the server from the text, which it cannot
@@ -126,7 +126,7 @@ describe('possibleActions', () => {
     assert.deepEqual(
       possibleActions({
         ...base,
-        message: { ...base.message, systemType: 'uj', text: 'a rejoint le salon' },
+        message: { ...base.message, systemType: 'uj', text: 'joined the room' },
       }),
       [],
     );
@@ -170,8 +170,8 @@ describe('possibleActions', () => {
 describe('textToCopy', () => {
   test('strips the leading quote permalink', () => {
     assert.equal(
-      textToCopy('[ ](https://chat.example/channel/general?msg=abc) oui, **ça** marche'),
-      'oui, **ça** marche',
+      textToCopy('[ ](https://chat.example/channel/general?msg=abc) yes, **it** works'),
+      'yes, **it** works',
     );
   });
 
@@ -200,7 +200,7 @@ describe('rulesFromSettings', () => {
 });
 
 describe('possibleActions: permissions loaded', () => {
-  const others = { ...base.message, authorId: 'lui' };
+  const others = { ...base.message, authorId: 'them' };
 
   test('plain member: own messages yes, no pinning', () => {
     const member = { ...base, permissions: ['delete-own-message'] };
@@ -275,7 +275,7 @@ describe('messageGoneFromServer', () => {
   });
 
   test('status 0 (network) or 429 (rate limit): NOT concluded as gone', async () => {
-    const offline = client(() => Promise.reject(new RestError('injoignable', 0)));
+    const offline = client(() => Promise.reject(new RestError('unreachable', 0)));
     assert.equal(await messageGoneFromServer(offline, 'm1'), false);
     const limit = client(() => Promise.reject(new RestError('too many requests', 429)));
     assert.equal(await messageGoneFromServer(limit, 'm1'), false);

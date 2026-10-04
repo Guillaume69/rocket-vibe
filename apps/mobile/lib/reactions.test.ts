@@ -6,7 +6,7 @@ import { reactionList } from './reactions.ts';
 describe('reactionList', () => {
   it('returns [] on null, unreadable JSON or an unexpected shape', () => {
     assert.deepEqual(reactionList(null, 'alice'), []);
-    assert.deepEqual(reactionList('{pas du json', 'alice'), []);
+    assert.deepEqual(reactionList('{not json', 'alice'), []);
     assert.deepEqual(reactionList('42', 'alice'), []);
     assert.deepEqual(reactionList('[":+1:"]', 'alice'), []);
     assert.deepEqual(reactionList('null', 'alice'), []);

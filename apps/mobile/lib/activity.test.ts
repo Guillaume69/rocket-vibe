@@ -33,9 +33,9 @@ describe('ActivityEngine', () => {
     const d = deferred();
 
     const tracking = m.track('r1', d.promise);
-    d.reject(new Error('réseau'));
+    d.reject(new Error('network'));
 
-    await assert.rejects(tracking, /réseau/);
+    await assert.rejects(tracking, /network/);
     assert.equal(m.active('r1'), false, 'no stuck counter');
   });
 

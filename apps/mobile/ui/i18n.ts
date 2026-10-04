@@ -118,7 +118,7 @@ export function useTimeFormatter(): (ms: number) => string {
   return useMemo(() => timeFormatter(language), [language]);
 }
 
-/** The day separator label (« Aujourd'hui », « Hier », the date). */
+/** The day separator label ("Today", "Yesterday", the date). */
 export function useDayFormatter(): (ms: number) => string {
   const language = useLanguage();
   return useMemo(() => dayFormatter(language), [language]);

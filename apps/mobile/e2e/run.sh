@@ -73,13 +73,13 @@ FILE="e2e-image-$STAMP.png"
 printf '\x89PNG\r\n\x1a\n' > "/tmp/$FILE"
 python3 - "$FILE" <<'PY'
 import struct, sys, zlib
-nom = sys.argv[1]
-def bloc(t, d):
+name = sys.argv[1]
+def chunk(t, d):
     return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d))
-donnees = zlib.compress(b'\x00\xff\x00\x00')
-png = b'\x89PNG\r\n\x1a\n' + bloc(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0)) \
-    + bloc(b'IDAT', donnees) + bloc(b'IEND', b'')
-open(f'/tmp/{nom}', 'wb').write(png)
+data = zlib.compress(b'\x00\xff\x00\x00')
+png = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0)) \
+    + chunk(b'IDAT', data) + chunk(b'IEND', b'')
+open(f'/tmp/{name}', 'wb').write(png)
 PY
 adb push "/tmp/$FILE" "/sdcard/Download/$FILE" >/dev/null
 adb shell cmd media scan "/sdcard/Download/$FILE" >/dev/null 2>&1 || true

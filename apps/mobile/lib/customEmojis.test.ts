@@ -59,7 +59,7 @@ describe('filterAliases', () => {
   test('keeps only strings; anything else becomes []', () => {
     assert.deepEqual(filterAliases(['a', 1, null, 'b', {}]), ['a', 'b']);
     assert.deepEqual(filterAliases(undefined), []);
-    assert.deepEqual(filterAliases('pas un tableau'), []);
+    assert.deepEqual(filterAliases('not an array'), []);
   });
 });
 
@@ -67,21 +67,21 @@ describe('customEmojiUrl', () => {
   afterEach(clearCustomEmojis);
 
   test('builds the URL from the canonical NAME, even for an alias', () => {
-    setCustomEmojis('https://chat.exemple.fr', [PARROT]);
+    setCustomEmojis('https://chat.example.org', [PARROT]);
     // The `:parrot:` alias must point to party_parrot.gif, not parrot.gif
     // (which would return the server's fallback SVG).
-    assert.equal(customEmojiUrl('parrot'), 'https://chat.exemple.fr/emoji-custom/party_parrot.gif');
-    assert.equal(customEmojiUrl('party_parrot'), 'https://chat.exemple.fr/emoji-custom/party_parrot.gif');
+    assert.equal(customEmojiUrl('parrot'), 'https://chat.example.org/emoji-custom/party_parrot.gif');
+    assert.equal(customEmojiUrl('party_parrot'), 'https://chat.example.org/emoji-custom/party_parrot.gif');
   });
 
   test('normalizes the baseUrl trailing slash', () => {
-    setCustomEmojis('https://chat.exemple.fr/', [SHIP]);
-    assert.equal(customEmojiUrl('shipit'), 'https://chat.exemple.fr/emoji-custom/shipit.png');
+    setCustomEmojis('https://chat.example.org/', [SHIP]);
+    assert.equal(customEmojiUrl('shipit'), 'https://chat.example.org/emoji-custom/shipit.png');
   });
 
   test('an unknown shortcode, or a prototype member, is null', () => {
-    setCustomEmojis('https://chat.exemple.fr', [PARROT]);
-    assert.equal(customEmojiUrl('inexistant'), null);
+    setCustomEmojis('https://chat.example.org', [PARROT]);
+    assert.equal(customEmojiUrl('nonexistent'), null);
     assert.equal(customEmojiUrl('constructor'), null);
     assert.equal(customEmojiUrl('__proto__'), null);
   });
@@ -103,7 +103,7 @@ describe('onCustomEmojisChange', () => {
     let notifications = 0;
     const unsubscribe = onCustomEmojisChange(() => notifications++);
     const before = customEmojiCodes();
-    setCustomEmojis('https://chat.exemple.fr', [PARROT]);
+    setCustomEmojis('https://chat.example.org', [PARROT]);
     assert.equal(notifications, 1);
     const after = customEmojiCodes();
     assert.notEqual(before, after);
@@ -114,14 +114,14 @@ describe('onCustomEmojisChange', () => {
   });
 
   test('the snapshot is STABLE between two changes (useSyncExternalStore requirement)', () => {
-    setCustomEmojis('https://chat.exemple.fr', [PARROT]);
+    setCustomEmojis('https://chat.example.org', [PARROT]);
     assert.equal(customEmojiCodes(), customEmojiCodes());
   });
 
   test('unsubscribing holds', () => {
     let notifications = 0;
     onCustomEmojisChange(() => notifications++)();
-    setCustomEmojis('https://chat.exemple.fr', [SHIP]);
+    setCustomEmojis('https://chat.example.org', [SHIP]);
     assert.equal(notifications, 0);
   });
 });
@@ -132,20 +132,20 @@ describe('syncCustomEmojis', () => {
   test('fills the table and the index from a server list', async () => {
     const store = fakeStore();
     const client = {
-      baseUrl: 'https://chat.exemple.fr',
+      baseUrl: 'https://chat.example.org',
       get: async <T>(): Promise<T> =>
         ({ emojis: { update: [{ name: 'dino', extension: 'gif', aliases: ['trex'] }] } }) as T,
     };
     await syncCustomEmojis(client, store);
     assert.equal(store.content.length, 1);
-    assert.equal(customEmojiUrl('trex'), 'https://chat.exemple.fr/emoji-custom/dino.gif');
+    assert.equal(customEmojiUrl('trex'), 'https://chat.example.org/emoji-custom/dino.gif');
   });
 
   test('a failed call (no `update`) does NOT empty the cache, the key to the count=0 bug', async () => {
     const store = fakeStore([{ name: 'dino', extension: 'gif', aliases: [] }]);
     // The server answered `success:false`: no `emojis`, no `update`.
     const client = {
-      baseUrl: 'https://chat.exemple.fr',
+      baseUrl: 'https://chat.example.org',
       get: async <T>(): Promise<T> => ({ success: false }) as T,
     };
     await syncCustomEmojis(client, store);
@@ -155,15 +155,15 @@ describe('syncCustomEmojis', () => {
   test('a fetch resolved AFTER discard does not re-arm the index (cross-server leak)', async () => {
     const store = fakeStore();
     const clientA = {
-      baseUrl: 'https://serveur-a.fr',
+      baseUrl: 'https://server-a.org',
       get: async <T>(): Promise<T> =>
-        ({ emojis: { update: [{ name: 'propre_a_A', extension: 'png', aliases: [] }] } }) as T,
+        ({ emojis: { update: [{ name: 'own_to_A', extension: 'png', aliases: [] }] } }) as T,
     };
     // Session A is already over when the response arrives.
     await syncCustomEmojis(clientA, store, () => true);
     // A's database is written (harmless), but the GLOBAL in-memory index must
     // not fill with A's emojis after the switch to B.
-    assert.equal(customEmojiUrl('propre_a_A'), null);
+    assert.equal(customEmojiUrl('own_to_A'), null);
   });
 });
 

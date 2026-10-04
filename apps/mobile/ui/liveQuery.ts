@@ -91,7 +91,7 @@ export function useCoalescedLiveQuery<L>(
         },
       );
     };
-    // Premier remplissage, comme `useLiveQuery`.
+    // First fill, like `useLiveQuery`.
     reread();
 
     // The watched table is taken from the SELECT query (`.config.table`), as

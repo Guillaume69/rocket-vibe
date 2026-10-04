@@ -78,7 +78,7 @@ describe('identities backfill (0009)', () => {
     // u1: old username (100) then renamed (200). u2: a single message. u3:
     // encrypted message without auteur_nom -> must NOT create an identity.
     db.prepare(ins).run('m1', 'r1', 1, 'u1', 'alice', 100);
-    db.prepare(ins).run('m2', 'r1', 2, 'u1', 'alice-neuve', 200);
+    db.prepare(ins).run('m2', 'r1', 2, 'u1', 'alice-new', 200);
     db.prepare(ins).run('m3', 'r1', 3, 'u2', 'bob', 150);
     db.prepare(ins).run('m4', 'r1', 4, 'u3', null, 300);
 
@@ -89,7 +89,7 @@ describe('identities backfill (0009)', () => {
       .all()
       .map((l) => ({ ...(l as Record<string, unknown>) }));
     assert.deepEqual(rows, [
-      { uid: 'u1', username: 'alice-neuve', mis_a_jour_le: 200 },
+      { uid: 'u1', username: 'alice-new', mis_a_jour_le: 200 },
       { uid: 'u2', username: 'bob', mis_a_jour_le: 150 },
     ]);
     db.close();
@@ -163,7 +163,7 @@ describe('migrations', () => {
     const growing = migratedDb();
     insert(growing, ['a', 'b', 'c']);
     const descending = migratedDb();
-    insert(descending, ['c', 'b', 'a']); // ordre d'insertion inverse (pagination)
+    insert(descending, ['c', 'b', 'a']); // reverse insertion order (pagination)
 
     assert.deepEqual(read(growing), ['c', 'b', 'a']);
     // The key invariant: reverse insertion -> SAME displayed order (before the
@@ -190,7 +190,7 @@ describe('migrations', () => {
     );
     insert.run('rid-1', 'messages', 1);
     insert.run('rid-1', 'subscriptions', 1); // same scope, other stream: accepted
-    insert.run('*', 'messages', 1); // curseur global
+    insert.run('*', 'messages', 1); // global cursor
     assert.throws(() => insert.run('rid-1', 'messages', 2), /UNIQUE/);
     db.close();
   });
@@ -209,7 +209,7 @@ describe('migrations', () => {
     db.prepare('INSERT INTO outbox (id, rid, text, created_at) VALUES (?, ?, ?, ?)').run(
       's1',
       'r1',
-      'coucou',
+      'hey',
       42,
     );
     const outbox = db.prepare('SELECT * FROM outbox WHERE id = ?').get('s1') as Record<
@@ -235,7 +235,7 @@ describe('adding file_id to the upload queue (0013)', () => {
 
     db.prepare(
       'INSERT INTO televersements (id, rid, uri, nom, type, legende, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    ).run('t1', 'r1', 'file:///vieux.png', 'vieux.png', 'image/png', 'ma légende', 1000);
+    ).run('t1', 'r1', 'file:///old.png', 'old.png', 'image/png', 'my caption', 1000);
 
     applyMigration(db, 13);
 
@@ -243,8 +243,8 @@ describe('adding file_id to the upload queue (0013)', () => {
       string,
       unknown
     >;
-    assert.equal(l.uri, 'file:///vieux.png', 'the row from before survives intact');
-    assert.equal(l.legende, 'ma légende');
+    assert.equal(l.uri, 'file:///old.png', 'the row from before survives intact');
+    assert.equal(l.legende, 'my caption');
     assert.equal(l.statut, 'en-attente');
     assert.equal(l.file_id, null, 'the column exists and is NULL on the history');
 

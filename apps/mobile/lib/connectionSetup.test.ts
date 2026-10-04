@@ -44,15 +44,15 @@ function bench(options: { alreadyActive?: boolean } = {}) {
     options: {
       streamAlreadyActive: () => armed,
       openStream: () => {
-        order.push('stream:demande');
+        order.push('stream:request');
         return stream.promise;
       },
       streamArmed: () => arming.promise,
       catchUp: async () => {
-        order.push('lecture');
+        order.push('read');
         coverage.push(armed);
       },
-      then: () => order.push('ensuite'),
+      then: () => order.push('then'),
     },
   };
 }
@@ -64,13 +64,13 @@ describe('setUpConnection', () => {
 
     // The read starts without waiting for anything: this is what the user sees.
     await letRun();
-    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite']);
+    assert.deepEqual(b.order, ['stream:request', 'read', 'then']);
 
     b.stream.resolve();
     b.arm();
     await done;
 
-    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite', 'lecture']);
+    assert.deepEqual(b.order, ['stream:request', 'read', 'then', 'read']);
     // The first read before arming, the second after: the second guarantees
     // that no window escapes both transports.
     assert.deepEqual(b.coverage, [false, true]);
@@ -81,17 +81,17 @@ describe('setUpConnection', () => {
     const done = setUpConnection(b.options);
 
     await letRun();
-    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite'], 'read already done');
+    assert.deepEqual(b.order, ['stream:request', 'read', 'then'], 'read already done');
 
     // The stream takes "a long time", here an arbitrary number of loop turns.
     // No time constant applies: nothing is decided during that span.
     await letRun(50);
-    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite']);
+    assert.deepEqual(b.order, ['stream:request', 'read', 'then']);
 
     b.stream.resolve();
     await letRun();
     // Still no second read: the subscriptions are not armed.
-    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite']);
+    assert.deepEqual(b.order, ['stream:request', 'read', 'then']);
 
     b.arm();
     await done;
@@ -104,7 +104,7 @@ describe('setUpConnection', () => {
 
     await setUpConnection(b.options);
 
-    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite']);
+    assert.deepEqual(b.order, ['stream:request', 'read', 'then']);
     assert.deepEqual(b.coverage, [true]);
   });
 
@@ -117,9 +117,9 @@ describe('setUpConnection', () => {
     );
 
     await letRun();
-    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite'], 'the read happened');
+    assert.deepEqual(b.order, ['stream:request', 'read', 'then'], 'the read happened');
 
-    b.stream.reject(new Error('pas de « connected » en 10000 ms'));
+    b.stream.reject(new Error('no "connected" within 10000 ms'));
     const error = await expected;
 
     // Relayed so the reconnect driver keeps its backoff...
@@ -144,7 +144,7 @@ describe('setUpConnection', () => {
     b.stream.resolve();
     await setUpConnection({ ...b.options, isDiscarded: () => true });
 
-    assert.deepEqual(b.order, ['stream:demande']);
+    assert.deepEqual(b.order, ['stream:request']);
   });
 
   test('session ended during the read: no second pass', async () => {
@@ -153,7 +153,7 @@ describe('setUpConnection', () => {
     const done = setUpConnection({
       ...b.options,
       catchUp: async () => {
-        b.order.push('lecture');
+        b.order.push('read');
         discarded = true; // the user logs out during the read
       },
       isDiscarded: () => discarded,
@@ -163,6 +163,6 @@ describe('setUpConnection', () => {
     b.arm();
     await done;
 
-    assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite']);
+    assert.deepEqual(b.order, ['stream:request', 'read', 'then']);
   });
 });

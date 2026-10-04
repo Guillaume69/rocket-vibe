@@ -11,7 +11,7 @@ import { RestClient } from './rest.ts';
 const ENTRY: PendingLogout = {
   baseUrl: 'https://x',
   userId: 'u1',
-  authToken: 'jeton-mort-ou-vif',
+  authToken: 'token-dead-or-alive',
   pushToken: 'fcm-abc',
 };
 
@@ -112,19 +112,19 @@ describe('finishPendingLogouts', () => {
   test('one server failing does not deprive the others of their turn', async () => {
     // Multi-server: two pending logouts, one unreachable.
     const f = file([
-      { ...ENTRY, baseUrl: 'https://mort' },
-      { ...ENTRY, baseUrl: 'https://vivant' },
+      { ...ENTRY, baseUrl: 'https://dead' },
+      { ...ENTRY, baseUrl: 'https://alive' },
     ]);
     const create = (entry: PendingLogout) =>
       new RestClient(entry.baseUrl, {
         sleep: async () => {},
         fetch: (async (url: string | URL) => {
-          if (String(url).includes('mort')) throw new TypeError('Network request failed');
+          if (String(url).includes('dead')) throw new TypeError('Network request failed');
           return Response.json({ success: true });
         }) as unknown as typeof globalThis.fetch,
       });
     await finishPendingLogouts(f, create);
-    assert.deepEqual(f.remaining(), ['https://mort']);
+    assert.deepEqual(f.remaining(), ['https://dead']);
   });
 
   test('an empty queue makes no call', async () => {

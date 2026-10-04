@@ -14,7 +14,7 @@ describe('shortFormat', () => {
     assert.equal(shortFormat('scan', 'application/pdf'), 'PDF');
     assert.equal(shortFormat('archive.tar.gzipped-long', 'application/x-7z-compressed'), '7Z-COMPRESSED');
     assert.equal(shortFormat('doc', 'application/vnd.oasis.opendocument.text'), 'TEXT');
-    assert.equal(shortFormat('carte', 'image/svg+xml'), 'SVG');
+    assert.equal(shortFormat('map', 'image/svg+xml'), 'SVG');
   });
 
   test('nothing to say: null', () => {

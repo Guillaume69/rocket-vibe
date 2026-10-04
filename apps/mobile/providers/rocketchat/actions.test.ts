@@ -28,11 +28,11 @@ describe('ActionsRC', () => {
   test('edit and delete target roomId + msgId', async () => {
     const { client, calls } = fakeClient();
     const a = new ActionsRC(client);
-    await a.edit('r1', 'm1', 'salut');
+    await a.edit('r1', 'm1', 'hi');
     await a.delete('r1', 'm1');
     assert.deepEqual(calls[0], {
       path: 'chat.update',
-      body: { roomId: 'r1', msgId: 'm1', text: 'salut' },
+      body: { roomId: 'r1', msgId: 'm1', text: 'hi' },
     });
     assert.deepEqual(calls[1], { path: 'chat.delete', body: { roomId: 'r1', msgId: 'm1' } });
   });
@@ -40,7 +40,7 @@ describe('ActionsRC', () => {
   test('editing an encrypted message sends `content` and the mentions, never `text`', async () => {
     const { client, calls } = fakeClient();
     const content = { algorithm: 'rc.v2.aes-sha2', kid: 'k', iv: 'aXY=', ciphertext: 'Y3Q=' };
-    await new ActionsRC(client).edit('r1', 'm1', 'salut @bob', { encrypt: () => content });
+    await new ActionsRC(client).edit('r1', 'm1', 'hi @bob', { encrypt: () => content });
     assert.deepEqual(calls, [
       {
         path: 'chat.update',
@@ -90,9 +90,9 @@ describe('ActionsRC', () => {
         read.push({ path, params: options.params });
         return {
           messages: [
-            { _id: 'a', rid: 'r1', ts: '2026-01-01T00:00:00.000Z', msg: 'vieux', u, pinned: true },
-            { _id: 'illisible' },
-            { _id: 'b', rid: 'r1', ts: '2026-02-01T00:00:00.000Z', msg: 'récent', u, pinned: true },
+            { _id: 'a', rid: 'r1', ts: '2026-01-01T00:00:00.000Z', msg: 'old', u, pinned: true },
+            { _id: 'unreadable' },
+            { _id: 'b', rid: 'r1', ts: '2026-02-01T00:00:00.000Z', msg: 'recent', u, pinned: true },
           ],
         };
       },
@@ -103,8 +103,8 @@ describe('ActionsRC', () => {
     assert.deepEqual(
       pinned.map((m) => [m.id, m.text, m.pinned]),
       [
-        ['b', 'récent', true],
-        ['a', 'vieux', true],
+        ['b', 'recent', true],
+        ['a', 'old', true],
       ],
     );
     assert.deepEqual(read, [

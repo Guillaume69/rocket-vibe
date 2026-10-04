@@ -99,5 +99,5 @@ function expoTransportWith(field: string): TransportUpload {
 /** Room attachment (`rooms.media`), field `file`. */
 export const transportExpo = expoTransportWith('file');
 
-/** Photo de profil (`users.setAvatar`), champ `image`. */
+/** Profile picture (`users.setAvatar`), `image` field. */
 export const transportAvatarExpo = expoTransportWith('image');

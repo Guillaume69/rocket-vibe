@@ -130,10 +130,10 @@ function fft(): void {
   }
   for (let size = 2; size <= FFT_SIZE; size <<= 1) {
     const half = size >> 1;
-    const pas = FFT_SIZE / size;
+    const stride = FFT_SIZE / size;
     for (let start = 0; start < FFT_SIZE; start += size) {
       for (let k = 0; k < half; k++) {
-        const idx = k * pas;
+        const idx = k * stride;
         const wr = COS[idx]!;
         const wi = SIN[idx]!;
         const a = start + k;

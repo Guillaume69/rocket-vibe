@@ -147,7 +147,7 @@ function ImagePreview({
   );
 }
 
-/** Carte « unfurl » : bandeau optionnel + site + titre + description. */
+/** "Unfurl" card: optional banner + site + title + description. */
 function CardPreview({
   c,
   preview,

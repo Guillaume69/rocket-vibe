@@ -11,7 +11,7 @@
  * encrypted room carries CIPHERTEXT. When the app does the displaying
  * (foreground, reconnection windows), we replace it with generic text. With
  * the app killed, the native FCM service (plugins/with-fcm-deeplink.js) shows
- * "Message chiffré" as soon as the ejson carries `messageType: 'e2e'`.
+ * "Encrypted message" as soon as the ejson carries `messageType: 'e2e'`.
  */
 
 import * as Notifications from 'expo-notifications';

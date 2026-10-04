@@ -33,21 +33,21 @@ func sample(_ id: String, _ minutesAgo: Int64, _ author: String, _ body: [BodyBl
 }
 
 let gallerySamples: [MessageItem] = [
-    sample("1", 90, "bob", [.paragraph(runs: [run("Bonjour "), run("tout le monde", bold: true), run(" 👋🎉🇫🇷")])], day: true),
-    sample("2", 89, "bob", [.paragraph(runs: [run("Du "), run("code", code: true), run(", de l'"), run("italique", italic: true),
-                                              run(" et du "), run("barré", strike: true), run(".")])], header: false),
-    sample("3", 60, "alice", [.paragraph(runs: [run("@bob", link: "rv-user:bob", mention: true), run(" regarde "),
+    sample("1", 90, "bob", [.paragraph(runs: [run("Hello "), run("everyone", bold: true), run(" 👋🎉🇫🇷")])], day: true),
+    sample("2", 89, "bob", [.paragraph(runs: [run("Some "), run("code", code: true), run(", some "), run("italics", italic: true),
+                                              run(" and some "), run("strikethrough", strike: true), run(".")])], header: false),
+    sample("3", 60, "alice", [.paragraph(runs: [run("@bob", link: "rv-user:bob", mention: true), run(" look at "),
                                                 run("rocket.chat", link: "https://rocket.chat")])],
            reactions: [Reaction(shortcode: ":+1:", glyph: "👍", count: 2, mine: true),
                        Reaction(shortcode: ":joy:", glyph: "😂", count: 1, mine: false)]),
-    sample("4", 58, "bob", [.list(items: [ListItem(marker: "•", runs: [run("une liste")]),
-                                          ListItem(marker: "☑", runs: [run("une tâche faite")])])], replies: 3),
+    sample("4", 58, "bob", [.list(items: [ListItem(marker: "•", runs: [run("a list")]),
+                                          ListItem(marker: "☑", runs: [run("a task done")])])], replies: 3),
     sample("5", 40, "carol", [], system: "uj"),
-    sample("6", 30, "carol", [.quote(blocks: [.paragraph(runs: [run("une citation")])]),
+    sample("6", 30, "carol", [.quote(blocks: [.paragraph(runs: [run("a quote")])]),
                               .code(text: "fn main() {\n    println!(\"hi\");\n}")]),
     sample("7", 5, "alice", [.bigEmoji(runs: [run("🚀✨")])], edited: true, marker: true),
-    sample("8", 1, "alice", [.paragraph(runs: [run("en cours d'envoi…")])], delivery: .pending),
-    sample("9", 0, "alice", [.paragraph(runs: [run("pas parti")])], header: false, delivery: .failed),
+    sample("8", 1, "alice", [.paragraph(runs: [run("sending…")])], delivery: .pending),
+    sample("9", 0, "alice", [.paragraph(runs: [run("not sent")])], header: false, delivery: .failed),
 ]
 
 func sampleRoom(_ rid: String, _ kind: String, _ name: String, _ preview: RoomPreview, minutesAgo: Int64,
@@ -60,16 +60,16 @@ func sampleRoom(_ rid: String, _ kind: String, _ name: String, _ preview: RoomPr
 
 let galleryGroups: [RoomGroup] = [
     RoomGroup(section: .unread, rooms: [
-        sampleRoom("general", "c", "general", .text(text: "@alice on se voit à 14h ?"), minutesAgo: 2, unread: 3, mentions: 1),
-        sampleRoom("bob", "d", "bob", .text(text: "Regarde ça 🚀"), minutesAgo: 9, unread: 1, presence: .online),
+        sampleRoom("general", "c", "general", .text(text: "@alice see you at 2 pm?"), minutesAgo: 2, unread: 3, mentions: 1),
+        sampleRoom("bob", "d", "bob", .text(text: "Look at this 🚀"), minutesAgo: 9, unread: 1, presence: .online),
     ]),
     RoomGroup(section: .channels, rooms: [
         sampleRoom("random", "c", "random", .system(author: "carol", kind: "uj", param: ""), minutesAgo: 40),
         sampleRoom("laprivitude", "p", "laprivitude", .encrypted, minutesAgo: 300, encrypted: true),
-        sampleRoom("test-prive", "p", "test-prive", .text(text: "Du code, de l'italique et du barré."), minutesAgo: 60 * 30),
+        sampleRoom("test-prive", "p", "test-prive", .text(text: "Some code, some italics and some strikethrough."), minutesAgo: 60 * 30),
     ]),
     RoomGroup(section: .direct, rooms: [
-        sampleRoom("carol", "d", "carol", .text(text: "merci !"), minutesAgo: 60 * 24 * 3, presence: .away),
+        sampleRoom("carol", "d", "carol", .text(text: "thanks!"), minutesAgo: 60 * 24 * 3, presence: .away),
         sampleRoom("dave", "d", "dave", .empty, minutesAgo: 60 * 24 * 20, presence: .offline),
     ]),
 ]

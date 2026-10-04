@@ -68,6 +68,6 @@ describe('sameOrigin', () => {
   });
 
   test('an unreadable reference origin validates nothing', () => {
-    assert.equal(sameOrigin('https://h/x', 'pas-une-url'), false);
+    assert.equal(sameOrigin('https://h/x', 'not-a-url'), false);
   });
 });

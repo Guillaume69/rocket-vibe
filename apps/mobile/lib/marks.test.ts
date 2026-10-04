@@ -21,7 +21,7 @@ describe('starredBy', () => {
     assert.equal(starredBy('["u1","u2"]', 'u2'), true);
     assert.equal(starredBy('["u1"]', 'u2'), false);
     assert.equal(starredBy(null, 'u1'), false);
-    assert.equal(starredBy('{pas du json', 'u1'), false);
+    assert.equal(starredBy('{not json', 'u1'), false);
   });
 });
 

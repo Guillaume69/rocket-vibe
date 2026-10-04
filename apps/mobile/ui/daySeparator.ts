@@ -41,7 +41,7 @@ export function insertDaySeparators<L extends { id: string }>(
         const recent = order === 'newest-first' ? prev : row;
         result.push({
           day: true,
-          id: `jour-${dayKey(recent.ts)}`,
+          id: `day-${dayKey(recent.ts)}`,
           ts: recent.ts,
         });
       }

@@ -69,11 +69,11 @@ describe('RestClient', () => {
   test('auth headers are sent, except when anonymous', async () => {
     handle = (_q, res) => reply(res, 200, { success: true });
     const c = client();
-    c.auth = { authToken: 'jeton', userId: 'moi' };
+    c.auth = { authToken: 'token', userId: 'me' };
 
     await c.get('me');
-    assert.equal(received[0].headers['x-auth-token'], 'jeton');
-    assert.equal(received[0].headers['x-user-id'], 'moi');
+    assert.equal(received[0].headers['x-auth-token'], 'token');
+    assert.equal(received[0].headers['x-user-id'], 'me');
 
     await c.post('login', { anonymous: true, body: {} });
     assert.equal(received[1].headers['x-auth-token'], undefined);
@@ -128,7 +128,7 @@ describe('RestClient', () => {
       reply(res, 401, {
         success: false,
         errorType: 'totp-required',
-        details: { method: 'sms-du-futur', availableMethods: ['totp', 'martien'] },
+        details: { method: 'sms-from-the-future', availableMethods: ['totp', 'martian'] },
       });
     await assert.rejects(client().get('me'), (e: unknown) => {
       assert.ok(e instanceof TwoFactorError);
@@ -393,12 +393,12 @@ describe('RestClient', () => {
     // hanging forever.
     const verdict = await Promise.race([
       p.then(
-        () => 'résolue',
-        (e: unknown) => (e instanceof Error && e.name === 'AbortError' ? 'annulée' : 'autre'),
+        () => 'resolved',
+        (e: unknown) => (e instanceof Error && e.name === 'AbortError' ? 'cancelled' : 'other'),
       ),
-      new Promise((r) => setTimeout(() => r('pendante'), 250)),
+      new Promise((r) => setTimeout(() => r('pending'), 250)),
     ]);
-    assert.equal(verdict, 'annulée', 'the cancellation must be seen DURING the sleep');
+    assert.equal(verdict, 'cancelled', 'the cancellation must be seen DURING the sleep');
   });
 
   test('a signal aborted just BEFORE the sleep does not let it start', async () => {
@@ -470,13 +470,13 @@ describe('isTokenRejected', () => {
     // Half of the workstream: offline is not revoked. A mobile client spends
     // its life without network; dropping the session for that would be worse
     // than the zombie state being fixed.
-    assert.equal(isTokenRejected(new RestError('serveur injoignable.', 0)), false);
+    assert.equal(isTokenRejected(new RestError('server unreachable.', 0)), false);
   });
 
   test('an error from another transport (DDP) is NOT a rejected token', () => {
     class DdpError extends Error {}
-    assert.equal(isTokenRejected(new DdpError('Message refusé')), false);
-    assert.equal(isTokenRejected(new Error('boum')), false);
+    assert.equal(isTokenRejected(new DdpError('Message refused')), false);
+    assert.equal(isTokenRejected(new Error('boom')), false);
     assert.equal(isTokenRejected('401'), false);
     assert.equal(isTokenRejected(null), false);
     assert.equal(isTokenRejected(undefined), false);
@@ -486,7 +486,7 @@ describe('isTokenRejected', () => {
     // The corporate proxy, the captive portal, the maintenance page: they
     // answer 401 in HTML. `RestClient` then throws without `understoodResponse`
     // (the "non-JSON response" branch), and that status is THEIRS.
-    assert.equal(isTokenRejected(new RestError('réponse non JSON (401, 812 octets).', 401)), false);
+    assert.equal(isTokenRejected(new RestError('non-JSON response (401, 812 bytes).', 401)), false);
   });
 
   test('the refusals 8.5 returns OTHER than as 401 are ignored', () => {
@@ -498,7 +498,7 @@ describe('isTokenRejected', () => {
     assert.equal(isTokenRejected(fromServer(400, 'does not match any channel [error-room-not-found]', 'error-room-not-found')), false);
     assert.equal(isTokenRejected(fromServer(404, 'Not Found')), false);
     assert.equal(isTokenRejected(fromServer(429, 'too many requests')), false);
-    assert.equal(isTokenRejected(fromServer(500, 'boum')), false);
+    assert.equal(isTokenRejected(fromServer(500, 'boom')), false);
   });
 });
 
@@ -512,28 +512,28 @@ describe('RestClient: rejected token reporting', () => {
         message: 'You must be logged in to do this.',
       });
     const c = client();
-    c.auth = { authToken: 'jeton-a', userId: 'u1' };
+    c.auth = { authToken: 'token-a', userId: 'u1' };
     const reported: string[] = [];
     c.onTokenRejected = (j) => reported.push(j);
 
     await assert.rejects(c.get('chat.syncMessages'));
-    assert.deepEqual(reported, ['jeton-a']);
+    assert.deepEqual(reported, ['token-a']);
   });
 
   test('the reported token is the one at DEPARTURE, not at arrival', async () => {
     // The real race: logout then login while the request was in flight.
     // Reporting the current token would erase the BRAND NEW session.
     const c = client();
-    c.auth = { authToken: 'ancien', userId: 'u1' };
+    c.auth = { authToken: 'old', userId: 'u1' };
     handle = (_req, res) => {
-      c.auth = { authToken: 'tout-neuf', userId: 'u1' };
+      c.auth = { authToken: 'brand-new', userId: 'u1' };
       reply(res, 401, { success: false, error: 'You must be logged in to do this.' });
     };
     const reported: string[] = [];
     c.onTokenRejected = (j) => reported.push(j);
 
     await assert.rejects(c.get('me'));
-    assert.deepEqual(reported, ['ancien'], 'the caller must be able to recognise a stale 401');
+    assert.deepEqual(reported, ['old'], 'the caller must be able to recognise a stale 401');
   });
 
   test('an ANONYMOUS call reports nothing: it sent no token', async () => {
@@ -541,7 +541,7 @@ describe('RestClient: rejected token reporting', () => {
     // about the session, and at login there is not even one yet.
     handle = (_req, res) => reply(res, 401, { success: false, error: 'unauthorized' });
     const c = client();
-    c.auth = { authToken: 'jeton-a', userId: 'u1' };
+    c.auth = { authToken: 'token-a', userId: 'u1' };
     let reported = 0;
     c.onTokenRejected = () => reported++;
 
@@ -559,7 +559,7 @@ describe('RestClient: rejected token reporting', () => {
         details: { method: 'password', codeGenerated: false, availableMethods: [] },
       });
     const c = client();
-    c.auth = { authToken: 'jeton-a', userId: 'u1' };
+    c.auth = { authToken: 'token-a', userId: 'u1' };
     let reported = 0;
     c.onTokenRejected = () => reported++;
 
@@ -573,7 +573,7 @@ describe('RestClient: rejected token reporting', () => {
     // house envelope: `success`, `status`, `errorType`.
     handle = (_req, res) => reply(res, 401, { message: 'Unauthorized' });
     const c = client();
-    c.auth = { authToken: 'jeton-a', userId: 'u1' };
+    c.auth = { authToken: 'token-a', userId: 'u1' };
     let reported = 0;
     c.onTokenRejected = () => reported++;
 
@@ -593,7 +593,7 @@ describe('RestClient: rejected token reporting', () => {
     handle = (_req, res) =>
       reply(res, 401, { success: false, error: 'Unauthorized', status: 'error' });
     const c = client();
-    c.auth = { authToken: 'jeton-a', userId: 'u1' };
+    c.auth = { authToken: 'token-a', userId: 'u1' };
     let reported = 0;
     c.onTokenRejected = () => reported++;
 
@@ -607,7 +607,7 @@ describe('RestClient: rejected token reporting', () => {
       res.end('<html><body>401 Authorization Required</body></html>');
     };
     const c = client();
-    c.auth = { authToken: 'jeton-a', userId: 'u1' };
+    c.auth = { authToken: 'token-a', userId: 'u1' };
     let reported = 0;
     c.onTokenRejected = () => reported++;
 
@@ -625,16 +625,16 @@ describe('RestClient: rejected token reporting', () => {
     const cases = [
       [403, { success: false, error: 'User does not have the permissions required for this action [error-unauthorized]' }],
       [400, { success: false, error: 'Not allowed [error-not-allowed]', errorType: 'error-not-allowed' }],
-      [500, { success: false, error: 'boum' }],
+      [500, { success: false, error: 'boom' }],
     ] as const;
     const c = client();
-    c.auth = { authToken: 'jeton-a', userId: 'u1' };
+    c.auth = { authToken: 'token-a', userId: 'u1' };
     let reported = 0;
     c.onTokenRejected = () => reported++;
 
     for (const [status, body] of cases) {
       handle = (_req, res) => reply(res, status, body);
-      await assert.rejects(c.get('quelque.chose'));
+      await assert.rejects(c.get('some.thing'));
     }
     assert.equal(reported, 0);
   });
@@ -642,7 +642,7 @@ describe('RestClient: rejected token reporting', () => {
   test('without a subscriber, a 401 stays an ordinary error', async () => {
     handle = (_req, res) => reply(res, 401, { success: false, error: 'You must be logged in to do this.' });
     const c = client();
-    c.auth = { authToken: 'jeton-a', userId: 'u1' };
+    c.auth = { authToken: 'token-a', userId: 'u1' };
     await assert.rejects(c.get('me'), (e: unknown) => {
       assert.ok(e instanceof RestError);
       assert.equal(e.status, 401);

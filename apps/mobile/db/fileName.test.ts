@@ -3,8 +3,8 @@ import { describe, test } from 'node:test';
 
 import { databaseFileName } from './fileName.ts';
 
-describe('nomFichier', () => {
-  test('deux serveurs distincts donnent deux bases distinctes', () => {
+describe('databaseFileName', () => {
+  test('two distinct servers give two distinct databases', () => {
     assert.notEqual(databaseFileName('https://chat.barrut.me'), databaseFileName('http://192.168.1.106:3000'));
   });
 

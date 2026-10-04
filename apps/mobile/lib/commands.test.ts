@@ -17,7 +17,7 @@ const LIST = {
     { command: 'kick', params: '@username', description: 'Remove_someone_from_room', permission: 'remove-user' },
     { command: 'leave', description: 'Leave_the_current_channel', permission: ['leave-c', 'leave-p'] },
     { command: 'poll', params: 'question', description: 'Poll_App_Create_Poll' },
-    { command: '', description: 'sans nom' },
+    { command: '', description: 'unnamed' },
   ],
 };
 
@@ -41,7 +41,7 @@ describe('readCommands', () => {
 
   test('a response without a list yields nothing', () => {
     assert.deepEqual(readCommands(null, 'en'), []);
-    assert.deepEqual(readCommands({ commands: 'non' }, 'en'), []);
+    assert.deepEqual(readCommands({ commands: 'no' }, 'en'), []);
   });
 });
 
@@ -50,7 +50,7 @@ describe('detectCommandToken', () => {
     assert.deepEqual(detectCommandToken('/', 1), { query: '' });
     assert.deepEqual(detectCommandToken('/sh', 3), { query: 'sh' });
     assert.equal(detectCommandToken('/shrug ', 7), null);
-    assert.equal(detectCommandToken('salut /sh', 9), null);
+    assert.equal(detectCommandToken('hello /sh', 9), null);
     assert.equal(detectCommandToken(' /sh', 4), null);
     assert.equal(detectCommandToken('/usr/bin', 8), null);
     assert.deepEqual(detectCommandToken('/shrug lol', 3), { query: 'sh' });
@@ -75,14 +75,14 @@ describe('completeCommand', () => {
 describe('splitCommand', () => {
   test('splits the name from its parameters', () => {
     assert.deepEqual(splitCommand('/shrug'), { name: 'shrug', params: '' });
-    assert.deepEqual(splitCommand('/me  salue \n tout le monde '), {
+    assert.deepEqual(splitCommand('/me  waves \n at everyone '), {
       name: 'me',
-      params: 'salue \n tout le monde',
+      params: 'waves \n at everyone',
     });
-    assert.deepEqual(splitCommand('  /topic nouveau'), { name: 'topic', params: 'nouveau' });
+    assert.deepEqual(splitCommand('  /topic new'), { name: 'topic', params: 'new' });
     assert.equal(splitCommand('/'), null);
-    assert.equal(splitCommand('/usr/bin est un chemin'), null);
-    assert.equal(splitCommand('pas /une commande'), null);
+    assert.equal(splitCommand('/usr/bin is a path'), null);
+    assert.equal(splitCommand('not /a command'), null);
   });
 });
 
@@ -91,7 +91,7 @@ describe('privateMessage', () => {
     const args = [{ _id: '1', rid: 'R1', msg: 'The channel `#nope` does not exist.', private: true }];
     assert.deepEqual(privateMessage(args), { rid: 'R1', text: 'The channel `#nope` does not exist.' });
     assert.equal(privateMessage([{ rid: 'R1', msg: '  ' }]), null);
-    assert.equal(privateMessage([{ msg: 'sans salon' }]), null);
+    assert.equal(privateMessage([{ msg: 'no room' }]), null);
     assert.equal(privateMessage([]), null);
   });
 });
@@ -127,16 +127,16 @@ describe('runCommand', () => {
 
   test('an unknown name or plain text stays a message', async () => {
     const { client, posts } = fakeClient();
-    assert.equal(await runCommand(client, 'R1', '/inconnue', null), false);
-    assert.equal(await runCommand(client, 'R1', 'bonjour', null), false);
+    assert.equal(await runCommand(client, 'R1', '/unknown', null), false);
+    assert.equal(await runCommand(client, 'R1', 'hello', null), false);
     assert.equal(posts.length, 0);
   });
 
   test('a server refusal propagates', async () => {
     const { client } = fakeClient();
     client.post = async () => {
-      throw new Error('refusée');
+      throw new Error('refused');
     };
-    await assert.rejects(runCommand(client, 'R1', '/kick @bob', null), /refusée/);
+    await assert.rejects(runCommand(client, 'R1', '/kick @bob', null), /refused/);
   });
 });

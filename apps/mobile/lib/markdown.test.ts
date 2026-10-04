@@ -6,31 +6,31 @@ import { textPreview, messageTree, textOf, emojiUnicode } from './markdown.ts';
 describe('messageTree', () => {
   test('prefers the server `md` when present', () => {
     const md = JSON.stringify([
-      { type: 'PARAGRAPH', value: [{ type: 'PLAIN_TEXT', value: 'serveur' }] },
+      { type: 'PARAGRAPH', value: [{ type: 'PLAIN_TEXT', value: 'server' }] },
     ]);
-    const tree = messageTree(md, 'texte ignoré');
-    assert.equal(textOf(tree), 'serveur');
+    const tree = messageTree(md, 'ignored text');
+    assert.equal(textOf(tree), 'server');
   });
 
   test('an OLD message without `md` is parsed locally: the 4.3 contract fallback', () => {
-    const tree = messageTree(null, '**gras** et _italique_');
+    const tree = messageTree(null, '**bold** and _italic_');
     assert.ok(tree !== null);
     assert.equal(tree[0].type, 'PARAGRAPH');
-    assert.equal(textOf(tree), 'gras et italique');
+    assert.equal(textOf(tree), 'bold and italic');
   });
 
   test('a `md` corrupted in the database falls back to the text instead of crashing', () => {
-    assert.equal(textOf(messageTree('{pas du json', 'secours')), 'secours');
-    assert.equal(textOf(messageTree('"pas un tableau"', 'secours')), 'secours');
-    assert.equal(textOf(messageTree('[]', 'secours')), 'secours');
+    assert.equal(textOf(messageTree('{not json', 'fallback')), 'fallback');
+    assert.equal(textOf(messageTree('"not an array"', 'fallback')), 'fallback');
+    assert.equal(textOf(messageTree('[]', 'fallback')), 'fallback');
   });
 
   test('a `md` of corrupted SHAPE (poisoned elements) also falls back to the text', () => {
     // An array is not enough: `[null]` or a node without `type` passed the
     // guard and crashed rendering, durably, since `md` is persisted.
-    assert.equal(textOf(messageTree('[null]', 'secours')), 'secours');
-    assert.equal(textOf(messageTree('[{"value":[]}]', 'secours')), 'secours');
-    assert.equal(textOf(messageTree('[42]', 'secours')), 'secours');
+    assert.equal(textOf(messageTree('[null]', 'fallback')), 'fallback');
+    assert.equal(textOf(messageTree('[{"value":[]}]', 'fallback')), 'fallback');
+    assert.equal(textOf(messageTree('[42]', 'fallback')), 'fallback');
   });
 
   test('neither `md` nor text: null, not an exception', () => {
@@ -41,13 +41,13 @@ describe('messageTree', () => {
 
 describe('textOf', () => {
   test('flattens nested nodes', () => {
-    const tree = messageTree(null, '**gras _et italique_** `code`');
-    assert.equal(textOf(tree), 'gras et italique code');
+    const tree = messageTree(null, '**bold _and italic_** `code`');
+    assert.equal(textOf(tree), 'bold and italic code');
   });
 
   test('a known short code returns its character', () => {
-    const tree = messageTree(null, ':smile: bonjour');
-    assert.equal(textOf(tree), '😄 bonjour');
+    const tree = messageTree(null, ':smile: hello');
+    assert.equal(textOf(tree), '😄 hello');
   });
 
   test('an unknown short code stays literal: a custom emoji is still readable', () => {
@@ -56,15 +56,15 @@ describe('textOf', () => {
   });
 
   test('an unknown node returns an empty string, not a crash', () => {
-    assert.equal(textOf({ type: 'FUTUR_TYPE' }), '');
+    assert.equal(textOf({ type: 'FUTURE_TYPE' }), '');
     assert.equal(textOf(42), '');
   });
 
   test('a TIMESTAMP returns its `fallback`, not an empty string', () => {
     // `<t:…:F>` yields a node whose `value` is an opaque object; the parser
     // provides `fallback` exactly for the fallback display.
-    const tree = messageTree(null, 'rdv <t:1720000000:F> ok');
-    assert.match(textOf(tree), /rdv <t:1720000000:F> ok/);
+    const tree = messageTree(null, 'meet <t:1720000000:F> ok');
+    assert.match(textOf(tree), /meet <t:1720000000:F> ok/);
   });
 
   test('a unicode emoji returns its character', () => {
@@ -102,8 +102,8 @@ describe('emojiUnicode', () => {
 describe('textPreview', () => {
   test('a preview reads as text, without markdown syntax', () => {
     assert.equal(textPreview('```\nZOB\n```'), 'ZOB');
-    assert.equal(textPreview('[t.gg](http://t.gg) *gras* ~barré~ `code`'), 't.gg gras barré code');
-    assert.equal(textPreview('salut @bob #general\n\n- un\n- deux'), 'salut @bob #general • un • deux');
+    assert.equal(textPreview('[t.gg](http://t.gg) *bold* ~struck~ `code`'), 't.gg bold struck code');
+    assert.equal(textPreview('hi @bob #general\n\n- one\n- two'), 'hi @bob #general • one • two');
     assert.equal(textPreview(':kkk: :smile:'), ':kkk: 😄');
   });
 });

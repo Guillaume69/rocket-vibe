@@ -9,7 +9,7 @@ describe('detectVideoLinks', () => {
   test('recognizes the usual YouTube forms', () => {
     for (const text of [
       `https://www.youtube.com/watch?v=${ID}`,
-      `regarde https://youtu.be/${ID} stp`,
+      `look https://youtu.be/${ID} pls`,
       `youtube.com/shorts/${ID}`,
       `https://m.youtube.com/watch?feature=share&v=${ID}`,
       `(https://www.youtube.com/watch?v=${ID})`,
@@ -27,7 +27,7 @@ describe('detectVideoLinks', () => {
     for (const text of [
       `notyoutube.com/watch?v=${ID}`,
       `blahyoutu.be/${ID}`,
-      `ecris-moi@youtube.com/watch?v=${ID}`,
+      `write-me@youtube.com/watch?v=${ID}`,
       `pasvimeo.com/12345`,
     ]) {
       assert.deepEqual(detectVideoLinks(text), [], text);
@@ -35,7 +35,7 @@ describe('detectVideoLinks', () => {
   });
 
   test('dedupes and caps', () => {
-    assert.equal(detectVideoLinks(`https://youtu.be/${ID} et https://youtu.be/${ID}`).length, 1);
+    assert.equal(detectVideoLinks(`https://youtu.be/${ID} and https://youtu.be/${ID}`).length, 1);
     const three = `https://youtu.be/aaaaaaaaaaa https://youtu.be/bbbbbbbbbbb https://youtu.be/ccccccccccc https://youtu.be/ddddddddddd`;
     assert.equal(detectVideoLinks(three).length, 3);
   });

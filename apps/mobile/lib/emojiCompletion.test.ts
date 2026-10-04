@@ -9,7 +9,7 @@ import {
 
 describe('detectEmojiToken', () => {
   test('finds the open token just before the cursor', () => {
-    assert.deepEqual(detectEmojiToken('bonjour :sm', 11), { start: 8, query: 'sm' });
+    assert.deepEqual(detectEmojiToken('goodbye :sm', 11), { start: 8, query: 'sm' });
   });
 
   test('lowercases the query, keeps the start intact', () => {
@@ -37,15 +37,15 @@ describe('detectEmojiToken', () => {
   });
 
   test('ignores the `:` of a URL (preceded by a letter)', () => {
-    assert.equal(detectEmojiToken('voir http://ex', 14), null);
+    assert.equal(detectEmojiToken('look http://ex', 14), null);
   });
 
   test('ignores the `:` of a time (preceded by a digit)', () => {
-    assert.equal(detectEmojiToken('rdv 12:34', 9), null);
+    assert.equal(detectEmojiToken('at 12:34', 8), null);
   });
 
   test('a space closes the token', () => {
-    assert.equal(detectEmojiToken('salut :sm ', 10), null);
+    assert.equal(detectEmojiToken('hello :sm ', 10), null);
   });
 
   test('a cursor in the MIDDLE bounds the query', () => {
@@ -64,7 +64,7 @@ describe('detectEmojiToken', () => {
   });
 
   test('no colon, nothing', () => {
-    assert.equal(detectEmojiToken('coucou', 6), null);
+    assert.equal(detectEmojiToken('hello', 5), null);
   });
 });
 

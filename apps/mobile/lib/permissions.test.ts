@@ -18,7 +18,7 @@ function fakeClient(failures = 0) {
       calls.push(path);
       if (remaining > 0) {
         remaining--;
-        throw new Error('hors ligne');
+        throw new Error('offline');
       }
       if (path === 'me') return { roles: ['user'] } as T;
       return {
@@ -49,7 +49,7 @@ describe('permissions', () => {
   test('roomRoles reads the column, and never throws', () => {
     assert.deepEqual(roomRoles('["owner","moderator"]'), ['owner', 'moderator']);
     assert.deepEqual(roomRoles(null), []);
-    assert.deepEqual(roomRoles('{pas du json'), []);
+    assert.deepEqual(roomRoles('{not json'), []);
     assert.deepEqual(roomRoles('"owner"'), []);
   });
 

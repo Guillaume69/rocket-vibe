@@ -43,7 +43,7 @@ class FakeWebSocket implements WebSocketLike {
 async function authenticatedClient(): Promise<{ ddp: ClientDdp; ws: FakeWebSocket }> {
   const ws = new FakeWebSocket();
   const ddp = new ClientDdp('ws://x/websocket', { createWebSocket: () => ws, timeoutMs: 200 });
-  const promise = ddp.connect('jeton-rest');
+  const promise = ddp.connect('rest-token');
   ws.open();
   ws.receive({ msg: 'connected', session: 'sess-1' });
   // The client then sends `method login`.
@@ -58,7 +58,7 @@ describe('ClientDdp', () => {
   test('the DDP handshake is sent on open', async () => {
     const ws = new FakeWebSocket();
     const ddp = new ClientDdp('ws://x', { createWebSocket: () => ws, timeoutMs: 200 });
-    const p = ddp.connect('jeton');
+    const p = ddp.connect('token');
     ws.open();
     assert.deepEqual(ws.sent[0], { msg: 'connect', version: '1', support: ['1'] });
 
@@ -74,7 +74,7 @@ describe('ClientDdp', () => {
     const { ws } = await authenticatedClient();
     const login = ws.sent.find((m) => m.msg === 'method');
     assert.equal(login?.method, 'login');
-    assert.deepEqual(login?.params, [{ resume: 'jeton-rest' }]);
+    assert.deepEqual(login?.params, [{ resume: 'rest-token' }]);
   });
 
   test('a `failed` rejects the connection AND leaves the client reusable', async () => {
@@ -124,7 +124,7 @@ describe('ClientDdp', () => {
     ddp.subscribe('stream-room-messages', 'rid-1');
     assert.equal(ws.sent.length, 0, 'nothing goes out until authenticated');
 
-    const promise = ddp.connect('jeton');
+    const promise = ddp.connect('token');
     ws.open();
     ws.receive({ msg: 'connected', session: 's' });
     await new Promise((r) => setImmediate(r));
@@ -178,7 +178,7 @@ describe('ClientDdp', () => {
 
   test('`armedSubscriptions` also settles on a `nosub`, never blocking', async () => {
     const { ddp, ws } = await authenticatedClient();
-    ddp.subscribe('stream-room-messages', 'prive');
+    ddp.subscribe('stream-room-messages', 'private');
     const sub = ws.last();
 
     const wait = ddp.armedSubscriptions();
@@ -201,7 +201,7 @@ describe('ClientDdp', () => {
 
   test('a `nosub` does not count the subscription, but keeps it desired', async () => {
     const { ddp, ws } = await authenticatedClient();
-    ddp.subscribe('stream-room-messages', 'prive');
+    ddp.subscribe('stream-room-messages', 'private');
     const sub = ws.last();
     ws.receive({ msg: 'nosub', id: sub.id, error: { error: 'not-allowed' } });
     await new Promise((r) => setImmediate(r));
@@ -218,19 +218,19 @@ describe('ClientDdp', () => {
       msg: 'changed',
       collection: 'stream-room-messages',
       id: 'id',
-      fields: { eventName: 'rid-1', args: [{ msg: 'bonjour' }] },
+      fields: { eventName: 'rid-1', args: [{ msg: 'hello' }] },
     });
     assert.equal(received.length, 1);
     assert.equal(received[0].collection, 'stream-room-messages');
     assert.equal(received[0].eventKey, 'rid-1');
-    assert.deepEqual(received[0].args, [{ msg: 'bonjour' }]);
+    assert.deepEqual(received[0].args, [{ msg: 'hello' }]);
   });
 
   test('a throwing listener does not stop the others from receiving', async () => {
     const { ddp, ws } = await authenticatedClient();
     const received: string[] = [];
     ddp.onEvent(() => {
-      throw new Error('boum');
+      throw new Error('boom');
     });
     ddp.onEvent((e) => received.push(e.eventKey));
     ws.receive({
@@ -362,7 +362,7 @@ describe('ClientDdp', () => {
       timeoutMs: 200,
     });
 
-    const p1 = ddp.connect('jeton');
+    const p1 = ddp.connect('token');
     sockets[0].open();
     sockets[0].receive({ msg: 'connected', session: 's1' });
     await new Promise((r) => setImmediate(r));
@@ -377,7 +377,7 @@ describe('ClientDdp', () => {
     sockets[0].onclose?.(null); // drop
     assert.equal(ddp.subscriptionCount, 0);
 
-    const p2 = ddp.connect('jeton');
+    const p2 = ddp.connect('token');
     sockets[1].open();
     sockets[1].receive({ msg: 'connected', session: 's2' });
     await new Promise((r) => setImmediate(r));
@@ -394,7 +394,7 @@ describe('ClientDdp', () => {
   test('a refused login closes the socket and leaves the client reusable', async () => {
     const ws = new FakeWebSocket();
     const ddp = new ClientDdp('ws://x', { createWebSocket: () => ws, timeoutMs: 200 });
-    const p = ddp.connect('jeton-mort');
+    const p = ddp.connect('dead-token');
     ws.open();
     ws.receive({ msg: 'connected', session: 's' });
     await new Promise((r) => setImmediate(r));
@@ -414,7 +414,7 @@ describe('ClientDdp', () => {
     const ddp = new ClientDdp('ws://x', { createWebSocket: () => ws, timeoutMs: 200 });
     let losses = 0;
     ddp.onLoss(() => losses++);
-    const p = ddp.connect('jeton');
+    const p = ddp.connect('token');
     ws.open();
     ws.receive({ msg: 'connected', session: 's' });
     await new Promise((r) => setImmediate(r)); // the `method login` has gone out
@@ -432,7 +432,7 @@ describe('ClientDdp', () => {
     // has meanwhile finished its login and replayed its subscriptions.
     const ws = new FakeWebSocket();
     const ddp = new ClientDdp('ws://x', { createWebSocket: () => ws, timeoutMs: 60 });
-    const p = ddp.connect('jeton');
+    const p = ddp.connect('token');
     ws.open();
     assert.equal(ddp.state, 'connecting');
 
@@ -454,7 +454,7 @@ describe('ClientDdp', () => {
     // So the guard must not be stricter than the server.
     const ws = new FakeWebSocket();
     const ddp = new ClientDdp('ws://x', { createWebSocket: () => ws, timeoutMs: 200 });
-    const p = ddp.connect('jeton');
+    const p = ddp.connect('token');
     ws.open();
     ws.receive({ msg: 'connected', session: 's' });
     await new Promise((r) => setImmediate(r));
@@ -483,7 +483,7 @@ describe('ClientDdp', () => {
     ws.receive({ msg: 'error', reason: 'Must connect first', offendingMessage: { msg: 'ping', id } });
 
     // Without waiting for the 200 ms timeout: the answer must be immediate.
-    assert.equal(await Promise.race([probe, new Promise((r) => setTimeout(() => r('pendante'), 60))]), false);
+    assert.equal(await Promise.race([probe, new Promise((r) => setTimeout(() => r('pending'), 60))]), false);
   });
 
   test('a `msg: error` without a usable `offendingMessage` is ignored, not fatal', async () => {
@@ -562,14 +562,14 @@ describe('ClientDdp', () => {
       timeoutMs: 200,
     });
 
-    const p1 = ddp.connect('jeton-mort');
+    const p1 = ddp.connect('dead-token');
     sockets[0].open();
     sockets[0].receive({ msg: 'connected', session: 's' });
     await new Promise((r) => setImmediate(r));
     sockets[0].receive({ msg: 'result', id: sockets[0].last().id, error: { error: 403 } });
     await assert.rejects(p1);
 
-    const p2 = ddp.connect('bon-jeton');
+    const p2 = ddp.connect('good-token');
     sockets[1].open();
     // The old socket reports its close, late.
     sockets[0].onclose?.(null);
@@ -606,7 +606,7 @@ describe('silence watchdog', () => {
       silenceMaxMs: 60,
       watchdogMs: 20,
     });
-    const promise = ddp.connect('jeton-rest');
+    const promise = ddp.connect('rest-token');
     ws.open();
     ws.receive({ msg: 'connected', session: 'sess-1' });
     await new Promise((r) => setImmediate(r));

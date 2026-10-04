@@ -71,7 +71,7 @@ function testEngine(options: {
     store,
     client,
     me: { id: 'u1', username: 'alice' },
-    generateId: () => `id-genere-${++n}`.padEnd(24, '0'),
+    generateId: () => `generated-id-${++n}`.padEnd(24, '0'),
     ingest: async (doc) => void ingested.push(doc),
     encryptor: options.encryptor,
     now: () => 1000,
@@ -96,7 +96,7 @@ describe('OutboxEngine', () => {
       },
     });
 
-    const id = await engine.send('r1', 'bonjour');
+    const id = await engine.send('r1', 'hello');
 
     assert.equal(messages.length, 1, 'the optimistic message is written to the database');
     assert.equal(messages[0].id, id);
@@ -105,7 +105,7 @@ describe('OutboxEngine', () => {
     assert.equal(queries.length, 1);
     const sent = (queries[0].message ?? {}) as Record<string, unknown>;
     assert.equal(sent._id, id, 'the server receives the SAME _id: its deduplication key');
-    assert.equal(sent.msg, 'bonjour');
+    assert.equal(sent.msg, 'hello');
 
     assert.equal(outbox.size, 0, 'the queue is emptied on success');
     assert.equal(ingested.length, 1, 'the server document goes back through sync');
@@ -118,13 +118,13 @@ describe('OutboxEngine', () => {
         return ok({ success: true, message: { ...m, ts: { $date: 2000 }, u: { _id: 'u1' } } });
       },
     });
-    await engine.send('r1', 'réponse dans le fil', 'racine-du-fil-000000000');
+    await engine.send('r1', 'reply in the thread', 'thread-root-00000000000');
     const sent = (queries[0].message ?? {}) as Record<string, unknown>;
-    assert.equal(sent.tmid, 'racine-du-fil-000000000');
+    assert.equal(sent.tmid, 'thread-root-00000000000');
     assert.equal(outbox.size, 0);
 
     // An ORDINARY message has no `tmid` key at all, not a null.
-    await engine.send('r1', 'hors fil');
+    await engine.send('r1', 'outside the thread');
     const ordinary = (queries[1].message ?? {}) as Record<string, unknown>;
     assert.ok(!('tmid' in ordinary));
   });
@@ -135,7 +135,7 @@ describe('OutboxEngine', () => {
         throw new TypeError('Network request failed');
       },
     });
-    await engine.send('r1', 'hors ligne');
+    await engine.send('r1', 'offline');
     const rows = [...outbox.values()];
     assert.equal(rows.length, 1);
     assert.equal(rows[0].status, 'pending', 'not a failure: the network will come back');
@@ -145,7 +145,7 @@ describe('OutboxEngine', () => {
     const { engine, outbox } = testEngine({
       reply: async () => ok({ success: false, error: 'error-not-allowed' }),
     });
-    await engine.send('r1', 'refusé');
+    await engine.send('r1', 'refused');
     const rows = [...outbox.values()];
     assert.equal(rows.length, 1);
     assert.equal(rows[0].status, 'failed');
@@ -164,7 +164,7 @@ describe('OutboxEngine', () => {
         return ok({ success: true, message: { _id: id } });
       },
     });
-    await engine.send('r1', 'rejoué après crash');
+    await engine.send('r1', 'replayed after a crash');
     assert.equal(outbox.size, 0, 'delivered = reconciled');
   });
 
@@ -173,12 +173,12 @@ describe('OutboxEngine', () => {
       reply: async () => ok({ success: false, error: 'starred…' }),
       replyGet: async (url) => {
         const id = new URL(url).searchParams.get('msgId');
-        return ok({ success: true, message: { _id: id, msg: 'version serveur' } });
+        return ok({ success: true, message: { _id: id, msg: 'server version' } });
       },
     });
     await engine.send('r1', 'x');
     assert.equal(ingested.length, 1);
-    assert.equal(ingested[0].msg, 'version serveur');
+    assert.equal(ingested[0].msg, 'server version');
   });
 
   /**
@@ -194,7 +194,7 @@ describe('OutboxEngine', () => {
         throw new TypeError('Network request failed');
       },
     });
-    await engine.send('r1', 'peut-être livré');
+    await engine.send('r1', 'maybe delivered');
     const rows = [...outbox.values()];
     assert.equal(rows.length, 1);
     assert.equal(rows[0].status, 'pending', 'when in doubt, do not condemn');
@@ -215,7 +215,7 @@ describe('OutboxEngine', () => {
         return new Response('{}', { status: 429, headers: { 'Content-Type': 'application/json' } });
       },
     });
-    await engine.send('r1', 'quota épuisé');
+    await engine.send('r1', 'quota exhausted');
     assert.ok(gets > 1, 'RestClient does retry the 429 before giving up');
     assert.equal([...outbox.values()][0]?.status, 'pending');
   });
@@ -226,15 +226,15 @@ describe('OutboxEngine', () => {
       // A clear HTTP answer: the server spoke, the message is not there.
       replyGet: async () => ok({ success: false, error: 'error-invalid-message' }),
     });
-    await engine.send('r1', 'vraiment refusé');
+    await engine.send('r1', 'really refused');
     assert.equal([...outbox.values()][0]?.status, 'failed', 'a server verdict decides');
   });
 
   test('discard deletes the outbox row AND the optimistic message', async () => {
     const { engine, outbox, messages } = testEngine({
-      reply: async () => ok({ success: false, error: 'refus définitif' }),
+      reply: async () => ok({ success: false, error: 'final refusal' }),
     });
-    const id = await engine.send('r1', 'condamné');
+    const id = await engine.send('r1', 'doomed');
     assert.equal([...outbox.values()][0]?.status, 'failed');
 
     await engine.discard(id);
@@ -273,7 +273,7 @@ describe('OutboxEngine', () => {
     let refuse = true;
     const { engine, outbox } = testEngine({
       reply: async (body) => {
-        if (refuse) return ok({ success: false, error: 'temporaire' });
+        if (refuse) return ok({ success: false, error: 'temporary' });
         const m = (body.message ?? {}) as Record<string, unknown>;
         return ok({ success: true, message: m });
       },
@@ -328,18 +328,18 @@ describe('OutboxEngine, encrypted room', () => {
   test('the text leaves encrypted, never in plaintext, with its mentions and thread', async () => {
     const { engine, messages, queries, outbox } = testEngine({ reply: echo, encrypted: new Set(['p1']), encryptor });
 
-    await engine.send('p1', 'salut @bob', 'racine');
+    await engine.send('p1', 'hi @bob', 'root');
 
     assert.equal(messages[0].systemType, 'e2e', 'the optimistic message is an encrypted message…');
-    assert.equal(messages[0].text, 'salut @bob', '…shown in plaintext locally');
+    assert.equal(messages[0].text, 'hi @bob', '…shown in plaintext locally');
     const sent = (queries[0].message ?? {}) as Record<string, unknown>;
     assert.equal(sent.msg, undefined, 'no plaintext on the network');
     assert.equal(sent.t, 'e2e');
     assert.equal(sent.e2e, 'pending');
-    assert.equal(sent.tmid, 'racine');
+    assert.equal(sent.tmid, 'root');
     const content = sent.content as { kid: string; ciphertext: string };
     assert.equal(content.kid, 'kid-p1');
-    assert.deepEqual(JSON.parse(Buffer.from(content.ciphertext, 'base64').toString()), { msg: 'salut @bob' });
+    assert.deepEqual(JSON.parse(Buffer.from(content.ciphertext, 'base64').toString()), { msg: 'hi @bob' });
     assert.deepEqual(sent.e2eMentions, { e2eUserMentions: ['@bob'], e2eChannelMentions: [] });
     assert.equal(outbox.size, 0);
   });

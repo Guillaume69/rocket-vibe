@@ -31,7 +31,7 @@ function spyClient(responses: Record<string, unknown> = {}) {
     },
     sleep: async () => {},
   });
-  client.auth = { authToken: 'jeton-alice', userId: 'uid-alice' };
+  client.auth = { authToken: 'token-alice', userId: 'uid-alice' };
   return { client, calls };
 }
 
@@ -39,20 +39,20 @@ describe('profileFromMe', () => {
   test('normalizes the present fields (statusDefault first)', () => {
     const p = profileFromMe({
       username: 'alice',
-      name: 'Alice Merveille',
+      name: 'Alice Wonder',
       status: 'online',
       statusDefault: 'busy',
-      statusText: 'En réunion',
-      bio: 'Développeuse',
+      statusText: 'In a meeting',
+      bio: 'Developer',
       emails: [{ address: 'alice@x.fr', verified: true }],
     });
     assert.deepEqual(p, {
       username: 'alice',
-      name: 'Alice Merveille',
+      name: 'Alice Wonder',
       email: 'alice@x.fr',
       status: 'busy',
-      statusText: 'En réunion',
-      bio: 'Développeuse',
+      statusText: 'In a meeting',
+      bio: 'Developer',
     });
   });
 
@@ -81,7 +81,7 @@ describe('profileFromMe', () => {
 
   test('empty or malformed emails → empty email, no crash', () => {
     assert.equal(profileFromMe({ emails: [] }).email, '');
-    assert.equal(profileFromMe({ emails: 'pas-un-tableau' }).email, '');
+    assert.equal(profileFromMe({ emails: 'not-an-array' }).email, '');
     assert.equal(profileFromMe({ emails: [{ verified: true }] }).email, '');
   });
 });
@@ -100,9 +100,9 @@ describe('readMyProfile', () => {
 describe('saveStatus', () => {
   test('posts status AND message together', async () => {
     const { client, calls } = spyClient();
-    await saveStatus(client, { status: 'away', message: 'Déjeuner' });
+    await saveStatus(client, { status: 'away', message: 'Lunch' });
     assert.equal(calls[0]?.path, 'users.setStatus');
-    assert.deepEqual(calls[0]?.body, { status: 'away', message: 'Déjeuner' });
+    assert.deepEqual(calls[0]?.body, { status: 'away', message: 'Lunch' });
   });
 });
 
@@ -117,7 +117,7 @@ describe('saveBasicInfo', () => {
 
   test('adds the x-2fa-* headers when a code is given', async () => {
     const { client, calls } = spyClient();
-    await saveBasicInfo(client, { email: 'neuf@x.fr' }, { code: '123456', method: 'totp' });
+    await saveBasicInfo(client, { email: 'new@x.org' }, { code: '123456', method: 'totp' });
     assert.equal(calls[0]?.headers.get('x-2fa-code'), '123456');
     assert.equal(calls[0]?.headers.get('x-2fa-method'), 'totp');
   });
@@ -130,7 +130,7 @@ describe('diffInfos', () => {
     email: 'alice@x.fr',
     status: 'online',
     statusText: '',
-    bio: 'Bonjour',
+    bio: 'Hello',
   };
 
   test('no change → empty object', () => {
@@ -138,8 +138,8 @@ describe('diffInfos', () => {
   });
 
   test('keeps only the changed fields', () => {
-    const d = diffInfos(base, { ...base, name: 'Alice M.', bio: 'Salut' });
-    assert.deepEqual(d, { name: 'Alice M.', bio: 'Salut' });
+    const d = diffInfos(base, { ...base, name: 'Alice M.', bio: 'Hi' });
+    assert.deepEqual(d, { name: 'Alice M.', bio: 'Hi' });
   });
 
   test('status and status text do NOT go through diffInfos', () => {
@@ -151,7 +151,7 @@ describe('diffInfos', () => {
 describe('requiresPassword', () => {
   test('email or username → true', () => {
     assert.equal(requiresPassword({ email: 'x@y.fr' }), true);
-    assert.equal(requiresPassword({ username: 'neuf' }), true);
+    assert.equal(requiresPassword({ username: 'new' }), true);
   });
   test('name or bio alone → false', () => {
     assert.equal(requiresPassword({ name: 'X', bio: 'Y' }), false);

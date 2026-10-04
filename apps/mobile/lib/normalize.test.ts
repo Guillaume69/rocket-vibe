@@ -29,7 +29,7 @@ describe('toMessage: video conference message', () => {
     // Blocks are read ONLY for a `t: 'videoconf'`: no false positive.
     const m = toMessage({
       ...base,
-      msg: 'coucou',
+      msg: 'hey',
       blocks: [{ type: 'video_conf', callId: 'call-xyz' }],
     });
     assert.equal(m?.systemType, null);
@@ -68,7 +68,7 @@ describe('toEpoch: the three shapes the server sends', () => {
   test('everything else returns null, never NaN', () => {
     // A NaN written to the database stays there: SQLite accepts it, and every
     // timestamp comparison silently becomes false.
-    for (const v of [undefined, null, '', 'pas une date', {}, { $date: 'pas une date' }, [], true, NaN, Infinity]) {
+    for (const v of [undefined, null, '', 'not a date', {}, { $date: 'not a date' }, [], true, NaN, Infinity]) {
       assert.equal(toEpoch(v), null, `${JSON.stringify(v) ?? String(v)} should return null`);
     }
   });
@@ -106,7 +106,7 @@ describe('toRoom: the DM and its correspondent', () => {
     // Without proof that I am in `usernames`, excluding "whoever is not me"
     // keeps the FIRST one, me half the time, and that username goes to the
     // database under the other user's uid, WITHOUT a timestamp guard.
-    const s = toRoom(dm({ usernames: ['ancien-pseudo', 'bob'] }), ME, MY_UID);
+    const s = toRoom(dm({ usernames: ['old-username', 'bob'] }), ME, MY_UID);
     assert.equal(s?.dmOtherUid, 'uBob', 'the uid stays reliable');
     assert.equal(s?.dmOtherUsername, null, 'no made-up identity');
   });
@@ -146,8 +146,8 @@ describe('toRoom: last message preview', () => {
     toRoom({ _id: 'r1', t: 'c', _updatedAt: { $date: 100 }, ...o, ...(lastMessage ? { lastMessage } : {}) });
 
   test('the message text', () => {
-    const s = room({ _id: 'm1', msg: 'coucou', ts: { $date: 50 } });
-    assert.equal(s?.lastMessage, 'coucou');
+    const s = room({ _id: 'm1', msg: 'hey', ts: { $date: 50 } });
+    assert.equal(s?.lastMessage, 'hey');
     assert.equal(s?.lastMessageType, null);
     assert.equal(s?.lastMessageTs, 50);
   });
@@ -155,9 +155,9 @@ describe('toRoom: last message preview', () => {
   test('a message that is ONLY an attachment falls back on its caption, else its name', () => {
     // `msg: ''` is the shape of an upload, probed on 8.5.
     assert.equal(
-      room({ _id: 'm1', msg: '', attachments: [{ title: 'note.pdf', description: 'le compte-rendu' }] })
+      room({ _id: 'm1', msg: '', attachments: [{ title: 'note.pdf', description: 'the minutes' }] })
         ?.lastMessage,
-      'le compte-rendu',
+      'the minutes',
     );
     assert.equal(
       room({ _id: 'm1', msg: '', attachments: [{ title: 'note.pdf' }] })?.lastMessage,
@@ -266,7 +266,7 @@ describe('toSubscription', () => {
   test('a "truthy" flag that is not true stays false', () => {
     // `boolean` compares with `true`: a 1 or a string from an unexpected
     // payload must not light an unread badge.
-    const a = toSubscription({ rid: 'r1', alert: 1, open: 'oui' });
+    const a = toSubscription({ rid: 'r1', alert: 1, open: 'yes' });
     assert.equal(a?.alert, false);
     assert.equal(a?.open, false);
   });

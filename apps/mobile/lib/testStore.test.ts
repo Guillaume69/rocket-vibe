@@ -9,27 +9,27 @@ function makeBareStore() {
   const written: string[] = [];
   const bare: Omit<Store, 'transaction'> = {
     upsertMessage: async (m) => void written.push(`message:${m.id}`),
-    upsertRoom: async (s) => void written.push(`salon:${s.rid}`),
-    upsertSubscription: async (a) => void written.push(`abonnement:${a.rid}`),
+    upsertRoom: async (s) => void written.push(`room:${s.rid}`),
+    upsertSubscription: async (a) => void written.push(`subscription:${a.rid}`),
     deleteMessage: async (id) => void written.push(`-message:${id}`),
-    deleteRoom: async (rid) => void written.push(`-salon:${rid}`),
-    deleteSubscription: async (rid) => void written.push(`-abonnement:${rid}`),
+    deleteRoom: async (rid) => void written.push(`-room:${rid}`),
+    deleteSubscription: async (rid) => void written.push(`-subscription:${rid}`),
     deleteBySubId: async (subId) => void written.push(`-sub:${subId}`),
     listKnownRids: async () => ['r1'],
     purgeMissingRooms: async () => void written.push('purge'),
     applyRetention: async () => void written.push('retention'),
     readCursor: async () => 42,
-    writeCursor: async (p, f, v) => void written.push(`curseur:${p}|${f}|${v}`),
+    writeCursor: async (p, f, v) => void written.push(`cursor:${p}|${f}|${v}`),
     lastMessageUpdatedAt: async () => null,
     listRoomKeys: async () => [],
     messagesToDecrypt: async () => [],
-    updateMessageText: async () => void written.push('majTexte'),
-    updateMessageMarks: async () => void written.push('majMarques'),
-    hideEncryptedMessages: async () => void written.push('masquer'),
-    updateEncryptedPreview: async () => void written.push('apercu'),
+    updateMessageText: async () => void written.push('updateText'),
+    updateMessageMarks: async () => void written.push('updateMarks'),
+    hideEncryptedMessages: async () => void written.push('hide'),
+    updateEncryptedPreview: async () => void written.push('preview'),
     updateUserAvatar: async () => void written.push('avatarU'),
     updateRoomAvatar: async () => void written.push('avatarR'),
-    saveIdentity: async () => void written.push('identite'),
+    saveIdentity: async () => void written.push('identity'),
   };
   return { store: withTransactionTrap(bare), written };
 }
@@ -41,7 +41,7 @@ describe('withTransactionTrap', () => {
     const { store, written } = makeBareStore();
     await store.upsertMessage(message);
     await store.writeCursor('r1', 'messages', 7);
-    assert.deepEqual(written, ['message:m1', 'curseur:r1|messages|7']);
+    assert.deepEqual(written, ['message:m1', 'cursor:r1|messages|7']);
   });
 
   test('writes through the received `tx` go through, the nominal contract', async () => {
@@ -50,7 +50,7 @@ describe('withTransactionTrap', () => {
       await tx.upsertMessage(message);
       await tx.writeCursor('r1', 'messages', 7);
     });
-    assert.deepEqual(written, ['message:m1', 'curseur:r1|messages|7']);
+    assert.deepEqual(written, ['message:m1', 'cursor:r1|messages|7']);
   });
 
   test('a TOP-LEVEL write during the transaction throws, so the deadlock becomes detectable', async () => {
@@ -67,7 +67,7 @@ describe('withTransactionTrap', () => {
     // through the same queue (`db/store.ts`).
     await assert.rejects(
       store.transaction(async () => {
-        await store.updateMessageText('m1', 'clair', null);
+        await store.updateMessageText('m1', 'plaintext', null);
       }),
       /outside the queue during a transaction/,
     );

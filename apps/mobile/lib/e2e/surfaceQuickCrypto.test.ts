@@ -45,7 +45,7 @@ function resolve(module: string): { requests: string[]; rendered: unknown } {
   };
   assert.notEqual(config.resolver.resolveRequest, undefined);
   const rendered = config.resolver.resolveRequest?.(context, module, 'android');
-  return { requests, rendered: rendered === sentinel ? 'sentinelle' : rendered };
+  return { requests, rendered: rendered === sentinel ? 'sentinel' : rendered };
 }
 
 describe('Metro alias for on-device crypto', () => {
@@ -53,7 +53,7 @@ describe('Metro alias for on-device crypto', () => {
     const { requests, rendered } = resolve('crypto');
     assert.deepEqual(requests, ['react-native-quick-crypto']);
     // The standard resolver's result is RETURNED, not swallowed.
-    assert.equal(rendered, 'sentinelle');
+    assert.equal(rendered, 'sentinel');
   });
 
   test('`buffer` resolves to the leaf implementation, NOT the quick-crypto barrel', () => {

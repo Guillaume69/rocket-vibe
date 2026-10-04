@@ -21,8 +21,8 @@ describe('messagePermalink', () => {
       'https://s/channel/general?msg=m1',
     );
     assert.equal(
-      messagePermalink({ baseUrl: 'https://s', siteUrl: null, type: 'p', name: 'prive', rid: 'r2', msgId: 'm2' }),
-      'https://s/group/prive?msg=m2',
+      messagePermalink({ baseUrl: 'https://s', siteUrl: null, type: 'p', name: 'private', rid: 'r2', msgId: 'm2' }),
+      'https://s/group/private?msg=m2',
     );
     // A DM has no `name`: target it by rid, like the official clients.
     assert.equal(
@@ -58,30 +58,30 @@ describe('messagePermalink', () => {
 
 describe('quote', () => {
   test('invisible permalink first, reply after', () => {
-    assert.equal(quote('https://s/channel/g?msg=m', 'oui !'), '[ ](https://s/channel/g?msg=m) oui !');
+    assert.equal(quote('https://s/channel/g?msg=m', 'yes!'), '[ ](https://s/channel/g?msg=m) yes!');
     assert.equal(quote('https://s/channel/g?msg=m', ''), '[ ](https://s/channel/g?msg=m)');
   });
 });
 
 describe('stripQuotePrefix', () => {
   test('strips the leading permalink, chains included (quote of a quote)', () => {
-    assert.equal(stripQuotePrefix('[ ](https://s/channel/g?msg=a) coucou'), 'coucou');
+    assert.equal(stripQuotePrefix('[ ](https://s/channel/g?msg=a) hey'), 'hey');
     assert.equal(
-      stripQuotePrefix('[ ](https://s/channel/g?msg=a) [ ](https://s/direct/d?msg=b) le fond'),
-      'le fond',
+      stripQuotePrefix('[ ](https://s/channel/g?msg=a) [ ](https://s/direct/d?msg=b) the gist'),
+      'the gist',
     );
   });
 
   test('leaves ordinary text alone, and a link that is not leading', () => {
-    assert.equal(stripQuotePrefix('un [lien](https://x) normal'), 'un [lien](https://x) normal');
-    assert.equal(stripQuotePrefix('avant [ ](https://s/c?msg=a)'), 'avant [ ](https://s/c?msg=a)');
+    assert.equal(stripQuotePrefix('a [link](https://x) normal'), 'a [link](https://x) normal');
+    assert.equal(stripQuotePrefix('before [ ](https://s/c?msg=a)'), 'before [ ](https://s/c?msg=a)');
   });
 });
 
 describe('withoutQuoteLinks', () => {
   test('strips the permalink LINK node and the syntax space after it', () => {
-    const tree = withoutQuoteLinks(parse('[ ](https://s/channel/g?msg=abc) salut'));
-    assert.equal(textOf(tree), 'salut');
+    const tree = withoutQuoteLinks(parse('[ ](https://s/channel/g?msg=abc) hi'));
+    assert.equal(textOf(tree), 'hi');
   });
 
   test('a message that is ONLY the quote becomes an empty tree', () => {
@@ -89,12 +89,12 @@ describe('withoutQuoteLinks', () => {
   });
 
   test('returns the SAME reference when there is nothing to strip', () => {
-    const tree = parse('un message **ordinaire**');
+    const tree = parse('an **ordinary** message');
     assert.equal(withoutQuoteLinks(tree), tree);
   });
 
   test('spares a link with a real label, even to a `?msg=` (same reference)', () => {
-    const raw = parse('[voir ce message](https://s/channel/g?msg=abc)');
+    const raw = parse('[see this message](https://s/channel/g?msg=abc)');
     assert.equal(withoutQuoteLinks(raw), raw);
   });
 });
@@ -106,7 +106,7 @@ describe('localQuoteAttachment', () => {
       localQuoteAttachment({
         permalink: 'https://s/channel/g?msg=a',
         author: 'bob',
-        text: 'regarde',
+        text: 'look',
         attachments: JSON.stringify([image]),
       }),
     ) as { message_link: string; author_name?: string; text: string; attachments: unknown[] }[];
@@ -120,24 +120,24 @@ describe('localQuoteAttachment', () => {
     // The quoted message is itself a reply: its quote carries a file AND a
     // deeper quote. Same chain length as the server (limit 2).
     const quoteOfQuoted = {
-      message_link: 'https://s/channel/g?msg=racine',
+      message_link: 'https://s/channel/g?msg=root',
       author_name: 'alice',
-      text: 'le début',
+      text: 'the start',
       attachments: [
         { title: 'piece.png', image_url: '/file-upload/y/piece.png' },
-        { message_link: 'https://s/channel/g?msg=plus-vieux', text: 'trop profond' },
+        { message_link: 'https://s/channel/g?msg=older', text: 'too deep' },
       ],
     };
     const attachments = JSON.parse(
       localQuoteAttachment({
         permalink: 'https://s/channel/g?msg=b',
         author: 'bob',
-        text: 'je cite une citation',
+        text: 'I quote a quote',
         attachments: JSON.stringify([quoteOfQuoted]),
       }),
     ) as { attachments: { message_link?: string; attachments?: unknown[] }[] }[];
     const level2 = attachments[0]!.attachments[0]!;
-    assert.equal(level2.message_link, 'https://s/channel/g?msg=racine');
+    assert.equal(level2.message_link, 'https://s/channel/g?msg=root');
     assert.deepEqual(level2.attachments, [{ title: 'piece.png', image_url: '/file-upload/y/piece.png' }]);
   });
 
@@ -158,7 +158,7 @@ describe('firstAttachmentImage', () => {
     ]);
     assert.equal(firstAttachmentImage(attachments), '/file-upload/photo.jpg');
     assert.equal(firstAttachmentImage(null), null);
-    assert.equal(firstAttachmentImage('pas du json'), null);
+    assert.equal(firstAttachmentImage('not json'), null);
   });
 });
 

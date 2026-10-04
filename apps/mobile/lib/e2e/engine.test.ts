@@ -148,7 +148,7 @@ describe('E2EEngine', () => {
     m.saveRoomKey(RID, e2eKey);
     assert.equal(m.decryptContent(RID, content)?.text, MESSAGE);
 
-    const AFTER = 'message posté après la rotation';
+    const AFTER = 'message posted after the rotation';
     const rot = await makeRoomKey(fetchMyKeys.public_key, AFTER);
     m.saveRoomKey(RID, rot.e2eKey);
     assert.equal(m.decryptContent(RID, rot.content)?.text, AFTER);
@@ -195,7 +195,7 @@ describe('E2EEngine', () => {
     const { fetchMyKeys } = await make();
     const { client, storage, read } = fake(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
-    await assert.rejects(() => m.unlock('mauvais'), E2EError);
+    await assert.rejects(() => m.unlock('wrong'), E2EError);
     assert.equal(m.isUnlocked, false);
     assert.equal(read(), null);
   });
@@ -220,7 +220,7 @@ describe('E2EEngine: encrypt', () => {
     m.saveRoomKey(RID, e2eKey);
     assert.equal(m.encrypt(RID, { msg: 'x' }), null);
     await m.unlock(PASSWORD);
-    assert.equal(m.encrypt('autre-salon', { msg: 'x' }), null);
+    assert.equal(m.encrypt('other-room', { msg: 'x' }), null);
   });
 
   test('encrypts under the room key and keyID, read back by decryptContent', async () => {
@@ -230,10 +230,10 @@ describe('E2EEngine: encrypt', () => {
     await m.unlock(PASSWORD);
     m.saveRoomKey(RID, e2eKey);
 
-    const content = m.encrypt(RID, { msg: 'envoyé chiffré' });
+    const content = m.encrypt(RID, { msg: 'sent encrypted' });
     assert.notEqual(content, null);
     assert.equal(content?.kid, e2eKey.slice(0, 36));
-    assert.equal(m.decryptContent(RID, content as EncryptedContent)?.text, 'envoyé chiffré');
+    assert.equal(m.decryptContent(RID, content as EncryptedContent)?.text, 'sent encrypted');
   });
 
   test('after a rotation, encrypts under the NEW key', async () => {
@@ -242,12 +242,12 @@ describe('E2EEngine: encrypt', () => {
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
     await m.unlock(PASSWORD);
     m.saveRoomKey(RID, e2eKey);
-    m.encrypt(RID, { msg: 'avant' });
+    m.encrypt(RID, { msg: 'before' });
 
-    const rot = await makeRoomKey(fetchMyKeys.public_key, 'ignoré');
+    const rot = await makeRoomKey(fetchMyKeys.public_key, 'ignored');
     m.saveRoomKey(RID, rot.e2eKey);
-    const content = m.encrypt(RID, { msg: 'après' });
+    const content = m.encrypt(RID, { msg: 'after' });
     assert.equal(content?.kid, rot.e2eKey.slice(0, 36));
-    assert.equal(m.decryptContent(RID, content as EncryptedContent)?.text, 'après');
+    assert.equal(m.decryptContent(RID, content as EncryptedContent)?.text, 'after');
   });
 });

@@ -25,7 +25,7 @@ function authenticatedClient(postResponses: Record<string, unknown>) {
     },
     sleep: async () => {},
   });
-  client.auth = { authToken: 'jeton-alice', userId: 'uid-alice' };
+  client.auth = { authToken: 'token-alice', userId: 'uid-alice' };
   return { client, posts };
 }
 
@@ -36,7 +36,7 @@ describe('uploadBytes', () => {
     const calls: string[] = [];
     const transport: TransportUpload = async (url, headers) => {
       calls.push(url);
-      assert.equal(headers['X-Auth-Token'], 'jeton-alice', 'the upload is authenticated');
+      assert.equal(headers['X-Auth-Token'], 'token-alice', 'the upload is authenticated');
       return { status: 200, body: JSON.stringify({ file: { _id: 'f1' }, success: true }) };
     };
     const { client, posts } = authenticatedClient({});
@@ -93,9 +93,9 @@ describe('confirmMedia', () => {
     const { client, posts } = authenticatedClient({
       'rooms.mediaConfirm/r1/f1': { success: true, message: { _id: 'm1', rid: 'r1' } },
     });
-    const message = await confirmMedia({ client, rid: 'r1', fileId: 'f1', message: 'légende' });
+    const message = await confirmMedia({ client, rid: 'r1', fileId: 'f1', message: 'caption' });
     assert.equal(posts[0]?.path, 'rooms.mediaConfirm/r1/f1');
-    assert.deepEqual(posts[0]?.body, { msg: 'légende' });
+    assert.deepEqual(posts[0]?.body, { msg: 'caption' });
     assert.equal(message._id, 'm1');
   });
 
@@ -118,7 +118,7 @@ describe('setAvatar', () => {
     let seenUrl = '';
     const transport: TransportUpload = async (url, headers) => {
       seenUrl = url;
-      assert.equal(headers['X-Auth-Token'], 'jeton-alice', 'the avatar upload is authenticated');
+      assert.equal(headers['X-Auth-Token'], 'token-alice', 'the avatar upload is authenticated');
       return { status: 200, body: JSON.stringify({ success: true }) };
     };
     const { client } = authenticatedClient({});
@@ -150,7 +150,7 @@ describe('protectedFileUrl', () => {
     const { client } = authenticatedClient({});
     assert.equal(
       protectedFileUrl(client, '/file-upload/f1/mini.png'),
-      'http://x/file-upload/f1/mini.png?rc_uid=uid-alice&rc_token=jeton-alice',
+      'http://x/file-upload/f1/mini.png?rc_uid=uid-alice&rc_token=token-alice',
     );
   });
 
@@ -164,8 +164,8 @@ describe('protectedFileUrl', () => {
     // accepts as is: a forged absolute link left from here with rc_uid and
     // rc_token stuck on it, and an `<Image>` delivered them to that host.
     const { client } = authenticatedClient({});
-    const url = protectedFileUrl(client, 'https://evil.example/collecte.png');
-    assert.equal(url, 'https://evil.example/collecte.png');
+    const url = protectedFileUrl(client, 'https://evil.example/harvest.png');
+    assert.equal(url, 'https://evil.example/harvest.png');
     assert.ok(!url.includes('rc_token'));
   });
 
@@ -181,7 +181,7 @@ describe('protectedFileUrl', () => {
 
   test('an absolute URL to OUR server stays authenticated', () => {
     const { client } = authenticatedClient({});
-    assert.match(protectedFileUrl(client, 'http://x/file-upload/f1/x.png'), /rc_token=jeton-alice/);
+    assert.match(protectedFileUrl(client, 'http://x/file-upload/f1/x.png'), /rc_token=token-alice/);
   });
 });
 
@@ -190,7 +190,7 @@ describe('avatarUrl', () => {
     const { client } = authenticatedClient({});
     assert.equal(
       avatarUrl(client, { uid: 'u123' }),
-      'http://x/avatar/uid/u123?rc_uid=uid-alice&rc_token=jeton-alice',
+      'http://x/avatar/uid/u123?rc_uid=uid-alice&rc_token=token-alice',
     );
   });
 

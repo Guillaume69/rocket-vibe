@@ -79,24 +79,24 @@ function fakeStore() {
   const store: UploadStore = {
     insert: async (l) => void rows.set(l.id, { ...l, status: 'pending', fileId: null }),
     listToSend: async () => {
-      calls.push('lister');
+      calls.push('list');
       return [...rows.values()].filter((l) => l.status === 'pending');
     },
     claim: async (id) => {
       const l = rows.get(id);
       if (l === undefined || l.status !== 'pending') return false;
       l.status = 'sending';
-      calls.push(`prendre:${id}`);
+      calls.push(`take:${id}`);
       return true;
     },
     rearmInFlight: async (inFlightHere) => {
-      calls.push(`rearmerEnVol:[${inFlightHere.join(',')}]`);
+      calls.push(`rearmInFlight:[${inFlightHere.join(',')}]`);
       for (const l of rows.values()) {
         if (l.status === 'sending' && !inFlightHere.includes(l.id)) l.status = 'pending';
       }
     },
     rearm: async (id) => {
-      calls.push(`rearmer:${id}`);
+      calls.push(`rearm:${id}`);
       const l = rows.get(id);
       if (l) l.status = 'pending';
     },
@@ -115,7 +115,7 @@ function fakeStore() {
       }
     },
     delete: async (id) => {
-      calls.push(`supprimer:${id}`);
+      calls.push(`delete:${id}`);
       rows.delete(id);
     },
   };
@@ -171,7 +171,7 @@ describe('UploadEngine', () => {
       store,
       client,
       transport: async () => assert.fail('validate uploads nothing'),
-      generateId: () => 'id-fichier-000000000000',
+      generateId: () => 'file-id-000000000000000',
       ingest: async () => {},
     });
 
@@ -198,7 +198,7 @@ describe('UploadEngine', () => {
       store,
       client: confirmingClient(),
       transport,
-      generateId: () => 'id-fichier-000000000000',
+      generateId: () => 'file-id-000000000000000',
       ingest: async (doc) => void ingested.push(doc),
     });
 
@@ -212,13 +212,13 @@ describe('UploadEngine', () => {
     const { store, rows } = fakeStore();
     const transport: TransportUpload = async () => ({
       status: 413,
-      body: JSON.stringify({ success: false, error: 'trop gros' }),
+      body: JSON.stringify({ success: false, error: 'too large' }),
     });
     const engine = new UploadEngine({
       store,
       client: confirmingClient(),
       transport,
-      generateId: () => 'id-fichier-000000000000',
+      generateId: () => 'file-id-000000000000000',
       ingest: async () => {},
     });
     await engine.send('r1', { uri: 'file:///a.png', name: 'a.png', type: 'image/png', size: 10 });
@@ -241,7 +241,7 @@ describe('UploadEngine', () => {
       store,
       client: confirmingClient(),
       transport,
-      generateId: () => 'id-fichier-000000000000',
+      generateId: () => 'file-id-000000000000000',
       ingest: async () => {},
     });
 
@@ -276,7 +276,7 @@ describe('UploadEngine', () => {
     await engine.process();
 
     assert.equal(attempts, 1, 'insisting on a dead network wastes the bytes of t2');
-    assert.equal(calls.filter((a) => a === 'lister').length, 1, 'no extra pass');
+    assert.equal(calls.filter((a) => a === 'list').length, 1, 'no extra pass');
     // BOTH must stay replayable: t1 rearmed after its claim, t2 never touched.
     assert.deepEqual(
       [...rows.values()].map((l) => l.status),
@@ -342,7 +342,7 @@ describe('UploadEngine', () => {
     let attempts = 0;
     const transport: TransportUpload = async () => {
       attempts++;
-      if (refused) return { status: 413, body: JSON.stringify({ success: false, error: 'gros' }) };
+      if (refused) return { status: 413, body: JSON.stringify({ success: false, error: 'large' }) };
       return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
     };
     const engine = new UploadEngine({
@@ -713,7 +713,7 @@ describe('UploadEngine', () => {
       store,
       client: confirmingClient(),
       transport,
-      generateId: () => 'id-fichier-000000000000',
+      generateId: () => 'file-id-000000000000000',
       ingest: async () => {},
       deleteLocalFile: async (uri) => void deleted.push(uri),
     });
@@ -733,7 +733,7 @@ describe('UploadEngine', () => {
       store,
       client: confirmingClient(),
       transport,
-      generateId: () => 'id-fichier-000000000000',
+      generateId: () => 'file-id-000000000000000',
       ingest: async () => {},
       deleteLocalFile: async () => {
         throw new Error('file already purged by Android');
@@ -778,7 +778,7 @@ describe('UploadEngine', () => {
     await entry.waitFor; // the pass is REALLY in flight, no waiting delay
     await engine.process(); // must only note the rerun and return
     assert.equal(
-      calls.filter((a) => a === 'lister').length,
+      calls.filter((a) => a === 'list').length,
       1,
       'the concurrent request does not reread the queue while the other pass runs',
     );
@@ -787,7 +787,7 @@ describe('UploadEngine', () => {
     await firstPass;
 
     assert.equal(
-      calls.filter((a) => a === 'lister').length,
+      calls.filter((a) => a === 'list').length,
       2,
       'the noted rerun does run AT THE END of the first',
     );
@@ -806,9 +806,9 @@ describe('UploadEngine', () => {
       store,
       client: confirmingClient(),
       transport,
-      generateId: () => 'id-fichier-000000000000',
+      generateId: () => 'file-id-000000000000000',
       ingest: async () => {
-        seen.push(engine.progress.get('id-fichier-000000000000') ?? -1);
+        seen.push(engine.progress.get('file-id-000000000000000') ?? -1);
       },
     });
 
@@ -840,7 +840,7 @@ describe('UploadEngine, encrypted room', () => {
           encryptedFiles.push(uri);
           return { uri: `${uri}.encrypted`, key: JWK, iv: 'Y3RyMTY=', sha256: 'abc', size: 10 };
         },
-        hashedName: (name: string) => `hache(${name})`,
+        hashedName: (name: string) => `hashed(${name})`,
       },
     };
   }
@@ -870,25 +870,25 @@ describe('UploadEngine, encrypted room', () => {
         sends.push({ file, fields });
         return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
       },
-      generateId: () => 'id-fichier-000000000000',
+      generateId: () => 'file-id-000000000000000',
       ingest: async () => {},
       deleteLocalFile: async (uri) => void deleted.push(uri),
       encryption: c,
     });
 
-    await engine.send('p1', { uri: 'file:///cache/a.png', name: 'vacances.png', type: 'image/png', size: 10 }, 'la plage');
+    await engine.send('p1', { uri: 'file:///cache/a.png', name: 'holiday.png', type: 'image/png', size: 10 }, 'the beach');
 
     assert.deepEqual(sends, [
       {
-        file: { uri: 'file:///cache/a.png.encrypted', name: 'hache(vacances.png)', type: 'application/octet-stream' },
+        file: { uri: 'file:///cache/a.png.encrypted', name: 'hashed(holiday.png)', type: 'application/octet-stream' },
         fields: { content: JSON.stringify(CONTENT) },
       },
     ]);
     assert.deepEqual(confirmed, [{ msg: '', t: 'e2e', content: CONTENT, fileContent: CONTENT }]);
     const message = payloads.find((ch) => 'attachments' in ch) as { msg: string; attachments: Record<string, unknown>[] };
-    assert.equal(message.msg, 'la plage');
-    assert.equal(message.attachments[0].title, 'vacances.png');
-    assert.equal(message.attachments[0].image_url, '/file-upload/f1/hache(vacances.png)');
+    assert.equal(message.msg, 'the beach');
+    assert.equal(message.attachments[0].title, 'holiday.png');
+    assert.equal(message.attachments[0].image_url, '/file-upload/f1/hashed(holiday.png)');
     assert.deepEqual(message.attachments[0].encryption, { key: JWK, iv: 'Y3RyMTY=' });
     assert.deepEqual(deleted, ['file:///cache/a.png.encrypted', 'file:///cache/a.png']);
     assert.equal(rows.size, 0);
@@ -906,7 +906,7 @@ describe('UploadEngine, encrypted room', () => {
         sends++;
         return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
       },
-      generateId: () => 'id-fichier-000000000000',
+      generateId: () => 'file-id-000000000000000',
       ingest: async () => {},
       encryption: c,
     });
@@ -926,12 +926,12 @@ describe('UploadEngine, encrypted room', () => {
     const { store, rows } = fakeStore();
     const { encryption: c, encryptedFiles } = encryption();
     await store.insert({ id: 'l1', rid: 'p1', uri: 'file:///cache/a.png', name: 'a.png', type: 'image/png', caption: null });
-    await store.recordFileId('l1', 'f-ancien');
+    await store.recordFileId('l1', 'f-old');
     const confirmed: unknown[] = [];
     const engine = new UploadEngine({
       store,
       client: confirmingClient(confirmed),
-      transport: async () => ({ status: 200, body: JSON.stringify({ file: { _id: 'f-neuf' } }) }),
+      transport: async () => ({ status: 200, body: JSON.stringify({ file: { _id: 'f-new' } }) }),
       generateId: () => 'x',
       ingest: async () => {},
       encryption: c,
@@ -956,7 +956,7 @@ describe('UploadEngine, encrypted room', () => {
     await assert.rejects(engine.validate({ type: 'image/png', size: 1 }, 'p1'), (e: unknown) => {
       return e instanceof ValidationError && e.detail.code === 'encrypted';
     });
-    await engine.validate({ type: 'image/png', size: 1 }, 'r-clair');
+    await engine.validate({ type: 'image/png', size: 1 }, 'r-plain');
   });
 });
 

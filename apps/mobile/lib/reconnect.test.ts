@@ -38,7 +38,7 @@ describe('Reconnector', () => {
     const r = new Reconnector({
       connect: async () => {
         attempts++;
-        if (attempts <= succeedAfter) throw new Error('pas encore');
+        if (attempts <= succeedAfter) throw new Error('not yet');
       },
       random: () => 1, // deterministic jitter: full delay
       schedule: clock.schedule,
@@ -69,7 +69,7 @@ describe('Reconnector', () => {
       const clock = fakeClock();
       const r = new Reconnector({
         connect: async () => {
-          throw new Error('non');
+          throw new Error('no');
         },
         random: () => random,
         schedule: clock.schedule,
@@ -182,7 +182,7 @@ describe('Reconnector', () => {
     await clock.advance(); // attempt in flight
 
     r.suspend(); // the app goes to the background during the attempt
-    valve.fail?.(new Error('réseau coupé'));
+    valve.fail?.(new Error('network down'));
     await new Promise((s) => setImmediate(s));
     await new Promise((s) => setImmediate(s));
 
@@ -220,7 +220,7 @@ describe('Reconnector', () => {
     const r = new Reconnector({
       connect: async () => {
         attempts++;
-        throw new Error('non');
+        throw new Error('no');
       },
       random: () => 1,
       schedule: clock.schedule,

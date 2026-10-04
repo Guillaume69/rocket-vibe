@@ -5,8 +5,8 @@ import { isWebLink, canLeaveProcess, carriesCredentials } from './externalLink.t
 
 describe('isWebLink', () => {
   test('http and https, whatever the case', () => {
-    assert.equal(isWebLink('https://exemple.org/a'), true);
-    assert.equal(isWebLink('HTTP://exemple.org'), true);
+    assert.equal(isWebLink('https://example.org/a'), true);
+    assert.equal(isWebLink('HTTP://example.org'), true);
   });
 
   test('any other scheme is refused', () => {
@@ -17,8 +17,8 @@ describe('isWebLink', () => {
       'content://media/external/images/1',
       'data:text/html,<script>x</script>',
       'rocketvibe://room/abc',
-      '//exemple.org/a',
-      ' https://exemple.org',
+      '//example.org/a',
+      ' https://example.org',
     ]) {
       assert.equal(isWebLink(u), false, u);
     }
@@ -53,7 +53,7 @@ describe('canLeaveProcess', () => {
     // The exact form `protectedFileUrl` produced before the fix: it went into a
     // VIEW intent, hence into Chrome and its history.
     const leak =
-      'https://chat.barrut.me/file-upload/BsN3iJ/rapport.pdf?rc_uid=uid-alice&rc_token=jeton-alice';
+      'https://chat.barrut.me/file-upload/BsN3iJ/report.pdf?rc_uid=uid-alice&rc_token=token-alice';
     assert.equal(isWebLink(leak), true, 'it is indeed web...');
     assert.equal(canLeaveProcess(leak), false, '...and yet it does not leave');
   });

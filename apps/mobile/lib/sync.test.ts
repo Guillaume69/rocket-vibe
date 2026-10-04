@@ -28,7 +28,7 @@ describe('toEpoch', () => {
   });
   test('returns null on what it does not understand, rather than NaN', () => {
     assert.equal(toEpoch(undefined), null);
-    assert.equal(toEpoch('pas une date'), null);
+    assert.equal(toEpoch('not a date'), null);
     assert.equal(toEpoch({}), null);
   });
 });
@@ -37,7 +37,7 @@ describe('toMessage', () => {
   const base = {
     _id: 'm1',
     rid: 'r1',
-    msg: 'bonjour',
+    msg: 'hello',
     ts: { $date: 1000 },
     u: { _id: 'u1', username: 'alice' },
     _updatedAt: { $date: 2000 },
@@ -46,7 +46,7 @@ describe('toMessage', () => {
   test('translates an ordinary message', () => {
     const m = toMessage(base) as LocalMessage;
     assert.equal(m.id, 'm1');
-    assert.equal(m.text, 'bonjour');
+    assert.equal(m.text, 'hello');
     assert.equal(m.ts, 1000);
     assert.equal(m.updatedAt, 2000);
     assert.equal(m.authorName, 'alice');
@@ -135,9 +135,9 @@ describe('toRoom', () => {
     const withCaption = toRoom({
       _id: 'r1',
       t: 'c',
-      lastMessage: { msg: '', attachments: [{ title: 'photo.jpg', description: 'le chat' }] },
+      lastMessage: { msg: '', attachments: [{ title: 'photo.jpg', description: 'the cat' }] },
     }) as LocalRoom;
-    assert.equal(withCaption.lastMessage, 'le chat', 'the caption wins over the file name');
+    assert.equal(withCaption.lastMessage, 'the cat', 'the caption wins over the file name');
   });
 
   test('EMPTIED room: `lastMessage` disappears, the preview must become null', () => {
@@ -149,8 +149,8 @@ describe('toRoom', () => {
   });
 
   test('`fname` wins over `name` for display', () => {
-    const s = toRoom({ _id: 'r1', t: 'c', name: 'slug', fname: 'Nom Affiché' }) as LocalRoom;
-    assert.equal(s.displayName, 'Nom Affiché');
+    const s = toRoom({ _id: 'r1', t: 'c', name: 'slug', fname: 'Display Name' }) as LocalRoom;
+    assert.equal(s.displayName, 'Display Name');
     assert.equal(s.name, 'slug');
   });
 
@@ -182,40 +182,40 @@ describe('toRoom', () => {
 
 describe('toRoom: dmOtherUid (8.4)', () => {
   test('extracts the other uid of a two-person DM; never for a group or without myUid', () => {
-    const raw = { _id: 'r1', t: 'd', uids: ['moi-uid', 'lui-uid'], usernames: ['alice', 'bob'] };
-    assert.equal(toRoom(raw, 'alice', 'moi-uid')?.dmOtherUid, 'lui-uid');
+    const raw = { _id: 'r1', t: 'd', uids: ['me-uid', 'them-uid'], usernames: ['alice', 'bob'] };
+    assert.equal(toRoom(raw, 'alice', 'me-uid')?.dmOtherUid, 'them-uid');
     // DM with oneself: the other one is me.
     assert.equal(
-      toRoom({ ...raw, uids: ['moi-uid'] }, 'alice', 'moi-uid')?.dmOtherUid,
-      'moi-uid',
+      toRoom({ ...raw, uids: ['me-uid'] }, 'alice', 'me-uid')?.dmOtherUid,
+      'me-uid',
     );
     // GROUP DM (3+): not ONE presence to show.
     assert.equal(
-      toRoom({ ...raw, uids: ['moi-uid', 'lui-uid', 'eux-uid'] }, 'alice', 'moi-uid')
+      toRoom({ ...raw, uids: ['me-uid', 'them-uid', 'others-uid'] }, 'alice', 'me-uid')
         ?.dmOtherUid,
       null,
     );
     // Without myUid (old callers): null, no guessing.
     assert.equal(toRoom(raw, 'alice')?.dmOtherUid, null);
     // A channel never has one.
-    assert.equal(toRoom({ ...raw, t: 'c' }, 'alice', 'moi-uid')?.dmOtherUid, null);
+    assert.equal(toRoom({ ...raw, t: 'c' }, 'alice', 'me-uid')?.dmOtherUid, null);
   });
 
   test('ALSO extracts their username: without it, the avatar of a never-opened DM stays frozen', () => {
     // Seen on the emulator: the list shows alice's avatar while none of
     // her messages has been ingested. Since `updateAvatar` only designates the user
     // by username, it found NO row to update.
-    const raw = { _id: 'r1', t: 'd', uids: ['moi-uid', 'lui-uid'], usernames: ['alice', 'bob'] };
-    assert.equal(toRoom(raw, 'alice', 'moi-uid')?.dmOtherUsername, 'bob');
+    const raw = { _id: 'r1', t: 'd', uids: ['me-uid', 'them-uid'], usernames: ['alice', 'bob'] };
+    assert.equal(toRoom(raw, 'alice', 'me-uid')?.dmOtherUsername, 'bob');
     // DM with oneself: the other one is me, on both sides.
     assert.equal(
-      toRoom({ ...raw, uids: ['moi-uid'], usernames: ['alice'] }, 'alice', 'moi-uid')
+      toRoom({ ...raw, uids: ['me-uid'], usernames: ['alice'] }, 'alice', 'me-uid')
         ?.dmOtherUsername,
       'alice',
     );
     // No username without a paired uid: we do not invent an identity.
-    assert.equal(toRoom({ ...raw, uids: undefined }, 'alice', 'moi-uid')?.dmOtherUsername, null);
-    assert.equal(toRoom({ ...raw, usernames: undefined }, 'alice', 'moi-uid')?.dmOtherUsername, null);
+    assert.equal(toRoom({ ...raw, uids: undefined }, 'alice', 'me-uid')?.dmOtherUsername, null);
+    assert.equal(toRoom({ ...raw, usernames: undefined }, 'alice', 'me-uid')?.dmOtherUsername, null);
   });
 });
 
@@ -306,7 +306,7 @@ describe('SyncEngine', () => {
     const engine = new SyncEngine(store, new RcTranslator());
     await engine.apply(
       event('stream-room-messages', 'r1', [
-        { _id: 'm1', rid: 'r1', msg: 'salut', ts: { $date: 1 }, u: { _id: 'u1' } },
+        { _id: 'm1', rid: 'r1', msg: 'hi', ts: { $date: 1 }, u: { _id: 'u1' } },
       ]),
     );
     assert.equal(messages.length, 1);
@@ -430,8 +430,8 @@ describe('SyncEngine', () => {
   test('a malformed payload does not interrupt the stream', async () => {
     const { store, messages } = makeStore();
     const engine = new SyncEngine(store, new RcTranslator());
-    await engine.apply(event('stream-room-messages', 'r1', ['pas un objet']));
-    await engine.apply(event('stream-room-messages', 'r1', [{ _id: 'sans-rid' }]));
+    await engine.apply(event('stream-room-messages', 'r1', ['not an object']));
+    await engine.apply(event('stream-room-messages', 'r1', [{ _id: 'no-rid' }]));
     assert.equal(messages.length, 0);
     assert.equal(engine.stats.ignores, 2);
   });
@@ -442,7 +442,7 @@ describe('SyncEngine', () => {
     await engine.ingestMessages([
       { _id: 'm1', rid: 'r1', msg: 'a', ts: { $date: 1 }, u: { _id: 'u1' } },
       { _id: 'm2', rid: 'r1', msg: 'b', ts: { $date: 2 }, u: { _id: 'u1' } },
-      { pas: 'un message' },
+      { not: 'a message' },
     ]);
     assert.equal(messages.length, 2);
     assert.equal(engine.stats.ignores, 1);
@@ -466,12 +466,12 @@ describe('SyncEngine: E2EE decryption', () => {
     const { store, messages } = makeStore();
     const decryptor: E2EDecryptor = {
       decryptContent: (_rid, content) =>
-        content.ciphertext === 'CT' ? { text: 'clair !', attachments: null } : null,
+        content.ciphertext === 'CT' ? { text: 'plaintext!', attachments: null } : null,
       saveRoomKey: () => {},
     };
-    const engine = new SyncEngine(store, new RcTranslator('moi', 'uid'), decryptor);
+    const engine = new SyncEngine(store, new RcTranslator('me', 'uid'), decryptor);
     await engine.ingestMessages([encryptedMsg('m1', 'CT')]);
-    assert.equal(messages[0].text, 'clair !');
+    assert.equal(messages[0].text, 'plaintext!');
     assert.notEqual(messages[0].encryptedRaw, null); // ciphertext kept
   });
 
@@ -480,17 +480,17 @@ describe('SyncEngine: E2EE decryption', () => {
     let unlocked = false;
     const decryptor: E2EDecryptor = {
       decryptContent: (_rid, content) =>
-        unlocked && content.ciphertext === 'CT' ? { text: 'clair !', attachments: null } : null,
+        unlocked && content.ciphertext === 'CT' ? { text: 'plaintext!', attachments: null } : null,
       saveRoomKey: () => {},
     };
-    const engine = new SyncEngine(store, new RcTranslator('moi', 'uid'), decryptor);
+    const engine = new SyncEngine(store, new RcTranslator('me', 'uid'), decryptor);
     await engine.ingestMessages([encryptedMsg('m1', 'CT')]);
     assert.equal(messages[0].text, null); // locked → placeholder
 
     unlocked = true;
     const n = await engine.e2eUnlocked();
     assert.equal(n, 1);
-    assert.equal(messages[0].text, 'clair !');
+    assert.equal(messages[0].text, 'plaintext!');
   });
 
   test('an encrypted file: its attachments come from the plaintext, at ingestion as at unlock', async () => {
@@ -501,8 +501,8 @@ describe('SyncEngine: E2EE decryption', () => {
       decryptContent: () => (unlocked ? { text: '', attachments } : null),
       saveRoomKey: () => {},
     };
-    const engine = new SyncEngine(store, new RcTranslator('moi', 'uid'), decryptor);
-    await engine.ingestMessages([{ ...encryptedMsg('m1', 'CT'), attachments: [{ title: 'haché.bin' }] }]);
+    const engine = new SyncEngine(store, new RcTranslator('me', 'uid'), decryptor);
+    await engine.ingestMessages([{ ...encryptedMsg('m1', 'CT'), attachments: [{ title: 'hashed.bin' }] }]);
     assert.equal(messages[0].attachments, null, 'never the server ones, opaque');
 
     unlocked = true;
@@ -515,7 +515,7 @@ describe('SyncEngine: E2EE decryption', () => {
 
   test('without a decryptor, an encrypted message keeps its ciphertext and stays unreadable', async () => {
     const { store, messages } = makeStore();
-    const engine = new SyncEngine(store, new RcTranslator('moi', 'uid')); // no decryptor
+    const engine = new SyncEngine(store, new RcTranslator('me', 'uid')); // no decryptor
     await engine.ingestMessages([encryptedMsg('m1', 'CT')]);
     assert.equal(messages[0].text, null);
     assert.notEqual(messages[0].encryptedRaw, null);

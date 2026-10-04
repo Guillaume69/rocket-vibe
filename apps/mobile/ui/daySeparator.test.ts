@@ -14,7 +14,7 @@ describe('insertDaySeparators', () => {
   test('day boundary in DESC: the separator renders above the newer one, titled with ITS day', () => {
     const data = [m('m2', day(2026, 8, 1)), m('m1', day(2026, 7, 31))];
     const result = insertDaySeparators(data, 'newest-first');
-    assert.deepEqual(ids(result), ['m2', 'jour-20260801', 'm1']);
+    assert.deepEqual(ids(result), ['m2', 'day-20260801', 'm1']);
     const separator = result[1] as { day: true; ts: number };
     assert.equal(dayKey(separator.ts), 20260801);
   });
@@ -23,7 +23,7 @@ describe('insertDaySeparators', () => {
     const data = [m('m1', day(2026, 7, 31)), m('m2', day(2026, 8, 1))];
     assert.deepEqual(ids(insertDaySeparators(data, 'oldest-first')), [
       'm1',
-      'jour-20260801',
+      'day-20260801',
       'm2',
     ]);
   });
@@ -43,13 +43,13 @@ describe('insertDaySeparators', () => {
     // array, the bar thus precedes the separator.
     const data = [
       m('m2', day(2026, 8, 1)),
-      { bar: true as const, id: 'barre-nouveaux' },
+      { bar: true as const, id: 'unread-bar' },
       m('m1', day(2026, 7, 31)),
     ];
     assert.deepEqual(ids(insertDaySeparators(data, 'newest-first')), [
       'm2',
-      'barre-nouveaux',
-      'jour-20260801',
+      'unread-bar',
+      'day-20260801',
       'm1',
     ]);
   });
@@ -62,9 +62,9 @@ describe('insertDaySeparators', () => {
     ];
     assert.deepEqual(ids(insertDaySeparators(data, 'newest-first')), [
       'm3',
-      'jour-20260801',
+      'day-20260801',
       'm2',
-      'jour-20260731',
+      'day-20260731',
       'm1',
     ]);
   });

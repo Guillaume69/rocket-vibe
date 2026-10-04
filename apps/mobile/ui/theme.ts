@@ -30,7 +30,7 @@ export interface Colors {
   background: string;
   /** Surface of a field, a bubble, a pill. */
   card: string;
-  /** Panneau plus profond (feuille d'actions, encart « serveurs connus »). */
+  /** Deeper panel (action sheet, "known servers" box). */
   deepCard: string;
   /** Slightly raised surface (reaction circle, active chip). */
   surfaceActive: string;
@@ -42,7 +42,7 @@ export interface Colors {
   /** Subtle separator between two rows. */
   softBorder: string;
 
-  /** Texte principal. */
+  /** Main text. */
   text: string;
   /** Message body (one notch below `text`). */
   messageText: string;
@@ -50,12 +50,12 @@ export interface Colors {
   secondaryText: string;
   /** Dimmed text: labels, previews. */
   dimmed: string;
-  /** Texte tertiaire : horodatage, indice, placeholder. */
+  /** Tertiary text: timestamp, hint, placeholder. */
   tertiaryText: string;
-  /** Texte d'erreur. */
+  /** Error text. */
   errorText: string;
 
-  /** Accent primaire (rose). */
+  /** Primary accent (pink). */
   accent: string;
   /** Android touch ripple. */
   ripple: string;
@@ -79,7 +79,7 @@ export interface Colors {
   absent: string;
   offline: string;
 
-  /** Action destructive (supprimer). */
+  /** Destructive action (delete). */
   danger: string;
 
   /**

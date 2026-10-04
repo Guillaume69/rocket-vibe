@@ -50,7 +50,7 @@ describe('systemPreview: room list label', () => {
   });
 
   test('everything else says nothing: the row stays empty, as before', () => {
-    for (const type of [null, 'uj', 'e2e', 'un-type-inconnu']) {
+    for (const type of [null, 'uj', 'e2e', 'an-unknown-type']) {
       assert.equal(systemPreview(t, type), null, `${type} should yield nothing`);
     }
   });

@@ -23,7 +23,7 @@ export function presenceColors(c: Colors): Record<PresenceStatus, string> {
 
 /**
  * Labels per status: four `common.presence*` keys for the whole app, in
- * lowercase; casing for a context ("En ligne" in a picker) is up to the
+ * lowercase; casing for a context ("Online" in a picker) is up to the
  * caller.
  */
 export const PRESENCE_KEYS: Record<PresenceStatus, TranslationKey> = {

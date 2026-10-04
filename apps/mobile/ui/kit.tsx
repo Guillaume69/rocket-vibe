@@ -1,5 +1,5 @@
 /**
- * Visual building blocks of the « Nuit Étoilée » theme, shared by the screens.
+ * Visual building blocks of the "Nuit Étoilée" theme, shared by the screens.
  *
  * Each relies on the `theme.ts` tokens (never a hard-coded colour here) so the
  * future light/dark switch has nothing to touch up.
@@ -449,7 +449,7 @@ export function UnreadBadge({ c, n }: { c: Colors; n: number }) {
 
 /**
  * Day separator for message lists (room and thread): the label
- * (« Aujourd'hui », « Hier », the date, `useDayFormatter`) between two rules.
+ * ("Today", "Yesterday", the date, `useDayFormatter`) between two rules.
  * Same silhouette as the room's "new messages" bar, but in discreet colours:
  * it is a landmark, not an alert.
  */

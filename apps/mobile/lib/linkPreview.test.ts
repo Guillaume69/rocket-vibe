@@ -43,7 +43,7 @@ const LIVE_TWEET = {
   headers: { contentType: 'text/html; charset=utf-8' },
 };
 // Bare link: deleted tweet (404) or page without tags → empty metas.
-const BARE_LINK = { url: 'https://x.com/qui/status/000', meta: {} };
+const BARE_LINK = { url: 'https://x.com/who/status/000', meta: {} };
 
 const json = (arr: unknown[]) => JSON.stringify(arr);
 
@@ -75,16 +75,16 @@ describe('linkPreviews', () => {
       'data:image/png;base64,iVBORw0KGgo=',
       'content://media/external/images/1',
     ]) {
-      assert.deepEqual(linkPreviews(json([{ url: u, meta: { ogTitle: 'Piège' } }])), [], u);
+      assert.deepEqual(linkPreviews(json([{ url: u, meta: { ogTitle: 'Trap' } }])), [], u);
     }
   });
 
   test('a non-web thumbnail is removed, the card stays', () => {
     const r = linkPreviews(
-      json([{ url: 'https://ex.com/a', meta: { ogTitle: 'Titre', ogImage: 'file:///etc/x.png' } }]),
+      json([{ url: 'https://ex.com/a', meta: { ogTitle: 'Title', ogImage: 'file:///etc/x.png' } }]),
     );
     assert.equal(r.length, 1);
-    assert.equal(r[0]!.type === 'card' ? r[0]!.image : 'absente', null);
+    assert.equal(r[0]!.type === 'card' ? r[0]!.image : 'absent', null);
   });
 
   test('an untitled card whose thumbnail is removed disappears', () => {
@@ -114,7 +114,7 @@ describe('linkPreviews', () => {
     const tw = {
       url: 'https://ex.com/a',
       meta: {
-        twitterTitle: 'Titre TW',
+        twitterTitle: 'TW title',
         twitterImage: 'https://ex.com/tw.jpg',
         twitterDescription: 'desc tw',
       },
@@ -122,7 +122,7 @@ describe('linkPreviews', () => {
     };
     const r = linkPreviews(json([tw]));
     assert.equal(r[0]!.type, 'card');
-    assert.equal((r[0] as { title: string }).title, 'Titre TW');
+    assert.equal((r[0] as { title: string }).title, 'TW title');
     assert.equal((r[0] as { image: string }).image, 'https://ex.com/tw.jpg');
   });
 
@@ -188,7 +188,7 @@ describe('linkPreviews', () => {
   test('invalid input: null, broken JSON, non-array → []', () => {
     assert.deepEqual(linkPreviews(null), []);
     assert.deepEqual(linkPreviews(''), []);
-    assert.deepEqual(linkPreviews('{pas du json'), []);
+    assert.deepEqual(linkPreviews('{not json'), []);
     assert.deepEqual(linkPreviews('{"a":1}'), []);
   });
 
@@ -225,6 +225,6 @@ describe('videoMetas', () => {
 
   test('invalid input → empty map', () => {
     assert.equal(videoMetas(null).size, 0);
-    assert.equal(videoMetas('{pas du json').size, 0);
+    assert.equal(videoMetas('{not json').size, 0);
   });
 });

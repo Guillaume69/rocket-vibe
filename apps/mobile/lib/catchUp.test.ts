@@ -127,8 +127,8 @@ describe('catchUpGlobal', () => {
       // Real projections of the 8.5 server: the rooms.get `remove[]` carries the
       // `_id` of the deleted ROOM; the subscriptions.get one carries the `_id`
       // of the SUBSCRIPTION (never the rid).
-      'rooms.get': { update: [], remove: [{ _id: 'r-detruit' }] },
-      'subscriptions.get': { update: [], remove: [{ _id: 'sub-quitte' }] },
+      'rooms.get': { update: [], remove: [{ _id: 'r-destroyed' }] },
+      'subscriptions.get': { update: [], remove: [{ _id: 'sub-left' }] },
     });
 
     await catchUpGlobal(client, engine);
@@ -138,8 +138,8 @@ describe('catchUpGlobal', () => {
       roomsUrl?.includes(`updatedSince=${encodeURIComponent(new Date(1000).toISOString())}`),
       'the delta starts from the cursor',
     );
-    assert.deepEqual(d.deletedRooms, ['r-detruit']);
-    assert.deepEqual(d.deletedBySubId, ['sub-quitte']);
+    assert.deepEqual(d.deletedRooms, ['r-destroyed']);
+    assert.deepEqual(d.deletedBySubId, ['sub-left']);
     assert.equal(d.cursors.get('*|rooms'), 1000, 'nothing ingested: the cursor does not move');
   });
 
@@ -152,12 +152,12 @@ describe('catchUpGlobal', () => {
     const { client } = fakeClient({
       'rooms.get': { update: [], remove: [] },
       'subscriptions.get': { update: [], remove: [] },
-      me: { _id: 'u1', username: 'alice', avatarETag: 'etag-frais' },
+      me: { _id: 'u1', username: 'alice', avatarETag: 'etag-fresh' },
     });
 
     await catchUpGlobal(client, engine);
 
-    assert.deepEqual(d.identities, [{ uid: 'u1', username: 'alice', avatarEtag: 'etag-frais' }]);
+    assert.deepEqual(d.identities, [{ uid: 'u1', username: 'alice', avatarEtag: 'etag-fresh' }]);
   });
 
   test('a failing `me` does not fail the catch-up', async () => {
@@ -166,7 +166,7 @@ describe('catchUpGlobal', () => {
     const client = new RestClient('http://x', {
       fetch: async (url) => {
         const path = new URL(String(url)).pathname.split('/api/v1/')[1];
-        if (path === 'me') throw new Error('réseau coupé');
+        if (path === 'me') throw new Error('network down');
         return new Response(JSON.stringify({ update: [{ _id: 'r1', t: 'c' }], remove: [] }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -419,7 +419,7 @@ describe('catchUpRoom', () => {
     test('400 on the first page → lastUpdate, window brought back to 24 h', async () => {
       const now = 100 * day;
       const d = fullFakeStore();
-      d.cursors.set('r1|messages', 2 * day); // 98 jours de retard
+      d.cursors.set('r1|messages', 2 * day); // 98 days behind
       const engine = new SyncEngine(d.store, new RcTranslator());
       const { client, urls } = clientSequence([400, { result: { updated: [] } }]);
 
@@ -488,7 +488,7 @@ function heldClient(responses: (Record<string, unknown> | number)[]) {
       const r = responses[Math.min(i, responses.length - 1)];
       i++;
       await new Promise<void>((open) => gates.push(open));
-      if (r === 0) throw new Error('réseau coupé'); // 0 = transport failure
+      if (r === 0) throw new Error('network down'); // 0 = transport failure
       const status = typeof r === 'number' ? r : 200;
       const body = typeof r === 'number' ? { success: false, error: 'params' } : r;
       return new Response(JSON.stringify(body), {
@@ -709,7 +709,7 @@ describe('catchUpRoom: one pagination at a time per room', () => {
 describe('reconcileRooms', () => {
   test('purges the rids missing from the live list of subscriptions', async () => {
     const d = fullFakeStore();
-    d.known.push('r1', 'r2', 'rFantome');
+    d.known.push('r1', 'r2', 'rGhost');
     const engine = new SyncEngine(d.store, new RcTranslator());
     const { client, urls } = fakeClient({
       'subscriptions.get': { update: [{ rid: 'r1' }, { rid: 'r2' }] },
@@ -718,7 +718,7 @@ describe('reconcileRooms', () => {
     // Full: no updatedSince, we want the current state, not a delta.
     assert.match(urls[0], /\/subscriptions\.get(\?|$)/);
     assert.doesNotMatch(urls[0], /updatedSince/);
-    assert.deepEqual(d.purges, [{ alive: ['r1', 'r2'], known: ['r1', 'r2', 'rFantome'] }]);
+    assert.deepEqual(d.purges, [{ alive: ['r1', 'r2'], known: ['r1', 'r2', 'rGhost'] }]);
   });
 
   test('the snapshot of known rids is taken BEFORE the network request', async () => {
@@ -730,11 +730,11 @@ describe('reconcileRooms', () => {
     // the snapshot, so the purge must not be able to reach it.
     const { client } = fakeClient(
       { 'subscriptions.get': { update: [{ rid: 'r1' }] } },
-      () => void d.known.push('rNeuf'),
+      () => void d.known.push('rNew'),
     );
     await reconcileRooms(client, engine);
     assert.deepEqual(d.purges, [{ alive: ['r1'], known: ['r1', 'r2'] }]);
-    assert.ok(!d.purges[0].known.includes('rNeuf'), 'the DM created in flight is out of reach');
+    assert.ok(!d.purges[0].known.includes('rNew'), 'the DM created in flight is out of reach');
   });
 
 

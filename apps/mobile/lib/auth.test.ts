@@ -51,7 +51,7 @@ function json(res: ServerResponse, status: number, body: unknown) {
 
 const LOGIN_SUCCESS = {
   status: 'success',
-  data: { authToken: 'jeton-abc', userId: 'u1', me: { username: 'alice' } },
+  data: { authToken: 'token-abc', userId: 'u1', me: { username: 'alice' } },
 };
 
 describe('auth', () => {
@@ -63,7 +63,7 @@ describe('auth', () => {
     });
     assert.deepEqual(s, {
       baseUrl: base,
-      authToken: 'jeton-abc',
+      authToken: 'token-abc',
       userId: 'u1',
       username: 'alice',
       kind: 'rocketchat',
@@ -77,7 +77,7 @@ describe('auth', () => {
   test('the login sends no auth headers', async () => {
     handle = (_q, res) => json(res, 200, LOGIN_SUCCESS);
     const c = new RestClient(base);
-    c.auth = { authToken: 'ancien', userId: 'vieux' };
+    c.auth = { authToken: 'old', userId: 'stale' };
     await logIn(c, { user: 'alice', password: 'secret' });
     assert.equal(received[0].headers['x-auth-token'], undefined);
   });
@@ -107,10 +107,10 @@ describe('auth', () => {
 
   test('for the `password` method, the SHA-256 is sent, not the plain text', async () => {
     const error = new TwoFactorError('password', [], false);
-    const code = await prepareTwoFactorCode(error, 'mon-mot-de-passe', hash);
+    const code = await prepareTwoFactorCode(error, 'my-password', hash);
     assert.equal(code.method, 'password');
-    assert.equal(code.code, await hash('mon-mot-de-passe'));
-    assert.notEqual(code.code, 'mon-mot-de-passe');
+    assert.equal(code.code, await hash('my-password'));
+    assert.notEqual(code.code, 'my-password');
     assert.match(code.code, /^[0-9a-f]{64}$/);
   });
 
@@ -127,8 +127,8 @@ describe('auth', () => {
 
   test('resumeSession sends `resume`, no password', async () => {
     handle = (_q, res) => json(res, 200, LOGIN_SUCCESS);
-    const s = await resumeSession(new RestClient(base), 'jeton-stocke');
-    assert.deepEqual(received[0].body, { resume: 'jeton-stocke' });
+    const s = await resumeSession(new RestClient(base), 'stored-token');
+    assert.deepEqual(received[0].body, { resume: 'stored-token' });
     assert.equal(s.userId, 'u1');
   });
 

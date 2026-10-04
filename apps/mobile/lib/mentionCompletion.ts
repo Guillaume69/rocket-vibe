@@ -42,8 +42,8 @@ export const SPECIAL_MENTIONS: readonly string[] = ['all', 'here'];
 /**
  * Character set of a Rocket.Chat username (default server setting
  * `UTF8_User_Names_Validation = [0-9a-zA-Z-_.]`). A character outside this set
- * closes the token: typing `@alice bonjour` must not keep the strip open on
- * the query `alice bonjour`.
+ * closes the token: typing `@alice hello` must not keep the strip open on
+ * the query `alice hello`.
  */
 const VALID_USERNAME = /^[A-Za-z0-9._-]*$/;
 /**

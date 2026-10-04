@@ -274,7 +274,7 @@ export default function LoginScreen() {
               onSubmitEditing={submitServer}
               keyboardType="url"
               inputMode="url"
-              placeholder="chat.exemple.fr"
+              placeholder="chat.example.org"
               autoComplete="url"
             />
             <PrimaryButton c={c} busy={busy} onPress={() => void submitServer()} title={t('login.continue')} />

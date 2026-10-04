@@ -55,7 +55,7 @@ describe('PresenceEngine: stream', () => {
     });
     engine.apply(event([['u1', 'bob', 42, '']]));
     engine.apply(event([['', 'bob', 1, '']]));
-    engine.apply(event(['pas-un-tableau']));
+    engine.apply(event(['not-an-array']));
 
     assert.equal(engine.statusOf('u1'), null);
     assert.equal(notifications, 0);

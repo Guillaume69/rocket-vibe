@@ -9,7 +9,7 @@ import {
 
 describe('detectMentionToken', () => {
   test('finds the open token just before the cursor', () => {
-    assert.deepEqual(detectMentionToken('salut @al', 9), { start: 6, query: 'al' });
+    assert.deepEqual(detectMentionToken('hello @al', 9), { start: 6, query: 'al' });
   });
 
   test('a bare @ suggests (empty query)', () => {
@@ -29,17 +29,17 @@ describe('detectMentionToken', () => {
   });
 
   test('a space in the query closes the token', () => {
-    assert.equal(detectMentionToken('@alice bonjour', 14), null);
+    assert.equal(detectMentionToken('@alice goodbye', 14), null);
   });
 
   test('the token is the one BEFORE the cursor, not the end of the text', () => {
-    assert.deepEqual(detectMentionToken('@alice bonjour', 3), { start: 0, query: 'al' });
+    assert.deepEqual(detectMentionToken('@alice goodbye', 3), { start: 0, query: 'al' });
   });
 
   test('accepts dots, hyphens and underscores', () => {
-    assert.deepEqual(detectMentionToken('@jean.du_pont-2', 15), {
+    assert.deepEqual(detectMentionToken('@jane.van_dyk-2', 15), {
       start: 0,
-      query: 'jean.du_pont-2',
+      query: 'jane.van_dyk-2',
     });
   });
 

@@ -39,9 +39,10 @@ when both, they share one release branch.
   Fixed / Removed). One entry per change, worded for a user, not a commit subject.
 - **READMEs**: `apps/<app>/README.md` (features, prerequisites, scripts) and the root
   `README.md` (CI, secrets, release flow), if the release changes what they say.
-- **`brain/parity.md`**: a feature that landed on either app moves a
-  box (`[ ]` / `[~]` / `[x]`). Mobile-only features are listed there too, mapped to
-  their desktop equivalent.
+- **`brain/parity.md`**: every visible change in the section has its row, with
+  a status per app (Android, GTK, SwiftUI) checked in the code, and Open debt
+  matches the tables. A release can ship a feature in one app only if its row
+  says which apps owe it.
 - **`apps/desktop/docs/FEEDBACK.md`**: tick the tester items this release fixes.
 - **`CLAUDE.md`**: a Rocket.Chat fact probed during the cycle and not yet recorded.
 - **`brain/`**: every feature or subsystem the release changes is described as it

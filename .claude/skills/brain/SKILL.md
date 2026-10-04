@@ -43,14 +43,19 @@ doc disagrees with reality, fix the doc.
 - A change that makes a brain doc wrong fixes that doc in the **same branch**, as
   its own `docs(brain): ...` layer after the behaviour and its tests.
 - New feature -> add `brain/features/<name>.md` (with `## Mobile` and `## Desktop`
-  sections and its parity state), then a row in `brain/features/index.md` and the
-  catalog table in `brain/BRAIN.md`. A feature landing on the second app updates
-  the existing doc. New subsystem -> add or update a `brain/architecture/*.md`.
+  sections), then a row in `brain/features/index.md` and the catalog table in
+  `brain/BRAIN.md`. A feature landing on another app updates the existing doc.
+  New subsystem -> add or update a `brain/architecture/*.md`.
+- Parity ("La parité" in `CLAUDE.md`): every visible feature has its rows in
+  `brain/parity.md` with a status for Android, GTK and SwiftUI, checked in each
+  app's code. An app that lacks it is `missing` or `partial` and appears under
+  Open debt; one that catches up goes to `done` and leaves it. `mapped` only for a
+  platform mechanism meeting the same need, with the note saying how.
 - New non-obvious decision -> `brain/decisions.md` with its "why". New term or
   French identifier -> `brain/glossary.md`.
 - A server fact probed on the 8.5 test server goes in `CLAUDE.md`'s facts first;
   `brain/architecture/rocket-chat.md` links it.
-- The other docs keep their own job: changelogs, `brain/parity.md`,
+- The other docs keep their own job: changelogs,
   `apps/mobile/CHANTIERS.md`, `ROADMAP.md`. The brain links them, it doesn't
   replace them. `apps/mobile/docs/AUDIT.md` is frozen.
 - Style: English, dense, skimmable, present tense, normal prose. No em-dashes.

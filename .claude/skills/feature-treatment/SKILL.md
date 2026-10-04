@@ -70,7 +70,10 @@ typical; drop the lenses for an app the branch doesn't touch):
 - **Tests / parity / docs** - do the tests cover the new branches (error paths,
   empty state, reconnection, the retry)? A test that passes without printing its
   side effect is empty, not green. A desktop UI change: is there a smoke or e2e
-  check? The changelog entry, `brain/parity.md` line and README line the change needs.
+  check? The changelog entry and README line the change needs. Parity: does
+  `brain/parity.md` carry a row for each visible change, with each app's status
+  true to its code? A feature shipped in one app with no row saying the others
+  owe it fails the review.
 
 Each finder returns `{file, line, severity, summary, failure_scenario}` objects,
 verified (quote the line), most severe first, and fixes nothing. Optionally run
@@ -103,7 +106,9 @@ branch as the change:
 - `apps/<app>/CHANGELOG.md`: one entry per visible change under "Non publié"
   (mobile, French) or "Unreleased" (desktop, English), in the repo's usual
   `docs(<app>): <the change> in the changelog` commit.
-- `brain/parity.md` box, the app's README, `CLAUDE.md` for a newly
+- `brain/parity.md`: the rows the change adds or moves, a status per app,
+  and the Open debt list kept in step.
+- The app's README, `CLAUDE.md` for a newly
   probed server fact, `ROADMAP.md` for a new decision, ticks in `CHANTIERS.md` /
   `FEEDBACK.md`.
 

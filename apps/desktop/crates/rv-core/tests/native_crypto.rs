@@ -345,10 +345,12 @@ async fn viewer_closure_during_http_prevents_private_work_and_old_access_never_r
     assert!(pilot.publications.lock().unwrap().is_empty());
     let current = pilot.attach(Guard::new()).await;
     assert_eq!(session_code(access.resume_packages().await.err().unwrap()), "session_closed");
-    let duplicate = pilot.session.crypto(Guard::new(), pilot.manager.clone(), pilot.root.clone()).await;
-    assert_eq!(session_code(duplicate.err().unwrap()), "crypto_session_already_open");
+    let duplicate = pilot.session.crypto(Guard::new(), pilot.manager.clone(), pilot.root.clone()).await.unwrap();
+    current.stop();
+    assert!(duplicate.check().is_ok());
     pilot.session.suspend();
     assert_eq!(session_code(current.check().err().unwrap()), "session_closed");
+    assert_eq!(session_code(duplicate.check().err().unwrap()), "session_closed");
     pilot.session.reconnect();
     online(&pilot.session).await;
     assert_eq!(session_code(current.resume_packages().await.err().unwrap()), "session_closed");
@@ -735,6 +737,8 @@ async fn a_signed_own_device_withdrawal_survives_directory_omission_and_reopenin
     let conversation = access.conversation().await.unwrap();
     let identity = pilot.session.info.native.as_ref().unwrap();
     let path = pilot.directory.path().join("ceremony");
+    let other = pilot.session.crypto_settings(Guard::new(), path.clone(), pilot.memory.clone()).await.unwrap();
+    let other_conversation = other.conversation().await.unwrap();
     let manager = Installation::new(
         path.clone(),
         Account {
@@ -771,6 +775,7 @@ async fn a_signed_own_device_withdrawal_survives_directory_omission_and_reopenin
     let observer = pilot.session.crypto_settings(Guard::new(), path.clone(), pilot.memory.clone()).await.unwrap();
     assert!(observer.refresh().await.is_err());
     assert!(conversation.check().is_err());
+    assert!(other_conversation.check().is_err());
     let writes = pilot.memory.writes.load(Ordering::SeqCst);
     assert!(conversation.publish_packages("1".into(), 1).await.is_err());
     assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), writes);
@@ -781,5 +786,53 @@ async fn a_signed_own_device_withdrawal_survives_directory_omission_and_reopenin
     assert!(reopened.refresh().await.is_err());
     assert!(reopened.conversation().await.is_err());
     assert_eq!(pilot.registrations.lock().unwrap().len(), 1);
+    pilot.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn registered_views_share_ordering_but_close_independently_and_reject_another_vault() {
+    let pilot = Pilot::new(true).await;
+    let settings = ready(&pilot).await;
+    let first = settings.conversation().await.unwrap();
+    let next = pilot
+        .session
+        .crypto_settings(Guard::new(), pilot.directory.path().join("ceremony"), pilot.memory.clone())
+        .await
+        .unwrap();
+    let second = next.conversation().await.unwrap();
+    let before = pilot.memory.writes.load(Ordering::SeqCst);
+    pilot.block.store(1, Ordering::SeqCst);
+    let one = tokio::spawn({
+        let first = first.clone();
+        async move { first.local_group_status("room").await }
+    });
+    pilot.gate.entered().await;
+    let mut two = tokio::spawn({
+        let second = second.clone();
+        async move { second.local_group_status("room").await }
+    });
+    assert!(tokio::time::timeout(Duration::from_millis(50), &mut two).await.is_err());
+    first.stop();
+    pilot.gate.release();
+    assert!(one.await.unwrap().is_err());
+    assert!(two.await.unwrap().unwrap().accepted.is_none());
+    assert!(second.check().is_ok() && first.check().is_err());
+    assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), before);
+    let copy = Arc::new(
+        Manager::new(pilot.directory.path().join("copy"), second.scope().clone(), pilot.memory.clone()).unwrap(),
+    );
+    std::fs::create_dir(pilot.directory.path().join("copy")).unwrap();
+    let root: Root = serde_json::from_slice(
+        &B64.decode(pilot.crypto_directory.lock().unwrap()["identity"]["root"].as_str().unwrap()).unwrap(),
+    )
+    .unwrap();
+    assert!(matches!(
+        pilot.session.crypto(Guard::new(), copy, root).await,
+        Err(crypto::Error::Delivery(rv_crypto::delivery::Error::Scope))
+    ));
+    assert!(second.check().is_ok());
+    assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), before);
+    pilot.session.suspend();
+    assert!(second.check().is_err());
     pilot.close().await;
 }

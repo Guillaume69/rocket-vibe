@@ -8,6 +8,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{Mutex, Weak},
 };
+pub mod messages;
 
 fn room_changed() -> Error {
     crate::native::Error::Protocol("crypto_room_changed").into()

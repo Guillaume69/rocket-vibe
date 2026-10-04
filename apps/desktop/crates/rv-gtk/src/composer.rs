@@ -591,6 +591,25 @@ impl Composer {
         self.on_changed.replace(None);
         self.completion.popdown();
     }
+    pub fn bind_private(
+        &self,
+        access: rv_core::native::crypto::enrollment::rooms::messages::Access,
+        rid: &str,
+        draft: &str,
+    ) {
+        self.unbind_native();
+        self.attach.set_sensitive(false);
+        self.mic.set_sensitive(false);
+        self.staged.switch(rid);
+        self.clear_reply();
+        self.set_text(draft);
+        self.connect_changed(move |text| {
+            let access = access.clone();
+            crate::runtime().spawn(async move {
+                let _ = access.set_draft(text).await;
+            });
+        });
+    }
     pub fn bind_native_thread(
         &self,
         session: &Arc<rv_core::native::NativeSession>,

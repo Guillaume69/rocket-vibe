@@ -104,6 +104,21 @@ pub struct ClearMessage {
     pub receipt: packet::Receipt,
     payload: Zeroizing<Vec<u8>>,
 }
+/// Original own intent retained for compose recovery. A confirmed HTTP receipt
+/// remains here until the ordered protected journal has consumed the message.
+pub struct OutgoingMessage {
+    pub header: packet::Header,
+    pub receipt: Option<packet::Receipt>,
+    pub cancelling: bool,
+    pub cancelled: bool,
+    pub observed_at: u64,
+    payload: Zeroizing<Vec<u8>>,
+}
+impl OutgoingMessage {
+    pub fn message(&self) -> Result<SendMessage> {
+        decode(&self.payload, &self.header)
+    }
+}
 impl ClearMessage {
     pub fn message(&self) -> Result<SendMessage> {
         decode(&self.payload, &self.receipt.header)
@@ -239,6 +254,8 @@ struct Entry {
     historical: bool,
     #[serde(default)]
     retired: bool,
+    #[serde(default)]
+    journaled: bool,
     submission: MessageSubmission,
     #[serde(with = "secret_bytes")]
     plaintext: Zeroizing<Vec<u8>>,
@@ -262,6 +279,41 @@ struct Ledger {
     cache: BTreeMap<String, Entry>,
 }
 impl Coordinator {
+    pub fn outgoing_messages(&self, roster: &Roster, now: u64) -> Result<Vec<OutgoingMessage>> {
+        self.inspect(|_, records| {
+            let (_, grant) = self.draft_binding(records, roster, &None, now)?;
+            let ledger = self.message_ledger(records)?;
+            ledger_clock(&ledger, now)?;
+            let mut messages = vec![];
+            for (id, entry) in &ledger.cache {
+                let seen = ledger.seen.get(id).ok_or(Error::Changed)?;
+                let header = entry.proof()?.header;
+                if seen.intent.is_none()
+                    || entry.retired
+                    || entry.journaled
+                    || entry.grant != grant
+                    || header.scope != roster.scope
+                    || header.author != self.manager.scope().user
+                    || header.device != self.manager.scope().device
+                    || HEXLOWER.encode(&header.incarnation) != self.manager.scope().incarnation
+                {
+                    continue;
+                }
+                messages.push(OutgoingMessage {
+                    header,
+                    receipt: entry.receipt.clone(),
+                    cancelling: seen.cancelling,
+                    cancelled: seen.cancelled.is_some(),
+                    observed_at: entry.created,
+                    payload: Zeroizing::new(entry.plaintext.to_vec()),
+                });
+            }
+            messages.sort_by(|a, b| {
+                (a.observed_at, &a.header.operation).cmp(&(b.observed_at, &b.header.operation))
+            });
+            Ok(messages)
+        })
+    }
     fn message_ledger(&self, records: &Records) -> Result<Ledger> {
         let root = HEXLOWER.encode(&self.root.fingerprint()?);
         let Some(value) = records.get(RECORD) else {
@@ -509,6 +561,7 @@ impl Coordinator {
                     created: now,
                     historical: false,
                     retired: false,
+                    journaled: false,
                     submission: submission.clone(),
                     plaintext: Zeroizing::new(plaintext.to_vec()),
                     grant,
@@ -520,6 +573,22 @@ impl Coordinator {
             save_ledger(records, &ledger)?;
             save(records, &state)?;
             Ok(submission)
+        })
+    }
+    /// A fresh-current-state UI hint. Sending still repeats the checked
+    /// preparation; this read creates no outbox or MLS generation.
+    pub fn can_prepare_message(&self, observation: &MessageObservation, now: u64) -> Result<bool> {
+        self.inspect(|provider, records| {
+            let valid = (|| -> Result<()> {
+                let (state, _) = self.message_observation(records, observation, now)?;
+                self.message_source(provider, records, &state, observation, now, false)?;
+                Ok(())
+            })();
+            match valid {
+                Ok(()) => Ok(true),
+                Err(Error::Storage(error)) => Err(Error::Storage(error)),
+                Err(_) => Ok(false),
+            }
         })
     }
     pub fn retry_message(
@@ -764,6 +833,7 @@ impl Coordinator {
             seen.receipt = Some(received_hash.clone());
             seen.cancelling = false;
             entry.receipt = Some(receipt.clone());
+            entry.journaled |= ordered_receive;
             let clear = ClearMessage {
                 receipt: receipt.clone(),
                 payload: Zeroizing::new(entry.plaintext.to_vec()),
@@ -855,6 +925,7 @@ impl Coordinator {
                 created: now,
                 historical: ordered_receive,
                 retired: false,
+                journaled: ordered_receive,
                 submission: submission.clone(),
                 plaintext,
                 grant,
@@ -937,6 +1008,51 @@ impl Coordinator {
             });
         }
         Ok(messages)
+    }
+    pub(super) fn project_journal(
+        &self,
+        records: &Records,
+        scope: &Scope,
+        grant: &Member,
+        through: u64,
+        query: &super::journal::ProjectionQuery,
+    ) -> Result<(Vec<super::journal::ProjectedMessage>, bool)> {
+        let ledger = self.message_ledger(records)?;
+        let mut entries = ledger
+            .cache
+            .values()
+            .filter_map(|entry| {
+                let receipt = entry.receipt.as_ref()?;
+                (!entry.retired
+                    && entry.journaled
+                    && entry.grant == *grant
+                    && receipt.header.scope == *scope
+                    && receipt.position <= through
+                    && query.before.is_none_or(|p| receipt.position < p)
+                    && receipt.header.thread == query.thread)
+                    .then_some((receipt.position, entry))
+            })
+            .collect::<Vec<_>>();
+        entries.sort_by_key(|(position, _)| *position);
+        if entries.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+            return Err(Error::JournalOrder);
+        }
+        let older = entries.len() > query.limit;
+        let skip = entries.len().saturating_sub(query.limit);
+        let messages = entries
+            .into_iter()
+            .skip(skip)
+            .map(|(_, entry)| {
+                Ok(super::journal::ProjectedMessage {
+                    message: ClearMessage {
+                        receipt: entry.receipt.as_ref().ok_or(Error::Changed)?.clone(),
+                        payload: Zeroizing::new(entry.plaintext.to_vec()),
+                    },
+                    observed_at: entry.created,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok((messages, older))
     }
     pub(super) fn retire_message_admission(
         &self,

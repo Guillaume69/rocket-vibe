@@ -642,6 +642,27 @@ async fn journal_worker_reopens_after_lost_read_replays_clear_and_refuses_wrong_
         replay.messages[0].message().unwrap().text,
         "Message HTTP **privé** 🐾"
     );
+    let projection = server
+        .worker(&bob)
+        .journal_projection(
+            "room",
+            ProjectionQuery {
+                before: None,
+                limit: 50,
+                thread: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(projection.messages.len(), 1);
+    assert_eq!(
+        projection.messages[0]
+            .message
+            .message()
+            .unwrap()
+            .operation_id,
+        "journal-http"
+    );
     // This deliberately blind fixture serves the valid room envelope for any
     // roster/state URL. The requested route must still bind the worker result.
     assert!(matches!(

@@ -9,6 +9,14 @@ section here.
 
 ### Added
 
+- Existing GTK and SwiftUI conversations can experimentally read the protected
+  encrypted journal, keep drafts in the registered coffer and send through the
+  private MLS outbox. Original interrupted sends can be reconciled without a
+  second publication. No message body is projected into ordinary SQLite; device
+  withdrawal, account changes and room removal fence the view. Production E2EE
+  capabilities remain disabled while mobile, archives, encrypted files and
+  independent qualification are still open.
+
 - Existing GTK and SwiftUI room information panels can review encrypted group
   creation, admission and device changes, then explicitly confirm the exact
   recipients. Interrupted transitions can be resumed or cancelled from the same

@@ -323,6 +323,102 @@ fn offline_three_epochs_resume_fixed_window_and_replay_protected_page_after_reop
         .receive_journal(&observed, &empty, NOW)
         .unwrap();
     assert!(empty.messages.is_empty() && empty.after == BASE + 23 && empty.complete);
+    let query = ProjectionQuery {
+        before: None,
+        limit: 2,
+        thread: Some("thread-root".into()),
+    };
+    let projection = bob
+        .reopened()
+        .journal_projection(&observed, &query, NOW)
+        .unwrap();
+    assert!(projection.complete && projection.has_older && projection.after == BASE + 23);
+    assert_eq!(
+        projection
+            .messages
+            .iter()
+            .map(|row| row.message.message().unwrap().operation_id)
+            .collect::<Vec<_>>(),
+        ["second-epoch", "third-epoch"]
+    );
+    assert!(projection.messages.iter().all(|row| row.observed_at == NOW));
+    let before = projection.messages[0].message.receipt.position;
+    let older = bob
+        .reopened()
+        .journal_projection(
+            &observed,
+            &ProjectionQuery {
+                before: Some(before),
+                ..query
+            },
+            NOW,
+        )
+        .unwrap();
+    assert!(!older.has_older && older.messages.len() == 1);
+    assert_eq!(
+        older.messages[0].message.message().unwrap().operation_id,
+        "first-epoch"
+    );
+    assert!(
+        bob.reopened()
+            .journal_projection(
+                &observed,
+                &ProjectionQuery {
+                    before: None,
+                    limit: 0,
+                    thread: None
+                },
+                NOW
+            )
+            .is_err()
+    );
+    let filtered = bob
+        .reopened()
+        .journal_projection(
+            &observed,
+            &ProjectionQuery {
+                before: None,
+                limit: 50,
+                thread: Some("unknown-root".into()),
+            },
+            NOW,
+        )
+        .unwrap();
+    assert!(filtered.messages.is_empty());
+    let mut lost_membership = observation(&alice);
+    lost_membership
+        .current
+        .roster
+        .members
+        .retain(|m| m.user != bob.root.user);
+    assert!(
+        bob.reopened()
+            .journal_projection(
+                &lost_membership,
+                &ProjectionQuery {
+                    before: None,
+                    limit: 50,
+                    thread: None
+                },
+                NOW
+            )
+            .is_err()
+    );
+    bob.trust(&bob, false);
+    bob.revoke(&bob);
+    assert!(
+        bob.reopened()
+            .journal_projection(
+                &observed,
+                &ProjectionQuery {
+                    before: None,
+                    limit: 50,
+                    thread: None
+                },
+                NOW
+            )
+            .is_err()
+    );
 }
 
 #[test]

@@ -96,33 +96,44 @@ impl Drop for Binding {
 }
 
 #[derive(Default)]
-pub(crate) struct Registry(Mutex<Option<Weak<Binding>>>);
+pub(crate) struct Registry(Mutex<Vec<Weak<Binding>>>);
 impl Registry {
     pub(super) fn stop(&self) {
-        if let Some(binding) = self.0.lock().unwrap().take().and_then(|weak| weak.upgrade()) {
+        for binding in self.0.lock().unwrap().drain(..).filter_map(|weak| weak.upgrade()) {
             binding.stop();
         }
     }
     pub(super) fn stop_scope(&self, scope: &Scope) {
-        let mut slot = self.0.lock().unwrap();
-        if let Some(binding) = slot.as_ref().and_then(Weak::upgrade)
-            && &binding.scope == scope
-        {
-            slot.take();
-            binding.stop();
-        }
+        self.0.lock().unwrap().retain(|weak| {
+            let Some(binding) = weak.upgrade() else { return false };
+            if &binding.scope == scope {
+                binding.stop();
+                false
+            } else {
+                true
+            }
+        });
     }
-    fn attach(&self, binding: Binding) -> Result<Access> {
+    fn attach(&self, mut binding: Binding, manager: &Arc<Manager>, root: &Root) -> Result<Access> {
         let mut slot = self.0.lock().unwrap();
         binding.context.check()?;
-        if let Some(previous) = slot.as_ref().and_then(Weak::upgrade) {
+        slot.retain(|weak| {
+            let Some(previous) = weak.upgrade() else { return false };
             if previous.context.check().is_ok() {
+                true
+            } else {
+                previous.stop();
+                false
+            }
+        });
+        if let Some(previous) = slot.iter().find_map(Weak::upgrade) {
+            if previous.scope != binding.scope {
                 return Err(super::Error::Protocol("crypto_session_already_open").into());
             }
-            previous.stop();
+            binding.worker = previous.worker.viewer(manager, root, binding.context.clone())?;
         }
         let binding = Arc::new(binding);
-        *slot = Some(Arc::downgrade(&binding));
+        slot.push(Arc::downgrade(&binding));
         Ok(Access(binding))
     }
 }
@@ -218,11 +229,30 @@ impl Access {
     pub async fn receive_message(&self, message: http::ApplicationMessage) -> Result<groups::ClearMessage> {
         self.call(|worker| async move { worker.receive_message(message).await }).await
     }
+    pub async fn message_roster(&self, room: &str) -> Result<(groups::Roster, bool)> {
+        self.call(|worker| async move { worker.message_roster(room).await }).await
+    }
+    pub async fn draft(&self, roster: groups::Roster, thread: Option<String>) -> Result<String> {
+        Ok(self.call(|worker| async move { worker.draft(roster, thread).await }).await?.to_string())
+    }
+    pub async fn set_draft(&self, roster: groups::Roster, thread: Option<String>, text: String) -> Result<()> {
+        self.call(|worker| async move { worker.set_draft(roster, thread, text).await }).await
+    }
+    pub async fn outgoing_messages(&self, roster: groups::Roster) -> Result<Vec<groups::OutgoingMessage>> {
+        self.call(|worker| async move { worker.outgoing_messages(roster).await }).await
+    }
     pub async fn journal_page(&self, room: &str) -> Result<groups::JournalBatch> {
         self.call(|worker| async move { worker.journal_page(room).await }).await
     }
     pub async fn journal_last_batch(&self, room: &str) -> Result<groups::JournalBatch> {
         self.call(|worker| async move { worker.journal_last_batch(room).await }).await
+    }
+    pub async fn journal_projection(
+        &self,
+        room: &str,
+        query: groups::ProjectionQuery,
+    ) -> Result<groups::JournalProjection> {
+        self.call(|worker| async move { worker.journal_projection(room, query).await }).await
     }
 }
 impl NativeSession {
@@ -265,7 +295,8 @@ impl NativeSession {
         {
             return Err(scope_changed().into());
         }
-        let worker = delivery::Worker::new_guarded(manager, root, self.client.clone(), context.clone())?;
-        self.crypto.attach(Binding { context, worker, scope })
+        let worker =
+            delivery::Worker::new_guarded(manager.clone(), root.clone(), self.client.clone(), context.clone())?;
+        self.crypto.attach(Binding { context, worker, scope }, &manager, &root)
     }
 }

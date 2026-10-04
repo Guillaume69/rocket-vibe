@@ -14,6 +14,10 @@ struct Book {
     receipts: BTreeMap<String, rv_protocol::e2ee::GroupReceipt>,
     posts: usize,
     lose_reply: bool,
+    message_submissions: BTreeMap<String, rv_protocol::e2ee::ApplicationSubmission>,
+    message_receipts: BTreeMap<String, rv_protocol::e2ee::ApplicationReceipt>,
+    message_posts: usize,
+    lose_message_reply: bool,
 }
 impl Book {
     fn reply(&mut self, request: &common::Request) -> Option<common::Response> {
@@ -91,6 +95,93 @@ impl Book {
                 _ => missing(),
             },
             "/api/v1/e2ee/rooms/room/events" => json_response(json!({"events":[],"next":null})),
+            "/api/v1/e2ee/rooms/room/messages" => {
+                assert_eq!(request.method, "POST");
+                let input: rv_protocol::e2ee::ApplicationSubmission = serde_json::from_str(&request.body).unwrap();
+                let submission = rv_crypto::groups::MessageSubmission::from_wire(&input).unwrap();
+                let proof =
+                    submission.verified(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()).unwrap();
+                assert_eq!(proof.header.author, self.user);
+                assert_eq!(proof.header.scope.room, "room");
+                assert_eq!(proof.header.operation, input.operation_id);
+                assert!(!request.body.contains("private-message-cleartext"));
+                let receipt = rv_crypto::groups::wire::message_receipt_to_wire(&rv_crypto_public::messages::Receipt {
+                    header: proof.header.clone(),
+                    fingerprint: proof.fingerprint().unwrap(),
+                    message: format!("private-message-{}", self.message_receipts.len() + 1),
+                    position: 9007199254740993 + self.message_receipts.len() as u64,
+                })
+                .unwrap();
+                assert!(!self.message_receipts.contains_key(&input.operation_id));
+                self.message_posts += 1;
+                self.message_receipts.insert(input.operation_id.clone(), receipt.clone());
+                self.message_submissions.insert(input.operation_id.clone(), input);
+                if self.lose_message_reply {
+                    self.lose_message_reply = false;
+                    respond(503, r#"{"code":"response_lost","request_id":"private-compose"}"#)
+                } else {
+                    json_response(serde_json::to_value(receipt).unwrap())
+                }
+            }
+            "/api/v1/e2ee/rooms/room/delivery" => {
+                let query = url::form_urlencoded::parse(request.target.split('?').nth(1).unwrap().as_bytes())
+                    .into_owned()
+                    .collect::<BTreeMap<_, _>>();
+                let after = query.get("after").unwrap().parse::<u64>().unwrap();
+                let through = query.get("through").map(|s| s.parse::<u64>().unwrap()).unwrap_or_else(|| {
+                    self.message_receipts.values().map(|r| r.position.parse::<u64>().unwrap()).max().unwrap_or(1)
+                });
+                let head = self.head.as_ref().unwrap();
+                let original = self.submission.as_ref().unwrap();
+                let mut events = vec![];
+                if after == 0 {
+                    events.push(rv_protocol::e2ee::DeliveryEvent {
+                        position: "1".into(),
+                        content: rv_protocol::e2ee::DeliveryContent::Group(rv_protocol::e2ee::GroupEvent {
+                            receipt: head.clone(),
+                            transition: original.transition.clone(),
+                            commit: original.commit.clone(),
+                            welcome: None,
+                        }),
+                    });
+                }
+                for (operation, receipt) in &self.message_receipts {
+                    let position = receipt.position.parse::<u64>().unwrap();
+                    if after < position && position <= through {
+                        let input = &self.message_submissions[operation];
+                        events.push(rv_protocol::e2ee::DeliveryEvent {
+                            position: receipt.position.clone(),
+                            content: rv_protocol::e2ee::DeliveryContent::Message(
+                                rv_protocol::e2ee::ApplicationMessage {
+                                    receipt: receipt.clone(),
+                                    proof: input.proof.clone(),
+                                    ciphertext: input.ciphertext.clone(),
+                                },
+                            ),
+                        });
+                    }
+                }
+                events.sort_by_key(|e| e.position.parse::<u64>().unwrap());
+                json_response(
+                    serde_json::to_value(rv_protocol::e2ee::DeliveryPage {
+                        scope: self.scope.clone(),
+                        room_id: "room".into(),
+                        incarnation: head.incarnation.clone(),
+                        after: after.to_string(),
+                        through: through.to_string(),
+                        events,
+                        next: None,
+                    })
+                    .unwrap(),
+                )
+            }
+            path if path.starts_with("/api/v1/e2ee/rooms/room/message-operations/") => {
+                assert_eq!(request.method, "GET");
+                match self.message_receipts.get(path.rsplit('/').next().unwrap()) {
+                    Some(receipt) => json_response(serde_json::to_value(receipt).unwrap()),
+                    None => missing(),
+                }
+            }
             path if path.starts_with("/api/v1/e2ee/rooms/room/operations/") => {
                 let operation = path.rsplit('/').next().unwrap();
                 match self.receipts.get(operation) {
@@ -141,6 +232,10 @@ async fn setup(include_peer: bool) -> (Pilot, crypto::enrollment::Access, Arc<Mu
         receipts: BTreeMap::new(),
         posts: 0,
         lose_reply: false,
+        message_submissions: BTreeMap::new(),
+        message_receipts: BTreeMap::new(),
+        message_posts: 0,
+        lose_message_reply: false,
     }));
     let remote = book.clone();
     *pilot.room_handler.lock().unwrap() = Some(Arc::new(move |request| remote.lock().unwrap().reply(request)));
@@ -264,4 +359,101 @@ async fn room_removal_fences_an_existing_preview_even_after_rejoining() {
     assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), writes);
     let fresh = reopen(&pilot).await;
     assert!(fresh.refresh().await.unwrap().phase == Phase::Empty);
+}
+
+async fn message_settings(pilot: &Pilot) -> crypto::enrollment::Access {
+    pilot
+        .session
+        .crypto_settings(Guard::new(), pilot.directory.path().join("ceremony"), pilot.memory.clone())
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projects_into_sql() {
+    use crypto::enrollment::rooms::messages::Delivery;
+    let (pilot, settings, book) = setup(false).await;
+    assert!(settings.messages("room".into(), None).await.is_err());
+    let group = settings.room("room".into()).await.unwrap();
+    let view = group.refresh().await.unwrap();
+    let preview = group.preview_create(view.revision, vec![]).await.unwrap();
+    group.confirm(preview.revision, preview.review.unwrap().fingerprint).await.unwrap();
+    group.close();
+    let mut encrypted = room();
+    encrypted.encrypted = true;
+    pilot
+        .session
+        .store
+        .snapshot(&rv_protocol::Snapshot {
+            protocol_version: 1,
+            rooms: vec![encrypted],
+            messages: vec![],
+            cursor: "encrypted".into(),
+        })
+        .unwrap();
+    let chat = message_settings(&pilot).await.messages("room".into(), None).await.unwrap();
+    let view = chat.refresh(None, 50).await.unwrap();
+    assert!(view.can_send && !view.catching_up && view.messages.is_empty());
+    chat.set_draft("private-message-cleartext **rich** 🐾".into()).await.unwrap();
+    assert_eq!(chat.draft().await.unwrap(), "private-message-cleartext **rich** 🐾");
+    let before = pilot.server.requests().len();
+    chat.set_draft("private-message-cleartext **changed** 🐾".into()).await.unwrap();
+    assert_eq!(pilot.server.requests().len(), before, "local draft saves must work without HTTP");
+    let document = rv_protocol::SendMessage {
+        operation_id: "private-send-one".into(),
+        text: "private-message-cleartext **changed** 🐾".into(),
+        reply_to: None,
+        quotes: vec![],
+        cards: vec![],
+    };
+    book.lock().unwrap().lose_message_reply = true;
+    assert!(chat.send(document.clone()).await.is_err());
+    assert_eq!(book.lock().unwrap().message_posts, 1);
+    assert!(
+        chat.send(rv_protocol::SendMessage { operation_id: "private-would-duplicate".into(), ..document })
+            .await
+            .is_err()
+    );
+    assert_eq!(book.lock().unwrap().message_posts, 1);
+    assert_eq!(chat.draft().await.unwrap(), "private-message-cleartext **changed** 🐾");
+    chat.close();
+    let reopened = message_settings(&pilot).await.messages("room".into(), None).await.unwrap();
+    // Querying older retained rows establishes the actor without consuming the
+    // lost-ACK message; it must still expose the original protected intent.
+    let pending = reopened.refresh(Some("9007199254740993".into()), 50).await.unwrap();
+    assert!(pending.messages.is_empty());
+    assert_eq!(pending.draft, "private-message-cleartext **changed** 🐾");
+    reopened.resume("private-send-one".into()).await.unwrap();
+    assert_eq!(book.lock().unwrap().message_posts, 1);
+    assert!(reopened.draft().await.unwrap().is_empty());
+    let view = reopened.refresh(None, 50).await.unwrap();
+    assert_eq!(view.messages.len(), 1);
+    assert!(view.messages[0].delivery == Delivery::Journaled);
+    assert_eq!(view.messages[0].position.as_deref(), Some("9007199254740993"));
+    assert_eq!(view.messages[0].row.id, "private-message-1");
+    assert_eq!(view.messages[0].row.text.as_deref(), Some("private-message-cleartext **changed** 🐾"));
+    assert!(view.messages[0].row.md.as_ref().unwrap().contains("BOLD"));
+    assert!(view.messages[0].row.outbox_status.is_none());
+    assert_eq!(view.after, "9007199254740993");
+    let older = reopened.refresh(Some("9007199254740993".into()), 50).await.unwrap();
+    assert!(older.messages.is_empty());
+    assert!(reopened.refresh(Some("09007199254740993".into()), 50).await.is_err());
+    assert!(reopened.refresh(None, 201).await.is_err());
+    let dialog = message_settings(&pilot).await.room("room".into()).await.unwrap();
+    dialog.refresh().await.unwrap();
+    dialog.close();
+    assert_eq!(reopened.refresh(None, 50).await.unwrap().messages.len(), 1);
+    // Ordinary native tables and every SQL sidecar remain free of the body.
+    for file in std::fs::read_dir(pilot.directory.path()).unwrap().flatten() {
+        if file.file_type().unwrap().is_file() {
+            let bytes = std::fs::read(file.path()).unwrap();
+            assert!(!bytes.windows(b"private-message-cleartext".len()).any(|w| w == b"private-message-cleartext"));
+        }
+    }
+    snapshot(&pilot, false);
+    assert!(reopened.draft().await.is_err());
+    assert!(reopened.set_draft("Late private draft".into()).await.is_err());
+    snapshot(&pilot, true);
+    assert!(reopened.refresh(None, 50).await.is_err());
+    assert_eq!(book.lock().unwrap().message_posts, 1);
 }

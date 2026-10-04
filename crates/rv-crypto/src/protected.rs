@@ -81,6 +81,11 @@ impl Manager {
     pub fn scope(&self) -> &Scope {
         &self.scope
     }
+    /// Only the same physical protected installation may share a dispatch
+    /// queue. A copied database with the same public scope is a different one.
+    pub fn same_installation(&self, other: &Self) -> Result<bool, Error> {
+        Ok(self.scope == other.scope && self.location()? == other.location()?)
+    }
     pub fn new(directory: PathBuf, scope: Scope, storage: Arc<dyn Storage>) -> Result<Self, Error> {
         if !scope.valid() || !directory.is_absolute() {
             return Err(Error::Scope);

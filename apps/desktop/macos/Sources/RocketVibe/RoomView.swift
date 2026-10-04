@@ -24,7 +24,7 @@ struct RoomView: View {
                     .padding(.bottom, 2)
             }
             UploadsView(model: model)
-            if model.room.encrypted && !app.e2eUnlocked {
+            if model.room.encrypted && !app.e2eUnlocked && !model.privateReady {
                 LockedBanner()
             } else if model.room.readOnly {
                 Text(L("room.read_only"))
@@ -404,6 +404,7 @@ struct MessageRow: View, Equatable {
                                 .font(.vibe(13.5, .heavy))
                                 .foregroundStyle(message.mine ? Vibe.pink : Vibe.text)
                             Text(Formatting.time(message.ts)).font(.vibe(11, .semibold)).foregroundStyle(Vibe.faint)
+                                .help(model?.messageTimeHelp ?? "")
                         }
                     }
                     content
@@ -427,6 +428,7 @@ struct MessageRow: View, Equatable {
             Avatar(path: message.avatar, name: message.author, size: 34)
         } else {
             Text(message.gutterTime ? Formatting.time(message.ts) : "")
+                .help(model?.messageTimeHelp ?? "")
                 .font(.vibe(10, .semibold))
                 .foregroundStyle(Vibe.faint)
                 .frame(width: 34)
@@ -569,7 +571,10 @@ struct MessageRow: View, Equatable {
                 NSPasteboard.general.setString(link, forType: .string)
             }
         }
-        if message.delivery == .failed, model?.canAbandon == true {
+        if model?.canResumePrivate(message.id) == true {
+            Button(L("native.retry")) { Task { await model?.retry(message.id) } }
+            Button(L("native.abandon")) { model?.abandon(message.id) }
+        } else if message.delivery == .failed, model?.canAbandon == true {
             Button(L("native.abandon")) { model?.abandon(message.id) }
         }
     }

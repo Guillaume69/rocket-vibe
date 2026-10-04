@@ -23,6 +23,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+mod drafts;
 mod incoming;
 mod verification;
 pub use incoming::Commit;
@@ -35,10 +36,13 @@ mod readmission;
 mod settlement;
 pub use settlement::{CancellationRequest, GroupCancellation, GroupSettlement};
 pub mod wire;
-pub use journal::{JournalBatch, JournalObservation, JournalRequest};
+pub use journal::{
+    JournalBatch, JournalObservation, JournalProjection, JournalRequest, ProjectedMessage,
+    ProjectionQuery,
+};
 pub use messages::{
     CancelledMessage, ClearMessage, MessageCancellation, MessageObservation, MessagePending,
-    MessageSettlement, MessageSubmission,
+    MessageSettlement, MessageSubmission, OutgoingMessage,
 };
 pub use rv_crypto_public::messages::Receipt as MessageReceipt;
 

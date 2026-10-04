@@ -140,6 +140,29 @@ impl Worker {
         worker.current()?;
         Ok(worker)
     }
+    /// A second view of the same installation shares ordering and storage,
+    /// but owns its own terminal stop/guard. Closing it cannot revive another
+    /// closed view or invalidate an unrelated live view.
+    pub fn viewer(
+        &self,
+        manager: &Arc<Manager>,
+        root: &Root,
+        lifecycle: Arc<dyn Lifecycle>,
+    ) -> Result<Self> {
+        self.current()?;
+        if self.manager.scope() != manager.scope()
+            || self.root.fingerprint().map_err(groups::Error::from)?
+                != root.fingerprint().map_err(groups::Error::from)?
+            || !Arc::ptr_eq(&self.manager, manager) && !self.manager.same_installation(manager)?
+        {
+            return Err(Error::Scope);
+        }
+        let mut viewer = self.clone();
+        viewer.stopped = Arc::new(AtomicBool::new(false));
+        viewer.lifecycle = Some(lifecycle);
+        viewer.current()?;
+        Ok(viewer)
+    }
     #[cfg(test)]
     pub(crate) fn with_clock(mut self, clock: Clock) -> Self {
         self.clock = clock;
@@ -598,6 +621,54 @@ impl Worker {
         })
         .await
     }
+    /// Fresh private-compose eligibility; never a permission for a later POST.
+    pub async fn message_roster(&self, room: &str) -> Result<(groups::Roster, bool)> {
+        let _dispatch = self.dispatch.lock().await;
+        self.scope().await?;
+        let observation = self.message_observation(room).await?;
+        self.owned(move |manager, root, now| {
+            let ready =
+                groups::Coordinator::new(manager, root)?.can_prepare_message(&observation, now)?;
+            Ok((observation.roster, ready))
+        })
+        .await
+    }
+    pub async fn draft(
+        &self,
+        roster: groups::Roster,
+        thread: Option<String>,
+    ) -> Result<zeroize::Zeroizing<String>> {
+        let _dispatch = self.dispatch.lock().await;
+        self.current()?;
+        self.owned(move |manager, root, now| {
+            Ok(groups::Coordinator::new(manager, root)?.draft(&roster, thread, now)?)
+        })
+        .await
+    }
+    pub async fn set_draft(
+        &self,
+        roster: groups::Roster,
+        thread: Option<String>,
+        text: String,
+    ) -> Result<()> {
+        let _dispatch = self.dispatch.lock().await;
+        self.current()?;
+        self.owned(move |manager, root, now| {
+            Ok(groups::Coordinator::new(manager, root)?.set_draft(&roster, thread, text, now)?)
+        })
+        .await
+    }
+    pub async fn outgoing_messages(
+        &self,
+        roster: groups::Roster,
+    ) -> Result<Vec<groups::OutgoingMessage>> {
+        let _dispatch = self.dispatch.lock().await;
+        self.current()?;
+        self.owned(move |manager, root, now| {
+            Ok(groups::Coordinator::new(manager, root)?.outgoing_messages(&roster, now)?)
+        })
+        .await
+    }
     /// Prepare and checkpoint the original private ratchet/body before HTTP.
     /// Persist the operation ID in the app outbox; on restart use resume_message.
     pub async fn send_message(
@@ -815,6 +886,34 @@ impl Worker {
                 return Err(Error::Scope);
             }
             Ok(groups::Coordinator::new(manager, root)?.journal_last_batch(&observation, now)?)
+        })
+        .await
+    }
+    pub async fn journal_projection(
+        &self,
+        room: &str,
+        query: groups::ProjectionQuery,
+    ) -> Result<groups::JournalProjection> {
+        let _dispatch = self.dispatch.lock().await;
+        self.scope().await?;
+        let roster = self.client.crypto_group_roster(room).await?;
+        self.current()?;
+        let state = self.client.crypto_group_state(room).await?;
+        self.current()?;
+        let room = room.to_owned();
+        self.owned(move |manager, root, now| {
+            let observation = groups::JournalObservation::from_wire(&roster, &state)?;
+            if observation.current.head.scope.room != room
+                || observation.current.head.scope.instance != manager.scope().instance
+                || observation.current.head.scope.data_epoch != manager.scope().data_epoch
+            {
+                return Err(Error::Scope);
+            }
+            Ok(groups::Coordinator::new(manager, root)?.journal_projection(
+                &observation,
+                &query,
+                now,
+            )?)
         })
         .await
     }

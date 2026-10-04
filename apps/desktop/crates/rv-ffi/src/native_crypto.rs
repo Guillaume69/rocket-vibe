@@ -10,6 +10,7 @@ use rv_core::native::{
     security::Guard,
 };
 use std::sync::{Arc, Mutex};
+pub(crate) mod messages;
 pub(crate) mod peers;
 pub(crate) mod rooms;
 
@@ -48,7 +49,7 @@ struct Inner {
 pub struct NativeCrypto {
     inner: Arc<Inner>,
 }
-fn error(error: Error) -> RvError {
+pub(crate) fn error(error: Error) -> RvError {
     match error {
         Error::Session(error) => rv_core::native::rest_error(error).into(),
         _ => RvError::Local { message: "crypto_operation_failed".into() },

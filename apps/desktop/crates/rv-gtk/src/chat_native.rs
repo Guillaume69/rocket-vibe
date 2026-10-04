@@ -56,6 +56,7 @@ impl ChatPage {
     }
 
     pub fn set_native_session(self: &Rc<Self>, session: Arc<NativeSession>) {
+        self.close_native_crypto();
         self.set_session(None);
         self.native_edit.replace(None);
         self.native.replace(Some(session.clone()));
@@ -136,7 +137,10 @@ impl ChatPage {
                 } else {
                     this.reload_messages();
                     this.schedule_native_read();
-                    if changed && status.connection == Connection::Online && this.current_rid().is_some() {
+                    if (changed || this.current.borrow().as_ref().is_some_and(|r| r.encrypted))
+                        && status.connection == Connection::Online
+                        && this.current_rid().is_some()
+                    {
                         let page = this.clone();
                         glib::spawn_future_local(async move {
                             page.native_history(false).await;
@@ -151,6 +155,7 @@ impl ChatPage {
     }
 
     pub(super) fn invalidate_native_room(&self) {
+        self.close_native_crypto();
         self.call_button.set_visible(false);
         self.native_unread_after.replace(None);
         self.native_read_pending.set(false);
@@ -197,6 +202,7 @@ impl ChatPage {
             self.split.set_show_content(true);
             return;
         }
+        self.close_native_crypto();
         self.remember(rid);
         self.read_generation.set(self.read_generation.get().wrapping_add(1));
         self.native_read_pending.set(false);
@@ -231,7 +237,12 @@ impl ChatPage {
         self.has_older.set(true);
         self.set_loading(false);
         self.composer.clear_reply();
-        self.composer.bind_native(&session, rid);
+        if room.encrypted {
+            self.composer.unbind_native();
+            self.composer.set_text("");
+        } else {
+            self.composer.bind_native(&session, rid);
+        }
         self.refresh_native_call();
         let (access_session, access_room) = (session.clone(), rid.to_owned());
         runtime().spawn(async move {
@@ -396,6 +407,9 @@ impl ChatPage {
     }
 
     pub(super) async fn native_history(self: &Rc<Self>, older: bool) -> bool {
+        if self.current.borrow().as_ref().is_some_and(|r| r.encrypted) {
+            return self.crypto_history(older).await;
+        }
         if self.loading.get() || (older && !self.has_older.get()) {
             return false;
         }
@@ -449,6 +463,42 @@ impl ChatPage {
     }
 
     pub(super) fn native_row_event(self: &Rc<Self>, event: RowEvent, in_thread: bool) {
+        if self.current.borrow().as_ref().is_some_and(|r| r.encrypted) {
+            match event {
+                RowEvent::Retry(id) => self.crypto_retry(id, false),
+                RowEvent::Menu { row, anchor, x, y } => {
+                    let popover = gtk::Popover::builder().has_arrow(false).build();
+                    popover.set_parent(&anchor);
+                    popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+                    let list = gtk::Box::new(gtk::Orientation::Vertical, 0);
+                    let copy = gtk::Button::builder().label(t("actions.copy")).css_classes(["flat"]).build();
+                    let (target, text, menu) = (anchor, row.text.unwrap_or_default(), popover.clone());
+                    copy.connect_clicked(move |_| {
+                        target.clipboard().set_text(&text);
+                        menu.popdown();
+                    });
+                    list.append(&copy);
+                    if row.outbox_status.is_some() {
+                        for (key, cancel) in [("native.retry", false), ("native.abandon", true)] {
+                            let button = gtk::Button::builder().label(t(key)).css_classes(["flat"]).build();
+                            let (weak, id, menu) = (Rc::downgrade(self), row.id.clone(), popover.clone());
+                            button.connect_clicked(move |_| {
+                                if let Some(page) = weak.upgrade() {
+                                    page.crypto_retry(id.clone(), cancel);
+                                }
+                                menu.popdown();
+                            });
+                            list.append(&button);
+                        }
+                    }
+                    popover.set_child(Some(&list));
+                    popover.connect_closed(|p| p.unparent());
+                    popover.popup();
+                }
+                _ => (),
+            }
+            return;
+        }
         match event {
             RowEvent::JoinCall(id) => self.native_call(Some((id, false))),
             RowEvent::CallInfo(id) => self.native_call(Some((id, true))),

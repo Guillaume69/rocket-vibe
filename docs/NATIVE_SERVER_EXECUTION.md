@@ -5,6 +5,17 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 
 ## État synthétique au 4 octobre 2026
 
+Lot conversations privées en cours de qualification : lecture du préfixe
+chiffré retenu dans le coffre, positions décimales exactes, brouillons séparés
+par fil et adhésion, envoi / reprise de l'intention originale et intégration
+dans les listes / composeurs GTK et SwiftUI existants. Les tests natifs couvrent
+la réponse perdue, le redémarrage, l'absence de second POST, la séparation des
+brouillons, la rotation et le refus après révocation ; les interfaces doivent
+encore passer leur CI. Les dates affichées sont des observations locales et
+sont indiquées comme telles. Les archives complètes, citations privées,
+édition / actions, fichiers et raccordement Android restent à traiter ; aucun
+masque E2EE de production n'est activé.
+
 | Jalon | Développement livré | Travail restant pour le fermer |
 |---|---|---|
 | J0 | Contrats, fixtures communes, inventaire et backlog de parité | Conditions opérateur / export et décisions crypto liées aux jalons suivants |
@@ -14,11 +25,12 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 | J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, vérification des pairs et contrôles de groupe GTK / SwiftUI | Projection privée dans les interfaces, renouvellement / récupération / révocation visibles, suspension des conversations retirées, pont mobile, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison entièrement qualifiée (`bebf911`) passe les neuf jobs de la CI
-`37201456469` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison entièrement qualifiée (`792861b`) passe les neuf jobs de la CI
+`37207277495` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
-L'application macOS du lot profils précédent (`ee3f717`) passe aussi sa
-compilation / packaging (`37199651129`).
+L'application macOS du même lot passe aussi sa compilation, son packaging et son
+démarrage (`37207277485`). Les contrôles de groupe dans les détails des salons
+existants sont donc qualifiés ; la projection privée et le composeur restent en cours.
 L'inventaire généré qui avait arrêté la CI du raccordement `60e72f4` est corrigé.
 Le journal serveur passe ses neuf scénarios
 PostgreSQL / HTTP / MLS et les contrats communs ; aucune capacité E2EE n'est

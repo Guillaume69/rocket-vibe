@@ -158,6 +158,10 @@ fn pending_original_group_and_message_must_settle_before_readmission() {
 #[test]
 fn previous_cached_plaintext_cannot_be_projected_under_the_new_admission() {
     let (alice, bob, _) = fixture();
+    let old_roster = messages::observation(&bob).roster;
+    bob.coordinator()
+        .set_draft(&old_roster, None, "Draft before readmission".into(), NOW)
+        .unwrap();
     let message = messages::message("previous-admission-payload");
     let original = alice
         .coordinator()
@@ -174,6 +178,13 @@ fn previous_cached_plaintext_cannot_be_projected_under_the_new_admission() {
         .accept_readmission(&fresh, &consent, preview.fingerprint, NOW)
         .unwrap();
     let current = messages::observation(&bob);
+    assert!(bob.reopened().draft(&old_roster, None, NOW).is_err());
+    assert!(
+        bob.reopened()
+            .draft(&current.roster, None, NOW)
+            .unwrap()
+            .is_empty()
+    );
     assert!(matches!(
         bob.coordinator()
             .receive_message(&current, &original, &accepted, NOW),

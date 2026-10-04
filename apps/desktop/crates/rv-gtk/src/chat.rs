@@ -19,6 +19,8 @@ use crate::widgets::Handler;
 use crate::widgets::{self, TileSize};
 use crate::{actions_menu, on_tokio};
 
+#[path = "chat_crypto.rs"]
+mod crypto;
 #[path = "chat_native.rs"]
 mod native;
 
@@ -114,6 +116,11 @@ pub struct ChatPage {
     native: Rc<RefCell<Option<Arc<rv_core::native::NativeSession>>>>,
     native_forward: RefCell<Option<tokio::task::JoinHandle<()>>>,
     native_edit: RefCell<Option<(String, String, String)>>,
+    native_crypto: RefCell<Option<rv_core::native::crypto::enrollment::rooms::messages::Access>>,
+    native_crypto_ready: Cell<bool>,
+    native_crypto_restored: Cell<bool>,
+    native_crypto_rows: RefCell<Vec<rv_core::store::MessageRow>>,
+    native_crypto_meta: RefCell<Vec<(String, String, Option<String>)>>,
     native_membership: RefCell<Option<(String, Option<String>)>>,
     native_unread_after: RefCell<Option<String>>,
     native_read_pending: Rc<Cell<bool>>,
@@ -390,6 +397,11 @@ impl ChatPage {
             native: native_session,
             native_forward: RefCell::default(),
             native_edit: RefCell::default(),
+            native_crypto: RefCell::default(),
+            native_crypto_ready: Cell::new(false),
+            native_crypto_restored: Cell::new(false),
+            native_crypto_rows: RefCell::default(),
+            native_crypto_meta: RefCell::default(),
             native_membership: RefCell::default(),
             native_unread_after: RefCell::default(),
             native_read_pending: Rc::default(),
@@ -1143,6 +1155,7 @@ impl ChatPage {
     }
 
     pub fn set_session(&self, session: Option<Arc<Session>>) {
+        self.close_native_crypto();
         self.read_generation.set(self.read_generation.get().wrapping_add(1));
         self.native_read_pending.set(false);
         self.native_read_last.replace(None);
@@ -1771,7 +1784,8 @@ impl ChatPage {
             names.append(&line);
         }
         self.room_title.append(&names);
-        let unlocked = self.session.borrow().as_ref().is_some_and(|s| s.e2e_unlocked());
+        let unlocked =
+            self.native_crypto_ready.get() || self.session.borrow().as_ref().is_some_and(|s| s.e2e_unlocked());
         self.e2e_banner.set_visible(open.encrypted && !unlocked);
         self.e2e_unlock.set_visible(self.session.borrow().is_some());
         // Locked, nothing can leave an encrypted room: the server refuses clear text in it.
@@ -1784,6 +1798,13 @@ impl ChatPage {
     fn reload_messages(&self) {
         let Some(open) = self.current.borrow().clone() else { return };
         if let Some(session) = self.native_session() {
+            if open.encrypted {
+                self.list.set_native_rows(
+                    rv_core::timeline::group(self.native_crypto_rows.borrow().clone()),
+                    &session.info.user_id,
+                );
+                return;
+            }
             self.composer.validate_native_reply(&session.store);
             match session.store.messages(&open.rid, self.limit.get() as usize) {
                 Ok(rows) => self.list.set_native_rows(
@@ -1978,8 +1999,12 @@ impl ChatPage {
         });
     }
 
-    pub fn send_text(&self, text: &str) {
+    pub fn send_text(self: &Rc<Self>, text: &str) {
         let Some(open) = self.current.borrow().clone() else { return };
+        if open.encrypted && self.native_session().is_some() {
+            self.send_native_crypto(text.to_owned());
+            return;
+        }
         if let Some(session) = self.native_session() {
             let scope = self.native_membership.borrow().clone();
             let Some((rid, membership)) = scope.filter(|(rid, _)| rid == &open.rid) else {

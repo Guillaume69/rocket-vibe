@@ -22,6 +22,11 @@ pub fn set(lang: Lang) {
 /// (key, French, English). A `{name}` is filled by `tf`; `a | b` is the
 /// singular and plural of `tn`.
 const CATALOG: &[(&str, &str, &str)] = &[
+    (
+        "crypto.observed_time",
+        "Heure locale de préparation ou de lecture de ce message chiffré",
+        "Local preparation or observation time for this encrypted message",
+    ),
     ("crypto.group_title", "Chiffrement du salon", "Room encryption"),
     (
         "crypto.group_help",

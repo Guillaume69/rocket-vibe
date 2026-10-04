@@ -13,8 +13,8 @@ public final class RoomModel {
     public let threadId: String?
     public let provider: ChatProvider
     var chat: Chat? { provider.legacy }
-    public var supportsFiles: Bool { provider.supportsFiles }
-    public var supportsEditing: Bool { provider.supportsEditing }
+    public var supportsFiles: Bool { !privateMode && provider.supportsFiles }
+    public var supportsEditing: Bool { !privateMode && provider.supportsEditing }
     public var supportsRoomInfo: Bool { active && provider.supportsRoomInfo }
     public var supportsCalls: Bool { active && membershipIsCurrent && provider.supportsCalls }
     public func callAvailable() async -> Bool {
@@ -136,7 +136,7 @@ public final class RoomModel {
         return result
     }
     public var supportsMarks: Bool { chat != nil || (provider.native?.supportedFeatures().contains("pins") == true && provider.native?.supportedFeatures().contains("stars") == true) }
-    public var supportsSearch:Bool { active && (chat != nil || provider.native?.supportedFeatures().contains("search") == true) }
+    public var supportsSearch:Bool { active && !privateMode && (chat != nil || provider.native?.supportedFeatures().contains("search") == true) }
     public let searchContext=UUID().uuidString
     public var searchVersion:String { guard active else {return "closed"};return searchContext+":"+(provider.native.map{(try? $0.searchVersion()) ?? "offline"} ?? "rc") }
     public func search(text:String) async throws -> [SearchHit] {
@@ -170,7 +170,16 @@ public final class RoomModel {
     private let nativeMembership: String?
     @ObservationIgnored private var nativeQuote: NativeQuoteSelection?
     public private(set) var pendingQuote: Quote?
-    public var canSend: Bool { threadWriteAllowed && !(provider.native != nil && room.encrypted) && (!draft.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || nativeQuote != nil) }
+    private var privateMode: Bool { provider.native != nil && room.encrypted }
+    public private(set) var privateReady = false
+    @ObservationIgnored private var privateHandle: NativeCryptoMessages?
+    @ObservationIgnored private var privateMessages: [NativePrivateMessage] = []
+    @ObservationIgnored private var privateBusy = false
+    @ObservationIgnored private var privateRestored = false
+    @ObservationIgnored private var privateRestoring = false
+    @ObservationIgnored private var privateDraftRevision = UUID()
+    @ObservationIgnored private var privateGeneration = UUID()
+    public var canSend: Bool { threadWriteAllowed && (!privateMode || privateReady) && (!draft.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || nativeQuote != nil) }
     public private(set) var threadWriteAllowed = true
     @ObservationIgnored private var actionLoads: Set<String> = []
     @ObservationIgnored private var mutations: [String: NativeMessageActions] = [:]
@@ -178,6 +187,18 @@ public final class RoomModel {
     public var draft: String {
         didSet {
             guard active else { return }
+            if privateMode {
+                guard !privateRestoring else { return }
+                privateDraftRevision = UUID()
+                draftSave?.cancel()
+                let (handle, text, generation) = (privateHandle, draft, privateGeneration)
+                draftSave = Task { [weak self] in
+                    guard !Task.isCancelled, self?.active == true, self?.privateGeneration == generation else { return }
+                    do { try await handle?.setDraft(text: text) }
+                    catch { if self?.active == true { self?.error = L("crypto.failed") } }
+                }
+                return
+            }
             let (provider, rid, thread, text, membership) = (provider, room.rid, threadId, draft, nativeMembership)
             if let native=provider.native {
                 Task { try? await native.setTyping(room:rid,root:thread,active:!text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty,membership:membership) }
@@ -210,7 +231,8 @@ public final class RoomModel {
         let unread = room.unread > 0 || room.alert
         unreadAfter = unread && threadId == nil ? provider.legacy?.lastSeen(rid: room.rid) : nil
         if let native = provider.native {
-            if let threadId { draft = (try? native.threadDraftFromMembership(room:room.rid,root:threadId,membership:nativeMembership)) ?? "" }
+            if room.encrypted { draft = "" }
+            else if let threadId { draft = (try? native.threadDraftFromMembership(room:room.rid,root:threadId,membership:nativeMembership)) ?? "" }
             else { draft = (try? native.draftFromMembership(room: room.rid, membership: nativeMembership)) ?? "" }
         }
         else { draft = (try? provider.draft(rid: room.rid, thread: threadId)) ?? "" }
@@ -226,7 +248,10 @@ public final class RoomModel {
         }
         draftSave?.cancel()
         roomAccessTask?.cancel()
-        try? saveDraft(draft)
+        if privateMode {
+            privateGeneration = UUID(); privateHandle?.close(); privateHandle = nil
+            privateMessages = []; privateReady = false
+        } else { try? saveDraft(draft) }
         active = false
         cancelQuote()
         draft = ""
@@ -245,6 +270,7 @@ public final class RoomModel {
         catch { return false }
     }
     private func saveDraft(_ text: String) throws {
+        guard !privateMode else { return }
         if let native = provider.native {
             if let threadId { try native.setThreadDraftFromMembership(room:room.rid,root:threadId,text:text,membership:nativeMembership) }
             else { try native.setDraftFromMembership(room: room.rid, text: text, membership: nativeMembership) }
@@ -253,6 +279,10 @@ public final class RoomModel {
     }
 
     func update(room: Room) {
+        if provider.native != nil, room.encrypted != self.room.encrypted {
+            deactivate()
+            return
+        }
         nativeReadEnabled = provider.native?.supportedFeatures().contains("read_markers") == true
         roomOperationRevision &+= 1
         if room != self.room { self.room = room }
@@ -272,6 +302,11 @@ public final class RoomModel {
 
     /// Publishes only what changed: an equal list leaves every row alone.
     public func reload() {
+        if privateMode {
+            guard active else { return }
+            Task { [weak self] in await self?.refreshPrivate() }
+            return
+        }
         if let native = provider.native, let selection = nativeQuote,
            (try? native.quoteSelection(room:selection.roomId,messageId:selection.messageId)) != selection {
             pendingQuote = Quote(unavailable:true,link:"",author:nil,body:[],images:[],files:[],quotes:[])
@@ -303,8 +338,66 @@ public final class RoomModel {
     }
 
     /// Shows what the store has, then the server's newest page.
+    private func refreshPrivate(before: String? = nil) async {
+        guard active, !privateBusy, let native = provider.native, native.cryptoSettingsSupported() else { return }
+        let generation = privateGeneration
+        let draftRevision = privateDraftRevision
+        privateBusy = true
+        defer { if generation == privateGeneration { privateBusy = false } }
+        do {
+            let handle: NativeCryptoMessages
+            if let privateHandle { handle = privateHandle }
+            else {
+                let opened = try await native.cryptoMessages(room: room.rid, thread: threadId)
+                guard active, generation == privateGeneration, !Task.isCancelled else { opened.close(); return }
+                privateHandle = opened; handle = opened
+            }
+            let value = try await handle.refresh(before: before, limit: 50)
+            guard active, generation == privateGeneration, !Task.isCancelled, membershipIsCurrent else { return }
+            if before != nil {
+                let incoming = Set(value.items.map(\.id))
+                messages = value.items + messages.filter { !incoming.contains($0.id) }
+                privateMessages = value.messages + privateMessages.filter { !incoming.contains($0.id) }
+            } else {
+                // Keep already loaded older rows while receiving new protocol pages.
+                let incoming = Set(value.items.map(\.id))
+                let oldest = value.messages.first(where: { $0.delivery == .journaled })?.position
+                let retained = Set(privateMessages.filter { old in
+                    guard old.delivery == .journaled, let position = old.position, let oldest else { return false }
+                    return position.count < oldest.count || (position.count == oldest.count && position < oldest)
+                }.map(\.id))
+                messages = messages.filter { retained.contains($0.id) && !incoming.contains($0.id) } + value.items
+                privateMessages = privateMessages.filter { retained.contains($0.id) && !incoming.contains($0.id) } + value.messages
+            }
+            if !privateRestored {
+                if draftRevision == privateDraftRevision {
+                    privateRestoring = true; draft = value.draft; privateRestoring = false
+                } else { try await handle.setDraft(text: draft) }
+                privateRestored = true
+            }
+            privateReady = value.canSend && !value.catchingUp
+            hasOlder = value.hasOlder
+            if value.catchingUp {
+                Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 150_000_000)
+                    guard !Task.isCancelled, self?.privateGeneration == generation else { return }
+                    await self?.refreshPrivate()
+                }
+            }
+        } catch {
+            guard active, generation == privateGeneration else { return }
+            privateReady = false; self.error = L("crypto.failed")
+            if privateHandle?.isClosed() == true {
+                privateHandle?.close(); privateHandle = nil
+                messages = []; privateMessages = []; privateRestored = false
+                privateRestoring = true; draft = ""; privateRestoring = false
+            }
+        }
+    }
+
     func load() async {
         guard active, !loading else { return }
+        if privateMode { await refreshPrivate(); return }
         refreshRoomAccess()
         reload()
         if let chat {
@@ -322,6 +415,12 @@ public final class RoomModel {
     /// One more page of history. False when there is none or one is coming.
     @discardableResult
     public func loadOlder() async -> Bool {
+        if privateMode {
+            guard active, !privateBusy, hasOlder,
+                  let oldest = privateMessages.first(where: { $0.delivery == .journaled })?.position else { return false }
+            await refreshPrivate(before: oldest)
+            return true
+        }
         guard active, !loading, hasOlder, threadId == nil, let oldest = messages.first?.ts else { return false }
         loading = true
         defer { loading = false }
@@ -351,6 +450,22 @@ public final class RoomModel {
 
     public func send() async {
         guard active else { return }
+        if privateMode {
+            guard privateReady, !privateBusy, let privateHandle else { return }
+            let text = draft
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            let generation = privateGeneration
+            privateBusy = true
+            do {
+                try await privateHandle.setDraft(text: text)
+                try await privateHandle.send(operation: "v1_" + UUID().uuidString.replacingOccurrences(of: "-", with: ""), text: text)
+                guard active, generation == privateGeneration else { return }
+                if draft == text { privateRestoring = true; draft = ""; privateRestoring = false }
+            } catch { if active, generation == privateGeneration { self.error = L("crypto.failed") } }
+            privateBusy = false
+            if active, generation == privateGeneration { await refreshPrivate() }
+            return
+        }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || nativeQuote != nil else { return }
         draft = ""
@@ -375,11 +490,25 @@ public final class RoomModel {
 
     public func retry(_ id: String) async {
         guard active else { return }
+        if privateMode {
+            guard let privateHandle, let original = privateMessages.first(where: { $0.id == id }) else { return }
+            do { try await privateHandle.resume(operation: original.operation); await refreshPrivate() }
+            catch { if active { self.error = L("crypto.failed") } }
+            return
+        }
         do { try await provider.retry(id); reload() }
         catch { self.error = error.localizedDescription }
     }
 
     public func abandon(_ id: String) {
+        if privateMode {
+            guard active, let privateHandle, let original = privateMessages.first(where: { $0.id == id }) else { return }
+            Task { [weak self] in
+                do { try await privateHandle.cancel(operation: original.operation); await self?.refreshPrivate() }
+                catch { if self?.active == true { self?.error = L("crypto.failed") } }
+            }
+            return
+        }
         guard active, !Task.isCancelled, let native = provider.native else { return }
         do { try native.abandon(id: id); reload() }
         catch { self.error = error.localizedDescription }
@@ -399,6 +528,7 @@ public final class RoomModel {
 
     public func actions(for message: MessageItem) -> [MessageAction] {
         guard active else { return [] }
+        if privateMode { return [.copy] }
         if provider.native != nil && message.system != nil { return [] }
         guard let chat else {
             loadNativeActions(message)
@@ -424,6 +554,10 @@ public final class RoomModel {
         actionsOf[message.id] = actions
         return actions
     }
+    public func canResumePrivate(_ id: String) -> Bool {
+        active && privateMode && privateMessages.contains { $0.id == id && $0.delivery != .journaled && $0.delivery != .cancelled }
+    }
+    public var messageTimeHelp: String { privateMode ? L("crypto.observed_time") : "" }
 
     private func loadNativeActions(_ message: MessageItem) {
         guard active, message.delivery == .sent, nativeActions[message.id] == nil,

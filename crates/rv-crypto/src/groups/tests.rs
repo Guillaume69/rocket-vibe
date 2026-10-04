@@ -605,6 +605,8 @@ mod changes;
 #[cfg(feature = "native-http")]
 #[path = "delivery_tests.rs"]
 mod delivery_tests;
+#[path = "draft_tests.rs"]
+mod drafts;
 #[path = "settlement_tests.rs"]
 mod group_settlement;
 #[path = "incoming_tests.rs"]

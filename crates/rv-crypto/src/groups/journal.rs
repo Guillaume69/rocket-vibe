@@ -30,6 +30,26 @@ pub struct JournalBatch {
     pub complete: bool,
     pub messages: Vec<ClearMessage>,
 }
+/// A bounded view of the protected, verified journal prefix. `before` stays a
+/// u64 at the private boundary; frontends encode positions as decimal strings.
+pub struct ProjectionQuery {
+    pub before: Option<u64>,
+    pub limit: usize,
+    pub thread: Option<String>,
+}
+pub struct ProjectedMessage {
+    pub message: ClearMessage,
+    /// Local protected observation/preparation time, not a signed send time.
+    pub observed_at: u64,
+}
+pub struct JournalProjection {
+    pub head: Receipt,
+    pub admission: Fingerprint,
+    pub after: u64,
+    pub complete: bool,
+    pub has_older: bool,
+    pub messages: Vec<ProjectedMessage>,
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -88,7 +108,7 @@ pub(super) fn reset_admission(records: &mut Records, scope: &Scope) -> Result<()
     Ok(())
 }
 impl Coordinator {
-    fn admission_witness(&self, plan: &Plan, grant: &Member) -> Result<Fingerprint> {
+    pub(super) fn admission_witness(&self, plan: &Plan, grant: &Member) -> Result<Fingerprint> {
         let scope = self.manager.scope();
         let own = plan
             .participants
@@ -346,6 +366,52 @@ impl Coordinator {
         observation: &JournalObservation,
         now: u64,
     ) -> Result<JournalBatch> {
+        self.journal_inspect(observation, now, |records, cursor, grant| {
+            let messages = self.journal_clear(records, &cursor.scope, grant, &cursor.positions)?;
+            Ok(JournalBatch {
+                head: cursor.head.clone(),
+                after: cursor.after,
+                through: cursor.batch_through,
+                complete: cursor.through.is_none(),
+                messages,
+            })
+        })
+    }
+    pub fn journal_projection(
+        &self,
+        observation: &JournalObservation,
+        query: &ProjectionQuery,
+        now: u64,
+    ) -> Result<JournalProjection> {
+        if query.limit == 0
+            || query.limit > 200
+            || query.before.is_some_and(|p| p == 0 || p > i64::MAX as u64)
+            || query
+                .thread
+                .as_ref()
+                .is_some_and(|id| !wire::valid_identifier(id))
+        {
+            return Err(Error::Limit);
+        }
+        self.journal_inspect(observation, now, |records, cursor, grant| {
+            let (messages, has_older) =
+                self.project_journal(records, &cursor.scope, grant, cursor.after, query)?;
+            Ok(JournalProjection {
+                head: cursor.head.clone(),
+                admission: cursor.admission,
+                after: cursor.after,
+                complete: cursor.through.is_none(),
+                has_older,
+                messages,
+            })
+        })
+    }
+    fn journal_inspect<T>(
+        &self,
+        observation: &JournalObservation,
+        now: u64,
+        project: impl FnOnce(&Records, &Cursor, &Member) -> Result<T>,
+    ) -> Result<T> {
         let current = &observation.current;
         check_request(&current.roster, "journal-control", &[])?;
         let remote = Transition::from_bytes(&observation.transition)?;
@@ -374,14 +440,7 @@ impl Coordinator {
             {
                 return Err(Error::JournalOrder);
             }
-            let messages = self.journal_clear(records, &request.scope, grant, &cursor.positions)?;
-            Ok(JournalBatch {
-                head: cursor.head,
-                after: cursor.after,
-                through: cursor.batch_through,
-                complete: cursor.through.is_none(),
-                messages,
-            })
+            project(records, &cursor, grant)
         })
     }
 }

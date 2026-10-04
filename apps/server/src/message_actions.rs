@@ -156,7 +156,7 @@ pub async fn apply(app: &App, account: &Account, id: &str, command: Command) -> 
     {
         return Err(Error::invalid());
     }
-    crate::quotes::validate(&mut tx, &account.id, quotes, &message.quote_references.0).await?;
+    crate::quotes::validate(&mut tx, account, quotes, &message.quote_references.0).await?;
     crate::limits::message_action(&mut tx, &account.id).await?;
     let mentions_removed = crate::mentions::retain(&mut tx, id, text).await?;
     if text.is_none() {

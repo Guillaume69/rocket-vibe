@@ -352,7 +352,7 @@ export default function EcranActionsMessage() {
     if(destination!==undefined) {
       try {
         const access=await fournisseur?.native?.store.cryptoRoomAccess(target);
-        if(!access?.canSend || access.membership===null || prive==='1' && !access.encrypted)throw Error('Quote destination unavailable');
+        if(!access?.canSend || access.membership===null)throw Error('Quote destination unavailable');
         if(generationVue.current!==generation)return;
       } catch {if(generationVue.current===generation)setErreur(t('citation.selectionChangee'));return;}
     }
@@ -411,7 +411,7 @@ export default function EcranActionsMessage() {
       const rooms=await native.store.rooms();
       const candidates=await Promise.all(rooms.map(async room=>{
         const access=await native.store.cryptoRoomAccess(room.rid);
-        return access?.canSend && access.membership!==null && (prive!=='1' || access.encrypted)?
+        return access?.canSend && access.membership!==null?
           {rid:room.rid,nom:room.nom,encrypted:access.encrypted}:null;
       }));
       if(generationVue.current===generation){setFiltreDestination('');setDestinations(candidates.filter((r):r is NonNullable<typeof r>=>r!==null));}

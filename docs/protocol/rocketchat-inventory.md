@@ -2,7 +2,7 @@
 
 Commande : `node scripts/inventory-rocketchat.mjs`. Contrôle : ajouter `--check`.
 
-393 fichiers de production parcourus ; 450 occurrences.
+394 fichiers de production parcourus ; 450 occurrences.
 Les appels à premier argument dynamique restent visibles : leur résolution est
 consignée dans [le contrat de parité](PARITY.md). Les lignes sont des repères de
 source au moment de la génération. Le JSON conserve le périmètre et tous les fichiers.

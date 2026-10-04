@@ -7,12 +7,24 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Citations privées dans les salons ordinaires RocketVibe
+
+- Android peut citer un message chiffré dans un salon ordinaire, depuis les
+  mêmes actions et le même composeur. L’envoi conserve uniquement la référence ;
+  le serveur contrôle l’admission historique de l’appareil et ne fournit aucun extrait.
+- Les cartes et le bandeau lisent les sources autorisées depuis le coffre natif
+  dans une projection volatile. Retrait, changement d’admission, fermeture ou
+  suspension effacent les mots privés ; ils ne sont pas copiés dans SQLite.
+- Une réponse perdue reprend l’intention originale. Les fichiers de sources
+  ordinaires restent affichés dans les cartes mixtes ; les fichiers chiffrés
+  et la qualification des applications installées restent à compléter.
+
 ### Répondre dans une autre conversation RocketVibe
 
 - La feuille d’actions existante propose une destination parmi les conversations
-  rejointes où l’envoi est permis, avec recherche locale. Une source privée se
-  cite dans une destination chiffrée ; une source claire peut aussi être citée
-  dans une conversation chiffrée. Le composeur reste celui du salon choisi.
+  rejointes où l’envoi est permis, avec recherche locale. Les sources privées et
+  claires se citent dans les destinations ordinaires ou chiffrées autorisées.
+  Le composeur reste celui du salon choisi.
 - L’envoi protégé accepte des références claires et privées dans le même
   document MLS. Scope, adhésion, admission privée et révision sont relus avant
   préparation ; le paquet original reste récupérable après réponse perdue.
@@ -25,8 +37,8 @@ release, et ses notes sont la section de la version ici.
   Édition ou retrait actualisent l’extrait ; une ancienne adhésion et les
   lignes ordinaires d’un salon devenu chiffré ne peuvent le rétablir.
 - Les descendants chiffrés sont reconstruits dans la vue volatile, sans copie
-  de leurs mots dans SQLite. L’affichage de sources privées dans un salon
-  ordinaire reste à raccorder.
+  de leurs mots dans SQLite. Les salons ordinaires Android utilisent aussi
+  cette projection volatile pour leurs sources privées.
 
 ### Citations chiffrées RocketVibe sur Android
 

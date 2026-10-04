@@ -4,6 +4,101 @@ use rv_crypto_public::messages as packet;
 #[path = "settlement_tests.rs"]
 mod settlements;
 
+#[sqlx::test]
+async fn ordinary_quotes_require_private_delivery_access_and_expose_only_references(pool: PgPool) {
+    let app = App::from_pool(pool).await.unwrap();
+    let owner = ready(&app, "mixed-quote-owner").await;
+    let guest = ready(&app, "mixed-quote-guest").await;
+    let source = room(&app, &owner, None).await;
+    let destination = room(&app, &owner, Some(&guest)).await;
+    let (mut group, transition, group_receipt) = genesis(&app, &owner, &source).await;
+    let private = plaintext();
+    let packet = encrypted(
+        &owner,
+        &mut group,
+        &transition.plan.scope,
+        &group_receipt,
+        &private,
+    );
+    let receipt = messages::submit(&app, &owner.actor, &source.id, packet)
+        .await
+        .unwrap();
+    let input = SendMessage {
+        operation_id: "ordinary-private-quote".into(),
+        text: String::new(),
+        reply_to: None,
+        cards: vec![],
+        quotes: vec![rv_protocol::parity::QuoteReference {
+            room_id: source.id.clone(),
+            message_id: receipt.message_id.clone(),
+            revision: receipt.position.clone(),
+        }],
+    };
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let router = crate::http::router(app.clone());
+    let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    let native = rv_client::NativeClient::new(&format!("http://{address}")).unwrap();
+    native.update_token(owner.token.clone());
+    let quoted = native.send(&destination.id, &input).await.unwrap();
+    assert_eq!(quoted.text, "");
+    assert_eq!(quoted.quotes[0].reference, input.quotes[0]);
+    assert!(quoted.quotes[0].excerpt.is_none());
+    assert!(quoted.quotes[0].source_membership_version.is_some());
+    let encoded = serde_json::to_string(&quoted).unwrap();
+    assert!(!encoded.contains(&private.text));
+    let mut stale = input.clone();
+    stale.operation_id = "stale-private-quote".into();
+    stale.quotes[0].revision = "1".into();
+    assert!(
+        native
+            .send(&destination.id, &stale)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("quote_revision_conflict")
+    );
+    // Joining the domain after publication gives no historical MLS admission.
+    store::membership(&app, &owner.actor, &source.id, &guest.actor.id, false)
+        .await
+        .unwrap();
+    native.update_token(guest.token.clone());
+    let mut guest_input = input.clone();
+    guest_input.operation_id = "unadmitted-private-quote".into();
+    assert!(native.send(&destination.id, &guest_input).await.is_err());
+    let visible = native.message(&quoted.id).await.unwrap();
+    assert_eq!(visible.quotes[0].reference, input.quotes[0]);
+    assert!(visible.quotes[0].excerpt.is_none());
+    assert!(
+        !serde_json::to_string(&visible)
+            .unwrap()
+            .contains(&private.text)
+    );
+    native.update_token(owner.token.clone());
+    // An accepted intention stays recoverable after certificate expiry. A new
+    // intention must pass the current private reader gate again.
+    sqlx::query("UPDATE e2ee_devices SET expires_at=1 WHERE user_id=$1")
+        .bind(&owner.actor.id)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        native.send(&destination.id, &input).await.unwrap().id,
+        quoted.id
+    );
+    let mut expired = input;
+    expired.operation_id = "expired-private-quote".into();
+    assert!(native.send(&destination.id, &expired).await.is_err());
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM messages WHERE room_id=$1 AND system IS NULL")
+            .bind(&destination.id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 1);
+    server.abort();
+}
+
 async fn genesis(
     app: &App,
     owner: &Ready,

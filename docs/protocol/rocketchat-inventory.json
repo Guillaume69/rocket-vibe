@@ -332,6 +332,7 @@
     "apps/mobile/ui/carteLien.tsx",
     "apps/mobile/ui/chiffrementFichier.ts",
     "apps/mobile/ui/choisirAvatar.ts",
+    "apps/mobile/ui/citationsPrivees.ts",
     "apps/mobile/ui/clavier.tsx",
     "apps/mobile/ui/completionEmoji.tsx",
     "apps/mobile/ui/completionMention.tsx",

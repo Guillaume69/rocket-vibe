@@ -41,6 +41,7 @@ import { amenerMessage } from '../../ui/amenerMessage.ts';
 import { useBrouillon } from '../../ui/brouillons.ts';
 import {useConversationChiffree} from '../../ui/conversationChiffree.ts';
 import {lignesPrivees} from '../../fournisseurs/rocketvibe/cryptoProjection.ts';
+import {useCitationsPrivees} from '../../ui/citationsPrivees.ts';
 import {CryptoNative} from '../../modules/crypto-native/index.ts';
 import {BorneAdhesionSalon} from '../../ui/adhesionSalon.tsx';
 import { useProgressionFichiers } from '../../ui/progressionFichiers.ts';
@@ -436,7 +437,10 @@ function Salon({
   // contenu de sa hauteur (mVCP coupé, voir l'en-tête) : autant grouper la
   // rafale en un seul décalage. On lisse la projection, pas la base.
   const donneesOrdinaire = useDonneesLissees(brutes ?? [], 200);
-  const donnees = protege ? fraiches : donneesOrdinaire;
+  const citations=useCitationsPrivees(nativeChat,rid,membership,!protege && cryptoDisponible,donneesOrdinaire);
+  const citationsEnvoyer=citations.envoyer;
+  const donneesCitees=citations.rows;
+  const donnees = protege ? fraiches : donneesCitees;
 
   // Non-lus (8.1). La barre « nouveaux messages » se place sur un INSTANTANÉ
   // de `ls` pris au montage : si elle suivait la valeur vive, le
@@ -658,9 +662,9 @@ function Salon({
     if(!chat || membership===undefined)return envoi;
     return {reessayer:envoi.reessayer?.bind(envoi),traiter:()=>envoi.traiter(),abandonner:id=>envoi.abandonner(id),envoyer:(target,text,thread,_jointes,citations=[])=>{
       if(target!==rid || thread)throw new Error('Room unavailable in this composer');
-      return chat.send(target,text,{membership},citations);
+      return citationsEnvoyer(text,citations);
     }};
-  },[envoi,fournisseur,rid,membership,protege,conversation.outbox]);
+  },[envoi,fournisseur,rid,membership,protege,conversation.outbox,citationsEnvoyer]);
   const persistanceOrdinaire = useBrouillon(depotObserve, protege ? null : rid);
   const sauverPrive=conversation.save;
   const effacerPrive=useCallback(()=>sauverPrive(''),[sauverPrive]);

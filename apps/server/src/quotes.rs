@@ -89,7 +89,7 @@ pub(crate) async fn lock_rooms(
 
 pub(crate) async fn validate(
     tx: &mut Transaction<'_, Postgres>,
-    user: &str,
+    actor: &crate::auth::Account,
     references: &[QuoteReference],
     retained: &[QuoteReference],
 ) -> Result<()> {
@@ -104,10 +104,20 @@ pub(crate) async fn validate(
         )
         .bind(&reference.message_id)
         .bind(&reference.room_id)
-        .bind(user)
+        .bind(&actor.id)
         .fetch_optional(&mut **tx)
         .await?;
-        let revision = revision.ok_or_else(Error::missing)?;
+        let revision = match revision {
+            Some(revision) => revision,
+            None => crate::e2ee::groups::messages::quote_revision(
+                tx,
+                actor,
+                &reference.room_id,
+                &reference.message_id,
+            )
+            .await?
+            .ok_or_else(Error::missing)?,
+        };
         if revision.to_string() != reference.revision {
             return Err(Error::new(StatusCode::CONFLICT, "quote_revision_conflict"));
         }

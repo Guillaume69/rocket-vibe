@@ -9,6 +9,9 @@ import {fileDescriptor,nativeFileAttachments} from './fileDescriptors.ts';
 type SourceRow={rid:string;membership:string|null;view_position:string;payload:string|null};
 export type NativeQuoteAttachment={message_link:string;native_reference:QuoteReference;native_unavailable:boolean;text:string;author_name?:string;attachments?:(NativeQuoteAttachment|Record<string,unknown>)[]};
 export type NativeQuoteSelection={reference:QuoteReference;instance_id:string;data_epoch:string;membership_version:string;crypto_admission?:string};
+/** A synchronous, volatile gate issued by the active native source reader.
+ * It is never stored, and cannot authorize a private plaintext payload. */
+export type PrivateQuotePermit=(selection:NativeQuoteSelection)=>boolean;
 export type PublicQuoteSources={membership:string;messages:{id:string;excerpt:QuoteExcerpt}[]};
 function position(value:string):bigint {
   const n=readDecimal(value);
@@ -43,12 +46,21 @@ export class NativeQuoteCache {
     }
     return {membership,messages};
   }
-  async enqueue(id:string,rid:string,selected:readonly NativeQuoteSelection[]):Promise<QuoteReference[]> {
+  async enqueue(id:string,rid:string,selected:readonly NativeQuoteSelection[],permit?:PrivateQuotePermit):Promise<QuoteReference[]> {
     if(selected.length>8)throw new Error('Too many native quote references');
     const ids=new Set<string>(),refs:QuoteReference[]=[];
     for(const value of selected){
-      if(value.crypto_admission!==undefined)throw new Error('Private references require the protected outbox');
       const r=value.reference;
+      if(value.crypto_admission!==undefined) {
+        if(!permit?.(value))throw new Error('Private references require a current native source reader');
+        const source=await this.db.getFirstAsync<{chiffre:number}>('SELECT chiffre FROM salons WHERE rid=?',[r.room_id]);
+        const grant=await this.membership(r.room_id);
+        if(!roomIdentifier(r.room_id) || !roomIdentifier(r.message_id) || !roomIdentifier(value.membership_version)
+          || !/^[a-f0-9]{64}$/.test(value.crypto_admission) || position(r.revision)===0n
+          || source?.chiffre!==1 || grant!==value.membership_version || r.message_id===id || ids.has(r.message_id)
+          || value.instance_id!==this.identity.instance_id || value.data_epoch!==this.identity.data_epoch || !permit(value))throw new Error('Native quote selection changed');
+        ids.add(r.message_id);refs.push({...r});continue;
+      }
       const current=await this.selection(r.room_id,r.message_id);
       if(r.message_id===id || ids.has(r.message_id) || value.instance_id!==current.instance_id || value.data_epoch!==current.data_epoch || value.membership_version!==current.membership_version || r.revision!==current.reference.revision)throw new Error('Native quote selection changed');
       ids.add(r.message_id);refs.push({...current.reference});

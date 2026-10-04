@@ -116,6 +116,13 @@ test('ordinary references cannot cross account scope, become private or duplicat
   f.switchDevice();await assert.rejects(f.access.send('',[selection]));assert.equal(f.posts,0);await f.access.close();
 });
 
+test('an ordinary quote reader gets verified private sources without opening a draft or preparing an intention',async()=>{
+  const f=await setup();const sources=await f.access.readQuoteSources(true);
+  assert.equal(sources?.messages[0].document.text,'private quoted reply');assert.equal(sources?.admission,fp);
+  assert.equal(f.nativeDrafts,0);assert.equal(f.prepares,0);assert.equal(f.posts,0);
+  f.changeAdmission();await assert.rejects(f.access.readQuoteSources(),/crypto_scope_changed/);assert.equal(f.access.isClosed,true);
+});
+
 test('an encrypted reader resolves mixed private and ordinary source cards without persisting private descendants',async()=>{
   const f=await setup(null,true);await f.access.refresh();const selected=await f.access.selectQuote('private-source');
   await f.access.send('',[selected.selection]);

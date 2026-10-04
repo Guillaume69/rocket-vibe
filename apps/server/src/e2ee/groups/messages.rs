@@ -414,6 +414,56 @@ struct EventRow {
     proof: Option<Vec<u8>>,
     ciphertext: Option<Vec<u8>>,
 }
+/// Ordinary quote commands have already locked the actor/session and all
+/// source/destination rooms. Reuse private delivery's current reader and exact
+/// admission witness; only the historical position leaves this function.
+pub(crate) async fn quote_revision(
+    tx: &mut Transaction<'_, Postgres>,
+    actor: &Account,
+    room: &str,
+    message: &str,
+) -> Result<Option<i64>> {
+    let Some(head) = head(tx, room).await? else {
+        return Ok(None);
+    };
+    crate::store::require_member(tx, room, &actor.id).await?;
+    let (instance_id, data_epoch): (String, String) =
+        sqlx::query_as("SELECT instance_id,data_epoch FROM instance WHERE singleton")
+            .fetch_one(&mut **tx)
+            .await?;
+    current_scope(
+        &head,
+        &wire::Scope {
+            instance_id,
+            data_epoch,
+        },
+    )?;
+    let plan = Transition::from_bytes(&head.transition)
+        .map_err(|_| Error::internal())?
+        .plan;
+    let (device, expires): (String, DateTime<Utc>) =
+        sqlx::query_as("SELECT device_id,expires_at FROM sessions WHERE token_hash=$1 AND user_id=$2 AND expires_at>clock_timestamp()")
+            .bind(&actor.session_hash).bind(&actor.id).fetch_optional(&mut **tx).await?
+            .ok_or_else(Error::unauthorized)?;
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(EXTRACT(EPOCH FROM clock_timestamp()))::bigint")
+            .fetch_one(&mut **tx)
+            .await?;
+    let (_, deadline) =
+        reader(tx, actor, &device, &plan, now, monotonic_deadline(expires)?).await?;
+    let participant = plan
+        .participants
+        .iter()
+        .find(|p| p.user == actor.id && p.device == device)
+        .ok_or_else(Error::forbidden)?;
+    let witness = admission_witness(&plan, participant)?;
+    let revision = sqlx::query_scalar("SELECT d.position FROM e2ee_application_messages m JOIN e2ee_delivery d ON d.message_id=m.id AND d.room_id=m.room_id JOIN e2ee_group_recipients r ON r.room_id=m.room_id AND r.revision=m.group_revision WHERE m.id=$1 AND m.room_id=$2 AND r.device_id=$3 AND r.witness=$4")
+        .bind(message).bind(room).bind(device).bind(Json(witness)).fetch_optional(&mut **tx).await?;
+    if Instant::now() >= deadline {
+        return Err(Error::unauthorized());
+    }
+    Ok(revision)
+}
 pub async fn delivery(
     app: &App,
     actor: &Account,

@@ -2,7 +2,7 @@ import type {CryptoConversationBridge} from '../../modules/crypto-native/index.t
 import {CryptoGroupAccess,type CryptoRoomAction} from './cryptoGroups.ts';
 import type {ApplicationReceipt,ApplicationSettlement,ApplicationSubmission,DeliveryPage,GroupRoster,GroupState,SendMessage} from './protocol.generated.ts';
 import type {NativeQuoteAttachment,NativeQuoteSelection,PublicQuoteSources} from './quotes.ts';
-import {privateQuoteCards,type PrivateQuoteSelection,type PrivateQuotePreview,type CryptoQuotePreview,type PrivateQuoteRoom} from './cryptoQuotes.ts';
+import {ordinaryQuoteRoom,privateQuoteCards,type PrivateQuoteSelection,type PrivateQuotePreview,type CryptoQuotePreview,type PrivateQuoteRoom} from './cryptoQuotes.ts';
 import {NativeError} from './transport.ts';
 import {decodeNative} from './validation.ts';
 
@@ -15,7 +15,7 @@ export type ConversationTransport={
   cancelCryptoMessage:(room:string,input:ApplicationSubmission)=>Promise<ApplicationSettlement>;
 };
 export type CryptoMessage={id:string;operation:string;author:string;document:SendMessage;position:string|null;
-  author_label?:string;observed_at:string;status:'journaled'|'pending'|'accepted'|'cancelling'|'cancelled'};
+  author_label?:string;public_files?:import('./protocol.generated.ts').FileDescriptor[];observed_at:string;status:'journaled'|'pending'|'accepted'|'cancelling'|'cancelled'};
 export type CryptoConversationView={admission:string;after:string;catching_up:boolean;has_older:boolean;can_send:boolean;draft:string;messages:CryptoMessage[];
   root:CryptoMessage|null;retained_replies:Record<string,number>;quote_cards?:Record<string,NativeQuoteAttachment[]>};
 const id=(v:unknown):v is string=>typeof v==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(v);
@@ -86,10 +86,7 @@ export class CryptoConversationAccess {
     if(clear) {
       // Reader-authorized ordinary excerpts; the protected send document gets
       // references only, never their text or private descendants.
-      const messages:CryptoMessage[]=clear.messages.map(({id,excerpt})=>({id,operation:id,author:excerpt.author.id,author_label:excerpt.author.username,
-        document:{operation_id:id,text:excerpt.text,quotes:excerpt.references??[],reply_to:null,cards:[]},
-        position:excerpt.revision,observed_at:'0',status:'journaled'}));
-      return {room,membership:clear.membership,admission:null,messages,observation:null};
+      return ordinaryQuoteRoom(room,clear);
     }
     const membership=await this.sourceMembership(room);if(membership===null)return null;
     try {
@@ -169,6 +166,23 @@ export class CryptoConversationAccess {
       const view=projection(await rpc({action:'view',before,limit}),this.thread);
       if(this.admission && this.admission!==view.admission){await this.close();throw new NativeError(409,'crypto_scope_changed');}
       this.admission=view.admission;return this.quotes(view,rpc,peers,scope,call);
+    });
+  }
+  /** Reader-only source refresh, without a draft, outbox or rendered destination
+   * projection. The ordinary room keeps these documents in volatile memory. */
+  readQuoteSources(synchronize=false):Promise<PrivateQuoteRoom|null> {
+    return this.run(false,async(rpc,_r,peers,scope,call)=>{
+      if(synchronize) {
+        const cursor=object(await rpc({action:'journal_request'}));
+        if(!position(cursor.after) || cursor.through!==null && !position(cursor.through))integrity();
+        const page=decodeNative('DeliveryPage',await call(()=>this.remote.cryptoDelivery(this.room,cursor.after as string,cursor.through as string|null??undefined)));
+        await rpc({action:'receive',page});
+      }
+      const source=await this.source(this.room,rpc,peers,scope,call);
+      if(!source || source.admission===null || this.admission!==null && this.admission!==source.admission) {
+        await this.close();throw new NativeError(409,'crypto_scope_changed');
+      }
+      this.admission=source.admission;return source;
     });
   }
   draft(text?:string):Promise<string|void> {return this.run(false,async rpc=>{

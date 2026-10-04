@@ -639,7 +639,7 @@ pub(crate) async fn send_in_tx(
     if let Some(root) = &input.reply_to {
         crate::threads::validate_root(tx, room_id, root).await?;
     }
-    crate::quotes::validate(tx, &account.id, &input.quotes, &[]).await?;
+    crate::quotes::validate(tx, account, &input.quotes, &[]).await?;
     let id = input.operation_id;
     // Client message IDs are globally unique. A collision belonging to another user
     // is a conflict, never a response exposing that user's message.

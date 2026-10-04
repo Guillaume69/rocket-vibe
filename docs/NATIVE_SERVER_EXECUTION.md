@@ -11,7 +11,7 @@ positions exactes, brouillons séparés, envoi et reprise du ciphertext original
 Les qualifications locales et CI sont distinguées ci-dessous ; les citations
 Android et la composition mixte passent les validations locales détaillées
 ci-dessous. Les dates sont des observations locales, pas des dates d'auteur
-certifiées. Les archives complètes, cartes privées dans les salons ordinaires,
+certifiées. Les archives complètes, cartes privées dans les salons ordinaires bureau,
 sélection intersalons bureau, édition / actions, recherche et fichiers privés
 restent à livrer, ainsi que récupération /
 révocation visibles et qualification installée. Aucun masque E2EE de production
@@ -186,24 +186,48 @@ Clippy strict du pont / cœur / FFI passe. CI du nouveau lot et parcours GUI ins
 archives / fichiers / autres actions / recherche restent ouverts. Aucun masque
 E2EE de production activé.
 
+Cartes privées et envoi de leurs références dans les salons ordinaires Android
+raccordés aux listes / fils / bandeaux / composeurs actuels. Le lecteur natif
+reste distinct du composeur protégé : ni brouillon ni préparation MLS ; garde de
+destination, source, scope, adhésion, admission et position, puis relecture avant
+exposition. La projection est appliquée après lissage sans modifier les lignes
+SQL ni le tampon ordinaire. Blur / suspension / changement de compte / retrait
+effacent les cartes et le bandeau privé. La sélection intersalons Android accepte
+aussi les destinations ordinaires autorisées. Avant enqueue, lecture native puis
+autorisation synchrone volatile / garde SQL ; seule la référence rejoint la file
+ordinaire et son original reste récupérable après réponse perdue.
+Le serveur réutilise le lecteur du journal MLS et le témoin historique exact de
+l’appareil pour valider ces nouvelles références, sans livrer d’extrait privé.
+Le nouveau scénario HTTP / PostgreSQL couvre absence de clair, révision périmée,
+adhésion de domaine sans admission MLS et reçu conservé après expiration ; il
+est compilé par Clippy strict, mais reste à exécuter par la CI de ce lot.
+Les 1 321 tests mobiles passent en 50,2 secondes ; typecheck, lint et export
+Hermes (8,3 Mo) passent. Les scénarios du vrai runner avec SQLite couvrent
+lecteur natif, refus tardifs, retrait, réponse perdue et reprise du même message
+accepté ; leurs appels crypto / HTTP restent simulés. Aucun pont / ABI natif
+n’est modifié. La qualification GUI installée, les cartes ordinaires et sélecteurs
+bureau, archive / fichiers / actions / recherche privés restent ouverts. Aucun
+masque E2EE de production activé.
+
 | Jalon | Développement livré | Travail restant pour le fermer |
 |---|---|---|
 | J0 | Contrats, fixtures communes, inventaire et backlog de parité | Conditions opérateur / export et décisions crypto liées aux jalons suivants |
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils et citations privés dans les trois interfaces, lecture mixte, composition et destination intersalons Android | Sélecteurs intersalons bureau, cartes privées dans les salons ordinaires, renouvellement / récupération / révocation visibles, autres actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils et citations privés dans les trois interfaces, lecture mixte, composition / destination intersalons Android et cartes privées dans ses salons ordinaires | Sélecteurs intersalons bureau, cartes privées dans les salons ordinaires bureau, renouvellement / récupération / révocation visibles, autres actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison serveur qui passe tous les jobs de sa CI (`96d4184`) passe les neuf jobs de la CI
-`37238019700` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison serveur qui passe tous les jobs de sa CI (`574f137`) passe les neuf jobs de la CI
+`37240191574` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
 Le job Android `37238019723` passe aussi les deux ABI, le vrai Keystore, la
 cérémonie d'association, les contrôles de confiance, groupes, fils et citations sur émulateur.
 L'application macOS du lot citations privées `9884ce2` passe sa compilation, son packaging et son
 démarrage (`37235042086`, tentative 2 après timeout d’upload GitHub).
-Le lot lecture mixte `574f137` passe déjà l’application macOS (`37240191547`) ;
-sa CI serveur `37240191574` reste en cours. Groupes, projection et composeur dans les interfaces
+Le lot lecture mixte `574f137` passe aussi l’application macOS (`37240191547`).
+Le lot composition Android `a576db3` passe le Keystore / ABI (`37242529415`) ;
+sa CI serveur `37242529465` attend encore son job desktop. Groupes, projection et composeur dans les interfaces
 existantes compilent et passent ces régressions. Le parcours GUI E2EE complet
 avec plusieurs applications installées reste un critère de sortie distinct.
 L'inventaire généré qui avait arrêté la CI du raccordement `60e72f4` est corrigé.

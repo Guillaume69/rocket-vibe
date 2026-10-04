@@ -237,6 +237,26 @@ libellé traduit dans les cartes existantes.
 
 ## Raccordement suivant et conditions de sortie
 
+Une nouvelle référence vers un message MLS dans un salon ordinaire exige le
+même contrôle de lecteur que le journal privé : session / certificat actuels,
+incarnation, adhésion et activation, puis témoin exact de l’admission historique
+au message. La révision attendue est sa position opaque. Le serveur ne renvoie
+que la référence et le watermark d’adhésion ; aucun extrait privé, auteur,
+ciphertext ou fichier ne rejoint la réponse ordinaire. Une opération déjà
+acceptée conserve son reçu même après expiration du certificat.
+
+Android résout ces références dans un lecteur natif distinct du composeur MLS,
+sans préparation de message ni brouillon. Le rendu applique ses cartes après
+le lissage de la liste ordinaire ; le cache SQL et le tampon de lissage ne
+reçoivent aucun mot privé. Une relecture d’adhésion / admission précède leur
+publication. Blur, suspension, remplacement de compte / génération et retrait
+disposent les lecteurs et purgent aussi le bandeau du composeur.
+Avant l’envoi ordinaire, ce lecteur valide scope, source et position conservée ;
+une autorisation synchrone en mémoire et la transaction SQL revérifient sa
+durée de vie et l’adhésion de la source. La file ordinaire reçoit exclusivement
+les références. L’appel ordinaire sans lecteur continue à refuser une sélection
+privée. Les lecteurs GTK / SwiftUI pour destinations ordinaires restent à raccorder.
+
 Les adaptateurs traduisent les références vers les cartes de citation
 existantes, avec un libellé explicite pour
 les références indisponibles. Le cache des extraits reste distinct de la révision publique

@@ -9,7 +9,7 @@ import {estJointeCitation} from '../../lib/citation.ts';
 import {NativeStore} from './store.ts';
 import {nativeTestDatabase} from './testDatabase.ts';
 import type {Message,Room,Snapshot,SyncBatch} from './protocol.generated.ts';
-import type {NativeQuoteAttachment} from './quotes.ts';
+import type {NativeQuoteAttachment,NativeQuoteSelection} from './quotes.ts';
 
 const session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',genre:'rocketvibe' as const,siteUrl:null,nativeInstanceId:'quote-instance',nativeDataEpoch:'epoch'};
 function room(id:string,revision='1',grant='source-grant'):Room {
@@ -151,6 +151,39 @@ test('mobile source selections are checked atomically and cannot capture an old 
     await h.store.ingest([message('source','origin','30','Updated')]);await assert.rejects(h.store.enqueue('pending','destination','Saved words',undefined,[selected]));
     const current=await h.store.quoteSelection('origin','source');await assert.rejects(h.store.enqueue('pending','destination','Saved words',undefined,[current,current]));
   }finally {h.db.close();}
+});
+
+test('private quote references need a volatile reader permit and persist no private words across SQLite reopen',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'rv-private-ref-outbox-')),filename=join(dir,'cache.sqlite');
+  let h=setup(filename);
+  try {
+    const snapshot=initial();snapshot.messages=[];snapshot.rooms[0].encrypted=true;
+    await h.store.applySnapshot(snapshot);
+    const selection={reference:{room_id:'origin',message_id:'private-source',revision:'9007199254740993'},
+      instance_id:session.nativeInstanceId,data_epoch:session.nativeDataEpoch,membership_version:'source-grant',crypto_admission:'ab'.repeat(32)};
+    await assert.rejects(h.store.enqueue('private-ref','destination','',undefined,[selection]),/current native source reader/);
+    let active=true;const permit=(value:NativeQuoteSelection)=>active && value===selection;
+    await h.store.enqueue('private-ref','destination','',{membership:'destination-grant'},[selection],null,permit);
+    assert.deepEqual(await h.store.pending(),[{id:'private-ref',rid:'destination',texte:'',quotes:[selection.reference]}]);
+    const cached=JSON.stringify(h.db.prepare('SELECT * FROM messages').all());
+    assert.ok(!cached.includes('private source words') && !cached.includes(selection.crypto_admission));
+    const payload=h.db.prepare('SELECT payload FROM native_outbox_quotes').get()!.payload as string;
+    assert.deepEqual(JSON.parse(payload),[selection.reference]);assert.ok(!payload.includes('grant') && !payload.includes('admission'));
+    const projected=JSON.parse(h.db.prepare("SELECT pieces_jointes FROM messages WHERE id='private-ref'").get()!.pieces_jointes as string) as NativeQuoteAttachment[];
+    assert.equal(projected[0].native_unavailable,true);assert.equal(projected[0].text,'');assert.equal(projected[0].author_name,undefined);
+    active=false;await assert.rejects(h.store.enqueue('closed-ref','destination','',undefined,[selection],null,permit));
+    let calls=0;await assert.rejects(h.store.enqueue('closing-ref','destination','',undefined,[selection],null,()=>++calls===1));
+    for(const invalid of [{...selection,data_epoch:'other'},{...selection,membership_version:'old'},
+      {...selection,crypto_admission:'not-an-admission'},{...selection,reference:{...selection.reference,revision:'0'}}]) {
+      await assert.rejects(h.store.enqueue('stale-ref','destination','',undefined,[invalid],null,()=>true));
+    }
+    await h.store.applyBatch(batch([{type:'room_removed',data:{room_id:'origin'}}]));
+    await assert.rejects(h.store.enqueue('lost-ref','destination','',undefined,[selection],null,()=>true));
+    h.db.close();h=setup(filename,false);
+    assert.deepEqual((await h.store.pending())[0].quotes,[selection.reference]);
+    for(const id of ['closed-ref','closing-ref','stale-ref','lost-ref'])assert.equal(h.db.prepare('SELECT id FROM messages WHERE id=?').get(id),undefined);
+    await h.store.abandon('private-ref');assert.equal((await h.store.pending()).length,0);
+  } finally {h.db.close();unlinkSync(filename);rmdirSync(dir);}
 });
 
 test('mobile durable edits preserve ordered references after source withdrawal, reset and SQLite restart',async()=>{

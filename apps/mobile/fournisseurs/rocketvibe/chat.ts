@@ -25,6 +25,8 @@ import {CryptoIdentityAccess} from './cryptoIdentity.ts';
 import {CryptoPeerAccess} from './cryptoPeers.ts';
 import {CryptoGroupAccess} from './cryptoGroups.ts';
 import {CryptoConversationAccess} from './cryptoConversations.ts';
+import {CryptoQuoteReader} from './cryptoQuoteReader.ts';
+import {ordinaryQuoteRoom} from './cryptoQuotes.ts';
 import type {CryptoStorageBridge} from '../../modules/crypto-native/index.ts';
 
 type MeetingScope={room:string;membership:string;generation:number;projection:number;alive:()=>boolean};
@@ -628,6 +630,41 @@ export class NativeChat {
     };
     return new CryptoConversationAccess(await this.cryptoGroup(bridge,room,membership,visible),bridge,this.transport,room,thread,membership,sourceMembership,publicSources);
   }
+  async cryptoQuoteReader(bridge:import('../../modules/crypto-native/index.ts').CryptoConversationBridge,room:string,
+    membership:string,visible:()=>boolean):Promise<CryptoQuoteReader> {
+    const generation=this.generation,projection=this.store.projectionToken();
+    const guard=async()=>{
+      this.ready();this.roomOperationGeneration(generation);
+      if(!visible() || projection!==this.store.projectionToken())throw new NativeError(0,'session_closed');
+      const access=await this.store.cryptoRoomAccess(room);
+      this.roomOperationGeneration(generation);
+      if(!visible() || projection!==this.store.projectionToken() || !access || access.encrypted || access.membership!==membership)throw new NativeError(0,'session_closed');
+    };
+    await guard();
+    const views=new Map<string,{membership:string;access:CryptoConversationAccess}>();
+    return new CryptoQuoteReader(room,guard,async(source,ids,synchronize)=>{
+      await guard();
+      const clear=await this.store.publicQuoteSources(source,ids);await guard();
+      if(clear)return ordinaryQuoteRoom(source,clear);
+      try {
+        const binding=await this.store.cryptoRoomAccess(source);await guard();
+        if(!binding?.encrypted || binding.membership===null)return null;
+        let retained=views.get(source);
+        if(retained && (retained.membership!==binding.membership || retained.access.isClosed)) {
+          await retained.access.close();views.delete(source);retained=undefined;
+        }
+        if(!retained) {
+          retained={membership:binding.membership,access:await this.cryptoConversation(bridge,source,binding.membership,visible)};
+          views.set(source,retained);
+        }
+        const value=await retained.access.readQuoteSources(synchronize);await guard();return value;
+      } catch {
+        const retained=views.get(source);views.delete(source);await retained?.access.close();
+        await guard();return null;
+      }
+    },async()=>{await Promise.all([...views.values()].map(v=>v.access.close()));views.clear();},
+    {instance_id:this.session.nativeInstanceId!,data_epoch:this.session.nativeDataEpoch!});
+  }
   /** Capture the connected runner generation, never expose a raw transport to
    * a retained settings callback after logout, suspension or account switch. */
   async security(visible:()=>boolean=()=>true):Promise<{scope:SecurityScope;remote:FactorRemote;email:EmailRemote;alive:()=>boolean}> {
@@ -973,6 +1010,34 @@ export class NativeChat {
     }
   }
   async send(rid: string, text: string,scope?:{membership:string|null},quotes:readonly import('./quotes.ts').NativeQuoteSelection[]=[],replyTo?:string|null): Promise<string> {
+    return this.sendPrepared(rid,text,scope,quotes,replyTo);
+  }
+  /** Ordinary messages may contain private references, never their excerpts.
+   * Validate in the active native reader before the atomic SQL enqueue. */
+  async sendQuoted(bridge:import('../../modules/crypto-native/index.ts').CryptoConversationBridge,rid:string,text:string,
+    scope:{membership:string|null},quotes:readonly import('./quotes.ts').NativeQuoteSelection[],replyTo:string|null,visible:()=>boolean):Promise<string> {
+    if(!quotes.some(q=>q.crypto_admission!==undefined))return this.send(rid,text,scope,quotes,replyTo);
+    this.ready();
+    if(scope.membership===null || quotes.length>8)throw new NativeError(409,'quote_selection_changed');
+    const generation=this.generation,projection=this.store.projectionToken();
+    const alive=()=>visible() && !this.stopped && this.verified && generation===this.generation && projection===this.store.projectionToken();
+    const access=await this.store.cryptoRoomAccess(rid);
+    if(!alive() || !access?.canSend || access.encrypted || access.membership!==scope.membership)throw new NativeError(409,'quote_selection_changed');
+    // Do not keep the mutable compose selection across an asynchronous read.
+    const selected=quotes.map(q=>({...q,reference:decodeNative('QuoteReference',{...q.reference})}));
+    const reader=await this.cryptoQuoteReader(bridge,rid,scope.membership,alive);
+    try {
+      const permitted=new Set<import('./quotes.ts').NativeQuoteSelection>();
+      for(const value of selected)if(value.crypto_admission!==undefined) {
+        if(!await reader.previewQuote(value))throw new NativeError(409,'quote_selection_changed');
+        permitted.add(value);
+      }
+      if(!alive())throw new NativeError(0,'session_closed');
+      return await this.sendPrepared(rid,text,scope,selected,replyTo,value=>alive() && !reader.isClosed && permitted.has(value));
+    } finally {await reader.close();}
+  }
+  private async sendPrepared(rid:string,text:string,scope:{membership:string|null}|undefined,
+    quotes:readonly import('./quotes.ts').NativeQuoteSelection[],replyTo:string|null|undefined,permit?:import('./quotes.ts').PrivateQuotePermit):Promise<string> {
     if (this.stopped) throw new NativeError(0,'session_closed');
     if (await this.store.roomEncrypted(rid)) throw new NativeError(409,'crypto_required');
     const value = text.trim();
@@ -980,7 +1045,7 @@ export class NativeChat {
     for (const char of value) { const code = char.codePointAt(0)!; bytes += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4; }
     if (!value && quotes.length===0 || bytes > 32_768) throw new NativeError(400,'invalid_message');
     const id = this.id();
-    await this.store.enqueue(id,rid,value,scope,quotes,replyTo); this.notify();
+    await this.store.enqueue(id,rid,value,scope,quotes,replyTo,permit); this.notify();
     if (this.verified) await this.flush();
     return id;
   }

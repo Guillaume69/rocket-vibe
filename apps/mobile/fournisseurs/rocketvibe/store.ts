@@ -677,7 +677,7 @@ export class NativeStore {
   publicQuoteSources(rid:string,ids:readonly string[]):Promise<import('./quotes.ts').PublicQuoteSources|null> {
     return this.queue(async()=>await this.sameGeneration()?this.quotes.publicSources(rid,ids):null);
   }
-  enqueue(id: string, rid: string, text: string,scope?:{membership:string|null},selected:readonly NativeQuoteSelection[]=[],replyTo?:string|null): Promise<void> {
+  enqueue(id: string, rid: string, text: string,scope?:{membership:string|null},selected:readonly NativeQuoteSelection[]=[],replyTo?:string|null,permit?:import('./quotes.ts').PrivateQuotePermit): Promise<void> {
     return this.atomic(async () => {
       if (!await this.sameGeneration() || !await this.db.getFirstAsync('SELECT rid FROM salons WHERE rid=?', [rid])) throw new Error('Room unavailable in this generation');
       if ((await this.db.getFirstAsync<{chiffre:number}>('SELECT chiffre FROM salons WHERE rid=?',[rid]))?.chiffre===1) throw new Error('Encrypted room requires the private delivery worker');
@@ -687,7 +687,7 @@ export class NativeStore {
       const local = localMessage({id,room_id:rid,text,reply_to:replyTo??null,author:{id:this.session.userId,username:this.session.username,display_name:this.session.username},created_at:now,position:'0',revision:'0'});
       local.misAJourLe = 0;
       await this.db.runAsync(UPSERT_MESSAGE, paramsMessage(local));
-      const refs=await this.quotes.enqueue(id,rid,selected);
+      const refs=await this.quotes.enqueue(id,rid,selected,permit);
       await this.db.runAsync(INSERER_SORTIE, [id,rid,text,replyTo??null,Date.now()]);
       await this.db.runAsync('INSERT INTO native_outbox_quotes(id,rid,payload) VALUES(?,?,?)',[id,rid,JSON.stringify(refs)]);
     });

@@ -11,6 +11,7 @@ import type { DepotBrouillons } from '../../db/depot.ts';
 import { messages, salons, sortie, nativeRoomAccess } from '../../db/schema.ts';
 import {CryptoNative} from '../../modules/crypto-native/index.ts';
 import {lignesPrivees} from '../../fournisseurs/rocketvibe/cryptoProjection.ts';
+import {useCitationsPrivees} from '../../ui/citationsPrivees.ts';
 import {useConversationChiffree} from '../../ui/conversationChiffree.ts';
 import {Appuyable} from '../../ui/appuyable.tsx';
 import type { MoteurActivite } from '../../lib/activite.ts';
@@ -191,12 +192,15 @@ function Fil({
   );
 
   // Racine en tête, réponses en ordre chronologique — un fil se lit du haut.
-  const donnees = useMemo<LigneDeMessage[]>(() => {
+  const donneesSources = useMemo<LigneDeMessage[]>(() => {
     if(protege)return lignesPrivees(conversation.view,rid??'',true);
     if(native && salon===undefined)return [];
     const reponses = lignesReponses ?? [];
     return racine === undefined ? reponses : [racine, ...reponses];
   }, [racine,lignesReponses,protege,conversation.view,rid,native,salon]);
+  const citations=useCitationsPrivees(native?.chat,rid??'',membership,!protege && cryptoDisponible,donneesSources,filId);
+  const citationsEnvoyer=citations.envoyer;
+  const donnees=citations.rows;
 
   // Séparateurs de jour puis regroupement des rafales d'un même auteur
   // (`ui/separateurJour`, `ui/groupeMessages`) — données ASC ici, l'inverse
@@ -370,7 +374,10 @@ function Fil({
   const sauverPrive=conversation.save;
   const effacerPrive=useCallback(()=>sauverPrive(''),[sauverPrive]);
   const persistance=protege?{initial:conversation.initial,sauver:conversation.save,effacer:effacerPrive}:persistanceOrdinaire;
-  const envoiLie=useMemo<Outbox>(()=>protege?conversation.outbox:native?{...envoi,envoyer:(room,text,root,_jointes,quotes)=>native.chat.send(room,text,{membership:membership??null},quotes,root)}:envoi,[native,envoi,membership,protege,conversation.outbox]);
+  const envoiLie=useMemo<Outbox>(()=>protege?conversation.outbox:native?{...envoi,envoyer:(room,text,root,_jointes,quotes)=>{
+    if(room!==rid || root!==filId)throw Error('Thread unavailable in this composer');
+    return citationsEnvoyer(text,quotes);
+  }}:envoi,[native,envoi,rid,filId,protege,conversation.outbox,citationsEnvoyer]);
   const lecture=useMemo(()=>new LectureObservee(async id=>{if(native && membership)await native.chat.markObservedThreadRead(filId,id,membership);}),[native,membership,filId]);
   useEffect(()=>()=>lecture.fermer(),[lecture]);
   useFocusEffect(useCallback(()=>{

@@ -42,7 +42,7 @@ export default function MessageSearchScreen() {
   if (state.phase !== 'connected' || typeof rid !== 'string') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
-        <Stack.Screen options={{ title: t('commun.rechercher') }} />
+        <Stack.Screen options={{ title: t('common.search') }} />
         <ActivityIndicator />
       </View>
     );
@@ -81,19 +81,19 @@ function MessageSearch({
     query,
     NO_MESSAGE,
     searchMessages,
-    t('rechercheMessages.rechercheImpossible'),
+    t('messageSearch.searchFailed'),
   );
   const clean = query.trim();
   const searching = clean !== '' && answered !== clean;
 
   return (
     <KeyboardAvoidingContainer>
-      <Stack.Screen options={{ title: t('rechercheMessages.titre') }} />
+      <Stack.Screen options={{ title: t('messageSearch.title') }} />
       <View style={styles.header}>
         <TextInput
           value={query}
           onChangeText={setQuery}
-          placeholder={t('rechercheMessages.placeholder')}
+          placeholder={t('messageSearch.placeholder')}
           placeholderTextColor={c.dimmed}
           autoCapitalize="none"
           autoCorrect={false}
@@ -137,7 +137,7 @@ function MessageSearch({
               <ActivityIndicator />
             </View>
           ) : (
-            <Text style={[styles.empty, { color: c.dimmed }]}>{t('rechercheMessages.aucunMessage')}</Text>
+            <Text style={[styles.empty, { color: c.dimmed }]}>{t('messageSearch.noMessages')}</Text>
           )
         }
         keyboardShouldPersistTaps="handled"

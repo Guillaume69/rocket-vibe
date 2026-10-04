@@ -129,7 +129,7 @@ function Chip({
         onPress={onOpen}
         style={({ pressed }) => [styles.body, { opacity: pressed ? 0.7 : 1 }]}
         accessibilityRole="button"
-        accessibilityLabel={t('apercuPieceJointe.apercu', { nom: attachment.name })}
+        accessibilityLabel={t('attachmentPreview.preview', { name: attachment.name })}
       >
         {thumbnail ? (
           <Image
@@ -164,7 +164,7 @@ function Chip({
         disabled={busy}
         hitSlop={8}
         accessibilityRole="button"
-        accessibilityLabel={t('apercuPieceJointe.retirer')}
+        accessibilityLabel={t('attachmentPreview.remove')}
         style={({ pressed }) => [styles.remove, { opacity: busy ? 0.4 : pressed ? 0.6 : 1 }]}
       >
         <Text style={[styles.removeGlyph, { color: c.secondaryText }]}>✕</Text>

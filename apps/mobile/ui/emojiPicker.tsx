@@ -184,14 +184,14 @@ type Tab = EmojiCategory | 'custom';
 /** Métadonnées d'affichage des onglets, dans l'ordre canonique. Icône = un emoji
  *  représentatif de la catégorie ; libellé (clé de traduction) pour l'accessibilité. */
 const TABS: { key: EmojiCategory; icon: string; labelKey: TranslationKey }[] = [
-  { key: 'people', icon: '😀', labelKey: 'navigateurEmoji.people' },
-  { key: 'nature', icon: '🐻', labelKey: 'navigateurEmoji.nature' },
-  { key: 'food', icon: '🍔', labelKey: 'navigateurEmoji.food' },
-  { key: 'activity', icon: '⚽', labelKey: 'navigateurEmoji.activity' },
-  { key: 'travel', icon: '✈️', labelKey: 'navigateurEmoji.travel' },
-  { key: 'objects', icon: '💡', labelKey: 'navigateurEmoji.objects' },
-  { key: 'symbols', icon: '❤️', labelKey: 'navigateurEmoji.symbols' },
-  { key: 'flags', icon: '🏁', labelKey: 'navigateurEmoji.flags' },
+  { key: 'people', icon: '😀', labelKey: 'emojiPicker.people' },
+  { key: 'nature', icon: '🐻', labelKey: 'emojiPicker.nature' },
+  { key: 'food', icon: '🍔', labelKey: 'emojiPicker.food' },
+  { key: 'activity', icon: '⚽', labelKey: 'emojiPicker.activity' },
+  { key: 'travel', icon: '✈️', labelKey: 'emojiPicker.travel' },
+  { key: 'objects', icon: '💡', labelKey: 'emojiPicker.objects' },
+  { key: 'symbols', icon: '❤️', labelKey: 'emojiPicker.symbols' },
+  { key: 'flags', icon: '🏁', labelKey: 'emojiPicker.flags' },
 ];
 
 export function EmojiPicker({
@@ -268,14 +268,14 @@ export function EmojiPicker({
         <TextInput
           value={search}
           onChangeText={setSearch}
-          placeholder={t('navigateurEmoji.rechercher')}
+          placeholder={t('emojiPicker.search')}
           placeholderTextColor={c.tertiaryText}
           autoCapitalize="none"
           autoCorrect={false}
           style={[styles.searchField, { color: c.text }]}
         />
         {search !== '' && (
-          <Pressable onPress={() => setSearch('')} hitSlop={8} accessibilityLabel={t('navigateurEmoji.effacerRecherche')}>
+          <Pressable onPress={() => setSearch('')} hitSlop={8} accessibilityLabel={t('emojiPicker.clearSearch')}>
             <Text style={[styles.clear, { color: c.tertiaryText }]}>✕</Text>
           </Pressable>
         )}
@@ -284,7 +284,7 @@ export function EmojiPicker({
       {query === '' && (
         <View style={[styles.tabs, { borderBottomColor: c.softBorder }]}>
           {(customs.length > 0
-            ? ([{ key: 'custom' as const, icon: '⭐', labelKey: 'navigateurEmoji.personnalises' as TranslationKey }, ...TABS])
+            ? ([{ key: 'custom' as const, icon: '⭐', labelKey: 'emojiPicker.custom' as TranslationKey }, ...TABS])
             : TABS
           ).map((o) => {
             const active = tab === o.key;
@@ -316,7 +316,7 @@ export function EmojiPicker({
         removeClippedSubviews
         contentContainerStyle={styles.grid}
         ListEmptyComponent={
-          <Text style={[styles.empty, { color: c.tertiaryText }]}>{t('navigateurEmoji.vide')}</Text>
+          <Text style={[styles.empty, { color: c.tertiaryText }]}>{t('emojiPicker.empty')}</Text>
         }
         renderItem={({ item }) => {
           const { glyph, uri, insertion, suggestion } = resolve(item);

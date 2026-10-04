@@ -330,7 +330,7 @@ function Thread({
 
   return (
     <KeyboardAvoidingContainer>
-      <Stack.Screen options={{ title: t('fil.titre') }} />
+      <Stack.Screen options={{ title: t('thread.title') }} />
       {/* L'en-tête est natif ici (pas d'`EnTeteSalon`) : la barre se pose donc
           juste sous lui. Sans elle, le fil se réécrivait intégralement sans
           qu'aucun signal ne l'indique. */}
@@ -338,7 +338,7 @@ function Thread({
       {data.length === 0 ? (
         <View style={styles.center}>
           {firstPassDone ? (
-            <Text style={[styles.empty, { color: c.dimmed }]}>{t('fil.introuvable')}</Text>
+            <Text style={[styles.empty, { color: c.dimmed }]}>{t('thread.notFound')}</Text>
           ) : (
             <ActivityIndicator />
           )}
@@ -379,7 +379,7 @@ function Thread({
           mentionCandidates={mentionCandidates}
           readOnly={room.readOnly}
           encrypted={room.encrypted}
-          placeholder={t('fil.repondre')}
+          placeholder={t('thread.reply')}
           afterSend={afterSend}
           initialDraft={persistence.initial}
           saveDraft={persistence.save}

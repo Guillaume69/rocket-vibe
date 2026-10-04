@@ -218,21 +218,21 @@ function OtherServer({ c, host, rid }: { c: Colors; host: string; rid: string })
 
   return (
     <View style={[styles.center, { backgroundColor: c.background }]}>
-      <Stack.Screen options={{ title: t('salon.autreServeurTitre') }} />
-      <Text style={[styles.error, { color: c.text }]}>{t('salon.autreServeurTitre')}</Text>
+      <Stack.Screen options={{ title: t('room.otherServerTitle') }} />
+      <Text style={[styles.error, { color: c.text }]}>{t('room.otherServerTitle')}</Text>
       <Text style={[styles.otherServerHost, { color: c.secondaryText }]}>
-        {t('salon.autreServeurCorps', { hote: host })}
+        {t('room.otherServerBody', { host })}
       </Text>
       <PrimaryButton
         c={c}
-        title={t('salon.autreServeurBouton')}
+        title={t('room.otherServerButton')}
         onPress={toggle}
         busy={busy}
         style={styles.otherServerButton}
       />
       {failure ? (
         <Text style={[styles.otherServerHost, { color: c.errorText }]}>
-          {t('salon.autreServeurEchec')}
+          {t('room.otherServerFailed')}
         </Text>
       ) : null}
     </View>
@@ -537,10 +537,10 @@ function Room({
     typingSummary === null
       ? null
       : typingSummary.form === 'one'
-        ? t('salon.saisieUn', { nom: typingSummary.name })
+        ? t('room.typingOne', { name: typingSummary.name })
         : typingSummary.form === 'two'
-          ? t('salon.saisieDeux', { a: typingSummary.a, b: typingSummary.b })
-          : t('salon.saisieN', { n: typingSummary.n });
+          ? t('room.typingTwo', { a: typingSummary.a, b: typingSummary.b })
+          : t('room.typingN', { n: typingSummary.n });
 
   // Brouillon persistant (8.7) — le hook vit ICI : le composer ne monte
   // qu'une fois la valeur initiale lue.
@@ -684,7 +684,7 @@ function Room({
     const fail = () => {
       if (canceled) return;
       consumeJump(rid, target.id);
-      notify(t('salon.sautImpossible'));
+      notify(t('room.jumpFailed'));
     };
     bringMessage({
       ts: target.ts,
@@ -799,7 +799,7 @@ function Room({
         return (
           <View style={styles.newMessagesBar}>
             <View style={[styles.newMessagesLine, { backgroundColor: c.accent }]} />
-            <Text style={[styles.newMessagesText, { color: c.accent }]}>{t('salon.nouveauxMessages')}</Text>
+            <Text style={[styles.newMessagesText, { color: c.accent }]}>{t('room.newMessages')}</Text>
             <View style={[styles.newMessagesLine, { backgroundColor: c.accent }]} />
           </View>
         );
@@ -860,7 +860,7 @@ function Room({
         // le premier lot reste la bonne UX — une liste qui clignote non.)
         <View style={styles.center}>
           {firstPassDone ? (
-            <Text style={[styles.empty, { color: c.dimmed }]}>{t('salon.aucunMessage')}</Text>
+            <Text style={[styles.empty, { color: c.dimmed }]}>{t('room.noMessages')}</Text>
           ) : (
             <ActivityIndicator />
           )}
@@ -910,7 +910,7 @@ function Room({
               android_ripple={{ color: c.ripple, borderless: true }}
               hitSlop={8}
               accessibilityRole="button"
-              accessibilityLabel={t('salon.allerAuPlusRecent')}
+              accessibilityLabel={t('room.jumpToLatest')}
               style={[
                 styles.backToLatest,
                 {
@@ -928,13 +928,13 @@ function Room({
       {filesInProgress.map((upload) => {
         const failed = upload.status === 'echec';
         const label = failed
-          ? t('salon.fichierNonEnvoye', { nom: upload.name })
+          ? t('room.fileNotSent', { name: upload.name })
           : upload.status === 'envoi'
-            ? t('salon.fichierEnvoi', {
-                nom: upload.name,
-                pourcent: String(Math.round((progressions.get(upload.id) ?? 0) * 100)),
+            ? t('room.fileSending', {
+                name: upload.name,
+                percent: String(Math.round((progressions.get(upload.id) ?? 0) * 100)),
               })
-            : t('salon.fichierEnAttente', { nom: upload.name });
+            : t('room.filePending', { name: upload.name });
         return (
           <View key={upload.id} style={styles.fileFailureBand}>
             <Text
@@ -949,11 +949,11 @@ function Room({
                 ou `envoi`, elle, part déjà toute seule. */}
             {failed && (
               <Pressable onPress={() => void files.retry(upload.id)}>
-                <Text style={[styles.time, { color: c.accent }]}>{t('salon.reessayer')}</Text>
+                <Text style={[styles.time, { color: c.accent }]}>{t('room.retry')}</Text>
               </Pressable>
             )}
             <Pressable onPress={() => void files.discard(upload.id, upload.uri)}>
-              <Text style={[styles.time, { color: c.dimmed }]}>{t('salon.abandonner')}</Text>
+              <Text style={[styles.time, { color: c.dimmed }]}>{t('room.discard')}</Text>
             </Pressable>
           </View>
         );
@@ -970,14 +970,14 @@ function Room({
               onPress={() => router.push({ pathname: '/thread/[id]', params: { id: s.threadId ?? '' } })}
             >
               <Text style={[styles.time, { color: c.errorText }]} numberOfLines={1}>
-                {t('salon.reponseFilNonEnvoyee')}
+                {t('room.threadReplyNotSent')}
               </Text>
             </Pressable>
             <Pressable onPress={retry}>
-              <Text style={[styles.time, { color: c.accent }]}>{t('salon.reessayer')}</Text>
+              <Text style={[styles.time, { color: c.accent }]}>{t('room.retry')}</Text>
             </Pressable>
             <Pressable onPress={() => discard(s.id)}>
-              <Text style={[styles.time, { color: c.dimmed }]}>{t('salon.abandonner')}</Text>
+              <Text style={[styles.time, { color: c.dimmed }]}>{t('room.discard')}</Text>
             </Pressable>
           </View>
         ))}
@@ -1004,7 +1004,7 @@ function Room({
             mentionCandidates={mentionCandidates}
             readOnly={room.readOnly}
             encrypted={room.encrypted}
-            placeholder={t('salon.messagePlaceholder')}
+            placeholder={t('room.messagePlaceholder')}
             initialDraft={persistence.initial}
             saveDraft={persistence.save}
             clearDraft={persistence.clear}

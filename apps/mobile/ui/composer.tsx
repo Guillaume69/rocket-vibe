@@ -292,7 +292,7 @@ export function Composer({
         } catch (e) {
           setFileError(
             phraseValidation(e, t) ??
-              (e instanceof Error ? e.message : t('salon.televersementImpossible')),
+              (e instanceof Error ? e.message : t('room.uploadFailed')),
           );
         } finally {
           setPending((prev) => prev.filter((p) => !gone.has(p.key)));
@@ -334,7 +334,7 @@ export function Composer({
             setDraft(caption);
             saveDraft(caption);
           }
-          notify(t('salon.commandeRefusee', { erreur: e instanceof Error ? e.message : String(e) }));
+          notify(t('room.commandRejected', { error: e instanceof Error ? e.message : String(e) }));
         });
       return;
     }
@@ -403,7 +403,7 @@ export function Composer({
         refusal === null
           ? null
           : (phraseValidation(refusal, t) ??
-              (refusal instanceof Error ? refusal.message : t('salon.televersementImpossible'))),
+              (refusal instanceof Error ? refusal.message : t('room.uploadFailed'))),
       );
       if (accepted.length === 0) return;
       // Le choix de qualité vaut pour un lot : il se réarme quand on repart de rien.
@@ -421,7 +421,7 @@ export function Composer({
         setVideoOpen(attachment);
       } else {
         openLocalFile(attachment.uri, attachment.type).catch(() =>
-          setFileError(t('apercuPieceJointe.ouvertureImpossible')),
+          setFileError(t('attachmentPreview.openFailed')),
         );
       }
     },
@@ -434,7 +434,7 @@ export function Composer({
       if (!recording) {
         const permission = await AudioModule.requestRecordingPermissionsAsync();
         if (!permission.granted) {
-          setFileError(t('salon.microRefuse'));
+          setFileError(t('room.microphoneDenied'));
           return;
         }
         // iOS refuse d'enregistrer tant que la session audio ne l'autorise pas,
@@ -450,7 +450,7 @@ export function Composer({
       void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
       const uri = recorder.uri;
       if (uri === null) {
-        setFileError(t('salon.enregistrementVide'));
+        setFileError(t('room.recordingEmpty'));
         return;
       }
       // On ne l'envoie plus tout de suite : le vocal se pose au-dessus du
@@ -459,7 +459,7 @@ export function Composer({
     } catch (e) {
       setRecording(false);
       void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
-      setFileError(e instanceof Error ? e.message : t('salon.enregistrementImpossible'));
+      setFileError(e instanceof Error ? e.message : t('room.recordingFailed'));
     }
   }, [recording, recorder, setAttachments, t]);
 
@@ -478,7 +478,7 @@ export function Composer({
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) {
         closeAttachSheet();
-        setFileError(t('salon.cameraRefuse'));
+        setFileError(t('room.cameraDenied'));
         return;
       }
       const res = await launchPickerWithRetry(() =>
@@ -557,10 +557,10 @@ export function Composer({
       // même sortir du salon — vécu). On le dit, au lieu d'afficher la trace.
       setFileError(
         isViewTreeRejection(e)
-          ? t('salon.selecteurBloque')
+          ? t('room.pickerStuck')
           : e instanceof Error
             ? e.message
-            : t('salon.selectionImpossible'),
+            : t('room.selectionFailed'),
       );
     }
   }, [router, fromCamera, fromLibrary, fromFile, closeAttachSheet, closeEmoji, t]);
@@ -573,7 +573,7 @@ export function Composer({
   if (readOnly) {
     return (
       <View style={[styles.composer, { borderTopColor: c.softBorder }]}>
-        <Text style={[styles.noteComposer, { color: c.dimmed }]}>{t('salon.lectureSeule')}</Text>
+        <Text style={[styles.noteComposer, { color: c.dimmed }]}>{t('room.readOnly')}</Text>
       </View>
     );
   }
@@ -645,7 +645,7 @@ export function Composer({
             disabled={fileSend || recording}
             android_ripple={{ color: c.ripple, borderless: true }}
             style={styles.attachButton}
-            accessibilityLabel={t('salon.joindreFichier')}
+            accessibilityLabel={t('room.attachFile')}
           >
             {fileSend ? (
               <ActivityIndicator size="small" color={c.accent} />
@@ -662,7 +662,7 @@ export function Composer({
           onPress={emoji.toggle}
           android_ripple={{ color: c.ripple, borderless: true }}
           style={styles.emojiButton}
-          accessibilityLabel={emoji.open ? t('salon.revenirClavier') : t('salon.choisirEmoji')}
+          accessibilityLabel={emoji.open ? t('room.backToKeyboard') : t('room.pickEmoji')}
         >
           <Text style={styles.attach}>{emoji.open ? '⌨️' : '😀'}</Text>
         </Tappable>
@@ -674,7 +674,7 @@ export function Composer({
           onSelectionChange={onSelection}
           // Toucher le champ referme le panneau : le clavier reprend sa place.
           onFocus={emoji.onFocus}
-          placeholder={pending.length > 0 ? t('salon.ajouterLegende') : placeholder}
+          placeholder={pending.length > 0 ? t('room.addCaption') : placeholder}
           placeholderTextColor={c.tertiaryText}
           multiline
           style={[styles.composerField, { color: c.text, backgroundColor: c.card }]}
@@ -684,7 +684,7 @@ export function Composer({
             onPress={send}
             disabled={fileSend}
             style={({ pressed }) => ({ opacity: pressed || fileSend ? 0.7 : 1 })}
-            accessibilityLabel={t('commun.envoyer')}
+            accessibilityLabel={t('common.send')}
           >
             <AvatarTile
               c={c}
@@ -699,7 +699,7 @@ export function Composer({
             onPress={() => void toggleVoice()}
             disabled={fileSend}
             style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
-            accessibilityLabel={recording ? t('salon.arreterEnregistrement') : t('salon.messageVocal')}
+            accessibilityLabel={recording ? t('room.stopRecording') : t('room.voiceMessage')}
           >
             <AvatarTile
               c={c}
@@ -737,9 +737,9 @@ function LockedComposer({ c }: { c: Colors }) {
       android_ripple={{ color: c.ripple }}
       style={[styles.composer, { borderTopColor: c.softBorder }]}
       accessibilityRole="button"
-      accessibilityLabel={t('salon.chiffreVerrouille')}
+      accessibilityLabel={t('room.encryptedLocked')}
     >
-      <Text style={[styles.noteComposer, { color: c.accent }]}>{t('salon.chiffreVerrouille')}</Text>
+      <Text style={[styles.noteComposer, { color: c.accent }]}>{t('room.encryptedLocked')}</Text>
     </Tappable>
   );
 }

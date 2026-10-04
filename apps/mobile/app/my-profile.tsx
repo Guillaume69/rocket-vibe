@@ -50,7 +50,7 @@ import { Tappable } from '../ui/tappable.tsx';
 /** Les quatre statuts choisissables — couleurs et libellés : ui/presence.ts. */
 const PRESENCES: readonly DefaultStatus[] = ['online', 'away', 'busy', 'offline'];
 
-/** Les clés `commun.presence*` sont en minuscule ; ici, entrées d'un sélecteur. */
+/** Les clés `common.presence*` sont en minuscule ; ici, entrées d'un sélecteur. */
 const capitalize = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
 type Banner = { type: 'success' | 'error' | 'info'; text: string };
@@ -111,7 +111,7 @@ function MyProfileForm({
         setForm(p);
       })
       .catch((e: unknown) => {
-        if (alive) setLoadError(e instanceof Error ? e.message : translateCurrent('monProfil.profilIllisible'));
+        if (alive) setLoadError(e instanceof Error ? e.message : translateCurrent('myProfile.profileUnreadable'));
       });
     return () => {
       alive = false;
@@ -131,7 +131,7 @@ function MyProfileForm({
         setBanner(null);
       }
     } catch (e) {
-      setBanner({ type: 'error', text: e instanceof Error ? e.message : t('monProfil.selectionImpossible') });
+      setBanner({ type: 'error', text: e instanceof Error ? e.message : t('myProfile.selectionFailed') });
     }
   }, [t]);
 
@@ -143,13 +143,13 @@ function MyProfileForm({
       const statusChanged = form.status !== initial.status || form.statusText !== initial.statusText;
       const avatarChange = avatarLocal !== null;
       if (Object.keys(info).length === 0 && !statusChanged && !avatarChange) {
-        setBanner({ type: 'info', text: t('monProfil.rienAEnregistrer') });
+        setBanner({ type: 'info', text: t('myProfile.nothingToSave') });
         return;
       }
       if (requiresPassword(info) && password.trim() === '') {
         setBanner({
           type: 'error',
-          text: t('monProfil.mdpRequis'),
+          text: t('myProfile.passwordRequired'),
         });
         return;
       }
@@ -206,18 +206,18 @@ function MyProfileForm({
 
         setTwoFactorRequest(null);
         setCode('');
-        setBanner({ type: 'success', text: t('monProfil.profilEnregistre') });
+        setBanner({ type: 'success', text: t('myProfile.profileSaved') });
       } catch (e) {
         if (e instanceof TwoFactorError) {
           // Le serveur veut un second facteur — ou refuse celui qu'on vient
           // d'envoyer, auquel cas il relève la même erreur.
-          if (twoFactor !== undefined) setBanner({ type: 'error', text: t('monProfil.codeRefuse') });
+          if (twoFactor !== undefined) setBanner({ type: 'error', text: t('myProfile.codeRejected') });
           setCode('');
           setTwoFactorRequest(e);
         } else {
           setBanner({
             type: 'error',
-            text: e instanceof Error ? e.message : t('monProfil.enregistrementImpossible'),
+            text: e instanceof Error ? e.message : t('myProfile.saveFailed'),
           });
         }
       } finally {
@@ -236,7 +236,7 @@ function MyProfileForm({
     } catch (e) {
       setBanner({
         type: 'error',
-        text: e instanceof Error ? e.message : t('monProfil.preparationCodeImpossible'),
+        text: e instanceof Error ? e.message : t('myProfile.codePrepareFailed'),
       });
     }
   }, [twoFactorRequest, code, save, t]);
@@ -244,7 +244,7 @@ function MyProfileForm({
   if (loadError !== null) {
     return (
       <KeyboardAvoidingContainer>
-        <Stack.Screen options={{ title: t('monProfil.titre') }} />
+        <Stack.Screen options={{ title: t('myProfile.title') }} />
         <View style={styles.center}>
           <Text style={[styles.loadError, { color: c.errorText }]}>{loadError}</Text>
         </View>
@@ -255,7 +255,7 @@ function MyProfileForm({
   if (form === null) {
     return (
       <KeyboardAvoidingContainer>
-        <Stack.Screen options={{ title: t('monProfil.titre') }} />
+        <Stack.Screen options={{ title: t('myProfile.title') }} />
         <View style={styles.center}>
           <ActivityIndicator color={c.accent} />
         </View>
@@ -269,14 +269,14 @@ function MyProfileForm({
 
   return (
     <KeyboardAvoidingContainer>
-      <Stack.Screen options={{ title: t('monProfil.titre') }} />
+      <Stack.Screen options={{ title: t('myProfile.title') }} />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {/* Avatar — tap pour changer. Aperçu immédiat de la photo choisie. */}
         <View style={styles.avatarBlock}>
           <Pressable
             onPress={() => void pickPhoto()}
             accessibilityRole="button"
-            accessibilityLabel={t('monProfil.changerPhotoLabel')}
+            accessibilityLabel={t('myProfile.changePhotoLabel')}
             style={({ pressed }) => pressed && styles.pressed}
           >
             <AvatarTile
@@ -292,12 +292,12 @@ function MyProfileForm({
             </View>
           </Pressable>
           <Pressable onPress={() => void pickPhoto()} hitSlop={8}>
-            <Text style={[styles.changePhoto, { color: c.cyan }]}>{t('monProfil.changerPhoto')}</Text>
+            <Text style={[styles.changePhoto, { color: c.cyan }]}>{t('myProfile.changePhoto')}</Text>
           </Pressable>
         </View>
 
         {/* Présence */}
-        <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('monProfil.sectionPresence')}</Text>
+        <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('myProfile.sectionPresence')}</Text>
         <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
           {PRESENCES.map((p, i) => {
             const active = form.status === p;
@@ -343,59 +343,59 @@ function MyProfileForm({
 
         <PillField
           c={c}
-          label={t('monProfil.etiquetteStatut')}
+          label={t('myProfile.labelStatus')}
           value={form.statusText}
           onChangeText={(v) => updateField('statusText', v)}
-          placeholder={t('monProfil.placeholderStatut')}
+          placeholder={t('myProfile.placeholderStatus')}
           autoCapitalize="sentences"
           maxLength={120}
         />
 
         {/* Profil */}
-        <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('monProfil.sectionProfil')}</Text>
+        <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('myProfile.sectionProfile')}</Text>
         <PillField
           c={c}
-          label={t('monProfil.etiquetteNom')}
+          label={t('myProfile.labelName')}
           value={form.name}
           onChangeText={(v) => updateField('name', v)}
-          placeholder={t('monProfil.placeholderNom')}
+          placeholder={t('myProfile.placeholderName')}
           autoCapitalize="words"
         />
         <PillField
           c={c}
-          label={t('monProfil.etiquetteBio')}
+          label={t('myProfile.labelBio')}
           value={form.bio}
           onChangeText={(v) => updateField('bio', v)}
-          placeholder={t('monProfil.placeholderBio')}
+          placeholder={t('myProfile.placeholderBio')}
           autoCapitalize="sentences"
           maxLength={260}
           multiline
         />
 
         {/* Compte — sensible : e-mail et nom d'utilisateur exigent le mot de passe. */}
-        <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('monProfil.sectionCompte')}</Text>
-        <Text style={[styles.help, { color: c.dimmed }]}>{t('monProfil.aideCompte')}</Text>
+        <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('myProfile.sectionAccount')}</Text>
+        <Text style={[styles.help, { color: c.dimmed }]}>{t('myProfile.accountHelp')}</Text>
         <PillField
           c={c}
-          label={t('monProfil.etiquetteEmail')}
+          label={t('myProfile.labelEmail')}
           value={form.email}
           onChangeText={(v) => updateField('email', v)}
-          placeholder={t('monProfil.placeholderEmail')}
+          placeholder={t('myProfile.placeholderEmail')}
           keyboardType="email-address"
           autoComplete="email"
         />
         <PillField
           c={c}
-          label={t('monProfil.etiquetteUsername')}
+          label={t('myProfile.labelUsername')}
           value={form.username}
           icon="@"
           onChangeText={(v) => updateField('username', v)}
-          placeholder={t('monProfil.placeholderUsername')}
+          placeholder={t('myProfile.placeholderUsername')}
         />
         {needsPassword && (
           <PillField
             c={c}
-            label={t('monProfil.etiquetteMdp')}
+            label={t('myProfile.labelPassword')}
             value={password}
             icon="🔒"
             onChangeText={setPassword}
@@ -407,11 +407,11 @@ function MyProfileForm({
 
         {twoFactorRequest !== null && (
           <View style={[styles.twoFactorCard, { backgroundColor: c.card, borderColor: c.purple }]}>
-            <Text style={[styles.twoFactorTitle, { color: c.text }]}>{t('monProfil.verificationRequise')}</Text>
+            <Text style={[styles.twoFactorTitle, { color: c.text }]}>{t('myProfile.verificationRequired')}</Text>
             <Text style={[styles.help, { color: c.dimmed }]}>{t(twoFactorLabel(twoFactorRequest.method))}</Text>
             <PillField
               c={c}
-              label={t('monProfil.etiquetteCode')}
+              label={t('myProfile.labelCode')}
               value={code}
               large={twoFactorRequest.method !== 'password'}
               onChangeText={setCode}
@@ -422,7 +422,7 @@ function MyProfileForm({
               secureTextEntry={twoFactorRequest.method === 'password'}
               autoFocus
             />
-            <PrimaryButton c={c} busy={busy} onPress={() => void submitCode()} title={t('monProfil.validerCode')} />
+            <PrimaryButton c={c} busy={busy} onPress={() => void submitCode()} title={t('myProfile.submitCode')} />
           </View>
         )}
 
@@ -463,11 +463,11 @@ function MyProfileForm({
           c={c}
           busy={busy}
           onPress={() => void save()}
-          title={t('commun.enregistrer')}
+          title={t('common.save')}
           style={styles.save}
         />
         <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Text style={[styles.cancel, { color: c.dimmed }]}>{t('commun.annuler')}</Text>
+          <Text style={[styles.cancel, { color: c.dimmed }]}>{t('common.cancel')}</Text>
         </Pressable>
       </ScrollView>
     </KeyboardAvoidingContainer>
@@ -476,9 +476,9 @@ function MyProfileForm({
 
 /** Sous-titre du bloc 2FA selon la méthode réclamée par le serveur. */
 function twoFactorLabel(method: TwoFactorError['method']): TranslationKey {
-  if (method === 'totp') return 'monProfil.aide2faTotp';
-  if (method === 'email') return 'monProfil.aide2faEmail';
-  return 'monProfil.aide2faMdp';
+  if (method === 'totp') return 'myProfile.help2faTotp';
+  if (method === 'email') return 'myProfile.help2faEmail';
+  return 'myProfile.help2faPassword';
 }
 
 const styles = StyleSheet.create({

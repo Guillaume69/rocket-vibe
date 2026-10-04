@@ -235,7 +235,7 @@ function ImageModal({ target, onClose }: { target: ImageTarget | null; onClose: 
                     // zoom révèle le vrai détail. Sans risque — une seule image.
                     resizeMethod="scale"
                     onLoadEnd={() => setLoaded(true)}
-                    accessibilityLabel={target.title ?? t('visionneuse.image')}
+                    accessibilityLabel={target.title ?? t('viewer.image')}
                   />
                 </Animated.View>
               </GestureDetector>
@@ -249,7 +249,7 @@ function ImageModal({ target, onClose }: { target: ImageTarget | null; onClose: 
           hitSlop={12}
           style={[styles.close, { top: insets.top + 8, backgroundColor: c.card + 'D9' }]}
           accessibilityRole="button"
-          accessibilityLabel={t('commun.fermer')}
+          accessibilityLabel={t('common.close')}
         >
           <Text style={[styles.cross, { color: c.text }]}>✕</Text>
         </Pressable>
@@ -261,7 +261,7 @@ function ImageModal({ target, onClose }: { target: ImageTarget | null; onClose: 
             hitSlop={12}
             style={[styles.save, { top: insets.top + 8, backgroundColor: c.card + 'D9' }]}
             accessibilityRole="button"
-            accessibilityLabel={t('actionsMessage.enregistrer')}
+            accessibilityLabel={t('messageActions.save')}
           >
             {progress === undefined ? (
               <Text style={[styles.cross, { color: c.text }]}>⤓</Text>

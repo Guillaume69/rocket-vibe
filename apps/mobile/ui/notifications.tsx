@@ -48,8 +48,8 @@ Notifications.setNotificationHandler({
       // Ne pas afficher le ciphertext : on republie un texte générique.
       Notifications.scheduleNotificationAsync({
         content: {
-          title: translateCurrent('notifications.titreChiffre'),
-          body: translateCurrent('notifications.corpsChiffre'),
+          title: translateCurrent('notifications.encryptedTitle'),
+          body: translateCurrent('notifications.encryptedBody'),
         },
         trigger: null,
       }).catch(() => {});

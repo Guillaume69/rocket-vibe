@@ -47,7 +47,7 @@ export function PrivateNote({ c, rid, text }: { c: Colors; rid: string; text: st
   return (
     <View style={[styles.note, { backgroundColor: c.card, borderLeftColor: c.accent }]}>
       <View style={styles.body}>
-        <Text style={[styles.title, { color: c.accent }]}>{t('salon.notePrivee')}</Text>
+        <Text style={[styles.title, { color: c.accent }]}>{t('room.privateNote')}</Text>
         {tree === null ? (
           <Text style={{ color: c.text }}>{text}</Text>
         ) : (
@@ -60,7 +60,7 @@ export function PrivateNote({ c, rid, text }: { c: Colors; rid: string; text: st
         onPress={() => closePrivateNote(rid)}
         android_ripple={{ color: c.ripple, borderless: true }}
         style={styles.close}
-        accessibilityLabel={t('commun.fermer')}
+        accessibilityLabel={t('common.close')}
       >
         <Text style={{ color: c.dimmed }}>✕</Text>
       </Tappable>

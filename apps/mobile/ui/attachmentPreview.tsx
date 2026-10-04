@@ -34,9 +34,9 @@ export type PendingFile = {
 
 export function formatSize(bytes: number | null, t: TranslateFn): string | null {
   if (bytes === null || bytes <= 0) return null;
-  if (bytes < 1024) return t('apercuPieceJointe.octets', { taille: bytes });
-  if (bytes < 1024 * 1024) return t('apercuPieceJointe.kilooctets', { taille: Math.round(bytes / 1024) });
-  return t('apercuPieceJointe.megaoctets', { taille: (bytes / 1024 / 1024).toFixed(1) });
+  if (bytes < 1024) return t('attachmentPreview.bytes', { size: bytes });
+  if (bytes < 1024 * 1024) return t('attachmentPreview.kilobytes', { size: Math.round(bytes / 1024) });
+  return t('attachmentPreview.megabytes', { size: (bytes / 1024 / 1024).toFixed(1) });
 }
 
 export function AttachmentPreview({
@@ -95,7 +95,7 @@ export function AttachmentPreview({
         // Le vocal se réécoute AVANT d'envoyer : le vrai lecteur, pas une icône.
         <View style={styles.row}>
           <View style={styles.full}>
-            <AudioPlayer c={c} url={file.uri} title={t('lecteurAudio.messageVocal')} />
+            <AudioPlayer c={c} url={file.uri} title={t('audioPlayer.voiceMessage')} />
           </View>
           <RemoveButton c={c} onRemove={onRemove} busy={busy} />
         </View>
@@ -118,7 +118,7 @@ export function AttachmentPreview({
               {file.name}
             </Text>
             <Text style={[styles.meta, { color: c.dimmed }]} numberOfLines={1}>
-              {isImageFile ? t('apercuPieceJointe.image') : file.type || t('apercuPieceJointe.fichier')}
+              {isImageFile ? t('attachmentPreview.image') : file.type || t('attachmentPreview.file')}
               {size !== null ? ` · ${size}` : ''}
             </Text>
             {quality !== null && onQuality !== undefined && (
@@ -171,8 +171,8 @@ export function QualityBadge({
       accessibilityState={{ selected: chosen }}
       accessibilityLabel={t(
         which === 'reduced'
-          ? 'apercuPieceJointe.envoyerReduite'
-          : 'apercuPieceJointe.envoyerOriginale',
+          ? 'attachmentPreview.sendReduced'
+          : 'attachmentPreview.sendOriginal',
       )}
       style={[
         styles.badge,
@@ -187,7 +187,7 @@ export function QualityBadge({
         style={[styles.badgeText, { color: chosen ? c.text : c.dimmed }]}
         numberOfLines={1}
       >
-        {t(which === 'reduced' ? 'apercuPieceJointe.reduite' : 'apercuPieceJointe.originale')}
+        {t(which === 'reduced' ? 'attachmentPreview.reduced' : 'attachmentPreview.original')}
       </Text>
     </Pressable>
   );
@@ -209,7 +209,7 @@ function RemoveButton({
       disabled={busy}
       hitSlop={8}
       accessibilityRole="button"
-      accessibilityLabel={t('apercuPieceJointe.retirer')}
+      accessibilityLabel={t('attachmentPreview.remove')}
       style={({ pressed }) => [
         styles.remove,
         {

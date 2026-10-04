@@ -126,12 +126,12 @@ export default function LoginScreen() {
         // `Accounts_ShowFormLogin = false` : le serveur ne propose que du SSO.
         // L'API accepte parfois quand même un login direct — on prévient sans
         // bloquer.
-        setMessage(t('connexion.sansMotDePasse'));
+        setMessage(t('login.noPasswordLogin'));
       }
       setPhase({ name: 'credentials', profile, client: new ClientRest(profile.baseUrl) });
     } catch (e) {
       if (!controller.signal.aborted) {
-        setMessage(e instanceof Error ? e.message : t('connexion.serveurInjoignable'));
+        setMessage(e instanceof Error ? e.message : t('login.serverUnreachable'));
       }
     } finally {
       inFlight.current = false;
@@ -174,17 +174,17 @@ export default function LoginScreen() {
             // relève l'erreur avec `codeGenerated: false` (renvoi limité).
             codeSent: e.generatedCode || (sameMethod && phase.codeSent),
           });
-          if (twoFactor !== undefined && sameMethod) setMessage(t('connexion.codeRefuse'));
+          if (twoFactor !== undefined && sameMethod) setMessage(t('login.codeRejected'));
         } else if (
           e instanceof RestError &&
           (e.error === 'totp-invalid' || e.errorType === 'totp-invalid')
         ) {
           // Même dualité error/errorType que `totp-required` : voir lib/rest.ts.
-          setMessage(t('connexion.codeRefuse'));
+          setMessage(t('login.codeRejected'));
         } else if (e instanceof RestError && e.status === 401) {
-          setMessage(t('connexion.identifiantsRefuses'));
+          setMessage(t('login.credentialsRejected'));
         } else {
-          setMessage(e instanceof Error ? e.message : t('connexion.connexionImpossible'));
+          setMessage(e instanceof Error ? e.message : t('login.signInFailed'));
         }
       } finally {
         inFlight.current = false;
@@ -201,7 +201,7 @@ export default function LoginScreen() {
       await tryLogin(prepare);
     } catch (e) {
       // Un `hacher` qui échoue ne doit pas rendre le bouton muet.
-      setMessage(e instanceof Error ? e.message : t('connexion.preparationCodeImpossible'));
+      setMessage(e instanceof Error ? e.message : t('login.codePrepareFailed'));
     }
   }, [phase, code, tryLogin, t]);
 
@@ -214,7 +214,7 @@ export default function LoginScreen() {
       await requestEmailCode(phase.client, user.trim());
       setPhase({ ...phase, codeSent: true });
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : t('connexion.envoiCodeImpossible'));
+      setMessage(e instanceof Error ? e.message : t('login.codeSendFailed'));
     } finally {
       inFlight.current = false;
       setBusy(false);
@@ -240,7 +240,7 @@ export default function LoginScreen() {
 
   return (
     <KeyboardAvoidingContainer>
-      <Stack.Screen options={{ headerShown: changeRoute, title: t('connexion.titre') }} />
+      <Stack.Screen options={{ headerShown: changeRoute, title: t('login.title') }} />
       <StarrySky c={c} />
       <ScrollView
         contentContainerStyle={[
@@ -270,7 +270,7 @@ export default function LoginScreen() {
           <>
             <PillField
               c={c}
-              label={t('connexion.adresseServeur')}
+              label={t('login.serverAddress')}
               icon="🌐"
               value={address}
               onChangeText={setAddress}
@@ -280,11 +280,11 @@ export default function LoginScreen() {
               placeholder="chat.exemple.fr"
               autoComplete="url"
             />
-            <PrimaryButton c={c} busy={busy} onPress={() => void submitServer()} title={t('connexion.continuer')} />
+            <PrimaryButton c={c} busy={busy} onPress={() => void submitServer()} title={t('login.continue')} />
 
             {knownServers.length > 0 && (
               <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-                <Text style={[styles.overline, { color: c.dimmed }]}>{t('connexion.serveursConnus')}</Text>
+                <Text style={[styles.overline, { color: c.dimmed }]}>{t('login.knownServers')}</Text>
                 {knownServers.map((url) => (
                   <Pressable key={url} onPress={() => void toggle(url)} disabled={busy}>
                     <Text style={[styles.serverLink, { color: c.cyan }]}>{url}</Text>
@@ -299,16 +299,16 @@ export default function LoginScreen() {
           <>
             <PillField
               c={c}
-              label={t('connexion.identifiantOuEmail')}
+              label={t('login.usernameOrEmail')}
               value={user}
               onChangeText={setUser}
-              placeholder={t('connexion.exempleIdentifiant')}
+              placeholder={t('login.usernameExample')}
               autoComplete="username"
               autoFocus
             />
             <PillField
               c={c}
-              label={t('connexion.motDePasse')}
+              label={t('login.password')}
               value={password}
               onChangeText={setPassword}
               onSubmitEditing={() => void tryLogin()}
@@ -320,7 +320,7 @@ export default function LoginScreen() {
               c={c}
               busy={busy}
               onPress={() => void tryLogin()}
-              title={t('connexion.seConnecter')}
+              title={t('login.signIn')}
             />
           </>
         )}
@@ -342,14 +342,14 @@ export default function LoginScreen() {
           <View style={[styles.card, { backgroundColor: c.errorCard, borderColor: c.danger }]}>
             <Text style={[styles.errorMessage, { color: c.errorText }]}>{message}</Text>
             {phase.name === 'server' && Platform.OS === 'android' && (
-              <Text style={[styles.help, { color: c.errorText }]}>{t('connexion.aideReseau')}</Text>
+              <Text style={[styles.help, { color: c.errorText }]}>{t('login.networkHelp')}</Text>
             )}
           </View>
         )}
 
         {phase.name !== 'server' && (
           <Pressable onPress={backToServer} disabled={busy}>
-            <Text style={[styles.link, { color: c.cyan }]}>{t('connexion.changerServeur')}</Text>
+            <Text style={[styles.link, { color: c.cyan }]}>{t('login.switchServer')}</Text>
           </Pressable>
         )}
       </ScrollView>
@@ -369,7 +369,7 @@ function BrandHeader({ c }: { c: Colors }) {
         ))}
       </View>
       <Brand c={c} />
-      <Text style={[styles.subtitle, { color: c.dimmed }]}>{t('connexion.slogan')}</Text>
+      <Text style={[styles.subtitle, { color: c.dimmed }]}>{t('login.tagline')}</Text>
     </View>
   );
 }
@@ -388,7 +388,7 @@ function LoginResult({
   return (
     <Pressable onPress={onBack} disabled={busy} style={styles.back} hitSlop={10}>
       <Text style={[styles.chevron, { color: c.purple }]}>‹</Text>
-      <Text style={[styles.backTitle, { color: c.text }]}>{t('connexion.titre')}</Text>
+      <Text style={[styles.backTitle, { color: c.text }]}>{t('login.title')}</Text>
     </Pressable>
   );
 }
@@ -418,18 +418,18 @@ function TwoFactorSection({
     // demander explicitement avant d'afficher un champ de saisie.
     return (
       <>
-        <TwoFactorCrest c={c} subtitle={t('connexion.introEmail')} />
-        <PrimaryButton c={c} busy={busy} onPress={onSendEmail} title={t('connexion.envoyerLeCode')} />
+        <TwoFactorCrest c={c} subtitle={t('login.introEmail')} />
+        <PrimaryButton c={c} busy={busy} onPress={onSendEmail} title={t('login.sendCode')} />
       </>
     );
   }
 
   const label =
     error.method === 'totp'
-      ? t('connexion.etiquetteTotp')
+      ? t('login.labelTotp')
       : error.method === 'email'
-        ? t('connexion.etiquetteEmail')
-        : t('connexion.etiquettePassword');
+        ? t('login.labelEmail')
+        : t('login.labelPassword');
 
   return (
     <>
@@ -437,8 +437,8 @@ function TwoFactorSection({
         c={c}
         subtitle={
           error.method === 'password'
-            ? t('connexion.introPassword')
-            : t('connexion.introTotp')
+            ? t('login.introPassword')
+            : t('login.introTotp')
         }
       />
       <PillField
@@ -454,10 +454,10 @@ function TwoFactorSection({
         secureTextEntry={error.method === 'password'}
         autoFocus
       />
-      <PrimaryButton c={c} busy={busy} onPress={onSubmit} title={t('connexion.valider')} />
+      <PrimaryButton c={c} busy={busy} onPress={onSubmit} title={t('login.submit')} />
       {error.method === 'email' && (
         <Pressable onPress={onSendEmail} disabled={busy}>
-          <Text style={[styles.link, { color: c.cyan }]}>{t('connexion.renvoyerCode')}</Text>
+          <Text style={[styles.link, { color: c.cyan }]}>{t('login.resendCode')}</Text>
         </Pressable>
       )}
     </>
@@ -476,7 +476,7 @@ function TwoFactorCrest({ c, subtitle }: { c: Colors; subtitle: string }) {
         radius={22}
         child={<Text style={styles.shieldGlyph}>🛡️</Text>}
       />
-      <Text style={[styles.crestTitle, { color: c.text }]}>{t('connexion.verificationMagique')}</Text>
+      <Text style={[styles.crestTitle, { color: c.text }]}>{t('login.magicVerification')}</Text>
       <Text style={[styles.crestSubtitle, { color: c.dimmed }]}>{subtitle}</Text>
     </View>
   );

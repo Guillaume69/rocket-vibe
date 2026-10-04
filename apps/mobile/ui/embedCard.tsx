@@ -81,7 +81,7 @@ function EmbedCard({
       delayLongPress={350}
       style={[styles.card, { borderColor: c.border, backgroundColor: c.pendingImageBackground }]}
       accessibilityRole="button"
-      accessibilityLabel={t('carteEmbed.ouvrir', { nom: title ?? link.name })}
+      accessibilityLabel={t('embedCard.open', { name: title ?? link.name })}
     >
       <View style={styles.media}>
       {showsThumbnail ? (

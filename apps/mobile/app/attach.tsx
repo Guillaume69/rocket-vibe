@@ -30,10 +30,10 @@ import { Tappable } from '../ui/tappable.tsx';
  */
 
 const OPTIONS: { source: AttachmentSource; icon: string; key: TranslationKey }[] = [
-  { source: 'photo', icon: '📷', key: 'joindre.photo' },
-  { source: 'video', icon: '🎥', key: 'joindre.video' },
-  { source: 'library', icon: '🖼️', key: 'joindre.bibliotheque' },
-  { source: 'file', icon: '📁', key: 'joindre.fichier' },
+  { source: 'photo', icon: '📷', key: 'attach.photo' },
+  { source: 'video', icon: '🎥', key: 'attach.video' },
+  { source: 'library', icon: '🖼️', key: 'attach.library' },
+  { source: 'file', icon: '📁', key: 'attach.file' },
 ];
 
 export default function AttachScreen() {

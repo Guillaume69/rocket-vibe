@@ -188,11 +188,11 @@ async function preloadThenOpen(p: ProfileParams): Promise<void> {
     .get<{ user?: Record<string, unknown> }>('users.info', { params: rest })
     .then<RawProfile>((r) => ({
       user: r.user,
-      error: r.user ? null : { key: 'profil.profilIllisible' },
+      error: r.user ? null : { key: 'profile.profileUnreadable' },
     }))
     .catch<RawProfile>((e: unknown) => ({
       user: undefined,
-      error: e instanceof Error ? { message: e.message } : { key: 'profil.profilIntrouvable' },
+      error: e instanceof Error ? { message: e.message } : { key: 'profile.profileNotFound' },
     }));
 
   // Indicateur différé : ne s'affiche QUE si l'attente dépasse le seuil, et

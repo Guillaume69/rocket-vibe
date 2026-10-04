@@ -43,7 +43,7 @@ export default function MarkedMessagesScreen() {
   if (state.phase !== 'connected' || sync.phase !== 'ready' || typeof rid !== 'string') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
-        <Stack.Screen options={{ title: t('marques.titre') }} />
+        <Stack.Screen options={{ title: t('marked.title') }} />
         <ActivityIndicator />
       </View>
     );
@@ -108,7 +108,7 @@ function MarkedMessages({
 
   return (
     <View style={[styles.full, { backgroundColor: c.background }]}>
-      <Stack.Screen options={{ title: t('marques.titre') }} />
+      <Stack.Screen options={{ title: t('marked.title') }} />
       <View style={styles.tabs} accessibilityRole="tablist">
         {(['pinned', 'starred'] as const).map((o) => {
           const active = o === tab;
@@ -128,7 +128,7 @@ function MarkedMessages({
               ]}
             >
               <Text style={[styles.tabText, { color: active ? c.text : c.dimmed }]}>
-                {t(o === 'pinned' ? 'marques.epingles' : 'marques.favoris')}
+                {t(o === 'pinned' ? 'marked.pinned' : 'marked.starred')}
               </Text>
             </Tappable>
           );
@@ -140,9 +140,9 @@ function MarkedMessages({
         </View>
       ) : current.phase === 'error' ? (
         <View style={styles.center}>
-          <Text style={[styles.empty, { color: c.errorText }]}>{t('marques.chargementImpossible')}</Text>
+          <Text style={[styles.empty, { color: c.errorText }]}>{t('marked.loadFailed')}</Text>
           <Tappable onPress={reload} hitSlop={8}>
-            <Text style={[styles.retry, { color: c.accent }]}>{t('commun.reessayer')}</Text>
+            <Text style={[styles.retry, { color: c.accent }]}>{t('common.retry')}</Text>
           </Tappable>
         </View>
       ) : (
@@ -174,7 +174,7 @@ function MarkedMessages({
           )}
           ListEmptyComponent={
             <Text style={[styles.empty, { color: c.dimmed }]}>
-              {t(tab === 'pinned' ? 'marques.aucunEpingle' : 'marques.aucunFavori')}
+              {t(tab === 'pinned' ? 'marked.noPinned' : 'marked.noStarred')}
             </Text>
           }
           contentContainerStyle={styles.content}

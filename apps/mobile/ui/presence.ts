@@ -22,15 +22,15 @@ export function presenceColors(c: Colors): Record<PresenceStatus, string> {
 }
 
 /**
- * Libellés par statut — quatre clés `commun.presence*` pour toute l'app, en
+ * Libellés par statut — quatre clés `common.presence*` pour toute l'app, en
  * minuscule : la casse d'un contexte (« En ligne » d'un sélecteur) est à
  * l'appelant.
  */
 export const PRESENCE_KEYS: Record<PresenceStatus, TranslationKey> = {
-  online: 'commun.presenceEnLigne',
-  away: 'commun.presenceAbsent',
-  busy: 'commun.presenceOccupe',
-  offline: 'commun.presenceHorsLigne',
+  online: 'common.presenceOnline',
+  away: 'common.presenceAway',
+  busy: 'common.presenceBusy',
+  offline: 'common.presenceOffline',
 };
 
 /**

@@ -377,7 +377,7 @@ export class UploadEngine {
           return false;
         }
         // `derniere_erreur` est un DIAGNOSTIC (jamais affiché — l'UI montre
-        // `ligneMessage.echecReessayer`) : pas une chaîne à traduire.
+        // `messageRow.failedRetry`) : pas une chaîne à traduire.
         await this.store.markFailed(row.id, e instanceof Error ? e.message : 'Send refused.');
       } finally {
         IN_FLIGHT_HERE.delete(row.id);

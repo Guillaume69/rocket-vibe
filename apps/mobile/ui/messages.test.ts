@@ -12,24 +12,24 @@ import {
 
 describe('traduire', () => {
   test('substitue les {param}', () => {
-    assert.equal(translate('fr', 'ligneMessage.profilDe', { nom: 'alice' }), 'Profil de alice');
-    assert.equal(translate('en', 'ligneMessage.profilDe', { nom: 'alice' }), 'Profile of alice');
+    assert.equal(translate('fr', 'messageRow.profileOf', { name: 'alice' }), 'Profil de alice');
+    assert.equal(translate('en', 'messageRow.profileOf', { name: 'alice' }), 'Profile of alice');
   });
 
   test('un {param} sans valeur est laissé tel quel (repérer un oubli)', () => {
-    assert.equal(translate('fr', 'ligneMessage.profilDe'), 'Profil de {nom}');
+    assert.equal(translate('fr', 'messageRow.profileOf'), 'Profil de {name}');
   });
 
   test('pluriel FR : singulier pour 0 et 1, pluriel dès 2', () => {
-    assert.equal(translate('fr', 'ligneMessage.reponses', { n: 0 }), '0 réponse');
-    assert.equal(translate('fr', 'ligneMessage.reponses', { n: 1 }), '1 réponse');
-    assert.equal(translate('fr', 'ligneMessage.reponses', { n: 2 }), '2 réponses');
+    assert.equal(translate('fr', 'messageRow.replies', { n: 0 }), '0 réponse');
+    assert.equal(translate('fr', 'messageRow.replies', { n: 1 }), '1 réponse');
+    assert.equal(translate('fr', 'messageRow.replies', { n: 2 }), '2 réponses');
   });
 
   test('pluriel EN : singulier pour 1 seulement (0 au pluriel)', () => {
-    assert.equal(translate('en', 'ligneMessage.reponses', { n: 0 }), '0 replies');
-    assert.equal(translate('en', 'ligneMessage.reponses', { n: 1 }), '1 reply');
-    assert.equal(translate('en', 'ligneMessage.reponses', { n: 2 }), '2 replies');
+    assert.equal(translate('en', 'messageRow.replies', { n: 0 }), '0 replies');
+    assert.equal(translate('en', 'messageRow.replies', { n: 1 }), '1 reply');
+    assert.equal(translate('en', 'messageRow.replies', { n: 2 }), '2 replies');
   });
 });
 

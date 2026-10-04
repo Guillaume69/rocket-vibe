@@ -30,10 +30,10 @@ export function saveInBackground(attachment: AttachmentToTransfer, t: TranslateF
     try {
       const place = await saveProtectedAttachment({ ...attachment, onProgress });
       if (place !== 'share') {
-        toast(t(place === 'gallery' ? 'enregistrement.galerie' : 'enregistrement.telechargements'));
+        toast(t(place === 'gallery' ? 'saved.gallery' : 'saved.downloads'));
       }
     } catch {
-      toast(t('enregistrement.echec'));
+      toast(t('saved.failed'));
     }
   });
 }
@@ -43,7 +43,7 @@ export function shareInBackground(attachment: AttachmentToTransfer, t: Translate
     try {
       await openProtectedAttachment({ ...attachment, onProgress });
     } catch {
-      toast(t('ligneMessage.fichierOuvertureEchouee'));
+      toast(t('messageRow.fileOpenFailed'));
     }
   });
 }
@@ -51,12 +51,12 @@ export function shareInBackground(attachment: AttachmentToTransfer, t: Translate
 /** Le choix au toucher d'un fichier : télécharger ou partager, avant tout téléchargement. */
 export function offerDownloadOrShare(attachment: AttachmentToTransfer, t: TranslateFn): void {
   Alert.alert(
-    attachment.title ?? t('ligneMessage.fichier'),
+    attachment.title ?? t('messageRow.file'),
     undefined,
     [
-      { text: t('commun.annuler'), style: 'cancel' },
-      { text: t('actionsMessage.partager'), onPress: () => shareInBackground(attachment, t) },
-      { text: t('actionsMessage.enregistrer'), onPress: () => saveInBackground(attachment, t) },
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('messageActions.share'), onPress: () => shareInBackground(attachment, t) },
+      { text: t('messageActions.save'), onPress: () => saveInBackground(attachment, t) },
     ],
     { cancelable: true },
   );

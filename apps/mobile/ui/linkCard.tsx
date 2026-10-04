@@ -120,7 +120,7 @@ function ImagePreview({
       onLongPress={onLongPress}
       delayLongPress={350}
       accessibilityRole="imagebutton"
-      accessibilityLabel={t('carteLien.imageAgrandir')}
+      accessibilityLabel={t('linkCard.imageEnlarge')}
       style={{ width, height }}
     >
       {dims === null ? (
@@ -162,7 +162,7 @@ function CardPreview({
   const t = useT();
   const [imageError, setImageError] = useState(false);
   const showsBanner = preview.image !== null && !imageError;
-  const accessibleName = preview.title ?? preview.site ?? t('carteLien.lienDefaut');
+  const accessibleName = preview.title ?? preview.site ?? t('linkCard.defaultLink');
 
   return (
     <Pressable
@@ -170,7 +170,7 @@ function CardPreview({
       onLongPress={onLongPress}
       delayLongPress={350}
       accessibilityRole="link"
-      accessibilityLabel={t('carteLien.ouvrir', { nom: accessibleName })}
+      accessibilityLabel={t('linkCard.open', { name: accessibleName })}
       style={[styles.card, { width: availableWidth, backgroundColor: c.card, borderColor: c.border }]}
     >
       {showsBanner && (

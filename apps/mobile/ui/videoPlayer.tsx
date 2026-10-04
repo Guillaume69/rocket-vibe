@@ -51,7 +51,7 @@ export function VideoPlayer({
         delayLongPress={350}
         style={[styles.card, { borderColor: c.border }]}
         accessibilityRole="button"
-        accessibilityLabel={title ? t('lecteurVideo.lireAvecTitre', { titre: title }) : t('lecteurVideo.lire')}
+        accessibilityLabel={title ? t('videoPlayer.playWithTitle', { title: title }) : t('videoPlayer.play')}
       >
         {/* Aurore comète, tamisée par un voile sombre : un rappel de couleur
             sans que la carte crie. */}
@@ -75,7 +75,7 @@ export function VideoPlayer({
 
         <View style={styles.footer}>
           <Text style={[styles.label, { color: c.text }]} numberOfLines={1}>
-            {title ?? t('lecteurVideo.video')}
+            {title ?? t('videoPlayer.video')}
           </Text>
         </View>
         {overlay}
@@ -131,7 +131,7 @@ export function VideoModal({
         hitSlop={12}
         style={[styles.close, { top: insets.top + 8, backgroundColor: c.card + 'D9' }]}
         accessibilityRole="button"
-        accessibilityLabel={t('commun.fermer')}
+        accessibilityLabel={t('common.close')}
       >
         <Text style={[styles.cross, { color: c.text }]}>✕</Text>
       </Pressable>

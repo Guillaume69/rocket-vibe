@@ -16,12 +16,12 @@ Why it was built at all: the target server (`chat.barrut.me`) has `E2E_Enable = 
 
 ## Mobile
 
-- **Unlock sheet**: `app/unlock-e2e.tsx`, a native `formSheet`. It is opened from the locked composer (`ComposerVerrouille` in `ui/composer.tsx`, label `salon.chiffreVerrouille`) or from the Settings encryption section (`SectionE2E` in `app/settings.tsx`). It calls `synchro.deverrouillerE2E`, which unlocks the engine, decrypts the messages already in SQLite, refreshes the list previews and restarts the text outbox and upload queue. The password field sets `autoComplete="password"` and `importantForAutofill` so password managers fill it.
-- **Errors**: `ErreurE2E` (failed GCM authentication) shows `e2e.erreurMotDePasse`; anything else `e2e.erreurGenerique`.
+- **Unlock sheet**: `app/unlock-e2e.tsx`, a native `formSheet`. It is opened from the locked composer (`ComposerVerrouille` in `ui/composer.tsx`, label `room.encryptedLocked`) or from the Settings encryption section (`SectionE2E` in `app/settings.tsx`). It calls `synchro.deverrouillerE2E`, which unlocks the engine, decrypts the messages already in SQLite, refreshes the list previews and restarts the text outbox and upload queue. The password field sets `autoComplete="password"` and `importantForAutofill` so password managers fill it.
+- **Errors**: `ErreurE2E` (failed GCM authentication) shows `e2e.wrongPassword`; anything else `e2e.genericError`.
 - **Resume**: at session start `ui/sync.tsx` calls `e2e.reprendre()` off the critical path; a JWK kept for this (server, account) unlocks silently.
-- **Placeholders**: `ui/messageRow.tsx` shows `ligneMessage.chiffre` for an undecrypted message and `ligneMessage.fichierIllisible` for a file whose decryption fails. `app/index.tsx` shows `accueil.messagesChiffres` while no message of the room has been decrypted.
+- **Placeholders**: `ui/messageRow.tsx` shows `messageRow.encrypted` for an undecrypted message and `messageRow.fileUnreadable` for a file whose decryption fails. `app/index.tsx` shows `home.encryptedMessages` while no message of the room has been decrypted.
 - **Encrypted media**: the server only holds ciphertext, so an image, audio or video is downloaded and decrypted into the cache before display (`fichierDechiffre`, `ui/attachment.ts`). Beyond 25 MB (`APERCU_CHIFFRE_MAX`) or for other file types the attachment stays a card, decrypted when shared or saved.
-- **Sending files**: the plain file is read, encrypted (`ui/fileEncryption.ts`), written to a temp file in the cache, uploaded, then deleted. Without `E2E_Enable_Encrypt_Files` the picker refuses with `commun.fichiersChiffresDesactives` (`ui/fileValidation.ts`).
+- **Sending files**: the plain file is read, encrypted (`ui/fileEncryption.ts`), written to a temp file in the cache, uploaded, then deleted. Without `E2E_Enable_Encrypt_Files` the picker refuses with `common.encryptedFilesDisabled` (`ui/fileValidation.ts`).
 - **Waiting while locked**: text and files typed or queued in an encrypted room before unlock wait in their queues (`AttenteCle`) and leave on unlock; they never go out in clear.
 - **Lock**: Settings "Lock" erases the key from memory and Keystore and re-masks the clear text kept in SQLite.
 - Room info (`app/room-info.tsx`) lists "encrypted" among the room's facts and shows the lock.

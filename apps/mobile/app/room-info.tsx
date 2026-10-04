@@ -42,9 +42,9 @@ function asString(v: unknown): string | null {
 }
 
 const TYPE_SENTENCE: Record<string, TranslationKey> = {
-  c: 'salonInfo.typeCanalPublic',
-  p: 'salonInfo.typeGroupePrive',
-  d: 'salonInfo.typeMessageDirect',
+  c: 'roomInfo.typePublicChannel',
+  p: 'roomInfo.typePrivateGroup',
+  d: 'roomInfo.typeDirectMessage',
 };
 
 export default function RoomInfoScreen() {
@@ -124,7 +124,7 @@ function RoomInfoContent({
       .catch((e: unknown) => {
         // La base locale a déjà rempli l'essentiel : l'échec ne coûte que les
         // sections complémentaires.
-        if (alive) setError(e instanceof Error ? e.message : translateCurrent('salonInfo.detailsIndisponibles'));
+        if (alive) setError(e instanceof Error ? e.message : translateCurrent('roomInfo.detailsUnavailable'));
       });
     return () => {
       alive = false;
@@ -136,10 +136,10 @@ function RoomInfoContent({
   const subtitle = [
     typeKey !== undefined ? t(typeKey) : null,
     complement?.members !== null && complement !== null
-      ? t('salonInfo.membres', { n: complement.members })
+      ? t('roomInfo.members', { n: complement.members })
       : null,
-    room?.encrypted === true ? t('salonInfo.chiffre') : null,
-    room?.readOnly === true ? t('salonInfo.lectureSeule') : null,
+    room?.encrypted === true ? t('roomInfo.encrypted') : null,
+    room?.readOnly === true ? t('roomInfo.readOnly') : null,
   ]
     .filter((x): x is string => x !== null)
     .join(' · ');
@@ -181,28 +181,28 @@ function RoomInfoContent({
         style={[styles.favorite, { backgroundColor: c.card }]}
       >
         <Text style={[styles.favoriteText, { color: c.text }]}>
-          {favorite ? '★ ' + t('salonInfo.retirerFavori') : '☆ ' + t('salonInfo.ajouterFavori')}
+          {favorite ? '★ ' + t('roomInfo.removeFavorite') : '☆ ' + t('roomInfo.addFavorite')}
         </Text>
       </Tappable>
       {favoriteError && (
-        <Text style={[styles.empty, { color: c.errorText }]}>{t('salonInfo.favoriEchec')}</Text>
+        <Text style={[styles.empty, { color: c.errorText }]}>{t('roomInfo.favoriteFailed')}</Text>
       )}
 
       {complement?.announcement !== null && complement !== null && (
-        <Section c={c} title={t('salonInfo.annonce')} text={complement.announcement} />
+        <Section c={c} title={t('roomInfo.announcement')} text={complement.announcement} />
       )}
       {complement?.topic !== null && complement !== null && (
-        <Section c={c} title={t('salonInfo.sujet')} text={complement.topic} />
+        <Section c={c} title={t('roomInfo.topic')} text={complement.topic} />
       )}
       {complement?.description !== null && complement !== null && (
-        <Section c={c} title={t('salonInfo.description')} text={complement.description} />
+        <Section c={c} title={t('roomInfo.description')} text={complement.description} />
       )}
       {complement !== null &&
         complement.announcement === null &&
         complement.topic === null &&
         complement.description === null && (
           <Text style={[styles.empty, { color: c.dimmed }]}>
-            {t('salonInfo.rienARenseigner')}
+            {t('roomInfo.nothingSet')}
           </Text>
         )}
       {error !== null && <Text style={[styles.empty, { color: c.errorText }]}>{error}</Text>}

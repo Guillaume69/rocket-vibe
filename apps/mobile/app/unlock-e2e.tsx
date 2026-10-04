@@ -42,7 +42,7 @@ export default function UnlockE2EScreen() {
       } catch (e) {
         // Un mot de passe faux échoue à l'authentification GCM (ErreurE2E) ;
         // tout le reste (réseau, clé absente) est générique.
-        setError(t(e instanceof E2EError ? 'e2e.erreurMotDePasse' : 'e2e.erreurGenerique'));
+        setError(t(e instanceof E2EError ? 'e2e.wrongPassword' : 'e2e.genericError'));
         setBusy(false);
       }
     })();
@@ -51,12 +51,12 @@ export default function UnlockE2EScreen() {
   return (
     <View style={[styles.sheet, { backgroundColor: c.deepCard, paddingBottom: bottomMargin }]}>
       <Stack.Screen options={{ headerShown: false }} />
-      <Text style={[styles.title, { color: c.text }]}>{t('e2e.titre')}</Text>
-      <Text style={[styles.explanation, { color: c.dimmed }]}>{t('e2e.explication')}</Text>
+      <Text style={[styles.title, { color: c.text }]}>{t('e2e.title')}</Text>
+      <Text style={[styles.explanation, { color: c.dimmed }]}>{t('e2e.explanation')}</Text>
 
       <TextInput
         style={[styles.field, { color: c.text, backgroundColor: c.card, borderColor: c.border }]}
-        placeholder={t('e2e.champ')}
+        placeholder={t('e2e.field')}
         placeholderTextColor={c.dimmed}
         secureTextEntry
         autoFocus
@@ -89,12 +89,12 @@ export default function UnlockE2EScreen() {
           (busy || password === '') && styles.inactive,
         ]}
         accessibilityRole="button"
-        accessibilityLabel={t('e2e.deverrouiller')}
+        accessibilityLabel={t('e2e.unlock')}
       >
         {busy ? (
           <ActivityIndicator size="small" color="#FFFFFF" />
         ) : (
-          <Text style={styles.buttonText}>{t('e2e.deverrouiller')}</Text>
+          <Text style={styles.buttonText}>{t('e2e.unlock')}</Text>
         )}
       </Tappable>
     </View>

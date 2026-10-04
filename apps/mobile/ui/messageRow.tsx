@@ -227,17 +227,17 @@ export const MessageRow = memo(function MessageRow({
                 style={[styles.author, { color: authorTint }]}
                 numberOfLines={1}
                 onPress={openProfile}
-                accessibilityLabel={t('ligneMessage.profilDe', { nom: author })}
+                accessibilityLabel={t('messageRow.profileOf', { name: author })}
               >
                 {author}
               </TappableText>
             )}
             {!continuation && <Text style={[styles.time, { color: c.tertiaryText }]}>{time}</Text>}
             {message.editedAt !== null && (
-              <Text style={[styles.time, { color: c.tertiaryText }]}>{t('ligneMessage.modifie')}</Text>
+              <Text style={[styles.time, { color: c.tertiaryText }]}>{t('messageRow.edited')}</Text>
             )}
             {sendStatus === 'en-attente' && (
-              <Text style={[styles.time, { color: c.tertiaryText }]}>{t('ligneMessage.envoiEnCours')}</Text>
+              <Text style={[styles.time, { color: c.tertiaryText }]}>{t('messageRow.sending')}</Text>
             )}
           </View>
         )}
@@ -285,7 +285,7 @@ export const MessageRow = memo(function MessageRow({
             style={[styles.threadBullet, { backgroundColor: c.card, borderColor: c.border }]}
           >
             <Text style={[styles.threadBulletText, { color: c.cyan }]}>
-              💬 {t('ligneMessage.reponses', { n: message.threadCount })}
+              💬 {t('messageRow.replies', { n: message.threadCount })}
               {message.threadLast !== null && ` · ${formatTime(message.threadLast)}`}
             </Text>
           </Pressable>
@@ -293,10 +293,10 @@ export const MessageRow = memo(function MessageRow({
         {sendStatus === 'echec' && (
           <View style={styles.failureActions}>
             <Pressable onPress={onRetry ?? undefined}>
-              <Text style={[styles.time, { color: c.errorText }]}>{t('ligneMessage.echecReessayer')}</Text>
+              <Text style={[styles.time, { color: c.errorText }]}>{t('messageRow.failedRetry')}</Text>
             </Pressable>
             <Pressable onPress={() => onDiscard?.(message.id)}>
-              <Text style={[styles.time, { color: c.dimmed }]}>{t('ligneMessage.abandonner')}</Text>
+              <Text style={[styles.time, { color: c.dimmed }]}>{t('messageRow.discard')}</Text>
             </Pressable>
           </View>
         )}
@@ -327,7 +327,7 @@ function MessageContent({ c, message }: { c: Colors; message: MessageRowData }) 
   );
 
   if (message.systemType === 'e2e' && message.text === null) {
-    return <Placeholder c={c} text={t('ligneMessage.chiffre')} />;
+    return <Placeholder c={c} text={t('messageRow.encrypted')} />;
   }
   if (message.systemType === 'videoconf') {
     return <CallCard c={c} callId={message.callId} />;
@@ -342,7 +342,7 @@ function MessageContent({ c, message }: { c: Colors; message: MessageRowData }) 
     // Un message d'upload n'a souvent NI texte NI md : ses pièces jointes,
     // rendues à côté, sont tout son contenu — rien à substituer.
     if (message.attachments !== null) return null;
-    return <Placeholder c={c} text={t('ligneMessage.messageVide')} />;
+    return <Placeholder c={c} text={t('messageRow.emptyMessage')} />;
   }
   return (
     // Le `md` est en dernier ressort une donnée d'autrui : une forme qui
@@ -479,7 +479,7 @@ function Quote({
       ))}
       {empty && (
         <Text style={[styles.text, styles.italic, { color: c.dimmed }]}>
-          📎 {t('commun.pieceJointe')}
+          📎 {t('common.attachment')}
         </Text>
       )}
     </Pressable>
@@ -522,7 +522,7 @@ function QuotedFile({
     typeof attachment.audio_url === 'string' ? '🎵' : typeof attachment.video_url === 'string' ? '🎬' : '📎';
   return (
     <Text style={[styles.text, styles.italic, { color: c.dimmed }]} numberOfLines={1}>
-      {glyph} {attachment.title ?? t('commun.pieceJointe')}
+      {glyph} {attachment.title ?? t('common.attachment')}
     </Text>
   );
 }
@@ -599,7 +599,7 @@ function AttachedImage({
       onLongPress={onLongPress}
       delayLongPress={350}
       accessibilityRole="imagebutton"
-      accessibilityLabel={attachment.title ?? t('ligneMessage.imageAgrandir')}
+      accessibilityLabel={attachment.title ?? t('messageRow.imageEnlarge')}
     >
       <Image
         source={{ uri: url }}
@@ -622,20 +622,20 @@ function CallCard({ c, callId }: { c: Colors; callId: string | null }) {
   const t = useT();
   return (
     <View style={[styles.callCard, { backgroundColor: c.card, borderColor: c.border }]}>
-      <Text style={[styles.callCardTitle, { color: c.text }]}>{t('ligneMessage.appelVideo')}</Text>
+      <Text style={[styles.callCardTitle, { color: c.text }]}>{t('messageRow.videoCall')}</Text>
       {callId !== null && (
         <Tappable
           onPress={() => router.push({ pathname: '/call/[callId]', params: { callId } })}
           android_ripple={{ color: c.ripple }}
           unstable_pressDelay={LIST_PRESS_DELAY}
           accessibilityRole="button"
-          accessibilityLabel={t('ligneMessage.rejoindreAppel')}
+          accessibilityLabel={t('messageRow.joinCall')}
           style={({ pressed }) => [
             styles.join,
             { backgroundColor: c.accent, opacity: pressed ? 0.7 : 1 },
           ]}
         >
-          <Text style={[styles.joinText, { color: c.onAccent }]}>{t('ligneMessage.rejoindre')}</Text>
+          <Text style={[styles.joinText, { color: c.onAccent }]}>{t('messageRow.join')}</Text>
         </Tappable>
       )}
     </View>
@@ -822,7 +822,7 @@ function FileAttachment({
   return (
     <Pressable onPress={pick} onLongPress={onLongPress} delayLongPress={350}>
       <Text style={[styles.text, { color: c.accent }]} numberOfLines={2}>
-        📄 {title ?? t('ligneMessage.fichier')}
+        📄 {title ?? t('messageRow.file')}
       </Text>
       <TransferBar key={path} c={c} />
     </Pressable>
@@ -905,7 +905,7 @@ function EncryptedAttachment({
       />
     );
   }
-  if (failure) return <Placeholder c={c} text={t('ligneMessage.fichierIllisible')} />;
+  if (failure) return <Placeholder c={c} text={t('messageRow.fileUnreadable')} />;
   if (local === null) {
     return (
       <View style={[styles.attachedImage, styles.encryptedPending]}>

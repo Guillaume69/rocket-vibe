@@ -84,7 +84,7 @@ function Search({
     query,
     NO_RESULT,
     searchSpotlight,
-    t('recherche.rechercheImpossible'),
+    t('search.searchFailed'),
   );
 
   const openRoom = useCallback(
@@ -106,7 +106,7 @@ function Search({
         const { rid, rawRoom } = await actions.openOrCreateDm(user.username);
         await openRoom(rawRoom, rid);
       } catch (e) {
-        setMessage(e instanceof Error ? e.message : t('recherche.conversationImpossible'));
+        setMessage(e instanceof Error ? e.message : t('search.conversationFailed'));
       } finally {
         inFlight.current = false;
         setBusy(false);
@@ -127,7 +127,7 @@ function Search({
         });
         await openRoom(response.channel, room._id);
       } catch (e) {
-        setMessage(e instanceof Error ? e.message : t('recherche.rejoindreImpossible'));
+        setMessage(e instanceof Error ? e.message : t('search.joinFailed'));
       } finally {
         inFlight.current = false;
         setBusy(false);
@@ -146,12 +146,12 @@ function Search({
 
   return (
     <KeyboardAvoidingContainer>
-      <Stack.Screen options={{ title: t('recherche.titre') }} />
+      <Stack.Screen options={{ title: t('search.title') }} />
       <View style={styles.header}>
         <TextInput
           value={query}
           onChangeText={setQuery}
-          placeholder={t('recherche.placeholder')}
+          placeholder={t('search.placeholder')}
           placeholderTextColor={c.dimmed}
           autoCapitalize="none"
           autoCorrect={false}
@@ -201,7 +201,7 @@ function Search({
         }
         ListEmptyComponent={
           query.trim() === '' ? null : (
-            <Text style={[styles.empty, { color: c.dimmed }]}>{t('recherche.aucunResultat')}</Text>
+            <Text style={[styles.empty, { color: c.dimmed }]}>{t('search.noResults')}</Text>
           )
         }
         keyboardShouldPersistTaps="handled"

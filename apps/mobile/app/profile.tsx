@@ -145,11 +145,11 @@ export default function ProfileScreen() {
       .then((r) => {
         if (!alive) return;
         const p = profileOf(r.user);
-        if (p === null) setError(translateCurrent('profil.profilIllisible'));
+        if (p === null) setError(translateCurrent('profile.profileUnreadable'));
         else setProfile(p);
       })
       .catch((e: unknown) => {
-        if (alive) setError(e instanceof Error ? e.message : translateCurrent('profil.profilIntrouvable'));
+        if (alive) setError(e instanceof Error ? e.message : translateCurrent('profile.profileNotFound'));
       });
     void probeCallAvailable(client).then((ok) => {
       if (alive) setCallAvailable(ok);
@@ -224,7 +224,7 @@ export default function ProfileScreen() {
           else router.replace({ pathname: '/salon/[rid]', params: { rid } });
         }
       } catch (e) {
-        setError(e instanceof Error ? e.message : t('profil.actionImpossible'));
+        setError(e instanceof Error ? e.message : t('profile.actionFailed'));
         inFlight.current = false;
         setBusy(false);
       }
@@ -309,7 +309,7 @@ export default function ProfileScreen() {
 
       {profile !== null && profile.utcOffset !== null && (
         <Text style={[styles.detail, { color: c.dimmed }]}>
-          {t('profil.heureLocale', { heure: localTime(profile.utcOffset) })}
+          {t('profile.localTime', { time: localTime(profile.utcOffset) })}
         </Text>
       )}
       {profile !== null && profile.bio !== null && (
@@ -338,12 +338,12 @@ export default function ProfileScreen() {
               (busy || profile === null) && styles.inactive,
             ]}
             accessibilityRole="button"
-            accessibilityLabel={t('profil.envoyerMessageLabel', { nom: shownUsername ?? '' })}
+            accessibilityLabel={t('profile.sendMessageLabel', { name: shownUsername ?? '' })}
           >
             {busy ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
-              <Text style={styles.buttonText}>{t('profil.boutonMessage')}</Text>
+              <Text style={styles.buttonText}>{t('profile.messageButton')}</Text>
             )}
           </Tappable>
           {callAvailable && (
@@ -358,9 +358,9 @@ export default function ProfileScreen() {
                 (busy || profile === null) && styles.inactive,
               ]}
               accessibilityRole="button"
-              accessibilityLabel={t('profil.appelerLabel', { nom: shownUsername ?? '' })}
+              accessibilityLabel={t('profile.callLabel', { name: shownUsername ?? '' })}
             >
-              <Text style={[styles.buttonText, { color: c.text }]}>{t('profil.boutonAppeler')}</Text>
+              <Text style={[styles.buttonText, { color: c.text }]}>{t('profile.callButton')}</Text>
             </Tappable>
           )}
         </View>

@@ -225,7 +225,7 @@ export function AudioPlayer({ c, url, title, onLongPress }: PlayerProps) {
   return (
     <View
       style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
-      accessibilityLabel={title ?? t('lecteurAudio.messageVocal')}
+      accessibilityLabel={title ?? t('audioPlayer.voiceMessage')}
     >
       <Pressable
         onPress={activate}
@@ -233,7 +233,7 @@ export function AudioPlayer({ c, url, title, onLongPress }: PlayerProps) {
         delayLongPress={350}
         hitSlop={6}
         accessibilityRole="button"
-        accessibilityLabel={t('lecteurAudio.lire')}
+        accessibilityLabel={t('audioPlayer.play')}
       >
         <LinearGradient
           colors={c.ctaGradient}
@@ -401,7 +401,7 @@ function ActiveAudioPlayer({ c, url, title, onLongPress }: PlayerProps) {
   return (
     <View
       style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
-      accessibilityLabel={title ?? t('lecteurAudio.messageVocal')}
+      accessibilityLabel={title ?? t('audioPlayer.voiceMessage')}
     >
       <Pressable
         onPress={toggle}
@@ -409,7 +409,7 @@ function ActiveAudioPlayer({ c, url, title, onLongPress }: PlayerProps) {
         delayLongPress={350}
         hitSlop={6}
         accessibilityRole="button"
-        accessibilityLabel={status.playing ? t('lecteurAudio.pause') : t('lecteurAudio.lire')}
+        accessibilityLabel={status.playing ? t('audioPlayer.pause') : t('audioPlayer.play')}
       >
         <LinearGradient
           colors={c.ctaGradient}

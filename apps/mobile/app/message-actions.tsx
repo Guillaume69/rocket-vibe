@@ -152,7 +152,7 @@ export default function MessageActionsScreen() {
       if (canceled) return;
       if (raw === undefined) {
         // Supprimé entre l'appui long et l'ouverture (stream deleteMessage).
-        setError(t('actionsMessage.messageIntrouvable'));
+        setError(t('messageActions.messageNotFound'));
         return;
       }
       const [roomRows, subscriptionRows, rules, sources] = await Promise.all([
@@ -205,7 +205,7 @@ export default function MessageActionsScreen() {
         }),
       });
     })().catch(() => {
-      if (!canceled) setError(t('actionsMessage.chargementImpossible'));
+      if (!canceled) setError(t('messageActions.loadFailed'));
     });
     return () => {
       canceled = true;
@@ -242,7 +242,7 @@ export default function MessageActionsScreen() {
         await action();
         router.back();
       } catch (e) {
-        setError(e instanceof Error ? e.message : t('actionsMessage.actionRefusee'));
+        setError(e instanceof Error ? e.message : t('messageActions.actionRejected'));
       } finally {
         inFlight.current = false;
         setBusy(false);
@@ -386,7 +386,7 @@ export default function MessageActionsScreen() {
               onPress={() => setEditing(null)}
               style={({ pressed }) => [styles.secondaryButton, { opacity: pressed ? 0.6 : 1 }]}
             >
-              <Text style={[styles.secondaryButtonText, { color: c.dimmed }]}>{t('commun.annuler')}</Text>
+              <Text style={[styles.secondaryButtonText, { color: c.dimmed }]}>{t('common.cancel')}</Text>
             </Pressable>
             <Pressable
               disabled={busy}
@@ -405,7 +405,7 @@ export default function MessageActionsScreen() {
                 { backgroundColor: c.accent, opacity: pressed || busy ? 0.7 : 1 },
               ]}
             >
-              <Text style={[styles.primaryButtonText, { color: c.onAccent }]}>{t('commun.enregistrer')}</Text>
+              <Text style={[styles.primaryButtonText, { color: c.onAccent }]}>{t('common.save')}</Text>
             </Pressable>
           </View>
         </View>
@@ -417,7 +417,7 @@ export default function MessageActionsScreen() {
               rien — l'utilisateur croit à un bug d'affichage. */}
           {actions.length === 0 && (
             <Text style={[styles.noAction, { color: c.dimmed }]}>
-              {t('actionsMessage.aucuneAction')}
+              {t('messageActions.noActions')}
             </Text>
           )}
           {actions.includes('reply') && (
@@ -425,7 +425,7 @@ export default function MessageActionsScreen() {
               c={c}
               disabled={busy}
               icon="↩️"
-              label={t('actionsMessage.repondre')}
+              label={t('messageActions.reply')}
               onPress={reply}
             />
           )}
@@ -434,7 +434,7 @@ export default function MessageActionsScreen() {
               c={c}
               disabled={busy}
               icon="🧵"
-              label={t('actionsMessage.repondreFil')}
+              label={t('messageActions.replyInThread')}
               onPress={() => {
                 void Haptics.selectionAsync();
                 router.back();
@@ -447,7 +447,7 @@ export default function MessageActionsScreen() {
               c={c}
               disabled={busy}
               icon="📋"
-              label={t('actionsMessage.copier')}
+              label={t('messageActions.copy')}
               onPress={() => void act(() => Clipboard.setStringAsync(textToCopy(message.text) ?? ''))}
             />
           )}
@@ -456,7 +456,7 @@ export default function MessageActionsScreen() {
               c={c}
               disabled={busy}
               icon="📤"
-              label={t('actionsMessage.partager')}
+              label={t('messageActions.share')}
               onPress={() => void act(share)}
             />
           )}
@@ -465,7 +465,7 @@ export default function MessageActionsScreen() {
               c={c}
               disabled={busy}
               icon="⬇️"
-              label={t('actionsMessage.enregistrer')}
+              label={t('messageActions.save')}
               onPress={() => void act(save)}
             />
           )}
@@ -474,7 +474,7 @@ export default function MessageActionsScreen() {
               c={c}
               disabled={busy}
               icon="✏️"
-              label={t('actionsMessage.modifier')}
+              label={t('messageActions.edit')}
               onPress={() => {
                 void Haptics.selectionAsync();
                 setEditing(message.text ?? '');
@@ -486,7 +486,7 @@ export default function MessageActionsScreen() {
               c={c}
               disabled={busy}
               icon="📌"
-              label={t('actionsMessage.epingler')}
+              label={t('messageActions.pin')}
               onPress={() => void act(() => pin(true))}
             />
           )}
@@ -495,7 +495,7 @@ export default function MessageActionsScreen() {
               c={c}
               disabled={busy}
               icon="📌"
-              label={t('actionsMessage.desepingler')}
+              label={t('messageActions.unpin')}
               onPress={() => void act(() => pin(false))}
             />
           )}
@@ -504,7 +504,7 @@ export default function MessageActionsScreen() {
               c={c}
               disabled={busy}
               icon="⭐"
-              label={t('actionsMessage.etoiler')}
+              label={t('messageActions.star')}
               onPress={() => void act(() => star(true))}
             />
           )}
@@ -513,7 +513,7 @@ export default function MessageActionsScreen() {
               c={c}
               disabled={busy}
               icon="⭐"
-              label={t('actionsMessage.desetoiler')}
+              label={t('messageActions.unstar')}
               onPress={() => void act(() => star(false))}
             />
           )}
@@ -522,7 +522,7 @@ export default function MessageActionsScreen() {
               c={c}
               disabled={busy}
               icon="🗑"
-              label={t('commun.supprimer')}
+              label={t('common.delete')}
               destructive
               onPress={() =>
                 void act(async () => {

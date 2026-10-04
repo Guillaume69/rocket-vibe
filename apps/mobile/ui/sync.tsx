@@ -568,7 +568,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       if (!discarded) {
         setSync({
           phase: 'error',
-          message: e instanceof Error ? e.message : translateCurrent('synchro.baseInutilisable'),
+          message: e instanceof Error ? e.message : translateCurrent('sync.databaseUnavailable'),
         });
       }
     });

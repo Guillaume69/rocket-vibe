@@ -78,7 +78,7 @@ export default function ShareScreen() {
   useEffect(() => () => resetRef.current(true), []);
 
   if (state.phase === 'disconnected') {
-    return <Message c={c} text={t('partager.connecteToi')} />;
+    return <Message c={c} text={t('share.signInFirst')} />;
   }
   if (sync.phase === 'error') {
     return <Message c={c} text={sync.message} />;
@@ -86,7 +86,7 @@ export default function ShareScreen() {
   if (state.phase !== 'connected' || sync.phase !== 'ready') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
-        <Stack.Screen options={{ title: t('partager.titre') }} />
+        <Stack.Screen options={{ title: t('share.title') }} />
         <ActivityIndicator color={c.accent} />
       </View>
     );
@@ -107,7 +107,7 @@ function Message({ c, text }: { c: Colors; text: string }) {
   const t = useT();
   return (
     <View style={[styles.center, { backgroundColor: c.background }]}>
-      <Stack.Screen options={{ title: t('partager.titre') }} />
+      <Stack.Screen options={{ title: t('share.title') }} />
       <Text style={[styles.message, { color: c.secondaryText }]}>{text}</Text>
     </View>
   );
@@ -282,7 +282,7 @@ function Share({
         }
         setError(
           phraseValidation(e, t) ??
-            (e instanceof Error ? e.message : t('partager.partageImpossible')),
+            (e instanceof Error ? e.message : t('share.shareFailed')),
         );
         inFlight.current = false;
         setBusy(false);
@@ -294,7 +294,7 @@ function Share({
 
   return (
     <KeyboardAvoidingContainer>
-      <Stack.Screen options={{ title: t('partager.titre'), headerShown: true }} />
+      <Stack.Screen options={{ title: t('share.title'), headerShown: true }} />
       <View style={styles.top}>
         {/*
           Un seul fichier : la carte pleine largeur (nom, type, taille) alignée
@@ -322,7 +322,7 @@ function Share({
           value={caption}
           onChangeText={setCaption}
           editable={!busy}
-          placeholder={hasFiles ? t('partager.ajouterLegende') : t('partager.messageAPartager')}
+          placeholder={hasFiles ? t('share.addCaption') : t('share.messageToShare')}
           placeholderTextColor={c.tertiaryText}
           multiline
           style={[
@@ -331,11 +331,11 @@ function Share({
           ]}
         />
         {error !== null && <Text style={[styles.error, { color: c.errorText }]}>{error}</Text>}
-        <Text style={[styles.label, { color: c.dimmed }]}>{t('partager.partagerVers')}</Text>
+        <Text style={[styles.label, { color: c.dimmed }]}>{t('share.shareTo')}</Text>
         <TextInput
           value={filter}
           onChangeText={setFilter}
-          placeholder={t('partager.rechercherConversation')}
+          placeholder={t('share.searchConversation')}
           placeholderTextColor={c.tertiaryText}
           autoCapitalize="none"
           autoCorrect={false}
@@ -362,7 +362,7 @@ function Share({
           />
         )}
         ListEmptyComponent={
-          <Text style={[styles.empty, { color: c.dimmed }]}>{t('partager.aucuneConversation')}</Text>
+          <Text style={[styles.empty, { color: c.dimmed }]}>{t('share.noConversations')}</Text>
         }
       />
     </KeyboardAvoidingContainer>
@@ -393,7 +393,7 @@ function TargetRow({
   const t = useT();
   const name = room.displayName ?? room.name ?? room.rid;
   const blocked = room.encrypted || room.readOnly;
-  const reason = room.encrypted ? t('partager.chiffre') : room.readOnly ? t('partager.lectureSeule') : null;
+  const reason = room.encrypted ? t('share.encrypted') : room.readOnly ? t('share.readOnly') : null;
   // Bloqué, ou une autre destination pendant un envoi : la ligne s'estompe pour
   // concentrer l'attention sur celle qui reçoit.
   const dimmed = blocked || (busy && !sending);
@@ -506,7 +506,7 @@ function AttachmentThumbnail({
         disabled={busy}
         hitSlop={8}
         accessibilityRole="button"
-        accessibilityLabel={t('partager.retirerPieceJointe')}
+        accessibilityLabel={t('share.removeAttachment')}
         style={[
           styles.thumbnailRemove,
           {

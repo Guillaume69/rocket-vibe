@@ -84,7 +84,7 @@ export function RoomHeader({
         const callId = await startConference(client, rid);
         router.push({ pathname: '/call/[callId]', params: { callId, title: name } });
       } catch {
-        Alert.alert(t('salon.appelTitre'), t('salon.appelImpossibleDemarrer'));
+        Alert.alert(t('room.callTitle'), t('room.callStartFailed'));
       } finally {
         setStarting(false);
       }
@@ -93,7 +93,7 @@ export function RoomHeader({
 
   return (
     <View style={[styles.header, { paddingTop: insetTop + 6, borderBottomColor: c.softBorder }]}>
-      <Pressable onPress={onBack} hitSlop={10} accessibilityRole="button" accessibilityLabel={t('salon.retour')}>
+      <Pressable onPress={onBack} hitSlop={10} accessibilityRole="button" accessibilityLabel={t('room.back')}>
         <Text style={[styles.back, { color: c.purple }]}>‹</Text>
       </Pressable>
       {/* Le nom (et l'avatar) ouvrent la fiche : celle de l'INTERLOCUTEUR pour
@@ -109,7 +109,7 @@ export function RoomHeader({
           android_ripple={{ color: c.ripple, borderless: false }}
           style={styles.headerSheet}
           accessibilityRole="button"
-          accessibilityLabel={t('salon.infosConversation')}
+          accessibilityLabel={t('room.conversationInfo')}
         >
         <RoomAvatar
           c={c}
@@ -147,7 +147,7 @@ export function RoomHeader({
           hitSlop={8}
           android_ripple={{ color: c.ripple, borderless: true }}
           accessibilityRole="button"
-          accessibilityLabel={t('salon.demarrerAppel')}
+          accessibilityLabel={t('room.startCall')}
           style={({ pressed }) => ({ opacity: pressed || starting ? 0.5 : 1 })}
         >
           <Text style={styles.headerIcon}>📞</Text>
@@ -158,7 +158,7 @@ export function RoomHeader({
         hitSlop={8}
         android_ripple={{ color: c.ripple, borderless: true }}
         accessibilityRole="button"
-        accessibilityLabel={t('salon.marques')}
+        accessibilityLabel={t('room.marked')}
       >
         <Text style={styles.headerIcon}>📌</Text>
       </Tappable>

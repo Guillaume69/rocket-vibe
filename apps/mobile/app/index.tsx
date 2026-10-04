@@ -77,7 +77,7 @@ function ListHeader({ c }: { c: Colors }) {
         android_ripple={{ color: c.ripple, borderless: true, radius: 22 }}
         hitSlop={8}
         accessibilityRole="button"
-        accessibilityLabel={t('accueil.parametres')}
+        accessibilityLabel={t('home.settings')}
         style={({ pressed }) => [styles.headerWheel, { opacity: pressed ? 0.55 : 1 }]}
       >
         <Text style={styles.headerWheelGlyph}>⚙️</Text>
@@ -139,10 +139,10 @@ function Rooms({
   const collapsed = useCollapsedSections();
   const sections: RoomsSection[] = collapseSections(
     buildSections(roomRows, subscriptionRows, {
-      nonLus: t('accueil.sectionNonLus'),
-      favoris: t('accueil.sectionFavoris'),
-      salons: t('accueil.sectionSalons'),
-      messagesPrives: t('accueil.sectionMessagesPrives'),
+      nonLus: t('home.sectionUnread'),
+      favoris: t('home.sectionFavorites'),
+      salons: t('home.sectionRooms'),
+      messagesPrives: t('home.sectionDirectMessages'),
     }),
     collapsed,
   );
@@ -167,7 +167,7 @@ function Rooms({
       stickySectionHeadersEnabled={false}
       ListHeaderComponent={<NewConversationRow c={c} />}
       ListEmptyComponent={
-        <Text style={[styles.empty, { color: c.dimmed }]}>{t('accueil.listeVide')}</Text>
+        <Text style={[styles.empty, { color: c.dimmed }]}>{t('home.emptyList')}</Text>
       }
       contentContainerStyle={styles.content}
     />
@@ -185,7 +185,7 @@ type RoomsSection = DisplayedSection<RoomEntry>;
  */
 function SectionHeader({ c, section }: { c: Colors; section: RoomsSection }) {
   const t = useT();
-  const count = t('accueil.sectionConversations', { n: section.total });
+  const count = t('home.sectionConversations', { n: section.total });
   return (
     <Tappable
       onPress={() => toggleCollapsedSection(section.key)}
@@ -247,7 +247,7 @@ function RoomRow({
   // la langue est commutable à chaud, une phrase figée en base y résisterait.
   const preview =
     room.encrypted && room.lastMessage === null
-      ? t('accueil.messagesChiffres')
+      ? t('home.encryptedMessages')
       : ((room.lastMessage !== null ? textPreview(room.lastMessage) : null) ??
         systemPreview(t, room.lastMessageType) ??
         ' ');
@@ -329,7 +329,7 @@ function NewConversationRow({ c }: { c: Colors }) {
           child={<Text style={[styles.more, { color: c.onAccent }]}>＋</Text>}
         />
         <Text style={[styles.next, { color: c.accent }]}>
-          {t('accueil.nouvelleConversation')}
+          {t('home.newConversation')}
         </Text>
       </Tappable>
     </View>

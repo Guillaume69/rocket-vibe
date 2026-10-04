@@ -96,7 +96,7 @@ export default function CallScreen() {
   // Atteint depuis un salon connecté ; un état déconnecté (session expirée)
   // renvoie au login plutôt que de crasher sur `client`.
   if (state.phase !== 'connected') return <Redirect href="/login" />;
-  return <Call c={c} client={state.client} callId={callId} title={title ?? t('appel.appelVideo')} />;
+  return <Call c={c} client={state.client} callId={callId} title={title ?? t('call.videoCall')} />;
 }
 
 function Call({
@@ -132,11 +132,11 @@ function Call({
         // tronquée) ne donnerait pas de verrou à poser sur la WebView : on
         // refuse plutôt que de charger sans garde.
         if (alive) {
-          if (originOf(u) === null) setError(t('appel.impossibleRejoindre'));
+          if (originOf(u) === null) setError(t('call.joinFailed'));
           else setUrl(u);
         }
       } catch {
-        if (alive) setError(t('appel.impossibleRejoindre'));
+        if (alive) setError(t('call.joinFailed'));
       }
     })();
     return () => {
@@ -169,13 +169,13 @@ function Call({
           onPress={finish}
           hitSlop={10}
           accessibilityRole="button"
-          accessibilityLabel={t('appel.terminerAppel')}
+          accessibilityLabel={t('call.endCall')}
           style={({ pressed }) => [
             styles.finish,
             { backgroundColor: c.errorCard, opacity: pressed ? 0.7 : 1 },
           ]}
         >
-          <Text style={[styles.finishText, { color: c.errorText }]}>{t('appel.terminer')}</Text>
+          <Text style={[styles.finishText, { color: c.errorText }]}>{t('call.end')}</Text>
         </Pressable>
       </View>
 
@@ -183,13 +183,13 @@ function Call({
         <View style={styles.center}>
           <Text style={[styles.errorMessage, { color: c.errorText }]}>{error}</Text>
           <Pressable onPress={retry} style={styles.retry}>
-            <Text style={[styles.retryText, { color: c.cyan }]}>{t('commun.reessayer')}</Text>
+            <Text style={[styles.retryText, { color: c.cyan }]}>{t('common.retry')}</Text>
           </Pressable>
         </View>
       ) : url === null || origin === null ? (
         <View style={styles.center}>
           <ActivityIndicator color={c.accent} size="large" />
-          <Text style={[styles.loadingText, { color: c.dimmed }]}>{t('appel.connexion')}</Text>
+          <Text style={[styles.loadingText, { color: c.dimmed }]}>{t('call.connecting')}</Text>
         </View>
       ) : (
         <WebView
@@ -225,7 +225,7 @@ function Call({
             // salon. Le bouton « Terminer » reste la sortie garantie.
             if (/\/close\d*(\.html)?/.test(nav.url)) finish();
           }}
-          onError={() => setError(t('appel.chargementEchoue'))}
+          onError={() => setError(t('call.loadFailed'))}
         />
       )}
     </View>

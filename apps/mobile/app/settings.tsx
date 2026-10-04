@@ -37,9 +37,9 @@ import { Tappable } from '../ui/tappable.tsx';
 
 type PushLevel = 'all' | 'mention' | 'nothing';
 const OPTIONS_PUSH: { value: PushLevel; key: TranslationKey }[] = [
-  { value: 'all', key: 'parametres.pushTous' },
-  { value: 'mention', key: 'parametres.pushMentions' },
-  { value: 'nothing', key: 'parametres.pushAucune' },
+  { value: 'all', key: 'settings.pushAll' },
+  { value: 'mention', key: 'settings.pushMentions' },
+  { value: 'nothing', key: 'settings.pushNone' },
 ];
 
 export default function SettingsScreen() {
@@ -80,7 +80,7 @@ function usePreferencePush(client: ClientRest) {
         if (alive) setValue(r.settings?.preferences?.pushNotifications ?? 'default');
       })
       .catch(() => {
-        if (alive) setError('parametres.pushIntrouvable');
+        if (alive) setError('settings.pushNotFound');
       });
     return () => {
       alive = false;
@@ -105,7 +105,7 @@ function usePreferencePush(client: ClientRest) {
       } catch {
         if (sequence.current !== n) return;
         setValue(previous);
-        setError('parametres.enregistrementImpossible');
+        setError('settings.saveFailed');
       }
     },
     [client, value],
@@ -150,14 +150,14 @@ function Settings({
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <Stack.Screen options={{ title: t('parametres.titre') }} />
+      <Stack.Screen options={{ title: t('settings.title') }} />
 
       <Tappable
         onPress={() => router.push('/my-profile')}
         android_ripple={{ color: c.ripple }}
         unstable_pressDelay={LIST_PRESS_DELAY}
         accessibilityRole="button"
-        accessibilityLabel={t('parametres.modifierProfil')}
+        accessibilityLabel={t('settings.editProfile')}
         style={({ pressed }) => [
           styles.profileCard,
           { backgroundColor: c.deepCard, borderColor: c.border, opacity: pressed ? 0.7 : 1 },
@@ -173,40 +173,40 @@ function Settings({
           <Text style={[styles.profileName, { color: c.text }]} numberOfLines={1}>
             @{username}
           </Text>
-          <Text style={[styles.profileLink, { color: c.cyan }]}>{t('parametres.modifierProfil')}</Text>
+          <Text style={[styles.profileLink, { color: c.cyan }]}>{t('settings.editProfile')}</Text>
         </View>
         <Text style={[styles.chevron, { color: c.dimmed }]}>›</Text>
       </Tappable>
 
-      <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('parametres.sectionNotifications')}</Text>
+      <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('settings.sectionNotifications')}</Text>
       <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-        <Text style={[styles.settingTitle, { color: c.text }]}>{t('parametres.push')}</Text>
-        <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('parametres.pushAide')}</Text>
+        <Text style={[styles.settingTitle, { color: c.text }]}>{t('settings.push')}</Text>
+        <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('settings.pushHelp')}</Text>
         <NotificationChoice c={c} push={push} />
         {push.error !== null && (
           <Text style={[styles.error, { color: c.errorText }]}>{t(push.error)}</Text>
         )}
       </View>
 
-      <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('parametres.sectionLangue')}</Text>
+      <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('settings.sectionLanguage')}</Text>
       <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-        <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('parametres.langueAide')}</Text>
+        <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('settings.languageHelp')}</Text>
         <LanguagePicker c={c} t={t} />
       </View>
 
       <SectionE2E c={c} t={t} />
 
-      <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('parametres.sectionCompte')}</Text>
+      <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('settings.sectionAccount')}</Text>
       <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-        <Pair c={c} key={t('parametres.connecte')} value={`@${username}`} />
-        <Pair c={c} key={t('parametres.serveur')} value={baseUrl} />
+        <Pair c={c} key={t('settings.signedIn')} value={`@${username}`} />
+        <Pair c={c} key={t('settings.server')} value={baseUrl} />
       </View>
 
-      <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('parametres.sectionDiagnostic')}</Text>
+      <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('settings.sectionDiagnostics')}</Text>
       <FcmTokenSection c={c} t={t} />
 
       <Link href="/login?change=1" style={[styles.link, { color: c.cyan }]}>
-        {t('parametres.changerServeur')}
+        {t('settings.switchServer')}
       </Link>
 
       <Tappable
@@ -219,7 +219,7 @@ function Settings({
           { backgroundColor: c.errorCard, opacity: pressed || logout ? 0.6 : 1 },
         ]}
       >
-        <Text style={[styles.secondaryButtonText, { color: c.errorText }]}>{t('parametres.seDeconnecter')}</Text>
+        <Text style={[styles.secondaryButtonText, { color: c.errorText }]}>{t('settings.signOut')}</Text>
       </Tappable>
     </ScrollView>
   );
@@ -290,7 +290,7 @@ function NotificationChoice({
 function LanguagePicker({ c, t }: { c: Colors; t: TranslateFn }) {
   const preference = useLanguagePreference();
   const options: { pref: LanguagePreference; label: string; help?: string }[] = [
-    { pref: 'auto', label: t('langue.auto'), help: t('langue.autoAide') },
+    { pref: 'auto', label: t('language.auto'), help: t('language.autoHelp') },
     ...LANGUAGES.map((l) => ({ pref: l, label: LANGUAGE_NAMES[l] })),
   ];
   return (
@@ -362,7 +362,7 @@ function FcmTokenSection({ c, t }: { c: Colors; t: TranslateFn }) {
         android_ripple={{ color: c.ripple, borderless: true, radius: 24 }}
         unstable_pressDelay={LIST_PRESS_DELAY}
       >
-        <Text style={[styles.action, { color: c.cyan }]}>{t('parametres.obtenirJeton')}</Text>
+        <Text style={[styles.action, { color: c.cyan }]}>{t('settings.getToken')}</Text>
       </Tappable>
       {token !== null && (
         <Text style={[styles.help, { color: c.text }]} selectable numberOfLines={3}>
@@ -394,10 +394,10 @@ function SectionE2E({ c, t }: { c: Colors; t: TranslateFn }) {
 
   return (
     <>
-      <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('parametres.e2eTitre')}</Text>
+      <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('settings.e2eTitle')}</Text>
       <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
         <Text style={[styles.settingHelp, { color: c.dimmed }]}>
-          {t(unlocked ? 'parametres.e2eDeverrouille' : 'parametres.e2eVerrouille')}
+          {t(unlocked ? 'settings.e2eUnlocked' : 'settings.e2eLocked')}
         </Text>
         {unlocked ? (
           <Tappable
@@ -409,7 +409,7 @@ function SectionE2E({ c, t }: { c: Colors; t: TranslateFn }) {
             style={({ pressed }) => ({ opacity: pressed || busy ? 0.6 : 1, paddingVertical: 6 })}
           >
             <Text style={[styles.profileLink, { color: c.errorText }]}>
-              {t('parametres.e2eVerrouiller')}
+              {t('settings.e2eLock')}
             </Text>
           </Tappable>
         ) : (
@@ -421,7 +421,7 @@ function SectionE2E({ c, t }: { c: Colors; t: TranslateFn }) {
             style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, paddingVertical: 6 })}
           >
             <Text style={[styles.profileLink, { color: c.cyan }]}>
-              {t('parametres.e2eDeverrouiller')}
+              {t('settings.e2eUnlock')}
             </Text>
           </Tappable>
         )}

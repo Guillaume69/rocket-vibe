@@ -39,17 +39,17 @@ export function ReplyBanner({
       )}
       <View style={styles.body}>
         <Text style={[styles.title, { color: c.accent }]} numberOfLines={1}>
-          {t('salon.reponseA', { nom: target.author ?? '?' })}
+          {t('room.replyingTo', { name: target.author ?? '?' })}
         </Text>
         <Text style={[styles.excerpt, { color: c.dimmed }]} numberOfLines={1}>
-          {preview !== '' ? preview : t('commun.pieceJointe')}
+          {preview !== '' ? preview : t('common.attachment')}
         </Text>
       </View>
       <Pressable
         onPress={onCancel}
         hitSlop={10}
         accessibilityRole="button"
-        accessibilityLabel={t('salon.annulerReponse')}
+        accessibilityLabel={t('room.cancelReply')}
         style={({ pressed }) => [styles.close, { opacity: pressed ? 0.5 : 1 }]}
       >
         <Text style={[styles.cross, { color: c.dimmed }]}>✕</Text>

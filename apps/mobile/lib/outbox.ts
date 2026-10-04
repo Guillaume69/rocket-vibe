@@ -196,7 +196,7 @@ export class OutboxEngine {
           continue;
         }
         // `derniere_erreur` est un DIAGNOSTIC (jamais affiché — l'UI montre
-        // `ligneMessage.echecReessayer`) : pas une chaîne à traduire.
+        // `messageRow.failedRetry`) : pas une chaîne à traduire.
         const message = e instanceof Error ? e.message : 'Send refused.';
         await this.store.markFailed(row.id, message);
       }

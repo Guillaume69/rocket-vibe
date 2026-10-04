@@ -12,6 +12,36 @@ fn identifier(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
 }
+pub(super) fn valid_identifier(value: &str) -> bool {
+    identifier(value)
+}
+
+impl GroupSettlement {
+    pub fn from_wire(value: &http::GroupSettlement) -> Result<Self> {
+        Ok(match value {
+            http::GroupSettlement::Accepted(value) => Self::Accepted(Receipt::from_wire(value)?),
+            http::GroupSettlement::Cancelled(value) => {
+                bound_scope(&value.scope, &value.room_id)?;
+                if !identifier(&value.operation_id) || !identifier(&value.device_id) {
+                    return Err(Error::Receipt);
+                }
+                let scope = Scope {
+                    instance: value.scope.instance_id.clone(),
+                    data_epoch: value.scope.data_epoch.clone(),
+                    room: value.room_id.clone(),
+                    incarnation: hex(&value.incarnation)?,
+                };
+                scope.group_id()?;
+                Self::Cancelled(GroupCancellation {
+                    scope,
+                    operation: value.operation_id.clone(),
+                    device: value.device_id.clone(),
+                    fingerprint: hex(&value.fingerprint)?,
+                })
+            }
+        })
+    }
+}
 fn decimal(value: &str, positive: bool) -> Result<u64> {
     if value.len() > 19 {
         return Err(Error::Limit);

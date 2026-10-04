@@ -8,6 +8,11 @@ worker possédé du coordinateur.
 
 ## Observations et préparation
 
+Les [transitions interrompues](GROUP_SETTLEMENT.md) gardent leur original dans
+le coffre même après un successeur de pair. `cancel_group` checkpoint l'intention
+d'abandon avant HTTP et valide le reçu terminal avant de libérer le commit.
+Les rotations acceptées restent ordonnées par le journal.
+
 `Genesis::from_wire` prend le roster courant sans groupe, une nouvelle incarnation
 de salon non nulle, l'opération et les réponses de packages disponibles.
 `Change::from_wire` prend le roster avec sa tête, les retraits explicites et les

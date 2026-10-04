@@ -464,6 +464,46 @@ async fn run(input: Input) -> Result<()> {
         alice.secret(&input.room)? == bob.secret(&input.room)?,
         "initial peer epoch secrets differ"
     );
+    // Abandon a true prepared successor without ever accepting it on the
+    // server. A lost terminal response must repeat cancellation, never POST
+    // that successor. The accepted group's secrets remain intact.
+    let old = alice.secret(&input.room)?;
+    let observed = alice.client.crypto_group_roster(&input.room).await?;
+    let change = groups::Change::from_wire(&observed, &HEXLOWER.encode(&random::<32>()), &[], &[])?;
+    let coordinator = groups::Coordinator::new(alice.manager.clone(), alice.root.clone())?;
+    let (preview, consent) = coordinator.preview_change(&change, now())?;
+    let original_group =
+        coordinator.prepare_change(&change, &consent, preview.fingerprint, now())?;
+    let worker = alice.worker()?;
+    lost(worker.cancel_group(&input.room, &change.operation).await);
+    worker.stop();
+    assert!(
+        matches!(
+            alice.worker()?.resume_group(&input.room).await,
+            Err(delivery::Error::Group(groups::Error::GroupCancelled))
+        ),
+        "abandoned transition was retried"
+    );
+    assert!(matches!(
+        alice
+            .worker()?
+            .cancel_group(&input.room, &change.operation)
+            .await?,
+        groups::GroupSettlement::Cancelled(_)
+    ));
+    assert!(
+        alice.secret(&input.room)? == old
+            && alice.secret(&input.room)? == bob.secret(&input.room)?,
+        "abandonment changed the accepted MLS epoch"
+    );
+    let late = alice
+        .client
+        .submit_crypto_group(&input.room, &original_group.to_wire()?)
+        .await;
+    assert!(
+        matches!(late, Err(rv_client::Error::Server { status:409, ref code, .. }) if code=="crypto_group_cancelled"),
+        "late original transition was accepted"
+    );
     // Prepare a genuine private intention without POSTing it. Lose the first
     // durable cancellation response, reopen, recover the exact document, then
     // prove the peer can receive the next sender generation normally.

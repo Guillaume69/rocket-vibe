@@ -147,6 +147,11 @@ struct Book {
     drop_once: bool,
     wrong_ack: bool,
     limited: bool,
+    group_drop_before: bool,
+    group_cancellations: BTreeMap<String, (Vec<u8>, http::GroupCancellation)>,
+    group_cancel_attempts: Vec<Vec<u8>>,
+    group_cancel_drop_once: bool,
+    group_cancel_wrong_ack: bool,
     message_submissions: BTreeMap<String, http::ApplicationSubmission>,
     message_receipts: BTreeMap<String, http::ApplicationReceipt>,
     message_cancellations: BTreeMap<String, (Vec<u8>, http::ApplicationCancellation)>,
@@ -173,6 +178,11 @@ fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex
         drop_once,
         wrong_ack: false,
         limited: false,
+        group_drop_before: false,
+        group_cancellations: BTreeMap::new(),
+        group_cancel_attempts: vec![],
+        group_cancel_drop_once: false,
+        group_cancel_wrong_ack: false,
         message_submissions: BTreeMap::new(),
         message_receipts: BTreeMap::new(),
         message_cancellations: BTreeMap::new(),
@@ -244,7 +254,10 @@ fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex
         if request.path.contains("/key-packages/") {
             return json(&book.package);
         }
-        if request.path.ends_with("/cancel") && request.method == "POST" {
+        if request.path.ends_with("/cancel")
+            && request.method == "POST"
+            && request.path.contains("/message-operations/")
+        {
             if book.cancellation_drop_before {
                 book.cancellation_drop_before = false;
                 return None;
@@ -337,7 +350,63 @@ fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex
             }
             return json(&receipt);
         }
+        if request.path.contains("/operations/") && request.path.ends_with("/cancel") {
+            assert_eq!(request.method, "POST");
+            book.group_cancel_attempts.push(request.body.clone());
+            let input: http::GroupSubmission = serde_json::from_slice(&request.body).unwrap();
+            let transition =
+                Transition::from_bytes(&B64.decode(input.transition.as_bytes()).unwrap()).unwrap();
+            transition.authenticate().unwrap();
+            assert_eq!(transition.certificate.device.root.user, user);
+            assert_eq!(transition.certificate.device.device, device);
+            if let Some(accepted) = &book.receipt
+                && accepted.operation_id == input.operation_id
+            {
+                assert_eq!(
+                    serde_json::to_value(book.submission.as_ref().unwrap()).unwrap(),
+                    serde_json::to_value(&input).unwrap()
+                );
+                return json(&http::GroupSettlement::Accepted(accepted.clone()));
+            }
+            let cancellation = http::GroupCancellation {
+                scope: input.scope,
+                room_id: transition.plan.scope.room.clone(),
+                incarnation: HEXLOWER.encode(&transition.plan.scope.incarnation),
+                operation_id: input.operation_id,
+                device_id: device.into(),
+                fingerprint: HEXLOWER.encode(&transition.fingerprint().unwrap()),
+            };
+            if let Some((original, saved)) =
+                book.group_cancellations.get(&cancellation.operation_id)
+            {
+                assert_eq!(original, &request.body);
+                assert_eq!(
+                    serde_json::to_value(saved).unwrap(),
+                    serde_json::to_value(&cancellation).unwrap()
+                );
+            } else {
+                book.group_cancellations.insert(
+                    cancellation.operation_id.clone(),
+                    (request.body, cancellation.clone()),
+                );
+            }
+            if book.group_cancel_drop_once {
+                book.group_cancel_drop_once = false;
+                return None;
+            }
+            let mut cancellation = cancellation;
+            if book.group_cancel_wrong_ack {
+                cancellation.fingerprint = HEXLOWER.encode(&[7; 32]);
+            }
+            return json(&http::GroupSettlement::Cancelled(cancellation));
+        }
         if request.path.contains("/operations/") {
+            if book
+                .group_cancellations
+                .contains_key(request.path.rsplit('/').next().unwrap())
+            {
+                return error(409, "crypto_group_cancelled", None);
+            }
             return match &book.receipt {
                 Some(receipt)
                     if request
@@ -355,10 +424,20 @@ fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex
         }
         if request.path.ends_with("/transitions") && request.method == "POST" {
             book.posts += 1;
+            if book.group_drop_before {
+                book.group_drop_before = false;
+                return None;
+            }
             if book.limited {
                 return error(429, "rate_limited", Some(30));
             }
             let submission: http::GroupSubmission = serde_json::from_slice(&request.body).unwrap();
+            if book
+                .group_cancellations
+                .contains_key(&submission.operation_id)
+            {
+                return error(409, "crypto_group_cancelled", None);
+            }
             let transition =
                 Transition::from_bytes(&B64.decode(submission.transition.as_bytes()).unwrap())
                     .unwrap();
@@ -968,6 +1047,125 @@ async fn preview(worker: &Worker) -> delivery::GenesisPreview {
         )
         .await
         .unwrap()
+}
+
+#[tokio::test]
+async fn lost_group_cancellation_reopens_without_resubmitting_then_a_fresh_genesis_can_publish() {
+    let (alice, bob) = accounts();
+    let (server, book) = server(&alice, &bob, false);
+    book.lock().unwrap().group_drop_before = true;
+    let worker = server.worker(&alice);
+    let prepared = preview(&worker).await;
+    let fingerprint = prepared.preview.fingerprint;
+    assert!(matches!(
+        worker.prepare_genesis(prepared, fingerprint).await,
+        Err(delivery::Error::Network(_))
+    ));
+    book.lock().unwrap().group_cancel_drop_once = true;
+    assert!(matches!(
+        worker.cancel_group("room", "worker-genesis").await,
+        Err(delivery::Error::Network(_))
+    ));
+    assert!(alice.reopened().pending_lookup("room").unwrap().cancelling);
+    assert!(matches!(
+        server.worker(&alice).resume_group("room").await,
+        Err(delivery::Error::Group(Error::GroupCancelled))
+    ));
+    assert!(matches!(
+        server
+            .worker(&alice)
+            .cancel_group("room", "worker-genesis")
+            .await
+            .unwrap(),
+        GroupSettlement::Cancelled(_)
+    ));
+    {
+        let book = book.lock().unwrap();
+        assert_eq!(book.posts, 1);
+        assert_eq!(book.group_cancel_attempts.len(), 2);
+        assert_eq!(book.group_cancel_attempts[0], book.group_cancel_attempts[1]);
+    }
+    let fresh = server
+        .worker(&alice)
+        .preview_genesis(
+            "room",
+            [3; 16],
+            "fresh-after-abandonment".into(),
+            vec![Target {
+                user: "bob".into(),
+                device: "bob-mobile".into(),
+            }],
+        )
+        .await
+        .unwrap();
+    let fingerprint = fresh.preview.fingerprint;
+    server
+        .worker(&alice)
+        .prepare_genesis(fresh, fingerprint)
+        .await
+        .unwrap();
+    assert_eq!(alice.reopened().ready_epoch("room"), Ok(1));
+    assert_eq!(book.lock().unwrap().posts, 2);
+}
+
+#[tokio::test]
+async fn group_cancellation_returns_an_already_accepted_original_and_repeats_without_network_mutation()
+ {
+    let (alice, bob) = accounts();
+    let (server, book) = server(&alice, &bob, true);
+    let worker = server.worker(&alice);
+    let prepared = preview(&worker).await;
+    let fingerprint = prepared.preview.fingerprint;
+    assert!(matches!(
+        worker.prepare_genesis(prepared, fingerprint).await,
+        Err(delivery::Error::Network(_))
+    ));
+    let accepted = worker.cancel_group("room", "worker-genesis").await.unwrap();
+    assert!(matches!(accepted, GroupSettlement::Accepted(_)));
+    let repeated = server
+        .worker(&alice)
+        .cancel_group("room", "worker-genesis")
+        .await
+        .unwrap();
+    assert!(accepted == repeated);
+    assert_eq!(alice.reopened().ready_epoch("room"), Ok(1));
+    let book = book.lock().unwrap();
+    assert_eq!(book.posts, 1);
+    assert_eq!(book.group_cancel_attempts.len(), 1);
+    assert!(book.group_cancellations.is_empty());
+}
+
+#[tokio::test]
+async fn substituted_group_abandonment_never_releases_the_pending_commit_or_replays_its_post() {
+    let (alice, bob) = accounts();
+    let (server, book) = server(&alice, &bob, false);
+    book.lock().unwrap().group_drop_before = true;
+    let worker = server.worker(&alice);
+    let prepared = preview(&worker).await;
+    let fingerprint = prepared.preview.fingerprint;
+    assert!(worker.prepare_genesis(prepared, fingerprint).await.is_err());
+    book.lock().unwrap().group_cancel_wrong_ack = true;
+    assert!(matches!(
+        worker.cancel_group("room", "worker-genesis").await,
+        Err(delivery::Error::Group(Error::Receipt))
+    ));
+    assert!(alice.reopened().pending_lookup("room").unwrap().cancelling);
+    assert!(
+        alice
+            .reopened()
+            .group_settlement("worker-genesis")
+            .unwrap()
+            .is_none()
+    );
+    book.lock().unwrap().group_cancel_wrong_ack = false;
+    assert!(matches!(
+        server.worker(&alice).resume_group("room").await,
+        Err(delivery::Error::Group(Error::GroupCancelled))
+    ));
+    let book = book.lock().unwrap();
+    assert_eq!(book.posts, 1);
+    assert_eq!(book.group_cancel_attempts.len(), 2);
+    assert_eq!(book.group_cancel_attempts[0], book.group_cancel_attempts[1]);
 }
 
 #[tokio::test]

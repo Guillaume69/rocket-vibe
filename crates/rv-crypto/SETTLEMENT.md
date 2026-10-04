@@ -50,6 +50,7 @@ contre la preuve protégée. Le code d'erreur seul ne suffit pas à libérer l'o
 Les anciens ledgers sans champs `cancelled` / `cancelling` restent lisibles. Les bornes du
 ledger restent 64 corps et 8192 identités ; un corps abandonné n'est pas
 automatiquement effacé. Les refus transitoires ne sont jamais convertis en
-abandon automatique. Retrait / nouvelle admission du groupe, règlement des
-transitions préparées, projection privée dans les apps, archives / fichiers,
+abandon automatique. Le [règlement des transitions préparées](GROUP_SETTLEMENT.md)
+possède son propre original et ses marqueurs terminaux. Retrait / nouvelle
+admission du groupe, projection privée dans les apps, archives / fichiers,
 qualification des appareils et revue indépendante restent ouverts.

@@ -135,6 +135,10 @@ pub fn router(app: App) -> Router {
             get(crypto_group_operation),
         )
         .route(
+            "/api/v1/e2ee/rooms/{room}/operations/{operation}/cancel",
+            post(cancel_crypto_group).layer(DefaultBodyLimit::max(4 * 1024 * 1024)),
+        )
+        .route(
             "/api/v1/e2ee/rooms/{room}/key-packages/{user}/{device}",
             get(crypto_available_package),
         )
@@ -855,6 +859,17 @@ async fn crypto_group_events(
 ) -> Result<Response> {
     let actor = account(&app, &headers).await?;
     crate::e2ee::groups::events(&app, &actor, &room, query.after.as_deref()).await
+}
+async fn cancel_crypto_group(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path((room, operation)): Path<(String, String)>,
+    input: Input<rv_protocol::e2ee::GroupSubmission>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::e2ee::groups::cancel(&app, &actor, &room, &operation, body(input)?).await?,
+    ))
 }
 async fn crypto_group_operation(
     State(app): State<App>,

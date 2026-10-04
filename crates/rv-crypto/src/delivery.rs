@@ -344,6 +344,12 @@ impl Worker {
                 Ok(groups::Coordinator::new(manager, root)?.pending_lookup(&room_owned)?)
             })
             .await?;
+        if pending.cancelling {
+            return match self.cancel_group_inner(room, &pending.operation).await? {
+                groups::GroupSettlement::Accepted(receipt) => Ok(receipt),
+                groups::GroupSettlement::Cancelled(_) => Err(groups::Error::GroupCancelled.into()),
+            };
+        }
         let receipt = match self
             .client
             .crypto_group_operation(room, &pending.operation)
@@ -351,6 +357,9 @@ impl Worker {
         {
             Ok(receipt) => receipt,
             Err(rv_client::Error::Server { status: 404, .. }) => {
+                if pending.superseded {
+                    return Err(groups::Error::Pending.into());
+                }
                 self.gate().await?;
                 let room = room.to_owned();
                 let submission = self
@@ -368,6 +377,16 @@ impl Worker {
                 )
                 .await?
             }
+            Err(rv_client::Error::Server {
+                status: 409, code, ..
+            }) if code == "crypto_group_cancelled" => {
+                return match self.cancel_group_inner(room, &pending.operation).await? {
+                    groups::GroupSettlement::Accepted(receipt) => Ok(receipt),
+                    groups::GroupSettlement::Cancelled(_) => {
+                        Err(groups::Error::GroupCancelled.into())
+                    }
+                };
+            }
             Err(error) => return Err(error.into()),
         };
         let receipt = groups::Receipt::from_wire(&receipt)?;
@@ -380,6 +399,58 @@ impl Worker {
         self.owned(move |manager, root, now| {
             groups::Coordinator::new(manager, root)?.confirm(&receipt, now)?;
             Ok(receipt)
+        })
+        .await
+    }
+    /// Checkpoint abandonment before HTTP. Accepted packets retain their MLS
+    /// transition; a terminal cancellation alone releases the prepared commit.
+    pub async fn cancel_group(
+        &self,
+        room: &str,
+        operation: &str,
+    ) -> Result<groups::GroupSettlement> {
+        let _dispatch = self.dispatch.lock().await;
+        self.scope().await?;
+        self.cancel_group_inner(room, operation).await
+    }
+    async fn cancel_group_inner(
+        &self,
+        room: &str,
+        operation: &str,
+    ) -> Result<groups::GroupSettlement> {
+        let owned_room = room.to_owned();
+        let owned_operation = operation.to_owned();
+        let request = self
+            .owned(move |manager, root, now| {
+                Ok(
+                    groups::Coordinator::new(manager, root)?.request_group_cancellation(
+                        &owned_room,
+                        &owned_operation,
+                        now,
+                    )?,
+                )
+            })
+            .await?;
+        let groups::CancellationRequest::Original(original) = request else {
+            let groups::CancellationRequest::Known(value) = request else {
+                unreachable!()
+            };
+            return Ok(value);
+        };
+        let submission = original.to_wire()?;
+        let decision = self
+            .network(self.client.cancel_crypto_group(room, &submission).await)
+            .await?;
+        self.owned(move |manager, root, now| {
+            let coordinator = groups::Coordinator::new(manager, root)?;
+            let decision = groups::GroupSettlement::from_wire(&decision)?;
+            match &decision {
+                groups::GroupSettlement::Accepted(receipt) => coordinator.confirm(receipt, now)?,
+                groups::GroupSettlement::Cancelled(receipt) => {
+                    coordinator.confirm_group_cancellation(receipt, now)?
+                }
+            }
+            Ok(decision)
         })
         .await
     }

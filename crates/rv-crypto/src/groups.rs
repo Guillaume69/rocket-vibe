@@ -30,6 +30,9 @@ mod changes;
 pub use changes::Change;
 mod journal;
 mod messages;
+mod settlement;
+pub(crate) use settlement::CancellationRequest;
+pub use settlement::{GroupCancellation, GroupSettlement};
 pub mod wire;
 pub use journal::{JournalBatch, JournalObservation, JournalRequest};
 pub use messages::{
@@ -54,6 +57,10 @@ pub enum Error {
     Changed,
     #[error("crypto_group_pending")]
     Pending,
+    #[error("crypto_group_cancellation_pending")]
+    GroupCancelling,
+    #[error("crypto_group_cancelled")]
+    GroupCancelled,
     #[error("crypto_group_exists")]
     Exists,
     #[error("crypto_group_not_ready")]
@@ -156,6 +163,8 @@ pub struct PendingLookup {
     pub scope: Scope,
     pub operation: String,
     pub fingerprint: Fingerprint,
+    pub cancelling: bool,
+    pub superseded: bool,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -498,6 +507,12 @@ impl Coordinator {
         let intent = request_fingerprint(request)?;
         self.scope(&request.roster.scope)?;
         self.inspect(|provider, records| {
+            self.check_group_preparation(
+                records,
+                &request.roster.scope.room,
+                &request.operation,
+                now,
+            )?;
             let state = read(records, &request.roster.scope.room)?;
             check_clock(state.as_ref(), now)?;
             if let Some(state) = &state {
@@ -554,6 +569,12 @@ impl Coordinator {
             return Err(Error::Changed);
         }
         self.transact(|provider, records| {
+            self.check_group_preparation(
+                records,
+                &request.roster.scope.room,
+                &request.operation,
+                now,
+            )?;
             let state = read(records, &request.roster.scope.room)?;
             check_clock(state.as_ref(), now)?;
             if let Some(pending) = state.as_ref().and_then(|s| s.pending.as_ref()) {
@@ -671,6 +692,15 @@ impl Coordinator {
                 welcomes,
             };
             check_payloads(&submission)?;
+            let pending = Pending {
+                created: now,
+                intent,
+                pins: context.pins_fingerprint,
+                own: context.certificate.fingerprint()?,
+                submission: submission.clone(),
+                group_info,
+            };
+            self.record_group_prepared(records, &pending, now)?;
             save(
                 records,
                 &State {
@@ -679,14 +709,7 @@ impl Coordinator {
                     clock: now,
                     active: None,
                     seen_packages: BTreeSet::new(),
-                    pending: Some(Pending {
-                        created: now,
-                        intent,
-                        pins: context.pins_fingerprint,
-                        own: context.certificate.fingerprint()?,
-                        submission: submission.clone(),
-                        group_info,
-                    }),
+                    pending: Some(pending),
                 },
             )?;
             Ok(submission)
@@ -776,6 +799,7 @@ impl Coordinator {
         pending: &Pending,
         now: u64,
     ) -> Result<Submission> {
+        self.group_retry_allowed(records, &pending.submission.operation)?;
         let context = self.context(records, now)?;
         if context.pins_fingerprint != pending.pins
             || context.certificate.fingerprint()? != pending.own
@@ -827,17 +851,7 @@ impl Coordinator {
         })
     }
     pub fn pending_lookup(&self, room: &str) -> Result<PendingLookup> {
-        self.inspect(|_, records| {
-            let state = read(records, room)?.ok_or(Error::NotReady)?;
-            self.scope(&state.scope)?;
-            let pending = state.pending.ok_or(Error::NotReady)?;
-            let transition = Transition::from_bytes(&pending.submission.transition)?;
-            Ok(PendingLookup {
-                scope: state.scope,
-                operation: pending.submission.operation,
-                fingerprint: transition.fingerprint()?,
-            })
-        })
+        self.inspect(|_, records| self.group_pending_lookup(records, room))
     }
     /// Validate a real Welcome in a disposable provider snapshot. Package
     /// consumption in OpenMLS is discarded until the confirmed transaction.
@@ -1049,10 +1063,25 @@ impl Coordinator {
     pub fn confirm(&self, receipt: &Receipt, now: u64) -> Result<()> {
         self.scope(&receipt.scope)?;
         self.transact(|provider, records| {
+            let known = self.group_settlement_in(records, &receipt.operation, now)?;
+            if known
+                .as_ref()
+                .is_some_and(|value| value != &GroupSettlement::Accepted(receipt.clone()))
+            {
+                return Err(Error::Receipt);
+            }
             let mut state = read(records, &receipt.scope.room)?.ok_or(Error::NotReady)?;
             check_clock(Some(&state), now)?;
             if state.scope != receipt.scope {
                 return Err(Error::Receipt);
+            }
+            if known.is_some()
+                && state
+                    .pending
+                    .as_ref()
+                    .is_none_or(|p| p.submission.operation != receipt.operation)
+            {
+                return Ok(());
             }
             if let Some(active) = &state.active {
                 if active.receipt == *receipt {
@@ -1065,11 +1094,13 @@ impl Coordinator {
             let pending = state.pending.as_ref().ok_or(Error::NotReady)?;
             let transition = Transition::from_bytes(&pending.submission.transition)?;
             check_receipt(&transition, receipt)?;
+            self.record_group_ack(records, pending, receipt, now)?;
             // Once ordered delivery is active, the HTTP ACK cannot discard an
             // epoch with unread messages. The journal merges this exact pending
             // commit at its native position instead.
             if state.active.is_some() && journal::started(records, &state.scope)? {
-                return Ok(());
+                state.clock = now;
+                return save(records, &state);
             }
             let mut group = MlsGroup::load(
                 provider.storage(),

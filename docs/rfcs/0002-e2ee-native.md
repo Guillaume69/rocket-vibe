@@ -327,7 +327,10 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    et des nouveaux envois restent requis. [Règlement des envois personnels](../../crates/rv-crypto/SETTLEMENT.md)
    ajouté : intention d'abandon checkpoint avant HTTP, reçu accepté gagnant ou
    marqueur serveur interdisant le POST tardif, document privé conservé et
-   nouvelle opération obligatoire. Réadmission, historique après
+   nouvelle opération obligatoire. [Règlement des transitions préparées](../../crates/rv-crypto/GROUP_SETTLEMENT.md)
+   ajouté : original conservé après succession d'un pair, abandon checkpoint
+   avant HTTP, décision terminale et libération du seul commit non accepté.
+   Les confirmations de rotation restent ordonnées par le journal. Réadmission, historique après
    révocation et projection des apps restent ouverts ;
    aucune capacité activée.
 5. Pont mobile et intégration aux fournisseurs actuels ; archive / fichiers,

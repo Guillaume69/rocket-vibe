@@ -19,6 +19,8 @@ mod protected_worker;
 
 #[path = "application_tests.rs"]
 mod application_delivery;
+#[path = "group_settlement_tests.rs"]
+mod group_settlement;
 
 struct Ready {
     actor: Account,

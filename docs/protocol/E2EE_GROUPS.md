@@ -1,14 +1,17 @@
 # Livraison des transitions MLS natives
 
 État au 4 octobre 2026 : protocole serveur expérimental, SDK Rust / TypeScript et
-preuves PostgreSQL / MLS. `capabilities.e2ee` reste désactivé. Le coffre client
-et les interfaces existantes ne sont pas encore raccordés à ces routes.
+preuves PostgreSQL / MLS. `capabilities.e2ee` reste désactivé. Le worker privé
+expérimental utilise ces routes ; son intégration aux fournisseurs des
+interfaces existantes reste ouverte.
 Spécification d'ensemble : [RFC 0002](../rfcs/0002-e2ee-native.md).
 
 ## Routes
 
-Toutes exigent une session HTTP et l'adhésion courante au salon ; réponses et
-refus portent `Cache-Control: no-store`.
+Toutes exigent une session HTTP active ; les observations et nouvelles
+transitions exigent l'adhésion courante au salon. Les reçus personnels et
+l'abandon d'une intention propre restent accessibles après retrait. Réponses
+et refus portent `Cache-Control: no-store`.
 
 | Route sous `/api/v1/e2ee/rooms/{room}` | Usage |
 |---|---|
@@ -17,12 +20,47 @@ refus portent `Cache-Control: no-store`.
 | `GET /state` | Dernier reçu, preuve signée, arbre courant et indication `needs_rekey` |
 | `GET /events?after={revision}` | Au plus 16 transitions après une révision décimale canonique ; Welcome de l'appareil appelant seulement |
 | `GET /operations/{operation}` | Reçu durable de cet utilisateur / appareil et de ce salon |
+| `POST /operations/{operation}/cancel` | Décision terminale contre les octets originaux de `GroupSubmission` |
 | `GET /key-packages/{user}/{device}` | Observation d'un KeyPackage publié, actif et disponible d'un membre du salon |
 
 L'observation d'un package ne le réserve pas. Deux auteurs peuvent observer la
 même référence ; seule une transition acceptée la consomme. Une observation
 devenue périmée provoque un refus, sans changer de groupe ni de clé silencieusement.
 Les révisions / époques des DTO HTTP restent des chaînes décimales exactes.
+
+## Intention interrompue et abandon
+
+Le reçu personnel se consulte avec l'appareil de la session HTTP, même après
+retrait du salon ou expiration du certificat crypto. Il ne contient ni arbre,
+commit, Welcome ni permission de lecture. Les routes d'observation conservent
+leurs contrôles courants. Le rejeu strict d'un POST déjà accepté retrouve aussi
+son reçu avant la vérification d'adhésion.
+
+L'abandon transmet le **GroupSubmission original complet**, avec une limite
+HTTP de 4 MiB. Le certificat signé désigne l'appareil de l'intention : une autre
+session active du même utilisateur peut demander la décision exacte. Sans
+décision connue, le serveur authentifie signature, portée et digests opaques ;
+un certificat expiré reste utilisable pour ce seul règlement, un certificat
+émis dans le futur est refusé. Il ne réautorise aucune feuille ou admission.
+
+`GroupSettlement` contient soit `accepted` avec le `GroupReceipt original`,
+soit `cancelled` avec portée, salon, incarnation de groupe, opération, appareil
+et empreinte de transition. L'abandon ne réserve aucune révision, époque ou
+position ; il n'enregistre aucun commit / arbre / Welcome et ne consomme aucun
+KeyPackage. Son empreinte d'intention SQL lie les octets originaux complets.
+
+Acceptation et abandon prennent le même verrou exclusif de l'auteur. Une
+acceptation déjà durable gagne ; sinon le marqueur persistant interdit tout
+POST tardif de cette intention. Un autre corps sous la même opération est
+refusé. Un GET personnel abandonné retourne `409 crypto_group_cancelled` ; le
+client récupère la décision typée contre son original protégé avant de libérer
+le commit. Un code d'erreur seul ne suffit pas.
+
+Les nouveaux abandons sont limités à 256 par jour et compte. Les décisions
+exactes déjà connues restent rejouables au-delà du quota. Une restauration
+changeant l'époque des données refuse l'ancienne portée. Cette décision repose
+sur le serveur HTTP authentifié ; elle n'est pas une preuve cryptographique
+d'absence d'acceptation. [Politique du coffre privé](../../crates/rv-crypto/GROUP_SETTLEMENT.md).
 
 `GroupRoster` donne la portée d'instance / époque des données, le salon,
 `authority_version`, les membres triés par UID (`user_id`, `access_version`,
@@ -224,7 +262,12 @@ consommé ; les secrets d'époque des deux coffres concordent. Le checkpoint
 externe du processus privé est simulé en mémoire ; aucune qualification de
 trousseau ou destruction du processus privé n'en découle. Le test explicitement
 ignoré par défaut est obligatoire dans le job dédié `native-crypto-http`.
-Planification dans les fournisseurs, messages et qualification restent ouverts.
+Le banc actuel ajoute messages sur trois époques et abandon d'une rotation
+préparée : réponse terminale perdue, reprise sans republication, POST tardif
+interdit et mêmes secrets de groupe conservés. Trois transitions sont acceptées
+et une tentative tardive est refusée ; un marqueur d'abandon de groupe est
+enregistré sans nouvelle révision. Planification dans les fournisseurs,
+projection des messages et qualification restent ouvertes.
 Aucune capacité E2EE n'est activée.
 
 Les limites se cumulent : 128 membres, 256 appareils, index MLS ≤ 4 095,

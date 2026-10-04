@@ -1583,6 +1583,38 @@
       ],
       "type": "string"
     },
+    "GroupCancellation": {
+      "additionalProperties": false,
+      "properties": {
+        "device_id": {
+          "type": "string"
+        },
+        "fingerprint": {
+          "type": "string"
+        },
+        "incarnation": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "room_id",
+        "incarnation",
+        "operation_id",
+        "device_id",
+        "fingerprint"
+      ],
+      "type": "object"
+    },
     "GroupEvent": {
       "additionalProperties": false,
       "properties": {
@@ -1731,6 +1763,44 @@
         "members"
       ],
       "type": "object"
+    },
+    "GroupSettlement": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/GroupReceipt"
+            },
+            "kind": {
+              "const": "accepted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/GroupCancellation"
+            },
+            "kind": {
+              "const": "cancelled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "GroupState": {
       "additionalProperties": false,
@@ -3042,6 +3112,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/GroupRoster"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_group_settlement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GroupSettlement"
             },
             {
               "type": "null"

@@ -218,6 +218,7 @@ impl Coordinator {
                     .filter_map(|p| p.key_package),
             );
             state.clock = now;
+            self.record_group_delivery(records, &state, &commit.receipt, now)?;
             state.pending = None;
             state.active = Some(Active {
                 created: now,

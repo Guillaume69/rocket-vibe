@@ -196,6 +196,12 @@ impl Coordinator {
         let intent = intent(request)?;
         self.scope(&request.roster.scope)?;
         self.inspect(|provider, records| {
+            self.check_group_preparation(
+                records,
+                &request.roster.scope.room,
+                &request.operation,
+                now,
+            )?;
             let state = read(records, &request.roster.scope.room)?.ok_or(Error::NotReady)?;
             check_clock(Some(&state), now)?;
             if state.pending.is_some() || self.pending_messages(records, &state.scope)? {
@@ -243,6 +249,12 @@ impl Coordinator {
             return Err(Error::Changed);
         }
         self.transact(|provider, records| {
+            self.check_group_preparation(
+                records,
+                &request.roster.scope.room,
+                &request.operation,
+                now,
+            )?;
             let mut state = read(records, &request.roster.scope.room)?.ok_or(Error::NotReady)?;
             check_clock(Some(&state), now)?;
             if self.pending_messages(records, &state.scope)? {
@@ -367,6 +379,11 @@ impl Coordinator {
                 group_info: Some(group_info),
             });
             state.clock = now;
+            self.record_group_prepared(
+                records,
+                state.pending.as_ref().ok_or(Error::Changed)?,
+                now,
+            )?;
             save(records, &state)?;
             Ok(submission)
         })

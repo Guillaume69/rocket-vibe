@@ -551,6 +551,8 @@ pub struct RoomKeyEnvelope {
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct ParityContract {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e2ee_group_settlement: Option<crate::e2ee::GroupSettlement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub e2ee_application_settlement: Option<crate::e2ee::ApplicationSettlement>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub e2ee_application_submission: Option<crate::e2ee::ApplicationSubmission>,

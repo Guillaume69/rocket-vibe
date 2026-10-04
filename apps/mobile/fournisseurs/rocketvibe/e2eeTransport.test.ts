@@ -140,6 +140,27 @@ test('signed group transport preserves large revisions, targeted Welcome and ori
   assert.throws(()=>decodeNative('GroupEventPage',{...events,events:[{...events.events[0],private_key:'forbidden'}]}));
 });
 
+test('group abandonment retries the exact original packet and decodes only terminal public metadata',async()=>{
+  const input=decodeNative('GroupSubmission',fixture.parity.e2ee_group_submission);
+  const decision=decodeNative('GroupSettlement',fixture.parity.e2ee_group_settlement);
+  const requests:{url:string;options?:RequestInit}[]=[];
+  const transport=new NativeTransport('https://example.org',async(url,options)=>{
+    requests.push({url:String(url),options});
+    if(requests.length===1)throw new TypeError('Lost terminal decision');
+    return Response.json(decision);
+  });
+  transport.restore('saved-token');
+  await assert.rejects(transport.cancelCryptoGroup('fixture-room',input));
+  assert.deepEqual(await transport.cancelCryptoGroup('fixture-room',input),decision);
+  assert.equal(requests[0].options?.body,requests[1].options?.body);
+  assert.deepEqual(JSON.parse(requests[1].options?.body as string),input);
+  assert.equal(new URL(requests[1].url).pathname,`/api/v1/e2ee/rooms/fixture-room/operations/${input.operation_id}/cancel`);
+  assert.throws(()=>decodeNative('GroupSettlement',{kind:'cancelled',data:{...decision.data,revision:'1'}}));
+  assert.throws(()=>decodeNative('GroupSettlement',{kind:'cancelled',data:{...decision.data,tree:'forbidden'}}));
+  assert.throws(()=>decodeNative('GroupSettlement',{kind:'cancelled',data:{...decision.data,private_key:'forbidden'}}));
+  assert.throws(()=>decodeNative('GroupSettlement',{kind:'unknown',data:decision.data}));
+});
+
 test('E2EE transport replays the original public intent after lost acknowledgement',async()=>{
   const requests:{url:string;options?:RequestInit}[]=[];
   let lost=true;

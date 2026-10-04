@@ -11,11 +11,11 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées et signatures historiques | Messages dans les apps, réadmission / historique après révocation, ponts / interfaces, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques et règlement des intentions interrompues | Messages dans les apps, réadmission / historique après révocation, ponts / interfaces, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison qualifiée (`451f053`) passe les neuf jobs de la CI
-`37182941341` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison qualifiée (`c667ce0`) passe les neuf jobs de la CI
+`37185009295` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
 Le journal serveur passe ses neuf scénarios
 PostgreSQL / HTTP / MLS et les contrats communs ; aucune capacité E2EE n'est
@@ -23,9 +23,10 @@ activée. Le worker privé checkpoint maintenant les pages communes aux messages
 et transitions, avec curseur durable et rattrapage de plusieurs époques sur la
 même admission. Authentification des signatures expirées sur cette admission
 ajoutée ; abandon durable des envois personnels ajouté ensuite avec intention
-privée checkpoint avant HTTP et document récupérable. Réadmissions,
-transitions incertaines et fournisseurs des apps constituent les
-étapes suivantes.
+privée checkpoint avant HTTP et document récupérable. Règlement des transitions
+ajouté ensuite : original conservé après succession d'un pair, décision
+terminale durable et libération du seul commit non accepté. Réadmissions et
+fournisseurs des apps constituent les étapes suivantes.
 Les critères externes encore ouverts restent des critères de sortie de la RFC.
 
 ## Premier incrément : socle serveur et transports pilotes
@@ -339,6 +340,33 @@ Le parcours mobile pilote et les tests sans appareil ne ferment pas J1 : il exig
 les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
+
+- P19 / J4, règlement des transitions de groupe (4 octobre 2026) : reçu personnel
+  disponible après retrait / expiration, route d'abandon avec intention opaque
+  originale, migration 0042 et SDK Rust / TypeScript typés. Acceptation et abandon
+  partagent le verrou de l'auteur : un reçu accepté gagne, sinon le marqueur
+  durable refuse le POST tardif sans révision / époque / position, ni consommation
+  de package. Quota de 256 nouveaux abandons par jour / compte ; rejeu terminal
+  exact conservé. Scope d'époque restaurée, autre auteur et substitution refusés.
+  Le coffre garde original et intention d'abandon avant HTTP, avec registre lié
+  au compte / appareil / incarnation / racine. Genèse abandonnée : groupe non
+  accepté supprimé ; rotation abandonnée : seul commit préparé libéré. Le journal
+  conserve sa position et l'époque acceptée. Un successeur de pair conserve
+  l'ancien original incertain ; nouvelle préparation bloquée jusqu'au règlement.
+  Le reçu HTTP accepté reste mémorisé sans avancer une rotation avant sa position.
+  Tests locaux : six nouveaux cas protégés, 17 scénarios HTTP privés après correction
+  du routage de la fixture, 12 scénarios de journal et cinq cas de règlement serveur
+  dont quota (3,48 s), après 31 scénarios de groupe réussis ; contrats, huit tests
+  transport TS, typage, ESLint et Clippy strict. Le premier passage privé complet
+  compte 141 succès / trois échecs de fixture ; ces trois cas passent au rejeu
+  ciblé après correction, la suite complète suivante est confiée à la CI.
+  Banc réel worker / HTTP / PostgreSQL : succès en 42,70 s, neuf frames acceptées
+  sur trois époques, rotation abandonnée après réponse perdue, reprise sans POST
+  de transition supplémentaire, tentative tardive refusée et un seul package
+  admis consommé. Stockage externe du banc simulé, aucune preuve de trousseau
+  physique ajoutée. Réadmission, projection des apps, archives / fichiers,
+  revue et qualifications restent ouverts ; capacité E2EE désactivée.
+  [Politique et frontières](../crates/rv-crypto/GROUP_SETTLEMENT.md).
 
 - P19 / J4, règlement définitif des envois personnels (4 octobre 2026) : route
   d'abandon reprenant les octets originaux, verrou de compte commun aux envois

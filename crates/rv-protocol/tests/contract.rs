@@ -1,6 +1,36 @@
 use rv_protocol::{Contract, SendMessage};
 
 #[test]
+fn terminal_group_decisions_never_publish_a_revision_for_abandonment() {
+    use rv_protocol::e2ee::GroupSettlement;
+    let fixture: Contract =
+        serde_json::from_str(include_str!("../../../docs/protocol/v1.fixture.json")).unwrap();
+    let value = serde_json::to_value(fixture.parity.e2ee_group_settlement.unwrap()).unwrap();
+    assert_eq!(value["kind"], "cancelled");
+    for field in [
+        "revision",
+        "epoch",
+        "commit",
+        "tree",
+        "welcomes",
+        "private_key",
+    ] {
+        assert!(value["data"].get(field).is_none());
+        let mut invalid = value.clone();
+        invalid["data"][field] = "forbidden".into();
+        assert!(serde_json::from_value::<GroupSettlement>(invalid).is_err());
+    }
+    let accepted = serde_json::json!({"kind":"accepted", "data":fixture.parity.e2ee_group_state.unwrap().receipt});
+    let GroupSettlement::Accepted(receipt) = serde_json::from_value(accepted).unwrap() else {
+        panic!("wrong decision")
+    };
+    assert_eq!(receipt.revision, "9007199254740993");
+    let mut unknown = value;
+    unknown["kind"] = "missing".into();
+    assert!(serde_json::from_value::<GroupSettlement>(unknown).is_err());
+}
+
+#[test]
 fn terminal_message_decisions_distinguish_delivered_positions_from_personal_abandonment() {
     use rv_protocol::e2ee::ApplicationSettlement;
     let fixture: Contract =

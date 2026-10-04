@@ -537,13 +537,9 @@ fn accepted_peer_commit_supersedes_own_pending_only_after_validation_and_checkpo
     coordinator
         .accept_commit(&incoming, &consent, preview.fingerprint, NOW)
         .unwrap();
-    assert_eq!(
-        coordinator
-            .pending_lookup("room")
-            .err()
-            .map(|e| e == Error::NotReady),
-        Some(true)
-    );
+    let unresolved = coordinator.pending_lookup("room").unwrap();
+    assert_eq!(unresolved.operation, outgoing.receipt.operation);
+    assert!(unresolved.superseded);
     assert_eq!(
         coordinator.confirm(&outgoing.receipt, NOW),
         Err(Error::Receipt)

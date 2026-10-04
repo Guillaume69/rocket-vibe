@@ -105,6 +105,27 @@ pub struct GroupReceipt {
 }
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct GroupCancellation {
+    pub scope: Scope,
+    pub room_id: String,
+    pub incarnation: String,
+    pub operation_id: String,
+    pub device_id: String,
+    pub fingerprint: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    content = "data",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum GroupSettlement {
+    Accepted(GroupReceipt),
+    Cancelled(GroupCancellation),
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct GroupMember {
     pub user_id: String,
     pub access_version: String,

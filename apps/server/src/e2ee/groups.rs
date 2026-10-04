@@ -10,6 +10,8 @@ use std::time::Instant;
 const PAYLOAD: usize = 1024 * 1024;
 const TOTAL: usize = 2 * 1024 * 1024;
 pub mod messages;
+mod settlement;
+pub use settlement::cancel;
 fn stale() -> Error {
     Error::new(StatusCode::CONFLICT, "crypto_group_changed")
 }
@@ -242,12 +244,18 @@ struct Checked {
     tree: Vec<u8>,
     welcomes: Vec<(wire::GroupWelcome, Vec<u8>)>,
 }
-fn check(input: wire::GroupSubmission) -> Result<Checked> {
+fn check(input: wire::GroupSubmission, historical: bool) -> Result<Checked> {
     let bytes = decode(&input.transition, public::WIRE_LIMIT)?;
     let transition = Transition::from_bytes(&bytes).map_err(|_| proof())?;
-    transition
-        .verify(Utc::now().timestamp() as u64)
-        .map_err(|_| proof())?;
+    let now = Utc::now().timestamp() as u64;
+    if historical {
+        transition.authenticate().map_err(|_| proof())?;
+        if now < transition.certificate.device.issued_at {
+            return Err(proof());
+        }
+    } else {
+        transition.verify(now).map_err(|_| proof())?;
+    }
     if transition.plan.scope.instance != input.scope.instance_id
         || transition.plan.scope.data_epoch != input.scope.data_epoch
         || transition.plan.operation != input.operation_id
@@ -316,15 +324,29 @@ pub async fn submit(
     let fingerprint = intent("group_transition", &(room, &input))?;
     let mut tx = app.pool.begin().await?;
     let (device, _) = lock_scope(&mut tx, actor, &input.scope).await?;
-    room_lock(&mut tx, actor, room, true).await?;
     let previous = saved_group(&mut tx, actor, &device, &input.operation_id, &fingerprint).await?;
+    if previous.is_none() {
+        if settlement::saved_cancellation(
+            &mut tx,
+            actor,
+            &device,
+            &input.operation_id,
+            &fingerprint,
+        )
+        .await?
+        .is_some()
+        {
+            return Err(settlement::cancelled());
+        }
+        room_lock(&mut tx, actor, room, true).await?;
+    }
     tx.commit().await?;
     if let Some(receipt) = previous {
         return Ok(receipt);
     }
     let scope = input.scope.clone();
     let operation = input.operation_id.clone();
-    let checked = verify(app, move || check(input)).await?;
+    let checked = verify(app, move || check(input, false)).await?;
     let plan = &checked.transition.plan;
     let author = &checked.transition.certificate.device;
     if plan.scope.room != room || author.root.user != actor.id || author.device != device {
@@ -332,12 +354,18 @@ pub async fn submit(
     }
     let mut tx = app.pool.begin().await?;
     let (device, _) = lock_scope(&mut tx, actor, &scope).await?;
-    lock_activations(&mut tx, &plan.members).await?;
-    let (kind, authority) = room_lock(&mut tx, actor, room, true).await?;
     if let Some(receipt) = saved_group(&mut tx, actor, &device, &operation, &fingerprint).await? {
         tx.commit().await?;
         return Ok(receipt);
     }
+    if settlement::saved_cancellation(&mut tx, actor, &device, &operation, &fingerprint)
+        .await?
+        .is_some()
+    {
+        return Err(settlement::cancelled());
+    }
+    lock_activations(&mut tx, &plan.members).await?;
+    let (kind, authority) = room_lock(&mut tx, actor, room, true).await?;
     let old = head(&mut tx, room).await?;
     let old_plan = old
         .as_ref()
@@ -864,19 +892,36 @@ pub async fn operation(
     room: &str,
     operation: &str,
 ) -> Result<Response> {
-    if !auth::identifier(operation) {
+    if !auth::identifier(room) || !auth::identifier(operation) {
         return Err(Error::invalid());
     }
-    let ReadAccess {
-        mut tx,
-        device,
-        scope,
-        deadline,
-        ..
-    } = read_lock(app, actor, room).await?;
+    // Personal public ACK only. Room withdrawal and certificate retirement
+    // cannot make an accepted own transition uncertain; no tree/Welcome here.
+    let mut tx = app.pool.begin().await?;
+    let (instance_id, data_epoch): (String, String) =
+        sqlx::query_as("SELECT instance_id,data_epoch FROM instance WHERE singleton")
+            .fetch_one(&mut *tx)
+            .await?;
+    let scope = wire::Scope {
+        instance_id,
+        data_epoch,
+    };
+    let (device, _) = lock_scope(&mut tx, actor, &scope).await?;
     let receipt:Option<Json<wire::GroupReceipt>>=sqlx::query_scalar("SELECT result FROM e2ee_group_operations WHERE user_id=$1 AND device_id=$2 AND operation_id=$3")
-        .bind(&actor.id).bind(device).bind(operation).fetch_optional(&mut *tx).await?;
-    let receipt = receipt.ok_or_else(Error::missing)?.0;
+        .bind(&actor.id).bind(&device).bind(operation).fetch_optional(&mut *tx).await?;
+    let Some(receipt) = receipt else {
+        let value:Option<Json<wire::GroupCancellation>>=sqlx::query_scalar("SELECT receipt FROM e2ee_group_cancellations WHERE user_id=$1 AND device_id=$2 AND operation_id=$3")
+            .bind(&actor.id).bind(&device).bind(operation).fetch_optional(&mut *tx).await?;
+        if value.is_some_and(|v| {
+            v.0.room_id == room
+                && v.0.scope.instance_id == scope.instance_id
+                && v.0.scope.data_epoch == scope.data_epoch
+        }) {
+            return Err(settlement::cancelled());
+        }
+        return Err(Error::missing());
+    };
+    let receipt = receipt.0;
     if receipt.room_id != room {
         return Err(Error::missing());
     }
@@ -885,7 +930,12 @@ pub async fn operation(
     {
         return Err(stale());
     }
-    response(&receipt, tx, deadline)
+    let expires: chrono::DateTime<Utc> =
+        sqlx::query_scalar("SELECT expires_at FROM sessions WHERE token_hash=$1")
+            .bind(&actor.session_hash)
+            .fetch_one(&mut *tx)
+            .await?;
+    response(&receipt, tx, monotonic_deadline(expires)?)
 }
 
 #[cfg(test)]

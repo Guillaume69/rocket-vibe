@@ -4,6 +4,122 @@ use rv_protocol::e2ee as http;
 
 const BASE: u64 = 9007199254740992;
 
+#[test]
+fn known_own_acceptance_refuses_a_peer_fork_without_spending_the_pending_commit_or_cursor() {
+    let (alice, bob, _, initial) = fixture(false);
+    let observed = observation(&alice);
+    let first = page(&observed, 0, 1, vec![group(&initial, 1, None)], None);
+    for account in [&alice, &bob] {
+        account
+            .coordinator()
+            .receive_journal(&observed, &first, NOW)
+            .unwrap();
+    }
+    let own_request = changes::change(&alice, "known-own-ack", &["alice", "bob"], &[], vec![]);
+    let own = changes::prepare_change(&alice, &own_request, NOW);
+    alice.coordinator().confirm(&receipt(&own), NOW).unwrap();
+    let peer_request = changes::change(
+        &bob,
+        "contradictory-peer-ack",
+        &["alice", "bob"],
+        &[],
+        vec![],
+    );
+    let peer = changes::prepare_change(&bob, &peer_request, NOW);
+    let before = incoming_commits::secret(&alice);
+    let reported = JournalObservation {
+        current: MessageObservation {
+            roster: peer_request.roster,
+            head: receipt(&peer),
+            needs_rekey: false,
+        },
+        transition: peer.transition.clone(),
+    };
+    let fork = page(&reported, 1, 3, vec![group(&peer, 3, None)], None);
+    assert!(matches!(
+        alice.coordinator().receive_journal(&reported, &fork, NOW),
+        Err(Error::Receipt)
+    ));
+    assert_eq!(alice.reopened().journal_request("room").unwrap().after, 1);
+    assert_eq!(
+        alice.reopened().pending_lookup("room").unwrap().operation,
+        own.operation
+    );
+    assert_eq!(incoming_commits::secret(&alice), before);
+    let observed = JournalObservation {
+        current: MessageObservation {
+            roster: own_request.roster,
+            head: receipt(&own),
+            needs_rekey: false,
+        },
+        transition: own.transition.clone(),
+    };
+    let correct = page(&observed, 1, 3, vec![group(&own, 3, None)], None);
+    alice
+        .reopened()
+        .receive_journal(&observed, &correct, NOW)
+        .unwrap();
+    assert_eq!(alice.reopened().ready_epoch("room"), Ok(2));
+}
+
+#[test]
+fn journal_peer_successor_preserves_unresolved_original_and_its_cancellation_never_moves_the_cursor()
+ {
+    let (alice, bob, _, initial) = fixture(false);
+    let observed = observation(&alice);
+    let first = page(&observed, 0, 1, vec![group(&initial, 1, None)], None);
+    for account in [&alice, &bob] {
+        account
+            .coordinator()
+            .receive_journal(&observed, &first, NOW)
+            .unwrap();
+    }
+    let outgoing_request = changes::change(&bob, "journal-orphan", &["alice", "bob"], &[], vec![]);
+    let outgoing = changes::prepare_change(&bob, &outgoing_request, NOW);
+    let peer_request = changes::change(
+        &alice,
+        "journal-peer-winner",
+        &["alice", "bob"],
+        &[],
+        vec![],
+    );
+    let peer = changes::prepare_change(&alice, &peer_request, NOW);
+    let observed = JournalObservation {
+        current: MessageObservation {
+            roster: peer_request.roster,
+            head: receipt(&peer),
+            needs_rekey: false,
+        },
+        transition: peer.transition.clone(),
+    };
+    let successor = page(&observed, 1, 3, vec![group(&peer, 3, None)], None);
+    bob.coordinator()
+        .receive_journal(&observed, &successor, NOW)
+        .unwrap();
+    let before = incoming_commits::secret(&bob);
+    assert!(bob.reopened().pending_lookup("room").unwrap().superseded);
+    let CancellationRequest::Original(retained) = bob
+        .reopened()
+        .request_group_cancellation("room", &outgoing.operation, NOW + 1)
+        .unwrap()
+    else {
+        panic!("original discarded")
+    };
+    assert_eq!(bytes(&retained), bytes(&outgoing));
+    let cancelled = GroupCancellation {
+        scope: outgoing.scope,
+        operation: outgoing.operation,
+        device: bob.manager.scope().device.clone(),
+        fingerprint: receipt(&retained).fingerprint,
+    };
+    bob.reopened()
+        .confirm_group_cancellation(&cancelled, NOW + 1)
+        .unwrap();
+    assert_eq!(bob.reopened().journal_request("room").unwrap().after, 3);
+    assert_eq!(bob.reopened().ready_epoch("room"), Ok(2));
+    assert_eq!(incoming_commits::secret(&bob), before);
+}
+
 fn fixture(third: bool) -> (Account, Account, Option<Account>, Submission) {
     let alice = Account::new("alice", "alice-desktop", [1; 16]);
     let bob = Account::new("bob", "bob-mobile", [2; 16]);

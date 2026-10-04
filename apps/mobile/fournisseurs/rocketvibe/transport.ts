@@ -42,6 +42,9 @@ export class NativeTransport {
   cryptoGroupOperation(room:string,operation:string):Promise<NativeTypes['GroupReceipt']> {
     return this.request('GroupReceipt',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/operations/${encodeURIComponent(operation)}`);
   }
+  cancelCryptoGroup(room:string,input:NativeTypes['GroupSubmission']):Promise<NativeTypes['GroupSettlement']> {
+    return this.request('GroupSettlement',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/operations/${encodeURIComponent(input.operation_id)}/cancel`,input);
+  }
   submitCryptoMessage(room:string,input:NativeTypes['ApplicationSubmission']):Promise<NativeTypes['ApplicationReceipt']> {
     return this.request('ApplicationReceipt',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/messages`,input);
   }

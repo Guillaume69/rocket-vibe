@@ -122,6 +122,23 @@ impl NativeClient {
         self.get(&format!("/api/v1/e2ee/rooms/{room}/operations/{operation}"))
             .await
     }
+    pub async fn cancel_crypto_group(
+        &self,
+        room: &str,
+        input: &rv_protocol::e2ee::GroupSubmission,
+    ) -> Result<rv_protocol::e2ee::GroupSettlement, Error> {
+        if !path_segment(room) || !path_segment(&input.operation_id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(
+            &format!(
+                "/api/v1/e2ee/rooms/{room}/operations/{}/cancel",
+                input.operation_id
+            ),
+            input,
+        )
+        .await
+    }
     pub async fn submit_crypto_message(
         &self,
         room: &str,

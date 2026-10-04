@@ -1,0 +1,191 @@
+# Glossary
+
+The vocabulary you meet in rocket-vibe: Rocket.Chat protocol terms, the French identifiers of the mobile code with their English meaning and location, the expo-router route names, the desktop crates, and the project's own working words. Grouped by area, alphabetical within each group.
+
+The mobile code, its comments and most of its docs are in French; the desktop code is in English. When a French identifier also names a concept, the concept is glossed here once and the other brain docs use the identifier as-is.
+
+## Rocket.Chat protocol
+
+| Term | Meaning | More |
+|---|---|---|
+| `__my_messages__` | Special key on `stream-room-messages` that delivers new messages and edits of every room of the user, without opening any. Deletions are not on it. The desktop subscribes to it at session start (`MY_MESSAGES` in `rv-core/src/sync.rs`); the mobile does not. | [decisions](decisions.md), [rocket-chat](architecture/rocket-chat.md) |
+| `_updatedAt` | Server modification time on every document. The `updatedSince` cursors of `rooms.get` / `subscriptions.get` and `chat.syncMessages` filter on it. | [offline-and-sync](features/offline-and-sync.md) |
+| 2FA challenge | Error `totp-required` (despite the name it covers `totp`, `email` and `password`); `details.method` says which. The same request is replayed with `x-2fa-code` and `x-2fa-method`; for `password` the code is the SHA-256 of the password. A wrong code is `totp-invalid` (400, never 401). | [login-and-servers](features/login-and-servers.md) |
+| `avatarETag` | Version of a user's or room's photo. Added to the avatar URL as a query parameter so the image cache refetches; absent when there is no photo. | [avatars](features/avatars.md) |
+| DDP | Meteor's WebSocket protocol (`connect`, `login`, `sub`, `unsub`, `added`/`changed`/`removed`, `ready`, `nosub`, `ping`/`pong`). Method calls are deprecated since 8.0, so both clients use it to listen only; `login` is the one method still called. | [mobile-transport](architecture/mobile-transport.md) |
+| `e2eKey` | A subscription's room key, encrypted with my RSA public key. Stored on the mobile in `abonnements.e2e_key`. | [e2ee](architecture/e2ee.md) |
+| EJSON | Meteor's JSON dialect: dates arrive as `{"$date": epochMs}`. Push payloads carry the room data as a string in `data.ejson`. | [notifications](features/notifications.md) |
+| `fname` | A room's display name (`name` is the slug). | [room-list](features/room-list.md) |
+| `ls` | "Last seen" on a subscription: the read marker that places the new-messages bar. | [room-view](features/room-view.md) |
+| `md` | The message's markdown AST, pre-parsed by the server (`@rocket.chat/message-parser` format). Missing on old messages, so clients fall back to parsing `msg` locally. | [room-view](features/room-view.md) |
+| `mediaConfirm` | `POST rooms.mediaConfirm/:rid/:fileId`, the second half of an upload: it is what posts the message. Replaying it is undefined (a duplicate or `[invalid-file]`). | [uploads](features/uploads.md) |
+| `msg`, `t`, `u`, `ts` | A message's text, its system type (`uj`, `ru`, `e2e`, ... absent for an ordinary message), its author `{_id, username, name}` and its timestamp. | [room-view](features/room-view.md) |
+| `push.get` | Authenticated call that returns a push's content from its `messageId`; needed because the target server sends pushes without content. | [notifications](features/notifications.md) |
+| `push.token` | `POST` registers the FCM token (`type: 'gcm'`, a legacy name, with `appName`); `DELETE` removes it at sign-out. | [notifications](features/notifications.md) |
+| `rc_uid` / `rc_token` | Query parameters that authenticate a protected file or avatar URL (`FileUpload_ProtectFiles`, `Accounts_AvatarBlockUnauthenticatedAccess`). They are the session token, so such URLs must never leave the process. | [uploads](features/uploads.md) |
+| `rid` | Room id. Joins rooms, subscriptions and messages. | |
+| Room type | `t` on a room: `c` public channel, `p` private group, `d` direct message, `l` livechat (`TypeSalon` in `apps/mobile/db/schema.ts`). | |
+| `rooms.media` | First half of an upload (multipart, field `file`). Posts nothing on its own; `rooms.upload` was removed in 8.0. | [uploads](features/uploads.md) |
+| `settings.public` | Unauthenticated settings (upload limits, 2FA, E2EE, edit window...), read by the server probe and before uploads. | [rocket-chat](architecture/rocket-chat.md) |
+| Spotlight | `GET spotlight?query=`: users and public channels, used to start a conversation. | [search](features/search.md) |
+| Stream | A DDP publication named `stream-*`, keyed by an event name: `stream-room-messages` (`<rid>` or `__my_messages__`), `stream-notify-user` (`<uid>/subscriptions-changed`, `/rooms-changed`, `/notification`), `stream-notify-room` (`<rid>/deleteMessage`, `<rid>/user-activity`), `stream-notify-logged` (`user-status`, `updateAvatar`), `stream-user-presence`. | [rocket-chat](architecture/rocket-chat.md) |
+| Subscription | The per-user state of a room (unread count, mentions, favourite, open, roles, `ls`, `e2eKey`), distinct from the room shared by all members. | [mobile-data](architecture/mobile-data.md) |
+| `syncMessages` | `chat.syncMessages`: the per-room catch-up. One room per call, `type=UPDATED` and `type=DELETED` are two requests, and it is slow on big rooms. | [offline-and-sync](features/offline-and-sync.md) |
+| `tmid`, `tcount`, `tlm` | Thread parent id on a reply, reply count and last reply time on the root. | [threads](features/threads.md) |
+| `urls` | Link metadata (OpenGraph, oEmbed) the server attaches to a message; the clients render cards from it and scrape nothing. | [room-view](features/room-view.md) |
+| `user-activity` | `stream-notify-room/<rid>/user-activity`: the typing indicator (not the deprecated `/typing`). | [composer](features/composer.md) |
+| `video-conference.join` | REST call that returns the Jitsi URL (with its JWT) for a call. | [calls](features/calls.md) |
+
+## Mobile: data and sync (`apps/mobile/db/`, `apps/mobile/lib/`)
+
+| Term | English | Where |
+|---|---|---|
+| `abonnements` | Subscriptions table (per-user room state). | `apps/mobile/db/schema.ts` |
+| `appel` | Call (Jitsi video conference). | `apps/mobile/lib/appel.ts` |
+| `brouillon`, `brouillons` | Composer draft, keyed by `rid` or `rid:tmid`; stored in SQLite, written debounced. | `apps/mobile/db/schema.ts`, `apps/mobile/ui/brouillons.ts` |
+| `citation` | Reply-quote: a message starting with `[ ](permalink?msg=<id>)`, which the server turns into an attachment. | `apps/mobile/lib/citation.ts` |
+| `ClientDdp` | The in-house listen-only DDP client; `souscrire` (subscribe) is reference-counted. | `apps/mobile/lib/ddp.ts` |
+| `ClientRest` | The REST client; runs under Node, owns timeouts, 429 sleep and the 401 hook. | `apps/mobile/lib/rest.ts` |
+| `clesStockage` | Secure-store key names (per server, per account). | `apps/mobile/lib/clesStockage.ts` |
+| `commandes` | Slash commands (`commands.list`, `commands.run`). | `apps/mobile/lib/commandes.ts` |
+| `deconnexionDifferee` | Deferred sign-out: finishes `DELETE push.token` and `logout` that failed offline. | `apps/mobile/lib/deconnexionDifferee.ts` |
+| `Depot`, `depot` | Repository: the storage interface the sync engine writes through (`creerDepot`, `creerDepotEnvoi`, `creerDepotTeleversements`, `creerDepotBrouillons`...). | `apps/mobile/db/depot.ts` |
+| `envoi`, `MoteurEnvoi` | Sending: the text outbox engine with client-side `_id` and optimistic display. | `apps/mobile/lib/envoi.ts` |
+| `envoiFichiers`, `MoteurTeleversement` | File sending: the upload queue engine (validation, two-step upload, `file_id` dedup). | `apps/mobile/lib/envoiFichiers.ts` |
+| `epingle`, `etoiles` | Pinned flag, starred-by uids on a message. | `apps/mobile/db/schema.ts`, `apps/mobile/lib/marques.ts` |
+| `etatSynchro` (`etat_synchro`) | Sync cursors, per scope (`portee`) and per flow (`flux`). | `apps/mobile/db/schema.ts` |
+| `fil`, `filId` | Thread, thread root id (`tmid`). | `apps/mobile/app/fil/[id].tsx` |
+| File d'écritures (`FileEcritures`, `enSerie`) | Write queue: serialises every write of ONE SQLite connection, because transactions are per connection and not reentrant. | `apps/mobile/db/fileEcritures.ts` |
+| `Fournisseur` | Provider: the neutral façade over a chat server (listener, translator, actions, outbox factories). Only `rocketchat` exists; a Mattermost (kChat) driver is anticipated. | `apps/mobile/lib/fournisseur.ts`, `apps/mobile/fournisseurs/` |
+| `Genre` | The provider kind stored in a session (`'rocketchat'`). | `apps/mobile/lib/fournisseur.ts` |
+| `migrer`, `migrerBase` | Run drizzle migrations, per database, memoised per file name. | `apps/mobile/db/migrer.ts` |
+| `MoteurE2E` | E2EE engine: private key in memory, room key cache, unlock. | `apps/mobile/lib/e2e/moteur.ts` |
+| `MoteurPresence`, `MoteurSaisie`, `MoteurActivite` | Volatile in-memory stores for presence, typing, and background-fetch activity. | `apps/mobile/lib/presence.ts`, `apps/mobile/lib/saisie.ts`, `apps/mobile/lib/activite.ts` |
+| `MoteurSynchro` | Sync engine: applies stream events and REST documents as upserts. | `apps/mobile/lib/sync.ts` |
+| `nomFichier` | Database file name, derived from host and account: one database per (server, account). | `apps/mobile/db/nomFichier.ts` |
+| `normaliser` | Normalise: turns server payloads into local rows; where the server's quirks are absorbed. | `apps/mobile/lib/normaliser.ts` |
+| `origine` | URL origin (scheme + authority) and comparisons, parsed by hand because React Native's `URL` polyfill never throws. | `apps/mobile/lib/origine.ts` |
+| `pieces_jointes` (`piecesJointes`) | Attachments, as server JSON on a message row. | `apps/mobile/db/schema.ts` |
+| `portee` | Scope: `'global'` or a `rid` (sync cursors, activity indicator). | `apps/mobile/lib/activite.ts` |
+| `raccordement`, `raccorder` | Hook-up: what runs at every (re)connection, ordering stream subscriptions and REST reads so nothing falls in between. | `apps/mobile/lib/raccordement.ts` |
+| `rattrapage` | Catch-up after a gap: `rattraperGlobal` (two `updatedSince` requests for all rooms) and `rattraperSalon` (`syncMessages` for one room). | `apps/mobile/lib/rattrapage.ts` |
+| `Reconnecteur` | Reconnection driver: exponential backoff with jitter, 1 s to 30 s; `suspendre`/`reprendre` on background and foreground. | `apps/mobile/lib/reconnexion.ts` |
+| `saisie` | Typing (indicator). | `apps/mobile/lib/saisie.ts` |
+| `salon`, `salons` | Room, rooms table. | `apps/mobile/db/schema.ts` |
+| `sessionStore` | Session persistence in `expo-secure-store`. | `apps/mobile/lib/sessionStore.ts` |
+| `sortie` | Outbox table for text messages (`en-attente`, `echec`; a sent row is deleted). | `apps/mobile/db/schema.ts` |
+| `televersement`, `televersements` | Upload, uploads table (`en-attente`, `envoi`, `echec`, and `file_id` as dedup key). | `apps/mobile/db/schema.ts` |
+| `TraducteurRC` | Translator: decodes Rocket.Chat stream events and documents into neutral `ChangementSync` values. | `apps/mobile/fournisseurs/rocketchat/traducteur.ts` |
+| `upserts` | The idempotent SQL, kept in one module and executed as-is by the tests on `node:sqlite`. | `apps/mobile/db/upserts.ts` |
+| `utilisateurs` | Users table: `uid` to current username and `avatarEtag`. | `apps/mobile/db/schema.ts` |
+
+## Mobile: UI layer (`apps/mobile/ui/`)
+
+| Term | English | Where |
+|---|---|---|
+| `amenerMessage` | Bring a message into the room's local window (paging history) before jumping to it. | `apps/mobile/ui/amenerMessage.ts` |
+| `barreNonLus` | The "new messages" bar projection. | `apps/mobile/ui/barreNonLus.ts` |
+| `composer` | Composer shared by room and thread screens. | `apps/mobile/ui/composer.tsx` |
+| `donneesLissees` | Smoothed data: throttles bursts of incoming messages so the inverted list does not jump. | `apps/mobile/ui/donneesLissees.ts` |
+| `generation` | Connection generation counter in `SynchroProvider`, bumped at each hook-up; screen caches compare against it. | `apps/mobile/ui/synchro.tsx` |
+| `identites`, `storeIdentites` | Identities: `uid` to current username and avatar etags, fed from the `utilisateurs` table into two module-level stores. | `apps/mobile/ui/identites.tsx`, `apps/mobile/ui/storeIdentites.ts` |
+| `jetonSession` | UI session token that lets module-level caches refuse a late write after sign-out. | `apps/mobile/ui/jetonSession.ts` |
+| `kit`, `theme` | Shared visual bricks and the "Nuit Etoilee" (starry night) theme tokens. | `apps/mobile/ui/kit.tsx`, `apps/mobile/ui/theme.ts` |
+| `lancerSelecteur` | Launch a native picker with retry over an Android view-tree NPE (the one argued fixed delay in the repo). | `apps/mobile/ui/lancerSelecteur.ts` |
+| `ligneMessage` | Message row, shared by room and thread. | `apps/mobile/ui/ligneMessage.tsx` |
+| `messages` | The i18n catalogue (`fr` is the reference, `en` typed against it). | `apps/mobile/ui/messages.ts` |
+| `notesPrivees` | Private notes: the server's answer to a slash command, shown above the composer, in memory only. | `apps/mobile/ui/notesPrivees.tsx` |
+| `piecesEnAttente` | Staged attachments, shown as chips before sending. | `apps/mobile/ui/piecesEnAttente.tsx` |
+| `reponse` | Reply target, the channel between the actions sheet and the composer. | `apps/mobile/ui/reponse.ts` |
+| `requeteVive`, `useRequeteVive` | Live query: a `useLiveQuery` that coalesces write bursts. | `apps/mobile/ui/requeteVive.ts` |
+| `salonChaud` | Hot room: up to 3 recently left rooms whose subscriptions stay open (LRU), so re-entering needs no slow `syncMessages`. | `apps/mobile/ui/salonChaud.ts` |
+| `salonsCharges`, `filsCharges` | Which rooms / threads already got their opening load, and under which `generation`. | `apps/mobile/ui/salonsCharges.ts`, `apps/mobile/ui/filsCharges.ts` |
+| `salonsOuverts` | Which room screens are mounted and which one is displayed (the only room the catch-up targets). | `apps/mobile/ui/salonsOuverts.ts` |
+| `sautMessage` | Jump-to-message target, armed by the pinned/starred list. | `apps/mobile/ui/sautMessage.ts` |
+| `sectionsAccueil` | Home sections: the room list grouping. | `apps/mobile/ui/sectionsAccueil.ts` |
+| `SessionProvider`, `SynchroProvider` | Session lifecycle (optimistic resume, sign-out) and the sync wiring per session. | `apps/mobile/ui/session.tsx`, `apps/mobile/ui/synchro.tsx` |
+| `sondeUpload` | Upload probe: checks DDP liveness after a multipart upload, which can kill the socket silently. | `apps/mobile/ui/sondeUpload.ts` |
+| `sourcePieceJointe` | Attachment source channel between the composer and the "joindre" sheet. | `apps/mobile/ui/sourcePieceJointe.ts` |
+| `transferts` | Downloads in progress (save, share) and their progress. | `apps/mobile/ui/transferts.ts` |
+| `visionneuse` | Full-screen image viewer. | `apps/mobile/ui/visionneuse.tsx` |
+
+## Mobile routes (`apps/mobile/app/`)
+
+| Route file | Screen |
+|---|---|
+| `_layout.tsx` | Root native stack; declares the `formSheet` sheets and the share guard. |
+| `index.tsx` | Gate and room list (to `connexion` without a session). |
+| `connexion.tsx` | Sign-in: server, credentials, second factor. |
+| `salon/[rid].tsx` | A room (`salon`). |
+| `fil/[id].tsx` | A thread (`fil`), `id` = root message id. |
+| `appel/[callId].tsx` | Call screen: Jitsi in a full-screen WebView, the only WebView. |
+| `actions-message.tsx` | Message actions sheet. |
+| `joindre.tsx` | "Attach" sheet: attachment sources. |
+| `deverrouiller-e2e.tsx` | E2EE unlock sheet. |
+| `salon-info.tsx` | Room info sheet. |
+| `profil.tsx` | A user's profile sheet. |
+| `mon-profil.tsx` | My profile (edit). |
+| `parametres.tsx` | Settings. |
+| `partager.tsx` | Incoming share (Android `ACTION_SEND`). |
+| `recherche.tsx` | Start a conversation (spotlight). |
+| `recherche-messages.tsx` | Message search in one room. |
+| `messages-marques.tsx` | Pinned and starred messages (`marques`, marked). |
+| `+native-intent.tsx` | Swallows the iOS share extension's `rocketvibe://dataUrl=` reopen. |
+
+## Mobile native (`apps/mobile/modules/`, `apps/mobile/plugins/`)
+
+| Term | Meaning |
+|---|---|
+| `jeton-fcm` | iOS module: hands the APNs token to Firebase and returns the FCM token. |
+| `reducteur-video` | Android module (Media3) that downscales a video before upload. |
+| `reponse-notif` | iOS module: inline reply from a notification, sent natively. |
+| `telechargements` | Android module: copies a file into the public Downloads folder. |
+| `with-fcm-deeplink.js` | Config plugin injecting the Kotlin FCM service (`push.get`, WorkManager retry, deep links). |
+| `with-partage-entrant.js`, `with-signature-release.js`, `with-architectures-cibles.js`, `with-ios-push.js` | Incoming share, release signing, target ABIs, iOS push. |
+
+## Desktop (`apps/desktop/`)
+
+| Term | Meaning | More |
+|---|---|---|
+| `rv-core` | UI-free Rust core: protocol, SQLite store, sync, outbox, uploads, E2EE, display rules. A port of the mobile `lib/`. | [desktop-core](architecture/desktop-core.md) |
+| `rv-ffi` | UniFFI façade over `rv-core` for the SwiftUI app. | [desktop-macos](architecture/desktop-macos.md) |
+| `rv-gtk` | The GTK 4 + libadwaita app (Linux, Windows, macOS). | [desktop-gtk](architecture/desktop-gtk.md) |
+| `rv-native` | Windows and macOS shims: system notifications, badges, call web views, tray, start at login. | [desktop-gtk](architecture/desktop-gtk.md) |
+| `RocketVibeKit`, `RocketVibe` | The SwiftUI app's view models and views (`apps/desktop/macos/Sources/`). | [desktop-macos](architecture/desktop-macos.md) |
+| `timeline` | rv-core's message-list grouping (headers, day separators, new-messages marker), shared by both UIs. | [room-view](features/room-view.md) |
+
+## Project vocabulary
+
+| Term | Meaning |
+|---|---|
+| Banc | Test bench: the local Rocket.Chat 8.5.1 in `docker/`. |
+| Chantier | A work item of the 2026-07-25 audit, numbered 1 to 16 in `apps/mobile/CHANTIERS.md`. |
+| Écart assumé | A documented deviation from the audit's prescribed fix, with its reason. |
+| Étape | A step of the (frozen) construction checklist `apps/mobile/EXECUTION.md`, e.g. "8.3". |
+| Kill gate | Phase 1 of `ROADMAP.md`: the binary proof that a self-built APK receives pushes when killed. |
+| Non publié / Unreleased | The changelog section every visible change goes into. |
+| Preuve par retrait | Proof by removal: delete the fix, check that the expected tests fail, restore. A removal that changes nothing is an empty test. |
+
+## Sources
+
+- `CLAUDE.md`
+- `ROADMAP.md`
+- `apps/mobile/CHANTIERS.md`
+- `apps/mobile/db/schema.ts`
+- `apps/mobile/db/fileEcritures.ts`
+- `apps/mobile/db/depot.ts`
+- `apps/mobile/db/nomFichier.ts`
+- `apps/mobile/lib/fournisseur.ts`
+- `apps/mobile/lib/raccordement.ts`
+- `apps/mobile/lib/rattrapage.ts`
+- `apps/mobile/lib/ddp.ts`
+- `apps/mobile/lib/rest.ts`
+- `apps/mobile/ui/identites.tsx`
+- `apps/mobile/ui/salonChaud.ts`
+- `apps/mobile/ui/synchro.tsx`
+- `apps/mobile/app/_layout.tsx`
+- `apps/mobile/modules/`
+- `apps/mobile/plugins/`
+- `apps/desktop/crates/rv-core/src/sync.rs`
+- `apps/desktop/crates/rv-native/src/lib.rs`
+- `apps/desktop/docs/MACOS-SWIFTUI.md`

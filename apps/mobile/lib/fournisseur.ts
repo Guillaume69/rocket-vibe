@@ -1,8 +1,8 @@
 /**
- * Contrat d'un fournisseur de chat. Rocket.Chat en est la première
- * implémentation ; kChat (Mattermost) la seconde. Tout ce qui, dans l'app,
- * nomme un endpoint `/api/v1/*` ou un stream `stream-*` doit à terme passer par
- * ici — le reste (`db/`, `Depot`, rendu, `Reconnecteur`) est déjà neutre.
+ * Contrat d'un fournisseur de chat. Rocket.Chat en est la seule
+ * implémentation ; kChat (Mattermost) est la seconde visée. Tout ce qui, dans
+ * l'app, nomme un endpoint `/api/v1/*` ou un stream `stream-*` doit à terme
+ * passer par ici — le reste (`db/`, `Depot`, rendu, `Reconnecteur`) est déjà neutre.
  *
  * Choix porteur : le cœur de synchro ne parle pas le format wire d'un serveur.
  * Chaque fournisseur TRADUIT son flux temps réel brut en `ChangementSync`
@@ -79,7 +79,7 @@ export type Capacites = {
 /**
  * L'écoute temps réel. Exactement la surface publique de `ClientDdp` (le pilote
  * `Reconnecteur` et `ui/synchro.tsx` en dépendent) : `ClientDdp` s'y conforme
- * sans emballage. Un driver Mattermost implémente la même interface au-dessus
+ * sans emballage. Un driver Mattermost implémenterait la même interface au-dessus
  * d'un WebSocket JSON, en émettant des `Evenement` (enveloppe neutre
  * `{collection, cleEvenement, args}`) que son `Traducteur` sait décoder.
  */

@@ -152,7 +152,7 @@ WHERE excluded.mis_a_jour_depuis > etat_synchro.mis_a_jour_depuis
  *    plus récemment observé (« le plus récent gagne »).
  *  - `username IS NOT` : on n'écrit QUE si le pseudo change VRAIMENT. Sans ça,
  *    chaque message au même pseudo toucherait la ligne et ferait rejouer la
- *    `useLiveQuery` de la table — donc re-rendre toutes les lignes visibles. Là,
+ *    requête vive de la table — donc re-rendre toutes les lignes visibles. Là,
  *    la table ne bouge qu'à un VRAI renommage.
  */
 export const UPSERT_UTILISATEUR = `
@@ -223,7 +223,7 @@ export const MAJ_MARQUES_MESSAGE = `UPDATE messages SET epingle = ?, etoiles = ?
  *  `texte IS NOT NULL` n'est pas cosmétique, comme partout ailleurs ici : un
  *  verrouillage rejoué (`reverrouillageE2E`) sur des messages DÉJÀ masqués
  *  toucherait toute la table sans rien changer, et réveillerait chaque
- *  `useLiveQuery` assise dessus — donc re-rendrait le salon ouvert. */
+ *  requête vive assise dessus — donc re-rendrait le salon ouvert. */
 export const MASQUER_MESSAGES_CHIFFRES = `UPDATE messages SET texte = NULL, pieces_jointes = NULL WHERE chiffre_brut IS NOT NULL AND texte IS NOT NULL`;
 /**
  * Aperçu de la liste pour les salons chiffrés DÉVERROUILLÉS : le dernier

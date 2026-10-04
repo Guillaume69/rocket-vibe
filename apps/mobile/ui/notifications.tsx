@@ -10,8 +10,8 @@
  * `Push_show_message = true` sur le serveur cible : une notification venant
  * d'un salon chiffré transporte du CIPHERTEXT. Quand c'est l'app qui affiche
  * (premier plan, fenêtres de reconnexion), on remplace par un texte
- * générique. App tuée, c'est le système qui affiche la charge telle quelle —
- * limite documentée, le vrai levier est côté serveur (`Push_show_message`).
+ * générique. App tuée, le service FCM natif (plugins/with-fcm-deeplink.js)
+ * affiche « Message chiffré » dès que l'ejson porte `messageType: 'e2e'`.
  */
 
 import * as Notifications from 'expo-notifications';

@@ -415,8 +415,8 @@ export function SynchroProvider({ children }: { children: React.ReactNode }) {
         // échec d'envoi ne doit pas compter comme un échec de connexion.
         envoi.traiter().catch(() => {});
         fichiers.traiter().catch(() => {});
-        // Présence : photo initiale, puis deltas (`from`). Ornement — un
-        // échec ne compte jamais comme un échec de raccordement.
+        // Présence : photo complète à chaque raccordement, puis le stream.
+        // Ornement, un échec ne compte jamais comme un échec de raccordement.
         void presence.charger(client);
         // Liste des emojis custom : rafraîchie UNE fois par session (comme le
         // jeton push), pas à chaque flap réseau — c'est un download complet et

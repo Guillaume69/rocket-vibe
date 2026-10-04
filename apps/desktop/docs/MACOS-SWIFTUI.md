@@ -2,7 +2,7 @@
 
 Testers find the macOS app laggy. This plans a native view layer in SwiftUI
 on top of the existing Rust core, bound through UniFFI; the GTK app keeps
-serving Linux and Windows.
+serving Linux and Windows, and still ships its own macOS DMG.
 
 ## Why it lags today
 
@@ -49,7 +49,7 @@ RocketVibeMac (Swift, new)      SwiftPM package in macos/:
   RocketVibeKit                   view models (sign-in, rooms, a room, media); builds on Linux too
   RocketVibe                      the SwiftUI app: views, notifications, dock
   rv-rooms                        a command line that signs in and lists the rooms
-rv-gtk  (Rust, unchanged)       Linux and Windows
+rv-gtk  (Rust, unchanged)       Linux, Windows, and its own macOS DMG
 ```
 
 ### What moves into rv-core first
@@ -138,7 +138,7 @@ language choice stays per UI, in the same `language` file.
 | `message_list.rs`, `rows.rs` | `ScrollView` + `LazyVStack`, rows as views, `ScrollViewReader` for jumps and the latest-messages button |
 | `markdown_view.rs` | `AttributedString` built from rv-core's markdown blocks |
 | `composer.rs`, `staged.rs` | an `NSTextView` wrapper (the system spell checker, Return sends), chips above it |
-| `cards.rs`, `video.rs` | link cards, AVKit's `VideoPlayer` for audio and video (a local copy first: protected files need the token) |
+| `cards.rs`, `video.rs` | link cards; a file card's play button opens AVKit's `VideoPlayer` in a sheet for audio and video (a local copy first: protected files need the token) |
 | `actions_menu.rs` | `.contextMenu` on rows, edit in place, a confirmed delete |
 | `unlock.rs` | a banner on a locked encrypted room, an unlock sheet |
 | `details.rs`, `settings.rs`, `spotlight.rs`, `marked.rs` | sheets and `Settings` scene |
@@ -151,8 +151,8 @@ the dock badge, and Retina rendering on the GPU.
 
 ## Status (2026-09-29)
 
-Phases 1 to 4 are built, on the branch `feature/macos-swiftui`, and phase
-5's parity: every item of `docs/PARITY.md` (room info, profiles, search,
+Phases 1 to 4 are built, now on master, and phase
+5's parity: every item of `brain/parity.md` (room info, profiles, search,
 pinned and starred, calls, completion, the emoji picker, the staged-file
 preview, my profile, the notification preference...). What is proven, and
 where:
@@ -183,7 +183,7 @@ feels on a tester's Mac is still to be told.
 ## Phases
 
 1. **rv-ffi skeleton** (about a week): login, session resume, room list
-   records, the listener, an xcframework and a Swift command-line test that
+   records, the listener, the static library linked by path and a Swift command-line test that
    prints the rooms. Proves the toolchain and the tokio-in-FFI setup.
 2. **Read-only app** (two weeks): sidebar, room view with markdown, images,
    quotes, reactions, threads; live updates through the listener.
@@ -192,7 +192,7 @@ feels on a tester's Mac is still to be told.
 4. **Desktop integration** (a week): notifications with reply and deep link to
    the message, dock badge, `rocketvibe://` links, sessions shared with the
    GTK install.
-5. **Parity and release** (two weeks): walk `docs/PARITY.md` and
+5. **Parity and release** (two weeks): walk `brain/parity.md` and
    `docs/FEEDBACK.md` on a Mac, a beta for the testers. CI packaging and
    notarization are done: a desktop release carries the SwiftUI DMG.
 
@@ -202,7 +202,7 @@ About two months for one developer, most of it in the room view and composer.
 
 - **Two UIs to keep in step.** Every visible feature lands twice (GTK and
   SwiftUI). rv-core carrying the logic (as it already does for actions,
-  formatting, markdown) keeps the UI layers thin; `PARITY.md` gains a macOS
+  formatting, markdown) keeps the UI layers thin; `brain/parity.md` gains a macOS
   column.
 - **FFI surface churn.** rv-core's API was shaped for rv-gtk; rv-ffi absorbs
   the differences so rv-core does not bend to Swift.

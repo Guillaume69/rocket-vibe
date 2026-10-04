@@ -8,7 +8,7 @@
  * rien ne le signale.
  *
  * Les écritures passent par la connexion ouverte avec `enableChangeListener`,
- * donc `useLiveQuery` les voit : l'UI se rafraîchit sans qu'on la prévienne.
+ * donc `useRequeteVive` les voit : l'UI se rafraîchit sans qu'on la prévienne.
  */
 
 import type { SQLiteDatabase } from 'expo-sqlite';
@@ -190,8 +190,8 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
       if (ridsVivants.length === 0 || ridsConnus.length === 0) return Promise.resolve();
       const vivants = JSON.stringify(ridsVivants);
       const connus = JSON.stringify(ridsConnus);
-      // Les sept DELETE en UNE transaction : un seul événement de changement
-      // pour `useLiveQuery`, et pas de fenêtre où les tables sont incohérentes.
+      // Les sept DELETE en UNE transaction : un seul rafraîchissement
+      // des requêtes vives, et pas de fenêtre où les tables sont incohérentes.
       return enSerie(() =>
         brute.withTransactionAsync(async () => {
           for (const sql of [
@@ -275,7 +275,7 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
         await brute.runAsync(UPSERT_IDENTITE, paramsIdentite(identite));
       }),
     transaction(fn) {
-      // Un lot = un commit = UN événement de changement pour `useLiveQuery`,
+      // Un lot = un commit = UN rafraîchissement des requêtes vives,
       // au lieu d'une ré-exécution de chaque requête vive par ligne insérée.
       return enSerie(() => brute.withTransactionAsync(() => fn(direct)));
     },
@@ -286,7 +286,7 @@ export function creerDepot(brute: SQLiteDatabase, enSerie: FileEcritures): Depot
  * Emojis custom : même connexion, même file que les autres dépôts (un `BEGIN`
  * concurrent hors file mourrait sur « no transaction is active »). Le
  * remplacement est un `DELETE`+`INSERT` sous UNE transaction — donc UN seul
- * événement de changement pour `useLiveQuery`, et pas de fenêtre où la table
+ * rafraîchissement des requêtes vives, et pas de fenêtre où la table
  * est vide.
  */
 export function creerDepotEmojis(brute: SQLiteDatabase, enSerie: FileEcritures): DepotEmojis {

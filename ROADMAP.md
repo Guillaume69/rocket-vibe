@@ -45,7 +45,7 @@ Prises explicitement, elles ne se rediscutent pas en cours de route.
 | Serveur | **Auto-hébergé, admin** | Rend le push faisable. Cible réelle : `chat.barrut.me`, Rocket.Chat **8.5** (LTS). |
 | Source de vérité | **SQLite locale** | L'UI est une projection, pas un miroir du réseau. |
 | Actions / écoute | **REST pour agir, DDP pour écouter** | Les appels de méthodes DDP sont dépréciés (8.0), retrait en 9.0. |
-| E2EE | **Hors périmètre, avec dégradation soignée** | `E2E_Enable=true` sur le serveur cible, mais **1 salon chiffré sur 25** (mesuré). Plusieurs semaines de crypto pour 4 % de l'usage : mauvais rapport. |
+| E2EE | **Hors périmètre, avec dégradation soignée** ; dépassé depuis : les deux apps lisent et écrivent les salons chiffrés (§6.6) | `E2E_Enable=true` sur le serveur cible, mais **1 salon chiffré sur 25** (mesuré). Plusieurs semaines de crypto pour 4 % de l'usage : mauvais rapport. La dégradation reste le comportement tant que la clé n'est pas déverrouillée. |
 
 ### Pourquoi le client DDP maison est plus petit qu'annoncé
 
@@ -63,8 +63,8 @@ Les noms de streams et les clés d'événements sont des faits d'interface, déj
 
 | Exclu | Raison |
 |---|---|
-| **E2EE** | Mesuré sur le serveur cible : `E2E_Enable=true`, mais **un seul salon chiffré sur 25** (`p:laprivitude`). Coût élevé (`react-native-quick-crypto` pour RSA-OAEP, `expo-crypto` ne fait pas de RSA) pour 4 % de l'usage. Le v1 **dégrade proprement** : cadenas dans la liste, aperçu `lastMessage` masqué, messages `t='e2e'` remplacés par un placeholder, composer désactivé, notification générique. Voir §6.6. |
-| **Appels audio/vidéo** | Hors motivation. C'est ce que tire `@rocket.chat/media-signaling` — on l'évite. |
+| **E2EE** | Mesuré sur le serveur cible : `E2E_Enable=true`, mais **un seul salon chiffré sur 25** (`p:laprivitude`). Coût élevé (`react-native-quick-crypto` pour RSA-OAEP, `expo-crypto` ne fait pas de RSA) pour 4 % de l'usage. Le v1 **dégrade proprement** : cadenas dans la liste, aperçu `lastMessage` masqué, messages `t='e2e'` remplacés par un placeholder, composer désactivé, notification générique. Voir §6.6. **Livré depuis** dans les deux apps (`apps/mobile/lib/e2e/`, `apps/desktop/crates/rv-core/src/e2e.rs`) : messages et fichiers, déchiffrés et chiffrés ; la dégradation reste en place tant que la clé est verrouillée. |
+| **Appels audio/vidéo** | Hors motivation. C'est ce que tire `@rocket.chat/media-signaling` — on l'évite. **Livrés depuis** par la visioconférence Jitsi du serveur, sans `media-signaling` : `apps/mobile/app/appel/[callId].tsx`, `apps/desktop/crates/rv-core/src/call.rs` (voir l'exception WebView, §4.2). |
 | **Administration serveur** | Client de consommation, pas console admin. |
 | **Apps / blocs UiKit interactifs** | On rend `attachments` et `md`, on ignore proprement les `blocks` inconnus. |
 | **Omnichannel / LiveChat** | Cas d'usage entreprise. |
@@ -83,11 +83,11 @@ Ce sont des **dettes assumées**, documentées pour éviter la dérive de périm
 │  UI — primitives RN (View/Text/Pressable/TextInput/Modal…)     │
 │       + FlashList inverted + exceptions justifiées (§4.2)      │
 ├───────────────────────────────────────────────────────────────┤
-│  Projection réactive — useLiveQuery (Drizzle) : l'UI OBSERVE   │
+│  Projection réactive, useRequeteVive (Drizzle) : l'UI OBSERVE  │
 ├───────────────────────────────────────────────────────────────┤
 │  SOURCE DE VÉRITÉ — SQLite (expo-sqlite + Drizzle, WAL)         │
 │  Server · Room · Subscription · Message · Outbox · Upload       │
-│  · SyncState            (UNE base par host serveur)            │
+│  · SyncState            (UNE base par serveur, compte)         │
 ├────────────────────────────┬──────────────────────────────────┤
 │  Moteur de synchro         │  Secrets — expo-secure-store      │
 │  (upserts idempotents,     │  (authToken/userId par host,      │
@@ -109,8 +109,8 @@ Ce sont des **dettes assumées**, documentées pour éviter la dérive de périm
 | Runtime | **Expo SDK 57** (`expo@57.0.4`), RN 0.86, React 19.2, Hermes | Le majeur du paquet `expo` = le numéro de SDK. **New Architecture obligatoire et non désactivable** depuis RN 0.82 : `newArchEnabled=false` n'a plus aucun effet. Ne compte pas dessus comme filet. |
 | Build | CNG : `android/` **gitignoré**, tout passe par config plugins | En SDK 57 `expo prebuild` **efface et régénère par défaut** (`--no-clean` pour l'éviter) : une édition manuelle du dossier serait perdue. |
 | Navigation | `expo-router` (57.x) sur `react-native-screens` | Deep link natif depuis la notification, routes typées, stack natif, **bottom sheets natifs** via `presentation: 'formSheet'`. |
-| Persistance | `expo-sqlite` + `drizzle-orm` | `useLiveQuery` depuis `drizzle-orm/expo-sqlite`, avec **`enableChangeListener: true`** obligatoire à l'ouverture de la base. |
-| Clé-valeur | `react-native-mmkv` 4.x | Brouillons, préférences. Nitro/TurboModule, New Arch. |
+| Persistance | `expo-sqlite` + `drizzle-orm` | `useRequeteVive` (`ui/requeteVive.ts`), un `useLiveQuery` de `drizzle-orm/expo-sqlite` qui regroupe les rafales d'écriture en un seul rafraîchissement, avec **`enableChangeListener: true`** obligatoire à l'ouverture de la base. |
+| Clé-valeur | ~~`react-native-mmkv` 4.x~~ non retenu | Prévu pour les brouillons et préférences. Les brouillons vivent finalement dans SQLite (table `brouillons`), le paquet n'est pas installé. |
 | Temps réel | **Mini-client DDP maison** | Voir §2. |
 | Liste | **`@shopify/flash-list` 2.3.2, `inverted`** | Voir §6.3. |
 | Markdown | `@rocket.chat/message-parser` + rendu maison en `<Text>` imbriqués | MIT. L'AST vient du serveur. |
@@ -126,7 +126,7 @@ Ta contrainte est *« uniquement des composants natifs tant que c'est possible, 
 | Niveau | Dépendances | Statut |
 |---|---|---|
 | **0 — Primitives RN pures** | `View`, `Text`, `Pressable`, `ScrollView`, `TextInput`, `Modal`, `Image` | Aucune justification requise. |
-| **1 — Bindings natifs** (exposent une capacité de l'OS, pas un design system) | `react-native-screens` (stack natif **et bottom sheets natifs**), `react-native-safe-area-context` (edge-to-edge imposé par targetSdk 36), `expo-image` (cache disque natif, headers), `react-native-gesture-handler`, `expo-haptics`, `@react-native-menu/menu` (menu contextuel Material natif) | Justifiés : chacun mappe une capacité Android native, aucun n'impose un look. |
+| **1 — Bindings natifs** (exposent une capacité de l'OS, pas un design system) | `react-native-screens` (stack natif **et bottom sheets natifs**), `react-native-safe-area-context` (edge-to-edge imposé par targetSdk 36), `react-native-gesture-handler`, `expo-haptics` | Justifiés : chacun mappe une capacité Android native, aucun n'impose un look. `expo-image` et `@react-native-menu/menu`, prévus ici, n'ont finalement pas été installés. |
 | **2 — Exceptions assumées** | **`@shopify/flash-list`** : recyclage de vues natif, indispensable pour des milliers de messages. **`react-native-keyboard-controller`** : `KeyboardAvoidingView` est médiocre sur Android ; cette lib s'abonne à `WindowInsetsAnimationCallback` pour un composer synchronisé image par image. **`@rocket.chat/message-parser`** : parseur JS pur, pas de l'UI. **`react-native-webview`** : l'écran d'appel Jitsi, et lui seul — voir l'encadré ci-dessous. | Quatre exceptions, chacune motivée. |
 
 **Les bottom sheets sont natifs, aucune dépendance à ajouter.** `react-native-screens` 4.25 embarque une implémentation Android bâtie sur le `BottomSheetBehavior` de Material (`android/src/main/java/com/swmansion/rnscreens/bottomsheet/`, dépendance `com.google.android.material:material:1.13.0`), et le `UISheetPresentationController` natif sur iOS. `expo-router` l'expose directement :
@@ -169,6 +169,12 @@ C'est ce qu'on utilisera pour la feuille d'actions sur un message, le sélecteur
 > permettent. Sous Linux, pas de moteur embarqué : les distributions compilent WebKitGTK sans WebRTC
 > (vérifié sur Fedora 44 et Arch, `RTCPeerConnection` absent), l'appel ouvre donc une fenêtre
 > d'application d'un navigateur Chromium (`--app`) quand il y en a un, sinon le navigateur.
+>
+> **Le bureau a un second usage, sans équivalent mobile** : les cartes YouTube, Dailymotion et Vimeo
+> se lisent dans la carte, par un moteur web embarqué (WebKitGTK sous Linux, WebView2 sous Windows,
+> WKWebView sous macOS : `apps/desktop/crates/rv-gtk/src/player.rs`, `rv-native/src/*_player.rs`,
+> `Player.swift`). Le cadre principal reste sur une page de l'app (`rv-core/src/player.rs`) qui
+> contient l'embed du fournisseur ; un clic qui quitte le lecteur part dans le navigateur.
 
 > **Piège transverse, et il est inévitable** : `react-native-reanimated` augmente la RAM de 25 à 30 % depuis RN 0.85 (changement Hermes), même inutilisé. Vérifié après installation : **`expo-router@57.0.4` en dépend directement**, ainsi que de `react-native-worklets`. Aucun choix de template ne l'évite. S'en passer supposerait d'abandonner `expo-router` pour `react-navigation` nu — probablement pas rentable. À surveiller au profilage plutôt qu'à combattre.
 
@@ -184,7 +190,7 @@ Ordre : **dé-risquer d'abord, livrer de la valeur vite ensuite**. Chaque phase 
 
 **Livrables**
 - `JAVA_HOME`, `ANDROID_HOME`, `PATH` exportés ; `java -version` → 17.0.19 ; `adb devices` OK.
-- `docker compose` : Rocket.Chat 8.6 + MongoDB en **replica set `rs0`** (obligatoire, sinon RC refuse de démarrer). **`ROOT_URL` sur l'IP LAN**, pas `10.0.2.2` : la phase 1 exige un téléphone physique, et `ROOT_URL` conditionne les payloads push et les deep links. Pour l'émulateur, `adb reverse tcp:3000 tcp:3000`.
+- `docker compose` : Rocket.Chat 8.5.1 (celle du serveur cible, pas la 8.6) + MongoDB en **replica set `rs0`** (obligatoire, sinon RC refuse de démarrer). **`ROOT_URL` sur l'IP LAN**, pas `10.0.2.2` : la phase 1 exige un téléphone physique, et `ROOT_URL` conditionne les payloads push et les deep links. Pour l'émulateur, `adb reverse tcp:3000 tcp:3000`.
 - Compte admin, Personal Access Token, données de test (`users.create`, `channels.create`, `im.create`, `chat.postMessage`, un thread).
 - App Expo SDK 57 + `expo-dev-client` + `expo-router` + TypeScript strict ; `npx expo prebuild` puis `./gradlew app:assembleDebug` → APK sur l'AVD `duogo_test` ; écran « serveur » affichant `GET /api/v1/info` et `settings.public`.
 - **Fiche des incertitudes** (§7) remplie.
@@ -233,7 +239,7 @@ La 2FA est ici, pas plus tard : sur un serveur où `Accounts_TwoFactorAuthentica
 - **2FA** : intercepter `errorType = totp-required`, lire `details.method` / `details.availableMethods`, rejouer la **même** requête avec `x-2fa-code` et `x-2fa-method`. Pour la méthode `password`, envoyer le **SHA-256** du mot de passe, jamais le clair. `POST /api/v1/users.2fa.sendEmailCode` pour le code par email.
 - **Mini-client DDP** : `connect` → `login {resume}` → ping/pong → `sub` / `unsub` → routage `added` / `changed` / `removed` (charge utile dans `fields.args[0]`, clé dans `fields.eventName`, dates EJSON `{"$date": epochMs}`) → **upserts SQLite**.
 - **Écran debug permanent** dès maintenant : souscriptions actives, RTT ping/pong, doublons détectés, trous de synchro. Il ne sera pas jeté.
-- **Schéma Drizzle complet** : `Server`, `Room`, `Subscription` (jointes par `rid`), `Message` (index `(rid, ts)`, `tmid`), `Outbox` (`pending`/`sent`/`failed`), `Upload`, `SyncState`. **Une base par host.**
+- **Schéma Drizzle complet** : `Server`, `Room`, `Subscription` (jointes par `rid`), `Message` (index `(rid, ts)`, `tmid`), `Outbox` (`pending`/`sent`/`failed`), `Upload`, `SyncState`. **Une base par host.** (Livré : une base par couple serveur, compte.)
 - Liste des salons : `subscriptions.get` + `rooms.get` fusionnés par `rid` ; souscription à `stream-notify-user/<uid>/subscriptions-changed` et `/rooms-changed` ; `fname`, aperçu `lastMessage`, badge `unread`, tri par activité.
 - Écran salon : historique initial (`channels.history` / `groups.history` / `im.history` selon `t`) ; `FlashList` `inverted` ; rendu markdown maison sur `msg.md` (repli sur `parse()` si absent) ; messages système (`t = uj/ul/rm/r/...`) ; `sub` sur `stream-room-messages/<rid>` à l'ouverture et **`unsub` à la fermeture** ; **dédup par `_id`**.
 - Envoi via **Outbox** : `_id` 24-hex généré côté client **avant** l'affichage → insert `pending` → `POST /api/v1/chat.sendMessage` → réconciliation au retour du stream. Le serveur déduplique sur `_id`, donc une réémission après crash ne crée pas de doublon.
@@ -249,8 +255,8 @@ La 2FA est ici, pas plus tard : sur un serveur où `Accounts_TwoFactorAuthentica
 **Livrables**
 - Reconnexion : backoff exponentiel avec gigue (1 s → 30 s). À **chaque nouvelle socket** : reconnexion, re-login, **re-souscription de tous les streams**. Une souscription ne survit jamais à une reconnexion.
 - Rattrapage piloté par `SyncState`, sur `AppState 'active'` et à la reconnexion. **Attention au coût** : `chat.syncMessages` traite **un salon à la fois** et le REST est rate-limité. Ne pas boucler sur tous les salons : un seul `subscriptions.get?updatedSince=` + `rooms.get?updatedSince=` pour le gros, et `syncMessages` **seulement** sur les salons ouverts ou récemment actifs.
-- Cycle de vie du token : 401 → tentative `resume` → sinon retour au login. `POST /api/v1/logout`.
-- Multi-serveurs : registre `Server`, tokens **et** base SQLite isolés par host.
+- Cycle de vie du token : 401 → tentative `resume` → sinon retour au login. `POST /api/v1/logout`. Livré autrement : un 401 à enveloppe Rocket.Chat sur un appel non anonyme efface la session et rend l'écran de connexion, sans tentative de `resume` (`apps/mobile/lib/rest.ts`, `ui/session.tsx`).
+- Multi-serveurs : registre `Server`, tokens isolés par host, base SQLite isolée par couple (serveur, compte).
 - **Démarrer une conversation** : `GET /api/v1/spotlight?query=` puis `POST /api/v1/im.create` (nouveau DM) ou `POST /api/v1/channels.join`. Sans cela l'app ne fait que lister l'existant — or « canaux » et « messages privés » supposent d'en ouvrir de nouveaux.
 
 **Done when — test de torture** : couper le Wi-Fi 30 s dix fois, basculer arrière-plan/premier-plan vingt fois, envoyer cinquante messages rapides → **état local == état serveur** : zéro doublon, zéro message manquant, zéro souscription fantôme, mesuré sur l'écran debug.
@@ -285,7 +291,7 @@ Non-lus (`subscriptions.read`, barre « nouveaux messages » via `ls`). Actions 
 
 ### Phase 7 — iOS, plus tard — *2 à 3 sem sur macOS*
 
-`prebuild` iOS depuis les mêmes config plugins. Push APNs avec **Notification Service Extension**. Keychain access groups. Build sur Mac, ou EAS Build cloud (seule voie depuis Linux — contradiction assumée, spécifique à iOS). Compte Apple Developer à 99 $/an.
+`prebuild` iOS depuis les mêmes config plugins. Push APNs avec **Notification Service Extension**. Keychain access groups. Build sur Mac, `expo prebuild --platform ios` puis Xcode, jamais EAS (`docs/PUSH.md`). Compte Apple Developer à 99 $/an.
 
 ### Calendrier
 
@@ -322,7 +328,7 @@ Non-lus (`subscriptions.read`, barre « nouveaux messages » via `ls`). Actions 
 
 **Problème.** Les souscriptions ne survivent pas à une reconnexion, et oublier un `unsub` fait exploser le nombre de souscriptions et les doublons.
 
-**Solution.** Client maison en écoute seule (§2). Backoff avec gigue. À chaque socket : re-connect, re-login, **re-sub complet**. Souscriptions minimales : deux à quatre sur `stream-notify-user`, plus `stream-room-messages/<rid>` **uniquement pour le salon ouvert**. Rattrapage REST piloté par `SyncState`. Test de torture en critère d'acceptation.
+**Solution.** Client maison en écoute seule (§2). Backoff avec gigue. À chaque socket : re-connect, re-login, **re-sub complet**. Souscriptions minimales : deux à quatre sur `stream-notify-user`, plus `stream-room-messages/<rid>` **uniquement pour le salon ouvert** (livré : le mobile garde aussi abonnés les 3 derniers salons quittés, en LRU, `apps/mobile/ui/salonChaud.ts`). Rattrapage REST piloté par `SyncState`. Test de torture en critère d'acceptation.
 
 **Plan B.** Adopter `@rocket.chat/ddp-client` en acceptant son poids et son flou de licence. En dernier recours, polling REST pur : dégradé mais fonctionnel.
 
@@ -348,7 +354,7 @@ Le mécanisme est **générique et son nom trompe** : `errorType = totp-required
 
 **Le comportement du serveur.** Il **rejette activement** un message en clair dans un salon `encrypted` (`error-not-allowed`), garde appliqué aussi à `chat.sendMessage`. Bonne nouvelle : un client sans E2EE **ne peut pas corrompre** un salon chiffré, il est simplement incapable d'y poster. Un client non-déchiffrant voit `t='e2e'` et un `msg` base64 opaque.
 
-**La solution retenue : dégrader proprement, à trois endroits.**
+**La solution retenue : dégrader proprement, à trois endroits.** C'est resté le comportement d'un salon chiffré tant que la clé n'est pas déverrouillée ; le plan B a été livré par-dessus.
 
 1. **Liste des salons** — cadenas sur `room.encrypted`, et **aperçu `lastMessage` masqué** : il contient du chiffré. Ne jamais rendre le blob.
 2. **Écran salon** — les messages `t === 'e2e'` deviennent « 🔒 Message chiffré, non pris en charge ». Le composer est désactivé avec l'explication, puisque le serveur refuserait l'envoi de toute façon.
@@ -356,7 +362,9 @@ Le mécanisme est **générique et son nom trompe** : `errorType = totp-required
 
 Ce salon se consulte depuis le web ou l'app officielle. Coût de la dégradation : moins d'une journée.
 
-**Plan B — l'implémenter (étape 10 optionnelle, hors chemin critique).** RSA-OAEP 2048/SHA-256 pour la paire utilisateur, **AES-GCM 256** pour les nouveaux messages (`rc.v2.aes-sha2` — et non AES-CBC, qui n'est conservé que pour l'historique `rc.v1`), PBKDF2-SHA256 à 100 000 itérations. `expo-crypto` **ne fait pas de RSA** : il faudrait `react-native-quick-crypto` (New-Arch only, via `react-native-nitro-modules`). Compter plusieurs semaines, et le risque réel de rendre des messages définitivement illisibles.
+**Plan B — l'implémenter (étape 10 optionnelle, hors chemin critique).** RSA-OAEP 2048/SHA-256 pour la paire utilisateur, **AES-GCM 256** pour les nouveaux messages (`rc.v2.aes-sha2` — et non AES-CBC, qui n'est conservé que pour l'historique `rc.v1`), PBKDF2-SHA256, le nombre d'itérations lu dans l'enveloppe de la clé privée (`iterations`). `expo-crypto` **ne fait pas de RSA** : il faudrait `react-native-quick-crypto` (New-Arch only, via `react-native-nitro-modules`). Compter plusieurs semaines, et le risque réel de rendre des messages définitivement illisibles.
+
+**Livré : le plan B, dans les deux apps** (`apps/mobile/lib/e2e/` via `react-native-quick-crypto`, `apps/desktop/crates/rv-core/src/e2e.rs`). Déverrouillage par le mot de passe E2E, clé gardée sur l'appareil, messages et fichiers déchiffrés et chiffrés. Ni création de salon chiffré, ni création de paire de clés.
 
 **Plan C — désactiver le chiffrement de ce salon.** Tu en es propriétaire : le basculer en clair rend tout accessible, au prix du chiffrement pour tous les clients.
 
@@ -375,7 +383,7 @@ Ce que la recherche n'a **pas** tranché. Chacune est une tâche, pas une hypoth
 | 5 | Compatibilité `com.google.gms:google-services` × Gradle 9.3.1. | Le premier build local est la preuve. |
 | 6 | Double affichage `notification` + `data` sur Android. | Capturer le payload réel au spike. |
 | 7 | Schéma de réponse exact de `rooms.mediaConfirm`. | Un upload de test. |
-| 8 | Compat RN 0.86 exacte de `react-native-mmkv@4.3.2` et `react-native-keyboard-controller@1.22.0`. | Table de compat de chaque lib, puis build. |
+| 8 | Compat RN 0.86 exacte de `react-native-mmkv@4.3.2` et `react-native-keyboard-controller` (1.21.9 installé). | Table de compat de chaque lib, puis build. |
 
 ---
 
@@ -394,7 +402,7 @@ adb devices
 emulator -list-avds    # duogo_test
 ```
 
-3. **Serveur de dev** : `docker compose` avec Rocket.Chat 8.6 et MongoDB en replica set `rs0` (`rs.initiate()`). `ROOT_URL` sur l'**IP LAN** de la machine, pas `10.0.2.2`. Créer l'admin, générer un Personal Access Token, seeder quelques canaux et un DM.
+3. **Serveur de dev** : `docker compose` avec Rocket.Chat 8.5.1 et MongoDB en replica set `rs0` (`rs.initiate()`). `ROOT_URL` sur l'**IP LAN** de la machine, pas `10.0.2.2`. Créer l'admin, générer un Personal Access Token, seeder quelques canaux et un DM.
 
 4. **Squelette Expo** : `npx create-expo-app@latest rocket-vibe-app --template default`, puis `expo-dev-client`, `expo-router`, TypeScript strict, `expo-sqlite` + `drizzle-orm` (avec `enableChangeListener: true`), `expo-secure-store`. Gitignorer `android/` et `ios/`.
 

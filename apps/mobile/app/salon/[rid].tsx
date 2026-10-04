@@ -72,9 +72,9 @@ import { useSynchro } from '../../ui/synchro.tsx';
 import { type Couleurs, POLICES, useCouleurs } from '../../ui/theme.ts';
 
 /**
- * Écran d'un salon — **lecture seule** à cette étape ; l'envoi arrive en 4.5.
+ * Écran d'un salon.
  *
- * La liste projette SQLite (`useLiveQuery`), le réseau écrit dans SQLite :
+ * La liste projette SQLite (`useRequeteVive`), le réseau écrit dans SQLite :
  * l'historique REST initial et le stream DDP convergent dans les mêmes
  * upserts idempotents.
  *
@@ -316,7 +316,7 @@ function Salon({
     [rid, limite],
   );
   // Statuts d'envoi (en-attente / échec) : table séparée, requête vive
-  // séparée — même raison que la liste des salons, `useLiveQuery` n'écoute
+  // séparée — même raison que la liste des salons, `useRequeteVive` n'écoute
   // que la table du FROM.
   const { data: lignesSortie } = useRequeteVive(
     base.select().from(sortie).where(eq(sortie.rid, rid)),
@@ -558,12 +558,12 @@ function Salon({
     [fournisseur, moteur, rid],
   );
 
-  // Ouverture du salon. Deux travaux de nature différente, et un seul est
-  // conditionnel.
+  // Ouverture du salon. Deux travaux de nature différente, tous deux
+  // conditionnels.
   //
-  // 1. `rattraperSalon` part TOUJOURS. C'est lui qui couvre le trou : en sortant
-  //    du salon on se désabonne de ses streams (voir plus haut), donc le cache
-  //    d'un salon fermé n'est plus tenu à jour par le temps réel. Sa pagination
+  // 1. `rattraperSalon` part sauf si le salon est resté écouté (`salonCouvert`).
+  //    C'est lui qui couvre le trou : un salon relâché par `garderAuChaud` (voir
+  //    plus haut) n'est plus tenu à jour par le temps réel. Sa pagination
   //    par curseur reprend exactement où elle en était, et ne coûte que ~92
   //    octets quand rien n'a bougé. Il porte aussi les suppressions
   //    (`type=DELETED`), que l'historique ne peut PAS voir : un message effacé

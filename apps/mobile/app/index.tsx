@@ -29,7 +29,7 @@ import { Appuyable } from '../ui/appuyable.tsx';
 
 /**
  * Portier et liste des salons. Sans session on va se connecter ; avec session,
- * la liste projette SQLite via `useLiveQuery` — le moteur de synchro écrit, la
+ * la liste projette SQLite via `useRequeteVive` — le moteur de synchro écrit, la
  * liste se rafraîchit, aucun des deux ne connaît l'autre.
  */
 export default function EcranAccueil() {
@@ -120,7 +120,7 @@ function Salons({
 }) {
   const t = useT();
   const deverrouille = useE2EDeverrouille(e2e);
-  // Deux requêtes vives, une PAR TABLE : le `useLiveQuery` de drizzle n'écoute
+  // Deux requêtes vives, une PAR TABLE : `useRequeteVive` n'écoute
   // que la table du FROM. Avec une jointure, une écriture qui ne touche que
   // `abonnements` (lecture sur un autre appareil, salon masqué) ne
   // rafraîchirait JAMAIS la liste. La fusion se fait donc ici, en JS.

@@ -89,7 +89,7 @@ const vraiSi = (v: unknown): boolean => v === true;
  * `/api/info` vit hors de `/api/v1/`, d'où `horsApiV1` — mais il hérite ainsi
  * du délai maximal, du relais d'annulation, du rejeu sur 429 et du parsage
  * défensif. Non authentifié, il rend `{version: '8.5', success: true}` sur
- * 8.5.1 : la version MINEURE seulement, ce qui suffit à nos bascules.
+ * 8.5.1 : la version MINEURE seulement, affichée à la connexion.
  */
 async function recupererVersion(
   client: ClientRest,

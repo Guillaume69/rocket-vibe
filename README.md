@@ -9,7 +9,7 @@ serveurs auto-hébergés en Rocket.Chat **8** ou plus récent.
 | **Bureau** (Linux, Windows, macOS) | [`apps/desktop`](apps/desktop/README.md) | Rust, GTK 4 + libadwaita | `apps/desktop/Cargo.toml` |
 
 Chaque app a son numéro de version et ses propres builds ; la parité fonctionnelle du
-bureau avec le mobile est suivie dans [`apps/desktop/docs/PARITY.md`](apps/desktop/docs/PARITY.md).
+bureau avec le mobile est suivie dans [`brain/parity.md`](brain/parity.md).
 
 ## Partagé
 
@@ -20,13 +20,14 @@ bureau avec le mobile est suivie dans [`apps/desktop/docs/PARITY.md`](apps/deskt
 
   ```sh
   cd docker && cp .env.example .env && chmod 600 .env   # renseigner ADMIN_PASS
+  node patch-push.mjs                                   # bundle serveur patché pour le push (docs/PUSH.md)
   docker compose up -d
   node ../scripts/seed.mjs                              # alice, bob, salons de test, idempotent
   ```
 
 ## CI, versions et releases
 
-Deux workflows GitHub Actions, chacun ne tournant que si son app (ou lui-même) change. Un
+Trois workflows GitHub Actions, chacun ne tournant que si son app (ou lui-même) change. Un
 push ne fait que vérifier (typecheck, lint, tests ; fmt, clippy et tests Linux pour le
 bureau) : les paquets ne se construisent que sur un tag de release, ou à la main par
 `workflow_dispatch`.
@@ -35,7 +36,8 @@ bureau) : les paquets ne se construisent que sur un tag de release, ou à la mai
   Gradle sur le runner, jamais EAS). Il lit `google-services.json` dans le secret
   `GOOGLE_SERVICES_JSON`.
 - **`desktop`** — Linux (même Fedora que le build local : fmt, clippy, tous les tests,
-  une archive), Windows (MSYS2 : un installeur par utilisateur, sans droits
+  une archive ; plus une AppImage construite sur Arch, lancée en CI sur une distribution
+  sans GTK), Windows (MSYS2 : un installeur par utilisateur, sans droits
   administrateur, qui pose un raccourci et enregistre les liens `rocketvibe://`, testé
   en CI par une installation, un lancement et une désinstallation ; plus un zip) et
   macOS (Apple Silicon, macOS 15+ : une app dans un DMG, autonome, lancée en CI sans
@@ -45,6 +47,10 @@ bureau) : les paquets ne se construisent que sur un tag de release, ou à la mai
   `_ISSUER_ID`) ; sans eux, la CI signe ad hoc et macOS demande « Ouvrir quand même » au
   premier lancement. Les originaux vivent dans `~/.config/rocket-vibe/apple/`, **à
   sauvegarder** : la clé privée du certificat ne se récupère pas.
+- **`desktop-swiftui`** - l'app SwiftUI pour macOS (`apps/desktop/macos`, sur `rv-ffi`),
+  workflow réutilisable : `desktop` l'appelle sur un tag ou un `workflow_dispatch`, et sa
+  release en prend le DMG ; il tourne seul sur les branches autres que `master` qui
+  touchent l'app.
 
 `node scripts/version.mjs mobile|desktop` donne la version d'une app et vérifie sa
 cohérence. Chaque app tient son journal au format Keep a Changelog

@@ -10,7 +10,7 @@
  * (`connexion.*`, `salon.*`…), plus `commun.*` pour ce qui se répète partout et
  * `sys.*` pour les messages système Rocket.Chat. Interpolation `{param}` ;
  * pluriel `singulier | pluriel` choisi par le paramètre numérique `n`
- * (cf. `ui/i18n.tsx`).
+ * (cf. `ui/i18n.ts`).
  */
 
 import { cleJour } from './separateurJour.ts';
@@ -39,7 +39,7 @@ const fr = {
   'commun.presenceHorsLigne': 'hors ligne',
 
   // ── Langue (sélecteur des paramètres). Les noms de langue eux-mêmes sont des
-  //    endonymes (cf. NOMS_LANGUE dans i18n.ts), identiques dans toutes les
+  //    endonymes (cf. NOMS_LANGUE plus bas), identiques dans toutes les
   //    langues ; seule l'option « automatique » se traduit.
   'langue.auto': 'Automatique',
   'langue.autoAide': 'Suit la langue du téléphone',

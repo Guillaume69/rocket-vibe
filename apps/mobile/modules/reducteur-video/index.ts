@@ -1,9 +1,9 @@
 import { requireOptionalNativeModule } from 'expo-modules-core';
 
 /**
- * Pont du module natif Kotlin (`android/src/main/java/com/rocketvibe/…`),
- * autolinké par Expo depuis `modules/`. Android seulement : sous iOS le module
- * vaut `null`. Ce fichier n'est importable QUE dans l'app : sous Node
+ * Pont du module natif, Kotlin (`android/src/main/java/com/rocketvibe/…`) et
+ * Swift (`ios/ReducteurVideoModule.swift`), autolinké par Expo depuis
+ * `modules/`. Ce fichier n'est importable QUE dans l'app : sous Node
  * (tests), `requireNativeModule` jetterait — la logique décidable vit dans
  * `ui/qualitePieceJointe.ts`, pur.
  */

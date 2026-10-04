@@ -911,7 +911,7 @@ describe('identités (uid → pseudo courant)', () => {
 
   test('même pseudo, horodatage plus récent : la ligne ne bouge PAS', () => {
     // Le garde `username IS NOT` : sans lui, chaque message au même pseudo
-    // toucherait la table et ferait rejouer la useLiveQuery des identités.
+    // toucherait la table et ferait rejouer la requête vive des identités.
     db.prepare(UPSERT_UTILISATEUR).run(...util('u1', 'alice', 100));
     db.prepare(UPSERT_UTILISATEUR).run(...util('u1', 'alice', 500));
     assert.deepEqual(

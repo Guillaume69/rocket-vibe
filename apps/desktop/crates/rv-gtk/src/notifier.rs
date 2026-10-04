@@ -1,8 +1,9 @@
 //! Desktop notifications through `org.freedesktop.Notifications`: a click
 //! opens the room, and where the server offers `inline-reply` (KDE Plasma)
 //! the answer typed in the notification is sent to the room. Without a
-//! session bus (Windows, macOS) GLib's own notifications take over: a click
-//! still opens the room, there is no reply.
+//! session bus (Windows, macOS) the system's own notifications through
+//! rv-native take over, with an inline reply; where rv-native is not
+//! available, GLib's: a click still opens the room, there is no reply.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;

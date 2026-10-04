@@ -14,10 +14,10 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 | J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, cérémonie d'identité / association et vérification des pairs dans les profils GTK / SwiftUI | Groupes et projection privée dans les interfaces, renouvellement / récupération / révocation visibles, suspension des salons retirés, pont mobile, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison entièrement qualifiée (`9d7ec67`) passe les neuf jobs de la CI
-`37196674607` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison entièrement qualifiée (`ee3f717`) passe les neuf jobs de la CI
+`37199651127` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
-L'application macOS passe aussi sa compilation / packaging (`37196674604`).
+L'application macOS passe aussi sa compilation / packaging (`37199651129`).
 L'inventaire généré qui avait arrêté la CI du raccordement `60e72f4` est corrigé.
 Le journal serveur passe ses neuf scénarios
 PostgreSQL / HTTP / MLS et les contrats communs ; aucune capacité E2EE n'est
@@ -41,9 +41,17 @@ La consultation n'initialise aucun coffre et n'admet aucun membre MLS. Les
 révocations signées paginées restent bloquantes après omission et réouverture ;
 l'attachement d'une conversation utilise uniquement l'installation enregistrée.
 Les onze parcours crypto du cœur passent sur Windows. La compilation des deux
-interfaces de ce nouveau lot reste à qualifier en CI. Les caches / temporaires
+interfaces et leurs suites passent aussi dans les CI de `ee3f717`. Les caches / temporaires
 Rust locaux utilisent D: après l'échec de Cargo sur le disque C: plein ; Docker
 local a aussi cessé de démarrer, sans preuve suffisante sur sa cause exacte.
+
+Préparation du lot groupes : lecture protégée de l'état local absent / transition
+en attente / reçu accepté, sans création de groupe ni POST implicite. Le vrai
+parcours MLS / HTTP avec réponse perdue couvre ces observations et leur reprise ;
+les dix-sept tests de livraison passent sur Windows. L'apprentissage d'une
+révocation locale dans un autre viewer arrête aussi la conversation déjà ouverte
+pour la même incarnation. Les onze parcours du cœur et Clippy cœur / FFI passent.
+Les contrôles de création / admission de groupe dans les interfaces restent ouverts.
 
 Les critères externes encore ouverts restent des critères de sortie de la RFC.
 

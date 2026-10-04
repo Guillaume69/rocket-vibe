@@ -73,6 +73,12 @@ pub struct Batch {
     pub head: groups::Receipt,
     pub page: http::GroupEventPage,
 }
+/// Protected local observations for the existing room controls. An accepted
+/// receipt is a catchup point; it does not authorize a send or a new admission.
+pub struct LocalGroupStatus {
+    pub accepted: Option<groups::Receipt>,
+    pub pending: Option<groups::PendingLookup>,
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -384,6 +390,26 @@ impl Worker {
         let _dispatch = self.dispatch.lock().await;
         self.scope().await?;
         self.resume_group_inner(room).await
+    }
+    pub async fn local_group_status(&self, room: &str) -> Result<LocalGroupStatus> {
+        let _dispatch = self.dispatch.lock().await;
+        self.scope().await?;
+        let room = room.to_owned();
+        self.owned(move |manager, root, _| {
+            let coordinator = groups::Coordinator::new(manager, root)?;
+            let accepted = match coordinator.accepted_receipt(&room) {
+                Ok(receipt) => Some(receipt),
+                Err(groups::Error::NotReady) => None,
+                Err(error) => return Err(error.into()),
+            };
+            let pending = match coordinator.pending_lookup(&room) {
+                Ok(pending) => Some(pending),
+                Err(groups::Error::NotReady) => None,
+                Err(error) => return Err(error.into()),
+            };
+            Ok(LocalGroupStatus { accepted, pending })
+        })
+        .await
     }
     async fn resume_group_inner(&self, room: &str) -> Result<groups::Receipt> {
         let room_owned = room.to_owned();

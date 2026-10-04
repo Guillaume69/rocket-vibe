@@ -1173,6 +1173,8 @@ async fn lost_http_ack_is_reconciled_after_worker_recreation_without_new_post_or
     let (alice, bob) = accounts();
     let (server, book) = server(&alice, &bob, true);
     let worker = server.worker(&alice);
+    let empty = worker.local_group_status("room").await.unwrap();
+    assert!(empty.accepted.is_none() && empty.pending.is_none());
     let prepared = preview(&worker).await;
     let fingerprint = prepared.preview.fingerprint;
     assert!(matches!(
@@ -1184,12 +1186,21 @@ async fn lost_http_ack_is_reconciled_after_worker_recreation_without_new_post_or
         Err(Error::NotReady)
     );
     let original = alice.reopened().retry("room", NOW).unwrap();
+    let pending = worker.local_group_status("room").await.unwrap();
+    assert!(pending.accepted.is_none());
+    let pending = pending.pending.unwrap();
+    assert_eq!(pending.operation, original.operation);
+    assert_eq!(pending.fingerprint, receipt(&original).fingerprint);
     assert_eq!(book.lock().unwrap().posts, 1);
     worker.stop();
-    let accepted = server.worker(&alice).resume_group("room").await.unwrap();
+    let reopened = server.worker(&alice);
+    let accepted = reopened.resume_group("room").await.unwrap();
     assert_eq!(accepted.fingerprint, receipt(&original).fingerprint);
     assert_eq!(book.lock().unwrap().posts, 1);
     assert_eq!(alice.reopened().ready_epoch("room"), Ok(1));
+    let current = reopened.local_group_status("room").await.unwrap();
+    assert!(current.pending.is_none());
+    assert!(current.accepted.as_ref() == Some(&accepted));
     let recipient = server.worker(&bob);
     let batch = recipient.events("room").await.unwrap();
     let prepared = recipient

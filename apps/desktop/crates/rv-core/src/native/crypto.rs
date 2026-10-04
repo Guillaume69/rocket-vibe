@@ -4,7 +4,7 @@
 use super::{NativeSession, security::Guard};
 use rv_crypto::{delivery, groups, protected::Manager};
 pub use rv_crypto::{
-    delivery::{Batch, ChangePreview, EventKind, EventPreview, GenesisPreview, Target},
+    delivery::{Batch, ChangePreview, EventKind, EventPreview, GenesisPreview, LocalGroupStatus, Target},
     identity::{Fingerprint, Root},
     vault::Scope,
 };
@@ -103,6 +103,15 @@ impl Registry {
             binding.stop();
         }
     }
+    pub(super) fn stop_scope(&self, scope: &Scope) {
+        let mut slot = self.0.lock().unwrap();
+        if let Some(binding) = slot.as_ref().and_then(Weak::upgrade)
+            && &binding.scope == scope
+        {
+            slot.take();
+            binding.stop();
+        }
+    }
     fn attach(&self, binding: Binding) -> Result<Access> {
         let mut slot = self.0.lock().unwrap();
         binding.context.check()?;
@@ -181,6 +190,9 @@ impl Access {
     }
     pub async fn resume_group(&self, room: &str) -> Result<groups::Receipt> {
         self.call(|worker| async move { worker.resume_group(room).await }).await
+    }
+    pub async fn local_group_status(&self, room: &str) -> Result<LocalGroupStatus> {
+        self.call(|worker| async move { worker.local_group_status(room).await }).await
     }
     pub async fn cancel_group(&self, room: &str, operation: &str) -> Result<groups::GroupSettlement> {
         self.call(|worker| async move { worker.cancel_group(room, operation).await }).await

@@ -102,18 +102,31 @@ protégé et une révocation signée déjà connue ne disparaît pas avec son om
 d'une réponse ultérieure. La révocation de l'appareil local reste aussi bloquante
 après réouverture du coffre.
 
+Une révocation locale observée par un autre viewer ferme aussi l'accès de
+conversation vivant pour cette même portée et incarnation, avant toute
+publication suivante. L'arrêt ne vise pas un accès d'une autre incarnation.
+
 `enrollment::Access::conversation()` attache l'installation déjà enregistrée et
 sa racine à l'accès de conversation existant. L'absence, un enregistrement
 incomplet ou une incohérence refuse l'attachement sans générer une identité.
 La fermeture explicite de ce viewer ferme aussi les conversations attachées
 avec sa garde.
 
+La lecture `local_group_status` distingue un groupe absent, une transition
+privée en attente et son reçu local accepté. Elle reprend les observations du
+coffre sans créer un groupe ni régler automatiquement l'intention ; un reçu
+local ne vaut pas permission d'envoyer ou nouvelle admission. Le parcours HTTP
+avec ACK perdu vérifie maintenant ces trois états, la réouverture et l'absence
+de POST supplémentaire. Les dix-sept tests de livraison MLS passent sur Windows.
+
 Les onze scénarios `native_crypto` passent sur Windows ; ils incluent maintenant
 premier contact / comparaison / appareil, changement de racine avec consentement
 périmé, révocations paginées persistantes et révocation locale après réouverture.
 Le contrôle strict du cœur et du pont FFI utilise des caches et temporaires sur D:.
-La compilation GTK / SwiftUI de ce lot reste à qualifier en CI ; Docker / WSL
-local a échoué au démarrage lorsque le disque système était plein.
+Le lot des profils `ee3f717` passe les neuf contrôles de la CI native
+`37199651127`, ainsi que la compilation / packaging / lancement macOS
+`37199651129`. La bibliothèque privée passe aussi Clippy strict sur Windows.
+Docker / WSL local a échoué au démarrage lorsque le disque système était plein.
 
 Restent les cérémonies de groupe dans les interfaces, la récupération
 et révocation visibles, la suspension des salons retirés et la projection

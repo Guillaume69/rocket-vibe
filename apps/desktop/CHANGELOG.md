@@ -22,6 +22,10 @@ section here.
 
 ### Fixed
 
+- Learning a signed withdrawal of the local RocketVibe encryption device also
+  closes its already open conversation access, including when another profile
+  viewer observes the withdrawal. The stop applies to the matching incarnation.
+
 - RocketVibe room synchronization preserves the encrypted-room state in the
   existing GTK and SwiftUI views. Ordinary sends stop before HTTP, including
   queued offline sends whose bodies remain recoverable. Native encrypted

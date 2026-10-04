@@ -495,11 +495,16 @@ async fn identity_ceremony_registers_real_grants_and_recovers_a_lost_reply_after
     assert!(pilot.registration_receipt.lock().unwrap().is_some());
     assert!(!pilot.session.supported_features().iter().any(|f| f == "e2ee"));
     let conversation = resumed.conversation().await.unwrap();
+    let writes = pilot.memory.writes.load(Ordering::SeqCst);
+    let empty = conversation.local_group_status("room").await.unwrap();
+    assert!(empty.accepted.is_none() && empty.pending.is_none());
+    assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), writes);
     let remote = pilot.crypto_directory.lock().unwrap().clone();
     assert_eq!(conversation.scope().incarnation, remote["devices"][0]["incarnation"]);
     assert_eq!(pilot.registrations.lock().unwrap().len(), 1);
     resumed.close();
     assert!(conversation.check().is_err());
+    assert!(conversation.local_group_status("room").await.is_err());
     pilot.close().await;
 }
 
@@ -711,6 +716,7 @@ async fn a_signed_own_device_withdrawal_survives_directory_omission_and_reopenin
     use rv_crypto::installation::{Account, Installation};
     let pilot = Pilot::new(true).await;
     let access = ready(&pilot).await;
+    let conversation = access.conversation().await.unwrap();
     let identity = pilot.session.info.native.as_ref().unwrap();
     let path = pilot.directory.path().join("ceremony");
     let manager = Installation::new(
@@ -746,7 +752,13 @@ async fn a_signed_own_device_withdrawal_survives_directory_omission_and_reopenin
         .unwrap();
     pilot.crypto_directory.lock().unwrap()["revocations"] =
         json!([{"position":"1", "signed":B64.encode(serde_json::to_vec(&signed).unwrap())}]);
-    assert!(access.conversation().await.is_err());
+    let observer = pilot.session.crypto_settings(Guard::new(), path.clone(), pilot.memory.clone()).await.unwrap();
+    assert!(observer.refresh().await.is_err());
+    assert!(conversation.check().is_err());
+    let writes = pilot.memory.writes.load(Ordering::SeqCst);
+    assert!(conversation.publish_packages("1".into(), 1).await.is_err());
+    assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), writes);
+    assert!(pilot.publications.lock().unwrap().is_empty());
     pilot.crypto_directory.lock().unwrap()["revocations"] = json!([]);
     access.close();
     let reopened = pilot.session.crypto_settings(Guard::new(), path, pilot.memory.clone()).await.unwrap();

@@ -85,11 +85,22 @@ fn save(records: &mut Records, value: &State) -> std::result::Result<(), vault::
 fn private<T>(value: std::result::Result<T, rv_crypto::identity::Error>) -> std::result::Result<T, vault::Error> {
     value.map_err(|_| vault::Error::Rejected)
 }
-fn registered(manager: &Manager, state: &State, directory: &http::Directory, time: u64) -> Result<()> {
+fn registered(
+    manager: &Manager,
+    state: &State,
+    directory: &http::Directory,
+    time: u64,
+    context: &Context,
+) -> Result<()> {
     let receipt = state.receipt.as_ref().ok_or_else(changed)?;
     if state.withdrawn
         || directory.identity.as_ref().map(|i| i.fingerprint.as_str()) != Some(hex(&state.root.fingerprint()?).as_str())
     {
+        if state.withdrawn
+            && let Some(session) = context.session.upgrade()
+        {
+            session.crypto.stop_scope(manager.scope());
+        }
         return Err(changed());
     }
     for item in &directory.revocations {
@@ -100,6 +111,9 @@ fn registered(manager: &Manager, state: &State, directory: &http::Directory, tim
             && revocation.device == manager.scope().device
             && hex(&revocation.incarnation) == manager.scope().incarnation
         {
+            if let Some(session) = context.session.upgrade() {
+                session.crypto.stop_scope(manager.scope());
+            }
             // Keep a withdrawal learned from a valid root signature even if a
             // later directory omits it or still advertises the revoked leaf.
             manager.transact(|_, records| {
@@ -252,10 +266,11 @@ impl Access {
     }
     pub(super) async fn prepared(&self) -> Result<(Arc<Manager>, Root)> {
         let directory = self.observe().await?;
+        let context = self.0.context.clone();
         self.owned(move |slot, time| {
             let manager = slot.load()?.ok_or_else(changed)?;
             let state = manager.inspect(|_, records| read(records, &manager))?.ok_or_else(changed)?;
-            registered(&manager, &state, &directory, time)?;
+            registered(&manager, &state, &directory, time, &context)?;
             Ok((manager, state.root))
         })
         .await
@@ -272,6 +287,7 @@ impl Access {
         Ok(access)
     }
     async fn view(&self, directory: http::Directory) -> Result<View> {
+        let context = self.0.context.clone();
         self.owned(move |slot, time| {
             let mut selected = None;
             let state = match slot.load()? {
@@ -302,7 +318,7 @@ impl Access {
             }
             if state.receipt.is_some() {
                 let manager = selected.as_ref().ok_or_else(changed)?;
-                registered(manager, &state, &directory, time)?;
+                registered(manager, &state, &directory, time, &context)?;
             }
             let (request_fingerprint, request_code) = state
                 .request

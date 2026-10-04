@@ -15,9 +15,9 @@ android {
 }
 
 dependencies {
-  // Media3 Transformer : le transcodeur officiel d'Android, sur MediaCodec
-  // matériel — conforme à la règle « modules natifs par défaut, pas de
-  // polyfill JS » (CLAUDE.md), et zéro dépendance JS tierce.
+  // Media3 Transformer: Android's official transcoder, on hardware MediaCodec,
+  // per the "native modules by default, no JS polyfill" rule (CLAUDE.md), and
+  // zero third-party JS dependency.
   implementation 'androidx.media3:media3-transformer:1.8.0'
   implementation 'androidx.media3:media3-effect:1.8.0'
   implementation 'androidx.media3:media3-common:1.8.0'

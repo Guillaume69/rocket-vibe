@@ -1,6 +1,6 @@
 /**
- * Module natif sans API JS : il ne fait que s'abonner au démarrage de l'app
- * (`NotificationReplyAppDelegate`). Ce fichier existe pour que l'autolinking
- * le trouve comme les autres modules locaux.
+ * Native module with no JS API: it only subscribes at app startup
+ * (`NotificationReplyAppDelegate`). This file exists so autolinking finds it
+ * like the other local modules.
  */
 export {};

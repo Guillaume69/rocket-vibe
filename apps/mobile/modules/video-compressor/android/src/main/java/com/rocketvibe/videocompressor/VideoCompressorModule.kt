@@ -25,12 +25,12 @@ import expo.modules.kotlin.modules.ModuleDefinition
 import java.io.File
 
 /**
- * Réduction d'une vidéo avant envoi, par Media3 Transformer — le transcodeur
- * officiel d'Android, sur MediaCodec matériel. Sortie MP4 H.264 au bitrate
- * demandé, côté court plafonné (l'aspect est préservé), audio copié tel quel
- * quand le conteneur l'accepte. Le fichier est écrit dans le cache de l'app :
- * c'est ce qui autorise `deleteIfTemporary` (ui/temporaryFiles.ts) à
- * le nettoyer une fois l'envoi soldé.
+ * Shrinks a video before upload, with Media3 Transformer, Android's official
+ * transcoder, on hardware MediaCodec. Outputs H.264 MP4 at the requested
+ * bitrate, short side capped (aspect preserved), audio copied as is when the
+ * container accepts it. The file is written to the app cache: that is what
+ * lets `deleteIfTemporary` (ui/temporaryFiles.ts) clean it up once the upload
+ * is settled.
  */
 @OptIn(UnstableApi::class)
 class VideoCompressorModule : Module() {
@@ -43,9 +43,9 @@ class VideoCompressorModule : Module() {
         promise.reject("ERR_CONTEXT", "Android context unavailable.", null)
         return@AsyncFunction
       }
-      // Les métadonnées se lisent ici, sur le thread de la fonction : c'est de
-      // l'I/O. Transformer, lui, exige un thread à Looper — le principal (le
-      // transcodage tourne sur ses propres threads, rien n'y bloque).
+      // Metadata is read here, on the function's thread: it is I/O. Transformer
+      // needs a Looper thread, the main one (transcoding runs on its own
+      // threads, nothing blocks there).
       val effects = resizeEffects(context, uri, maxShortSide)
       Handler(Looper.getMainLooper()).post {
         try {
@@ -66,7 +66,7 @@ class VideoCompressorModule : Module() {
   ) {
     val output = File.createTempFile("compressed-video-", ".mp4", context.cacheDir)
     val transformer = Transformer.Builder(context)
-      // H.264 : le codec que tout destinataire sait lire, navigateur compris.
+      // H.264: the codec every recipient can play, browsers included.
       .setVideoMimeType(MimeTypes.VIDEO_H264)
       .setEncoderFactory(
         DefaultEncoderFactory.Builder(context)
@@ -108,12 +108,12 @@ class VideoCompressorModule : Module() {
   }
 
   /**
-   * Le redimensionnement, si la vidéo dépasse le plafond ; sinon aucun effet —
-   * le réencodage au bitrate demandé réduit déjà. Les dimensions comparées
-   * sont les dimensions DROITES (rotation appliquée — Transformer redresse
-   * l'image avant les effets) : un portrait 1080×1920 et un paysage 1920×1080
-   * sortent tous deux avec un côté court de 720, pas l'un plus réduit que
-   * l'autre.
+   * The resize, if the video exceeds the cap; otherwise no effect, since
+   * re-encoding at the requested bitrate already shrinks it. The compared
+   * dimensions are the UPRIGHT ones (rotation applied, Transformer straightens
+   * the image before effects): a 1080×1920 portrait and a 1920×1080 landscape
+   * both come out with a short side of 720, neither shrunk more than the
+   * other.
    */
   private fun resizeEffects(context: Context, uri: String, maxShortSide: Int): List<Effect> {
     val retriever = MediaMetadataRetriever()
@@ -132,12 +132,12 @@ class VideoCompressorModule : Module() {
       val uprightHeight = if (rotated) width else height
       val shortSide = minOf(uprightWidth, uprightHeight)
       if (shortSide <= maxShortSide) return listOf()
-      // Hauteur cible paire (contrainte d'encodeur) ; la largeur suit l'aspect
-      // et l'encodeur l'aligne lui-même sur ses propres contraintes.
+      // Even target height (encoder constraint); the width follows the aspect
+      // and the encoder aligns it to its own constraints.
       val targetHeight = (uprightHeight.toLong() * maxShortSide / shortSide).toInt() / 2 * 2
       return listOf(Presentation.createForHeight(targetHeight))
     } catch (e: Exception) {
-      // Métadonnées illisibles : pas de redimensionnement, le réencodage seul.
+      // Unreadable metadata: no resize, re-encoding only.
       return listOf()
     } finally {
       retriever.release()

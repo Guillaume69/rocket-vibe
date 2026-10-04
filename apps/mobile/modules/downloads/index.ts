@@ -1,14 +1,14 @@
 import { requireOptionalNativeModule } from 'expo-modules-core';
 
 /**
- * Pont du module natif Kotlin, autolinké par Expo depuis `modules/`. Android
- * seulement : sous iOS le module vaut `null`. Importable QUE dans l'app : sous Node, `requireNativeModule` jette.
+ * Bridge to the Kotlin native module, autolinked by Expo from `modules/`. Android
+ * only: on iOS the module is `null`. Importable ONLY in the app: under Node, `requireNativeModule` throws.
  */
 
 type NativeDownloads = {
   /**
-   * Copie un fichier LOCAL (`file://…`) dans le dossier public Téléchargements.
-   * Rend l'URI de l'entrée créée. Un nom déjà pris est suffixé par le système.
+   * Copies a LOCAL file (`file://…`) into the public Downloads folder.
+   * Returns the URI of the created entry. The system suffixes a name already taken.
    */
   save(source: string, name: string, type: string | null): Promise<string>;
 };

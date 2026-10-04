@@ -3,14 +3,14 @@ import FirebaseCore
 import FirebaseMessaging
 
 /**
- * Le jeton FCM de l'appareil iOS, celui que Rocket.Chat attend en `gcm`.
+ * The iOS device's FCM token, the one Rocket.Chat expects as `gcm`.
  *
- * `getDevicePushTokenAsync()` rend le jeton APNs brut : FCM le refuse, et le
- * serveur supprimerait l'enregistrement. On le remet à Firebase, qui le troque
- * contre un jeton FCM. Le swizzling de Firebase est coupé
- * (`FirebaseAppDelegateProxyEnabled = false`, plugins/with-ios-push.js) pour ne
- * pas disputer l'AppDelegate à expo-notifications : c'est ce module qui lui
- * passe le jeton APNs.
+ * `getDevicePushTokenAsync()` returns the raw APNs token: FCM rejects it, and the
+ * server would delete the registration. We hand it to Firebase, which exchanges it
+ * for an FCM token. Firebase swizzling is off
+ * (`FirebaseAppDelegateProxyEnabled = false`, plugins/with-ios-push.js) so as not
+ * to fight expo-notifications over the AppDelegate: this module is what passes
+ * it the APNs token.
  */
 public class FcmTokenModule: Module {
   private let relay = TokenRelay()

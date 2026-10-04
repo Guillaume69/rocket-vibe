@@ -1,6 +1,6 @@
 /**
- * La garde de MainActivity du plugin de partage, sur l'extrait du gabarit
- * Expo SDK 57 qu'elle vise.
+ * The share plugin's MainActivity guard, on the Expo SDK 57 template excerpt
+ * it targets.
  */
 
 import assert from 'node:assert/strict';
@@ -23,7 +23,7 @@ class MainActivity : ReactActivity() {
 }
 `;
 
-test('la garde précède super.onCreate et importe Intent', () => {
+test('the guard precedes super.onCreate and imports Intent', () => {
   const outbox = neutralize(TEMPLATE);
   assert.match(outbox, /^import android\.content\.Intent$/m);
   const watchdog = outbox.indexOf('FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY');
@@ -36,6 +36,6 @@ test('idempotent', () => {
   assert.equal(neutralize(one), one);
 });
 
-test('refuse un gabarit qu’il ne reconnaît pas', () => {
+test('rejects a template it does not recognize', () => {
   assert.throws(() => neutralize('class MainActivity {}'), /onCreate not found/);
 });

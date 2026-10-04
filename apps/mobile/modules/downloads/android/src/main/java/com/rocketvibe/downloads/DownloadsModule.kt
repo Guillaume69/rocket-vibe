@@ -12,11 +12,10 @@ import java.io.File
 import java.io.IOException
 
 /**
- * Enregistre un fichier du cache dans Téléchargements, comme le ferait un
- * navigateur. Depuis Android 10, `MediaStore.Downloads` accepte n'importe quel
- * type de fichier SANS permission ; avant, on écrit dans le dossier public, ce
- * qui exige WRITE_EXTERNAL_STORAGE (déclarée par expo-media-library jusqu'à
- * l'API 32).
+ * Saves a cached file to Downloads, as a browser would. Since Android 10,
+ * `MediaStore.Downloads` accepts any file type WITHOUT a permission; before
+ * that, we write to the public folder, which requires WRITE_EXTERNAL_STORAGE
+ * (declared by expo-media-library up to API 32).
  */
 class DownloadsModule : Module() {
   override fun definition() = ModuleDefinition {

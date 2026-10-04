@@ -1,6 +1,6 @@
 /**
- * La retouche de build.gradle du plugin de signature, sur l'extrait du gabarit
- * RN 0.86 qu'elle vise.
+ * The signing plugin's build.gradle patch, on the RN 0.86 template excerpt it
+ * targets.
  */
 
 import assert from 'node:assert/strict';
@@ -31,7 +31,7 @@ const TEMPLATE = `android {
 }
 `;
 
-test('le release signe avec la clé de l’app, le debug garde la sienne', () => {
+test('release signs with the app key, debug keeps its own', () => {
   const outbox = sign(TEMPLATE);
   assert.match(outbox, /release \{\s*\n\s*if \(System\.getenv\('RV_KEYSTORE'\)\)/);
   assert.match(outbox, /release \{\s*\n\s*signingConfig signingConfigs\.release/);
@@ -39,11 +39,11 @@ test('le release signe avec la clé de l’app, le debug garde la sienne', () =>
   assert.match(outbox, /throw new GradleException/);
 });
 
-test('rejouer le prebuild ne double rien', () => {
+test('replaying prebuild duplicates nothing', () => {
   const one = sign(TEMPLATE);
   assert.equal(sign(one), one);
 });
 
-test('un gabarit qui a changé fait échouer le prebuild', () => {
+test('a changed template fails the prebuild', () => {
   assert.throws(() => sign('android { }'), /signingConfigs\.debug block not found/);
 });

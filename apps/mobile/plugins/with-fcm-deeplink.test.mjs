@@ -1,20 +1,20 @@
 /**
- * La chirurgie de configuration du plugin FCM — la seule partie qu'on peut
- * juger sans compiler.
+ * The FCM plugin's config surgery, the only part that can be judged without
+ * compiling.
  *
- * Le Kotlin injecté par ce plugin n'est vérifiable que par un `assembleRelease`
- * suivi d'un essai sur l'appareil, c'est admis. Mais deux propriétés PORTEUSES
- * sont du JavaScript ordinaire, et elles étaient jusqu'ici correctes par
- * propriété du gabarit RN 0.86 plutôt que par propriété du plugin :
- *   - `android:priority="1"` sur l'intent-filter du service. Celui d'expo est à
- *     `-1` ; une valeur plus basse ferait router FCM vers expo et rendrait TOUT
- *     le fichier Kotlin inatteignable — sans erreur de build, sans message ;
- *   - l'endroit où atterrissent les `implementation`. La substitution visait la
- *     première occurrence de `dependencies {` quelle que soit sa profondeur.
+ * The Kotlin this plugin injects can only be checked by an `assembleRelease`
+ * followed by a try on the device, that is accepted. But two LOAD-BEARING
+ * properties are plain JavaScript, and until now they held by virtue of the
+ * RN 0.86 template rather than of the plugin:
+ *   - `android:priority="1"` on the service's intent-filter. Expo's is `-1`; a
+ *     lower value would route FCM to expo and make the WHOLE Kotlin file
+ *     unreachable, with no build error and no message;
+ *   - where the `implementation` lines land. The substitution targeted the
+ *     first occurrence of `dependencies {` at any depth.
  *
- * Test en `.mjs` et non en `.ts` : le sujet EST du JavaScript CommonJS chargé
- * par Expo au moment du prebuild. Le transcrire en TypeScript testerait une
- * copie, pas le fichier que l'outil exécute.
+ * Tested as `.mjs`, not `.ts`: the subject IS CommonJS JavaScript loaded by
+ * Expo at prebuild time. Transcribing it to TypeScript would test a copy, not
+ * the file the tool runs.
  */
 
 import assert from 'node:assert/strict';
@@ -35,7 +35,7 @@ const {
 
 const DEPS = ['com.google.firebase:firebase-messaging:25.0.1', 'androidx.work:work-runtime:2.10.1'];
 
-/** Un app/build.gradle réduit à ce qui compte : un bloc racine, un imbriqué. */
+/** An app/build.gradle cut down to what matters: one root block, one nested. */
 const GRADLE = `apply plugin: "com.android.application"
 
 android {
@@ -44,7 +44,7 @@ android {
     }
     buildTypes {
         release {
-            // Un bloc INDENTÉ qui contient le mot, pour piéger une regex laxiste.
+            // An INDENTED block containing the word, to trap a lax regex.
             dependencies {
                 nothing "here"
             }
@@ -59,32 +59,32 @@ dependencies {
 apply plugin: 'com.google.gms.google-services'
 `;
 
-describe('ajouterDependances', () => {
-  it('injecte dans le bloc `dependencies` RACINE, pas dans un bloc imbriqué', () => {
+describe('addDependencies', () => {
+  it('injects into the ROOT `dependencies` block, not a nested one', () => {
     const outbox = addDependencies(GRADLE, DEPS);
     const rootPos = outbox.search(/^dependencies \{/m);
     const nestedPos = outbox.indexOf('nothing "here"');
     for (const dep of DEPS) {
       const pos = outbox.indexOf(`implementation("${dep}")`);
-      assert.ok(pos > rootPos, `${dep} devrait suivre le bloc racine`);
-      assert.ok(pos > nestedPos, `${dep} ne doit pas être tombé dans le bloc imbriqué`);
+      assert.ok(pos > rootPos, `${dep} should follow the root block`);
+      assert.ok(pos > nestedPos, `${dep} must not have landed in the nested block`);
     }
   });
 
-  it('déclare chacun des deux artefacts exactement une fois', () => {
+  it('declares each of the two artifacts exactly once', () => {
     const outbox = addDependencies(GRADLE, DEPS);
     for (const dep of DEPS) {
       assert.equal(outbox.split(`implementation("${dep}")`).length - 1, 1);
     }
   });
 
-  it("n'ajoute rien à un second passage (prebuild sans --clean)", () => {
+  it('adds nothing on a second pass (prebuild without --clean)', () => {
     const one = addDependencies(GRADLE, DEPS);
     assert.equal(addDependencies(one, DEPS), one);
   });
 
-  it("laisse tranquille un artefact déjà présent dans une AUTRE version", () => {
-    // En déclarer une seconde ferait diverger la résolution de version.
+  it('leaves alone an artifact already present in ANOTHER version', () => {
+    // Declaring a second one would split version resolution.
     const withValue = GRADLE.replace(
       /^dependencies \{/m,
       'dependencies {\n    implementation("androidx.work:work-runtime:2.9.0")',
@@ -94,24 +94,24 @@ describe('ajouterDependances', () => {
     assert.ok(!outbox.includes('androidx.work:work-runtime:2.10.1'));
   });
 
-  it('LÈVE si le gradle n’a aucun bloc `dependencies` racine', () => {
-    // Le laisser intact renvoyait le diagnostic bien plus loin : une erreur de
-    // compilation Kotlin sur une classe Firebase introuvable.
+  it('THROWS if the gradle file has no root `dependencies` block', () => {
+    // Leaving it untouched pushed the diagnosis much further: a Kotlin
+    // compile error on a Firebase class not found.
     const withoutBlock = GRADLE.replace(/^dependencies \{[\s\S]*?^\}$/m, '');
-    assert.ok(!/^dependencies \{/m.test(withoutBlock), 'la fixture doit vraiment être privée du bloc');
+    assert.ok(!/^dependencies \{/m.test(withoutBlock), 'the fixture must really lack the block');
     assert.throws(() => addDependencies(withoutBlock, DEPS), /dependencies/);
   });
 });
 
-describe('ajouterService', () => {
-  it('déclare le service avec la priorité 1 et l’action FCM', () => {
+describe('addService', () => {
+  it('declares the service with priority 1 and the FCM action', () => {
     const application = {};
     addService(application);
     assert.equal(application.service.length, 1);
     const service = application.service[0];
     assert.equal(service.$['android:name'], `.${SERVICE_CLASS}`);
     assert.equal(service.$['android:exported'], 'false');
-    // La valeur exacte dont dépend le routage FCM : celle d'expo est à -1.
+    // The exact value FCM routing depends on: expo's is -1.
     assert.equal(service['intent-filter'][0].$['android:priority'], '1');
     assert.equal(
       service['intent-filter'][0].action[0].$['android:name'],
@@ -119,14 +119,14 @@ describe('ajouterService', () => {
     );
   });
 
-  it('ne le déclare pas deux fois', () => {
+  it('does not declare it twice', () => {
     const application = {};
     addService(application);
     addService(application);
     assert.equal(application.service.length, 1);
   });
 
-  it('préserve les services déjà déclarés (celui d’expo)', () => {
+  it('keeps services already declared (expo\'s)', () => {
     const expo = { $: { 'android:name': 'expo.modules.notifications.service.NotificationsService' } };
     const application = { service: [expo] };
     addService(application);
@@ -135,9 +135,9 @@ describe('ajouterService', () => {
   });
 });
 
-describe('ajouterRecepteur', () => {
-  it('déclare le récepteur de « Répondre », non exporté, une seule fois', () => {
-    const other = { $: { 'android:name': 'expo.Autre' } };
+describe('addReceiver', () => {
+  it('declares the "Reply" receiver, not exported, only once', () => {
+    const other = { $: { 'android:name': 'expo.Other' } };
     const application = { receiver: [other] };
     addReceiver(application);
     addReceiver(application);
@@ -149,37 +149,37 @@ describe('ajouterRecepteur', () => {
 });
 
 describe('stringsXml', () => {
-  it('rend les trois chaînes de la voie native dans les deux langues', () => {
+  it('renders the three native-path strings in both languages', () => {
     for (const language of ['fr', 'en']) {
       const xml = stringsXml(language);
       for (const [name, forms] of Object.entries(NATIVE_STRINGS)) {
         assert.ok(
           xml.includes(`<string name="${name}">`),
-          `${name} manque en ${language}`,
+          `${name} missing in ${language}`,
         );
-        assert.ok(xml.includes(forms[language]), `la forme ${language} de ${name} manque`);
+        assert.ok(xml.includes(forms[language]), `the ${language} form of ${name} is missing`);
       }
     }
   });
 
-  it('échappe l’apostrophe, que le compilateur de ressources refuse nue', () => {
-    // Testé sur `escapeXml` et pas sur le rendu des trois chaînes : aucune
-    // n'a d'apostrophe aujourd'hui, donc l'assertion sur `stringsXml` passerait
-    // même sans échappement — un test vide. La règle vaut pour la PROCHAINE
-    // chaîne (« Nouveau message d'Alice » ferait échouer aapt2 au build).
+  it('escapes the apostrophe, which the resource compiler rejects bare', () => {
+    // Tested on `escapeXml` and not on the rendering of the three strings: none
+    // has an apostrophe today, so the assertion on `stringsXml` would pass even
+    // without escaping, an empty test. The rule is for the NEXT string
+    // ("Nouveau message d'Alice" would make aapt2 fail the build).
     assert.equal(escapeXml("Message d'Alice"), "Message d\\'Alice");
   });
 
-  it('échappe les entités XML', () => {
+  it('escapes XML entities', () => {
     assert.equal(escapeXml('Alice & <b>Bob</b>'), 'Alice &amp; &lt;b&gt;Bob&lt;/b&gt;');
-    assert.equal(escapeXml('dit "oui"'), 'dit &quot;oui&quot;');
+    assert.equal(escapeXml('says "yes"'), 'says &quot;yes&quot;');
   });
 
-  it('ne laisse aucune apostrophe nue dans le rendu', () => {
-    assert.ok(!/[^\\]'/.test(stringsXml('fr')), 'apostrophe non échappée dans le strings.xml');
+  it('leaves no bare apostrophe in the output', () => {
+    assert.ok(!/[^\\]'/.test(stringsXml('fr')), 'unescaped apostrophe in strings.xml');
   });
 
-  it('produit un document que le compilateur peut lire', () => {
+  it('produces a document the compiler can read', () => {
     const xml = stringsXml('en');
     assert.ok(xml.startsWith('<?xml version="1.0" encoding="utf-8"?>'));
     assert.equal(xml.split('<resources>').length - 1, 1);

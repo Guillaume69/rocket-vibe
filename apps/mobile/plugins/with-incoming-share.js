@@ -1,15 +1,15 @@
 const { withMainActivity } = require('expo/config-plugins');
 
 /**
- * Un partage ne se rejoue pas. Quand Android recrée MainActivity (processus
- * tué puis relancé, retour par les récents), il lui rend l'intent qui a créé la
- * tâche : si c'était un SEND, expo-share-intent le relit dans onCreate et
- * rouvre l'écran de partage à chaque lancement. Une activité restaurée
- * (savedInstanceState) ou lancée depuis l'historique ne porte donc plus de
- * partage : on lui substitue l'intent MAIN du lanceur, avant super.onCreate où
- * lit le listener de la bibliothèque.
+ * A share is never replayed. When Android recreates MainActivity (process
+ * killed then relaunched, return through recents), it hands back the intent that
+ * created the task: if it was a SEND, expo-share-intent reads it again in onCreate
+ * and reopens the share screen on every launch. An activity that is restored
+ * (savedInstanceState) or launched from history therefore carries no share: we
+ * swap in the launcher's MAIN intent, before super.onCreate where the library's
+ * listener reads it.
  */
-const MARKER = 'rocket-vibe: partage-non-rejoue';
+const MARKER = 'rocket-vibe: share-not-replayed';
 
 const GUARD = `    // ${MARKER}
     if ((savedInstanceState != null || (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) &&

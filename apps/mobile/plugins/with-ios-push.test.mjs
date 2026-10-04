@@ -1,7 +1,7 @@
 /**
- * La retouche du Podfile du plugin iOS, sur l'extrait du gabarit Expo 57
- * qu'elle vise. La cible de l'extension, elle, se juge sur un vrai
- * `expo prebuild --platform ios` (voir docs/PUSH.md).
+ * The iOS plugin's Podfile patch, on the Expo 57 template excerpt it targets.
+ * The extension target is judged on a real `expo prebuild --platform ios`
+ * (see docs/PUSH.md).
  */
 
 import assert from 'node:assert/strict';
@@ -20,7 +20,7 @@ target 'rocketvibe' do
 end
 `;
 
-test('les pods Firebase passent en modular_headers, dans la cible, après use_expo_modules!', () => {
+test('the Firebase pods switch to modular_headers, in the target, after use_expo_modules!', () => {
   const outbox = modularPodfile(TEMPLATE);
   assert.match(outbox, /use_expo_modules!\n  pod 'FirebaseCore', :modular_headers => true\n/);
   for (const pod of ['FirebaseCoreInternal', 'FirebaseMessaging', 'GoogleUtilities']) {
@@ -28,15 +28,15 @@ test('les pods Firebase passent en modular_headers, dans la cible, après use_ex
   }
 });
 
-test('rejouer la retouche ne duplique rien', () => {
+test('replaying the patch duplicates nothing', () => {
   const one = modularPodfile(TEMPLATE);
   assert.equal(modularPodfile(one), one);
 });
 
-test('un Podfile sans use_expo_modules! arrête le prebuild', () => {
+test('a Podfile without use_expo_modules! stops the prebuild', () => {
   assert.throws(() => modularPodfile("target 'x' do\nend\n"), /use_expo_modules!/);
 });
 
-test("le groupe de trousseau est préfixé par l'équipe, résolu par Xcode", () => {
+test('the keychain group is prefixed by the team, resolved by Xcode', () => {
   assert.equal(keychainGroup('com.rocketvibe.app'), '$(AppIdentifierPrefix)com.rocketvibe.app');
 });

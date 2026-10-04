@@ -4,13 +4,13 @@ import UIKit
 import UserNotifications
 
 /**
- * « Répondre » depuis une notification iOS, pendant de ReponseNotifReceiver
- * (plugins/with-fcm-deeplink.js) : le texte part par `chat.sendMessage` depuis
- * le natif, sans attendre le JS.
+ * "Reply" from an iOS notification, counterpart of NotificationReplyReceiver
+ * (plugins/with-fcm-deeplink.js): the text goes out through `chat.sendMessage`
+ * from native code, without waiting for JS.
  *
- * Abonné au DÉMARRAGE de l'app, pas à la création des modules : iOS peut
- * relancer l'app en arrière-plan juste pour livrer la réponse, et un délégué
- * inscrit après coup la manquerait si celui d'expo l'avait déjà consommée.
+ * Subscribed at app STARTUP, not at module creation: iOS may relaunch the app
+ * in the background just to deliver the reply, and a delegate registered later
+ * would miss it if expo's had already consumed it.
  */
 public class NotificationReplyAppDelegate: ExpoAppDelegateSubscriber {
   private let replyHandler = ReplyHandler()
@@ -58,8 +58,8 @@ private final class ReplyHandler: NotificationDelegate {
     else { return true }
     let tmid = (ejson["tmid"] as? String).flatMap { $0.isEmpty ? nil : $0 }
 
-    // expo rend la main au système dès notre retour : sans tâche de fond, iOS
-    // pourrait suspendre l'app avant la fin de la requête.
+    // expo hands control back to the system as soon as we return: without a
+    // background task, iOS could suspend the app before the request finishes.
     let application = UIApplication.shared
     var backgroundTask = UIBackgroundTaskIdentifier.invalid
     let finish = {
@@ -84,7 +84,7 @@ private final class ReplyHandler: NotificationDelegate {
   }
 }
 
-/// POST <baseUrl>/api/v1/chat.sendMessage, avec la session lue au trousseau.
+/// POST <baseUrl>/api/v1/chat.sendMessage, with the session read from the keychain.
 private func sendReply(session: Session, rid: String, tmid: String?, text: String, completion: @escaping (Bool) -> Void) {
   guard let url = URL(string: session.baseUrl.trimmingSuffix("/") + "/api/v1/chat.sendMessage") else {
     completion(false)
@@ -111,8 +111,8 @@ private func sendReply(session: Session, rid: String, tmid: String?, text: Strin
   }.resume()
 }
 
-/// La réponse n'est pas partie : une notification le dit, dans le même fil et
-/// avec la même action, pour réessayer d'un geste.
+/// The reply did not go out: a notification says so, in the same thread and
+/// with the same action, to retry in one gesture.
 private func reportFailure(_ original: UNNotificationContent) {
   guard let content = original.mutableCopy() as? UNMutableNotificationContent else { return }
   content.body = preferredLanguage() == "fr" ? "Réponse non envoyée" : "Reply not sent"

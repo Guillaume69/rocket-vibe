@@ -2,14 +2,14 @@ import AVFoundation
 import ExpoModulesCore
 
 /**
- * Pendant iOS du module Kotlin (Media3 Transformer) : MP4 H.264 au bitrate
- * demandé, côté court plafonné (l'aspect est préservé), audio copié tel quel
- * quand c'est de l'AAC, réencodé en AAC sinon. Écrit dans le cache de l'app,
- * celui que `deleteIfTemporary` (ui/temporaryFiles.ts) nettoie.
+ * iOS counterpart of the Kotlin module (Media3 Transformer): H.264 MP4 at the
+ * requested bitrate, short side capped (aspect preserved), audio copied as is
+ * when it is AAC, re-encoded to AAC otherwise. Written to the app cache, the one
+ * `deleteIfTemporary` (ui/temporaryFiles.ts) cleans up.
  *
- * La rotation n'est pas appliquée aux pixels : la piste garde la transformation
- * de la source, que tous les lecteurs respectent. Le plafond se compare donc
- * aux dimensions DROITES, comme côté Android.
+ * Rotation is not applied to the pixels: the track keeps the source's
+ * transform, which every player honours. The cap is therefore compared to the
+ * UPRIGHT dimensions, as on Android.
  */
 public class VideoCompressorModule: Module {
   public func definition() -> ModuleDefinition {
@@ -48,7 +48,7 @@ private func transcode(source: URL, output: URL, maxShortSide: Int, bitrate: Int
   let upright = size.applying(transformation)
   let shortSide = min(abs(upright.width), abs(upright.height))
   let scale = shortSide > CGFloat(maxShortSide) ? CGFloat(maxShortSide) / shortSide : 1
-  // Dimensions paires : contrainte de l'encodeur H.264.
+  // Even dimensions: H.264 encoder constraint.
   let width = Int(size.width * scale) / 2 * 2
   let height = Int(size.height * scale) / 2 * 2
 
@@ -130,10 +130,10 @@ private func transcode(source: URL, output: URL, maxShortSide: Int, bitrate: Int
   }
 }
 
-/// Pompe chaque piste de la lecture vers l'écriture, au rythme où l'encodeur
-/// accepte les échantillons. Les pistes avancent EN MÊME TEMPS : AVAssetWriter
-/// attend des données entrelacées et cesse d'accepter la vidéo tant que l'audio
-/// ne suit pas ; les copier l'une après l'autre bloquerait.
+/// Pumps each track from the reader to the writer, at the pace the encoder
+/// accepts samples. The tracks advance AT THE SAME TIME: AVAssetWriter expects
+/// interleaved data and stops accepting video while audio lags behind; copying
+/// them one after the other would deadlock.
 private func copySamples(_ pairs: [(AVAssetReaderOutput, AVAssetWriterInput)]) async {
   await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
     let group = DispatchGroup()

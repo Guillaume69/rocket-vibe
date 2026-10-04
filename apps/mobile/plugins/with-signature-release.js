@@ -1,13 +1,12 @@
 const { withAppBuildGradle } = require('expo/config-plugins');
 
 /**
- * Signe les builds release avec LA clé de l'app, jamais avec la clé de debug
- * du template : Android refuse une mise à jour signée d'une autre clé, donc un
- * APK de la CI ne s'installerait pas par-dessus un APK construit ici, ni
- * l'inverse. La clé vient de l'environnement (RV_KEYSTORE, fichier ;
- * RV_KEYSTORE_PASSWORD, RV_KEY_ALIAS, RV_KEY_PASSWORD) : posée par
- * scripts/env.sh en local, par les secrets en CI. Sans elle, une tâche release
- * échoue au lieu de retomber en silence sur la clé de debug.
+ * Signs release builds with THE app's key, never with the template's debug key:
+ * Android refuses an update signed with another key, so a CI APK would not
+ * install over an APK built here, nor the reverse. The key comes from the
+ * environment (RV_KEYSTORE, a file; RV_KEYSTORE_PASSWORD, RV_KEY_ALIAS,
+ * RV_KEY_PASSWORD): set by scripts/env.sh locally, by secrets in CI. Without it,
+ * a release task fails instead of silently falling back to the debug key.
  */
 const CONFIG_RELEASE = `
         release {
@@ -23,7 +22,7 @@ const GUARD = `
 gradle.taskGraph.whenReady { graph ->
     if (graph.allTasks.any { it.name.contains('Release') } && !System.getenv('RV_KEYSTORE')) {
         throw new GradleException(
-            "Build release sans la clé de l'app (RV_KEYSTORE vide) : source scripts/env.sh, qui la lit dans ~/.config/rocket-vibe/signature.env.")
+            "Release build without the app's key (RV_KEYSTORE empty): source scripts/env.sh, which reads it from ~/.config/rocket-vibe/signature.env.")
     }
 }
 `;

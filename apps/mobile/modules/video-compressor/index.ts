@@ -1,17 +1,17 @@
 import { requireOptionalNativeModule } from 'expo-modules-core';
 
 /**
- * Pont du module natif, Kotlin (`android/src/main/java/com/rocketvibe/…`) et
- * Swift (`ios/VideoCompressorModule.swift`), autolinké par Expo depuis
- * `modules/`. Ce fichier n'est importable QUE dans l'app : sous Node
- * (tests), `requireNativeModule` jetterait — la logique décidable vit dans
- * `ui/attachmentQuality.ts`, pur.
+ * Bridge to the native module, Kotlin (`android/src/main/java/com/rocketvibe/…`)
+ * and Swift (`ios/VideoCompressorModule.swift`), autolinked by Expo from
+ * `modules/`. This file is importable ONLY in the app: under Node (tests),
+ * `requireNativeModule` would throw; the decidable logic lives in
+ * `ui/attachmentQuality.ts`, pure.
  */
 
 export type CompressedVideo = {
-  /** `file://…` dans le cache de l'app — supprimable par `deleteIfTemporary`. */
+  /** `file://…` in the app cache, removable by `deleteIfTemporary`. */
   uri: string;
-  /** Poids réel du MP4 écrit, en octets. */
+  /** Actual size of the written MP4, in bytes. */
   size: number;
 };
 

@@ -2,24 +2,24 @@ import Foundation
 import UserNotifications
 
 /**
- * Pendant iOS de RocketVibeMessagingService (plugins/with-fcm-deeplink.js).
- * Copié dans ios/NotificationService/ par plugins/with-ios-push.js.
+ * iOS counterpart of RocketVibeMessagingService (plugins/with-fcm-deeplink.js).
+ * Copied into ios/NotificationService/ by plugins/with-ios-push.js.
  *
- * Le serveur (bundle patché, docker/patch-push.mjs) pose `mutable-content` :
- * iOS réveille cette extension avant d'afficher chaque push. En mode « contenu
- * masqué », le push ne porte qu'un messageId ; on lit la session dans le
- * trousseau partagé avec l'app et on demande le contenu à `push.get`.
+ * The server (patched bundle, docker/patch-push.mjs) sets `mutable-content`:
+ * iOS wakes this extension before showing each push. In "hidden content" mode,
+ * the push carries only a messageId; we read the session from the keychain
+ * shared with the app and ask `push.get` for the content.
  *
- * Deux différences avec Android, imposées par iOS :
- * - aucune notification ne peut être supprimée (il faudrait l'entitlement de
- *   filtrage, sur dossier Apple) : sans session, on remplace le texte par un
- *   générique au lieu d'avaler le push ;
- * - pas de WorkManager : un fetch raté laisse « Nouveau message », sans
- *   rattrapage. L'ouverture de l'app resynchronise de toute façon.
+ * Two differences from Android, imposed by iOS:
+ * - no notification can be suppressed (that needs the filtering entitlement,
+ *   granted by Apple on application): without a session, we replace the text
+ *   with a generic one instead of swallowing the push;
+ * - no WorkManager: a failed fetch leaves "New message", with no catch-up.
+ *   Opening the app resyncs anyway.
  *
- * Le tap est routé par expo-notifications, qui expose `userInfo["body"]` comme
- * `data` d'un push distant : on y range `ejson` (avec `rid` et `host`), la
- * forme que lit `notificationTarget` dans ui/notifications.tsx.
+ * The tap is routed by expo-notifications, which exposes `userInfo["body"]` as
+ * the `data` of a remote push: we store `ejson` there (with `rid` and `host`),
+ * the shape `notificationTarget` reads in ui/notifications.tsx.
  */
 class NotificationService: UNNotificationServiceExtension {
   private var deliver: ((UNNotificationContent) -> Void)?
@@ -131,7 +131,7 @@ private func apply(
   }
   content.body = text
   content.threadIdentifier = rid
-  // Le serveur refuserait une réponse en clair dans un salon chiffré.
+  // The server would reject a plaintext reply in an encrypted room.
   if payload["messageType"] as? String != "e2e" {
     content.categoryIdentifier = messageCategory
   }

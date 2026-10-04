@@ -1,16 +1,16 @@
 const { withGradleProperties } = require('expo/config-plugins');
 
 /**
- * Restreint les libs natives aux ABI réellement ciblées. Le défaut du template
- * RN (armeabi-v7a, arm64-v8a, x86, x86_64) produit un APK de ~150 Mo dont
- * ~55 Mo ne servent jamais ici :
- *   - Pixel physique → arm64-v8a ;
- *   - AVD du Mac (Apple Silicon) → arm64-v8a ;
- *   - AVD du poste Linux → x86_64.
- * x86 (32 bits) et armeabi-v7a n'ont aucune cible. En config plugin et pas en
- * édition manuelle de gradle.properties : android/ est gitignoré (CNG), un
- * \`expo prebuild\` efface toute retouche à la main — c'est arrivé, l'APK a
- * silencieusement regonflé de 60 à 150 Mo.
+ * Restricts native libs to the ABIs actually targeted. The RN template default
+ * (armeabi-v7a, arm64-v8a, x86, x86_64) produces a ~150 MB APK of which ~55 MB
+ * is never used here:
+ *   - physical Pixel → arm64-v8a;
+ *   - Mac AVD (Apple Silicon) → arm64-v8a;
+ *   - Linux workstation AVD → x86_64.
+ * x86 (32-bit) and armeabi-v7a have no target. As a config plugin rather than a
+ * manual edit of gradle.properties: android/ is gitignored (CNG), and an
+ * \`expo prebuild\` erases any hand edit. It happened: the APK silently grew
+ * back from 60 to 150 MB.
  */
 const ARCHITECTURES = 'arm64-v8a,x86_64';
 

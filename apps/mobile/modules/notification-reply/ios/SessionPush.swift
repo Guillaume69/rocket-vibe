@@ -2,23 +2,23 @@ import Foundation
 import Security
 
 /**
- * La session Rocket.Chat et la langue, lues au trousseau sans runtime JS.
- * Source unique : compilée dans le pod ReponseNotif, et copiée dans la cible
- * NotificationService par plugins/with-ios-push.js. L'extension et la réponse
- * depuis la notification lisent donc la même chose, avec la même garde
- * d'origine.
+ * The Rocket.Chat session and the language, read from the keychain without a JS
+ * runtime. Single source: compiled into the NotificationReply pod, and copied into
+ * the NotificationService target by plugins/with-ios-push.js. The extension and
+ * the notification reply therefore read the same thing, with the same origin
+ * guard.
  */
 
-/// Catégorie posée par l'extension sur les messages auxquels on peut répondre,
-/// et son action de saisie, enregistrée par NotificationReplyAppDelegate.
+/// Category the extension sets on messages that can be replied to, and its
+/// text input action, registered by NotificationReplyAppDelegate.
 let messageCategory = "rv-message"
 let replyAction = "rv-reply"
 
-// MARK: - Trousseau (format d'expo-secure-store 57)
+// MARK: - Keychain (expo-secure-store 57 format)
 
-/// expo-secure-store range chaque clé en kSecClassGenericPassword, service
-/// `app:no-auth`, compte = la clé en UTF-8. Le groupe d'accès partagé est posé
-/// par plugins/with-ios-push.js sur l'app ET sur l'extension.
+/// expo-secure-store stores each key as kSecClassGenericPassword, service
+/// `app:no-auth`, account = the key in UTF-8. The shared access group is set
+/// by plugins/with-ios-push.js on the app AND on the extension.
 let secureStoreService = "app:no-auth"
 
 func readKeychain(_ key: String) -> String? {
@@ -65,8 +65,8 @@ struct Session {
   let authToken: String
 }
 
-/// Même règle que `originOf` du Kotlin et de lib/origin.ts : scheme +
-/// autorité, en minuscules, userinfo compris.
+/// Same rule as `originOf` in the Kotlin and in lib/origin.ts: scheme +
+/// authority, lowercased, userinfo included.
 func originOf(_ url: String) -> String? {
   guard let regex = try? NSRegularExpression(pattern: "^(https?://[^/?#]+)", options: .caseInsensitive),
     let match = regex.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)),
@@ -75,9 +75,9 @@ func originOf(_ url: String) -> String? {
   return url[range].lowercased()
 }
 
-/// La session dont le baseUrl a la MÊME ORIGINE que le host du push. Le host
-/// vient du payload, que quiconque connaît le jeton peut forger : jamais de
-/// repli sur une autre session, sinon le jeton partirait vers son domaine.
+/// The session whose baseUrl has the SAME ORIGIN as the push host. The host
+/// comes from the payload, which anyone who knows the token can forge: never
+/// fall back to another session, or the token would go to their domain.
 func readSession(host: String) -> Session? {
   guard let expected = originOf(host) else { return nil }
   for key in keychainKeys() where key.hasPrefix("session-") {

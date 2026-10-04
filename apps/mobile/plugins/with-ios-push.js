@@ -10,25 +10,25 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Le push iOS, par FCM comme Android (voir docs/PUSH.md, « iOS ») :
+ * iOS push, through FCM like Android (see docs/PUSH.md, "iOS"):
  *
- * - `FirebaseAppDelegateProxyEnabled = false` : Firebase ne swizzle pas
- *   l'AppDelegate, qu'expo-notifications gère déjà ; modules/fcm-token lui
- *   remet le jeton APNs à la main ;
- * - les pods Firebase en `modular_headers` : le module Swift fcm-token importe
- *   FirebaseMessaging, et FirebaseCoreInternal (Swift) dépend de
- *   GoogleUtilities, qui ne définit pas de module sans ça ;
- * - la Notification Service Extension (ios-notification-service/), cible
- *   `NotificationService`, qui va chercher le contenu par `push.get` ;
- * - un groupe de trousseau partagé par l'app et l'extension, EN TÊTE de la
- *   liste de l'app : c'est le groupe par défaut où expo-secure-store écrit, donc
- *   là où l'extension lit la session.
+ * - `FirebaseAppDelegateProxyEnabled = false`: Firebase does not swizzle the
+ *   AppDelegate, which expo-notifications already handles; modules/fcm-token
+ *   hands it the APNs token by hand;
+ * - the Firebase pods with `modular_headers`: the fcm-token Swift module imports
+ *   FirebaseMessaging, and FirebaseCoreInternal (Swift) depends on
+ *   GoogleUtilities, which defines no module without it;
+ * - the Notification Service Extension (ios-notification-service/), target
+ *   `NotificationService`, which fetches the content through `push.get`;
+ * - a keychain group shared by the app and the extension, FIRST in the app's
+ *   list: it is the default group expo-secure-store writes to, hence where the
+ *   extension reads the session.
  */
 
 const TARGET = 'NotificationService';
 const SOURCE_SWIFT = path.join(__dirname, 'ios-notification-service', `${TARGET}.swift`);
-// Session et langue lues au trousseau : même source que la réponse depuis la
-// notification (modules/notification-reply), compilée dans les deux cibles.
+// Session and language read from the keychain: same source as the notification
+// reply (modules/notification-reply), compiled into both targets.
 const SOURCE_SESSION = path.join(__dirname, '..', 'modules', 'notification-reply', 'ios', 'SessionPush.swift');
 const IOS_MIN_TARGET = '16.4';
 

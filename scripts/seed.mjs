@@ -11,20 +11,20 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { EMOJIS_CUSTOM } from './emojis-seed.mjs';
+import { CUSTOM_EMOJIS } from './emojis-seed.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-const NB_MESSAGES = 12;
-const NB_REPONSES = 3;
-const RACINE_FIL = '[seed fil] Racine du fil de discussion.';
+const MESSAGE_COUNT = 12;
+const REPLY_COUNT = 3;
+const THREAD_ROOT = '[seed fil] Racine du fil de discussion.';
 
-const texteMessage = (i, label) =>
-  `[seed ${i}/${NB_MESSAGES}] Message de test dans ${label}. **gras**, _italique_, \`code\`.`;
-const texteReponse = (i) => `[seed fil ${i}/${NB_REPONSES}] Réponse dans le fil.`;
+const messageText = (i, label) =>
+  `[seed ${i}/${MESSAGE_COUNT}] Message de test dans ${label}. **gras**, _italique_, \`code\`.`;
+const replyText = (i) => `[seed fil ${i}/${REPLY_COUNT}] Réponse dans le fil.`;
 
 const RE_MESSAGE = /^\[seed (\d+)\/\d+\]/;
-const RE_REPONSE = /^\[seed fil (\d+)\/\d+\]/;
+const RE_REPLY = /^\[seed fil (\d+)\/\d+\]/;
 
 /**
  * Reads a `.env` file with no external dependency.
@@ -146,16 +146,16 @@ async function ensureUser({ username, name, password }) {
 
 /** `kind` is "channels" (public) or "groups" (private). */
 async function ensureRoom(kind, name, members) {
-  const cle = kind === 'channels' ? 'channel' : 'group';
-  const libelle = kind === 'channels' ? 'channel' : 'group';
+  const key = kind === 'channels' ? 'channel' : 'group';
+  const kindLabel = kind === 'channels' ? 'channel' : 'group';
   const found = await api('GET', `${kind}.info?roomName=${encodeURIComponent(name)}`);
   if (found.ok) {
-    console.log(`  ${libelle} ${name}: already exists`);
-    return found.json[cle]._id;
+    console.log(`  ${kindLabel} ${name}: already exists`);
+    return found.json[key]._id;
   }
   const j = await must('POST', `${kind}.create`, { name, members });
-  console.log(`  ${libelle} ${name}: created`);
-  return j[cle]._id;
+  console.log(`  ${kindLabel} ${name}: created`);
+  return j[key]._id;
 }
 
 /** `im.create` is already idempotent server-side. */
@@ -165,19 +165,19 @@ async function ensureIm(username) {
   return j.room._id;
 }
 
-async function historique(historyEndpoint, roomId) {
+async function history(historyEndpoint, roomId) {
   const j = await must('GET', `${historyEndpoint}?roomId=${roomId}&count=100`);
   return j.messages || [];
 }
 
 /** Indices already present among the messages carrying the seed marker. */
-function indicesPresents(messages, regex) {
-  const vus = new Set();
+function presentIndices(messages, regex) {
+  const seen = new Set();
   for (const m of messages) {
     const found = regex.exec(m.msg || '');
-    if (found) vus.add(Number(found[1]));
+    if (found) seen.add(Number(found[1]));
   }
-  return vus;
+  return seen;
 }
 
 /**
@@ -185,22 +185,22 @@ function indicesPresents(messages, regex) {
  * never left as is nor duplicated.
  */
 async function seedMessages(historyEndpoint, roomId, label) {
-  const messages = await historique(historyEndpoint, roomId);
-  const presents = indicesPresents(
+  const messages = await history(historyEndpoint, roomId);
+  const present = presentIndices(
     messages.filter((m) => !m.tmid),
     RE_MESSAGE,
   );
-  const manquants = [];
-  for (let i = 1; i <= NB_MESSAGES; i++) if (!presents.has(i)) manquants.push(i);
+  const missing = [];
+  for (let i = 1; i <= MESSAGE_COUNT; i++) if (!present.has(i)) missing.push(i);
 
-  if (manquants.length === 0) {
-    console.log(`  messages of ${label}: ${NB_MESSAGES}/${NB_MESSAGES}, nothing to do`);
+  if (missing.length === 0) {
+    console.log(`  messages of ${label}: ${MESSAGE_COUNT}/${MESSAGE_COUNT}, nothing to do`);
     return;
   }
-  for (const i of manquants) {
-    await must('POST', 'chat.postMessage', { roomId, text: texteMessage(i, label) });
+  for (const i of missing) {
+    await must('POST', 'chat.postMessage', { roomId, text: messageText(i, label) });
   }
-  console.log(`  messages of ${label}: ${manquants.length} posted, total ${NB_MESSAGES}`);
+  console.log(`  messages of ${label}: ${missing.length} posted, total ${MESSAGE_COUNT}`);
 }
 
 /**
@@ -209,29 +209,29 @@ async function seedMessages(historyEndpoint, roomId, label) {
  * already has them.
  */
 async function seedThread(historyEndpoint, roomId) {
-  const messages = await historique(historyEndpoint, roomId);
-  let racine = messages.find((m) => m.msg === RACINE_FIL && !m.tmid);
-  if (!racine) {
-    const j = await must('POST', 'chat.postMessage', { roomId, text: RACINE_FIL });
-    racine = j.message;
+  const messages = await history(historyEndpoint, roomId);
+  let root = messages.find((m) => m.msg === THREAD_ROOT && !m.tmid);
+  if (!root) {
+    const j = await must('POST', 'chat.postMessage', { roomId, text: THREAD_ROOT });
+    root = j.message;
     console.log('  thread: root created');
   }
 
-  const fil = await must('GET', `chat.getThreadMessages?tmid=${racine._id}&count=50`);
-  const presents = indicesPresents(fil.messages || [], RE_REPONSE);
-  const manquants = [];
-  for (let i = 1; i <= NB_REPONSES; i++) if (!presents.has(i)) manquants.push(i);
+  const thread = await must('GET', `chat.getThreadMessages?tmid=${root._id}&count=50`);
+  const present = presentIndices(thread.messages || [], RE_REPLY);
+  const missing = [];
+  for (let i = 1; i <= REPLY_COUNT; i++) if (!present.has(i)) missing.push(i);
 
-  if (manquants.length === 0) {
-    console.log(`  thread: ${NB_REPONSES}/${NB_REPONSES} replies, nothing to do`);
+  if (missing.length === 0) {
+    console.log(`  thread: ${REPLY_COUNT}/${REPLY_COUNT} replies, nothing to do`);
     return;
   }
-  for (const i of manquants) {
+  for (const i of missing) {
     await must('POST', 'chat.sendMessage', {
-      message: { rid: roomId, tmid: racine._id, msg: texteReponse(i) },
+      message: { rid: roomId, tmid: root._id, msg: replyText(i) },
     });
   }
-  console.log(`  thread: ${manquants.length} reply(ies) posted, total ${NB_REPONSES}`);
+  console.log(`  thread: ${missing.length} reply(ies) posted, total ${REPLY_COUNT}`);
 }
 
 /**
@@ -240,11 +240,11 @@ async function seedThread(historyEndpoint, roomId) {
  * would die under the rate limiter where the rest of the seed waits. The
  * `FormData` is rebuilt on every attempt (its body is consumed).
  */
-async function creerEmojiCustom(e, attempt = 0) {
+async function createCustomEmoji(e, attempt = 0) {
   // `atob` rather than `Buffer`: a standard global the RN lint knows.
-  const octets = Uint8Array.from(atob(e.b64), (c) => c.charCodeAt(0));
+  const bytes = Uint8Array.from(atob(e.b64), (c) => c.charCodeAt(0));
   const fd = new FormData();
-  fd.set('emoji', new Blob([octets], { type: e.type }), `${e.name}.${e.ext}`);
+  fd.set('emoji', new Blob([bytes], { type: e.type }), `${e.name}.${e.ext}`);
   fd.set('name', e.name);
   fd.set('aliases', e.aliases);
   const res = await fetch(`${BASE}/api/v1/emoji-custom.create`, {
@@ -259,7 +259,7 @@ async function creerEmojiCustom(e, attempt = 0) {
     process.stderr.write(`  429 on emoji-custom.create, waiting ${Math.round(delay)} ms\n`);
     await res.body?.cancel();
     await sleep(delay);
-    return creerEmojiCustom(e, attempt + 1);
+    return createCustomEmoji(e, attempt + 1);
   }
   const json = await res.json();
   if (!res.ok || json.success === false) {
@@ -271,15 +271,15 @@ async function creerEmojiCustom(e, attempt = 0) {
  * Custom emojis. `emoji-custom.create` rejects a name already taken: we list
  * first, and create only the missing ones.
  */
-async function seedEmojisCustom() {
-  const liste = await must('GET', 'emoji-custom.list');
-  const existants = new Set((liste.emojis?.update ?? []).map((e) => e.name));
-  for (const e of EMOJIS_CUSTOM) {
-    if (existants.has(e.name)) {
+async function seedCustomEmojis() {
+  const list = await must('GET', 'emoji-custom.list');
+  const existing = new Set((list.emojis?.update ?? []).map((e) => e.name));
+  for (const e of CUSTOM_EMOJIS) {
+    if (existing.has(e.name)) {
       console.log(`  emoji ${e.name}: already exists`);
       continue;
     }
-    await creerEmojiCustom(e);
+    await createCustomEmoji(e);
     console.log(`  emoji ${e.name}: created`);
   }
 }
@@ -294,15 +294,15 @@ async function main() {
 
   console.log('rooms');
   const publicId = await ensureRoom('channels', 'test-public', ['alice', 'bob']);
-  const priveId = await ensureRoom('groups', 'test-prive', ['alice']);
+  const privateId = await ensureRoom('groups', 'test-prive', ['alice']);
   const dmId = await ensureIm('alice');
 
   console.log('custom emojis');
-  await seedEmojisCustom();
+  await seedCustomEmojis();
 
   console.log('messages');
   await seedMessages('channels.history', publicId, 'test-public');
-  await seedMessages('groups.history', priveId, 'test-prive');
+  await seedMessages('groups.history', privateId, 'test-prive');
   await seedMessages('im.history', dmId, 'le direct avec alice');
   await seedThread('channels.history', publicId);
 

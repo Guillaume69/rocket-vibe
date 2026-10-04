@@ -29,7 +29,7 @@ appId: com.rocketvibe.app
 - tapOn:
     below: 'Adresse du serveur'
 - eraseText
-- inputText: '${SERVEUR}'
+- inputText: '${SERVER}'
 - tapOn: 'Continuer'
 - extendedWaitUntil:
     visible: 'Identifiant ou email'
@@ -37,7 +37,7 @@ appId: com.rocketvibe.app
 - tapOn: 'jean.dupont'
 - inputText: 'bob'
 - tapOn: '••••••••'
-- inputText: '${MOT_DE_PASSE}'
+- inputText: '${PASSWORD}'
 - hideKeyboard
 - tapOn: 'Se connecter'
 - extendedWaitUntil:

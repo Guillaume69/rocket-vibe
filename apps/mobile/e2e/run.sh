@@ -14,16 +14,16 @@
 # on zsh here (globs, word splitting).
 set -euo pipefail
 
-ICI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RACINE="$(dirname "$ICI")"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(dirname "$HERE")"
 MAESTRO="${MAESTRO:-maestro}"
-SERVEUR="${SERVEUR:-http://localhost:3000}"
+SERVER="${SERVER:-http://localhost:3000}"
 # ALWAYS the emulator: a personal phone plugged in must never receive the
 # suite by accident.
 export ANDROID_SERIAL="${ANDROID_SERIAL:-emulator-5554}"
 MAESTRO_ARGS=(--device "$ANDROID_SERIAL")
-HORODATAGE="$(date +%s)"
-FICHIER_SECRET="/tmp/rocket-vibe-e2e-2fa-secret"
+STAMP="$(date +%s)"
+SECRET_FILE="/tmp/rocket-vibe-e2e-2fa-secret"
 
 # The dev-client sometimes crashes natively (Fabric SIGSEGV,
 # `MountingCoordinator::pullTransaction`, measured ~2 startups out of 8) on
@@ -31,7 +31,7 @@ FICHIER_SECRET="/tmp/rocket-vibe-e2e-2fa-secret"
 # once the app is running. Appeared with reanimated 4.5 (8.9); until an
 # upstream fix, flows starting from a BLANK state get a second try. Not the
 # others: replaying 02/04 would post the same message again.
-maestro_retry_froid() {
+maestro_retry_cold() {
   if ! "$MAESTRO" "${MAESTRO_ARGS[@]}" test "$@"; then
     echo "   (second try: known dev-client crash on cold start)"
     "$MAESTRO" "${MAESTRO_ARGS[@]}" test "$@"
@@ -40,38 +40,38 @@ maestro_retry_froid() {
 
 # An interrupted previous run may have left bob's 2FA active; flows 03 and
 # 05 depend on it: we clean up UP FRONT with the persisted secret.
-if [ -s "$FICHIER_SECRET" ]; then
-  node "$ICI/harness/two-factor.mjs" disable "$(cat "$FICHIER_SECRET")" || true
-  rm -f "$FICHIER_SECRET"
+if [ -s "$SECRET_FILE" ]; then
+  node "$HERE/harness/two-factor.mjs" disable "$(cat "$SECRET_FILE")" || true
+  rm -f "$SECRET_FILE"
 fi
 
 echo "== 01 login (alice)"
-maestro_retry_froid "$ICI/flows/01-login.yaml" \
-  -e SERVEUR="$SERVEUR" -e UTILISATEUR=alice -e MOT_DE_PASSE=alice-dev-2026
+maestro_retry_cold "$HERE/flows/01-login.yaml" \
+  -e SERVER="$SERVER" -e USERNAME=alice -e PASSWORD=alice-dev-2026
 
 echo "== 02 send"
-"$MAESTRO" "${MAESTRO_ARGS[@]}" test "$ICI/flows/02-send.yaml" -e MSG="e2e-envoi-$HORODATAGE"
+"$MAESTRO" "${MAESTRO_ARGS[@]}" test "$HERE/flows/02-send.yaml" -e MSG="e2e-send-$STAMP"
 # The Maestro assert would be satisfied by the OPTIMISTIC render alone: the
 # truth comes from the server.
-node "$ICI/harness/check-server.mjs" "e2e-envoi-$HORODATAGE"
+node "$HERE/harness/check-server.mjs" "e2e-send-$STAMP"
 
 echo "== 03 reconnect (link cut while bob posts)"
 # Whatever happens between the cut and the end, the link is RESTORED:
 # without this trap, a failure midway would leave the emulator offline.
-retablir_lien() { adb reverse tcp:3000 tcp:3000 >/dev/null 2>&1 || true; }
-trap retablir_lien EXIT
+restore_link() { adb reverse tcp:3000 tcp:3000 >/dev/null 2>&1 || true; }
+trap restore_link EXIT
 adb reverse --remove tcp:3000 || true
-node "$ICI/harness/post-as-bob.mjs" "e2e-reconnexion-$HORODATAGE"
+node "$HERE/harness/post-as-bob.mjs" "e2e-reconnect-$STAMP"
 sleep 8
-retablir_lien
+restore_link
 trap - EXIT
-"$MAESTRO" "${MAESTRO_ARGS[@]}" test "$ICI/flows/03-reconnect.yaml" -e MSG="e2e-reconnexion-$HORODATAGE"
+"$MAESTRO" "${MAESTRO_ARGS[@]}" test "$HERE/flows/03-reconnect.yaml" -e MSG="e2e-reconnect-$STAMP"
 
 echo "== 04 upload (system picker)"
-FICHIER="e2e-image-$HORODATAGE.png"
+FILE="e2e-image-$STAMP.png"
 # A valid 1x1 PNG, generated locally: nothing to version.
-printf '\x89PNG\r\n\x1a\n' > "/tmp/$FICHIER"
-python3 - "$FICHIER" <<'PY'
+printf '\x89PNG\r\n\x1a\n' > "/tmp/$FILE"
+python3 - "$FILE" <<'PY'
 import struct, sys, zlib
 nom = sys.argv[1]
 def bloc(t, d):
@@ -81,38 +81,38 @@ png = b'\x89PNG\r\n\x1a\n' + bloc(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 2, 0
     + bloc(b'IDAT', donnees) + bloc(b'IEND', b'')
 open(f'/tmp/{nom}', 'wb').write(png)
 PY
-adb push "/tmp/$FICHIER" "/sdcard/Download/$FICHIER" >/dev/null
-adb shell cmd media scan "/sdcard/Download/$FICHIER" >/dev/null 2>&1 || true
-"$MAESTRO" "${MAESTRO_ARGS[@]}" test "$ICI/flows/04-upload.yaml" \
-  -e LEGENDE="e2e-upload-$HORODATAGE" -e FICHIER="$FICHIER"
+adb push "/tmp/$FILE" "/sdcard/Download/$FILE" >/dev/null
+adb shell cmd media scan "/sdcard/Download/$FILE" >/dev/null 2>&1 || true
+"$MAESTRO" "${MAESTRO_ARGS[@]}" test "$HERE/flows/04-upload.yaml" \
+  -e CAPTION="e2e-upload-$STAMP" -e FILE="$FILE"
 # The Maestro assert can match the caption still in the COMPOSER: the
 # truth (message + attached file) comes from the server.
-node "$ICI/harness/check-server.mjs" "e2e-upload-$HORODATAGE" --file
+node "$HERE/harness/check-server.mjs" "e2e-upload-$STAMP" --file
 
 echo "== 05 two factors (TOTP on bob)"
-SECRET="$(node "$ICI/harness/two-factor.mjs" enable)"
-printf '%s' "$SECRET" > "$FICHIER_SECRET"
-nettoyer_2fa() { node "$ICI/harness/two-factor.mjs" disable "$SECRET" || true; }
-trap nettoyer_2fa EXIT
+SECRET="$(node "$HERE/harness/two-factor.mjs" enable)"
+printf '%s' "$SECRET" > "$SECRET_FILE"
+clean_2fa() { node "$HERE/harness/two-factor.mjs" disable "$SECRET" || true; }
+trap clean_2fa EXIT
 # The retry recomputes its TOTP: the first try's would be stale (and
 # Rocket.Chat refuses REUSE of an already consumed code).
-if ! "$MAESTRO" "${MAESTRO_ARGS[@]}" test "$ICI/flows/05-two-factor.yaml" \
-  -e SERVEUR="$SERVEUR" -e MOT_DE_PASSE=bob-dev-2026 \
-  -e TOTP="$(node "$ICI/harness/totp.mjs" "$SECRET" +30)"; then
+if ! "$MAESTRO" "${MAESTRO_ARGS[@]}" test "$HERE/flows/05-two-factor.yaml" \
+  -e SERVER="$SERVER" -e PASSWORD=bob-dev-2026 \
+  -e TOTP="$(node "$HERE/harness/totp.mjs" "$SECRET" +30)"; then
   echo "   (second try: known dev-client crash on cold start)"
-  "$MAESTRO" "${MAESTRO_ARGS[@]}" test "$ICI/flows/05-two-factor.yaml" \
-    -e SERVEUR="$SERVEUR" -e MOT_DE_PASSE=bob-dev-2026 \
-    -e TOTP="$(node "$ICI/harness/totp.mjs" "$SECRET" +30)"
+  "$MAESTRO" "${MAESTRO_ARGS[@]}" test "$HERE/flows/05-two-factor.yaml" \
+    -e SERVER="$SERVER" -e PASSWORD=bob-dev-2026 \
+    -e TOTP="$(node "$HERE/harness/totp.mjs" "$SECRET" +30)"
 fi
 trap - EXIT
 # The FINAL cleanup is not optional: a failed disable with a lost secret
 # blocks every following run (the trap's || true only covers the suite's
 # FAILURE path, where the original error takes precedence).
-node "$ICI/harness/two-factor.mjs" disable "$SECRET"
-rm -f "$FICHIER_SECRET"
+node "$HERE/harness/two-factor.mjs" disable "$SECRET"
+rm -f "$SECRET_FILE"
 
 echo "== restore: alice session"
-maestro_retry_froid "$ICI/flows/01-login.yaml" \
-  -e SERVEUR="$SERVEUR" -e UTILISATEUR=alice -e MOT_DE_PASSE=alice-dev-2026
+maestro_retry_cold "$HERE/flows/01-login.yaml" \
+  -e SERVER="$SERVER" -e USERNAME=alice -e PASSWORD=alice-dev-2026
 
-echo "E2E SUITE GREEN ($RACINE)"
+echo "E2E SUITE GREEN ($ROOT)"

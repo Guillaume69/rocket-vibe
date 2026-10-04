@@ -3,7 +3,7 @@
 // 5 rainbow frames) and a static PNG (shipit).
 // See scripts/seed.mjs → seedEmojisCustom.
 
-export const EMOJIS_CUSTOM = [
+export const CUSTOM_EMOJIS = [
   {
     name: 'party_parrot',
     aliases: 'parrot',

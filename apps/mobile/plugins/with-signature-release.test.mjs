@@ -32,11 +32,11 @@ const TEMPLATE = `android {
 `;
 
 test('release signs with the app key, debug keeps its own', () => {
-  const outbox = sign(TEMPLATE);
-  assert.match(outbox, /release \{\s*\n\s*if \(System\.getenv\('RV_KEYSTORE'\)\)/);
-  assert.match(outbox, /release \{\s*\n\s*signingConfig signingConfigs\.release/);
-  assert.match(outbox, /debug \{\s*\n\s*signingConfig signingConfigs\.debug/);
-  assert.match(outbox, /throw new GradleException/);
+  const output = sign(TEMPLATE);
+  assert.match(output, /release \{\s*\n\s*if \(System\.getenv\('RV_KEYSTORE'\)\)/);
+  assert.match(output, /release \{\s*\n\s*signingConfig signingConfigs\.release/);
+  assert.match(output, /debug \{\s*\n\s*signingConfig signingConfigs\.debug/);
+  assert.match(output, /throw new GradleException/);
 });
 
 test('replaying prebuild duplicates nothing', () => {

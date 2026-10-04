@@ -22,11 +22,11 @@ function neutralize(source) {
   if (source.includes(MARKER)) return source;
   const anchor = /override fun onCreate\(savedInstanceState: Bundle\?\) \{\n/;
   if (!anchor.test(source)) throw new Error('with-incoming-share: MainActivity.onCreate not found');
-  let outbox = source.replace(anchor, (start) => start + GUARD);
-  if (!/^import android\.content\.Intent$/m.test(outbox)) {
-    outbox = outbox.replace('import android.os.Bundle', 'import android.content.Intent\nimport android.os.Bundle');
+  let output = source.replace(anchor, (start) => start + GUARD);
+  if (!/^import android\.content\.Intent$/m.test(output)) {
+    output = output.replace('import android.os.Bundle', 'import android.content.Intent\nimport android.os.Bundle');
   }
-  return outbox;
+  return output;
 }
 
 module.exports = function withIncomingShare(config) {

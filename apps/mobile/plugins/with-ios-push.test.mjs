@@ -21,10 +21,10 @@ end
 `;
 
 test('the Firebase pods switch to modular_headers, in the target, after use_expo_modules!', () => {
-  const outbox = modularPodfile(TEMPLATE);
-  assert.match(outbox, /use_expo_modules!\n  pod 'FirebaseCore', :modular_headers => true\n/);
+  const output = modularPodfile(TEMPLATE);
+  assert.match(output, /use_expo_modules!\n  pod 'FirebaseCore', :modular_headers => true\n/);
   for (const pod of ['FirebaseCoreInternal', 'FirebaseMessaging', 'GoogleUtilities']) {
-    assert.match(outbox, new RegExp(`^  pod '${pod}', :modular_headers => true$`, 'm'));
+    assert.match(output, new RegExp(`^  pod '${pod}', :modular_headers => true$`, 'm'));
   }
 });
 

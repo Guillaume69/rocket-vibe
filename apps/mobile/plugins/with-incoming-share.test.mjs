@@ -24,11 +24,11 @@ class MainActivity : ReactActivity() {
 `;
 
 test('the guard precedes super.onCreate and imports Intent', () => {
-  const outbox = neutralize(TEMPLATE);
-  assert.match(outbox, /^import android\.content\.Intent$/m);
-  const watchdog = outbox.indexOf('FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY');
-  assert.ok(watchdog > 0 && watchdog < outbox.indexOf('super.onCreate'));
-  assert.match(outbox, /savedInstanceState != null/);
+  const output = neutralize(TEMPLATE);
+  assert.match(output, /^import android\.content\.Intent$/m);
+  const guard = output.indexOf('FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY');
+  assert.ok(guard > 0 && guard < output.indexOf('super.onCreate'));
+  assert.match(output, /savedInstanceState != null/);
 });
 
 test('idempotent', () => {

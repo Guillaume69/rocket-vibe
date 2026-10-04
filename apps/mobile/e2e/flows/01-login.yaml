@@ -28,15 +28,15 @@ appId: com.rocketvibe.app
 - tapOn:
     below: 'Adresse du serveur'
 - eraseText
-- inputText: '${SERVEUR}'
+- inputText: '${SERVER}'
 - tapOn: 'Continuer'
 - extendedWaitUntil:
     visible: 'Identifiant ou email'
     timeout: 15000
 - tapOn: 'jean.dupont'
-- inputText: '${UTILISATEUR}'
+- inputText: '${USERNAME}'
 - tapOn: '••••••••'
-- inputText: '${MOT_DE_PASSE}'
+- inputText: '${PASSWORD}'
 - hideKeyboard
 - tapOn: 'Se connecter'
 # The room list is the logged-in home screen.

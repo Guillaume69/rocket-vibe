@@ -1,5 +1,5 @@
 # Upload: caption typed BEFORE the 📎 (it goes out with the file), selection
-# in the system picker (the harness pushed ${FICHIER} into Downloads), then
+# in the system picker (the harness pushed ${FILE} into Downloads), then
 # the caption appears as a message: proof that rooms.media + mediaConfirm
 # succeeded.
 appId: com.rocketvibe.app
@@ -25,21 +25,21 @@ appId: com.rocketvibe.app
 - tapOn: 'Message'
 # A restored draft (8.7) may occupy the field: start from scratch.
 - eraseText
-- inputText: '${LEGENDE}'
+- inputText: '${CAPTION}'
 # NO hideKeyboard here: on Android it sometimes turns into a BACK, which
 # leaves the room screen. The 📎 stays visible with the keyboard open.
 - tapOn: 'Joindre un fichier'
 # System picker (documentsui): the freshly pushed file is visible in
 # "Recent".
 - extendedWaitUntil:
-    visible: '${FICHIER}'
+    visible: '${FILE}'
     timeout: 20000
-- tapOn: '${FICHIER}'
+- tapOn: '${FILE}'
 # Back in the app: compression + upload + confirm, then the caption message
 # comes back down the stream; scrolling, since the keyboard bar may cover
 # the bottom of the list.
 - scrollUntilVisible:
     element:
-      text: '${LEGENDE}'
+      text: '${CAPTION}'
     direction: DOWN
     timeout: 60000

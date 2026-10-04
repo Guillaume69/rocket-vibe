@@ -61,20 +61,20 @@ apply plugin: 'com.google.gms.google-services'
 
 describe('addDependencies', () => {
   it('injects into the ROOT `dependencies` block, not a nested one', () => {
-    const outbox = addDependencies(GRADLE, DEPS);
-    const rootPos = outbox.search(/^dependencies \{/m);
-    const nestedPos = outbox.indexOf('nothing "here"');
+    const output = addDependencies(GRADLE, DEPS);
+    const rootPos = output.search(/^dependencies \{/m);
+    const nestedPos = output.indexOf('nothing "here"');
     for (const dep of DEPS) {
-      const pos = outbox.indexOf(`implementation("${dep}")`);
+      const pos = output.indexOf(`implementation("${dep}")`);
       assert.ok(pos > rootPos, `${dep} should follow the root block`);
       assert.ok(pos > nestedPos, `${dep} must not have landed in the nested block`);
     }
   });
 
   it('declares each of the two artifacts exactly once', () => {
-    const outbox = addDependencies(GRADLE, DEPS);
+    const output = addDependencies(GRADLE, DEPS);
     for (const dep of DEPS) {
-      assert.equal(outbox.split(`implementation("${dep}")`).length - 1, 1);
+      assert.equal(output.split(`implementation("${dep}")`).length - 1, 1);
     }
   });
 
@@ -89,9 +89,9 @@ describe('addDependencies', () => {
       /^dependencies \{/m,
       'dependencies {\n    implementation("androidx.work:work-runtime:2.9.0")',
     );
-    const outbox = addDependencies(withValue, DEPS);
-    assert.ok(outbox.includes('androidx.work:work-runtime:2.9.0'));
-    assert.ok(!outbox.includes('androidx.work:work-runtime:2.10.1'));
+    const output = addDependencies(withValue, DEPS);
+    assert.ok(output.includes('androidx.work:work-runtime:2.9.0'));
+    assert.ok(!output.includes('androidx.work:work-runtime:2.10.1'));
   });
 
   it('THROWS if the gradle file has no root `dependencies` block', () => {

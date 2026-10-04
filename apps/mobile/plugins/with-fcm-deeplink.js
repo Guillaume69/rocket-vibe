@@ -1221,13 +1221,13 @@ function addDependencies(contents, deps) {
         'firebase-messaging and work-runtime cannot be declared.',
     );
   }
-  let outbox = contents;
+  let output = contents;
   for (const dep of deps) {
     const artifact = dep.substring(0, dep.lastIndexOf(':'));
-    if (outbox.includes(artifact)) continue;
-    outbox = outbox.replace(DEPENDENCIES_BLOCK, (m) => `${m}\n    implementation("${dep}")`);
+    if (output.includes(artifact)) continue;
+    output = output.replace(DEPENDENCIES_BLOCK, (m) => `${m}\n    implementation("${dep}")`);
   }
-  return outbox;
+  return output;
 }
 
 /**

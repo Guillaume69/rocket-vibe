@@ -37,8 +37,8 @@ mod settlement;
 pub use settlement::{CancellationRequest, GroupCancellation, GroupSettlement};
 pub mod wire;
 pub use journal::{
-    JournalBatch, JournalObservation, JournalProjection, JournalRequest, ProjectedMessage,
-    ProjectionQuery,
+    JournalBatch, JournalObservation, JournalProjection, JournalRequest, JournalSources,
+    ProjectedMessage, ProjectionQuery,
 };
 pub use messages::{
     CancelledMessage, ClearMessage, MessageCancellation, MessageObservation, MessagePending,

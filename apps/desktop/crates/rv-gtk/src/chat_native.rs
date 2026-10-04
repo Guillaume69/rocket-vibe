@@ -500,6 +500,23 @@ impl ChatPage {
                         menu.popdown();
                     });
                     list.append(&copy);
+                    if row.outbox_status.is_none() {
+                        let button = gtk::Button::builder().label(t("actions.reply")).css_classes(["flat"]).build();
+                        let (weak, id, menu) = (Rc::downgrade(self), row.id.clone(), popover.clone());
+                        button.connect_clicked(move |_| {
+                            if let Some(page) = weak.upgrade() {
+                                if in_thread {
+                                    if let Some(thread) = page.thread.borrow().as_ref() {
+                                        thread.quote_private(id.clone());
+                                    }
+                                } else {
+                                    page.quote_native_crypto(id.clone());
+                                }
+                            }
+                            menu.popdown();
+                        });
+                        list.append(&button);
+                    }
                     if !in_thread && row.outbox_status.is_none() && row.thread_id.is_none() {
                         let button =
                             gtk::Button::builder().label(t("actions.reply_thread")).css_classes(["flat"]).build();

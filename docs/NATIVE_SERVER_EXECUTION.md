@@ -97,9 +97,27 @@ vérifie racine, brouillons séparés, réponse perdue / redémarrage sans secon
 compteurs et retrait. Clippy strict moteur / pont / cœur / FFI passe. Les deux
 ABI Android compilent et les cinq tests du vrai Keystore / ABI passent, avec
 réponse de fil réouverte et compteur privé ; reçus synthétiques.
-Compilation des interfaces GTK / SwiftUI à confirmer par la CI de ce lot ; GUI
+Compilation des interfaces GTK / SwiftUI confirmée par les CI de `8356206` ; GUI
 installé, archive, citations / actions / recherche et fichiers restent ouverts.
 Aucun masque E2EE de production activé.
+
+Les citations privées sont ensuite raccordées aux menus / bandeaux / composeurs
+GTK et SwiftUI existants : source racine ou réponse de fil, citation seule,
+sélection liée à l'instance / génération, adhésion et admission, puis document
+MLS contenant uniquement les références. Résolution par salon dans le coffre
+retenu, relecture des admissions avant exposition, deux niveaux, cycles bornés
+par salon / message et 1 024 caractères Unicode par extrait. Un parent inaccessible
+ne révèle aucun enfant. La fenêtre privée entière est reconstruite pour purger
+les anciennes cartes après retrait d'une source. Le banc HTTP / MLS / SQLite
+vérifie citation seule, sélection stale refusée, réponse perdue / réouverture et
+reçu GET sans second POST. Les 16 parcours crypto desktop passent ; les 155 tests
+du moteur passent (un enfant de crash ignoré, le test long de rétention inchangé
+non rejoué). Le test des cartes couvre Unicode, profondeur, cycles et source
+retirée ; Clippy strict cœur / FFI passe, ainsi que la construction de la DLL
+et la génération locale des bindings Swift. Compilation GTK / SwiftUI à confirmer
+par la CI de ce nouveau lot. Citations Android, sources mêlant clair / chiffré,
+révisions d'édition privée, fichiers cités, archives complètes et parcours GUI
+installé restent ouverts. Aucun masque E2EE de production activé.
 
 | Jalon | Développement livré | Travail restant pour le fermer |
 |---|---|---|
@@ -107,16 +125,16 @@ Aucun masque E2EE de production activé.
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils privés dans les trois interfaces | Renouvellement / récupération / révocation visibles, actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils privés dans les trois interfaces, citations privées GTK / SwiftUI | Citations Android / mixtes, renouvellement / récupération / révocation visibles, actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison qui passe toutes les CI existantes (`fbe6e8b`) passe les neuf jobs de la CI
-`37229357337` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison qui passe toutes les CI existantes (`8356206`) passe les neuf jobs de la CI
+`37232082535` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
-Le job Android `37229357344` passe aussi les deux ABI, le vrai Keystore, la
-cérémonie d'association, les contrôles de confiance, groupes et conversations sur émulateur.
-L'application macOS du lot conversations `220ffc5` passe sa compilation, son packaging et son
-démarrage (`37211906510`). Groupes, projection et composeur dans les interfaces
+Le job Android `37232082495` passe aussi les deux ABI, le vrai Keystore, la
+cérémonie d'association, les contrôles de confiance, groupes et fils sur émulateur.
+L'application macOS du lot fils privés `8356206` passe sa compilation, son packaging et son
+démarrage (`37232082458`). Groupes, projection et composeur dans les interfaces
 existantes compilent et passent ces régressions. Le parcours GUI E2EE complet
 avec plusieurs applications installées reste un critère de sortie distinct.
 L'inventaire généré qui avait arrêté la CI du raccordement `60e72f4` est corrigé.

@@ -2,7 +2,7 @@
 
 Commande : `node scripts/inventory-rocketchat.mjs`. Contrôle : ajouter `--check`.
 
-392 fichiers de production parcourus ; 450 occurrences.
+393 fichiers de production parcourus ; 450 occurrences.
 Les appels à premier argument dynamique restent visibles : leur résolution est
 consignée dans [le contrat de parité](PARITY.md). Les lignes sont des repères de
 source au moment de la génération. Le JSON conserve le périmètre et tous les fichiers.
@@ -173,7 +173,7 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/crates/rv-core/src/uploads.rs:352](../../apps/desktop/crates/rv-core/src/uploads.rs#L352) | endpoint | rooms.mediaConfirm/{…}/{…} |
 | [apps/desktop/crates/rv-core/src/uploads.rs:372](../../apps/desktop/crates/rv-core/src/uploads.rs#L372) | call:UPLOAD | &format!("rooms.media/{…}", task_row.rid), |
 | [apps/desktop/crates/rv-core/src/uploads.rs:374](../../apps/desktop/crates/rv-core/src/uploads.rs#L374) | endpoint | rooms.media/{…} |
-| [apps/desktop/crates/rv-gtk/src/chat_native.rs:864](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L864) | endpoint | rooms.new |
+| [apps/desktop/crates/rv-gtk/src/chat_native.rs:881](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L881) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:81](../../apps/desktop/crates/rv-gtk/src/chat.rs#L81) | endpoint | rooms.favorite_add |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:81](../../apps/desktop/crates/rv-gtk/src/chat.rs#L81) | endpoint | rooms.favorite_remove |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:237](../../apps/desktop/crates/rv-gtk/src/chat.rs#L237) | endpoint | rooms.offline |

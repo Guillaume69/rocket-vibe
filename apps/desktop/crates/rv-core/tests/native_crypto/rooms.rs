@@ -381,6 +381,19 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     group.close();
     let mut encrypted = room();
     encrypted.encrypted = true;
+    encrypted.read_state = Some(Box::new(rv_protocol::parity::ReadState {
+        room_id: "room".into(),
+        revision: "1".into(),
+        membership_version: Some("private-membership".into()),
+        favorite_revision: Some("1".into()),
+        root_position: "0".into(),
+        reply_position: "0".into(),
+        unread_roots: "0".into(),
+        unread_replies: "0".into(),
+        mentions: "0".into(),
+        group_mentions: "0".into(),
+        favorite: false,
+    }));
     pilot
         .session
         .store
@@ -499,6 +512,53 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     let view = nested.refresh(None, 50).await.unwrap();
     assert!(!view.can_send && view.messages.is_empty());
     nested.close();
+    // A reply can be quoted from the root conversation. Only its typed reference
+    // is in the encrypted document, and a lost response reuses the original.
+    let selected = thread.select_quote("private-message-2".into()).await.unwrap();
+    assert_eq!(selected.selection.reference.revision, "9007199254740994");
+    assert_eq!(selected.text, "private-message-cleartext thread draft");
+    assert!(thread.select_source_quote("unseen-room".into(), "private-message-2".into()).await.is_err());
+    let quoted = rv_protocol::SendMessage {
+        operation_id: "private-quote-one".into(),
+        text: String::new(),
+        reply_to: None,
+        quotes: vec![selected.selection.reference.clone()],
+        cards: vec![],
+    };
+    assert!(reopened.send(quoted.clone()).await.is_err(), "references require a current private selection");
+    for field in 0..4 {
+        let mut stale = selected.selection.clone();
+        match field {
+            0 => stale.membership.push('x'),
+            1 => stale.admission[0] ^= 1,
+            2 => stale.instance.push('x'),
+            _ => stale.reference.revision = "9007199254740995".into(),
+        }
+        let mut invalid = quoted.clone();
+        invalid.quotes = vec![stale.reference.clone()];
+        assert!(reopened.send_selected(invalid, vec![stale]).await.is_err());
+    }
+    assert_eq!(book.lock().unwrap().message_posts, 2);
+    book.lock().unwrap().lose_message_reply = true;
+    assert!(reopened.send_selected(quoted, vec![selected.selection.clone()]).await.is_err());
+    assert_eq!(book.lock().unwrap().message_posts, 3);
+    reopened.close();
+    let reopened = message_settings(&pilot).await.messages("room".into(), None).await.unwrap();
+    reopened.refresh(Some("9007199254740997".into()), 50).await.unwrap();
+    reopened.resume("private-quote-one".into()).await.unwrap();
+    assert_eq!(book.lock().unwrap().message_posts, 3, "quoted original resumes by receipt GET");
+    let view = reopened.refresh(None, 50).await.unwrap();
+    let quote = view.messages.iter().find(|m| m.operation == "private-quote-one").unwrap();
+    assert_eq!(quote.quotes, vec![selected.selection.reference]);
+    assert_eq!(quote.row.text.as_deref(), Some(""));
+    let cards: serde_json::Value = serde_json::from_str(quote.row.attachments.as_ref().unwrap()).unwrap();
+    assert_eq!(cards[0]["text"], "private-message-cleartext thread draft");
+    assert_eq!(cards[0]["native_unavailable"], false);
+    let selected = reopened.select_quote("private-message-3".into()).await.unwrap();
+    assert!(selected.text.is_empty(), "quote-only sources do not copy their children's words");
+    assert!(reopened.refresh(None, 50).await.unwrap().selected_quote.is_some());
+    reopened.cancel_quote();
+    assert!(reopened.refresh(None, 50).await.unwrap().selected_quote.is_none());
     // Ordinary native tables and every SQL sidecar remain free of the body.
     for file in std::fs::read_dir(pilot.directory.path()).unwrap().flatten() {
         if file.file_type().unwrap().is_file() {
@@ -512,5 +572,5 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     assert!(reopened.set_draft("Late private draft".into()).await.is_err());
     snapshot(&pilot, true);
     assert!(reopened.refresh(None, 50).await.is_err());
-    assert_eq!(book.lock().unwrap().message_posts, 2);
+    assert_eq!(book.lock().unwrap().message_posts, 3);
 }

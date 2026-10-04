@@ -18,6 +18,64 @@ pub struct NativePrivateMessage {
     pub delivery: NativePrivateDelivery,
 }
 #[derive(Clone, uniffi::Record)]
+pub struct NativePrivateQuoteSelection {
+    pub room_id: String,
+    pub message_id: String,
+    pub revision: String,
+    pub instance: String,
+    pub data_epoch: String,
+    pub membership: String,
+    pub admission: Vec<u8>,
+}
+#[derive(Clone, uniffi::Record)]
+pub struct NativePrivateQuotePreview {
+    pub selection: NativePrivateQuoteSelection,
+    pub quote: crate::model::Quote,
+}
+fn preview(value: messages::QuotePreview, username: &str) -> NativePrivateQuotePreview {
+    let selected = value.selection;
+    NativePrivateQuotePreview {
+        selection: NativePrivateQuoteSelection {
+            room_id: selected.reference.room_id,
+            message_id: selected.reference.message_id,
+            revision: selected.reference.revision,
+            instance: selected.instance,
+            data_epoch: selected.data_epoch,
+            membership: selected.membership,
+            admission: selected.admission.to_vec(),
+        },
+        quote: crate::model::quote(
+            rv_core::content::Quote {
+                unavailable: false,
+                link: String::new(),
+                author: Some(value.author),
+                text: value.text,
+                md: None,
+                images: vec![],
+                files: vec![],
+                quotes: vec![],
+            },
+            username,
+        ),
+    }
+}
+fn selection(value: NativePrivateQuoteSelection) -> Result<messages::QuoteSelection, RvError> {
+    Ok(messages::QuoteSelection {
+        reference: messages::QuoteReference {
+            room_id: value.room_id,
+            message_id: value.message_id,
+            revision: value.revision,
+        },
+        instance: value.instance,
+        data_epoch: value.data_epoch,
+        membership: value.membership,
+        admission: value
+            .admission
+            .try_into()
+            .map_err(|_| RvError::Local { message: "crypto_quote_unavailable".into() })?,
+    })
+}
+#[derive(Clone, uniffi::Record)]
 pub struct NativePrivateConversation {
     pub revision: u64,
     pub can_send: bool,
@@ -27,6 +85,7 @@ pub struct NativePrivateConversation {
     pub draft: String,
     pub items: Vec<crate::model::MessageItem>,
     pub messages: Vec<NativePrivateMessage>,
+    pub selected_quote: Option<NativePrivateQuotePreview>,
 }
 #[derive(uniffi::Object)]
 pub struct NativeCryptoMessages {
@@ -109,6 +168,7 @@ impl NativeCryptoMessages {
             draft: view.draft,
             items,
             messages: metadata,
+            selected_quote: view.selected_quote.map(|q| preview(q, &self.username)),
         })
     }
     pub async fn set_draft(&self, text: String) -> Result<(), RvError> {
@@ -116,16 +176,37 @@ impl NativeCryptoMessages {
         on_tokio(async move { access.set_draft(text).await }).await.map_err(error)
     }
     pub async fn send(&self, operation: String, text: String) -> Result<(), RvError> {
+        self.send_quotes(operation, text, vec![]).await
+    }
+    pub async fn select_quote(&self, message_id: String) -> Result<NativePrivateQuotePreview, RvError> {
+        let access = self.access.clone();
+        let value = on_tokio(async move { access.select_quote(message_id).await }).await.map_err(error)?;
+        self.access.check().map_err(error)?;
+        Ok(preview(value, &self.username))
+    }
+    pub fn cancel_quote(&self) {
+        self.access.cancel_quote();
+    }
+    pub async fn send_quotes(
+        &self,
+        operation: String,
+        text: String,
+        quotes: Vec<NativePrivateQuoteSelection>,
+    ) -> Result<(), RvError> {
+        let selections = quotes.into_iter().map(selection).collect::<Result<Vec<_>, _>>()?;
         let (access, thread) = (self.access.clone(), self.thread.clone());
         on_tokio(async move {
             access
-                .send(messages::SendMessage {
-                    operation_id: operation,
-                    text,
-                    reply_to: thread,
-                    quotes: vec![],
-                    cards: vec![],
-                })
+                .send_selected(
+                    messages::SendMessage {
+                        operation_id: operation,
+                        text,
+                        reply_to: thread,
+                        quotes: selections.iter().map(|s| s.reference.clone()).collect(),
+                        cards: vec![],
+                    },
+                    selections,
+                )
                 .await
         })
         .await

@@ -122,6 +122,7 @@ impl ThreadPage {
         }
         self.private_meta.borrow_mut().clear();
         self.composer.unbind_native();
+        self.composer.clear_reply();
         self.composer.set_text("");
         self.composer.root.set_visible(false);
         self.list.clear();
@@ -188,6 +189,7 @@ impl ThreadPage {
             self.root_id.clone(),
         );
         let path = gtk::glib::user_data_dir().join("rocket-vibe-rs/native-crypto");
+        let selected = self.composer.private_reply();
         gtk::glib::spawn_future_local(async move {
             let result = crate::on_tokio(async move {
                 let access = match access {
@@ -230,6 +232,9 @@ impl ThreadPage {
                     if !page.private_restored.replace(true) {
                         page.composer.bind_private(access, &page.rid, &view.draft);
                     }
+                    if selected.is_some() && page.composer.private_reply() == selected {
+                        page.composer.refresh_private_reply(view.selected_quote);
+                    }
                     let has_root = view.messages.iter().any(|m| m.row.id == page.root_id && m.row.thread_id.is_none());
                     page.list.root.set_tooltip_text(Some(t(if has_root {
                         "crypto.retained_threads"
@@ -266,18 +271,23 @@ impl ThreadPage {
             return;
         };
         let (weak, generation, root) = (Rc::downgrade(self), self.private_generation.get(), self.root_id.clone());
+        let selected = self.composer.private_reply();
+        let quotes = selected.clone().into_iter().collect::<Vec<_>>();
         gtk::glib::spawn_future_local(async move {
             let original = text.clone();
             let result = crate::on_tokio(async move {
                 access.set_draft(text.clone()).await?;
                 access
-                    .send(private::SendMessage {
-                        operation_id: rv_core::native::room_operation_id(),
-                        text,
-                        reply_to: Some(root),
-                        quotes: vec![],
-                        cards: vec![],
-                    })
+                    .send_selected(
+                        private::SendMessage {
+                            operation_id: rv_core::native::room_operation_id(),
+                            text,
+                            reply_to: Some(root),
+                            quotes: quotes.iter().map(|s| s.reference.clone()).collect(),
+                            cards: vec![],
+                        },
+                        quotes,
+                    )
                     .await
             })
             .await;
@@ -286,8 +296,27 @@ impl ThreadPage {
             {
                 if result.is_err() && page.composer.text().is_empty() {
                     page.composer.set_text(&original);
+                } else if result.is_ok() && page.composer.private_reply() == selected {
+                    page.composer.clear_reply();
                 }
                 page.reload();
+            }
+        });
+    }
+    pub fn quote_private(self: &Rc<Self>, id: String) {
+        let Some(access) = self.crypto.borrow().clone().filter(|_| self.private_current()) else { return };
+        let (weak, generation) = (Rc::downgrade(self), self.private_generation.get());
+        gtk::glib::spawn_future_local(async move {
+            let result = crate::on_tokio(async move { access.select_quote(id).await }).await;
+            let Some(page) = weak
+                .upgrade()
+                .filter(|p| p.private_generation.get() == generation && p.private_current() && p.list.root.is_mapped())
+            else {
+                return;
+            };
+            match result {
+                Ok(preview) => page.composer.set_private_reply(preview),
+                Err(_) => page.list.root.set_tooltip_text(Some(t("quote.unavailable"))),
             }
         });
     }

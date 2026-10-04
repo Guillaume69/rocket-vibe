@@ -322,6 +322,18 @@ fn retained_thread_roots_and_counts_share_the_verified_prefix_grant_and_retireme
         .unwrap();
     assert!(room.root.is_none());
     assert_eq!(room.messages.len(), 2);
+    let sources = bob.reopened().journal_sources(&observed, NOW).unwrap();
+    assert_eq!(sources.admission, room.admission);
+    assert_eq!(sources.after, room.after);
+    assert_eq!(
+        sources.messages.len(),
+        5,
+        "quote sources include retained thread replies"
+    );
+    assert_eq!(
+        sources.messages[1].message.message().unwrap().operation_id,
+        "reply-document"
+    );
     // A previously retained root cannot cross the personal grant fence.
     let mut changed = observation(&alice);
     changed
@@ -329,6 +341,7 @@ fn retained_thread_roots_and_counts_share_the_verified_prefix_grant_and_retireme
         .roster
         .members
         .retain(|m| m.user != bob.root.user);
+    assert!(bob.reopened().journal_sources(&changed, NOW).is_err());
     assert!(
         bob.reopened()
             .journal_projection(
@@ -367,6 +380,13 @@ fn retained_thread_roots_and_counts_share_the_verified_prefix_grant_and_retireme
         retired.root.is_none()
             && retired.messages.is_empty()
             && retired.retained_replies.is_empty()
+    );
+    assert!(
+        bob.reopened()
+            .journal_sources(&observed, NOW)
+            .unwrap()
+            .messages
+            .is_empty()
     );
 }
 fn page(

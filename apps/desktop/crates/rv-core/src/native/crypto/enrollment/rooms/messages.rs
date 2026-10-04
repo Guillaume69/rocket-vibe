@@ -1,7 +1,9 @@
 //! Private conversation access for the existing message lists and composers.
 //! The roster stays opaque here; clear rows are transient and never reach SQL.
 use super::*;
-pub use rv_protocol::SendMessage;
+pub use rv_protocol::{SendMessage, parity::QuoteReference};
+mod quotes;
+pub use quotes::{QuotePreview, QuoteSelection};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Delivery {
@@ -28,11 +30,14 @@ pub struct View {
     pub after: String,
     pub draft: String,
     pub messages: Vec<Message>,
+    pub selected_quote: Option<QuotePreview>,
 }
 struct State {
     revision: u64,
     roster: Option<groups::Roster>,
     admission: Option<[u8; 32]>,
+    selected_quote: Option<QuoteSelection>,
+    names: BTreeMap<String, String>,
 }
 struct Conversation {
     room: super::Access,
@@ -61,7 +66,13 @@ impl super::super::Access {
         Ok(Access(Arc::new(Conversation {
             room,
             thread,
-            state: Mutex::new(State { revision: 0, roster: None, admission: None }),
+            state: Mutex::new(State {
+                revision: 0,
+                roster: None,
+                admission: None,
+                selected_quote: None,
+                names: BTreeMap::new(),
+            }),
             serial: tokio::sync::Mutex::new(()),
         })))
     }
@@ -85,12 +96,14 @@ impl Access {
         if result.is_err() {
             self.0.room.close();
             self.0.state.lock().unwrap().roster = None;
+            self.cancel_quote();
         }
         result
     }
     pub fn close(&self) {
         self.0.room.close();
         self.0.state.lock().unwrap().roster = None;
+        self.cancel_quote();
     }
     fn roster(&self) -> Result<groups::Roster> {
         self.check()?;
@@ -159,6 +172,7 @@ impl Access {
         let outgoing = room.0.crypto.outgoing_messages(roster.clone()).await?;
         let (names, _) = room.names().await?;
         self.check()?;
+        self.0.state.lock().unwrap().names = names.clone();
         let mut messages = Vec::with_capacity(projection.messages.len() + outgoing.len() + 1);
         for entry in projection.root.into_iter().chain(projection.messages) {
             let receipt = &entry.message.receipt;
@@ -206,6 +220,19 @@ impl Access {
                 message.row.thread_count = i64::from(*projection.retained_replies.get(&message.row.id).unwrap_or(&0));
             }
         }
+        let had_selected_quote = self.0.state.lock().unwrap().selected_quote.is_some();
+        let selected_quote = self.project_quotes(&mut messages).await?;
+        if had_selected_quote || messages.iter().any(|m| !m.quotes.is_empty()) {
+            // Source resolution awaits other rooms. The destination's private
+            // grant must still match the prefix whose clear rows we built.
+            match room.0.crypto.journal_sources(&room.0.id).await {
+                Ok(current) if current.admission == projection.admission => (),
+                result => {
+                    self.close();
+                    return Err(result.err().unwrap_or_else(room_changed));
+                }
+            }
+        }
         let revision = {
             let mut state = self.0.state.lock().unwrap();
             state.revision += 1;
@@ -222,13 +249,21 @@ impl Access {
             after: projection.after.to_string(),
             draft,
             messages,
+            selected_quote,
         })
     }
     /// The UI supplies a fresh operation once; failed delivery exposes the same
     /// protected intent on refresh/restart and resumes through its receipt GET.
     pub async fn send(&self, document: SendMessage) -> Result<()> {
+        self.send_selected(document, vec![]).await
+    }
+    pub async fn send_selected(&self, document: SendMessage, selections: Vec<QuoteSelection>) -> Result<()> {
         let _serial = self.0.serial.lock().await;
         self.0.room.current().await?;
+        if document.quotes != selections.iter().map(|s| s.reference.clone()).collect::<Vec<_>>() {
+            return Err(crate::native::Error::Protocol("crypto_quote_selection_required").into());
+        }
+        self.validate_quotes(&selections).await?;
         if document.reply_to != self.0.thread {
             return Err(room_changed());
         }
@@ -260,6 +295,9 @@ impl Access {
         let text = document.text.clone();
         crypto.send_message(&self.0.room.0.id, document).await?;
         self.check()?;
+        if selections.iter().any(|s| self.0.state.lock().unwrap().selected_quote.as_ref() == Some(s)) {
+            self.cancel_quote();
+        }
         if crypto.draft(roster.clone(), self.0.thread.clone()).await? == text {
             crypto.set_draft(roster, self.0.thread.clone(), String::new()).await?;
         }

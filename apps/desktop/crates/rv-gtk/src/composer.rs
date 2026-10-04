@@ -25,6 +25,8 @@ pub struct Composer {
     /// The quoted message's permalink, put before the text on send.
     reply_link: RefCell<Option<String>>,
     native_reply: RefCell<Option<rv_core::native::store::QuoteSelection>>,
+    private_reply: RefCell<Option<rv_core::native::crypto::enrollment::rooms::messages::QuoteSelection>>,
+    private_access: RefCell<Option<rv_core::native::crypto::enrollment::rooms::messages::Access>>,
     on_changed: Handler<String>,
     completion: gtk::Popover,
     choices: gtk::ListBox,
@@ -261,6 +263,8 @@ impl Composer {
             reply_preview,
             reply_link: RefCell::default(),
             native_reply: RefCell::default(),
+            private_reply: RefCell::default(),
+            private_access: RefCell::default(),
             on_changed: RefCell::default(),
             completion,
             choices,
@@ -530,6 +534,7 @@ impl Composer {
     /// Ties the composer to a room (`thread` None) or a thread: restores its
     /// draft, saves it as it changes, and offers the room's authors after `@`.
     pub fn bind(&self, session: &Arc<Session>, rid: &str, thread: Option<&str>) {
+        self.unbind_native();
         self.attach.set_sensitive(true);
         self.mic.set_sensitive(true);
         let key = match thread {
@@ -563,6 +568,7 @@ impl Composer {
     }
 
     pub fn bind_native(&self, session: &Arc<rv_core::native::NativeSession>, rid: &str) {
+        self.unbind_native();
         let files = session.supported_features().iter().any(|f| f == "uploads");
         self.attach.set_sensitive(files);
         self.mic.set_sensitive(files);
@@ -588,6 +594,9 @@ impl Composer {
         });
     }
     pub fn unbind_native(&self) {
+        if let Some(access) = self.private_access.take() {
+            access.cancel_quote();
+        }
         self.on_changed.replace(None);
         self.completion.popdown();
     }
@@ -602,6 +611,7 @@ impl Composer {
         self.mic.set_sensitive(false);
         self.staged.switch(rid);
         self.clear_reply();
+        self.private_access.replace(Some(access.clone()));
         self.set_text(draft);
         self.connect_changed(move |text| {
             let access = access.clone();
@@ -741,6 +751,7 @@ impl Composer {
     /// Arms a reply: the bar shows who and what, the send carries the quote.
     pub fn set_reply(&self, name: &str, preview: &str, permalink: String) {
         self.native_reply.replace(None);
+        self.private_reply.replace(None);
         self.reply_title.set_label(&tf("composer.replying", &[("name", name)]));
         self.reply_preview.set_label(preview);
         self.reply_link.replace(Some(permalink));
@@ -749,8 +760,12 @@ impl Composer {
     }
 
     pub fn clear_reply(&self) {
+        if let Some(access) = self.private_access.borrow().as_ref() {
+            access.cancel_quote();
+        }
         self.reply_link.replace(None);
         self.native_reply.replace(None);
+        self.private_reply.replace(None);
         self.reply_title.set_label("");
         self.reply_preview.set_label("");
         self.reply_bar.set_visible(false);
@@ -764,6 +779,28 @@ impl Composer {
 
     pub fn native_reply(&self) -> Option<rv_core::native::store::QuoteSelection> {
         self.native_reply.borrow().clone()
+    }
+    pub fn set_private_reply(&self, preview: rv_core::native::crypto::enrollment::rooms::messages::QuotePreview) {
+        self.set_reply(&preview.author, &preview.text, String::new());
+        self.reply_link.replace(None);
+        self.private_reply.replace(Some(preview.selection));
+    }
+    pub fn private_reply(&self) -> Option<rv_core::native::crypto::enrollment::rooms::messages::QuoteSelection> {
+        self.private_reply.borrow().clone()
+    }
+    pub fn refresh_private_reply(
+        &self,
+        preview: Option<rv_core::native::crypto::enrollment::rooms::messages::QuotePreview>,
+    ) {
+        let Some(selected) = self.private_reply() else { return };
+        match preview {
+            Some(value) if value.selection == selected => {
+                self.reply_title.set_label(&tf("composer.replying", &[("name", &value.author)]));
+                self.reply_preview.set_label(&value.text);
+            }
+            None => self.clear_reply(),
+            _ => (),
+        }
     }
 
     pub fn validate_native_reply(&self, store: &rv_core::native::store::NativeStore) {
@@ -784,7 +821,11 @@ impl Composer {
     fn submit(&self) {
         let mut text = self.text();
         let files = !self.staged.is_empty();
-        if text.trim().is_empty() && !files && self.native_reply.borrow().is_none() {
+        if text.trim().is_empty()
+            && !files
+            && self.native_reply.borrow().is_none()
+            && self.private_reply.borrow().is_none()
+        {
             return;
         }
         self.completion.popdown();

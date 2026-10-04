@@ -13,6 +13,7 @@ impl ChatPage {
         self.native_crypto_restored.set(false);
         self.native_crypto_rows.borrow_mut().clear();
         self.native_crypto_meta.borrow_mut().clear();
+        self.composer.clear_reply();
         self.list.root.set_tooltip_text(None);
     }
     pub(super) async fn crypto_history(self: &Rc<Self>, older: bool) -> bool {
@@ -24,6 +25,7 @@ impl ChatPage {
             return false;
         }
         let generation = self.read_generation.get();
+        let selected = self.composer.private_reply();
         let before = if older {
             self.native_crypto_meta
                 .borrow()
@@ -53,7 +55,7 @@ impl ChatPage {
                         .await?
                 }
             };
-            let view = access.refresh(before, 50).await?;
+            let view = access.refresh(None, 200).await?;
             Ok::<_, rv_core::native::crypto::Error>((access, view))
         })
         .await;
@@ -72,47 +74,14 @@ impl ChatPage {
                 if !self.native_crypto_restored.replace(true) {
                     self.composer.bind_private(access, &rid, &view.draft);
                 }
+                if selected.is_some() && self.composer.private_reply() == selected {
+                    self.composer.refresh_private_reply(view.selected_quote);
+                }
                 let mut incoming = vec![];
                 let mut metadata = vec![];
                 for message in view.messages {
                     metadata.push((message.row.id.clone(), message.operation, message.position));
                     incoming.push(message.row);
-                }
-                if older {
-                    let ids = incoming.iter().map(|r| r.id.clone()).collect::<std::collections::BTreeSet<_>>();
-                    incoming.extend(self.native_crypto_rows.borrow().iter().filter(|r| !ids.contains(&r.id)).cloned());
-                    metadata.extend(
-                        self.native_crypto_meta.borrow().iter().filter(|(id, _, _)| !ids.contains(id)).cloned(),
-                    );
-                } else if let Some(oldest) =
-                    metadata.iter().filter_map(|(_, _, p)| p.as_deref()).filter_map(|p| p.parse::<u64>().ok()).min()
-                {
-                    let keep = self
-                        .native_crypto_meta
-                        .borrow()
-                        .iter()
-                        .filter_map(|(id, _, p)| {
-                            p.as_deref().and_then(|p| p.parse::<u64>().ok()).filter(|p| *p < oldest).map(|_| id.clone())
-                        })
-                        .collect::<std::collections::BTreeSet<_>>();
-                    let mut older_rows = self
-                        .native_crypto_rows
-                        .borrow()
-                        .iter()
-                        .filter(|r| keep.contains(&r.id))
-                        .cloned()
-                        .collect::<Vec<_>>();
-                    older_rows.extend(incoming);
-                    incoming = older_rows;
-                    let mut older_meta = self
-                        .native_crypto_meta
-                        .borrow()
-                        .iter()
-                        .filter(|(id, _, _)| keep.contains(id))
-                        .cloned()
-                        .collect::<Vec<_>>();
-                    older_meta.extend(metadata);
-                    metadata = older_meta;
                 }
                 self.native_crypto_rows.replace(incoming);
                 self.native_crypto_meta.replace(metadata);
@@ -152,18 +121,23 @@ impl ChatPage {
             return;
         };
         let (weak, generation) = (Rc::downgrade(self), self.read_generation.get());
+        let selected = self.composer.private_reply();
+        let quotes = selected.clone().into_iter().collect::<Vec<_>>();
         glib::spawn_future_local(async move {
             let original = text.clone();
             let result = on_tokio(async move {
                 access.set_draft(text.clone()).await?;
                 access
-                    .send(messages::SendMessage {
-                        operation_id: rv_core::native::room_operation_id(),
-                        text,
-                        reply_to: None,
-                        quotes: vec![],
-                        cards: vec![],
-                    })
+                    .send_selected(
+                        messages::SendMessage {
+                            operation_id: rv_core::native::room_operation_id(),
+                            text,
+                            reply_to: None,
+                            quotes: quotes.iter().map(|s| s.reference.clone()).collect(),
+                            cards: vec![],
+                        },
+                        quotes,
+                    )
                     .await
             })
             .await;
@@ -173,8 +147,24 @@ impl ChatPage {
                     page.composer.set_text(&original);
                 }
                 page.toast(t("crypto.failed").to_owned());
+            } else if page.composer.private_reply() == selected {
+                page.composer.clear_reply();
             }
             page.crypto_history(false).await;
+        });
+    }
+    pub(super) fn quote_native_crypto(self: &Rc<Self>, id: String) {
+        let Some(access) = self.native_crypto.borrow().clone().filter(|_| self.native_crypto_ready.get()) else {
+            return;
+        };
+        let (weak, generation) = (Rc::downgrade(self), self.read_generation.get());
+        glib::spawn_future_local(async move {
+            let result = on_tokio(async move { access.select_quote(id).await }).await;
+            let Some(page) = weak.upgrade().filter(|p| p.read_generation.get() == generation) else { return };
+            match result {
+                Ok(preview) => page.composer.set_private_reply(preview),
+                Err(_) => page.toast(t("quote.unavailable").to_owned()),
+            }
         });
     }
     pub(super) fn crypto_retry(self: &Rc<Self>, id: String, cancel: bool) {

@@ -55,6 +55,13 @@ pub struct JournalProjection {
     /// Counts of retained replies, not remote/full-archive thread counts.
     pub retained_replies: BTreeMap<String, u32>,
 }
+/// Reader-bound source lookup for private references, including thread replies.
+/// Absence never falls back to an ordinary SQL/message cache.
+pub struct JournalSources {
+    pub admission: Fingerprint,
+    pub after: u64,
+    pub messages: Vec<ProjectedMessage>,
+}
 pub(super) struct RetainedProjection {
     pub messages: Vec<ProjectedMessage>,
     pub has_older: bool,
@@ -416,6 +423,19 @@ impl Coordinator {
                 messages: retained.messages,
                 root: retained.root,
                 retained_replies: retained.replies,
+            })
+        })
+    }
+    pub fn journal_sources(
+        &self,
+        observation: &JournalObservation,
+        now: u64,
+    ) -> Result<JournalSources> {
+        self.journal_inspect(observation, now, |records, cursor, grant| {
+            Ok(JournalSources {
+                admission: cursor.admission,
+                after: cursor.after,
+                messages: self.project_sources(records, &cursor.scope, grant, cursor.after)?,
             })
         })
     }

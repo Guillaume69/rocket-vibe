@@ -9,6 +9,13 @@ section here.
 
 ### Added
 
+- Existing GTK and SwiftUI reply menus and composer banners can experimentally
+  quote retained private messages, including thread replies, and send a quote
+  alone through the protected MLS outbox. Sources and nested cards are resolved
+  in the reader's coffer, with separate access checks and no copied excerpt in
+  the send document. Stale selections are refused; source withdrawal masks cards
+  and clears the selected preview. Production E2EE remains disabled.
+
 - Existing GTK and SwiftUI thread screens can experimentally display a root and
   its replies from the protected journal, author separate private drafts and
   resume the original reply after a lost response or restart. A root must be

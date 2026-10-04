@@ -256,6 +256,9 @@ impl Access {
     ) -> Result<groups::JournalProjection> {
         self.call(|worker| async move { worker.journal_projection(room, query).await }).await
     }
+    pub async fn journal_sources(&self, room: &str) -> Result<groups::JournalSources> {
+        self.call(|worker| async move { worker.journal_sources(room).await }).await
+    }
 }
 impl NativeSession {
     /// Explicit experimental attachment; no vault creation, root generation or

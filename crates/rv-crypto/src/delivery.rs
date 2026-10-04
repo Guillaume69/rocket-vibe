@@ -917,6 +917,28 @@ impl Worker {
         })
         .await
     }
+    /// One fresh authority observation for all bounded retained quote sources,
+    /// including thread replies. Plaintext never comes from a public endpoint.
+    pub async fn journal_sources(&self, room: &str) -> Result<groups::JournalSources> {
+        let _dispatch = self.dispatch.lock().await;
+        self.scope().await?;
+        let roster = self.client.crypto_group_roster(room).await?;
+        self.current()?;
+        let state = self.client.crypto_group_state(room).await?;
+        self.current()?;
+        let room = room.to_owned();
+        self.owned(move |manager, root, now| {
+            let observation = groups::JournalObservation::from_wire(&roster, &state)?;
+            if observation.current.head.scope.room != room
+                || observation.current.head.scope.instance != manager.scope().instance
+                || observation.current.head.scope.data_epoch != manager.scope().data_epoch
+            {
+                return Err(Error::Scope);
+            }
+            Ok(groups::Coordinator::new(manager, root)?.journal_sources(&observation, now)?)
+        })
+        .await
+    }
     pub async fn events(&self, room: &str) -> Result<Batch> {
         let _dispatch = self.dispatch.lock().await;
         self.scope().await?;

@@ -7,6 +7,37 @@ menus, bandeaux et composeurs sont réutilisés, y compris les citations imbriqu
 sur deux niveaux. Fichiers cités et qualification des applications installées
 restent ouverts ; ce lot ne ferme pas P07.
 
+## Citations privées expérimentales — GTK / SwiftUI
+
+Les menus de réponse, bandeaux et cartes existants peuvent maintenant citer un
+message conservé dans le journal privé, racine ou réponse de fil. Le composeur
+garde une sélection transitoire liée à l'instance, à sa génération, à la durée
+d'adhésion publique et à l'admission personnelle du coffre. Une nouvelle commande
+revérifie cette sélection avant de préparer le document MLS ; seuls les trois
+champs de `QuoteReference` sont dans ce document, jamais l'auteur ou l'extrait.
+Dans ce premier format privé immuable, la révision observée est la position
+signée de publication, conservée comme chaîne décimale exacte.
+
+Une citation seule est possible. Après réponse perdue, reprise et réouverture
+consultent le reçu de l'original protégé ; elles ne resélectionnent pas sa source
+et ne rechiffrent pas son document. Le SDK borne les références à huit sources
+distinctes ; les composeurs actuels sélectionnent une citation à la fois.
+
+Le lecteur résout les sources retenues, y compris les réponses de fil, depuis
+le même préfixe privé vérifié. Les observations sont regroupées par salon source.
+Chaque source doit conserver son adhésion et son admission ; une relecture avant
+exposition masque les sources retirées, sans récupérer leurs mots dans SQLite.
+Les noms peuvent réutiliser les identités publiques déjà connues. Les extraits
+sont bornés à 1 024 caractères Unicode, les descendants à deux niveaux et les
+cycles à leur couple salon / message. Un parent inaccessible ne révèle aucun
+enfant. La liste privée est reconstruite sur toute sa fenêtre retenue pour ne
+pas conserver une ancienne carte après retrait d'un autre salon.
+
+Android, citations mêlant sources en clair et chiffrées, fichiers cités, sources
+hors de la fenêtre retenue, évolution des révisions avec l'édition privée et
+qualification GUI installée restent ouverts. La capacité E2EE de production
+reste désactivée ; ce lot ne ferme ni P07 ni J4.
+
 ## Commandes et reçus
 
 `SendMessage.quotes` est une liste optionnelle de `QuoteReference` :

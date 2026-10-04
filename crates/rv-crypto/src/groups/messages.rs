@@ -1075,6 +1075,45 @@ impl Coordinator {
             replies,
         })
     }
+    pub(super) fn project_sources(
+        &self,
+        records: &Records,
+        scope: &Scope,
+        grant: &Member,
+        through: u64,
+    ) -> Result<Vec<super::journal::ProjectedMessage>> {
+        let ledger = self.message_ledger(records)?;
+        let mut messages = ledger
+            .cache
+            .values()
+            .filter(|entry| {
+                !entry.retired
+                    && entry.journaled
+                    && entry.grant == *grant
+                    && entry
+                        .receipt
+                        .as_ref()
+                        .is_some_and(|r| r.header.scope == *scope && r.position <= through)
+            })
+            .map(|entry| {
+                Ok(super::journal::ProjectedMessage {
+                    message: ClearMessage {
+                        receipt: entry.receipt.as_ref().ok_or(Error::Changed)?.clone(),
+                        payload: Zeroizing::new(entry.plaintext.to_vec()),
+                    },
+                    observed_at: entry.created,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        messages.sort_by_key(|entry| entry.message.receipt.position);
+        if messages
+            .windows(2)
+            .any(|pair| pair[0].message.receipt.position == pair[1].message.receipt.position)
+        {
+            return Err(Error::JournalOrder);
+        }
+        Ok(messages)
+    }
     pub(super) fn retire_message_admission(
         &self,
         records: &mut Records,

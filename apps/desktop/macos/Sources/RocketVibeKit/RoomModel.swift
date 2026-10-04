@@ -169,6 +169,7 @@ public final class RoomModel {
     private var roomAccessTask: Task<Void, Never>?
     private let nativeMembership: String?
     @ObservationIgnored private var nativeQuote: NativeQuoteSelection?
+    @ObservationIgnored private var privateQuote: NativePrivateQuoteSelection?
     public private(set) var pendingQuote: Quote?
     private var privateMode: Bool { provider.native != nil && room.encrypted }
     public private(set) var privateReady = false
@@ -179,7 +180,7 @@ public final class RoomModel {
     @ObservationIgnored private var privateRestoring = false
     @ObservationIgnored private var privateDraftRevision = UUID()
     @ObservationIgnored private var privateGeneration = UUID()
-    public var canSend: Bool { threadWriteAllowed && (!privateMode || privateReady) && (!draft.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || nativeQuote != nil) }
+    public var canSend: Bool { threadWriteAllowed && (!privateMode || privateReady) && (!draft.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || nativeQuote != nil || privateQuote != nil) }
     public private(set) var threadWriteAllowed = true
     @ObservationIgnored private var actionLoads: Set<String> = []
     @ObservationIgnored private var mutations: [String: NativeMessageActions] = [:]
@@ -342,6 +343,7 @@ public final class RoomModel {
         guard active, !privateBusy, let native = provider.native, native.cryptoSettingsSupported() else { return }
         let generation = privateGeneration
         let draftRevision = privateDraftRevision
+        let selected = privateQuote
         privateBusy = true
         defer { if generation == privateGeneration { privateBusy = false } }
         do {
@@ -352,22 +354,16 @@ public final class RoomModel {
                 guard active, generation == privateGeneration, !Task.isCancelled else { opened.close(); return }
                 privateHandle = opened; handle = opened
             }
-            let value = try await handle.refresh(before: before, limit: 50)
+            // Rebuild the whole bounded retained window so no older quote card
+            // survives a source withdrawal outside this conversation.
+            let value = try await handle.refresh(before: nil, limit: 200)
             guard active, generation == privateGeneration, !Task.isCancelled, membershipIsCurrent else { return }
-            if before != nil {
-                let incoming = Set(value.items.map(\.id))
-                messages = value.items + messages.filter { !incoming.contains($0.id) }
-                privateMessages = value.messages + privateMessages.filter { !incoming.contains($0.id) }
-            } else {
-                // Keep already loaded older rows while receiving new protocol pages.
-                let incoming = Set(value.items.map(\.id))
-                let oldest = value.messages.first(where: { $0.delivery == .journaled })?.position
-                let retained = Set(privateMessages.filter { old in
-                    guard old.delivery == .journaled, let position = old.position, let oldest else { return false }
-                    return position.count < oldest.count || (position.count == oldest.count && position < oldest)
-                }.map(\.id))
-                messages = messages.filter { retained.contains($0.id) && !incoming.contains($0.id) } + value.items
-                privateMessages = privateMessages.filter { retained.contains($0.id) && !incoming.contains($0.id) } + value.messages
+            messages = value.items
+            privateMessages = value.messages
+            if selected != nil, privateQuote == selected {
+                if let preview = value.selectedQuote, preview.selection == selected {
+                    pendingQuote = preview.quote
+                } else { cancelQuote() }
             }
             if !privateRestored {
                 if draftRevision == privateDraftRevision {
@@ -391,6 +387,7 @@ public final class RoomModel {
                 privateHandle?.close(); privateHandle = nil
                 messages = []; privateMessages = []; privateRestored = false
                 privateRestoring = true; draft = ""; privateRestoring = false
+                cancelQuote()
             }
         }
     }
@@ -453,14 +450,16 @@ public final class RoomModel {
         if privateMode {
             guard privateReady, !privateBusy, let privateHandle else { return }
             let text = draft
-            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            let selected = privateQuote
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || selected != nil else { return }
             let generation = privateGeneration
             privateBusy = true
             do {
                 try await privateHandle.setDraft(text: text)
-                try await privateHandle.send(operation: "v1_" + UUID().uuidString.replacingOccurrences(of: "-", with: ""), text: text)
+                try await privateHandle.sendQuotes(operation: "v1_" + UUID().uuidString.replacingOccurrences(of: "-", with: ""), text: text, quotes: selected.map { [$0] } ?? [])
                 guard active, generation == privateGeneration else { return }
                 if draft == text { privateRestoring = true; draft = ""; privateRestoring = false }
+                if privateQuote == selected { cancelQuote() }
             } catch { if active, generation == privateGeneration { self.error = L("crypto.failed") } }
             privateBusy = false
             if active, generation == privateGeneration { await refreshPrivate() }
@@ -530,6 +529,9 @@ public final class RoomModel {
         guard active else { return [] }
         if privateMode {
             var result: [MessageAction] = [.copy]
+            if privateReady, privateMessages.contains(where: { $0.id == message.id && $0.delivery == .journaled }) {
+                result.append(.reply)
+            }
             if threadId == nil, message.threadId == nil,
                privateMessages.contains(where: { $0.id == message.id && $0.delivery == .journaled }),
                provider.native?.supportedFeatures().contains("threads") == true {
@@ -673,6 +675,17 @@ public final class RoomModel {
     /// Puts a quote of the message at the start of the draft.
     public func quote(_ message: MessageItem) async {
         guard active, membershipIsCurrent else { return }
+        if privateMode {
+            guard privateReady, let privateHandle else { return }
+            let generation = privateGeneration
+            do {
+                let preview = try await privateHandle.selectQuote(messageId: message.id)
+                guard active, generation == privateGeneration, membershipIsCurrent else { return }
+                privateQuote = preview.selection
+                pendingQuote = preview.quote
+            } catch { if active, generation == privateGeneration { self.error = L("quote.unavailable") } }
+            return
+        }
         if let native = provider.native {
             do {
                 let selected = try native.quoteSelection(room:room.rid,messageId:message.id)
@@ -690,6 +703,8 @@ public final class RoomModel {
     }
 
     public func cancelQuote() {
+        privateHandle?.cancelQuote()
+        privateQuote = nil
         nativeQuote = nil
         pendingQuote = nil
     }

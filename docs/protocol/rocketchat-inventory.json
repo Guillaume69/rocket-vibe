@@ -41,6 +41,7 @@
     "apps/desktop/crates/rv-core/src/native/crypto/enrollment/peers.rs",
     "apps/desktop/crates/rv-core/src/native/crypto/enrollment/rooms.rs",
     "apps/desktop/crates/rv-core/src/native/crypto/enrollment/rooms/messages.rs",
+    "apps/desktop/crates/rv-core/src/native/crypto/enrollment/rooms/messages/quotes.rs",
     "apps/desktop/crates/rv-core/src/native/custom_emojis.rs",
     "apps/desktop/crates/rv-core/src/native/email_recovery.rs",
     "apps/desktop/crates/rv-core/src/native/factor_email.rs",
@@ -1390,7 +1391,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat_native.rs",
-      "line": 864,
+      "line": 881,
       "kind": "endpoint",
       "surface": "rooms.new"
     },

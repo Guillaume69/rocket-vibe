@@ -1,22 +1,22 @@
-# Push — verdict du kill gate
+# Push: kill gate verdict
 
-**PASS sur émulateur.** Chaîne complète prouvée le 2026-07-10 : Firebase → Rocket.Chat 8.5 → FCM HTTP v1 → émulateur → notification système, **y compris processus tué**.
+**PASS on the emulator.** Full chain proven on 2026-07-10: Firebase → Rocket.Chat 8.5 → FCM HTTP v1 → emulator → system notification, **including with the process killed**.
 
-Reste à confirmer sur le Pixel 10 Pro (étape 2.5b) pour Doze et les conditions réelles.
+Still to confirm on the Pixel 10 Pro (step 2.5b) for Doze and real-world conditions.
 
-## La chaîne, telle qu'observée
+## The chain, as observed
 
-1. `getDevicePushTokenAsync()` renvoie un jeton FCM natif (`…:APA91b…`) — pas un jeton Expo Push.
-2. `POST /api/v1/push.token` `{type:'gcm', value, appName}` → stocké dans la collection Mongo **`_raix_push_app_tokens`**, sous la forme `token: { gcm: '…' }`.
-3. Réglages serveur (`Admin → Push`, tous modifiés via l'API avec la 2FA) :
+1. `getDevicePushTokenAsync()` returns a native FCM token (`…:APA91b…`), not an Expo Push token.
+2. `POST /api/v1/push.token` `{type:'gcm', value, appName}` → stored in the Mongo collection **`_raix_push_app_tokens`**, in the form `token: { gcm: '…' }`.
+3. Server settings (`Admin → Push`, all changed through the API with 2FA):
 
-| Réglage | Valeur |
+| Setting | Value |
 |---|---|
 | `Push_enable` | `true` |
 | `Push_enable_gateway` | `false` |
-| `Push_google_api_credentials` | le JSON **complet** du compte de service, en chaîne |
+| `Push_google_api_credentials` | the **complete** service-account JSON, as a string |
 
-4. À la réception d'un DM vers un utilisateur **hors ligne**, le serveur émet :
+4. When a DM reaches an **offline** user, the server emits:
 
 ```
 POST https://fcm.googleapis.com/v1/projects/rocket-vibe/messages:send
@@ -34,97 +34,97 @@ POST https://fcm.googleapis.com/v1/projects/rocket-vibe/messages:send
 }
 ```
 
-Le `rid` du deep link vit dans `data.ejson`, pas à la racine.
+The deep link's `rid` lives in `data.ejson`, not at the root.
 
-## Bundle serveur patché
+## Patched server bundle
 
-Le choix gateway / natif est GLOBAL au serveur (`shouldUseGateway()` dans `app/push/server/push.ts`) : gateway coupé, les jetons des applis officielles partent chez notre projet Firebase, FCM répond `SENDER_ID_MISMATCH` et le serveur les **supprime**. Les applis officielles n'ont plus de push sur ce serveur.
+The gateway / native choice is GLOBAL to the server (`shouldUseGateway()` in `app/push/server/push.ts`): with the gateway off, the official apps' tokens go to our Firebase project, FCM answers `SENDER_ID_MISMATCH` and the server **deletes** them. The official apps get no more push on this server.
 
-`docker/patch-push.mjs` retouche le bundle de l'image (`/app/bundle/programs/server/app/app.js`, lisible, non minifié) :
+`docker/patch-push.mjs` edits the image's bundle (`/app/bundle/programs/server/app/app.js`, readable, not minified):
 
-1. le gateway ne sert plus que les jetons dont `appName` n'est pas `rocket-vibe` : les nôtres partent en natif, les applis officielles gardent le gateway. `Push_enable_gateway` peut revenir à `true`, `Push_google_api_credentials` reste renseigné ;
-2. le message FCM porte un bloc `apns` (`mutable-content: 1`, `thread-id` = `notId`) : un jeton FCM iOS enregistré en `gcm` réveille la Notification Service Extension. Côté Firebase, la clé APNs `.p8` est déposée dans la console ; rien d'APNs côté Rocket.Chat.
+1. the gateway only serves tokens whose `appName` is not `rocket-vibe`: ours go native, the official apps keep the gateway. `Push_enable_gateway` can go back to `true`, `Push_google_api_credentials` stays filled in;
+2. the FCM message carries an `apns` block (`mutable-content: 1`, `thread-id` = `notId`): an iOS FCM token registered as `gcm` wakes the Notification Service Extension. On the Firebase side, the APNs `.p8` key is uploaded in the console; nothing APNs-related on the Rocket.Chat side.
 
 ```sh
-node docker/patch-push.mjs                  # tag lu dans docker/compose.yml -> docker/patched/app-<tag>.js
-node docker/patch-push.mjs <image:tag>      # image explicite, pour le serveur de prod
+node docker/patch-push.mjs                  # tag read from docker/compose.yml -> docker/patched/app-<tag>.js
+node docker/patch-push.mjs <image:tag>      # explicit image, for the production server
 ```
 
-Le compose monte `patched/app-${RC_VERSION}.js` avec `create_host_path: false` : après une montée de version, `up` échoue tant que le script n'a pas été relancé. Le script s'arrête si une ancre n'apparaît pas exactement une fois (code changé en amont) et garde le nombre de lignes, donc `app.js.map` reste aligné.
+The compose file mounts `patched/app-${RC_VERSION}.js` with `create_host_path: false`: after a version upgrade, `up` fails until the script has been rerun. The script stops if an anchor does not appear exactly once (code changed upstream) and keeps the line count, so `app.js.map` stays aligned.
 
-Vérifié sur le banc 8.5.1 : démarrage sain sur le bundle patché, forme du message FCM contrôlée en isolant `getFCMMessagesFromPushData`. **Pas encore vérifié** : l'acceptation du bloc `apns` par FCM (le banc n'a pas de compte de service) et la branche gateway (le banc n'est pas enregistré sur RC Cloud) - à confirmer sur `chat.barrut.me`.
+Checked on the 8.5.1 test bench: healthy startup on the patched bundle, shape of the FCM message checked by isolating `getFCMMessagesFromPushData`. **Not yet checked**: FCM's acceptance of the `apns` block (the bench has no service account) and the gateway branch (the bench is not registered on RC Cloud), to be confirmed on `chat.barrut.me`.
 
 ## iOS
 
-Même voie qu'Android : jeton **FCM** enregistré en `gcm`, Rocket.Chat pousse vers FCM, FCM relaie vers APNs avec la clé `.p8` déposée dans la console Firebase (projet `rocket-vibe`, app iOS `com.rocketvibe.app`). Aucun réglage APNs côté Rocket.Chat.
+Same path as Android: an **FCM** token registered as `gcm`, Rocket.Chat pushes to FCM, FCM relays to APNs with the `.p8` key uploaded in the Firebase console (project `rocket-vibe`, iOS app `com.rocketvibe.app`). No APNs setting on the Rocket.Chat side.
 
-| Pièce | Rôle |
+| Piece | Role |
 |---|---|
-| `apps/mobile/modules/fcm-token/` | Module Swift : remet le jeton APNs (rendu par `getDevicePushTokenAsync()`) à Firebase et rend le jeton FCM ; émet `jetonRenouvele` à la rotation. |
-| `apps/mobile/plugins/with-ios-push.js` | `FirebaseAppDelegateProxyEnabled = false` (pas de swizzling contre expo-notifications), pods Firebase en `modular_headers`, groupe de trousseau partagé, cible `NotificationService`. |
-| `apps/mobile/plugins/ios-notification-service/NotificationService.swift` | Notification Service Extension, pendant du service Kotlin : lit la session au trousseau, `push.get`, réécrit titre et texte, `threadIdentifier` = rid, range `ejson` (rid, host) dans `userInfo["body"]`, que expo-notifications expose comme `data` au tap. |
+| `apps/mobile/modules/fcm-token/` | Swift module: hands the APNs token (returned by `getDevicePushTokenAsync()`) to Firebase and returns the FCM token; emits `tokenRefreshed` on rotation. |
+| `apps/mobile/plugins/with-ios-push.js` | `FirebaseAppDelegateProxyEnabled = false` (no swizzling against expo-notifications), Firebase pods as `modular_headers`, shared keychain group, `NotificationService` target. |
+| `apps/mobile/plugins/ios-notification-service/NotificationService.swift` | Notification Service Extension, counterpart of the Kotlin service: reads the session from the keychain, `push.get`, rewrites title and body, `threadIdentifier` = rid, stores `ejson` (rid, host) in `userInfo["body"]`, which expo-notifications exposes as `data` on tap. |
 
-Ce qui diffère d'Android, par contrainte iOS :
+What differs from Android, because of iOS constraints:
 
-- l'extension ne peut pas **supprimer** un push (il faudrait l'entitlement de filtrage, sur dossier Apple) : sans session, elle remplace le texte par « Nouveau message » ;
-- pas de rattrapage différé : un `push.get` raté ou trop long (~30 s) laisse « Nouveau message » ;
-- la session et la langue sont écrites `AFTER_FIRST_UNLOCK` (`lib/sessionStore.ts`, `ui/i18n.ts`) : avec le défaut `WHEN_UNLOCKED`, l'extension ne les lirait pas écran verrouillé ;
-- le groupe de trousseau `$(AppIdentifierPrefix)com.rocketvibe.app` est EN TÊTE des groupes de l'app, donc c'est là qu'expo-secure-store écrit par défaut ;
-- « Répondre » est une action de saisie iOS : l'extension pose la catégorie `rv-message` (sauf salon chiffré), et `modules/notification-reply` envoie le texte par `chat.sendMessage` en natif, app réveillée en arrière-plan, sans passer par le JS. Échec : une notification « Réponse non envoyée » reprend la même action. Le code de session (`SessionPush.swift`) est commun aux deux cibles.
+- the extension cannot **drop** a push (that would need the filtering entitlement, granted by Apple on application): without a session, it replaces the text with "New message" ("Nouveau message");
+- no deferred catch-up: a failed or too slow (~30 s) `push.get` leaves "New message";
+- the session and the language are written `AFTER_FIRST_UNLOCK` (`lib/sessionStore.ts`, `ui/i18n.ts`): with the `WHEN_UNLOCKED` default, the extension could not read them with the screen locked;
+- the keychain group `$(AppIdentifierPrefix)com.rocketvibe.app` is FIRST among the app's groups, so that is where expo-secure-store writes by default;
+- "Reply" is an iOS text-input action: the extension sets the `rv-message` category (except in an encrypted room), and `modules/notification-reply` sends the text through `chat.sendMessage` natively, with the app woken in the background, without going through JS. On failure, a "Reply not sent" ("Réponse non envoyée") notification offers the same action again. The session code (`SessionPush.swift`) is shared by both targets.
 
-Vérifié sous Linux : `expo prebuild --platform ios --no-install` (cible, embarquement, réglages, Podfile, entitlements), `swiftc -parse` des deux fichiers Swift, typecheck de l'extension contre des doublures des API Apple, et sa logique exécutée contre le banc 8.5.1 (vrai `push.get`, origine étrangère refusée, repli, E2EE, DM). **Jamais compilé avec Xcode.**
+Checked under Linux: `expo prebuild --platform ios --no-install` (target, embedding, settings, Podfile, entitlements), `swiftc -parse` of both Swift files, typecheck of the extension against stand-ins for the Apple APIs, and its logic run against the 8.5.1 bench (real `push.get`, foreign origin refused, fallback, E2EE, DM). **Never compiled with Xcode.**
 
-### Premier build sur Mac
+### First build on a Mac
 
 ```sh
 cd apps/mobile
-npx expo prebuild --platform ios      # régénère ios/ et lance pod install
+npx expo prebuild --platform ios      # regenerates ios/ and runs pod install
 open ios/rocketvibe.xcworkspace
 ```
 
-1. Xcode, cibles `rocketvibe` **et** `NotificationService` → Signing & Capabilities : choisir l'équipe (ou `ios.appleTeamId` dans `app.json`, repris par le plugin pour les deux cibles).
-2. Build sur un **iPhone réel** (le simulateur n'a pas de push distant fiable).
-3. Se connecter, accepter les notifications ; vérifier dans les logs que `push.token` part avec un jeton FCM (forme `…:APA91b…`), pas 64 caractères hexadécimaux.
-4. App tuée, un DM depuis un autre compte hors ligne : la notification doit montrer le vrai texte (preuve que l'extension a tourné), groupée par salon ; le tap ouvre le salon.
-5. Refaire téléphone verrouillé, puis en mode avion le temps de la réception (« Nouveau message » attendu).
+1. Xcode, targets `rocketvibe` **and** `NotificationService` → Signing & Capabilities: choose the team (or `ios.appleTeamId` in `app.json`, picked up by the plugin for both targets).
+2. Build on a **real iPhone** (the simulator has no reliable remote push).
+3. Log in, accept notifications; check in the logs that `push.token` is sent with an FCM token (form `…:APA91b…`), not 64 hexadecimal characters.
+4. App killed, a DM from another account while offline: the notification must show the real text (proof that the extension ran), grouped by room; tapping opens the room.
+5. Do it again with the phone locked, then in airplane mode during delivery ("New message" expected).
 
-Points à surveiller au premier `pod install` / build : la liste des pods en `modular_headers` si CocoaPods réclame un module de plus, et la version de FirebaseMessaging (non épinglée dans `JetonFcm.podspec`).
+Things to watch at the first `pod install` / build: the list of pods under `modular_headers` if CocoaPods asks for one more module, and the FirebaseMessaging version (not pinned in `FcmToken.podspec`).
 
-## Trois pièges vérifiés sur le terrain
+## Three pitfalls verified in the field
 
-### `Push_UseLegacy` ne sert plus en 8.5
+### `Push_UseLegacy` no longer does anything in 8.5
 
-Le réglage est encore déclaré dans le bundle 8.5.1, caché, à `false` par défaut, comme `Push_gcm_api_key` et `Push_gcm_project_number` (un `TODO` prévoit leur retrait). Seul l'écran d'administration le lit, pour griser des champs : aucun code d'envoi ne le consulte. L'API FCM legacy a été **entièrement retirée** de Rocket.Chat 8.x : le serveur ne parle que FCM HTTP v1, il n'y a rien à régler. Le dossier de recherche affirmait le contraire.
+The setting is still declared in the 8.5.1 bundle, hidden, `false` by default, like `Push_gcm_api_key` and `Push_gcm_project_number` (a `TODO` plans their removal). Only the admin screen reads it, to grey out fields: no sending code consults it. The legacy FCM API was **entirely removed** from Rocket.Chat 8.x: the server only speaks FCM HTTP v1, there is nothing to set. The research file claimed the opposite.
 
-### `am force-stop` ≠ balayage depuis les récents
+### `am force-stop` ≠ swiping from recents
 
-`adb shell am force-stop <pkg>` place l'application dans l'état **stopped** d'Android, où FCM **ne lui livre plus rien** jusqu'à un relancement manuel. Aucune notification n'arrive, et ce n'est **pas** un échec du push.
+`adb shell am force-stop <pkg>` puts the app in Android's **stopped** state, where FCM **delivers nothing to it** until a manual relaunch. No notification arrives, and it is **not** a push failure.
 
-Le bon équivalent d'un swipe-kill est **`adb shell am kill <pkg>`** (processus tué, pas d'état stopped) : la notification arrive, et FCM **réveille le processus** — vérifié, un nouveau pid apparaît.
+The right equivalent of a swipe-kill is **`adb shell am kill <pkg>`** (process killed, no stopped state): the notification arrives, and FCM **wakes the process** (checked: a new pid appears).
 
-Un spike qui utiliserait `force-stop` conclurait à tort que le push est mort.
+A spike using `force-stop` would wrongly conclude that push is dead.
 
-### Modifier un réglage privilégié exige la 2FA
+### Changing a privileged setting requires 2FA
 
-`POST /api/v1/settings/<id>` répond `errorType: totp-required`, `details.method: "password"`. Le nom trompe : c'est le **repli mot de passe**, et le code attendu est le **SHA-256 du mot de passe**, jamais le mot de passe en clair.
+`POST /api/v1/settings/<id>` answers `errorType: totp-required`, `details.method: "password"`. The name is misleading: this is the **password fallback**, and the expected code is the **SHA-256 of the password**, never the plaintext password.
 
 ```sh
 SHA=$(printf '%s' "$MOTDEPASSE" | sha256sum | cut -d' ' -f1)
 curl -X POST -H "x-2fa-code: $SHA" -H "x-2fa-method: password" …
 ```
 
-C'est le mécanisme générique de l'étape 3.2, validé en avance.
+This is the generic mechanism of step 3.2, validated ahead of time.
 
-## Deux défauts relevés au spike, corrigés depuis
+## Two defects found during the spike, fixed since
 
-Les deux sont réglés : le service Kotlin (`plugins/with-fcm-deeplink.js`) rend la notification lui-même sur notre canal `default`, en `HIGH`, créé par `lib/push.ts`, et `ui/notifications.tsx` pose un `setNotificationHandler`. Le constat d'origine :
+Both are fixed: the Kotlin service (`plugins/with-fcm-deeplink.js`) renders the notification itself on our `default` channel, at `HIGH`, created by `lib/push.ts`, and `ui/notifications.tsx` sets a `setNotificationHandler`. The original finding:
 
-1. **Mauvais canal de notification.** La notification atterrit sur `fcm_fallback_notification_channel` (importance `3` = DEFAULT), pas sur notre canal `default` en `HIGH` — donc pas de bannière *heads-up*. Cause : le payload serveur ne porte pas d'`android_channel_id`, et le manifeste n'a pas la métadonnée `com.google.firebase.messaging.default_notification_channel_id`. `logcat` le dit : *« Missing Default Notification Channel metadata in AndroidManifest »*.
+1. **Wrong notification channel.** The notification lands on `fcm_fallback_notification_channel` (importance `3` = DEFAULT), not on our `default` channel at `HIGH`, so no *heads-up* banner. Cause: the server payload carries no `android_channel_id`, and the manifest lacks the `com.google.firebase.messaging.default_notification_channel_id` metadata. `logcat` says so: *"Missing Default Notification Channel metadata in AndroidManifest"*.
 
-2. **Rien ne s'affiche au premier plan.** Un message FCM de type `notification` reçu app ouverte est remis à l'app, pas au système ; `expo-notifications` n'affiche rien sans `setNotificationHandler`. Ce n'est pas un bug du push — mon premier test, app au premier plan, a failli me le faire croire.
+2. **Nothing shows in the foreground.** A `notification`-type FCM message received while the app is open is handed to the app, not to the system; `expo-notifications` shows nothing without `setNotificationHandler`. This is not a push bug: my first test, with the app in the foreground, nearly made me believe it was.
 
-La correction des deux est passée par le rendu de la notification **par l'app** (`data`-only côté client), comme 6.3 le prévoyait : groupement par salon, `MessagingStyle`, et texte générique pour les salons chiffrés (`Push_show_message = true` exposerait sinon du ciphertext).
+Fixing both went through rendering the notification **in the app** (`data`-only on the client side), as 6.3 planned: grouping by room, `MessagingStyle`, and generic text for encrypted rooms (`Push_show_message = true` would otherwise expose ciphertext).
 
-## Utilisateurs de test et 2FA par email
+## Test users and email 2FA
 
-Rocket.Chat n'active la 2FA par email que sur une **adresse vérifiée**. Un utilisateur seedé avec `verified: true` ne peut plus se connecter en dev, faute de serveur mail pour recevoir le code (`availableMethods: ["email"]`, `codeGenerated: false`). `scripts/seed.mjs` crée donc les utilisateurs avec `verified: false`. L'administrateur, dont l'adresse n'est pas vérifiée, n'était pas concerné — d'où l'asymétrie déroutante au premier abord.
+Rocket.Chat enables email 2FA only on a **verified address**. A user seeded with `verified: true` can no longer log in in dev, for lack of a mail server to receive the code (`availableMethods: ["email"]`, `codeGenerated: false`). `scripts/seed.mjs` therefore creates users with `verified: false`. The administrator, whose address is not verified, was not affected: hence the asymmetry, puzzling at first sight.

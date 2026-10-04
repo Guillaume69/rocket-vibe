@@ -1,6 +1,6 @@
 ---
 name: brain
-description: Use and maintain the brain/ knowledge base - the committed docs describing how rocket-vibe works (both apps' architecture, features across mobile and desktop, the Rocket.Chat contract, decisions, glossary of the French code vocabulary). Invoke when the user asks how/where something works ("how does the upload queue work", "where does catch-up live", "what is salonChaud", "does desktop do X"), when onboarding, or when asked to update, audit, or fix the brain after a change. Read brain/BRAIN.md first; navigate via the indexes, not a whole-tree grep.
+description: Use and maintain the brain/ knowledge base - the committed docs describing how rocket-vibe works (both apps' architecture, features across mobile and desktop, the Rocket.Chat contract, decisions, glossary of the project vocabulary). Invoke when the user asks how/where something works ("how does the upload queue work", "where does catch-up live", "what is hotRooms", "does desktop do X"), when onboarding, or when asked to update, audit, or fix the brain after a change. Read brain/BRAIN.md first; navigate via the indexes, not a whole-tree grep.
 ---
 
 # The brain
@@ -19,9 +19,9 @@ and keep it true to the code.
 3. Land on the leaf doc. It is self-contained and ends with a `## Sources` list of
    the real code paths - follow those only if the doc isn't enough or you suspect
    drift.
-4. A French identifier from the mobile code -> `brain/glossary.md`. Rationale /
+4. A term or identifier from the code -> `brain/glossary.md`. Rationale /
    "why" -> `brain/decisions.md`. A verified Rocket.Chat server behaviour -> the
-   "Faits sur Rocket.Chat" section of `CLAUDE.md`, summarised in
+   Rocket.Chat facts section of `CLAUDE.md`, summarised in
    `brain/architecture/rocket-chat.md`.
 
 Structure:
@@ -46,13 +46,13 @@ doc disagrees with reality, fix the doc.
   sections), then a row in `brain/features/index.md` and the catalog table in
   `brain/BRAIN.md`. A feature landing on another app updates the existing doc.
   New subsystem -> add or update a `brain/architecture/*.md`.
-- Parity ("La parité" in `CLAUDE.md`): every visible feature has its rows in
+- Parity (the parity section of `CLAUDE.md`): every visible feature has its rows in
   `brain/parity.md` with a status for Android, GTK and SwiftUI, checked in each
   app's code. An app that lacks it is `missing` or `partial` and appears under
   Open debt; one that catches up goes to `done` and leaves it. `mapped` only for a
   platform mechanism meeting the same need, with the note saying how.
 - New non-obvious decision -> `brain/decisions.md` with its "why". New term or
-  French identifier -> `brain/glossary.md`.
+  identifier -> `brain/glossary.md`.
 - A server fact probed on the 8.5 test server goes in `CLAUDE.md`'s facts first;
   `brain/architecture/rocket-chat.md` links it.
 - The other docs keep their own job: changelogs,

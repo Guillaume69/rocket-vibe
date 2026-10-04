@@ -1,135 +1,135 @@
-# ROADMAP — rocket-vibe
+# ROADMAP: rocket-vibe
 
-Client mobile **Rocket.Chat** tiers. Android d'abord, builds **100 % locaux** (`expo prebuild` + Gradle, sans EAS), **primitives React Native natives par défaut**, iOS ouvert plus tard sans refonte.
+Third-party **Rocket.Chat** mobile client. Android first, **100% local** builds (`expo prebuild` + Gradle, no EAS), **native React Native primitives by default**, iOS opened up later without a rewrite.
 
-Objectif produit : un client **plus rapide et plus fiable** que l'app officielle, pour un usage personnel sur un serveur auto-hébergé.
+Product goal: a client **faster and more reliable** than the official app, for personal use on a self-hosted server.
 
-Document d'exécution, pas cahier des charges. Calibré pour **un développeur expérimenté à temps partiel** (≈ 10‑15 h/semaine) ; les estimations sont en semaines-calendrier à ce rythme.
+An execution document, not a specification. Calibrated for **one experienced part-time developer** (about 10-15 h/week); estimates are in calendar weeks at that pace.
 
 ---
 
-## 1. Verdict de faisabilité
+## 1. Feasibility verdict
 
-**Le projet est réaliste, et le risque que je croyais existentiel est levé.**
+**The project is realistic, and the risk I thought was existential is gone.**
 
-Le point dur numéro un était les notifications push pour un client non-officiel. Il est **résolu positivement** : Rocket.Chat a migré vers l'API **FCM HTTP v1** (PR #32208, présente depuis la 6.8, donc dans la 8.6). Un serveur auto-hébergé peut pousser directement vers **notre propre projet Firebase**, sans gateway auto-hébergé et sans Rocket.Chat Cloud. Comme tu es seul administrateur du serveur, les cinq conditions requises sont toutes sous ton contrôle.
+Hard point number one was push notifications for an unofficial client. It is **resolved positively**: Rocket.Chat migrated to the **FCM HTTP v1** API (PR #32208, present since 6.8, so in 8.6). A self-hosted server can push directly to **our own Firebase project**, with no self-hosted gateway and no Rocket.Chat Cloud. Since you are the server's sole administrator, the five required conditions are all under your control.
 
-| Difficulté | Sujets |
+| Difficulty | Topics |
 |---|---|
-| **Facile** | Login mot de passe, liste des salons (`subscriptions.get` + `rooms.get`), rendu markdown (le serveur fournit l'AST dans `msg.md`), envoi de message, chaîne de build Gradle locale. |
-| **Moyen** | Mini-client DDP, reconnexion et rattrapage, liste inversée performante, 2FA, upload en deux temps, offline-first. |
-| **Sous contrôle** | Push FCM direct : chaîne connue de bout en bout, mais **à prouver par un spike** avant d'investir dans l'UI. L'incertitude résiduelle est opérationnelle (réveil en app tuée, surcouches constructeur), pas architecturale. |
+| **Easy** | Password login, room list (`subscriptions.get` + `rooms.get`), markdown rendering (the server provides the AST in `msg.md`), sending messages, local Gradle build chain. |
+| **Medium** | DDP mini-client, reconnection and catch-up, performant inverted list, 2FA, two-step upload, offline-first. |
+| **Under control** | Direct FCM push: chain known end to end, but **to be proven by a spike** before investing in the UI. The residual uncertainty is operational (waking a killed app, vendor skins), not architectural. |
 
-### Ce que ton environnement change
+### What your environment changes
 
-Ton poste est déjà exactement au niveau requis. Le template `@react-native-community/template@0.86.0` exige `buildToolsVersion 36.0.0`, `compileSdk`/`targetSdk` 36, `minSdk` 24, `ndkVersion 27.1.12297006`, Gradle 9.3.1, et React Native fixe `sourceCompatibility = JavaVersion.VERSION_17`. Tu as **build-tools 36.0.0, `platforms/android-36`, NDK 27.1.12297006 exactement, et Temurin 17.0.19**. **JDK 21 n'est pas requis** : JDK 17 fait tourner Gradle 9.3.1 (qui accepte Java 17→24) et satisfait `sourceCompatibility`.
+Your machine is already exactly at the required level. The `@react-native-community/template@0.86.0` template requires `buildToolsVersion 36.0.0`, `compileSdk`/`targetSdk` 36, `minSdk` 24, `ndkVersion 27.1.12297006`, Gradle 9.3.1, and React Native pins `sourceCompatibility = JavaVersion.VERSION_17`. You have **build-tools 36.0.0, `platforms/android-36`, NDK 27.1.12297006 exactly, and Temurin 17.0.19**. **JDK 21 is not required**: JDK 17 runs Gradle 9.3.1 (which accepts Java 17→24) and satisfies `sourceCompatibility`.
 
-Il ne manque que deux variables d'environnement. Rien à installer.
+Only two environment variables are missing. Nothing to install.
 
-### Le coût d'entrée, en clair
+### The entry cost, plainly
 
-Un projet Firebase (gratuit), un compte de service avec le rôle *Firebase Cloud Messaging API Admin*, l'accès admin au serveur (acquis), et **un téléphone Android physique**. L'émulateur ne reproduit ni Doze ni le kill de process : il ne peut pas valider le push. C'est le seul matériel indispensable.
+A Firebase project (free), a service account with the *Firebase Cloud Messaging API Admin* role, admin access to the server (already there), and **a physical Android phone**. The emulator reproduces neither Doze nor process kill: it cannot validate push. It is the only indispensable hardware.
 
 ---
 
-## 2. Décisions verrouillées
+## 2. Locked decisions
 
-Prises explicitement, elles ne se rediscutent pas en cours de route.
+Taken explicitly, they are not reopened along the way.
 
-| Décision | Choix | Raison |
+| Decision | Choice | Reason |
 |---|---|---|
-| Plateforme v1 | **Android seul** | Pas de Mac. iOS en phase 7. |
-| Build | **Local** : `expo prebuild` + `./gradlew` | Jamais d'EAS pour Android. |
-| Distribution | **Sideload `adb install`** | Ni Play Store, ni revue, ni risque de marque. |
-| Client DDP | **Le nôtre, minimal** | Zéro ambiguïté de licence, zéro dépendance à `core-typings`. |
-| Serveur | **Auto-hébergé, admin** | Rend le push faisable. Cible réelle : `chat.barrut.me`, Rocket.Chat **8.5** (LTS). |
-| Source de vérité | **SQLite locale** | L'UI est une projection, pas un miroir du réseau. |
-| Actions / écoute | **REST pour agir, DDP pour écouter** | Les appels de méthodes DDP sont dépréciés (8.0), retrait en 9.0. |
-| E2EE | **Hors périmètre, avec dégradation soignée** ; dépassé depuis : les deux apps lisent et écrivent les salons chiffrés (§6.6) | `E2E_Enable=true` sur le serveur cible, mais **1 salon chiffré sur 25** (mesuré). Plusieurs semaines de crypto pour 4 % de l'usage : mauvais rapport. La dégradation reste le comportement tant que la clé n'est pas déverrouillée. |
+| v1 platform | **Android only** | No Mac. iOS in phase 7. |
+| Build | **Local**: `expo prebuild` + `./gradlew` | Never EAS for Android. |
+| Distribution | **Sideload `adb install`** | No Play Store, no review, no trademark risk. |
+| DDP client | **Our own, minimal** | Zero license ambiguity, zero dependency on `core-typings`. |
+| Server | **Self-hosted, admin** | Makes push feasible. Real target: `chat.barrut.me`, Rocket.Chat **8.5** (LTS). |
+| Source of truth | **Local SQLite** | The UI is a projection, not a mirror of the network. |
+| Actions / listening | **REST to act, DDP to listen** | DDP method calls are deprecated (8.0), removed in 9.0. |
+| E2EE | **Out of scope, with careful degradation**; since superseded: both apps read and write encrypted rooms (§6.6) | `E2E_Enable=true` on the target server, but **1 encrypted room out of 25** (measured). Several weeks of crypto for 4% of usage: a bad trade. Degradation remains the behaviour as long as the key is not unlocked. |
 
-### Pourquoi le client DDP maison est plus petit qu'annoncé
+### Why the in-house DDP client is smaller than announced
 
-`@rocket.chat/ddp-client` est techniquement excellent — 144 Ko de JS, aucun module Node, `WebSocket` injectable, reconnexion écrite — mais son `package.json` ne porte **aucun champ `license`** et le `LICENSE` embarqué est celui de la Rocket.Chat **Enterprise Edition**, qui interdit la redistribution. Le texte contient bien une clause repassant en MIT tout ce qui est *« compiled into client-side JavaScript »*, ce qui le couvre probablement — mais « probablement » n'est pas une base pour un projet.
+`@rocket.chat/ddp-client` is technically excellent (144 KB of JS, no Node module, injectable `WebSocket`, reconnection written), but its `package.json` carries **no `license` field** and the bundled `LICENSE` is the Rocket.Chat **Enterprise Edition** one, which forbids redistribution. The text does contain a clause putting back under MIT everything *"compiled into client-side JavaScript"*, which probably covers it, but "probably" is no foundation for a project.
 
-Or, puisque **les appels de méthodes DDP sont dépréciés** et que le REST est la voie officielle pour agir, notre client n'a besoin que de : `connect`, `login` (resume, pour authentifier la socket), `sub`, `unsub`, et le routage de `added` / `changed` / `removed` / `ready` / `nosub` / `ping`. Pas de `call`, pas de gestion de collections Meteor. **On vise 200 lignes, pas 300.** On l'écrit depuis la spécification DDP (publique) et l'observation du trafic — on ne recopie pas le code sous licence EE.
+And since **DDP method calls are deprecated** and REST is the official way to act, our client only needs: `connect`, `login` (resume, to authenticate the socket), `sub`, `unsub`, and routing of `added` / `changed` / `removed` / `ready` / `nosub` / `ping`. No `call`, no Meteor collection management. **We aim for 200 lines, not 300.** We write it from the (public) DDP specification and from observing the traffic; we do not copy the EE-licensed code.
 
-Les noms de streams et les clés d'événements sont des faits d'interface, déjà relevés : `stream-room-messages`, `stream-notify-user` (`<uid>/subscriptions-changed`, `/rooms-changed`, `/notification`, `/message`, `/userData`), `stream-notify-room` (`<rid>/user-activity`, `<rid>/deleteMessage`), `stream-notify-logged` (`user-status`, `roles-change`, `permissions-changed`), `stream-user-presence`.
+Stream names and event keys are interface facts, already recorded: `stream-room-messages`, `stream-notify-user` (`<uid>/subscriptions-changed`, `/rooms-changed`, `/notification`, `/message`, `/userData`), `stream-notify-room` (`<rid>/user-activity`, `<rid>/deleteMessage`), `stream-notify-logged` (`user-status`, `roles-change`, `permissions-changed`), `stream-user-presence`.
 
-> `@rocket.chat/message-parser` (MIT explicite) reste une dépendance assumée : le serveur envoie déjà l'AST markdown dans `msg.md`, le re-parser serait absurde.
+> `@rocket.chat/message-parser` (explicitly MIT) remains an accepted dependency: the server already sends the markdown AST in `msg.md`, re-parsing it would be absurd.
 
 ---
 
-## 3. Hors périmètre v1
+## 3. Out of scope for v1
 
-| Exclu | Raison |
+| Excluded | Reason |
 |---|---|
-| **E2EE** | Mesuré sur le serveur cible : `E2E_Enable=true`, mais **un seul salon chiffré sur 25** (`p:laprivitude`). Coût élevé (`react-native-quick-crypto` pour RSA-OAEP, `expo-crypto` ne fait pas de RSA) pour 4 % de l'usage. Le v1 **dégrade proprement** : cadenas dans la liste, aperçu `lastMessage` masqué, messages `t='e2e'` remplacés par un placeholder, composer désactivé, notification générique. Voir §6.6. **Livré depuis** dans les deux apps (`apps/mobile/lib/e2e/`, `apps/desktop/crates/rv-core/src/e2e.rs`) : messages et fichiers, déchiffrés et chiffrés ; la dégradation reste en place tant que la clé est verrouillée. |
-| **Appels audio/vidéo** | Hors motivation. C'est ce que tire `@rocket.chat/media-signaling` — on l'évite. **Livrés depuis** par la visioconférence Jitsi du serveur, sans `media-signaling` : `apps/mobile/app/call/[callId].tsx`, `apps/desktop/crates/rv-core/src/call.rs` (voir l'exception WebView, §4.2). |
-| **Administration serveur** | Client de consommation, pas console admin. |
-| **Apps / blocs UiKit interactifs** | On rend `attachments` et `md`, on ignore proprement les `blocks` inconnus. |
-| **Omnichannel / LiveChat** | Cas d'usage entreprise. |
-| **OTR** | **Supprimé en 8.0.0.** Ne pas l'implémenter. |
-| **iOS au démarrage** | Pas de Mac. Architecture gardée platform-agnostic (phase 7). |
-| **EAS Update (OTA)** | On réinstalle l'APK via `adb`. |
+| **E2EE** | Measured on the target server: `E2E_Enable=true`, but **a single encrypted room out of 25** (`p:laprivitude`). High cost (`react-native-quick-crypto` for RSA-OAEP, `expo-crypto` does no RSA) for 4% of usage. v1 **degrades cleanly**: padlock in the list, `lastMessage` preview hidden, `t='e2e'` messages replaced by a placeholder, composer disabled, generic notification. See §6.6. **Delivered since** in both apps (`apps/mobile/lib/e2e/`, `apps/desktop/crates/rv-core/src/e2e.rs`): messages and files, decrypted and encrypted; the degradation stays in place while the key is locked. |
+| **Audio/video calls** | Not part of the motivation. This is what pulls in `@rocket.chat/media-signaling`; we avoid it. **Delivered since** through the server's Jitsi video conferencing, without `media-signaling`: `apps/mobile/app/call/[callId].tsx`, `apps/desktop/crates/rv-core/src/call.rs` (see the WebView exception, §4.2). |
+| **Server administration** | A consumer client, not an admin console. |
+| **Apps / interactive UiKit blocks** | We render `attachments` and `md`, and cleanly ignore unknown `blocks`. |
+| **Omnichannel / LiveChat** | Enterprise use case. |
+| **OTR** | **Removed in 8.0.0.** Do not implement it. |
+| **iOS at launch** | No Mac. Architecture kept platform-agnostic (phase 7). |
+| **EAS Update (OTA)** | We reinstall the APK via `adb`. |
 
-Ce sont des **dettes assumées**, documentées pour éviter la dérive de périmètre.
+These are **accepted debts**, documented to prevent scope creep.
 
 ---
 
-## 4. Architecture cible
+## 4. Target architecture
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│  UI — primitives RN (View/Text/Pressable/TextInput/Modal…)     │
-│       + FlashList inverted + exceptions justifiées (§4.2)      │
+│  UI: RN primitives (View/Text/Pressable/TextInput/Modal…)      │
+│       + inverted FlashList + justified exceptions (§4.2)       │
 ├───────────────────────────────────────────────────────────────┤
-│  Projection réactive, useRequeteVive (Drizzle) : l'UI OBSERVE  │
+│  Reactive projection, useCoalescedLiveQuery: the UI OBSERVES   │
 ├───────────────────────────────────────────────────────────────┤
-│  SOURCE DE VÉRITÉ — SQLite (expo-sqlite + Drizzle, WAL)         │
+│  SOURCE OF TRUTH: SQLite (expo-sqlite + Drizzle, WAL)          │
 │  Server · Room · Subscription · Message · Outbox · Upload       │
-│  · SyncState            (UNE base par serveur, compte)         │
+│  · SyncState            (ONE database per server, account)     │
 ├────────────────────────────┬──────────────────────────────────┤
-│  Moteur de synchro         │  Secrets — expo-secure-store      │
-│  (upserts idempotents,     │  (authToken/userId par host,      │
-│   dédup par _id)           │   Android Keystore)               │
+│  Sync engine               │  Secrets: expo-secure-store       │
+│  (idempotent upserts,      │  (authToken/userId per host,      │
+│   dedup by _id)            │   Android Keystore)               │
 ├──────────────┬─────────────┴──────────────────────────────────┤
-│  REST fetch  │  Mini-client DDP maison (WebSocket natif RN)     │
-│  → AGIR      │  → ÉCOUTER : sub/unsub uniquement                │
+│  REST fetch  │  In-house DDP mini-client (native RN WebSocket)  │
+│  → ACT       │  → LISTEN: sub/unsub only                        │
 ├──────────────┴──────────────────────────────────────────────── ┤
-│  Push FCM direct (expo-notifications) — réveille l'app tuée     │
+│  Direct FCM push (expo-notifications): wakes the killed app     │
 └────────────────────────────────────────────────────────────────┘
 ```
 
-**Principe directeur** : le WebSocket et le REST font des **upserts** dans SQLite ; l'UI est une **projection réactive**. Le flux temps réel n'est jamais stocké dans un store mémoire. C'est le remède direct aux griefs documentés contre l'app officielle (souscriptions empilées, messages dupliqués, envois figés).
+**Guiding principle**: the WebSocket and REST do **upserts** into SQLite; the UI is a **reactive projection**. The real-time stream is never kept in an in-memory store. This is the direct remedy to the documented complaints against the official app (piled-up subscriptions, duplicated messages, stuck sends).
 
 ### 4.1 Stack
 
-| Couche | Choix | Justification |
+| Layer | Choice | Justification |
 |---|---|---|
-| Runtime | **Expo SDK 57** (`expo@57.0.4`), RN 0.86, React 19.2, Hermes | Le majeur du paquet `expo` = le numéro de SDK. **New Architecture obligatoire et non désactivable** depuis RN 0.82 : `newArchEnabled=false` n'a plus aucun effet. Ne compte pas dessus comme filet. |
-| Build | CNG : `android/` **gitignoré**, tout passe par config plugins | En SDK 57 `expo prebuild` **efface et régénère par défaut** (`--no-clean` pour l'éviter) : une édition manuelle du dossier serait perdue. |
-| Navigation | `expo-router` (57.x) sur `react-native-screens` | Deep link natif depuis la notification, routes typées, stack natif, **bottom sheets natifs** via `presentation: 'formSheet'`. |
-| Persistance | `expo-sqlite` + `drizzle-orm` | `useRequeteVive` (`ui/liveQuery.ts`), un `useLiveQuery` de `drizzle-orm/expo-sqlite` qui regroupe les rafales d'écriture en un seul rafraîchissement, avec **`enableChangeListener: true`** obligatoire à l'ouverture de la base. |
-| Clé-valeur | ~~`react-native-mmkv` 4.x~~ non retenu | Prévu pour les brouillons et préférences. Les brouillons vivent finalement dans SQLite (table `brouillons`), le paquet n'est pas installé. |
-| Temps réel | **Mini-client DDP maison** | Voir §2. |
-| Liste | **`@shopify/flash-list` 2.3.2, `inverted`** | Voir §6.3. |
-| Markdown | `@rocket.chat/message-parser` + rendu maison en `<Text>` imbriqués | MIT. L'AST vient du serveur. |
-| Push | `expo-notifications` 57.x, `getDevicePushTokenAsync()` | Token FCM natif, **sans le service Expo Push**. |
-| Secrets | `expo-secure-store` | Android Keystore, clé par host. |
+| Runtime | **Expo SDK 57** (`expo@57.0.4`), RN 0.86, React 19.2, Hermes | The major of the `expo` package = the SDK number. **New Architecture mandatory and impossible to disable** since RN 0.82: `newArchEnabled=false` no longer has any effect. Do not count on it as a safety net. |
+| Build | CNG: `android/` **gitignored**, everything goes through config plugins | In SDK 57 `expo prebuild` **wipes and regenerates by default** (`--no-clean` to avoid it): a manual edit of the folder would be lost. |
+| Navigation | `expo-router` (57.x) on `react-native-screens` | Native deep link from the notification, typed routes, native stack, **native bottom sheets** via `presentation: 'formSheet'`. |
+| Persistence | `expo-sqlite` + `drizzle-orm` | `useCoalescedLiveQuery` (`ui/liveQuery.ts`), a `useLiveQuery` from `drizzle-orm/expo-sqlite` that coalesces bursts of writes into a single refresh, with **`enableChangeListener: true`** mandatory when opening the database. |
+| Key-value | ~~`react-native-mmkv` 4.x~~ not adopted | Planned for drafts and preferences. Drafts ended up living in SQLite (table `drafts`), the package is not installed. |
+| Real time | **In-house DDP mini-client** | See §2. |
+| List | **`@shopify/flash-list` 2.3.2, `inverted`** | See §6.3. |
+| Markdown | `@rocket.chat/message-parser` + in-house rendering as nested `<Text>` | MIT. The AST comes from the server. |
+| Push | `expo-notifications` 57.x, `getDevicePushTokenAsync()` | Native FCM token, **without the Expo Push service**. |
+| Secrets | `expo-secure-store` | Android Keystore, key per host. |
 
-Écartés : **`@notifee/react-native`** (archivé le 7 avril 2026, pas de New Architecture, incompatible RN 0.86) ; **WatermelonDB** (dernière publication juillet 2025, support RN 0.86 non documenté) ; `@rocket.chat/sdk` et `simpleddp` (morts). `@react-native-firebase/messaging@25.1.0` reste un **repli** si `expo-notifications` déçoit sur les messages data-only en app tuée.
+Rejected: **`@notifee/react-native`** (archived on April 7, 2026, no New Architecture, incompatible with RN 0.86); **WatermelonDB** (last release July 2025, RN 0.86 support undocumented); `@rocket.chat/sdk` and `simpleddp` (dead). `@react-native-firebase/messaging@25.1.0` remains a **fallback** if `expo-notifications` disappoints on data-only messages in a killed app.
 
-### 4.2 Les « exceptions qui ont du sens »
+### 4.2 The "exceptions that make sense"
 
-Ta contrainte est *« uniquement des composants natifs tant que c'est possible, sauf exception qui a du sens »*. On classe chaque dépendance, pour ne pas prétendre « deux exceptions » en en tirant huit.
+Your constraint is *"only native components as long as possible, except for an exception that makes sense"*. We classify each dependency, so as not to claim "two exceptions" while pulling in eight.
 
-| Niveau | Dépendances | Statut |
+| Level | Dependencies | Status |
 |---|---|---|
-| **0 — Primitives RN pures** | `View`, `Text`, `Pressable`, `ScrollView`, `TextInput`, `Modal`, `Image` | Aucune justification requise. |
-| **1 — Bindings natifs** (exposent une capacité de l'OS, pas un design system) | `react-native-screens` (stack natif **et bottom sheets natifs**), `react-native-safe-area-context` (edge-to-edge imposé par targetSdk 36), `react-native-gesture-handler`, `expo-haptics` | Justifiés : chacun mappe une capacité Android native, aucun n'impose un look. `expo-image` et `@react-native-menu/menu`, prévus ici, n'ont finalement pas été installés. |
-| **2 — Exceptions assumées** | **`@shopify/flash-list`** : recyclage de vues natif, indispensable pour des milliers de messages. **`react-native-keyboard-controller`** : `KeyboardAvoidingView` est médiocre sur Android ; cette lib s'abonne à `WindowInsetsAnimationCallback` pour un composer synchronisé image par image. **`@rocket.chat/message-parser`** : parseur JS pur, pas de l'UI. **`react-native-webview`** : l'écran d'appel Jitsi, et lui seul — voir l'encadré ci-dessous. | Quatre exceptions, chacune motivée. |
+| **0: Pure RN primitives** | `View`, `Text`, `Pressable`, `ScrollView`, `TextInput`, `Modal`, `Image` | No justification required. |
+| **1: Native bindings** (expose an OS capability, not a design system) | `react-native-screens` (native stack **and native bottom sheets**), `react-native-safe-area-context` (edge-to-edge enforced by targetSdk 36), `react-native-gesture-handler`, `expo-haptics` | Justified: each maps a native Android capability, none imposes a look. `expo-image` and `@react-native-menu/menu`, planned here, were not installed in the end. |
+| **2: Accepted exceptions** | **`@shopify/flash-list`**: native view recycling, indispensable for thousands of messages. **`react-native-keyboard-controller`**: `KeyboardAvoidingView` is mediocre on Android; this lib subscribes to `WindowInsetsAnimationCallback` for a composer synchronised frame by frame. **`@rocket.chat/message-parser`**: a pure JS parser, not UI. **`react-native-webview`**: the Jitsi call screen, and it alone; see the box below. | Four exceptions, each motivated. |
 
-**Les bottom sheets sont natifs, aucune dépendance à ajouter.** `react-native-screens` 4.25 embarque une implémentation Android bâtie sur le `BottomSheetBehavior` de Material (`android/src/main/java/com/swmansion/rnscreens/bottomsheet/`, dépendance `com.google.android.material:material:1.13.0`), et le `UISheetPresentationController` natif sur iOS. `expo-router` l'expose directement :
+**Bottom sheets are native, no dependency to add.** `react-native-screens` 4.25 ships an Android implementation built on Material's `BottomSheetBehavior` (`android/src/main/java/com/swmansion/rnscreens/bottomsheet/`, dependency `com.google.android.material:material:1.13.0`), and the native `UISheetPresentationController` on iOS. `expo-router` exposes it directly:
 
 ```tsx
 <Stack.Screen
@@ -145,286 +145,286 @@ Ta contrainte est *« uniquement des composants natifs tant que c'est possible, 
 />
 ```
 
-C'est ce qu'on utilisera pour la feuille d'actions sur un message, le sélecteur d'emoji et le choix de pièce jointe.
+This is what we will use for the action sheet on a message, the emoji picker and the attachment chooser.
 
-**Interdits fermes** : tout kit UI (NativeBase, Tamagui, gluestack, RN Paper), toute **WebView** hors l'exception bornée ci-dessous, `react-native-markdown-display`, `react-native-render-html`, et **`@gorhom/bottom-sheet`** — c'est une réimplémentation JS/Reanimated d'un composant que la plateforme fournit déjà.
+**Firm bans**: any UI kit (NativeBase, Tamagui, gluestack, RN Paper), any **WebView** outside the bounded exception below, `react-native-markdown-display`, `react-native-render-html`, and **`@gorhom/bottom-sheet`**: it is a JS/Reanimated reimplementation of a component the platform already provides.
 
-> **L'exception WebView : l'écran d'appel, et rien d'autre** (consignée au chantier 16, livrée
-> le 2026-07-12, `61fc7d4`). La visioconférence Jitsi est une **web-app** : l'alternative native,
-> `@jitsi/react-native-sdk`, vise RN ~0.79 et embarque `react-native-webrtc` — un pari New
-> Architecture fragile contre notre RN 0.86. `apps/mobile/app/call/[callId].tsx` charge donc l'URL rendue
-> par `video-conference.join` (JWT inclus) dans une WebView plein écran. Les bornes, et elles ne
-> se négocient pas : **une seule route** ; **origine verrouillée** sur celle que le serveur a
-> désignée (`originWhitelist` + `onShouldStartLoadWithRequest`, primitives de `apps/mobile/lib/origin.ts`) —
-> parce que l'app détient caméra et micro pendant l'appel et qu'Android ne sait pas arbitrer ces
-> permissions par origine, la navigation est le seul verrou. Partout ailleurs, l'interdit tient :
-> la lecture intégrée des liens vidéo, par exemple, reste une carte native (`apps/mobile/ui/embedCard.tsx`).
+> **The WebView exception: the call screen, and nothing else** (recorded in workstream 16, delivered
+> on 2026-07-12, `61fc7d4`). Jitsi video conferencing is a **web app**: the native alternative,
+> `@jitsi/react-native-sdk`, targets RN ~0.79 and bundles `react-native-webrtc`, a fragile New
+> Architecture bet against our RN 0.86. `apps/mobile/app/call/[callId].tsx` therefore loads the URL returned
+> by `video-conference.join` (JWT included) in a full-screen WebView. The bounds, and they are not
+> negotiable: **a single route**; **origin locked** to the one the server designated
+> (`originWhitelist` + `onShouldStartLoadWithRequest`, primitives from `apps/mobile/lib/origin.ts`),
+> because the app holds the camera and microphone during the call and Android cannot arbitrate those
+> permissions per origin, so navigation is the only lock. Everywhere else, the ban holds:
+> inline playback of video links, for example, stays a native card (`apps/mobile/ui/embedCard.tsx`).
 >
-> **Sur le bureau, la même exception, avec les mêmes bornes** (2026-09-30) : l'appel s'ouvre dans une
-> fenêtre de l'app et nulle part ailleurs, WebView2 sous Windows (`apps/desktop/crates/rv-native/src/windows_call.rs`),
-> WKWebView sous macOS (`macos_call.rs`, et `CallWindow.swift` dans l'app SwiftUI). L'origine est
-> verrouillée par la même règle, écrite une fois en Rust (`apps/desktop/crates/rv-core/src/call.rs`,
-> portage de `origin.ts`) : navigation hors de l'origine annulée et renvoyée au navigateur, et
-> cette fois la caméra et le micro s'arbitrent aussi par origine, ce que WebView2 et WKWebView
-> permettent. Sous Linux, pas de moteur embarqué : les distributions compilent WebKitGTK sans WebRTC
-> (vérifié sur Fedora 44 et Arch, `RTCPeerConnection` absent), l'appel ouvre donc une fenêtre
-> d'application d'un navigateur Chromium (`--app`) quand il y en a un, sinon le navigateur.
+> **On desktop, the same exception, with the same bounds** (2026-09-30): the call opens in a
+> window of the app and nowhere else, WebView2 on Windows (`apps/desktop/crates/rv-native/src/windows_call.rs`),
+> WKWebView on macOS (`macos_call.rs`, and `CallWindow.swift` in the SwiftUI app). The origin is
+> locked by the same rule, written once in Rust (`apps/desktop/crates/rv-core/src/call.rs`,
+> a port of `origin.ts`): navigation outside the origin is cancelled and handed to the browser, and
+> this time the camera and microphone are also arbitrated per origin, which WebView2 and WKWebView
+> allow. On Linux, no embedded engine: distributions build WebKitGTK without WebRTC
+> (checked on Fedora 44 and Arch, `RTCPeerConnection` missing), so the call opens an application
+> window of a Chromium browser (`--app`) when there is one, otherwise the browser.
 >
-> **Le bureau a un second usage, sans équivalent mobile** : les cartes YouTube, Dailymotion et Vimeo
-> se lisent dans la carte, par un moteur web embarqué (WebKitGTK sous Linux, WebView2 sous Windows,
-> WKWebView sous macOS : `apps/desktop/crates/rv-gtk/src/player.rs`, `rv-native/src/*_player.rs`,
-> `Player.swift`). Le cadre principal reste sur une page de l'app (`rv-core/src/player.rs`) qui
-> contient l'embed du fournisseur ; un clic qui quitte le lecteur part dans le navigateur.
+> **Desktop has a second use, with no mobile equivalent**: YouTube, Dailymotion and Vimeo cards
+> play inside the card, through an embedded web engine (WebKitGTK on Linux, WebView2 on Windows,
+> WKWebView on macOS: `apps/desktop/crates/rv-gtk/src/player.rs`, `rv-native/src/*_player.rs`,
+> `Player.swift`). The main frame stays on a page of the app (`rv-core/src/player.rs`) that
+> contains the provider's embed; a click that leaves the player goes to the browser.
 
-> **Piège transverse, et il est inévitable** : `react-native-reanimated` augmente la RAM de 25 à 30 % depuis RN 0.85 (changement Hermes), même inutilisé. Vérifié après installation : **`expo-router@57.0.4` en dépend directement**, ainsi que de `react-native-worklets`. Aucun choix de template ne l'évite. S'en passer supposerait d'abandonner `expo-router` pour `react-navigation` nu — probablement pas rentable. À surveiller au profilage plutôt qu'à combattre.
-
----
-
-## 5. Les phases
-
-Ordre : **dé-risquer d'abord, livrer de la valeur vite ensuite**. Chaque phase produit un APK installable via `adb`.
-
-### Phase 0 — Socle : build local, serveur de dev, levée des incertitudes — *1 à 2 sem*
-
-**Objectif** : prouver la chaîne de build Android de bout en bout et vérifier les points que la recherche a laissés ouverts.
-
-**Livrables**
-- `JAVA_HOME`, `ANDROID_HOME`, `PATH` exportés ; `java -version` → 17.0.19 ; `adb devices` OK.
-- `docker compose` : Rocket.Chat 8.5.1 (celle du serveur cible, pas la 8.6) + MongoDB en **replica set `rs0`** (obligatoire, sinon RC refuse de démarrer). **`ROOT_URL` sur l'IP LAN**, pas `10.0.2.2` : la phase 1 exige un téléphone physique, et `ROOT_URL` conditionne les payloads push et les deep links. Pour l'émulateur, `adb reverse tcp:3000 tcp:3000`.
-- Compte admin, Personal Access Token, données de test (`users.create`, `channels.create`, `im.create`, `chat.postMessage`, un thread).
-- App Expo SDK 57 + `expo-dev-client` + `expo-router` + TypeScript strict ; `npx expo prebuild` puis `./gradlew app:assembleDebug` → APK sur l'AVD `duogo_test` ; écran « serveur » affichant `GET /api/v1/info` et `settings.public`.
-- **Fiche des incertitudes** (§7) remplie.
-
-**Done when** : un APK maison installé par `adb` affiche des données réelles du serveur local, et la fiche d'incertitudes est remplie.
-
-**Risques** : Mongo sans replica set → RC ne démarre pas. `ROOT_URL` désaligné → login et CORS cassés. Cleartext HTTP bloqué par défaut sur Android → `expo-build-properties` avec `usesCleartextTraffic` **scopé au dev**.
+> **Cross-cutting trap, and it is unavoidable**: `react-native-reanimated` increases RAM by 25 to 30% since RN 0.85 (a Hermes change), even when unused. Checked after installation: **`expo-router@57.0.4` depends on it directly**, as well as on `react-native-worklets`. No template choice avoids it. Doing without it would mean dropping `expo-router` for bare `react-navigation`, probably not worth it. To be watched during profiling rather than fought.
 
 ---
 
-### Phase 1 — SPIKE JETABLE : push tiers (kill gate) — *≈ 1 sem*
+## 5. The phases
 
-**Objectif** : prouver de façon **binaire** qu'un APK auto-compilé reçoit une notification **quand l'app est tuée**. Code jetable, zéro UI.
+Order: **de-risk first, then deliver value fast**. Each phase produces an APK installable via `adb`.
 
-**Protocole** — l'ordre compte, et deux pièges rendent le test faussement négatif :
+### Phase 0: Foundation: local build, dev server, clearing the uncertainties (*1 to 2 wk*)
 
-1. Projet Firebase, app Android dont le `package_name` **est exactement** l'`applicationId` de l'APK (le plugin Gradle GMS échoue sinon : *« No matching client found for package name »*). `google-services.json` à la racine, déclaré dans `app.json` via `expo.android.googleServicesFile`.
-2. Compte de service Firebase, rôle **Firebase Cloud Messaging API Admin**, API *Firebase Cloud Messaging API (V1)* activée dans Google Cloud.
-3. `npx expo prebuild --clean` → `./gradlew assembleDebug` → `adb install`. **Premier point de contrôle** : le build passe (valide `com.google.gms:google-services` × Gradle 9.3.1).
-4. Dans l'app : `setNotificationChannelAsync('default', { importance: HIGH })` **avant** `requestPermissionsAsync()` — sinon le prompt `POST_NOTIFICATIONS` (Android 13+) n'apparaît jamais. Puis `getDevicePushTokenAsync()`, logger `.data`.
-5. Serveur, Admin → Push, **puis redémarrer le workspace** : `Push_enable_gateway = false`, `Push_UseLegacy = false`, coller le JSON du compte de service dans `Push_google_api_credentials`.
-6. Enregistrer le token : `POST /api/v1/push.token`, corps `{ type: 'gcm', value: <token>, appName: <applicationId> }`, en-têtes `X-Auth-Token` / `X-User-Id`. *(`gcm` est un nommage legacy : la valeur est bien un token FCM v1.)*
-7. Déclencher : bouton admin **« Send a test push to my user »**, puis un **vrai message direct** depuis un autre compte.
+**Goal**: prove the Android build chain end to end and check the points the research left open.
 
-> ⚠️ **Piège n°1 — le faux échec.** Rocket.Chat ne pousse **que vers les utilisateurs hors ligne**, et par défaut **uniquement pour un DM ou une mention**. Un message de canal ordinaire, ou un compte de test resté « online », ne déclenche **aucun** push, quelle que soit la configuration. Un spike naïf conclurait à tort à un échec sur le gate qui décide du projet.
+**Deliverables**
+- `JAVA_HOME`, `ANDROID_HOME`, `PATH` exported; `java -version` → 17.0.19; `adb devices` OK.
+- `docker compose`: Rocket.Chat 8.5.1 (the target server's version, not 8.6) + MongoDB as **replica set `rs0`** (mandatory, otherwise RC refuses to start). **`ROOT_URL` on the LAN IP**, not `10.0.2.2`: phase 1 requires a physical phone, and `ROOT_URL` drives the push payloads and deep links. For the emulator, `adb reverse tcp:3000 tcp:3000`.
+- Admin account, Personal Access Token, test data (`users.create`, `channels.create`, `im.create`, `chat.postMessage`, a thread).
+- Expo SDK 57 app + `expo-dev-client` + `expo-router` + strict TypeScript; `npx expo prebuild` then `./gradlew app:assembleDebug` → APK on the `duogo_test` AVD; a "server" screen showing `GET /api/v1/info` and `settings.public`.
+- **Uncertainty sheet** (§7) filled in.
+
+**Done when**: a home-built APK installed by `adb` shows real data from the local server, and the uncertainty sheet is filled in.
+
+**Risks**: Mongo without a replica set → RC does not start. Misaligned `ROOT_URL` → login and CORS broken. Cleartext HTTP blocked by default on Android → `expo-build-properties` with `usesCleartextTraffic` **scoped to dev**.
+
+---
+
+### Phase 1: THROWAWAY SPIKE: third-party push (kill gate) (*about 1 wk*)
+
+**Goal**: prove in a **binary** way that a self-compiled APK receives a notification **when the app is killed**. Throwaway code, zero UI.
+
+**Protocol** (the order matters, and two traps make the test falsely negative):
+
+1. Firebase project, Android app whose `package_name` **is exactly** the APK's `applicationId` (the GMS Gradle plugin fails otherwise: *"No matching client found for package name"*). `google-services.json` at the root, declared in `app.json` via `expo.android.googleServicesFile`.
+2. Firebase service account, role **Firebase Cloud Messaging API Admin**, *Firebase Cloud Messaging API (V1)* API enabled in Google Cloud.
+3. `npx expo prebuild --clean` → `./gradlew assembleDebug` → `adb install`. **First checkpoint**: the build passes (validates `com.google.gms:google-services` × Gradle 9.3.1).
+4. In the app: `setNotificationChannelAsync('default', { importance: HIGH })` **before** `requestPermissionsAsync()`, otherwise the `POST_NOTIFICATIONS` prompt (Android 13+) never appears. Then `getDevicePushTokenAsync()`, log `.data`.
+5. Server, Admin → Push, **then restart the workspace**: `Push_enable_gateway = false`, `Push_UseLegacy = false`, paste the service account JSON into `Push_google_api_credentials`.
+6. Register the token: `POST /api/v1/push.token`, body `{ type: 'gcm', value: <token>, appName: <applicationId> }`, headers `X-Auth-Token` / `X-User-Id`. *(`gcm` is legacy naming: the value really is an FCM v1 token.)*
+7. Trigger: admin button **"Send a test push to my user"**, then a **real direct message** from another account.
+
+> ⚠️ **Trap no. 1: the false failure.** Rocket.Chat pushes **only to offline users**, and by default **only for a DM or a mention**. An ordinary channel message, or a test account left "online", triggers **no** push, whatever the configuration. A naive spike would wrongly conclude failure on the gate that decides the project.
 >
-> ⚠️ **Piège n°2 — le `SENDER_ID_MISMATCH`.** Le token de l'app et le compte de service du serveur doivent appartenir au **même projet Firebase**. Sinon FCM renvoie 403 et le serveur **supprime silencieusement le token**. C'est l'échec le plus fréquent.
+> ⚠️ **Trap no. 2: the `SENDER_ID_MISMATCH`.** The app's token and the server's service account must belong to the **same Firebase project**. Otherwise FCM returns 403 and the server **silently deletes the token**. It is the most frequent failure.
 
-**Done when (binaire)** : une notification **visible** arrive **deux fois de suite**, app **swipe-killed**, sur un **appareil physique**, en quelques secondes. Le tap ouvre la bonne route.
+**Done when (binary)**: a **visible** notification arrives **twice in a row**, app **swipe-killed**, on a **physical device**, within a few seconds. The tap opens the right route.
 
-**Ce que le spike tranche** : la chaîne prebuild/build local, le `SENDER_ID_MISMATCH`, le comportement du double bloc `notification` + `data`, et la réalité du réveil en app tuée.
+**What the spike settles**: the local prebuild/build chain, the `SENDER_ID_MISMATCH`, the behaviour of the double `notification` + `data` block, and the reality of waking a killed app.
 
-**Plan B** si l'échec ne survient que sur un appareil OEM après réglages batterie : le verdict reste « FCM viable », et on documente les réglages par appareil (Autostart, optimisation batterie désactivée). Voir §6.1 pour les plans B et C réels.
-
----
-
-### Phase 2 — Cœur : connexion (2FA incluse), salons, temps réel — *6 à 9 sem*
-
-**Objectif** : la première valeur réelle. **APK utile au quotidien.**
-
-La 2FA est ici, pas plus tard : sur un serveur où `Accounts_TwoFactorAuthentication_Enabled` est actif, un « login simple » ne permet même pas de s'authentifier.
-
-**Livrables**
-- Découverte : `GET /api/v1/settings.public` et `settings.oauth` (non authentifiés) pour adapter l'UI.
-- Login `POST /api/v1/login` ; `authToken` + `userId` dans `expo-secure-store`, clé par host.
-- **2FA** : intercepter `errorType = totp-required`, lire `details.method` / `details.availableMethods`, rejouer la **même** requête avec `x-2fa-code` et `x-2fa-method`. Pour la méthode `password`, envoyer le **SHA-256** du mot de passe, jamais le clair. `POST /api/v1/users.2fa.sendEmailCode` pour le code par email.
-- **Mini-client DDP** : `connect` → `login {resume}` → ping/pong → `sub` / `unsub` → routage `added` / `changed` / `removed` (charge utile dans `fields.args[0]`, clé dans `fields.eventName`, dates EJSON `{"$date": epochMs}`) → **upserts SQLite**.
-- **Écran debug permanent** dès maintenant : souscriptions actives, RTT ping/pong, doublons détectés, trous de synchro. Il ne sera pas jeté.
-- **Schéma Drizzle complet** : `Server`, `Room`, `Subscription` (jointes par `rid`), `Message` (index `(rid, ts)`, `tmid`), `Outbox` (`pending`/`sent`/`failed`), `Upload`, `SyncState`. **Une base par host.** (Livré : une base par couple serveur, compte.)
-- Liste des salons : `subscriptions.get` + `rooms.get` fusionnés par `rid` ; souscription à `stream-notify-user/<uid>/subscriptions-changed` et `/rooms-changed` ; `fname`, aperçu `lastMessage`, badge `unread`, tri par activité.
-- Écran salon : historique initial (`channels.history` / `groups.history` / `im.history` selon `t`) ; `FlashList` `inverted` ; rendu markdown maison sur `msg.md` (repli sur `parse()` si absent) ; messages système (`t = uj/ul/rm/r/...`) ; `sub` sur `stream-room-messages/<rid>` à l'ouverture et **`unsub` à la fermeture** ; **dédup par `_id`**.
-- Envoi via **Outbox** : `_id` 24-hex généré côté client **avant** l'affichage → insert `pending` → `POST /api/v1/chat.sendMessage` → réconciliation au retour du stream. Le serveur déduplique sur `_id`, donc une réémission après crash ne crée pas de doublon.
-
-**Done when** : sur l'AVD **et** sur un appareil physique — je me connecte (2FA comprise), je vois mes salons avec les non-lus, j'ouvre un salon, je lis l'historique, je reçois en direct, j'envoie avec affichage immédiat. Tuer l'app avec un message `pending` → réémis, sans doublon.
-
-**Risques** : souscriptions empilées si un `unsub` est oublié. `md` absent sur les vieux messages → le repli `parse()` est obligatoire, pas optionnel. Le rendu markdown récursif couvrant tous les tokens de l'AST est un sous-chantier à part entière — c'est la principale raison de la fourchette large.
+**Plan B** if the failure only occurs on an OEM device after battery settings: the verdict stays "FCM viable", and we document the per-device settings (Autostart, battery optimisation disabled). See §6.1 for the real plans B and C.
 
 ---
 
-### Phase 3 — Résilience, rattrapage, multi-serveurs, démarrer une conversation — *3 à 4 sem*
+### Phase 2: Core: login (2FA included), rooms, real time (*6 to 9 wk*)
 
-**Livrables**
-- Reconnexion : backoff exponentiel avec gigue (1 s → 30 s). À **chaque nouvelle socket** : reconnexion, re-login, **re-souscription de tous les streams**. Une souscription ne survit jamais à une reconnexion.
-- Rattrapage piloté par `SyncState`, sur `AppState 'active'` et à la reconnexion. **Attention au coût** : `chat.syncMessages` traite **un salon à la fois** et le REST est rate-limité. Ne pas boucler sur tous les salons : un seul `subscriptions.get?updatedSince=` + `rooms.get?updatedSince=` pour le gros, et `syncMessages` **seulement** sur les salons ouverts ou récemment actifs.
-- Cycle de vie du token : 401 → tentative `resume` → sinon retour au login. `POST /api/v1/logout`. Livré autrement : un 401 à enveloppe Rocket.Chat sur un appel non anonyme efface la session et rend l'écran de connexion, sans tentative de `resume` (`apps/mobile/lib/rest.ts`, `ui/session.tsx`).
-- Multi-serveurs : registre `Server`, tokens isolés par host, base SQLite isolée par couple (serveur, compte).
-- **Démarrer une conversation** : `GET /api/v1/spotlight?query=` puis `POST /api/v1/im.create` (nouveau DM) ou `POST /api/v1/channels.join`. Sans cela l'app ne fait que lister l'existant — or « canaux » et « messages privés » supposent d'en ouvrir de nouveaux.
+**Goal**: the first real value. **An APK useful day to day.**
 
-**Done when — test de torture** : couper le Wi-Fi 30 s dix fois, basculer arrière-plan/premier-plan vingt fois, envoyer cinquante messages rapides → **état local == état serveur** : zéro doublon, zéro message manquant, zéro souscription fantôme, mesuré sur l'écran debug.
+2FA is here, not later: on a server where `Accounts_TwoFactorAuthentication_Enabled` is on, a "simple login" does not even let you authenticate.
 
----
+**Deliverables**
+- Discovery: `GET /api/v1/settings.public` and `settings.oauth` (unauthenticated) to adapt the UI.
+- Login `POST /api/v1/login`; `authToken` + `userId` in `expo-secure-store`, key per host.
+- **2FA**: intercept `errorType = totp-required`, read `details.method` / `details.availableMethods`, replay the **same** request with `x-2fa-code` and `x-2fa-method`. For the `password` method, send the **SHA-256** of the password, never the plain text. `POST /api/v1/users.2fa.sendEmailCode` for the email code.
+- **DDP mini-client**: `connect` → `login {resume}` → ping/pong → `sub` / `unsub` → routing of `added` / `changed` / `removed` (payload in `fields.args[0]`, key in `fields.eventName`, EJSON dates `{"$date": epochMs}`) → **SQLite upserts**.
+- **Permanent debug screen** from now on: active subscriptions, ping/pong RTT, detected duplicates, sync gaps. It will not be thrown away.
+- **Complete Drizzle schema**: `Server`, `Room`, `Subscription` (joined by `rid`), `Message` (index `(rid, ts)`, `tmid`), `Outbox` (`pending`/`sent`/`failed`), `Upload`, `SyncState`. **One database per host.** (Delivered: one database per server, account pair.)
+- Room list: `subscriptions.get` + `rooms.get` merged by `rid`; subscription to `stream-notify-user/<uid>/subscriptions-changed` and `/rooms-changed`; `fname`, `lastMessage` preview, `unread` badge, sorting by activity.
+- Room screen: initial history (`channels.history` / `groups.history` / `im.history` depending on `t`); `FlashList` `inverted`; in-house markdown rendering of `msg.md` (falling back to `parse()` if absent); system messages (`t = uj/ul/rm/r/...`); `sub` on `stream-room-messages/<rid>` on open and **`unsub` on close**; **dedup by `_id`**.
+- Sending via the **Outbox**: 24-hex `_id` generated client-side **before** display → `pending` insert → `POST /api/v1/chat.sendMessage` → reconciliation when the stream echoes it back. The server deduplicates on `_id`, so a resend after a crash creates no duplicate.
 
-### Phase 4 — Push intégré — *≈ 2 sem*
+**Done when**: on the AVD **and** on a physical device: I log in (2FA included), I see my rooms with unread counts, I open a room, I read the history, I receive live, I send with immediate display. Kill the app with a `pending` message → resent, no duplicate.
 
-Capitalise sur le spike. Enregistrement du token à la connexion, dé-enregistrement au logout. Fermeture propre du WebSocket sur `AppState 'background'`, réouverture et resynchronisation sur `'active'`. Handler de notification → deep link `expo-router` vers le salon. Canaux de notification Android, badge cohérent avec `subscription.unread`.
-
-**Done when** : app fermée, un DM me notifie ; le tap ouvre le bon salon et resynchronise ; le logout retire le token.
-
----
-
-### Phase 5 — Upload de documents, images, vocaux — *2 à 3 sem*
-
-**Attention, l'API a changé** : `POST /api/v1/rooms.upload` a été **supprimé en 8.0.0** — pas déprécié, supprimé. Le flux est en deux temps.
-
-- `POST /api/v1/rooms.media/:rid` puis `POST /api/v1/rooms.mediaConfirm/:rid/:fileId`. **`rooms.media` seul ne poste aucun message** : oublier le `mediaConfirm` laisse un fichier orphelin.
-- Upload Android : `expo-file-system/legacy` `createUploadTask` en `MULTIPART`, `fieldName: 'file'`, progression via `totalBytesSent`. *(L'API `legacy` est dépréciée ; la parité d'upload revient dans la nouvelle API `File` — migration à prévoir.)* Intégré à l'`Outbox` via la table `Upload`.
-- Sélection : `expo-document-picker`, `expo-image-picker` ; compression `expo-image-manipulator` ; validation de `FileUpload_MaxFileSize` et `FileUpload_MediaTypeWhiteList` lus dans `settings.public` **avant** l'upload.
-- Vocaux : `expo-audio`, `.m4a` AAC, `mimeType: audio/mp4`.
-- Lecture protégée : si `FileUpload_ProtectFiles`, ajouter `rc_uid` / `rc_token` en query sur `/file-upload/:id/:name` ; `expo-image` pour l'affichage inline.
+**Risks**: piled-up subscriptions if an `unsub` is forgotten. `md` absent on old messages → the `parse()` fallback is mandatory, not optional. Recursive markdown rendering covering every AST token is a sub-workstream in its own right; it is the main reason for the wide range.
 
 ---
 
-### Phase 6 — Offline-first, actions, présence, recherche — *4 à 6 sem*
+### Phase 3: Resilience, catch-up, multi-server, starting a conversation (*3 to 4 wk*)
 
-Non-lus (`subscriptions.read`, barre « nouveaux messages » via `ls`). Actions message (`chat.update`, `chat.delete`, `chat.react`, `chat.pinMessage`) avec la **décision d'affichage centralisée dans une fonction pure** `(message, currentUser, subscription.roles, permissions, settings)` — le délai d'édition vient des **settings** (`Message_AllowEditing_BlockEditInMinutes`), pas des permissions. Threads (`tmid`, `tcount`) et discussions. Présence via `users.presence?from=` et `stream-user-presence`, avec **dégradation gracieuse** : `Presence_broadcast_disabled` s'active tout seul au-delà d'environ 200 connexions, l'UI ne doit jamais en dépendre. Recherche `chat.search`. Indicateur de saisie via `stream-notify-room/<rid>/user-activity` — **pas** `/typing`, qui est déprécié. Brouillons locaux en MMKV. Suite E2E Maestro.
+**Deliverables**
+- Reconnection: exponential backoff with jitter (1 s → 30 s). On **every new socket**: reconnection, re-login, **re-subscription of all streams**. A subscription never survives a reconnection.
+- Catch-up driven by `SyncState`, on `AppState 'active'` and on reconnection. **Mind the cost**: `chat.syncMessages` handles **one room at a time** and REST is rate-limited. Do not loop over all rooms: a single `subscriptions.get?updatedSince=` + `rooms.get?updatedSince=` for the bulk, and `syncMessages` **only** on open or recently active rooms.
+- Token lifecycle: 401 → `resume` attempt → otherwise back to login. `POST /api/v1/logout`. Delivered differently: a 401 with a Rocket.Chat envelope on a non-anonymous call clears the session and returns to the login screen, with no `resume` attempt (`apps/mobile/lib/rest.ts`, `ui/session.tsx`).
+- Multi-server: `Server` registry, tokens isolated per host, SQLite database isolated per (server, account) pair.
+- **Starting a conversation**: `GET /api/v1/spotlight?query=` then `POST /api/v1/im.create` (new DM) or `POST /api/v1/channels.join`. Without it the app only lists what exists, yet "channels" and "private messages" imply opening new ones.
+
+**Done when (torture test)**: cut Wi-Fi for 30 s ten times, switch background/foreground twenty times, send fifty rapid messages → **local state == server state**: zero duplicates, zero missing messages, zero ghost subscriptions, measured on the debug screen.
 
 ---
 
-### Phase 7 — iOS, plus tard — *2 à 3 sem sur macOS*
+### Phase 4: Integrated push (*about 2 wk*)
 
-`prebuild` iOS depuis les mêmes config plugins. Push APNs avec **Notification Service Extension**. Keychain access groups. Build sur Mac, `expo prebuild --platform ios` puis Xcode, jamais EAS (`docs/PUSH.md`). Compte Apple Developer à 99 $/an.
+Builds on the spike. Token registration on login, unregistration on logout. Clean WebSocket close on `AppState 'background'`, reopening and resync on `'active'`. Notification handler → `expo-router` deep link to the room. Android notification channels, badge consistent with `subscription.unread`.
 
-### Calendrier
+**Done when**: app closed, a DM notifies me; the tap opens the right room and resyncs; logout removes the token.
 
-| Phase | Contenu | Estimation |
+---
+
+### Phase 5: Uploading documents, images, voice messages (*2 to 3 wk*)
+
+**Careful, the API changed**: `POST /api/v1/rooms.upload` was **removed in 8.0.0**, not deprecated, removed. The flow has two steps.
+
+- `POST /api/v1/rooms.media/:rid` then `POST /api/v1/rooms.mediaConfirm/:rid/:fileId`. **`rooms.media` alone posts no message**: forgetting the `mediaConfirm` leaves an orphan file.
+- Android upload: `expo-file-system/legacy` `createUploadTask` in `MULTIPART`, `fieldName: 'file'`, progress via `totalBytesSent`. *(The `legacy` API is deprecated; upload parity comes back in the new `File` API, a migration to plan.)* Integrated into the `Outbox` via the `Upload` table.
+- Picking: `expo-document-picker`, `expo-image-picker`; compression with `expo-image-manipulator`; validation of `FileUpload_MaxFileSize` and `FileUpload_MediaTypeWhiteList` read from `settings.public` **before** the upload.
+- Voice messages: `expo-audio`, `.m4a` AAC, `mimeType: audio/mp4`.
+- Protected reads: if `FileUpload_ProtectFiles`, add `rc_uid` / `rc_token` as query on `/file-upload/:id/:name`; `expo-image` for inline display.
+
+---
+
+### Phase 6: Offline-first, actions, presence, search (*4 to 6 wk*)
+
+Unread (`subscriptions.read`, "new messages" bar via `ls`). Message actions (`chat.update`, `chat.delete`, `chat.react`, `chat.pinMessage`) with the **display decision centralised in a pure function** `(message, currentUser, subscription.roles, permissions, settings)`: the edit window comes from the **settings** (`Message_AllowEditing_BlockEditInMinutes`), not from the permissions. Threads (`tmid`, `tcount`) and discussions. Presence via `users.presence?from=` and `stream-user-presence`, with **graceful degradation**: `Presence_broadcast_disabled` turns itself on beyond about 200 connections, the UI must never depend on it. Search with `chat.search`. Typing indicator via `stream-notify-room/<rid>/user-activity`, **not** `/typing`, which is deprecated. Local drafts in MMKV. Maestro E2E suite.
+
+---
+
+### Phase 7: iOS, later (*2 to 3 wk on macOS*)
+
+iOS `prebuild` from the same config plugins. APNs push with a **Notification Service Extension**. Keychain access groups. Build on a Mac, `expo prebuild --platform ios` then Xcode, never EAS (`docs/PUSH.md`). Apple Developer account at $99/year.
+
+### Schedule
+
+| Phase | Content | Estimate |
 |---|---|---|
-| 0 | Socle + serveur + incertitudes | 1–2 sem |
-| 1 | **Spike push (kill gate)** | ≈ 1 sem |
-| 2 | **Cœur — 1er APK utile** | 6–9 sem |
-| 3 | Résilience + multi-serveurs | 3–4 sem |
-| 4 | Push intégré | ≈ 2 sem |
-| 5 | Upload | 2–3 sem |
-| 6 | Offline-first + polish | 4–6 sem |
-| 7 | iOS | 2–3 sem |
+| 0 | Foundation + server + uncertainties | 1-2 wk |
+| 1 | **Push spike (kill gate)** | about 1 wk |
+| 2 | **Core: first useful APK** | 6-9 wk |
+| 3 | Resilience + multi-server | 3-4 wk |
+| 4 | Integrated push | about 2 wk |
+| 5 | Upload | 2-3 wk |
+| 6 | Offline-first + polish | 4-6 wk |
+| 7 | iOS | 2-3 wk |
 
-**Premier APK réellement utile** : fin de phase 2, soit **8 à 12 semaines**. **Daily-driver complet** : fin de phase 6, soit **19 à 27 semaines** (5 à 7 mois à temps partiel).
+**First truly useful APK**: end of phase 2, i.e. **8 to 12 weeks**. **Full daily driver**: end of phase 6, i.e. **19 to 27 weeks** (5 to 7 months part time).
 
 ---
 
-## 6. Les points durs
+## 6. The hard points
 
-### 6.1 Push FCM pour un client tiers
+### 6.1 FCM push for a third-party client
 
-**Problème.** Le gateway public `gateway.rocket.chat` exige l'enregistrement sur Rocket.Chat Cloud et ne relaie que vers les app-ids officielles. La doc le dit : *« When you white-label the mobile app, the default push notification gateway is unavailable. »*
+**Problem.** The public gateway `gateway.rocket.chat` requires registration on Rocket.Chat Cloud and only relays to the official app-ids. The docs say so: *"When you white-label the mobile app, the default push notification gateway is unavailable."*
 
-**Solution retenue.** Push FCM **direct**, cinq conditions : `Push_UseLegacy=false` (défaut), `Push_enable_gateway=false`, un **JSON de compte de service** dans `Push_google_api_credentials` (pas une clé API), **le même projet Firebase des deux côtés**, et les **Google Play Services présents sur l'appareil** (aucune installation via le Play Store n'est requise — un APK `adb install` reçoit les push).
+**Chosen solution.** **Direct** FCM push, five conditions: `Push_UseLegacy=false` (default), `Push_enable_gateway=false`, a **service account JSON** in `Push_google_api_credentials` (not an API key), **the same Firebase project on both sides**, and **Google Play Services present on the device** (no installation through the Play Store is required: an `adb install` APK receives push).
 
-**Plan B — Foreground Service + WebSocket persistant.** Faisable en Expo via config plugin, mais **mauvais** : depuis Android 15 le type `dataSync` est **plafonné à 6 h cumulées par 24 h**, puis `Service.onTimeout()`, et son démarrage depuis `BOOT_COMPLETED` est interdit. Aucun type de FGS n'est légitime pour un WebSocket permanent. Plus une notification permanente non-dismissible et la batterie. À réserver aux ROMs dégooglisées.
+**Plan B: Foreground Service + persistent WebSocket.** Feasible in Expo via a config plugin, but **bad**: since Android 15 the `dataSync` type is **capped at 6 cumulative hours per 24 h**, then `Service.onTimeout()`, and starting it from `BOOT_COMPLETED` is forbidden. No FGS type is legitimate for a permanent WebSocket. Add a permanent non-dismissible notification and the battery. Reserve it for de-Googled ROMs.
 
-**Plan C — notifications locales déclenchées par le WebSocket.** **Structurellement insuffisant** : la socket JS n'existe que tant que le process tourne. App tuée, aucune notification possible. Ne couvre que le premier plan.
+**Plan C: local notifications triggered by the WebSocket.** **Structurally insufficient**: the JS socket only exists while the process runs. App killed, no notification possible. Covers the foreground only.
 
-**Le vrai facteur de fiabilité au quotidien**, une fois le push branché, n'est pas le code : ce sont les surcouches constructeur (MIUI en tête). Sur chaque appareil il faut activer l'Autostart et désactiver l'optimisation de batterie. Tu es admin du serveur, pas des téléphones.
+**The real day-to-day reliability factor**, once push is wired, is not the code: it is the vendor skins (MIUI first). On each device you must enable Autostart and disable battery optimisation. You are admin of the server, not of the phones.
 
-### 6.2 Mini-client DDP, reconnexion, rattrapage
+### 6.2 DDP mini-client, reconnection, catch-up
 
-**Problème.** Les souscriptions ne survivent pas à une reconnexion, et oublier un `unsub` fait exploser le nombre de souscriptions et les doublons.
+**Problem.** Subscriptions do not survive a reconnection, and forgetting an `unsub` blows up the number of subscriptions and duplicates.
 
-**Solution.** Client maison en écoute seule (§2). Backoff avec gigue. À chaque socket : re-connect, re-login, **re-sub complet**. Souscriptions minimales : deux à quatre sur `stream-notify-user`, plus `stream-room-messages/<rid>` **uniquement pour le salon ouvert** (livré : le mobile garde aussi abonnés les 3 derniers salons quittés, en LRU, `apps/mobile/ui/hotRooms.ts`). Rattrapage REST piloté par `SyncState`. Test de torture en critère d'acceptation.
+**Solution.** In-house listen-only client (§2). Backoff with jitter. On every socket: re-connect, re-login, **full re-sub**. Minimal subscriptions: two to four on `stream-notify-user`, plus `stream-room-messages/<rid>` **only for the open room** (delivered: mobile also keeps the last 3 rooms left subscribed, as an LRU, `apps/mobile/ui/hotRooms.ts`). REST catch-up driven by `SyncState`. Torture test as an acceptance criterion.
 
-**Plan B.** Adopter `@rocket.chat/ddp-client` en acceptant son poids et son flou de licence. En dernier recours, polling REST pur : dégradé mais fonctionnel.
+**Plan B.** Adopt `@rocket.chat/ddp-client`, accepting its weight and its licensing fuzziness. As a last resort, pure REST polling: degraded but functional.
 
-### 6.3 Liste de messages inversée
+### 6.3 Inverted message list
 
-`@shopify/flash-list` **2.3.2** en `inverted`. La prop avait été retirée au début de la v2 (mi-2025) puis **réintroduite en 2.3.0** (mars 2026) : je l'ai vérifiée dans `FlashListProps.d.ts` du paquet publié, et l'expérience terrain le confirme. On l'appuie sur `maintainVisibleContentPosition`, qui est bien implémenté nativement sur Android en RN 0.86 (`MaintainVisibleScrollPositionHelper.kt` est présent dans `ReactAndroid`).
+`@shopify/flash-list` **2.3.2** in `inverted`. The prop had been removed early in v2 (mid-2025) then **reintroduced in 2.3.0** (March 2026): I checked it in `FlashListProps.d.ts` of the published package, and field experience confirms it. We rely on `maintainVisibleContentPosition`, which is properly implemented natively on Android in RN 0.86 (`MaintainVisibleScrollPositionHelper.kt` is present in `ReactAndroid`).
 
-Pagination par keyset (`WHERE rid = ? ORDER BY ts DESC`), et **débounce des messages entrants** : des insertions en tête plus rapprochées que ~200 ms font sauter le scroll.
+Keyset pagination (`WHERE rid = ? ORDER BY ts DESC`), and **debouncing of incoming messages**: head insertions closer together than ~200 ms make the scroll jump.
 
-**Plan B** : `@legendapp/list` v3.
+**Plan B**: `@legendapp/list` v3.
 
-### 6.4 Optimistic UI et file d'envoi
+### 6.4 Optimistic UI and send queue
 
-`_id` 24-hex généré **avant** l'affichage (`expo-crypto`) → insert `pending` → `chat.sendMessage` → réconciliation au retour du même `_id` via le stream. L'`Outbox` est une table de première classe, avec retry automatique au retour du réseau et statut `failed` actionnable. Test **kill-and-relaunch** → zéro doublon. C'est le remède aux « messages figés » de l'app officielle.
+24-hex `_id` generated **before** display (`expo-crypto`) → `pending` insert → `chat.sendMessage` → reconciliation when the same `_id` comes back through the stream. The `Outbox` is a first-class table, with automatic retry when the network returns and an actionable `failed` status. **Kill-and-relaunch** test → zero duplicates. This is the remedy to the official app's "stuck messages".
 
 ### 6.5 2FA
 
-Le mécanisme est **générique et son nom trompe** : `errorType = totp-required` couvre aussi `email` et `password`. Toujours lire `details.method` et `details.availableMethods`. Rejouer avec `x-2fa-code` / `x-2fa-method`. Pour `password`, envoyer `digestStringAsync(SHA256, mdp)`. Backoff sur les 429 : le rate limiter du login est plus agressif que le REST générique, ne jamais boucler sur `sendEmailCode`.
+The mechanism is **generic and its name is misleading**: `errorType = totp-required` also covers `email` and `password`. Always read `details.method` and `details.availableMethods`. Replay with `x-2fa-code` / `x-2fa-method`. For `password`, send `digestStringAsync(SHA256, password)`. Back off on 429s: the login rate limiter is more aggressive than generic REST, never loop on `sendEmailCode`.
 
-### 6.6 E2EE — un salon sur vingt-cinq
+### 6.6 E2EE: one room out of twenty-five
 
-**Le fait mesuré.** Sur `chat.barrut.me` : `E2E_Enable = true`, `E2E_Allow_Unencrypted_Messages = false`, `E2E_Enabled_Default_PrivateRooms = false`, et **un seul salon chiffré sur 25** (`p:laprivitude`). Les nouveaux salons privés ne sont donc pas chiffrés d'office.
+**The measured fact.** On `chat.barrut.me`: `E2E_Enable = true`, `E2E_Allow_Unencrypted_Messages = false`, `E2E_Enabled_Default_PrivateRooms = false`, and **a single encrypted room out of 25** (`p:laprivitude`). New private rooms are therefore not encrypted by default.
 
-**Le comportement du serveur.** Il **rejette activement** un message en clair dans un salon `encrypted` (`error-not-allowed`), garde appliqué aussi à `chat.sendMessage`. Bonne nouvelle : un client sans E2EE **ne peut pas corrompre** un salon chiffré, il est simplement incapable d'y poster. Un client non-déchiffrant voit `t='e2e'` et un `msg` base64 opaque.
+**The server's behaviour.** It **actively rejects** a plain-text message in an `encrypted` room (`error-not-allowed`), a guard also applied to `chat.sendMessage`. Good news: a client without E2EE **cannot corrupt** an encrypted room, it is simply unable to post in it. A non-decrypting client sees `t='e2e'` and an opaque base64 `msg`.
 
-**La solution retenue : dégrader proprement, à trois endroits.** C'est resté le comportement d'un salon chiffré tant que la clé n'est pas déverrouillée ; le plan B a été livré par-dessus.
+**The chosen solution: degrade cleanly, in three places.** This has remained the behaviour of an encrypted room as long as the key is not unlocked; plan B was delivered on top.
 
-1. **Liste des salons** — cadenas sur `room.encrypted`, et **aperçu `lastMessage` masqué** : il contient du chiffré. Ne jamais rendre le blob.
-2. **Écran salon** — les messages `t === 'e2e'` deviennent « 🔒 Message chiffré, non pris en charge ». Le composer est désactivé avec l'explication, puisque le serveur refuserait l'envoi de toute façon.
-3. **Notifications** — `Push_show_message = true` sur ce serveur, donc le corps d'une notification venant d'un salon chiffré est du ciphertext. Le remplacer par un texte générique côté client.
+1. **Room list**: padlock on `room.encrypted`, and **`lastMessage` preview hidden**: it contains ciphertext. Never render the blob.
+2. **Room screen**: `t === 'e2e'` messages become "🔒 Message chiffré, non pris en charge" ("Encrypted message, not supported"). The composer is disabled with the explanation, since the server would refuse the send anyway.
+3. **Notifications**: `Push_show_message = true` on this server, so the body of a notification from an encrypted room is ciphertext. Replace it with a generic text client-side.
 
-Ce salon se consulte depuis le web ou l'app officielle. Coût de la dégradation : moins d'une journée.
+That room can be read from the web or the official app. Cost of the degradation: less than a day.
 
-**Plan B — l'implémenter (étape 10 optionnelle, hors chemin critique).** RSA-OAEP 2048/SHA-256 pour la paire utilisateur, **AES-GCM 256** pour les nouveaux messages (`rc.v2.aes-sha2` — et non AES-CBC, qui n'est conservé que pour l'historique `rc.v1`), PBKDF2-SHA256, le nombre d'itérations lu dans l'enveloppe de la clé privée (`iterations`). `expo-crypto` **ne fait pas de RSA** : il faudrait `react-native-quick-crypto` (New-Arch only, via `react-native-nitro-modules`). Compter plusieurs semaines, et le risque réel de rendre des messages définitivement illisibles.
+**Plan B: implement it (optional step 10, off the critical path).** RSA-OAEP 2048/SHA-256 for the user key pair, **AES-GCM 256** for new messages (`rc.v2.aes-sha2`, and not AES-CBC, which is kept only for `rc.v1` history), PBKDF2-SHA256, the iteration count read from the private key envelope (`iterations`). `expo-crypto` **does no RSA**: it would take `react-native-quick-crypto` (New-Arch only, via `react-native-nitro-modules`). Count several weeks, and the real risk of making messages permanently unreadable.
 
-**Livré : le plan B, dans les deux apps** (`apps/mobile/lib/e2e/` via `react-native-quick-crypto`, `apps/desktop/crates/rv-core/src/e2e.rs`). Déverrouillage par le mot de passe E2E, clé gardée sur l'appareil, messages et fichiers déchiffrés et chiffrés. Ni création de salon chiffré, ni création de paire de clés.
+**Delivered: plan B, in both apps** (`apps/mobile/lib/e2e/` via `react-native-quick-crypto`, `apps/desktop/crates/rv-core/src/e2e.rs`). Unlocking with the E2E password, key kept on the device, messages and files decrypted and encrypted. No creation of encrypted rooms, no creation of key pairs.
 
-**Plan C — désactiver le chiffrement de ce salon.** Tu en es propriétaire : le basculer en clair rend tout accessible, au prix du chiffrement pour tous les clients.
+**Plan C: disable encryption on that room.** You own it: switching it to plain text makes everything accessible, at the cost of encryption for all clients.
 
 ---
 
-## 7. Incertitudes à lever en phase 0
+## 7. Uncertainties to clear in phase 0
 
-Ce que la recherche n'a **pas** tranché. Chacune est une tâche, pas une hypothèse.
+What the research did **not** settle. Each one is a task, not an assumption.
 
-| # | Incertitude | Comment la lever |
+| # | Uncertainty | How to clear it |
 |---|---|---|
-| 1 | `POST /api/v1/login` en 8.6 accepte-t-il encore un champ `code` dans le corps, ou impose-t-il les en-têtes `x-2fa-*` ? | Un `curl` sur le serveur de dev avec la 2FA activée. |
-| 2 | Les streams privés exigent-ils une session DDP authentifiée (`login {resume}`) en plus de l'auth REST ? | Souscrire à `stream-notify-user` sans login DDP et observer. |
-| 3 | Valeur attendue d'`appName` dans `push.token`, et existence d'un `DELETE /api/v1/push.token`. | Lire `apps/meteor/app/api/server` au tag `8.6.0`. *(Le dossier de recherche dédié a échoué.)* |
-| 4 | `expo prebuild` ajoute-t-il bien `POST_NOTIFICATIONS` au manifeste ? | `grep POST_NOTIFICATIONS android/app/src/main/AndroidManifest.xml` après prebuild. |
-| 5 | Compatibilité `com.google.gms:google-services` × Gradle 9.3.1. | Le premier build local est la preuve. |
-| 6 | Double affichage `notification` + `data` sur Android. | Capturer le payload réel au spike. |
-| 7 | Schéma de réponse exact de `rooms.mediaConfirm`. | Un upload de test. |
-| 8 | Compat RN 0.86 exacte de `react-native-mmkv@4.3.2` et `react-native-keyboard-controller` (1.21.9 installé). | Table de compat de chaque lib, puis build. |
+| 1 | Does `POST /api/v1/login` in 8.6 still accept a `code` field in the body, or does it require the `x-2fa-*` headers? | A `curl` against the dev server with 2FA enabled. |
+| 2 | Do private streams require an authenticated DDP session (`login {resume}`) on top of REST auth? | Subscribe to `stream-notify-user` without a DDP login and observe. |
+| 3 | Expected value of `appName` in `push.token`, and existence of a `DELETE /api/v1/push.token`. | Read `apps/meteor/app/api/server` at tag `8.6.0`. *(The dedicated research folder failed.)* |
+| 4 | Does `expo prebuild` actually add `POST_NOTIFICATIONS` to the manifest? | `grep POST_NOTIFICATIONS android/app/src/main/AndroidManifest.xml` after prebuild. |
+| 5 | Compatibility of `com.google.gms:google-services` × Gradle 9.3.1. | The first local build is the proof. |
+| 6 | Double display of `notification` + `data` on Android. | Capture the real payload during the spike. |
+| 7 | Exact response schema of `rooms.mediaConfirm`. | A test upload. |
+| 8 | Exact RN 0.86 compatibility of `react-native-mmkv@4.3.2` and `react-native-keyboard-controller` (1.21.9 installed). | Each lib's compatibility table, then a build. |
 
 ---
 
-## 8. Premier lot de travail
+## 8. First batch of work
 
 ```sh
-# 1. Environnement (à mettre dans ~/.zshrc)
+# 1. Environment (put in ~/.zshrc)
 export JAVA_HOME=/home/guillaume/android-build/jdk-17.0.19+10
 export ANDROID_HOME=/home/guillaume/Android/Sdk
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
 export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 
-# 2. Vérifier
+# 2. Check
 java -version          # 17.0.19
 adb devices
 emulator -list-avds    # duogo_test
 ```
 
-3. **Serveur de dev** : `docker compose` avec Rocket.Chat 8.5.1 et MongoDB en replica set `rs0` (`rs.initiate()`). `ROOT_URL` sur l'**IP LAN** de la machine, pas `10.0.2.2`. Créer l'admin, générer un Personal Access Token, seeder quelques canaux et un DM.
+3. **Dev server**: `docker compose` with Rocket.Chat 8.5.1 and MongoDB as replica set `rs0` (`rs.initiate()`). `ROOT_URL` on the machine's **LAN IP**, not `10.0.2.2`. Create the admin, generate a Personal Access Token, seed a few channels and a DM.
 
-4. **Squelette Expo** : `npx create-expo-app@latest rocket-vibe-app --template default`, puis `expo-dev-client`, `expo-router`, TypeScript strict, `expo-sqlite` + `drizzle-orm` (avec `enableChangeListener: true`), `expo-secure-store`. Gitignorer `android/` et `ios/`.
+4. **Expo skeleton**: `npx create-expo-app@latest rocket-vibe-app --template default`, then `expo-dev-client`, `expo-router`, strict TypeScript, `expo-sqlite` + `drizzle-orm` (with `enableChangeListener: true`), `expo-secure-store`. Gitignore `android/` and `ios/`.
 
-5. **Premier build local** : `npx expo prebuild --platform android` puis `./gradlew app:assembleDebug` puis `adb install`. Écran unique affichant `GET /api/v1/info` du serveur de dev. **C'est le premier jalon vérifiable.**
+5. **First local build**: `npx expo prebuild --platform android` then `./gradlew app:assembleDebug` then `adb install`. A single screen showing the dev server's `GET /api/v1/info`. **This is the first verifiable milestone.**
 
-6. **Spike DDP** (une soirée, jetable) : ouvrir un `WebSocket` sur `ws://<IP_LAN>:3000/websocket`, envoyer `{"msg":"connect","version":"1","support":["1"]}`, puis `login` avec le resume token, puis `sub` sur `stream-room-messages`. Poster un message depuis le web et vérifier qu'il arrive. **Répond du même coup à l'incertitude n°2.**
+6. **DDP spike** (one evening, throwaway): open a `WebSocket` on `ws://<IP_LAN>:3000/websocket`, send `{"msg":"connect","version":"1","support":["1"]}`, then `login` with the resume token, then `sub` on `stream-room-messages`. Post a message from the web and check that it arrives. **This answers uncertainty no. 2 at the same time.**
 
-7. **Spike push** (phase 1) — ne pas le commencer avant que les points 3 à 5 soient verts.
-
----
-
-## 9. Sources principales
-
-- Push serveur : `apps/meteor/app/push/server/fcm.ts` et `apps/meteor/server/settings/push.ts` (dépôt `RocketChat/Rocket.Chat`), PR #32208 (migration FCM HTTP v1), <https://developer.rocket.chat/docs/configuring-push-notifications>
-- Push client : <https://docs.expo.dev/versions/latest/sdk/notifications/>, <https://firebase.google.com/docs/android/android-play-services>
-- Upload : <https://developer.rocket.chat/apidocs/upload-media-files-to-a-room>, issue #34956
-- Dépréciations : <https://docs.rocket.chat/docs/deprecated-and-phasing-out-features>, release 8.0.0
-- E2EE : `apps/meteor/app/lib/server/methods/sendMessage.ts` au tag `8.6.0`
-- New Architecture : <https://docs.expo.dev/guides/new-architecture/>
-- CNG : <https://docs.expo.dev/workflow/continuous-native-generation/>
-- Foreground services Android 15+ : <https://developer.android.com/develop/background-work/services/fgs/service-types>
+7. **Push spike** (phase 1): do not start it before points 3 to 5 are green.
 
 ---
 
-*Faits vérifiés en juillet 2026. Rocket.Chat 8.6.0, Expo SDK 57, React Native 0.86.*
+## 9. Main sources
+
+- Server push: `apps/meteor/app/push/server/fcm.ts` and `apps/meteor/server/settings/push.ts` (`RocketChat/Rocket.Chat` repository), PR #32208 (FCM HTTP v1 migration), <https://developer.rocket.chat/docs/configuring-push-notifications>
+- Client push: <https://docs.expo.dev/versions/latest/sdk/notifications/>, <https://firebase.google.com/docs/android/android-play-services>
+- Upload: <https://developer.rocket.chat/apidocs/upload-media-files-to-a-room>, issue #34956
+- Deprecations: <https://docs.rocket.chat/docs/deprecated-and-phasing-out-features>, release 8.0.0
+- E2EE: `apps/meteor/app/lib/server/methods/sendMessage.ts` at tag `8.6.0`
+- New Architecture: <https://docs.expo.dev/guides/new-architecture/>
+- CNG: <https://docs.expo.dev/workflow/continuous-native-generation/>
+- Android 15+ foreground services: <https://developer.android.com/develop/background-work/services/fgs/service-types>
+
+---
+
+*Facts checked in July 2026. Rocket.Chat 8.6.0, Expo SDK 57, React Native 0.86.*

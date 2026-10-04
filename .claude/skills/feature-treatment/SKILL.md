@@ -46,7 +46,7 @@ typical; drop the lenses for an app the branch doesn't touch):
   swallowed errors, races between the socket and the REST call, ordering, state
   left behind on an error path, a response shape the caller doesn't expect.
 - **Rocket.Chat protocol** - every assumption about the server checked against
-  `CLAUDE.md`'s "Faits sur Rocket.Chat": 401 only means unauthenticated (and never
+  `CLAUDE.md`'s Rocket.Chat facts: 401 only means unauthenticated (and never
   on anonymous calls), `rooms.media` + `rooms.mediaConfirm` with local dedup,
   REST to act and DDP to listen (no DDP `call`), the 10/min rate limit,
   `chat.syncMessages` per room and one type at a time, avatar etags in query,
@@ -83,8 +83,8 @@ one **sweep** finder with the merged list, hunting only for gaps.
 
 Re-verify every claim before fixing: finders surface plausible-but-wrong items.
 Fix every confirmed correctness / protocol / security issue and the worthwhile
-quality ones. Real but out of scope: a line in `apps/mobile/WORKSTREAMS.md` ("Relevé
-APRÈS l'audit") or `apps/desktop/docs/FEEDBACK.md` ("Found while fixing"), not
+quality ones. Real but out of scope: a line in `apps/mobile/WORKSTREAMS.md` (its
+post-audit findings section) or `apps/desktop/docs/FEEDBACK.md` ("Found while fixing"), not
 dropped.
 
 Fixes go on top as new layers, never amended into reviewed commits, and keep the
@@ -103,8 +103,8 @@ branch as the change:
   `brain/architecture/*.md` for a changed subsystem, `brain/decisions.md` for a
   decision taken or surfaced in review, `brain/glossary.md` for a new term. Every
   relative link in a touched doc must resolve. Commit as `docs(brain): ...`.
-- `apps/<app>/CHANGELOG.md`: one entry per visible change under "Non publié"
-  (mobile, French) or "Unreleased" (desktop, English), in the repo's usual
+- `apps/<app>/CHANGELOG.md`: one entry per visible change under "Unreleased",
+  in the English Keep a Changelog categories (Added / Changed / Fixed / Removed), in the repo's usual
   `docs(<app>): <the change> in the changelog` commit.
 - `brain/parity.md`: the rows the change adds or moves, a status per app,
   and the Open debt list kept in step.

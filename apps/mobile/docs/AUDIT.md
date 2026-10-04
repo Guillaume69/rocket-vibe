@@ -1,989 +1,987 @@
-# AUDIT — état des lieux de la codebase
+# AUDIT: state of the codebase
 
-*Relevé du 25 juillet 2026, sur `b7a73f1`. 141 fichiers, 27 300 lignes.*
+*Survey of July 25, 2026, on `b7a73f1`. 141 files, 27,300 lines.*
 
-Produit par un audit en éventail : 14 relecteurs (10 par sous-système, 4 transverses), chaque constat de sévérité haute ou critique passé ensuite devant un réfuteur adversarial dont la consigne était de le démolir. **122 constats bruts, 7 réfutés, 115 retenus.**
+Produced by a fan-out audit: 14 reviewers (10 per subsystem, 4 cross-cutting), each high or critical finding then put before an adversarial refuter instructed to demolish it. **122 raw findings, 7 refuted, 115 kept.**
 
-La consigne qui a présidé au classement est *zéro régression* : un chantier à fort gain et risque nul passe avant un chantier à gain moyen et risque élevé.
+The rule that governed the ranking is *zero regression*: a workstream with high gain and no risk comes before one with medium gain and high risk.
 
-Référence d'état à la date du relevé : `tsc` sort 0, 460 tests passent, `eslint` sort 24 erreurs analysées et écartées (voir « À ne pas toucher »).
-
----
-
-## L'état général
-
-La codebase est en bonne santé, et c'est un jugement, pas une politesse : tsc sort 0, 460 tests passent, tout le SQL vit dans un seul fichier et s'exécute tel quel sur `node:sqlite` migré, le client DDP maison gère correctement le comptage de références, la survie des souscriptions désirées à travers une coupure et l'ordonnancement du raccordement sur un signal plutôt qu'un délai, et les commentaires expliquent presque toujours le POURQUOI d'un choix contre-intuitif — souvent avec une mesure à l'appui (les 3-4 s de `chat.syncMessages?type=UPDATED` sur le serveur cible, l'absence d'ETag sur `/avatar`, le NPE d'arbre de vues au lancement d'un sélecteur). Je n'ai trouvé aucune corruption d'écriture, aucune requête non paramétrée, aucun secret commité, et pratiquement aucun `setTimeout` utilisé comme béquille de synchronisation. Les défauts ne sont donc pas dans les algorithmes : ils sont aux JOINTURES et dans les CYCLES DE VIE. Trois motifs reviennent partout. (1) Ce qui se crée à la session ne se détruit pas : la clé privée E2EE déchiffrée survit à la déconnexion et n'est même pas indexée par compte, la base SQLite avec les clairs E2E reste sur le disque, cinq stores module-level ne sont jamais purgés, les curseurs de rattrapage survivent aux messages qu'ils décrivent, et la purge de salon ne connaît que trois tables sur huit. (2) Un même invariant est gardé à un endroit et pas à l'autre : le garde anti-empilement du rattrapage vit dans le provider mais l'écran appelle la même fonction en direct, la garde de schéma d'URL existe dans le markdown mais pas dans les cartes de lien, la file d'écritures protège trois dépôts mais pas les brouillons, le 401 est traité au démarrage à froid et nulle part ailleurs. (3) Le chemin FICHIER n'a reçu aucune des trois cicatrices que le chemin TEXTE a acquises — pas d'identifiant client, pas de confirmation après échec, pas d'objet optimiste — d'où à la fois un risque de doublon et une disparition silencieuse. Un seul constat est critique et il est vérifié : le `rc_token` part dans la barre d'adresse de Chrome dès qu'on touche une pièce jointe « fichier ». Enfin, EXECUTION.md, désigné source de vérité, a 110 commits de retard.
+State of reference at the survey date: `tsc` exits 0, 460 tests pass, `eslint` reports 24 errors, analysed and dismissed (see "Do not touch").
 
 ---
 
-## Les chantiers, dans l'ordre d'attaque conseillé
+## The overall state
 
-| # | Chantier | Sévérité max | Risque de correction | Effort | Constats |
+The codebase is in good health, and that is a judgement, not a courtesy: tsc exits 0, 460 tests pass, all the SQL lives in a single file and runs as is on a migrated `node:sqlite`, the in-house DDP client correctly handles reference counting, the survival of wanted subscriptions across a drop and the ordering of the connection setup on a signal rather than a delay, and the comments almost always explain the WHY of a counter-intuitive choice, often backed by a measurement (the 3-4 s of `chat.syncMessages?type=UPDATED` on the target server, the absence of ETag on `/avatar`, the view-tree NPE when launching a picker). I found no write corruption, no unparameterised query, no committed secret, and practically no `setTimeout` used as a synchronisation crutch. The defects are therefore not in the algorithms: they are at the JOINTS and in the LIFECYCLES. Three patterns recur everywhere. (1) What is created with the session is not destroyed: the decrypted E2EE private key survives logout and is not even keyed per account, the SQLite database with the E2E plaintexts stays on disk, five module-level stores are never purged, the catch-up cursors outlive the messages they describe, and the room purge knows only three tables out of eight. (2) The same invariant is guarded in one place and not in the other: the anti-stacking guard of the catch-up lives in the provider but the screen calls the same function directly, the URL scheme guard exists in the markdown but not in the link cards, the write queue protects three stores but not the drafts, the 401 is handled on cold start and nowhere else. (3) The FILE path received none of the three scars the TEXT path acquired (no client identifier, no confirmation after failure, no optimistic object), hence both a risk of duplicates and a silent disappearance. Only one finding is critical, and it is verified: the `rc_token` goes into Chrome's address bar as soon as you tap a "file" attachment. Finally, EXECUTION.md, designated source of truth, is 110 commits behind.
+
+---
+
+## The workstreams, in the recommended order of attack
+
+| # | Workstream | Max severity | Fix risk | Effort | Findings |
 |---|---|---|---|---|---|
-| 1 | Le lot d'une ligne — corrections locales, vérifiées, à régression quasi nulle | 🟠 haute | faible | heures | 9 |
-| 2 | Une file d'écritures par CONNEXION SQLite (et les brouillons dedans) | 🟡 moyenne | faible | heures | 3 |
-| 3 | Zéro secret hors du processus | 🔴 critique | moyen | jour | 4 |
-| 4 | Ce qui entre en base doit être juste : normalisation, aperçus, clés E2EE | 🟡 moyenne | faible | jour | 6 |
-| 5 | Rattrapage de salon : un seul par salon, des caches qui ne mentent pas | 🟡 moyenne | moyen | jour | 5 |
-| 6 | Cycle de vie de la donnée locale : purge, curseurs, rétention | 🟡 moyenne | moyen | jour | 4 |
-| 7 | File de téléversements : ni doublon, ni disparition silencieuse | 🟠 haute | moyen | plusieurs-jours | 7 |
-| 8 | Transport DDP et REST : ne pas tuer une socket saine, ne pas dormir sans écouter | 🟡 moyenne | moyen | jour | 6 |
-| 9 | Session morte et fin de session : ramener au login, et tout emporter en partant | 🟠 haute | ÉLEVÉ | jour | 5 |
-| 10 | Push natif : doublons, deep-link multi-serveur, hygiène du service | 🟠 haute | moyen | plusieurs-jours | 8 |
-| 11 | Écrans : boucles sans borne, attentes fixes, coûts natifs inutiles | 🟡 moyenne | faible | jour | 9 |
-| 12 | Filet de test là où le code n'est pas atteignable | 🟡 moyenne | nul | jour | 5 |
-| 13 | Une seule source par concept : i18n, couleurs, formats, tables MIME | 🟡 moyenne | faible | jour | 6 |
-| 14 | Duplication structurelle et découpage de l'écran salon | 🟡 moyenne | moyen | plusieurs-jours | 7 |
-| 15 | La façade Fournisseur : ce qui nomme Rocket.Chat doit passer par elle | 🟡 moyenne | moyen | jour | 4 |
-| 16 | Remettre la documentation d'accord avec le code | 🟡 moyenne | nul | heures | 2 |
+| 1 | The one-line batch: local, verified fixes with near-zero regression | 🟠 high | low | hours | 9 |
+| 2 | One write queue per SQLite CONNECTION (with the drafts in it) | 🟡 medium | low | hours | 3 |
+| 3 | Zero secrets outside the process | 🔴 critical | medium | day | 4 |
+| 4 | What enters the database must be right: normalisation, previews, E2EE keys | 🟡 medium | low | day | 6 |
+| 5 | Room catch-up: one per room, caches that do not lie | 🟡 medium | medium | day | 5 |
+| 6 | Lifecycle of local data: purge, cursors, retention | 🟡 medium | medium | day | 4 |
+| 7 | Upload queue: no duplicate, no silent disappearance | 🟠 high | medium | several days | 7 |
+| 8 | DDP and REST transport: do not kill a healthy socket, do not sleep without listening | 🟡 medium | medium | day | 6 |
+| 9 | Dead session and end of session: back to login, and take everything when leaving | 🟠 high | HIGH | day | 5 |
+| 10 | Native push: duplicates, multi-server deep link, service hygiene | 🟠 high | medium | several days | 8 |
+| 11 | Screens: unbounded loops, fixed waits, needless native costs | 🟡 medium | low | day | 9 |
+| 12 | A test net where the code cannot be reached | 🟡 medium | none | day | 5 |
+| 13 | A single source per concept: i18n, colours, formats, MIME tables | 🟡 medium | low | day | 6 |
+| 14 | Structural duplication and splitting the room screen | 🟡 medium | medium | several days | 7 |
+| 15 | The Provider facade: whatever names Rocket.Chat must go through it | 🟡 medium | medium | day | 4 |
+| 16 | Bring the documentation back in line with the code | 🟡 medium | none | hours | 2 |
 
-### 1. Le lot d'une ligne — corrections locales, vérifiées, à régression quasi nulle
+### 1. The one-line batch: local, verified fixes with near-zero regression
 
-**Sévérité max** 🟠 haute · **risque de correction** faible · **effort** heures
+**Max severity** 🟠 high · **fix risk** low · **effort** hours
 
-Sept défauts dont deux de sévérité haute se corrigent chacun en trois lignes ou moins, dans un seul fichier, sans toucher à un chemin partagé. Aujourd'hui ils coûtent : plus aucune notification de la session quand les Play Services répondent mal au premier raccordement, un rechargement complet de l'historique à chaque bascule E2EE, du texte utilisateur détruit, des photos postées en double, une feuille d'actions vide sur tout un salon chiffré. Vu le maître mot (zéro régression), ce lot passe avant tout le reste : gain immédiat, surface minuscule, et deux d'entre eux (la génération E2E, la garde d'upload) débloquent des chantiers ultérieurs.
+Seven defects, two of them high severity, are each fixed in three lines or fewer, in a single file, without touching a shared path. Today they cost: no notifications at all for the session when Play Services answer badly at the first connection setup, a full history reload on every E2EE toggle, user text destroyed, photos posted twice, an empty action sheet across a whole encrypted room. Given the watchword (zero regression), this batch comes before everything else: immediate gain, tiny surface, and two of them (the E2E generation, the upload guard) unblock later workstreams.
 
-#### 🟠 haute — Un échec d'obtention du jeton FCM arme quand même le drapeau : plus aucune notification pour toute la session
+#### 🟠 high: A failure to obtain the FCM token still arms the flag: no notifications at all for the whole session
 
-`ui/sync.tsx:333` · ✅ vérifié · risque de correction : faible
+`ui/sync.tsx:333` · ✅ verified · fix risk: low
 
-Vérifié sur le code : `jetonPushEnregistre = true` est posé AVANT l'appel, et `obtenirJetonFcm()` (lib/push.ts:22-45) ne REJETTE jamais — son catch interne rend `{ok:false, raison:'echec'}`. Le `.then((r) => (r.ok ? enregistrerJeton(...) : undefined))` traverse donc sans rejet, le `.catch` qui désarme le drapeau ne part pas, et le jeton n'est plus jamais posté de la session. Le commentaire juste au-dessus promet pourtant « un échec sera retenté au prochain raccordement ».
+Verified in the code: `registeredPushToken = true` is set BEFORE the call, and `getFcmToken()` (lib/push.ts:22-45) NEVER rejects: its internal catch returns `{ok:false, reason:'failed'}`. The `.then((r) => (r.ok ? registerToken(...) : undefined))` therefore goes through without a rejection, the `.catch` that disarms the flag never fires, and the token is never posted again for the session. Yet the comment just above promises "a failure will be retried at the next connection setup".
 
-**Correction.** Traiter le RÉSULTAT et non le seul rejet : `if (!r.ok) { if (r.raison === 'echec') jetonPushEnregistre = false; return; }`. Ne PAS désarmer sur `permission-refusee` — cela rejouerait le prompt système à chaque raccordement.
+**Fix.** Handle the RESULT and not only the rejection: `if (!r.ok) { if (r.reason === 'failed') registeredPushToken = false; return; }`. Do NOT disarm on `permission-denied`: that would replay the system prompt at every connection setup.
 
-#### 🟡 moyenne — `generation` est bumpée par les transitions E2EE, ce qui refait partir historique et rattrapage sans qu'aucune connexion n'ait été perdue
+#### 🟡 medium: `generation` is bumped by E2EE transitions, which restarts history and catch-up without any connection having been lost
 
-`ui/sync.tsx:211` · ✅ vérifié · risque de correction : faible
+`ui/sync.tsx:211` · ✅ verified · fix risk: low
 
-Vérifié : `rafraichirE2E` fait `{...s, generation: s.generation + 1}` uniquement pour forcer un re-rendu, alors que `generation` est le critère de validité de `ui/loadedRooms.ts` et `ui/hotRooms.ts` (« la connexion a-t-elle tenu ? ») et une dépendance des effets d'ouverture de app/salon/[rid].tsx:495 et app/thread/[id].tsx:197. Au démarrage sur un compte dont la clé est au Keystore, `e2e.reprendre()` suffit à relancer un `channels.history?count=50` complet plus un `chat.syncMessages` (3-4 s pour zéro document sur un gros salon) — pour zéro donnée nouvelle.
+Verified: `refreshE2E` does `{...s, generation: s.generation + 1}` only to force a re-render, whereas `generation` is the validity criterion of `ui/loadedRooms.ts` and `ui/hotRooms.ts` ("did the connection hold?") and a dependency of the opening effects of app/room/[rid].tsx:495 and app/thread/[id].tsx:197. On startup on an account whose key is in the Keystore, `e2e.resume()` is enough to trigger a full `channels.history?count=50` plus a `chat.syncMessages` (3-4 s for zero documents on a large room), for zero new data.
 
-**Correction.** Une ligne : `setSynchro((s) => (s.phase === 'pret' ? { ...s } : s))`. Le re-rendu tient au changement d'IDENTITÉ de la valeur de contexte (`useContext` compare par `Object.is`), pas à la valeur du compteur. Variante nommée si l'on craint une future mémoïsation : un champ `revisionE2E` distinct.
+**Fix.** One line: `setSync((s) => (s.phase === 'ready' ? { ...s } : s))`. The re-render comes from the change of IDENTITY of the context value (`useContext` compares with `Object.is`), not from the counter's value. A named variant if a future memoisation is feared: a separate `revisionE2E` field.
 
-#### 🟡 moyenne — Le texte tapé PENDANT un téléversement est effacé à la fin de l'envoi — un correctif de 8.7 a été perdu
+#### 🟡 medium: Text typed DURING an upload is erased at the end of the send: an 8.7 fix was lost
 
-`app/salon/[rid].tsx:813` · ✅ vérifié · risque de correction : faible
+`app/room/[rid].tsx:813` · ✅ verified · fix risk: low
 
-Le `.then` de la branche pièce jointe fait `setBrouillon('')` + `effacerBrouillon()` + `annulerReponse(rid)` inconditionnellement, alors que le TextInput reste éditable pendant tout l'upload (seuls 📎/➤/🎤 sont grisés). Le commit 781bc19 avait précisément corrigé ce point par une mise à jour fonctionnelle (« ce qui a été tapé pendant l'envoi n'est ni la légende partie, ni à jeter », consigné EXECUTION.md §8.7) ; le commit 30e1c85 l'a remplacé par un vidage sec. `effacerBrouillon()` détruit en plus la ligne persistée : le texte n'est pas récupérable au retour dans le salon.
+The `.then` of the attachment branch does `setDraft('')` + `clearDraft()` + `cancelReply(rid)` unconditionally, whereas the TextInput stays editable throughout the upload (only 📎/➤/🎤 are greyed out). Commit 781bc19 had fixed precisely this with a functional update ("what was typed during the send is neither the caption that went out, nor to be thrown away", recorded in EXECUTION.md §8.7); commit 30e1c85 replaced it with a blunt clear. `clearDraft()` also destroys the persisted row: the text cannot be recovered on returning to the room.
 
-**Correction.** Tenir une `brouillonRef` à jour dans un effet et ne solder que si `brouillonRef.current === brouillon` (le texte capturé à l'appui). Regrouper `annulerReponse(rid)` sous la même garde. Remettre EXECUTION.md:324 en accord avec le code.
+**Fix.** Keep a `draftRef` up to date in an effect and only settle if `draftRef.current === draft` (the text captured at the tap). Group `cancelReply(rid)` under the same guard. Bring EXECUTION.md:324 back in line with the code.
 
-#### 🟡 moyenne — Écran de partage : un refus de validation en milieu de boucle renvoie en double les pièces déjà envoyées
+#### 🟡 medium: Share screen: a validation refusal mid-loop resends the attachments already sent
 
-`app/share.tsx:217` · ✅ vérifié · risque de correction : faible
+`app/share.tsx:217` · ✅ verified · fix risk: low
 
-`partagerVers` boucle `for … await fichiers.envoyer(...)` ; une `ErreurValidation` (taille/type refusés) sort de la boucle, le catch affiche l'erreur et relâche les verrous, mais `pieces` n'est jamais amputé de ce qui est déjà parti. L'utilisateur retire la pièce fautive, retape sur le salon : les deux premières photos sont postées une seconde fois.
+`shareTo` loops `for … await files.send(...)`; a `ValidationError` (size/type refused) exits the loop, the catch shows the error and releases the locks, but `attachments` is never trimmed of what already went out. The user removes the faulty attachment, taps the room again: the first two photos are posted a second time.
 
-**Correction.** Retirer la pièce de l'état à chaque itération réussie (`setPieces(prev => prev.filter(x => x.cle !== p.cle))`, et vider la légende quand elle est partie). La boucle itère le tableau capturé, retirer de l'état ne la perturbe pas. Bénéfice secondaire : progression visible.
+**Fix.** Remove the attachment from the state on each successful iteration (`setAttachments(prev => prev.filter(x => x.key !== p.key))`, and clear the caption once it has gone). The loop iterates the captured array, so removing from the state does not disturb it. Side benefit: visible progress.
 
-#### 🟡 moyenne — La feuille d'actions s'ouvre VIDE sur tout message d'un salon chiffré et sur tout message système
+#### 🟡 medium: The action sheet opens EMPTY on every message of an encrypted room and on every system message
 
-`lib/messageActions.ts:46` · ✅ vérifié · risque de correction : faible
+`lib/messageActions.ts:46` · ✅ verified · fix risk: low
 
-`actionsPossibles` sort avec un tableau vide dès que `typeSysteme !== null`. Or un message chiffré garde `typeSysteme = 'e2e'` même APRÈS déchiffrement (db/upserts.ts:29 ne remplit que `texte`), et ui/messageRow.tsx:229 le rend pourtant comme un message ordinaire. Sur `p:laprivitude` — le seul salon chiffré de la cible — et sur toutes les lignes système (`uj`, `ul`, `rm`), l'appui long vibre, la sheet monte et affiche une bande de 30 px sans un mot.
+`possibleActions` returns an empty array as soon as `systemType !== null`. Yet an encrypted message keeps `systemType = 'e2e'` even AFTER decryption (db/upserts.ts:29 only fills `text`), and ui/messageRow.tsx:229 nonetheless renders it like an ordinary message. On `p:laprivitude` (the only encrypted room on the target) and on all system rows (`uj`, `ul`, `rm`), the long press vibrates, the sheet rises and shows a 30 px strip without a word.
 
-**Correction.** (1) Repli explicite dans app/message-actions.tsx quand `actions.length === 0` (clé `actionsMessage.aucuneAction` dans LES DEUX catalogues — ui/messages.test.ts vérifie la parité). (2) Rouvrir `reagir`/`supprimer`/`epingler` pour un message chiffré DÉCHIFFRÉ (`typeSysteme === 'e2e' && texte !== null`), en excluant `modifier` (chat.update poste du clair) et `repondre`. (3) Remplacer le test mort de lib/messageActions.test.ts:76-80 par les trois cas réels.
+**Fix.** (1) An explicit fallback in app/message-actions.tsx when `actions.length === 0` (key `messageActions.noActions` in BOTH catalogues: ui/messages.test.ts checks parity). (2) Reopen `react`/`delete`/`pin` for a DECRYPTED encrypted message (`systemType === 'e2e' && text !== null`), excluding `edit` (chat.update posts plaintext) and `reply`. (3) Replace the dead test at lib/messageActions.test.ts:76-80 with the three real cases.
 
-#### ⚪ basse — Le message d'erreur de recherche survit au vidage du champ
+#### ⚪ low: The search error message survives clearing the field
 
-`app/search.tsx:84` · ✅ vérifié · risque de correction : nul
+`app/search.tsx:84` · ✅ verified · fix risk: none
 
-Vérifié : la branche `propre === ''` fait `setResultats({}); return;` sans toucher à `message`. Le bandeau rouge « Recherche impossible. » reste affiché au-dessus d'une liste vide. La branche jumelle de app/message-search.tsx:77-81 fait bien `setMessage(null)` — les deux écrans, écrits sur le même idiome, ont divergé.
+Verified: the `clean === ''` branch does `setResults({}); return;` without touching `message`. The red banner "Recherche impossible." ("Search failed.") stays displayed above an empty list. The twin branch in app/message-search.tsx:77-81 does do `setMessage(null)`: the two screens, written on the same idiom, have diverged.
 
-**Correction.** Ajouter `setMessage(null);` dans la branche vide.
+**Fix.** Add `setMessage(null);` in the empty branch.
 
-#### 🟡 moyenne — L'écran de partage affiche les avatars de salon sans leur `avatarETag` : photo figée à vie par le cache Fresco
+#### 🟡 medium: The share screen shows room avatars without their `avatarETag`: photo frozen for life by the Fresco cache
 
-`app/share.tsx:361` · non passé au réfuteur · risque de correction : faible
+`app/share.tsx:361` · not put to the refuter · fix risk: low
 
-`AvatarSalon` déclare `avatarEtag` OPTIONNEL (ui/kit.tsx:212). app/index.tsx:242 et app/salon/[rid].tsx:1247 le passent, app/share.tsx ne le passe pas (ni `chiffreDeverrouille`). `urlAvatar` n'ajoute alors aucun `?etag=`, et CLAUDE.md décrit exactement ce piège : `/avatar/room/<rid>` répond `max-age=3600` sans `ETag` HTTP, Fresco fige l'URI à vie.
+`RoomAvatar` declares `avatarEtag` OPTIONAL (ui/kit.tsx:212). app/index.tsx:242 and app/room/[rid].tsx:1247 pass it, app/share.tsx does not (nor `encryptedUnlocked`). `avatarUrl` then adds no `?etag=`, and CLAUDE.md describes exactly this trap: `/avatar/room/<rid>` answers `max-age=3600` without an HTTP `ETag`, Fresco freezes the URI for life.
 
-**Correction.** Passer `avatarEtag={salon.avatarEtag}` et `chiffreDeverrouille`. Rendre ensuite `avatarEtag` OBLIGATOIRE (`string | null`) dans les props d'`AvatarSalon` pour que tsc signale tout futur oubli.
+**Fix.** Pass `avatarEtag={room.avatarEtag}` and `encryptedUnlocked`. Then make `avatarEtag` REQUIRED (`string | null`) in `RoomAvatar`'s props so that tsc flags any future omission.
 
-#### 🟡 moyenne — Depuis la fiche d'un DM, « Message » empile une SECONDE copie du salon déjà ouvert
+#### 🟡 medium: From a DM's card, "Message" stacks a SECOND copy of the room already open
 
-`app/profile.tsx:196` · non passé au réfuteur · risque de correction : moyen
+`app/profile.tsx:196` · not put to the refuter · fix risk: medium
 
-La pile est `[index, salon/A, profil]` ; `im.create` étant idempotent, le bouton rend le même rid puis fait `routeur.replace` — qui crée toujours une nouvelle clé de route. Deux instances de l'écran salon vivent alors sur le même rid : deux minuteries `marquerLu` (donc deux `subscriptions.read` sur une route à 10/min), deux `signalerSalonActif`, deux écouteurs de saisie, deux FlashList. Et un retour arrière semble ne rien faire.
+The stack is `[index, room/A, profile]`; `im.create` being idempotent, the button returns the same rid then does `router.replace`, which always creates a new route key. Two instances of the room screen then live on the same rid: two `markRead` timers (hence two `subscriptions.read` on a route limited to 10/min), two `signalerSalonActif`, two typing listeners, two FlashLists. And a back press seems to do nothing.
 
-**Correction.** `routeur.navigate({ pathname: '/salon/[rid]', params: { rid } })` : react-navigation dépile jusqu'à l'écran existant portant les mêmes params.
+**Fix.** `router.navigate({ pathname: '/room/[rid]', params: { rid } })`: react-navigation pops back to the existing screen carrying the same params.
 
-#### 🟡 moyenne — `ouvrirFicheProfil` n'a aucune garde de réentrance : un double tap empile deux fiches
+#### 🟡 medium: `openProfileCard` has no reentrancy guard: a double tap stacks two cards
 
-`lib/profilePreload.ts:104` · non passé au réfuteur · risque de correction : faible
+`lib/profilePreload.ts:104` · not put to the refuter · fix risk: low
 
-La fonction attend jusqu'à 2 s (`PLAFOND_MS`) plus 400 ms d'anti-flash avant `router.push('/profile')`, et rien n'est verrouillé pendant ce temps : `IndicateurOuvertureProfil` est monté en `pointerEvents="none"`. Deux taps → deux `push` → deux sheets à fermer. `poserBusy` étant un booléen global, le `finally` de la première exécution éteint l'indicateur alors que la seconde vole encore. Tout le reste du dépôt utilise une ref `enVol` pour ce motif (app/message-actions.tsx:175, app/search.tsx:70, app/profile.tsx:123).
+The function waits up to 2 s (`CAP_MS`) plus 400 ms of anti-flash before `router.push('/profile')`, and nothing is locked meanwhile: `ProfileOpeningIndicator` is mounted with `pointerEvents="none"`. Two taps → two `push` → two sheets to close. `setBusy` being a global boolean, the `finally` of the first run turns off the indicator while the second is still in flight. The rest of the repo uses an `inFlight` ref for this pattern (app/message-actions.tsx:175, app/search.tsx:70, app/profile.tsx:123).
 
-**Correction.** Verrou de module `ouvertureEnCours` testé en tête et relâché dans le `finally`, ou compteur d'exécutions en vol pilotant aussi `poserBusy`. Garde d'état, aucun délai ajouté.
-
----
-
-### 2. Une file d'écritures par CONNEXION SQLite (et les brouillons dedans)
-
-**Sévérité max** 🟡 moyenne · **risque de correction** faible · **effort** heures
-
-C'est la race la plus dangereuse du dépôt — deux `BEGIN` concurrents sur une même connexion, ce que db/store.ts:64-76 documente comme mortel (« cannot rollback - no transaction is active », lot annulé en silence) — et sa correction tient en deux lignes dans db/client.ts, vérifiées, sans changement de comportement sur le chemin nominal. Rapport gain/risque imbattable : à faire tout de suite, d'autant qu'elle rend inoffensive la reconstruction du moteur de synchro sur un simple renommage, qu'on peut alors laisser en l'état.
-
-#### 🟡 moyenne — Un changement de pseudo reconstruit toute la synchro et crée une SECONDE file d'écritures sur la même connexion SQLite
-
-`ui/sync.tsx:424` · ✅ vérifié · risque de correction : faible
-
-L'effet de `SynchroProvider` dépend de l'OBJET `etat` (l.424) ; `majProfilSession` (ui/session.tsx:190-200, appelé après un renommage) et la reprise au démarrage produisent un objet neuf pour le même serveur, le même compte, le même jeton. L'effet se rejoue donc en entier et crée un `creerFileEcritures()` (l.159) — alors que `ouvrirBase` mémoïse la connexion par fichier (db/client.ts:23-42) et que `fermerBase` n'est jamais appelée. Deux files indépendantes sérialisent alors sur une seule connexion, pendant que les écritures en vol de l'ancien moteur (historique, outbox, uploads) reviennent du réseau.
-
-**Correction.** Faire porter la file par la CONNEXION : `const paire = { brute, base: drizzle(...), fileEcritures: creerFileEcritures() }` dans la Map `ouvertes` de db/client.ts, et `const { base, brute, fileEcritures } = ouvirBase(...)` dans ui/sync.tsx (supprimer l'appel local, seul appelant de `creerFileEcritures`). No-op strict en nominal ; en cas de recouvrement, les deux moteurs se sérialisent au lieu de s'entrelacer.
-
-#### 🟡 moyenne — Les brouillons écrivent hors de la file, donc à l'intérieur des transactions de synchro
-
-`ui/drafts.ts:60` · non passé au réfuteur · risque de correction : faible
-
-`useBrouillon.ecrire` construit un `insert().onConflictDoUpdate()` / `delete()` Drizzle et le lance directement sur la connexion partagée, hors `FileEcritures` — le seul chemin d'écriture du dépôt à le faire, et le seul SQL qui ne vit pas dans db/upserts.ts (donc qu'aucun test n'exécute). `withTransactionAsync` d'expo-sqlite n'est PAS exclusif (node_modules/expo-sqlite/build/SQLiteDatabase.js:99) : le débounce de 400 ms qui tombe pendant l'ingestion d'une page de 50 messages fait entrer l'INSERT dans le `BEGIN` du lot, et un échec du lot annule le brouillon sans que personne ne le sache. Les deux issues de la promesse sont en plus avalées (l.70).
-
-**Correction.** `creerDepotBrouillons(brute, enSerie)` dans db/store.ts avec `UPSERT_BROUILLON` / `SUPPRIMER_BROUILLON` dans db/upserts.ts (donc couverts par db/upserts.test.ts), fourni à `useBrouillon` à la place de la `BaseLocale` brute.
-
-#### ⚪ basse — `useRequeteVive` ne filtre pas les événements par base, et les connexions des comptes visités ne sont jamais fermées
-
-`ui/liveQuery.ts:79` · non passé au réfuteur · risque de correction : faible
-
-`addDatabaseChangeListener` d'expo-sqlite est global à toutes les bases ouvertes, mais le listener ne compare que `tableName` et ignore `databaseName`. Le filtrage n'est correct que grâce à l'invariant, écrit nulle part, qu'une seule base est vivante — invariant que `fermerBase` (db/client.ts:45, aucun appelant) ne garantit justement pas : chaque couple (serveur, compte) visité laisse une connexion ouverte avec son change-listener actif.
-
-**Correction.** Ajouter le test `databaseName` au listener, et documenter explicitement dans db/client.ts que les connexions sont gardées pour la vie du process (ne PAS appeler `fermerBase` dans un cleanup, voir « à ne pas toucher »).
+**Fix.** A module lock `ouvertureEnCours` tested at the top and released in the `finally`, or a counter of runs in flight that also drives `setBusy`. A state guard, no added delay.
 
 ---
 
-### 3. Zéro secret hors du processus
+### 2. One write queue per SQLite CONNECTION (with the drafts in it)
 
-**Sévérité max** 🔴 critique · **risque de correction** moyen · **effort** jour
+**Max severity** 🟡 medium · **fix risk** low · **effort** hours
 
-Un `rc_token` Rocket.Chat vaut le compte entier (lecture de tous les salons, envoi, changement de profil) et il part aujourd'hui dans la barre d'adresse de Chrome — donc dans son historique, synchronisé vers le compte Google — dès qu'on touche une pièce jointe « fichier ». C'est le seul constat critique de tout l'audit et il est vérifié. Les trois autres fuites du chantier (schéma d'URL non gardé, WebView d'appel sans verrou d'origine, hôte push non validé) partagent le même invariant : ce qui sort du processus doit être choisi par nous, pas par le contenu reçu. Corrections locales, aucune touche à la synchro ni à la base.
+This is the most dangerous race in the repo (two concurrent `BEGIN`s on the same connection, which db/store.ts:64-76 documents as fatal: "cannot rollback - no transaction is active", batch silently cancelled), and its fix fits in two lines in db/client.ts, verified, with no behaviour change on the nominal path. Unbeatable gain/risk ratio: do it right away, all the more so since it makes harmless the rebuild of the sync engine on a mere rename, which can then be left as is.
 
-#### 🔴 critique — Le jeton d'authentification est remis au navigateur système quand on ouvre une pièce jointe « fichier »
+#### 🟡 medium: A username change rebuilds the whole sync and creates a SECOND write queue on the same SQLite connection
 
-`ui/messageRow.tsx:561` · ✅ vérifié · risque de correction : moyen
+`ui/sync.tsx:424` · ✅ verified · fix risk: low
 
-Vérifié dans le code : la branche `title_link` fait `urlFichierProtege(client, jointe.title_link)` (qui colle `rc_uid` et `rc_token` en query, lib/upload.ts:136-141) puis `Linking.openURL(url)` — un intent VIEW. L'URL complète, jeton compris, atterrit dans Chrome, son historique et sa synchronisation, et est offerte à toute application qui déclare gérer https. ui/imageViewer.tsx pose pourtant l'invariant inverse en tête de fichier, et l'image comme la vidéo le respectent en gardant l'URL en mémoire. Seule cette branche sort du processus ; rien dans ROADMAP.md ne justifie l'exception.
+The effect of `SyncProvider` depends on the `state` OBJECT (l.424); `updateSessionProfile` (ui/session.tsx:190-200, called after a rename) and the resume on startup produce a new object for the same server, the same account, the same token. The effect therefore replays in full and creates a `createWriteQueue()` (l.159), whereas `openDatabase` memoises the connection per file (db/client.ts:23-42) and `closeDatabase` is never called. Two independent queues then serialise on a single connection, while the in-flight writes of the old engine (history, outbox, uploads) come back from the network.
 
-**Correction.** Télécharger avec `expo-file-system/legacy` (déjà en dépendance) puis ouvrir le fichier LOCAL via `expo-sharing` (le module pose son propre FileProvider, aucun config plugin). Assainir le nom de destination (`[A-Za-z0-9._-]`, refuser `..` et `/` — il vient d'autrui). Ne PAS basculer sur des en-têtes `X-Auth-Token` : le middleware de fichiers protégés s'authentifie par query/cookie, ce serait un 403 déguisé en correctif. Filet d'attente acceptable si l'on ne veut pas embarquer expo-sharing tout de suite : désactiver l'ouverture quand `client.identifiants !== null`. Verrouiller par un test : aucune chaîne contenant `rc_token` ne doit jamais atteindre `Linking.openURL`.
+**Fix.** Make the CONNECTION carry the queue: `const pair = { raw, base: drizzle(...), writeQueue: createWriteQueue() }` in the `open` Map of db/client.ts, and `const { base, raw, writeQueue } = openDatabase(...)` in ui/sync.tsx (remove the local call, the only caller of `createWriteQueue`). A strict no-op in the nominal case; in case of overlap, the two engines serialise instead of interleaving.
 
-#### 🟡 moyenne — Une carte d'aperçu de lien ouvre l'URL du serveur sans garde de schéma, alors que le markdown en pose une
+#### 🟡 medium: Drafts write outside the queue, hence inside the sync transactions
 
-`ui/linkCard.tsx:159` · non passé au réfuteur · risque de correction : faible
+`ui/drafts.ts:60` · not put to the refuter · fix risk: low
 
-`Linking.openURL(apercu.url)` sur une chaîne qui vient telle quelle de `message.urls`, stockée brute (lib/normalize.ts:159) et projetée sans validation de schéma (lib/linkPreview.ts:172 ne teste que `typeof === 'string'`). ui/markdown.tsx:32-37 traite exactement la même classe de donnée et pose `/^https?:\/\//i` avec le commentaire « javascript:, intent:, file: restent lettre morte ». Même trou sur `estImage` (l.73-80), qui laisse un `file:///…jpg` s'afficher dans le fil. lib/linkPreview.test.ts n'a aucun cas de schéma non-http.
+`useDraft.write` builds a Drizzle `insert().onConflictDoUpdate()` / `delete()` and runs it directly on the shared connection, outside the `WriteQueue`: the only write path in the repo that does so, and the only SQL that does not live in db/upserts.ts (so no test runs it). expo-sqlite's `withTransactionAsync` is NOT exclusive (node_modules/expo-sqlite/build/SQLiteDatabase.js:99): the 400 ms debounce that fires during the ingestion of a 50-message page makes the INSERT enter the batch's `BEGIN`, and a failure of the batch cancels the draft without anyone knowing. Both outcomes of the promise are swallowed on top of that (l.70).
 
-**Correction.** Extraire la garde de ui/markdown.tsx dans `lib/externalLink.ts` et l'appeler depuis linkCard.tsx, embedCard.tsx et la branche fichier de messageRow.tsx. Filtrer aussi à la source dans lib/linkPreview.ts (n'émettre un aperçu que si `url` et `image` sont en https?), avec le cas de test correspondant.
+**Fix.** `createDraftStore(raw, serially)` in db/store.ts with `UPSERT_DRAFT` / `DELETE_DRAFT` in db/upserts.ts (hence covered by db/upserts.test.ts), supplied to `useDraft` in place of the raw `LocalDatabase`.
 
-#### 🟡 moyenne — La WebView d'appel accorde caméra et micro à n'importe quelle origine https
+#### ⚪ low: `useCoalescedLiveQuery` does not filter events by database, and the connections of visited accounts are never closed
 
-`app/call/[callId].tsx:188` · non passé au réfuteur · risque de correction : faible
+`ui/liveQuery.ts:79` · not put to the refuter · fix risk: low
 
-L'app détient CAMERA et RECORD_AUDIO au moment où la WebView tourne (`demanderCameraMicro`, l.38-41), donc react-native-webview répond `onPermissionRequest` sans invite quelle que soit l'origine. Or le filtrage de navigation est purement scheme-based (`/^(https?|about|blob|data):/i`) avec `originWhitelist={['*']}` : toute redirection vers un https arbitraire est suivie, et la page peut ouvrir caméra et micro en silence. L'exception WebView est assumée ; elle n'est pas cantonnée à l'hôte que le serveur a désigné.
+expo-sqlite's `addDatabaseChangeListener` is global to all open databases, but the listener only compares `tableName` and ignores `databaseName`. The filtering is correct only thanks to the invariant, written nowhere, that a single database is alive, an invariant that `closeDatabase` (db/client.ts:45, no caller) precisely does not guarantee: each (server, account) pair visited leaves a connection open with its change listener active.
 
-**Correction.** Extraire `new URL(u).origin` de l'URL rendue par `rejoindreConference`, la garder dans l'état, n'autoriser que cette origine plus `about:blank` dans `onShouldStartLoadWithRequest`, et poser `originWhitelist={[origine]}`. Le cas nominal (une seule origine pour toute la conférence) n'est pas affecté.
-
-#### 🟡 moyenne — Le jeton part vers l'hôte indiqué par le payload push quand une seule session est connue, sans vérification d'hôte
-
-`plugins/with-fcm-deeplink.js:601` · non passé au réfuteur · risque de correction : faible
-
-`lireSession(ctx, host)` rend l'unique session connue quand aucun `baseUrl` ne correspond au host (`if (nbCandidats == 1) repli`). Or `host` vient intégralement du payload FCM (l.219 et 262), n'est validé nulle part, et `recupererContenu` (l.656-663) construit `URL(host + "/api/v1/push.get?...")` en y posant `X-User-Id` et `X-Auth-Token`. Le commentaire vise une tolérance de FORME d'URL ; l'implémentation accepte n'importe quel domaine. Un acteur capable d'émettre vers le jeton FCM de l'appareil exfiltre le jeton de session hors de tout runtime JS, sans trace.
-
-**Correction.** Comparer sur l'HÔTE seul (scheme + authority de `session.baseUrl` vs celui de `host`), en ignorant sous-chemin et barre finale — ce qui couvre la tolérance recherchée — et rendre `null` sinon, en journalisant le rejet. Nécessite `expo prebuild` + rebuild ; à embarquer avec le chantier push natif si l'on veut ne payer qu'un seul build.
+**Fix.** Add the `databaseName` test to the listener, and document explicitly in db/client.ts that connections are kept for the life of the process (do NOT call `closeDatabase` in a cleanup, see "Do not touch").
 
 ---
 
-### 4. Ce qui entre en base doit être juste : normalisation, aperçus, clés E2EE
+### 3. Zero secrets outside the process
 
-**Sévérité max** 🟡 moyenne · **risque de correction** faible · **effort** jour
+**Max severity** 🔴 critical · **fix risk** medium · **effort** day
 
-Cinq défauts qui écrivent une donnée fausse en SQLite — donc durable, puisque l'UI n'est qu'une projection : le pseudo d'un correspondant remplacé par le mien dans la table `utilisateurs`, l'aperçu d'un salon effacé par un message d'appel vidéo, un aperçu chiffré qui montre une réponse de fil invisible, une clé AES de salon jamais invalidée à la rotation. Toutes les corrections sont locales à des fonctions pures ou à du SQL statique, donc testables sans appareil, et lib/normalize.ts — par où passent 100 % des documents serveur — n'a aujourd'hui que trois tests sur le `callId`. Fort gain, risque faible : à faire tôt.
+A Rocket.Chat `rc_token` is worth the whole account (reading every room, sending, changing the profile), and today it goes into Chrome's address bar (hence into its history, synced to the Google account) as soon as you tap a "file" attachment. It is the only critical finding of the whole audit, and it is verified. The three other leaks of the workstream (unguarded URL scheme, call WebView without an origin lock, unvalidated push host) share the same invariant: what leaves the process must be chosen by us, not by the content received. Local fixes, no touching of the sync or the database.
 
-#### 🟡 moyenne — `versSalon` devine le pseudo de l'autre par exclusion de `moi` : si `moi` est périmé, l'uid du correspondant reçoit MON pseudo
+#### 🔴 critical: The authentication token is handed to the system browser when a "file" attachment is opened
 
-`lib/normalize.ts:238` · ✅ vérifié · risque de correction : faible
+`ui/messageRow.tsx:561` · ✅ verified · fix risk: medium
 
-Vérifié : `noms.find((u) => u !== moi) ?? (noms.length === 1 ? noms[0] : null)` ne teste jamais que `moi` figure réellement dans `usernames`. `moi` vaut `session.username`, figé à la construction de `TraducteurRC` : après un renommage depuis le web (ou avec `username: ''`, lib/auth.ts:114), le `find` retient le premier élément — moi une fois sur deux. Le résultat part directement en base : db/store.ts:123-128 exécute `UPSERT_IDENTITE(dmAutreUid, dmAutreUsername)`, et cet upsert n'a AUCUNE garde d'horodatage. Bob s'affiche alors sous mon pseudo et avec mon avatar, en SQLite, jusqu'à ce qu'il poste un message.
+Verified in the code: the `title_link` branch does `protectedFileUrl(client, attachment.title_link)` (which sticks `rc_uid` and `rc_token` in the query, lib/upload.ts:136-141) then `Linking.openURL(url)`, a VIEW intent. The full URL, token included, lands in Chrome, its history and its sync, and is offered to any application that declares it handles https. Yet ui/imageViewer.tsx states the opposite invariant at the top of the file, and both the image and the video respect it by keeping the URL in memory. Only this branch leaves the process; nothing in ROADMAP.md justifies the exception.
 
-**Correction.** N'apparier par exclusion que si l'exclusion est prouvée : `const jeSuisDedans = moi !== null && moi !== '' && noms.includes(moi);` puis rendre `null` quand on ne sait pas — sans coût, `UPSERT_SALON` n'écrit rien sur null (db/store.ts:123) et l'avatar se posera au premier message.
+**Fix.** Download with `expo-file-system/legacy` (already a dependency) then open the LOCAL file through `expo-sharing` (the module sets up its own FileProvider, no config plugin). Sanitise the destination name (`[A-Za-z0-9._-]`, refuse `..` and `/`: it comes from someone else). Do NOT switch to `X-Auth-Token` headers: the protected-files middleware authenticates by query/cookie, so that would be a 403 disguised as a fix. An acceptable stopgap if expo-sharing is not to be shipped right away: disable opening when `client.auth !== null`. Lock it down with a test: no string containing `rc_token` must ever reach `Linking.openURL`.
 
-#### 🟡 moyenne — L'aperçu de la liste des salons est EFFACÉ quand le dernier message n'a ni texte ni pièce jointe (message d'appel vidéo)
+#### 🟡 medium: A link preview card opens the server's URL without a scheme guard, whereas the markdown sets one
 
-`lib/normalize.ts:179` · non passé au réfuteur · risque de correction : faible
+`ui/linkCard.tsx:159` · not put to the refuter · fix risk: low
 
-`apercuDuDernier` rend `null` quand `msg` est vide et qu'aucune pièce jointe ne parle — ce qui est exactement la forme du message `t: 'videoconf'` dont le contenu vit dans `blocks` (traité l.160). Or depuis 07411d9, `dernier_message` n'est plus protégé par COALESCE (db/upserts.ts:84-87) : `null` signifie délibérément « salon vidé » et écrase. Le salon remonte en tête de liste (l'horodatage, lui, est COALESCÉ l.92) mais sans une ligne de texte.
+`Linking.openURL(preview.url)` on a string that comes as is from `message.urls`, stored raw (lib/normalize.ts:159) and projected without scheme validation (lib/linkPreview.ts:172 only tests `typeof === 'string'`). ui/markdown.tsx:32-37 handles exactly the same class of data and sets `/^https?:\/\//i` with the comment "javascript:, intent:, file: remain dead letters". Same hole on `isImage` (l.73-80), which lets a `file:///…jpg` display in the feed. lib/linkPreview.test.ts has no non-http scheme case.
 
-**Correction.** Ajouter un dernier repli dérivant un libellé du type système (appel vidéo → clé i18n), et distinguer les deux `null` : « pas de `lastMessage` du tout » (effacement légitime) vs « dernier message sans texte affichable ». Fixer les trois cas dans lib/normalize.test.ts.
+**Fix.** Extract the guard from ui/markdown.tsx into `lib/externalLink.ts` and call it from linkCard.tsx, embedCard.tsx and the file branch of messageRow.tsx. Also filter at the source in lib/linkPreview.ts (only emit a preview if `url` and `image` are https?), with the matching test case.
 
-#### ⚪ basse — L'aperçu d'un salon chiffré peut afficher une réponse de fil ou un message système jamais visibles dans le salon
+#### 🟡 medium: The call WebView grants camera and microphone to any https origin
 
-`db/upserts.ts:216` · non passé au réfuteur · risque de correction : faible
+`app/call/[callId].tsx:188` · not put to the refuter · fix risk: low
 
-`MAJ_APERCU_CHIFFRE` fait `SELECT texte ... WHERE rid = ? AND texte IS NOT NULL ORDER BY horodatage DESC LIMIT 1`, sans le filtre `isNull(filId) OR filAffiche = true` du flux (app/salon/[rid].tsx:219), sans exclure `type_systeme`, et sans la clé de tri secondaire `id` que le flux a justement dû ajouter pour départager les ex æquo.
+The app holds CAMERA and RECORD_AUDIO while the WebView runs (`requestCameraMic`, l.38-41), so react-native-webview answers `onPermissionRequest` without a prompt whatever the origin. Yet navigation filtering is purely scheme-based (`/^(https?|about|blob|data):/i`) with `originWhitelist={['*']}`: any redirect to an arbitrary https is followed, and the page can open camera and microphone silently. The WebView exception is assumed; it is not confined to the host the server designated.
 
-**Correction.** Aligner la sous-requête : `AND (fil_id IS NULL OR fil_affiche = 1) AND type_systeme IS NULL`, `ORDER BY horodatage DESC, id DESC` — aux DEUX endroits où elle est écrite (write et garde `IS NOT`), avec un test à côté du bloc « aperçu de liste d'un salon chiffré » de db/upserts.test.ts.
+**Fix.** Extract `new URL(u).origin` from the URL returned by `joinConference`, keep it in the state, allow only that origin plus `about:blank` in `onShouldStartLoadWithRequest`, and set `originWhitelist={[origin]}`. The nominal case (a single origin for the whole conference) is not affected.
 
-#### 🟡 moyenne — Une rotation de clé de salon E2EE n'est jamais prise en compte : la clé AES périmée reste en cache jusqu'au redémarrage
+#### 🟡 medium: The token goes to the host named by the push payload when only one session is known, without host verification
 
-`lib/e2e/engine.ts:132` · ✅ vérifié · risque de correction : faible
+`plugins/with-fcm-deeplink.js:601` · not put to the refuter · fix risk: low
 
-Vérifié dans le code : `enregistrerCleSalon` met à jour `e2eKeys` puis sort si `clesSalon.has(rid)`. Le commentaire annonce « idempotent », ce qui n'est vrai que si l'`E2EKey` ne change jamais ; `dechiffrerContenu` consulte `clesSalon` EN PREMIER. Les deux appelants sont branchés sur le flux vivant (lib/sync.ts:234 et :318), donc à la première rotation de clé (membre retiré du salon) tous les messages neufs se figent au placeholder 🔒 sans indice de cause.
+`readSession(ctx, host)` returns the only known session when no `baseUrl` matches the host (`if (nbCandidats == 1) repli`). Yet `host` comes entirely from the FCM payload (l.219 and 262), is validated nowhere, and `fetchContent` (l.656-663) builds `URL(host + "/api/v1/push.get?...")` and sets `X-User-Id` and `X-Auth-Token` on it. The comment aims at tolerance of URL SHAPE; the implementation accepts any domain. An actor able to send to the device's FCM token exfiltrates the session token outside any JS runtime, without a trace.
 
-**Correction.** `const ancienne = this.e2eKeys.get(rid); this.e2eKeys.set(rid, e2eKey); if (ancienne !== undefined && ancienne !== e2eKey) this.clesSalon.delete(rid);` avant la garde existante. Test à deux clés successives dans lib/e2e/engine.test.ts (le fichier ne couvre que le cas mono-clé).
-
-#### ⚪ basse — Le verrouillage E2EE réécrit tous les messages chiffrés, y compris ceux déjà masqués
-
-`db/upserts.ts:199` · non passé au réfuteur · risque de correction : nul
-
-`MASQUER_MESSAGES_CHIFFRES` = `UPDATE messages SET texte = NULL WHERE chiffre_brut IS NOT NULL`, sans `AND texte IS NOT NULL` — alors que toute la famille voisine porte cette garde avec un commentaire disant qu'elle « n'est pas cosmétique » (l.147, 184, 188, 220) : sans elle, l'écriture réveille toutes les `useLiveQuery` de la table. `reverrouillageE2E` (lib/sync.ts:180) rejoue l'opération sur un verrouillage répété.
-
-**Correction.** Ajouter `AND texte IS NOT NULL`, et `AND dernier_message IS NOT NULL` à `MASQUER_APERCU_CHIFFRE`. Test sur `total_changes()`, modèle déjà présent (db/upserts.test.ts:536-544).
-
-#### ⚪ basse — `versSalon`, `versAbonnement`, `versEpoch` et `apercuDuDernier` n'ont aucun test direct
-
-`lib/normalize.test.ts:1` · ✅ vérifié · risque de correction : nul
-
-Le fichier ne contient qu'un `describe` de trois cas sur le `callId` d'un message d'appel. Rien ne couvre l'appariement `uids`/`usernames` explicitement documenté comme NON aligné, le repli de nom d'un DM, le DM avec soi-même, `avatarEtag` absent, les trois formes de `versEpoch`. C'est le chemin par lequel passent tous les documents serveur avant SQLite, et les deux constats ci-dessus auraient été attrapés par une table de cas.
-
-**Correction.** Table de cas sur `versSalon` (moi présent / moi absent / DM avec soi-même / DM de groupe / salon chiffré / sans `_updatedAt` / `lastMessage` absent vs `msg: ''`) et sur `versAbonnement`. Module pur : coût d'exécution nul.
+**Fix.** Compare on the HOST alone (scheme + authority of `session.baseUrl` vs that of `host`), ignoring sub-path and trailing slash (which covers the tolerance sought), and return `null` otherwise, logging the rejection. Requires `expo prebuild` + rebuild; ship it with the native push workstream to pay for a single build.
 
 ---
 
-### 5. Rattrapage de salon : un seul par salon, des caches qui ne mentent pas
+### 4. What enters the database must be right: normalisation, previews, E2EE keys
 
-**Sévérité max** 🟡 moyenne · **risque de correction** moyen · **effort** jour
+**Max severity** 🟡 medium · **fix risk** low · **effort** day
 
-À CHAQUE raccordement — donc à chaque retour au premier plan — deux paginations identiques partent sur le salon ouvert : le provider (garde `rattrapageSalonEnVol`) et l'écran, réveillé par le bump de `generation` que ce même raccordement vient de poser, qui appelle `lib/catchUp.ts` en direct sans consulter la garde. Jusqu'à 8 `chat.syncMessages` là où 4 suffisent, sur une route à 10 appels/min et à 3-4 s par appel sur le serveur cible. La correction tient dans lib/catchUp.ts, sans changer une seule signature d'appelant. Trois défauts de couverture voisins (lecture garantissante avalée, cache repeuplé après purge, fil sans garde) se traitent dans la foulée.
+Five defects that write wrong data into SQLite, hence durable data, since the UI is only a projection: a correspondent's username replaced by mine in the `users` table, a room's preview erased by a video call message, an encrypted preview that shows an invisible thread reply, a room AES key never invalidated on rotation. All the fixes are local to pure functions or to static SQL, hence testable without a device, and lib/normalize.ts (through which 100 % of server documents pass) has today only three tests, on the `callId`. High gain, low risk: do it early.
 
-#### 🟡 moyenne — Deux rattrapages concurrents sur le même salon à chaque raccordement
+#### 🟡 medium: `toRoom` guesses the other party's username by excluding `me`: if `me` is stale, the correspondent's uid receives MY username
 
-`lib/catchUp.ts:227` · ✅ vérifié · risque de correction : moyen
+`lib/normalize.ts:238` · ✅ verified · fix risk: low
 
-Vérifié dans les deux fichiers : ui/sync.tsx:298 protège son propre appel par `rattrapageSalonEnVol`, mais app/salon/[rid].tsx:465 appelle `rattraperSalon(client, moteur, rid, …)` importé directement de lib/catchUp.ts, avec `generation` dans les deps de son effet (l.495). `apresRattrapage` incrémente `generation` juste après que `rattraperTout` a lancé le rattrapage du salon actif : l'effet de l'écran se rejoue, `salonCouvert(rid, generationNeuve)` est forcément faux, et une seconde pagination part sur le même curseur. Pas de corruption (le curseur ne régresse pas, les upserts sont idempotents), mais tout le travail est fait en double, plus un `*.history?count=50`.
+Verified: `names.find((u) => u !== me) ?? (names.length === 1 ? names[0] : null)` never tests that `me` actually appears in `usernames`. `me` is `session.username`, frozen at the construction of `RcTranslator`: after a rename from the web (or with `username: ''`, lib/auth.ts:114), the `find` keeps the first element, which is me one time out of two. The result goes straight into the database: db/store.ts:123-128 runs `UPSERT_IDENTITY(dmOtherUid, dmOtherUsername)`, and this upsert has NO timestamp guard. Bob then shows under my username and with my avatar, in SQLite, until he posts a message.
 
-**Correction.** Mettre la déduplication DANS lib/catchUp.ts, au seul point où les deux chemins se rejoignent : renommer le corps en `rattraperSalonBrut` et exporter un `rattraperSalon` qui coalesce par rid dans une `Map<string, Promise<void>>` vidée par un `.finally`. Aucun appelant à toucher, `activite.suivre` garde son comportement, les tests existants (appels séquentiels) voient une Map déjà vidée. Documenter que le rejoignant hérite de l'`estAbandonne` du premier arrivé — sans perte, le curseur est écrit après chaque page. Laisser `rattrapageSalonEnVol` en place dans le même commit, le retirer plus tard.
+**Fix.** Only pair by exclusion if the exclusion is proven: `const iAmIn = me !== null && me !== '' && names.includes(me);` then return `null` when we do not know. No cost: `UPSERT_ROOM` writes nothing on null (db/store.ts:123) and the avatar will be set at the first message.
 
-#### 🟡 moyenne — La lecture qui GARANTIT est avalée pour le salon actif par le garde anti-empilement
+#### 🟡 medium: The room list preview is ERASED when the last message has neither text nor attachment (video call message)
 
-`ui/sync.tsx:298` · non passé au réfuteur · risque de correction : moyen
+`lib/normalize.ts:179` · not put to the refuter · fix risk: low
 
-lib/connectionSetup.ts appelle `rattraper()` deux fois : la seconde, après `streamArme()`, est celle qui garantit qu'aucun document ne tombe entre les deux transports. Côté salon, `if (rattrapageSalonEnVol) return;` l'ABANDONNE au lieu de la différer — et le cas nominal est justement que la première (lancée avant l'ouverture de la socket) court encore. Fenêtre non couverte : [évaluation serveur de la lecture #1 ; armement des souscriptions], pendant laquelle le curseur a déjà avancé. Un message posté là n'est vu par personne jusqu'au raccordement suivant, alors que la liste des salons, elle, montre déjà l'aperçu à jour.
+`lastMessagePreview` returns `null` when `msg` is empty and no attachment speaks, which is exactly the shape of the `t: 'videoconf'` message whose content lives in `blocks` (handled l.160). Yet since 07411d9, `last_message` is no longer protected by COALESCE (db/upserts.ts:84-87): `null` deliberately means "room emptied" and overwrites. The room rises to the top of the list (the timestamp, for its part, is COALESCEd l.92) but without a line of text.
 
-**Correction.** Reprendre l'idiome de `Reconnecteur` (`enVol` + `relance`) : poser un drapeau `redemande` et relancer une passe dans le `finally` au lieu de retourner. Le coalesceur du constat précédent doit intégrer cette relance, sinon il fige le défaut.
+**Fix.** Add a last fallback deriving a label from the system type (video call → i18n key), and tell the two `null`s apart: "no `lastMessage` at all" (legitimate erasure) vs "last message without displayable text". Pin the three cases in lib/normalize.test.ts.
 
-#### 🟡 moyenne — `garderAuChaud` peut repeupler le LRU APRÈS `libererSalonsChauds`, et l'entrée fantôme fait mentir `salonCouvert`
+#### ⚪ low: An encrypted room's preview can show a thread reply or a system message never visible in the room
 
-`ui/sync.tsx:420` · non passé au réfuteur · risque de correction : faible
+`db/upserts.ts:216` · not put to the refuter · fix risk: low
 
-Le cleanup du provider (deps `[etat]`) court AVANT que `<Salon>` ne soit démonté : l'écran appelle ensuite `garderAuChaud(rid, generationRef.current, relachers)` (app/salon/[rid].tsx:366) avec des relâcheurs pointant sur un client DDP déjà `reinitialiser()`. `salonCouvert` compare une égalité de nombres et la génération repart de 0 : dès que la nouvelle session atteint la valeur de l'entrée fantôme, la garde répond « couvert » pour un salon jamais écouté sur cette socket — éditions et suppressions manquées ne sont alors jamais rapatriées.
+`UPDATE_ENCRYPTED_PREVIEW` does `SELECT text ... WHERE rid = ? AND text IS NOT NULL ORDER BY ts DESC LIMIT 1`, without the `isNull(threadId) OR threadShown = true` filter of the feed (app/room/[rid].tsx:219), without excluding `system_type`, and without the secondary sort key `id` that the feed precisely had to add to break ties.
 
-**Correction.** Jeton de session incrémenté par `libererSalonsChauds`, passé à `garderAuChaud`/`salonCouvert` : si le jeton ne correspond plus, relâcher immédiatement au lieu de mémoriser. Même traitement pour `marquerSalonCharge`. Test dans ui/hotRooms.test.ts.
+**Fix.** Align the subquery: `AND (thread_id IS NULL OR thread_shown = 1) AND system_type IS NULL`, `ORDER BY ts DESC, id DESC`, in BOTH places where it is written (write and `IS NOT` guard), with a test next to the "list preview of an encrypted room" block of db/upserts.test.ts.
 
-#### 🟡 moyenne — L'écran fil retélécharge le fil ENTIER à chaque raccordement, sans garde ni indicateur
+#### 🟡 medium: An E2EE room key rotation is never taken into account: the stale AES key stays cached until restart
 
-`app/thread/[id].tsx:197` · non passé au réfuteur · risque de correction : faible
+`lib/e2e/engine.ts:132` · ✅ verified · fix risk: low
 
-L'effet de chargement a `generation` dans ses deps et n'a aucun équivalent de `salonsCharges` : chaque incrément rejoue `chat.getMessage` puis jusqu'à 20 pages de `chat.getThreadMessages` de 100. Sur un fil de 300 réponses, 4 appels par raccordement sur une route à 10/min. Rien n'est enveloppé dans `activite.suivre` : la barre de synchro reste éteinte pendant que la liste se réécrit intégralement.
+Verified in the code: `saveRoomKey` updates `e2eKeys` then returns if `roomKeys.has(rid)`. The comment announces "idempotent", which is only true if the `E2EKey` never changes; `decryptContent` looks up `roomKeys` FIRST. Both callers are wired to the live stream (lib/sync.ts:234 and :318), so at the first key rotation (member removed from the room) all new messages freeze on the 🔒 placeholder with no hint of the cause.
 
-**Correction.** Un `filsCharges` indexé par (filId, generation) sur le modèle de ui/loadedRooms.ts, et envelopper le chargement dans `activite.suivre(rid ?? filId, ...)`. Dépend du correctif « generation ne bouge plus sur E2EE » du chantier 1.
+**Fix.** `const old = this.e2eKeys.get(rid); this.e2eKeys.set(rid, e2eKey); if (old !== undefined && old !== e2eKey) this.roomKeys.delete(rid);` before the existing guard. A test with two successive keys in lib/e2e/engine.test.ts (the file only covers the single-key case).
 
-#### ⚪ basse — `salonActif` suppose qu'un seul écran salon est monté
+#### ⚪ low: E2EE locking rewrites every encrypted message, including those already hidden
 
-`app/salon/[rid].tsx:366` · non passé au réfuteur · risque de correction : faible
+`db/upserts.ts:199` · not put to the refuter · fix risk: none
 
-`signalerSalonActif` pose le rid au montage et `null` au démontage, sur une variable unique du provider. Or la pile peut contenir deux écrans salon (ui/notifications.tsx:88 fait un `push` depuis n'importe où, app/profile.tsx:196 un `replace`) : au retour arrière, le cleanup du salon du dessus pose `null` alors qu'un salon est affiché, et `rattraperTout` sort sans rattraper aucun salon. Le dégât est aujourd'hui masqué par le rattrapage redondant de l'écran — corriger le premier constat sans celui-ci transforme cette dette en perte réelle.
+`HIDE_ENCRYPTED_MESSAGES` = `UPDATE messages SET text = NULL WHERE encrypted_raw IS NOT NULL`, without `AND text IS NOT NULL`, whereas the whole neighbouring family carries this guard with a comment saying it "is not cosmetic" (l.147, 184, 188, 220): without it, the write wakes up every `useLiveQuery` on the table. `e2eRelocked` (lib/sync.ts:180) replays the operation on a repeated lock.
 
-**Correction.** Remplacer la variable par une pile : `declarerSalonOuvert(rid): () => void` qui empile/dépile, `salonActif` étant le sommet. À faire dans le MÊME commit que la déduplication du rattrapage.
+**Fix.** Add `AND text IS NOT NULL`, and `AND last_message IS NOT NULL` to `HIDE_ENCRYPTED_PREVIEW`. A test on `total_changes()`, a model already present (db/upserts.test.ts:536-544).
 
----
+#### ⚪ low: `toRoom`, `toSubscription`, `toEpoch` and `lastMessagePreview` have no direct test
 
-### 6. Cycle de vie de la donnée locale : purge, curseurs, rétention
+`lib/normalize.test.ts:1` · ✅ verified · fix risk: none
 
-**Sévérité max** 🟡 moyenne · **risque de correction** moyen · **effort** jour
+The file contains only one `describe` of three cases on the `callId` of a call message. Nothing covers the `uids`/`usernames` pairing explicitly documented as NOT aligned, the name fallback of a DM, the DM with oneself, a missing `avatarEtag`, the three shapes of `toEpoch`. This is the path all server documents take before SQLite, and the two findings above would have been caught by a table of cases.
 
-La purge ne connaît que trois tables sur huit, les curseurs survivent aux données qu'ils décrivent, et le critère de purge est un instantané PLUS ANCIEN que l'état qu'il juge — cette dernière est la seule race de tout l'audit qui peut faire disparaître de l'app un DM que l'utilisateur vient de recevoir. Les corrections sont du SQL statique paramétré, exactement le style déjà en place et déjà testé sur `node:sqlite` ; le risque tient au fait qu'on touche à des DELETE, donc à faire avec les tests écrits d'abord.
-
-#### 🟡 moyenne — La réconciliation anti-fantômes efface un salon créé PENDANT sa propre requête réseau
-
-`db/store.ts:178` · ✅ vérifié · risque de correction : moyen
-
-`reconcilierSalons` fait un `subscriptions.get` COMPLET puis `purgerSalonsAbsents(vivants)` — trois `DELETE … WHERE rid NOT IN (json_each(?))`. Pendant les ~200 ms de l'aller-retour, le stream DDP continue d'écrire (ui/sync.tsx:257-264) : un DM ouvert par un collègue à cet instant n'est pas dans `vivants` et ses trois lignes sont effacées. La file d'écritures ne protège de rien ici — elle sérialise, elle ne rafraîchit pas la liste. Le DM ne revient qu'au prochain `rattraperGlobal`, et la notification push renvoie entre-temps sur un salon absent.
-
-**Correction.** Relever `listerRidsConnus()` (`SELECT rid FROM salons UNION … abonnements UNION … messages`) AVANT la requête, et resserrer les trois DELETE avec un second paramètre JSON : `rid IN (connus) AND rid NOT IN (vivants)`. C'est l'ORDRE qui porte la justesse, aucun délai. Signature `purgerSalonsAbsents(vivants, connus)` : tsc signalera les faux dépôts à compléter (lib/catchUp.test.ts:29, lib/sync.test.ts:251). Test : `r3` ingéré pendant le vol ne doit pas figurer dans la purge.
-
-#### 🟡 moyenne — Les curseurs de rattrapage survivent aux données qu'ils décrivent
-
-`db/schema.ts:242` · non passé au réfuteur · risque de correction : moyen
-
-`etat_synchro` n'est effacé ni par `SUPPRIMER_SALON`, ni par `supprimerParSubId`, ni par la purge. Un salon quitté garde ses lignes `(rid,'messages')` alors que ses messages sont effacés ; à la réintégration, app/salon/[rid].tsx:423-427 n'ancre le curseur QUE s'il est absent, donc l'ancienne valeur reprend la main. `rattraperSalon` repart alors d'un point qui ne dit plus rien de l'état local, plafonné à 2 pages : sur un salon à 3 000 messages il faut des dizaines d'ouvertures pour converger, chacune payée en appels rate-limités. `UPSERT_CURSEUR` interdisant toute régression, rien ne peut corriger la valeur après coup.
-
-**Correction.** `DELETE FROM etat_synchro WHERE portee = ?` dans `supprimerSalon`/`supprimerParSubId`, et `PURGER_CURSEURS_ABSENTS` (`portee <> '*' AND portee NOT IN (json_each(?))`) dans la transaction de purge. Le `portee <> '*'` est indispensable : les curseurs globaux ne doivent jamais tomber.
-
-#### 🟡 moyenne — Les files d'envoi et de téléversement ne sont jamais purgées avec leur salon : lignes zombies rejouées à l'infini
-
-`db/upserts.ts:246` · non passé au réfuteur · risque de correction : faible
-
-Vérifié sur base migrée : après les trois DELETE de purge du salon, `sortie`, `televersements`, `brouillons` et `etat_synchro` gardent chacun leur ligne, et la sortie orpheline ressort bien dans `LISTER_SORTIE_A_ENVOYER`. Plus aucun écran ne peut l'afficher (app/salon/[rid].tsx:238 ne lit `sortie` que pour le salon ouvert), donc plus aucun bouton « abandonner » ; à chaque raccordement elle coûte deux appels REST (`chat.sendMessage` puis le `chat.getMessage` de `messageLivre`), pour toujours, en retardant les envois légitimes derrière elle.
-
-**Correction.** Ajouter `PURGER_SORTIE_ABSENTE`, `PURGER_TELEVERSEMENTS_ABSENTS`, `PURGER_BROUILLONS_ABSENTS` à la transaction de `purgerSalonsAbsents`, et effacer les lignes du rid dans `supprimerSalon`/`supprimerParSubId`. Le plafond de tentatives est traité dans le chantier téléversements.
-
-#### 🟡 moyenne — Aucune rétention : `messages` et ses tables satellites ne cessent jamais de croître
-
-`db/schema.ts:77` · non passé au réfuteur · risque de correction : moyen
-
-Le seul effacement de masse ne se déclenche qu'au départ d'un salon. Pour un salon vivant, tout reste : `texte` plus les blobs JSON `md`, `pieces_jointes`, `reactions`, `urls`, souvent plus lourds que le texte. L'app ne lit pourtant jamais au-delà de sa pagination et sait re-télécharger. Deux requêtes balayent en outre la table entière sans index utilisable (`MESSAGES_A_DECHIFFRER`, `MASQUER_MESSAGES_CHIFFRES`). Sur Android, le seul recours de l'utilisateur est « vider les données », qui détruit tout.
-
-**Correction.** Passe de rétention au raccordement, dans la file d'écritures : par salon, garder les N derniers (ex. 500), en épargnant les optimistes (`mis_a_jour_le = 0`) et les racines de fils encore référencées. SQL statique avec `json_each` pour la liste des rids, comme les purges existantes. Inutile de ré-ancrer le curseur : on ne coupe que par l'ancien.
+**Fix.** A table of cases on `toRoom` (me present / me absent / DM with oneself / group DM / encrypted room / without `_updatedAt` / `lastMessage` missing vs `msg: ''`) and on `toSubscription`. A pure module: zero run cost.
 
 ---
 
-### 7. File de téléversements : ni doublon, ni disparition silencieuse
+### 5. Room catch-up: one per room, caches that do not lie
 
-**Sévérité max** 🟠 haute · **risque de correction** moyen · **effort** plusieurs-jours
+**Max severity** 🟡 medium · **fix risk** medium · **effort** day
 
-C'est le maillon le plus faible du dépôt. Le chemin TEXTE (lib/outbox.ts) a acquis au fil des cicatrices un `_id` client, une confirmation par `chat.getMessage` et un message optimiste ; le chemin FICHIER n'a rien de tout cela. Conséquences réelles : une photo envoyée hors ligne disparaît de l'écran sans le moindre signe (l'utilisateur la renvoie, il en aura deux), une réponse de `mediaConfirm` perdue poste le message en double avec un fichier orphelin de plus sur le serveur, et une ligne en échec définitif re-pousse tous ses octets à chaque retour au premier plan. Aucun de ces chemins n'est couvert par les tests — d'où l'ordre imposé ci-dessous : les tests d'abord, la migration ensuite.
+At EVERY connection setup (hence at every return to the foreground), two identical paginations start on the open room: the provider (guard `rattrapageSalonEnVol`) and the screen, woken by the bump of `generation` that this same connection setup has just made, which calls `lib/catchUp.ts` directly without consulting the guard. Up to 8 `chat.syncMessages` where 4 are enough, on a route limited to 10 calls/min and at 3-4 s per call on the target server. The fix fits in lib/catchUp.ts, without changing a single caller signature. Three neighbouring coverage defects (guaranteeing read swallowed, cache repopulated after purge, thread without a guard) are dealt with along the way.
 
-#### 🟠 haute — Un fichier envoyé hors ligne disparaît de l'écran sans aucune trace
+#### 🟡 medium: Two concurrent catch-ups on the same room at every connection setup
 
-`lib/uploadQueue.ts:187` · ✅ vérifié · risque de correction : faible
+`lib/catchUp.ts:227` · ✅ verified · fix risk: medium
 
-`MoteurTeleversement` ne crée AUCUN message optimiste (contrairement à lib/outbox.ts:89-112). Sur échec réseau, `unePasse` rend `false` sans marquer la ligne : elle reste `en-attente`. Or la seule surface UI filtre sur `statut === 'echec'` (app/salon/[rid].tsx:246). Et `envoyer()` a résolu normalement, donc le `.then` vide l'aperçu, le brouillon et la citation ; l'écran de partage, lui, navigue vers le salon comme si tout s'était bien passé.
+Verified in both files: ui/sync.tsx:298 protects its own call with `rattrapageSalonEnVol`, but app/room/[rid].tsx:465 calls `catchUpRoom(client, engine, rid, …)` imported directly from lib/catchUp.ts, with `generation` in its effect's deps (l.495). `afterCatchUp` increments `generation` just after `catchUpAll` has launched the catch-up of the active room: the screen's effect replays, `roomCovered(rid, newGeneration)` is necessarily false, and a second pagination starts on the same cursor. No corruption (the cursor does not regress, the upserts are idempotent), but all the work is done twice, plus a `*.history?count=50`.
 
-**Correction.** Ne plus filtrer sur l'échec dans app/salon/[rid].tsx:246 et choisir le libellé par statut (nouvelle clé `salon.fichierEnAttente` dans LES DEUX catalogues — ui/messages.test.ts vérifie la parité). Les boutons réessayer/abandonner restent valables (`traiter()` est ré-entrant, `abandonner` ne fait qu'un DELETE). Corriger les deux commentaires devenus faux (app/salon/[rid].tsx:806-808, app/share.tsx:230-231). NE PAS créer de message optimiste pour les fichiers : il serait irréconciliable avec l'écho serveur, qui n'a pas d'`_id` client.
+**Fix.** Put the deduplication INSIDE lib/catchUp.ts, at the only point where the two paths meet: rename the body to `catchUpRawRoom` and export a `catchUpRoom` that coalesces by rid in a `Map<string, Promise<void>>` emptied by a `.finally`. No caller to touch, `activity.track` keeps its behaviour, the existing tests (sequential calls) see an already emptied Map. Document that the joiner inherits the `isDiscarded` of the first arrival, at no loss since the cursor is written after each page. Leave `rattrapageSalonEnVol` in place in the same commit, remove it later.
 
-#### 🟡 moyenne — Une réponse perdue sur `rooms.mediaConfirm` fait poster DEUX fois le même fichier
+#### 🟡 medium: The read that GUARANTEES is swallowed for the active room by the anti-stacking guard
 
-`lib/upload.ts:86` · ✅ vérifié · risque de correction : moyen
+`ui/sync.tsx:298` · not put to the refuter · fix risk: medium
 
-`televerser` enchaîne `rooms.media` puis `rooms.mediaConfirm` (qui CRÉE le message) sans état intermédiaire. `ClientRest` avorte à 15 s et convertit tout échec sans réponse HTTP en `ErreurRest(statut 0)` ; `unePasse` laisse alors la ligne `en-attente` et le prochain `fichiers.traiter()` — à CHAQUE raccordement — repart de zéro. Aucune clé de déduplication n'existe : la table `televersements` n'a ni `_id` client ni `file_id`, et son commentaire (db/schema.ts:161-162) évoque un statut `envoi` jamais implémenté. Symétriquement, tout échec survenant APRÈS l'upload laisse un fichier orphelin que rien ne nettoie — le piège même que CLAUDE.md signale sur le flux en deux temps.
+lib/connectionSetup.ts calls `catchUp()` twice: the second, after `streamArmed()`, is the one that guarantees no document falls between the two transports. On the room side, `if (rattrapageSalonEnVol) return;` DROPS it instead of deferring it, and the nominal case is precisely that the first one (launched before the socket opens) is still running. Uncovered window: [server evaluation of read #1; arming of the subscriptions], during which the cursor has already moved forward. A message posted then is seen by nobody until the next connection setup, while the room list already shows the up-to-date preview.
 
-**Correction.** Persister `file_id` (migration, colonne nullable) dès le retour de `rooms.media` ; scinder `televerser` en `televerserOctets` / `confirmerMedia`, et sauter la première étape quand `file_id` est déjà là. Avant de re-confirmer, interroger SQLite — pas le réseau : `SELECT 1 FROM messages WHERE rid = ? AND pieces_jointes LIKE '%' || ? || '%'` ; si le message est là, le confirm avait abouti, on purge la ligne. Purement local, donc insensible au rate-limit. Ne PAS tenter un `_id` client sur `mediaConfirm` (`additionalProperties: false`).
+**Fix.** Reuse the idiom of `Reconnector` (`inFlight` + `rerunRequested`): set a `redemande` flag and run another pass in the `finally` instead of returning. The coalescer of the previous finding must include this rerun, otherwise it freezes the defect.
 
-#### 🟡 moyenne — Aucun état « en cours » : « Abandonner » pendant une reprise supprime la ligne mais le message est posté quand même
+#### 🟡 medium: `keepWarm` can repopulate the LRU AFTER `releaseHotRooms`, and the ghost entry makes `roomCovered` lie
 
-`lib/uploadQueue.ts:196` · non passé au réfuteur · risque de correction : moyen
+`ui/sync.tsx:420` · not put to the refuter · fix risk: low
 
-`LISTER_TELEVERSEMENTS_A_ENVOYER` rend les lignes `en-attente` ET `echec`, et `unePasse` ne change pas le statut en prenant une ligne en charge : le bandeau affiche « non envoyé · Réessayer · Abandonner » pendant tout le re-téléversement, sans progression (la `Map progression`, annoncée « pour l'UI » dans lib/provider.ts:182, n'est lue nulle part). `abandonner(id)` n'est qu'un DELETE : il n'annule pas la `FileSystemUploadTask` en vol (`cancelAsync` n'est jamais appelé) et n'empêche pas `ingerer(message)` — la vidéo apparaît dans le salon après que l'utilisateur l'a explicitement abandonnée.
+The provider's cleanup (deps `[state]`) runs BEFORE `<Room>` is unmounted: the screen then calls `keepWarm(rid, generationRef.current, releases)` (app/room/[rid].tsx:366) with releasers pointing at a DDP client already `reset()`. `roomCovered` compares a number equality and the generation restarts from 0: as soon as the new session reaches the value of the ghost entry, the guard answers "covered" for a room never listened to on this socket, and missed edits and deletions are then never brought back.
 
-**Correction.** Implémenter le statut `envoi` déjà décrit dans le schéma : posé à la prise en charge, exclu du listage, affiché avec la fraction de `progression`. `abandonner` sur une ligne `envoi` pose une intention d'annulation vérifiée avant `ingerer`, et idéalement appelle `tache.cancelAsync()` (à exposer dans le type `TransportUpload`).
+**Fix.** A session token incremented by `releaseHotRooms`, passed to `keepWarm`/`roomCovered`: if the token no longer matches, release immediately instead of remembering. Same treatment for `markRoomLoaded`. A test in ui/hotRooms.test.ts.
 
-#### 🟡 moyenne — Les lignes en échec sont rejouées à chaque retour au premier plan, sans plafond ni recul
+#### 🟡 medium: The thread screen re-downloads the WHOLE thread at every connection setup, with no guard or indicator
 
-`db/upserts.ts:330` · non passé au réfuteur · risque de correction : faible
+`app/thread/[id].tsx:197` · not put to the refuter · fix risk: low
 
-`apresRattrapage` appelle `envoi.traiter()` et `fichiers.traiter()` à chaque raccordement, et les deux requêtes de listage incluent `echec`. Aucun moteur ne lit de compteur : la colonne `tentatives` existe pour `sortie` mais n'est jamais consultée, `televersements` n'en a même pas. Une vidéo refusée par le serveur (413, type refusé, quota) repousse donc tous ses octets à chaque flap réseau — cas fréquent quand `fileSize` est null sur Android et que la validation locale laisse passer.
+The loading effect has `generation` in its deps and has no equivalent of `loadedRooms`: each increment replays `chat.getMessage` then up to 20 pages of 100 of `chat.getThreadMessages`. On a thread of 300 replies, 4 calls per connection setup on a route limited to 10/min. Nothing is wrapped in `activity.track`: the sync bar stays off while the list is entirely rewritten.
 
-**Correction.** Ne rejouer automatiquement que les lignes `en-attente` ; réserver `echec` au geste explicite « réessayer ». À défaut, colonne `tentatives` incrémentée par `MARQUER_TELEVERSEMENT_ECHEC` et plafond, comme pour la file de texte — un plafond, pas un délai.
+**Fix.** A `loadedThreads` keyed by (threadId, generation) on the model of ui/loadedRooms.ts, and wrap the loading in `activity.track(rid ?? threadId, ...)`. Depends on the "generation no longer moves on E2EE" fix of workstream 1.
 
-#### 🟡 moyenne — `messageLivre` confond « le serveur n'a pas répondu » et « le message n'a pas été livré »
+#### ⚪ low: `activeRoom` assumes only one room screen is mounted
 
-`lib/outbox.ts:197` · non passé au réfuteur · risque de correction : faible
+`app/room/[rid].tsx:366` · not put to the refuter · fix risk: low
 
-Quand `chat.sendMessage` échoue avec un statut ≠ 0, `unePasse` interroge `chat.getMessage` pour trancher — mais `messageLivre` attrape TOUTES les erreurs et rend `null`, y compris une panne réseau ou un 429 après les trois rejeux (le `chat.getMessage` subit la même limite de 10/min). L'appelant marque `echec` : l'utilisateur voit « non envoyé » sur un message que le serveur a peut-être accepté.
+`signalerSalonActif` sets the rid on mount and `null` on unmount, on a single provider variable. Yet the stack can contain two room screens (ui/notifications.tsx:88 does a `push` from anywhere, app/profile.tsx:196 a `replace`): on back, the cleanup of the top room sets `null` while a room is displayed, and `catchUpAll` exits without catching up any room. The damage is masked today by the screen's redundant catch-up: fixing the first finding without this one turns this debt into a real loss.
 
-**Correction.** Rendre `'inconnu'` quand l'erreur est une `ErreurRest` de statut 0 ou 429 (la ligne reste alors `en-attente`), `null` seulement quand le serveur a répondu que le message n'existe pas.
-
-#### ⚪ basse — Aucun fichier temporaire n'est jamais supprimé
-
-`ui/prepareAttachment.ts:27` · non passé au réfuteur · risque de correction : faible
-
-`compresserImageSiUtile` écrit un JPEG par photo, `DocumentPicker({copyToCacheDirectory:true})` copie chaque document, `ImagePicker` copie chaque média, l'enregistreur produit un `.m4a` par prise. Une recherche `deleteAsync` sur tout le dépôt ne rend AUCUN appel : rien n'est effacé, ni après envoi, ni quand l'aperçu est retiré, ni pour les pièces retirées dans app/share.tsx. Le seul mécanisme de purge est celui d'Android sous pression, qui casse au passage les envois encore en file.
-
-**Correction.** Supprimer le fichier local quand la ligne de téléversement est purgée (succès ou abandon) si l'URI est dans le cache de l'app — la connaissance est côté `MoteurTeleversement`. Et supprimer le JPEG recompressé quand l'aperçu est retiré sans envoi.
-
-#### 🟡 moyenne — Le chemin d'échec réseau et le SQL de la file de téléversements ne sont testés nulle part
-
-`lib/uploadQueue.test.ts:116` · non passé au réfuteur · risque de correction : nul
-
-Le fichier s'arrête au succès et au refus franc. Ni le `statut === 0` (le seul chemin qui laisse une ligne invisible), ni la garde `enVol`/`repasser`, ni le nettoyage de `progression` ne sont exercés — alors que les trois équivalents de `MoteurEnvoi` sont testés un par un. Côté SQL, `grep TELEVERSEMENT db/*.test.ts` ne rend que le nom de la table : `INSERER_TELEVERSEMENT`, `LISTER_…`, `MARQUER_…`, `SUPPRIMER_…` ne sont exécutés par aucun test, alors que db/store.ts:373 rend `getAllAsync` directement comme `LigneTeleversement[]` — une simple assertion de type, jamais vérifiée.
-
-**Correction.** Un `describe('file de téléversements')` dans db/upserts.test.ts, calqué sur celui de l'outbox (insérer avec les paramètres réels de db/store.ts, relire, comparer champ à champ, marquer en échec, supprimer). Et trois cas dans lib/uploadQueue.test.ts : `ErreurRest(…, 0)` → ligne `en-attente` et `marquerEchec` NON appelé ; `traiter()` concurrent → une passe puis une repasse ; `progression.has(id)` faux après échec comme après succès. À ÉCRIRE AVANT la migration `file_id`.
+**Fix.** Replace the variable with a stack: `declareOpenRoom(rid): () => void` which pushes/pops, `activeRoom` being the top. Do it in the SAME commit as the catch-up deduplication.
 
 ---
 
-### 8. Transport DDP et REST : ne pas tuer une socket saine, ne pas dormir sans écouter
+### 6. Lifecycle of local data: purge, cursors, retention
 
-**Sévérité max** 🟡 moyenne · **risque de correction** moyen · **effort** jour
+**Max severity** 🟡 medium · **fix risk** medium · **effort** day
 
-Le domaine est solide et bien testé, mais quatre défauts précis font que l'app se punit elle-même sur réseau dégradé : une sonde de vie envoyée trop tôt ferme une socket qui fonctionne (comportement serveur vérifié sur le banc), le pilote de reconnexion continue de rouvrir des sockets en arrière-plan contre l'intention documentée, un sommeil de rejeu 429 ignore l'annulation et fait converger les appels concurrents, et `/api/info` échappe seul à toute la défense du module — au point de pouvoir bloquer l'écran de connexion définitivement. Chaque correction est locale à un module déjà couvert par des tests.
+The purge knows only three tables out of eight, the cursors outlive the data they describe, and the purge criterion is a snapshot OLDER than the state it judges. That last one is the only race in the whole audit that can make a DM the user has just received disappear from the app. The fixes are static parameterised SQL, exactly the style already in place and already tested on `node:sqlite`; the risk comes from touching DELETEs, so do it with the tests written first.
 
-#### 🟡 moyenne — La sonde de vie envoyée pendant la négociation DDP tue une socket saine 10 s plus tard
+#### 🟡 medium: The anti-ghost reconciliation erases a room created DURING its own network request
 
-`lib/ddp.ts:437` · non passé au réfuteur · risque de correction : faible
+`db/store.ts:178` · ✅ verified · fix risk: medium
 
-`verifierVie()` ne se protège que de l'état `ferme` : elle sonde donc pendant `connexion`. Sondé sur un vrai Rocket.Chat : un `ping` envoyé avant le `connect` reçoit `{msg:'error', reason:'Must connect first'}` — jamais de `pong`. Or `recevoir()` n'a aucun cas pour `msg:'error'` : le message est avalé, l'attente n'est jamais résolue, et au bout de 10 s le `catch` fait `ws.close()` + `nettoyer()` sur une socket qui a entre-temps terminé son login et rejoué ses souscriptions. Les deux appelants ne filtrent pas (ui/sync.tsx:393, sonde de fin d'upload).
+`reconcileRooms` does a FULL `subscriptions.get` then `purgeMissingRooms(alive)`: three `DELETE … WHERE rid NOT IN (json_each(?))`. During the ~200 ms of the round trip, the DDP stream keeps writing (ui/sync.tsx:257-264): a DM opened by a colleague at that moment is not in `alive` and its three rows are erased. The write queue protects nothing here: it serialises, it does not refresh the list. The DM only comes back at the next `catchUpGlobal`, and meanwhile the push notification leads to a missing room.
 
-**Correction.** `if (this.etat !== 'authentifie' && this.etat !== 'connecte') return false;` en tête de `verifierVie()` — une négociation en cours a déjà son propre timeout. Accessoirement, traiter `msg:'error'` dans `recevoir()` en rejetant l'attente correspondant à `error.offendingMessage.id`, ce qui transformerait ce silence en échec immédiat.
+**Fix.** Take `listKnownRids()` (`SELECT rid FROM rooms UNION … subscriptions UNION … messages`) BEFORE the request, and tighten the three DELETEs with a second JSON parameter: `rid IN (known) AND rid NOT IN (alive)`. It is the ORDER that carries the correctness, no delay. Signature `purgeMissingRooms(alive, known)`: tsc will flag the fake stores to complete (lib/catchUp.test.ts:29, lib/sync.test.ts:251). Test: `r3` ingested during the flight must not appear in the purge.
 
-#### 🟡 moyenne — Le pilote de reconnexion n'est pas suspendu au passage en arrière-plan
+#### 🟡 medium: The catch-up cursors outlive the data they describe
 
-`ui/sync.tsx:389` · non passé au réfuteur · risque de correction : moyen
+`db/schema.ts:242` · not put to the refuter · fix risk: medium
 
-Le commentaire l.379-385 pose la règle : en arrière-plan, fermeture volontaire, « le push prend le relais ». Mais le handler ne fait que `ddp.fermer()` ; le `Reconnecteur` n'a que `arreter()`, définitif et réservé au démontage. Deux chemins rouvrent une socket en fond : une minuterie de backoff déjà armée qui tire quand même, et une tentative en vol dont l'échec relance la boucle. Chaque tentative entraîne un `rattraperTout()` complet (REST rate-limité) et, en cas de succès, une socket laissée ouverte jusqu'à ce que Doze la tue — ce qui redéclenche `surPerte`.
+`cursors` is erased neither by `DELETE_ROOM`, nor by `deleteBySubId`, nor by the purge. A room left keeps its `(rid,'messages')` rows while its messages are erased; on rejoining, app/room/[rid].tsx:423-427 anchors the cursor ONLY if it is missing, so the old value takes over again. `catchUpRoom` then restarts from a point that no longer says anything about the local state, capped at 2 pages: on a room with 3,000 messages it takes dozens of openings to converge, each paid for in rate-limited calls. Since `UPSERT_CURSOR` forbids any regression, nothing can correct the value afterwards.
 
-**Correction.** Ajouter `suspendre()` / `reprendre()` au `Reconnecteur` (drapeau réversible qui bloque `declencher()` et annule la minuterie), appelés depuis le handler `AppState` autour de `ddp.fermer()`. Test « une minuterie programmée ne tire pas après suspendre() ».
+**Fix.** `DELETE FROM cursors WHERE scope = ?` in `deleteRoom`/`deleteBySubId`, and `PURGE_MISSING_CURSORS` (`scope <> '*' AND scope NOT IN (json_each(?))`) in the purge transaction. The `scope <> '*'` is essential: the global cursors must never go.
 
-#### 🟡 moyenne — `recupererVersion` appelle `fetch` sans délai maximal : l'écran de connexion peut rester bloqué à vie
+#### 🟡 medium: The send and upload queues are never purged with their room: zombie rows replayed forever
 
-`lib/server.ts:87` · non passé au réfuteur · risque de correction : faible
+`db/upserts.ts:246` · not put to the refuter · fix risk: low
 
-Le module se réclame de la défense de `ClientRest` mais `/api/info` part sur un `fetch` nu, sans `DELAI_MS`. `sonderServeur` attend les deux appels en `Promise.all` ; le seul filet, `controleur.abort()`, ne s'exécute que si une des deux promesses REJETTE. Si `settings.public` réussit et que `/api/info` reste pendante (reverse proxy, portail captif), `Promise.all` reste pendante à vie : le `finally` d'app/login.tsx:136-139 ne s'exécute pas, `enVol.current` reste `true`, et un second appui ressort sur le `if (enVol.current) return;` SANS atteindre le `abort()`. Écran mort, sans message.
+Verified on a migrated database: after the three purge DELETEs of the room, `outbox`, `uploads`, `drafts` and `cursors` each keep their row, and the orphan outbox row does come out in `LIST_OUTBOX_TO_SEND`. No screen can show it any more (app/room/[rid].tsx:238 only reads `outbox` for the open room), so no "abandonner" ("discard") button either; at every connection setup it costs two REST calls (`chat.sendMessage` then the `chat.getMessage` of `messageDelivered`), forever, delaying the legitimate sends behind it.
 
-**Correction.** Borner l'appel : `AbortController` local armé par `setTimeout(DELAI_MS)` et relais du signal reçu, ou — plus propre — une méthode `getHorsApiV1` sur `ClientRest` pour que `/api/info` hérite du délai, du rejeu 429 et du JSON défensif.
+**Fix.** Add `PURGE_MISSING_OUTBOX`, `PURGE_MISSING_UPLOADS`, `PURGE_MISSING_DRAFTS` to the transaction of `purgeMissingRooms`, and erase the rid's rows in `deleteRoom`/`deleteBySubId`. The attempt cap is handled in the uploads workstream.
 
-#### 🟡 moyenne — Le sommeil de rejeu sur 429 ignore l'annulation et n'a aucune dispersion
+#### 🟡 medium: No retention: `messages` and its satellite tables never stop growing
 
-`lib/rest.ts:239` · non passé au réfuteur · risque de correction : faible
+`db/schema.ts:77` · not put to the refuter · fix risk: medium
 
-Deux défauts au même endroit. (a) Le `finally` retire l'écouteur d'annulation AVANT `await this.dep.dormir(delai)` : un `abort()` pendant le sommeil n'est constaté qu'au retour de récursion, jusqu'à 30 s plus tard et 90 s cumulés — la promesse rendue à l'appelant reste pendante d'autant, donc son spinner aussi. (b) `delaiApres429` calcule `reset - maintenant() + 250` : deux appels concurrents reçoivent le même `x-ratelimit-reset` et se réveillent à la même milliseconde, sans dispersion et sans file par route — la nouvelle fenêtre n'en admet que 10, les autres reprennent un 429.
+The only mass erasure fires only when a room is left. For a live room, everything stays: `text` plus the JSON blobs `md`, `attachments`, `reactions`, `urls`, often heavier than the text. Yet the app never reads beyond its pagination and knows how to re-download. Two queries moreover sweep the whole table without a usable index (`MESSAGES_TO_DECRYPT`, `HIDE_ENCRYPTED_MESSAGES`). On Android, the user's only recourse is "clear data", which destroys everything.
 
-**Correction.** (a) Course entre `dormir(delai)` et une promesse résolue par un écouteur `abort`, puis relever `erreurAnnulation()`. (b) Dispersion bornée injectable via `Dependances` pour garder les tests déterministes (les `deepEqual(dormirs, [2250, 2250])` de lib/rest.test.ts:167 se réécrivent en encadrement). Un verrou par `chemin` sérialiserait les rejeux d'une même route plutôt que de les faire converger.
-
-#### ⚪ basse — Rien n'invalide la présence quand le transport meurt
-
-`lib/presence.ts:45` · non passé au réfuteur · risque de correction : faible
-
-L'en-tête du module pose le contrat (« une présence périmée affichée depuis un cache est pire que pas de présence du tout ») et `statutDe` rend `null` pour que l'UI n'affiche RIEN. Le contrat n'est tenu que contre la PERSISTANCE : la carte `statuts` en mémoire n'est jamais invalidée, `MoteurPresence` n'est branché ni sur `surPerte` ni sur aucun signal de transport, et la seule remise à niveau est `charger()` depuis `apresRattrapage`. Entre la coupure et le raccordement suivant, la liste des DM continue d'afficher des pastilles vertes datant de l'entrée dans le tunnel.
-
-**Correction.** `MoteurPresence.invalider()` (vider `statuts`, incrémenter le compteur pour garder les séquences monotones, notifier) appelé depuis `ddp.surPerte` dans ui/sync.tsx:376 et au passage en arrière-plan. L'UI retombe sur « inconnu », le comportement de dégradation déjà spécifié.
-
-#### ⚪ basse — `nettoyer()` n'est pas idempotent : une socket qui meurt pendant le login notifie `surPerte` deux fois
-
-`lib/ddp.ts:552` · ✅ vérifié · risque de correction : faible
-
-Vérifié par exécution : `onclose` → `nettoyer()` notifie puis rejette l'attente du login ; le `catch` de `connecter()` rappelle `nettoyer(e)` et notifie une seconde fois. Sans dégât aujourd'hui (`Reconnecteur.declencher()` est idempotent), mais c'est un couplage implicite : tout futur abonné (compteur de coupures, bandeau hors ligne, métrique) comptera double, et le second passage réémet l'événement sur un objet déjà entièrement nettoyé.
-
-**Correction.** Sortie immédiate si le nettoyage a déjà eu lieu (drapeau remis à zéro par `connecter()`), et assertion `pertes === 1` dans le test « socket morte pendant le login » de lib/ddp.test.ts.
+**Fix.** A retention pass at connection setup, in the write queue: per room, keep the last N (e.g. 500), sparing the optimistic ones (`updated_at = 0`) and the thread roots still referenced. Static SQL with `json_each` for the list of rids, like the existing purges. No need to re-anchor the cursor: only the old end is cut.
 
 ---
 
-### 9. Session morte et fin de session : ramener au login, et tout emporter en partant
+### 7. Upload queue: no duplicate, no silent disappearance
 
-**Sévérité max** 🟠 haute · **risque de correction** ÉLEVÉ · **effort** jour
+**Max severity** 🟠 high · **fix risk** medium · **effort** several days
 
-Trois trous se rejoignent sur le même symptôme : l'app reste dans un état qu'elle croit valide et l'utilisateur n'a aucun chemin de sortie. Un jeton révoqué en cours de session (mot de passe changé ailleurs, `Accounts_LoginExpiration`, `logoutOtherClients`) fait boucler le pilote de reconnexion à l'infini sur un cache d'hier, sans un message ; une déconnexion laisse sur le disque la clé privée E2EE DÉCHIFFRÉE, indexée par serveur seul, si bien que le compte suivant se croit déverrouillé et ne peut plus rien lire ; et la base SQLite avec les clairs E2E survit intacte. Je le place APRÈS les chantiers à faible risque parce que le déclenchement d'une déconnexion automatique est la correction la plus dangereuse de tout l'audit : une erreur de discrimination éjecte l'utilisateur à tort. À faire avec son test de prédicat écrit d'abord.
+This is the weakest link in the repo. The TEXT path (lib/outbox.ts) acquired, scar after scar, a client `_id`, a confirmation by `chat.getMessage` and an optimistic message; the FILE path has none of that. Real consequences: a photo sent offline disappears from the screen without the slightest sign (the user sends it again and will end up with two), a lost `mediaConfirm` response posts the message twice with one more orphan file on the server, and a row in definitive failure re-pushes all its bytes at every return to the foreground. None of these paths is covered by the tests, hence the order imposed below: tests first, migration next.
 
-#### 🟠 haute — Un 401 survenu EN COURS de session ne révoque jamais la session : état zombie jusqu'au redémarrage
+#### 🟠 high: A file sent offline disappears from the screen without any trace
 
-`lib/rest.ts:280` · ✅ vérifié · risque de correction : ÉLEVÉ
+`lib/uploadQueue.ts:187` · ✅ verified · fix risk: low
 
-Vérifié par grep : les DEUX seuls endroits qui testent `statut === 401` pour effacer la session sont ui/session.tsx:114 (démarrage) et :159-165 (bascule de serveur). Aucun appel de la vie courante ne remonte l'invalidation — `rattraperGlobal`, `chat.syncMessages`, `chat.sendMessage` (qui ne distingue que le statut 0), `users.presence` (qui avale tout en silence). Côté DDP, `login {resume}` rejette et le `Reconnecteur`, délibérément aveugle à la cause (`catch { tentative++; declencher(); }`), retente toutes les 30 s pour toujours. L'écran affiche les données d'hier, la barre de synchro bat, tout envoi échoue : l'aspect exact d'un problème réseau.
+`UploadEngine` creates NO optimistic message (unlike lib/outbox.ts:89-112). On a network failure, `runPass` returns `false` without marking the row: it stays `pending`. Yet the only UI surface filters on `status === 'failed'` (app/room/[rid].tsx:246). And `send()` resolved normally, so the `.then` clears the preview, the draft and the quote; the share screen, for its part, navigates to the room as if all had gone well.
 
-**Correction.** Deux gestes complémentaires. (1) `ClientRest` DIT que le jeton est refusé : champ optionnel `surJetonRefuse?: (jeton: string) => void`, appelé au SITE DU THROW existant (après la branche `totp-required`, donc jamais sur un défi 2FA ; après le parse JSON, donc jamais sur un 401 HTML de proxy), avec le jeton RÉELLEMENT envoyé pour qu'un 401 tardif sur un jeton déjà remplacé soit ignoré. Branché dans `clientPour` (ui/session.tsx:55, point de création unique des trois chemins) sur la séquence de démarrage déjà éprouvée. (2) Côté raccordement, envelopper l'appel du `Reconnecteur` et n'appeler `deconnecter()` que sur `ErreurRest` de statut 401 qui n'est PAS une `ErreurDeuxFacteurs` — `deconnecter()` fait tomber l'effet de `SynchroProvider`, donc le pilote s'éteint sans code d'arrêt supplémentaire. Écrire D'ABORD le test du prédicat `estJetonRefuse` sur quatre cas : `ErreurRest(401)` → true, `ErreurDeuxFacteurs` → false, `ErreurRest(0)` → false, `ErreurDdp` → false. C'est ce test qui protège du seul vrai risque : la déconnexion abusive.
+**Fix.** Stop filtering on failure in app/room/[rid].tsx:246 and choose the label by status (new key `room.filePending` in BOTH catalogues: ui/messages.test.ts checks parity). The "réessayer"/"abandonner" (retry/discard) buttons remain valid (`process()` is reentrant, `discard` only does a DELETE). Fix the two comments that became wrong (app/room/[rid].tsx:806-808, app/share.tsx:230-231). Do NOT create an optimistic message for files: it would be irreconcilable with the server echo, which has no client `_id`.
 
-#### 🟡 moyenne — La clé privée E2EE survit à la déconnexion et est rangée par serveur seul
+#### 🟡 medium: A lost response on `rooms.mediaConfirm` posts the same file TWICE
 
-`ui/session.tsx:184` · ✅ vérifié · risque de correction : moyen
+`lib/upload.ts:86` · ✅ verified · fix risk: medium
 
-`deconnecter()` n'efface que la session, jamais `effacerClePriveeE2E` — alors que ce qui est stocké est le JWK RSA DÉCHIFFRÉ, le secret le plus sensible de l'app. Second défaut, structurel : `cleE2E(baseUrl)` ne dérive QUE de l'URL, alors que la session et la base SQLite sont indexées par le couple (serveur, compte). Au démarrage suivant, `e2e.reprendre()` réimporte aveuglément ce JWK pour un AUTRE compte : `importerClePriveeRSA` réussit (c'est un JWK valide), `estDeverrouille` passe à vrai, `dechiffrerCleSalon` échoue en silence — et l'UI affiche « chiffré, lecture seule » au lieu du bouton « Déverrouiller ». Aucun chemin visible vers l'écran de déverrouillage.
+`televerser` chains `rooms.media` then `rooms.mediaConfirm` (which CREATES the message) with no intermediate state. `RestClient` aborts at 15 s and converts any failure without an HTTP response into `RestError(status 0)`; `runPass` then leaves the row `pending` and the next `files.process()` (at EVERY connection setup) starts from scratch. No deduplication key exists: the `uploads` table has neither a client `_id` nor a `file_id`, and its comment (db/schema.ts:161-162) mentions a `sending` status never implemented. Symmetrically, any failure occurring AFTER the upload leaves an orphan file that nothing cleans up: the very trap CLAUDE.md points out on the two-step flow.
 
-**Correction.** (1) INDISPENSABLE — `cleE2E(baseUrl, userId)` dérivant du condensé de `baseUrl + '|' + userId`, propagé aux trois fonctions exportées, `session.userId` étant déjà sous la main dans ui/sync.tsx:167. Seule correction valable quel que soit le chemin de sortie de session. Aucune migration : une clé d'ancien format devient introuvable, l'utilisateur ressaisit son mot de passe une fois. Extraire la dérivation comme db/fileName.ts l'a fait pour la base, pour la tester sans expo. (2) HYGIÈNE — `effacerClePriveeE2E` aux TROIS sorties : `deconnecter()` et les deux chemins 401 (ui/session.tsx:115 et :163). Ne pas toucher à lib/e2e/engine.ts, correct par injection.
+**Fix.** Persist `file_id` (migration, nullable column) as soon as `rooms.media` returns; split `televerser` into `uploadBytes` / `confirmMedia`, and skip the first step when `file_id` is already there. Before re-confirming, query SQLite, not the network: `SELECT 1 FROM messages WHERE rid = ? AND attachments LIKE '%' || ? || '%'`; if the message is there, the confirm had succeeded, so purge the row. Purely local, hence insensitive to the rate limit. Do NOT try a client `_id` on `mediaConfirm` (`additionalProperties: false`).
 
-#### 🟡 moyenne — La déconnexion laisse sur le disque la base SQLite entière, clairs E2E compris
+#### 🟡 medium: No "in progress" state: "Abandonner" (Discard) during a retry deletes the row but the message is posted anyway
 
-`ui/session.tsx:170` · non passé au réfuteur · risque de correction : moyen
+`lib/uploadQueue.ts:196` · not put to the refuter · fix risk: medium
 
-`deverrouillageE2E` écrit le texte déchiffré dans la colonne `texte` (lib/sync.ts:153-176), et le projet reconnaît que ce clair doit pouvoir disparaître : `reverrouillageE2E` appelle `masquerMessagesChiffres`, câblé sur le bouton « Verrouiller ». Mais `deconnecter()` ne verrouille pas et n'efface aucune base (aucun `deleteDatabaseSync` dans le dépôt, base non chiffrée). Incohérence flagrante : le geste le plus fort protège moins que le plus faible.
+`LIST_UPLOADS_TO_SEND` returns the `pending` AND `failed` rows, and `runPass` does not change the status when it takes a row on: the banner shows "non envoyé · Réessayer · Abandonner" ("not sent · Retry · Discard") throughout the re-upload, without progress (the `Map progress`, announced "for the UI" in lib/provider.ts:182, is read nowhere). `discard(id)` is only a DELETE: it does not cancel the in-flight `FileSystemUploadTask` (`cancelAsync` is never called) and does not prevent `ingest(message)`: the video appears in the room after the user explicitly discarded it.
 
-**Correction.** Appeler au minimum `masquerMessagesChiffres()` dans `deconnecter()` ; de préférence ajouter `supprimerBase(baseUrl, userId)` à db/client.ts (fermeture puis `deleteDatabaseSync`) — en le faisant depuis `deconnecter`, PAS depuis un cleanup d'effet. Si l'on préfère garder le cache hors ligne pour un retour rapide, trancher explicitement et le documenter.
+**Fix.** Implement the `sending` status already described in the schema: set when the row is taken on, excluded from the listing, shown with the fraction from `progress`. `discard` on a `sending` row sets a cancellation intent checked before `ingest`, and ideally calls `task.cancelAsync()` (to be exposed in the `TransportUpload` type).
 
-#### 🟡 moyenne — Trois stores module-level ne sont jamais purgés en fin de session
+#### 🟡 medium: Failed rows are replayed at every return to the foreground, with no cap or backoff
 
-`ui/reply.ts:31` · non passé au réfuteur · risque de correction : faible
+`db/upserts.ts:330` · not put to the refuter · fix risk: low
 
-Le cleanup de ui/sync.tsx purge `salonsCharges` et `salonChaud`, mais pas : (a) la Map `cibles` de ui/reply.ts — dont l'en-tête affirme pourtant qu'« une citation en suspens ne survit pas », vrai d'un redémarrage de process, faux d'une déconnexion : le premier message tapé après reconnexion part préfixé du permalien de la session précédente ; (b) `identites` et `etags` de ui/identities.tsx, qui servent les pseudos et URL d'avatar du compte précédent pendant les premières frames ; (c) `dispoParServeur` de lib/call.ts:72, dont un `false` mémoïsé masque le bouton 📞 pour toute la vie du process, même après reconnexion — aucun geste dans l'app n'en sort.
+`afterCatchUp` calls `outbox.process()` and `files.process()` at every connection setup, and both listing queries include `failed`. No engine reads a counter: the `attempts` column exists for `outbox` but is never consulted, and `uploads` does not even have one. A video refused by the server (413, refused type, quota) therefore re-pushes all its bytes at every network flap, a frequent case when `fileSize` is null on Android and the local validation lets it through.
 
-**Correction.** Exporter `oublierReponses()`, `oublierIdentites()` et `oublierDisponibiliteAppel()` et les appeler dans le cleanup de ui/sync.tsx, à côté des deux purges existantes, pour que la règle « tout store module-level se purge en fin de session » soit sans exception. Corriger l'en-tête de ui/reply.ts.
+**Fix.** Only replay `pending` rows automatically; keep `failed` for the explicit "réessayer" (retry) gesture. Failing that, an `attempts` column incremented by `MARK_UPLOAD_FAILED` and a cap, as for the text queue: a cap, not a delay.
 
-#### 🟡 moyenne — Après une déconnexion hors ligne, le jeton reste enregistré côté serveur
+#### 🟡 medium: `messageDelivered` confuses "the server did not answer" with "the message was not delivered"
 
-`ui/session.tsx:178` · non passé au réfuteur · risque de correction : faible
+`lib/outbox.ts:197` · not put to the refuter · fix risk: low
 
-Le DELETE `push.token` est en best-effort dans un try/catch vide : un échec réseau (ou un `obtenirJetonFcm` en `permission-refusee`) laisse le jeton vivant, sans file de reprise. Côté natif, `recupererEtPoster` constate `session == null` et poste QUAND MÊME la notification dégradée, puis programme un rattrapage WorkManager voué à l'échec. Résultat : des « Nouveau message » fantômes sur un appareil sans compte, jusqu'à la désinstallation.
+When `chat.sendMessage` fails with a status ≠ 0, `runPass` queries `chat.getMessage` to decide, but `messageDelivered` catches ALL errors and returns `null`, including a network outage or a 429 after the three retries (the `chat.getMessage` is subject to the same 10/min limit). The caller marks `failed`: the user sees "non envoyé" ("not sent") on a message the server may have accepted.
 
-**Correction.** (1) Natif : quand `lireSession` ne rend rien pour ce host, ne rien poster et ne rien programmer. (2) JS : persister le couple (baseUrl, jeton) dans une file « à désenregistrer » et la vider au prochain démarrage — le DELETE tolère déjà le 404 (lib/pushToken.ts:40).
+**Fix.** Return `'inconnu'` when the error is a `RestError` of status 0 or 429 (the row then stays `pending`), `null` only when the server answered that the message does not exist.
 
----
+#### ⚪ low: No temporary file is ever deleted
 
-### 10. Push natif : doublons, deep-link multi-serveur, hygiène du service
+`ui/prepareAttachment.ts:27` · not put to the refuter · fix risk: low
 
-**Sévérité max** 🟠 haute · **risque de correction** moyen · **effort** plusieurs-jours
+`compressImageIfUseful` writes one JPEG per photo, `DocumentPicker({copyToCacheDirectory:true})` copies each document, `ImagePicker` copies each media item, the recorder produces one `.m4a` per take. A search for `deleteAsync` across the whole repo returns NO call: nothing is erased, neither after sending, nor when the preview is removed, nor for attachments removed in app/share.tsx. The only purge mechanism is Android's under pressure, which in passing breaks the sends still queued.
 
-Tout ce chantier est du Kotlin injecté par un config plugin : ni tsc ni les 460 tests ne le voient, et chaque itération coûte `expo prebuild` + `assembleRelease` (statut testé SANS pipe). Il faut donc le traiter en un seul passage, pas au fil de l'eau. Le plus grave est vérifié : le garde anti-doublon du commit 249887e ne couvre qu'un sens de la course, si bien que le worker de rattrapage et la relivraison FCM — réveillés par le MÊME événement, le retour du réseau — ajoutent deux fois le même message dans la conversation. Le deep-link ignore par ailleurs la dimension multi-serveur que l'app supporte pourtant, ce qui donne un spinner définitif.
+**Fix.** Delete the local file when the upload row is purged (success or discard) if the URI is in the app's cache: the knowledge is on the `UploadEngine` side. And delete the recompressed JPEG when the preview is removed without sending.
 
-#### 🟠 haute — Le garde anti-doublon ne couvre pas le cas « le worker a déjà posté »
+#### 🟡 medium: The network-failure path and the SQL of the upload queue are tested nowhere
 
-`plugins/with-fcm-deeplink.js:249` · ✅ vérifié · risque de correction : moyen
+`lib/uploadQueue.test.ts:116` · not put to the refuter · fix risk: none
 
-`recupererEtPoster` annule la dégradée et le rattrapage puis appelle `afficherNotifSalon`, qui RÉ-EXTRAIT le MessagingStyle actif du salon et y ajoute le message — aucun état ne mémorise qu'un messageId a déjà été affiché. Symétriquement, `RattrapagePushWorker.doWork` ne teste jamais `isStopped` avant de publier : un `cancelUniqueWork` n'arrête pas un worker en vol. Le réseau revient, le worker poste, FCM relivre le push non acquitté 1-2 s plus tard, et l'utilisateur voit le même message deux fois avec « 2 nouveaux messages ».
+The file stops at success and outright refusal. Neither the `status === 0` (the only path that leaves an invisible row), nor the `inFlight`/`rerun` guard, nor the cleanup of `progress` is exercised, whereas the three equivalents of `OutboxEngine` are tested one by one. On the SQL side, `grep TELEVERSEMENT db/*.test.ts` returns only the table name: `INSERT_UPLOAD`, `LIST_…`, `MARK_…`, `DELETE_…` are run by no test, whereas db/store.ts:373 returns `getAllAsync` directly as `UploadRow[]`: a mere type assertion, never checked.
 
-**Correction.** Un test-et-pose atomique `dejaAffiche(ctx, messageId)` (SharedPreferences dédié, entrées purgées au-delà d'une heure, `@Synchronized`, best-effort qui rend `false` en cas d'exception pour ne jamais perdre une notification), consulté dans les DEUX voies id-only : dans `recupererEtPoster` juste avant l'affichage (en gardant `cancel` + `annulerRattrapage` AVANT le test, la dégradée doit disparaître dans tous les cas), et dans `doWork` sous la forme `if (isStopped || dejaAffiche(...))`. La dégradée, elle, ne pose PAS le marqueur : elle doit rester remplaçable. Le régime « contenu présent dans le push » reste inchangé (ni dégradée ni rattrapage, donc pas de course).
-
-#### 🟡 moyenne — Le deep-link de notification ne porte pas le serveur : spinner définitif en multi-serveur
-
-`plugins/with-fcm-deeplink.js:465` · ✅ vérifié · risque de correction : moyen
-
-L'intent est `rocketvibe://salon/<rid>` — le `host`, pourtant présent dans le payload et correctement utilisé par `lireSession` pour afficher le bon contenu, est jeté. Or les sessions coexistent (`changerDeServeur` n'efface rien) et le jeton push est enregistré sur chaque serveur, donc les deux poussent. À l'arrivée, app/salon/[rid].tsx n'a pas de ligne `salons` pour ce rid : `type === undefined` court-circuite tout l'effet, `premierPassageFini` reste `false`, et l'écran affiche un `ActivityIndicator` définitif. ui/notifications.tsx:88 a le même trou côté JS.
-
-**Correction.** (1) Ajouter le host au lien (`?host=…`) dans `afficherNotifSalon` — les trois appelants l'ont déjà sous la main ; ne PAS le relire depuis le payload de `push.get`, dont la forme n'est pas garantie. Miroir côté JS dans ui/notifications.tsx. (2) Dans `EcranSalon`, si `host` est défini et diffère de `session.baseUrl`, rendre un écran explicite « Ce message est sur <host> » avec un bouton qui appelle `changerDeServeur` puis `replace` — bascule sur geste explicite uniquement. `host` absent → comportement identique à aujourd'hui, donc zéro régression en mono-serveur.
-
-#### 🟡 moyenne — Aucune notification n'est retirée quand le salon est lu
-
-`ui/notifications.tsx:118` · non passé au réfuteur · risque de correction : faible
-
-`dismissNotificationAsync` n'apparaît nulle part (vérifié par grep) : seul `setAutoCancel(true)` retire la notification, et uniquement au TAP. L'effet de badge suit pourtant déjà les non-lus en temps réel. Les notifications étant groupées par salon et cumulatives, lire #general depuis l'icône laisse ses 3 messages dans la barre d'état, et le suivant s'y ajoute en 4e ligne — idem quand le salon est lu depuis un autre appareil.
-
-**Correction.** Dans `SuiviBadgeEtChiffre`, pour tout rid passant à `nonLus === 0`, appeler `Notifications.dismissNotificationAsync('expo-notifications://foreign_notifications?id=' + hashCodeJava(rid))` — la forme que `ExpoPresentationDelegate` décode en `cancel(tag=null, id)`, l'id posé par le natif étant `rid.hashCode()`. `hashCodeJava` est une dizaine de lignes déterministes, testables sous Node.
-
-#### 🟡 moyenne — Le `push.get` bloquant peut coûter 16 s (32 s en debug) sur le thread de dispatch FCM
-
-`plugins/with-fcm-deeplink.js:663` · non passé au réfuteur · risque de correction : faible
-
-Le commentaire annonce un « timeout serré » mais pose `connectTimeout = 8000` ET `readTimeout = 8000` : en Doze, radio pas encore levée, c'est 16 s dans `handleIntent`, et `verifierPushGetEnDebug` enchaîne un SECOND fetch complet (~32 s). C'est ce qui rend le process tuable pendant le fetch — l'hypothèse déjà écrite l.241-243 — donc ce qui ALIMENTE la relivraison FCM et la famille de doublons ci-dessus. Ce chemin n'a par ailleurs aucun traitement du 429, alors que `push.get` subit la limite de 10/min.
-
-**Correction.** ~3 s de connect et ~3 s de read (budget total 6 s), en laissant le rattrapage WorkManager faire son travail ; conditionner `verifierPushGetEnDebug` à un drapeau explicite ; sur 429, programmer le rattrapage en lisant `x-ratelimit-reset` sans consommer de tentative immédiate.
-
-#### ⚪ basse — Un 401 sur `push.get` déclenche huit tentatives WorkManager vouées à l'échec, par notification
-
-`plugins/with-fcm-deeplink.js:667` · non passé au réfuteur · risque de correction : faible
-
-`recupererContenu` rend `null` pour TOUT code ≠ 200, sans distinguer une panne passagère d'un refus définitif. `recupererEtPoster` programme alors systématiquement le rattrapage, et `doWork` retente jusqu'à 8 fois avec un backoff de 30 s, en relisant la même session morte. Sur une soirée de messages, c'est de la batterie et des réveils radio pour rien.
-
-**Correction.** Faire remonter le code HTTP (résultat typé plutôt que `JSONObject?`) et, sur 401/403, poster la dégradée SANS programmer de rattrapage — comme le fait déjà la branche « payload inattendu ».
-
-#### 🟡 moyenne — Les chaînes de la voie native sont en français en dur alors que l'app est intégralement EN/FR
-
-`plugins/with-fcm-deeplink.js:414` · non passé au réfuteur · risque de correction : faible
-
-Depuis que le service natif poste TOUTES les notifications de message, les seules chaînes vues par l'utilisateur sont celles du Kotlin : « Message chiffré » (l.414), « Vous » (l.436, nom de la Person du MessagingStyle), « Nouveau message » (l.518). Le catalogue JS a pourtant les deux langues, et la préférence est déjà lisible depuis le natif (`langue-preferee` dans le même SharedPreferences SecureStore que la session).
-
-**Correction.** Sortir les trois chaînes dans `res/values/strings.xml` + `res/values-fr/strings.xml` posés par le même plugin (`withStringsXml`), ou lire `langue-preferee` pour honorer la préférence explicite plutôt que la locale système.
-
-#### ⚪ basse — La rotation du jeton FCM n'est jamais écoutée
-
-`ui/sync.tsx:333` · non passé au réfuteur · risque de correction : faible
-
-`Notifications.addPushTokenListener` n'existe nulle part : le jeton n'est poussé qu'une fois par session. Si FCM le fait tourner pendant que l'app vit, `onNewToken` est traité par expo mais rien ne le réenregistre — les notifications cessent silencieusement jusqu'au prochain démarrage à froid, et l'ancien jeton reste côté serveur.
-
-**Correction.** Poser un `addPushTokenListener` au montage de la session qui rappelle `enregistrerJeton` (POST idempotent). À faire avec le correctif du drapeau (chantier 1), qui touche les mêmes lignes.
-
-#### ⚪ basse — La chirurgie de configuration du plugin (JS pur) n'a aucun test
-
-`plugins/with-fcm-deeplink.js:737` · non passé au réfuteur · risque de correction : nul
-
-Le Kotlin n'est vérifiable que par un build, c'est admis. Mais `withServiceManifest` (idempotence, `android:priority=1` — la valeur exacte dont dépend le routage FCM vers notre service plutôt que celui d'expo) et `withNativeDeps` (injection par `contents.replace(/dependencies\s*\{/, …)`, donc dans la PREMIÈRE occurrence rencontrée, avec pour seule garde `includes(artefact)` sans version) sont du JS testable. Aujourd'hui correct par propriété du gabarit RN 0.86, pas du plugin.
-
-**Correction.** `plugins/with-fcm-deeplink.test.ts` (Node, sans Expo) sur fixtures : les `implementation` atterrissent dans le bloc `dependencies` de plus haut niveau, un second passage n'ajoute rien, un gradle SANS bloc `dependencies` est DÉTECTÉ au lieu d'être laissé intact, et le service est ajouté une seule fois avec `android:priority=1`.
+**Fix.** A `describe('upload queue')` in db/upserts.test.ts, modelled on the outbox one (insert with the real parameters of db/store.ts, read back, compare field by field, mark as failed, delete). And three cases in lib/uploadQueue.test.ts: `RestError(…, 0)` → row `pending` and `markFailed` NOT called; concurrent `process()` → one pass then one rerun; `progress.has(id)` false after failure as after success. To be WRITTEN BEFORE the `file_id` migration.
 
 ---
 
-### 11. Écrans : boucles sans borne, attentes fixes, coûts natifs inutiles
+### 8. DDP and REST transport: do not kill a healthy socket, do not sleep without listening
 
-**Sévérité max** 🟡 moyenne · **risque de correction** faible · **effort** jour
+**Max severity** 🟡 medium · **fix risk** medium · **effort** day
 
-Quatre défauts d'écran qui coûtent du réseau, de la batterie ou de la confiance : une pagination qui peut boucler indéfiniment sur `channels.history` quand les plus vieux messages partagent une milliseconde, un `subscriptions.read` toutes les 2 s dans un salon animé (30/min sur une route à 10/min), un ExoPlayer + MediaSession + Visualizer alloué et un fichier téléchargé par message vocal SIMPLEMENT VISIBLE — l'inverse exact de la décision écrite dans ui/videoPlayer.tsx — et un défilement après envoi calé sur `setTimeout(250)`, c'est-à-dire le correctif par temps d'attente que la règle permanente du projet interdit. Toutes les corrections sont locales à un écran ou un composant.
+The domain is solid and well tested, but four precise defects make the app punish itself on a degraded network: a liveness probe sent too early closes a socket that works (server behaviour verified on the test bench), the reconnection driver keeps reopening sockets in the background against the documented intent, a 429 retry sleep ignores cancellation and makes concurrent calls converge, and `/api/info` alone escapes the whole defence of the module, to the point of being able to block the login screen for good. Each fix is local to a module already covered by tests.
 
-#### 🟡 moyenne — Le critère « passé épuisé » (`n > 1`) boucle indéfiniment si les plus vieux messages partagent la même milliseconde
+#### 🟡 medium: The liveness probe sent during DDP negotiation kills a healthy socket 10 s later
 
-`app/salon/[rid].tsx:522` · non passé au réfuteur · risque de correction : faible
+`lib/ddp.ts:437` · not put to the refuter · fix risk: low
 
-`chargerPlus` demande la page antérieure avec `latest = horodatage du plus vieux local` et `inclusive: true`, puis conclut `n > 1 ⇒ il reste du passé`. Le raisonnement ne tient que si le message-borne est SEUL sur sa milliseconde — or la clé de tri secondaire `desc(messages.id)` (l.229) reconnaît explicitement les ex æquo comme réels (rafale de bot, import). Le serveur renvoie alors le groupe entier, `n` reste > 1, `passeEpuise` n'est jamais armé, et la ré-ingestion fait changer `data`, ce qui réarme `onEndReached` de FlashList v2 : la boucle s'auto-entretient jusqu'au 429.
+`checkAlive()` only protects itself from the `closed` state: it therefore probes during `connecting`. Probed on a real Rocket.Chat: a `ping` sent before the `connect` receives `{msg:'error', reason:'Must connect first'}`, never a `pong`. Yet `receive()` has no case for `msg:'error'`: the message is swallowed, the wait is never resolved, and after 10 s the `catch` does `ws.close()` + `cleanUp()` on a socket that has meanwhile finished its login and replayed its subscriptions. Neither caller filters (ui/sync.tsx:393, the end-of-upload probe).
 
-**Correction.** Déduire l'épuisement du fait que la page contient un message strictement plus ancien que la borne (renvoyer le plus petit `ts` du lot depuis `chargerHistorique` et comparer), plutôt que du cardinal. Filet complémentaire : armer aussi `passeEpuise` si le dernier id est inchangé après deux pages consécutives.
+**Fix.** `if (this.state !== 'authenticated' && this.state !== 'connected') return false;` at the top of `checkAlive()`: a negotiation in progress already has its own timeout. Incidentally, handle `msg:'error'` in `receive()` by rejecting the wait matching `error.offendingMessage.id`, which would turn this silence into an immediate failure.
 
-#### 🟡 moyenne — Le débounce de `marquerLu` borne les rafales mais pas la CADENCE : 30 POST/min sur une route à 10/min
+#### 🟡 medium: The reconnection driver is not suspended on going to the background
 
-`app/salon/[rid].tsx:284` · non passé au réfuteur · risque de correction : faible
+`ui/sync.tsx:389` · not put to the refuter · fix risk: medium
 
-L'effet réarme un `setTimeout(1500)` à chaque nouvel id en tête et appelle `subscriptions.read`. Un débounce trailing ne garantit que l'absence de deux appels à moins de 1,5 s ; un message toutes les 2 s produit 30 appels dans la minute. Le commentaire « débouncé, le REST est rate-limité » suppose une protection qui n'existe pas. À chaque 429, lib/rest.ts retente 3 fois avec des siestes jusqu'à 30 s, pour un travail purement idempotent — et le compteur de non-lus de l'accueil reste faux plusieurs dizaines de secondes.
+The comment l.379-385 sets the rule: in the background, voluntary close, "push takes over". But the handler only does `ddp.close()`; the `Reconnector` only has `stop()`, final and reserved for unmounting. Two paths reopen a socket in the background: an already-armed backoff timer that fires anyway, and an in-flight attempt whose failure restarts the loop. Each attempt brings a full `catchUpAll()` (rate-limited REST) and, on success, a socket left open until Doze kills it, which fires `onLoss` again.
 
-**Correction.** Plancher de cadence en plus du débounce : mémoriser l'instant du dernier `marquerLu` réussi et ne relancer que si `Date.now() - dernier >= 10_000`, sinon reprogrammer au reste du plancher. Rien n'est perdu sémantiquement (`subscriptions.read` marque tout lu jusqu'à maintenant, un appel tardif englobe les précédents). Compléter par un appel garanti à la sortie de l'écran et au passage en arrière-plan.
+**Fix.** Add `suspend()` / `resume()` to the `Reconnector` (a reversible flag that blocks `trigger()` and cancels the timer), called from the `AppState` handler around `ddp.close()`. A test "a scheduled timer does not fire after suspend()".
 
-#### 🟡 moyenne — Chaque message vocal MONTÉ crée un ExoPlayer et télécharge son fichier, même sans lecture
+#### 🟡 medium: `fetchVersion` calls `fetch` without a timeout: the login screen can stay stuck for life
 
-`ui/audioPlayer.tsx:208` · non passé au réfuteur · risque de correction : moyen
+`lib/server.ts:87` · not put to the refuter · fix risk: low
 
-`useAudioPlayer(url)` est appelé au corps du composant, donc pour chaque pièce jointe audio rendue par la liste. Côté natif, le constructeur fait `setMediaSource` → `prepare()` : ExoPlayer bufférise immédiatement l'URL distante, plus une coroutine périodique, une MediaSession par instance, et un `Visualizer` système via l'effet l.226 — alors que le natif prévient « It must only be created once, otherwise the app will crash ». Le fichier voisin ui/videoPlayer.tsx a tranché explicitement dans l'autre sens (« le player n'existe que lorsqu'on regarde »). Faire défiler 20 vocaux télécharge ~20 Mo pour zéro seconde d'écoute — avec les URL porteuses de `rc_uid`/`rc_token`.
+The module claims the defence of `RestClient`, but `/api/info` goes out on a bare `fetch`, without `TIMEOUT_MS`. `probeServer` awaits both calls in a `Promise.all`; the only net, `controller.abort()`, only runs if one of the two promises REJECTS. If `settings.public` succeeds and `/api/info` stays pending (reverse proxy, captive portal), `Promise.all` stays pending for life: the `finally` of app/login.tsx:136-139 does not run, `inFlight.current` stays `true`, and a second tap exits on the `if (inFlight.current) return;` WITHOUT reaching the `abort()`. A dead screen, with no message.
 
-**Correction.** Reprendre le patron de videoPlayer.tsx : la carte au repos ne monte aucun player, `useAudioPlayer` et `useAudioSampleListener` vivent dans un sous-composant monté au premier appui sur « lire » (le coordinateur `lecteurActif` devient alors trivial). Retirer au passage l'appel redondant à `setAudioSamplingEnabled(true)` : `useAudioSampleListener` le fait déjà, après avoir testé `isAudioSamplingSupported` — ce que notre effet ne fait pas.
+**Fix.** Bound the call: a local `AbortController` armed by `setTimeout(TIMEOUT_MS)` relaying the received signal, or, more cleanly, a `getHorsApiV1` method on `RestClient` so that `/api/info` inherits the timeout, the 429 retry and the defensive JSON.
 
-#### 🟡 moyenne — Le défilement après envoi dans un fil repose sur un délai fixe de 250 ms
+#### 🟡 medium: The 429 retry sleep ignores cancellation and has no jitter
 
-`app/thread/[id].tsx:258` · non passé au réfuteur · risque de correction : faible
+`lib/rest.ts:239` · not put to the refuter · fix risk: low
 
-`apresEnvoi` fait `setTimeout(() => liste.current?.scrollToEnd(...), 250)`. La chaîne attendue est : écriture SQLite sérialisée par la file (donc derrière toute transaction de synchro en cours) → `addDatabaseChangeListener` → `useRequeteVive`, dont le debounce est de 48 ms mais PLAFONNÉ à 400 ms. Le délai n'a donc aucune borne supérieure garantie face à ce qu'il attend : sous flot d'écritures, le scroll part sur les données d'avant, la réponse naît sous le pli, et l'utilisateur renvoie son message. C'est exactement le correctif par temps d'attente que la règle permanente interdit — et l'écran salon résout le même problème sans horloge (app/salon/[rid].tsx:322-336, effet sur `plusRecent` avec garde chronologique).
+Two defects in the same place. (a) The `finally` removes the cancellation listener BEFORE `await this.dep.sleep(delay)`: an `abort()` during the sleep is only noticed when the recursion returns, up to 30 s later and 90 s in total, and the promise returned to the caller stays pending that long, and so does its spinner. (b) `delayAfter429` computes `reset - now() + 250`: two concurrent calls receive the same `x-ratelimit-reset` and wake up on the same millisecond, with no jitter and no per-route queue; the new window admits only 10 of them, the others get a 429 again.
 
-**Correction.** Supprimer `apresEnvoi` et le `setTimeout` : un `useEffect` observant l'apparition d'un nouvel id en queue de `donnees` (l'`_id` rendu par `envoi.envoyer` est déjà disponible pour l'attendre nommément). La liste est recalée par le rendu, pas par une horloge.
+**Fix.** (a) A race between `sleep(delay)` and a promise resolved by an `abort` listener, then raise `cancelError()`. (b) A bounded jitter injectable through `Dependencies` to keep the tests deterministic (the `deepEqual(sleeps, [2250, 2250])` of lib/rest.test.ts:167 are rewritten as ranges). A lock per `path` would serialise the retries of a single route rather than make them converge.
 
-#### 🟡 moyenne — Le navigateur d'emojis fige la liste des emojis personnalisés au montage alors qu'il ne se démonte plus jamais
+#### ⚪ low: Nothing invalidates presence when the transport dies
 
-`ui/emojiPicker.tsx:228` · non passé au réfuteur · risque de correction : faible
+`lib/presence.ts:45` · not put to the refuter · fix risk: low
 
-`useMemo(() => codesEmojiCustom(), [])` est justifié par un commentaire (« le panneau se démonte à la fermeture ») périmé depuis 0313574 : `usePanneauEmoji` monte le panneau une fois pour toutes et ne le démonte JAMAIS. Or `synchroniserEmojisCustom` court APRÈS `pret`, au raccordement — donc à la première installation `customs` vaut `[]`, l'onglet ⭐ n'est pas rendu (condition l.272) et la recherche ne propose aucun custom, alors que `:party_parrot:` s'affiche correctement dans les messages la seconde d'après.
+The module header sets the contract ("a stale presence shown from a cache is worse than no presence at all") and `statusOf` returns `null` so that the UI shows NOTHING. The contract is only kept against PERSISTENCE: the in-memory `statuses` map is never invalidated, `PresenceEngine` is wired neither to `onLoss` nor to any transport signal, and the only refresh is `load()` from `afterCatchUp`. Between the drop and the next connection setup, the DM list keeps showing green dots dating from when the tunnel was entered.
 
-**Correction.** Rendre l'index emoji observable comme les autres stores : compteur de génération dans lib/customEmojis.ts exposé par un `useSyncExternalStore` (patron déjà en place dans ui/identities.tsx et ui/i18n.ts), et faire dépendre le `useMemo` de cette génération. À défaut, corriger au minimum le commentaire, qui affirme l'inverse du comportement réel.
+**Fix.** `PresenceEngine.invalidate()` (empty `statuses`, increment the counter to keep sequences monotonic, notify) called from `ddp.onLoss` in ui/sync.tsx:376 and on going to the background. The UI falls back to "unknown", the degradation behaviour already specified.
 
-#### ⚪ basse — Le garde-fou de rendu markdown ne se réarme jamais
+#### ⚪ low: `cleanUp()` is not idempotent: a socket that dies during login notifies `onLoss` twice
 
-`ui/markdown.tsx:56` · non passé au réfuteur · risque de correction : faible
+`lib/ddp.ts:552` · ✅ verified · fix risk: low
 
-`GardeRendu` pose `casse: true` et rend `this.props.repli` pour toujours : rien ne remet l'état à `false` quand les props changent. La ligne reste montée à travers les éditions, donc un `md` momentanément mal formé fige le message sur son texte nu — sans gras, sans lien, sans emoji — jusqu'au recyclage de la cellule, même après l'édition qui corrige le `md`. Le reste de la chaîne est pourtant remarquablement défensif ; c'est le seul maillon sans réarmement.
+Verified by running it: `onclose` → `cleanUp()` notifies then rejects the login wait; the `catch` of `connect()` calls `cleanUp(e)` again and notifies a second time. No damage today (`Reconnector.trigger()` is idempotent), but it is an implicit coupling: any future subscriber (drop counter, offline banner, metric) will count double, and the second pass re-emits the event on an object already fully cleaned up.
 
-**Correction.** `componentDidUpdate(prev) { if (this.state.casse && prev.children !== this.props.children) this.setState({ casse: false }); }`, ou une `key` dérivée de `message.md ?? message.texte` depuis `ContenuMessage`.
-
-#### 🟡 moyenne — Les réactions sont envoyées au serveur mais jamais affichées ni retirables
-
-`app/message-actions.tsx:253` · non passé au réfuteur · risque de correction : faible
-
-La rangée de six pastilles câble `mettre` en dur à `true`, alors que `chat.react` sait aussi retirer. Et la colonne `messages.reactions` est ÉCRITE (lib/normalize.ts:156, db/upserts.ts:42) mais un grep sur ui/, app/, lib/ ne remonte aucune LECTURE. L'utilisateur tape 👍, la feuille se ferme, rien ne change — ni tout de suite, ni à l'arrivée de l'écho serveur — et il n'a aucun moyen d'annuler. C'est une action offerte sans retour ni annulation, et une colonne SQLite en écriture seule.
-
-**Correction.** Soit retirer la rangée tant que le rendu n'existe pas (ne rien promettre), soit — préférable — rendre les réactions dans ui/messageRow.tsx depuis `message.reactions` (pastille par code, compteur, contour accentué si mon username y figure) et passer `mettre = !jaiDejaReagi`. La donnée est déjà en base et déjà rafraîchie par le stream.
-
-#### ⚪ basse — Effets de bord exécutés à l'intérieur d'un updater de setState
-
-`ui/emojiPicker.tsx:131` · non passé au réfuteur · risque de correction : faible
-
-`basculer` place `champRef.current?.focus()` et `Keyboard.dismiss()` DANS la fonction passée à `setEtat`. React exige un updater pur : StrictMode le double systématiquement, et un rendu concurrent interrompu le rejoue. Or l'ordre clavier/panneau est précisément ce que le commit 0313574 a eu le plus de mal à stabiliser — un `Keyboard.dismiss()` de trop pendant l'animation peut faire manquer la transition à `useAnimatedReaction` (l.124-129) et laisser le panneau en `cede`, hauteur réservée sous le composer.
-
-**Correction.** Calculer l'état suivant hors de l'updater, appeler `setEtat(suivant)`, puis faire l'effet de bord ; ou déplacer `focus()`/`dismiss()` dans un `useEffect` déclenché par la transition d'`etat`.
-
-#### ⚪ basse — Deux écrans appliquent un état optimiste sans séquencement
-
-`app/settings.tsx:89` · non passé au réfuteur · risque de correction : faible
-
-`definir` capture `precedente` puis pose la valeur avant d'attendre `users.setPreferences`, sans garde `enVol` ni numéro de séquence (contrairement à app/search.tsx:72 et app/message-search.tsx:72). Deux taps rapprochés lancent deux POST concurrents et le `catch` du premier restaure la valeur d'AVANT le second choix : l'UI affiche un niveau que le serveur ne porte pas. Même famille, app/my-profile.tsx:161-216 enchaîne trois appels (infos, statut, avatar) avec un catch unique qui n'applique aucun `setInitial` — une réémission rejoue le pseudo déjà accepté et peut être refusée, rendant l'écran inutilisable pour la seule étape restante.
-
-**Correction.** Séquence en ref pour `definir` (n'appliquer rollback et message que si `sequence.current === n`), ou garde `enVol` avec les trois options désactivées. Pour `mon-profil`, suivre le succès de chaque étape (vider `avatarLocal` dès `definirAvatar` réussi, `setInitial` champ par champ) et n'énoncer dans le bandeau que ce qui a échoué.
+**Fix.** Return immediately if the cleanup has already happened (a flag reset by `connect()`), and an assertion `losses === 1` in the "socket dead during login" test of lib/ddp.test.ts.
 
 ---
 
-### 12. Filet de test là où le code n'est pas atteignable
+### 9. Dead session and end of session: back to login, and take everything when leaving
 
-**Sévérité max** 🟡 moyenne · **risque de correction** nul · **effort** jour
+**Max severity** 🟠 high · **fix risk** HIGH · **effort** day
 
-La couverture du dépôt est au-dessus de la moyenne, mais elle s'arrête à une frontière nette : ce qui touche la plateforme (db/store.ts, lib/server.ts, ui/drafts.ts, les plugins) et tout `app/` (5 400 lignes, zéro test). Deux points sont pires qu'un simple trou : les faux dépôts MENTENT — leur `transaction: (fn) => fn(depot)` efface l'invariant d'interblocage que db/store.ts a payé en crash réel — et la crypto E2EE n'est éprouvée que contre `node:crypto`, jamais contre quick-crypto, qui est l'implémentation réellement embarquée. Risque de régression nul par construction : ce chantier ne modifie pas de code de production, et il conditionne le découpage de l'écran salon.
+Three holes meet on the same symptom: the app stays in a state it believes valid and the user has no way out. A token revoked mid-session (password changed elsewhere, `Accounts_LoginExpiration`, `logoutOtherClients`) makes the reconnection driver loop forever on yesterday's cache, without a message; a logout leaves the DECRYPTED E2EE private key on disk, keyed by server alone, so that the next account believes itself unlocked and can no longer read anything; and the SQLite database with the E2E plaintexts survives intact. I place it AFTER the low-risk workstreams because triggering an automatic logout is the most dangerous fix in the whole audit: a discrimination error ejects the user wrongly. Do it with its predicate test written first.
 
-#### 🟡 moyenne — Les faux dépôts exposent le dépôt COMPLET dans `transaction`, ce qui rend indétectable l'interblocage file/transaction
+#### 🟠 high: A 401 occurring MID-session never revokes the session: zombie state until restart
 
-`lib/sync.test.ts:274` · non passé au réfuteur · risque de correction : nul
+`lib/rest.ts:280` · ✅ verified · fix risk: HIGH
 
-lib/sync.test.ts:274 et lib/catchUp.test.ts:45 définissent `transaction: async (fn) => fn(depot)` : le callback reçoit l'objet `Depot` entier, dont les méthodes sont de simples `push`. En production, `transaction` vaut `enSerie(() => brute.withTransactionAsync(() => fn(direct)))` et passe l'écrivain DIRECT, hors file — parce qu'appeler une méthode de la file depuis l'intérieur d'une transaction s'interbloque (db/store.ts:64-76, lib/sync.ts:88-93). Un refactor qui écrirait `this.depot.upsertMessage` au lieu de `tx.upsertMessage` passerait tsc et les 460 tests, et figerait le premier lot de rattrapage sur l'appareil, pour toujours.
+Verified by grep: the ONLY TWO places that test `status === 401` to erase the session are ui/session.tsx:114 (startup) and :159-165 (server switch). No everyday call reports the invalidation: `catchUpGlobal`, `chat.syncMessages`, `chat.sendMessage` (which only distinguishes status 0), `users.presence` (which silently swallows everything). On the DDP side, `login {resume}` rejects and the `Reconnector`, deliberately blind to the cause (`catch { attempt++; trigger(); }`), retries every 30 s forever. The screen shows yesterday's data, the sync bar pulses, every send fails: exactly what a network problem looks like.
 
-**Correction.** Faire du faux `transaction` un piège : drapeau `enTransaction` posé pendant l'appel, `ecrivainDirect` n'exposant que `EcrituresDepot`, et chaque méthode de premier niveau du faux qui jette « écriture hors file pendant une transaction » si le drapeau est levé. Le test devient le miroir exact de la contrainte.
+**Fix.** Two complementary moves. (1) `RestClient` SAYS that the token is refused: an optional field `onTokenRejected?: (token: string) => void`, called at the existing THROW SITE (after the `totp-required` branch, so never on a 2FA challenge; after the JSON parse, so never on a proxy's HTML 401), with the token ACTUALLY sent so that a late 401 on an already replaced token is ignored. Wired in `clientFor` (ui/session.tsx:55, the single creation point of the three paths) onto the already proven startup sequence. (2) On the connection-setup side, wrap the `Reconnector` call and only call `logOut()` on a `RestError` of status 401 that is NOT a `TwoFactorError`: `logOut()` brings down the effect of `SyncProvider`, so the driver stops with no extra stop code. Write FIRST the test of the `isTokenRejected` predicate on four cases: `RestError(401)` → true, `TwoFactorError` → false, `RestError(0)` → false, `DdpError` → false. This test is what protects against the only real risk: the wrongful logout.
 
-#### 🟡 moyenne — La crypto E2EE n'est éprouvée que contre `node:crypto` ; quick-crypto n'est couvert par rien
+#### 🟡 medium: The E2EE private key survives logout and is stored by server alone
 
-`lib/e2e/crypto.ts:27` · non passé au réfuteur · risque de correction : nul
+`ui/session.tsx:184` · ✅ verified · fix risk: medium
 
-Les tests valident une implémentation qui n'est jamais celle qui tourne sur l'appareil (metro.config.js alias vers react-native-quick-crypto). Les points de contact sont ceux où deux implémentations OpenSSL divergent le plus : `createDecipheriv('aes-256-gcm')` + `setAuthTag` avec le tag découpé en fin de buffer, `createPrivateKey({format:'jwk'})`, `privateDecrypt` avec `oaepHash: 'sha256'`, et le fait qu'un échec d'authentification doive rendre `null` plutôt que jeter. Une montée de version qui casserait l'un des quatre passerait tsc et les 9 tests, et donnerait « Déverrouillage impossible » sur l'appareil sans qu'aucun signal ne précède.
+`logOut()` only erases the session, never `clearE2EPrivateKey`, whereas what is stored is the DECRYPTED RSA JWK, the most sensitive secret of the app. Second defect, a structural one: `e2eStorageKey(baseUrl)` derives ONLY from the URL, whereas the session and the SQLite database are keyed by the (server, account) pair. At the next startup, `e2e.resume()` blindly reimports this JWK for ANOTHER account: `importRsaPrivateKey` succeeds (it is a valid JWK), `isUnlocked` becomes true, `decryptRoomKey` fails silently, and the UI shows "chiffré, lecture seule" ("encrypted, read-only") instead of the "Déverrouiller" ("Unlock") button. No visible path to the unlock screen.
 
-**Correction.** Harnais exécuté sur l'appareil (ou dans e2e/harness/) rejouant les vecteurs de crypto.test.ts — enveloppe v2, enveloppe v1, content GCM, content CBC — à travers le module réellement chargé, avec échec bruyant. À défaut, un test Node qui assert au moins la SURFACE utilisée sur le module résolu par l'alias Metro.
+**Fix.** (1) ESSENTIAL: `e2eStorageKey(baseUrl, userId)` derived from the digest of `baseUrl + '|' + userId`, propagated to the three exported functions, `session.userId` being already at hand in ui/sync.tsx:167. The only valid fix whatever the session exit path. No migration: an old-format key becomes unfindable, the user re-enters their password once. Extract the derivation as db/fileName.ts did for the database, to test it without expo. (2) HYGIENE: `clearE2EPrivateKey` at the THREE exits: `logOut()` and the two 401 paths (ui/session.tsx:115 and :163). Do not touch lib/e2e/engine.ts, correct by injection.
 
-#### 🟡 moyenne — `lib/server.ts` n'a aucun test alors qu'il commande tout l'écran de connexion
+#### 🟡 medium: Logout leaves the whole SQLite database on disk, E2E plaintexts included
 
-`lib/server.ts:58` · non passé au réfuteur · risque de correction : nul
+`ui/session.tsx:170` · not put to the refuter · fix risk: medium
 
-`normaliserUrl` porte des règles précises et contre-intuitives, toutes justifiées en commentaire — schéma https supposé, sous-chemin CONSERVÉ (`origin + pathname`) parce qu'un reverse proxy sert souvent Rocket.Chat sous `/chat`, barres rabotées, URL invalide en `ErreurServeur`. `sonderServeur` n'est pas plus couvert : parallélisation, absorption des rejets, `abort()` de la requête sœur, conversion des réglages en `ProfilServeur`. Une « simplification » en `new URL(x).origin` passerait tous les tests et rendrait le serveur inaccessible à tout utilisateur en sous-chemin.
+`e2eUnlocked` writes the decrypted text into the `text` column (lib/sync.ts:153-176), and the project acknowledges that this plaintext must be able to disappear: `e2eRelocked` calls `hideEncryptedMessages`, wired to the "Verrouiller" ("Lock") button. But `logOut()` does not lock and erases no database (no `deleteDatabaseSync` in the repo, unencrypted database). A glaring inconsistency: the strongest gesture protects less than the weakest.
 
-**Correction.** Créer lib/server.test.ts : table de cas pour `normaliserUrl`, et pour `sonderServeur` injecter le fetch (extraire `recupererVersion` derrière le même point d'injection que `ClientRest` — ce qui règle aussi son absence de timeout, chantier transport) puis couvrir `/api/info` non JSON, `settings.public` sans tableau, les drapeaux 2FA/OAuth, et l'annulation qui coupe les deux requêtes.
+**Fix.** At a minimum call `hideEncryptedMessages()` in `logOut()`; preferably add `supprimerBase(baseUrl, userId)` to db/client.ts (close then `deleteDatabaseSync`), doing it from `logOut`, NOT from an effect cleanup. If keeping the offline cache for a quick return is preferred, decide explicitly and document it.
 
-#### 🟡 moyenne — Le débounce et le flush de sortie d'écran des brouillons ne sont testés nulle part
+#### 🟡 medium: Three module-level stores are never purged at the end of the session
 
-`ui/drafts.ts:104` · non passé au réfuteur · risque de correction : faible
+`ui/reply.ts:31` · not put to the refuter · fix risk: low
 
-La correction du hook dépend d'un détail non exprimé : l'effet de flush a `[ecrire]` en dépendances, et `ecrire` dépend de `[base, cle]` — c'est la SEULE chose qui garantit que le cleanup s'exécute avec l'`ecrire` de l'ANCIENNE clé. Rien ne verrouille cet invariant : ni type, ni test, ni assertion. Quelqu'un qui stabiliserait `ecrire` avec une ref (motif courant) ferait passer l'effet à `[]` : le brouillon du salon A, quitté en moins de 400 ms, serait perdu ou écrit sous la clé de B.
+The cleanup of ui/sync.tsx purges `loadedRooms` and `hotRooms`, but not: (a) the `targets` Map of ui/reply.ts, whose header nonetheless claims that "a pending quote does not survive", true of a process restart, false of a logout: the first message typed after reconnecting goes out prefixed with the permalink of the previous session; (b) `identities` and `etags` of ui/identities.tsx, which serve the previous account's usernames and avatar URLs during the first frames; (c) `availabilityByServer` of lib/call.ts:72, where a memoised `false` hides the 📞 button for the whole life of the process, even after reconnecting: no gesture in the app gets out of it.
 
-**Correction.** Extraire la mécanique en objet testable sous Node (`creerBrouillonDifferre({ecrire, delaiMs, programmer, annuler})`, horloge injectée comme lib/reconnect.ts) et couvrir : une frappe → une écriture, deux frappes rapprochées → une seule (la dernière), texte vide → suppression, démontage pendant la pause → flush, CHANGEMENT DE CLÉ pendant la pause → flush sous l'ANCIENNE clé et rien sous la nouvelle. À combiner avec le passage des brouillons dans la file (chantier 2).
+**Fix.** Export `forgetReplies()`, `forgetIdentities()` and `forgetCallAvailability()` and call them in the cleanup of ui/sync.tsx, next to the two existing purges, so that the rule "every module-level store is purged at the end of the session" has no exception. Fix the header of ui/reply.ts.
 
-#### 🟡 moyenne — Les logiques pures de l'écran salon et de l'accueil sont enfouies dans des composants, donc intestables
+#### 🟡 medium: After an offline logout, the token stays registered on the server
 
-`app/salon/[rid].tsx:295` · non passé au réfuteur · risque de correction : faible
+`ui/session.tsx:178` · not put to the refuter · fix risk: low
 
-`donneesAvecBarre` (l.295-312) tient trois conventions simultanées dans 17 lignes — données DESC donc la DERNIÈRE occurrence est le plus ANCIEN non-lu, liste inversée donc i+1 se rend au-dessus, exclusion de mes propres messages — plus un cas où `client.identifiants` est null et où `moiUid` vaut `undefined` (la barre peut alors se poser au-dessus d'un de MES messages). Même situation pour `useDonneesLissees`, `cheminHistorique`, le prédicat d'épuisement de `chargerPlus`, et pour le regroupement de app/index.tsx:126-148 (masquage `?.ouvert !== false`, remontée sur `alerte`, sections vides retirées). Une « optimisation » en `break` au premier index poserait la barre sous le message le plus récent, sans qu'aucun test ne tombe.
+The `push.token` DELETE is best-effort in an empty try/catch: a network failure (or a `getFcmToken` in `permission-denied`) leaves the token alive, with no retry queue. On the native side, `fetchAndPost` sees `session == null` and posts the degraded notification ANYWAY, then schedules a WorkManager catch-up bound to fail. Result: ghost "Nouveau message" ("New message") notifications on a device without an account, until uninstall.
 
-**Correction.** Extraire quatre fonctions pures et les tester : `insererBarreNonLus(donneesDesc, luJusquA, moiUid)`, `useDonneesLissees` déplacé en ui/smoothedData.ts avec horloge injectable, le prédicat d'épuisement, et `construireSections(salons, abonnements, titres)`. Ces extractions font partie du découpage sans risque du chantier suivant et doivent le PRÉCÉDER.
-
----
-
-### 13. Une seule source par concept : i18n, couleurs, formats, tables MIME
-
-**Sévérité max** 🟡 moyenne · **risque de correction** faible · **effort** jour
-
-Le commit 4dc5df6 a migré toute l'app vers `t()` — mais quatre îlots ont été manqués et sont invisibles au test de parité FR/EN, puisqu'ils ne sont pas dans le catalogue : l'heure de chaque message formatée en `fr-FR` en dur, l'indicateur de saisie (« bob écrit… »), les messages d'erreur de lib/profilePreload.ts et lib/uploadQueue.ts qui remontent tels quels à l'écran. Un utilisateur en anglais voit donc des phrases françaises dans une interface anglaise. S'y ajoutent trois définitions concurrentes des couleurs de présence (avec trois teintes différentes pour le même statut) et deux tables MIME→emoji déjà divergentes. Risque faible, gain de cohérence immédiat, et cela prépare le découpage du composer.
-
-#### 🟡 moyenne — L'heure des messages est formatée en `fr-FR` codé en dur, et l'indicateur de saisie est en français hors catalogue
-
-`ui/messageRow.tsx:66` · non passé au réfuteur · risque de correction : faible
-
-`toLocaleTimeString('fr-FR', …)` aux lignes 66 et 193 : les DEUX seuls `toLocale*` en dur du dépôt (les autres `toISOString` sont des paramètres d'API). Même famille, `phraseSaisie` (lib/typing.ts:120-125) construit « bob écrit… », « bob et carol écrivent… », « 3 personnes écrivent… » sans aucune clé — ui/messages.ts n'en contient aucune pour la saisie, donc le test de parité ne voit rien. En anglais : « 14:05 » au lieu de « 2:05 PM », et « bob écrit… » au-dessus du composer.
-
-**Correction.** Un `useHeure()` dans ui/i18n.ts rendant un `Intl.DateTimeFormat` mémoïsé sur la langue active, appelé aux deux emplacements. `phraseSaisie` rend une donnée (`{noms, n}`) et la mise en phrase passe au catalogue (`salon.saisieUn/Deux/N`) ; lib/typing.test.ts:96-102, qui assert les chaînes françaises, se réécrit sur la forme structurée.
-
-#### 🟡 moyenne — Des messages d'erreur affichés à l'utilisateur sont en français en dur, en doublon de clés existantes
-
-`lib/profilePreload.ts:125` · non passé au réfuteur · risque de correction : faible
-
-`'Profil illisible.'` et `'Profil introuvable.'` en dur alors que `profil.profilIllisible` / `profil.profilIntrouvable` existent au catalogue et sont bien utilisées par app/profile.tsx:141-145 — mais uniquement sur le chemin de chargement ASYNC ; le chemin NOMINAL (`precharge.erreur`) affiche la version en dur. `git log` confirme la cause : le fichier a été créé le 2026-07-13 à 11:49, le commit de migration i18n est du même jour à 17:34. Même motif dans lib/uploadQueue.ts:85 et :94 (« Fichier trop lourd (maximum X Mo). », « Type X refusé par le serveur. ») et lib/outbox.ts:176, dont les messages remontent tels quels via `setErreurFichier(e.message)`.
-
-**Correction.** Dans lib/profilePreload.ts, `traduireCourant(...)` (prévu exactement pour ce cas, ui/i18n.ts:101). Pour lib/uploadQueue.ts et lib/outbox.ts — modules purs testés sous Node, qui ne doivent PAS importer l'i18n — faire porter à `ErreurValidation` un code (`'taille'`, `'type'`) plus ses paramètres, et traduire au point d'affichage.
-
-#### 🟡 moyenne — Trois définitions concurrentes des couleurs de présence, avec trois valeurs différentes par statut
-
-`ui/presence.ts:14` · non passé au réfuteur · risque de correction : faible
-
-`COULEURS_PRESENCE` (#2de0a5 / #ffd21f / #f5455c / #9ea2a8, utilisé par la liste et le sous-titre du DM), `PRESENCE` en dur dans app/profile.tsx:33-38 (#3BD16F / #F5B03E / #E8506B / #8A8FA3, avec un commentaire « mêmes mots que le sous-titre d'un DM » faux pour les couleurs), et les jetons du thème (#3ED67F / #FFC24B / #FF7A8A / #5A5573, utilisés par app/my-profile.tsx). Les libellés sont dupliqués de la même façon : `salon.presence*`, `profil.presence*`, `monProfil.presence*` — douze clés pour quatre mots, déjà divergentes en casse. ui/kit.tsx interdit pourtant explicitement les couleurs en dur.
-
-**Correction.** Faire de `COULEURS_PRESENCE` la seule source, alimentée par les jetons du thème, supprimer la table de app/profile.tsx et le mapping de app/my-profile.tsx, et réduire les douze clés à quatre `commun.presence*` en laissant la casse à l'appelant.
-
-#### ⚪ basse — Deux tables MIME→emoji, déjà divergentes sur le cas audio
-
-`ui/attachmentPreview.tsx:34` · non passé au réfuteur · risque de correction : faible
-
-`emojiFichier` (ui/attachmentPreview.tsx:34-40) et `emojiPiece` (app/share.tsx:387-394) sont la même correspondance écrite deux fois ; `emojiPiece` traite `audio/` → 🎵, l'autre non. Le voisinage est dupliqué de même (`estImage` à deux endroits, vignette dégradée reconstruite dans `VignettePiece`). Toute famille ajoutée à l'une ne le sera pas à l'autre.
-
-**Correction.** Exporter une seule fonction (depuis ui/attachmentPreview.tsx ou un ui/mime.ts), avec la branche `audio/` — inoffensive pour l'aperçu du composeur, qui détourne l'audio vers `LecteurAudio` — et supprimer `emojiPiece`.
-
-#### ⚪ basse — Le corps des messages markdown ne porte aucune famille de police
-
-`ui/markdown.tsx:306` · non passé au réfuteur · risque de correction : faible
-
-ui/markdown.tsx n'importe jamais `POLICES` : `styles.paragraphe` ne déclare que `fontSize`/`lineHeight`, et le `<Text>` du bloc PARAGRAPH n'est imbriqué dans aucun `<Text>` parent (uniquement des `<View>`), donc rien n'est hérité. Le corps de tout message ayant un `md` sort en police système, à côté du repli de `GardeRendu` et du texte cité qui sont en Nunito. S'y ajoutent trois `fontWeight` alors que ui/theme.ts:189-206 documente une famille PAR graisse et conclut « ne jamais y adjoindre de fontWeight » (faux-gras synthétique d'Android). Même oubli dans app/search.tsx et app/message-search.tsx.
-
-**Correction.** `fontFamily: POLICES.corps` sur `paragraphe` et `texteItem`, et remplacer les `fontWeight` par les familles (`POLICES.titre`, `corpsGras`, `corpsSemi`) — les deux ensemble, jamais l'un sans l'autre.
-
-#### ⚪ basse — Les composants médias codent en dur des couleurs sombres, ce qui invalide la promesse « trois retouches » du thème
-
-`ui/imageViewer.tsx:240` · non passé au réfuteur · risque de correction : faible
-
-ui/theme.ts:10-17 affirme que rebrancher la bascule de thème « demandera TROIS retouches ». C'est déjà faux : `rgba(4,3,10,0.94)` (visionneuse), `rgba(12,11,22,0.80)` et `:186` (lecteurVideo), `#00000020` et `rgba(12,11,22,0.42)` (carteEmbed), carteLien:197-202 — et ui/kit.tsx lui-même (`couleurTexte = '#FFFFFF'`, une boxShadow en dur) tout en affirmant « jamais de couleur en dur ici ». Le jour de la bascule, ce sera une chasse aux teintes dans six fichiers, et un voile noir à 80 % sur fond blanc.
-
-**Correction.** Ajouter les deux jetons qui manquent réellement (`voileMedia`, `fondPleinEcran`) aux deux jeux et remplacer les six littéraux. Corriger la phrase « TROIS retouches » de theme.ts : elle sert de contrat, elle doit rester vraie ou disparaître.
+**Fix.** (1) Native: when `readSession` returns nothing for this host, post nothing and schedule nothing. (2) JS: persist the (baseUrl, token) pair in a "to unregister" queue and empty it at the next startup; the DELETE already tolerates the 404 (lib/pushToken.ts:40).
 
 ---
 
-### 14. Duplication structurelle et découpage de l'écran salon
+### 10. Native push: duplicates, multi-server deep link, service hygiene
 
-**Sévérité max** 🟡 moyenne · **risque de correction** moyen · **effort** plusieurs-jours
+**Max severity** 🟠 high · **fix risk** medium · **effort** several days
 
-Trois copier-collers ont déjà coûté ou coûteront un correctif écrit deux fois : `rattraperMisAJour` / `rattraperSupprimes` (le commit ffe1f7c a dû appliquer le MÊME correctif de curseur dans deux hunks du même commit), le composer salon / composer fil (le fil n'a pas la fermeture du clavier avant sélecteur qui corrige le NPE d'arbre de vues, il la reproduira le jour où il gagne les pièces jointes), et le débounce des deux écrans de recherche (déjà divergé). Ajouter à cela l'écran salon à 1 397 lignes, dont deux composants se déplacent SANS RISQUE (props uniquement, stores module-level) et le ramènent à ~450 lignes. Placé en fin de séquence délibérément : c'est du refactor pur, donc à faire quand les tests des chantiers précédents sont en place et qu'aucune correction fonctionnelle n'est en vol dans ces fichiers.
+This whole workstream is Kotlin injected by a config plugin: neither tsc nor the 460 tests see it, and each iteration costs `expo prebuild` + `assembleRelease` (status tested WITHOUT a pipe). It must therefore be handled in a single pass, not piecemeal. The most serious one is verified: the anti-duplicate guard of commit 249887e only covers one direction of the race, so that the catch-up worker and the FCM redelivery (woken by the SAME event, the network coming back) add the same message to the conversation twice. The deep link moreover ignores the multi-server dimension that the app nonetheless supports, which yields a permanent spinner.
 
-#### 🟡 moyenne — `app/salon/[rid].tsx` mélange trois responsabilités sur 1 397 lignes ; deux sont extractibles sans aucun risque
+#### 🟠 high: The anti-duplicate guard does not cover the "the worker has already posted" case
 
-`app/salon/[rid].tsx:161` · non passé au réfuteur · risque de correction : faible
+`plugins/with-fcm-deeplink.js:249` · ✅ verified · fix risk: medium
 
-Le fichier porte le moteur de liste (l.161-706), le composer complet (l.708-1156 : sélecteurs, audio, emojis, mentions, citations, contournement du NPE), l'en-tête (l.1158-1291), un utilitaire REST Rocket.Chat (`cheminHistorique`) et un hook générique (`useDonneesLissees`). Conséquence déjà visible dans cet audit : les trois défauts les plus coûteux du domaine (double rattrapage, `n > 1`, cadence de `marquerLu`) vivent dans la même soupe d'effets que le choix d'un fichier joint. L'historique montre trois correctifs successifs sur le seul lancement du sélecteur (ad8ecec, e06f658, c9e6694).
+`fetchAndPost` cancels the degraded notification and the catch-up then calls `showRoomNotification`, which RE-EXTRACTS the room's active MessagingStyle and adds the message to it: no state remembers that a messageId has already been shown. Symmetrically, `PushCatchUpWorker.doWork` never tests `isStopped` before publishing: a `cancelUniqueWork` does not stop a worker in flight. The network comes back, the worker posts, FCM redelivers the unacknowledged push 1-2 s later, and the user sees the same message twice with "2 new messages".
 
-**Correction.** Déplacements PURS, aucune ligne de logique modifiée : `Composer` + `ComposerChiffre` + `assetVersFichier` → ui/composerSalon.tsx (~420 l., 11 props explicites, couplages externes uniquement par stores module-level) ; `EnTeteSalon` → ui/roomHeader.tsx (~135 l., props uniquement) ; `useDonneesLissees` → ui/smoothedData.ts ; `cheminHistorique` → fournisseurs/rocketchat/. NE PAS extraire `useFluxSalon` (limite/fraiches/donnees/presDuBas/dernierSuivi/passeEpuise s'arbitrent mutuellement, et l'idiome inversé est une cicatrice mesurée) tant que les fonctions pures ne sont pas testées.
+**Fix.** An atomic test-and-set `alreadyShown(ctx, messageId)` (dedicated SharedPreferences, entries purged after one hour, `@Synchronized`, best-effort returning `false` on an exception so as never to lose a notification), consulted in BOTH id-only paths: in `fetchAndPost` just before display (keeping `cancel` + `cancelCatchUp` BEFORE the test, since the degraded notification must disappear in every case), and in `doWork` in the form `if (isStopped || alreadyShown(...))`. The degraded notification, for its part, does NOT set the marker: it must stay replaceable. The "content present in the push" regime is unchanged (no degraded notification, no catch-up, hence no race).
 
-#### 🟡 moyenne — Le composer du fil est une copie divergée du composer du salon
+#### 🟡 medium: The notification deep link does not carry the server: permanent spinner in multi-server
 
-`app/thread/[id].tsx:330` · non passé au réfuteur · risque de correction : moyen
+`plugins/with-fcm-deeplink.js:465` · ✅ verified · fix risk: medium
 
-`ComposerFil` reprend point par point `Composer` : même `useCompletionEmoji`, même `usePanneauEmoji`, même couple `useReponse`/`annulerReponse` + `useRetourMateriel`, même `changer`/`changerBrouillon`, même `envoyer`, mêmes bandeaux — et jusqu'au commentaire « Jetons `:` et `@` mutuellement exclusifs » recopié mot pour mot. Les divergences sont déjà là : bordure différente, AUCUNE famille de `POLICES` (donc l'écran fil s'affiche en police système), bouton d'envoi textuel au lieu de la tuile ➤, et quatre clés de traduction dupliquées (`fil.chiffre` = `salon.chiffre`, etc.). Le fil n'a surtout pas le `fermerEmoji()` + `Keyboard.dismiss()` que le salon fait avant de lancer un sélecteur.
+The intent is `rocketvibe://room/<rid>`: the `host`, though present in the payload and correctly used by `readSession` to show the right content, is thrown away. Yet sessions coexist (`switchServer` erases nothing) and the push token is registered on each server, so both push. On arrival, app/room/[rid].tsx has no `rooms` row for this rid: `type === undefined` short-circuits the whole effect, `firstPassDone` stays `false`, and the screen shows a permanent `ActivityIndicator`. ui/notifications.tsx:88 has the same hole on the JS side.
 
-**Correction.** Extraire `ui/composer.tsx` portant le tronc commun, paramétré par ce qui diffère réellement (présence 📎/🎤, clé de réponse `rid` vs `rid:filId`, `filId` passé à `envoi.envoyer`, placeholder). Prérequis : le déplacement du composer salon ci-dessus. Fusionner les clés `fil.*` dupliquées dans `commun.*`.
+**Fix.** (1) Add the host to the link (`?host=…`) in `showRoomNotification`: the three callers already have it at hand; do NOT read it back from the `push.get` payload, whose shape is not guaranteed. Mirror it on the JS side in ui/notifications.tsx. (2) In `RoomScreen`, if `host` is defined and differs from `session.baseUrl`, render an explicit screen "Ce message est sur <host>" ("This message is on <host>") with a button that calls `switchServer` then `replace`: a switch on explicit gesture only. `host` missing → behaviour identical to today, hence zero regression in single-server.
 
-#### 🟡 moyenne — `rattraperMisAJour` et `rattraperSupprimes` sont deux copies de la même boucle de pagination
+#### 🟡 medium: No notification is removed when the room is read
 
-`lib/catchUp.ts:227` · ✅ vérifié · risque de correction : moyen
+`ui/notifications.tsx:118` · not put to the refuter · fix risk: low
 
-Les deux fonctions ont la même structure ligne pour ligne : boucle `for (page < PAGES_MAX)`, `pageCurseur`, garde `estAbandonne`, calcul de `suivant`, branche « dernière page » avec avancée sur le plus grand horodatage ingéré, écriture du curseur, `console.warn` de plafond. Seuls le `type`, le nom de flux et le corps d'ingestion diffèrent. `git show ffe1f7c` montre que le correctif « faire avancer le curseur sur la DERNIÈRE page » a été appliqué DEUX fois dans le même commit, avec « voir rattraperMisAJour, même raisonnement » comme seul lien.
+`dismissNotificationAsync` appears nowhere (verified by grep): only `setAutoCancel(true)` removes the notification, and only on TAP. Yet the badge effect already follows the unread counts in real time. Notifications being grouped per room and cumulative, reading #general from the icon leaves its 3 messages in the status bar, and the next one is added as a 4th line; same when the room is read from another device.
 
-**Correction.** `paginerCurseur(client, rid, type, flux, depuis, estAbandonne, appliquer)` portant la boucle, le curseur et le plafond, avec en paramètre le seul `appliquer(resultat) => Promise<number | null>` qui rend le plus grand horodatage traité. Les deux appelants tombent à trois lignes. À faire APRÈS la déduplication par rid (chantier 5), qui touche le même fichier.
+**Fix.** In `BadgeAndEncryptedTracking`, for every rid going to `unread === 0`, call `Notifications.dismissNotificationAsync('expo-notifications://foreign_notifications?id=' + hashCodeJava(rid))`: the shape that `ExpoPresentationDelegate` decodes into `cancel(tag=null, id)`, the id set by the native side being `rid.hashCode()`. `hashCodeJava` is a dozen deterministic lines, testable under Node.
 
-#### 🟡 moyenne — Débounce + garde de séquence recopiés entre les deux écrans de recherche
+#### 🟡 medium: The blocking `push.get` can cost 16 s (32 s in debug) on the FCM dispatch thread
 
-`app/search.tsx:85` · non passé au réfuteur · risque de correction : faible
+`plugins/with-fcm-deeplink.js:663` · not put to the refuter · fix risk: low
 
-Le même bloc — `sequence = useRef(0)`, `const n = ++sequence.current`, `setTimeout(…, propre === '' ? 0 : 300)`, court-circuit sur requête vide, `if (sequence.current !== n) return` dans le `.then` ET le `.catch`, `clearTimeout` au cleanup — dans les deux écrans, le second l'admettant en commentaire (« Même idiome que le spotlight »). La copie a déjà divergé sur le nettoyage du message d'erreur (voir chantier 1).
+The comment announces a "tight timeout" but sets `connectTimeout = 8000` AND `readTimeout = 8000`: in Doze, radio not yet up, that is 16 s in `handleIntent`, and `verifyPushGetInDebug` chains a SECOND full fetch (~32 s). This is what makes the process killable during the fetch (the hypothesis already written l.241-243), hence what FEEDS the FCM redelivery and the family of duplicates above. This path moreover has no handling of the 429, whereas `push.get` is subject to the 10/min limit.
 
-**Correction.** `useRechercheDebouncee<T>(requete, chercher, delaiMs = 300)` encapsulant minuterie, garde de séquence et remise à zéro complète (résultats ET message) sur requête vide.
+**Fix.** ~3 s of connect and ~3 s of read (6 s total budget), leaving the WorkManager catch-up to do its job; make `verifyPushGetInDebug` conditional on an explicit flag; on 429, schedule the catch-up by reading `x-ratelimit-reset` without consuming an immediate attempt.
 
-#### 🟡 moyenne — « Ouvrir ou créer un DM » est implémenté deux fois, avec deux traitements différents de la réponse
+#### ⚪ low: A 401 on `push.get` triggers eight WorkManager attempts bound to fail, per notification
 
-`app/profile.tsx:180` · non passé au réfuteur · risque de correction : faible
+`plugins/with-fcm-deeplink.js:667` · not put to the refuter · fix risk: low
 
-app/profile.tsx:180-186 poste `im.create`, garde `typeof rid !== 'string'` et ingère conditionnellement le salon ; app/search.tsx:119-121 fait le même POST mais passe la réponse à un helper local avec un cast `as string | undefined`. Les deux ont déjà divergé sur la validation et sur la gestion d'erreur (catch vs finally), et aucun ne passe par `ActionsFournisseur`.
+`fetchContent` returns `null` for ANY code ≠ 200, without telling a transient outage from a definitive refusal. `fetchAndPost` then systematically schedules the catch-up, and `doWork` retries up to 8 times with a 30 s backoff, rereading the same dead session. Over an evening of messages, that is battery and radio wake-ups for nothing.
 
-**Correction.** `ouvrirOuCreerDm(username): Promise<{ rid, salonBrut }>` sur `ActionsFournisseur`, implémenté une fois dans providers/rocketchat/actions.ts avec la garde de type. Les deux écrans n'ont plus qu'à appeler et naviguer.
+**Fix.** Pass the HTTP code up (a typed result rather than `JSONObject?`) and, on 401/403, post the degraded notification WITHOUT scheduling a catch-up, as the "unexpected payload" branch already does.
 
-#### ⚪ basse — Le rendu des images de pièce jointe est écrit deux fois dans le même fichier, avec des bornes différentes
+#### 🟡 medium: The native path's strings are hard-coded in French whereas the app is fully EN/FR
 
-`ui/messageRow.tsx:355` · non passé au réfuteur · risque de correction : faible
+`plugins/with-fcm-deeplink.js:414` · not put to the refuter · fix risk: low
 
-`FichierCite` (l.355-381) et la branche image de `PiecesJointes` (l.485-527) refont la même séquence — source `title_link ?? image_url` avec le même commentaire justificatif, `urlFichierProtege`, ratio avec le même `Math.max(…, 1)` défensif, `Pressable` + visionneuse + `Image cover` — avec des bornes déjà divergées (72..200 sur 200 fixe vs 120..400 sur `dispoLargeur`). `Math.min(largeurEcran - 92, 380)` est en outre dupliqué à l'identique dans ui/linkCard.tsx:45.
+Since the native service posts ALL message notifications, the only strings the user sees are the Kotlin ones: "Message chiffré" ("Encrypted message", l.414), "Vous" ("You", l.436, name of the MessagingStyle's Person), "Nouveau message" (l.518). Yet the JS catalogue has both languages, and the preference is already readable from the native side (`preferred-language` in the same SecureStore SharedPreferences as the session).
 
-**Correction.** `<ImageJointe c jointe client largeurMax hauteurMin hauteurMax surAppuiLong />` portant le choix de source, l'URL protégée, le gabarit et l'ouverture ; exporter `largeurDispoCorps(largeurEcran)` depuis ui/theme.ts.
+**Fix.** Move the three strings out into `res/values/strings.xml` + `res/values-fr/strings.xml` set up by the same plugin (`withStringsXml`), or read `preferred-language` to honour the explicit preference rather than the system locale.
 
-#### ⚪ basse — Code mort : `couleursClaires` et cinq clés de traduction inutilisées
+#### ⚪ low: FCM token rotation is never listened to
 
-`ui/theme.ts:141` · non passé au réfuteur · risque de correction : faible
+`ui/sync.tsx:333` · not put to the refuter · fix risk: low
 
-`couleursClaires` (~28 lignes de jetons) n'est référencée que par un commentaire, `useCouleurs` rendant toujours `couleursSombres`. Cinq clés ne sont référencées par aucun fichier (`commun.erreur`, `commun.chargement`, `commun.copier`, `commun.ok`, `salon.chiffre` — ce dernier doublon mot pour mot de `fil.chiffre`), soit dix entrées mortes sur les deux catalogues.
+`Notifications.addPushTokenListener` exists nowhere: the token is pushed only once per session. If FCM rotates it while the app is alive, `onNewToken` is handled by expo but nothing re-registers it: notifications silently stop until the next cold start, and the old token stays on the server.
 
-**Correction.** Supprimer (Git garde) ou brancher `couleursClaires` derrière `useColorScheme()` en même temps que les jetons `voileMedia`/`fondPleinEcran` du chantier précédent ; retirer les cinq clés.
+**Fix.** Set an `addPushTokenListener` when the session mounts that calls `registerToken` again (idempotent POST). Do it with the flag fix (workstream 1), which touches the same lines.
 
----
+#### ⚪ low: The plugin's configuration surgery (pure JS) has no test
 
-### 15. La façade Fournisseur : ce qui nomme Rocket.Chat doit passer par elle
+`plugins/with-fcm-deeplink.js:737` · not put to the refuter · fix risk: none
 
-**Sévérité max** 🟡 moyenne · **risque de correction** moyen · **effort** jour
+The Kotlin can only be verified by a build, that is accepted. But `withServiceManifest` (idempotence, `android:priority=1`, the exact value on which FCM routing to our service rather than expo's depends) and `withNativeDeps` (injection through `contents.replace(/dependencies\s*\{/, …)`, hence into the FIRST occurrence met, with as its only guard `includes(artifact)` without a version) are testable JS. Correct today by a property of the RN 0.86 template, not of the plugin.
 
-L'abstraction est propre et exhaustive sur la synchro et les actions, mais elle est court-circuitée exactement là où elle compte : l'écran salon importe `rattraperSalon` de lib/catchUp.ts, nomme trois endpoints REST (`channels/groups/im.history`) et fabrique lui-même les clés de stream `${rid}/deleteMessage` et `${rid}/user-activity`. Il existe donc DEUX chemins pour le même rattrapage, l'un routé, l'autre codé en dur — et le format de clé Rocket.Chat est dupliqué dans deux écrans plus `sujetDe`. Gain purement structurel, aucun bug utilisateur aujourd'hui : à faire en dernier, quand le découpage de l'écran salon a déjà déplacé `cheminHistorique`.
-
-#### 🟡 moyenne — L'interface `Fournisseur` n'a pas de couture pour les abonnements PAR SALON
-
-`lib/provider.ts:208` · non passé au réfuteur · risque de correction : moyen
-
-L'en-tête pose la règle (« tout ce qui nomme un endpoint /api/v1/* ou un stream stream-* doit à terme passer par ici ») et le contrat prévoit `souscriptionsInitiales()` pour les abonnements GLOBAUX. Rien ne couvre l'abonnement au salon ouvert — pourtant permanent : app/salon/[rid].tsx:358-360 et app/thread/[id].tsx:205-206 importent `STREAM_MESSAGES`/`STREAM_NOTIFY_ROOM` de lib/sync.ts et fabriquent les clés à la main. Le format « rid + / + sujet » est ainsi dupliqué dans deux écrans, dans `sujetDe` et dans un commentaire de ui/hotRooms.ts.
-
-**Correction.** `souscriptionsSalon(rid): readonly (readonly [nom, cle])[]` symétrique de `souscriptionsInitiales`, implémentée dans providers/rocketchat/index.ts, les écrans bouclant sur son résultat. Cela retire aussi de app/ les imports de noms de streams.
-
-#### 🟡 moyenne — L'écran salon contourne la façade en appelant l'implémentation Rocket.Chat en direct
-
-`app/salon/[rid].tsx:44` · non passé au réfuteur · risque de correction : moyen
-
-lib/provider.ts:216-218 expose `rattraperSalon(moteur, rid, estAbandonne)` et ui/sync.tsx l'appelle bien par ce chemin, mais l'écran importe la fonction de lib/catchUp.ts avec le `ClientRest` en main. Le même écran nomme `channels.history`/`groups.history`/`im.history` (`cheminHistorique`), et app/thread/[id].tsx appelle `chat.getMessage` et `chat.getThreadMessages` en direct. Un second driver (Mattermost, prévu par `Genre`) verrait chaque ouverture de salon émettre `chat.syncMessages` sur une route inexistante.
-
-**Correction.** Ajouter `chargerHistorique(rid, type, latest)` à l'interface `Fournisseur` (implémenté côté RC par `cheminHistorique` + `chat.getThreadMessages`) et faire passer l'écran par `synchro.fournisseur` pour le rattrapage comme pour l'historique — le fournisseur est déjà porté par le contexte. À faire APRÈS la déduplication par rid (chantier 5), dont c'est le prolongement naturel.
-
-#### 🟡 moyenne — Le permalien de citation est bâti sur `client.baseUrl` alors que le serveur n'accepte que `Site_Url`
-
-`lib/quote.ts:21` · non passé au réfuteur · risque de correction : faible
-
-La doc du module le dit elle-même (l.18) : le hook `BeforeSaveJumpToMessage` ne reconnaît une citation que si l'URL COMMENCE PAR `Site_Url`. `lib/server.ts:142-147` récupère bien `siteUrl`, mais un grep ne rend que ces trois lignes : la valeur n'est stockée ni dans la `Session` ni lue nulle part. Dès que l'URL saisie diffère (alias de proxy, IP, port, http/https — cas du banc émulateur : `10.0.2.2:3300` vs `localhost:3300`), le serveur n'attache pas `message_link`. Pire que « pas de bloc » : l'affichage optimiste MONTRE la citation, puis l'écho serveur écrase `piecesJointes` et `sansLiensDeCitation` retire le lien brut du corps — le message final ne porte plus aucune trace de ce à quoi il répondait.
-
-**Correction.** Propager `siteUrl` du sondage jusqu'à la `Session` (déjà lu) et faire de `permalienMessage` un consommateur de `siteUrl ?? baseUrl` — zéro appel réseau supplémentaire, repli identique au comportement actuel quand le réglage manque. Test dans lib/quote.test.ts avec `baseUrl !== siteUrl`.
-
-#### ⚪ basse — `lib/`, déclaré « cœur non-UI », pilote la navigation
-
-`lib/profilePreload.ts:22` · non passé au réfuteur · risque de correction : faible
-
-Le module importe `{ router } from 'expo-router'` et l'appelle en 113 et 164 ; il tient en plus un client REST en singleton, un cache et un store d'état avec écouteurs. C'est la seule inversion de dépendance du dépôt (le seul autre franchissement, lib/systemMessages.ts → ui/messages.ts, est un `import type` consigné). Conséquence directe et mesurable : c'est le seul module de lib/ sans `.test.ts`, parce qu'il n'est pas chargeable sous Node — donc la course entre `users.info`, la sonde d'appel et le plafond de 2 s reste entièrement non testée.
-
-**Correction.** Rendre le module pur : `precharger(p): Promise<ProfilBrut | null>` qui renvoie la décision, la navigation restant à l'appelant. Si l'appel depuis ui/markdown.tsx impose un singleton, `definirNavigateurProfil((p) => router.push(...))` depuis ui/, sur le modèle de `definirClientProfil` déjà en place.
+**Fix.** `plugins/with-fcm-deeplink.test.ts` (Node, without Expo) on fixtures: the `implementation` lines land in the top-level `dependencies` block, a second pass adds nothing, a gradle file WITHOUT a `dependencies` block is DETECTED instead of being left untouched, and the service is added only once with `android:priority=1`.
 
 ---
 
-### 16. Remettre la documentation d'accord avec le code
+### 11. Screens: unbounded loops, fixed waits, needless native costs
 
-**Sévérité max** 🟡 moyenne · **risque de correction** nul · **effort** heures
+**Max severity** 🟡 medium · **fix risk** low · **effort** day
 
-CLAUDE.md désigne EXECUTION.md comme « source de vérité sur où on en est » et ce fichier a 110 commits de retard : ni l'E2EE en lecture, ni les appels Jitsi, ni l'i18n, ni les citations, ni la façade multi-fournisseur, ni les caches de salon n'y figurent — et sa table d'avancement affirme que l'étape 9 est iOS alors que le corps du document dit thème. Symétriquement, ROADMAP.md §4.2, EXECUTION.md:52 et CLAUDE.md:50 déclarent la WebView « interdit ferme » alors que react-native-webview est une dépendance ordinaire et que l'écran d'appel la monte en plein écran — au point que ui/embedCard.tsx cite comme autorité la section que l'écran d'appel viole. Risque nul, coût d'une heure, et cela évite qu'une session future réimplémente ou supprime du travail livré.
+Four screen defects that cost network, battery or trust: a pagination that can loop indefinitely on `channels.history` when the oldest messages share a millisecond, a `subscriptions.read` every 2 s in a busy room (30/min on a route limited to 10/min), an ExoPlayer + MediaSession + Visualizer allocated and a file downloaded per voice message MERELY VISIBLE (the exact opposite of the decision written in ui/videoPlayer.tsx), and a scroll after sending pinned on `setTimeout(250)`, that is the wait-time fix the project's standing rule forbids. All the fixes are local to a screen or a component.
 
-#### 🟡 moyenne — EXECUTION.md, déclaré source de vérité, a 110 commits de retard et sa table renumérote les étapes à faux
+#### 🟡 medium: The "past exhausted" criterion (`n > 1`) loops indefinitely if the oldest messages share the same millisecond
 
-`EXECUTION.md:77` · ✅ vérifié · risque de correction : nul
+`app/room/[rid].tsx:522` · not put to the refuter · fix risk: low
 
-`git log -1 -- EXECUTION.md` donne ee1a4aa et `git rev-list --count ee1a4aa..HEAD` donne 110. Absents du document : E2EE en lecture complète (8 commits), appels Jitsi, i18n EN/FR, citations, façade multi-fournisseur, rattrapage WorkManager du push, caches de salon — qui portent pourtant des décisions de perf mesurées. La table « État d'avancement » liste « 9 | iOS | ☐ » alors que le corps porte « Étape 9 — Thème visuel » (9.4 non cochée) et « Étape 10 — iOS ».
+`loadMore` requests the previous page with `latest = ts of the oldest local message` and `inclusive: true`, then concludes `n > 1 ⇒ more past remains`. The reasoning only holds if the boundary message is ALONE on its millisecond, yet the secondary sort key `desc(messages.id)` (l.229) explicitly acknowledges ties as real (bot burst, import). The server then returns the whole group, `n` stays > 1, `passExhausted` is never armed, and the re-ingestion makes `data` change, which re-arms FlashList v2's `onEndReached`: the loop feeds itself until the 429.
 
-**Correction.** Corriger la table pour refléter la numérotation réelle (9 = thème, partiel ; 10 = iOS) et ajouter une section « Étape 11 — travaux post-thème » listant en une ligne chacune les briques livrées depuis ee1a4aa, avec renvoi au fichier qui porte la justification. Ou, si la cérémonie est vraiment levée, corriger CLAUDE.md:7 pour que le fichier ne se prétende plus source de vérité.
+**Fix.** Infer exhaustion from the page containing a message strictly older than the boundary (return the smallest `ts` of the batch from `loadHistory` and compare), rather than from the count. A complementary net: also arm `passExhausted` if the last id is unchanged after two consecutive pages.
 
-#### 🟡 moyenne — La WebView de l'écran d'appel n'est consignée dans aucun des trois documents qui la déclarent interdite
+#### 🟡 medium: The `markRead` debounce bounds bursts but not the RATE: 30 POST/min on a route limited to 10/min
 
-`ROADMAP.md:150` · ✅ vérifié · risque de correction : nul
+`app/room/[rid].tsx:284` · not put to the refuter · fix risk: low
 
-ROADMAP.md:150, EXECUTION.md:52 et CLAUDE.md:50 posent « toute WebView » en interdit ferme, jamais amendé. Or react-native-webview 13.16.1 est une dépendance ordinaire (package.json:45) et app/call/[callId].tsx:164 la monte en plein écran ; la justification n'existe que dans les commentaires du code (l.22-29, lib/call.ts:16-19). Pire, ui/embedCard.tsx:4 et lib/videoLinks.ts:10 écrivent « une WebView (interdite, ROADMAP §4.2) » — la section même que l'écran d'appel viole.
+The effect re-arms a `setTimeout(1500)` on each new id at the top and calls `subscriptions.read`. A trailing debounce only guarantees the absence of two calls less than 1.5 s apart; a message every 2 s produces 30 calls in the minute. The comment "debounced, the REST is rate-limited" assumes a protection that does not exist. On each 429, lib/rest.ts retries 3 times with naps of up to 30 s, for purely idempotent work, and the home screen's unread counter stays wrong for several tens of seconds.
 
-**Correction.** Amender ROADMAP §4.2 d'une ligne d'exception bornée (« react-native-webview — UNIQUEMENT app/call/[callId].tsx, Jitsi étant une web-app ; le SDK natif vise RN ~0.79 et embarque react-native-webrtc »), en reprenant le raisonnement déjà écrit dans lib/call.ts, et répercuter le « sauf l'écran d'appel » dans EXECUTION.md:52 et CLAUDE.md:50.
+**Fix.** A rate floor on top of the debounce: remember the instant of the last successful `markRead` and only rerun if `Date.now() - last >= 10_000`, otherwise reschedule for the rest of the floor. Nothing is lost semantically (`subscriptions.read` marks everything read up to now, a late call encompasses the earlier ones). Complete it with a guaranteed call on leaving the screen and on going to the background.
 
----
+#### 🟡 medium: Each MOUNTED voice message creates an ExoPlayer and downloads its file, even without playback
 
-## L'ordre d'attaque, et pourquoi
+`ui/audioPlayer.tsx:208` · not put to the refuter · fix risk: medium
 
-1. Le lot d'une ligne — sept correctifs vérifiés, chacun dans un seul fichier, dont deux de sévérité haute ; c'est le meilleur rapport gain/risque du dépôt et deux d'entre eux (la génération non bumpée par l'E2EE, la garde d'upload) sont des prérequis de chantiers ultérieurs.
+`useAudioPlayer(url)` is called in the component body, hence for each audio attachment the list renders. On the native side, the constructor does `setMediaSource` → `prepare()`: ExoPlayer immediately buffers the remote URL, plus a periodic coroutine, one MediaSession per instance, and a system `Visualizer` through the effect at l.226, whereas the native side warns "It must only be created once, otherwise the app will crash". The neighbouring file ui/videoPlayer.tsx explicitly decided the other way ("the player only exists while you watch"). Scrolling through 20 voice messages downloads ~20 MB for zero seconds of listening, with URLs carrying `rc_uid`/`rc_token`.
 
-2. Une file d'écritures par connexion SQLite — deux lignes dans db/client.ts qui rendent impossible la seule race capable d'annuler un lot en silence ; no-op strict sur le chemin nominal, donc à passer avant tout ce qui touchera à la base.
+**Fix.** Reuse the pattern of videoPlayer.tsx: the card at rest mounts no player, `useAudioPlayer` and `useAudioSampleListener` live in a sub-component mounted at the first tap on "lire" (play) (the `activePlayer` coordinator then becomes trivial). Remove in passing the redundant call to `setAudioSamplingEnabled(true)`: `useAudioSampleListener` already does it, after testing `isAudioSamplingSupported`, which our effect does not.
 
-3. Zéro secret hors du processus — le seul constat critique de l'audit (le jeton dans Chrome) plus trois fuites de la même famille ; indépendant de tout le reste, donc à faire dès que la surface est calme.
+#### 🟡 medium: Scrolling after sending in a thread relies on a fixed 250 ms delay
 
-4. Ce qui entre en base doit être juste — corrections de fonctions pures et de SQL statique, avec les tests de lib/normalize.test.ts écrits dans le même commit ; à faire avant les chantiers de purge, qui manipulent les mêmes tables.
+`app/thread/[id].tsx:258` · not put to the refuter · fix risk: low
 
-5. Rattrapage de salon dédupliqué — la déduplication vit dans lib/catchUp.ts, donc aucune signature d'appelant ne bouge ; elle suppose acquis le correctif de `generation` (chantier 1) et doit embarquer la pile `salonActif`, sans quoi elle transforme une dette en perte réelle de rattrapage.
+`afterSend` does `setTimeout(() => list.current?.scrollToEnd(...), 250)`. The expected chain is: SQLite write serialised by the queue (hence behind any sync transaction in progress) → `addDatabaseChangeListener` → `useCoalescedLiveQuery`, whose debounce is 48 ms but CAPPED at 400 ms. The delay therefore has no guaranteed upper bound against what it waits for: under a flood of writes, the scroll starts on the previous data, the reply is born below the fold, and the user sends their message again. This is exactly the wait-time fix the standing rule forbids, and the room screen solves the same problem without a clock (app/room/[rid].tsx:322-336, an effect on `latest` with a chronological guard).
 
-6. Cycle de vie de la donnée locale (purge, curseurs, rétention) — on touche des DELETE, donc après le chantier normalisation et avec les tests de dépôt écrits d'abord ; la race de réconciliation est la seule du lot qui fasse disparaître une donnée visible.
+**Fix.** Remove `afterSend` and the `setTimeout`: a `useEffect` watching for a new id appearing at the tail of `data` (the `_id` returned by `outbox.send` is already available to wait for it by name). The list is realigned by the render, not by a clock.
 
-7. File de téléversements — le plus gros chantier fonctionnel : écrire D'ABORD les tests absents (statut 0, SQL de la file), puis le bandeau « en attente » qui supprime la disparition silencieuse, puis seulement la migration `file_id` qui supprime le doublon.
+#### 🟡 medium: The emoji picker freezes the list of custom emojis at mount whereas it is never unmounted any more
 
-8. Transport DDP et REST — sonde de vie, suspension du pilote en arrière-plan, timeout d'`/api/info`, sommeil 429 interruptible ; modules déjà bien couverts, à traiter d'un bloc pour ne payer qu'une seule campagne de tests de reconnexion.
+`ui/emojiPicker.tsx:228` · not put to the refuter · fix risk: low
 
-9. Session morte et fin de session — placé ici parce que la déconnexion automatique sur 401 est la correction la plus dangereuse de l'audit : écrire le prédicat `estJetonRefuse` et son test à quatre cas AVANT de le brancher, et faire d'abord la partie clé E2EE indexée par compte, qui est sans risque.
+`useMemo(() => customEmojiCodes(), [])` is justified by a comment ("the panel unmounts on close") stale since 0313574: `useEmojiPanel` mounts the panel once and for all and NEVER unmounts it. Yet `syncCustomEmojis` runs AFTER `ready`, at connection setup, so on first install `customs` is `[]`, the ⭐ tab is not rendered (condition l.272) and search offers no custom emoji, while `:party_parrot:` displays correctly in the messages the next second.
 
-10. Push natif — un seul passage, un seul cycle prebuild + assembleRelease (statut testé sans pipe) ; y embarquer la validation d'hôte du chantier 3 pour ne pas payer deux builds.
+**Fix.** Make the emoji index observable like the other stores: a generation counter in lib/customEmojis.ts exposed through a `useSyncExternalStore` (a pattern already in place in ui/identities.tsx and ui/i18n.ts), and make the `useMemo` depend on that generation. Failing that, at least fix the comment, which claims the opposite of the real behaviour.
 
-11. Écrans : boucles sans borne et attentes fixes — indépendant du reste, mais après le chantier rattrapage qui touche déjà app/salon/[rid].tsx, pour ne pas empiler deux séries de modifications sur le même fichier.
+#### ⚪ low: The markdown render safeguard never re-arms
 
-12. Filet de test là où le code n'est pas atteignable — risque nul par construction, et impératif AVANT le découpage : les faux dépôts qui mentent sur `transaction` et les fonctions pures de l'écran salon sont exactement ce qui protégera le refactor suivant.
+`ui/markdown.tsx:56` · not put to the refuter · fix risk: low
 
-13. Une seule source par concept (i18n, couleurs, formats, MIME) — prépare le composer partagé en supprimant les divergences de style et de clés entre salon et fil.
+`RenderGuard` sets `crashed: true` and renders `this.props.fallback` forever: nothing resets the state to `false` when the props change. The row stays mounted across edits, so a momentarily malformed `md` freezes the message on its bare text (no bold, no link, no emoji) until the cell is recycled, even after the edit that fixes the `md`. The rest of the chain is remarkably defensive; this is the only link with no re-arming.
 
-14. Duplication structurelle et découpage de l'écran salon — refactor pur, à faire quand plus aucune correction fonctionnelle n'est en vol dans ces fichiers et que les tests des chantiers 12 et 13 sont en place ; commencer par les quatre déplacements sans risque, laisser le moteur de liste tranquille.
+**Fix.** `componentDidUpdate(prev) { if (this.state.crashed && prev.children !== this.props.children) this.setState({ crashed: false }); }`, or a `key` derived from `message.md ?? message.text` from `MessageContent`.
 
-15. La façade Fournisseur — prolongement naturel du chantier 5 et du découpage (`cheminHistorique` a déjà migré) ; gain structurel seul, aucun bug utilisateur en attente.
+#### 🟡 medium: Reactions are sent to the server but never shown nor removable
 
-16. Documentation — une heure, risque nul, à faire en dernier pour que EXECUTION.md décrive l'état réel après tous les chantiers plutôt qu'un état intermédiaire.
+`app/message-actions.tsx:253` · not put to the refuter · fix risk: low
 
+The row of six chips hard-wires `put` to `true`, whereas `chat.react` can also remove. And the `messages.reactions` column is WRITTEN (lib/normalize.ts:156, db/upserts.ts:42) but a grep over ui/, app/, lib/ finds no READ. The user taps 👍, the sheet closes, nothing changes (neither right away, nor when the server echo arrives) and they have no way to undo. It is an action offered with no feedback and no undo, and a write-only SQLite column.
 
----
+**Fix.** Either remove the row as long as the rendering does not exist (promise nothing), or, preferably, render the reactions in ui/messageRow.tsx from `message.reactions` (a chip per code, a counter, an accented outline if my username is in it) and pass `put = !jaiDejaReagi`. The data is already in the database and already refreshed by the stream.
 
-## À ne pas toucher
+#### ⚪ low: Side effects run inside a setState updater
 
-Ce qui a été signalé au cours de l'audit mais qu'il vaut mieux laisser tel quel — soit parce que le risque de correction dépasse le gain, soit parce que c'est un choix délibéré.
+`ui/emojiPicker.tsx:131` · not put to the refuter · fix risk: low
 
-- La double lecture de `raccorder` (lib/connectionSetup.ts:89 et 104, deux `rattraperTout` par raccordement). Le constat est réel — 2 x rooms.get + 2 x subscriptions.get à chaque retour au premier plan, sur une route à 10 req/min — mais la seconde lecture est CE qui garantit qu'aucun document ne tombe entre la lecture et l'armement des souscriptions. La rendre conditionnelle touche le cœur du raccordement, sans test de non-régression aujourd'hui. À reprendre seulement après le chantier « rattrapage dédupliqué » (qui supprime déjà l'essentiel du gaspillage) ET une fois lib/connectionSetup.test.ts étendu.
+`toggle` places `fieldRef.current?.focus()` and `Keyboard.dismiss()` INSIDE the function passed to `setState`. React requires a pure updater: StrictMode systematically doubles it, and an interrupted concurrent render replays it. Yet the keyboard/panel order is precisely what commit 0313574 had the hardest time stabilising: one `Keyboard.dismiss()` too many during the animation can make `useAnimatedReaction` (l.124-129) miss the transition and leave the panel in `yielded`, with its height reserved under the composer.
 
-- Le découplage de l'effet `SynchroProvider` d'avec l'objet `etat` (clé `baseUrl|userId|authToken` en dépendance). Proposé par deux relecteurs, contredit par un troisième après vérification : `TraducteurRC` et `MoteurEnvoi` capturent `session.username` à la construction (providers/rocketchat/index.ts:40), donc figer la clé casse le nom affiché et `dmAutreUsername` des DM après un renommage. Le vrai correctif (mémoïser la file d'écritures avec la connexion) supprime le danger sans toucher aux dépendances ; la reconstruction gratuite du moteur sur renommage devient alors un simple gaspillage, à traiter plus tard avec un traducteur qui relit son pseudo.
+**Fix.** Compute the next state outside the updater, call `setState(next)`, then perform the side effect; or move `focus()`/`dismiss()` into a `useEffect` triggered by the `state` transition.
 
-- Les 24 erreurs eslint react-hooks/immutability et refs de ui/imageViewer.tsx et ui/audioPlayer.tsx. Vérifié : ce sont des écritures de `SharedValue` dans des worklets de geste, c'est-à-dire l'API normale de Reanimated que la règle (modèle React Compiler) ne modélise pas. `remettreAPlat` porte bien sa directive `'worklet'`. Le seul cas litigieux, `moi.current.pause = …` écrit pendant le rendu, est bénin (le coordinateur compare l'identité de l'objet, jamais la closure). Y toucher ne ferait qu'ajouter des indirections.
+#### ⚪ low: Two screens apply an optimistic state without sequencing
 
-- L'idiome « liste inversée + maintainVisibleContentPosition coupé » et le lissage des entrants de app/salon/[rid].tsx (commentaire l.74-99), ainsi que la clé de tri secondaire `desc(messages.id)`. Ce sont des cicatrices mesurées, pas des bizarreries ; le découpage du fichier ne doit toucher ni au moteur de liste ni à ces réglages.
+`app/settings.tsx:89` · not put to the refuter · fix risk: low
 
-- Le `setTimeout` de ui/launchPicker.ts. C'est le seul délai fixe du dépôt qui soit explicitement argumenté (NPE d'arbre de vues Android au lancement d'un sélecteur, trois correctifs successifs : c9e6694, e06f658, ad8ecec). La règle « pas d'attente comme correctif » vise les synchronisations de données, pas les contournements de bug de plateforme documentés.
+`set` captures `previous` then sets the value before awaiting `users.setPreferences`, with no `inFlight` guard nor sequence number (unlike app/search.tsx:72 and app/message-search.tsx:72). Two close taps launch two concurrent POSTs and the `catch` of the first restores the value from BEFORE the second choice: the UI shows a level the server does not hold. Same family: app/my-profile.tsx:161-216 chains three calls (info, status, avatar) with a single catch that applies no `setInitial`; a resubmission replays the already accepted username and can be refused, making the screen unusable for the only remaining step.
 
-- `fermerBase` (db/client.ts:45) : ne PAS l'appeler dans le cleanup de `SynchroProvider`. La connexion est partagée et le cleanup court pendant que des écritures de l'ancien moteur peuvent encore être en vol — fermer sous elles est pire que de laisser la connexion ouverte. Le bon geste est de documenter le choix dans db/client.ts et de filtrer `databaseName` dans ui/liveQuery.ts (constat retenu), pas d'appeler la fonction.
-
-- L'exception WebView de app/call/[callId].tsx. Le SDK Jitsi natif vise RN ~0.79 et embarque react-native-webrtc : l'exception est justifiée et doit rester. Ce qu'il faut, c'est la consigner dans ROADMAP §4.2 et la borner à une origine — pas la remettre en cause.
-
-- `Push_request_content_from_server` (push sans contenu, `push.get` à la réception). C'est une décision utilisateur datée (2026-07-16 : rien chez Google/Apple). Tous les constats push doivent composer avec, jamais proposer de la lever.
-
-- Ne pas passer d'`_id` client à `rooms.mediaConfirm` pour dédupliquer les uploads : le schéma serveur est `additionalProperties: false`. La déduplication doit passer par la persistance du `fileId` côté client, comme retenu dans le chantier téléversements.
-
-- Ne pas retirer l'appui long de app/salon/[rid].tsx:584 et app/thread/[id].tsx:245 pour régler la feuille d'actions vide : ce serait la même règle dupliquée dans deux écrans, et cela supprimerait le retour haptique qui confirme que l'appui a pris. Le repli se fait dans app/message-actions.tsx.
-
+**Fix.** A sequence in a ref for `set` (only apply the rollback and the message if `sequence.current === n`), or an `inFlight` guard with the three options disabled. For `my-profile`, track the success of each step (clear `localAvatar` as soon as `setAvatar` succeeds, `setInitial` field by field) and only state in the banner what failed.
 
 ---
 
-## Les constats réfutés
+### 12. A test net where the code cannot be reached
 
-7 constats de sévérité haute ou critique ont été **démolis** par le réfuteur adversarial. Ils sont consignés ici pour qu'une session future ne les redécouvre pas.
+**Max severity** 🟡 medium · **fix risk** none · **effort** day
 
-### Un `ready` suivi de la mort de la socket dans le même tour JS marque la souscription comme établie sur une socket morte — elle n'est plus jamais ré-armée
+The repo's coverage is above average, but it stops at a clear boundary: whatever touches the platform (db/store.ts, lib/server.ts, ui/drafts.ts, the plugins) and all of `app/` (5,400 lines, zero tests). Two points are worse than a plain gap: the fake stores LIE (their `transaction: (fn) => fn(store)` erases the deadlock invariant that db/store.ts paid for with a real crash), and the E2EE crypto is only exercised against `node:crypto`, never against quick-crypto, which is the implementation actually shipped. Zero regression risk by construction: this workstream changes no production code, and it is a precondition for splitting the room screen.
+
+#### 🟡 medium: The fake stores expose the WHOLE store in `transaction`, which makes the queue/transaction deadlock undetectable
+
+`lib/sync.test.ts:274` · not put to the refuter · fix risk: none
+
+lib/sync.test.ts:274 and lib/catchUp.test.ts:45 define `transaction: async (fn) => fn(store)`: the callback receives the whole `Store` object, whose methods are plain `push`es. In production, `transaction` is `serially(() => raw.withTransactionAsync(() => fn(direct)))` and passes the DIRECT writer, outside the queue, because calling a queue method from inside a transaction deadlocks (db/store.ts:64-76, lib/sync.ts:88-93). A refactor that wrote `this.store.upsertMessage` instead of `tx.upsertMessage` would pass tsc and the 460 tests, and would freeze the first catch-up batch on the device, forever.
+
+**Fix.** Make the fake `transaction` a trap: an `inTransaction` flag set during the call, a `directWriter` exposing only `StoreWrites`, and each top-level method of the fake throwing "write outside the queue during a transaction" if the flag is up. The test becomes the exact mirror of the constraint.
+
+#### 🟡 medium: The E2EE crypto is only exercised against `node:crypto`; quick-crypto is covered by nothing
+
+`lib/e2e/crypto.ts:27` · not put to the refuter · fix risk: none
+
+The tests validate an implementation that is never the one running on the device (metro.config.js aliases to react-native-quick-crypto). The contact points are the ones where two OpenSSL implementations diverge the most: `createDecipheriv('aes-256-gcm')` + `setAuthTag` with the tag cut from the end of the buffer, `createPrivateKey({format:'jwk'})`, `privateDecrypt` with `oaepHash: 'sha256'`, and the fact that an authentication failure must return `null` rather than throw. A version bump that broke one of the four would pass tsc and the 9 tests, and would give "Déverrouillage impossible" ("Unlock failed") on the device with no prior signal.
+
+**Fix.** A harness run on the device (or in e2e/harness/) replaying the vectors of crypto.test.ts (v2 envelope, v1 envelope, GCM content, CBC content) through the module actually loaded, with a loud failure. Failing that, a Node test that asserts at least the SURFACE used on the module resolved by the Metro alias.
+
+#### 🟡 medium: `lib/server.ts` has no test although it drives the whole login screen
+
+`lib/server.ts:58` · not put to the refuter · fix risk: none
+
+`normalizeUrl` carries precise and counter-intuitive rules, all justified in comments: https scheme assumed, sub-path KEPT (`origin + pathname`) because a reverse proxy often serves Rocket.Chat under `/chat`, slashes trimmed, invalid URL as a `ServerError`. `probeServer` is no better covered: parallelisation, absorption of rejections, `abort()` of the sibling request, conversion of the settings into a `ServerProfile`. A "simplification" to `new URL(x).origin` would pass every test and make the server unreachable for any user on a sub-path.
+
+**Fix.** Create lib/server.test.ts: a table of cases for `normalizeUrl`, and for `probeServer` inject the fetch (extract `fetchVersion` behind the same injection point as `RestClient`, which also settles its lack of a timeout, transport workstream), then cover a non-JSON `/api/info`, `settings.public` without an array, the 2FA/OAuth flags, and the cancellation that cuts both requests.
+
+#### 🟡 medium: The debounce and the screen-exit flush of drafts are tested nowhere
+
+`ui/drafts.ts:104` · not put to the refuter · fix risk: low
+
+The hook's correctness depends on an unexpressed detail: the flush effect has `[write]` as dependencies, and `write` depends on `[base, key]`: this is the ONLY thing that guarantees the cleanup runs with the `write` of the OLD key. Nothing locks this invariant down: no type, no test, no assertion. Someone stabilising `write` with a ref (a common pattern) would turn the effect into `[]`: the draft of room A, left in under 400 ms, would be lost or written under B's key.
+
+**Fix.** Extract the mechanism into an object testable under Node (`createDeferredDraft({write, timeoutMs, schedule, cancel})`, clock injected like lib/reconnect.ts) and cover: one keystroke → one write, two close keystrokes → only one (the last), empty text → deletion, unmount during the pause → flush, KEY CHANGE during the pause → flush under the OLD key and nothing under the new one. To be combined with moving the drafts into the queue (workstream 2).
+
+#### 🟡 medium: The pure logic of the room screen and the home screen is buried in components, hence untestable
+
+`app/room/[rid].tsx:295` · not put to the refuter · fix risk: low
+
+`dataWithBar` (l.295-312) holds three simultaneous conventions in 17 lines (DESC data so the LAST occurrence is the OLDEST unread, inverted list so i+1 renders above, exclusion of my own messages) plus a case where `client.auth` is null and `myUid` is `undefined` (the bar can then sit above one of MY messages). Same situation for `useSmoothedData`, `historyPath`, the exhaustion predicate of `loadMore`, and for the grouping of app/index.tsx:126-148 (`?.open !== false` hiding, rising on `alert`, empty sections removed). An "optimisation" to a `break` at the first index would put the bar under the most recent message, without any test failing.
+
+**Fix.** Extract four pure functions and test them: `insertUnreadBar(dataDesc, lastSeen, myUid)`, `useSmoothedData` moved to ui/smoothedData.ts with an injectable clock, the exhaustion predicate, and `buildSections(rooms, subscriptions, titles)`. These extractions are part of the risk-free split of the next workstream and must COME BEFORE it.
+
+---
+
+### 13. A single source per concept: i18n, colours, formats, MIME tables
+
+**Max severity** 🟡 medium · **fix risk** low · **effort** day
+
+Commit 4dc5df6 migrated the whole app to `t()`, but four islands were missed and are invisible to the FR/EN parity test, since they are not in the catalogue: each message's time formatted in hard-coded `fr-FR`, the typing indicator ("bob écrit…", "bob is typing…"), the error messages of lib/profilePreload.ts and lib/uploadQueue.ts that reach the screen as is. A user in English therefore sees French sentences in an English interface. On top of that come three competing definitions of the presence colours (with three different shades for the same status) and two MIME→emoji tables that already diverge. Low risk, immediate consistency gain, and it prepares the split of the composer.
+
+#### 🟡 medium: Message times are formatted in hard-coded `fr-FR`, and the typing indicator is in French outside the catalogue
+
+`ui/messageRow.tsx:66` · not put to the refuter · fix risk: low
+
+`toLocaleTimeString('fr-FR', …)` at lines 66 and 193: the ONLY TWO hard-coded `toLocale*` in the repo (the other `toISOString` are API parameters). Same family: `phraseSaisie` (lib/typing.ts:120-125) builds "bob écrit…", "bob et carol écrivent…", "3 personnes écrivent…" without any key; ui/messages.ts contains none for typing, so the parity test sees nothing. In English: "14:05" instead of "2:05 PM", and "bob écrit…" above the composer.
+
+**Fix.** A `useTimeFormatter()` in ui/i18n.ts returning an `Intl.DateTimeFormat` memoised on the active language, called at both places. `phraseSaisie` returns data (`{names, n}`) and the phrasing moves to the catalogue (`room.typingOne/Two/N`); lib/typing.test.ts:96-102, which asserts the French strings, is rewritten on the structured shape.
+
+#### 🟡 medium: Error messages shown to the user are hard-coded in French, duplicating existing keys
+
+`lib/profilePreload.ts:125` · not put to the refuter · fix risk: low
+
+`'Profil illisible.'` and `'Profil introuvable.'` hard-coded, whereas `profile.profileUnreadable` / `profile.profileNotFound` exist in the catalogue and are indeed used by app/profile.tsx:141-145, but only on the ASYNC loading path; the NOMINAL path (`preloaded.error`) shows the hard-coded version. `git log` confirms the cause: the file was created on 2026-07-13 at 11:49, the i18n migration commit is from the same day at 17:34. Same pattern in lib/uploadQueue.ts:85 and :94 ("Fichier trop lourd (maximum X Mo).", "Type X refusé par le serveur.", that is "File too large (maximum X MB).", "Type X refused by the server.") and lib/outbox.ts:176, whose messages reach the screen as is through `setFileError(e.message)`.
+
+**Fix.** In lib/profilePreload.ts, `translateCurrent(...)` (designed exactly for this case, ui/i18n.ts:101). For lib/uploadQueue.ts and lib/outbox.ts (pure modules tested under Node, which must NOT import the i18n), make `ValidationError` carry a code (`'size'`, `'type'`) plus its parameters, and translate at the display point.
+
+#### 🟡 medium: Three competing definitions of the presence colours, with three different values per status
+
+`ui/presence.ts:14` · not put to the refuter · fix risk: low
+
+`COULEURS_PRESENCE` (#2de0a5 / #ffd21f / #f5455c / #9ea2a8, used by the list and the DM subtitle), `PRESENCE` hard-coded in app/profile.tsx:33-38 (#3BD16F / #F5B03E / #E8506B / #8A8FA3, with a comment "same words as a DM's subtitle", wrong for the colours), and the theme tokens (#3ED67F / #FFC24B / #FF7A8A / #5A5573, used by app/my-profile.tsx). The labels are duplicated the same way: `salon.presence*`, `profil.presence*`, `monProfil.presence*`, twelve keys for four words, already diverging in case. Yet ui/kit.tsx explicitly forbids hard-coded colours.
+
+**Fix.** Make `COULEURS_PRESENCE` the only source, fed by the theme tokens, remove the table of app/profile.tsx and the mapping of app/my-profile.tsx, and reduce the twelve keys to four `common.presence*`, leaving the case to the caller.
+
+#### ⚪ low: Two MIME→emoji tables, already diverging on the audio case
+
+`ui/attachmentPreview.tsx:34` · not put to the refuter · fix risk: low
+
+`fileEmoji` (ui/attachmentPreview.tsx:34-40) and `emojiPiece` (app/share.tsx:387-394) are the same mapping written twice; `emojiPiece` handles `audio/` → 🎵, the other does not. The surroundings are duplicated likewise (`isImage` in two places, degraded thumbnail rebuilt in `AttachmentThumbnail`). Any family added to one will not be added to the other.
+
+**Fix.** Export a single function (from ui/attachmentPreview.tsx or a ui/mime.ts), with the `audio/` branch (harmless for the composer's preview, which diverts audio to `AudioPlayer`), and remove `emojiPiece`.
+
+#### ⚪ low: The body of markdown messages carries no font family
+
+`ui/markdown.tsx:306` · not put to the refuter · fix risk: low
+
+ui/markdown.tsx never imports `FONTS`: `styles.paragraph` only declares `fontSize`/`lineHeight`, and the `<Text>` of the PARAGRAPH block is nested in no parent `<Text>` (only `<View>`s), so nothing is inherited. The body of every message that has an `md` comes out in the system font, next to the `RenderGuard` fallback and the quoted text, which are in Nunito. On top of that come three `fontWeight`s, whereas ui/theme.ts:189-206 documents one family PER weight and concludes "never add a fontWeight to it" (Android's synthetic faux bold). Same omission in app/search.tsx and app/message-search.tsx.
+
+**Fix.** `fontFamily: FONTS.body` on `paragraph` and `itemText`, and replace the `fontWeight`s with the families (`FONTS.title`, `bodyBold`, `bodySemi`): both together, never one without the other.
+
+#### ⚪ low: The media components hard-code dark colours, which invalidates the theme's "three edits" promise
+
+`ui/imageViewer.tsx:240` · not put to the refuter · fix risk: low
+
+ui/theme.ts:10-17 claims that wiring the theme toggle back "will take THREE edits". That is already false: `rgba(4,3,10,0.94)` (viewer), `rgba(12,11,22,0.80)` and `:186` (videoPlayer), `#00000020` and `rgba(12,11,22,0.42)` (embedCard), linkCard:197-202, and ui/kit.tsx itself (`textColor = '#FFFFFF'`, a hard-coded boxShadow) while claiming "never a hard-coded colour here". On the day of the toggle, it will be a hunt for hues across six files, and an 80 % black scrim on a white background.
+
+**Fix.** Add the two tokens that are really missing (`mediaScrim`, `fullScreenBackground`) to both sets and replace the six literals. Fix the "THREE edits" sentence of theme.ts: it serves as a contract, so it must stay true or disappear.
+
+---
+
+### 14. Structural duplication and splitting the room screen
+
+**Max severity** 🟡 medium · **fix risk** medium · **effort** several days
+
+Three copy-pastes have already cost, or will cost, a fix written twice: `catchUpUpdated` / `catchUpDeleted` (commit ffe1f7c had to apply the SAME cursor fix in two hunks of the same commit), the room composer / thread composer (the thread lacks the keyboard dismissal before a picker that fixes the view-tree NPE, and will reproduce it the day it gains attachments), and the debounce of the two search screens (already diverged). Add to that the room screen at 1,397 lines, two of whose components move WITHOUT RISK (props only, module-level stores) and bring it down to ~450 lines. Placed at the end of the sequence deliberately: it is pure refactoring, so to be done when the tests of the previous workstreams are in place and no functional fix is in flight in these files.
+
+#### 🟡 medium: `app/room/[rid].tsx` mixes three responsibilities over 1,397 lines; two can be extracted with no risk at all
+
+`app/room/[rid].tsx:161` · not put to the refuter · fix risk: low
+
+The file carries the list engine (l.161-706), the full composer (l.708-1156: pickers, audio, emojis, mentions, quotes, NPE workaround), the header (l.1158-1291), a Rocket.Chat REST utility (`historyPath`) and a generic hook (`useSmoothedData`). A consequence already visible in this audit: the three most costly defects of the domain (double catch-up, `n > 1`, `markRead` rate) live in the same soup of effects as the choice of an attached file. The history shows three successive fixes on the picker launch alone (ad8ecec, e06f658, c9e6694).
+
+**Fix.** PURE moves, no line of logic changed: `Composer` + `ComposerChiffre` + `assetToFile` → ui/composerSalon.tsx (~420 l., 11 explicit props, external couplings only through module-level stores); `RoomHeader` → ui/roomHeader.tsx (~135 l., props only); `useSmoothedData` → ui/smoothedData.ts; `historyPath` → providers/rocketchat/. Do NOT extract `useFluxSalon` (limit/fresh/data/nearBottom/lastTracked/passExhausted arbitrate one another, and the inverted idiom is a measured scar) as long as the pure functions are not tested.
+
+#### 🟡 medium: The thread composer is a diverged copy of the room composer
+
+`app/thread/[id].tsx:330` · not put to the refuter · fix risk: medium
+
+`ComposerFil` takes up `Composer` point by point: same `useEmojiCompletion`, same `useEmojiPanel`, same `useReply`/`cancelReply` + `useHardwareBack` pair, same `change`/`changeDraft`, same `send`, same banners, down to the comment "`:` and `@` tokens mutually exclusive" copied word for word. The divergences are already there: a different border, NO `FONTS` family (so the thread screen displays in the system font), a text send button instead of the ➤ tile, and four duplicated translation keys (`fil.chiffre` = `salon.chiffre`, etc.). Above all, the thread lacks the `closeEmoji()` + `Keyboard.dismiss()` that the room does before launching a picker.
+
+**Fix.** Extract `ui/composer.tsx` carrying the common trunk, parameterised by what really differs (📎/🎤 presence, reply key `rid` vs `rid:threadId`, `threadId` passed to `outbox.send`, placeholder). Prerequisite: the move of the room composer above. Merge the duplicated `thread.*` keys into `common.*`.
+
+#### 🟡 medium: `catchUpUpdated` and `catchUpDeleted` are two copies of the same pagination loop
+
+`lib/catchUp.ts:227` · ✅ verified · fix risk: medium
+
+The two functions have the same structure line for line: `for (page < PAGES_MAX)` loop, `cursorPage`, `isDiscarded` guard, computation of `next`, "last page" branch advancing on the largest ingested timestamp, cursor write, cap `console.warn`. Only the `type`, the stream name and the ingestion body differ. `git show ffe1f7c` shows that the fix "move the cursor forward on the LAST page" was applied TWICE in the same commit, with "see catchUpUpdated, same reasoning" as the only link.
+
+**Fix.** `paginateCursor(client, rid, type, stream, since, isDiscarded, apply)` carrying the loop, the cursor and the cap, with as its only parameter `apply(result) => Promise<number | null>`, which returns the largest timestamp processed. The two callers drop to three lines. Do it AFTER the per-rid deduplication (workstream 5), which touches the same file.
+
+#### 🟡 medium: Debounce + sequence guard copied between the two search screens
+
+`app/search.tsx:85` · not put to the refuter · fix risk: low
+
+The same block (`sequence = useRef(0)`, `const n = ++sequence.current`, `setTimeout(…, clean === '' ? 0 : 300)`, short-circuit on an empty query, `if (sequence.current !== n) return` in the `.then` AND the `.catch`, `clearTimeout` on cleanup) in both screens, the second admitting it in a comment ("Same idiom as the spotlight"). The copy has already diverged on clearing the error message (see workstream 1).
+
+**Fix.** `useDebouncedSearch<T>(query, search, timeoutMs = 300)` encapsulating the timer, the sequence guard and a full reset (results AND message) on an empty query.
+
+#### 🟡 medium: "Open or create a DM" is implemented twice, with two different handlings of the response
+
+`app/profile.tsx:180` · not put to the refuter · fix risk: low
+
+app/profile.tsx:180-186 posts `im.create`, guards `typeof rid !== 'string'` and conditionally ingests the room; app/search.tsx:119-121 does the same POST but passes the response to a local helper with an `as string | undefined` cast. Both have already diverged on validation and on error handling (catch vs finally), and neither goes through `ProviderActions`.
+
+**Fix.** `openOrCreateDm(username): Promise<{ rid, rawRoom }>` on `ProviderActions`, implemented once in providers/rocketchat/actions.ts with the type guard. The two screens then only have to call and navigate.
+
+#### ⚪ low: The rendering of attachment images is written twice in the same file, with different bounds
+
+`ui/messageRow.tsx:355` · not put to the refuter · fix risk: low
+
+`QuotedFile` (l.355-381) and the image branch of `Attachments` (l.485-527) redo the same sequence (source `title_link ?? image_url` with the same justifying comment, `protectedFileUrl`, ratio with the same defensive `Math.max(…, 1)`, `Pressable` + viewer + `Image cover`) with bounds that have already diverged (72..200 over a fixed 200 vs 120..400 over `availableWidth`). `Math.min(screenWidth - 92, 380)` is moreover duplicated identically in ui/linkCard.tsx:45.
+
+**Fix.** `<AttachedImage c attachment client maxWidth minHeight maxHeight onLongPress />` carrying the choice of source, the protected URL, the layout and the opening; export `availableBodyWidth(screenWidth)` from ui/theme.ts.
+
+#### ⚪ low: Dead code: `lightColors` and five unused translation keys
+
+`ui/theme.ts:141` · not put to the refuter · fix risk: low
+
+`lightColors` (~28 lines of tokens) is referenced only by a comment, `useColors` always returning `darkColors`. Five keys are referenced by no file (`commun.erreur`, `commun.chargement`, `commun.copier`, `commun.ok`, `salon.chiffre`, the last one a word-for-word duplicate of `fil.chiffre`), that is ten dead entries across the two catalogues.
+
+**Fix.** Delete (Git keeps it) or wire `lightColors` behind `useColorScheme()` together with the `mediaScrim`/`fullScreenBackground` tokens of the previous workstream; remove the five keys.
+
+---
+
+### 15. The Provider facade: whatever names Rocket.Chat must go through it
+
+**Max severity** 🟡 medium · **fix risk** medium · **effort** day
+
+The abstraction is clean and exhaustive on sync and actions, but it is bypassed exactly where it matters: the room screen imports `catchUpRoom` from lib/catchUp.ts, names three REST endpoints (`channels/groups/im.history`) and builds the stream keys `${rid}/deleteMessage` and `${rid}/user-activity` itself. There are therefore TWO paths for the same catch-up, one routed, the other hard-coded, and the Rocket.Chat key format is duplicated in two screens plus `topicOf`. A purely structural gain, no user bug today: do it last, once the split of the room screen has already moved `historyPath`.
+
+#### 🟡 medium: The `Provider` interface has no seam for PER-ROOM subscriptions
+
+`lib/provider.ts:208` · not put to the refuter · fix risk: medium
+
+The header sets the rule ("everything that names an /api/v1/* endpoint or a stream-* stream must eventually go through here") and the contract provides `initialSubscriptions()` for GLOBAL subscriptions. Nothing covers the subscription to the open room, though it is permanent: app/room/[rid].tsx:358-360 and app/thread/[id].tsx:205-206 import `STREAM_MESSAGES`/`STREAM_NOTIFY_ROOM` from lib/sync.ts and build the keys by hand. The "rid + / + topic" format is thus duplicated in two screens, in `topicOf` and in a comment of ui/hotRooms.ts.
+
+**Fix.** `roomSubscriptions(rid): readonly (readonly [name, key])[]`, symmetrical to `initialSubscriptions`, implemented in providers/rocketchat/index.ts, with the screens looping over its result. This also removes the stream-name imports from app/.
+
+#### 🟡 medium: The room screen bypasses the facade by calling the Rocket.Chat implementation directly
+
+`app/room/[rid].tsx:44` · not put to the refuter · fix risk: medium
+
+lib/provider.ts:216-218 exposes `catchUpRoom(engine, rid, isDiscarded)` and ui/sync.tsx does call it through this path, but the screen imports the function from lib/catchUp.ts with the `RestClient` in hand. The same screen names `channels.history`/`groups.history`/`im.history` (`historyPath`), and app/thread/[id].tsx calls `chat.getMessage` and `chat.getThreadMessages` directly. A second driver (Mattermost, anticipated by `ProviderKind`) would see each room opening emit `chat.syncMessages` on a nonexistent route.
+
+**Fix.** Add `loadHistory(rid, type, latest)` to the `Provider` interface (implemented on the RC side by `historyPath` + `chat.getThreadMessages`) and route the screen through `sync.provider` for the catch-up as for the history: the provider is already carried by the context. Do it AFTER the per-rid deduplication (workstream 5), of which it is the natural extension.
+
+#### 🟡 medium: The quote permalink is built on `client.baseUrl` whereas the server only accepts `Site_Url`
+
+`lib/quote.ts:21` · not put to the refuter · fix risk: low
+
+The module's doc says so itself (l.18): the `BeforeSaveJumpToMessage` hook only recognises a quote if the URL STARTS WITH `Site_Url`. `lib/server.ts:142-147` does retrieve `siteUrl`, but a grep returns only these three lines: the value is neither stored in the `Session` nor read anywhere. As soon as the entered URL differs (proxy alias, IP, port, http/https; the case of the emulator bench: `10.0.2.2:3300` vs `localhost:3300`), the server does not attach `message_link`. Worse than "no block": the optimistic display SHOWS the quote, then the server echo overwrites `attachments` and `withoutQuoteLinks` removes the raw link from the body: the final message no longer bears any trace of what it was replying to.
+
+**Fix.** Propagate `siteUrl` from the probe up to the `Session` (already read) and make `messagePermalink` a consumer of `siteUrl ?? baseUrl`: zero extra network calls, and a fallback identical to the current behaviour when the setting is missing. A test in lib/quote.test.ts with `baseUrl !== siteUrl`.
+
+#### ⚪ low: `lib/`, declared a "non-UI core", drives navigation
+
+`lib/profilePreload.ts:22` · not put to the refuter · fix risk: low
+
+The module imports `{ router } from 'expo-router'` and calls it at 113 and 164; on top of that it holds a singleton REST client, a cache and a state store with listeners. It is the only dependency inversion in the repo (the only other crossing, lib/systemMessages.ts → ui/messages.ts, is a recorded `import type`). A direct and measurable consequence: it is the only module of lib/ without a `.test.ts`, because it cannot be loaded under Node, so the race between `users.info`, the call probe and the 2 s cap remains entirely untested.
+
+**Fix.** Make the module pure: `precharger(p): Promise<RawProfile | null>`, which returns the decision, navigation staying with the caller. If the call from ui/markdown.tsx imposes a singleton, `setProfileNavigator((p) => router.push(...))` from ui/, on the model of `setProfileClient` already in place.
+
+---
+
+### 16. Bring the documentation back in line with the code
+
+**Max severity** 🟡 medium · **fix risk** none · **effort** hours
+
+CLAUDE.md designates EXECUTION.md as the "source of truth on where we are", and this file is 110 commits behind: neither read-side E2EE, nor Jitsi calls, nor i18n, nor quotes, nor the multi-provider facade, nor the room caches appear in it, and its progress table claims step 9 is iOS whereas the body of the document says theme. Symmetrically, ROADMAP.md §4.2, EXECUTION.md:52 and CLAUDE.md:50 declare the WebView "strictly forbidden" whereas react-native-webview is an ordinary dependency and the call screen mounts it full screen, to the point that ui/embedCard.tsx cites as its authority the very section the call screen violates. Zero risk, an hour's cost, and it prevents a future session from reimplementing or deleting shipped work.
+
+#### 🟡 medium: EXECUTION.md, declared the source of truth, is 110 commits behind and its table renumbers the steps wrongly
+
+`EXECUTION.md:77` · ✅ verified · fix risk: none
+
+`git log -1 -- EXECUTION.md` gives ee1a4aa and `git rev-list --count ee1a4aa..HEAD` gives 110. Missing from the document: full read-side E2EE (8 commits), Jitsi calls, EN/FR i18n, quotes, multi-provider facade, WorkManager catch-up for push, room caches, which nonetheless carry measured performance decisions. The "Progress" table lists "9 | iOS | ☐" whereas the body has "Step 9 - Visual theme" (9.4 unchecked) and "Step 10 - iOS".
+
+**Fix.** Fix the table to reflect the real numbering (9 = theme, partial; 10 = iOS) and add a section "Step 11 - post-theme work" listing, one line each, the building blocks shipped since ee1a4aa, with a pointer to the file that carries the justification. Or, if the ceremony really is lifted, fix CLAUDE.md:7 so that the file no longer claims to be the source of truth.
+
+#### 🟡 medium: The call screen's WebView is recorded in none of the three documents that declare it forbidden
+
+`ROADMAP.md:150` · ✅ verified · fix risk: none
+
+ROADMAP.md:150, EXECUTION.md:52 and CLAUDE.md:50 set "any WebView" as strictly forbidden, never amended. Yet react-native-webview 13.16.1 is an ordinary dependency (package.json:45) and app/call/[callId].tsx:164 mounts it full screen; the justification exists only in the code comments (l.22-29, lib/call.ts:16-19). Worse, ui/embedCard.tsx:4 and lib/videoLinks.ts:10 write "a WebView (forbidden, ROADMAP §4.2)": the very section the call screen violates.
+
+**Fix.** Amend ROADMAP §4.2 with a one-line bounded exception ("react-native-webview: ONLY app/call/[callId].tsx, Jitsi being a web app; the native SDK targets RN ~0.79 and ships react-native-webrtc"), reusing the reasoning already written in lib/call.ts, and carry the "except the call screen" over into EXECUTION.md:52 and CLAUDE.md:50.
+
+---
+
+## The order of attack, and why
+
+1. The one-line batch: seven verified fixes, each in a single file, two of them high severity; it is the best gain/risk ratio in the repo, and two of them (the generation not bumped by E2EE, the upload guard) are prerequisites of later workstreams.
+
+2. One write queue per SQLite connection: two lines in db/client.ts that make impossible the only race able to cancel a batch silently; a strict no-op on the nominal path, so to be done before anything that will touch the database.
+
+3. Zero secrets outside the process: the only critical finding of the audit (the token in Chrome) plus three leaks of the same family; independent of everything else, so to be done as soon as the surface is calm.
+
+4. What enters the database must be right: fixes to pure functions and static SQL, with the tests of lib/normalize.test.ts written in the same commit; to be done before the purge workstreams, which manipulate the same tables.
+
+5. Deduplicated room catch-up: the deduplication lives in lib/catchUp.ts, so no caller signature moves; it assumes the `generation` fix (workstream 1) is in, and must ship the `activeRoom` stack, without which it turns a debt into a real loss of catch-up.
+
+6. Lifecycle of local data (purge, cursors, retention): it touches DELETEs, so after the normalisation workstream and with the store tests written first; the reconciliation race is the only one of the batch that makes visible data disappear.
+
+7. Upload queue: the largest functional workstream: write FIRST the missing tests (status 0, the queue's SQL), then the "en attente" ("pending") banner that removes the silent disappearance, and only then the `file_id` migration that removes the duplicate.
+
+8. DDP and REST transport: liveness probe, suspending the driver in the background, `/api/info` timeout, interruptible 429 sleep; modules already well covered, to be handled in one block so as to pay for a single campaign of reconnection tests.
+
+9. Dead session and end of session: placed here because automatic logout on 401 is the most dangerous fix of the audit: write the `isTokenRejected` predicate and its four-case test BEFORE wiring it, and do first the part with the E2EE key keyed by account, which is risk-free.
+
+10. Native push: a single pass, a single prebuild + assembleRelease cycle (status tested without a pipe); ship the host validation of workstream 3 with it so as not to pay for two builds.
+
+11. Screens: unbounded loops and fixed waits: independent of the rest, but after the catch-up workstream, which already touches app/room/[rid].tsx, so as not to stack two series of changes on the same file.
+
+12. A test net where the code cannot be reached: zero risk by construction, and imperative BEFORE the split: the fake stores that lie about `transaction` and the pure functions of the room screen are exactly what will protect the next refactor.
+
+13. A single source per concept (i18n, colours, formats, MIME): prepares the shared composer by removing the style and key divergences between room and thread.
+
+14. Structural duplication and splitting the room screen: pure refactoring, to be done when no functional fix is in flight in these files any more and the tests of workstreams 12 and 13 are in place; start with the four risk-free moves, leave the list engine alone.
+
+15. The Provider facade: the natural extension of workstream 5 and of the split (`historyPath` has already moved); a structural gain only, no user bug pending.
+
+16. Documentation: one hour, zero risk, to be done last so that EXECUTION.md describes the real state after all the workstreams rather than an intermediate state.
+
+---
+
+## Do not touch
+
+What was flagged during the audit but is better left as is, either because the fix risk exceeds the gain, or because it is a deliberate choice.
+
+- The double read of `setUpConnection` (lib/connectionSetup.ts:89 and 104, two `catchUpAll` per connection setup). The finding is real (2 x rooms.get + 2 x subscriptions.get at each return to the foreground, on a route limited to 10 req/min), but the second read is WHAT guarantees that no document falls between the read and the arming of the subscriptions. Making it conditional touches the heart of the connection setup, with no non-regression test today. To be revisited only after the "deduplicated catch-up" workstream (which already removes most of the waste) AND once lib/connectionSetup.test.ts has been extended.
+
+- Decoupling the `SyncProvider` effect from the `state` object (key `baseUrl|userId|authToken` as the dependency). Proposed by two reviewers, contradicted by a third after verification: `RcTranslator` and `OutboxEngine` capture `session.username` at construction (providers/rocketchat/index.ts:40), so freezing the key breaks the display name and the `dmOtherUsername` of DMs after a rename. The real fix (memoising the write queue with the connection) removes the danger without touching the dependencies; the needless rebuild of the engine on a rename then becomes mere waste, to be handled later with a translator that rereads its username.
+
+- The 24 eslint react-hooks/immutability and refs errors of ui/imageViewer.tsx and ui/audioPlayer.tsx. Verified: they are `SharedValue` writes in gesture worklets, that is Reanimated's normal API, which the rule (React Compiler model) does not model. `flatten` does carry its `'worklet'` directive. The only debatable case, `me.current.pause = …` written during render, is benign (the coordinator compares the object's identity, never the closure). Touching them would only add indirections.
+
+- The "inverted list + maintainVisibleContentPosition off" idiom and the smoothing of incoming messages in app/room/[rid].tsx (comment l.74-99), as well as the secondary sort key `desc(messages.id)`. These are measured scars, not oddities; the split of the file must touch neither the list engine nor these settings.
+
+- The `setTimeout` of ui/launchPicker.ts. It is the only fixed delay in the repo that is explicitly argued (Android view-tree NPE when launching a picker, three successive fixes: c9e6694, e06f658, ad8ecec). The "no wait as a fix" rule targets data synchronisation, not documented workarounds for platform bugs.
+
+- `closeDatabase` (db/client.ts:45): do NOT call it in the cleanup of `SyncProvider`. The connection is shared and the cleanup runs while writes from the old engine may still be in flight: closing under them is worse than leaving the connection open. The right move is to document the choice in db/client.ts and to filter `databaseName` in ui/liveQuery.ts (finding kept), not to call the function.
+
+- The WebView exception of app/call/[callId].tsx. The native Jitsi SDK targets RN ~0.79 and ships react-native-webrtc: the exception is justified and must stay. What is needed is to record it in ROADMAP §4.2 and bound it to one origin, not to call it into question.
+
+- `Push_request_content_from_server` (push without content, `push.get` on receipt). It is a dated user decision (2026-07-16: nothing at Google/Apple). Every push finding must work with it, never propose lifting it.
+
+- Do not pass a client `_id` to `rooms.mediaConfirm` to deduplicate uploads: the server schema is `additionalProperties: false`. Deduplication must go through persisting the `fileId` on the client side, as kept in the uploads workstream.
+
+- Do not remove the long press of app/room/[rid].tsx:584 and app/thread/[id].tsx:245 to settle the empty action sheet: it would be the same rule duplicated in two screens, and it would remove the haptic feedback that confirms the press registered. The fallback goes in app/message-actions.tsx.
+
+---
+
+## The refuted findings
+
+7 findings of high or critical severity were **demolished** by the adversarial refuter. They are recorded here so that a future session does not rediscover them.
+
+### A `ready` followed by the socket's death in the same JS turn marks the subscription as established on a dead socket: it is never re-armed
 
 `lib/ddp.ts`
 
-**Le code décrit est exact ; le déclencheur, lui, n'existe pas sur l'architecture imposée par le projet.**
+**The code described is accurate; the trigger, however, does not exist on the architecture the project imposes.**
 
-1. Ce que dit le code (lu en entier, `lib/ddp.ts` 1-589). `etablir()` l.330-345 ne teste que `this.desirees.get(cle) !== entree` ; `nettoyer()` l.566-569 remet `s.id = null` de façon synchrone ; `etablir()` l.325 sort sur `entree.id !== null`. J'ai rejoué le scénario dans un harnais Node (FauxWebSocket, `recevoir({msg:'ready'})` puis `onclose(null)` dans le MÊME tour synchrone, sans laisser drainer les microtâches) : `etat= ferme  etablies= 1  desirees= 1`, puis reconnexion complète → `subs sur la nouvelle socket = 0`. Le mécanisme interne est donc réel, et `lib/ddp.test.ts` (505 l., lu en entier) ne le verrouille pas : le test le plus proche, « la fermeture de la socket laisse la négociation retomber proprement » (l.310), ferme AVANT le `ready`.
+1. What the code says (read in full, `lib/ddp.ts` 1-589). `establish()` l.330-345 only tests `this.wanted.get(key) !== entry`; `cleanUp()` l.566-569 resets `s.id = null` synchronously; `establish()` l.325 exits on `entry.id !== null`. I replayed the scenario in a Node harness (FakeWebSocket, `receive({msg:'ready'})` then `onclose(null)` in the SAME synchronous turn, without letting the microtasks drain): `etat= ferme  etablies= 1  desirees= 1`, then full reconnection → `subs sur la nouvelle socket = 0`. The internal mechanism is therefore real, and `lib/ddp.test.ts` (505 l., read in full) does not lock it down: the closest test, "closing the socket lets the negotiation settle cleanly" (l.310), closes BEFORE the `ready`.
 
-2. Mais la prémisse « batch du pont RN : plusieurs événements natifs sont livrés avant le drain des microtâches » est fausse pour RN 0.86 en New Architecture — qui est obligatoire ici (CLAUDE.md, et le bridge legacy n'existe plus depuis 0.82). Chaîne vérifiée dans `node_modules/react-native` :
-   - `ReactAndroid/.../modules/websocket/WebSocketModule.kt` l.62-65, 167/185 : chaque événement passe par `reactAppContext.emitDeviceEvent(...)` — un appel par événement, `websocketMessage` comme `websocketClosed`.
-   - `runtime/BridgelessReactContext.kt` l.156-162 : `emitDeviceEvent` → `reactHost.callFunctionOnModule("RCTDeviceEventEmitter","emit",…)`.
-   - `ReactCommon/react/runtime/ReactInstance.cpp` l.300-314 + l.159-162 : `callFunctionOnModule` → `bufferedRuntimeExecutor_` → `runtimeScheduler->scheduleWork(...)`.
-   - `RuntimeScheduler.cpp` l.26 : sous `enableBridgelessArchitecture()` c'est `RuntimeScheduler_Modern`. Et `ReactNativeFeatureFlagsOverridesOSSStable.h` l.16-19 force ce flag à `true` pour toute app OSS publiée.
-   - `RuntimeScheduler_Modern.cpp` l.293-322 : `runEventLoop` boucle sur `runEventLoopTick`, et **chaque tick fait `executeTask(...)` PUIS `performMicrotaskCheckpoint(runtime)`** (l.313-315), lequel appelle `runtime.drainMicrotasks()` en boucle jusqu'à épuisement (l.414-421, non borné).
+2. But the premise "RN bridge batching: several native events are delivered before the microtasks drain" is false for RN 0.86 in the New Architecture, which is mandatory here (CLAUDE.md, and the legacy bridge no longer exists since 0.82). Chain verified in `node_modules/react-native`:
+   - `ReactAndroid/.../modules/websocket/WebSocketModule.kt` l.62-65, 167/185: each event goes through `reactAppContext.emitDeviceEvent(...)`, one call per event, `websocketMessage` as well as `websocketClosed`.
+   - `runtime/BridgelessReactContext.kt` l.156-162: `emitDeviceEvent` → `reactHost.callFunctionOnModule("RCTDeviceEventEmitter","emit",…)`.
+   - `ReactCommon/react/runtime/ReactInstance.cpp` l.300-314 + l.159-162: `callFunctionOnModule` → `bufferedRuntimeExecutor_` → `runtimeScheduler->scheduleWork(...)`.
+   - `RuntimeScheduler.cpp` l.26: under `enableBridgelessArchitecture()` it is `RuntimeScheduler_Modern`. And `ReactNativeFeatureFlagsOverridesOSSStable.h` l.16-19 forces this flag to `true` for every published OSS app.
+   - `RuntimeScheduler_Modern.cpp` l.293-322: `runEventLoop` loops over `runEventLoopTick`, and **each tick does `executeTask(...)` THEN `performMicrotaskCheckpoint(runtime)`** (l.313-315), which calls `runtime.drainMicrotasks()` in a loop until exhaustion (l.414-421, unbounded).
 
-   Autremen
+   In other wo
 
-*(justification tronquée)*
+*(justification truncated)*
 
-### Un `result` de login suivi de la mort de la socket dans le même tour laisse le client « authentifié » avec `ws === null` — le pilote croit le stream actif et ne reconnecte plus
+### A login `result` followed by the socket's death in the same turn leaves the client "authenticated" with `ws === null`: the driver believes the stream is active and no longer reconnects
 
 `lib/ddp.ts`
 
-## Ce que j'ai lu
+## What I read
 
-- `lib/ddp.ts` en entier (589 l.), `lib/ddp.test.ts` en entier (598 l.), `lib/reconnect.ts`, `ui/sync.tsx`.
-- Les sources React Native 0.86 présentes dans `node_modules` (chemin de livraison réel des événements WebSocket).
+- `lib/ddp.ts` in full (589 l.), `lib/ddp.test.ts` in full (598 l.), `lib/reconnect.ts`, `ui/sync.tsx`.
+- The React Native 0.86 sources present in `node_modules` (the real delivery path of WebSocket events).
 
-## Le mécanisme décrit est exact — sur un modèle qui n'existe pas en production
+## The mechanism described is accurate, on a model that does not exist in production
 
-J'ai d'abord rejoué le scénario pour ne pas le rejeter à la légère (script jetable, `FauxWebSocket` du fichier de test) :
+I first replayed the scenario so as not to reject it lightly (a throwaway script, the `FakeWebSocket` of the test file):
 
 ```
 memeTour=true  -> connecter resolue; etat=authentifie; pertes=1; subs=0/1; wsFerme=false
@@ -992,103 +990,102 @@ memeTour=false -> connecter resolue; etat=ferme;       pertes=1; subs=0/1; wsFer
    subs envoyees sur le fil: 1 ; garde active ? false
 ```
 
-Donc oui : SI `onmessage({result})` puis `onclose()` sont invoqués dans **la même macro-tâche JS**, le client finit `etat='authentifie'` avec `ws === null`, zéro `sub` partie, garde relancée — exactement le zombie annoncé. Le relecteur a raison sur la mécanique interne.
+So yes: IF `onmessage({result})` then `onclose()` are invoked in **the same JS macrotask**, the client ends up `state='authenticated'` with `ws === null`, zero `sub` sent, guard re-triggered: exactly the announced zombie. The reviewer is right about the internal mechanics.
 
-Mais `memeTour=true` n'est pas un modèle du transport : c'est le test qui appelle `ws.onclose?.(null)` à la main, à la ligne suivante, sans laisser la file de micro-tâches se vider. Il faut donc démontrer que le vrai transport peut produire ça.
+But `memeTour=true` is not a model of the transport: it is the test calling `ws.onclose?.(null)` by hand, on the next line, without letting the microtask queue empty. It must therefore be shown that the real transport can produce this.
 
-## Le vrai transport ne peut pas le produire
+## The real transport cannot produce it
 
-Seul appelant de production : `providers/rocketchat/index.ts:39` → `new ClientDdp(urlWebSocket(...))` **sans** `creerWebSocket`, donc `lib/ddp.ts:153` → le `WebSocket` global de React Native. Aucun autre injecteur hors tests (grep sur `creerWebSocket|new ClientDdp`).
+The only production caller: `providers/rocketchat/index.ts:39` → `new ClientDdp(urlWebSocket(...))` **without** `createWebSocket`, hence `lib/ddp.ts:153` → React Native's global `WebSocket`. No other injector outside the tests (grep on `createWebSocket|new ClientDdp`).
 
-Chaîne réelle d'un événement WebSocket Android, vérifiée dans les sources :
+Real chain of an Android WebSocket event, verified in the sources:
 
-1. `ReactAndroid/.../websocket/WebSocketModule.kt` — `onMessage` (l.185) et `onClosed` (l.167) appellent chacun `sendEvent(...)` → `reactAppContext.emitDeviceEvent(...)`. Deux appels distincts.
-2. `runtime/BridgelessReactContext.kt:156` — `emitDeviceEvent` → `reactHost.callFunctionOnModule("RCTDeviceEventEmitter", "emit", …)`, **un appel par événement**.
-3. `ReactCommon/react/runtime/ReactInstance.cpp:310` — `bufferedRuntimeExecutor_->execute(...)`. `BufferedRuntimeExecutor.cpp` : hors phase de démarrage, chemin rapide `runtimeExecutor
+1. `ReactAndroid/.../websocket/WebSocketModule.kt`: `onMessage` (l.185) and `onClosed` (l.167) each call `sendEvent(...)` → `reactAppContext.emitDeviceEvent(...)`. Two distinct calls.
+2. `runtime/BridgelessReactContext.kt:156`: `emitDeviceEvent` → `reactHost.callFunctionOnModule("RCTDeviceEventEmitter", "emit", …)`, **one call per event**.
+3. `ReactCommon/react/runtime/ReactInstance.cpp:310`: `bufferedRuntimeExecutor_->execute(...)`. `BufferedRuntimeExecutor.cpp`: outside the startup phase, fast path `runtimeExecutor
 
-*(justification tronquée)*
+*(justification truncated)*
 
-### Le jeton de session peut être envoyé à un hôte arbitraire dicté par le push (repli mono-session + aucune vérification du host ni du schéma)
+### The session token can be sent to an arbitrary host dictated by the push (single-session fallback + no verification of the host or the scheme)
 
 `plugins/with-fcm-deeplink.js`
 
-J'ai lu `plugins/with-fcm-deeplink.js` en entier (760 l.), `lib/sessionStore.ts`, `lib/server.ts`, `lib/push.ts`, `lib/pushToken.ts`, `ui/notifications.tsx`, le manifeste généré `android/app/src/main/AndroidManifest.xml` + `src/debug/AndroidManifest.xml`, `docker/.env`, `.gitignore`, et `git log -- plugins/with-fcm-deeplink.js`.
+I read `plugins/with-fcm-deeplink.js` in full (760 l.), `lib/sessionStore.ts`, `lib/server.ts`, `lib/push.ts`, `lib/pushToken.ts`, `ui/notifications.tsx`, the generated manifest `android/app/src/main/AndroidManifest.xml` + `src/debug/AndroidManifest.xml`, `docker/.env`, `.gitignore`, and `git log -- plugins/with-fcm-deeplink.js`.
 
-CE QUI EST EXACT DANS LE CONSTAT (mécanique du code) : oui, `lireSession` (l.581-607) retourne `repli` quand `nbCandidats == 1` même si aucun `baseUrl` ne matche (l.602), et `recupererContenu` (l.647-686) construit l'URL à partir du `host` du push (l.655-657) puis y pose `X-User-Id`/`X-Auth-Token` (l.660-661). Il y a bien une rupture d'invariant : la seule chose qui garantit « le jeton ne part qu'au serveur auquel il appartient » est l'égalité exacte, et le repli la casse.
+WHAT IS ACCURATE IN THE FINDING (code mechanics): yes, `readSession` (l.581-607) returns `fallback` when `nbCandidats == 1` even if no `baseUrl` matches (l.602), and `fetchContent` (l.647-686) builds the URL from the push's `host` (l.655-657) then sets `X-User-Id`/`X-Auth-Token` on it (l.660-661). There is indeed a broken invariant: the only thing that guarantees "the token only goes to the server it belongs to" is exact equality, and the fallback breaks it.
 
-MAIS LA PRÉMISSE DE MENACE EST FAUSSE, donc le scénario n'est pas atteignable :
+BUT THE THREAT PREMISE IS FALSE, so the scenario is not reachable:
 
-1. **« Tout serveur Rocket.Chat capable de pousser vers cette app détient les identifiants Firebase de l'app » — l'implication est inversée.** Pour délivrer un data-message à ce token il faut signer une requête FCM HTTP v1 avec la CLÉ PRIVÉE d'un compte de service du projet Firebase de l'app. Cette clé n'est ni dans l'APK ni dans le dépôt (`google-services.json` est gitignoré — et le fichier client ne permet de toute façon PAS d'émettre en HTTP v1 ; le server key legacy n'existe plus, cf. `Push_UseLegacy=false` dans CLAUDE.md). Le serveur adverse « collecte.example » ne peut donc pas pousser. Un serveur tiers auquel l'utilisateur se connecte reçoit le token FCM (`lib/pushToken.ts`, `POST push.token`) mais un token n'autorise pas l'émission. Et le gateway RC Cloud ne route que vers les app-ids officielles (CLAUDE.md). L'ensemble des émetteurs possibles = {celui qui détient le compte de service Firebase} = le serveur de l'utilisateur lui-même, c'est-à-dire précisément le propriétaire du jeton volé. Pas d'escalade.
+1. **"Any Rocket.Chat server able to push to this app holds the app's Firebase credentials": the implication is reversed.** To deliver a data message to this token one must sign an FCM HTTP v1 request with the PRIVATE KEY of a service account of the app's Firebase project. That key is neither in the APK nor in the repo (`google-services.json` is gitignored, and the client file does NOT allow sending over HTTP v1 anyway; the legacy server key no longer exists, cf. `Push_UseLegacy=false` in CLAUDE.md). The hostile server "collecte.example" therefore cannot push. A third-party server the user connects to receives the FCM token (`lib/pushToken.ts`, `POST push.token`) but a token does not authorise sending. And the RC Cloud gateway only routes to the official app ids (CLAUDE.md). The set of possible senders = {whoever holds the Firebase service account} = the user's own server, that is precisely the owner of the stolen token. No escalation.
 
-2. **Le service est fermé aux applis locales** : `android:exported: 'false'` (l.724 du plugin) ; l'injection ne peut venir que du canal FCM de GMS.
+2. **The service is closed to local apps**: `android:exported: 'false'` (l.724 of the plugin); injection can only come from GMS's FCM channel.
 
-3. **« en clair » est faux en release.** Le manifeste principal ne déclare aucun `usesCleartextTraffic` et targetSdk = 36 → cleart
+3. **"In cleartext" is false in release.** The main manifest declares no `usesCleartextTraffic` and targetSdk = 36 → cleart
 
-*(justification tronquée)*
+*(justification truncated)*
 
-### La façade `Fournisseur` est contournée par les écrans : endpoints et noms de streams Rocket.Chat en dur dans app/, y compris un rattrapage qui existe déjà derrière le contrat
+### The `Provider` facade is bypassed by the screens: Rocket.Chat endpoints and stream names hard-coded in app/, including a catch-up that already exists behind the contract
 
-`app/salon/[rid].tsx`
+`app/room/[rid].tsx`
 
-J'ai lu lib/provider.ts en entier, providers/index.ts, providers/rocketchat/index.ts:75-78, ui/sync.tsx:240-370, lib/catchUp.ts:377-406, app/salon/[rid].tsx (imports, 340-495, 1293-1299), app/thread/[id].tsx:165-210, lib/provider.test.ts, et les messages des 5 commits qui ont construit la façade.
+I read lib/provider.ts in full, providers/index.ts, providers/rocketchat/index.ts:75-78, ui/sync.tsx:240-370, lib/catchUp.ts:377-406, app/room/[rid].tsx (imports, 340-495, 1293-1299), app/thread/[id].tsx:165-210, lib/provider.test.ts, and the messages of the 5 commits that built the facade.
 
-1) Les FAITS cités sont exacts, mais le CONSTAT (« la façade est contournée », sévérité haute) contredit ce que le code dit de lui-même. La règle invoquée est citée tronquée : lib/provider.ts:3-5 dit « doit **à terme** passer par ici » — pas « passe par ici ». Le même fichier borne explicitement le périmètre atteint : ActionsFournisseur (l.138-141) « Les lectures secondaires (profil, recherche, info salon, spotlight) **seront ajoutées ici quand leurs écrans seront routés** — elles portent des DTO qu'on ne définit pas à l'avance » ; l'interface Fournisseur (l.196-197) « Les ornements encore RC-only (présence, emojis custom, push, E2EE) restent hors de cette façade **en 4a**, gardés par capacites, **à absorber ensuite** ». Le commit 59bc618 (« Palier 4a ») redit mot pour mot « restent sur `client`, gardés par `capacites`, **à absorber en 4b/5** », et eb764a9 « Transitoire (absorbé en 4b) ». Le constat re-décrit donc l'état d'avancement documenté d'une migration en cours, pas un défaut. C'est exactement le cas « un commentaire documente le choix comme délibéré ».
+1) The FACTS cited are accurate, but the FINDING ("the facade is bypassed", high severity) contradicts what the code says about itself. The rule invoked is quoted truncated: lib/provider.ts:3-5 says "must **eventually** go through here", not "goes through here". The same file explicitly bounds the scope reached: ProviderActions (l.138-141) "The secondary reads (profile, search, room info, spotlight) **will be added here when their screens are routed**: they carry DTOs that are not defined in advance"; the Provider interface (l.196-197) "The ornaments still RC-only (presence, custom emojis, push, E2EE) stay outside this facade **in 4a**, guarded by capabilities, **to be absorbed later**". Commit 59bc618 ("Tier 4a") restates word for word "stay on `client`, guarded by `capabilities`, **to be absorbed in 4b/5**", and eb764a9 "Transitional (absorbed in 4b)". The finding therefore re-describes the documented progress of a migration under way, not a defect. This is exactly the case "a comment documents the choice as deliberate".
 
-2) Le scénario d'échec est INATTEIGNABLE en l'état. `Genre` (lib/provider.ts:46) n'a qu'un membre, `GENRES` idem, `creerFournisseur` n'a qu'une clause `case 'rocketchat'` et aucun driver Mattermost n'existe dans providers/ (un seul sous-dossier, `rocketchat`). Le scénario « creerFournisseur rend bien un objet Mattermost » suppose du code qui n'est pas écrit ; le jour où il le sera, le switch exhaustif casse la compilation (documenté providers/index.ts:4-5) et l'auteur du driver traversera nécessairement ces écrans. Aucun état d'entrée aujourd'hui ne produit un salon vide, un fil vide ou un DM en échec. Sévérité « haute » (= comportement faux visible par l'utilisateur) est donc très exagérée : l'effet actuel est nul.
+2) The failure scenario is UNREACHABLE as things stand. `ProviderKind` (lib/provider.ts:46) has only one member, `KINDS` likewise, `createProvider` has only one `case 'rocketchat'` clause, and no Mattermost driver exists in providers/ (a single subfolder, `rocketchat`). The scenario "createProvider does return a Mattermost object" assumes code that is not written; the day it is, the exhaustive switch breaks compilation (documented providers/index.ts:4-5) and the driver's author will necessarily go through these screens. No input state today produces an empty room, an empty thread or a failed DM. A "high" severity (= wrong behaviour visible to the user) is therefore greatly exaggerated: the current effect is nil.
 
-3) Le point le plus concret du constat — « rattraperSalon est court-c
+3) The most concrete point of the finding, "catchUpRoom is byp
 
-*(justification tronquée)*
+*(justification truncated)*
 
-### Aucun test ne relie les migrations à `_journal.json` / `migrations.js` : une migration présente mais non journalisée passe verte
+### No test ties the migrations to `_journal.json` / `migrations.js`: a migration present but not journaled passes green
 
 `db/schema.test.ts`
 
-**Ce que le constat décrit correctement.** La divergence de source est réelle : `db/schema.test.ts:17-19` et `43-45` listent le dossier (`readdirSync(DOSSIER).filter(f => f.endsWith('.sql')).sort()`), alors que `db/migrate.ts:40` fait `await migrate(ouvrirBase(baseUrl, utilisateurId).base, migrations)` avec `migrations` importé de `db/migrations/migrations.js`, qui exporte `{ journal, migrations: { m0000…m0011 } }`. Et le grep confirme qu'aucun test ne mentionne `_journal` ni `migrations.js` : les seules occurrences hors `node_modules` sont `db/migrations/migrations.js:3`, `db/migrate.ts:17`, `db/migrations.d.ts` et `drizzle.config.ts`. `db/upserts.test.ts:52` recopie d'ailleurs le même chargeur par dossier.
+**What the finding describes correctly.** The source divergence is real: `db/schema.test.ts:17-19` and `43-45` list the folder (`readdirSync(FOLDER).filter(f => f.endsWith('.sql')).sort()`), whereas `db/migrate.ts:40` does `await migrate(openDatabase(baseUrl, userId).base, migrations)` with `migrations` imported from `db/migrations/migrations.js`, which exports `{ journal, migrations: { m0000…m0011 } }`. And the grep confirms that no test mentions `_journal` or `migrations.js`: the only occurrences outside `node_modules` are `db/migrations/migrations.js:3`, `db/migrate.ts:17`, `db/migrations.d.ts` and `drizzle.config.ts`. `db/upserts.test.ts:52` moreover copies the same folder-based loader.
 
-Mais le scénario d'échec ne tient pas, pour quatre raisons.
+But the failure scenario does not hold, for four reasons.
 
-**1. Le cas « .sql présent, journal absent » exige de contourner le seul producteur.** `drizzle.config.ts` porte `driver: 'expo'` et `package.json` n'expose qu'une voie : `"db:generate": "drizzle-kit generate"`. Cette commande écrit le `.sql`, le `meta/NNNN_snapshot.json`, l'entrée de journal ET régénère `migrations.js` en un seul passage. Le dépôt le confirme sur ses 12 migrations : `git show --stat f98d696 -- db/` (migration 0011, la plus récente) touche dans le MÊME commit `0011_safe_mach_iv.sql`, `meta/0011_snapshot.json`, `meta/_journal.json` et `migrations.js`. `git log -- db/migrations/meta/_journal.json` rend exactement la même liste de commits que `git log -- db/migrations/`. Aucune migration écrite à la main n'a jamais existé ici.
+**1. The ".sql present, journal missing" case requires going around the only producer.** `drizzle.config.ts` carries `driver: 'expo'` and `package.json` exposes only one way: `"db:generate": "drizzle-kit generate"`. This command writes the `.sql`, the `meta/NNNN_snapshot.json`, the journal entry AND regenerates `migrations.js` in a single pass. The repo confirms it on its 12 migrations: `git show --stat f98d696 -- db/` (migration 0011, the most recent) touches in the SAME commit `0011_safe_mach_iv.sql`, `meta/0011_snapshot.json`, `meta/_journal.json` and `migrations.js`. `git log -- db/migrations/meta/_journal.json` returns exactly the same list of commits as `git log -- db/migrations/`. No hand-written migration has ever existed here.
 
-**2. La branche « conflit de merge sur `_journal.json` » est exclue par le process du projet.** CLAUDE.md : « Branche principale : **`master`**. Commits directs, pas de PR. » Mono-développeur, pas de merge, donc pas de conflit de journal à mal résoudre.
+**2. The "merge conflict on `_journal.json`" branch is ruled out by the project's process.** CLAUDE.md: "Main branch: **`master`**. Direct commits, no PR." Single developer, no merge, hence no journal conflict to resolve badly.
 
-**3. La variante réellement plausible n'est PAS silencieuse.** Si le journal est à jour mais `migrations.js` périmé, `node_modules/drizzle-orm/expo-sqlite/migrator.js` (`readMigrationFiles`) fait `const query = migrations['m' + journalEntry.idx.toString().padStart(4,'0')]; if (!query) throw new Error('Missing migration: ' + journalEntry.tag)`. Ça lève AVANT la moindre écriture, au premier lancement, et `migrerBa
+**3. The really plausible variant is NOT silent.** If the journal is up to date but `migrations.js` is stale, `node_modules/drizzle-orm/expo-sqlite/migrator.js` (`readMigrationFiles`) does `const query = migrations['m' + journalEntry.idx.toString().padStart(4,'0')]; if (!query) throw new Error('Missing migration: ' + journalEntry.tag)`. That throws BEFORE any write, at the first launch, and `migrateDa
 
-*(justification tronquée)*
+*(justification truncated)*
 
-### `db/store.ts` — la seule implémentation réelle du `Depot` (385 lignes) n'a aucun test, file d'écritures comprise
+### `db/store.ts`: the only real implementation of the `Store` (385 lines) has no test, write queue included
 
 `db/store.ts`
 
-FAIT VÉRIFIÉ : il n'existe effectivement pas de `db/store.test.ts` (`find . -name "*.test.ts"` : 36 fichiers, aucun pour `store.ts`), et `lib/sync.test.ts:243` comme `lib/catchUp.test.ts:29` utilisent des faux `Depot` en mémoire. Le câblage de `db/store.ts` n'est donc pas couvert. C'est le seul point exact du constat. Tout le reste — le mécanisme, le scénario, la sévérité — ne résiste pas au code.
+VERIFIED FACT: there is indeed no `db/store.test.ts` (`find . -name "*.test.ts"`: 36 files, none for `store.ts`), and `lib/sync.test.ts:243` as well as `lib/catchUp.test.ts:29` use in-memory fake `Store`s. The wiring of `db/store.ts` is therefore not covered. That is the only accurate point of the finding. Everything else (the mechanism, the scenario, the severity) does not stand up to the code.
 
-1) LE SCÉNARIO D'ÉCHEC EST FAUX. Le constat prétend que supprimer `await brute.runAsync(SUPPRIMER_SORTIE, [m.id])` (db/store.ts:114) laisserait « chaque message envoyé avec sa ligne `sortie` en-attente après livraison », puis un repost de tout l'historique de sortie à chaque reconnexion jusqu'au 429. `lib/outbox.ts` le contredit deux fois :
-   - chemin nominal, `MoteurEnvoi.unePasse()` l.145-156 : `const reponse = await this.client.post('chat.sendMessage', …)` PUIS `await this.depot.supprimerSortie(ligne.id);` (l.155) — la ligne de sortie est effacée par le moteur lui-même, AVANT l'ingestion (`this.ingerer(reponse.message)` l.156). Verrouillé par un test : `lib/outbox.test.ts:106` — `assert.equal(sortie.size, 0, 'la file est vidée au succès')`.
-   - chemin du rejeu d'un `_id` déjà accepté (le 400 « starred » de RC 8.5), l.168-174 : `const livre = await this.messageLivre(ligne.id); if (livre !== null) { await this.ingerer(livre); await this.depot.supprimerSortie(ligne.id); continue; }` — là encore un `supprimerSortie` explicite. Verrouillé par `lib/outbox.test.ts:151` (« un rejeu refusé mais DÉJÀ LIVRÉ est réconcilié, pas marqué échec ») et :167.
-   Il n'existe donc aucun chemin où une ligne de sortie survit à une livraison confirmée sans la ligne 114. Le pire effet de sa suppression : après un kill du process entre la réponse HTTP et `supprimerSortie`, le prochain `traiter()` fait UN aller-retour 400 + `chat.getMessage` de plus par message concerné, puis efface la ligne. Un appel, une fois — pas une boucle de repost, pas de 429. La ligne 114 est une réconciliation de ceinture-et-bretelles (son commentaire l.110-113 le dit : « L'un d'eux qui porte notre `_id` prouve la livraison »), pas le seul rempart.
+1) THE FAILURE SCENARIO IS FALSE. The finding claims that removing `await raw.runAsync(DELETE_OUTBOX, [m.id])` (db/store.ts:114) would leave "each sent message with its `outbox` row pending after delivery", then a repost of the whole outbox history at each reconnection until the 429. `lib/outbox.ts` contradicts it twice:
+   - nominal path, `OutboxEngine.runPass()` l.145-156: `const response = await this.client.post('chat.sendMessage', …)` THEN `await this.store.deleteOutbox(row.id);` (l.155): the outbox row is erased by the engine itself, BEFORE ingestion (`this.ingest(response.message)` l.156). Locked down by a test: `lib/outbox.test.ts:106`: `assert.equal(outbox.size, 0, 'the queue is emptied on success')`.
+   - path of the replay of an already accepted `_id` (RC 8.5's "starred" 400), l.168-174: `const delivered = await this.messageDelivered(row.id); if (delivered !== null) { await this.ingest(delivered); await this.store.deleteOutbox(row.id); continue; }`: again an explicit `deleteOutbox`. Locked down by `lib/outbox.test.ts:151` ("a refused but ALREADY DELIVERED replay is reconciled, not marked failed") and :167.
+   There is therefore no path where an outbox row survives a confirmed delivery without line 114. The worst effect of removing it: after a process kill between the HTTP response and `deleteOutbox`, the next `process()` makes ONE more 400 round trip + `chat.getMessage` per message concerned, then erases the row. One call, once: not a repost loop, no 429. Line 114 is a belt-and-braces reconciliation (its comment l.110-113 says so: "One of them carrying our `_id` proves delivery"), not the only rampart.
 
-2) LE GARDE-FOU DE PURGE EST DÉJÀ TESTÉ, AILLEURS. `purgerSalonsA
+2) THE PURGE SAFEGUARD IS ALREADY TESTED, ELSEWHERE. `purgeMissingR
 
-*(justification tronquée)*
+*(justification truncated)*
 
-### `verrouiller()` oublie la clé en mémoire AVANT d'effacer le Keystore, et son rejet n'est capté nulle part
+### `lock()` forgets the in-memory key BEFORE erasing the Keystore, and its rejection is caught nowhere
 
 `lib/e2e/engine.ts`
 
-CODE LU EN ENTIER : lib/e2e/engine.ts (173 l.), lib/e2e/engine.test.ts (152 l.), ui/sync.tsx:160-256, app/settings.tsx:369-423, lib/sessionStore.ts (137 l.), ui/e2e.ts, lib/sync.ts:170-185, db/store.ts:210-230, db/upserts.ts:199, et l'implémentation native node_modules/expo-secure-store/android/.../SecureStoreModule.kt.
+CODE READ IN FULL: lib/e2e/engine.ts (173 l.), lib/e2e/engine.test.ts (152 l.), ui/sync.tsx:160-256, app/settings.tsx:369-423, lib/sessionStore.ts (137 l.), ui/e2e.ts, lib/sync.ts:170-185, db/store.ts:210-230, db/upserts.ts:199, and the native implementation node_modules/expo-secure-store/android/.../SecureStoreModule.kt.
 
-1) LE DÉCLENCHEUR ALLÉGUÉ N'EXISTE PAS. Le constat repose entièrement sur « SecureStore.deleteItemAsync échoue (clé Keystore invalidée après un changement de verrouillage d'écran, cas connu d'Android) ». C'est faux au niveau natif. `deleteItemImpl` (SecureStoreModule.kt:243-264) ne touche NI le Keystore NI le déchiffrement :
+1) THE ALLEGED TRIGGER DOES NOT EXIST. The finding rests entirely on "SecureStore.deleteItemAsync fails (Keystore key invalidated after a screen-lock change, a known Android case)". That is false at the native level. `deleteItemImpl` (SecureStoreModule.kt:243-264) touches NEITHER the Keystore NOR decryption:
 
     if (prefs.contains(keychainAwareKey)) success = prefs.edit().remove(keychainAwareKey).commit()
     if (prefs.contains(key)) success = prefs.edit().remove(key).commit() && success
     if (legacyPrefs.contains(key)) success = legacyPrefs.edit().remove(key).commit() && success
     if (!success) throw DeleteException(...)
 
-Trois `SharedPreferences.remove().commit()`, rien d'autre. `KeyPermanentlyInvalidatedException` ne peut survenir que dans `getItemImpl`/`setItemImpl` — et dans `getItemImpl` (l.156-158) elle est CAPTÉE et rend `null`, elle ne rejette même pas. Le seul rejet possible de `deleteItemAsync` est un `commit()` qui rend `false`, c'est-à-dire une panne de stockage (disque plein / prefs corrompues). Le scénario concret décrit ne produit donc PAS le résultat annoncé : le chemin est inatteignable par le mécanisme invoqué.
+Three `SharedPreferences.remove().commit()`, nothing else. `KeyPermanentlyInvalidatedException` can only occur in `getItemImpl`/`setItemImpl`, and in `getItemImpl` (l.156-158) it is CAUGHT and returns `null`, it does not even reject. The only possible rejection of `deleteItemAsync` is a `commit()` returning `false`, that is a storage failure (disk full / corrupted prefs). The concrete scenario described therefore does NOT produce the announced result: the path is unreachable through the mechanism invoked.
 
-2) LA CORRECTION PRINCIPALE PROPOSÉE EST UNE RÉGRESSION DE SÉCURITÉ. « Inverser l'ordre : `await effacer()` d'abord, puis `clePrivee = null` » — dans le cas d'échec (le seul cas où l'ordre compte), l'inversion laisse la clé privée RSA EN RAM et `estDeverrouille` à `true`. L'ordre actuel est le bon pour une opération « oublie tout » : la seule partie qui ne peut pas échouer (vider la mémoire) est faite en premier, de façon inconditionnelle. Le commentaire l.15/116 dit exactement ça (« Oublie toute clé — mémoire et Keystore »). Appliquer la correction proposée dégraderait la garantie forte actuelle au profit d'une garantie faible.
+2) THE MAIN FIX PROPOSED IS A SECURITY REGRESSION. "Reverse the order: `await clear()` first, then `privateKey = null`": in the failure case (the only case where the order matters), the reversal leaves the RSA private key IN RAM and `isUnlocked` at `true`. The current order is the right one for a "forget everything" operation: the only part that cannot fail (clearing memory) is done first, unconditionally. The comment l.15/116 says exactly that ("Forget every key: memory and Keystore"). Applying the proposed fix would degrade the current strong guarantee in favour of a weak one.
 
-3) LE MODÈLE DE MENACE EXCLUT EXPLICITEMENT CE QUE LE CONSTAT Q
+3) THE THREAT MODEL EXPLICITLY EXCLUDES WHAT THE FINDING Q
 
-*(justification tronquée)*
-
+*(justification truncated)*

@@ -28,8 +28,11 @@ import {
   deviceLanguage,
   translate,
 } from './messages.ts';
+import { readMovedKeySync, STORED_KEYS } from '../lib/storageKeys.ts';
 
-const KEY = 'langue-preferee';
+const KEY = STORED_KEYS.preferredLanguage;
+
+const LANGUAGE_ACCESS: SecureStore.SecureStoreOptions = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
 
 /**
  * `SecureStore.getItem` is SYNCHRONOUS (SDK 50+): the preference is read before
@@ -39,7 +42,14 @@ const KEY = 'langue-preferee';
  */
 function readPreference(): LanguagePreference {
   try {
-    const raw = SecureStore.getItem(KEY);
+    const raw = readMovedKeySync(
+      {
+        get: (k) => SecureStore.getItem(k),
+        set: (k, v) => SecureStore.setItem(k, v, LANGUAGE_ACCESS),
+        remove: (k) => SecureStore.deleteItemAsync(k).catch(() => {}),
+      },
+      KEY,
+    );
     return raw === 'fr' || raw === 'en' ? raw : 'auto';
   } catch {
     return 'auto';
@@ -62,9 +72,12 @@ const listeners = new Set<() => void>();
 export function setLanguage(pref: LanguagePreference): void {
   preference = pref;
   activeLanguage = resolve(pref);
-  if (pref === 'auto') void SecureStore.deleteItemAsync(KEY);
+  if (pref === 'auto') {
+    void SecureStore.deleteItemAsync(KEY.key);
+    void SecureStore.deleteItemAsync(KEY.legacy);
+  }
   // iOS: also read by the Notification Service Extension, on the lock screen.
-  else void SecureStore.setItemAsync(KEY, pref, { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK });
+  else void SecureStore.setItemAsync(KEY.key, pref, LANGUAGE_ACCESS);
   for (const e of listeners) e();
 }
 

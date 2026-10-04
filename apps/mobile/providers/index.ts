@@ -19,7 +19,7 @@ export function createProvider(
   client: RestClient,
   generateId: () => string,
 ): Provider {
-  switch (session.genre) {
+  switch (session.kind) {
     case 'rocketchat':
       return createRcProvider(session, client, generateId);
   }

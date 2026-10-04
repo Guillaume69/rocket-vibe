@@ -12,7 +12,7 @@ const ENTRY: PendingLogout = {
   baseUrl: 'https://x',
   userId: 'u1',
   authToken: 'jeton-mort-ou-vif',
-  jetonPush: 'fcm-abc',
+  pushToken: 'fcm-abc',
 };
 
 /** In-memory queue: we observe what is removed, and what remains. */
@@ -102,7 +102,7 @@ describe('finishPendingLogouts', () => {
   });
 
   test('without a push token, only the logout is played', async () => {
-    const f = file([{ ...ENTRY, jetonPush: null }]);
+    const f = file([{ ...ENTRY, pushToken: null }]);
     const { create, calls } = clientThat({});
     await finishPendingLogouts(f, create);
     assert.deepEqual(calls, ['logout']);

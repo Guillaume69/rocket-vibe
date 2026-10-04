@@ -14,9 +14,12 @@ import * as SecureStore from 'expo-secure-store';
 
 import type { Session } from './auth.ts';
 import {
+  type AsyncKeyStore,
   e2eStorageKey,
   legacyE2eStorageKey,
+  readMovedKey,
   sessionStorageKey,
+  STORED_KEYS,
   withoutTrailingSlash,
 } from './storageKeys.ts';
 import type { PendingLogout } from './deferredLogout.ts';
@@ -33,6 +36,12 @@ export function hash(text: string): Promise<string> {
  * proven by tests, not by a reread.
  */
 const key = (baseUrl: string): Promise<string> => sessionStorageKey(baseUrl, hash);
+
+const secureStore: AsyncKeyStore = {
+  get: (k) => SecureStore.getItemAsync(k),
+  set: (k, v) => SecureStore.setItemAsync(k, v),
+  remove: (k) => SecureStore.deleteItemAsync(k),
+};
 
 /**
  * iOS: readable by the Notification Service Extension, which also runs with
@@ -52,19 +61,20 @@ export async function readSession(baseUrl: string): Promise<Session | null> {
   const raw = await SecureStore.getItemAsync(await key(baseUrl));
   if (raw === null) return null;
   try {
-    const session = JSON.parse(raw) as Session;
+    const session = JSON.parse(raw) as Session & { genre?: unknown };
     // Corrupt storage or one from an older version must not crash startup:
     // treat it as no session.
     if (typeof session?.authToken !== 'string' || typeof session?.userId !== 'string') return null;
     // The key derives from a truncated digest: we don't trust it alone to
     // assert that this session belongs to the requested server.
     if (withoutTrailingSlash(session.baseUrl) !== withoutTrailingSlash(baseUrl)) return null;
-    // Migration on read: sessions older than the `genre` and `siteUrl` fields
+    // Migration on read: sessions older than the `kind` (formerly `genre`) and
+    // `siteUrl` fields
     // fall back on their defaults (`rocketchat`, null → `baseUrl` at use),
     // without rewriting.
     return {
       ...session,
-      genre: normalizeProviderKind(session.genre),
+      kind: normalizeProviderKind(session.kind ?? session.genre),
       siteUrl: typeof session.siteUrl === 'string' ? session.siteUrl : null,
     };
   } catch {
@@ -136,7 +146,7 @@ export async function purgeLegacyE2EKey(baseUrl: string): Promise<void> {
  * decrypted RSA JWK under a key nobody derives any more. "Unfindable" would
  * then mean **indestructible**.
  *
- * The `serveurs-connus` registry exists exactly to work around the Keystore's
+ * The `known-servers` registry exists exactly to work around the Keystore's
  * non-enumerability, and it is already populated by earlier sessions. Run once
  * per startup: a few deletions of absent entries, which `deleteItemAsync`
  * handles without error.
@@ -152,14 +162,12 @@ export async function purgeAllLegacyE2EKeys(): Promise<void> {
  * without this pointer, startup would not know which one to resume. Step 5.3
  * (multi-server) makes it the "active server".
  */
-const LAST_SERVER_KEY = 'dernier-serveur';
-
 export async function saveLastServer(baseUrl: string): Promise<void> {
-  await SecureStore.setItemAsync(LAST_SERVER_KEY, withoutTrailingSlash(baseUrl));
+  await SecureStore.setItemAsync(STORED_KEYS.lastServer.key, withoutTrailingSlash(baseUrl));
 }
 
 export async function readLastServer(): Promise<string | null> {
-  return SecureStore.getItemAsync(LAST_SERVER_KEY);
+  return readMovedKey(secureStore, STORED_KEYS.lastServer);
 }
 
 /**
@@ -167,10 +175,8 @@ export async function readLastServer(): Promise<string | null> {
  * `expo-secure-store` CANNOT enumerate its keys: without this list, there is
  * no way to offer "switch back to that server".
  */
-const KNOWN_SERVERS_KEY = 'serveurs-connus';
-
 export async function listKnownServers(): Promise<string[]> {
-  const raw = await SecureStore.getItemAsync(KNOWN_SERVERS_KEY);
+  const raw = await readMovedKey(secureStore, STORED_KEYS.knownServers);
   if (raw === null) return [];
   try {
     const list = JSON.parse(raw) as unknown;
@@ -184,7 +190,7 @@ export async function saveKnownServer(baseUrl: string): Promise<void> {
   const clean = withoutTrailingSlash(baseUrl);
   const list = await listKnownServers();
   if (list.includes(clean)) return;
-  await SecureStore.setItemAsync(KNOWN_SERVERS_KEY, JSON.stringify([...list, clean]));
+  await SecureStore.setItemAsync(STORED_KEYS.knownServers.key, JSON.stringify([...list, clean]));
 }
 
 /**
@@ -197,21 +203,19 @@ export async function saveKnownServer(baseUrl: string): Promise<void> {
  * nothing at all, so no `DELETE` was even attempted. The FCM token belongs to
  * the DEVICE, not the server: a single key is enough.
  */
-const PUSH_TOKEN_KEY = 'jeton-push-appareil';
-
 export async function rememberPushToken(token: string): Promise<void> {
-  await SecureStore.setItemAsync(PUSH_TOKEN_KEY, token);
+  await SecureStore.setItemAsync(STORED_KEYS.devicePushToken.key, token);
 }
 
 export function readRememberedPushToken(): Promise<string | null> {
-  return SecureStore.getItemAsync(PUSH_TOKEN_KEY);
+  return readMovedKey(secureStore, STORED_KEYS.devicePushToken);
 }
 
 /**
  * Logouts the network did not let through, to finish on the next startup. See
  * `lib/deferredLogout.ts` for why.
  *
- * Same pattern as `serveurs-connus`: `expo-secure-store` cannot enumerate its
+ * Same pattern as `known-servers`: `expo-secure-store` cannot enumerate its
  * keys, hence a JSON list under a fixed key. The name deliberately does NOT
  * start with `session-`: the native notification service scans the
  * preferences for that prefix (`plugins/with-fcm-deeplink.js`), and it is
@@ -220,22 +224,25 @@ export function readRememberedPushToken(): Promise<string | null> {
  * One entry per server, overwritten if it exists: logging out twice from the
  * same server cannot grow the queue.
  */
-const LOGOUTS_KEY = 'deconnexions-en-suspens';
-
 export async function listPendingLogouts(): Promise<PendingLogout[]> {
-  const raw = await SecureStore.getItemAsync(LOGOUTS_KEY);
+  const raw = await readMovedKey(secureStore, STORED_KEYS.pendingLogouts);
   if (raw === null) return [];
   try {
     const list = JSON.parse(raw) as unknown;
     if (!Array.isArray(list)) return [];
     // Defensive parse, like `readSession`: an entry from an older version or a
     // truncated one must not fail the whole startup.
-    return list.filter(
-      (d): d is PendingLogout =>
-        typeof (d as PendingLogout)?.baseUrl === 'string' &&
-        typeof (d as PendingLogout)?.authToken === 'string' &&
-        typeof (d as PendingLogout)?.userId === 'string',
-    );
+    return list
+      .filter(
+        (d): d is PendingLogout & { jetonPush?: unknown } =>
+          typeof (d as PendingLogout)?.baseUrl === 'string' &&
+          typeof (d as PendingLogout)?.authToken === 'string' &&
+          typeof (d as PendingLogout)?.userId === 'string',
+      )
+      .map(({ jetonPush, ...d }) => ({
+        ...d,
+        pushToken: typeof d.pushToken === 'string' ? d.pushToken : typeof jetonPush === 'string' ? jetonPush : null,
+      }));
   } catch {
     return [];
   }
@@ -244,15 +251,15 @@ export async function listPendingLogouts(): Promise<PendingLogout[]> {
 export async function addPendingLogout(entry: PendingLogout): Promise<void> {
   const clean = { ...entry, baseUrl: withoutTrailingSlash(entry.baseUrl) };
   const others = (await listPendingLogouts()).filter((d) => d.baseUrl !== clean.baseUrl);
-  await SecureStore.setItemAsync(LOGOUTS_KEY, JSON.stringify([...others, clean]));
+  await SecureStore.setItemAsync(STORED_KEYS.pendingLogouts.key, JSON.stringify([...others, clean]));
 }
 
 export async function removePendingLogout(baseUrl: string): Promise<void> {
   const clean = withoutTrailingSlash(baseUrl);
   const remaining = (await listPendingLogouts()).filter((d) => d.baseUrl !== clean);
   if (remaining.length === 0) {
-    await SecureStore.deleteItemAsync(LOGOUTS_KEY);
+    await SecureStore.deleteItemAsync(STORED_KEYS.pendingLogouts.key);
     return;
   }
-  await SecureStore.setItemAsync(LOGOUTS_KEY, JSON.stringify(remaining));
+  await SecureStore.setItemAsync(STORED_KEYS.pendingLogouts.key, JSON.stringify(remaining));
 }

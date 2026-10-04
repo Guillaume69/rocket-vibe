@@ -11,10 +11,10 @@ import {
 } from './homeSections.ts';
 
 const TITLES = {
-  nonLus: 'Non lus',
-  favoris: 'Favoris',
-  salons: 'Salons',
-  messagesPrives: 'Messages privés',
+  unread: 'Non lus',
+  favorites: 'Favoris',
+  rooms: 'Salons',
+  directMessages: 'Messages privés',
 };
 
 /** A minimal room: the array order IS recency order (sorted query). */
@@ -109,42 +109,48 @@ describe('collapsed sections', () => {
     );
 
   test('a collapsed section empties but keeps its count', () => {
-    const shown = collapseSections(sections(), new Set(['salons'] as const));
+    const shown = collapseSections(sections(), new Set(['rooms'] as const));
     assert.deepEqual(
       shown.map((s) => [s.key, s.collapsed, s.total, s.data.length]),
       [
-        ['salons', true, 2, 0],
-        ['messagesPrives', false, 1, 1],
+        ['rooms', true, 2, 0],
+        ['directMessages', false, 1, 1],
       ],
     );
   });
 
   test('a LONE section never collapses: without a header, nothing would reopen it', () => {
     const single = buildSections([room('c1', 'c')], [subscription('c1')], TITLES);
-    const [shown] = collapseSections(single, new Set(['salons'] as const));
+    const [shown] = collapseSections(single, new Set(['rooms'] as const));
     assert.equal(shown.collapsed, false);
     assert.equal(shown.data.length, 1);
   });
 
   test('toggling collapses then expands, without mutating the received set', () => {
     const empty = new Set<SectionKey>();
-    const collapsed = toggleSection(empty, 'messagesPrives');
-    assert.deepEqual([...collapsed], ['messagesPrives']);
+    const collapsed = toggleSection(empty, 'directMessages');
+    assert.deepEqual([...collapsed], ['directMessages']);
     assert.equal(empty.size, 0);
-    assert.deepEqual([...toggleSection(collapsed, 'messagesPrives')], []);
+    assert.deepEqual([...toggleSection(collapsed, 'directMessages')], []);
   });
 
   test('round trip through storage', () => {
-    const collapsed = new Set<SectionKey>(['messagesPrives', 'nonLus']);
+    const collapsed = new Set<SectionKey>(['directMessages', 'unread']);
     const raw = writeCollapsedSections(collapsed);
-    assert.equal(raw, '["nonLus","messagesPrives"]');
+    assert.equal(raw, '["unread","directMessages"]');
     assert.deepEqual(readCollapsedSections(raw), collapsed);
   });
 
   test('storage missing, corrupt or unknown: nothing collapsed', () => {
     assert.equal(readCollapsedSections(null).size, 0);
     assert.equal(readCollapsedSections('{pas du json').size, 0);
-    assert.equal(readCollapsedSections('{"salons":true}').size, 0);
-    assert.deepEqual([...readCollapsedSections('["salons","archives",3]')], ['salons']);
+    assert.equal(readCollapsedSections('{"rooms":true}').size, 0);
+    assert.deepEqual([...readCollapsedSections('["rooms","archives",3]')], ['rooms']);
+    assert.equal(readCollapsedSections('["constructor","toString"]').size, 0);
+  });
+
+  test('keys stored before the English rename are still read', () => {
+    const raw = '["nonLus","favoris","salons","messagesPrives"]';
+    assert.deepEqual([...readCollapsedSections(raw)], ['unread', 'favorites', 'rooms', 'directMessages']);
   });
 });

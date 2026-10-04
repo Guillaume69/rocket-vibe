@@ -65,3 +65,52 @@ export async function e2eStorageKey(
 export async function legacyE2eStorageKey(baseUrl: string, hash: Hasher): Promise<string> {
   return `e2e-${(await hash(withoutTrailingSlash(baseUrl))).slice(0, 32)}`;
 }
+
+/**
+ * The fixed keys, under their English names since migration 0016, and the
+ * French name each had before. A value still under its old name is moved on
+ * first read: the new name is written BEFORE the old one is deleted, so a kill
+ * in between loses nothing.
+ */
+export const STORED_KEYS = {
+  lastServer: { key: 'last-server', legacy: 'dernier-serveur' },
+  knownServers: { key: 'known-servers', legacy: 'serveurs-connus' },
+  devicePushToken: { key: 'device-push-token', legacy: 'jeton-push-appareil' },
+  pendingLogouts: { key: 'pending-logouts', legacy: 'deconnexions-en-suspens' },
+  collapsedSections: { key: 'collapsed-sections', legacy: 'sections-repliees' },
+  preferredLanguage: { key: 'preferred-language', legacy: 'langue-preferee' },
+} as const;
+
+export type StoredKey = { readonly key: string; readonly legacy: string };
+
+export type AsyncKeyStore = {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string): Promise<void>;
+  remove(key: string): Promise<void>;
+};
+
+export type SyncKeyStore = {
+  get(key: string): string | null;
+  set(key: string, value: string): void;
+  remove(key: string): unknown;
+};
+
+export async function readMovedKey(store: AsyncKeyStore, { key, legacy }: StoredKey): Promise<string | null> {
+  const value = await store.get(key);
+  if (value !== null) return value;
+  const old = await store.get(legacy);
+  if (old === null) return null;
+  await store.set(key, old);
+  await store.remove(legacy);
+  return old;
+}
+
+export function readMovedKeySync(store: SyncKeyStore, { key, legacy }: StoredKey): string | null {
+  const value = store.get(key);
+  if (value !== null) return value;
+  const old = store.get(legacy);
+  if (old === null) return null;
+  store.set(key, old);
+  void store.remove(legacy);
+  return old;
+}

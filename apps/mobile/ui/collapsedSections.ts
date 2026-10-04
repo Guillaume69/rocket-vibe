@@ -7,6 +7,8 @@
 import * as SecureStore from 'expo-secure-store';
 import { useSyncExternalStore } from 'react';
 
+import { readMovedKeySync, STORED_KEYS } from '../lib/storageKeys.ts';
+
 import {
   type SectionKey,
   toggleSection,
@@ -14,11 +16,20 @@ import {
   readCollapsedSections,
 } from './homeSections.ts';
 
-const KEY = 'sections-repliees';
+const KEY = STORED_KEYS.collapsedSections;
 
 function read(): ReadonlySet<SectionKey> {
   try {
-    return readCollapsedSections(SecureStore.getItem(KEY));
+    return readCollapsedSections(
+      readMovedKeySync(
+        {
+          get: (k) => SecureStore.getItem(k),
+          set: (k, v) => SecureStore.setItem(k, v),
+          remove: (k) => SecureStore.deleteItemAsync(k).catch(() => {}),
+        },
+        KEY,
+      ),
+    );
   } catch {
     return new Set();
   }
@@ -29,7 +40,7 @@ const listeners = new Set<() => void>();
 
 export function toggleCollapsedSection(key: SectionKey): void {
   collapsed = toggleSection(collapsed, key);
-  void SecureStore.setItemAsync(KEY, writeCollapsedSections(collapsed)).catch(() => {});
+  void SecureStore.setItemAsync(KEY.key, writeCollapsedSections(collapsed)).catch(() => {});
   for (const e of listeners) e();
 }
 

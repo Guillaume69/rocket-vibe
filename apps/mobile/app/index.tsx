@@ -138,10 +138,10 @@ function Rooms({
   const collapsed = useCollapsedSections();
   const sections: RoomsSection[] = collapseSections(
     buildSections(roomRows, subscriptionRows, {
-      nonLus: t('home.sectionUnread'),
-      favoris: t('home.sectionFavorites'),
-      salons: t('home.sectionRooms'),
-      messagesPrives: t('home.sectionDirectMessages'),
+      unread: t('home.sectionUnread'),
+      favorites: t('home.sectionFavorites'),
+      rooms: t('home.sectionRooms'),
+      directMessages: t('home.sectionDirectMessages'),
     }),
     collapsed,
   );

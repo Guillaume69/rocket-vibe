@@ -66,7 +66,7 @@ describe('auth', () => {
       authToken: 'jeton-abc',
       userId: 'u1',
       username: 'alice',
-      genre: 'rocketchat',
+      kind: 'rocketchat',
       // `Site_Url` does not come from the login: the login screen fills it in
       // from its probe before persisting.
       siteUrl: null,
@@ -172,7 +172,7 @@ describe('auth', () => {
       authToken: 't',
       userId: 'u',
       username: 'alice',
-      genre: 'rocketchat',
+      kind: 'rocketchat',
       siteUrl: null,
     });
     assert.deepEqual(c.auth, { authToken: 't', userId: 'u' });

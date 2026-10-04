@@ -25,7 +25,7 @@ export type PendingLogout = {
   userId: string;
   authToken: string;
   /** FCM token to remove. `null` if the device had none to register. */
-  jetonPush: string | null;
+  pushToken: string | null;
 };
 
 export type LogoutQueue = {
@@ -60,7 +60,7 @@ export async function finishPendingLogouts(
     let networkFailure = false;
     // Sequential, not `Promise.all`: `logout` invalidates the token the
     // `DELETE` needs. Same order as the nominal logout.
-    const pushToken = entry.jetonPush;
+    const pushToken = entry.pushToken;
     if (pushToken !== null) {
       networkFailure = !(await attempt(() => unregisterToken(client, pushToken)));
     }

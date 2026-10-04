@@ -2,7 +2,15 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { describe, test } from 'node:test';
 
-import { e2eStorageKey, legacyE2eStorageKey, sessionStorageKey, withoutTrailingSlash } from './storageKeys.ts';
+import {
+  e2eStorageKey,
+  legacyE2eStorageKey,
+  readMovedKey,
+  readMovedKeySync,
+  sessionStorageKey,
+  STORED_KEYS,
+  withoutTrailingSlash,
+} from './storageKeys.ts';
 
 /** What `expo-crypto` does in the app: lowercase hex SHA-256. */
 const hash = async (t: string) => createHash('sha256').update(t).digest('hex');
@@ -99,5 +107,57 @@ describe('withoutTrailingSlash', () => {
     assert.equal(withoutTrailingSlash('https://x/chat///'), 'https://x/chat');
     assert.equal(withoutTrailingSlash('https://x/chat'), 'https://x/chat');
     assert.equal(withoutTrailingSlash('https://x'), 'https://x');
+  });
+});
+
+describe('storageKeys: legacy French key names move on first read', () => {
+  const memory = (entries: Record<string, string>) => {
+    const map = new Map(Object.entries(entries));
+    const log: string[] = [];
+    return {
+      map,
+      log,
+      sync: {
+        get: (k: string) => map.get(k) ?? null,
+        set: (k: string, v: string) => void (log.push(`set ${k}`), map.set(k, v)),
+        remove: (k: string) => void (log.push(`remove ${k}`), map.delete(k)),
+      },
+      async: {
+        get: async (k: string) => map.get(k) ?? null,
+        set: async (k: string, v: string) => void (log.push(`set ${k}`), map.set(k, v)),
+        remove: async (k: string) => void (log.push(`remove ${k}`), map.delete(k)),
+      },
+    };
+  };
+
+  test('the old value is written under the new name, THEN the old name is deleted', async () => {
+    const m = memory({ 'dernier-serveur': 'https://chat.example' });
+    assert.equal(await readMovedKey(m.async, STORED_KEYS.lastServer), 'https://chat.example');
+    assert.deepEqual([...m.map], [['last-server', 'https://chat.example']]);
+    assert.deepEqual(m.log, ['set last-server', 'remove dernier-serveur']);
+  });
+
+  test('the new name wins and the store is left alone', async () => {
+    const m = memory({ 'last-server': 'https://new', 'dernier-serveur': 'https://old' });
+    assert.equal(await readMovedKey(m.async, STORED_KEYS.lastServer), 'https://new');
+    assert.deepEqual(m.log, []);
+  });
+
+  test('neither name: null, nothing written', async () => {
+    const m = memory({});
+    assert.equal(await readMovedKey(m.async, STORED_KEYS.knownServers), null);
+    assert.equal(readMovedKeySync(m.sync, STORED_KEYS.preferredLanguage), null);
+    assert.deepEqual(m.log, []);
+  });
+
+  test('the synchronous variant, for values read before the first render', () => {
+    const m = memory({ 'langue-preferee': 'fr' });
+    assert.equal(readMovedKeySync(m.sync, STORED_KEYS.preferredLanguage), 'fr');
+    assert.deepEqual([...m.map], [['preferred-language', 'fr']]);
+    assert.deepEqual(m.log, ['set preferred-language', 'remove langue-preferee']);
+  });
+
+  test('no new name starts with `session-`, the prefix the native push service scans', () => {
+    for (const { key } of Object.values(STORED_KEYS)) assert.ok(!key.startsWith('session-'), key);
   });
 });

@@ -5,7 +5,7 @@
  * The rules, all visible on screen and none locked down until now:
  *   - rooms/subscriptions merged BY RID, in JS: `useCoalescedLiveQuery` only
  *     listens to the FROM table, an SQL join would miss writes that only touch
- *     `abonnements`;
+ *     `subscriptions`;
  *   - `open === false` hides the room; NO subscription received means visible,
  *     rather than making the list flicker;
  *   - "I have a message" = unreads > 0 OR the `alert` flag (a mention can raise
@@ -19,7 +19,7 @@
 
 export type HomeEntry<S, A> = { room: S; subscription: A | null };
 
-export type SectionKey = 'nonLus' | 'favoris' | 'salons' | 'messagesPrives';
+export type SectionKey = 'unread' | 'favorites' | 'rooms' | 'directMessages';
 
 export type SectionTitles = Record<SectionKey, string>;
 
@@ -45,19 +45,27 @@ export function buildSections<
   const read = visible.filter((e) => !hasMessage(e) && e.subscription?.favorite !== true);
 
   const sections: HomeSection<HomeEntry<S, A>>[] = [
-    { key: 'nonLus', title: titles.nonLus, data: unread },
-    { key: 'favoris', title: titles.favoris, data: favorites },
-    { key: 'salons', title: titles.salons, data: read.filter((e) => e.room.type !== 'd') },
+    { key: 'unread', title: titles.unread, data: unread },
+    { key: 'favorites', title: titles.favorites, data: favorites },
+    { key: 'rooms', title: titles.rooms, data: read.filter((e) => e.room.type !== 'd') },
     {
-      key: 'messagesPrives',
-      title: titles.messagesPrives,
+      key: 'directMessages',
+      title: titles.directMessages,
       data: read.filter((e) => e.room.type === 'd'),
     },
   ];
   return sections.filter((s) => s.data.length > 0);
 }
 
-const SECTION_KEYS: readonly SectionKey[] = ['nonLus', 'favoris', 'salons', 'messagesPrives'];
+const SECTION_KEYS: readonly SectionKey[] = ['unread', 'favorites', 'rooms', 'directMessages'];
+
+/** The keys as stored before the English rename (migration 0016). */
+const LEGACY_SECTION_KEYS: ReadonlyMap<unknown, SectionKey> = new Map([
+  ['nonLus', 'unread'],
+  ['favoris', 'favorites'],
+  ['salons', 'rooms'],
+  ['messagesPrives', 'directMessages'],
+]);
 
 /**
  * Reads back the persisted collapsed sections. Anything that is not an array
@@ -73,7 +81,7 @@ export function readCollapsedSections(raw: string | null): ReadonlySet<SectionKe
     return new Set();
   }
   if (!Array.isArray(value)) return new Set();
-  const keys: unknown[] = value;
+  const keys = value.map((k: unknown) => LEGACY_SECTION_KEYS.get(k) ?? k);
   return new Set(SECTION_KEYS.filter((key) => keys.includes(key)));
 }
 

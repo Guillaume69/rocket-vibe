@@ -53,7 +53,7 @@ func keychainKeys() -> [String] {
 }
 
 func preferredLanguage() -> String {
-  if let chosen = readKeychain("langue-preferee"), chosen == "fr" || chosen == "en" {
+  if let chosen = readKeychain("preferred-language") ?? readKeychain("langue-preferee"), chosen == "fr" || chosen == "en" {
     return chosen
   }
   return Locale.preferredLanguages.first?.hasPrefix("fr") == true ? "fr" : "en"

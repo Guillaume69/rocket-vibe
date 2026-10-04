@@ -288,7 +288,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           baseUrl: session.baseUrl,
           userId: session.userId,
           authToken: session.authToken,
-          jetonPush: pushRemoved ? null : pushToken,
+          pushToken: pushRemoved ? null : pushToken,
         });
       }
 

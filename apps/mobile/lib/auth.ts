@@ -22,7 +22,7 @@ export type Session = {
   userId: string;
   username: string;
   /** Server type: decides which driver to instantiate. Always `rocketchat` here. */
-  genre: ProviderKind;
+  kind: ProviderKind;
   /**
    * The server's `Site_Url`, read by the login probe. It is the ONLY URL the
    * server recognises at the head of a quote permalink (`lib/quote.ts`);
@@ -121,7 +121,7 @@ function sessionFrom(baseUrl: string, response: LoginResponse | undefined): Sess
     authToken: data.authToken,
     userId: data.userId,
     username: data.me?.username ?? '',
-    genre: 'rocketchat',
+    kind: 'rocketchat',
     // `/login` does not know `Site_Url`: the login screen fills it in from its
     // probe (`ServerProfile.siteUrl`) before persisting. The resume check
     // (`ui/session.tsx`) only reads `username` from this result; the persisted

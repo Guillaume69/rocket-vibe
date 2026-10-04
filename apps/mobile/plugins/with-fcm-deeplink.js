@@ -90,7 +90,7 @@ const ANDROIDX_WORK = 'androidx.work:work-runtime:2.10.1';
  *
  * LANGUAGE: the user-visible strings of this path come from
  * `res/values[-fr]/strings.xml` (written by this plugin), honouring first the
- * language EXPLICITLY chosen in the app (`langue-preferee`, same SecureStore as
+ * language EXPLICITLY chosen in the app (`preferred-language`, same SecureStore as
  * the session) and otherwise the phone's.
  */
 
@@ -560,7 +560,7 @@ private fun alreadyShown(ctx: Context, messageId: String): Boolean {
 
 /**
  * The resources in the user's language. The app's EXPLICIT preference
- * (\`langue-preferee\`, written by \`ui/i18n.ts\` in the same SecureStore as
+ * (\`preferred-language\`, written by \`ui/i18n.ts\` in the same SecureStore as
  * the session) wins over the phone's locale; otherwise a user who chose
  * "Français" on an English phone would see the app in French and its
  * notifications in English. "Automatic" DELETES the key on the JS side: its
@@ -581,7 +581,9 @@ private fun localizedResources(ctx: Context): Resources {
 private fun readPreferredLanguage(ctx: Context): String? {
   return try {
     val prefs = ctx.getSharedPreferences("SecureStore", Context.MODE_PRIVATE)
-    val raw = prefs.getString("key_v1-langue-preferee", null) ?: return null
+    val raw = prefs.getString("key_v1-preferred-language", null)
+      ?: prefs.getString("key_v1-langue-preferee", null)
+      ?: return null
     val plain = decryptSecureStore(raw) ?: return null
     if (plain == "fr" || plain == "en") plain else null
   } catch (e: Exception) {

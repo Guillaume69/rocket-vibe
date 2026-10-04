@@ -3,10 +3,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { getFcmToken } from '../lib/push.ts';
-import type { ClientRest } from '../lib/rest.ts';
-import { urlAvatar } from '../lib/upload.ts';
+import type { RestClient } from '../lib/rest.ts';
+import { avatarUrl } from '../lib/upload.ts';
 import { setLanguage, useT, useLanguagePreference } from '../ui/i18n.ts';
-import { useEtagsAvatars } from '../ui/identities.tsx';
+import { useAvatarEtags } from '../ui/identities.tsx';
 import { AvatarTile } from '../ui/kit.tsx';
 import {
   type TranslationKey,
@@ -66,7 +66,7 @@ type MeResponse = { settings?: { preferences?: { pushNotifications?: string } } 
  * The write is OPTIMISTIC: we switch the UI right away and roll back if the
  * server refuses; a setting must respond to the finger, not to the network.
  */
-function usePreferencePush(client: ClientRest) {
+function usePreferencePush(client: RestClient) {
   const [value, setValue] = useState<string | null>(null);
   // The error is stored as a translation KEY, not a sentence: the component
   // translates it at render, in the current language.
@@ -121,7 +121,7 @@ function Settings({
   baseUrl,
 }: {
   c: Colors;
-  client: ClientRest;
+  client: RestClient;
   username: string;
   baseUrl: string;
 }) {
@@ -132,7 +132,7 @@ function Settings({
   const [logout, setLogout] = useState(false);
   // Version of MY photo: without it, the profile card would keep the old
   // image even after changing it in "My profile" (frozen image cache).
-  const etags = useEtagsAvatars();
+  const etags = useAvatarEtags();
 
   const handleLogOut = useCallback(() => {
     if (logout) return;
@@ -167,7 +167,7 @@ function Settings({
           c={c}
           key={username}
           initial={username.charAt(0)}
-          uri={urlAvatar(client, { username, etag: etags.byUsername.get(username) })}
+          uri={avatarUrl(client, { username, etag: etags.byUsername.get(username) })}
         />
         <View style={styles.profileTexts}>
           <Text style={[styles.profileName, { color: c.text }]} numberOfLines={1}>

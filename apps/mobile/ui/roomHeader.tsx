@@ -15,7 +15,7 @@ import type { rooms } from '../db/schema.ts';
 import { startConference, probeCallAvailable } from '../lib/call.ts';
 import type { PresenceStatus } from '../lib/presence.ts';
 import { openProfileCard } from '../lib/profilePreload.ts';
-import type { ClientRest } from '../lib/rest.ts';
+import type { RestClient } from '../lib/rest.ts';
 import { useActivity } from './activity.ts';
 import { useE2EUnlocked } from './e2e.ts';
 import { useT } from './i18n.ts';
@@ -42,7 +42,7 @@ export function RoomHeader({
   c: Colors;
   rid: string;
   room: RoomRow | undefined;
-  client: ClientRest;
+  client: RestClient;
   dmStatus: PresenceStatus | null;
   insetTop: number;
   onBack: () => void;

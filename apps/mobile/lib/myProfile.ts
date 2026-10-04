@@ -15,7 +15,7 @@
  * password is hashed by the caller (expo-crypto in the app), not here.
  */
 
-import type { ClientRest, TwoFactorCode } from './rest.ts';
+import type { RestClient, TwoFactorCode } from './rest.ts';
 
 /** Status CHOSEN by the user (statusDefault), distinct from live presence. */
 export type DefaultStatus = 'online' | 'away' | 'busy' | 'offline';
@@ -81,7 +81,7 @@ export function profileFromMe(raw: MeResponse): MyProfile {
   };
 }
 
-export function readMyProfile(client: ClientRest): Promise<MyProfile> {
+export function readMyProfile(client: RestClient): Promise<MyProfile> {
   return client.get<MeResponse>('me').then(profileFromMe);
 }
 
@@ -101,7 +101,7 @@ export function identityFromMe(raw: MeResponse): MyIdentity | null {
   return { uid, username, avatarEtag: etag === '' ? null : etag };
 }
 
-export function readMyIdentity(client: ClientRest): Promise<MyIdentity | null> {
+export function readMyIdentity(client: RestClient): Promise<MyIdentity | null> {
   return client.get<MeResponse>('me').then(identityFromMe);
 }
 
@@ -111,7 +111,7 @@ export function readMyIdentity(client: ClientRest): Promise<MyIdentity | null> {
  * erase the text, and vice versa.
  */
 export function saveStatus(
-  client: ClientRest,
+  client: RestClient,
   values: { status: DefaultStatus; message: string },
 ): Promise<void> {
   return client
@@ -132,7 +132,7 @@ export type BasicInfo = {
 };
 
 export function saveBasicInfo(
-  client: ClientRest,
+  client: RestClient,
   data: BasicInfo,
   twoFactor?: TwoFactorCode,
 ): Promise<void> {

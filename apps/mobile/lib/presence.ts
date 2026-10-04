@@ -19,7 +19,7 @@
  */
 
 import type { DdpEvent } from './ddp.ts';
-import type { ClientRest } from './rest.ts';
+import type { RestClient } from './rest.ts';
 
 export type PresenceStatus = 'online' | 'away' | 'busy' | 'offline';
 
@@ -67,7 +67,7 @@ export class PresenceEngine {
     };
   }
 
-  private notifier(): void {
+  private notify(): void {
     for (const listener of this.listeners) listener();
   }
 
@@ -87,7 +87,7 @@ export class PresenceEngine {
     const hadSomething = this.statuses.size > 0;
     this.statuses.clear();
     this.sequences.clear();
-    if (hadSomething) this.notifier();
+    if (hadSomething) this.notify();
   }
 
   /** Routes a DDP event. Anything that is not presence is ignored. */
@@ -102,13 +102,13 @@ export class PresenceEngine {
     const first = event.args[0];
     if (!Array.isArray(first)) return;
     const uid = first[0];
-    const numero = first[2];
+    const code = first[2];
     if (typeof uid !== 'string' || uid === '') return;
-    const status = typeof numero === 'number' ? SINCE_NUMBER.get(numero) : undefined;
+    const status = typeof code === 'number' ? SINCE_NUMBER.get(code) : undefined;
     if (status === undefined) return;
     this.statuses.set(uid, status);
     this.sequences.set(uid, ++this.counter);
-    this.notifier();
+    this.notify();
   }
 
   /**
@@ -130,7 +130,7 @@ export class PresenceEngine {
    * A failure is silent: presence is an ornament, never a dependency.
    * Serialized: a call during a call is replayed at the end.
    */
-  async load(client: ClientRest): Promise<void> {
+  async load(client: RestClient): Promise<void> {
     if (this.inFlight) {
       this.rerun = true;
       return;
@@ -146,7 +146,7 @@ export class PresenceEngine {
     }
   }
 
-  private async snapshot(client: ClientRest): Promise<void> {
+  private async snapshot(client: RestClient): Promise<void> {
     const threshold = this.counter;
     const epoch = this.epoch;
     try {
@@ -168,7 +168,7 @@ export class PresenceEngine {
       for (const uid of this.statuses.keys()) {
         if (!photo.has(uid) && intact(uid)) this.statuses.set(uid, 'offline');
       }
-      this.notifier();
+      this.notify();
     } catch {
       // Offline, restricted endpoint, broadcast disabled: never mind.
     }

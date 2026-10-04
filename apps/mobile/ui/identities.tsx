@@ -33,9 +33,9 @@ import { useSync } from './sync.tsx';
 
 export {
   forgetIdentities,
-  useEtagsAvatars,
+  useAvatarEtags,
   useIdentities,
-  type EtagsAvatars,
+  type AvatarEtags,
 } from './identityStore.ts';
 
 /**

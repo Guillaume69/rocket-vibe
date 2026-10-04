@@ -6,7 +6,7 @@ import {
   type PendingLogout,
   type LogoutQueue,
 } from './deferredLogout.ts';
-import { ClientRest } from './rest.ts';
+import { RestClient } from './rest.ts';
 
 const ENTRY: PendingLogout = {
   baseUrl: 'https://x',
@@ -34,7 +34,7 @@ function file(entries: PendingLogout[]): LogoutQueue & { remaining: () => string
 function clientThat(responses: Record<string, number | null>) {
   const calls: string[] = [];
   const create = (entry: PendingLogout) =>
-    new ClientRest(entry.baseUrl, {
+    new RestClient(entry.baseUrl, {
       sleep: async () => {},
       now: () => 0,
       random: () => 0,
@@ -116,7 +116,7 @@ describe('finishPendingLogouts', () => {
       { ...ENTRY, baseUrl: 'https://vivant' },
     ]);
     const create = (entry: PendingLogout) =>
-      new ClientRest(entry.baseUrl, {
+      new RestClient(entry.baseUrl, {
         sleep: async () => {},
         fetch: (async (url: string | URL) => {
           if (String(url).includes('mort')) throw new TypeError('Network request failed');

@@ -23,7 +23,7 @@ import * as Crypto from 'expo-crypto';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 
-import type { BaseLocale } from '../db/client.ts';
+import type { LocalDatabase } from '../db/client.ts';
 import { openDatabase } from '../db/client.ts';
 import { ActivityEngine } from '../lib/activity.ts';
 import {
@@ -53,7 +53,7 @@ import type {
 } from '../lib/provider.ts';
 import { PresenceEngine } from '../lib/presence.ts';
 import { getFcmToken, onTokenRotation } from '../lib/push.ts';
-import { hookUp } from '../lib/connectionSetup.ts';
+import { setUpConnection } from '../lib/connectionSetup.ts';
 import { registerToken } from '../lib/pushToken.ts';
 import { Reconnector } from '../lib/reconnect.ts';
 import { SyncEngine } from '../lib/sync.ts';
@@ -87,7 +87,7 @@ export type SyncState =
   | { phase: 'preparing' }
   | {
       phase: 'ready';
-      base: BaseLocale;
+      base: LocalDatabase;
       /** Composer drafts, in the write queue like everything else. */
       drafts: DraftStore;
       engine: SyncEngine;
@@ -481,7 +481,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       reconnector = new Reconnector({
         connect: async () => {
           if (discarded) return;
-          await hookUp({
+          await setUpConnection({
             // "Authenticated" means the desired subscriptions were replayed:
             // the stream already covers, the read that follows will guarantee
             // on its own.

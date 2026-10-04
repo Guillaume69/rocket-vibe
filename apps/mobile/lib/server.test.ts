@@ -3,7 +3,7 @@
  * before showing anything, so the only one whose failure reads as "the app
  * does not start".
  *
- * `fetch` is injected (same seam as `ClientRest`) and timers are mocked: the
+ * `fetch` is injected (same seam as `RestClient`) and timers are mocked: the
  * 15 s timeout is exercised without waiting 15 s.
  */
 import assert from 'node:assert/strict';
@@ -273,13 +273,13 @@ describe('probeServer', () => {
     // WITHOUT ever reaching `abort()`: screen dead and silent until the app
     // restarted.
     //
-    // Mocked timers: this exercises the 15 s timeout of `ClientRest`, not the
+    // Mocked timers: this exercises the 15 s timeout of `RestClient`, not the
     // test suite's patience.
     mock.timers.enable({ apis: ['setTimeout'] });
     try {
       // This `fetch` NEVER answers on its own: it rejects only when its signal
       // fires, exactly like the real one. So the only thing that can unblock
-      // it is the `ClientRest` timer.
+      // it is the `RestClient` timer.
       const silentFetch = (async (url: string | URL | Request, init?: RequestInit) => {
         if (!String(url).endsWith('/api/info')) return json(SETTINGS);
         return new Promise<Response>((_, reject) => {

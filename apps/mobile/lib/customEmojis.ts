@@ -19,13 +19,13 @@
  * indexed at a time: the active session's, set by `setCustomEmojis`.
  */
 
-export type EmojiCustom = { name: string; extension: string; aliases: string[] };
+export type CustomEmoji = { name: string; extension: string; aliases: string[] };
 
 /** Custom emoji persistence. Implemented on SQLite (`db/store.ts`). */
 export interface EmojiStore {
   /** Replaces the WHOLE table with `entries` (the server list is complete). */
-  replace(entries: EmojiCustom[]): Promise<void>;
-  list(): Promise<EmojiCustom[]>;
+  replace(entries: CustomEmoji[]): Promise<void>;
+  list(): Promise<CustomEmoji[]>;
 }
 
 type Target = { name: string; extension: string };
@@ -41,7 +41,7 @@ export function filterAliases(v: unknown): string[] {
  * by another entry's alias of the same name, whatever the server's order.
  * Between two valid entries, the first one set wins.
  */
-export function buildIndex(entries: EmojiCustom[]): Map<string, Target> {
+export function buildIndex(entries: CustomEmoji[]): Map<string, Target> {
   const index = new Map<string, Target>();
   const valid = entries.filter(
     (e) => typeof e?.name === 'string' && typeof e.extension === 'string',
@@ -61,14 +61,14 @@ export function buildIndex(entries: EmojiCustom[]): Map<string, Target> {
 
 let index = new Map<string, Target>();
 let activeBase: string | null = null;
-// Cache of `codesEmojiCustom()`: rebuilt only when the index changes, not on
+// Cache of `customEmojiCodes()`: rebuilt only when the index changes, not on
 // every composer keystroke. Invalidated wherever `index` is reassigned.
 let codesCache: readonly string[] | null = null;
 
 // The index must be OBSERVABLE by the UI: the emoji picker never unmounts
 // (`useEmojiPanel` mounts it once and for all), so "read on mount" means
 // "frozen for the session". On first install, `syncCustomEmojis` runs AFTER
-// mount and the ⭐ tab did not exist. `onCustomEmojisChange` + `codesEmojiCustom`
+// mount and the ⭐ tab did not exist. `onCustomEmojisChange` + `customEmojiCodes`
 // form the `useSyncExternalStore` contract: the frozen cache above IS the
 // stable snapshot.
 const subscribers = new Set<() => void>();
@@ -86,7 +86,7 @@ export function onCustomEmojisChange(subscriber: () => void): () => void {
 }
 
 /** Sets the active server's index. Called at startup, then after a fetch. */
-export function setCustomEmojis(baseUrl: string, entries: EmojiCustom[]): void {
+export function setCustomEmojis(baseUrl: string, entries: CustomEmoji[]): void {
   activeBase = baseUrl.replace(/\/+$/, '');
   index = buildIndex(entries);
   codesCache = null;
@@ -105,7 +105,7 @@ export function clearCustomEmojis(): void {
  * Absolute image URL of a custom shortcode, or `null` if it is not one.
  * `Map.get` does not walk `Object`'s prototype, so no guard is needed.
  */
-export function urlEmojiCustom(shortCode: string): string | null {
+export function customEmojiUrl(shortCode: string): string | null {
   const target = index.get(shortCode);
   if (target === undefined || activeBase === null) return null;
   return `${activeBase}/emoji-custom/${encodeURIComponent(target.name)}.${encodeURIComponent(target.extension)}`;
@@ -117,12 +117,12 @@ export function urlEmojiCustom(shortCode: string): string | null {
  * index does not change (invalidated by `setCustomEmojis`/`clearCustomEmojis`),
  * so no copy and no mutation risk on each keystroke.
  */
-export function codesEmojiCustom(): readonly string[] {
+export function customEmojiCodes(): readonly string[] {
   return (codesCache ??= Object.freeze([...index.keys()]));
 }
 
 /** An `unknown` from the network to a clean entry, or `null` if unusable. */
-export function normalizeEntry(raw: unknown): EmojiCustom | null {
+export function normalizeEntry(raw: unknown): CustomEmoji | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const o = raw as { name?: unknown; extension?: unknown; aliases?: unknown };
   if (typeof o.name !== 'string' || typeof o.extension !== 'string') return null;
@@ -131,7 +131,7 @@ export function normalizeEntry(raw: unknown): EmojiCustom | null {
 
 type ListResponse = { emojis?: { update?: unknown[] } };
 
-/** The subset of `ClientRest` needed here, to test without it. */
+/** The subset of `RestClient` needed here, to test without it. */
 type ReadClient = {
   baseUrl: string;
   get: <T>(
@@ -164,7 +164,7 @@ export async function syncCustomEmojis(
   const response = await client.get<ListResponse>('emoji-custom.list');
   const raw = response.emojis?.update;
   if (!Array.isArray(raw)) return;
-  const entries = raw.map(normalizeEntry).filter((e): e is EmojiCustom => e !== null);
+  const entries = raw.map(normalizeEntry).filter((e): e is CustomEmoji => e !== null);
   await store.replace(entries);
   if (isDiscarded()) return;
   setCustomEmojis(client.baseUrl, entries);

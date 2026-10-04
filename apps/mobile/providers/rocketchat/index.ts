@@ -1,7 +1,7 @@
 /**
  * Assembles a Rocket.Chat `Provider` for a session: gathers behind the
  * neutral facade the DDP (listener), the translator, the actions, and the
- * send/catch-up factories bound to the `ClientRest`. `ui/sync.tsx`
+ * send/catch-up factories bound to the `RestClient`. `ui/sync.tsx`
  * orchestrates it without naming Rocket.Chat. The Mattermost driver will
  * provide a `createMattermostProvider` returning the same object.
  */
@@ -20,7 +20,7 @@ import {
 } from '../../lib/provider.ts';
 import { PRESENCE_EVENT, STREAM_NOTIFY_LOGGED } from '../../lib/presence.ts';
 import { catchUpGlobal, catchUpRoom, reconcileRooms } from '../../lib/catchUp.ts';
-import type { ClientRest } from '../../lib/rest.ts';
+import type { RestClient } from '../../lib/rest.ts';
 import { STREAM_MESSAGES, STREAM_NOTIFY_ROOM, STREAM_NOTIFY_USER } from '../../lib/sync.ts';
 import type { OutboxEncryptor, OutboxStore } from '../../lib/outbox.ts';
 import type { UploadEncryption, UploadStore } from '../../lib/uploadQueue.ts';
@@ -35,7 +35,7 @@ function urlWebSocket(baseUrl: string): string {
 
 export function createRcProvider(
   session: Session,
-  client: ClientRest,
+  client: RestClient,
   generateId: () => string,
 ): Provider {
   const listener = new ClientDdp(urlWebSocket(session.baseUrl));
@@ -56,7 +56,7 @@ export function createRcProvider(
         [STREAM_NOTIFY_LOGGED, PRESENCE_EVENT],
         // Profile and room photos: the server broadcasts the new version (`etag`)
         // to EVERYONE connected. Without this subscription, a changed avatar stays
-        // frozen until the next `me`/`users.info`; see `urlAvatar`.
+        // frozen until the next `me`/`users.info`; see `avatarUrl`.
         [STREAM_NOTIFY_LOGGED, AVATAR_EVENT],
       ];
     },

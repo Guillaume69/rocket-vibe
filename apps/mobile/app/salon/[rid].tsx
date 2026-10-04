@@ -23,7 +23,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { BaseLocale } from '../../db/client.ts';
+import type { LocalDatabase } from '../../db/client.ts';
 import type { DraftStore } from '../../db/store.ts';
 import { subscriptions, messages, rooms, outbox, uploads } from '../../db/schema.ts';
 import type { ActivityEngine } from '../../lib/activity.ts';
@@ -34,7 +34,7 @@ import type {
   Outbox,
   FileOutbox,
 } from '../../lib/provider.ts';
-import type { ClientRest } from '../../lib/rest.ts';
+import type { RestClient } from '../../lib/rest.ts';
 import { TypingEngine, summarizeTyping } from '../../lib/typing.ts';
 import { bringMessage } from '../../ui/bringMessage.ts';
 import { useDraft } from '../../ui/drafts.ts';
@@ -256,7 +256,7 @@ function Room({
 }: {
   c: Colors;
   rid: string;
-  base: BaseLocale;
+  base: LocalDatabase;
   drafts: DraftStore;
   engine: SyncEngine;
   outbox: Outbox;
@@ -264,7 +264,7 @@ function Room({
   ddp: Listener;
   provider: Provider;
   actions: ProviderActions;
-  client: ClientRest;
+  client: RestClient;
   /** My username: my own typing is not shown to me. */
   me: string;
   declareOpenRoom: (rid: string) => () => void;
@@ -520,9 +520,9 @@ function Room({
   // see lib/typing.ts for the recorded deviation on emitting.
   const typingEngine = useMemo(() => new TypingEngine({ rid, me }), [rid, me]);
   useEffect(() => {
-    const detacher = ddp.onEvent((event) => typingEngine.apply(event));
+    const detach = ddp.onEvent((event) => typingEngine.apply(event));
     return () => {
-      detacher();
+      detach();
       typingEngine.stop();
     };
   }, [ddp, typingEngine]);

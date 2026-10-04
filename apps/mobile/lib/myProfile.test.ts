@@ -10,12 +10,12 @@ import {
   profileFromMe,
   type MyProfile,
 } from './myProfile.ts';
-import { ClientRest } from './rest.ts';
+import { RestClient } from './rest.ts';
 
 /** Client that records every call and answers what it is given per path. */
 function spyClient(responses: Record<string, unknown> = {}) {
   const calls: { method: string; path: string; body: unknown; headers: Headers }[] = [];
-  const client = new ClientRest('http://x', {
+  const client = new RestClient('http://x', {
     fetch: async (url, init) => {
       const path = String(url).split('/api/v1/')[1] ?? '';
       calls.push({

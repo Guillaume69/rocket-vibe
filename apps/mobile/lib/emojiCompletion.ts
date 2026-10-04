@@ -12,7 +12,7 @@
  *
  * The insertion itself (Unicode glyph for a standard one, `:name:` for a
  * custom one) and the preview are resolved in the UI (`ui/emojiCompletion.tsx`),
- * which has `unicodeOfShortcode` and `urlEmojiCustom`. Here we only handle
+ * which has `unicodeOfShortcode` and `customEmojiUrl`. Here we only handle
  * names, the data both sides share.
  */
 
@@ -96,7 +96,7 @@ function standardSet(codes: readonly string[]): Set<string> {
 export function completeEmoji(
   query: string,
   codesStandard: readonly string[],
-  codesCustom: readonly string[],
+  customCodes: readonly string[],
   limit = SUGGESTION_LIMIT,
 ): SuggestionEmoji[] {
   const q = query.toLowerCase();
@@ -115,7 +115,7 @@ export function completeEmoji(
   };
 
   const standard = standardSet(codesStandard);
-  for (const code of codesCustom) {
+  for (const code of customCodes) {
     if (standard.has(code.toLowerCase())) continue; // the standard glyph wins at render time
     add(code, 'custom');
   }

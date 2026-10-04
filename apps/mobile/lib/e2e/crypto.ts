@@ -85,7 +85,7 @@ const CBC_IV_SIZE = 16;
  * hard-coded: an account can mix both depending on age.
  */
 const RSA_B64_LENGTH = 344;
-function longueurKeyId(e2eKey: string): number {
+function keyIdLength(e2eKey: string): number {
   return Math.max(0, e2eKey.length - RSA_B64_LENGTH);
 }
 
@@ -104,7 +104,7 @@ function base64urlToBytes(s: string): Buffer {
  * The AES cipher matching the key size: a room key created by the old web
  * client is a 16-byte `A128CBC` JWK, not 32.
  */
-function bitsAes(key: Buffer): 128 | 192 | 256 | null {
+function aesBits(key: Buffer): 128 | 192 | 256 | null {
   const bits = key.length * 8;
   return bits === 128 || bits === 192 || bits === 256 ? bits : null;
 }
@@ -115,7 +115,7 @@ function bitsAes(key: Buffer): 128 | 192 | 256 | null {
  * reliable way to detect a wrong password or key.
  */
 function decryptGcm(key: Buffer, iv: Buffer, ctWithTag: Buffer): Buffer | null {
-  const bits = bitsAes(key);
+  const bits = aesBits(key);
   if (bits === null || ctWithTag.length < GCM_TAG_SIZE) return null;
   const body = ctWithTag.subarray(0, ctWithTag.length - GCM_TAG_SIZE);
   const tag = ctWithTag.subarray(ctWithTag.length - GCM_TAG_SIZE);
@@ -130,7 +130,7 @@ function decryptGcm(key: Buffer, iv: Buffer, ctWithTag: Buffer): Buffer | null {
 
 /** Decrypts an AES-CBC block (PKCS#7 padding checked by `final`). */
 function decryptCbc(key: Buffer, iv: Buffer, ct: Buffer): Buffer | null {
-  const bits = bitsAes(key);
+  const bits = aesBits(key);
   if (bits === null) return null;
   try {
     const decryptor = createDecipheriv(`aes-${bits}-cbc`, key, iv);
@@ -204,7 +204,7 @@ export function importRsaPrivateKey(jwkJson: string): RsaPrivateKey {
 
 /** The keyID at the head of an `E2EKey` (v2 UUID or v1 prefix), matched to `content.kid`. */
 export function keyIdOfE2EKey(e2eKey: string): string {
-  return e2eKey.substring(0, longueurKeyId(e2eKey));
+  return e2eKey.substring(0, keyIdLength(e2eKey));
 }
 
 /**
@@ -213,7 +213,7 @@ export function keyIdOfE2EKey(e2eKey: string): string {
  * AES JWK, whose raw `k` is returned.
  */
 export function decryptRoomKey(e2eKey: string, privateKey: RsaPrivateKey): Buffer {
-  const encrypted = base64ToBytes(e2eKey.substring(longueurKeyId(e2eKey)));
+  const encrypted = base64ToBytes(e2eKey.substring(keyIdLength(e2eKey)));
   let jwkJson: string;
   try {
     jwkJson = privateDecrypt(
@@ -325,7 +325,7 @@ export function attachmentEncryption(attachment: unknown): FileEncryption | null
  */
 export function decryptFile(bytes: Buffer, encryption: FileEncryption): Buffer {
   const key = base64urlToBytes(encryption.key.k);
-  const bits = bitsAes(key);
+  const bits = aesBits(key);
   const iv = base64ToBytes(encryption.iv);
   if (bits === null || iv.length !== 16) throw new E2EError('unreadable file encryption');
   const decryptor = createDecipheriv(`aes-${bits}-ctr`, key, iv);

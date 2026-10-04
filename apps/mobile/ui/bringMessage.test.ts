@@ -14,9 +14,9 @@ function room(local: number[], server: number[], page = 3) {
     older: async () => (base.size === 0 ? null : Math.min(...base)),
     loadPage: async (latest: number) => {
       pages.push(latest);
-      const lot = server.filter((h) => h < latest).sort((a, b) => b - a).slice(0, page);
-      for (const h of lot) base.add(h);
-      return { oldest: lot.length === 0 ? null : Math.min(...lot) };
+      const batch = server.filter((h) => h < latest).sort((a, b) => b - a).slice(0, page);
+      for (const h of batch) base.add(h);
+      return { oldest: batch.length === 0 ? null : Math.min(...batch) };
     },
   };
 }

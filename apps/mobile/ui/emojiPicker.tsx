@@ -51,7 +51,7 @@ import {
   type SuggestionEmoji,
 } from '../lib/emojiCompletion.ts';
 import { codesEmojiStandard, emojisByCategory, type EmojiCategory } from '../lib/emojis.ts';
-import { codesEmojiCustom, onCustomEmojisChange } from '../lib/customEmojis.ts';
+import { customEmojiCodes, onCustomEmojisChange } from '../lib/customEmojis.ts';
 import { resolve } from './emojiCompletion.tsx';
 import { useT } from './i18n.ts';
 import type { TranslationKey } from './messages.ts';
@@ -236,8 +236,8 @@ export function EmojiPicker({
   // mounts it once and for all), and `syncCustomEmojis` runs AFTER `ready`: on
   // first install the list read at mount is empty, the ⭐ tab would not exist and
   // search would offer no custom for the whole session. The frozen cache of
-  // `codesEmojiCustom` is the stable snapshot `useSyncExternalStore` requires.
-  const customs = useSyncExternalStore(onCustomEmojisChange, codesEmojiCustom);
+  // `customEmojiCodes` is the stable snapshot `useSyncExternalStore` requires.
+  const customs = useSyncExternalStore(onCustomEmojisChange, customEmojiCodes);
   const byCategory = useMemo(() => emojisByCategory(), []);
 
   const query = search.trim();
@@ -330,7 +330,7 @@ export function EmojiPicker({
               accessibilityLabel={`:${suggestion.code}:`}
             >
               {uri !== null ? (
-                <Image source={{ uri }} style={styles.imageCustom} resizeMode="contain" />
+                <Image source={{ uri }} style={styles.customImage} resizeMode="contain" />
               ) : (
                 <Text style={styles.glyph}>{glyph}</Text>
               )}
@@ -370,6 +370,6 @@ const styles = StyleSheet.create({
   grid: { paddingHorizontal: 2, paddingBottom: 8 },
   case: { alignItems: 'center', justifyContent: 'center' },
   glyph: { fontSize: 26 },
-  imageCustom: { width: 28, height: 28 },
+  customImage: { width: 28, height: 28 },
   empty: { textAlign: 'center', marginTop: 24, fontFamily: FONTS.body, fontSize: 14 },
 });

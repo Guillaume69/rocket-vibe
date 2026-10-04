@@ -22,7 +22,7 @@ export type DeferredDraft = {
    * pending (already written, or never typed), writes nothing: flushing twice
    * does not write twice.
    */
-  flusher(): void;
+  flush(): void;
 };
 
 export const DRAFT_DELAY_MS = 400;
@@ -59,7 +59,7 @@ export function createDeferredDraft(dep: Dependencies): DeferredDraft {
       if (timer !== null) cancel(timer);
       timer = schedule(() => {
         // Reset BEFORE the write: a flush following the timer firing must not replay
-        // text already sent. Redundant with `flusher`'s `timer === null` guard on
+        // text already sent. Redundant with `flush`'s `timer === null` guard on
         // purpose: each is sufficient alone, and the removal proof must remove them
         // TOGETHER.
         timer = null;
@@ -75,7 +75,7 @@ export function createDeferredDraft(dep: Dependencies): DeferredDraft {
       set('');
     },
 
-    flusher() {
+    flush() {
       if (timer === null) return;
       cancel(timer);
       timer = null;

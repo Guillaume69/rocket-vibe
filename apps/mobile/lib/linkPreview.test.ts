@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { linkPreviews, metasVideo } from './linkPreview.ts';
+import { linkPreviews, videoMetas } from './linkPreview.ts';
 
 // Fixtures modeled on real `chat.getMessage` output (RC 8.5).
 const IMAGE = {
@@ -198,7 +198,7 @@ describe('linkPreviews', () => {
   });
 });
 
-describe('metasVideo', () => {
+describe('videoMetas', () => {
   // The server's raw URL carries playlist and `utm_*`: the id is what matches.
   const YT = {
     url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL1&utm_source=x',
@@ -210,7 +210,7 @@ describe('metasVideo', () => {
   };
 
   test('indexes title and author by video id, entities decoded', () => {
-    const m = metasVideo(json([YT]));
+    const m = videoMetas(json([YT]));
     assert.deepEqual(m.get('dQw4w9WgXcQ'), {
       title: 'Rick Astley - Never Gonna Give You Up',
       author: 'Rick Astley & co',
@@ -219,12 +219,12 @@ describe('metasVideo', () => {
 
   test('ignores non-videos, and videos without meta', () => {
     const bare = { url: 'https://youtu.be/aaaaaaaaaaa', meta: {} };
-    const m = metasVideo(json([ARTICLE, bare]));
+    const m = videoMetas(json([ARTICLE, bare]));
     assert.equal(m.size, 0);
   });
 
   test('invalid input → empty map', () => {
-    assert.equal(metasVideo(null).size, 0);
-    assert.equal(metasVideo('{pas du json').size, 0);
+    assert.equal(videoMetas(null).size, 0);
+    assert.equal(videoMetas('{pas du json').size, 0);
   });
 });

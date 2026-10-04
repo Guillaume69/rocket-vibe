@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { hookUp } from './connectionSetup.ts';
+import { setUpConnection } from './connectionSetup.ts';
 
 /** A promise whose settling (when and how) the test decides. */
 function deferred<T>() {
@@ -37,7 +37,7 @@ function bench(options: { alreadyActive?: boolean } = {}) {
     order,
     coverage,
     /** The server armed the subscriptions: from here on, the stream covers. */
-    armer() {
+    arm() {
       armed = true;
       arming.resolve();
     },
@@ -57,17 +57,17 @@ function bench(options: { alreadyActive?: boolean } = {}) {
   };
 }
 
-describe('hookUp', () => {
+describe('setUpConnection', () => {
   test('instant stream: the read does not wait for it, the second one covers it', async () => {
     const b = bench();
-    const done = hookUp(b.options);
+    const done = setUpConnection(b.options);
 
     // The read starts without waiting for anything: this is what the user sees.
     await letRun();
     assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite']);
 
     b.stream.resolve();
-    b.armer();
+    b.arm();
     await done;
 
     assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite', 'lecture']);
@@ -78,7 +78,7 @@ describe('hookUp', () => {
 
   test('very slow stream: nothing changes, same order, same guarantees', async () => {
     const b = bench();
-    const done = hookUp(b.options);
+    const done = setUpConnection(b.options);
 
     await letRun();
     assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite'], 'read already done');
@@ -93,7 +93,7 @@ describe('hookUp', () => {
     // Still no second read: the subscriptions are not armed.
     assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite']);
 
-    b.armer();
+    b.arm();
     await done;
     assert.deepEqual(b.coverage, [false, true], 'the second read covers');
   });
@@ -102,7 +102,7 @@ describe('hookUp', () => {
     const b = bench({ alreadyActive: true });
     b.stream.resolve(); // live socket: `openStream` does nothing
 
-    await hookUp(b.options);
+    await setUpConnection(b.options);
 
     assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite']);
     assert.deepEqual(b.coverage, [true]);
@@ -110,7 +110,7 @@ describe('hookUp', () => {
 
   test('the stream failure is relayed, but after the user got their messages', async () => {
     const b = bench();
-    const done = hookUp(b.options);
+    const done = setUpConnection(b.options);
     const expected = done.then(
       () => null,
       (e: unknown) => e,
@@ -134,7 +134,7 @@ describe('hookUp', () => {
     const b = bench({ alreadyActive: true });
     b.stream.resolve();
     await assert.rejects(
-      hookUp({ ...b.options, catchUp: () => Promise.reject(new Error('rooms.get: 429')) }),
+      setUpConnection({ ...b.options, catchUp: () => Promise.reject(new Error('rooms.get: 429')) }),
       /429/,
     );
   });
@@ -142,7 +142,7 @@ describe('hookUp', () => {
   test('session ended before the read: nothing is touched any more', async () => {
     const b = bench();
     b.stream.resolve();
-    await hookUp({ ...b.options, isDiscarded: () => true });
+    await setUpConnection({ ...b.options, isDiscarded: () => true });
 
     assert.deepEqual(b.order, ['stream:demande']);
   });
@@ -150,7 +150,7 @@ describe('hookUp', () => {
   test('session ended during the read: no second pass', async () => {
     const b = bench();
     let discarded = false;
-    const done = hookUp({
+    const done = setUpConnection({
       ...b.options,
       catchUp: async () => {
         b.order.push('lecture');
@@ -160,7 +160,7 @@ describe('hookUp', () => {
     });
 
     b.stream.resolve();
-    b.armer();
+    b.arm();
     await done;
 
     assert.deepEqual(b.order, ['stream:demande', 'lecture', 'ensuite']);

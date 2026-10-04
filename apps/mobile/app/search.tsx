@@ -11,7 +11,7 @@ import {
 
 import type { ProviderActions } from '../lib/provider.ts';
 import type { SyncEngine } from '../lib/sync.ts';
-import type { ClientRest } from '../lib/rest.ts';
+import type { RestClient } from '../lib/rest.ts';
 import { KeyboardAvoidingContainer } from '../ui/keyboard.tsx';
 import { useT } from '../ui/i18n.ts';
 import { useDebouncedSearch } from '../ui/debouncedSearch.ts';
@@ -66,7 +66,7 @@ function Search({
   actions,
 }: {
   c: Colors;
-  client: ClientRest;
+  client: RestClient;
   engine: SyncEngine;
   actions: ProviderActions;
 }) {

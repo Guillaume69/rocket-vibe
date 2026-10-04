@@ -6,12 +6,12 @@ import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
-import type { BaseLocale } from '../../db/client.ts';
+import type { LocalDatabase } from '../../db/client.ts';
 import type { DraftStore } from '../../db/store.ts';
 import { messages, rooms, outbox } from '../../db/schema.ts';
 import type { ActivityEngine } from '../../lib/activity.ts';
 import type { ProviderActions, Provider, Listener, Outbox } from '../../lib/provider.ts';
-import type { ClientRest } from '../../lib/rest.ts';
+import type { RestClient } from '../../lib/rest.ts';
 import { SyncEngine } from '../../lib/sync.ts';
 import { useActivity } from '../../ui/activity.ts';
 import { useDraft } from '../../ui/drafts.ts';
@@ -98,14 +98,14 @@ function Thread({
 }: {
   c: Colors;
   threadId: string;
-  base: BaseLocale;
+  base: LocalDatabase;
   drafts: DraftStore;
   engine: SyncEngine;
   outbox: Outbox;
   ddp: Listener;
   provider: Provider;
   actions: ProviderActions;
-  client: ClientRest;
+  client: RestClient;
   /** My username: marks my reactions in the rows. */
   me: string;
   activity: ActivityEngine;

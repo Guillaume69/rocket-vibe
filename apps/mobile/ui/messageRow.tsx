@@ -28,19 +28,19 @@ import {
 } from '../lib/quote.ts';
 import { attachmentEncryption, type FileEncryption } from '../lib/e2e/crypto.ts';
 import { unicodeOfShortcode } from '../lib/emojis.ts';
-import { urlEmojiCustom } from '../lib/customEmojis.ts';
+import { customEmojiUrl } from '../lib/customEmojis.ts';
 import { messageTree } from '../lib/markdown.ts';
 import { systemText } from '../lib/systemMessages.ts';
 import { reactionList, type DisplayedReaction } from '../lib/reactions.ts';
 import { openProfileCard } from '../lib/profilePreload.ts';
-import type { ClientRest } from '../lib/rest.ts';
-import { urlAvatar, protectedFileUrl } from '../lib/upload.ts';
+import type { RestClient } from '../lib/rest.ts';
+import { avatarUrl, protectedFileUrl } from '../lib/upload.ts';
 import { EmbedLinks } from './embedCard.tsx';
 import { LinkPreviews } from './linkCard.tsx';
 import { offerDownloadOrShare } from './attachmentActions.ts';
 import { TransferBar } from './transferBar.tsx';
 import { decryptedFile } from './attachment.ts';
-import { useEtagsAvatars, useIdentities } from './identities.tsx';
+import { useAvatarEtags, useIdentities } from './identities.tsx';
 import { useTimeFormatter, useT } from './i18n.ts';
 import { AvatarTile } from './kit.tsx';
 import { AudioPlayer } from './audioPlayer.tsx';
@@ -77,7 +77,7 @@ export const MessageRow = memo(function MessageRow({
 }: {
   c: Colors;
   message: MessageRowData;
-  client: ClientRest;
+  client: RestClient;
   sendStatus: 'en-attente' | 'echec' | null;
   onRetry: (() => void) | null;
   onDiscard: ((id: string) => void) | null;
@@ -113,7 +113,7 @@ export const MessageRow = memo(function MessageRow({
   // current username; we fall back on the snapshot while a uid is not known yet
   // (first render, offline).
   const identities = useIdentities();
-  const etags = useEtagsAvatars();
+  const etags = useAvatarEtags();
   const t = useT();
   const author = (identities.get(message.authorId) ?? message.authorName) ?? '?';
   // The username takes the first tint of its own avatar tile: name and avatar
@@ -202,7 +202,7 @@ export const MessageRow = memo(function MessageRow({
             // The `etag` (photo version) is what refreshes the image when the
             // person changes avatar: by username if known, by uid otherwise; both
             // indexes point to the same version.
-            uri={urlAvatar(client, {
+            uri={avatarUrl(client, {
               username: identities.get(message.authorId),
               uid: message.authorId,
               etag:
@@ -347,7 +347,7 @@ function MessageContent({ c, message }: { c: Colors; message: MessageRowData }) 
     // The `md` is ultimately someone else's data: a shape that slips past
     // validation must cost only this message, not the screen.
     // The `key` REVIVES the guard when the CONTENT changes: without it,
-    // `letterCase` stayed armed forever and an edit fixing a malformed `md`
+    // `crashed` stayed armed forever and an edit fixing a malformed `md`
     // left the message stuck on its bare text until the cell was recycled
     // (the guard was the only link with no reset).
     <RenderGuard
@@ -379,7 +379,7 @@ function ReactionChip({
   onPress: (() => void) | undefined;
 }) {
   const glyph = unicodeOfShortcode(reaction.code);
-  const uri = glyph === null ? urlEmojiCustom(reaction.code) : null;
+  const uri = glyph === null ? customEmojiUrl(reaction.code) : null;
   return (
     <Pressable
       onPress={onPress}
@@ -432,7 +432,7 @@ function Quote({
 }: {
   c: Colors;
   attachment: Attachment;
-  client: ClientRest;
+  client: RestClient;
   onLongPress: (() => void) | undefined;
   depth?: number;
 }) {
@@ -497,7 +497,7 @@ function QuotedFile({
 }: {
   c: Colors;
   attachment: Attachment;
-  client: ClientRest;
+  client: RestClient;
   onLongPress: (() => void) | undefined;
 }) {
   const t = useT();
@@ -558,7 +558,7 @@ function AttachedImage({
   local,
 }: {
   attachment: Attachment;
-  client: ClientRest;
+  client: RestClient;
   minWidth: number;
   maxWidth: number;
   minHeight: number;
@@ -693,7 +693,7 @@ function Attachments({
 }: {
   c: Colors;
   attachments: Attachment[];
-  client: ClientRest;
+  client: RestClient;
   onLongPress: (() => void) | undefined;
 }) {
   const { width: screenWidth } = useWindowDimensions();
@@ -799,7 +799,7 @@ function FileAttachment({
   encryption = null,
 }: {
   c: Colors;
-  client: ClientRest;
+  client: RestClient;
   path: string;
   title: string | null;
   size: number | null;
@@ -845,7 +845,7 @@ function EncryptedAttachment({
   c: Colors;
   attachment: Attachment;
   encryption: FileEncryption;
-  client: ClientRest;
+  client: RestClient;
   maxWidth: number;
   onLongPress: (() => void) | undefined;
 }) {

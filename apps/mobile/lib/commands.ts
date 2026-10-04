@@ -9,7 +9,7 @@
  * 8.5). Same logic as `apps/desktop/crates/rv-core/src/commands.rs`.
  */
 
-import type { ClientRest } from './rest.ts';
+import type { RestClient } from './rest.ts';
 
 type Language = 'fr' | 'en';
 
@@ -158,7 +158,7 @@ export function privateMessage(args: readonly unknown[]): { rid: string; text: s
 const cached = new Map<string, Promise<unknown>>();
 
 /** `commands.list`, read once per session and account; a failure is not cached. */
-export function rawList(client: Pick<ClientRest, 'get' | 'baseUrl' | 'auth'>): Promise<unknown> {
+export function rawList(client: Pick<RestClient, 'get' | 'baseUrl' | 'auth'>): Promise<unknown> {
   const key = `${client.baseUrl}|${client.auth?.userId ?? ''}`;
   const known = cached.get(key);
   if (known !== undefined) return known;
@@ -173,7 +173,7 @@ export function rawList(client: Pick<ClientRest, 'get' | 'baseUrl' | 'auth'>): P
  * is a message to send. Rejects if the server refuses it.
  */
 export async function runCommand(
-  client: Pick<ClientRest, 'get' | 'post' | 'baseUrl' | 'auth'>,
+  client: Pick<RestClient, 'get' | 'post' | 'baseUrl' | 'auth'>,
   rid: string,
   text: string,
   threadId: string | null,

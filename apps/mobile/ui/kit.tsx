@@ -32,9 +32,9 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import type { ClientRest } from '../lib/rest.ts';
-import { urlAvatar } from '../lib/upload.ts';
-import { useEtagsAvatars } from './identities.tsx';
+import type { RestClient } from '../lib/rest.ts';
+import { avatarUrl } from '../lib/upload.ts';
+import { useAvatarEtags } from './identities.tsx';
 import { useDayFormatter } from './i18n.ts';
 import { type Colors, avatarGradient, type Gradient, FONTS } from './theme.ts';
 
@@ -107,7 +107,7 @@ export function Brand({
  * If `uri` is given, the REAL photo goes on top of the tile: it serves as the
  * background while loading, and as the fallback if the photo does not exist
  * (the server then returns an SVG that `<Image>` cannot decode, so `onError`
- * unmasks the gradient again; see `urlAvatar`).
+ * unmasks the gradient again; see `avatarUrl`).
  */
 export function AvatarTile({
   c,
@@ -220,11 +220,11 @@ export function RoomAvatar({
    * after a photo change on the server.
    */
   avatarEtag: string | null | undefined;
-  client: ClientRest;
+  client: RestClient;
   size?: number;
   radius?: number;
 }) {
-  const etags = useEtagsAvatars();
+  const etags = useAvatarEtags();
   // LOCKED encrypted room: grey tile + closed lock (unreadable). Unlocked: back
   // to the ORDINARY rendering (coloured tile, `#` or avatar): the room is
   // readable, it looks like a readable room. `🔓` vs `🔒` alone were too close
@@ -244,7 +244,7 @@ export function RoomAvatar({
   // DM: the other party's photo by uid (we do not have their username);
   // channel/group: the room avatar. Absent means an SVG from the server, so
   // fallback to the tile.
-  const uri = urlAvatar(
+  const uri = avatarUrl(
     client,
     isDM
       ? {

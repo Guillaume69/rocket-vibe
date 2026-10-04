@@ -1,5 +1,5 @@
 /**
- * Rocket.Chat unit actions on messages. A thin wrapper over `ClientRest`
+ * Rocket.Chat unit actions on messages. A thin wrapper over `RestClient`
  * that isolates the RC endpoints (`chat.react`, `chat.update`, ...) and their
  * parameter quirks, so screens no longer name them. The Mattermost driver
  * will provide its own `ProviderActions` (endpoints `/posts`, `/reactions`, ...).
@@ -8,15 +8,15 @@
 import { mentionsE2E } from '../../lib/e2e/mentions.ts';
 import type { OutboxEncryptor } from '../../lib/outbox.ts';
 import type { ProviderActions } from '../../lib/provider.ts';
-import { toMessage, type MessageLocal } from '../../lib/normalize.ts';
-import type { ClientRest } from '../../lib/rest.ts';
+import { toMessage, type LocalMessage } from '../../lib/normalize.ts';
+import type { RestClient } from '../../lib/rest.ts';
 
 export class ActionsRC implements ProviderActions {
   // A plain field, not a "parameter property": the latter is not erasable
   // syntax and would prevent loading the module under Node (tests).
-  private readonly client: ClientRest;
+  private readonly client: RestClient;
 
-  constructor(client: ClientRest) {
+  constructor(client: RestClient) {
     this.client = client;
   }
 
@@ -65,21 +65,21 @@ export class ActionsRC implements ProviderActions {
     });
   }
 
-  listPinned(rid: string): Promise<MessageLocal[]> {
+  listPinned(rid: string): Promise<LocalMessage[]> {
     return this.list('chat.getPinnedMessages', rid);
   }
 
-  listStarred(rid: string): Promise<MessageLocal[]> {
+  listStarred(rid: string): Promise<LocalMessage[]> {
     return this.list('chat.getStarredMessages', rid);
   }
 
-  private async list(path: string, rid: string): Promise<MessageLocal[]> {
+  private async list(path: string, rid: string): Promise<LocalMessage[]> {
     const response = await this.client.get<{ messages?: Record<string, unknown>[] }>(path, {
       params: { roomId: rid, count: 50 },
     });
     return (response.messages ?? [])
       .map((raw) => toMessage(raw))
-      .filter((m): m is MessageLocal => m !== null)
+      .filter((m): m is LocalMessage => m !== null)
       .sort((a, b) => b.ts - a.ts);
   }
 

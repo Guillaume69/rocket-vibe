@@ -27,7 +27,7 @@ import {
   subscribeProfileOpening,
   type ProfileParams,
 } from './profilePreload.ts';
-import type { ClientRest } from './rest.ts';
+import type { RestClient } from './rest.ts';
 
 const USER = { _id: 'u1', username: 'alice' };
 
@@ -42,12 +42,12 @@ function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
 function fakeClient(handles: {
   usersInfo: () => Promise<unknown>;
   capabilities: () => Promise<unknown>;
-}): ClientRest {
+}): RestClient {
   return {
     baseUrl: 'http://banc.local',
     get: (path: string) =>
       path === 'users.info' ? handles.usersInfo() : handles.capabilities(),
-  } as unknown as ClientRest;
+  } as unknown as RestClient;
 }
 
 /** Enough turns to exhaust the module's `then`/`await` chains. */

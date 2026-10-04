@@ -19,8 +19,8 @@ import type { BigEmoji, Blocks, Inlines, Paragraph } from '@rocket.chat/message-
 import { Component, createContext, useContext, type ReactElement, type ReactNode } from 'react';
 import { Image, Platform, StyleSheet, Text, View } from 'react-native';
 
-import { urlEmojiCustom } from '../lib/customEmojis.ts';
-import { textOf, unicodeDEmoji, type Root } from '../lib/markdown.ts';
+import { customEmojiUrl } from '../lib/customEmojis.ts';
+import { textOf, emojiUnicode, type Root } from '../lib/markdown.ts';
 import { openProfileCard } from '../lib/profilePreload.ts';
 import { openExternalLink } from './externalLink.ts';
 import { TappableText } from './tappableText.tsx';
@@ -50,7 +50,7 @@ function openProfile(username: string): void {
  * ONLY the faulty message, never the room screen, which would crash again on
  * every open since the `md` is persisted.
  *
- * `letterCase` does not reset ON ITS OWN: the caller must set a `key` derived
+ * `crashed` does not reset ON ITS OWN: the caller must set a `key` derived
  * from the content (`message.md ?? message.text`), which revives the guard when
  * an EDIT fixes the `md`, and only then. A `componentDidUpdate` on the identity
  * of `children` would retry on EVERY parent re-render (the object churn of
@@ -59,16 +59,16 @@ function openProfile(username: string): void {
  */
 export class RenderGuard extends Component<
   { fallback: React.ReactNode; children: React.ReactNode },
-  { letterCase: boolean }
+  { crashed: boolean }
 > {
-  state = { letterCase: false };
+  state = { crashed: false };
 
-  static getDerivedStateFromError(): { letterCase: boolean } {
-    return { letterCase: true };
+  static getDerivedStateFromError(): { crashed: boolean } {
+    return { crashed: true };
   }
 
   render() {
-    return this.state.letterCase ? this.props.fallback : this.props.children;
+    return this.state.crashed ? this.props.fallback : this.props.children;
   }
 }
 
@@ -294,14 +294,14 @@ function renderEmoji(
   key: number,
   size: 'inline' | 'large',
 ): string | ReactElement | null {
-  const glyph = unicodeDEmoji(node);
+  const glyph = emojiUnicode(node);
   if (glyph !== null) return glyph;
   const shortCode =
     typeof node === 'object' && node !== null && 'shortCode' in node
       ? (node as { shortCode?: unknown }).shortCode
       : undefined;
   if (typeof shortCode !== 'string') return null;
-  const uri = urlEmojiCustom(shortCode);
+  const uri = customEmojiUrl(shortCode);
   if (uri === null) return null;
   return (
     <Image

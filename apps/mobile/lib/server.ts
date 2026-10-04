@@ -6,7 +6,7 @@
  * that change client behaviour. The login screen does this before showing
  * anything.
  *
- * Transport comes from `ClientRest` (timeout, cancellation, defensive JSON,
+ * Transport comes from `RestClient` (timeout, cancellation, defensive JSON,
  * retry on 429), **including `/api/info`**, which does not live under
  * `/api/v1/` and so goes through the `outsideApiV1` option. It used to be left
  * out, on a bare `fetch`: a request left hanging (reverse proxy, captive
@@ -14,7 +14,7 @@
  * dead and silent, its `inFlight` guard armed for good.
  */
 
-import { ClientRest, type Dependencies, RestError } from './rest.ts';
+import { RestClient, type Dependencies, RestError } from './rest.ts';
 
 export type TwoFactor = {
   active: boolean;
@@ -92,7 +92,7 @@ const trueIf = (v: unknown): boolean => v === true;
  * true}` on 8.5.1: the MINOR version only, shown at login.
  */
 async function fetchVersion(
-  client: ClientRest,
+  client: RestClient,
   signal?: AbortSignal,
 ): Promise<string> {
   const payload = await client.get<{ version?: unknown }>('api/info', {
@@ -109,11 +109,11 @@ async function fetchVersion(
 export async function probeServer(
   entry: string,
   signal?: AbortSignal,
-  /** Same seam as `ClientRest`: tests exercise the timeout without sleeping. */
+  /** Same seam as `RestClient`: tests exercise the timeout without sleeping. */
   dep?: Partial<Dependencies>,
 ): Promise<ServerProfile> {
   const base = normalizeUrl(entry);
-  const client = new ClientRest(base, dep);
+  const client = new RestClient(base, dep);
 
   const controller = new AbortController();
   const relay = () => controller.abort();

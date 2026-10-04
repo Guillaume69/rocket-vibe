@@ -79,7 +79,7 @@ function expoTransportWith(field: string): TransportUpload {
     } catch {
       // `uploadAsync` rejects only when NO HTTP response arrived: that is the
       // network. Status 0 = the row stays 'en-attente', the replay on the next
-      // connection setup takes care of it; same semantics as ClientRest.
+      // connection setup takes care of it; same semantics as RestClient.
       throw new RestError('Upload: server unreachable.', 0);
     } finally {
       // Success or failure alike: it is the bytes going through that drop the

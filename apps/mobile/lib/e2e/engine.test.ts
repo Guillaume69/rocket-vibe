@@ -98,7 +98,7 @@ async function makeRoomKey(
   };
 }
 
-function faux(fetchMyKeys: unknown): { client: ClientE2E; storage: E2EKeyStorage; read: () => string | null } {
+function fake(fetchMyKeys: unknown): { client: ClientE2E; storage: E2EKeyStorage; read: () => string | null } {
   const client: ClientE2E = { get: async () => fetchMyKeys as never };
   let stored: string | null = null;
   const storage: E2EKeyStorage = {
@@ -112,7 +112,7 @@ function faux(fetchMyKeys: unknown): { client: ClientE2E; storage: E2EKeyStorage
 describe('E2EEngine', () => {
   test('unlocks, caches the room key, decrypts a message', async () => {
     const { fetchMyKeys, e2eKey, content } = await make();
-    const { client, storage, read } = faux(fetchMyKeys);
+    const { client, storage, read } = fake(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
 
     assert.equal(m.isUnlocked, false);
@@ -128,7 +128,7 @@ describe('E2EEngine', () => {
 
   test('decrypts even if saveRoomKey happens before unlocking', async () => {
     const { fetchMyKeys, e2eKey, content } = await make();
-    const { client, storage } = faux(fetchMyKeys);
+    const { client, storage } = fake(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
     m.saveRoomKey(RID, e2eKey); // E2EKey known before the private key
     await m.unlock(PASSWORD);
@@ -142,7 +142,7 @@ describe('E2EEngine', () => {
     // later message stayed on the 🔒 placeholder until the app restarted, with
     // no hint of the cause.
     const { fetchMyKeys, e2eKey, content } = await make();
-    const { client, storage } = faux(fetchMyKeys);
+    const { client, storage } = fake(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
     await m.unlock(PASSWORD);
     m.saveRoomKey(RID, e2eKey);
@@ -157,7 +157,7 @@ describe('E2EEngine', () => {
 
   test('saving the SAME key again breaks nothing (idempotent)', async () => {
     const { fetchMyKeys, e2eKey, content } = await make();
-    const { client, storage } = faux(fetchMyKeys);
+    const { client, storage } = fake(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
     await m.unlock(PASSWORD);
     m.saveRoomKey(RID, e2eKey);
@@ -168,7 +168,7 @@ describe('E2EEngine', () => {
 
   test('resume() reimports the Keystore key without a password', async () => {
     const { fetchMyKeys, e2eKey, content } = await make();
-    const { client, storage } = faux(fetchMyKeys);
+    const { client, storage } = fake(fetchMyKeys);
     await new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' }).unlock(PASSWORD); // fills the Keystore
 
     const m2 = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
@@ -180,7 +180,7 @@ describe('E2EEngine', () => {
 
   test('lock() forgets everything and clears the Keystore', async () => {
     const { fetchMyKeys, e2eKey, content } = await make();
-    const { client, storage, read } = faux(fetchMyKeys);
+    const { client, storage, read } = fake(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
     await m.unlock(PASSWORD);
     m.saveRoomKey(RID, e2eKey);
@@ -193,7 +193,7 @@ describe('E2EEngine', () => {
 
   test('wrong password -> E2EError, stays locked', async () => {
     const { fetchMyKeys } = await make();
-    const { client, storage, read } = faux(fetchMyKeys);
+    const { client, storage, read } = fake(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
     await assert.rejects(() => m.unlock('mauvais'), E2EError);
     assert.equal(m.isUnlocked, false);
@@ -202,7 +202,7 @@ describe('E2EEngine', () => {
 
   test('subscribe is notified on unlock and on lock', async () => {
     const { fetchMyKeys } = await make();
-    const { client, storage } = faux(fetchMyKeys);
+    const { client, storage } = fake(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
     let n = 0;
     m.subscribe(() => { n += 1; });
@@ -215,7 +215,7 @@ describe('E2EEngine', () => {
 describe('E2EEngine: encrypt', () => {
   test('locked or without a room key -> null, never plaintext', async () => {
     const { fetchMyKeys, e2eKey } = await make();
-    const { client, storage } = faux(fetchMyKeys);
+    const { client, storage } = fake(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
     m.saveRoomKey(RID, e2eKey);
     assert.equal(m.encrypt(RID, { msg: 'x' }), null);
@@ -225,7 +225,7 @@ describe('E2EEngine: encrypt', () => {
 
   test('encrypts under the room key and keyID, read back by decryptContent', async () => {
     const { fetchMyKeys, e2eKey } = await make();
-    const { client, storage } = faux(fetchMyKeys);
+    const { client, storage } = fake(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
     await m.unlock(PASSWORD);
     m.saveRoomKey(RID, e2eKey);
@@ -238,7 +238,7 @@ describe('E2EEngine: encrypt', () => {
 
   test('after a rotation, encrypts under the NEW key', async () => {
     const { fetchMyKeys, e2eKey } = await make();
-    const { client, storage } = faux(fetchMyKeys);
+    const { client, storage } = fake(fetchMyKeys);
     const m = new E2EEngine({ client, storage, uid: 'osR3JzQEiM2H77m46' });
     await m.unlock(PASSWORD);
     m.saveRoomKey(RID, e2eKey);

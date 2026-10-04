@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 
 import { withTransactionTrap } from './testStore.ts';
 import { catchUpGlobal, catchUpRoom, reconcileRooms } from './catchUp.ts';
-import { ClientRest } from './rest.ts';
+import { RestClient } from './rest.ts';
 import { SyncEngine, type Store } from './sync.ts';
 import { RcTranslator } from '../providers/rocketchat/translator.ts';
 
@@ -79,7 +79,7 @@ function fullFakeStore() {
  */
 function fakeClient(responses: Record<string, unknown>, duringFlight?: (path: string) => void) {
   const urls: string[] = [];
-  const client = new ClientRest('http://x', {
+  const client = new RestClient('http://x', {
     fetch: async (url) => {
       const u = String(url);
       urls.push(u);
@@ -163,7 +163,7 @@ describe('catchUpGlobal', () => {
   test('a failing `me` does not fail the catch-up', async () => {
     const d = fullFakeStore();
     const engine = new SyncEngine(d.store, new RcTranslator());
-    const client = new ClientRest('http://x', {
+    const client = new RestClient('http://x', {
       fetch: async (url) => {
         const path = new URL(String(url)).pathname.split('/api/v1/')[1];
         if (path === 'me') throw new Error('réseau coupé');
@@ -186,7 +186,7 @@ describe('catchUpGlobal', () => {
 function clientSequence(responses: (Record<string, unknown> | number)[]) {
   const urls: string[] = [];
   let i = 0;
-  const client = new ClientRest('http://x', {
+  const client = new RestClient('http://x', {
     fetch: async (url) => {
       urls.push(String(url));
       const r = responses[Math.min(i, responses.length - 1)];
@@ -400,7 +400,7 @@ describe('catchUpRoom', () => {
     d.cursors.set('r1|messages', 1000);
     const engine = new SyncEngine(d.store, new RcTranslator());
     const urls: string[] = [];
-    const client = new ClientRest('http://x', {
+    const client = new RestClient('http://x', {
       fetch: async (url) => {
         urls.push(String(url));
         throw new Error('timeout');
@@ -453,7 +453,7 @@ describe('catchUpRoom', () => {
       d.setLastLocal(9000);
       const engine = new SyncEngine(d.store, new RcTranslator());
       let first = true;
-      const client = new ClientRest('http://x', {
+      const client = new RestClient('http://x', {
         fetch: async () => {
           if (first) {
             first = false;
@@ -482,7 +482,7 @@ function heldClient(responses: (Record<string, unknown> | number)[]) {
   const urls: string[] = [];
   const gates: (() => void)[] = [];
   let i = 0;
-  const client = new ClientRest('http://x', {
+  const client = new RestClient('http://x', {
     fetch: async (url) => {
       urls.push(String(url));
       const r = responses[Math.min(i, responses.length - 1)];

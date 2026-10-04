@@ -4,11 +4,11 @@ import { Redirect, Stack, useRouter } from 'expo-router';
 import { ActivityIndicator, SectionList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import type { BaseLocale } from '../db/client.ts';
+import type { LocalDatabase } from '../db/client.ts';
 import { subscriptions, rooms } from '../db/schema.ts';
 import { textPreview } from '../lib/markdown.ts';
 import { systemPreview } from '../lib/systemMessages.ts';
-import type { ClientRest } from '../lib/rest.ts';
+import type { RestClient } from '../lib/rest.ts';
 import { useActivity } from '../ui/activity.ts';
 import { useT } from '../ui/i18n.ts';
 import { RoomAvatar, UnreadBadge, SyncBar, Brand, AvatarTile } from '../ui/kit.tsx';
@@ -87,7 +87,7 @@ function ListHeader({ c }: { c: Colors }) {
   );
 }
 
-function RoomList({ c, client }: { c: Colors; client: ClientRest }) {
+function RoomList({ c, client }: { c: Colors; client: RestClient }) {
   const sync = useSync();
 
   if (sync.phase === 'error') {
@@ -114,8 +114,8 @@ function Rooms({
   e2e,
 }: {
   c: Colors;
-  base: BaseLocale;
-  client: ClientRest;
+  base: LocalDatabase;
+  client: RestClient;
   e2e: E2EEngine;
 }) {
   const t = useT();
@@ -223,7 +223,7 @@ function RoomRow({
   c: Colors;
   room: RoomRecord;
   subscription: SubscriptionRow | null;
-  client: ClientRest;
+  client: RestClient;
   /** E2EE unlocked on the device: drives the preview and the lock icon. */
   unlocked: boolean;
 }) {

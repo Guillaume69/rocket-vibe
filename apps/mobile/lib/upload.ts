@@ -14,7 +14,7 @@
  */
 
 import { sameOrigin } from './origin.ts';
-import type { ClientRest } from './rest.ts';
+import type { RestClient } from './rest.ts';
 
 export type FileToSend = {
   uri: string;
@@ -58,7 +58,7 @@ type ConfirmResponse = { message?: Record<string, unknown> };
  * going any further.
  *
  * The two steps are separate because the gap between them is a real failure
- * point: `ClientRest` aborts at 15 s, and a `mediaConfirm` whose response got
+ * point: `RestClient` aborts at 15 s, and a `mediaConfirm` whose response got
  * lost made everything restart from scratch at the next connection setup: the
  * same bytes pushed again, a second message posted, one more orphaned file.
  * With the `fileId` in the database, the retry jumps straight to the confirm.
@@ -67,7 +67,7 @@ type ConfirmResponse = { message?: Record<string, unknown> };
  * the task.
  */
 export async function uploadBytes(options: {
-  client: ClientRest;
+  client: RestClient;
   transport: TransportUpload;
   rid: string;
   file: FileToSend;
@@ -113,8 +113,8 @@ export async function uploadBytes(options: {
  * `additionalProperties: false`, the server would reject the body.
  * Deduplication therefore happens client-side, on the persisted `fileId`.
  */
-export async function confirmerMedia(options: {
-  client: ClientRest;
+export async function confirmMedia(options: {
+  client: RestClient;
   rid: string;
   fileId: string;
   message?: string;
@@ -139,7 +139,7 @@ export async function confirmerMedia(options: {
  * downscaled avatar is tiny.
  */
 export async function setAvatar(options: {
-  client: ClientRest;
+  client: RestClient;
   transport: TransportUpload;
   file: FileToSend;
 }): Promise<void> {
@@ -182,7 +182,7 @@ export async function setAvatar(options: {
  * bare: the file will not show if it was protected, which is the right
  * failure.
  */
-export function protectedFileUrl(client: ClientRest, path: string): string {
+export function protectedFileUrl(client: RestClient, path: string): string {
   const absolute = path.startsWith('http') ? path : `${client.baseUrl}${path}`;
   if (client.auth === null) return absolute;
   if (!sameOrigin(absolute, client.baseUrl)) return absolute;
@@ -224,8 +224,8 @@ export const AVATAR_NO_PHOTO = 'sans-photo';
  * display. It comes from the local database (users, rooms), fed by the
  * `updateAvatar` stream, by `me` and by `users.info`; see `ui/identities.tsx`.
  */
-export function urlAvatar(
-  client: ClientRest,
+export function avatarUrl(
+  client: RestClient,
   target: {
     uid?: string | null;
     username?: string | null;

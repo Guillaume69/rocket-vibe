@@ -30,10 +30,10 @@ import {
   View,
 } from 'react-native';
 
-import type { BaseLocale } from '../db/client.ts';
+import type { LocalDatabase } from '../db/client.ts';
 import { subscriptions, rooms } from '../db/schema.ts';
 import type { Outbox, FileOutbox } from '../lib/provider.ts';
-import type { ClientRest } from '../lib/rest.ts';
+import type { RestClient } from '../lib/rest.ts';
 import { AttachmentPreview, type PendingFile } from '../ui/attachmentPreview.tsx';
 import { KeyboardAvoidingContainer } from '../ui/keyboard.tsx';
 import { deleteIfTemporary } from '../ui/temporaryFiles.ts';
@@ -43,7 +43,7 @@ import { fileEmoji, isImage } from '../ui/mime.ts';
 import { compressImageIfUseful } from '../ui/prepareAttachment.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
-import { phraseValidation } from '../ui/fileValidation.ts';
+import { validationMessage } from '../ui/fileValidation.ts';
 import { type Colors, LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
 import { Tappable } from '../ui/tappable.tsx';
 
@@ -121,10 +121,10 @@ function Share({
   shareIntent,
 }: {
   c: Colors;
-  base: BaseLocale;
+  base: LocalDatabase;
   outbox: Outbox;
   files: FileOutbox;
-  client: ClientRest;
+  client: RestClient;
   shareIntent: ShareIntent;
 }) {
   const router = useRouter();
@@ -278,7 +278,7 @@ function Share({
           if (captionPart) setCaption('');
         }
         setError(
-          phraseValidation(e, t) ??
+          validationMessage(e, t) ??
             (e instanceof Error ? e.message : t('share.shareFailed')),
         );
         inFlight.current = false;
@@ -380,7 +380,7 @@ function TargetRow({
 }: {
   c: Colors;
   room: RoomRow;
-  client: ClientRest;
+  client: RestClient;
   busy: boolean;
   /** This row is the destination of the ongoing send: it carries the spinner. */
   sending: boolean;

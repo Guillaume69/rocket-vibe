@@ -40,13 +40,13 @@ export function useIdentities(): ReadonlyMap<string, string> {
  * username (messages, mentions, profile, my profile) and by uid (the other
  * party of a DM, of whom often only the uid is known).
  */
-export type EtagsAvatars = {
+export type AvatarEtags = {
   byUid: ReadonlyMap<string, string>;
   byUsername: ReadonlyMap<string, string>;
 };
 
-const NO_ETAG: EtagsAvatars = { byUid: new Map(), byUsername: new Map() };
-let etags: EtagsAvatars = NO_ETAG;
+const NO_ETAG: AvatarEtags = { byUid: new Map(), byUsername: new Map() };
+let etags: AvatarEtags = NO_ETAG;
 const etagListeners = new Set<() => void>();
 
 function sameMap(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>): boolean {
@@ -60,7 +60,7 @@ function sameMap(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>)
  * write to `utilisateurs` (a mere ingested message, then), and each
  * notification would re-render every avatar mounted on screen.
  */
-export function setEtags(added: EtagsAvatars): void {
+export function setEtags(added: AvatarEtags): void {
   if (sameMap(etags.byUid, added.byUid) && sameMap(etags.byUsername, added.byUsername)) {
     return;
   }
@@ -76,11 +76,11 @@ function subscribeEtags(cb: () => void): () => void {
 }
 
 /**
- * Photo versions to inject into `urlAvatar`: this is what moves the URI when
+ * Photo versions to inject into `avatarUrl`: this is what moves the URI when
  * someone changes their photo, image cache included. An avatar whose etag is
  * still unknown shows exactly as before: the URL without query stays valid.
  */
-export function useEtagsAvatars(): EtagsAvatars {
+export function useAvatarEtags(): AvatarEtags {
   return useSyncExternalStore(subscribeEtags, () => etags);
 }
 

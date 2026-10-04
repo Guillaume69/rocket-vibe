@@ -65,8 +65,8 @@ describe('hotRooms', () => {
     keepWarm('b', 1, fixture().releases, sessionToken());
     keepWarm('c', 1, fixture().releases, sessionToken());
     // 'a' is revisited: it must no longer be the next evicted.
-    const aBis = fixture();
-    keepWarm('a', 1, aBis.releases, sessionToken());
+    const aAgain = fixture();
+    keepWarm('a', 1, aAgain.releases, sessionToken());
     keepWarm('d', 1, fixture().releases, sessionToken());
 
     assert.equal(roomCovered('a', 1), true, '`a` was refreshed');

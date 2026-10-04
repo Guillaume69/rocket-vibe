@@ -3,8 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
 
 import type { ProviderActions } from '../lib/provider.ts';
-import type { MessageLocal } from '../lib/normalize.ts';
-import type { ClientRest } from '../lib/rest.ts';
+import type { LocalMessage } from '../lib/normalize.ts';
+import type { RestClient } from '../lib/rest.ts';
 import { Tappable } from '../ui/tappable.tsx';
 import { useT } from '../ui/i18n.ts';
 import { DaySeparator } from '../ui/kit.tsx';
@@ -28,7 +28,7 @@ type Tab = 'pinned' | 'starred';
 
 type ListState =
   | { phase: 'loading' }
-  | { phase: 'ready'; messages: MessageLocal[] }
+  | { phase: 'ready'; messages: LocalMessage[] }
   | { phase: 'error' };
 
 export default function MarkedMessagesScreen() {
@@ -67,7 +67,7 @@ function MarkedMessages({
   me,
 }: {
   c: Colors;
-  client: ClientRest;
+  client: RestClient;
   actions: ProviderActions;
   rid: string;
   me: string;
@@ -90,7 +90,7 @@ function MarkedMessages({
   }, [tab, current, actions, rid]);
 
   const open = useCallback(
-    (m: MessageLocal) => {
+    (m: LocalMessage) => {
       router.back();
       if (m.threadId !== null && !m.threadShown) {
         router.push({ pathname: '/thread/[id]', params: { id: m.threadId } });

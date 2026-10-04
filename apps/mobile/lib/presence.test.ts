@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { PRESENCE_EVENT, PresenceEngine, STREAM_NOTIFY_LOGGED } from './presence.ts';
-import { ClientRest } from './rest.ts';
+import { RestClient } from './rest.ts';
 
 const event = (args: unknown[]) => ({
   collection: STREAM_NOTIFY_LOGGED,
@@ -13,7 +13,7 @@ const event = (args: unknown[]) => ({
 /** Real REST client, mocked fetch: exercises the URL actually built. */
 function fakeClient(reply: (url: string) => unknown) {
   const urls: string[] = [];
-  const client = new ClientRest('http://x', {
+  const client = new RestClient('http://x', {
     fetch: async (url) => {
       urls.push(String(url));
       const body = reply(String(url));

@@ -17,11 +17,11 @@ import { createWriteQueue, type WriteQueue } from './writeQueue.ts';
 import { databaseFileName } from './fileName.ts';
 import * as schema from './schema.ts';
 
-export type BaseLocale = ReturnType<typeof drizzle<typeof schema>>;
+export type LocalDatabase = ReturnType<typeof drizzle<typeof schema>>;
 
 export { databaseFileName };
 
-type Connection = { raw: SQLiteDatabase; base: BaseLocale; writeQueue: WriteQueue };
+type Connection = { raw: SQLiteDatabase; base: LocalDatabase; writeQueue: WriteQueue };
 
 /**
  * Open connections live for the lifetime of the PROCESS: nothing calls

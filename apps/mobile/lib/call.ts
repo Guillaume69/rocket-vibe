@@ -22,7 +22,7 @@
  */
 
 import { RestError, isTokenRejected } from './rest.ts';
-import type { ClientRest } from './rest.ts';
+import type { RestClient } from './rest.ts';
 
 const asString = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
 
@@ -35,7 +35,7 @@ type JoinResponse = { url?: unknown };
  * that is how the other party is notified, since mobile ringing
  * (`VideoConf_Mobile_Ringing`) is disabled on the target.
  */
-export async function startConference(client: ClientRest, roomId: string): Promise<string> {
+export async function startConference(client: RestClient, roomId: string): Promise<string> {
   const r = await client.post<StartResponse>('video-conference.start', { body: { roomId } });
   const callId = asString(r.data?.callId);
   if (callId === null) throw new RestError('The server returned no call id.', 0);
@@ -48,7 +48,7 @@ export async function startConference(client: ClientRest, roomId: string): Promi
  * the provider decides.
  */
 export async function joinConference(
-  client: ClientRest,
+  client: RestClient,
   callId: string,
   state?: { cam?: boolean; mic?: boolean },
 ): Promise<string> {
@@ -74,7 +74,7 @@ export async function joinConference(
  */
 const availabilityByServer = new Map<string, boolean>();
 
-export async function probeCallAvailable(client: ClientRest): Promise<boolean> {
+export async function probeCallAvailable(client: RestClient): Promise<boolean> {
   const memo = availabilityByServer.get(client.baseUrl);
   if (memo !== undefined) return memo;
   try {
@@ -102,6 +102,6 @@ export function forgetCallAvailability(): void {
  * cautious default as the probe). Pins the "Call" button's presence from the
  * first frame when the probe has already run (preloaded profile).
  */
-export function memoizedCallAvailable(client: ClientRest): boolean {
+export function memoizedCallAvailable(client: RestClient): boolean {
   return availabilityByServer.get(client.baseUrl) ?? false;
 }

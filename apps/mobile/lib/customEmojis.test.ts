@@ -2,23 +2,23 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, test } from 'node:test';
 
 import {
-  codesEmojiCustom,
+  customEmojiCodes,
   setCustomEmojis,
   filterAliases,
   buildIndex,
   normalizeEntry,
   onCustomEmojisChange,
   syncCustomEmojis,
-  urlEmojiCustom,
+  customEmojiUrl,
   clearCustomEmojis,
   type EmojiStore,
-  type EmojiCustom,
+  type CustomEmoji,
 } from './customEmojis.ts';
 
-function fakeStore(initial: EmojiCustom[] = []): EmojiStore & { content: EmojiCustom[] } {
+function fakeStore(initial: CustomEmoji[] = []): EmojiStore & { content: CustomEmoji[] } {
   const d = {
     content: initial,
-    async replace(e: EmojiCustom[]) {
+    async replace(e: CustomEmoji[]) {
       d.content = e;
     },
     async list() {
@@ -28,8 +28,8 @@ function fakeStore(initial: EmojiCustom[] = []): EmojiStore & { content: EmojiCu
   return d;
 }
 
-const PARROT: EmojiCustom = { name: 'party_parrot', extension: 'gif', aliases: ['parrot', 'fete'] };
-const SHIP: EmojiCustom = { name: 'shipit', extension: 'png', aliases: [] };
+const PARROT: CustomEmoji = { name: 'party_parrot', extension: 'gif', aliases: ['parrot', 'fete'] };
+const SHIP: CustomEmoji = { name: 'shipit', extension: 'png', aliases: [] };
 
 describe('buildIndex', () => {
   test('unfolds the canonical name AND each alias to the same file', () => {
@@ -43,7 +43,7 @@ describe('buildIndex', () => {
     // `shipit` is SHIP's NAME and a made-up ALIAS of PARROT. The two passes
     // (names first) guarantee the name wins even if the alias, hence the other
     // entry, comes FIRST, which first-write-wins got wrong.
-    const parrotAliasShipit: EmojiCustom = { ...PARROT, aliases: ['shipit'] };
+    const parrotAliasShipit: CustomEmoji = { ...PARROT, aliases: ['shipit'] };
     assert.equal(buildIndex([SHIP, parrotAliasShipit]).get('shipit')?.name, 'shipit');
     assert.equal(buildIndex([parrotAliasShipit, SHIP]).get('shipit')?.name, 'shipit');
   });
@@ -63,33 +63,33 @@ describe('filterAliases', () => {
   });
 });
 
-describe('urlEmojiCustom', () => {
+describe('customEmojiUrl', () => {
   afterEach(clearCustomEmojis);
 
   test('builds the URL from the canonical NAME, even for an alias', () => {
     setCustomEmojis('https://chat.exemple.fr', [PARROT]);
     // The `:parrot:` alias must point to party_parrot.gif, not parrot.gif
     // (which would return the server's fallback SVG).
-    assert.equal(urlEmojiCustom('parrot'), 'https://chat.exemple.fr/emoji-custom/party_parrot.gif');
-    assert.equal(urlEmojiCustom('party_parrot'), 'https://chat.exemple.fr/emoji-custom/party_parrot.gif');
+    assert.equal(customEmojiUrl('parrot'), 'https://chat.exemple.fr/emoji-custom/party_parrot.gif');
+    assert.equal(customEmojiUrl('party_parrot'), 'https://chat.exemple.fr/emoji-custom/party_parrot.gif');
   });
 
   test('normalizes the baseUrl trailing slash', () => {
     setCustomEmojis('https://chat.exemple.fr/', [SHIP]);
-    assert.equal(urlEmojiCustom('shipit'), 'https://chat.exemple.fr/emoji-custom/shipit.png');
+    assert.equal(customEmojiUrl('shipit'), 'https://chat.exemple.fr/emoji-custom/shipit.png');
   });
 
   test('an unknown shortcode, or a prototype member, is null', () => {
     setCustomEmojis('https://chat.exemple.fr', [PARROT]);
-    assert.equal(urlEmojiCustom('inexistant'), null);
-    assert.equal(urlEmojiCustom('constructor'), null);
-    assert.equal(urlEmojiCustom('__proto__'), null);
+    assert.equal(customEmojiUrl('inexistant'), null);
+    assert.equal(customEmojiUrl('constructor'), null);
+    assert.equal(customEmojiUrl('__proto__'), null);
   });
 
   test('after clearing, nothing resolves: the previous server index does not leak', () => {
     setCustomEmojis('https://a.fr', [PARROT]);
     clearCustomEmojis();
-    assert.equal(urlEmojiCustom('party_parrot'), null);
+    assert.equal(customEmojiUrl('party_parrot'), null);
   });
 });
 
@@ -102,10 +102,10 @@ describe('onCustomEmojisChange', () => {
     // install's empty list for the whole session.
     let notifications = 0;
     const unsubscribe = onCustomEmojisChange(() => notifications++);
-    const before = codesEmojiCustom();
+    const before = customEmojiCodes();
     setCustomEmojis('https://chat.exemple.fr', [PARROT]);
     assert.equal(notifications, 1);
-    const after = codesEmojiCustom();
+    const after = customEmojiCodes();
     assert.notEqual(before, after);
     assert.ok(after.includes('party_parrot'));
     clearCustomEmojis();
@@ -115,7 +115,7 @@ describe('onCustomEmojisChange', () => {
 
   test('the snapshot is STABLE between two changes (useSyncExternalStore requirement)', () => {
     setCustomEmojis('https://chat.exemple.fr', [PARROT]);
-    assert.equal(codesEmojiCustom(), codesEmojiCustom());
+    assert.equal(customEmojiCodes(), customEmojiCodes());
   });
 
   test('unsubscribing holds', () => {
@@ -138,7 +138,7 @@ describe('syncCustomEmojis', () => {
     };
     await syncCustomEmojis(client, store);
     assert.equal(store.content.length, 1);
-    assert.equal(urlEmojiCustom('trex'), 'https://chat.exemple.fr/emoji-custom/dino.gif');
+    assert.equal(customEmojiUrl('trex'), 'https://chat.exemple.fr/emoji-custom/dino.gif');
   });
 
   test('a failed call (no `update`) does NOT empty the cache, the key to the count=0 bug', async () => {
@@ -163,7 +163,7 @@ describe('syncCustomEmojis', () => {
     await syncCustomEmojis(clientA, store, () => true);
     // A's database is written (harmless), but the GLOBAL in-memory index must
     // not fill with A's emojis after the switch to B.
-    assert.equal(urlEmojiCustom('propre_a_A'), null);
+    assert.equal(customEmojiUrl('propre_a_A'), null);
   });
 });
 

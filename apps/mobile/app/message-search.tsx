@@ -9,8 +9,8 @@ import {
   View,
 } from 'react-native';
 
-import { toMessage, type MessageLocal } from '../lib/normalize.ts';
-import type { ClientRest } from '../lib/rest.ts';
+import { toMessage, type LocalMessage } from '../lib/normalize.ts';
+import type { RestClient } from '../lib/rest.ts';
 import { KeyboardAvoidingContainer } from '../ui/keyboard.tsx';
 import { useT } from '../ui/i18n.ts';
 import { MessageRow } from '../ui/messageRow.tsx';
@@ -28,7 +28,7 @@ import { useColors, type Colors, FONTS } from '../ui/theme.ts';
  */
 
 /** Stable (module-level): a value recreated on every render would rerun the effect. */
-const NO_MESSAGE: MessageLocal[] = [];
+const NO_MESSAGE: LocalMessage[] = [];
 
 export default function MessageSearchScreen() {
   const { rid } = useLocalSearchParams<{ rid: string }>();
@@ -56,7 +56,7 @@ function MessageSearch({
   rid,
 }: {
   c: Colors;
-  client: ClientRest;
+  client: RestClient;
   rid: string;
 }) {
   const t = useT();
@@ -73,7 +73,7 @@ function MessageSearch({
         .then((r) =>
           (r.messages ?? [])
             .map((raw) => toMessage(raw))
-            .filter((m): m is MessageLocal => m !== null),
+            .filter((m): m is LocalMessage => m !== null),
         ),
     [client, rid],
   );
@@ -111,7 +111,7 @@ function MessageSearch({
           <View style={styles.result}>
             <MessageRow
               c={c}
-              // MessageLocal and the SQLite row share exactly these
+              // LocalMessage and the SQLite row share exactly these
               // fields: it is the same normalised server document.
               message={item}
               client={client}

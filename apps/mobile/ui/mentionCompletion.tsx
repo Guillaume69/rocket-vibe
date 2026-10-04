@@ -1,7 +1,7 @@
 /**
  * Mention autocompletion in the composer: the candidate source and the
  * suggestion strip. The cursor/insertion mechanics are already carried by
- * `useCompletionEmoji` (shared cursor) and `applyCompletion`; here we only
+ * `useEmojiCompletion` (shared cursor) and `applyCompletion`; here we only
  * detect the `@xxx` token (`lib/mentionCompletion.ts`), rank the candidates
  * and show them.
  *
@@ -20,16 +20,16 @@ import { useCoalescedLiveQuery } from './liveQuery.ts';
 import { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import type { BaseLocale } from '../db/client.ts';
+import type { LocalDatabase } from '../db/client.ts';
 import { messages } from '../db/schema.ts';
 import {
   completeMention,
   detectMentionToken,
   type MentionCandidate,
 } from '../lib/mentionCompletion.ts';
-import type { ClientRest } from '../lib/rest.ts';
-import { urlAvatar } from '../lib/upload.ts';
-import { useEtagsAvatars } from './identities.tsx';
+import type { RestClient } from '../lib/rest.ts';
+import { avatarUrl } from '../lib/upload.ts';
+import { useAvatarEtags } from './identities.tsx';
 import { AvatarTile } from './kit.tsx';
 import { type Colors, LIST_PRESS_DELAY } from './theme.ts';
 import { Tappable } from './tappable.tsx';
@@ -49,7 +49,7 @@ const MESSAGES_WINDOW = 400;
  * a username (`authorName` null: undecryptable encrypted messages) are
  * excluded by the SQL clause.
  */
-export function useMentionCandidates(base: BaseLocale, rid: string): MentionCandidate[] {
+export function useMentionCandidates(base: LocalDatabase, rid: string): MentionCandidate[] {
   const { data: rows } = useCoalescedLiveQuery(
     base
       .select({ username: messages.authorName, uid: messages.authorId })
@@ -84,12 +84,12 @@ export function MentionCompletionBanner({
   text: string;
   cursor: number;
   candidates: readonly MentionCandidate[];
-  client: ClientRest;
+  client: RestClient;
   c: Colors;
   /** Receives the text to insert (`@username`) and the detected token's `start`. */
   onPick: (insertion: string, start: number) => void;
 }) {
-  const etags = useEtagsAvatars();
+  const etags = useAvatarEtags();
   const result = useMemo(() => {
     const token = detectMentionToken(text, cursor);
     if (token === null) return null;
@@ -129,7 +129,7 @@ export function MentionCompletionBanner({
                 initial={username.charAt(0)}
                 size={22}
                 radius={7}
-                uri={urlAvatar(client, { username, uid, etag: etags.byUsername.get(username) })}
+                uri={avatarUrl(client, { username, uid, etag: etags.byUsername.get(username) })}
               />
             )}
             <Text style={[styles.name, { color: c.dimmed }]} numberOfLines={1}>

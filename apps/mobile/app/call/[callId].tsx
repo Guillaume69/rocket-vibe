@@ -14,7 +14,7 @@ import { WebView } from 'react-native-webview';
 
 import { joinConference } from '../../lib/call.ts';
 import { sameOrigin, originOf } from '../../lib/origin.ts';
-import type { ClientRest } from '../../lib/rest.ts';
+import type { RestClient } from '../../lib/rest.ts';
 import { useT } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
 import { type Colors, FONTS, useColors } from '../../ui/theme.ts';
@@ -108,7 +108,7 @@ function Call({
   title,
 }: {
   c: Colors;
-  client: ClientRest;
+  client: RestClient;
   callId: string;
   title: string;
 }) {

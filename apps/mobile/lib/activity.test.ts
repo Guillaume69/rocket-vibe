@@ -96,10 +96,10 @@ describe('ActivityEngine', () => {
   test('onChange returns an unsubscribe that stops the notices', async () => {
     const m = new ActivityEngine();
     let notices = 0;
-    const detacher = m.onChange(() => {
+    const detach = m.onChange(() => {
       notices++;
     });
-    detacher();
+    detach();
 
     const d = deferred();
     const tracking = m.track('global', d.promise);

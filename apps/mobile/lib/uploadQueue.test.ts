@@ -10,7 +10,7 @@ import {
   type UploadStore,
   type UploadRow,
 } from './uploadQueue.ts';
-import { ClientRest, RestError } from './rest.ts';
+import { RestClient, RestError } from './rest.ts';
 import type { FileJwk } from './e2e/crypto.ts';
 import type { TransportUpload } from './upload.ts';
 
@@ -47,7 +47,7 @@ describe('validateFile', () => {
 
 describe('readUploadRules', () => {
   test('reads MaxFileSize and MediaTypeWhiteList from settings.public', async () => {
-    const client = new ClientRest('http://x', {
+    const client = new RestClient('http://x', {
       fetch: async () =>
         new Response(
           JSON.stringify({
@@ -134,7 +134,7 @@ function lock() {
 }
 
 function confirmingClient() {
-  return new ClientRest('http://x', {
+  return new RestClient('http://x', {
     fetch: async (url) => {
       const body = String(url).includes('mediaConfirm')
         ? { success: true, message: { _id: 'm1', rid: 'r1' } }
@@ -152,7 +152,7 @@ describe('UploadEngine', () => {
   test('validate refuses without persisting anything, and the settings are read only once', async () => {
     const { store, rows } = fakeStore();
     let reads = 0;
-    const client = new ClientRest('http://x', {
+    const client = new RestClient('http://x', {
       fetch: async () => {
         reads++;
         return new Response(
@@ -382,11 +382,11 @@ describe('UploadEngine', () => {
       bytes++;
       return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
     };
-    const client = new ClientRest('http://x', {
+    const client = new RestClient('http://x', {
       fetch: async (url) => {
         if (String(url).includes('mediaConfirm')) {
           confirms++;
-          // The response gets lost: `ClientRest` turns it into a status 0.
+          // The response gets lost: `RestClient` turns it into a status 0.
           throw new TypeError('Network request failed');
         }
         return new Response(JSON.stringify({ settings: [] }), {
@@ -432,7 +432,7 @@ describe('UploadEngine', () => {
       return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
     };
     let first = true;
-    const client = new ClientRest('http://x', {
+    const client = new RestClient('http://x', {
       fetch: async (url) => {
         if (String(url).includes('mediaConfirm')) {
           confirms++;
@@ -486,7 +486,7 @@ describe('UploadEngine', () => {
       status: 200,
       body: JSON.stringify({ file: { _id: 'f1' } }),
     });
-    const client = new ClientRest('http://x', {
+    const client = new RestClient('http://x', {
       fetch: async (url) => {
         if (String(url).includes('mediaConfirm')) {
           confirms++;
@@ -532,7 +532,7 @@ describe('UploadEngine', () => {
       body: JSON.stringify({ file: { _id: 'f1' } }),
     });
     let first = true;
-    const client = new ClientRest('http://x', {
+    const client = new RestClient('http://x', {
       fetch: async (url) => {
         if (String(url).includes('mediaConfirm')) {
           confirms++;
@@ -628,7 +628,7 @@ describe('UploadEngine', () => {
       await barrier.waitFor; // the discard lands here, the upload is done
       return { status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) };
     };
-    const client = new ClientRest('http://x', {
+    const client = new RestClient('http://x', {
       fetch: async (url) => {
         if (String(url).includes('mediaConfirm')) confirms++;
         return new Response(JSON.stringify({ success: true, message: { _id: 'm1' } }), {
@@ -667,7 +667,7 @@ describe('UploadEngine', () => {
       status: 200,
       body: JSON.stringify({ file: { _id: 'f1' } }),
     });
-    const client = new ClientRest('http://x', {
+    const client = new RestClient('http://x', {
       fetch: async (url) => {
         if (String(url).includes('mediaConfirm')) {
           entry.open();
@@ -846,7 +846,7 @@ describe('UploadEngine, encrypted room', () => {
   }
 
   function confirmingClient(confirmedBodies: unknown[], settings: unknown[] = []) {
-    return new ClientRest('http://x', {
+    return new RestClient('http://x', {
       fetch: async (url, init) => {
         const confirm = String(url).includes('mediaConfirm');
         if (confirm) confirmedBodies.push(JSON.parse(String(init?.body)));

@@ -12,7 +12,7 @@ import { ValidationError } from '../lib/uploadQueue.ts';
 import type { TranslateFn } from './messages.ts';
 
 /** `null` if the error is not a validation refusal: up to the caller's fallback. */
-export function phraseValidation(e: unknown, t: TranslateFn): string | null {
+export function validationMessage(e: unknown, t: TranslateFn): string | null {
   if (!(e instanceof ValidationError)) return null;
   if (e.detail.code === 'size') return t('common.fileTooLarge', { mb: e.detail.maxMb });
   if (e.detail.code === 'type') return t('common.fileTypeRejected', { type: e.detail.type });

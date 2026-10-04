@@ -29,7 +29,7 @@ import {
   type EncryptedContent,
 } from './crypto.ts';
 
-/** The bare minimum of `ClientRest`, to test the engine without a network. */
+/** The bare minimum of `RestClient`, to test the engine without a network. */
 export interface ClientE2E {
   get<T>(path: string, options?: { params?: Record<string, unknown> }): Promise<T>;
 }
@@ -72,7 +72,7 @@ export class E2EEngine {
     return () => this.listeners.delete(listener);
   }
 
-  private notifier(): void {
+  private notify(): void {
     for (const e of this.listeners) e();
   }
 
@@ -91,7 +91,7 @@ export class E2EEngine {
       await this.storage.clear();
       return false;
     }
-    this.notifier();
+    this.notify();
     return true;
   }
 
@@ -110,7 +110,7 @@ export class E2EEngine {
     await this.storage.save(jwk);
     // Known room keys can now be recomputed on demand.
     this.roomKeys.clear();
-    this.notifier();
+    this.notify();
   }
 
   /** Forgets every key, memory and Keystore. */
@@ -118,7 +118,7 @@ export class E2EEngine {
     this.privateKey = null;
     this.roomKeys.clear();
     await this.storage.clear();
-    this.notifier();
+    this.notify();
   }
 
   /**

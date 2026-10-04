@@ -196,7 +196,7 @@ function cancelError(): Error {
   return e;
 }
 
-export class ClientRest {
+export class RestClient {
   readonly baseUrl: string;
   auth: RestAuth | null = null;
 
@@ -214,7 +214,7 @@ export class ClientRest {
    *
    * The token is passed so the subscriber can ignore a **late** 401 arriving on
    * an already replaced token (logout then login while the request was in
-   * flight). `ClientRest` has no notion of session: it reports, it does not
+   * flight). `RestClient` has no notion of session: it reports, it does not
    * decide.
    */
   onTokenRejected: ((token: string) => void) | null = null;

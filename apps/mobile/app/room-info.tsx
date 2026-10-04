@@ -16,10 +16,10 @@ import { Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import type { BaseLocale } from '../db/client.ts';
+import type { LocalDatabase } from '../db/client.ts';
 import { subscriptions, rooms } from '../db/schema.ts';
 import type { E2EEngine } from '../lib/e2e/engine.ts';
-import type { ClientRest } from '../lib/rest.ts';
+import type { RestClient } from '../lib/rest.ts';
 import { useE2EUnlocked } from '../ui/e2e.ts';
 import { translateCurrent, useT } from '../ui/i18n.ts';
 import { Tappable } from '../ui/tappable.tsx';
@@ -30,7 +30,7 @@ import { useSync } from '../ui/sync.tsx';
 import { FONTS, useColors } from '../ui/theme.ts';
 import { useSheetBottomMargin } from '../ui/sheetMargin.ts';
 
-type Complement = {
+type RoomExtras = {
   description: string | null;
   topic: string | null;
   announcement: string | null;
@@ -72,8 +72,8 @@ function RoomInfoContent({
   c,
 }: {
   rid: string;
-  base: BaseLocale;
-  client: ClientRest;
+  base: LocalDatabase;
+  client: RestClient;
   e2e: E2EEngine;
   c: ReturnType<typeof useColors>;
 }) {
@@ -105,7 +105,7 @@ function RoomInfoContent({
       .finally(() => setFavoriteToggle(false));
   };
 
-  const [complement, setComplement] = useState<Complement | null>(null);
+  const [extras, setExtras] = useState<RoomExtras | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -114,7 +114,7 @@ function RoomInfoContent({
       .get<{ room?: Record<string, unknown> }>('rooms.info', { params: { roomId: rid } })
       .then((r) => {
         if (!alive) return;
-        setComplement({
+        setExtras({
           description: asString(r.room?.description),
           topic: asString(r.room?.topic),
           announcement: asString(r.room?.announcement),
@@ -135,8 +135,8 @@ function RoomInfoContent({
   const typeKey = TYPE_SENTENCE[room?.type ?? ''];
   const subtitle = [
     typeKey !== undefined ? t(typeKey) : null,
-    complement?.members !== null && complement !== null
-      ? t('roomInfo.members', { n: complement.members })
+    extras?.members !== null && extras !== null
+      ? t('roomInfo.members', { n: extras.members })
       : null,
     room?.encrypted === true ? t('roomInfo.encrypted') : null,
     room?.readOnly === true ? t('roomInfo.readOnly') : null,
@@ -188,19 +188,19 @@ function RoomInfoContent({
         <Text style={[styles.empty, { color: c.errorText }]}>{t('roomInfo.favoriteFailed')}</Text>
       )}
 
-      {complement?.announcement !== null && complement !== null && (
-        <Section c={c} title={t('roomInfo.announcement')} text={complement.announcement} />
+      {extras?.announcement !== null && extras !== null && (
+        <Section c={c} title={t('roomInfo.announcement')} text={extras.announcement} />
       )}
-      {complement?.topic !== null && complement !== null && (
-        <Section c={c} title={t('roomInfo.topic')} text={complement.topic} />
+      {extras?.topic !== null && extras !== null && (
+        <Section c={c} title={t('roomInfo.topic')} text={extras.topic} />
       )}
-      {complement?.description !== null && complement !== null && (
-        <Section c={c} title={t('roomInfo.description')} text={complement.description} />
+      {extras?.description !== null && extras !== null && (
+        <Section c={c} title={t('roomInfo.description')} text={extras.description} />
       )}
-      {complement !== null &&
-        complement.announcement === null &&
-        complement.topic === null &&
-        complement.description === null && (
+      {extras !== null &&
+        extras.announcement === null &&
+        extras.topic === null &&
+        extras.description === null && (
           <Text style={[styles.empty, { color: c.dimmed }]}>
             {t('roomInfo.nothingSet')}
           </Text>

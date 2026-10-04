@@ -46,7 +46,7 @@ export function boundIsStuck(bound: PaginationBound): boolean {
  */
 export function pageMovedBack(
   pageOldest: number | null,
-  horodatageBorne: number,
+  boundTs: number,
 ): boolean {
-  return pageOldest !== null && pageOldest < horodatageBorne;
+  return pageOldest !== null && pageOldest < boundTs;
 }

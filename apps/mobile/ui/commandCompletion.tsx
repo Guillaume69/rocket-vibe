@@ -18,7 +18,7 @@ import {
   type Command,
 } from '../lib/commands.ts';
 import { grantedPermissions, roomRoles, sourcesPermissions } from '../lib/permissions.ts';
-import type { ClientRest } from '../lib/rest.ts';
+import type { RestClient } from '../lib/rest.ts';
 import { Tappable } from './tappable.tsx';
 import { useLanguage } from './i18n.ts';
 import { useSync } from './sync.tsx';
@@ -29,7 +29,7 @@ import { type Colors, LIST_PRESS_DELAY, FONTS } from './theme.ts';
  * known: nothing is hidden, the server will decide).
  */
 export function useCommands(
-  client: ClientRest,
+  client: RestClient,
   rid: string,
 ): { commands: Command[]; granted: string[] | null } {
   const sync = useSync();

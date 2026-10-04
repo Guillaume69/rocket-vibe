@@ -26,7 +26,7 @@ export type { Root };
  * and nowhere else, "emoji or not" is decided: rendering uses it to refuse to
  * enlarge a `BIG_EMOJI` that is not one.
  */
-export function unicodeDEmoji(node: unknown): string | null {
+export function emojiUnicode(node: unknown): string | null {
   if (typeof node !== 'object' || node === null) return null;
   const n = node as { type?: unknown; unicode?: unknown; shortCode?: unknown };
   if (n.type !== 'EMOJI') return null;
@@ -90,7 +90,7 @@ export function textOf(node: unknown): string {
       fallback?: unknown;
     };
     if (obj.type === 'EMOJI') {
-      const glyph = unicodeDEmoji(obj);
+      const glyph = emojiUnicode(obj);
       // Unknown short code (server custom emoji, typo): the literal is
       // readable, a white square is not.
       if (glyph !== null) return glyph;

@@ -7,7 +7,7 @@
 
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import type { ClientRest } from '../lib/rest.ts';
+import type { RestClient } from '../lib/rest.ts';
 import { protectedFileUrl } from '../lib/upload.ts';
 import { useT } from './i18n.ts';
 import type { ReplyTarget } from './reply.ts';
@@ -22,7 +22,7 @@ export function ReplyBanner({
   c: Colors;
   target: ReplyTarget;
   /** The target server's files require `rc_uid`/`rc_token` (thumbnail). */
-  client: ClientRest;
+  client: RestClient;
   onCancel: () => void;
 }) {
   const t = useT();

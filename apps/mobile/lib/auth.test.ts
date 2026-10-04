@@ -10,7 +10,7 @@ import {
   logIn,
   logOut,
 } from './auth.ts';
-import { ClientRest, TwoFactorError } from './rest.ts';
+import { RestClient, TwoFactorError } from './rest.ts';
 
 const hash = async (t: string) => createHash('sha256').update(t).digest('hex');
 
@@ -57,7 +57,7 @@ const LOGIN_SUCCESS = {
 describe('auth', () => {
   test('a login without 2FA returns a session', async () => {
     handle = (_q, res) => json(res, 200, LOGIN_SUCCESS);
-    const s = await logIn(new ClientRest(base), {
+    const s = await logIn(new RestClient(base), {
       user: 'alice',
       password: 'secret',
     });
@@ -76,7 +76,7 @@ describe('auth', () => {
 
   test('the login sends no auth headers', async () => {
     handle = (_q, res) => json(res, 200, LOGIN_SUCCESS);
-    const c = new ClientRest(base);
+    const c = new RestClient(base);
     c.auth = { authToken: 'ancien', userId: 'vieux' };
     await logIn(c, { user: 'alice', password: 'secret' });
     assert.equal(received[0].headers['x-auth-token'], undefined);
@@ -90,7 +90,7 @@ describe('auth', () => {
         details: { method: 'totp', availableMethods: ['totp'], codeGenerated: false },
       });
     await assert.rejects(
-      logIn(new ClientRest(base), { user: 'alice', password: 's' }),
+      logIn(new RestClient(base), { user: 'alice', password: 's' }),
       (e: unknown) => {
         assert.ok(e instanceof TwoFactorError);
         assert.equal(e.method, 'totp');
@@ -117,7 +117,7 @@ describe('auth', () => {
   test('the replay with the code sends the 2FA headers', async () => {
     handle = (_q, res) => json(res, 200, LOGIN_SUCCESS);
     await logIn(
-      new ClientRest(base),
+      new RestClient(base),
       { user: 'alice', password: 's' },
       { code: '123456', method: 'totp' },
     );
@@ -127,7 +127,7 @@ describe('auth', () => {
 
   test('resumeSession sends `resume`, no password', async () => {
     handle = (_q, res) => json(res, 200, LOGIN_SUCCESS);
-    const s = await resumeSession(new ClientRest(base), 'jeton-stocke');
+    const s = await resumeSession(new RestClient(base), 'jeton-stocke');
     assert.deepEqual(received[0].body, { resume: 'jeton-stocke' });
     assert.equal(s.userId, 'u1');
   });
@@ -135,20 +135,20 @@ describe('auth', () => {
   test('a login response without a token is rejected cleanly', async () => {
     handle = (_q, res) => json(res, 200, { status: 'success', data: { me: {} } });
     await assert.rejects(
-      logIn(new ClientRest(base), { user: 'a', password: 'b' }),
+      logIn(new RestClient(base), { user: 'a', password: 'b' }),
       /Invalid login response/,
     );
   });
 
   test('a 200 login without a body does not produce a raw TypeError', async () => {
-    // `ClientRest` returns `{}` on an empty 200 (needed for /logout): without a
+    // `RestClient` returns `{}` on an empty 200 (needed for /logout): without a
     // guard, `response.data.authToken` would throw an unintelligible TypeError.
     handle = (_q, res) => {
       res.writeHead(200);
       res.end();
     };
     await assert.rejects(
-      logIn(new ClientRest(base), { user: 'a', password: 'b' }),
+      logIn(new RestClient(base), { user: 'a', password: 'b' }),
       (e: unknown) => {
         assert.ok(e instanceof Error);
         assert.equal(e.name, 'LoginError');
@@ -159,14 +159,14 @@ describe('auth', () => {
 
   test('logOut is best-effort: a 401 does not reject', async () => {
     handle = (_q, res) => json(res, 401, { success: false, error: 'invalid' });
-    const c = new ClientRest(base);
+    const c = new RestClient(base);
     c.auth = { authToken: 'x', userId: 'y' };
     await logOut(c); // must not throw
     assert.equal(c.auth, null, 'an already invalid token must not stay in memory');
   });
 
   test('applySession plugs the credentials into the client', () => {
-    const c = new ClientRest(base);
+    const c = new RestClient(base);
     applySession(c, {
       baseUrl: base,
       authToken: 't',

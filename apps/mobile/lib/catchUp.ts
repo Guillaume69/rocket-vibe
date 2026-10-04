@@ -17,7 +17,7 @@
  */
 
 import { readMyIdentity } from './myProfile.ts';
-import { RestError, type ClientRest } from './rest.ts';
+import { RestError, type RestClient } from './rest.ts';
 import type { SyncEngine } from './sync.ts';
 
 type DeltaResponse = {
@@ -28,7 +28,7 @@ type DeltaResponse = {
 const iso = (epochMs: number): string => new Date(epochMs).toISOString();
 
 export async function catchUpGlobal(
-  client: ClientRest,
+  client: RestClient,
   engine: SyncEngine,
   isDiscarded: () => boolean = () => false,
 ): Promise<void> {
@@ -104,7 +104,7 @@ type SubscriptionsResponse = {
  * makes it correct: no delay, no assumption about latency.
  */
 export async function reconcileRooms(
-  client: ClientRest,
+  client: RestClient,
   engine: SyncEngine,
   isDiscarded: () => boolean = () => false,
 ): Promise<void> {
@@ -202,7 +202,7 @@ const MAX_WINDOW_MS = 24 * 60 * 60 * 1000;
  * either it rejects the parameters (400), or it answers without `cursor`.
  */
 async function cursorPage(
-  client: ClientRest,
+  client: RestClient,
   rid: string,
   type: 'UPDATED' | 'DELETED',
   next: number,
@@ -245,7 +245,7 @@ async function cursorPage(
  * (unknown mode, the caller falls back); `true` otherwise.
  */
 async function paginateCursor(
-  client: ClientRest,
+  client: RestClient,
   store: SyncEngine['syncStore'],
   rid: string,
   type: 'UPDATED' | 'DELETED',
@@ -302,7 +302,7 @@ async function paginateCursor(
 
 /** Returns `false` if the server cannot paginate: the caller falls back. */
 function catchUpUpdated(
-  client: ClientRest,
+  client: RestClient,
   engine: SyncEngine,
   rid: string,
   since: number,
@@ -321,7 +321,7 @@ function catchUpUpdated(
 }
 
 async function catchUpDeleted(
-  client: ClientRest,
+  client: RestClient,
   engine: SyncEngine,
   rid: string,
   messagesCursor: number,
@@ -375,7 +375,7 @@ async function catchUpDeleted(
  * pagination download again up to date.
  */
 async function catchUpByDate(
-  client: ClientRest,
+  client: RestClient,
   engine: SyncEngine,
   rid: string,
   since: number,
@@ -418,7 +418,7 @@ async function catchUpByDate(
  * below is what guarantees a single pagination runs at a time per room.
  */
 async function catchUpRawRoom(
-  client: ClientRest,
+  client: RestClient,
   engine: SyncEngine,
   rid: string,
   isDiscarded: () => boolean,
@@ -450,7 +450,7 @@ type Pass = {
    * The owning session. A pass of a put-away client (logout,
    * server switch) is not joined: it writes with a dead token.
    */
-  client: ClientRest;
+  client: RestClient;
   /**
    * The `isDiscarded` of ALL the requesters of this pass. It only gives up
    * if EACH one has let go: the first one may disappear (replayed effect,
@@ -497,7 +497,7 @@ const passes = new Map<string, Pass>();
  * neither on latency nor on the network state.
  */
 export function catchUpRoom(
-  client: ClientRest,
+  client: RestClient,
   engine: SyncEngine,
   rid: string,
   isDiscarded: () => boolean = () => false,

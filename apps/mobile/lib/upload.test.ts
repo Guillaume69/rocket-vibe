@@ -1,20 +1,20 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { ClientRest } from './rest.ts';
+import { RestClient } from './rest.ts';
 import {
-  confirmerMedia,
+  confirmMedia,
   setAvatar,
   UploadError,
   uploadBytes,
-  urlAvatar,
+  avatarUrl,
   protectedFileUrl,
   type TransportUpload,
 } from './upload.ts';
 
 function authenticatedClient(postResponses: Record<string, unknown>) {
   const posts: { path: string; body: unknown }[] = [];
-  const client = new ClientRest('http://x', {
+  const client = new RestClient('http://x', {
     fetch: async (url, init) => {
       const path = String(url).split('/api/v1/')[1] ?? '';
       posts.push({ path, body: JSON.parse(String(init?.body ?? '{}')) });
@@ -88,12 +88,12 @@ describe('uploadBytes', () => {
   });
 });
 
-describe('confirmerMedia', () => {
+describe('confirmMedia', () => {
   test('mediaConfirm is what CREATES the message; rooms.media alone leaves an orphan', async () => {
     const { client, posts } = authenticatedClient({
       'rooms.mediaConfirm/r1/f1': { success: true, message: { _id: 'm1', rid: 'r1' } },
     });
-    const message = await confirmerMedia({ client, rid: 'r1', fileId: 'f1', message: 'légende' });
+    const message = await confirmMedia({ client, rid: 'r1', fileId: 'f1', message: 'légende' });
     assert.equal(posts[0]?.path, 'rooms.mediaConfirm/r1/f1');
     assert.deepEqual(posts[0]?.body, { msg: 'légende' });
     assert.equal(message._id, 'm1');
@@ -103,13 +103,13 @@ describe('confirmerMedia', () => {
     const { client, posts } = authenticatedClient({
       'rooms.mediaConfirm/r1/f1': { success: true, message: { _id: 'm1' } },
     });
-    await confirmerMedia({ client, rid: 'r1', fileId: 'f1' });
+    await confirmMedia({ client, rid: 'r1', fileId: 'f1' });
     assert.deepEqual(posts[0]?.body, {}, 'the server would reject any extra key');
   });
 
   test('a confirmation without a message is an error, not a silent success', async () => {
     const { client } = authenticatedClient({ 'rooms.mediaConfirm/r1/f1': { success: true } });
-    await assert.rejects(confirmerMedia({ client, rid: 'r1', fileId: 'f1' }), UploadError);
+    await assert.rejects(confirmMedia({ client, rid: 'r1', fileId: 'f1' }), UploadError);
   });
 });
 
@@ -185,28 +185,28 @@ describe('protectedFileUrl', () => {
   });
 });
 
-describe('urlAvatar', () => {
+describe('avatarUrl', () => {
   test('targets by uid, authenticated, as Accounts_AvatarBlockUnauthenticatedAccess requires', () => {
     const { client } = authenticatedClient({});
     assert.equal(
-      urlAvatar(client, { uid: 'u123' }),
+      avatarUrl(client, { uid: 'u123' }),
       'http://x/avatar/uid/u123?rc_uid=uid-alice&rc_token=jeton-alice',
     );
   });
 
   test('a username wins over the uid, and is encoded', () => {
     const { client } = authenticatedClient({});
-    assert.match(urlAvatar(client, { username: 'a b', uid: 'u1' }) ?? '', /\/avatar\/a%20b\?/);
+    assert.match(avatarUrl(client, { username: 'a b', uid: 'u1' }) ?? '', /\/avatar\/a%20b\?/);
   });
 
   test('a channel targets /avatar/room/<rid>', () => {
     const { client } = authenticatedClient({});
-    assert.match(urlAvatar(client, { rid: 'GENERAL' }) ?? '', /\/avatar\/room\/GENERAL\?/);
+    assert.match(avatarUrl(client, { rid: 'GENERAL' }) ?? '', /\/avatar\/room\/GENERAL\?/);
   });
 
   test('returns null if nothing designates a target; the caller keeps its tile', () => {
     const { client } = authenticatedClient({});
-    assert.equal(urlAvatar(client, { uid: null, username: '', rid: undefined }), null);
+    assert.equal(avatarUrl(client, { uid: null, username: '', rid: undefined }), null);
   });
 
   test('the photo version goes into the URI, otherwise the image cache freezes it forever', () => {
@@ -214,8 +214,8 @@ describe('urlAvatar', () => {
     // `/avatar/alice` stays identical after a photo change and the old image
     // shows forever (no HTTP ETag on the server side, observed on 8.5).
     const { client } = authenticatedClient({});
-    const before = urlAvatar(client, { username: 'alice', etag: 'e1' });
-    const after = urlAvatar(client, { username: 'alice', etag: 'e2' });
+    const before = avatarUrl(client, { username: 'alice', etag: 'e1' });
+    const after = avatarUrl(client, { username: 'alice', etag: 'e2' });
     assert.match(before ?? '', /\/avatar\/alice\?etag=e1&rc_uid=/);
     assert.notEqual(before, after, 'a new version must give a new URI');
   });
@@ -223,13 +223,13 @@ describe('urlAvatar', () => {
   test('without a known version, the URI stays as before: nothing regresses', () => {
     const { client } = authenticatedClient({});
     assert.equal(
-      urlAvatar(client, { username: 'alice', etag: null }),
-      urlAvatar(client, { username: 'alice' }),
+      avatarUrl(client, { username: 'alice', etag: null }),
+      avatarUrl(client, { username: 'alice' }),
     );
   });
 
   test('a room version is encoded too', () => {
     const { client } = authenticatedClient({});
-    assert.match(urlAvatar(client, { rid: 'r 1', etag: 'a/b' }) ?? '', /\/avatar\/room\/r%201\?etag=a%2Fb&/);
+    assert.match(avatarUrl(client, { rid: 'r 1', etag: 'a/b' }) ?? '', /\/avatar\/room\/r%201\?etag=a%2Fb&/);
   });
 });

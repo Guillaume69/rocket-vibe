@@ -6,7 +6,7 @@ import { beforeEach, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { toRoom } from '../lib/normalize.ts';
-import type { LocalSubscription, MessageLocal, LocalRoom } from '../lib/normalize.ts';
+import type { LocalSubscription, LocalMessage, LocalRoom } from '../lib/normalize.ts';
 import {
   APPLY_RETENTION,
   INSERT_CUSTOM_EMOJI,
@@ -57,9 +57,9 @@ import {
   UPSERT_USER,
   CLEAR_CUSTOM_EMOJIS,
   subscriptionParams,
-  paramsEmojiCustom,
+  customEmojiParams,
   identityParams,
-  paramsMessage,
+  messageParams,
   roomParams,
   userParams,
 } from './upserts.ts';
@@ -85,12 +85,12 @@ function migratedDb(): DatabaseSync {
 }
 
 /**
- * Parameters are built with `paramsMessage` from `db/upserts.ts`, the very
+ * Parameters are built with `messageParams` from `db/upserts.ts`, the very
  * function the app uses: a column order drifting from the value order would
  * fail these tests, instead of silently corrupting the database.
  */
-function msg(o: Partial<MessageLocal> & { id: string; updatedAt: number }) {
-  return paramsMessage({
+function msg(o: Partial<LocalMessage> & { id: string; updatedAt: number }) {
+  return messageParams({
     rid: 'rid-1',
     text: 'bonjour',
     ts: 1000,
@@ -181,7 +181,7 @@ describe('upserts idempotents', () => {
 
   test('threads (8.3): threadLast and threadShown round-trip, NON-default values', () => {
     // Guard against silently swapping two neighbouring parameters of the same
-    // type in paramsMessage: only distinct, non-default values detect it.
+    // type in messageParams: only distinct, non-default values detect it.
     db.prepare(UPSERT_MESSAGE).run(
       ...msg({
         id: 'm1',
@@ -622,10 +622,10 @@ describe('upload queue', () => {
 describe('emojis custom', () => {
   test('round trip: inserted then read back, aliases preserved as JSON', () => {
     db.prepare(INSERT_CUSTOM_EMOJI).run(
-      ...paramsEmojiCustom({ name: 'party_parrot', extension: 'gif', aliases: ['parrot'], updatedAt: 10 }),
+      ...customEmojiParams({ name: 'party_parrot', extension: 'gif', aliases: ['parrot'], updatedAt: 10 }),
     );
     db.prepare(INSERT_CUSTOM_EMOJI).run(
-      ...paramsEmojiCustom({ name: 'shipit', extension: 'png', aliases: [], updatedAt: 10 }),
+      ...customEmojiParams({ name: 'shipit', extension: 'png', aliases: [], updatedAt: 10 }),
     );
     const rows = db.prepare(LIST_CUSTOM_EMOJIS).all().map(row);
     assert.equal(rows.length, 2);
@@ -636,7 +636,7 @@ describe('emojis custom', () => {
 
   test('CLEARING erases everything: the bulk replacement leaves no ghost', () => {
     db.prepare(INSERT_CUSTOM_EMOJI).run(
-      ...paramsEmojiCustom({ name: 'obsolete', extension: 'png', aliases: [], updatedAt: 1 }),
+      ...customEmojiParams({ name: 'obsolete', extension: 'png', aliases: [], updatedAt: 1 }),
     );
     db.prepare(CLEAR_CUSTOM_EMOJIS).run();
     assert.equal(db.prepare(LIST_CUSTOM_EMOJIS).all().length, 0);

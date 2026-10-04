@@ -9,7 +9,7 @@
  * memory. A failure is not cached; the next call retries.
  */
 
-import type { ClientRest } from './rest.ts';
+import type { RestClient } from './rest.ts';
 
 export type SourcesPermissions = {
   /** Permission → roles granting it. */
@@ -17,7 +17,7 @@ export type SourcesPermissions = {
   globalRoles: string[];
 };
 
-type RestReader = Pick<ClientRest, 'get'>;
+type RestReader = Pick<RestClient, 'get'>;
 
 const asStrings = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
@@ -56,7 +56,7 @@ export function grantedPermissions(sources: SourcesPermissions, roomRoleList: st
 const cached = new Map<string, Promise<SourcesPermissions>>();
 
 export function sourcesPermissions(
-  client: RestReader & Pick<ClientRest, 'baseUrl' | 'auth'>,
+  client: RestReader & Pick<RestClient, 'baseUrl' | 'auth'>,
 ): Promise<SourcesPermissions> {
   const key = `${client.baseUrl}|${client.auth?.userId ?? ''}`;
   const known = cached.get(key);

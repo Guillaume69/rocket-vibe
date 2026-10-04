@@ -5,7 +5,7 @@
  * call screen, ROADMAP §4.2): we thus show a card in the same language as
  * the local video card (public thumbnail as banner, dark scrim, gradient play
  * button, and a footer carrying the video's title and channel when the server
- * harvested them (`metasVideo`)). A tap OPENS the native app
+ * harvested them (`videoMetas`)). A tap OPENS the native app
  * (YouTube/Dailymotion) or the browser through `Linking`. No WebView, no
  * stream to extract.
  *
@@ -18,7 +18,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { metasVideo, type MetaVideo } from '../lib/linkPreview.ts';
+import { videoMetas, type VideoMeta } from '../lib/linkPreview.ts';
 import { detectVideoLinks, type VideoLink } from '../lib/videoLinks.ts';
 import { useT } from './i18n.ts';
 import { openExternalLink } from './externalLink.ts';
@@ -38,7 +38,7 @@ export function EmbedLinks({
   onLongPress?: (() => void) | undefined;
 }) {
   const links = useMemo(() => detectVideoLinks(text), [text]);
-  const metas = useMemo(() => metasVideo(urls), [urls]);
+  const metas = useMemo(() => videoMetas(urls), [urls]);
   if (links.length === 0) return null;
   return (
     <View style={styles.list}>
@@ -64,7 +64,7 @@ function EmbedCard({
   c: Colors;
   link: VideoLink;
   /** `null` as long as the server has not described the link (yet). */
-  meta: MetaVideo | null;
+  meta: VideoMeta | null;
   onLongPress?: (() => void) | undefined;
 }) {
   const t = useT();

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { textPreview, messageTree, textOf, unicodeDEmoji } from './markdown.ts';
+import { textPreview, messageTree, textOf, emojiUnicode } from './markdown.ts';
 
 describe('messageTree', () => {
   test('prefers the server `md` when present', () => {
@@ -72,11 +72,11 @@ describe('textOf', () => {
   });
 });
 
-describe('unicodeDEmoji', () => {
+describe('emojiUnicode', () => {
   test('resolves both forms the server sends', () => {
-    assert.equal(unicodeDEmoji({ type: 'EMOJI', unicode: '🙂' }), '🙂');
+    assert.equal(emojiUnicode({ type: 'EMOJI', unicode: '🙂' }), '🙂');
     assert.equal(
-      unicodeDEmoji({ type: 'EMOJI', value: { type: 'PLAIN_TEXT', value: 'tada' }, shortCode: 'tada' }),
+      emojiUnicode({ type: 'EMOJI', value: { type: 'PLAIN_TEXT', value: 'tada' }, shortCode: 'tada' }),
       '🎉',
     );
   });
@@ -88,14 +88,14 @@ describe('unicodeDEmoji', () => {
     assert.ok(tree !== null);
     assert.equal(tree[0].type, 'BIG_EMOJI');
     const nodes = (tree[0] as { value: unknown[] }).value;
-    assert.deepEqual(nodes.map(unicodeDEmoji), [null]);
+    assert.deepEqual(nodes.map(emojiUnicode), [null]);
     assert.equal(textOf(tree), ':pas_un_emoji:');
   });
 
   test('anything that is not an EMOJI node is `null`', () => {
-    assert.equal(unicodeDEmoji({ type: 'PLAIN_TEXT', value: 'smile' }), null);
-    assert.equal(unicodeDEmoji(null), null);
-    assert.equal(unicodeDEmoji('smile'), null);
+    assert.equal(emojiUnicode({ type: 'PLAIN_TEXT', value: 'smile' }), null);
+    assert.equal(emojiUnicode(null), null);
+    assert.equal(emojiUnicode('smile'), null);
   });
 });
 

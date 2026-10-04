@@ -31,15 +31,15 @@ import {
   type MyProfile,
   type DefaultStatus,
 } from '../lib/myProfile.ts';
-import { ClientRest, TwoFactorError, type TwoFactorCode } from '../lib/rest.ts';
+import { RestClient, TwoFactorError, type TwoFactorCode } from '../lib/rest.ts';
 import { hash } from '../lib/sessionStore.ts';
-import { setAvatar, type FileToSend, urlAvatar } from '../lib/upload.ts';
+import { setAvatar, type FileToSend, avatarUrl } from '../lib/upload.ts';
 import { pickAvatar } from '../ui/pickAvatar.ts';
 import { KeyboardAvoidingContainer } from '../ui/keyboard.tsx';
 import { translateCurrent, useT } from '../ui/i18n.ts';
 import { PrimaryButton, PillField, AvatarTile } from '../ui/kit.tsx';
 import type { TranslationKey } from '../ui/messages.ts';
-import { useEtagsAvatars } from '../ui/identities.tsx';
+import { useAvatarEtags } from '../ui/identities.tsx';
 import { PRESENCE_KEYS, presenceColors } from '../ui/presence.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
@@ -70,7 +70,7 @@ function MyProfileForm({
   username,
 }: {
   c: Colors;
-  client: ClientRest;
+  client: RestClient;
   username: string;
 }) {
   const t = useT();
@@ -81,7 +81,7 @@ function MyProfileForm({
   // `null` while the database is not ready; saving works anyway, the catch-up
   // of the next connection setup (`me`) will set the etag.
   const store = sync.phase === 'ready' ? sync.engine.syncStore : null;
-  const etags = useEtagsAvatars();
+  const etags = useAvatarEtags();
   // `initial` = reference read on load; `form` = values being edited.
   // Their diff decides which endpoints to call. After a successful save,
   // `form` BECOMES the new reference (the diff starts from zero).
@@ -89,7 +89,7 @@ function MyProfileForm({
   const [form, setForm] = useState<MyProfile | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [avatarLocal, setAvatarLocal] = useState<FileToSend | null>(null);
+  const [localAvatar, setLocalAvatar] = useState<FileToSend | null>(null);
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [banner, setBanner] = useState<Banner | null>(null);
@@ -127,7 +127,7 @@ function MyProfileForm({
     try {
       const f = await pickAvatar();
       if (f !== null) {
-        setAvatarLocal(f);
+        setLocalAvatar(f);
         setBanner(null);
       }
     } catch (e) {
@@ -141,7 +141,7 @@ function MyProfileForm({
 
       const info = diffInfos(initial, form);
       const statusChanged = form.status !== initial.status || form.statusText !== initial.statusText;
-      const avatarChange = avatarLocal !== null;
+      const avatarChange = localAvatar !== null;
       if (Object.keys(info).length === 0 && !statusChanged && !avatarChange) {
         setBanner({ type: 'info', text: t('myProfile.nothingToSave') });
         return;
@@ -159,7 +159,7 @@ function MyProfileForm({
       setBanner(null);
       try {
         // Each successful step becomes SETTLED at once (`initial` updated field by
-        // field, `avatarLocal` cleared as soon as the photo is set): a resubmission
+        // field, `localAvatar` cleared as soon as the photo is set): a resubmission
         // after a LATER step fails then replays only what remains. Before, the
         // single `catch` left `initial` intact: the resubmission replayed an
         // already accepted username, which the server refused ("already taken"),
@@ -187,8 +187,8 @@ function MyProfileForm({
           );
         }
         if (avatarChange) {
-          await setAvatar({ client, transport: transportAvatarExpo, file: avatarLocal });
-          setAvatarLocal(null);
+          await setAvatar({ client, transport: transportAvatarExpo, file: localAvatar });
+          setLocalAvatar(null);
         }
 
         // The photo's new VERSION (`avatarETag`), reread at the source and stored in
@@ -224,7 +224,7 @@ function MyProfileForm({
         setBusy(false);
       }
     },
-    [form, initial, avatarLocal, password, client, store, updateSessionProfile, t],
+    [form, initial, localAvatar, password, client, store, updateSessionProfile, t],
   );
 
   const submitCode = useCallback(async () => {
@@ -264,7 +264,7 @@ function MyProfileForm({
 
   const needsPassword = form.email !== initial?.email || form.username !== initial?.username;
   const avatarUri =
-    avatarLocal?.uri ?? urlAvatar(client, { username, etag: etags.byUsername.get(username) });
+    localAvatar?.uri ?? avatarUrl(client, { username, etag: etags.byUsername.get(username) });
 
   return (
     <KeyboardAvoidingContainer>

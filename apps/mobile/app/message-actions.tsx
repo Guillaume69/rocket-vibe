@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { subscriptions, messages, rooms } from '../db/schema.ts';
 import {
-  actionsPossibles,
+  possibleActions,
   messageGoneFromServer,
   rulesFromSettings,
   textToCopy,
@@ -36,7 +36,7 @@ import { starredBy, starredAfter } from '../lib/marks.ts';
 import { ENCRYPTED_TYPE } from '../lib/normalize.ts';
 import { grantedPermissions, roomRoles, sourcesPermissions } from '../lib/permissions.ts';
 import { reactionList } from '../lib/reactions.ts';
-import type { ClientRest } from '../lib/rest.ts';
+import type { RestClient } from '../lib/rest.ts';
 import { protectedFileUrl } from '../lib/upload.ts';
 import { saveInBackground, shareInBackground } from '../ui/attachmentActions.ts';
 import { useT } from '../ui/i18n.ts';
@@ -52,7 +52,7 @@ import { Tappable } from '../ui/tappable.tsx';
  * (constraint: no @gorhom/bottom-sheet). The sheet fits its content's height
  * (`sheetAllowedDetents: 'fitToContents'`), CAPPED at 80% of the screen here
  * (`maxHeight`); beyond that, the edit field scrolls internally. What to show
- * comes from the pure function `actionsPossibles`; the server stays the
+ * comes from the pure function `possibleActions`; the server stays the
  * authority if it refuses.
  */
 
@@ -68,7 +68,7 @@ const CODES_REACTION = ['+1', 'heart', 'joy', 'tada', 'open_mouth', 'pray'];
  * while the sheet is open; the server will decide.
  */
 const rulesByServer = new Map<string, MessageRules>();
-async function readRules(client: ClientRest): Promise<MessageRules> {
+async function readRules(client: RestClient): Promise<MessageRules> {
   const cached = rulesByServer.get(client.baseUrl);
   if (cached !== undefined) return cached;
   try {
@@ -135,7 +135,7 @@ export default function MessageActionsScreen() {
   const me = state.phase === 'connected' ? state.session.userId : null;
   const siteUrl = state.phase === 'connected' ? state.session.siteUrl : null;
   // Reactions are judged by USERNAME (the server only stores usernames),
-  // whereas `actionsPossibles` reasons by uid: both identities are used.
+  // whereas `possibleActions` reasons by uid: both identities are used.
   const myUsername = state.phase === 'connected' ? state.session.username : null;
 
   useEffect(() => {
@@ -182,7 +182,7 @@ export default function MessageActionsScreen() {
         // Room row missing (deep link before sync): fall back to `c`/rid; the
         // server only reads the permalink's `?msg=` anyway.
         room: { type: roomRows[0]?.type ?? 'c', name: roomRows[0]?.name ?? null },
-        actions: actionsPossibles({
+        actions: possibleActions({
           message: {
             authorId: raw.authorId,
             ts: raw.ts,

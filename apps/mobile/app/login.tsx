@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DEFAULT_SERVER } from '../db/migrate.ts';
 import { requestEmailCode, prepareTwoFactorCode, logIn } from '../lib/auth.ts';
-import { ClientRest, TwoFactorError, RestError, type TwoFactorCode } from '../lib/rest.ts';
+import { RestClient, TwoFactorError, RestError, type TwoFactorCode } from '../lib/rest.ts';
 import { probeServer, type ServerProfile } from '../lib/server.ts';
 import { hash, readLastServer, listKnownServers } from '../lib/sessionStore.ts';
 import { KeyboardAvoidingContainer } from '../ui/keyboard.tsx';
@@ -28,11 +28,11 @@ import { type Colors, FONTS, useColors } from '../ui/theme.ts';
 
 type Phase =
   | { name: 'server' }
-  | { name: 'credentials'; profile: ServerProfile; client: ClientRest }
+  | { name: 'credentials'; profile: ServerProfile; client: RestClient }
   | {
       name: 'twoFactor';
       profile: ServerProfile;
-      client: ClientRest;
+      client: RestClient;
       error: TwoFactorError;
       codeSent: boolean;
     };
@@ -125,7 +125,7 @@ export default function LoginScreen() {
         // sometimes accepts a direct login anyway: we warn without blocking.
         setMessage(t('login.noPasswordLogin'));
       }
-      setPhase({ name: 'credentials', profile, client: new ClientRest(profile.baseUrl) });
+      setPhase({ name: 'credentials', profile, client: new RestClient(profile.baseUrl) });
     } catch (e) {
       if (!controller.signal.aborted) {
         setMessage(e instanceof Error ? e.message : t('login.serverUnreachable'));

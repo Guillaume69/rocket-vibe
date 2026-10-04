@@ -12,7 +12,7 @@
 
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { filterAliases, type EmojiStore, type EmojiCustom } from '../lib/customEmojis.ts';
+import { filterAliases, type EmojiStore, type CustomEmoji } from '../lib/customEmojis.ts';
 import type { OutboxStore, OutboxRow } from '../lib/outbox.ts';
 import type { UploadStore, UploadRow } from '../lib/uploadQueue.ts';
 import type { Store, StoreWrites } from '../lib/sync.ts';
@@ -33,7 +33,7 @@ import {
   INSERT_UPLOAD,
   LIST_CUSTOM_EMOJIS,
   CLEAR_CUSTOM_EMOJIS,
-  paramsEmojiCustom,
+  customEmojiParams,
   LIST_UPLOADS_TO_SEND,
   MARK_UPLOAD_FAILED,
   MARK_UPLOAD_IN_FLIGHT,
@@ -76,7 +76,7 @@ import {
   UPSERT_ROOM,
   UPSERT_USER,
   subscriptionParams,
-  paramsMessage,
+  messageParams,
   roomParams,
   userParams,
 } from './upserts.ts';
@@ -105,7 +105,7 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
   // it).
   const direct: StoreWrites = {
     async upsertMessage(m) {
-      await raw.runAsync(UPSERT_MESSAGE, paramsMessage(m));
+      await raw.runAsync(UPSERT_MESSAGE, messageParams(m));
       // The author's identity (`uid -> current username`) derives from each
       // message: the most recent per uid wins. An undecryptable encrypted message
       // has no username (`authorName` null): nothing to record.
@@ -289,20 +289,20 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
  */
 export function createEmojiStore(raw: SQLiteDatabase, serially: WriteQueue): EmojiStore {
   return {
-    replace(entries: EmojiCustom[]) {
+    replace(entries: CustomEmoji[]) {
       return serially(() =>
         raw.withTransactionAsync(async () => {
           await raw.runAsync(CLEAR_CUSTOM_EMOJIS);
           for (const e of entries) {
             await raw.runAsync(
               INSERT_CUSTOM_EMOJI,
-              paramsEmojiCustom({ ...e, updatedAt: Date.now() }),
+              customEmojiParams({ ...e, updatedAt: Date.now() }),
             );
           }
         }),
       );
     },
-    async list(): Promise<EmojiCustom[]> {
+    async list(): Promise<CustomEmoji[]> {
       const rows = await raw.getAllAsync<{ nom: string; extension: string; aliases: string }>(
         LIST_CUSTOM_EMOJIS,
       );
@@ -363,7 +363,7 @@ export function createOutboxStore(raw: SQLiteDatabase, serially: WriteQueue): Ou
       return serially(() => raw.runAsync(DELETE_OUTBOX, [id]).then(() => {}));
     },
     upsertMessage(m) {
-      return serially(() => raw.runAsync(UPSERT_MESSAGE, paramsMessage(m)).then(() => {}));
+      return serially(() => raw.runAsync(UPSERT_MESSAGE, messageParams(m)).then(() => {}));
     },
     deleteOptimisticMessage(id) {
       return serially(() => raw.runAsync(DELETE_OPTIMISTIC_MESSAGE, [id]).then(() => {}));

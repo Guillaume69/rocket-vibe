@@ -83,13 +83,13 @@ export class TypingEngine {
         username,
         this.schedule(() => {
           this.timers.delete(username);
-          this.notifier();
+          this.notify();
         }, this.expirationMs),
       );
     } else {
       this.timers.delete(username);
     }
-    this.notifier();
+    this.notify();
   }
 
   /** When the screen closes: no timer may survive. */
@@ -99,7 +99,7 @@ export class TypingEngine {
     this.snapshot = [];
   }
 
-  private notifier(): void {
+  private notify(): void {
     const next = [...this.timers.keys()].sort();
     // Notify ONLY on a real change: Rocket.Chat re-emits "user-typing" as a
     // heartbeat throughout typing, and each beat would otherwise re-render the

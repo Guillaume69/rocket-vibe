@@ -5,8 +5,8 @@
  * DETECTION owes nothing to the server: recognize the URL by pattern, extract
  * the id, and rebuild the public THUMBNAIL (predictable on YouTube and
  * Dailymotion), so a card shows even on a message the server has not (yet)
- * described. The title comes from what the server collected (`metasVideo`,
- * `lib/linkPreview.ts`), matched by `idVideo`. Inline playback would need a
+ * described. The title comes from what the server collected (`videoMetas`,
+ * `lib/linkPreview.ts`), matched by `videoId`. Inline playback would need a
  * WebView (forbidden, ROADMAP §4.2): on tap, the card opens the native app or
  * the browser (`Linking`).
  *
@@ -129,7 +129,7 @@ export function detectVideoLinks(text: string | null | undefined, max = 3): Vide
  * (`lib/linkPreview.ts`) skip these links so as not to double the video card.
  */
 export function isVideoLink(url: string): boolean {
-  return idVideo(url) !== null;
+  return videoId(url) !== null;
 }
 
 /**
@@ -137,7 +137,7 @@ export function isVideoLink(url: string): boolean {
  * server `urls[]` entry (which carries the RAW URL, with its playlist and
  * `utm_*`) with the card detected in the text.
  */
-export function idVideo(url: string): string | null {
+export function videoId(url: string): string | null {
   for (const m of PATTERNS) {
     m.re.lastIndex = 0; // shared regex + `g` flag: reset before each test
     const r = m.re.exec(url);

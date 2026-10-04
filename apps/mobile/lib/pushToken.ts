@@ -16,24 +16,24 @@
  *   otherwise logout would break after a reinstall.
  *
  * The transport (headers, retry on 429, defensive JSON, 2FA) comes from
- * `ClientRest`: it is not reimplemented here.
+ * `RestClient`: it is not reimplemented here.
  */
 
-import { ClientRest, RestError } from './rest.ts';
+import { RestClient, RestError } from './rest.ts';
 
 export const APP_NAME = 'rocket-vibe';
 
 export type TokenType = 'gcm' | 'apn';
 
 export function registerToken(
-  client: ClientRest,
+  client: RestClient,
   token: string,
   type: TokenType,
 ): Promise<unknown> {
   return client.post('push.token', { body: { type, value: token, appName: APP_NAME } });
 }
 
-export async function unregisterToken(client: ClientRest, token: string): Promise<void> {
+export async function unregisterToken(client: RestClient, token: string): Promise<void> {
   try {
     await client.delete('push.token', { body: { token } });
   } catch (e) {

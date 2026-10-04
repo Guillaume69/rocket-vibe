@@ -29,7 +29,7 @@
  */
 
 import { isWebLink } from './externalLink.ts';
-import { isVideoLink, idVideo } from './videoLinks.ts';
+import { isVideoLink, videoId } from './videoLinks.ts';
 
 export type LinkPreview =
   | { type: 'image'; url: string }
@@ -119,7 +119,7 @@ function cardFromMeta(url: string, meta: Record<string, unknown>): LinkPreview |
 }
 
 /** What the server knows about a video, for the embed card. */
-export type MetaVideo = { title: string | null; author: string | null };
+export type VideoMeta = { title: string | null; author: string | null };
 
 /**
  * The metas of the VIDEO links in `urls`, keyed by video id: the counterpart
@@ -128,8 +128,8 @@ export type MetaVideo = { title: string | null; author: string | null };
  * already has the title: YouTube goes through oEmbed (`oembedTitle`,
  * `oembedAuthorName`), the others through OpenGraph.
  */
-export function metasVideo(urlsJson: string | null | undefined): Map<string, MetaVideo> {
-  const byId = new Map<string, MetaVideo>();
+export function videoMetas(urlsJson: string | null | undefined): Map<string, VideoMeta> {
+  const byId = new Map<string, VideoMeta>();
   let raw: unknown;
   try {
     raw = JSON.parse(urlsJson ?? '');
@@ -141,7 +141,7 @@ export function metasVideo(urlsJson: string | null | undefined): Map<string, Met
   for (const item of raw) {
     const entry = item as UrlEntry;
     if (typeof entry?.url !== 'string') continue;
-    const id = idVideo(entry.url);
+    const id = videoId(entry.url);
     if (id === null || byId.has(id)) continue;
     const meta = entry.meta;
     if (!meta || typeof meta !== 'object') continue;

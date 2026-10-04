@@ -14,7 +14,7 @@ import { applySession, resumeSession, logOut, type Session } from '../lib/auth.t
 import { finishPendingLogouts } from '../lib/deferredLogout.ts';
 import { setProfileClient } from '../lib/profilePreload.ts';
 import { unregisterToken } from '../lib/pushToken.ts';
-import { ClientRest, isTokenRejected } from '../lib/rest.ts';
+import { RestClient, isTokenRejected } from '../lib/rest.ts';
 import {
   addPendingLogout,
   clearE2EPrivateKey,
@@ -34,7 +34,7 @@ import {
 export type SessionState =
   | { phase: 'starting' }
   | { phase: 'disconnected' }
-  | { phase: 'connected'; session: Session; client: ClientRest };
+  | { phase: 'connected'; session: Session; client: RestClient };
 
 type SessionContext = {
   state: SessionState;
@@ -65,8 +65,8 @@ const Context = createContext<SessionContext | null>(null);
  * wired once and cover every call in the app, without touching a single call
  * site.
  */
-function clientFor(session: Session, onTokenRejected: (token: string) => void): ClientRest {
-  const client = new ClientRest(session.baseUrl);
+function clientFor(session: Session, onTokenRejected: (token: string) => void): RestClient {
+  const client = new RestClient(session.baseUrl);
   client.onTokenRejected = onTokenRejected;
   applySession(client, session);
   return client;
@@ -108,7 +108,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   /**
    * The server refused this token MID-SESSION.
    *
-   * Triggered by `ClientRest.onTokenRejected`, so by any everyday call:
+   * Triggered by `RestClient.onTokenRejected`, so by any everyday call:
    * catch-up, `chat.syncMessages`, send, presence. Without it, a token revoked
    * elsewhere (password changed, `Accounts_LoginExpiration`,
    * `logoutOtherClients`) left the app running on yesterday's cache with a
@@ -149,7 +149,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     finishPendingLogouts(
       { list: listPendingLogouts, remove: removePendingLogout },
       (entry) => {
-        const c = new ClientRest(entry.baseUrl);
+        const c = new RestClient(entry.baseUrl);
         c.auth = { authToken: entry.authToken, userId: entry.userId };
         return c;
       },

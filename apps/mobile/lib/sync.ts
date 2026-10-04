@@ -8,7 +8,7 @@
 
 import type { DdpEvent } from './ddp.ts';
 import type { SyncChange, Translator } from './provider.ts';
-import type { LocalSubscription, MessageLocal, LocalRoom } from './normalize.ts';
+import type { LocalSubscription, LocalMessage, LocalRoom } from './normalize.ts';
 
 /**
  * What sync expects from the E2EE engine, structurally (no import of
@@ -24,7 +24,7 @@ export interface E2EDecryptor {
 }
 
 export interface Store {
-  upsertMessage(m: MessageLocal): Promise<void>;
+  upsertMessage(m: LocalMessage): Promise<void>;
   upsertRoom(s: LocalRoom): Promise<void>;
   upsertSubscription(a: LocalSubscription): Promise<void>;
   deleteMessage(id: string): Promise<void>;
@@ -200,7 +200,7 @@ export class SyncEngine {
    * a key (locked, room not unlocked yet): `text` stays null, the kept
    * `encryptedRaw` will allow a pass at unlock.
    */
-  private decrypt(message: MessageLocal): void {
+  private decrypt(message: LocalMessage): void {
     if (message.encryptedRaw === null || this.decryptor === null) return;
     let content: { algorithm: string; ciphertext: string; kid?: string; iv?: string };
     try {

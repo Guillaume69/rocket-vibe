@@ -28,7 +28,7 @@ export type MessageRules = {
 export type ActionContext = {
   /**
    * `text` tells a READABLE encrypted message (decrypted in the database by the
-   * E2E unlock) from a still opaque one: see the guard in `actionsPossibles`.
+   * E2E unlock) from a still opaque one: see the guard in `possibleActions`.
    */
   message: {
     authorId: string;
@@ -74,7 +74,7 @@ function withinDelay(context: ActionContext, minutes: number): boolean {
   return context.now - context.message.ts <= minutes * 60_000;
 }
 
-export function actionsPossibles(context: ActionContext): ActionMessage[] {
+export function possibleActions(context: ActionContext): ActionMessage[] {
   const actions: ActionMessage[] = [];
   const { message, me, rules, permissions, readOnly, encrypted, inThread } = context;
 

@@ -9,12 +9,12 @@
  * password**, never the plain password. Checked against a real 8.5 server by
  * changing a privileged setting.
  *
- * Like `ClientRest`, this module does not import `react-native`: hashing is
+ * Like `RestClient`, this module does not import `react-native`: hashing is
  * injected (`expo-crypto` in the app, `node:crypto` in tests).
  */
 
 import type { ProviderKind } from './provider.ts';
-import { ClientRest, TwoFactorError, type TwoFactorCode } from './rest.ts';
+import { RestClient, TwoFactorError, type TwoFactorCode } from './rest.ts';
 
 export type Session = {
   baseUrl: string;
@@ -74,7 +74,7 @@ export async function prepareTwoFactorCode(
  * `logIn` again with the prepared code.
  */
 export async function logIn(
-  client: ClientRest,
+  client: RestClient,
   credentials: Credentials,
   twoFactor?: TwoFactorCode,
 ): Promise<Session> {
@@ -91,7 +91,7 @@ export async function logIn(
  * the WebSocket: the DDP spike checked it, `method login {resume}` accepts it
  * as is.
  */
-export async function resumeSession(client: ClientRest, authToken: string): Promise<Session> {
+export async function resumeSession(client: RestClient, authToken: string): Promise<Session> {
   const response = await client.post<LoginResponse>('login', {
     anonymous: true,
     body: { resume: authToken },
@@ -107,7 +107,7 @@ class LoginError extends Error {
 }
 
 /**
- * `ClientRest` treats a 200 with an empty body as success, which `/logout`
+ * `RestClient` treats a 200 with an empty body as success, which `/logout`
  * needs. A `/login` answering that way would give `response.data === undefined`
  * and a raw `TypeError`: so we guard before destructuring.
  */
@@ -137,7 +137,7 @@ function sessionFrom(baseUrl: string, response: LoginResponse | undefined): Sess
  * Takes only the identifier: requiring `Credentials` would mean keeping the
  * password in memory for nothing.
  */
-export function requestEmailCode(client: ClientRest, emailOrName: string): Promise<void> {
+export function requestEmailCode(client: RestClient, emailOrName: string): Promise<void> {
   return client
     .post('users.2fa.sendEmailCode', { anonymous: true, body: { emailOrUsername: emailOrName } })
     .then(() => undefined);
@@ -158,7 +158,7 @@ export function requestEmailCode(client: ClientRest, emailOrName: string): Promi
  * out whatever happens, and an unreachable server must not hold the user on a
  * screen they just left.
  */
-export async function logOut(client: ClientRest): Promise<boolean> {
+export async function logOut(client: RestClient): Promise<boolean> {
   try {
     await client.post('logout');
     return true;
@@ -170,6 +170,6 @@ export async function logOut(client: ClientRest): Promise<boolean> {
 }
 
 /** Applies the session to the client for subsequent calls. */
-export function applySession(client: ClientRest, session: Session): void {
+export function applySession(client: RestClient, session: Session): void {
   client.auth = { authToken: session.authToken, userId: session.userId };
 }

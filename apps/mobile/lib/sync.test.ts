@@ -8,7 +8,7 @@ import {
   toMessage,
   toRoom,
   type LocalSubscription,
-  type MessageLocal,
+  type LocalMessage,
   type LocalRoom,
 } from './normalize.ts';
 import { withTransactionTrap } from './testStore.ts';
@@ -44,7 +44,7 @@ describe('toMessage', () => {
   };
 
   test('translates an ordinary message', () => {
-    const m = toMessage(base) as MessageLocal;
+    const m = toMessage(base) as LocalMessage;
     assert.equal(m.id, 'm1');
     assert.equal(m.text, 'bonjour');
     assert.equal(m.ts, 1000);
@@ -54,7 +54,7 @@ describe('toMessage', () => {
   });
 
   test('an encrypted message NEVER stores its content', () => {
-    const m = toMessage({ ...base, t: 'e2e', msg: 'blob-base64-opaque' }) as MessageLocal;
+    const m = toMessage({ ...base, t: 'e2e', msg: 'blob-base64-opaque' }) as LocalMessage;
     assert.equal(m.systemType, 'e2e');
     assert.equal(m.text, null, 'the blob must not reach the database');
     assert.equal(m.md, null);
@@ -64,7 +64,7 @@ describe('toMessage', () => {
   test('missing `_updatedAt` falls back to the message timestamp', () => {
     const { _updatedAt, ...without } = base;
     void _updatedAt;
-    const m = toMessage(without) as MessageLocal;
+    const m = toMessage(without) as LocalMessage;
     assert.equal(m.updatedAt, 1000);
   });
 
@@ -76,17 +76,17 @@ describe('toMessage', () => {
   });
 
   test('`md` and `attachments` are serialized, `undefined` becomes null', () => {
-    const m = toMessage({ ...base, md: [{ type: 'PARAGRAPH' }] }) as MessageLocal;
+    const m = toMessage({ ...base, md: [{ type: 'PARAGRAPH' }] }) as LocalMessage;
     assert.equal(m.md, '[{"type":"PARAGRAPH"}]');
     assert.equal(m.attachments, null);
   });
 
   test('`urls` (server link metadata) is serialized; missing → null', () => {
-    const withValue = toMessage({ ...base, urls: [{ url: 'https://x', meta: { ogTitle: 'T' } }] }) as MessageLocal;
+    const withValue = toMessage({ ...base, urls: [{ url: 'https://x', meta: { ogTitle: 'T' } }] }) as LocalMessage;
     assert.equal(withValue.urls, '[{"url":"https://x","meta":{"ogTitle":"T"}}]');
-    assert.equal((toMessage(base) as MessageLocal).urls, null);
+    assert.equal((toMessage(base) as LocalMessage).urls, null);
     // An encrypted room never stores a preview.
-    assert.equal((toMessage({ ...base, t: 'e2e', urls: [{ url: 'https://x' }] }) as MessageLocal).urls, null);
+    assert.equal((toMessage({ ...base, t: 'e2e', urls: [{ url: 'https://x' }] }) as LocalMessage).urls, null);
   });
 
   test('threads: `tmid`, `tcount`, `tlm` and `tshow` are captured (8.3)', () => {
@@ -94,13 +94,13 @@ describe('toMessage', () => {
       ...base,
       tcount: 3,
       tlm: { $date: 5000 },
-    }) as MessageLocal;
+    }) as LocalMessage;
     assert.equal(root.threadCount, 3);
     assert.equal(root.threadLast, 5000);
     assert.equal(root.threadId, null);
     assert.equal(root.threadShown, false);
 
-    const response = toMessage({ ...base, _id: 'm2', tmid: 'm1', tshow: true }) as MessageLocal;
+    const response = toMessage({ ...base, _id: 'm2', tmid: 'm1', tshow: true }) as LocalMessage;
     assert.equal(response.threadId, 'm1');
     assert.equal(response.threadShown, true, 'tshow = also visible in the main timeline');
   });
@@ -231,7 +231,7 @@ describe('toSubscription', () => {
 
 /** In-memory store: we observe what the engine decides to write. */
 function makeStore() {
-  const messages: MessageLocal[] = [];
+  const messages: LocalMessage[] = [];
   const rooms: LocalRoom[] = [];
   const subscriptions: LocalSubscription[] = [];
   const deleted: string[] = [];
@@ -263,7 +263,7 @@ function makeStore() {
         .map((a) => ({ rid: a.rid, e2eKey: a.e2eKey })),
     messagesToDecrypt: async () =>
       messages
-        .filter((m): m is MessageLocal & { encryptedRaw: string } => m.encryptedRaw !== null && m.text === null)
+        .filter((m): m is LocalMessage & { encryptedRaw: string } => m.encryptedRaw !== null && m.text === null)
         .map((m) => ({ id: m.id, rid: m.rid, encryptedRaw: m.encryptedRaw })),
     updateMessageText: async (id, text, attachments) => {
       const m = messages.find((x) => x.id === id);

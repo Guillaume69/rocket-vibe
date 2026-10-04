@@ -16,7 +16,7 @@ import {
   toMessage,
   toRoom,
   type LocalSubscription,
-  type MessageLocal,
+  type LocalMessage,
   type LocalRoom,
 } from '../../lib/normalize.ts';
 import { PRESENCE_EVENT, STREAM_NOTIFY_LOGGED } from '../../lib/presence.ts';
@@ -44,7 +44,7 @@ export class RcTranslator implements Translator {
     this.myUid = myUid;
   }
 
-  toMessage(raw: Record<string, unknown>): MessageLocal | null {
+  toMessage(raw: Record<string, unknown>): LocalMessage | null {
     return toMessage(raw);
   }
 

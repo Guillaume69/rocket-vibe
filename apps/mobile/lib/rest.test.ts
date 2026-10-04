@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { after, before, beforeEach, describe, test } from 'node:test';
 
-import { ClientRest, TwoFactorError, RestError, isTokenRejected } from './rest.ts';
+import { RestClient, TwoFactorError, RestError, isTokenRejected } from './rest.ts';
 
 type Handle = (req: IncomingMessage, res: ServerResponse) => void;
 
@@ -41,7 +41,7 @@ function reply(res: ServerResponse, status: number, body: unknown, headers: obje
  * exact numbers, and the dedicated test below exercises the spread.
  */
 function client(sleeps: number[] = []) {
-  return new ClientRest(base, {
+  return new RestClient(base, {
     sleep: async (ms) => {
       sleeps.push(ms);
     },
@@ -50,7 +50,7 @@ function client(sleeps: number[] = []) {
   });
 }
 
-describe('ClientRest', () => {
+describe('RestClient', () => {
   test('a successful GET returns the JSON', async () => {
     handle = (_q, res) => reply(res, 200, { success: true, version: '8.5' });
     const r = await client().get<{ version: string }>('info');
@@ -254,7 +254,7 @@ describe('ClientRest', () => {
     handle = (_q, res) => reply(res, 200, { success: true, ok: 1 });
     let calls = 0;
     const sleeps: number[] = [];
-    const c = new ClientRest(base, {
+    const c = new RestClient(base, {
       fetch: async (url, init) => {
         calls += 1;
         if (calls === 1) throw new TypeError('Network request failed');
@@ -276,7 +276,7 @@ describe('ClientRest', () => {
 
   test('networkReplay: two failures in a row surface "server unreachable"', async () => {
     let calls = 0;
-    const c = new ClientRest(base, {
+    const c = new RestClient(base, {
       fetch: async () => {
         calls += 1;
         throw new TypeError('Network request failed');
@@ -297,7 +297,7 @@ describe('ClientRest', () => {
     // `chat.sendMessage` does not enable the replay: the row stays "en-attente"
     // in lib/outbox, the only place where its deduplication is safe.
     let calls = 0;
-    const c = new ClientRest(base, {
+    const c = new RestClient(base, {
       fetch: async () => {
         calls += 1;
         throw new TypeError('Network request failed');
@@ -328,7 +328,7 @@ describe('ClientRest', () => {
           reply(res, 200, { success: true });
         }
       };
-      const c = new ClientRest(base, {
+      const c = new RestClient(base, {
         sleep: async (ms) => {
           sleeps.push(ms);
         },
@@ -352,7 +352,7 @@ describe('ClientRest', () => {
     const sleeps: number[] = [];
     handle = (_q, res) =>
       reply(res, 429, { success: false }, { 'x-ratelimit-reset': '9999999999999' });
-    const c = new ClientRest(base, {
+    const c = new RestClient(base, {
       sleep: async (ms) => {
         sleeps.push(ms);
       },
@@ -374,7 +374,7 @@ describe('ClientRest', () => {
     const sleepStarted = new Promise<void>((r) => {
       sleepsNow = r;
     });
-    const c = new ClientRest(base, {
+    const c = new RestClient(base, {
       sleep: () =>
         new Promise<void>(() => {
           sleepsNow();
@@ -411,7 +411,7 @@ describe('ClientRest', () => {
     // there, by supplying the response body ourselves.
     let naps = 0;
     const controller = new AbortController();
-    const c = new ClientRest(base, {
+    const c = new RestClient(base, {
       fetch: async () =>
         new Response(
           new ReadableStream({
@@ -437,7 +437,7 @@ describe('ClientRest', () => {
   });
 
   test('the trailing slash of baseUrl is normalised', () => {
-    assert.equal(new ClientRest('http://x:3000///').baseUrl, 'http://x:3000');
+    assert.equal(new RestClient('http://x:3000///').baseUrl, 'http://x:3000');
   });
 });
 
@@ -450,7 +450,7 @@ describe('ClientRest', () => {
  * a Rocket.Chat 8.5 (local bench, 30/07/2026).
  */
 describe('isTokenRejected', () => {
-  /** What `ClientRest` builds when it has READ the Rocket.Chat envelope. */
+  /** What `RestClient` builds when it has READ the Rocket.Chat envelope. */
   const fromServer = (status: number, error?: string, errorType?: string) =>
     new RestError(error ?? 'x', status, error, errorType, true);
 
@@ -484,7 +484,7 @@ describe('isTokenRejected', () => {
 
   test('a 401 whose body is NOT Rocket.Chat is ignored', () => {
     // The corporate proxy, the captive portal, the maintenance page: they
-    // answer 401 in HTML. `ClientRest` then throws without `understoodResponse`
+    // answer 401 in HTML. `RestClient` then throws without `understoodResponse`
     // (the "non-JSON response" branch), and that status is THEIRS.
     assert.equal(isTokenRejected(new RestError('réponse non JSON (401, 812 octets).', 401)), false);
   });
@@ -502,7 +502,7 @@ describe('isTokenRejected', () => {
   });
 });
 
-describe('ClientRest: rejected token reporting', () => {
+describe('RestClient: rejected token reporting', () => {
   test('a server 401 reports the token ACTUALLY sent', async () => {
     handle = (_req, res) =>
       reply(res, 401, {

@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { OutboxEngine, idFromBytes, type OutboxEncryptor, type OutboxStore, type OutboxRow } from './outbox.ts';
-import type { MessageLocal } from './normalize.ts';
-import { ClientRest } from './rest.ts';
+import type { LocalMessage } from './normalize.ts';
+import { RestClient } from './rest.ts';
 
 function fakeStore(encrypted: ReadonlySet<string> = new Set()) {
   const outbox = new Map<string, OutboxRow>();
-  const messages: MessageLocal[] = [];
+  const messages: LocalMessage[] = [];
   const store: OutboxStore = {
     insertOutbox: async (id, rid, text, threadId) =>
       void outbox.set(id, { id, rid, text, threadId, status: 'en-attente', attempts: 0 }),
@@ -37,7 +37,7 @@ function fakeClient(
   replyGet?: (url: string) => Promise<Response>,
 ) {
   const queries: Record<string, unknown>[] = [];
-  const client = new ClientRest('http://x', {
+  const client = new RestClient('http://x', {
     fetch: async (url, init) => {
       if (init?.body === undefined) {
         // GET (chat.getMessage): not found by default.
@@ -204,7 +204,7 @@ describe('OutboxEngine', () => {
   /**
    * `chat.getMessage` is under the same 10/min REST limit as `chat.sendMessage`
    * (CLAUDE.md): a burst of sends exhausts the quota and ALL checks fall back
-   * to 429, after `ClientRest`'s three retries.
+   * to 429, after `RestClient`'s three retries.
    */
   test('rate-limited check (429): the row stays en-attente', async () => {
     let gets = 0;
@@ -216,7 +216,7 @@ describe('OutboxEngine', () => {
       },
     });
     await engine.send('r1', 'quota épuisé');
-    assert.ok(gets > 1, 'ClientRest does retry the 429 before giving up');
+    assert.ok(gets > 1, 'RestClient does retry the 429 before giving up');
     assert.equal([...outbox.values()][0]?.status, 'en-attente');
   });
 
@@ -270,10 +270,10 @@ describe('OutboxEngine', () => {
   });
 
   test('the replay retries failures as well as pending rows', async () => {
-    let refuser = true;
+    let refuse = true;
     const { engine, outbox } = testEngine({
       reply: async (body) => {
-        if (refuser) return ok({ success: false, error: 'temporaire' });
+        if (refuse) return ok({ success: false, error: 'temporaire' });
         const m = (body.message ?? {}) as Record<string, unknown>;
         return ok({ success: true, message: m });
       },
@@ -281,7 +281,7 @@ describe('OutboxEngine', () => {
     await engine.send('r1', 'a');
     assert.equal([...outbox.values()][0]?.status, 'echec');
 
-    refuser = false;
+    refuse = false;
     await engine.process();
     assert.equal(outbox.size, 0, 'the replay emptied the queue');
   });

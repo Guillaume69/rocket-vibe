@@ -72,7 +72,7 @@ describe('createDeferredDraft', () => {
     // be lost.
     const { h, log, deferred } = make();
     deferred.save('à ne pas perdre');
-    deferred.flusher();
+    deferred.flush();
     assert.deepEqual(log, ['ecrit:à ne pas perdre']);
     h.fire();
     assert.deepEqual(log, ['ecrit:à ne pas perdre'], 'the cancelled timer does not fire again');
@@ -80,11 +80,11 @@ describe('createDeferredDraft', () => {
 
   test('flushing AFTER the timer fired does not write twice, flushing with nothing pending writes nothing', () => {
     const { h, log, deferred } = make();
-    deferred.flusher();
+    deferred.flush();
     assert.deepEqual(log, [], 'nothing pending, nothing to write');
     deferred.save('déjà écrit');
     h.fire();
-    deferred.flusher();
+    deferred.flush();
     assert.deepEqual(log, ['ecrit:déjà écrit'], 'sent text is not replayed');
   });
 
@@ -115,12 +115,12 @@ describe('createDeferredDraft', () => {
     const old = instance('A');
     old.save('tapé dans A');
     // The hook switches to B: cleanup → flush of A, fresh instance for B.
-    old.flusher();
+    old.flush();
     const next = instance('B');
     h.fire();
     assert.deepEqual(byKey.A, ['ecrit:tapé dans A']);
     assert.deepEqual(byKey.B, [], 'nothing leaks into the new key');
-    next.flusher();
+    next.flush();
     assert.deepEqual(byKey.B, [], 'the new one has nothing pending to flush');
   });
 

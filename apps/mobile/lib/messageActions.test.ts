@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import {
-  actionsPossibles,
+  possibleActions,
   messageGoneFromServer,
   rulesFromSettings,
   textToCopy,
@@ -37,9 +37,9 @@ const base = {
   now: 1_000_000 + 60_000, // one minute later
 };
 
-describe('actionsPossibles', () => {
+describe('possibleActions', () => {
   test('my recent message: everything allowed', () => {
-    assert.deepEqual(actionsPossibles(base), [
+    assert.deepEqual(possibleActions(base), [
       'react',
       'reply',
       'replyInThread',
@@ -56,7 +56,7 @@ describe('actionsPossibles', () => {
     // 6 minutes later, with BlockEditInMinutes = 5: no more editing, but
     // deleting (limit 0 = unlimited) stays.
     const late = { ...base, now: base.message.ts + 6 * 60_000 };
-    assert.deepEqual(actionsPossibles(late), ['react', 'reply', 'replyInThread', 'copy', 'share', 'delete', 'pin', 'star']);
+    assert.deepEqual(possibleActions(late), ['react', 'reply', 'replyInThread', 'copy', 'share', 'delete', 'pin', 'star']);
   });
 
   test('`bypass-time-limit-edit-and-delete` reopens editing after the limit', () => {
@@ -65,7 +65,7 @@ describe('actionsPossibles', () => {
       now: base.message.ts + 6 * 60_000,
       permissions: ['bypass-time-limit-edit-and-delete'],
     };
-    assert.ok(actionsPossibles(admin).includes('edit'));
+    assert.ok(possibleActions(admin).includes('edit'));
   });
 
   test('`edit-message` allows editing SOMEONE ELSE’s message', () => {
@@ -74,21 +74,21 @@ describe('actionsPossibles', () => {
       message: { ...base.message, authorId: 'lui' },
       permissions: ['edit-message'],
     };
-    assert.ok(actionsPossibles(moderator).includes('edit'));
+    assert.ok(possibleActions(moderator).includes('edit'));
   });
 
   test('SOMEONE ELSE’s message can be neither edited nor deleted (without permission)', () => {
     const others = { ...base, message: { ...base.message, authorId: 'lui' } };
-    assert.deepEqual(actionsPossibles(others), ['react', 'reply', 'replyInThread', 'copy', 'share', 'pin', 'star']);
+    assert.deepEqual(possibleActions(others), ['react', 'reply', 'replyInThread', 'copy', 'share', 'pin', 'star']);
   });
 
   test('read-only: no reaction or reply; system message: nothing at all', () => {
-    const readOnly = actionsPossibles({ ...base, readOnly: true });
+    const readOnly = possibleActions({ ...base, readOnly: true });
     assert.ok(!readOnly.includes('react'));
     assert.ok(!readOnly.includes('reply'));
     assert.ok(!readOnly.includes('replyInThread'));
     assert.deepEqual(
-      actionsPossibles({ ...base, message: { ...base.message, systemType: 'uj' } }),
+      possibleActions({ ...base, message: { ...base.message, systemType: 'uj' } }),
       [],
     );
   });
@@ -100,7 +100,7 @@ describe('actionsPossibles', () => {
   // "react stays" while the early return on `systemType !== null` returned an
   // empty array.
   test('encrypted room, DECRYPTED message: everything except quote-reply', () => {
-    const readable = actionsPossibles({
+    const readable = possibleActions({
       ...base,
       encrypted: true,
       message: { ...base.message, systemType: 'e2e', text: 'clair' },
@@ -113,7 +113,7 @@ describe('actionsPossibles', () => {
 
   test('encrypted room, STILL OPAQUE message: no action', () => {
     assert.deepEqual(
-      actionsPossibles({
+      possibleActions({
         ...base,
         encrypted: true,
         message: { ...base.message, systemType: 'e2e', text: null },
@@ -124,7 +124,7 @@ describe('actionsPossibles', () => {
 
   test('a real system message stays closed, even with a text', () => {
     assert.deepEqual(
-      actionsPossibles({
+      possibleActions({
         ...base,
         message: { ...base.message, systemType: 'uj', text: 'a rejoint le salon' },
       }),
@@ -133,13 +133,13 @@ describe('actionsPossibles', () => {
   });
 
   test('from a thread screen: reply, but not open a thread', () => {
-    const actions = actionsPossibles({ ...base, inThread: true });
+    const actions = possibleActions({ ...base, inThread: true });
     assert.ok(actions.includes('reply'));
     assert.ok(!actions.includes('replyInThread'));
   });
 
   test('read-only: copy and share stay', () => {
-    const readOnly = actionsPossibles({ ...base, readOnly: true });
+    const readOnly = possibleActions({ ...base, readOnly: true });
     assert.ok(readOnly.includes('copy'));
     assert.ok(readOnly.includes('share'));
   });
@@ -148,7 +148,7 @@ describe('actionsPossibles', () => {
     const image = JSON.stringify([
       { title: 'photo.jpg', title_link: '/file-upload/f1/photo.jpg', image_url: '/file-upload/t1/photo.jpg' },
     ]);
-    const actions = actionsPossibles({
+    const actions = possibleActions({
       ...base,
       message: { ...base.message, text: '', attachments: image },
     });
@@ -160,7 +160,7 @@ describe('actionsPossibles', () => {
   test('no text or file, or a quote without a word: neither copy nor share', () => {
     const link = '[ ](https://chat.example/channel/general?msg=abc)';
     for (const text of [null, '', '   ', link, `${link}  `]) {
-      const actions = actionsPossibles({ ...base, message: { ...base.message, text } });
+      const actions = possibleActions({ ...base, message: { ...base.message, text } });
       assert.ok(!actions.includes('copy'), String(text));
       assert.ok(!actions.includes('share'), String(text));
     }
@@ -199,18 +199,18 @@ describe('rulesFromSettings', () => {
   });
 });
 
-describe('actionsPossibles: permissions loaded', () => {
+describe('possibleActions: permissions loaded', () => {
   const others = { ...base.message, authorId: 'lui' };
 
   test('plain member: own messages yes, no pinning', () => {
     const member = { ...base, permissions: ['delete-own-message'] };
-    const actions = actionsPossibles(member);
+    const actions = possibleActions(member);
     assert.ok(actions.includes('edit') && actions.includes('delete'));
     assert.ok(!actions.includes('pin'));
   });
 
   test('without delete-own-message, even one’s own message cannot be deleted', () => {
-    assert.ok(!actionsPossibles({ ...base, permissions: [] }).includes('delete'));
+    assert.ok(!possibleActions({ ...base, permissions: [] }).includes('delete'));
   });
 
   test('moderator: edits, deletes and pins someone else’s message, within the limit', () => {
@@ -219,10 +219,10 @@ describe('actionsPossibles: permissions loaded', () => {
       message: others,
       permissions: ['edit-message', 'delete-message', 'pin-message'],
     };
-    const actions = actionsPossibles(moderator);
+    const actions = possibleActions(moderator);
     for (const x of ['edit', 'delete', 'pin'] as const) assert.ok(actions.includes(x), x);
 
-    const late = actionsPossibles({ ...moderator, now: base.message.ts + 6 * 60_000 });
+    const late = possibleActions({ ...moderator, now: base.message.ts + 6 * 60_000 });
     assert.ok(!late.includes('edit'), 'the limit also applies to edit-message');
     assert.ok(late.includes('delete'), 'unlimited delete limit (0)');
   });
@@ -235,14 +235,14 @@ describe('actionsPossibles: permissions loaded', () => {
       now: base.message.ts + 60 * 60_000,
       permissions: ['force-delete-message'],
     };
-    assert.ok(actionsPossibles(owner).includes('delete'));
+    assert.ok(possibleActions(owner).includes('delete'));
   });
 });
 
-describe('actionsPossibles: pin, star', () => {
+describe('possibleActions: pin, star', () => {
   test('a pinned message offers Unpin, a message starred by me Remove from favorites', () => {
     const mark = { ...base, message: { ...base.message, pinned: true, starred: true } };
-    const actions = actionsPossibles(mark);
+    const actions = possibleActions(mark);
     assert.ok(actions.includes('unpin') && !actions.includes('pin'));
     assert.ok(actions.includes('unstar') && !actions.includes('star'));
   });
@@ -252,7 +252,7 @@ describe('actionsPossibles: pin, star', () => {
       ...base,
       rules: { ...rules, pinAllowed: false, starAllowed: false },
     };
-    const actions = actionsPossibles(closed);
+    const actions = possibleActions(closed);
     for (const a of ['pin', 'unpin', 'star', 'unstar'] as const) {
       assert.ok(!actions.includes(a), a);
     }

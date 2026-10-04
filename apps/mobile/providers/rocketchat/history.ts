@@ -6,7 +6,7 @@
  */
 
 import { toEpoch } from '../../lib/normalize.ts';
-import type { ClientRest } from '../../lib/rest.ts';
+import type { RestClient } from '../../lib/rest.ts';
 import type { SyncEngine } from '../../lib/sync.ts';
 
 /**
@@ -23,7 +23,7 @@ export function historyPath(type: string): string {
 const PAGE = 50;
 
 export async function loadHistory(
-  client: ClientRest,
+  client: RestClient,
   engine: SyncEngine,
   rid: string,
   type: string,
@@ -43,12 +43,12 @@ export async function loadHistory(
       params: { roomId: rid, count: PAGE, latest, inclusive: true, showThreadMessages: false },
     },
   );
-  const lot = response.messages ?? [];
-  const recent = await engine.ingestMessages(lot);
+  const batch = response.messages ?? [];
+  const recent = await engine.ingestMessages(batch);
   // The page's oldest `ts`: IT tells the screen whether the page really went
   // back into the past (see `loadMore` and `pageMovedBack`).
   let oldest: number | null = null;
-  for (const raw of lot) {
+  for (const raw of batch) {
     const ts = toEpoch((raw as { ts?: unknown }).ts);
     if (ts !== null && (oldest === null || ts < oldest)) oldest = ts;
   }
@@ -81,7 +81,7 @@ const THREAD_PAGE = 100;
 const MAX_THREAD_PAGES = 20;
 
 export async function loadThread(
-  client: ClientRest,
+  client: RestClient,
   engine: SyncEngine,
   threadId: string,
   isDiscarded: () => boolean,
@@ -100,8 +100,8 @@ export async function loadThread(
       'chat.getThreadMessages',
       { params: { tmid: threadId, count: THREAD_PAGE, offset: page * THREAD_PAGE } },
     );
-    const lot = response.messages ?? [];
-    await engine.ingestMessages(lot);
-    if (lot.length < THREAD_PAGE) break;
+    const batch = response.messages ?? [];
+    await engine.ingestMessages(batch);
+    if (batch.length < THREAD_PAGE) break;
   }
 }

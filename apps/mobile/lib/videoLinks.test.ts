@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { detectVideoLinks, isVideoLink, idVideo } from './videoLinks.ts';
+import { detectVideoLinks, isVideoLink, videoId } from './videoLinks.ts';
 
 const ID = 'dQw4w9WgXcQ';
 
@@ -46,14 +46,14 @@ describe('detectVideoLinks', () => {
   });
 });
 
-describe('idVideo / isVideoLink', () => {
+describe('videoId / isVideoLink', () => {
   test('returns the id from a raw URL, playlist and utm included', () => {
-    assert.equal(idVideo(`https://www.youtube.com/watch?v=${ID}&list=PL1&utm_source=x`), ID);
-    assert.equal(idVideo('https://vimeo.com/76979871'), '76979871');
+    assert.equal(videoId(`https://www.youtube.com/watch?v=${ID}&list=PL1&utm_source=x`), ID);
+    assert.equal(videoId('https://vimeo.com/76979871'), '76979871');
   });
 
   test('null for non-video', () => {
-    assert.equal(idVideo('https://ex.com/article'), null);
+    assert.equal(videoId('https://ex.com/article'), null);
     assert.equal(isVideoLink('https://ex.com/article'), false);
     assert.equal(isVideoLink(`https://youtu.be/${ID}`), true);
   });

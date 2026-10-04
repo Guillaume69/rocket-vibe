@@ -18,7 +18,7 @@
  */
 
 import { unregisterToken } from './pushToken.ts';
-import { ClientRest, isTokenRejected } from './rest.ts';
+import { RestClient, isTokenRejected } from './rest.ts';
 
 export type PendingLogout = {
   baseUrl: string;
@@ -52,7 +52,7 @@ export type LogoutQueue = {
  */
 export async function finishPendingLogouts(
   file: LogoutQueue,
-  createClient: (entry: PendingLogout) => ClientRest,
+  createClient: (entry: PendingLogout) => RestClient,
 ): Promise<void> {
   const entries = await file.list();
   for (const entry of entries) {

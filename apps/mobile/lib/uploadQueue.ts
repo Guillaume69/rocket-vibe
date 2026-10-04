@@ -14,10 +14,10 @@
  */
 
 import type { EncryptedContent, FileJwk } from './e2e/crypto.ts';
-import type { ClientRest } from './rest.ts';
+import type { RestClient } from './rest.ts';
 import { RestError } from './rest.ts';
 import {
-  confirmerMedia,
+  confirmMedia,
   uploadBytes,
   type FileToSend,
   type TransportUpload,
@@ -119,7 +119,7 @@ type PublicSetting = { _id?: string; value?: unknown };
  * (checked against the real 8.5: the validation was a no-op). Ask for
  * EVERYTHING (`count=0`, like the login survey) and filter client-side.
  */
-export async function readUploadRules(client: ClientRest): Promise<UploadRules> {
+export async function readUploadRules(client: RestClient): Promise<UploadRules> {
   const response = await client.get<{ settings?: PublicSetting[] }>('settings.public', {
     params: { count: 0 },
   });
@@ -154,7 +154,7 @@ const IN_FLIGHT_HERE = new Set<string>();
 /**
  * A validation refusal carries DATA (code + parameters), not a sentence: this
  * module is pure and tested under Node, it embeds no language. The wording
- * happens at the display point (`phraseValidation`, ui/fileValidation.ts).
+ * happens at the display point (`validationMessage`, ui/fileValidation.ts).
  */
 export type DetailValidation =
   | { code: 'size'; maxMb: string }
@@ -203,7 +203,7 @@ export function validateFile(
 
 export class UploadEngine {
   private readonly store: UploadStore;
-  private readonly client: ClientRest;
+  private readonly client: RestClient;
   private readonly transport: TransportUpload;
   private readonly generateId: () => string;
   private readonly ingest: (doc: Record<string, unknown>) => Promise<void>;
@@ -231,7 +231,7 @@ export class UploadEngine {
 
   constructor(options: {
     store: UploadStore;
-    client: ClientRest;
+    client: RestClient;
     transport: TransportUpload;
     generateId: () => string;
     ingest: (doc: Record<string, unknown>) => Promise<void>;
@@ -413,7 +413,7 @@ export class UploadEngine {
       // The bytes had already left AND the message is there: the confirm had
       // succeeded, only its response got lost. Confirming again would post a
       // duplicate. Settle the row, without sending anything.
-      await this.solder(row);
+      await this.settle(row);
       return true;
     }
 
@@ -422,13 +422,13 @@ export class UploadEngine {
     // deliver it anyway; it can no longer be unposted.
     if (this.discarded.has(row.id)) return true;
 
-    const message = await confirmerMedia({
+    const message = await confirmMedia({
       client: this.client,
       rid: row.rid,
       fileId,
       message: row.caption ?? undefined,
     });
-    await this.solder(row);
+    await this.settle(row);
     if (!this.discarded.has(row.id)) await this.ingest(message);
     return true;
   }
@@ -447,7 +447,7 @@ export class UploadEngine {
 
     if (fileId !== null && file === undefined) {
       if (await this.alreadyPosted(row.rid, fileId)) {
-        await this.solder(row);
+        await this.settle(row);
         return true;
       }
       fileId = null;
@@ -505,14 +505,14 @@ export class UploadEngine {
     const fileContent = encryption.encrypt(row.rid, meta(file));
     if (content === null || fileContent === null) throw new KeyWait();
 
-    const message = await confirmerMedia({
+    const message = await confirmMedia({
       client: this.client,
       rid: row.rid,
       fileId,
       body: { msg: '', t: 'e2e', content, fileContent },
     });
     this.encrypted.delete(row.id);
-    await this.solder(row);
+    await this.settle(row);
     if (!this.discarded.has(row.id)) await this.ingest(message);
     return true;
   }
@@ -547,7 +547,7 @@ export class UploadEngine {
   }
 
   /** Settled row: no more queue entry, no more temporary file. */
-  private async solder(row: UploadRow): Promise<void> {
+  private async settle(row: UploadRow): Promise<void> {
     await this.store.delete(row.id);
     await this.deleteLocalFile?.(row.uri).catch(() => {});
   }

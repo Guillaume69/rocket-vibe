@@ -14,7 +14,7 @@
  *    edited since, or show again unread counts already reset.
  */
 
-import type { LocalSubscription, MessageLocal, LocalRoom } from '../lib/normalize.ts';
+import type { LocalSubscription, LocalMessage, LocalRoom } from '../lib/normalize.ts';
 
 export const UPSERT_MESSAGE = `
 INSERT INTO messages (
@@ -438,7 +438,7 @@ export const LIST_CUSTOM_EMOJIS = `
 SELECT nom, extension, aliases FROM emojis_custom
 `;
 
-export function paramsEmojiCustom(e: {
+export function customEmojiParams(e: {
   name: string;
   extension: string;
   aliases: string[];
@@ -598,7 +598,7 @@ export function identityParams(i: {
   return [i.uid, i.username, i.avatarEtag];
 }
 
-export function paramsMessage(m: MessageLocal): SqlParam[] {
+export function messageParams(m: LocalMessage): SqlParam[] {
   return [
     m.id,
     m.rid,

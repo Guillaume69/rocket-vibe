@@ -20,7 +20,7 @@ import type { DraftStore } from '../db/store.ts';
  * composer once `initial` is non-null, otherwise it would overwrite the draft
  * with ''.
  *
- * The store (not the raw `BaseLocale`): its writes go through the
+ * The store (not the raw `LocalDatabase`): its writes go through the
  * connection's queue; otherwise a debounce landing during a sync batch would
  * enter ITS transaction and vanish with it if the batch fails.
  */
@@ -72,7 +72,7 @@ export function useDraft(store: DraftStore, key: string | null) {
   // Leaving the screen OR changing key during the pause: without this flush,
   // the last typed characters would be lost. The cleanup holds the OLD key's
   // instance: that one writes, never the new one.
-  useEffect(() => () => deferred?.flusher(), [deferred]);
+  useEffect(() => () => deferred?.flush(), [deferred]);
 
   /** Call on each keystroke: the write goes after a 400 ms pause. */
   const save = useCallback((text: string) => deferred?.save(text), [deferred]);

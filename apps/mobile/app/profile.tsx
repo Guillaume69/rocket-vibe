@@ -19,10 +19,10 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { memoizedCallAvailable, startConference, probeCallAvailable } from '../lib/call.ts';
 import type { PresenceStatus } from '../lib/presence.ts';
 import { readPreloadedProfile, type ProfileError } from '../lib/profilePreload.ts';
-import type { ClientRest } from '../lib/rest.ts';
-import { urlAvatar } from '../lib/upload.ts';
+import type { RestClient } from '../lib/rest.ts';
+import { avatarUrl } from '../lib/upload.ts';
 import { translateCurrent, useT } from '../ui/i18n.ts';
-import { useEtagsAvatars } from '../ui/identities.tsx';
+import { useAvatarEtags } from '../ui/identities.tsx';
 import { AvatarTile } from '../ui/kit.tsx';
 import { PRESENCE_KEYS, presenceColors } from '../ui/presence.ts';
 import { useSession } from '../ui/session.tsx';
@@ -103,11 +103,11 @@ export default function ProfileScreen() {
   const navigation = useNavigation();
   const t = useT();
 
-  const client: ClientRest | null = state.phase === 'connected' ? state.client : null;
+  const client: RestClient | null = state.phase === 'connected' ? state.client : null;
   const me = state.phase === 'connected' ? state.session.username : null;
   const engine = sync.phase === 'ready' ? sync.engine : null;
   const actions = sync.phase === 'ready' ? sync.actions : null;
-  const etags = useEtagsAvatars();
+  const etags = useAvatarEtags();
 
   // Profile preloaded BEFORE opening (`lib/profilePreload`): if present, we
   // start ALREADY with the full profile and call availability known, so the
@@ -247,7 +247,7 @@ export default function ProfileScreen() {
     null;
   const avatarUri =
     client !== null
-      ? urlAvatar(client, {
+      ? avatarUrl(client, {
           username: shownUsername,
           uid: uid ?? profile?.uid,
           etag: profile?.avatarEtag ?? knownEtag,

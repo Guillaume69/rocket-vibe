@@ -23,7 +23,7 @@
 
 import type { TranslationKey } from '../ui/messages.ts'; // type-only import: recorded, like lib/systemMessages.ts
 import { probeCallAvailable } from './call.ts';
-import type { ClientRest } from './rest.ts';
+import type { RestClient } from './rest.ts';
 
 /** One of the two forms `users.info` accepts (never both at once). */
 export type ProfileParams = { username?: string; uid?: string };
@@ -59,10 +59,10 @@ const CAP_MS = 2000;
 const INDICATOR_THRESHOLD_MS = 450;
 const MIN_VISIBLE_MS = 400;
 
-let activeClient: ClientRest | null = null;
+let activeClient: RestClient | null = null;
 
 /** Set by `SessionProvider` on every session change. */
-export function setProfileClient(client: ClientRest | null): void {
+export function setProfileClient(client: RestClient | null): void {
   activeClient = client;
 }
 

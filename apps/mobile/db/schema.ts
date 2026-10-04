@@ -49,7 +49,7 @@ export const rooms = sqliteTable(
      * `avatarETag`: version of the room's photo. Without it, `/avatar/room/<rid>`
      * is a FROZEN URI that Android's image cache serves forever: the photo
      * changed server-side never appears. Injected as a query, it moves the URI
-     * on every change (see `lib/upload.ts#urlAvatar`).
+     * on every change (see `lib/upload.ts#avatarUrl`).
      */
     avatarEtag: text('avatar_etag'),
     updatedAt: integer('mis_a_jour_le').notNull().default(0),
@@ -179,7 +179,7 @@ export const outbox = sqliteTable(
  * (`rooms.media` then `rooms.mediaConfirm`; `rooms.upload` was removed in
  * 8.0) and it is the SECOND that posts the message. With no state between
  * the two, a lost `mediaConfirm` response (15 s maximum timeout on the
- * `ClientRest` side, a network flap is enough) made everything start over at
+ * `RestClient` side, a network flap is enough) made everything start over at
  * the next connection setup: the bytes went out again, a second message was
  * posted, and the first file stayed orphaned on the server. Recorded as soon
  * as `rooms.media` returns, `file_id` skips the first step and lets us ask
@@ -243,7 +243,7 @@ export const drafts = sqliteTable('brouillons', {
  * shortcode in its own right (`:parrot:` = `:party_parrot:`), the in-memory
  * index unfolds them.
  */
-export const emojisCustom = sqliteTable('emojis_custom', {
+export const customEmojis = sqliteTable('emojis_custom', {
   name: text('nom').primaryKey(),
   extension: text('extension').notNull(),
   /** JSON `string[]`. An alias serves the same image as its canonical name. */

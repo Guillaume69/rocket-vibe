@@ -67,7 +67,7 @@ function segments(url: string): string[] {
   return path.split('/').filter((s) => s !== '' && s !== '.');
 }
 
-function decoder(s: string): string {
+function decode(s: string): string {
   try {
     return decodeURIComponent(s);
   } catch {
@@ -189,7 +189,7 @@ export async function downloadAttachment(options: {
         ? title
         : fromUrl === undefined
           ? null
-          : decoder(fromUrl),
+          : decode(fromUrl),
     ),
     type,
   );
@@ -306,6 +306,6 @@ export function downloadedFraction(
  */
 export function uploadName(uri: string, name: string): string | null {
   const wanted = safeFileName(name);
-  const current = decoder(uri.split(/[?#]/)[0]!.split('/').pop() ?? '');
+  const current = decode(uri.split(/[?#]/)[0]!.split('/').pop() ?? '');
   return current === wanted ? null : wanted;
 }

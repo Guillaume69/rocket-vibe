@@ -35,7 +35,7 @@
  * Pure: everything is tested under Node, with no network and no clock.
  */
 
-export type HookupOptions = {
+export type ConnectionSetupOptions = {
   /**
    * Is the stream ALREADY active, subscriptions armed? Evaluated before
    * anything else: it tells whether the first read guarantees on its own.
@@ -60,7 +60,7 @@ export type HookupOptions = {
   isDiscarded?: () => boolean;
 };
 
-export async function hookUp(options: HookupOptions): Promise<void> {
+export async function setUpConnection(options: ConnectionSetupOptions): Promise<void> {
   const {
     streamAlreadyActive,
     openStream,

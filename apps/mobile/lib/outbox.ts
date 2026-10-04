@@ -16,14 +16,14 @@
  * queue keeps the plaintext, as the database keeps decrypted messages. Without
  * a key (locked), the row waits for the unlock instead of failing.
  *
- * Pure: the database is behind `OutboxStore`, REST behind `ClientRest`, so
+ * Pure: the database is behind `OutboxStore`, REST behind `RestClient`, so
  * everything is testable under Node.
  */
 
 import type { EncryptedContent } from './e2e/crypto.ts';
 import { mentionsE2E } from './e2e/mentions.ts';
-import { ENCRYPTED_TYPE, type MessageLocal } from './normalize.ts';
-import { RestError, type ClientRest } from './rest.ts';
+import { ENCRYPTED_TYPE, type LocalMessage } from './normalize.ts';
+import { RestError, type RestClient } from './rest.ts';
 
 export type OutboxRow = {
   id: string;
@@ -39,7 +39,7 @@ export interface OutboxStore {
   listToSend(): Promise<OutboxRow[]>;
   markFailed(id: string, error: string): Promise<void>;
   deleteOutbox(id: string): Promise<void>;
-  upsertMessage(m: MessageLocal): Promise<void>;
+  upsertMessage(m: LocalMessage): Promise<void>;
   /** Deletes the message only if it is still optimistic (never delivered). */
   deleteOptimisticMessage(id: string): Promise<void>;
   roomEncrypted(rid: string): Promise<boolean>;
@@ -62,7 +62,7 @@ const UNKNOWN = Symbol('delivery unknown');
 
 export class OutboxEngine {
   private readonly store: OutboxStore;
-  private readonly client: ClientRest;
+  private readonly client: RestClient;
   private readonly me: { id: string; username: string };
   private readonly generateId: () => string;
   private readonly now: () => number;
@@ -73,7 +73,7 @@ export class OutboxEngine {
 
   constructor(options: {
     store: OutboxStore;
-    client: ClientRest;
+    client: RestClient;
     me: { id: string; username: string };
     generateId: () => string;
     ingest: (doc: Record<string, unknown>) => Promise<void>;
@@ -245,7 +245,7 @@ export class OutboxEngine {
     } catch (e) {
       // Status 0: nobody answered. 429: `chat.getMessage` is under the same
       // 10/min limit as `chat.sendMessage` (CLAUDE.md), and a burst of sends
-      // exhausts it: after `ClientRest`'s three retries, every check of the
+      // exhausts it: after `RestClient`'s three retries, every check of the
       // pass falls back to 429. Neither is a denial from the server.
       if (e instanceof RestError && (e.status === 0 || e.status === 429)) return UNKNOWN;
       // The server spoke (404, permission denied, message missing): decide.

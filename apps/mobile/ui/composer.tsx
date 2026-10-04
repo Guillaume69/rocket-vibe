@@ -39,11 +39,11 @@ import { quote } from '../lib/quote.ts';
 import { splitCommand, runCommand } from '../lib/commands.ts';
 import type { MentionCandidate } from '../lib/mentionCompletion.ts';
 import type { Outbox, FileOutbox } from '../lib/provider.ts';
-import type { ClientRest } from '../lib/rest.ts';
+import type { RestClient } from '../lib/rest.ts';
 import type { PendingFile } from './attachmentPreview.tsx';
 import { ReplyBanner } from './replyBanner.tsx';
 import { CommandCompletionBanner, useCommands } from './commandCompletion.tsx';
-import { EmojiCompletionBanner, useCompletionEmoji } from './emojiCompletion.tsx';
+import { EmojiCompletionBanner, useEmojiCompletion } from './emojiCompletion.tsx';
 import { MentionCompletionBanner } from './mentionCompletion.tsx';
 import { useE2EUnlocked } from './e2e.ts';
 import { openLocalFile } from './attachment.ts';
@@ -64,7 +64,7 @@ import { requestSource, isSheetMounted } from './attachmentSource.ts';
 import { useSync } from './sync.tsx';
 import { type Colors, FONTS } from './theme.ts';
 import { notify } from './toast.tsx';
-import { phraseValidation } from './fileValidation.ts';
+import { validationMessage } from './fileValidation.ts';
 import { useImageViewer } from './imageViewer.tsx';
 import { Tappable } from './tappable.tsx';
 
@@ -106,7 +106,7 @@ export function Composer({
   /** `null`: no attachments nor voice (the thread composer). */
   files: FileOutbox | null;
   /** Avatars of the mention suggestions. */
-  client: ClientRest;
+  client: RestClient;
   /** Recent authors of the room (`useMentionCandidates`), computed by the parent. */
   mentionCandidates: MentionCandidate[];
   readOnly: boolean;
@@ -181,9 +181,9 @@ export function Composer({
   const t = useT();
 
   // Emoji autocompletion: cursor + insertion, mechanics shared with the thread
-  // composer (`useCompletionEmoji`).
+  // composer (`useEmojiCompletion`).
   const { cursor, selection, onSelection, pickEmoji, insertAtCursor, reset } =
-    useCompletionEmoji(draft, setDraft, saveDraft);
+    useEmojiCompletion(draft, setDraft, saveDraft);
   const { commands, granted } = useCommands(client, rid);
   const privateNote = usePrivateNote(rid);
 
@@ -248,7 +248,7 @@ export function Composer({
     if (pending.length > 0 && files !== null) {
       setFileError(null);
       setFileSend(true);
-      const lot = pending;
+      const batch = pending;
       // `files.send` validates (size/type), persists the intent, then uploads; it
       // only REJECTS on a validation refusal. Everything else, server refusal AND
       // unreachable network, becomes a row in the screen's banner, shown WHATEVER
@@ -258,7 +258,7 @@ export function Composer({
         const gone = new Set<number>();
         let captionPart = false;
         try {
-          for (const [i, original] of lot.entries()) {
+          for (const [i, original] of batch.entries()) {
             if (unmounted.current) break;
             handedOff.current.add(original.key);
             // The compression promised by the chips is paid HERE (photo → 1920 px JPEG,
@@ -286,7 +286,7 @@ export function Composer({
           }
         } catch (e) {
           setFileError(
-            phraseValidation(e, t) ??
+            validationMessage(e, t) ??
               (e instanceof Error ? e.message : t('room.uploadFailed')),
           );
         } finally {
@@ -397,7 +397,7 @@ export function Composer({
       setFileError(
         refusal === null
           ? null
-          : (phraseValidation(refusal, t) ??
+          : (validationMessage(refusal, t) ??
               (refusal instanceof Error ? refusal.message : t('room.uploadFailed'))),
       );
       if (accepted.length === 0) return;

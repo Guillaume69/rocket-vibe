@@ -38,7 +38,7 @@ import {
   type SuggestionEmoji,
 } from '../lib/emojiCompletion.ts';
 import { codesEmojiStandard, unicodeOfShortcode } from '../lib/emojis.ts';
-import { codesEmojiCustom, urlEmojiCustom } from '../lib/customEmojis.ts';
+import { customEmojiCodes, customEmojiUrl } from '../lib/customEmojis.ts';
 import { type Colors, LIST_PRESS_DELAY } from './theme.ts';
 import { Tappable } from './tappable.tsx';
 
@@ -55,7 +55,7 @@ type Selection = { start: number; end: number };
  * permanently makes the caret jump back during fast typing on Android (race
  * between `value` and `selection`), so we only drive it when we move the caret.
  */
-export function useCompletionEmoji(
+export function useEmojiCompletion(
   draft: string,
   setDraft: (t: string) => void,
   saveDraft: (t: string) => void,
@@ -139,7 +139,7 @@ export type RenderedSuggestion = {
  */
 export function resolve(s: SuggestionEmoji): RenderedSuggestion {
   if (s.type === 'custom') {
-    return { suggestion: s, glyph: null, uri: urlEmojiCustom(s.code), insertion: `:${s.code}:` };
+    return { suggestion: s, glyph: null, uri: customEmojiUrl(s.code), insertion: `:${s.code}:` };
   }
   const glyph = unicodeOfShortcode(s.code);
   // `glyph` should never be null (the code comes from the table), but if it
@@ -169,7 +169,7 @@ export function EmojiCompletionBanner({
     const suggestions = completeEmoji(
       token.query,
       codesEmojiStandard(),
-      codesEmojiCustom(),
+      customEmojiCodes(),
     );
     if (suggestions.length === 0) return null;
     return { start: token.start, items: suggestions.map(resolve) };

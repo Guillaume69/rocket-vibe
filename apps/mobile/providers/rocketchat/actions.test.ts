@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import type { ClientRest } from '../../lib/rest.ts';
+import type { RestClient } from '../../lib/rest.ts';
 import { ActionsRC } from './actions.ts';
 
 /** Fake client: we observe the endpoint and body of each `post`. */
@@ -12,7 +12,7 @@ function fakeClient(response: unknown = {}) {
       calls.push({ path, body: options.body });
       return response;
     },
-  } as unknown as ClientRest;
+  } as unknown as RestClient;
   return { client, calls };
 }
 
@@ -96,7 +96,7 @@ describe('ActionsRC', () => {
           ],
         };
       },
-    } as unknown as ClientRest;
+    } as unknown as RestClient;
     const a = new ActionsRC(client);
     const pinned = await a.listPinned('r1');
     await a.listStarred('r1');

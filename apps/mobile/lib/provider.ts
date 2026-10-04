@@ -13,7 +13,7 @@
 import type { DdpEvent, DdpState } from './ddp.ts';
 import type { OutboxEncryptor, OutboxStore } from './outbox.ts';
 import type { UploadEncryption, UploadStore } from './uploadQueue.ts';
-import type { LocalSubscription, MessageLocal, LocalRoom } from './normalize.ts';
+import type { LocalSubscription, LocalMessage, LocalRoom } from './normalize.ts';
 import type { SyncEngine } from './sync.ts';
 import type { FileToSend, TransportUpload } from './upload.ts';
 
@@ -24,7 +24,7 @@ import type { FileToSend, TransportUpload } from './upload.ts';
  * distinguishes (message, room, or just a `subId`).
  */
 export type SyncChange =
-  | { type: 'message'; doc: MessageLocal }
+  | { type: 'message'; doc: LocalMessage }
   | { type: 'room'; doc: LocalRoom }
   | { type: 'subscription'; doc: LocalSubscription }
   | { type: 'message-deleted'; id: string }
@@ -125,7 +125,7 @@ export interface Translator {
   /** Real-time feed: a `Listener` `DdpEvent` → a change, an anomaly, or a silence. */
   translateEvent(event: DdpEvent): Translation;
   /** REST batches (catch-up, history): raw document → local row, or null if unrecoverable. */
-  toMessage(raw: Record<string, unknown>): MessageLocal | null;
+  toMessage(raw: Record<string, unknown>): LocalMessage | null;
   toRoom(raw: Record<string, unknown>): LocalRoom | null;
   toSubscription(raw: Record<string, unknown>): LocalSubscription | null;
 }
@@ -147,9 +147,9 @@ export interface ProviderActions {
   unpin(rid: string, mid: string): Promise<void>;
   star(rid: string, mid: string, put: boolean): Promise<void>;
   /** A room's pinned messages, newest first. One request per call. */
-  listPinned(rid: string): Promise<MessageLocal[]>;
+  listPinned(rid: string): Promise<LocalMessage[]>;
   /** My starred messages in a room, newest first. */
-  listStarred(rid: string): Promise<MessageLocal[]>;
+  listStarred(rid: string): Promise<LocalMessage[]>;
   markRead(rid: string): Promise<void>;
   /**
    * Opens (or creates, idempotent server-side) the DM with `username`. Returns

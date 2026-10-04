@@ -25,7 +25,7 @@ export function toEpoch(value: unknown): number | null {
   return null;
 }
 
-export type MessageLocal = {
+export type LocalMessage = {
   id: string;
   rid: string;
   text: string | null;
@@ -137,7 +137,7 @@ function blockCallId(blocks: unknown): string | null {
   return null;
 }
 
-export function toMessage(raw: Record<string, unknown>): MessageLocal | null {
+export function toMessage(raw: Record<string, unknown>): LocalMessage | null {
   const id = asString(raw._id);
   const rid = asString(raw.rid);
   const ts = toEpoch(raw.ts);

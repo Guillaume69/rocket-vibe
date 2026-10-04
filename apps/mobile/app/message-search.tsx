@@ -37,9 +37,9 @@ export default function MessageSearchScreen() {
   const t = useT();
 
   // Même portier que le salon : un lien profond peut atterrir ici sans session.
-  if (etat.phase === 'deconnecte') return <Redirect href="/login" />;
+  if (etat.phase === 'disconnected') return <Redirect href="/login" />;
 
-  if (etat.phase !== 'connecte' || typeof rid !== 'string') {
+  if (etat.phase !== 'connected' || typeof rid !== 'string') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
         <Stack.Screen options={{ title: t('commun.rechercher') }} />

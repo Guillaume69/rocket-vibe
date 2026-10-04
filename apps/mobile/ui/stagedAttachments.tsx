@@ -77,7 +77,7 @@ export function StagedAttachments({
           </ScrollView>
           {qualite !== null && (
             <View style={styles.qualities}>
-              {(['reduite', 'originale'] as const).map((q) => (
+              {(['reduced', 'original'] as const).map((q) => (
                 <QualityBadge
                   key={q}
                   c={c}

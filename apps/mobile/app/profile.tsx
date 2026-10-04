@@ -103,10 +103,10 @@ export default function ProfileScreen() {
   const navigation = useNavigation();
   const t = useT();
 
-  const client: ClientRest | null = etat.phase === 'connecte' ? etat.client : null;
-  const moi = etat.phase === 'connecte' ? etat.session.username : null;
-  const moteur = synchro.phase === 'pret' ? synchro.engine : null;
-  const actions = synchro.phase === 'pret' ? synchro.actions : null;
+  const client: ClientRest | null = etat.phase === 'connected' ? etat.client : null;
+  const moi = etat.phase === 'connected' ? etat.session.username : null;
+  const moteur = synchro.phase === 'ready' ? synchro.engine : null;
+  const actions = synchro.phase === 'ready' ? synchro.actions : null;
   const etags = useEtagsAvatars();
 
   // Fiche préchargée AVANT l'ouverture (`lib/profilePreload`) : présente, on

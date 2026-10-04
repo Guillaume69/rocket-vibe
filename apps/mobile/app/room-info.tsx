@@ -56,7 +56,7 @@ export default function RoomInfoScreen() {
   // L'écran ne s'ouvre que depuis un salon affiché : session et synchro sont
   // forcément là. La garde (avant tout hook du contenu, qui déréférence la
   // base) couvre un démontage pendant une déconnexion.
-  if (etat.phase !== 'connecte' || synchro.phase !== 'pret' || typeof rid !== 'string') {
+  if (etat.phase !== 'connected' || synchro.phase !== 'ready' || typeof rid !== 'string') {
     return null;
   }
   return (

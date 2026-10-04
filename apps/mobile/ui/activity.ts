@@ -17,7 +17,7 @@ const RIEN = () => {};
  */
 export function useActivity(cle: string): boolean {
   const synchro = useSync();
-  const activite = synchro.phase === 'pret' ? synchro.activity : null;
+  const activite = synchro.phase === 'ready' ? synchro.activity : null;
 
   // Identités STABLES (cf. usePresence) : un `subscribe` recréé à chaque rendu
   // ferait désabonner/réabonner l'en-tête à chaque re-rendu.

@@ -123,7 +123,7 @@ export function AttachmentPreview({
             </Text>
             {qualite !== null && surQualite !== undefined && (
               <View style={styles.qualities}>
-                {(['reduite', 'originale'] as const).map((q) => (
+                {(['reduced', 'original'] as const).map((q) => (
                   <QualityBadge
                     key={q}
                     c={c}
@@ -170,7 +170,7 @@ export function QualityBadge({
       accessibilityRole="button"
       accessibilityState={{ selected: choisie }}
       accessibilityLabel={t(
-        quelle === 'reduite'
+        quelle === 'reduced'
           ? 'apercuPieceJointe.envoyerReduite'
           : 'apercuPieceJointe.envoyerOriginale',
       )}
@@ -187,7 +187,7 @@ export function QualityBadge({
         style={[styles.badgeText, { color: choisie ? c.text : c.dimmed }]}
         numberOfLines={1}
       >
-        {t(quelle === 'reduite' ? 'apercuPieceJointe.reduite' : 'apercuPieceJointe.originale')}
+        {t(quelle === 'reduced' ? 'apercuPieceJointe.reduite' : 'apercuPieceJointe.originale')}
       </Text>
     </Pressable>
   );

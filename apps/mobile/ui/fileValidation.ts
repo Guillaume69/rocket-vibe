@@ -14,7 +14,7 @@ import type { TranslateFn } from './messages.ts';
 /** `null` si l'erreur n'est pas un refus de validation — au repli de l'appelant. */
 export function phraseValidation(e: unknown, t: TranslateFn): string | null {
   if (!(e instanceof ValidationError)) return null;
-  if (e.detail.code === 'taille') return t('commun.fichierTropLourd', { mo: e.detail.maxMb });
+  if (e.detail.code === 'size') return t('commun.fichierTropLourd', { mo: e.detail.maxMb });
   if (e.detail.code === 'type') return t('commun.typeFichierRefuse', { type: e.detail.type });
   return t('commun.fichiersChiffresDesactives');
 }

@@ -66,7 +66,7 @@ describe('ClientDdp', () => {
     await new Promise((r) => setImmediate(r));
     ws.receive({ msg: 'result', id: ws.last().id, result: {} });
     await p;
-    assert.equal(ddp.state, 'authentifie');
+    assert.equal(ddp.state, 'authenticated');
     assert.equal(ddp.session, 's');
   });
 
@@ -84,7 +84,7 @@ describe('ClientDdp', () => {
     ws.open();
     ws.receive({ msg: 'failed', version: '2' });
     await assert.rejects(p, /Version DDP refusée/);
-    assert.equal(ddp.state, 'ferme', 'sinon toute retentative échoue sur « déjà connecté »');
+    assert.equal(ddp.state, 'closed', 'sinon toute retentative échoue sur « déjà connecté »');
     assert.equal(ws.closed, true);
   });
 
@@ -98,7 +98,7 @@ describe('ClientDdp', () => {
     const p = ddp.connect('j');
     ws.open();
     await assert.rejects(p, /Pas de « connected »/);
-    assert.equal(ddp.state, 'ferme');
+    assert.equal(ddp.state, 'closed');
     assert.equal(ws.closed, true, 'la socket zombie est coupée');
   });
 
@@ -112,7 +112,7 @@ describe('ClientDdp', () => {
     ws.open();
     ddp.close();
     await assert.rejects(p, DdpError);
-    assert.equal(ddp.state, 'ferme');
+    assert.equal(ddp.state, 'closed');
   });
 
   test('souscrire AVANT l’authentification est différé, puis établi tout seul', async () => {
@@ -196,7 +196,7 @@ describe('ClientDdp', () => {
     ws.onclose?.(null); // coupure pendant que la `sub` est en vol
 
     await attente;
-    assert.equal(ddp.state, 'ferme');
+    assert.equal(ddp.state, 'closed');
   });
 
   test('un `nosub` ne compte pas la souscription, mais la garde désirée', async () => {
@@ -260,7 +260,7 @@ describe('ClientDdp', () => {
   test('un message non JSON ne fait pas planter le client', async () => {
     const { ddp, ws } = await clientAuthentifie();
     ws.receiveRaw('<html>proxy</html>');
-    assert.equal(ddp.state, 'authentifie');
+    assert.equal(ddp.state, 'authenticated');
   });
 
   test('relâcher envoie `unsub` ; relâcher deux fois est inoffensif', async () => {
@@ -312,7 +312,7 @@ describe('ClientDdp', () => {
     ddp.subscribe('stream-room-messages', 'rid');
     ws.onclose?.(null);
     await new Promise((r) => setImmediate(r));
-    assert.equal(ddp.state, 'ferme');
+    assert.equal(ddp.state, 'closed');
     assert.equal(ddp.subscriptionCount, 0);
     assert.equal(ddp.wantedSubscriptionCount, 1);
   });
@@ -322,14 +322,14 @@ describe('ClientDdp', () => {
     const p1 = vivant.ddp.checkAlive();
     vivant.ws.receive({ msg: 'pong', id: vivant.ws.last().id });
     assert.equal(await p1, true);
-    assert.equal(vivant.ddp.state, 'authentifie');
+    assert.equal(vivant.ddp.state, 'authenticated');
 
     // Socket à moitié morte : jamais de pong, jamais de close.
     const zombie = await clientAuthentifie(); // délai 200 ms
     let pertes = 0;
     zombie.ddp.onLoss(() => pertes++);
     assert.equal(await zombie.ddp.checkAlive(), false);
-    assert.equal(zombie.ddp.state, 'ferme', 'la socket morte est nettoyée');
+    assert.equal(zombie.ddp.state, 'closed', 'la socket morte est nettoyée');
     assert.equal(pertes, 1, 'le pilote de reconnexion est prévenu');
   });
 
@@ -401,7 +401,7 @@ describe('ClientDdp', () => {
     ws.receive({ msg: 'result', id: ws.last().id, error: { error: 403, reason: 'login denied' } });
 
     await assert.rejects(p, /Méthode refusée/);
-    assert.equal(ddp.state, 'ferme', "sinon un connecter() ultérieur lèverait « déjà connecté »");
+    assert.equal(ddp.state, 'closed', "sinon un connecter() ultérieur lèverait « déjà connecté »");
     assert.equal(ws.closed, true, 'la socket ne doit pas fuir');
   });
 
@@ -422,7 +422,7 @@ describe('ClientDdp', () => {
 
     await assert.rejects(p);
     assert.equal(pertes, 1, 'une coupure, un événement');
-    assert.equal(ddp.state, 'ferme');
+    assert.equal(ddp.state, 'closed');
   });
 
   test('`verifierVie` pendant la NÉGOCIATION ne sonde pas et ne tue pas la socket', async () => {
@@ -434,7 +434,7 @@ describe('ClientDdp', () => {
     const ddp = new ClientDdp('ws://x', { createWebSocket: () => ws, timeoutMs: 60 });
     const p = ddp.connect('jeton');
     ws.open();
-    assert.equal(ddp.state, 'connexion');
+    assert.equal(ddp.state, 'connecting');
 
     const avant = ws.sent.length;
     assert.equal(await ddp.checkAlive(), false, 'une négociation a déjà son propre délai');
@@ -445,7 +445,7 @@ describe('ClientDdp', () => {
     await new Promise((r) => setImmediate(r));
     ws.receive({ msg: 'result', id: ws.last().id, result: {} });
     await p;
-    assert.equal(ddp.state, 'authentifie');
+    assert.equal(ddp.state, 'authenticated');
     assert.equal(ws.closed, false, 'la sonde prématurée n’a rien fermé');
   });
 
@@ -458,7 +458,7 @@ describe('ClientDdp', () => {
     ws.open();
     ws.receive({ msg: 'connected', session: 's' });
     await new Promise((r) => setImmediate(r));
-    assert.equal(ddp.state, 'connecte');
+    assert.equal(ddp.state, 'connected');
 
     const sonde = ddp.checkAlive();
     const ping = ws.sent.filter((m) => m.msg === 'ping').at(-1);
@@ -488,7 +488,7 @@ describe('ClientDdp', () => {
   test('un `msg: error` sans `offendingMessage` exploitable est ignoré, pas fatal', async () => {
     const { ddp, ws } = await clientAuthentifie();
     ws.receive({ msg: 'error', reason: 'Bad request' });
-    assert.equal(ddp.state, 'authentifie');
+    assert.equal(ddp.state, 'authenticated');
   });
 
   test('deux souscriptions au même stream ne produisent qu’une `sub` sur le fil', async () => {
@@ -577,7 +577,7 @@ describe('ClientDdp', () => {
     await new Promise((r) => setImmediate(r));
     sockets[1].receive({ msg: 'result', id: sockets[1].last().id, result: {} });
     await p2;
-    assert.equal(ddp.state, 'authentifie');
+    assert.equal(ddp.state, 'authenticated');
     assert.equal(ddp.session, 's2');
   });
 
@@ -633,7 +633,7 @@ describe('chien de garde du silence', () => {
     // Silence total : ni trafic, ni réponse à la sonde.
     await new Promise((r) => setTimeout(r, 300));
 
-    assert.equal(ddp.state, 'ferme', 'la socket morte est nettoyée');
+    assert.equal(ddp.state, 'closed', 'la socket morte est nettoyée');
     assert.equal(pertes, 1, 'la perte est signalée — sans elle, rien ne reconnecte');
     assert.ok(ws.closed, 'la socket est refermée côté client');
   });
@@ -650,7 +650,7 @@ describe('chien de garde du silence', () => {
 
     const sondes = ws.sent.slice(avant).filter((m) => m.msg === 'ping');
     assert.equal(sondes.length, 0, 'aucune sonde : le trafic serveur suffit');
-    assert.equal(ddp.state, 'authentifie');
+    assert.equal(ddp.state, 'authenticated');
     ddp.close();
   });
 
@@ -668,7 +668,7 @@ describe('chien de garde du silence', () => {
     }
 
     assert.equal(ws.sent.slice(avant).filter((m) => m.msg === 'ping').length, 0);
-    assert.equal(ddp.state, 'authentifie');
+    assert.equal(ddp.state, 'authenticated');
     ddp.close();
   });
 

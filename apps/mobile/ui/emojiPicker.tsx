@@ -82,7 +82,7 @@ const DUREE_GLISSE = 250;
  * le composer ne bouge pas d'un pixel. On ne repasse à `ferme` qu'une fois le
  * clavier levé — à ce moment la hauteur vaut déjà 0, ça ne se voit pas.
  */
-type EtatPanneau = 'ferme' | 'ouvert' | 'cede';
+type EtatPanneau = 'closed' | 'open' | 'yielded';
 
 /**
  * Pilote le panneau emoji d'un composer : bascule 😀/⌨️, back qui referme au
@@ -90,7 +90,7 @@ type EtatPanneau = 'ferme' | 'ouvert' | 'cede';
  * Partagé par le salon et le fil — mêmes gestes, une seule mécanique.
  */
 export function useEmojiPanel(champRef: RefObject<TextInput | null>) {
-  const [etat, setEtat] = useState<EtatPanneau>('ferme');
+  const [etat, setEtat] = useState<EtatPanneau>('closed');
   const { height: hauteurEcran } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const hauteurClavier = useKeyboardState((s) => s.height);
@@ -128,7 +128,7 @@ export function useEmojiPanel(champRef: RefObject<TextInput | null>) {
   // composer plongeait avant de remonter. On lit la SharedValue, alimentée frame
   // par frame : à l'instant où le clavier couvre tout, la hauteur affichée vaut
   // déjà 0 et le passage à `ferme` ne se voit pas.
-  const fermerSiCede = useCallback(() => setEtat((e) => (e === 'cede' ? 'ferme' : e)), []);
+  const fermerSiCede = useCallback(() => setEtat((e) => (e === 'yielded' ? 'closed' : e)), []);
   useAnimatedReaction(
     () => -clavierVif.value >= hauteur + insets.bottom,
     (couvert, avant) => {
@@ -143,27 +143,27 @@ export function useEmojiPanel(champRef: RefObject<TextInput | null>) {
     // fois de trop pendant l'animation peut faire manquer sa transition à
     // `useAnimatedReaction`, laissant le panneau en `cede`, hauteur réservée
     // sous le composer.
-    const suivant: EtatPanneau = etat === 'ouvert' ? 'cede' : 'ouvert';
+    const suivant: EtatPanneau = etat === 'open' ? 'yielded' : 'open';
     setEtat(suivant);
-    if (suivant === 'cede') champRef.current?.focus();
+    if (suivant === 'yielded') champRef.current?.focus();
     else Keyboard.dismiss();
   }, [etat, champRef]);
 
   // Toucher le champ rend la place au clavier.
-  const surFocus = useCallback(() => setEtat((e) => (e === 'ouvert' ? 'cede' : e)), []);
-  const fermer = useCallback(() => setEtat('ferme'), []);
+  const surFocus = useCallback(() => setEtat((e) => (e === 'open' ? 'yielded' : e)), []);
+  const fermer = useCallback(() => setEtat('closed'), []);
 
-  useHardwareBack(etat === 'ouvert', fermer);
+  useHardwareBack(etat === 'open', fermer);
 
   return {
     /** Vrai quand le panneau tient la place (bouton en ⌨️, bandeaux masqués). */
-    open: etat === 'ouvert',
+    open: etat === 'open',
     /** Monté (peut-être à hauteur nulle). */
     monte,
     /** Taille du CONTENU : stable, pour que la grille ne se remesure pas à l'ouverture. */
     hauteur,
     /** Hauteur visée ; 0 replie. */
-    target: etat === 'ferme' ? 0 : hauteur,
+    target: etat === 'closed' ? 0 : hauteur,
     /**
      * Le panneau doit-il s'animer LUI-MÊME ? Clavier ouvert, non : il se
      * rétracte déjà et découvre le panneau à son rythme, s'animer en plus les

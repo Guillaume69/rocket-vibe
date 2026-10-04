@@ -242,24 +242,24 @@ export class SyncEngine {
           await this.store.updateEncryptedPreview();
         }
         return;
-      case 'salon':
+      case 'room':
         await this.store.upsertRoom(changement.doc);
         this.stats.rooms++;
         return;
-      case 'abonnement':
+      case 'subscription':
         this.decryptor?.saveRoomKey(changement.doc.rid, changement.doc.e2eKey);
         await this.store.upsertSubscription(changement.doc);
         this.stats.subscriptions++;
         return;
-      case 'suppr-message':
+      case 'message-deleted':
         await this.store.deleteMessage(changement.id);
         this.stats.deletions++;
         return;
-      case 'suppr-salon':
+      case 'room-deleted':
         await this.store.deleteRoom(changement.rid);
         this.stats.deletions++;
         return;
-      case 'suppr-abonnement-par-sub':
+      case 'subscription-deleted-by-sub':
         await this.store.deleteBySubId(changement.subId);
         this.stats.deletions++;
         return;

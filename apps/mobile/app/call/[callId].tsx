@@ -95,7 +95,7 @@ export default function CallScreen() {
   const t = useT();
   // Atteint depuis un salon connecté ; un état déconnecté (session expirée)
   // renvoie au login plutôt que de crasher sur `client`.
-  if (etat.phase !== 'connecte') return <Redirect href="/login" />;
+  if (etat.phase !== 'connected') return <Redirect href="/login" />;
   return <Appel c={c} client={etat.client} callId={callId} title={titre ?? t('appel.appelVideo')} />;
 }
 

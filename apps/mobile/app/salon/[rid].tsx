@@ -125,9 +125,9 @@ export default function RoomScreen() {
 
   // Ce garde est le pendant de celui d'index.tsx : un lien profond (le tap
   // sur une notification, étape 6.2) peut atterrir ici sans session.
-  if (etat.phase === 'deconnecte') return <Redirect href="/login" />;
+  if (etat.phase === 'disconnected') return <Redirect href="/login" />;
 
-  if (synchro.phase === 'erreur') {
+  if (synchro.phase === 'error') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
         <Text style={[styles.error, { color: c.errorText }]}>{synchro.message}</Text>
@@ -135,7 +135,7 @@ export default function RoomScreen() {
     );
   }
 
-  if (typeof rid !== 'string' || synchro.phase !== 'pret' || etat.phase !== 'connecte') {
+  if (typeof rid !== 'string' || synchro.phase !== 'ready' || etat.phase !== 'connected') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
         <ActivityIndicator />
@@ -423,15 +423,15 @@ function Salon({
     [donnees, luJusquA, client],
   );
   const donneesListe = useMemo<LigneListe[]>(
-    () => insertDaySeparators(donneesAvecBarre, 'recent-en-tete'),
+    () => insertDaySeparators(donneesAvecBarre, 'newest-first'),
     [donneesAvecBarre],
   );
 
   // Regroupement des rafales d'un même auteur (`ui/messageGrouping`) : calculé
   // APRÈS les insertions — barre et séparateur rompent les groupes. Données DESC.
-  const suites = useMemo(() => continuationIds(donneesListe, 'recent-en-tete'), [donneesListe]);
+  const suites = useMemo(() => continuationIds(donneesListe, 'newest-first'), [donneesListe]);
   const heuresRepetees = useMemo(
-    () => repeatedTimeIds(donneesListe, 'recent-en-tete', suites),
+    () => repeatedTimeIds(donneesListe, 'newest-first', suites),
     [donneesListe, suites],
   );
 
@@ -536,9 +536,9 @@ function Salon({
   const phraseQuiTape =
     resumeQuiTape === null
       ? null
-      : resumeQuiTape.forme === 'un'
+      : resumeQuiTape.forme === 'one'
         ? t('salon.saisieUn', { nom: resumeQuiTape.name })
-        : resumeQuiTape.forme === 'deux'
+        : resumeQuiTape.forme === 'two'
           ? t('salon.saisieDeux', { a: resumeQuiTape.a, b: resumeQuiTape.b })
           : t('salon.saisieN', { n: resumeQuiTape.n });
 

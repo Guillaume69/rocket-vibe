@@ -47,7 +47,7 @@ export default function SettingsScreen() {
   const { state: etat } = useSession();
   // Atteint depuis l'accueil connecté ; en garde-fou, un état déconnecté
   // (déconnexion en cours) renvoie au login plutôt que de crasher sur `client`.
-  if (etat.phase !== 'connecte') return <Redirect href="/login" />;
+  if (etat.phase !== 'connected') return <Redirect href="/login" />;
   return (
     <Parametres
       c={c}
@@ -382,12 +382,12 @@ function SectionJetonFcm({ c, t }: { c: Colors; t: TranslateFn }) {
 function SectionE2E({ c, t }: { c: Colors; t: TranslateFn }) {
   const routeur = useRouter();
   const synchro = useSync();
-  const e2e = synchro.phase === 'pret' ? synchro.e2e : null;
+  const e2e = synchro.phase === 'ready' ? synchro.e2e : null;
   const deverrouille = useE2EUnlocked(e2e);
   const [occupe, setOccupe] = useState(false);
 
   const verrouiller = (): void => {
-    if (synchro.phase !== 'pret' || occupe) return;
+    if (synchro.phase !== 'ready' || occupe) return;
     setOccupe(true);
     void synchro.lockE2E().finally(() => setOccupe(false));
   };

@@ -131,7 +131,7 @@ export async function openLocalFile(uri: string, type: string | null): Promise<v
   await Sharing.shareAsync(uri, type ? { mimeType: type } : {});
 }
 
-export type SaveLocation = 'galerie' | 'telechargements' | 'partage';
+export type SaveLocation = 'gallery' | 'downloads' | 'share';
 
 /**
  * Télécharge la pièce jointe protégée puis l'ENREGISTRE sur l'appareil : photo,
@@ -152,15 +152,15 @@ export async function saveProtectedAttachment(options: OptionsJointe): Promise<S
       if (!permission.granted) throw new FileOpenError('Permission refusée.');
       await Asset.create(local);
     }
-    return 'galerie';
+    return 'gallery';
   }
 
   // iOS n'a pas de dossier Téléchargements : la feuille de partage propose
   // « Enregistrer dans Fichiers ».
   if (Downloads === null) {
     await Sharing.shareAsync(local, options.type ? { mimeType: options.type } : undefined);
-    return 'partage';
+    return 'share';
   }
   await Downloads.enregistrer(local, nom, options.type ?? null);
-  return 'telechargements';
+  return 'downloads';
 }

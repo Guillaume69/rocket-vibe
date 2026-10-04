@@ -122,7 +122,7 @@ export function Composer({
   clearDraft: () => void;
 }) {
   const synchro = useSync();
-  const deverrouille = useE2EUnlocked(synchro.phase === 'pret' ? synchro.e2e : null);
+  const deverrouille = useE2EUnlocked(synchro.phase === 'ready' ? synchro.e2e : null);
   const [brouillon, setBrouillon] = useState(brouillonInitial);
   // Le texte COURANT, lisible depuis une continuation asynchrone. Un
   // téléversement prend des secondes et le champ reste éditable pendant tout ce
@@ -152,7 +152,7 @@ export function Composer({
   // par défaut, basculable sur les pastilles. La réduction se fait À L'ENVOI
   // (voir `envoyer`) — pas au choix du fichier, où elle ferait payer un
   // transcodage à qui retire la pièce ou veut l'original.
-  const [qualite, setQualite] = useState<SendQuality>(parquees?.quality ?? 'reduite');
+  const [qualite, setQualite] = useState<SendQuality>(parquees?.quality ?? 'reduced');
   const [videoOuverte, setVideoOuverte] = useState<StagedAttachment | null>(null);
   const visionneuse = useImageViewer();
   // Changer de salon démonte le composer (`key={rid}`) : les pièces qui
@@ -269,7 +269,7 @@ export function Composer({
             // 1920 px, vidéo → MP4 H.264 720p via le module natif Media3) : le
             // spinner du 📎 couvre le transcodage puis le téléversement.
             const pret =
-              qualite === 'reduite' && compressionOffered(originale)
+              qualite === 'reduced' && compressionOffered(originale)
                 ? await compressAttachment(originale)
                 : originale;
             const porteLegende = i === 0 && texteAEnvoyer !== '';
@@ -407,7 +407,7 @@ export function Composer({
       );
       if (acceptees.length === 0) return;
       // Le choix de qualité vaut pour un lot : il se réarme quand on repart de rien.
-      if (enAttenteRef.current.length === 0) setQualite('reduite');
+      if (enAttenteRef.current.length === 0) setQualite('reduced');
       setEnAttente((prev) => [...prev, ...acceptees]);
     },
     [fichiers, rid, t],
@@ -546,7 +546,7 @@ export function Composer({
     try {
       if (source === 'photo') await depuisCamera('photo');
       else if (source === 'video') await depuisCamera('video');
-      else if (source === 'bibliotheque') await depuisBibliotheque();
+      else if (source === 'library') await depuisBibliotheque();
       else await depuisFichier();
     } catch (e) {
       // Le sélecteur n'est jamais parti : la feuille est encore là, et l'erreur

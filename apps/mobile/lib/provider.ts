@@ -25,11 +25,11 @@ import type { FileToSend, TransportUpload } from './upload.ts';
  */
 export type SyncChange =
   | { type: 'message'; doc: MessageLocal }
-  | { type: 'salon'; doc: LocalRoom }
-  | { type: 'abonnement'; doc: LocalSubscription }
-  | { type: 'suppr-message'; id: string }
-  | { type: 'suppr-salon'; rid: string }
-  | { type: 'suppr-abonnement-par-sub'; subId: string }
+  | { type: 'room'; doc: LocalRoom }
+  | { type: 'subscription'; doc: LocalSubscription }
+  | { type: 'message-deleted'; id: string }
+  | { type: 'room-deleted'; rid: string }
+  | { type: 'subscription-deleted-by-sub'; subId: string }
   /**
    * Nouvelle version de la photo d'un utilisateur (par pseudo) OU d'un salon
    * (par rid) — l'une des deux clés, jamais les deux. `etag` est le
@@ -111,7 +111,7 @@ export interface Listener {
  * battements de frappe noient le compteur d'anomalies).
  */
 export type Translation =
-  | { kind: 'changement'; change: SyncChange }
+  | { kind: 'change'; change: SyncChange }
   | { kind: 'ignore' }
   | { kind: 'silence' };
 

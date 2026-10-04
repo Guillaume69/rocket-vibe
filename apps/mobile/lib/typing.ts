@@ -122,14 +122,14 @@ export class TypingEngine {
  * ce module, pur et testé sous Node, n'embarque aucune langue.
  */
 export type TypingSummary =
-  | { forme: 'un'; name: string }
-  | { forme: 'deux'; a: string; b: string }
-  | { forme: 'plusieurs'; n: number };
+  | { forme: 'one'; name: string }
+  | { forme: 'two'; a: string; b: string }
+  | { forme: 'many'; n: number };
 
 /** null si personne n'écrit. */
 export function summarizeTyping(noms: string[]): TypingSummary | null {
   if (noms.length === 0) return null;
-  if (noms.length === 1) return { forme: 'un', name: noms[0] };
-  if (noms.length === 2) return { forme: 'deux', a: noms[0], b: noms[1] };
-  return { forme: 'plusieurs', n: noms.length };
+  if (noms.length === 1) return { forme: 'one', name: noms[0] };
+  if (noms.length === 2) return { forme: 'two', a: noms[0], b: noms[1] };
+  return { forme: 'many', n: noms.length };
 }

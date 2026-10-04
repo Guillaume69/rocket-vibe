@@ -33,7 +33,7 @@ export function useCommands(
   rid: string,
 ): { commands: Command[]; granted: string[] | null } {
   const synchro = useSync();
-  const base = synchro.phase === 'pret' ? synchro.base : null;
+  const base = synchro.phase === 'ready' ? synchro.base : null;
   const langue = useLanguage();
   const [etat, setEtat] = useState<{ raw: unknown; granted: string[] | null }>({
     raw: null,

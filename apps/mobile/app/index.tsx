@@ -36,7 +36,7 @@ export default function HomeScreen() {
   const { state: etat } = useSession();
   const c = useColors();
 
-  if (etat.phase === 'demarrage') {
+  if (etat.phase === 'starting') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
         <ActivityIndicator color={c.accent} />
@@ -44,7 +44,7 @@ export default function HomeScreen() {
     );
   }
 
-  if (etat.phase === 'deconnecte') return <Redirect href="/login" />;
+  if (etat.phase === 'disconnected') return <Redirect href="/login" />;
 
   return (
     // Pas de saisie sur cet écran ; s'il en gagne une, passer à
@@ -90,14 +90,14 @@ function EnTeteListe({ c }: { c: Colors }) {
 function ListeSalons({ c, client }: { c: Colors; client: ClientRest }) {
   const synchro = useSync();
 
-  if (synchro.phase === 'erreur') {
+  if (synchro.phase === 'error') {
     return (
       <View style={styles.center}>
         <Text style={[styles.errorMessage, { color: c.errorText }]}>{synchro.message}</Text>
       </View>
     );
   }
-  if (synchro.phase !== 'pret') {
+  if (synchro.phase !== 'ready') {
     return (
       <View style={styles.center}>
         <ActivityIndicator color={c.accent} />

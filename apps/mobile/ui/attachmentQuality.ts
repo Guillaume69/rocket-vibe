@@ -9,7 +9,7 @@
  * sujet du message.
  */
 
-export type SendQuality = 'reduite' | 'originale';
+export type SendQuality = 'reduced' | 'original';
 
 /** Sous ce poids, réduire une image n'apporte rien — elle part telle quelle. */
 export const IMAGE_COMPRESSION_THRESHOLD_BYTES = 500_000;

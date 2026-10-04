@@ -126,17 +126,17 @@ export default function MessageActionsScreen() {
   const [erreur, setErreur] = useState<string | null>(null);
   const [occupe, setOccupe] = useState(false);
 
-  const pret = synchro.phase === 'pret' && etat.phase === 'connecte' && typeof id === 'string';
-  const base = synchro.phase === 'pret' ? synchro.base : null;
-  const moteur = synchro.phase === 'pret' ? synchro.engine : null;
-  const actionneur = synchro.phase === 'pret' ? synchro.actions : null;
-  const e2e = synchro.phase === 'pret' ? synchro.e2e : null;
-  const client = etat.phase === 'connecte' ? etat.client : null;
-  const moi = etat.phase === 'connecte' ? etat.session.userId : null;
-  const siteUrl = etat.phase === 'connecte' ? etat.session.siteUrl : null;
+  const pret = synchro.phase === 'ready' && etat.phase === 'connected' && typeof id === 'string';
+  const base = synchro.phase === 'ready' ? synchro.base : null;
+  const moteur = synchro.phase === 'ready' ? synchro.engine : null;
+  const actionneur = synchro.phase === 'ready' ? synchro.actions : null;
+  const e2e = synchro.phase === 'ready' ? synchro.e2e : null;
+  const client = etat.phase === 'connected' ? etat.client : null;
+  const moi = etat.phase === 'connected' ? etat.session.userId : null;
+  const siteUrl = etat.phase === 'connected' ? etat.session.siteUrl : null;
   // Les réactions se jugent au USERNAME (le serveur ne stocke que les pseudos),
   // là où `actionsPossibles` raisonne par uid — les deux identités servent.
-  const monUsername = etat.phase === 'connecte' ? etat.session.username : null;
+  const monUsername = etat.phase === 'connected' ? etat.session.username : null;
 
   useEffect(() => {
     if (!pret || base === null || client === null || moi === null) return;
@@ -338,7 +338,7 @@ export default function MessageActionsScreen() {
 
   return (
     <View style={[styles.sheet, { maxHeight: hauteurMax, paddingBottom: bas }]}>
-      {!enEdition && actions.includes('reagir') && (
+      {!enEdition && actions.includes('react') && (
         <View style={styles.rangeeEmojis}>
           {CODES_REACTION.map((code) => {
             const dejaPosee = mesReactions.has(code);
@@ -420,7 +420,7 @@ export default function MessageActionsScreen() {
               {t('actionsMessage.aucuneAction')}
             </Text>
           )}
-          {actions.includes('repondre') && (
+          {actions.includes('reply') && (
             <ActionLigne
               c={c}
               disabled={occupe}
@@ -429,7 +429,7 @@ export default function MessageActionsScreen() {
               onPress={repondre}
             />
           )}
-          {actions.includes('repondreFil') && (
+          {actions.includes('replyInThread') && (
             <ActionLigne
               c={c}
               disabled={occupe}
@@ -442,7 +442,7 @@ export default function MessageActionsScreen() {
               }}
             />
           )}
-          {actions.includes('copier') && (
+          {actions.includes('copy') && (
             <ActionLigne
               c={c}
               disabled={occupe}
@@ -451,7 +451,7 @@ export default function MessageActionsScreen() {
               onPress={() => void agir(() => Clipboard.setStringAsync(textToCopy(message.text) ?? ''))}
             />
           )}
-          {actions.includes('partager') && (
+          {actions.includes('share') && (
             <ActionLigne
               c={c}
               disabled={occupe}
@@ -460,7 +460,7 @@ export default function MessageActionsScreen() {
               onPress={() => void agir(partager)}
             />
           )}
-          {actions.includes('enregistrer') && (
+          {actions.includes('save') && (
             <ActionLigne
               c={c}
               disabled={occupe}
@@ -469,7 +469,7 @@ export default function MessageActionsScreen() {
               onPress={() => void agir(enregistrer)}
             />
           )}
-          {actions.includes('modifier') && (
+          {actions.includes('edit') && (
             <ActionLigne
               c={c}
               disabled={occupe}
@@ -481,7 +481,7 @@ export default function MessageActionsScreen() {
               }}
             />
           )}
-          {actions.includes('epingler') && (
+          {actions.includes('pin') && (
             <ActionLigne
               c={c}
               disabled={occupe}
@@ -490,7 +490,7 @@ export default function MessageActionsScreen() {
               onPress={() => void agir(() => epingler(true))}
             />
           )}
-          {actions.includes('desepingler') && (
+          {actions.includes('unpin') && (
             <ActionLigne
               c={c}
               disabled={occupe}
@@ -499,7 +499,7 @@ export default function MessageActionsScreen() {
               onPress={() => void agir(() => epingler(false))}
             />
           )}
-          {actions.includes('etoiler') && (
+          {actions.includes('star') && (
             <ActionLigne
               c={c}
               disabled={occupe}
@@ -508,7 +508,7 @@ export default function MessageActionsScreen() {
               onPress={() => void agir(() => etoiler(true))}
             />
           )}
-          {actions.includes('desetoiler') && (
+          {actions.includes('unstar') && (
             <ActionLigne
               c={c}
               disabled={occupe}
@@ -517,7 +517,7 @@ export default function MessageActionsScreen() {
               onPress={() => void agir(() => etoiler(false))}
             />
           )}
-          {actions.includes('supprimer') && (
+          {actions.includes('delete') && (
             <ActionLigne
               c={c}
               disabled={occupe}

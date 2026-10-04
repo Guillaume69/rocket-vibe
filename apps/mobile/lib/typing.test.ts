@@ -96,8 +96,8 @@ describe('MoteurSaisie', () => {
 describe('resumerSaisie', () => {
   test('projection : un nom, deux noms, puis le compte seul', () => {
     assert.equal(summarizeTyping([]), null);
-    assert.deepEqual(summarizeTyping(['bob']), { forme: 'un', name: 'bob' });
-    assert.deepEqual(summarizeTyping(['bob', 'carol']), { forme: 'deux', a: 'bob', b: 'carol' });
-    assert.deepEqual(summarizeTyping(['a', 'b', 'c']), { forme: 'plusieurs', n: 3 });
+    assert.deepEqual(summarizeTyping(['bob']), { forme: 'one', name: 'bob' });
+    assert.deepEqual(summarizeTyping(['bob', 'carol']), { forme: 'two', a: 'bob', b: 'carol' });
+    assert.deepEqual(summarizeTyping(['a', 'b', 'c']), { forme: 'many', n: 3 });
   });
 });

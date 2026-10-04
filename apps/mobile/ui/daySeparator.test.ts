@@ -13,7 +13,7 @@ const ids = (lignes: { id: string }[]): string[] => lignes.map((l) => l.id);
 describe('insererSeparateursJour', () => {
   test('frontière de jour en DESC : le séparateur se rend au-dessus du plus récent, titré de SON jour', () => {
     const donnees = [m('m2', jour(2026, 8, 1)), m('m1', jour(2026, 7, 31))];
-    const resultat = insertDaySeparators(donnees, 'recent-en-tete');
+    const resultat = insertDaySeparators(donnees, 'newest-first');
     assert.deepEqual(ids(resultat), ['m2', 'jour-20260801', 'm1']);
     const separateur = resultat[1] as { day: true; ts: number };
     assert.equal(dayKey(separateur.ts), 20260801);
@@ -21,7 +21,7 @@ describe('insererSeparateursJour', () => {
 
   test('frontière de jour en ASC (fil) : même logique, tableau retourné', () => {
     const donnees = [m('m1', jour(2026, 7, 31)), m('m2', jour(2026, 8, 1))];
-    assert.deepEqual(ids(insertDaySeparators(donnees, 'ancien-en-tete')), [
+    assert.deepEqual(ids(insertDaySeparators(donnees, 'oldest-first')), [
       'm1',
       'jour-20260801',
       'm2',
@@ -30,12 +30,12 @@ describe('insererSeparateursJour', () => {
 
   test('même jour : aucune insertion, MÊME référence — le useMemo ne re-rend pas pour rien', () => {
     const donnees = [m('m2', jour(2026, 8, 1, 15)), m('m1', jour(2026, 8, 1, 9))];
-    assert.equal(insertDaySeparators(donnees, 'recent-en-tete'), donnees);
+    assert.equal(insertDaySeparators(donnees, 'newest-first'), donnees);
   });
 
   test("jamais de séparateur au-dessus du plus ancien chargé : la page suivante peut continuer le même jour", () => {
     const donnees = [m('m1', jour(2026, 8, 1))];
-    assert.equal(insertDaySeparators(donnees, 'recent-en-tete'), donnees);
+    assert.equal(insertDaySeparators(donnees, 'newest-first'), donnees);
   });
 
   test('la barre « nouveaux messages » reste en place, le séparateur se pose AU-DESSUS d’elle', () => {
@@ -46,7 +46,7 @@ describe('insererSeparateursJour', () => {
       { bar: true as const, id: 'barre-nouveaux' },
       m('m1', jour(2026, 7, 31)),
     ];
-    assert.deepEqual(ids(insertDaySeparators(donnees, 'recent-en-tete')), [
+    assert.deepEqual(ids(insertDaySeparators(donnees, 'newest-first')), [
       'm2',
       'barre-nouveaux',
       'jour-20260801',
@@ -60,7 +60,7 @@ describe('insererSeparateursJour', () => {
       m('m2', jour(2026, 7, 31)),
       m('m1', jour(2026, 7, 30)),
     ];
-    assert.deepEqual(ids(insertDaySeparators(donnees, 'recent-en-tete')), [
+    assert.deepEqual(ids(insertDaySeparators(donnees, 'newest-first')), [
       'm3',
       'jour-20260801',
       'm2',

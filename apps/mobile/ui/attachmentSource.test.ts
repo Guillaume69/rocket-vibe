@@ -20,9 +20,9 @@ describe('sourcePieceJointe', () => {
     const attente = requestSource();
     reportSheetMounted();
 
-    answerSource('bibliotheque'); // le tap
+    answerSource('library'); // le tap
 
-    assert.equal(await attente, 'bibliotheque');
+    assert.equal(await attente, 'library');
     assert.equal(
       isSheetMounted(),
       true,
@@ -65,10 +65,10 @@ describe('sourcePieceJointe', () => {
     const premiere = requestSource();
     const seconde = requestSource();
 
-    answerSource('fichier');
+    answerSource('file');
 
     assert.equal(await premiere, null);
-    assert.equal(await seconde, 'fichier');
+    assert.equal(await seconde, 'file');
   });
 
   test('répondre sans demande en cours ne jette pas', () => {

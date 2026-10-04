@@ -24,12 +24,12 @@ import { type Colors, FONTS, useColors } from '../ui/theme.ts';
  * (`ui/messageJump.ts`) ; une réponse de fil ouvre son fil.
  */
 
-type Onglet = 'epingles' | 'favoris';
+type Onglet = 'pinned' | 'starred';
 
 type EtatListe =
-  | { phase: 'chargement' }
-  | { phase: 'pret'; messages: MessageLocal[] }
-  | { phase: 'erreur' };
+  | { phase: 'loading' }
+  | { phase: 'ready'; messages: MessageLocal[] }
+  | { phase: 'error' };
 
 export default function MarkedMessagesScreen() {
   const { rid } = useLocalSearchParams<{ rid: string }>();
@@ -38,9 +38,9 @@ export default function MarkedMessagesScreen() {
   const c = useColors();
   const t = useT();
 
-  if (etat.phase === 'deconnecte') return <Redirect href="/login" />;
+  if (etat.phase === 'disconnected') return <Redirect href="/login" />;
 
-  if (etat.phase !== 'connecte' || synchro.phase !== 'pret' || typeof rid !== 'string') {
+  if (etat.phase !== 'connected' || synchro.phase !== 'ready' || typeof rid !== 'string') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
         <Stack.Screen options={{ title: t('marques.titre') }} />
@@ -74,7 +74,7 @@ function MessagesMarques({
 }) {
   const t = useT();
   const routeur = useRouter();
-  const [onglet, setOnglet] = useState<Onglet>('epingles');
+  const [onglet, setOnglet] = useState<Onglet>('pinned');
   const [listes, setListes] = useState<Partial<Record<Onglet, EtatListe>>>({});
 
   const courante = listes[onglet];
@@ -83,9 +83,9 @@ function MessagesMarques({
     if (demandes.current.has(onglet)) return;
     demandes.current.add(onglet);
     const quel = onglet;
-    (quel === 'epingles' ? actions.listPinned(rid) : actions.listStarred(rid)).then(
-      (messages) => setListes((l) => ({ ...l, [quel]: { phase: 'pret', messages } })),
-      () => setListes((l) => ({ ...l, [quel]: { phase: 'erreur' } })),
+    (quel === 'pinned' ? actions.listPinned(rid) : actions.listStarred(rid)).then(
+      (messages) => setListes((l) => ({ ...l, [quel]: { phase: 'ready', messages } })),
+      () => setListes((l) => ({ ...l, [quel]: { phase: 'error' } })),
     );
   }, [onglet, courante, actions, rid]);
 
@@ -103,14 +103,14 @@ function MessagesMarques({
 
   const recharger = useCallback(() => {
     demandes.current.delete(onglet);
-    setListes((l) => ({ ...l, [onglet]: { phase: 'chargement' } }));
+    setListes((l) => ({ ...l, [onglet]: { phase: 'loading' } }));
   }, [onglet]);
 
   return (
     <View style={[styles.full, { backgroundColor: c.background }]}>
       <Stack.Screen options={{ title: t('marques.titre') }} />
       <View style={styles.tabs} accessibilityRole="tablist">
-        {(['epingles', 'favoris'] as const).map((o) => {
+        {(['pinned', 'starred'] as const).map((o) => {
           const actif = o === onglet;
           return (
             <Tappable
@@ -128,17 +128,17 @@ function MessagesMarques({
               ]}
             >
               <Text style={[styles.ongletTexte, { color: actif ? c.text : c.dimmed }]}>
-                {t(o === 'epingles' ? 'marques.epingles' : 'marques.favoris')}
+                {t(o === 'pinned' ? 'marques.epingles' : 'marques.favoris')}
               </Text>
             </Tappable>
           );
         })}
       </View>
-      {courante === undefined || courante.phase === 'chargement' ? (
+      {courante === undefined || courante.phase === 'loading' ? (
         <View style={styles.center}>
           <ActivityIndicator />
         </View>
-      ) : courante.phase === 'erreur' ? (
+      ) : courante.phase === 'error' ? (
         <View style={styles.center}>
           <Text style={[styles.empty, { color: c.errorText }]}>{t('marques.chargementImpossible')}</Text>
           <Tappable onPress={recharger} hitSlop={8}>
@@ -174,7 +174,7 @@ function MessagesMarques({
           )}
           ListEmptyComponent={
             <Text style={[styles.empty, { color: c.dimmed }]}>
-              {t(onglet === 'epingles' ? 'marques.aucunEpingle' : 'marques.aucunFavori')}
+              {t(onglet === 'pinned' ? 'marques.aucunEpingle' : 'marques.aucunFavori')}
             </Text>
           }
           contentContainerStyle={styles.content}

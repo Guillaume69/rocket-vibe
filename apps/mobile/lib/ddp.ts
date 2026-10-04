@@ -34,7 +34,7 @@ export type DdpEvent = {
   args: unknown[];
 };
 
-export type DdpState = 'ferme' | 'connexion' | 'connecte' | 'authentifie';
+export type DdpState = 'closed' | 'connecting' | 'connected' | 'authenticated';
 
 export class DdpError extends Error {
   readonly details?: unknown;
@@ -112,7 +112,7 @@ type MessageDdp = {
 
 export class ClientDdp {
   readonly url: string;
-  state: DdpState = 'ferme';
+  state: DdpState = 'closed';
   session: string | null = null;
 
   private ws: WebSocketLike | null = null;
@@ -195,8 +195,8 @@ export class ClientDdp {
    * deux transports.
    */
   async connect(authToken: string): Promise<void> {
-    if (this.state !== 'ferme') throw new DdpError('Client déjà connecté.');
-    this.state = 'connexion';
+    if (this.state !== 'closed') throw new DdpError('Client déjà connecté.');
+    this.state = 'connecting';
     this.closedOnPurpose = false;
     this.cleanedUp = false;
 
@@ -249,7 +249,7 @@ export class ClientDdp {
           clearTimeout(minuterie);
           this.cancelHandshake = null;
           this.session = m.session ?? null;
-          this.state = 'connecte';
+          this.state = 'connected';
           resoudre();
           return;
         }
@@ -279,7 +279,7 @@ export class ClientDdp {
       this.cleanUp(e);
       throw e;
     }
-    this.state = 'authentifie';
+    this.state = 'authenticated';
     this.startWatchdog();
 
     // Rejouer les souscriptions désirées : celles demandées avant
@@ -332,7 +332,7 @@ export class ClientDdp {
    * dernier argument : c'est la convention des « streamers » de Rocket.Chat.
    */
   private establish(entree: SouscriptionDesiree): void {
-    if (this.state !== 'authentifie' || entree.id !== null || entree.inFlight) return;
+    if (this.state !== 'authenticated' || entree.id !== null || entree.inFlight) return;
     const cle = `${entree.name}|${entree.eventKey}`;
     const id = `s${++this.counter}`;
     entree.inFlight = true;
@@ -421,7 +421,7 @@ export class ClientDdp {
     this.stopWatchdog();
     this.lastTraffic = Date.now();
     this.watchdog = setInterval(() => {
-      if (this.state === 'ferme' || this.probeInFlight) return;
+      if (this.state === 'closed' || this.probeInFlight) return;
       if (Date.now() - this.lastTraffic < this.silenceMaxMs) return;
       this.probeInFlight = true;
       void this.checkAlive().finally(() => {
@@ -453,7 +453,7 @@ export class ClientDdp {
     //
     // L'état `connecte` (handshake fait, login pas encore répondu) est en
     // revanche bien sondable — même sonde, `pong` reçu.
-    if (this.state !== 'connecte' && this.state !== 'authentifie') return false;
+    if (this.state !== 'connected' && this.state !== 'authenticated') return false;
     const id = `v${++this.counter}`;
     try {
       const promesse = this.waitFor(id, 'sonde de vie');
@@ -463,7 +463,7 @@ export class ClientDdp {
     } catch {
       // Le cast : TypeScript ne voit pas que `etat` a pu changer pendant
       // l'await (une coupure concurrente a pu déjà nettoyer).
-      if ((this.state as DdpState) !== 'ferme') {
+      if ((this.state as DdpState) !== 'closed') {
         this.ws?.close();
         this.cleanUp(new DdpError('Sonde de vie sans réponse : socket morte.'));
       }
@@ -607,7 +607,7 @@ export class ClientDdp {
       s.id = null;
       s.inFlight = false;
     }
-    this.state = 'ferme';
+    this.state = 'closed';
     this.session = null;
     this.ws = null;
 

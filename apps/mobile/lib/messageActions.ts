@@ -58,18 +58,18 @@ export type ActionContext = {
 };
 
 export type ActionMessage =
-  | 'reagir'
-  | 'repondre'
-  | 'repondreFil'
-  | 'copier'
-  | 'partager'
-  | 'enregistrer'
-  | 'modifier'
-  | 'supprimer'
-  | 'epingler'
-  | 'desepingler'
-  | 'etoiler'
-  | 'desetoiler';
+  | 'react'
+  | 'reply'
+  | 'replyInThread'
+  | 'copy'
+  | 'share'
+  | 'save'
+  | 'edit'
+  | 'delete'
+  | 'pin'
+  | 'unpin'
+  | 'star'
+  | 'unstar';
 
 function dansLeDelai(contexte: ActionContext, minutes: number): boolean {
   if (minutes <= 0) return true; // 0 = illimité
@@ -92,16 +92,16 @@ export function actionsPossibles(contexte: ActionContext): ActionMessage[] {
   const chiffreLisible = message.systemType === ENCRYPTED_TYPE && message.text !== null;
   if (message.systemType !== null && !chiffreLisible) return actions;
 
-  if (!lectureSeule) actions.push('reagir');
+  if (!lectureSeule) actions.push('react');
   // Répondre en citant (`lib/quote.ts`) : n'importe quel message d'autrui ou
   // de soi, tant qu'on PEUT poster dans le salon.
-  if (!lectureSeule && !chiffre) actions.push('repondre');
-  if (!lectureSeule && !dansUnFil) actions.push('repondreFil');
+  if (!lectureSeule && !chiffre) actions.push('reply');
+  if (!lectureSeule && !dansUnFil) actions.push('replyInThread');
   const texte = textToCopy(message.text) !== null;
-  if (texte) actions.push('copier');
+  if (texte) actions.push('copy');
   const fichier = attachmentToShare(message.attachments) !== null;
-  if (texte || fichier) actions.push('partager');
-  if (fichier) actions.push('enregistrer');
+  if (texte || fichier) actions.push('share');
+  if (fichier) actions.push('save');
 
   const mien = message.authorId === moi;
   // Inconnues : ses propres messages et l'épingle restent proposés, rien de plus.
@@ -115,7 +115,7 @@ export function actionsPossibles(contexte: ActionContext): ActionMessage[] {
     (a('edit-message', false) || (mien && regles.editAllowed)) &&
     (sansDelai || dansLeDelai(contexte, regles.editBlockMinutes))
   ) {
-    actions.push('modifier');
+    actions.push('edit');
   }
   if (
     a('force-delete-message', false) ||
@@ -123,12 +123,12 @@ export function actionsPossibles(contexte: ActionContext): ActionMessage[] {
       (a('delete-message', false) || (mien && a('delete-own-message', true))) &&
       (sansDelai || dansLeDelai(contexte, regles.deleteBlockMinutes)))
   ) {
-    actions.push('supprimer');
+    actions.push('delete');
   }
   if (regles.pinAllowed && a('pin-message', true)) {
-    actions.push(message.pinned ? 'desepingler' : 'epingler');
+    actions.push(message.pinned ? 'unpin' : 'pin');
   }
-  if (regles.starAllowed) actions.push(message.starred ? 'desetoiler' : 'etoiler');
+  if (regles.starAllowed) actions.push(message.starred ? 'unstar' : 'star');
 
   return actions;
 }

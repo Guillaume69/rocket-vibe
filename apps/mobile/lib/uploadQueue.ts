@@ -159,9 +159,9 @@ const EN_VOL_ICI = new Set<string>();
  * phrase se fait au point d'affichage (`phraseValidation`, ui/fileValidation.ts).
  */
 export type DetailValidation =
-  | { code: 'taille'; maxMb: string }
+  | { code: 'size'; maxMb: string }
   | { code: 'type'; type: string }
-  | { code: 'chiffre' };
+  | { code: 'encrypted' };
 
 export class ValidationError extends Error {
   readonly detail: DetailValidation;
@@ -169,7 +169,7 @@ export class ValidationError extends Error {
   constructor(detail: DetailValidation) {
     // `message` est un diagnostic (logs) — jamais la chaîne affichée.
     super(
-      detail.code === 'taille'
+      detail.code === 'size'
         ? `taille > ${detail.maxMb} Mo`
         : detail.code === 'type'
           ? `type ${detail.type} refusé`
@@ -186,10 +186,10 @@ export function validateFile(
   fichier: { type: string; size: number | null },
   salonChiffre = false,
 ): void {
-  if (salonChiffre && !regles.encryptedFiles) throw new ValidationError({ code: 'chiffre' });
+  if (salonChiffre && !regles.encryptedFiles) throw new ValidationError({ code: 'encrypted' });
   if (regles.maxSize !== null && fichier.size !== null && fichier.size > regles.maxSize) {
     const mo = (regles.maxSize / 1024 / 1024).toFixed(1);
-    throw new ValidationError({ code: 'taille', maxMb: mo });
+    throw new ValidationError({ code: 'size', maxMb: mo });
   }
   if (regles.acceptedTypes !== null) {
     const accepte = regles.acceptedTypes.some((motif) => {

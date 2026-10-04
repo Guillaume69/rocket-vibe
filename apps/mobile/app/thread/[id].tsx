@@ -45,16 +45,16 @@ export default function ThreadScreen() {
   const synchro = useSync();
   const c = useColors();
 
-  if (etat.phase === 'deconnecte') return <Redirect href="/login" />;
+  if (etat.phase === 'disconnected') return <Redirect href="/login" />;
 
-  if (synchro.phase === 'erreur') {
+  if (synchro.phase === 'error') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
         <Text style={[styles.error, { color: c.errorText }]}>{synchro.message}</Text>
       </View>
     );
   }
-  if (typeof id !== 'string' || synchro.phase !== 'pret' || etat.phase !== 'connecte') {
+  if (typeof id !== 'string' || synchro.phase !== 'ready' || etat.phase !== 'connected') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
         <ActivityIndicator />
@@ -170,12 +170,12 @@ function Fil({
   // (`ui/daySeparator`, `ui/messageGrouping`) — données ASC ici, l'inverse
   // de l'écran salon.
   const donneesListe = useMemo<(MessageRowData | DayRow)[]>(
-    () => insertDaySeparators(donnees, 'ancien-en-tete'),
+    () => insertDaySeparators(donnees, 'oldest-first'),
     [donnees],
   );
-  const suites = useMemo(() => continuationIds(donneesListe, 'ancien-en-tete'), [donneesListe]);
+  const suites = useMemo(() => continuationIds(donneesListe, 'oldest-first'), [donneesListe]);
   const heuresRepetees = useMemo(
-    () => repeatedTimeIds(donneesListe, 'ancien-en-tete', suites),
+    () => repeatedTimeIds(donneesListe, 'oldest-first', suites),
     [donneesListe, suites],
   );
 

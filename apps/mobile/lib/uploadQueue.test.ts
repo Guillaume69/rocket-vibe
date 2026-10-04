@@ -24,7 +24,7 @@ describe('validerFichier', () => {
       () => validateFile(regles, { type: 'image/png', size: 1001 }),
       (e: unknown) =>
         e instanceof ValidationError &&
-        e.detail.code === 'taille' &&
+        e.detail.code === 'size' &&
         e.detail.maxMb === '0.0',
     );
   });
@@ -178,7 +178,7 @@ describe('MoteurTeleversement', () => {
 
     await moteur.validate({ type: 'image/png', size: 99 });
     await assert.rejects(moteur.validate({ type: 'image/png', size: 101 }), (e: unknown) => {
-      return e instanceof ValidationError && e.detail.code === 'taille';
+      return e instanceof ValidationError && e.detail.code === 'size';
     });
     await assert.rejects(moteur.validate({ type: 'application/pdf', size: 1 }), (e: unknown) => {
       return e instanceof ValidationError && e.detail.code === 'type';
@@ -956,7 +956,7 @@ describe('MoteurTeleversement — salon chiffré', () => {
       encryption: chiffrement().encryption,
     });
     await assert.rejects(moteur.validate({ type: 'image/png', size: 1 }, 'p1'), (e: unknown) => {
-      return e instanceof ValidationError && e.detail.code === 'chiffre';
+      return e instanceof ValidationError && e.detail.code === 'encrypted';
     });
     await moteur.validate({ type: 'image/png', size: 1 }, 'r-clair');
   });

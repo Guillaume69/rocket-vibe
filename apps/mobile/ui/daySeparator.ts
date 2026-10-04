@@ -30,7 +30,7 @@ export function dayKey(ms: number): number {
  */
 export function insertDaySeparators<L extends { id: string }>(
   lignes: L[],
-  ordre: 'recent-en-tete' | 'ancien-en-tete',
+  ordre: 'newest-first' | 'oldest-first',
 ): (L | DayRow)[] {
   const resultat: (L | DayRow)[] = [];
   let precedent: { ts: number } | null = null;
@@ -39,7 +39,7 @@ export function insertDaySeparators<L extends { id: string }>(
       if (precedent !== null && dayKey(ligne.ts) !== dayKey(precedent.ts)) {
         // Le séparateur titre le jour du message le plus RÉCENT de la
         // frontière : celui déjà poussé en DESC, celui qui arrive en ASC.
-        const recent = ordre === 'recent-en-tete' ? precedent : ligne;
+        const recent = ordre === 'newest-first' ? precedent : ligne;
         resultat.push({
           day: true,
           id: `jour-${dayKey(recent.ts)}`,

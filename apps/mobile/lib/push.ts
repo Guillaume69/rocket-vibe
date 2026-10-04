@@ -23,7 +23,7 @@ import { FcmToken } from '../modules/fcm-token/index.ts';
 
 export type TokenResult =
   | { ok: true; token: string }
-  | { ok: false; reason: 'permission-refusee' | 'echec'; detail?: string };
+  | { ok: false; reason: 'permission-denied' | 'failed'; detail?: string };
 
 /**
  * S'abonne à la ROTATION du jeton FCM et rend de quoi se désabonner.
@@ -70,19 +70,19 @@ export async function getFcmToken(): Promise<TokenResult> {
 
     const permission = await Notifications.requestPermissionsAsync();
     if (!permission.granted) {
-      return { ok: false, reason: 'permission-refusee' };
+      return { ok: false, reason: 'permission-denied' };
     }
 
     const { data, type } = await Notifications.getDevicePushTokenAsync();
     if (typeof data !== 'string' || data === '') {
-      return { ok: false, reason: 'echec', detail: `jeton vide (type=${type})` };
+      return { ok: false, reason: 'failed', detail: `jeton vide (type=${type})` };
     }
     if (Platform.OS === 'ios') {
-      if (FcmToken === null) return { ok: false, reason: 'echec', detail: 'module jeton-fcm absent' };
+      if (FcmToken === null) return { ok: false, reason: 'failed', detail: 'module jeton-fcm absent' };
       return { ok: true, token: await FcmToken.obtenir(data) };
     }
     return { ok: true, token: data };
   } catch (e) {
-    return { ok: false, reason: 'echec', detail: e instanceof Error ? e.message : String(e) };
+    return { ok: false, reason: 'failed', detail: e instanceof Error ? e.message : String(e) };
   }
 }

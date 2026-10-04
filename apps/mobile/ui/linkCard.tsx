@@ -155,7 +155,7 @@ function ApercuCarte({
   onLongPress: surAppuiLong,
 }: {
   c: Colors;
-  preview: Extract<LinkPreview, { type: 'carte' }>;
+  preview: Extract<LinkPreview, { type: 'card' }>;
   availableWidth: number;
   onLongPress: (() => void) | undefined;
 }) {

@@ -29,7 +29,7 @@
  * solde la précédente, et `repondreSource` est idempotent — le démontage de la
  * feuille l'appelle après un éventuel choix, sans effet.
  */
-export type AttachmentSource = 'photo' | 'video' | 'bibliotheque' | 'fichier';
+export type AttachmentSource = 'photo' | 'video' | 'library' | 'file';
 
 let resolveur: ((source: AttachmentSource | null) => void) | null = null;
 let feuilleMontee = false;

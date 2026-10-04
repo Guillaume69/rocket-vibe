@@ -77,13 +77,13 @@ export default function ShareScreen() {
   }, [resetShareIntent]);
   useEffect(() => () => resetRef.current(true), []);
 
-  if (etat.phase === 'deconnecte') {
+  if (etat.phase === 'disconnected') {
     return <Message c={c} text={t('partager.connecteToi')} />;
   }
-  if (synchro.phase === 'erreur') {
+  if (synchro.phase === 'error') {
     return <Message c={c} text={synchro.message} />;
   }
-  if (etat.phase !== 'connecte' || synchro.phase !== 'pret') {
+  if (etat.phase !== 'connected' || synchro.phase !== 'ready') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
         <Stack.Screen options={{ title: t('partager.titre') }} />

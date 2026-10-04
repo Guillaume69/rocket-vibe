@@ -83,10 +83,10 @@ import { deleteIfTemporary } from './temporaryFiles.ts';
 import { transportExpo } from './transportUpload.ts';
 
 export type SyncState =
-  | { phase: 'inactif' }
-  | { phase: 'preparation' }
+  | { phase: 'idle' }
+  | { phase: 'preparing' }
   | {
-      phase: 'pret';
+      phase: 'ready';
       base: BaseLocale;
       /** Brouillons de composer — dans la file d'écritures, comme le reste. */
       drafts: DraftStore;
@@ -140,19 +140,19 @@ export type SyncState =
        */
       generation: number;
     }
-  | { phase: 'erreur'; message: string };
+  | { phase: 'error'; message: string };
 
 const Contexte = createContext<SyncState | null>(null);
 
 export function SyncProvider({ children }: { children: React.ReactNode }) {
   const { state: etat } = useSession();
-  const [synchro, setSynchro] = useState<SyncState>({ phase: 'inactif' });
+  const [synchro, setSynchro] = useState<SyncState>({ phase: 'idle' });
 
   useEffect(() => {
-    if (etat.phase !== 'connecte') {
+    if (etat.phase !== 'connected') {
       // L'index emoji du serveur quitté ne doit pas servir au prochain.
       clearCustomEmojis();
-      setSynchro({ phase: 'inactif' });
+      setSynchro({ phase: 'idle' });
       return;
     }
     const { session, client } = etat;
@@ -190,7 +190,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     });
 
     (async () => {
-      setSynchro({ phase: 'preparation' });
+      setSynchro({ phase: 'preparing' });
       // La file d'écritures vient AVEC la connexion : elle sérialise les
       // transactions d'un SQLite, donc elle doit être unique par SQLite. Cet
       // effet se rejoue sur un simple renommage (objet `session` neuf pour le
@@ -299,7 +299,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       // `channels.history` complet PLUS un `chat.syncMessages` — 3 à 4 s sur un
       // gros salon pour rapporter zéro document.
       const rafraichirE2E = (): void =>
-        setSynchro((s) => (s.phase === 'pret' ? { ...s } : s));
+        setSynchro((s) => (s.phase === 'ready' ? { ...s } : s));
       const deverrouillerE2E = async (motDePasse: string): Promise<void> => {
         await e2e.unlock(motDePasse); // lève ErreurE2E si faux
         await moteur.e2eUnlocked(); // éclaire les messages déjà en base
@@ -316,7 +316,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       // « pret » dès la base disponible : l'UI montre le cache local sans
       // attendre le réseau.
       setSynchro({
-        phase: 'pret',
+        phase: 'ready',
         base,
         drafts: createDraftStore(brute, fileEcritures),
         engine: moteur,
@@ -445,7 +445,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
               // Un refus de permission, lui, ne se réarme pas : ce serait
               // rejouer le prompt système à chaque flap réseau.
               if (!r.ok) {
-                if (r.reason === 'echec') jetonPushEnregistre = false;
+                if (r.reason === 'failed') jetonPushEnregistre = false;
                 return undefined;
               }
               // Retenu au Keystore À L'ENREGISTREMENT : c'est la déconnexion
@@ -483,7 +483,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
           moteur.syncStore.applyRetention(MESSAGES_KEPT_PER_ROOM).catch(() => {});
         }
         // Réveille les écrans dont le chargement initial a raté hors ligne.
-        setSynchro((s) => (s.phase === 'pret' ? { ...s, generation: s.generation + 1 } : s));
+        setSynchro((s) => (s.phase === 'ready' ? { ...s, generation: s.generation + 1 } : s));
       };
 
       reconnecteur = new Reconnector({
@@ -493,13 +493,13 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
             // « Authentifié » veut dire que les souscriptions désirées ont été
             // rejouées : le stream couvre déjà, la lecture qui suit garantira à
             // elle seule.
-            streamAlreadyActive: () => ddp.state === 'authentifie',
+            streamAlreadyActive: () => ddp.state === 'authenticated',
             // Ne reconnecter QUE si la socket est tombée : après un échec du
             // seul rattrapage REST, le DDP est encore authentifié et
             // `connecter` lèverait « déjà connecté » — la retentative ne
             // rejouerait alors jamais le rattrapage.
             openStream: () =>
-              ddp.state === 'ferme' ? ddp.connect(session.authToken) : Promise.resolve(),
+              ddp.state === 'closed' ? ddp.connect(session.authToken) : Promise.resolve(),
             streamArmed: () => ddp.armedSubscriptions(),
             catchUp: rattraperTout,
             then: apresRattrapage,
@@ -543,7 +543,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         }
         if (etatApp !== 'active') return;
         reconnecteur?.resume();
-        if (ddp.state !== 'ferme') ddp.checkAlive().catch(() => {});
+        if (ddp.state !== 'closed') ddp.checkAlive().catch(() => {});
         reconnecteur?.trigger();
       });
       surAbandon = () => {
@@ -567,7 +567,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       // Ici, même la base locale n'est pas utilisable : écran d'erreur.
       if (!abandonne) {
         setSynchro({
-          phase: 'erreur',
+          phase: 'error',
           message: e instanceof Error ? e.message : translateCurrent('synchro.baseInutilisable'),
         });
       }

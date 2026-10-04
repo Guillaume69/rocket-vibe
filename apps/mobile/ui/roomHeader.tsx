@@ -58,7 +58,7 @@ export function RoomHeader({
   const routeur = useRouter();
   const t = useT();
   const synchro = useSync();
-  const deverrouille = useE2EUnlocked(synchro.phase === 'pret' ? synchro.e2e : null);
+  const deverrouille = useE2EUnlocked(synchro.phase === 'ready' ? synchro.e2e : null);
 
   // Disponibilité de la visioconférence : masque le bouton là où aucun
   // fournisseur n'est configuré (Docker local), l'affiche sur la cible (Jitsi).

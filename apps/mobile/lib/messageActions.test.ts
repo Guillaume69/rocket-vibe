@@ -40,15 +40,15 @@ const base = {
 describe('actionsPossibles', () => {
   test('mon message récent : tout est permis', () => {
     assert.deepEqual(actionsPossibles(base), [
-      'reagir',
-      'repondre',
-      'repondreFil',
-      'copier',
-      'partager',
-      'modifier',
-      'supprimer',
-      'epingler',
-      'etoiler',
+      'react',
+      'reply',
+      'replyInThread',
+      'copy',
+      'share',
+      'edit',
+      'delete',
+      'pin',
+      'star',
     ]);
   });
 
@@ -56,7 +56,7 @@ describe('actionsPossibles', () => {
     // 6 minutes après, avec BlockEditInMinutes = 5 : plus d'édition —
     // mais la suppression (délai 0 = illimité) reste.
     const tard = { ...base, now: base.message.ts + 6 * 60_000 };
-    assert.deepEqual(actionsPossibles(tard), ['reagir', 'repondre', 'repondreFil', 'copier', 'partager', 'supprimer', 'epingler', 'etoiler']);
+    assert.deepEqual(actionsPossibles(tard), ['react', 'reply', 'replyInThread', 'copy', 'share', 'delete', 'pin', 'star']);
   });
 
   test('`bypass-time-limit-edit-and-delete` rouvre l’édition après le délai', () => {
@@ -65,7 +65,7 @@ describe('actionsPossibles', () => {
       now: base.message.ts + 6 * 60_000,
       permissions: ['bypass-time-limit-edit-and-delete'],
     };
-    assert.ok(actionsPossibles(admin).includes('modifier'));
+    assert.ok(actionsPossibles(admin).includes('edit'));
   });
 
   test('`edit-message` permet de modifier le message d’AUTRUI', () => {
@@ -74,19 +74,19 @@ describe('actionsPossibles', () => {
       message: { ...base.message, authorId: 'lui' },
       permissions: ['edit-message'],
     };
-    assert.ok(actionsPossibles(moderateur).includes('modifier'));
+    assert.ok(actionsPossibles(moderateur).includes('edit'));
   });
 
   test('le message d’AUTRUI ne se modifie ni ne se supprime (sans permission)', () => {
     const autrui = { ...base, message: { ...base.message, authorId: 'lui' } };
-    assert.deepEqual(actionsPossibles(autrui), ['reagir', 'repondre', 'repondreFil', 'copier', 'partager', 'epingler', 'etoiler']);
+    assert.deepEqual(actionsPossibles(autrui), ['react', 'reply', 'replyInThread', 'copy', 'share', 'pin', 'star']);
   });
 
   test('lecture seule : ni réaction ni réponse ; message système : rien du tout', () => {
     const enLectureSeule = actionsPossibles({ ...base, readOnly: true });
-    assert.ok(!enLectureSeule.includes('reagir'));
-    assert.ok(!enLectureSeule.includes('repondre'));
-    assert.ok(!enLectureSeule.includes('repondreFil'));
+    assert.ok(!enLectureSeule.includes('react'));
+    assert.ok(!enLectureSeule.includes('reply'));
+    assert.ok(!enLectureSeule.includes('replyInThread'));
     assert.deepEqual(
       actionsPossibles({ ...base, message: { ...base.message, systemType: 'uj' } }),
       [],
@@ -104,10 +104,10 @@ describe('actionsPossibles', () => {
       encrypted: true,
       message: { ...base.message, systemType: 'e2e', text: 'clair' },
     });
-    assert.deepEqual(lisible, ['reagir', 'repondreFil', 'copier', 'partager', 'modifier', 'supprimer', 'epingler', 'etoiler']);
+    assert.deepEqual(lisible, ['react', 'replyInThread', 'copy', 'share', 'edit', 'delete', 'pin', 'star']);
     // La carte de citation est bâtie par le serveur depuis le texte, qu'il ne
     // lit pas dans un salon chiffré.
-    assert.ok(!lisible.includes('repondre'));
+    assert.ok(!lisible.includes('reply'));
   });
 
   test('salon chiffré, message ENCORE OPAQUE : aucune action', () => {
@@ -133,14 +133,14 @@ describe('actionsPossibles', () => {
 
   test('depuis l’écran d’un fil : répondre, mais pas ouvrir un fil', () => {
     const actions = actionsPossibles({ ...base, inThread: true });
-    assert.ok(actions.includes('repondre'));
-    assert.ok(!actions.includes('repondreFil'));
+    assert.ok(actions.includes('reply'));
+    assert.ok(!actions.includes('replyInThread'));
   });
 
   test('lecture seule : copier et partager restent', () => {
     const enLectureSeule = actionsPossibles({ ...base, readOnly: true });
-    assert.ok(enLectureSeule.includes('copier'));
-    assert.ok(enLectureSeule.includes('partager'));
+    assert.ok(enLectureSeule.includes('copy'));
+    assert.ok(enLectureSeule.includes('share'));
   });
 
   test('image sans légende : partager et enregistrer le fichier, mais rien à copier', () => {
@@ -151,17 +151,17 @@ describe('actionsPossibles', () => {
       ...base,
       message: { ...base.message, text: '', attachments: image },
     });
-    assert.ok(actions.includes('partager'));
-    assert.ok(actions.includes('enregistrer'));
-    assert.ok(!actions.includes('copier'));
+    assert.ok(actions.includes('share'));
+    assert.ok(actions.includes('save'));
+    assert.ok(!actions.includes('copy'));
   });
 
   test('sans texte ni fichier, ou citation sans un mot : ni copier ni partager', () => {
     const lien = '[ ](https://chat.example/channel/general?msg=abc)';
     for (const texte of [null, '', '   ', lien, `${lien}  `]) {
       const actions = actionsPossibles({ ...base, message: { ...base.message, text: texte } });
-      assert.ok(!actions.includes('copier'), String(texte));
-      assert.ok(!actions.includes('partager'), String(texte));
+      assert.ok(!actions.includes('copy'), String(texte));
+      assert.ok(!actions.includes('share'), String(texte));
     }
   });
 });
@@ -204,12 +204,12 @@ describe('actionsPossibles — permissions chargées', () => {
   test('simple membre : ses messages oui, pas d’épingle', () => {
     const membre = { ...base, permissions: ['delete-own-message'] };
     const actions = actionsPossibles(membre);
-    assert.ok(actions.includes('modifier') && actions.includes('supprimer'));
-    assert.ok(!actions.includes('epingler'));
+    assert.ok(actions.includes('edit') && actions.includes('delete'));
+    assert.ok(!actions.includes('pin'));
   });
 
   test('sans delete-own-message, même son propre message ne se supprime pas', () => {
-    assert.ok(!actionsPossibles({ ...base, permissions: [] }).includes('supprimer'));
+    assert.ok(!actionsPossibles({ ...base, permissions: [] }).includes('delete'));
   });
 
   test('modérateur : modifie, supprime et épingle le message d’autrui, dans le délai', () => {
@@ -219,11 +219,11 @@ describe('actionsPossibles — permissions chargées', () => {
       permissions: ['edit-message', 'delete-message', 'pin-message'],
     };
     const actions = actionsPossibles(moderateur);
-    for (const x of ['modifier', 'supprimer', 'epingler'] as const) assert.ok(actions.includes(x), x);
+    for (const x of ['edit', 'delete', 'pin'] as const) assert.ok(actions.includes(x), x);
 
     const tard = actionsPossibles({ ...moderateur, now: base.message.ts + 6 * 60_000 });
-    assert.ok(!tard.includes('modifier'), 'le délai vaut aussi pour edit-message');
-    assert.ok(tard.includes('supprimer'), 'délai de suppression illimité (0)');
+    assert.ok(!tard.includes('edit'), 'le délai vaut aussi pour edit-message');
+    assert.ok(tard.includes('delete'), 'délai de suppression illimité (0)');
   });
 
   test('force-delete-message supprime même hors délai et suppression désactivée', () => {
@@ -234,7 +234,7 @@ describe('actionsPossibles — permissions chargées', () => {
       now: base.message.ts + 60 * 60_000,
       permissions: ['force-delete-message'],
     };
-    assert.ok(actionsPossibles(proprio).includes('supprimer'));
+    assert.ok(actionsPossibles(proprio).includes('delete'));
   });
 });
 
@@ -242,8 +242,8 @@ describe('actionsPossibles — épingler, étoiler', () => {
   test('un message épinglé propose Désépingler, un message étoilé par moi Retirer des favoris', () => {
     const marque = { ...base, message: { ...base.message, pinned: true, starred: true } };
     const actions = actionsPossibles(marque);
-    assert.ok(actions.includes('desepingler') && !actions.includes('epingler'));
-    assert.ok(actions.includes('desetoiler') && !actions.includes('etoiler'));
+    assert.ok(actions.includes('unpin') && !actions.includes('pin'));
+    assert.ok(actions.includes('unstar') && !actions.includes('star'));
   });
 
   test('réglages fermés : ni épingle ni étoile', () => {
@@ -252,7 +252,7 @@ describe('actionsPossibles — épingler, étoiler', () => {
       rules: { ...regles, pinAllowed: false, starAllowed: false },
     };
     const actions = actionsPossibles(ferme);
-    for (const a of ['epingler', 'desepingler', 'etoiler', 'desetoiler'] as const) {
+    for (const a of ['pin', 'unpin', 'star', 'unstar'] as const) {
       assert.ok(!actions.includes(a), a);
     }
   });

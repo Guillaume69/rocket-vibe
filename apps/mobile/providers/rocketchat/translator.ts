@@ -63,7 +63,7 @@ export class RcTranslator implements Translator {
         const document = objetOuNull(evenement.args[0]);
         if (document === null) return IGNORE;
         const message = toMessage(document);
-        return message === null ? IGNORE : { kind: 'changement', change: { type: 'message', doc: message } };
+        return message === null ? IGNORE : { kind: 'change', change: { type: 'message', doc: message } };
       }
 
       case STREAM_NOTIFY_USER: {
@@ -91,7 +91,7 @@ export class RcTranslator implements Translator {
         if (sujet !== 'deleteMessage') return IGNORE;
         const document = objetOuNull(evenement.args[0]);
         const id = typeof document?._id === 'string' ? document._id : null;
-        return id === null ? IGNORE : { kind: 'changement', change: { type: 'suppr-message', id } };
+        return id === null ? IGNORE : { kind: 'change', change: { type: 'message-deleted', id } };
       }
 
       default:
@@ -110,10 +110,10 @@ export class RcTranslator implements Translator {
     if (document === null) return IGNORE;
     if (actionDeNotification(evenement) === 'removed') {
       const subId = typeof document._id === 'string' ? document._id : null;
-      return subId === null ? IGNORE : { kind: 'changement', change: { type: 'suppr-abonnement-par-sub', subId } };
+      return subId === null ? IGNORE : { kind: 'change', change: { type: 'subscription-deleted-by-sub', subId } };
     }
     const abonnement = toSubscription(document);
-    return abonnement === null ? IGNORE : { kind: 'changement', change: { type: 'abonnement', doc: abonnement } };
+    return abonnement === null ? IGNORE : { kind: 'change', change: { type: 'subscription', doc: abonnement } };
   }
 
   private translateRoom(evenement: DdpEvent): Translation {
@@ -121,10 +121,10 @@ export class RcTranslator implements Translator {
     if (document === null) return IGNORE;
     if (actionDeNotification(evenement) === 'removed') {
       const rid = typeof document._id === 'string' ? document._id : null;
-      return rid === null ? IGNORE : { kind: 'changement', change: { type: 'suppr-salon', rid } };
+      return rid === null ? IGNORE : { kind: 'change', change: { type: 'room-deleted', rid } };
     }
     const salon = toRoom(document, this.me, this.myUid);
-    return salon === null ? IGNORE : { kind: 'changement', change: { type: 'salon', doc: salon } };
+    return salon === null ? IGNORE : { kind: 'change', change: { type: 'room', doc: salon } };
   }
 }
 
@@ -141,7 +141,7 @@ function traduireAvatar(evenement: DdpEvent): Translation {
   if (username === null && rid === null) return IGNORE;
   const etag = typeof document.etag === 'string' && document.etag !== '' ? document.etag : null;
   return {
-    kind: 'changement',
+    kind: 'change',
     change: { type: 'avatar', username, rid, etag: etag ?? AVATAR_NO_PHOTO },
   };
 }

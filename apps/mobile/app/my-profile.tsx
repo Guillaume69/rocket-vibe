@@ -53,14 +53,14 @@ const PRESENCES: readonly DefaultStatus[] = ['online', 'away', 'busy', 'offline'
 /** Les clés `commun.presence*` sont en minuscule ; ici, entrées d'un sélecteur. */
 const capitaliser = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
-type Bandeau = { type: 'succes' | 'erreur' | 'info'; text: string };
+type Bandeau = { type: 'success' | 'error' | 'info'; text: string };
 
 export default function MyProfileScreen() {
   const { state: etat } = useSession();
   const c = useColors();
   // Atteint depuis Paramètres ; un état déconnecté (déconnexion en cours)
   // renvoie au login plutôt que de crasher sur `client`.
-  if (etat.phase !== 'connecte') return <Redirect href="/login" />;
+  if (etat.phase !== 'connected') return <Redirect href="/login" />;
   return <FormMonProfil c={c} client={etat.client} username={etat.session.username} />;
 }
 
@@ -80,7 +80,7 @@ function FormMonProfil({
   // Le dépôt local, pour y ranger la version de ma photo après l'avoir changée.
   // `null` tant que la base n'est pas prête — l'enregistrement marche quand même,
   // le rattrapage du prochain raccordement (`me`) posera l'etag.
-  const depot = synchro.phase === 'pret' ? synchro.engine.syncStore : null;
+  const depot = synchro.phase === 'ready' ? synchro.engine.syncStore : null;
   const etags = useEtagsAvatars();
   // `initial` = référence lue au chargement ; `form` = valeurs en cours d'édition.
   // Le diff des deux décide quels endpoints appeler. Après un enregistrement
@@ -131,7 +131,7 @@ function FormMonProfil({
         setBandeau(null);
       }
     } catch (e) {
-      setBandeau({ type: 'erreur', text: e instanceof Error ? e.message : t('monProfil.selectionImpossible') });
+      setBandeau({ type: 'error', text: e instanceof Error ? e.message : t('monProfil.selectionImpossible') });
     }
   }, [t]);
 
@@ -148,7 +148,7 @@ function FormMonProfil({
       }
       if (requiresPassword(infos) && motDePasse.trim() === '') {
         setBandeau({
-          type: 'erreur',
+          type: 'error',
           text: t('monProfil.mdpRequis'),
         });
         return;
@@ -206,17 +206,17 @@ function FormMonProfil({
 
         setDemande2FA(null);
         setCode('');
-        setBandeau({ type: 'succes', text: t('monProfil.profilEnregistre') });
+        setBandeau({ type: 'success', text: t('monProfil.profilEnregistre') });
       } catch (e) {
         if (e instanceof TwoFactorError) {
           // Le serveur veut un second facteur — ou refuse celui qu'on vient
           // d'envoyer, auquel cas il relève la même erreur.
-          if (deuxFacteurs !== undefined) setBandeau({ type: 'erreur', text: t('monProfil.codeRefuse') });
+          if (deuxFacteurs !== undefined) setBandeau({ type: 'error', text: t('monProfil.codeRefuse') });
           setCode('');
           setDemande2FA(e);
         } else {
           setBandeau({
-            type: 'erreur',
+            type: 'error',
             text: e instanceof Error ? e.message : t('monProfil.enregistrementImpossible'),
           });
         }
@@ -235,7 +235,7 @@ function FormMonProfil({
       await enregistrer(prepare);
     } catch (e) {
       setBandeau({
-        type: 'erreur',
+        type: 'error',
         text: e instanceof Error ? e.message : t('monProfil.preparationCodeImpossible'),
       });
     }
@@ -431,11 +431,11 @@ function FormMonProfil({
             style={[
               styles.banner,
               {
-                backgroundColor: bandeau.type === 'erreur' ? c.errorCard : c.card,
+                backgroundColor: bandeau.type === 'error' ? c.errorCard : c.card,
                 borderColor:
-                  bandeau.type === 'erreur'
+                  bandeau.type === 'error'
                     ? c.danger
-                    : bandeau.type === 'succes'
+                    : bandeau.type === 'success'
                       ? c.online
                       : c.border,
               },
@@ -446,9 +446,9 @@ function FormMonProfil({
                 styles.bandeauTexte,
                 {
                   color:
-                    bandeau.type === 'erreur'
+                    bandeau.type === 'error'
                       ? c.errorText
-                      : bandeau.type === 'succes'
+                      : bandeau.type === 'success'
                         ? c.online
                         : c.secondaryText,
                 },

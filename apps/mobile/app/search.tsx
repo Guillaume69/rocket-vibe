@@ -40,14 +40,14 @@ export default function SearchScreen() {
   const synchro = useSync();
   const c = useColors();
 
-  if (synchro.phase === 'erreur') {
+  if (synchro.phase === 'error') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
         <Text style={[styles.errorMessage, { color: c.errorText }]}>{synchro.message}</Text>
       </View>
     );
   }
-  if (etat.phase !== 'connecte' || synchro.phase !== 'pret') {
+  if (etat.phase !== 'connected' || synchro.phase !== 'ready') {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
         <ActivityIndicator />
@@ -137,11 +137,11 @@ function Recherche({
   );
 
   type Ligne =
-    | { type: 'utilisateur'; user: Utilisateur }
-    | { type: 'canal'; room: SalonPublic };
+    | { type: 'user'; user: Utilisateur }
+    | { type: 'channel'; room: SalonPublic };
   const lignes: Ligne[] = [
-    ...(resultats.users ?? []).map((utilisateur) => ({ type: 'utilisateur', user: utilisateur }) as Ligne),
-    ...(resultats.rooms ?? []).map((salon) => ({ type: 'canal', room: salon }) as Ligne),
+    ...(resultats.users ?? []).map((utilisateur) => ({ type: 'user', user: utilisateur }) as Ligne),
+    ...(resultats.rooms ?? []).map((salon) => ({ type: 'channel', room: salon }) as Ligne),
   ];
 
   return (
@@ -164,9 +164,9 @@ function Recherche({
       )}
       <FlatList
         data={lignes}
-        keyExtractor={(l) => (l.type === 'utilisateur' ? `u-${l.user._id}` : `c-${l.room._id}`)}
+        keyExtractor={(l) => (l.type === 'user' ? `u-${l.user._id}` : `c-${l.room._id}`)}
         renderItem={({ item }) =>
-          item.type === 'utilisateur' ? (
+          item.type === 'user' ? (
             <View style={styles.rowWrapper}>
               <Tappable
                 onPress={() => void demarrerDm(item.user)}

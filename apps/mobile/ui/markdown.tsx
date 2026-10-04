@@ -167,7 +167,7 @@ function Bloc({ block: bloc, c }: { block: Paragraph | Blocks | BigEmoji; c: Col
       // ne grossit donc que si CHAQUE nœud se résout — en glyphe Unicode OU en
       // image custom ; sinon, paragraphe littéral.
       const noeuds = Array.isArray(bloc.value) ? bloc.value : [];
-      const rendus = noeuds.map((e, i) => rendreEmoji(e, i, 'grand'));
+      const rendus = noeuds.map((e, i) => rendreEmoji(e, i, 'large'));
       if (rendus.length > 0 && rendus.every((r) => r !== null)) {
         const contenu: ReactNode[] = [];
         rendus.forEach((r, i) => {
@@ -294,7 +294,7 @@ function rendreInline(noeud: Inlines, cle: number, c: Colors): React.ReactNode {
 function rendreEmoji(
   noeud: unknown,
   cle: number,
-  taille: 'inline' | 'grand',
+  taille: 'inline' | 'large',
 ): string | ReactElement | null {
   const glyphe = unicodeDEmoji(noeud);
   if (glyphe !== null) return glyphe;
@@ -309,7 +309,7 @@ function rendreEmoji(
     <Image
       key={cle}
       source={{ uri }}
-      style={taille === 'grand' ? styles.emojiCustomGrand : styles.emojiCustomInline}
+      style={taille === 'large' ? styles.emojiCustomGrand : styles.emojiCustomInline}
       // `contain` : un emoji non carré (bannière, mascotte large) doit tenir
       // entier dans sa boîte, pas être rogné par le `cover` par défaut.
       resizeMode="contain"

@@ -32,9 +32,9 @@ import {
 } from '../lib/sessionStore.ts';
 
 export type SessionState =
-  | { phase: 'demarrage' }
-  | { phase: 'deconnecte' }
-  | { phase: 'connecte'; session: Session; client: ClientRest };
+  | { phase: 'starting' }
+  | { phase: 'disconnected' }
+  | { phase: 'connected'; session: Session; client: ClientRest };
 
 type ContexteSession = {
   state: SessionState;
@@ -91,7 +91,7 @@ async function effacerTraces(session: Session): Promise<void> {
 }
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
-  const [etat, setEtat] = useState<SessionState>({ phase: 'demarrage' });
+  const [etat, setEtat] = useState<SessionState>({ phase: 'starting' });
 
   // Jeton de la session actuellement affichée. La validation de démarrage s'y
   // compare avant d'agir : sans cela, un 401 tardif sur un jeton déjà remplacé
@@ -99,10 +99,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   // session toute neuve — même serveur, donc même clé de stockage.
   const jetonCourant = useRef<string | null>(null);
   useEffect(() => {
-    jetonCourant.current = etat.phase === 'connecte' ? etat.session.authToken : null;
+    jetonCourant.current = etat.phase === 'connected' ? etat.session.authToken : null;
     // Le préchargement de fiche (`lib/profilePreload`) ouvre `/profile` depuis des
     // fonctions de rendu sans client sous la main : on lui pose le client actif.
-    setProfileClient(etat.phase === 'connecte' ? etat.client : null);
+    setProfileClient(etat.phase === 'connected' ? etat.client : null);
   }, [etat]);
 
   /**
@@ -137,7 +137,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       if (stockee !== null && stockee.authToken !== jeton) return;
       await effacerTraces(session);
       // Relu APRÈS l'attente, pour la même raison.
-      if (jetonCourant.current === jeton) setEtat({ phase: 'deconnecte' });
+      if (jetonCourant.current === jeton) setEtat({ phase: 'disconnected' });
     })();
   }, []);
 
@@ -168,12 +168,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       const session = serveur === null ? null : await readSession(serveur);
       if (abandonne) return;
       if (session === null) {
-        setEtat({ phase: 'deconnecte' });
+        setEtat({ phase: 'disconnected' });
         return;
       }
 
       const client = clientPour(session, (jeton) => revoquer(session, jeton));
-      setEtat({ phase: 'connecte', session, client });
+      setEtat({ phase: 'connected', session, client });
 
       // Validation en arrière-plan. Un jeton révoqué répond 401 : on efface.
       // Tout autre échec (réseau coupé, serveur en maintenance) laisse la
@@ -194,7 +194,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           const maj = { ...session, username: frais.username };
           await saveSession(maj);
           if (!abandonne && jetonCourant.current === session.authToken) {
-            setEtat({ phase: 'connecte', session: maj, client });
+            setEtat({ phase: 'connected', session: maj, client });
           }
         }
       } catch (e) {
@@ -209,12 +209,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         // compte), elle n'a plus de compte à qui appartenir.
         await effacerTraces(session);
         if (!abandonne && jetonCourant.current === session.authToken) {
-          setEtat({ phase: 'deconnecte' });
+          setEtat({ phase: 'disconnected' });
         }
       }
     })().catch(() => {
       // `SecureStore` qui échoue au démarrage = pas de session lisible.
-      if (!abandonne) setEtat({ phase: 'deconnecte' });
+      if (!abandonne) setEtat({ phase: 'disconnected' });
     });
     return () => {
       abandonne = true;
@@ -234,7 +234,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       saveKnownServer(session.baseUrl),
     ]);
     setEtat({
-      phase: 'connecte',
+      phase: 'connected',
       session,
       client: clientPour(session, (jeton) => revoquer(session, jeton)),
     });
@@ -250,7 +250,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     await saveLastServer(baseUrl);
     const client = clientPour(session, (jeton) => revoquer(session, jeton));
-    setEtat({ phase: 'connecte', session, client });
+    setEtat({ phase: 'connected', session, client });
 
     // Même règle qu'au démarrage : validation en arrière-plan, seul un 401
     // (jeton révoqué) déconnecte — et seulement si cette session est encore
@@ -258,16 +258,16 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     resumeSession(client, session.authToken).catch(async (e: unknown) => {
       if (isTokenRejected(e) && jetonCourant.current === session.authToken) {
         await effacerTraces(session);
-        if (jetonCourant.current === session.authToken) setEtat({ phase: 'deconnecte' });
+        if (jetonCourant.current === session.authToken) setEtat({ phase: 'disconnected' });
       }
     });
     return true;
   }, [revoquer]);
 
   const deconnecter = useCallback(async () => {
-    if (etat.phase !== 'connecte') return;
+    if (etat.phase !== 'connected') return;
     const { client, session } = etat;
-    setEtat({ phase: 'deconnecte' });
+    setEtat({ phase: 'disconnected' });
     try {
       // Le jeton FCM vient du Keystore, où il a été retenu À SON ENREGISTREMENT
       // (`ui/sync.tsx`). Le redemander ici à `obtenirJetonFcm()` créait le
@@ -310,12 +310,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   const majProfilSession = useCallback(
     async (maj: { username?: string }) => {
-      if (etat.phase !== 'connecte') return;
+      if (etat.phase !== 'connected') return;
       const session = { ...etat.session, ...maj };
       // Persister AVANT de basculer l'UI, comme `connecter` : le client garde
       // ses identifiants (jeton + uid inchangés), seul le pseudo affiché change.
       await saveSession(session);
-      setEtat({ phase: 'connecte', session, client: etat.client });
+      setEtat({ phase: 'connected', session, client: etat.client });
     },
     [etat],
   );

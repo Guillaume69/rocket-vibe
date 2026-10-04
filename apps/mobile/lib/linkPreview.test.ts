@@ -84,7 +84,7 @@ describe('apercusDeLien', () => {
       json([{ url: 'https://ex.com/a', meta: { ogTitle: 'Titre', ogImage: 'file:///etc/x.png' } }]),
     );
     assert.equal(r.length, 1);
-    assert.equal(r[0]!.type === 'carte' ? r[0]!.image : 'absente', null);
+    assert.equal(r[0]!.type === 'card' ? r[0]!.image : 'absente', null);
   });
 
   test('une carte sans titre dont la vignette est retirée disparaît', () => {
@@ -101,7 +101,7 @@ describe('apercusDeLien', () => {
     const r = linkPreviews(json([ARTICLE]));
     assert.equal(r.length, 1);
     assert.deepEqual(r[0], {
-      type: 'carte',
+      type: 'card',
       url: ARTICLE.url,
       title: 'GitHub - RocketChat/Rocket.Chat: mission-critical',
       description: 'The Secure CommsOS for mission-critical operations',
@@ -121,7 +121,7 @@ describe('apercusDeLien', () => {
       headers: { contentType: 'text/html' },
     };
     const r = linkPreviews(json([tw]));
-    assert.equal(r[0]!.type, 'carte');
+    assert.equal(r[0]!.type, 'card');
     assert.equal((r[0] as { title: string }).title, 'Titre TW');
     assert.equal((r[0] as { image: string }).image, 'https://ex.com/tw.jpg');
   });
@@ -140,7 +140,7 @@ describe('apercusDeLien', () => {
     const r = linkPreviews(json([TWEET_VIVANT]));
     assert.equal(r.length, 1);
     assert.deepEqual(r[0], {
-      type: 'carte',
+      type: 'card',
       url: TWEET_VIVANT.url,
       title: 'Barack Obama (@BarackObama) on X',
       description: 'Four more years.',
@@ -157,7 +157,7 @@ describe('apercusDeLien', () => {
     const r = linkPreviews(json([IMAGE, ARTICLE, YOUTUBE, TWEET_VIVANT, LIEN_NU]));
     assert.deepEqual(
       r.map((a) => a.type),
-      ['image', 'carte', 'carte'],
+      ['image', 'card', 'card'],
     );
   });
 

@@ -27,10 +27,10 @@ import { type Colors, FONTS, useColors } from '../ui/theme.ts';
  */
 
 type Phase =
-  | { name: 'serveur' }
-  | { name: 'identifiants'; profile: ServerProfile; client: ClientRest }
+  | { name: 'server' }
+  | { name: 'credentials'; profile: ServerProfile; client: ClientRest }
   | {
-      name: 'deuxFacteurs';
+      name: 'twoFactor';
       profile: ServerProfile;
       client: ClientRest;
       error: TwoFactorError;
@@ -45,7 +45,7 @@ export default function LoginScreen() {
   const t = useT();
   const insets = useSafeAreaInsets();
 
-  const [phase, setPhase] = useState<Phase>({ name: 'serveur' });
+  const [phase, setPhase] = useState<Phase>({ name: 'server' });
   const [adresse, setAdresse] = useState(DEFAULT_SERVER);
   const [utilisateur, setUtilisateur] = useState('');
   const [motDePasse, setMotDePasse] = useState('');
@@ -101,7 +101,7 @@ export default function LoginScreen() {
           // pré-remplit simplement.
           setAdresse(url);
           setMessage(null);
-          setPhase({ name: 'serveur' });
+          setPhase({ name: 'server' });
         }
       } finally {
         enVol.current = false;
@@ -128,7 +128,7 @@ export default function LoginScreen() {
         // bloquer.
         setMessage(t('connexion.sansMotDePasse'));
       }
-      setPhase({ name: 'identifiants', profile: profil, client: new ClientRest(profil.baseUrl) });
+      setPhase({ name: 'credentials', profile: profil, client: new ClientRest(profil.baseUrl) });
     } catch (e) {
       if (!controleur.signal.aborted) {
         setMessage(e instanceof Error ? e.message : t('connexion.serveurInjoignable'));
@@ -141,7 +141,7 @@ export default function LoginScreen() {
 
   const tenterConnexion = useCallback(
     async (deuxFacteurs?: TwoFactorCode) => {
-      if (enVol.current || phase.name === 'serveur') return;
+      if (enVol.current || phase.name === 'server') return;
       enVol.current = true;
       setOccupe(true);
       setMessage(null);
@@ -163,10 +163,10 @@ export default function LoginScreen() {
         if (e instanceof TwoFactorError) {
           // Le serveur veut un second facteur — ou refuse celui qu'on vient
           // d'envoyer, auquel cas il relève la même erreur.
-          const memeMethode = phase.name === 'deuxFacteurs' && phase.error.method === e.method;
+          const memeMethode = phase.name === 'twoFactor' && phase.error.method === e.method;
           setCode('');
           setPhase({
-            name: 'deuxFacteurs',
+            name: 'twoFactor',
             profile: phase.profile,
             client: phase.client,
             error: e,
@@ -195,7 +195,7 @@ export default function LoginScreen() {
   );
 
   const validerCode = useCallback(async () => {
-    if (phase.name !== 'deuxFacteurs' || code.trim() === '') return;
+    if (phase.name !== 'twoFactor' || code.trim() === '') return;
     try {
       const prepare = await prepareTwoFactorCode(phase.error, code, hash);
       await tenterConnexion(prepare);
@@ -206,7 +206,7 @@ export default function LoginScreen() {
   }, [phase, code, tenterConnexion, t]);
 
   const envoyerCodeEmail = useCallback(async () => {
-    if (enVol.current || phase.name !== 'deuxFacteurs') return;
+    if (enVol.current || phase.name !== 'twoFactor') return;
     enVol.current = true;
     setOccupe(true);
     setMessage(null);
@@ -225,14 +225,14 @@ export default function LoginScreen() {
     setMotDePasse('');
     setCode('');
     setMessage(null);
-    setPhase({ name: 'serveur' });
+    setPhase({ name: 'server' });
   }, []);
 
   // Déjà connecté (reprise au démarrage, ou login qui vient d'aboutir) : cet
   // écran n'a rien à montrer — SAUF si on vient exprès changer de serveur.
-  if (etat.phase === 'connecte' && changer !== '1') return <Redirect href="/" />;
+  if (etat.phase === 'connected' && changer !== '1') return <Redirect href="/" />;
 
-  const surServeur = phase.name === 'serveur';
+  const surServeur = phase.name === 'server';
   // Route « changer de serveur » (poussée depuis l'accueil) : on GARDE l'en-tête
   // natif — son bouton retour est la seule sortie vers l'app, et il porte le
   // titre accessible. Le login racine, lui, reste sans en-tête (logo plein).
@@ -258,7 +258,7 @@ export default function LoginScreen() {
           <RetourConnexion c={c} onBack={revenirAuServeur} busy={occupe} />
         )}
 
-        {phase.name !== 'serveur' && (
+        {phase.name !== 'server' && (
           <View style={[styles.chipServeur, { backgroundColor: c.card, borderColor: c.border }]}>
             <Text style={[styles.chipTexte, { color: c.dimmed }]}>
               {phase.client.baseUrl} · Rocket.Chat {phase.profile.version}
@@ -266,7 +266,7 @@ export default function LoginScreen() {
           </View>
         )}
 
-        {phase.name === 'serveur' && (
+        {phase.name === 'server' && (
           <>
             <PillField
               c={c}
@@ -295,7 +295,7 @@ export default function LoginScreen() {
           </>
         )}
 
-        {phase.name === 'identifiants' && (
+        {phase.name === 'credentials' && (
           <>
             <PillField
               c={c}
@@ -325,7 +325,7 @@ export default function LoginScreen() {
           </>
         )}
 
-        {phase.name === 'deuxFacteurs' && (
+        {phase.name === 'twoFactor' && (
           <SectionDeuxFacteurs
             c={c}
             error={phase.error}
@@ -341,13 +341,13 @@ export default function LoginScreen() {
         {message !== null && (
           <View style={[styles.card, { backgroundColor: c.errorCard, borderColor: c.danger }]}>
             <Text style={[styles.errorMessage, { color: c.errorText }]}>{message}</Text>
-            {phase.name === 'serveur' && Platform.OS === 'android' && (
+            {phase.name === 'server' && Platform.OS === 'android' && (
               <Text style={[styles.help, { color: c.errorText }]}>{t('connexion.aideReseau')}</Text>
             )}
           </View>
         )}
 
-        {phase.name !== 'serveur' && (
+        {phase.name !== 'server' && (
           <Pressable onPress={revenirAuServeur} disabled={occupe}>
             <Text style={[styles.link, { color: c.cyan }]}>{t('connexion.changerServeur')}</Text>
           </Pressable>

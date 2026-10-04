@@ -40,7 +40,7 @@ export const PRESENCE_KEYS: Record<PresenceStatus, TranslationKey> = {
  */
 export function usePresence(uid: string | null): PresenceStatus | null {
   const synchro = useSync();
-  const presence = synchro.phase === 'pret' ? synchro.presence : null;
+  const presence = synchro.phase === 'ready' ? synchro.presence : null;
 
   // Identités STABLES : un `subscribe` recréé à chaque rendu ferait
   // désabonner/réabonner chaque ligne à chaque re-rendu de la liste. Et une

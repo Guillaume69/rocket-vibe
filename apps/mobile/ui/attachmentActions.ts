@@ -29,8 +29,8 @@ export function saveInBackground(jointe: AttachmentToTransfer, t: TranslateFn): 
   void transfer(jointe.key, async (surProgression) => {
     try {
       const lieu = await saveProtectedAttachment({ ...jointe, onProgress: surProgression });
-      if (lieu !== 'partage') {
-        toast(t(lieu === 'galerie' ? 'enregistrement.galerie' : 'enregistrement.telechargements'));
+      if (lieu !== 'share') {
+        toast(t(lieu === 'gallery' ? 'enregistrement.galerie' : 'enregistrement.telechargements'));
       }
     } catch {
       toast(t('enregistrement.echec'));

@@ -33,7 +33,7 @@ import { isVideoLink, idVideo } from './videoLinks.ts';
 export type LinkPreview =
   | { type: 'image'; url: string }
   | {
-      type: 'carte';
+      type: 'card';
       url: string;
       title: string | null;
       description: string | null;
@@ -114,7 +114,7 @@ function carteDepuisMeta(url: string, meta: Record<string, unknown>): LinkPrevie
   // Sans titre NI image, il n'y a rien à prévisualiser (ex. tweet dont X a
   // bloqué le scraping, ou lien sans balises) : on laisse le lien en texte.
   if (titre === null && image === null) return null;
-  return { type: 'carte', url, title: titre, description, image, site };
+  return { type: 'card', url, title: titre, description, image, site };
 }
 
 /** Ce que le serveur sait d'une vidéo, pour la carte embed. */

@@ -44,18 +44,18 @@ export {
  */
 export function IdentityTracker() {
   const synchro = useSync();
-  if (synchro.phase !== 'pret') return null;
+  if (synchro.phase !== 'ready') return null;
   return <Alimente />;
 }
 
 function Alimente() {
   const synchro = useSync();
   const { state: etat } = useSession();
-  const base = synchro.phase === 'pret' ? synchro.base : null;
+  const base = synchro.phase === 'ready' ? synchro.base : null;
   // La session porte MON pseudo courant, rafraîchi à l'édition/à la reprise plus
   // tôt qu'un message ré-ingéré : on la superpose à la table (autoritaire pour moi).
-  const moiUid = etat.phase === 'connecte' ? etat.session.userId : null;
-  const moiUsername = etat.phase === 'connecte' ? etat.session.username : null;
+  const moiUid = etat.phase === 'connected' ? etat.session.userId : null;
+  const moiUsername = etat.phase === 'connected' ? etat.session.username : null;
 
   const { data } = useCoalescedLiveQuery(
     base!

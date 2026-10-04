@@ -37,12 +37,12 @@ type Groupable = {
  */
 export function continuationIds(
   lignes: readonly (Groupable | { id: string })[],
-  ordre: 'recent-en-tete' | 'ancien-en-tete',
+  ordre: 'newest-first' | 'oldest-first',
 ): Set<string> {
   const suites = new Set<string>();
   for (let i = 0; i < lignes.length; i++) {
     const courant = lignes[i];
-    const precedent = lignes[ordre === 'recent-en-tete' ? i + 1 : i - 1];
+    const precedent = lignes[ordre === 'newest-first' ? i + 1 : i - 1];
     if (precedent === undefined) continue;
     if (!estMessage(courant) || !estMessage(precedent)) continue;
     if (!seGroupe(courant) || !seGroupe(precedent)) continue;
@@ -63,14 +63,14 @@ export function continuationIds(
  */
 export function repeatedTimeIds(
   lignes: readonly (Groupable | { id: string })[],
-  ordre: 'recent-en-tete' | 'ancien-en-tete',
+  ordre: 'newest-first' | 'oldest-first',
   suites: ReadonlySet<string>,
 ): Set<string> {
   const repetees = new Set<string>();
   for (let i = 0; i < lignes.length; i++) {
     const courant = lignes[i];
     if (!suites.has(courant.id)) continue;
-    const precedent = lignes[ordre === 'recent-en-tete' ? i + 1 : i - 1];
+    const precedent = lignes[ordre === 'newest-first' ? i + 1 : i - 1];
     if (precedent === undefined || !estMessage(courant) || !estMessage(precedent)) continue;
     if (minuteAffichee(courant.ts) === minuteAffichee(precedent.ts)) {
       repetees.add(courant.id);

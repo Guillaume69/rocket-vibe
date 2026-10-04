@@ -120,14 +120,14 @@ export function NotificationHandler() {
     return () => abo.remove();
   }, [routeur]);
 
-  if (synchro.phase !== 'pret') return null;
+  if (synchro.phase !== 'ready') return null;
   return <SuiviBadgeEtChiffre />;
 }
 
 /** Vit seulement quand la base est prête : badge, retrait des lus, chiffré. */
 function SuiviBadgeEtChiffre() {
   const synchro = useSync();
-  const base = synchro.phase === 'pret' ? synchro.base : null;
+  const base = synchro.phase === 'ready' ? synchro.base : null;
 
   const { data: lignesAbonnements } = useCoalescedLiveQuery(base!.select().from(subscriptions));
   const { data: lignesSalons } = useCoalescedLiveQuery(base!.select().from(rooms));

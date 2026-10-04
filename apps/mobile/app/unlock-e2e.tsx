@@ -29,7 +29,7 @@ export default function UnlockE2EScreen() {
   const [erreur, setErreur] = useState<string | null>(null);
 
   const deverrouiller =
-    synchro.phase === 'pret' ? synchro.unlockE2E : null;
+    synchro.phase === 'ready' ? synchro.unlockE2E : null;
 
   const soumettre = (): void => {
     if (deverrouiller === null || occupe || motDePasse === '') return;

@@ -157,6 +157,20 @@ describe('storageKeys: legacy French key names move on first read', () => {
     assert.deepEqual(m.log, ['set preferred-language', 'remove langue-preferee']);
   });
 
+  test('the old names are exactly the ones the previous build wrote', () => {
+    assert.deepEqual(
+      Object.fromEntries(Object.entries(STORED_KEYS).map(([k, { legacy }]) => [k, legacy])),
+      {
+        lastServer: 'dernier-serveur',
+        knownServers: 'serveurs-connus',
+        devicePushToken: 'jeton-push-appareil',
+        pendingLogouts: 'deconnexions-en-suspens',
+        collapsedSections: 'sections-repliees',
+        preferredLanguage: 'langue-preferee',
+      },
+    );
+  });
+
   test('no new name starts with `session-`, the prefix the native push service scans', () => {
     for (const { key } of Object.values(STORED_KEYS)) assert.ok(!key.startsWith('session-'), key);
   });

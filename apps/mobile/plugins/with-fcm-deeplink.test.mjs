@@ -26,7 +26,9 @@ const {
   addDependencies,
   addReceiver,
   addService,
+  declareComponents,
   escapeXml,
+  kotlinSource,
   stringsXml,
   NATIVE_STRINGS,
   RECEIVER_CLASS,
@@ -148,14 +150,13 @@ describe('addReceiver', () => {
     assert.equal(application.receiver[1].$['android:exported'], 'false');
   });
 
-  it('also declares the receiver under its old name, which posted notifications still target', () => {
-    const application = {};
-    addReceiver(application);
-    addReceiver(application, `.${LEGACY_RECEIVER_CLASS}`);
+  it('the manifest also declares the receiver under its old name, which posted notifications still target', () => {
+    const application = declareComponents({});
     assert.deepEqual(
       application.receiver.map((r) => r.$['android:name']),
       [`.${RECEIVER_CLASS}`, `.${LEGACY_RECEIVER_CLASS}`],
     );
+    assert.equal(application.service[0].$['android:name'], `.${SERVICE_CLASS}`);
   });
 });
 
@@ -195,5 +196,32 @@ describe('stringsXml', () => {
     assert.ok(xml.startsWith('<?xml version="1.0" encoding="utf-8"?>'));
     assert.equal(xml.split('<resources>').length - 1, 1);
     assert.equal(xml.split('</resources>').length - 1, 1);
+  });
+});
+
+describe('kotlinSource: the names of the previous build still resolve', () => {
+  const source = kotlinSource('com.rocketvibe.app');
+
+  it('the old receiver and worker classes exist, as subclasses of the new ones', () => {
+    assert.match(source, new RegExp(`^class ${LEGACY_RECEIVER_CLASS} : ${RECEIVER_CLASS}\\(\\)$`, 'm'));
+    assert.match(source, /^class RattrapagePushWorker\(context: Context, params: WorkerParameters\) : PushCatchUpWorker\(context, params\)$/m);
+    assert.match(source, new RegExp(`^open class ${RECEIVER_CLASS} : BroadcastReceiver\\(\\)`, 'm'));
+    assert.match(source, /^open class PushCatchUpWorker\(/m);
+  });
+
+  it('the old reply key, worker input, work prefix, shown memory and language key are still read', () => {
+    assert.match(source, /getCharSequence\(LEGACY_REPLY_KEY\)/);
+    assert.match(source, /LEGACY_REPLY_KEY = "rv_reponse"/);
+    assert.match(source, /inputData\.getBoolean\("ombre", false\)/);
+    assert.match(source, /cancelUniqueWork\(LEGACY_CATCH_UP_WORK_PREFIX \+ messageId\)/);
+    assert.match(source, /LEGACY_CATCH_UP_WORK_PREFIX = "rattrapage-push-"/);
+    assert.match(source, /getSharedPreferences\(LEGACY_PREFS_SHOWN, /);
+    assert.match(source, /LEGACY_PREFS_SHOWN = "rvpush-affiches"/);
+    assert.match(source, /"key_v1-preferred-language"[\s\S]{0,80}"key_v1-langue-preferee"/);
+  });
+
+  it('notifications link to the room/ route', () => {
+    assert.match(source, /StringBuilder\("rocketvibe:\/\/room\/"\)/);
+    assert.doesNotMatch(source, /rocketvibe:\/\/salon\//);
   });
 });

@@ -314,6 +314,9 @@ describe('English names (0016)', () => {
         VALUES ('s2', 'r1', 'b', 'echec', 2, '400', 2);
       INSERT INTO televersements (id, rid, uri, nom, type, legende, statut, file_id, cree_le)
         VALUES ('t1', 'r1', 'file:///a.png', 'a.png', 'image/png', 'cap', 'envoi', 'f1', 3);
+      INSERT INTO televersements (id, rid, uri, nom, type, statut, cree_le)
+        VALUES ('t2', 'r1', 'file:///b.png', 'b.png', 'image/png', 'en-attente', 4),
+          ('t3', 'r1', 'file:///c.png', 'c.png', 'image/png', 'echec', 5);
       INSERT INTO brouillons (cle, texte, mis_a_jour_le) VALUES ('r1', 'draft', 4);
       INSERT INTO emojis_custom (nom, extension) VALUES ('parrot', 'gif');
       INSERT INTO utilisateurs (uid, username, avatar_etag) VALUES ('u1', 'alice', 'sans-photo');
@@ -352,8 +355,10 @@ describe('English names (0016)', () => {
       { id: 's1', text: 'a', status: 'pending', attempts: 0, last_error: null, created_at: 1 },
       { id: 's2', text: 'b', status: 'failed', attempts: 2, last_error: '400', created_at: 2 },
     ]);
-    assert.deepEqual(all('SELECT name, caption, status, file_id, created_at FROM uploads'), [
+    assert.deepEqual(all('SELECT name, caption, status, file_id, created_at FROM uploads ORDER BY created_at'), [
       { name: 'a.png', caption: 'cap', status: 'sending', file_id: 'f1', created_at: 3 },
+      { name: 'b.png', caption: null, status: 'pending', file_id: null, created_at: 4 },
+      { name: 'c.png', caption: null, status: 'failed', file_id: null, created_at: 5 },
     ]);
     assert.deepEqual(all('SELECT key, text, updated_at FROM drafts'), [
       { key: 'r1', text: 'draft', updated_at: 4 },

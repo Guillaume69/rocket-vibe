@@ -1326,15 +1326,21 @@ function withServiceFile(config) {
   ]);
 }
 
+/** The service and both receivers, the old one included. */
+function declareComponents(application) {
+  addService(application);
+  addReceiver(application);
+  addReceiver(application, `.${LEGACY_RECEIVER_CLASS}`);
+  return application;
+}
+
 function withServiceManifest(config) {
   return withAndroidManifest(config, (config) => {
     const application = config.modResults.manifest.application?.[0];
     if (!application) {
       throw new Error('with-fcm-deeplink: <application> not found in the manifest');
     }
-    addService(application);
-    addReceiver(application);
-    addReceiver(application, `.${LEGACY_RECEIVER_CLASS}`);
+    declareComponents(application);
     return config;
   });
 }
@@ -1394,7 +1400,9 @@ module.exports.internals = {
   addDependencies,
   addReceiver,
   addService,
+  declareComponents,
   escapeXml,
+  kotlinSource,
   stringsXml,
   NATIVE_STRINGS,
 };

@@ -12,6 +12,17 @@ Clients **Rocket.Chat** tiers, en monorepo. Ce fichier est rechargé à chaque s
 - `apps/mobile/EXECUTION.md` — la checklist de CONSTRUCTION du produit, remise d'accord avec le code le 2026-07-31 (chantier 16) : la construction y est gelée, et sa section « Après la checklist » résume ce qui a été livré en continu depuis.
 - `apps/mobile/docs/AUDIT.md` — le relevé daté de l'audit : mécanisme, scénario d'échec et correction de chaque constat. Figé, on n'y touche plus.
 - `docs/DEV.md` — l'environnement et le relevé du serveur cible.
+- `brain/` : la base de connaissance, voir « Le brain » ci-dessous.
+
+## Le brain (base de connaissance)
+
+`brain/` décrit comment marchent les deux apps (architecture, fonctionnalités côté mobile et côté bureau, contrat Rocket.Chat, décisions, glossaire du vocabulaire français du code), pour qu'un développeur ou une IA les comprenne **sans lire le source**. Point d'entrée : `brain/BRAIN.md`, qui mène aux index `brain/architecture/index.md` et `brain/features/index.md`, puis aux fiches. Le lire avant de chercher où vit quelque chose, et naviguer par les index plutôt que par un grep de tout l'arbre. Le skill `brain` porte la marche à suivre.
+
+- Il est porteur : il doit rester VRAI. Un changement qui rend une fiche fausse corrige la fiche dans la même branche (couche `docs(brain): …` après le comportement et ses tests).
+- Le code fait foi. Si le brain le contredit, on corrige le brain.
+- Nouvelle fonctionnalité → `brain/features/<nom>.md` (sections `## Mobile` et `## Desktop`), une ligne dans `brain/features/index.md` et dans le catalogue de `brain/BRAIN.md`. Nouveau sous-système → un `brain/architecture/*.md`.
+- Le pourquoi va dans `brain/decisions.md`, les termes nouveaux dans `brain/glossary.md`. Les faits serveur sondés restent d'abord ici (« Faits sur Rocket.Chat ») ; `brain/architecture/rocket-chat.md` y renvoie.
+- En anglais, dense, sans tiret cadratin, des chemins de source plutôt que du code recopié ; chaque fiche finit par `## Sources`.
 
 ## La boucle de travail
 

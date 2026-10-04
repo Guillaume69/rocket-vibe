@@ -35,6 +35,7 @@ use the indexes.
 | [operations.md](operations.md) | Environment, the test server and its seed, build and run per app, CI, versions, the tag release flow, secrets. |
 | [glossary.md](glossary.md) | Rocket.Chat terms, the mobile code's French vocabulary, desktop crate names. |
 | [decisions.md](decisions.md) | The non-obvious decisions and their rationale. |
+| [parity.md](parity.md) | What each app (Android, GTK, SwiftUI) can do, row by row, and the debt each owes the others. |
 
 ## Architecture (the how) - [architecture/index.md](architecture/index.md)
 
@@ -101,7 +102,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | Why doesn't a changed avatar show up? | [features/avatars.md](features/avatars.md) |
 | Where do core events reach the GTK main thread? | [architecture/desktop-gtk.md](architecture/desktop-gtk.md) |
 | How does the SwiftUI app talk to the Rust core? | [architecture/desktop-macos.md](architecture/desktop-macos.md) |
-| Does desktop do X yet, and how does it differ from mobile? | the feature doc's Desktop section, and `brain/parity.md` |
+| Does desktop do X yet, and how does it differ from mobile? | [parity.md](parity.md), then the feature doc's Mobile and Desktop sections |
 | How do I start the test server and seed it? | [operations.md](operations.md) |
 | What does CI check, and what only runs on a tag? | [operations.md](operations.md), [architecture/testing.md](architecture/testing.md) |
 | How do I cut a release? | [operations.md](operations.md) (and the `release` skill) |
@@ -114,9 +115,9 @@ When a change makes a brain doc wrong, fix the doc in the same branch. When you
 discover the brain disagrees with reality, the code wins: correct the brain and
 note it. The rule lives in the repo's `CLAUDE.md` ("Le brain"), the procedure in
 the `brain` skill. New feature -> new `features/<name>.md` + a row in
-[features/index.md](features/index.md) + a row here.
+[features/index.md](features/index.md) + a row here + its rows in
+[parity.md](parity.md), one status per app ("La parité" in `CLAUDE.md`).
 
 The brain does not replace the docs that have their own job: the changelogs,
-`brain/parity.md` (the parity checklist), `apps/mobile/CHANTIERS.md`
-(the debt to fix next), `ROADMAP.md` (product decisions) and `CLAUDE.md` (the
-probed server facts). It links them.
+`apps/mobile/CHANTIERS.md` (the debt to fix next), `ROADMAP.md` (product
+decisions) and `CLAUDE.md` (the probed server facts). It links them.

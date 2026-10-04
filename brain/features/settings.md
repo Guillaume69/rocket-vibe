@@ -48,7 +48,7 @@ Fields are filled from `GET me` (`rv-core/src/account.rs::me`) before their chan
 
 ## Parity
 
-PARITY §9: profile card, notification preference, language, E2EE status, account and server exist in both apps. Mobile only: FCM diagnostic. Desktop only: backend description and test notification, background and login start, update checks, logs folder, multi-account list in settings. The language changes live on mobile and after a restart on desktop.
+[parity](../parity.md) §9: profile card, notification preference, language, E2EE status, account and server exist in both apps. Mobile only: FCM diagnostic. Desktop only: backend description and test notification, background and login start, update checks, logs folder, multi-account list in settings. The language changes live on mobile and after a restart on desktop.
 
 ## Sources
 
@@ -68,4 +68,3 @@ PARITY §9: profile card, notification preference, language, E2EE status, accoun
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-native/src/lib.rs
 - apps/desktop/macos/Sources/RocketVibe/SettingsView.swift
-- brain/parity.md

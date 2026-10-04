@@ -113,4 +113,3 @@ Same queue, dedup, retry and validation in both apps. Desktop adds drag-and-drop
 - apps/desktop/crates/rv-gtk/src/cards.rs
 - apps/desktop/crates/rv-gtk/src/actions_menu.rs
 - apps/desktop/macos/Sources/RocketVibe/RoomView.swift
-- brain/parity.md

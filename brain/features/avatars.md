@@ -32,7 +32,7 @@ How user and room photos are fetched, how a gradient tile stands in when there i
 
 ## Parity
 
-PARITY section 3 "Photo avatars over gradient tiles" holds on both. Gaps found in code: on desktop a DM's tile uses `/avatar/uid/<uid>` without a version, so a DM partner's new photo shows in the room list only once the texture cache is rebuilt (next session), while their message rows, keyed by username, update live; desktop keeps user versions in memory, so after a restart message rows use unversioned URLs until a stream event or profile read (harmless there because the cache starts empty). Mobile cannot remove a photo; desktop can.
+[parity](../parity.md) §3 "Photo avatars over gradient tiles" holds on both. Gaps found in code: on desktop a DM's tile uses `/avatar/uid/<uid>` without a version, so a DM partner's new photo shows in the room list only once the texture cache is rebuilt (next session), while their message rows, keyed by username, update live; desktop keeps user versions in memory, so after a restart message rows use unversioned URLs until a stream event or profile read (harmless there because the cache starts empty). Mobile cannot remove a photo; desktop can.
 
 ## Sources
 
@@ -61,4 +61,3 @@ PARITY section 3 "Photo avatars over gradient tiles" holds on both. Gaps found i
 - apps/desktop/macos/Sources/RocketVibe/Media.swift
 - apps/desktop/macos/Sources/RocketVibe/Pictures.swift
 - apps/desktop/macos/Sources/RocketVibeKit/MediaStore.swift
-- brain/parity.md

@@ -13,7 +13,7 @@ docs/            DEV.md (environment, target server survey), PUSH.md
 .github/         mobile.yml, desktop.yml, desktop-swiftui.yml
 ```
 
-The two apps share no code. Each has its own version, changelog, CI workflow and release tag (`mobile-vX.Y.Z`, `desktop-vX.Y.Z`). What they share is the server contract ([rocket-chat.md](rocket-chat.md)), the test bench (`docker/` seeded by `scripts/seed.mjs`), and the behaviour: the desktop core is a port of the mobile `lib/`, whose tests are its spec (`crates/rv-core/src/lib.rs` says so), and `brain/parity.md` tracks how far the port has come. Technologies and versions are in [../stack.md](../stack.md); how to build and release is in [../operations.md](../operations.md).
+The two apps share no code. Each has its own version, changelog, CI workflow and release tag (`mobile-vX.Y.Z`, `desktop-vX.Y.Z`). What they share is the server contract ([rocket-chat.md](rocket-chat.md)), the test bench (`docker/` seeded by `scripts/seed.mjs`), and the behaviour: the desktop core is a port of the mobile `lib/`, whose tests are its spec (`crates/rv-core/src/lib.rs` says so), and [parity.md](../parity.md) tracks, both ways, what each app owes the other. Technologies and versions are in [../stack.md](../stack.md); how to build and release is in [../operations.md](../operations.md).
 
 ## The shared principle: local-first, REST to act, DDP to listen
 
@@ -100,7 +100,6 @@ The desktop app has no push: it stays connected (optionally in the background or
 - `apps/desktop/crates/rv-native/src/lib.rs`
 - `apps/desktop/crates/rv-ffi/src/lib.rs`
 - `apps/desktop/macos/Package.swift`
-- `brain/parity.md`
 - `apps/desktop/docs/MACOS-SWIFTUI.md`
 - `docker/compose.yml`
 - `scripts/seed.mjs`

@@ -36,7 +36,7 @@ The screen of one room: its history read from the local database and paged back 
 
 ## Parity
 
-Section 3 of PARITY is implemented on both sides. Differences that show: desktop highlights mentions of me, mobile colours every mention the same; desktop allows `mailto:` links; desktop listens to deletions and typing for the open room only, mobile keeps recently left rooms hot; mobile throttles mark-as-read with a 10 s floor, desktop requires the window to be focused and scrolled to the bottom; YouTube-style cards play inside the card on desktop and open the app or browser on mobile ([media-playback.md](media-playback.md)).
+[Parity](../parity.md) §3 is implemented on both sides. Differences that show: desktop highlights mentions of me, mobile colours every mention the same; desktop allows `mailto:` links; desktop listens to deletions and typing for the open room only, mobile keeps recently left rooms hot; mobile throttles mark-as-read with a 10 s floor, desktop requires the window to be focused and scrolled to the bottom; YouTube-style cards play inside the card on desktop and open the app or browser on mobile ([media-playback.md](media-playback.md)).
 
 ## Sources
 
@@ -79,4 +79,3 @@ Section 3 of PARITY is implemented on both sides. Differences that show: desktop
 - apps/desktop/macos/Sources/RocketVibeKit/RoomModel.swift
 - apps/desktop/macos/Sources/RocketVibe/RoomView.swift
 - apps/desktop/macos/Sources/RocketVibe/BodyView.swift
-- brain/parity.md

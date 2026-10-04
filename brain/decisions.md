@@ -82,7 +82,6 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
 - `docs/PUSH.md`
 - `apps/desktop/README.md`
 - `apps/desktop/docs/MACOS-SWIFTUI.md`
-- `brain/parity.md`
 - `apps/mobile/package.json`
 - `apps/mobile/metro.config.js`
 - `apps/mobile/db/schema.ts`

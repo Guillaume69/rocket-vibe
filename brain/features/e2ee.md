@@ -37,7 +37,7 @@ GTK (`rv-gtk`) and the SwiftUI app share `rv-core`'s engine.
 
 ## Parity
 
-Same feature set on both sides (PARITY §11): unlock, decrypt messages and previews, lock, AES-128 and AES-256 room keys, encrypted send/edit/thread replies, encrypted files in both directions, key kept across launches. Difference in mechanism: mobile writes the decrypted text into SQLite and wipes it on lock, desktop decrypts on every read. Neither app creates encrypted rooms.
+Same feature set on both sides ([parity](../parity.md) §11): unlock, decrypt messages and previews, lock, AES-128 and AES-256 room keys, encrypted send/edit/thread replies, encrypted files in both directions, key kept across launches. Difference in mechanism: mobile writes the decrypted text into SQLite and wipes it on lock, desktop decrypts on every read. Neither app creates encrypted rooms.
 
 ## Sources
 
@@ -64,5 +64,4 @@ Same feature set on both sides (PARITY §11): unlock, decrypt messages and previ
 - apps/desktop/macos/Sources/RocketVibe/RoomView.swift
 - apps/desktop/macos/Sources/RocketVibe/SettingsView.swift
 - apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift
-- brain/parity.md
 - ROADMAP.md

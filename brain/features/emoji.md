@@ -38,7 +38,7 @@ Both tables come from `emoji-toolkit` 10.0.0 (JoyPixels' JSON, MIT; no artwork i
 
 ## Parity
 
-PARITY marks shortcode emoji ("6222 codes, same table as Android"), custom emoji images and completion done. Behavioural differences: mobile completion also matches substrings and shows up to 30, desktop matches prefixes and shows 8; mobile keeps custom emoji offline in SQLite, desktop refetches them each session; the GTK picker hides glyphs the fonts cannot draw.
+[Parity](../parity.md) marks shortcode emoji ("6222 codes, same table as Android"), custom emoji images and completion done. Behavioural differences: mobile completion also matches substrings and shows up to 30, desktop matches prefixes and shows 8; mobile keeps custom emoji offline in SQLite, desktop refetches them each session; the GTK picker hides glyphs the fonts cannot draw.
 
 ## Sources
 
@@ -68,4 +68,3 @@ PARITY marks shortcode emoji ("6222 codes, same table as Android"), custom emoji
 - apps/desktop/macos/Sources/RocketVibe/Composer.swift
 - scripts/emojis-seed.mjs
 - scripts/seed.mjs
-- brain/parity.md

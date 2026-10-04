@@ -43,7 +43,7 @@ How a user signs in to a Rocket.Chat server (password, then a second factor when
 
 ## Parity
 
-PARITY section 1 is done on desktop except email 2FA, which is partial: GTK and SwiftUI request the code automatically and have no resend control. Other differences worth knowing: mobile holds one account per server, desktop several; mobile keeps the database on sign-out, desktop deletes it (GTK the `.sqlite`, `-wal` and `-shm` files, SwiftUI only the `.sqlite`); mobile replays failed sign-outs at next launch, desktop does not (it has no push token to remove).
+[parity](../parity.md) §1 is done on desktop except email 2FA, which is partial: GTK and SwiftUI request the code automatically and have no resend control. Other differences worth knowing: mobile holds one account per server, desktop several; mobile keeps the database on sign-out, desktop deletes it (GTK the `.sqlite`, `-wal` and `-shm` files, SwiftUI only the `.sqlite`); mobile replays failed sign-outs at next launch, desktop does not (it has no push token to remove).
 
 ## Sources
 
@@ -69,4 +69,3 @@ PARITY section 1 is done on desktop except email 2FA, which is partial: GTK and 
 - apps/desktop/crates/rv-ffi/src/accounts.rs
 - apps/desktop/macos/Sources/RocketVibeKit/LoginModel.swift
 - apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift
-- brain/parity.md

@@ -42,7 +42,7 @@ The desktop applies the same exception with the same bounds (2026-09-30), and th
 
 ## Parity
 
-Start, join, call card with Join, profile Call: both apps (PARITY §12). Desktop only: meeting info dialog with the token-free link. The origin lock is the same rule on Android, Windows and macOS; Linux delegates to a browser.
+Start, join, call card with Join, profile Call: both apps ([parity](../parity.md) §12). Desktop only: meeting info dialog with the token-free link. The origin lock is the same rule on Android, Windows and macOS; Linux delegates to a browser.
 
 ## Sources
 
@@ -64,5 +64,4 @@ Start, join, call card with Join, profile Call: both apps (PARITY §12). Desktop
 - apps/desktop/crates/rv-native/src/macos_call.rs
 - apps/desktop/macos/Sources/RocketVibe/CallWindow.swift
 - apps/desktop/data/macos/Info.plist
-- brain/parity.md
 - ROADMAP.md

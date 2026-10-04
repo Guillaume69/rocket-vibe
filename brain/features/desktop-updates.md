@@ -41,7 +41,7 @@ Install (`updater::install`) downloads with progress through `update::download`,
 
 ## Parity
 
-Desktop only (PARITY §9, "the desktop equivalent of the store"); the SwiftUI app: not yet. For a first install on Linux, `scripts/install.sh` fetches the newest `desktop-v*` AppImage into `~/.local/bin/rocket-vibe.AppImage`, which the card then updates in place ([../operations.md](../operations.md)).
+Desktop only ([parity](../parity.md) §9, "the desktop equivalent of the store"); the SwiftUI app: not yet. For a first install on Linux, `scripts/install.sh` fetches the newest `desktop-v*` AppImage into `~/.local/bin/rocket-vibe.AppImage`, which the card then updates in place ([../operations.md](../operations.md)).
 
 ## Sources
 
@@ -54,5 +54,4 @@ Desktop only (PARITY §9, "the desktop equivalent of the store"); the SwiftUI ap
 - apps/desktop/scripts/install.sh
 - apps/desktop/scripts/smoke.sh
 - .github/workflows/desktop.yml
-- brain/parity.md
 - apps/desktop/README.md

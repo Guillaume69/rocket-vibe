@@ -39,7 +39,7 @@ The link is produced by the Android push service for every conversation notifica
 
 ## Parity
 
-PARITY §13: room links open the room on both (desktop registered as URL handler); share sheet on mobile versus drop and paste on desktop. Differences: mobile asks before switching server, desktop switches by itself; mobile compares full origins (scheme, host, port), desktop compares host names.
+[parity](../parity.md) §13: room links open the room on both (desktop registered as URL handler); share sheet on mobile versus drop and paste on desktop. Differences: mobile asks before switching server, desktop switches by itself; mobile compares full origins (scheme, host, port), desktop compares host names.
 
 ## Sources
 
@@ -73,4 +73,3 @@ PARITY §13: room links open the room on both (desktop registered as URL handler
 - apps/desktop/data/macos/Info.plist
 - apps/desktop/scripts/install.sh
 - apps/desktop/macos/Sources/RocketVibe/RocketVibeApp.swift
-- brain/parity.md

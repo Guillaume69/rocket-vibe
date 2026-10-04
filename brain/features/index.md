@@ -2,7 +2,7 @@
 
 What the apps do. Each doc describes the feature, then its `## Mobile` and
 `## Desktop` sides (GTK, with SwiftUI differences) and their parity. The
-checklist of parity itself is `brain/parity.md`. Back to
+two-way parity tracker is [../parity.md](../parity.md). Back to
 [../BRAIN.md](../BRAIN.md).
 
 ## Session and data

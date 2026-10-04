@@ -29,7 +29,7 @@ Three read-on-demand views and one editor: a room's information sheet, a person'
 
 ## Parity
 
-Room info, profile with Message and Call, my profile with password and 2FA, live avatar changes: both apps (PARITY §8). Differences: mobile toggles the favourite from room info, desktop from the room list; desktop can remove the photo; mobile prefetches the profile so the sheet never jumps. Neither app lists room members, edits room settings or manages roles.
+Room info, profile with Message and Call, my profile with password and 2FA, live avatar changes: both apps ([parity](../parity.md) §8). Differences: mobile toggles the favourite from room info, desktop from the room list; desktop can remove the photo; mobile prefetches the profile so the sheet never jumps. Neither app lists room members, edits room settings or manages roles.
 
 ## Sources
 
@@ -54,4 +54,3 @@ Room info, profile with Message and Call, my profile with password and 2FA, live
 - apps/desktop/crates/rv-gtk/src/chat.rs
 - apps/desktop/macos/Sources/RocketVibe/Details.swift
 - apps/desktop/macos/Sources/RocketVibe/SettingsView.swift
-- brain/parity.md

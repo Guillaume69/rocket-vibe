@@ -37,7 +37,7 @@ The home screen of both apps: every room the account is subscribed to, grouped i
 
 ## Parity
 
-Section 2 of PARITY is implemented, Favourites included (`rooms::Section::Favorites`, `sectionsAccueil` key `favoris`). Visible differences: desktop shows the time and an `@` badge on mentions, mobile does neither; desktop keeps the padlock tile on encrypted rooms even when unlocked, mobile switches back to the normal tile; desktop treats an unlisted user as offline once presence loaded, mobile shows nothing for an unknown status.
+[Parity](../parity.md) §2 is implemented, Favourites included (`rooms::Section::Favorites`, `sectionsAccueil` key `favoris`). Visible differences: desktop shows the time and an `@` badge on mentions, mobile does neither; desktop keeps the padlock tile on encrypted rooms even when unlocked, mobile switches back to the normal tile; desktop treats an unlisted user as offline once presence loaded, mobile shows nothing for an unknown status.
 
 ## Sources
 
@@ -64,4 +64,3 @@ Section 2 of PARITY is implemented, Favourites included (`rooms::Section::Favori
 - apps/desktop/crates/rv-gtk/src/spotlight.rs
 - apps/desktop/macos/Sources/RocketVibe/ChatView.swift
 - apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift
-- brain/parity.md

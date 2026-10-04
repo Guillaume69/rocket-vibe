@@ -64,7 +64,7 @@ Differences from GTK that are by design: voice messages are AAC, not Ogg/Opus (A
 
 ## Status
 
-On master. Per `brain/parity.md`, the SwiftUI app has every item the GTK app has, with the differences above. Proven: rv-ffi and the view models against the test server (from Rust and from Swift on Linux), and on CI's Mac runner the build, signature, notarization, launch, gallery and soak. Not yet proven: the SwiftUI screens against a real server on a real Mac, which is the testers' beta. Keeping both UIs in step is the standing cost: every visible desktop feature lands in `rv-gtk` and in `macos/`, with the logic kept in `rv-core` so both stay thin.
+On master. [Parity](../parity.md) tracks it as its own column: it matches the GTK app except where that table says otherwise. Proven: rv-ffi and the view models against the test server (from Rust and from Swift on Linux), and on CI's Mac runner the build, signature, notarization, launch, gallery and soak. Not yet proven: the SwiftUI screens against a real server on a real Mac, which is the testers' beta. Keeping both UIs in step is the standing cost: every visible desktop feature lands in `rv-gtk` and in `macos/`, with the logic kept in `rv-core` so both stay thin.
 
 ## Sources
 
@@ -90,6 +90,5 @@ On master. Per `brain/parity.md`, the SwiftUI app has every item the GTK app has
 - apps/desktop/macos/Sources/rv-rooms/main.swift
 - apps/desktop/macos/Tests/RocketVibeKitTests/KitTests.swift
 - apps/desktop/docs/MACOS-SWIFTUI.md
-- brain/parity.md
 - .github/workflows/desktop-swiftui.yml
 - .github/workflows/desktop.yml

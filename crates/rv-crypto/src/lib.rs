@@ -5,6 +5,7 @@
 pub mod delivery;
 pub mod groups;
 pub mod identity;
+pub mod installation;
 pub mod packages;
 pub mod protected;
 pub mod vault;

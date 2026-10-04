@@ -13,7 +13,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 const SECRET_LIMIT: usize = 2048;
 
-struct Lease(File);
+pub(crate) struct Lease(File);
 impl Drop for Lease {
     fn drop(&mut self) {
         // Explicit unlock also releases a briefly inherited descriptor while
@@ -111,61 +111,7 @@ impl Manager {
         Ok(hash.finalize().into())
     }
     fn lease(&self) -> Result<Lease, Error> {
-        let mut builder = fs::DirBuilder::new();
-        builder.recursive(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::DirBuilderExt;
-            builder.mode(0o700);
-        }
-        builder
-            .create(&self.directory)
-            .map_err(|_| Error::Storage)?;
-        let metadata = fs::symlink_metadata(&self.directory).map_err(|_| Error::Storage)?;
-        if !metadata.is_dir() || metadata.file_type().is_symlink() {
-            return Err(Error::Storage);
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            if metadata.mode() & 0o077 != 0 || metadata.uid() != rustix::process::geteuid().as_raw()
-            {
-                return Err(Error::Storage);
-            }
-        }
-        let path = self.directory.join(format!("{}.lock", self.name));
-        if let Ok(metadata) = fs::symlink_metadata(&path)
-            && !metadata.is_file()
-        {
-            return Err(Error::Storage);
-        }
-        let mut options = OpenOptions::new();
-        options.read(true).write(true).create(true).truncate(false);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let file = options.open(path).map_err(|_| Error::Storage)?;
-        let metadata = file.metadata().map_err(|_| Error::Storage)?;
-        if !metadata.is_file() || metadata.len() != 0 {
-            return Err(Error::Storage);
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            if metadata.mode() & 0o077 != 0
-                || metadata.nlink() != 1
-                || metadata.uid() != rustix::process::geteuid().as_raw()
-            {
-                return Err(Error::Storage);
-            }
-        }
-        file.try_lock().map_err(|error| match error {
-            std::fs::TryLockError::WouldBlock => Error::Busy,
-            std::fs::TryLockError::Error(_) => Error::Storage,
-        })?;
-        Ok(Lease(file))
+        lease(&self.directory, &self.name)
     }
     fn read(&self) -> Result<Option<Secret>, Error> {
         let Some(bytes) = self.storage.read(&self.name)? else {
@@ -317,6 +263,61 @@ impl Manager {
             .map_err(|_| Error::Storage)?;
         Ok(())
     }
+}
+
+pub(crate) fn lease(directory: &std::path::Path, name: &str) -> Result<Lease, Error> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(directory).map_err(|_| Error::Storage)?;
+    let metadata = fs::symlink_metadata(directory).map_err(|_| Error::Storage)?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(Error::Storage);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.mode() & 0o077 != 0 || metadata.uid() != rustix::process::geteuid().as_raw() {
+            return Err(Error::Storage);
+        }
+    }
+    let path = directory.join(format!("{}.lock", name));
+    if let Ok(metadata) = fs::symlink_metadata(&path)
+        && !metadata.is_file()
+    {
+        return Err(Error::Storage);
+    }
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(path).map_err(|_| Error::Storage)?;
+    let metadata = file.metadata().map_err(|_| Error::Storage)?;
+    if !metadata.is_file() || metadata.len() != 0 {
+        return Err(Error::Storage);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.mode() & 0o077 != 0
+            || metadata.nlink() != 1
+            || metadata.uid() != rustix::process::geteuid().as_raw()
+        {
+            return Err(Error::Storage);
+        }
+    }
+    file.try_lock().map_err(|error| match error {
+        std::fs::TryLockError::WouldBlock => Error::Busy,
+        std::fs::TryLockError::Error(_) => Error::Storage,
+    })?;
+    Ok(Lease(file))
 }
 
 #[cfg(all(

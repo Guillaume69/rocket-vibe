@@ -7,6 +7,13 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- The existing GTK and SwiftUI settings can prepare a RocketVibe encryption
+  identity and associate devices with explicit fingerprint approval, protected
+  platform storage and restart-safe registration. This experimental section is
+  gated by server capabilities; encrypted rooms remain disabled during validation.
+
 ### Fixed
 
 - Native Linux notifications use XDG Notification v2 inline replies when the

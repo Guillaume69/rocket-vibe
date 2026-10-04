@@ -282,7 +282,8 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    Racines / certificats / pins / confirmations et révocations implémentés dans
    la crate isolée ; demande signée / preuve de possession, confirmation et
    reçu durable ajoutés. Sauvegarde / restauration de racine par code distinct
-   et reçu exact livrées ; cérémonie UI / réseau, délégation de contrôle et
+   et reçu exact livrées ; cérémonie initiale / association manuelle et reçu
+   HTTP durable raccordés aux réglages GTK / SwiftUI. Délégation de contrôle et
    récupération d'archive encore ouvertes.
 4. Livraison PostgreSQL : reçus, commits concurrents, Welcome atomique,
    destinataires / droits, retrait en vol et suspension sans appareil disponible.
@@ -341,7 +342,9 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    [cœur du fournisseur bureau](../../apps/desktop/docs/NATIVE_CRYPTO.md) lie
    maintenant le worker au compte / appareil et à la génération de session,
    avec fermeture terminale, client HTTP partagé et garde des résultats tardifs.
-   Cérémonies, trousseaux des interfaces et projection restent ouverts ; archive / fichiers,
+   La cérémonie d'identité / association et les trousseaux dédiés sont raccordés
+   aux réglages GTK / SwiftUI. Pins de pairs, cérémonies de groupe, renouvellement,
+   récupération / révocation visibles et projection restent ouverts ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.
 6. Revue indépendante du protocole applicatif / stockage et qualification des
    trousseaux, Android / Hermes, GTK / SwiftUI. Activation seulement après preuve.

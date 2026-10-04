@@ -23,6 +23,10 @@ pub enum Error {
     Session(#[from] super::Error),
     #[error(transparent)]
     Delivery(#[from] delivery::Error),
+    #[error(transparent)]
+    Storage(#[from] rv_crypto::vault::Error),
+    #[error(transparent)]
+    Identity(#[from] rv_crypto::identity::Error),
 }
 type Result<T> = std::result::Result<T, Error>;
 fn closed() -> super::Error {
@@ -32,14 +36,14 @@ fn scope_changed() -> super::Error {
     super::Error::Protocol("crypto_delivery_scope_changed")
 }
 
-struct Context {
+pub(super) struct Context {
     session: Weak<NativeSession>,
     generation: u64,
     guard: Guard,
     stopped: AtomicBool,
 }
 impl Context {
-    fn check(&self) -> std::result::Result<(), super::Error> {
+    pub(super) fn check(&self) -> std::result::Result<(), super::Error> {
         if self.stopped.load(Ordering::SeqCst) {
             return Err(closed());
         }
@@ -55,6 +59,8 @@ impl Context {
         Ok(())
     }
 }
+
+pub mod enrollment;
 impl delivery::Lifecycle for Context {
     fn active(&self) -> bool {
         self.check().is_ok()

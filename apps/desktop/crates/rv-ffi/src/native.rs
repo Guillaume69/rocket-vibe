@@ -587,6 +587,18 @@ impl NativeChat {
     pub fn security_supported(&self) -> bool {
         self.session.security_supported()
     }
+    pub fn crypto_settings_supported(&self) -> bool {
+        self.session.crypto_settings_supported()
+    }
+    pub async fn crypto_settings(&self) -> Result<Arc<crate::native_crypto::NativeCrypto>, RvError> {
+        let (session, dirs) = (self.session.clone(), self.dirs.clone());
+        on_tokio(async move { crate::native_crypto::NativeCrypto::open(session, dirs).await }).await.map_err(
+            |e| match e {
+                rv_core::native::crypto::Error::Session(e) => native_error(e),
+                _ => RvError::Local { message: "crypto_operation_failed".into() },
+            },
+        )
+    }
     pub async fn security(&self) -> Result<Arc<crate::native_security::NativeSecurity>, RvError> {
         let (session, dirs) = (self.session.clone(), self.dirs.clone());
         on_tokio(async move { crate::native_security::NativeSecurity::open(session, dirs).await })

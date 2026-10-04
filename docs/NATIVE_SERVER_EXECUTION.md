@@ -14,9 +14,12 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 | J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission dans le même coffre et accès crypto du cœur bureau lié à sa session | Cérémonies / trousseaux / projection dans les interfaces, suspension des salons retirés, pont mobile, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison qualifiée (`c667ce0`) passe les neuf jobs de la CI
-`37185009295` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison entièrement qualifiée (`0b2d92e`) passe les neuf jobs de la CI
+`37189126102` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
+Le raccordement suivant (`60e72f4`, CI `37190798775`) passe huit jobs ; le contrôle
+général échoue sur l'inventaire API généré, après ses tests réussis. Cet inventaire
+est régénéré et vérifié avec le lot des cérémonies ci-dessous.
 Le journal serveur passe ses neuf scénarios
 PostgreSQL / HTTP / MLS et les contrats communs ; aucune capacité E2EE n'est
 activée. Le worker privé checkpoint maintenant les pages communes aux messages
@@ -344,6 +347,35 @@ Le parcours mobile pilote et les tests sans appareil ne ferment pas J1 : il exig
 les parcours Android / bureau et les garanties restantes ci-dessus.
 
 ## Jalons suivants
+
+- P19 / J4, cérémonie dans les réglages existants (4 octobre 2026) : GTK et
+  SwiftUI partagent le parcours Rust de création explicite de racine, demande
+  signée d'appareil, confirmation des empreintes et transfert manuel de codes
+  publics. Consentement opaque lié au viewer, sans secret de signature ou de
+  coffre dans UniFFI. Trousseaux et répertoire privé partagés ; sélection durable
+  indexée par URL, instance, époque, compte et appareil HTTP. L'incarnation est
+  enregistrée avant initialisation. Grant et corps exact d'enregistrement sont
+  checkpointés ensemble ; la reprise consulte d'abord le reçu personnel et
+  contrôle tous ses champs. Tests avec vrais grants sur HTTP local : création /
+  approbation explicites, réponse perdue récupérée après réouverture, nouvel
+  appareil avec racine comparée, refus sans détenteur de racine, fermeture et
+  capacité retirée avant écriture. Sélection, verrou de famille, genèse
+  interrompue, origine distincte, stockage inaccessible, copie et retrait testés ;
+  les huit régressions de checkpoint / verrou passent. Le pont et le modèle
+  Swift compilent ; huit tests sans serveur passent (seize cas d'intégration
+  ignorés faute de pilote dans ce contrôle local). L'inventaire généré est
+  régénéré et vérifié. La section reste conditionnée aux capacités expérimentales
+  E2EE : aucune capacité du serveur ou des clients activée. Renouvellement,
+  révocation / récupération visibles, pins / groupes, projection de messagerie,
+  Android, archives / fichiers, historique après retrait et revue restent ouverts.
+  Fedora : suite bureau de 406 tests réussis (quatre cas ignorés par défaut),
+  puis huit tests crypto ciblés repassés après les derniers ajustements, Clippy
+  strict et build GTK / FFI réussis. Le nouveau cas GTK est exécuté sous Xvfb
+  avec assertions sur le dialogue monté, actions disponibles et effacement à
+  fermeture ; rendu inspecté. Les trois autres cas ignorés concernent les cartes
+  de réunion, les aperçus de liens et le bus de notifications et restent couverts
+  par leurs pilotes CI habituels. Une interruption de connexion Docker pendant
+  compilation a nécessité une reprise limitée à quatre tâches de compilation.
 
 - P19 / J4, accès crypto du fournisseur bureau (4 octobre 2026) : `rv-core`
   consomme maintenant le coffre privé avec HTTP natif ; mêmes SQLite et client

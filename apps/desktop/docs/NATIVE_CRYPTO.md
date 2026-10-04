@@ -56,8 +56,31 @@ reprise d'un package préparé avec exactement le même corps après réouvertur
 capacité retirée et génération serveur remplacée. L'accès ne maintient pas le
 runner fermé en vie.
 
-Restent la cérémonie de racine / appareil / pins dans les interfaces, leurs
-adaptateurs de trousseau, la suspension des salons retirés et la projection
+Les réglages GTK et SwiftUI ont maintenant une section de préparation d'identité
+et d'association d'appareil, visible uniquement avec les capacités expérimentales
+E2EE et sessions d'appareils. Les trousseaux des deux interfaces utilisent le même
+service dédié et le même répertoire `rocket-vibe-rs/native-crypto`. Une sélection
+protégée, indexée par URL de serveur / instance / époque / utilisateur / appareil
+HTTP, conserve l'incarnation avant l'initialisation du coffre ; une fermeture
+ne régénère ni racine, ni clé d'appareil, ni enregistrement HTTP en attente.
+
+Créer l'identité est une action explicite. L'appareil contrôleur examine une
+demande signée et affiche les empreintes de racine et de demande avant une seconde
+action d'approbation. Un nouvel appareil accepte explicitement la racine observée,
+transmet un code public de demande au contrôleur puis installe son code public
+d'approbation. Aucun secret de racine ou de coffre ne traverse UniFFI. Le consentement
+reste opaque, lié au viewer ; le pont conserve son aperçu avec une révision locale.
+
+L'installation du grant et le corps exact d'enregistrement sont checkpointés dans
+la même transaction. La reprise lit d'abord le reçu personnel et vérifie tous ses
+champs avant de terminer l'intention. Une erreur ou une réponse perdue conserve le
+corps original. Le statut enregistré exige aussi le certificat courant dans
+l'annuaire et la clé locale correspondante. Le renouvellement des certificats,
+le remplacement avec révocation et la résolution d'une demande expirée avant toute
+acceptation restent à raccorder : cette cérémonie n'active pas les salons chiffrés.
+
+Restent les pins de pairs / cérémonies de groupe dans les interfaces, la récupération
+et révocation visibles, la suspension des salons retirés et la projection
 privée, le pont Android, les archives / fichiers et la qualification de la
 [RFC E2EE](../../../docs/rfcs/0002-e2ee-native.md). La capacité reste désactivée
 jusqu'à livraison et validation du parcours complet.

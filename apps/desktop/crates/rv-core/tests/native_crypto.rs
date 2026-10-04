@@ -1,4 +1,5 @@
 mod common;
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as B64};
 use common::{FakeHttp, respond};
 use rv_core::{
     native::{self, crypto, security::Guard},
@@ -82,6 +83,10 @@ struct Pilot {
     block: Arc<AtomicUsize>,
     gate: Arc<Gate>,
     publications: Arc<Mutex<Vec<String>>>,
+    crypto_directory: Arc<Mutex<Value>>,
+    registrations: Arc<Mutex<Vec<String>>>,
+    registration_receipt: Arc<Mutex<Option<Value>>>,
+    lose_registration: Arc<AtomicBool>,
 }
 async fn online(session: &native::NativeSession) {
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -102,6 +107,14 @@ impl Pilot {
         let block = Arc::new(AtomicUsize::new(0));
         let gate = Arc::new(Gate::default());
         let publications = Arc::new(Mutex::new(vec![]));
+        let crypto_directory = Arc::new(Mutex::new(
+            json!({"scope": {"instance_id": fixture["discovery"]["instance_id"], "data_epoch": fixture["discovery"]["data_epoch"]}, "identity": null, "devices": [], "revocations": [], "next_revocation": null}),
+        ));
+        let registrations = Arc::new(Mutex::new(vec![]));
+        let registration_receipt = Arc::new(Mutex::new(None::<Value>));
+        let lose_registration = Arc::new(AtomicBool::new(false));
+        let (directory_reply, enrollments, receipt_reply, lose_reply) =
+            (crypto_directory.clone(), registrations.clone(), registration_receipt.clone(), lose_registration.clone());
         let (data, capable, duplicate, changed, delayed, waiting, posted) = (
             fixture.clone(),
             enabled.clone(),
@@ -112,6 +125,31 @@ impl Pilot {
             publications.clone(),
         );
         let server = FakeHttp::start(move |request| match request.path() {
+            path if path.starts_with("/api/v1/e2ee/users/") => respond(200, &directory_reply.lock().unwrap().to_string()),
+            path if path.starts_with("/api/v1/e2ee/operations/") => {
+                if let Some(receipt) = receipt_reply.lock().unwrap().as_ref() { respond(200, &receipt.to_string()) }
+                else { respond(404, r#"{"code":"not_found","request_id":"crypto-pilot"}"#) }
+            }
+            "/api/v1/e2ee/devices" => {
+                assert_eq!(request.headers["authorization"], "Bearer fixture-token");
+                enrollments.lock().unwrap().push(request.body.clone());
+                let input: rv_protocol::e2ee::RegisterDevice = serde_json::from_str(&request.body).unwrap();
+                let grant = rv_crypto::identity::enrollment::Grant::from_bytes(&B64.decode(&input.grant).unwrap()).unwrap();
+                let signed = rv_crypto::identity::enrollment::Request::from_bytes(&B64.decode(&input.request).unwrap()).unwrap();
+                let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+                grant.verify(time).unwrap(); signed.verify(time).unwrap();
+                assert_eq!(grant.request, signed.fingerprint().unwrap());
+                let hex = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+                let certificate = &grant.certificate.device;
+                let receipt = json!({"scope": input.scope, "operation_id":input.operation_id, "kind":"register_device", "device_id":certificate.device,
+                    "incarnation":hex(&certificate.incarnation), "device_revision":"1", "root_fingerprint":hex(&certificate.root.fingerprint().unwrap()), "key_package_refs":[]});
+                *receipt_reply.lock().unwrap() = Some(receipt.clone());
+                let mut directory = directory_reply.lock().unwrap();
+                directory["identity"] = json!({"user_id": certificate.root.user, "root": B64.encode(serde_json::to_vec(&certificate.root).unwrap()), "fingerprint":receipt["root_fingerprint"], "revision":"1"});
+                directory["devices"] = json!([{"device_id":certificate.device, "incarnation":receipt["incarnation"], "certificate":B64.encode(serde_json::to_vec(&grant.certificate).unwrap()), "revision":"1", "expires_at":certificate.expires_at.to_string()}]);
+                if lose_reply.load(Ordering::SeqCst) { respond(503, r#"{"code":"response_lost","request_id":"crypto-pilot"}"#) }
+                else { respond(200, &receipt.to_string()) }
+            }
             "/.well-known/rocketvibe" => {
                 let mut discovery = data["discovery"].clone();
                 discovery["capabilities"]["e2ee"] = json!(capable.load(Ordering::SeqCst));
@@ -195,6 +233,10 @@ impl Pilot {
             block,
             gate,
             publications,
+            crypto_directory,
+            registrations,
+            registration_receipt,
+            lose_registration,
         }
     }
     async fn attach(&self, guard: Guard) -> crypto::Access {
@@ -407,4 +449,98 @@ async fn fresh_discovery_disables_crypto_and_changed_server_generation_fences_ex
         assert!(pilot.server.requests().iter().all(|request| !request.path().starts_with("/api/v1/e2ee/")));
         pilot.close().await;
     }
+}
+
+#[tokio::test]
+async fn identity_ceremony_registers_real_grants_and_recovers_a_lost_reply_after_reopen() {
+    use crypto::enrollment::Stage;
+    let pilot = Pilot::new(true).await;
+    let path = pilot.directory.path().join("ceremony");
+    let guard = Guard::new();
+    let access = pilot.session.crypto_settings(guard.clone(), path.clone(), pilot.memory.clone()).await.unwrap();
+    let empty = access.refresh().await.unwrap();
+    assert!(empty.stage == Stage::Missing);
+    assert!(pilot.memory.values.lock().unwrap().is_empty());
+    let created = access.begin(String::new()).await.unwrap();
+    assert!(created.stage == Stage::IdentityCreated && created.controls_root);
+    assert_eq!(pilot.registrations.lock().unwrap().len(), 0);
+    let fingerprint = created.root_fingerprint.clone();
+    let code = created.request_code.clone();
+    let reopened = access.begin(String::new()).await.unwrap();
+    assert_eq!(reopened.request_code, code);
+    let preview = access.preview(code).await.unwrap();
+    assert_eq!(preview.root_fingerprint, fingerprint);
+    let grant = access.approve(preview).await.unwrap();
+    assert_eq!(pilot.registrations.lock().unwrap().len(), 0);
+    pilot.lose_registration.store(true, Ordering::SeqCst);
+    assert!(access.install(grant).await.is_err());
+    assert!(access.refresh().await.unwrap().stage == Stage::Registering);
+    guard.cancel();
+    access.close();
+    let resumed = pilot.session.crypto_settings(Guard::new(), path, pilot.memory.clone()).await.unwrap();
+    let ready = resumed.resume().await.unwrap();
+    assert!(ready.stage == Stage::Ready);
+    assert_eq!(ready.root_fingerprint, fingerprint);
+    assert_eq!(pilot.registrations.lock().unwrap().len(), 1);
+    assert!(pilot.registration_receipt.lock().unwrap().is_some());
+    assert!(!pilot.session.supported_features().iter().any(|f| f == "e2ee"));
+    pilot.close().await;
+}
+
+#[tokio::test]
+async fn a_new_device_requires_the_observed_root_and_an_explicit_external_approval() {
+    use crypto::enrollment::Stage;
+    let mut pilot = Pilot::new(true).await;
+    pilot.initialize();
+    let fingerprint = pilot.root.fingerprint().unwrap().iter().map(|b| format!("{b:02x}")).collect::<String>();
+    pilot.crypto_directory.lock().unwrap()["identity"] = json!({"user_id":pilot.session.info.user_id,"root":B64.encode(serde_json::to_vec(&pilot.root).unwrap()), "fingerprint":fingerprint, "revision":"1"});
+    let access = pilot
+        .session
+        .crypto_settings(Guard::new(), pilot.directory.path().join("new-device"), pilot.memory.clone())
+        .await
+        .unwrap();
+    let before = pilot.memory.writes.load(Ordering::SeqCst);
+    assert!(access.begin("uncompared-root".into()).await.is_err());
+    assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), before);
+    let pending = access.begin(fingerprint.clone()).await.unwrap();
+    assert!(pending.stage == Stage::WaitingForApproval && !pending.controls_root);
+    assert_eq!(pending.root_fingerprint, fingerprint);
+    assert!(access.preview(pending.request_code.clone()).await.is_err());
+    let request =
+        rv_crypto::identity::enrollment::Request::from_bytes(&B64.decode(pending.request_code).unwrap()).unwrap();
+    let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let grant = pilot
+        .manager
+        .transact(|_, records| {
+            let issuer = Issuer::load(records, &pilot.root.instance, &pilot.root.user).unwrap();
+            let preview = issuer.preview_request(&request, time, 86400, records).unwrap();
+            Ok(issuer.approve_request(&request, &preview, time, records).unwrap())
+        })
+        .unwrap();
+    let ready = access.install(B64.encode(grant.to_bytes().unwrap())).await.unwrap();
+    assert!(ready.stage == Stage::Ready && !ready.controls_root);
+    assert_eq!(ready.root_fingerprint, fingerprint);
+    pilot.close().await;
+}
+
+#[tokio::test]
+async fn stale_view_consent_and_disabled_capabilities_cannot_initialize_or_approve() {
+    let pilot = Pilot::new(true).await;
+    let path = pilot.directory.path().join("ceremony");
+    let guard = Guard::new();
+    let access = pilot.session.crypto_settings(guard.clone(), path.clone(), pilot.memory.clone()).await.unwrap();
+    let pending = access.begin(String::new()).await.unwrap();
+    let preview = access.preview(pending.request_code).await.unwrap();
+    guard.cancel();
+    let before = pilot.memory.writes.load(Ordering::SeqCst);
+    assert!(access.approve(preview).await.is_err());
+    assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), before);
+    let fresh = pilot.session.crypto_settings(Guard::new(), path, pilot.memory.clone()).await.unwrap();
+    pilot.enabled.store(false, Ordering::SeqCst);
+    assert!(fresh.begin(String::new()).await.is_err());
+    assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), before);
+    pilot.enabled.store(true, Ordering::SeqCst);
+    assert!(fresh.refresh().await.is_err());
+    assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), before);
+    pilot.close().await;
 }

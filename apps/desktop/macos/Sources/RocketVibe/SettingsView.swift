@@ -42,6 +42,9 @@ struct SettingsView: View {
             if app.native?.securitySupported() == true {
                 SecuritySection()
             }
+            if app.native?.cryptoSettingsSupported() == true {
+                CryptoSection()
+            }
             if app.chat != nil {
                 Section(L("e2e.status")) {
                     HStack {

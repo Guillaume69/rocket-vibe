@@ -22,6 +22,58 @@ pub fn set(lang: Lang) {
 /// (key, French, English). A `{name}` is filled by `tf`; `a | b` is the
 /// singular and plural of `tn`.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("crypto.title", "Identité chiffrée et appareils", "Encryption identity and devices"),
+    (
+        "crypto.explanation",
+        "Préparez votre identité et associez vos appareils. Les salons chiffrés RocketVibe sont encore en validation.",
+        "Prepare your identity and link your devices. RocketVibe encrypted rooms are still being validated.",
+    ),
+    ("crypto.loading", "Chargement de l’identité…", "Loading identity…"),
+    ("crypto.missing", "Cet appareil n’a pas encore d’identité chiffrée", "This device has no encryption identity yet"),
+    ("crypto.created", "Identité créée : approuvez cet appareil", "Identity created: approve this device"),
+    (
+        "crypto.waiting",
+        "Approbation requise sur l’appareil qui détient la racine",
+        "Approval required on the device holding the root",
+    ),
+    ("crypto.registering", "Enregistrement à reprendre", "Registration needs to resume"),
+    ("crypto.ready", "Identité et appareil enregistrés", "Identity and device registered"),
+    ("crypto.root", "Empreinte de l’identité", "Identity fingerprint"),
+    ("crypto.proof", "Empreinte de la demande", "Request fingerprint"),
+    ("crypto.association", "Association d’appareil", "Device association"),
+    (
+        "crypto.compare",
+        "Comparez les deux empreintes sur vos appareils avant d’approuver la demande affichée.",
+        "Compare both fingerprints on your devices before approving the displayed request.",
+    ),
+    ("crypto.code", "Code de demande ou d’approbation", "Request or approval code"),
+    ("crypto.copy", "Copier le code d’association", "Copy association code"),
+    ("crypto.device", "Appareil demandeur", "Requesting device"),
+    ("crypto.refresh", "Actualiser", "Refresh"),
+    (
+        "crypto.begin",
+        "Créer l’identité ou accepter l’empreinte affichée",
+        "Create identity or accept the displayed fingerprint",
+    ),
+    ("crypto.own_preview", "Examiner la demande de cet appareil", "Review this device’s request"),
+    ("crypto.preview", "Examiner la demande saisie", "Review the entered request"),
+    ("crypto.approve", "Approuver les empreintes affichées", "Approve the displayed fingerprints"),
+    (
+        "crypto.grant_ready",
+        "Approbation prête : transmettez ce code à l’appareil demandeur",
+        "Approval ready: transfer this code to the requesting device",
+    ),
+    (
+        "crypto.install",
+        "Installer l’approbation et enregistrer cet appareil",
+        "Install approval and register this device",
+    ),
+    ("crypto.resume", "Reprendre l’enregistrement", "Resume registration"),
+    (
+        "crypto.failed",
+        "L’opération n’a pas abouti. Actualisez pour reprendre ; le coffre existant est conservé.",
+        "The operation did not finish. Refresh to resume; the existing vault is retained.",
+    ),
     ("links.unavailable", "Ce lien est indisponible pour ce compte.", "This link is unavailable for this account."),
     (
         "links.choose_account",

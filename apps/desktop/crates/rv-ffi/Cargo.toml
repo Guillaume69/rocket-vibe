@@ -16,6 +16,7 @@ name = "uniffi-bindgen-swift"
 path = "src/bin/uniffi-bindgen-swift.rs"
 
 [dependencies]
+rv-crypto = { path = "../../../../crates/rv-crypto", features = ["system-keystore"] }
 chrono = "0.4.45"
 rv-core = { path = "../rv-core" }
 serde_json = "1.0.151"

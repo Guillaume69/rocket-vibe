@@ -52,6 +52,9 @@ pub fn open_native(
     if session.security_supported() {
         page.add(&crate::native_security::group(&dialog, session.clone()));
     }
+    if session.crypto_settings_supported() {
+        page.add(&crate::native_crypto::group(&dialog, session.clone()));
+    }
     if crate::background::SUPPORTED {
         page.add(&background_group(&dialog));
     }

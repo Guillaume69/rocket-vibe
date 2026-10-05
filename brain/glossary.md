@@ -140,6 +140,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | `rv-gtk` | The GTK 4 + libadwaita app (Linux, Windows, macOS). | [desktop-gtk](architecture/desktop-gtk.md) |
 | `rv-native` | Windows and macOS shims: system notifications, badges, call web views, tray, start at login. | [desktop-gtk](architecture/desktop-gtk.md) |
 | `RocketVibeKit`, `RocketVibe` | The SwiftUI app's view models and views (`apps/desktop/macos/Sources/`). | [desktop-macos](architecture/desktop-macos.md) |
+| Context window | The history around a message older than what a room has loaded, held in memory and never stored; the list showing it is detached from the present until the window reaches the local history (rv-core `context`). | [room-view](features/room-view.md) |
 | `timeline` | rv-core's message-list grouping (headers, day separators, new-messages marker), shared by both UIs. | [room-view](features/room-view.md) |
 
 ## Project vocabulary

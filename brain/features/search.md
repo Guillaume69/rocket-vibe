@@ -24,8 +24,8 @@ This is the only place the apps call `spotlight`; `@` mention completion deliber
 `GET chat.search?roomId=&searchText=&count=50`, opened from the room header's search button.
 
 - Mobile: `app/message-search.tsx`. Results are **ephemeral**: normalised with `toMessage` like any server document, rendered with the regular `MessageRow`, and never written to SQLite (isolated old messages have no place in the local window). They are read-only: no long press (the action sheet reads the database by id, and an old result may not be there), no reaction toggling, each with its own header. There is **no jump** to the message in the history; the file header records that it waits for targeted backward paging.
-- GTK: a dialog (`details::search` in `rv-gtk/src/details.rs`) listing author, date and the rendered body. A click closes it and **goes to the message**: a thread reply opens its thread, anything else is revealed in the room after paging older history up to 30 times (`Chat::jump_to`), with a "not loaded" toast if it is still not there.
-- SwiftUI: `SearchView` in `Details.swift`, the same list; a tap jumps through `RoomModel.jump(to:)` (also up to 30 older pages). It does not special-case thread replies.
+- GTK: a dialog (`details::search` in `rv-gtk/src/details.rs`) listing author, date and the rendered body. A click closes it and **goes to the message**: a thread reply opens its thread, anything else is revealed in the room, in the history around it when it is older than what is loaded, whatever its age (`Chat::jump_to`, the context window of [room-view.md](room-view.md)). A toast says so only when the server cannot give the message back.
+- SwiftUI: `SearchView` in `Details.swift`, the same list; a tap jumps through `RoomModel.jump(to:)`, which pages back at most 30 times (1,500 messages) and fails beyond. It does not special-case thread replies.
 
 ## Parity
 
@@ -41,6 +41,7 @@ Both apps: spotlight for new conversations, `chat.search` in a room. Desktop onl
 - apps/mobile/providers/rocketchat/actions.ts
 - apps/mobile/lib/normalize.ts
 - apps/desktop/crates/rv-core/src/session.rs
+- apps/desktop/crates/rv-core/src/context.rs
 - apps/desktop/crates/rv-core/src/rooms.rs
 - apps/desktop/crates/rv-core/src/info.rs
 - apps/desktop/crates/rv-gtk/src/spotlight.rs

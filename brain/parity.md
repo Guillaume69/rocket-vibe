@@ -115,6 +115,7 @@ beta does.
 | Confirmation before deleting | missing | done | done | |
 | Pin (`chat.pinMessage`) | done | done | done | |
 | Pinned and starred lists, jump to the message | done | done | done | |
+| Jump to a message of any age (the history around it) | partial | done | partial | GTK shows the history around the message whatever its age ([room-view](features/room-view.md), "Jumps"). Mobile pages back at most 4 pages, SwiftUI 30, and both fail beyond. |
 
 ## 6. Threads - [threads](features/threads.md)
 
@@ -129,7 +130,7 @@ beta does.
 | Feature | Mobile | GTK | SwiftUI | Notes |
 |---|---|---|---|---|
 | Search messages in the room (`chat.search`) | done | done | done | |
-| Open a result at its message | missing | done | done | Mobile results cannot be tapped. |
+| Open a result at its message | missing | done | partial | Mobile results cannot be tapped. SwiftUI fails on a result older than 30 pages (row "Jump to a message of any age"). |
 | Search across rooms | missing | missing | missing | |
 
 ## 8. Room info and profiles - [room-info-and-profiles](features/room-info-and-profiles.md)
@@ -208,12 +209,13 @@ gaps, listed last.
 - **Mobile**: several accounts per server; time and `@n` badge in the room list;
   `mailto:` links; mentions of me highlighted; formatting toolbar; list
   continuation; delete confirmation; opening a search result at its message;
-  removing my photo; logs folder; meeting information.
+  jumping to a message older than 4 pages; removing my photo; logs folder; meeting information.
 - **GTK**: email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; voice replay before
   sending; files and voice in a thread; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.
 - **SwiftUI**: everything GTK owes, plus `-wal` / `-shm` cleanup on sign-out;
+  jumping to a message older than 30 pages;
   formatting toolbar; list continuation; notification check; logs folder; new
   versions; running with the window closed and starting at login; meeting
   information.

@@ -281,6 +281,8 @@ pub struct Card {
     pub site: Option<String>,
     /// A video (YouTube and the like): the card plays it.
     pub video: bool,
+    /// The video's player page, loaded at `player_origin()`: the card plays it in place.
+    pub player: Option<String>,
     pub integration: bool,
     pub color: Option<String>,
     pub fields: Vec<CardField>,
@@ -385,6 +387,7 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
             image: v.thumbnail,
             site: Some(v.provider.to_owned()),
             video: true,
+            player: rv_core::player::page(v.provider, &v.id),
             ..Default::default()
         })
         .collect();

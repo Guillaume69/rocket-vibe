@@ -1,345 +1,345 @@
 import { desc } from 'drizzle-orm';
-import { useRequeteVive } from '../ui/requeteVive.ts';
+import { useCoalescedLiveQuery } from '../ui/liveQuery.ts';
 import { Redirect, Stack, useRouter } from 'expo-router';
 import { ActivityIndicator, SectionList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import type { BaseLocale } from '../db/client.ts';
-import { abonnements, salons } from '../db/schema.ts';
-import { apercuTexte } from '../lib/markdown.ts';
-import { apercuSysteme } from '../lib/messagesSysteme.ts';
-import type { ClientRest } from '../lib/rest.ts';
-import { useActivite } from '../ui/activite.ts';
+import type { LocalDatabase } from '../db/client.ts';
+import { subscriptions, rooms } from '../db/schema.ts';
+import { textPreview } from '../lib/markdown.ts';
+import { systemPreview } from '../lib/systemMessages.ts';
+import type { RestClient } from '../lib/rest.ts';
+import { useActivity } from '../ui/activity.ts';
 import { useT } from '../ui/i18n.ts';
-import { AvatarSalon, BadgeNonLus, BarreSynchro, Marque, TuileAvatar } from '../ui/kit.tsx';
-import { couleursPresence, usePresence } from '../ui/presence.ts';
+import { RoomAvatar, UnreadBadge, SyncBar, Brand, AvatarTile } from '../ui/kit.tsx';
+import { presenceColors, usePresence } from '../ui/presence.ts';
 import {
-  construireSections,
-  type EntreeAccueil,
-  replierSections,
-  type SectionAffichee,
-} from '../ui/sectionsAccueil.ts';
-import { basculerSectionRepliee, useSectionsRepliees } from '../ui/sectionsRepliees.ts';
+  buildSections,
+  type HomeEntry,
+  collapseSections,
+  type DisplayedSection,
+} from '../ui/homeSections.ts';
+import { toggleCollapsedSection, useCollapsedSections } from '../ui/collapsedSections.ts';
 import { useSession } from '../ui/session.tsx';
-import { useSynchro } from '../ui/synchro.tsx';
-import { useE2EDeverrouille } from '../ui/e2e.ts';
-import type { MoteurE2E } from '../lib/e2e/moteur.ts';
-import { type Couleurs, DELAI_PRESSION_LISTE, POLICES, useCouleurs } from '../ui/theme.ts';
-import { Appuyable } from '../ui/appuyable.tsx';
+import { useSync } from '../ui/sync.tsx';
+import { useE2EUnlocked } from '../ui/e2e.ts';
+import type { E2EEngine } from '../lib/e2e/engine.ts';
+import { type Colors, LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
+import { Tappable } from '../ui/tappable.tsx';
 
 /**
- * Portier et liste des salons. Sans session on va se connecter ; avec session,
- * la liste projette SQLite via `useLiveQuery` — le moteur de synchro écrit, la
- * liste se rafraîchit, aucun des deux ne connaît l'autre.
+ * Gatekeeper and room list. Without a session we go log in; with one, the
+ * list projects SQLite via `useCoalescedLiveQuery`: the sync engine writes,
+ * the list refreshes, neither knows about the other.
  */
-export default function EcranAccueil() {
-  const { etat } = useSession();
-  const c = useCouleurs();
+export default function HomeScreen() {
+  const { state } = useSession();
+  const c = useColors();
 
-  if (etat.phase === 'demarrage') {
+  if (state.phase === 'starting') {
     return (
-      <View style={[styles.centre, { backgroundColor: c.fond }]}>
+      <View style={[styles.center, { backgroundColor: c.background }]}>
         <ActivityIndicator color={c.accent} />
       </View>
     );
   }
 
-  if (etat.phase === 'deconnecte') return <Redirect href="/connexion" />;
+  if (state.phase === 'disconnected') return <Redirect href="/login" />;
 
   return (
-    // Pas de saisie sur cet écran ; s'il en gagne une, passer à
-    // `VueEvitantLeClavier` (ui/clavier.tsx) — SafeAreaView ignore le clavier.
-    <SafeAreaView style={[styles.plein, { backgroundColor: c.fond }]} edges={['top', 'bottom']}>
-      {/* En-tête à logo dessiné par l'écran : l'en-tête natif ne sait pas
-          rendre le wordmark dégradé. */}
+    // No input on this screen; if it ever gains one, switch to
+    // `KeyboardAvoidingContainer` (ui/keyboard.tsx): SafeAreaView ignores the keyboard.
+    <SafeAreaView style={[styles.full, { backgroundColor: c.background }]} edges={['top', 'bottom']}>
+      {/* Logo header drawn by the screen: the native header cannot
+          render the gradient wordmark. */}
       <Stack.Screen options={{ headerShown: false }} />
-      <EnTeteListe c={c} />
-      <ListeSalons c={c} client={etat.client} />
+      <ListHeader c={c} />
+      <RoomList c={c} client={state.client} />
     </SafeAreaView>
   );
 }
 
-/** Bandeau supérieur : licorne + logotype dégradé, roue des réglages. */
-function EnTeteListe({ c }: { c: Couleurs }) {
-  const routeur = useRouter();
+/** Top banner: unicorn + gradient logotype, settings wheel. */
+function ListHeader({ c }: { c: Colors }) {
+  const router = useRouter();
   const t = useT();
-  // Le rattrapage global (ouverture de l'app, retour au premier plan) allume
-  // la barre — le cache est déjà là, ceci dit qu'on le rafraîchit.
-  const enSynchro = useActivite('global');
+  // The global catch-up (app opening, return to foreground) lights the bar:
+  // the cache is already there, this says we are refreshing it.
+  const syncing = useActivity('global');
   return (
-    <View style={[styles.entete, { borderBottomColor: c.bordureDouce }]}>
-      <View style={styles.enteteMarque}>
-        <Text style={styles.enteteLicorne}>🦄</Text>
-        <Marque c={c} taille={23} />
+    <View style={[styles.header, { borderBottomColor: c.softBorder }]}>
+      <View style={styles.headerBrand}>
+        <Text style={styles.headerUnicorn}>🦄</Text>
+        <Brand c={c} size={23} />
       </View>
-      <Appuyable
-        onPress={() => routeur.push('/parametres')}
-        android_ripple={{ color: c.ondulation, borderless: true, radius: 22 }}
+      <Tappable
+        onPress={() => router.push('/settings')}
+        android_ripple={{ color: c.ripple, borderless: true, radius: 22 }}
         hitSlop={8}
         accessibilityRole="button"
-        accessibilityLabel={t('accueil.parametres')}
-        style={({ pressed }) => [styles.enteteRoue, { opacity: pressed ? 0.55 : 1 }]}
+        accessibilityLabel={t('home.settings')}
+        style={({ pressed }) => [styles.headerWheel, { opacity: pressed ? 0.55 : 1 }]}
       >
-        <Text style={styles.enteteRoueGlyphe}>⚙️</Text>
-      </Appuyable>
-      <BarreSynchro c={c} actif={enSynchro} />
+        <Text style={styles.headerWheelGlyph}>⚙️</Text>
+      </Tappable>
+      <SyncBar c={c} active={syncing} />
     </View>
   );
 }
 
-function ListeSalons({ c, client }: { c: Couleurs; client: ClientRest }) {
-  const synchro = useSynchro();
+function RoomList({ c, client }: { c: Colors; client: RestClient }) {
+  const sync = useSync();
 
-  if (synchro.phase === 'erreur') {
+  if (sync.phase === 'error') {
     return (
-      <View style={styles.centre}>
-        <Text style={[styles.messageErreur, { color: c.texteErreur }]}>{synchro.message}</Text>
+      <View style={styles.center}>
+        <Text style={[styles.errorMessage, { color: c.errorText }]}>{sync.message}</Text>
       </View>
     );
   }
-  if (synchro.phase !== 'pret') {
+  if (sync.phase !== 'ready') {
     return (
-      <View style={styles.centre}>
+      <View style={styles.center}>
         <ActivityIndicator color={c.accent} />
       </View>
     );
   }
-  return <Salons c={c} base={synchro.base} client={client} e2e={synchro.e2e} />;
+  return <Rooms c={c} base={sync.base} client={client} e2e={sync.e2e} />;
 }
 
-function Salons({
+function Rooms({
   c,
   base,
   client,
   e2e,
 }: {
-  c: Couleurs;
-  base: BaseLocale;
-  client: ClientRest;
-  e2e: MoteurE2E;
+  c: Colors;
+  base: LocalDatabase;
+  client: RestClient;
+  e2e: E2EEngine;
 }) {
   const t = useT();
-  const deverrouille = useE2EDeverrouille(e2e);
-  // Deux requêtes vives, une PAR TABLE : le `useLiveQuery` de drizzle n'écoute
-  // que la table du FROM. Avec une jointure, une écriture qui ne touche que
-  // `abonnements` (lecture sur un autre appareil, salon masqué) ne
-  // rafraîchirait JAMAIS la liste. La fusion se fait donc ici, en JS.
+  const unlocked = useE2EUnlocked(e2e);
+  // Two live queries, one PER TABLE: `useCoalescedLiveQuery` only listens to
+  // the FROM table. With a join, a write touching only `subscriptions` (read
+  // on another device, hidden room) would NEVER refresh the list. The merge
+  // therefore happens here, in JS.
   //
-  // La requête ordonne déjà par récence décroissante (les `null` en dernier).
-  // Les `filter` de regroupement ci-dessous PRÉSERVENT cet ordre : chaque
-  // section reste du plus récent au plus ancien sans re-tri explicite.
-  const { data: lignesSalons } = useRequeteVive(
-    base.select().from(salons).orderBy(desc(salons.horodatageDernierMessage)),
+  // The query already orders by descending recency (`null`s last). The
+  // grouping `filter`s below PRESERVE that order: each section stays newest
+  // to oldest without an explicit re-sort.
+  const { data: roomRows } = useCoalescedLiveQuery(
+    base.select().from(rooms).orderBy(desc(rooms.lastMessageTs)),
   );
-  const { data: lignesAbonnements } = useRequeteVive(base.select().from(abonnements));
+  const { data: subscriptionRows } = useCoalescedLiveQuery(base.select().from(subscriptions));
 
-  // Fusion, masquage, remontée des non-lus, répartition, sections vides
-  // retirées : la projection vit dans `ui/sectionsAccueil.ts`, testée sous
-  // Node.
-  const repliees = useSectionsRepliees();
-  const sections: SectionSalons[] = replierSections(
-    construireSections(lignesSalons, lignesAbonnements, {
-      nonLus: t('accueil.sectionNonLus'),
-      favoris: t('accueil.sectionFavoris'),
-      salons: t('accueil.sectionSalons'),
-      messagesPrives: t('accueil.sectionMessagesPrives'),
+  // Merging, hiding, unread lifting, splitting, empty sections removed: the
+  // projection lives in `ui/homeSections.ts`, tested under Node.
+  const collapsed = useCollapsedSections();
+  const sections: RoomsSection[] = collapseSections(
+    buildSections(roomRows, subscriptionRows, {
+      unread: t('home.sectionUnread'),
+      favorites: t('home.sectionFavorites'),
+      rooms: t('home.sectionRooms'),
+      directMessages: t('home.sectionDirectMessages'),
     }),
-    repliees,
+    collapsed,
   );
 
   return (
-    <SectionList<EntreeSalon, SectionSalons>
+    <SectionList<RoomEntry, RoomsSection>
       sections={sections}
-      keyExtractor={(item) => item.salon.rid}
+      keyExtractor={(item) => item.room.rid}
       renderItem={({ item }) => (
-        <LigneSalon
+        <RoomRow
           c={c}
-          salon={item.salon}
-          abonnement={item.abonnement}
+          room={item.room}
+          subscription={item.subscription}
           client={client}
-          deverrouille={deverrouille}
+          unlocked={unlocked}
         />
       )}
-      // Un en-tête isolé (une seule section peuplée) n'apprend rien : on le tait.
+      // A lone header (only one populated section) tells nothing: we hide it.
       renderSectionHeader={({ section }) =>
-        sections.length > 1 ? <EnTeteSection c={c} section={section} /> : null
+        sections.length > 1 ? <SectionHeader c={c} section={section} /> : null
       }
       stickySectionHeadersEnabled={false}
-      ListHeaderComponent={<LigneNouvelleConversation c={c} />}
+      ListHeaderComponent={<NewConversationRow c={c} />}
       ListEmptyComponent={
-        <Text style={[styles.vide, { color: c.attenue }]}>{t('accueil.listeVide')}</Text>
+        <Text style={[styles.empty, { color: c.dimmed }]}>{t('home.emptyList')}</Text>
       }
-      contentContainerStyle={styles.contenu}
+      contentContainerStyle={styles.content}
     />
   );
 }
 
-type LigneDeSalon = typeof salons.$inferSelect;
-type LigneDAbonnement = typeof abonnements.$inferSelect;
-type EntreeSalon = EntreeAccueil<LigneDeSalon, LigneDAbonnement>;
-type SectionSalons = SectionAffichee<EntreeSalon>;
+type RoomRecord = typeof rooms.$inferSelect;
+type SubscriptionRow = typeof subscriptions.$inferSelect;
+type RoomEntry = HomeEntry<RoomRecord, SubscriptionRow>;
+type RoomsSection = DisplayedSection<RoomEntry>;
 
 /**
- * Titre de section de la liste : « Non lus », « Salons », « Messages privés ».
- * Un appui la replie ; repliée, elle affiche son effectif.
+ * List section title: "Unread", "Rooms", "Direct messages".
+ * A tap collapses it; collapsed, it shows its count.
  */
-function EnTeteSection({ c, section }: { c: Couleurs; section: SectionSalons }) {
+function SectionHeader({ c, section }: { c: Colors; section: RoomsSection }) {
   const t = useT();
-  const effectif = t('accueil.sectionConversations', { n: section.total });
+  const count = t('home.sectionConversations', { n: section.total });
   return (
-    <Appuyable
-      onPress={() => basculerSectionRepliee(section.cle)}
-      android_ripple={{ color: c.ondulation }}
+    <Tappable
+      onPress={() => toggleCollapsedSection(section.key)}
+      android_ripple={{ color: c.ripple }}
       accessibilityRole="button"
-      accessibilityLabel={section.repliee ? `${section.titre}, ${effectif}` : section.titre}
-      accessibilityState={{ expanded: !section.repliee }}
-      style={[styles.enteteSection, { backgroundColor: c.fond }]}
+      accessibilityLabel={section.collapsed ? `${section.title}, ${count}` : section.title}
+      accessibilityState={{ expanded: !section.collapsed }}
+      style={[styles.sectionHeader, { backgroundColor: c.background }]}
     >
       <Text
         style={[
-          styles.enteteSectionChevron,
-          { color: c.attenue },
-          !section.repliee && styles.enteteSectionChevronOuvert,
+          styles.sectionHeaderChevron,
+          { color: c.dimmed },
+          !section.collapsed && styles.sectionHeaderChevronOpen,
         ]}
       >
         ›
       </Text>
-      <Text style={[styles.enteteSectionTexte, { color: c.attenue }]}>{section.titre}</Text>
-      {section.repliee && (
-        <Text style={[styles.enteteSectionEffectif, { color: c.texteTertiaire }]}>
+      <Text style={[styles.sectionHeaderText, { color: c.dimmed }]}>{section.title}</Text>
+      {section.collapsed && (
+        <Text style={[styles.sectionHeaderCount, { color: c.tertiaryText }]}>
           {section.total}
         </Text>
       )}
-    </Appuyable>
+    </Tappable>
   );
 }
 
-function LigneSalon({
+function RoomRow({
   c,
-  salon,
-  abonnement,
+  room,
+  subscription,
   client,
-  deverrouille,
+  unlocked,
 }: {
-  c: Couleurs;
-  salon: LigneDeSalon;
-  abonnement: LigneDAbonnement | null;
-  client: ClientRest;
-  /** E2EE déverrouillé sur l'appareil — pilote l'aperçu et l'icône cadenas. */
-  deverrouille: boolean;
+  c: Colors;
+  room: RoomRecord;
+  subscription: SubscriptionRow | null;
+  client: RestClient;
+  /** E2EE unlocked on the device: drives the preview and the lock icon. */
+  unlocked: boolean;
 }) {
-  const routeur = useRouter();
+  const router = useRouter();
   const t = useT();
-  // Pastille de présence (8.4), DM à deux seulement (`dm_autre_uid` est null
-  // ailleurs). Statut inconnu, ou diffusion coupée côté serveur
-  // (Presence_broadcast_disabled) : rien — l'UI n'en dépend jamais.
-  const statut = usePresence(salon.dmAutreUid,salon.type==='d'?salon.rid:undefined);
-  const nom = salon.nomAffiche ?? salon.nom ?? salon.rid;
-  const nonLus = abonnement?.nonLus ?? 0;
-  const enAlerte = abonnement?.alerte === true || nonLus > 0;
-  // Salon chiffré : tant qu'aucun message n'est déchiffré (`dernier_message`
-  // null — le ciphertext n'est jamais stocké), le placeholder cadenas. Une fois
-  // déverrouillé, `majApercuChiffre` y a posé le dernier message clair.
+  // Presence dot (8.4), two-person DMs only (`dmOtherUid` is null elsewhere).
+  // Unknown status, or broadcast turned off server-side
+  // (Presence_broadcast_disabled): nothing; the UI never depends on it.
+  const status = usePresence(room.dmOtherUid,room.type==='d'?room.rid:undefined);
+  const name = room.displayName ?? room.name ?? room.rid;
+  const unread = subscription?.unread ?? 0;
+  const alerting = subscription?.alert === true || unread > 0;
+  // Encrypted room: as long as no message is decrypted (`lastMessage` null,
+  // the ciphertext is never stored), the lock placeholder. Once unlocked,
+  // `updateEncryptedPreview` has put the last plaintext message there.
   //
-  // Sinon, un `dernier_message` null a DEUX sens (voir `db/schema.ts`) : salon
-  // vidé — rien à écrire —, ou dernier message sans texte à montrer, auquel cas
-  // `dernier_message_type` dit lequel et le libellé se traduit ICI, au rendu :
-  // la langue est commutable à chaud, une phrase figée en base y résisterait.
-  const apercu =
-    salon.chiffre && salon.dernierMessage === null
-      ? t('accueil.messagesChiffres')
-      : ((salon.dernierMessage !== null ? apercuTexte(salon.dernierMessage) : null) ??
-        apercuSysteme(t, salon.dernierMessageType) ??
+  // Otherwise a null `lastMessage` has TWO meanings (see `db/schema.ts`): room
+  // emptied (nothing to write), or last message with no text to show, in
+  // which case `lastMessageType` says which and the label is translated HERE,
+  // at render: the language switches live, a sentence frozen in the database
+  // would resist it.
+  const preview =
+    room.encrypted && room.lastMessage === null
+      ? t('home.encryptedMessages')
+      : ((room.lastMessage !== null ? textPreview(room.lastMessage) : null) ??
+        systemPreview(t, room.lastMessageType) ??
         ' ');
 
   return (
-    // L'enveloppe arrondie + `overflow: 'hidden'` est ce qui ARRONDIT
-    // l'ondulation : le masque du ripple borné ignore borderRadius sous
-    // Fabric (vérifié sur l'émulateur), seul le clip d'un PARENT le découpe.
-    <View style={styles.enveloppeLigne}>
-      <Appuyable
-        onPress={() => routeur.push({ pathname: '/salon/[rid]', params: { rid: salon.rid } })}
-        android_ripple={{ color: c.ondulation }}
-        unstable_pressDelay={DELAI_PRESSION_LISTE}
-        style={({ pressed }) => [styles.ligne, { opacity: pressed ? 0.6 : 1 }]}
+    // The rounded wrapper + `overflow: 'hidden'` is what ROUNDS the ripple: the
+    // bounded ripple mask ignores borderRadius under Fabric (checked on the
+    // emulator), only a PARENT's clip cuts it.
+    <View style={styles.rowWrapper}>
+      <Tappable
+        onPress={() => router.push({ pathname: '/room/[rid]', params: { rid: room.rid } })}
+        android_ripple={{ color: c.ripple }}
+        unstable_pressDelay={LIST_PRESS_DELAY}
+        style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
       >
       <View>
-        <AvatarSalon
+        <RoomAvatar
           c={c}
-          nom={nom}
-          type={salon.type}
-          chiffre={salon.chiffre}
-          chiffreDeverrouille={deverrouille}
-          rid={salon.rid}
-          dmAutreUid={salon.dmAutreUid}
-          avatarEtag={salon.avatarEtag}
+          name={name}
+          type={room.type}
+          encrypted={room.encrypted}
+          encryptedUnlocked={unlocked}
+          rid={room.rid}
+          dmOtherUid={room.dmOtherUid}
+          avatarEtag={room.avatarEtag}
           client={client}
         />
-        {statut !== null && (
+        {status !== null && (
           <View
             style={[
-              styles.pastille,
-              { backgroundColor: couleursPresence(c)[statut], borderColor: c.fond },
+              styles.badge,
+              { backgroundColor: presenceColors(c)[status], borderColor: c.background },
             ]}
           />
         )}
       </View>
 
-      <View style={styles.corpsLigne}>
+      <View style={styles.rowBody}>
         <Text
           style={[
-            styles.nomSalon,
-            { color: enAlerte ? c.texte : c.texteSecondaire },
-            enAlerte && styles.nomEnAlerte,
+            styles.roomName,
+            { color: alerting ? c.text : c.secondaryText },
+            alerting && styles.alertingName,
           ]}
           numberOfLines={1}
         >
-          {salon.chiffre && <Text style={styles.badgeChiffre}>🔒 </Text>}
-          {nom}
+          {room.encrypted && <Text style={styles.encryptedBadge}>🔒 </Text>}
+          {name}
         </Text>
         <Text
-          style={[styles.apercu, { color: c.attenue }, salon.chiffre && styles.apercuChiffre]}
+          style={[styles.preview, { color: c.dimmed }, room.encrypted && styles.encryptedPreview]}
           numberOfLines={1}
         >
-          {apercu}
+          {preview}
         </Text>
       </View>
 
-        <BadgeNonLus c={c} n={nonLus} />
-      </Appuyable>
+        <UnreadBadge c={c} n={unread} />
+      </Tappable>
     </View>
   );
 }
 
-/** Première ligne, fixe en tête de liste : démarrer une conversation. */
-function LigneNouvelleConversation({ c }: { c: Couleurs }) {
-  const routeur = useRouter();
+/** First row, fixed at the top of the list: start a conversation. */
+function NewConversationRow({ c }: { c: Colors }) {
+  const router = useRouter();
   const t = useT();
   return (
-    <View style={styles.enveloppeLigne}>
-      <Appuyable
-        onPress={() => routeur.push('/recherche')}
-        android_ripple={{ color: c.ondulation }}
-        unstable_pressDelay={DELAI_PRESSION_LISTE}
-        style={[styles.ligne, { borderBottomColor: c.bordureDouce, borderBottomWidth: 1 }]}
+    <View style={styles.rowWrapper}>
+      <Tappable
+        onPress={() => router.push('/search')}
+        android_ripple={{ color: c.ripple }}
+        unstable_pressDelay={LIST_PRESS_DELAY}
+        style={[styles.row, { borderBottomColor: c.softBorder, borderBottomWidth: 1 }]}
       >
-        <TuileAvatar
+        <AvatarTile
           c={c}
-          deg={[c.accent, c.jaune] as const}
-          enfant={<Text style={[styles.plus, { color: c.surAccent }]}>＋</Text>}
+          deg={[c.accent, c.yellow] as const}
+          child={<Text style={[styles.more, { color: c.onAccent }]}>＋</Text>}
         />
-        <Text style={[styles.nouvelle, { color: c.accent }]}>
-          {t('accueil.nouvelleConversation')}
+        <Text style={[styles.next, { color: c.accent }]}>
+          {t('home.newConversation')}
         </Text>
-      </Appuyable>
+      </Tappable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  plein: { flex: 1 },
-  centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  entete: {
+  full: { flex: 1 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -347,24 +347,24 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
   },
-  enteteMarque: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  enteteLicorne: { fontSize: 22 },
-  enteteRoue: { padding: 4 },
-  enteteRoueGlyphe: { fontSize: 21 },
-  contenu: { paddingBottom: 8 },
-  // Le rayon vit sur l'ENVELOPPE : c'est son clip (`overflow`) qui découpe
-  // l'ondulation — borderRadius sur le Pressable lui-même est ignoré par le
-  // masque du ripple sous Fabric. Invisible au repos (pas de fond).
-  enveloppeLigne: { borderRadius: 18, overflow: 'hidden' },
-  ligne: {
+  headerBrand: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  headerUnicorn: { fontSize: 22 },
+  headerWheel: { padding: 4 },
+  headerWheelGlyph: { fontSize: 21 },
+  content: { paddingBottom: 8 },
+  // The radius lives on the WRAPPER: its clip (`overflow`) cuts the ripple;
+  // borderRadius on the Pressable itself is ignored by the ripple mask under
+  // Fabric. Invisible at rest (no background).
+  rowWrapper: { borderRadius: 18, overflow: 'hidden' },
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 11,
     gap: 12,
   },
-  plus: { fontFamily: POLICES.titreFort, fontSize: 24 },
-  pastille: {
+  more: { fontFamily: FONTS.titleStrong, fontSize: 24 },
+  badge: {
     position: 'absolute',
     bottom: -2,
     right: -2,
@@ -373,15 +373,15 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     borderWidth: 2.5,
   },
-  corpsLigne: { flex: 1, gap: 2 },
-  nomSalon: { fontFamily: POLICES.corpsGras, fontSize: 15 },
-  nomEnAlerte: { fontFamily: POLICES.corpsFort },
-  apercu: { fontFamily: POLICES.corps, fontSize: 12.5 },
-  apercuChiffre: { fontStyle: 'italic' },
-  /** Petit cadenas devant le nom d'un salon chiffré : « ce salon est E2EE ». */
-  badgeChiffre: { fontSize: 12 },
-  nouvelle: { fontFamily: POLICES.titre, fontSize: 15.5 },
-  enteteSection: {
+  rowBody: { flex: 1, gap: 2 },
+  roomName: { fontFamily: FONTS.bodyBold, fontSize: 15 },
+  alertingName: { fontFamily: FONTS.bodyStrong },
+  preview: { fontFamily: FONTS.body, fontSize: 12.5 },
+  encryptedPreview: { fontStyle: 'italic' },
+  /** Small lock before an encrypted room's name: "this room is E2EE". */
+  encryptedBadge: { fontSize: 12 },
+  next: { fontFamily: FONTS.title, fontSize: 15.5 },
+  sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -389,15 +389,15 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 6,
   },
-  enteteSectionChevron: { fontFamily: POLICES.titre, fontSize: 16, lineHeight: 16, width: 10 },
-  enteteSectionChevronOuvert: { transform: [{ rotate: '90deg' }] },
-  enteteSectionEffectif: { fontFamily: POLICES.corpsFort, fontSize: 11 },
-  enteteSectionTexte: {
-    fontFamily: POLICES.corpsFort,
+  sectionHeaderChevron: { fontFamily: FONTS.title, fontSize: 16, lineHeight: 16, width: 10 },
+  sectionHeaderChevronOpen: { transform: [{ rotate: '90deg' }] },
+  sectionHeaderCount: { fontFamily: FONTS.bodyStrong, fontSize: 11 },
+  sectionHeaderText: {
+    fontFamily: FONTS.bodyStrong,
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
-  vide: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: POLICES.corps },
-  messageErreur: { fontFamily: POLICES.corpsGras, fontSize: 14, textAlign: 'center' },
+  empty: { textAlign: 'center', padding: 24, fontSize: 14, fontFamily: FONTS.body },
+  errorMessage: { fontFamily: FONTS.bodyBold, fontSize: 14, textAlign: 'center' },
 });

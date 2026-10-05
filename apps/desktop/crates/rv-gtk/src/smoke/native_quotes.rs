@@ -199,6 +199,7 @@ async fn run(window: Rc<AppWindow>) {
             anchor: window.chat.room_list().row_widget(&source.id).unwrap(),
             x: 10.0,
             y: 10.0,
+            link: None,
         },
         false,
     );
@@ -315,6 +316,7 @@ async fn run(window: Rc<AppWindow>) {
             anchor: window.chat.room_list().row_widget(&reply.id).unwrap(),
             x: 10.0,
             y: 10.0,
+            link: None,
         },
         false,
     );
@@ -374,6 +376,7 @@ async fn run(window: Rc<AppWindow>) {
             anchor: thread.list.row_widget(&child.id).unwrap(),
             x: 10.0,
             y: 10.0,
+            link: None,
         },
         true,
     );
@@ -485,6 +488,7 @@ async fn cross_room_quotes(
             anchor: window.chat.room_list().row_widget(&id).unwrap(),
             x: 10.0,
             y: 10.0,
+            link: None,
         },
         false,
     );
@@ -578,7 +582,7 @@ async fn search_controls(window: &Rc<AppWindow>, session: &std::sync::Arc<rv_cor
         }
         glib::timeout_future(Duration::from_millis(50)).await;
     }
-    let dialog = crate::details::search_native(window.chat.widget(), session.clone(), rid);
+    let dialog = crate::details::search_native(window.chat.widget(), session.clone(), rid, |_, _| {});
     let entry = search_entry(dialog.upcast_ref()).unwrap();
     entry.set_text("needle");
     for _ in 0..100 {

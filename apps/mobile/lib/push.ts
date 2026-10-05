@@ -1,64 +1,63 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
-import { JetonFcm } from '../modules/jeton-fcm/index.ts';
+import { FcmToken } from '../modules/fcm-token/index.ts';
 
 /**
- * Obtention du jeton FCM **natif** — pas le jeton Expo Push.
+ * Getting the **native** FCM token, not the Expo Push token.
  *
- * Sous Android, `getDevicePushTokenAsync()` renvoie le jeton FCM brut, exploitable par un
- * serveur tiers : c'est lui que Rocket.Chat attend dans `POST /api/v1/push.token`
- * (`type: 'gcm'`, nommage historique, la valeur est bien un jeton FCM v1).
- * `getExpoPushTokenAsync()` passerait par le service Expo Push — exclu, on veut
- * l'autonomie complète.
+ * On Android, `getDevicePushTokenAsync()` returns the raw FCM token, usable by
+ * a third-party server: it is what Rocket.Chat expects in
+ * `POST /api/v1/push.token` (`type: 'gcm'`, historical naming, the value is
+ * indeed an FCM v1 token). `getExpoPushTokenAsync()` would go through the Expo
+ * Push service, which is excluded: we want full autonomy.
  *
- * Sous iOS, `getDevicePushTokenAsync()` rend le jeton APNs, que FCM refuse :
- * `modules/jeton-fcm` le remet à Firebase et rend le jeton FCM. Rocket.Chat le
- * reçoit en `gcm` comme sous Android ; FCM relaie vers APNs.
+ * On iOS, `getDevicePushTokenAsync()` returns the APNs token, which FCM
+ * refuses: `modules/fcm-token` hands it to Firebase and returns the FCM token.
+ * Rocket.Chat receives it as `gcm` like on Android; FCM relays to APNs.
  *
- * L'ordre importe : le canal de notification doit exister **avant** la demande
- * de permission, sinon le prompt `POST_NOTIFICATIONS` (Android 13+) ne
- * s'affiche jamais.
+ * Order matters: the notification channel must exist **before** the
+ * permission request, otherwise the `POST_NOTIFICATIONS` prompt (Android 13+)
+ * never shows.
  */
 
-export type ResultatJeton =
-  | { ok: true; jeton: string }
-  | { ok: false; raison: 'permission-refusee' | 'echec'; detail?: string };
+export type TokenResult =
+  | { ok: true; token: string }
+  | { ok: false; reason: 'permission-denied' | 'failed'; detail?: string };
 
 /**
- * S'abonne à la ROTATION du jeton FCM et rend de quoi se désabonner.
+ * Subscribes to FCM token ROTATION and returns the unsubscribe.
  *
- * FCM fait tourner le jeton de sa propre initiative (réinstallation des Play
- * Services, restauration de sauvegarde, purge d'instance). Le natif reçoit
- * `onNewToken`, expo le remonte ici — mais rien ne le réenregistrait auprès de
- * Rocket.Chat : les notifications cessaient EN SILENCE jusqu'au prochain
- * démarrage à froid, et l'ancien jeton, lui, restait côté serveur. Un jeton
- * vide ne se propage pas : ce serait remplacer un enregistrement valide par
- * rien.
+ * FCM rotates the token on its own initiative (Play Services reinstall,
+ * backup restore, instance purge). Native code receives `onNewToken` and expo
+ * forwards it here, but nothing re-registered it with Rocket.Chat:
+ * notifications stopped SILENTLY until the next cold start, while the old
+ * token stayed on the server. An empty token is not propagated: that would
+ * replace a valid registration with nothing.
  */
-export function surRotationJeton(quand: (jeton: string) => void): () => void {
+export function onTokenRotation(when: (token: string) => void): () => void {
   if (Platform.OS === 'ios') {
-    // Deux sources : Firebase annonce un nouveau jeton FCM, et un nouveau jeton
-    // APNs doit lui être remis pour qu'il en produise un.
-    const fcm = JetonFcm?.addListener('jetonRenouvele', ({ jeton }) => {
-      if (jeton !== '') quand(jeton);
+    // Two sources: Firebase announces a new FCM token, and a new APNs token
+    // must be handed to it so it produces one.
+    const fcm = FcmToken?.addListener('tokenRefreshed', ({ token }) => {
+      if (token !== '') when(token);
     });
-    const apns = Notifications.addPushTokenListener((jeton) => {
-      if (typeof jeton.data !== 'string' || jeton.data === '' || JetonFcm === null) return;
-      JetonFcm.obtenir(jeton.data).then(quand, () => {});
+    const apns = Notifications.addPushTokenListener((token) => {
+      if (typeof token.data !== 'string' || token.data === '' || FcmToken === null) return;
+      FcmToken.getToken(token.data).then(when, () => {});
     });
     return () => {
       fcm?.remove();
       apns.remove();
     };
   }
-  const abonnement = Notifications.addPushTokenListener((jeton) => {
-    if (typeof jeton.data === 'string' && jeton.data !== '') quand(jeton.data);
+  const subscription = Notifications.addPushTokenListener((token) => {
+    if (typeof token.data === 'string' && token.data !== '') when(token.data);
   });
-  return () => abonnement.remove();
+  return () => subscription.remove();
 }
 
-export async function obtenirJetonFcm(): Promise<ResultatJeton> {
+export async function getFcmToken(): Promise<TokenResult> {
   try {
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', {
@@ -70,19 +69,19 @@ export async function obtenirJetonFcm(): Promise<ResultatJeton> {
 
     const permission = await Notifications.requestPermissionsAsync();
     if (!permission.granted) {
-      return { ok: false, raison: 'permission-refusee' };
+      return { ok: false, reason: 'permission-denied' };
     }
 
     const { data, type } = await Notifications.getDevicePushTokenAsync();
     if (typeof data !== 'string' || data === '') {
-      return { ok: false, raison: 'echec', detail: `jeton vide (type=${type})` };
+      return { ok: false, reason: 'failed', detail: `empty token (type=${type})` };
     }
     if (Platform.OS === 'ios') {
-      if (JetonFcm === null) return { ok: false, raison: 'echec', detail: 'module jeton-fcm absent' };
-      return { ok: true, jeton: await JetonFcm.obtenir(data) };
+      if (FcmToken === null) return { ok: false, reason: 'failed', detail: 'fcm-token module missing' };
+      return { ok: true, token: await FcmToken.getToken(data) };
     }
-    return { ok: true, jeton: data };
+    return { ok: true, token: data };
   } catch (e) {
-    return { ok: false, raison: 'echec', detail: e instanceof Error ? e.message : String(e) };
+    return { ok: false, reason: 'failed', detail: e instanceof Error ? e.message : String(e) };
   }
 }

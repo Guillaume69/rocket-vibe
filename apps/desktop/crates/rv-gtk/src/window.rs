@@ -814,6 +814,7 @@ impl AppWindow {
                     UiEvent::Session(SessionEvent::Upload(rid)) => this.chat.on_upload(&rid),
                     UiEvent::Session(SessionEvent::Avatar) => this.chat.on_avatar(),
                     UiEvent::Session(SessionEvent::Incoming(incoming)) => this.notify(&incoming),
+                    UiEvent::Session(SessionEvent::Private { rid, text }) => this.chat.on_private(&rid, &text),
                     UiEvent::Session(SessionEvent::E2e) => {
                         this.chat.on_e2e();
                         if let Some(s) = this.session.borrow().clone() {
@@ -928,7 +929,7 @@ impl AppWindow {
         });
     }
 
-    /// A `rocketvibe://salon/<rid>?host=` link: the room, on the account of
+    /// A `rocketvibe://room/<rid>?host=` link: the room, on the account of
     /// that server (switching to it if another one is open).
     pub fn open_link(self: &Rc<Self>, uri: &str) {
         if let Some((key, message)) = rv_core::native::notifications::parse_notification_url(uri) {

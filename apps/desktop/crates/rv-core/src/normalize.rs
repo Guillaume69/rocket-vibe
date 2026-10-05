@@ -1,5 +1,5 @@
 //! Rocket.Chat documents to local rows. Port of the Android app's
-//! `lib/normaliser.ts`: every server quirk about document shapes lives here.
+//! `lib/normalize.ts`: every server quirk about document shapes lives here.
 
 use chrono::DateTime;
 use serde_json::Value;

@@ -14,6 +14,8 @@
 //!                          replies in a thread, then opens the actions menu; texts carry <tag>
 //!   RV_SMOKE_DRAFTS=<other room>  completes `@bo` and `:smil`, leaves a draft, opens the
 //!                          other room and comes back: the draft must be restored
+//!   RV_SMOKE_COMMANDS=<tag>  completes `/shr`, runs `/join` on a missing channel (the
+//!                          server's private answer must show), then sends `/shrug <tag>`
 //!   RV_SMOKE_FILES=1       fetches every file attached in the room to the local cache
 //!   RV_SMOKE_UPLOAD="<path>|<caption>"  stages the file in the composer, types the caption and
 //!                          sends (RV_SMOKE_UPLOAD_HOLD=1: left staged, for a screenshot)
@@ -37,6 +39,11 @@
 //!   RV_SMOKE_FOLD=1       folds the channels section: its rooms leave the list, then come back
 //!                          (`keep`: left folded, for a screenshot)
 //!   RV_SMOKE_VIDEO=1      plays the last video card built; it must be playing, controls shown
+//!   RV_SMOKE_PLAYER=1     plays the last YouTube, Dailymotion or Vimeo card built, in the card;
+//!                          with the gallery, `<provider>:<id>` plays that video in a frame of its own
+//!   RV_SMOKE_PLAYER_LEAVE=<other room>  with RV_SMOKE_PLAYER=1: scrolls away and back, the
+//!                          video must still play in its card; then opens the other room, and no
+//!                          card may still show its player
 //!   RV_SMOKE_DRAFT_TEXT=<text>  typed in the composer (\n breaks lines), for a screenshot
 //!   RV_SMOKE_NAV=<other room>  opens the other room, then mouse back and forward between the two;
 //!                          in a narrow window, back to the list and forward into the room again
@@ -241,6 +248,12 @@ pub fn install(window: &Rc<AppWindow>) {
                 let back = rid.clone();
                 glib::timeout_add_local_once(Duration::from_millis(2000), move || draft_checks(chat, back, other));
             }
+            if let Ok(tag) = std::env::var("RV_SMOKE_COMMANDS")
+                && !tag.is_empty()
+            {
+                let chat = w.chat.clone();
+                glib::timeout_add_local_once(Duration::from_millis(3000), move || command_checks(chat, tag));
+            }
             if std::env::var("RV_SMOKE_FILES").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
                 glib::timeout_add_local_once(Duration::from_millis(2000), move || file_checks(chat));
@@ -379,6 +392,50 @@ pub fn install(window: &Rc<AppWindow>) {
                         }
                     });
                 });
+            }
+            if std::env::var("RV_SMOKE_PLAYER").as_deref() == Ok("1") {
+                glib::timeout_add_local_once(Duration::from_millis(5000), || {
+                    let started = crate::player::play_last();
+                    println!("smoke: player started={started}");
+                    if !started {
+                        FAILED.store(true, Ordering::SeqCst);
+                    }
+                });
+                if let Ok(other) = std::env::var("RV_SMOKE_PLAYER_LEAVE")
+                    && let Some(other) = w.chat.room_named(&other)
+                {
+                    let chat = w.chat.clone();
+                    glib::timeout_add_local_once(Duration::from_millis(9000), move || {
+                        chat.scroll_list_to_top();
+                        glib::timeout_add_local_once(Duration::from_millis(1500), || {
+                            println!(
+                                "smoke: players scrolled away={} on screen={}",
+                                crate::cards::players_shown(),
+                                crate::cards::players_mapped()
+                            );
+                        });
+                    });
+                    let chat = w.chat.clone();
+                    glib::timeout_add_local_once(Duration::from_millis(11000), move || {
+                        chat.scroll_list_to_bottom();
+                    });
+                    let chat = w.chat.clone();
+                    glib::timeout_add_local_once(Duration::from_millis(14000), move || {
+                        let (shown, mapped) = (crate::cards::players_shown(), crate::cards::players_mapped());
+                        println!("smoke: players back={shown} on screen={mapped}");
+                        if (shown, mapped) != (1, 1) {
+                            FAILED.store(true, Ordering::SeqCst);
+                        }
+                        chat.open_room(&other);
+                        glib::timeout_add_local_once(Duration::from_millis(2000), || {
+                            let shown = crate::cards::players_shown();
+                            println!("smoke: players after leaving={shown}");
+                            if shown != 0 {
+                                FAILED.store(true, Ordering::SeqCst);
+                            }
+                        });
+                    });
+                }
             }
             if std::env::var("RV_SMOKE_REENTER").as_deref() == Ok("1") {
                 let chat = w.chat.clone();
@@ -724,6 +781,38 @@ fn draft_checks(chat: std::rc::Rc<crate::chat::ChatPage>, back: String, other: S
     in_sequence(chat, steps);
 }
 
+fn command_checks(chat: std::rc::Rc<crate::chat::ChatPage>, tag: String) {
+    let mut steps: std::collections::VecDeque<Check> = std::collections::VecDeque::new();
+    steps.push_back(Box::new(|c| {
+        c.composer().set_text("");
+        c.composer().type_text("/shr");
+    }));
+    steps.push_back(Box::new(|c| {
+        let offered = c.composer().offered();
+        check("command offered", offered.first().is_some_and(|o| o == "/shrug"), &offered);
+        c.composer().accept_first();
+        check("command inserted", c.composer().text() == "/shrug ", c.composer().text());
+        c.composer().set_text("");
+    }));
+    let missing = format!("{tag}-missing");
+    steps.push_back(Box::new(move |c| {
+        c.composer().set_text(&format!("/join #{missing}"));
+        c.composer().submit_now();
+    }));
+    for _ in 0..75 {
+        steps.push_back(Box::new(|_| {}));
+    }
+    let answered = format!("{tag}-missing");
+    steps.push_back(Box::new(move |c| {
+        let note = c.composer().private_note();
+        check("command answered", note.as_deref().is_some_and(|n| n.contains(&answered)), &note);
+        check("command draft cleared", c.composer().text().is_empty(), c.composer().text());
+        c.composer().set_text(&format!("/shrug {tag}"));
+        c.composer().submit_now();
+    }));
+    in_sequence(chat, steps);
+}
+
 fn file_checks(chat: std::rc::Rc<crate::chat::ChatPage>) {
     let (Some(session), Some(rid)) = (chat.session(), chat.current_rid()) else { return };
     let files: Vec<_> = session
@@ -807,7 +896,20 @@ fn details_checks(
             let (s, r, q) = (session.clone(), rid.clone(), text.to_owned());
             let hits = crate::on_tokio(async move { s.search(&r, &q).await }).await.unwrap_or_default();
             check("search finds", hits.iter().any(|m| m.text.as_deref().is_some_and(|t| t.contains(text))), hits.len());
-            crate::details::search(chat.widget(), session, &rid);
+            let target = std::rc::Rc::downgrade(&chat);
+            crate::details::search(chat.widget(), session, &rid, move |id, _| {
+                if let Some(chat) = target.upgrade() {
+                    chat.jump_to(&id);
+                }
+            });
+            if let Some(hit) = hits.iter().find(|m| m.thread_id.is_none()) {
+                chat.jump_to(&hit.id);
+                let (chat, id) = (chat.clone(), hit.id.clone());
+                glib::timeout_add_local_once(Duration::from_millis(6000), move || {
+                    let list = chat.room_list();
+                    check("jumped to a search hit", list.row(&id).is_some(), list.len());
+                });
+            }
         }
     });
 }
@@ -1160,6 +1262,22 @@ pub fn gallery(app: &adw::Application) -> bool {
     let column = gtk::Box::builder().orientation(gtk::Orientation::Vertical).margin_top(12).build();
     for d in &samples {
         column.append(&crate::rows::message_widget(d, "alice", None, None, std::rc::Rc::new(|_| {})));
+    }
+    if let Some((provider, id)) = std::env::var("RV_SMOKE_PLAYER").ok().and_then(|p| {
+        let (provider, id) = p.split_once(':')?;
+        Some((provider.to_owned(), id.to_owned()))
+    }) {
+        let frame = crate::widgets::media_frame(480, 270, &["preview-image", "player-frame"]);
+        frame.set_margin_start(60);
+        column.append(&frame);
+        glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+            let provider = match provider.as_str() {
+                "Dailymotion" => "Dailymotion",
+                "Vimeo" => "Vimeo",
+                _ => "YouTube",
+            };
+            let _ = crate::player::start(&frame, provider, &id);
+        });
     }
     let composer = crate::composer::Composer::new();
     composer.set_text("Draft 😊 with emoji");

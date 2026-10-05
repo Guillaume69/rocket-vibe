@@ -239,6 +239,12 @@ public final class AppModel {
             later(everything: true)
         case let .incoming(incoming):
             onIncoming?(incoming)
+        case let .privateNote(rid, text):
+            if thread?.rid == rid {
+                thread?.note = text
+            } else if room?.rid == rid {
+                room?.note = text
+            }
         }
     }
 

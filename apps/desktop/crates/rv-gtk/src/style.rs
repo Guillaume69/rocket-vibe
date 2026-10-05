@@ -254,6 +254,13 @@ button.edit-button.save { background: linear-gradient(135deg, #FF5FA2, #A78BFA);
 .completion row { border-radius: 8px; padding: 4px 10px; }
 .completion row:selected { background: #2C2946; }
 .completion-item { font-size: 14px; }
+.player-frame, .player-holder { background: #000; }
+.video-progress trough { min-height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.25); }
+.video-progress progress { min-height: 6px; border-radius: 3px; background: linear-gradient(90deg, #FF5FA2, #A78BFA); }
+.command-choice { padding: 2px 0; }
+.command-description { color: #8F89AB; font-size: 12.5px; }
+.private-note { border-left-color: #34E1D0; }
+.private-note .reply-title { color: #34E1D0; }
 menubutton.emoji-button > button { min-width: 28px; min-height: 24px; padding: 0 2px; color: #8F89AB; background: transparent; }
 button.picker-emoji { font-size: 22px; min-width: 36px; min-height: 36px; padding: 0; background: transparent; border-radius: 8px; }
 button.picker-emoji:hover { background: #2C2946; }

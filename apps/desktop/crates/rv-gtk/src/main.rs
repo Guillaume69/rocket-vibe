@@ -29,6 +29,7 @@ mod native_crypto;
 mod native_quote_cards;
 mod native_security;
 mod notifier;
+mod player;
 mod recorder;
 mod rows;
 mod secrets;
@@ -175,5 +176,6 @@ fn main() -> glib::ExitCode {
     rv_native::take_notification_flags(&mut args);
     background::take_flag(&mut args);
     let code = app.run_with_args(&args);
+    updater::exec_if_relaunching();
     if smoke::failed() { glib::ExitCode::FAILURE } else { code }
 }

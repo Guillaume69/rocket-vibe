@@ -517,9 +517,23 @@ impl ChatPage {
         search_button.connect_clicked(move |_| {
             let Some(this) = weak.upgrade() else { return };
             if let (Some(session), Some(rid)) = (this.session(), this.current_rid()) {
-                crate::details::search(&this.split, session, &rid);
+                let target = Rc::downgrade(&this);
+                crate::details::search(&this.split, session, &rid, move |id, thread| {
+                    let Some(this) = target.upgrade() else { return };
+                    match thread {
+                        Some(root) => this.open_thread_of(&root),
+                        None => this.jump_to(&id),
+                    }
+                });
             } else if let (Some(session), Some(rid)) = (this.native_session(), this.current_rid()) {
-                crate::details::search_native(&this.split, session, &rid);
+                let target = Rc::downgrade(&this);
+                crate::details::search_native(&this.split, session, &rid, move |id, thread| {
+                    let Some(this) = target.upgrade() else { return };
+                    match thread {
+                        Some(root) => this.open_thread_of(&root),
+                        None => this.jump_to(&id),
+                    }
+                });
             }
         });
         let weak = Rc::downgrade(&this);
@@ -980,7 +994,15 @@ impl ChatPage {
                     }
                 });
             }
-            RowEvent::Menu { row, anchor, x, y } => {
+            RowEvent::Menu { row, anchor, x, y, link } => {
+                let selection = self
+                    .list
+                    .selection_text()
+                    .or_else(|| self.thread.borrow().as_ref().and_then(|t| t.list.selection_text()))
+                    .or_else(crate::markdown_view::selected_text);
+                if crate::markdown_view::text_menu(&anchor, x, y, selection, link) {
+                    return;
+                }
                 let Some(open) = self.current.borrow().clone() else { return };
                 let room = actions_menu::RoomContext {
                     rid: open.rid.clone(),
@@ -1117,10 +1139,12 @@ impl ChatPage {
                 this.handle_event(event, true);
             }
         });
-        let (s, rid, root) = (session.clone(), open.rid.clone(), root_id.to_owned());
+        let (weak, rid, root) = (Rc::downgrade(self), open.rid.clone(), root_id.to_owned());
+        let composer = Rc::downgrade(&thread.composer);
         thread.composer.connect_submit(move |text| {
-            let (s, rid, root) = (s.clone(), rid.clone(), root.clone());
-            runtime().spawn(async move { s.send_in(&rid, &text, Some(&root)).await });
+            if let (Some(this), Some(composer)) = (weak.upgrade(), composer.upgrade()) {
+                this.send_or_run(&composer, &rid, Some(&root), text);
+            }
         });
         let weak = Rc::downgrade(self);
         thread.composer.connect_edit_last(move || {
@@ -1576,7 +1600,13 @@ impl ChatPage {
             {
                 Some(fraction) => column.append(&gtk::ProgressBar::builder().fraction(fraction).build()),
                 None => {
-                    column.append(&label(t(if failed { "upload.failed" } else { "upload.waiting" }), &["file-detail"]))
+                    let reconnecting = legacy.as_ref().is_some_and(|s| s.uploads.reconnecting());
+                    let state = match (failed, reconnecting) {
+                        (true, _) => "upload.failed",
+                        (false, true) => "upload.retrying",
+                        (false, false) => "upload.waiting",
+                    };
+                    column.append(&label(t(state), &["file-detail"]))
                 }
             }
             row.append(&column);
@@ -2028,9 +2058,50 @@ impl ChatPage {
             }
             return;
         }
+        self.send_or_run(&self.composer, &open.rid, None, text.to_owned());
+    }
+
+    /// Sends `text`, or runs it when it names a slash command; a command the
+    /// server refuses goes back into `composer`.
+    fn send_or_run(self: &Rc<Self>, composer: &Rc<Composer>, rid: &str, thread: Option<&str>, text: String) {
         let Some(session) = self.session.borrow().clone() else { return };
-        let text = text.to_owned();
-        runtime().spawn(async move { session.send(&open.rid, &text).await });
+        let (rid, thread) = (rid.to_owned(), thread.map(str::to_owned));
+        if rv_core::commands::split(&text).is_none() {
+            runtime().spawn(async move { session.send_in(&rid, &text, thread.as_deref()).await });
+            return;
+        }
+        let (weak, composer) = (Rc::downgrade(self), Rc::downgrade(composer));
+        glib::spawn_future_local(async move {
+            let draft = text.clone();
+            let failed = on_tokio(async move {
+                match session.run_command(&rid, &text, thread.as_deref()).await {
+                    Some(result) => result.err(),
+                    None => {
+                        session.send_in(&rid, &text, thread.as_deref()).await;
+                        None
+                    }
+                }
+            })
+            .await;
+            let (Some(this), Some(error)) = (weak.upgrade(), failed) else { return };
+            this.toast(tf("command.failed", &[("error", &error.message)]));
+            if let Some(composer) = composer.upgrade().filter(|c| c.text().is_empty()) {
+                composer.set_text(&draft);
+            }
+        });
+    }
+
+    /// A slash command's answer, shown under the page it was typed in.
+    pub fn on_private(&self, rid: &str, text: &str) {
+        let Some(session) = self.session.borrow().clone() else { return };
+        let me = &session.info.username;
+        if let Some(thread) = self.thread.borrow().as_ref().filter(|t| t.rid == rid) {
+            thread.composer.show_private(text, me);
+            return;
+        }
+        if self.current.borrow().as_ref().is_some_and(|open| open.rid == rid) {
+            self.composer.show_private(text, me);
+        }
     }
 
     fn retry(&self, id: String) {
@@ -2055,6 +2126,14 @@ impl ChatPage {
 
     pub fn has_room(&self, rid: &str) -> bool {
         self.rooms.borrow().iter().any(|r| r.rid == rid)
+    }
+
+    pub fn scroll_list_to_top(&self) {
+        self.list.scroll_to_top();
+    }
+
+    pub fn scroll_list_to_bottom(&self) {
+        self.list.scroll_to_bottom();
     }
 
     pub fn room_named(&self, name: &str) -> Option<String> {

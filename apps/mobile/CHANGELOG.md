@@ -1,11 +1,18 @@
-# Journal des modifications
+# Changelog
 
-Les changements notables de l'app mobile. Format [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
-versions selon le [versionnage sémantique](https://semver.org/lang/fr/). La version vit dans
-`app.json` (avec `package.json` et `android.versionCode`) ; un tag `mobile-vX.Y.Z` publie la
-release, et ses notes sont la section de la version ici.
+Notable changes to the mobile app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+versions follow [Semantic Versioning](https://semver.org/). The version lives in
+`app.json` (with `package.json` and `android.versionCode`); a `mobile-vX.Y.Z` tag publishes the
+release, and its notes are that version's section here.
 
-## [Non publié]
+## [Unreleased]
+
+### Changed
+
+- The app moves its local data, settings and notification links to new internal names on
+  the first launch after the update. You stay signed in, with your messages, language,
+  collapsed sections and unsent messages; notifications already on screen still open and
+  still take replies.
 
 ### Historique local chiffré expérimental
 
@@ -424,100 +431,114 @@ Les comptes des deux fournisseurs cohabitent dans le sélecteur existant. Les
 capacités natives non implémentées (fils, fichiers, réactions, non-lus, push,
 appels et E2EE) sont désactivées ; Rocket.Chat conserve ses fonctionnalités.
 
+## [0.5.0] - 2026-10-03
+
+### Added
+
+- Slash commands: a `/` at the start of a message suggests the server commands you can run
+  in the room, with their parameters and what they do; sending runs it, in the thread when
+  you are in one. The server's reply (a room not found, `/help`) shows above the input,
+  visible to you alone. A rejected command comes back into the input.
+
+### Fixed
+
+- A long press on a link or a mention opens the message actions, as anywhere else in the
+  message; it used to open nothing.
+
 ## [0.4.0] - 2026-09-30
 
-### Ajouté
+### Added
 
-- Une section Favoris dans la liste des salons, après Non lus, pour les salons mis en favori
-  sur le serveur (comme dans le client officiel) ; la fiche d'un salon l'y ajoute ou l'en
-  retire.
+- A Favorites section in the room list, after Unread, for the rooms marked as favorite on
+  the server (as in the official client); a room's info screen adds it there or removes it.
 
-### Corrigé
+### Fixed
 
-- L'aperçu du dernier message dans la liste des salons montrait la syntaxe markdown
-  (délimiteurs de code, étoiles, crochets des liens) : il se lit désormais comme du texte.
+- The last-message preview in the room list showed markdown syntax (code delimiters,
+  asterisks, link brackets): it now reads as plain text.
 
 ## [0.3.1] - 2026-09-29
 
-### Corrigé
+### Fixed
 
-- Les pièces jointes préparées dans un salon, pas encore envoyées, étaient perdues en
-  changeant de salon : elles attendent désormais qu'on y revienne.
+- Attachments prepared in a room but not yet sent were lost when switching rooms: they now
+  wait until you come back.
 
 ## [0.3.0] - 2026-09-29
 
-### Ajouté
+### Added
 
-- Salon chiffré : une fois déverrouillé, on y écrit comme ailleurs. Le message part chiffré
-  (les mentions notifient toujours) ; verrouillé, il attend le déverrouillage au lieu d'échouer.
-  On peut aussi y modifier ses messages et répondre dans un fil.
-- Salon chiffré : les photos, sons et vidéos envoyés chiffrés s'affichent (déchiffrés sur
-  l'appareil, jusqu'à 25 Mo), et tout fichier chiffré se partage ou s'enregistre en clair.
-  On y joint aussi des fichiers : ils partent chiffrés, nom et légende compris.
+- Encrypted room: once unlocked, you write in it as anywhere else. The message goes out
+  encrypted (mentions still notify); while locked, it waits for the unlock instead of failing.
+  You can also edit your messages and reply in a thread there.
+- Encrypted room: photos, sounds and videos sent encrypted are displayed (decrypted on the
+  device, up to 25 MB), and any encrypted file can be shared or saved in the clear.
+  You can also attach files there: they go out encrypted, name and caption included.
 
-### Corrigé
+### Fixed
 
-- Un salon chiffré créé par un ancien client web (clé de salon AES-128) se lit de nouveau une
-  fois déverrouillé, au lieu de n’afficher que des messages « chiffrés, non pris en charge ».
+- An encrypted room created by an old web client (AES-128 room key) is readable again once
+  unlocked, instead of showing only "chiffrés, non pris en charge" ("encrypted, not
+  supported") messages.
 
 ## [0.2.0] - 2026-09-29
 
-### Ajouté
+### Added
 
-- Liste des salons : un appui sur le titre d'une section (Non lus, Salons, Messages privés) la
-  replie ou la déplie ; repliée, elle affiche son nombre de conversations, et l'état est retenu
-  d'un lancement à l'autre.
-- Salon : remonté de plus d'un écran dans l'historique, un bouton rond en bas à droite ramène
-  d'un geste aux derniers messages.
-- Messages : épingler et désépingler, ajouter aux favoris et en retirer, depuis les actions
-  d'un message. Un bouton 📌 dans l'en-tête du salon ouvre ses messages épinglés et vos
-  favoris ; toucher l'un d'eux ramène la conversation jusqu'à lui et le surligne, en chargeant
-  l'historique plus ancien au besoin.
-- Composer : les pièces jointes attendent l'envoi en pastilles (vignette ou icône, nom, format et
-  poids, ✕ pour retirer) ; on peut en joindre plusieurs à la fois, les prévisualiser d'un toucher,
-  et le texte tapé part en légende de la première.
+- Room list: tapping a section title (Unread, Channels, Direct messages) collapses or
+  expands it; collapsed, it shows its number of conversations, and the state is kept from
+  one launch to the next.
+- Room: once scrolled more than a screen up the history, a round button at the bottom right
+  brings you back to the latest messages in one gesture.
+- Messages: pin and unpin, add to and remove from favorites, from a message's actions. A 📌
+  button in the room header opens its pinned messages and your favorites; tapping one scrolls
+  the conversation back to it and highlights it, loading older history if needed.
+- Composer: attachments wait to be sent as chips (thumbnail or icon, name, format and size,
+  ✕ to remove); you can attach several at once, preview them with a tap, and the typed text
+  goes out as the first one's caption.
 
-### Modifié
+### Changed
 
-- Un fichier refusé par le serveur (taille, type) l'est dès qu'on le joint, et non plus au
-  moment d'envoyer.
+- A file the server rejects (size, type) is rejected as soon as it is attached, no longer at
+  send time.
 
-### Corrigé
+### Fixed
 
-- Les actions d’un message suivent vos droits réels sur le serveur : plus d’« Épingler » sans
-  la permission, et un modérateur peut modifier ou supprimer les messages des autres.
-- Un fichier envoyé garde son nom d’origine ; une copie faite par le sélecteur partait sous un
-  nom de cache aléatoire.
-- Un partage vers l’app alors qu’elle n’était pas lancée ouvre bien l’écran de partage, du
-  premier coup ; et un partage n’est plus rejoué à chaque ouverture suivante de l’app.
+- A message's actions follow your actual rights on the server: no more "Épingler" ("Pin")
+  without the permission, and a moderator can edit or delete other people's messages.
+- A sent file keeps its original name; a copy made by the picker went out under a random
+  cache name.
+- Sharing to the app while it was not running does open the share screen, on the first try;
+  and a share is no longer replayed on every later opening of the app.
 
 ## [0.1.0] - 2026-09-27
 
-Première version publiée : Android, pour Rocket.Chat 8 ou plus récent.
+First published version: Android, for Rocket.Chat 8 or later.
 
-### Ajouté
+### Added
 
-- Connexion par mot de passe avec double authentification (TOTP, e-mail, mot de passe),
-  session gardée dans le stockage sécurisé.
-- Hors-ligne d'abord : une base SQLite par serveur et par compte, que l'interface observe ;
-  REST pour agir, DDP pour écouter, reconnexion et rattrapage automatiques.
-- Liste des salons par activité, en sections (non lus, salons, messages privés), avec
-  présence, aperçus, badges de non-lus et recherche de personnes et de salons.
-- Fil de messages : markdown natif, emojis (dont personnalisés), mentions, citations,
-  fils de discussion, réactions, épinglage, édition et suppression, brouillons par salon.
-- Envoi de fichiers en deux temps (photos, vidéos réduites, documents, messages vocaux),
-  avec progression, reprise et abandon.
-- Lecture audio et vidéo intégrée, aperçus de liens et cartes YouTube / Dailymotion / Vimeo.
-- Indicateur de saisie, barre « nouveaux messages », recherche dans un salon.
-- Notifications push FCM au contenu masqué, récupéré à la réception ; réponse depuis la
-  notification ; ouverture du salon par lien `rocketvibe://`.
-- Lecture des salons chiffrés de bout en bout après déverrouillage.
-- Appels vidéo Jitsi.
-- Partage depuis d'autres apps vers un salon.
-- Profils, informations de salon, mon profil (statut, photo, informations).
-- Interface en français et en anglais.
+- Password login with two-factor authentication (TOTP, email, password), session kept in
+  secure storage.
+- Offline first: one SQLite database per server and per account, which the UI observes;
+  REST to act, DDP to listen, automatic reconnection and catch-up.
+- Room list by activity, in sections (unread, channels, direct messages), with presence,
+  previews, unread badges, and search for people and rooms.
+- Message list: native markdown, emojis (custom ones included), mentions, quotes, threads,
+  reactions, pinning, editing and deletion, per-room drafts.
+- Two-step file upload (photos, downscaled videos, documents, voice messages), with
+  progress, resume and cancel.
+- Built-in audio and video playback, link previews, and YouTube / Dailymotion / Vimeo cards.
+- Typing indicator, "new messages" bar, search within a room.
+- FCM push notifications with hidden content, fetched on receipt; reply from the
+  notification; room opened by a `rocketvibe://` link.
+- Reading end-to-end encrypted rooms after unlocking.
+- Jitsi video calls.
+- Sharing from other apps to a room.
+- Profiles, room info, my profile (status, photo, information).
+- Interface in French and English.
 
-[Non publié]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.4.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.5.0...HEAD
+[0.5.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.4.0...mobile-v0.5.0
 [0.4.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.3.1...mobile-v0.4.0
 [0.3.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.3.0...mobile-v0.3.1
 [0.3.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.2.0...mobile-v0.3.0

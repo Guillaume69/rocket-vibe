@@ -1,6 +1,6 @@
 /**
- * La retouche de build.gradle du plugin de signature, sur l'extrait du gabarit
- * RN 0.86 qu'elle vise.
+ * The signing plugin's build.gradle patch, on the RN 0.86 template excerpt it
+ * targets.
  */
 
 import assert from 'node:assert/strict';
@@ -8,9 +8,9 @@ import { createRequire } from 'node:module';
 import { test } from 'node:test';
 
 const require = createRequire(import.meta.url);
-const { signer } = require('./with-signature-release.js');
+const { sign } = require('./with-signature-release.js');
 
-const GABARIT = `android {
+const TEMPLATE = `android {
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
@@ -31,19 +31,19 @@ const GABARIT = `android {
 }
 `;
 
-test('le release signe avec la clé de l’app, le debug garde la sienne', () => {
-  const sortie = signer(GABARIT);
-  assert.match(sortie, /release \{\s*\n\s*if \(System\.getenv\('RV_KEYSTORE'\)\)/);
-  assert.match(sortie, /release \{\s*\n\s*signingConfig signingConfigs\.release/);
-  assert.match(sortie, /debug \{\s*\n\s*signingConfig signingConfigs\.debug/);
-  assert.match(sortie, /throw new GradleException/);
+test('release signs with the app key, debug keeps its own', () => {
+  const output = sign(TEMPLATE);
+  assert.match(output, /release \{\s*\n\s*if \(System\.getenv\('RV_KEYSTORE'\)\)/);
+  assert.match(output, /release \{\s*\n\s*signingConfig signingConfigs\.release/);
+  assert.match(output, /debug \{\s*\n\s*signingConfig signingConfigs\.debug/);
+  assert.match(output, /throw new GradleException/);
 });
 
-test('rejouer le prebuild ne double rien', () => {
-  const une = signer(GABARIT);
-  assert.equal(signer(une), une);
+test('replaying prebuild duplicates nothing', () => {
+  const one = sign(TEMPLATE);
+  assert.equal(sign(one), one);
 });
 
-test('un gabarit qui a changé fait échouer le prebuild', () => {
-  assert.throws(() => signer('android { }'), /signingConfigs\.debug introuvable/);
+test('a changed template fails the prebuild', () => {
+  assert.throws(() => sign('android { }'), /signingConfigs\.debug block not found/);
 });

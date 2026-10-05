@@ -1,9 +1,0 @@
-{
-  "platforms": ["android", "apple"],
-  "android": {
-    "modules": ["com.rocketvibe.reducteurvideo.ReducteurVideoModule"]
-  },
-  "apple": {
-    "modules": ["ReducteurVideoModule"]
-  }
-}

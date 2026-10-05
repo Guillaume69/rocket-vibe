@@ -1,7 +1,10 @@
 //! What a message carries beside its text, as cards: quoted messages, files,
 //! audio and video, link previews, video links and calls.
 
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use adw::prelude::*;
@@ -81,7 +84,7 @@ pub fn quote(provider: Option<&media::Provider>, q: &Quote, me: &str) -> gtk::Wi
 }
 
 /// Where a server file is kept once fetched, so it opens again without a download.
-fn cache_path(file: &FileAttachment) -> PathBuf {
+pub fn cache_path(file: &FileAttachment) -> PathBuf {
     let dir = glib::user_cache_dir().join("rocket-vibe-rs").join("files");
     let _ = std::fs::create_dir_all(&dir);
     let digest: String = Sha256::digest(file.url.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect();
@@ -91,16 +94,63 @@ fn cache_path(file: &FileAttachment) -> PathBuf {
 
 /// The file on disk, fetched the first time.
 pub async fn legacy_local_copy(session: Arc<Session>, file: FileAttachment) -> Option<PathBuf> {
+    legacy_local_copy_with(session, file, |_| {}).await
+}
+
+/// `legacy_local_copy`, with `progress` told the bytes received (on the main
+/// thread) as the file comes in.
+pub async fn legacy_local_copy_with(
+    session: Arc<Session>,
+    file: FileAttachment,
+    progress: impl Fn(u64) + 'static,
+) -> Option<PathBuf> {
+    const STEP: u64 = 256 * 1024;
     let path = cache_path(&file);
     if path.exists() {
         return Some(path);
     }
+    let (sender, receiver) = async_channel::unbounded::<u64>();
+    glib::spawn_future_local(async move {
+        while let Ok(received) = receiver.recv().await {
+            progress(received);
+        }
+    });
     let dest = path.clone();
-    on_tokio(async move { session.download_to(&file.url, &dest).await.ok() }).await?;
+    let reported = std::sync::atomic::AtomicU64::new(0);
+    let report = move |received: u64| {
+        if received >= reported.load(std::sync::atomic::Ordering::Relaxed) + STEP {
+            reported.store(received, std::sync::atomic::Ordering::Relaxed);
+            let _ = sender.try_send(received);
+        }
+    };
+    on_tokio(async move { session.download_with_progress(&file.url, &dest, report).await.ok() }).await?;
     Some(path)
 }
 pub async fn local_copy(session: impl Into<media::Provider>, file: FileAttachment) -> Option<PathBuf> {
-    session.into().local(&file).await
+    local_copy_with(session, file, |_| {}).await
+}
+
+/// `local_copy` with download progress; a native file reports none.
+pub async fn local_copy_with(
+    session: impl Into<media::Provider>,
+    file: FileAttachment,
+    progress: impl Fn(u64) + 'static,
+) -> Option<PathBuf> {
+    match session.into() {
+        media::Provider::RocketChat(s) => legacy_local_copy_with(s, file, progress).await,
+        native => native.local(&file).await,
+    }
+}
+
+/// How far a download of `size` bytes has come.
+pub fn progress_text(received: u64, size: Option<i64>) -> String {
+    match size.filter(|s| *s > 0) {
+        Some(size) => {
+            let percent = (received.saturating_mul(100) / size as u64).min(100).to_string();
+            tf("file.downloading", &[("percent", &percent)])
+        }
+        None => format!("{} {}", t("file.loading"), human_size(received as i64)),
+    }
 }
 
 /// A free name for `name` in the Downloads folder: `n-name` when taken.
@@ -119,9 +169,8 @@ pub fn download_path(name: &str) -> PathBuf {
 /// The server file `link` saved to Downloads as `name`.
 pub async fn save_to_downloads(session: Arc<Session>, link: String, name: String) -> Option<PathBuf> {
     on_tokio(async move {
-        let media = session.media.fetch(&link).await.ok()?;
         let path = download_path(&name);
-        std::fs::write(&path, &media.bytes).ok()?;
+        session.download_to(&link, &path).await.ok()?;
         Some(path)
     })
     .await
@@ -215,8 +264,24 @@ pub fn file_provider(session: media::Provider, f: &FileAttachment) -> gtk::Widge
         status_.set_label(t("file.loading"));
         let (s, file, button, status) = (s.clone(), file.clone(), button.clone(), status_.clone());
         glib::spawn_future_local(async move {
-            let path = download_path(&file.title);
-            let saved = on_tokio(async move { s.download(&file.url, &path).await.then_some(path) }).await;
+            let saved = if matches!(s, media::Provider::RocketChat(_)) {
+                let name = file.title.clone();
+                let (shown, size) = (status.clone(), file.size);
+                match local_copy_with(s, file, move |n| shown.set_label(&progress_text(n, size))).await {
+                    Some(cached) => {
+                        on_tokio(async move {
+                            let path = download_path(&name);
+                            std::fs::copy(&cached, &path).ok().map(|_| path)
+                        })
+                        .await
+                    }
+                    None => None,
+                }
+            } else {
+                // A native file goes straight to Downloads, never through the shared cache.
+                let path = download_path(&file.title);
+                on_tokio(async move { s.download(&file.url, &path).await.then_some(path) }).await
+            };
             button.set_sensitive(true);
             match saved {
                 Some(path) => {
@@ -237,7 +302,8 @@ pub fn file_provider(session: media::Provider, f: &FileAttachment) -> gtk::Widge
         glib::spawn_future_local(async move {
             let kind = f.kind;
             let source = f.url.clone();
-            let path = local_copy(session.clone(), f).await;
+            let (shown, size) = (status.clone(), f.size);
+            let path = local_copy_with(session.clone(), f, move |n| shown.set_label(&progress_text(n, size))).await;
             button.set_sensitive(true);
             let Some(path) = path else {
                 status.set_label(t("file.failed"));
@@ -336,29 +402,98 @@ pub fn link_preview_provider(provider: media::Provider, preview: &LinkPreview) -
             card.set_tooltip_text(Some(url));
             let url = url.clone();
             on_click(&card, move |w| open_uri(w, &url));
-            card.upcast()
+            fitted(&card).upcast()
         }
     }
 }
 
-/// A YouTube, Dailymotion or Vimeo link: thumbnail and title, opened in the browser.
-pub fn video_link(session: &Arc<Session>, video: &VideoLink) -> gtk::Widget {
-    video_link_provider(media::Provider::RocketChat(session.clone()), video)
+/// A list measures a row's height at the full width, then a start-aligned
+/// card shrinks to its natural width, where its title wraps on more lines:
+/// held at that width, the card gets the height it needs there.
+fn fitted(card: &gtk::Box) -> adw::Clamp {
+    let clamp = adw::Clamp::builder().halign(gtk::Align::Start).child(card).build();
+    refit(&clamp);
+    clamp
 }
-pub fn video_link_provider(provider: media::Provider, video: &VideoLink) -> gtk::Widget {
+
+fn refit(clamp: &adw::Clamp) {
+    let Some(card) = clamp.child() else { return };
+    let (_, natural, _, _) = card.measure(gtk::Orientation::Horizontal, -1);
+    clamp.set_maximum_size(natural);
+    clamp.set_tightening_threshold(natural);
+}
+
+/// A video playing in a card, kept across the card being built again as its
+/// row scrolls out and back, until stopped or its room left.
+struct Live {
+    player: gtk::Overlay,
+    close: Rc<dyn Fn()>,
+    /// The thumbnail back in the card that shows the player now.
+    restore: Rc<dyn Fn()>,
+}
+
+thread_local! {
+    static LIVE: RefCell<HashMap<(String, String), Live>> = RefCell::default();
+}
+
+/// How many video cards play their video.
+pub fn players_shown() -> usize {
+    LIVE.with_borrow(HashMap::len)
+}
+
+/// How many of them are on screen.
+pub fn players_mapped() -> usize {
+    LIVE.with_borrow(|live| live.values().filter(|l| l.player.is_mapped()).count())
+}
+
+/// Stops the videos playing in these messages' cards.
+pub fn stop_players(message_ids: &HashSet<&str>) {
+    let stopped: Vec<Live> = LIVE.with_borrow_mut(|live| {
+        let keys: Vec<_> = live.keys().filter(|(id, _)| message_ids.contains(id.as_str())).cloned().collect();
+        keys.iter().filter_map(|k| live.remove(k)).collect()
+    });
+    for live in stopped {
+        (live.close)();
+        (live.restore)();
+    }
+}
+
+/// A YouTube, Dailymotion or Vimeo link: thumbnail and title. The thumbnail
+/// plays the video in the card, the title opens it in the browser.
+pub fn video_link(session: &Arc<Session>, message_id: &str, video: &VideoLink) -> gtk::Widget {
+    video_link_provider(media::Provider::RocketChat(session.clone()), message_id, video)
+}
+pub fn video_link_provider(provider: media::Provider, message_id: &str, video: &VideoLink) -> gtk::Widget {
     let card = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(3)
         .css_classes(["link-card"])
         .halign(gtk::Align::Start)
         .build();
-    card.append(&label(video.provider, &["link-site"]));
+    let heading = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(3).build();
+    heading.append(&label(video.provider, &["link-site"]));
     if let Some(title) = &video.title {
-        card.append(&label(title, &["link-title"]));
+        heading.append(&label(title, &["link-title"]));
     }
     if let Some(author) = &video.author {
-        card.append(&label(author, &["link-description"]));
+        heading.append(&label(author, &["link-description"]));
     }
+    heading.set_tooltip_text(Some(&video.url));
+    let url = video.url.clone();
+    on_click(&heading, move |w| open_uri(w, &url));
+    heading.set_hexpand(true);
+    let stop = gtk::Button::builder()
+        .icon_name("window-close-symbolic")
+        .tooltip_text(t("player.stop"))
+        .css_classes(["flat", "circular"])
+        .valign(gtk::Align::Start)
+        .visible(false)
+        .build();
+    stop.set_cursor(pointer().as_ref());
+    let top = gtk::Box::builder().spacing(6).build();
+    top.append(&heading);
+    top.append(&stop);
+    card.append(&top);
     let frame = match &video.thumbnail {
         Some(thumbnail) => external_image(provider, thumbnail, 300, 169),
         None => widgets::media_frame(300, 169, &["preview-image"]),
@@ -366,10 +501,79 @@ pub fn video_link_provider(provider: media::Provider, video: &VideoLink) -> gtk:
     frame.add_overlay(&widgets::play_badge(56));
     frame.set_margin_top(4);
     card.append(&frame);
-    card.set_tooltip_text(Some(&video.url));
-    let url = video.url.clone();
-    on_click(&card, move |w| open_uri(w, &url));
-    card.upcast()
+    let key = (message_id.to_owned(), video.url.clone());
+    let current: Rc<RefCell<Option<gtk::Overlay>>> = Rc::default();
+    let (weak_card, weak_stop, weak_frame, shown) =
+        (card.downgrade(), stop.downgrade(), frame.downgrade(), current.clone());
+    // The thumbnail stays in the card, hidden while the player shows.
+    let show: Rc<dyn Fn(Option<gtk::Overlay>)> = Rc::new(move |player| {
+        let (Some(card), Some(stop), Some(frame)) = (weak_card.upgrade(), weak_stop.upgrade(), weak_frame.upgrade())
+        else {
+            return;
+        };
+        if let Some(old) = shown.take()
+            && old.parent().as_ref() == Some(card.upcast_ref())
+        {
+            card.remove(&old);
+        }
+        if let Some(player) = &player {
+            if let Some(previous) = player.parent().and_downcast::<gtk::Box>() {
+                previous.remove(player);
+            }
+            card.insert_child_after(player, Some(&frame));
+        }
+        frame.set_visible(player.is_none());
+        stop.set_visible(player.is_some());
+        shown.replace(player);
+        if let Some(clamp) = card.parent().and_downcast::<adw::Clamp>() {
+            refit(&clamp);
+        }
+    });
+    let s = show.clone();
+    let restore: Rc<dyn Fn()> = Rc::new(move || s(None));
+    let adopted = LIVE.with_borrow_mut(|live| {
+        live.get_mut(&key).map(|l| {
+            l.restore = restore.clone();
+            l.player.clone()
+        })
+    });
+    if let Some(player) = adopted {
+        show(Some(player));
+    }
+    let k = key.clone();
+    stop.connect_clicked(move |_| {
+        if let Some(live) = LIVE.with_borrow_mut(|live| live.remove(&k)) {
+            (live.close)();
+            (live.restore)();
+        }
+    });
+    let (weak_card, provider, id, url) = (card.downgrade(), video.provider, video.id.clone(), video.url.clone());
+    let play: Rc<dyn Fn() -> bool> = Rc::new(move || {
+        let Some(card) = weak_card.upgrade() else { return false };
+        if current.borrow().is_some() || card.root().is_none() {
+            return false;
+        }
+        let player = widgets::media_frame(480, 270, &["preview-image", "player-frame"]);
+        player.set_margin_top(4);
+        show(Some(player.clone()));
+        match crate::player::start(&player, provider, &id) {
+            Some(close) => {
+                LIVE.with_borrow_mut(|live| live.insert(key.clone(), Live { player, close, restore: restore.clone() }));
+                true
+            }
+            None => {
+                show(None);
+                open_uri(&card, &url);
+                false
+            }
+        }
+    });
+    crate::player::set_last(play.clone());
+    let started = play.clone();
+    on_click(&frame, move |_| {
+        started();
+    });
+    fitted(&card).upcast()
 }
 
 /// A call message: "Video call" and, when the call is known, Join.

@@ -1,43 +1,44 @@
 /**
- * Enregistrement du jeton FCM auprès de Rocket.Chat.
+ * Registering the FCM token with Rocket.Chat.
  *
- * Contrat vérifié dans le code serveur au tag 8.5.0
- * (`apps/meteor/app/api/server/v1/push.ts`) puis contre le serveur Docker :
+ * Contract checked in the server code at tag 8.5.0
+ * (`apps/meteor/app/api/server/v1/push.ts`), then against the Docker server:
  *
- * - `POST /api/v1/push.token`, corps `{ type, value, appName }`, tous trois
- *   requis, `additionalProperties: false` — ne rien envoyer de plus.
- * - `type` vaut `'gcm'` pour Android (nommage historique ; la valeur est bien
- *   un jeton FCM v1) ou `'apn'` pour iOS.
- * - `appName` est une **chaîne libre** (`minLength: 1`) ; aucun lien imposé
- *   avec l'applicationId.
- * - `DELETE /api/v1/push.token`, corps `{ token }`. Un rejeu répond **404** :
- *   un jeton déjà absent est un dé-enregistrement réussi, pas un échec, sinon
- *   le logout casserait après une réinstallation.
+ * - `POST /api/v1/push.token`, body `{ type, value, appName }`, all three
+ *   required, `additionalProperties: false`: send nothing more.
+ * - `type` is `'gcm'` (historical naming; the value is indeed an FCM v1
+ *   token), on iOS as on Android since both go through FCM. The server also
+ *   accepts `'apn'`, which the app does not send.
+ * - `appName` is a **free string** (`minLength: 1`); no required link to the
+ *   applicationId.
+ * - `DELETE /api/v1/push.token`, body `{ token }`. A replay answers **404**:
+ *   an already missing token is a successful unregistration, not a failure,
+ *   otherwise logout would break after a reinstall.
  *
- * Le transport (en-têtes, rejeu sur 429, JSON défensif, 2FA) vient de
- * `ClientRest` : on ne le réimplémente pas ici.
+ * The transport (headers, retry on 429, defensive JSON, 2FA) comes from
+ * `RestClient`: it is not reimplemented here.
  */
 
-import { ClientRest, ErreurRest } from './rest.ts';
+import { RestClient, RestError } from './rest.ts';
 
 export const APP_NAME = 'rocket-vibe';
 
-export type TypeJeton = 'gcm' | 'apn';
+export type TokenType = 'gcm' | 'apn';
 
-export function enregistrerJeton(
-  client: ClientRest,
-  jeton: string,
-  type: TypeJeton,
+export function registerToken(
+  client: RestClient,
+  token: string,
+  type: TokenType,
 ): Promise<unknown> {
-  return client.post('push.token', { corps: { type, value: jeton, appName: APP_NAME } });
+  return client.post('push.token', { body: { type, value: token, appName: APP_NAME } });
 }
 
-export async function desenregistrerJeton(client: ClientRest, jeton: string): Promise<void> {
+export async function unregisterToken(client: RestClient, token: string): Promise<void> {
   try {
-    await client.supprimer('push.token', { corps: { token: jeton } });
+    await client.delete('push.token', { body: { token } });
   } catch (e) {
-    // On teste le statut, pas le texte du message, qui peut être reformulé.
-    if (e instanceof ErreurRest && e.statut === 404) return;
+    // Test the status, not the message text, which may be reworded.
+    if (e instanceof RestError && e.status === 404) return;
     throw e;
   }
 }

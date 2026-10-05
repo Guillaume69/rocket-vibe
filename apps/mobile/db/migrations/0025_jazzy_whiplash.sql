@@ -1,1 +1,0 @@
-ALTER TABLE `native_commands` ADD `quotes` text;

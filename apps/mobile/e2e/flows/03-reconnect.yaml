@@ -1,0 +1,24 @@
+# Reconnect: the harness CUT the link (adb reverse removed), bob posted
+# ${MSG} during the outage, then the link is restored. The message must
+# arrive through the catch-up, with no local action.
+appId: com.rocketvibe.app
+---
+# `stopApp: false`: killing and relaunching a DEV BUILD reloads the whole
+# bundle from Metro and sometimes lands back on the dev-client launcher;
+# useless here, the previous flow's session is already in the foreground.
+- launchApp:
+    stopApp: false
+# If we are on the dev-client launcher anyway, take back control.
+- runFlow:
+    when:
+      visible: 'Development Servers'
+    commands:
+      - tapOn: 'http://.*:8081'
+- extendedWaitUntil:
+    visible: 'test-public'
+    timeout: 30000
+- tapOn: 'test-public'
+# Generous: reconnection backoff (up to 30 s) + catch-up.
+- extendedWaitUntil:
+    visible: '${MSG}'
+    timeout: 90000

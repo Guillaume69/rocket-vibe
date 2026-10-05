@@ -52,6 +52,7 @@ objc2-web-kit = { version = "0.3", features = [
     "WKUIDelegate",
     "WKWebView",
     "WKWebViewConfiguration",
+    "WKWebsiteDataStore",
     "WKWindowFeatures",
     "block2",
     "objc2-app-kit",

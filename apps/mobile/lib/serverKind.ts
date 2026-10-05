@@ -1,11 +1,11 @@
 /** Native discovery first; a positively identified native server never falls back to RC. */
-import { normaliserUrl, sonderServeur, type ProfilServeur } from './server.ts';
-import { NativeTransport } from '../fournisseurs/rocketvibe/transport.ts';
-import type { Discovery } from '../fournisseurs/rocketvibe/protocol.generated.ts';
-export type ServerProfile = ProfilServeur & { native?: Discovery };
+import { normalizeUrl, probeServer, type ServerProfile as BaseServerProfile } from './server.ts';
+import { NativeTransport } from '../providers/rocketvibe/transport.ts';
+import type { Discovery } from '../providers/rocketvibe/protocol.generated.ts';
+export type ServerProfile = BaseServerProfile & { native?: Discovery };
 
 export async function discoverServer(input: string, signal?: AbortSignal, fetcher: typeof fetch = fetch): Promise<ServerProfile> {
-  const baseUrl = normaliserUrl(input);
+  const baseUrl = normalizeUrl(input);
   const controller = new AbortController();
   const relay = () => controller.abort();
   signal?.addEventListener('abort', relay);
@@ -27,12 +27,12 @@ export async function discoverServer(input: string, signal?: AbortSignal, fetche
     clearTimeout(timer);
     signal?.removeEventListener('abort', relay);
   }
-  if (!native) return sonderServeur(baseUrl, signal, {fetch:fetcher});
+  if (!native) return probeServer(baseUrl, signal, {fetch:fetcher});
   const discovery = await new NativeTransport(baseUrl,fetcher).discover(signal);
   return {
-    baseUrl, version:discovery.server_version, siteUrl:null, formulaireDeConnexion:true,
-    deuxFacteurs:{actif:false,totp:false,email:false},ldap:false,oauth:[],
-    e2eeActif:discovery.capabilities.e2ee, fichiersProteges:true,avatarsProteges:true,
+    baseUrl, version:discovery.server_version, siteUrl:null, loginForm:true,
+    twoFactor:{active:false,totp:false,email:false},ldap:false,oauth:[],
+    e2eeEnabled:discovery.capabilities.e2ee, filesProtected:true,avatarsProtected:true,
     native:discovery,
   };
 }

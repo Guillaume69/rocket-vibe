@@ -11,12 +11,12 @@ index ff5b100..e0060d0 100644
 -            val fileName = queryResult.getString(queryResult.getColumnIndex(OpenableColumns.DISPLAY_NAME))
 -            val fileSize = queryResult.getString(queryResult.getColumnIndex(OpenableColumns.SIZE))
 -            queryResult.close()
-+            // rocket-vibe (patch-package): un ContentProvider peut renvoyer un
-+            // curseur vide ou dépourvu de DISPLAY_NAME/SIZE (provider tiers,
-+            // métadonnées redactées). L'original appelait getString sur un
-+            // curseur non positionné -> CursorIndexOutOfBoundsException, qui
-+            // fait planter TOUTE l'app au partage. On garde chaque étape et on
-+            // se replie sur le dernier segment de l'URI pour le nom.
++            // rocket-vibe (patch-package): a ContentProvider may return an
++            // empty cursor, or one lacking DISPLAY_NAME/SIZE (third-party
++            // provider, redacted metadata). The original called getString on an
++            // unpositioned cursor -> CursorIndexOutOfBoundsException, which
++            // crashed the WHOLE app on share. We guard each step and
++            // fall back to the URI's last segment for the name.
 +            var fileName: String? = null
 +            var fileSize: String? = null
 +            val queryResult: Cursor? = resolver.query(uri, null, null, null, null)
@@ -43,8 +43,8 @@ index ff5b100..e0060d0 100644
 -            if (ExpoShareIntentSingleton.intent?.type != null) {
 -                handleShareIntent(ExpoShareIntentSingleton.intent!!);
 -                ExpoShareIntentSingleton.intent = null
-+            // rocket-vibe (patch-package): vidé AVANT de traiter, pour qu'une
-+            // exception ne laisse pas le partage en attente à jamais.
++            // rocket-vibe (patch-package): cleared BEFORE processing, so that an
++            // exception does not leave the share pending forever.
 +            val pending = ExpoShareIntentSingleton.intent
 +            ExpoShareIntentSingleton.intent = null
 +            if (pending?.type != null) {
@@ -56,8 +56,8 @@ index ff5b100..e0060d0 100644
          }
  
          OnNewIntent {
-+            // rocket-vibe (patch-package): déjà livré ici, React étant prêt ;
-+            // le tampon posé par le listener ne doit pas le rejouer.
++            // rocket-vibe (patch-package): already delivered here, React being ready;
++            // the buffer set by the listener must not replay it.
 +            ExpoShareIntentSingleton.intent = null
 +            ExpoShareIntentSingleton.isPending = false
              handleShareIntent(it)
@@ -72,10 +72,10 @@ index db573ec..1b9fc5b 100644
          }
      }
 +
-+    // rocket-vibe (patch-package): un partage reçu par onNewIntent alors que
-+    // React n'est pas prêt (processus tué, tâche restaurée, singleTask) était
-+    // perdu : ReactHost le jette, le module n'existe pas encore. On le garde
-+    // ici comme celui de onCreate ; getShareIntent le livrera au montage.
++    // rocket-vibe (patch-package): a share received by onNewIntent while
++    // React is not ready (process killed, task restored, singleTask) was
++    // lost: ReactHost drops it, the module does not exist yet. We keep it
++    // here like the onCreate one; getShareIntent will deliver it on mount.
 +    override fun onNewIntent(intent: Intent?): Boolean {
 +        if (intent?.type != null) {
 +            ExpoShareIntentSingleton.intent = intent

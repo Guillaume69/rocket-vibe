@@ -2,13 +2,13 @@
  * to push extensions. It never shares the active session's key or SQLite. */
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
-import {AuthenticationVault} from '../fournisseurs/rocketvibe/authenticationVault.ts';
-import {EmailRecoveryVault} from '../fournisseurs/rocketvibe/emailRecoveryVault.ts';
-import type {LoginChallenge} from '../fournisseurs/rocketvibe/authentication.ts';
-import {hacher,lireSession} from './sessionStore.ts';
+import {AuthenticationVault} from '../providers/rocketvibe/authenticationVault.ts';
+import {EmailRecoveryVault} from '../providers/rocketvibe/emailRecoveryVault.ts';
+import type {LoginChallenge} from '../providers/rocketvibe/authentication.ts';
+import {hash,readSession} from './sessionStore.ts';
 
 const dependencies={
-  hash:hacher,
+  hash:hash,
   token:async()=>Array.from(Crypto.getRandomBytes(32),b=>b.toString(16).padStart(2,'0')).join(''),
   storage:{
     read:(key:string)=>SecureStore.getItemAsync(key),
@@ -20,5 +20,5 @@ export const nativeAuthenticationVault=new AuthenticationVault(dependencies);
 export const nativeEmailRecoveryVault=new EmailRecoveryVault(dependencies);
 
 export async function completeNativeAuthentication(record:LoginChallenge):Promise<boolean> {
-  return nativeAuthenticationVault.clearCompleted(record,await lireSession(record.baseUrl));
+  return nativeAuthenticationVault.clearCompleted(record,await readSession(record.baseUrl));
 }

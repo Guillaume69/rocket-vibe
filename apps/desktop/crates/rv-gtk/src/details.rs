@@ -463,16 +463,24 @@ fn fill_profile(
     }
 }
 
-/// `chat.search` in the open room, as you type.
-pub fn search(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, rid: &str) {
-    search_with_source(parent, SearchSource::Legacy(session), rid);
+/// `chat.search` in the open room, as you type. A result picked closes the
+/// dialog and goes to it: `go(message id, thread root)`.
+pub fn search(
+    parent: &impl IsA<gtk::Widget>,
+    session: Arc<Session>,
+    rid: &str,
+    go: impl Fn(String, Option<String>) + 'static,
+) {
+    search_with_source(parent, SearchSource::Legacy(session), rid, go);
 }
+/// The native provider's search, with the same dialog and `go`.
 pub fn search_native(
     parent: &impl IsA<gtk::Widget>,
     session: Arc<rv_core::native::NativeSession>,
     rid: &str,
+    go: impl Fn(String, Option<String>) + 'static,
 ) -> adw::Dialog {
-    search_with_source(parent, SearchSource::Native(session), rid)
+    search_with_source(parent, SearchSource::Native(session), rid, go)
 }
 #[derive(Clone)]
 enum SearchSource {
@@ -503,7 +511,12 @@ impl SearchSource {
         }
     }
 }
-fn search_with_source(parent: &impl IsA<gtk::Widget>, session: SearchSource, rid: &str) -> adw::Dialog {
+fn search_with_source(
+    parent: &impl IsA<gtk::Widget>,
+    session: SearchSource,
+    rid: &str,
+    go: impl Fn(String, Option<String>) + 'static,
+) -> adw::Dialog {
     let entry = gtk::SearchEntry::builder().placeholder_text(t("search.placeholder")).build();
     let results = gtk::Box::builder().orientation(gtk::Orientation::Vertical).build();
     let status = gtk::Label::builder().css_classes(["details-sub"]).visible(false).margin_top(10).build();
@@ -514,6 +527,13 @@ fn search_with_source(parent: &impl IsA<gtk::Widget>, session: SearchSource, rid
     let dialog = dialog(t("search.title"), content.upcast_ref(), 560);
     dialog.present(Some(parent));
     entry.grab_focus();
+    let weak = dialog.downgrade();
+    let go: Rc<dyn Fn(String, Option<String>)> = Rc::new(move |id, thread| {
+        if let Some(dialog) = weak.upgrade() {
+            dialog.close();
+        }
+        go(id, thread);
+    });
     let generation = Rc::new(Cell::new(0u64));
     if matches!(&session, SearchSource::Native(_)) {
         let (source, generation, results, status) =
@@ -546,8 +566,8 @@ fn search_with_source(parent: &impl IsA<gtk::Widget>, session: SearchSource, rid
         let query = entry.text().trim().to_owned();
         let current = generation.get() + 1;
         generation.set(current);
-        let (session, generation, results, status, rid) =
-            (session.clone(), generation.clone(), results.clone(), status.clone(), rid.clone());
+        let (session, generation, results, status, rid, go) =
+            (session.clone(), generation.clone(), results.clone(), status.clone(), rid.clone(), go.clone());
         glib::timeout_add_local_once(std::time::Duration::from_millis(350), move || {
             if generation.get() != current {
                 return;
@@ -584,6 +604,11 @@ fn search_with_source(parent: &impl IsA<gtk::Widget>, session: SearchSource, rid
                             let blocks =
                                 markdown::render(m.md.as_deref(), m.text.as_deref(), &markdown::Context { me: &me });
                             hit.append(&markdown_view::view(&blocks, &[]));
+                            hit.set_cursor(gtk::gdk::Cursor::from_name("pointer", None).as_ref());
+                            let click = gtk::GestureClick::new();
+                            let (go, id, thread) = (go.clone(), m.id.clone(), m.thread_id.clone());
+                            click.connect_released(move |_, _, _, _| go(id.clone(), thread.clone()));
+                            hit.add_controller(click);
                             results.append(&hit);
                         }
                     }

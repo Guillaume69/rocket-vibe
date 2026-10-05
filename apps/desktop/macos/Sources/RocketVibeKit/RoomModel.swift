@@ -177,6 +177,8 @@ public final class RoomModel {
     public private(set) var uploads: [Upload] = []
     /// Set to scroll to a message (a notification, a pinned one): cleared by the view.
     public var reveal: String?
+    /// What the server told me alone here, such as a slash command's answer.
+    public var note: String?
     let unreadAfter: Int64?
     private let nativeReadBoundary: NativeRoomReadState?
     var limit = historyPage
@@ -546,28 +548,31 @@ public final class RoomModel {
         return found
     }
 
-    public func send() async {
-        guard active else { return }
+    /// Sends the draft, or runs it when it names a Rocket.Chat slash command. A
+    /// refused command goes back into the draft, and the refusal is returned.
+    @discardableResult
+    public func send() async -> String? {
+        guard active else { return nil }
         if privateMode {
-            guard privateReady, !privateBusy, let privateHandle else { return }
+            guard privateReady, !privateBusy, let privateHandle else { return nil }
             let text = draft
             let selected = privateQuote
-            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || selected != nil else { return }
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || selected != nil else { return nil }
             let generation = privateGeneration
             privateBusy = true
             do {
                 try await privateHandle.setDraft(text: text)
                 try await privateHandle.sendQuotes(operation: "v1_" + UUID().uuidString.replacingOccurrences(of: "-", with: ""), text: text, quotes: selected.map { [$0] } ?? [])
-                guard active, generation == privateGeneration else { return }
+                guard active, generation == privateGeneration else { return nil }
                 if draft == text { privateRestoring = true; draft = ""; privateRestoring = false }
                 if privateQuote == selected { cancelQuote() }
             } catch { if active, generation == privateGeneration { self.error = L("crypto.failed") } }
             privateBusy = false
             if active, generation == privateGeneration { await refreshPrivate() }
-            return
+            return nil
         }
         if let selected = privateQuote {
-            guard canSend, let author = quoteAuthor, !quoteAuthorBusy else { return }
+            guard canSend, let author = quoteAuthor, !quoteAuthorBusy else { return nil }
             let (text, generation) = (draft, quoteAuthorGeneration)
             quoteAuthorBusy = true
             quoteSendingDraft = text
@@ -585,12 +590,23 @@ public final class RoomModel {
             }
             if generation == quoteAuthorGeneration { quoteAuthorBusy = false }
             quoteSendingDraft = nil
-            return
+            return nil
         }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard canSend, !text.isEmpty || nativeQuote != nil || privateQuote != nil else { return }
+        guard canSend, !text.isEmpty || nativeQuote != nil || privateQuote != nil else { return nil }
         draft = ""
         draftSave?.cancel()
+        if let chat, text.hasPrefix("/") {
+            chat.setDraft(rid: room.rid, threadId: threadId, text: "")
+            do {
+                if try await chat.runCommand(rid: room.rid, text: text, threadId: threadId) { return nil }
+            } catch {
+                if draft.isEmpty { draft = text }
+                let reason: String
+                if case let RvError.Server(_, message, _, _) = error { reason = message } else { reason = error.localizedDescription }
+                return L("command.failed", ["error": reason])
+            }
+        }
         do {
             // Clear before awaiting the transport: words typed during an RC send must survive.
             try saveDraft("")
@@ -607,6 +623,7 @@ public final class RoomModel {
                 self.error = error.localizedDescription
             }
         }
+        return nil
     }
 
     public func retry(_ id: String) async {

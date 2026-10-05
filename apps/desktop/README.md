@@ -25,7 +25,7 @@ so the binary runs natively:
 The session token lives in the Secret Service (KWallet or GNOME Keyring),
 never on disk.
 
-What the Android app does and where this one stands: `docs/PARITY.md`.
+What the Android app does and where this one stands: `brain/parity.md`.
 
 An experimental [native-server pilot](../../docs/NATIVE_DESKTOP_PILOT.md) is also
 available: discovery selects Rocket.Chat or RocketVibe per account in the same
@@ -80,7 +80,8 @@ release's `rocket-vibe-desktop-<version>-linux-x86_64.AppImage` into
 place. The AppImage is built by `scripts/package-appimage.sh`, in pkgforge-dev's Arch
 Linux image (`scripts/appimage-build.sh`): Anylinux's quick-sharun gathers the binary
 with every library it loads, glibc and its loader included, GTK, libadwaita, GStreamer
-with its codecs (H.264 and AAC through libav, Opus and Ogg for voice messages), Mesa,
+with its codecs (H.264 and AAC through libav, Opus and Ogg for voice messages), WebKitGTK
+for the inline video player, Mesa,
 the Adwaita icons, the Hunspell dictionaries and Noto Color Emoji; its runtime mounts
 it with FUSE when there is one, and otherwise runs it from namespaces or a temporary
 extraction. A bug report from the AppImage therefore runs the same libraries everywhere.
@@ -88,7 +89,7 @@ Uninstalling leaves the accounts and messages in `~/.config/rocket-vibe-rs` and
 `~/.local/share/rocket-vibe-rs`.
 
 The release also carries a tarball of the bare binary, which uses the system's
-libraries: GTK 4.12 and libadwaita 1.6 or later, Pango 1.56, and a C library as recent
+libraries: GTK 4.12 and libadwaita 1.6 or later, Pango 1.56, WebKitGTK 6.0, and a C library as recent
 as Fedora 44's (a rolling distribution: Arch, Fedora). From a checkout:
 
 ```sh
@@ -140,19 +141,21 @@ HTML=1 scripts/coverage.sh --e2e
 | `rv-core::rest` | REST: 401 discrimination, 2FA, 429 back-off, timeouts |
 | `rv-core::ddp` | Listen-only DDP actor: login resume, ref-counted subs, silence watchdog |
 | `rv-core::store` | SQLite (rusqlite): `_updatedAt`-arbitrated upserts, cursors, outbox, change broadcast |
-| `rv-core::sync`, `outbox` | Stream and REST into SQLite; optimistic send with delivery check |
+| `rv-core::sync`, `outbox`, `uploads` | Stream and REST into SQLite; optimistic send with delivery check; two-step file uploads |
 | `rv-core::session` | Login, wiring, reconnection with back-off |
-| `rv-core::diff` | List refresh as splices, so views keep their scroll position |
+| `rv-core::diff`, `timeline` | List refresh as splices, so views keep their scroll position; author groups, day separators |
+| `rv-core::markdown`, `parse`, `runs`, `emoji` | Message bodies from the server's `md` (or parsed locally) to Pango markup or styled runs; shortcodes |
+| `rv-core::content`, `media`, `animation`, `player` | Quotes, files, link previews, avatar and file URLs, GIF frames, the inline video player page |
+| `rv-core::e2e` | End-to-end encrypted rooms: unlock, decrypt, encrypt messages and files |
+| `rv-core::actions`, `commands`, `completion`, `compose` | Message actions, slash commands, `@`/`:` completion, formatting |
+| `rv-core::rooms`, `info`, `account`, `live`, `notify`, `call`, `links`, `server`, `update`, `i18n` | Room list sections, room and profile details, my account, typing and presence, notifications, calls, `rocketvibe://` links, server probe, new versions, strings |
 | `rv-gtk` | libadwaita UI; tokio runs the core, GLib owns the main thread |
+| `rv-native` | Windows and macOS system notifications, badge, tray and dock, start at login, call and video player windows |
+| `rv-ffi` | rv-core for Swift through UniFFI, for the SwiftUI app in `macos/` |
 
 ## Status
 
-Password + TOTP login, session resume, rooms and subscriptions via cursors,
-history paging, live messages and edits for every room through
-`__my_messages__`, live deletions in the open room, optimistic send with
-retry, read marking, reconnection with back-off, photo avatars and inline
-images (click to enlarge).
-
-Not yet: live avatar changes (`updateAvatar`; a changed photo shows after a
-restart), markdown, non-image files beyond their name, threads view,
-reactions, typing indicator, notifications, E2EE.
+Login (password, TOTP, email code), several accounts, live room list and
+messages, markdown, reactions, threads, typing indicator, files, voice
+messages, calls, notifications and E2EE: the feature list, and what is still
+missing, is `brain/parity.md`.

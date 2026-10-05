@@ -1,0 +1,24 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.rocketvibe.videocompressor'
+version = '1.0.0'
+
+android {
+  namespace "com.rocketvibe.videocompressor"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  // Media3 Transformer: Android's official transcoder, on hardware MediaCodec,
+  // per the "native modules by default, no JS polyfill" rule (CLAUDE.md), and
+  // zero third-party JS dependency.
+  implementation 'androidx.media3:media3-transformer:1.8.0'
+  implementation 'androidx.media3:media3-effect:1.8.0'
+  implementation 'androidx.media3:media3-common:1.8.0'
+}

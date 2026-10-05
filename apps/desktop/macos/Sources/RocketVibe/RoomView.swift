@@ -501,7 +501,11 @@ struct MessageRow: View, Equatable {
             FileCard(file: file)
         }
         ForEach(Array(message.cards.enumerated()), id: \.offset) { _, card in
-            LinkCard(card: card)
+            if let page = card.player {
+                VideoCard(card: card, page: page)
+            } else {
+                LinkCard(card: card)
+            }
         }
         if !message.reactions.isEmpty {
             HStack(spacing: 6) {
@@ -957,7 +961,7 @@ struct UploadsView: View {
                 } else if let progress = upload.progress {
                     ProgressView(value: progress).frame(width: 120)
                 } else {
-                    Text(L("upload.waiting")).font(.caption).foregroundStyle(.secondary)
+                    Text(L(upload.retrying ? "upload.retrying" : "upload.waiting")).font(.caption).foregroundStyle(.secondary)
                 }
             }
             .padding(.horizontal, 16)

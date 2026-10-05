@@ -406,6 +406,60 @@ section here.
   Missing native capabilities are disabled; callbacks from a previous account stop
   affecting the active view. A real Secret Service keyring exercises secure resume
   in the Linux view-model integration bench.
+## [0.7.0] - 2026-10-03
+
+### Added
+
+- A close button beside a playing video's title stops it and brings the thumbnail back.
+
+### Fixed
+
+- With NVIDIA's driver on Linux, a video playing in its card is no longer black (its sound
+  played alone), and starting a downloaded video no longer crashes the app now and then: both
+  are drawn without the GPU path that failed there. `RV_SOFTWARE_VIDEO=1` does the same on
+  any machine.
+- Starting a YouTube, Dailymotion or Vimeo video no longer flashes white in its card.
+- A YouTube, Dailymotion or Vimeo video keeps playing while its message is scrolled out of
+  view, and stops when changing rooms: it no longer plays on unseen in a room left, nor stacks
+  a second one on coming back.
+
+## [0.6.1] - 2026-10-03
+
+### Fixed
+
+- A large video (tens of MB) plays: its download no longer stops after 15 seconds, leaving the
+  card black. Video and file cards show the download's progress; a video already downloaded
+  shows its first image, whatever its size.
+- The update card's Restart brings the app back on Linux sessions where it only closed it
+  (seen on Omarchy).
+- A file whose upload the network cut is sent again by itself within seconds, instead of
+  staying "Waiting" until the app reconnects; meanwhile it reads "Connection lost, retrying…".
+- A right click on a message's text copies the selection, or opens and copies a link, instead
+  of GTK's editing menu where Copy stayed greyed out; elsewhere on the text it opens the
+  message's actions.
+- A click on a search result goes to that message in the room, loading older history if it
+  has to; a reply in a thread opens the thread.
+- On Linux, the call window shows the app's icon instead of a generic one.
+
+## [0.6.0] - 2026-10-01
+
+### Added
+
+- YouTube, Dailymotion and Vimeo videos play in their card: a click on the thumbnail starts
+  the player in place, the title still opens the video in the browser. WebKitGTK on Linux
+  (now bundled in the AppImage, needed by the tarball), WebView2 on Windows, WKWebView on
+  macOS (the SwiftUI app too). The player keeps to the video: a link out of it opens in the
+  browser, and nothing it stores outlives the app.
+- Slash commands: `/` at the start of a message offers the server's commands that you may
+  run in the room, with their parameters and what they do; sending one runs it, in the
+  thread when typed there. The server's answer (an unknown channel, `/help`) shows above
+  the composer, seen only by you. A refused command goes back into the composer. The SwiftUI
+  app has them too.
+
+### Fixed
+
+- A link preview whose title wraps on one more line at the card's width no longer comes out a
+  line short, its picture cut at the bottom.
 
 ## [0.5.0] - 2026-09-30
 
@@ -672,7 +726,10 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.5.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.7.0...HEAD
+[0.7.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.6.1...desktop-v0.7.0
+[0.6.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.6.0...desktop-v0.6.1
+[0.6.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.5.0...desktop-v0.6.0
 [0.5.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.4.1...desktop-v0.5.0
 [0.4.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.4.0...desktop-v0.4.1
 [0.4.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.3.0...desktop-v0.4.0

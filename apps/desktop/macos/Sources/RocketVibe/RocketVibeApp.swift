@@ -60,7 +60,8 @@ struct RocketVibeApp: App {
         if app.screen == .starting && !SmokeGallery.requested { await app.start() }
     }
 
-    /// The core resolves provider, full service URL, instance and account scope.
+    /// `rocketvibe://room/<rid>?host=<server>`, from the Android app's links;
+    /// the core resolves provider, full service URL, instance and account scope.
     @MainActor
     func open(_ url: URL) {
         Task { await app.openLink(url.absoluteString) }

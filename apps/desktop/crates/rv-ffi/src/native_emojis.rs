@@ -44,6 +44,7 @@ impl NativeChat {
                 label: format!(":{code}:"),
                 glyph: None,
                 image: self.session.custom_emoji(&code),
+                detail: None,
             })
             .collect();
         items.extend(rv_core::emoji::complete(&q.prefix, 8).into_iter().map(|(code, glyph)| Suggestion {
@@ -51,6 +52,7 @@ impl NativeChat {
             label: format!(":{code}:"),
             glyph: Some(glyph.to_owned()),
             image: None,
+            detail: None,
         }));
         items.truncate(8);
         (!items.is_empty()).then_some(Suggestions { start: q.start as u32, items })

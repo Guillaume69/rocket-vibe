@@ -1,0 +1,46 @@
+# Login (plain login, no 2FA): from a BLANK state, enter the server then
+# the credentials, and land on the room list.
+appId: com.rocketvibe.app
+---
+- launchApp:
+    clearState: true
+# DEVELOPMENT build: clearState goes back to the expo-dev-client launcher;
+# we tap the Metro server entry (recognised by its URL). In a release build,
+# these lines would become useless.
+- extendedWaitUntil:
+    visible: 'Development Servers'
+    timeout: 20000
+- tapOn: 'http://.*:8081'
+# Dev-client sheets on first launch: "Continue", then the full dev menu,
+# each closed if present.
+- tapOn:
+    text: 'Continue'
+    optional: true
+- runFlow:
+    when:
+      visible: 'Fast Refresh'
+    commands:
+      - back
+- extendedWaitUntil:
+    visible: 'Adresse du serveur'
+    timeout: 60000
+# The field is PREFILLED (DEFAULT_SERVER in dev): erase first.
+- tapOn:
+    below: 'Adresse du serveur'
+- eraseText
+- inputText: '${SERVER}'
+- tapOn: 'Continuer'
+- extendedWaitUntil:
+    visible: 'Identifiant ou email'
+    timeout: 15000
+- tapOn: 'jean.dupont'
+- inputText: '${USERNAME}'
+- tapOn: '••••••••'
+- inputText: '${PASSWORD}'
+- hideKeyboard
+- tapOn: 'Se connecter'
+# The room list is the logged-in home screen.
+- extendedWaitUntil:
+    visible: 'Nouvelle conversation'
+    timeout: 30000
+- assertVisible: 'test-public'

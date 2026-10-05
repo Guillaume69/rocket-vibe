@@ -1,1 +1,0 @@
-ALTER TABLE `native_positions` ADD `reply_to` text;

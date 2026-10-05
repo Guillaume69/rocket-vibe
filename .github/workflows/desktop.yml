@@ -54,7 +54,7 @@ jobs:
         run: >
           dnf install -y --setopt=install_weak_deps=False
           git tar rust cargo clippy rustfmt gcc pkgconf-pkg-config
-          gtk4-devel libadwaita-devel gstreamer1-devel gstreamer1-plugins-base-devel
+          gtk4-devel libadwaita-devel webkitgtk6.0-devel gstreamer1-devel gstreamer1-plugins-base-devel
       - uses: actions/checkout@v5
       - uses: actions/cache@v4
         with:
@@ -215,7 +215,7 @@ jobs:
           Set-ItemProperty $wer DumpType 1 -Type DWord
           # Started without redirection, as a user would. On an early exit,
           # again with the streams captured, to say why.
-          $run = Start-Process $exe -ArgumentList "rocketvibe://salon/smoke" -WorkingDirectory "$app\bin" -PassThru
+          $run = Start-Process $exe -ArgumentList "rocketvibe://room/smoke" -WorkingDirectory "$app\bin" -PassThru
           Start-Sleep -Seconds 10
           if ($run.HasExited) {
             Write-Output "== exit code $($run.ExitCode); its log:"
@@ -229,7 +229,7 @@ jobs:
               Write-Output "== crash stack:"
               & $cdb.FullName -z $dump.FullName -c ".ecxr; kb 40; q" 2>&1 | Select-String -Pattern "^[0-9a-f]{2} |ExceptionCode|ucrtbase|^ChildEBP|RetAddr"
             } else { Write-Output "== no debugger ($cdb) or no dump ($dump)" }
-            $again = Start-Process $exe -ArgumentList "rocketvibe://salon/smoke" -WorkingDirectory "$app\bin" -PassThru `
+            $again = Start-Process $exe -ArgumentList "rocketvibe://room/smoke" -WorkingDirectory "$app\bin" -PassThru `
               -RedirectStandardError "$env:RUNNER_TEMP\app-stderr.txt" -RedirectStandardOutput "$env:RUNNER_TEMP\app-stdout.txt"
             Start-Sleep -Seconds 10
             Write-Output "== relaunched with captured streams: exited $($again.HasExited); its stderr:"
@@ -252,7 +252,7 @@ jobs:
           $bg.Refresh()
           if ($bg.HasExited) { throw "a background start left (exit $($bg.ExitCode))" }
           if ($bg.MainWindowHandle -ne 0) { throw "a background start showed the window" }
-          $second = Start-Process $exe -ArgumentList "rocketvibe://salon/smoke" -WorkingDirectory "$app\bin" -PassThru
+          $second = Start-Process $exe -ArgumentList "rocketvibe://room/smoke" -WorkingDirectory "$app\bin" -PassThru
           Start-Sleep -Seconds 6
           if (-not $second.HasExited) { Stop-Process -Id $second.Id -Force; throw "a second launch kept running beside the first" }
           $bg.Refresh()
@@ -319,6 +319,20 @@ jobs:
             Get-Content "$env:LOCALAPPDATA\rocket-vibe-rs\rocket-vibe.log" -Tail 40 -ErrorAction SilentlyContinue
             throw "the call window did not load its page"
           }
+          # The inline player: WebView2 laid over a frame of the list, on the embed page.
+          $env:RV_SMOKE_PLAYER = "YouTube:aqz-KE-bpKQ"
+          $player = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\player-out.txt"
+          Start-Sleep -Seconds 20
+          $shot = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
+          [System.Drawing.Graphics]::FromImage($shot).CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+          $shot.Save("$env:RUNNER_TEMP\player.png")
+          if (-not $player.HasExited) { Stop-Process -Id $player.Id -Force }
+          Remove-Item Env:RV_SMOKE_PLAYER
+          Get-Content "$env:RUNNER_TEMP\player-out.txt" -ErrorAction SilentlyContinue
+          if (-not (Select-String -Path "$env:RUNNER_TEMP\player-out.txt" -Pattern "native: player loaded https://player.rocket-vibe.invalid/" -Quiet)) {
+            Get-Content "$env:LOCALAPPDATA\rocket-vibe-rs\rocket-vibe.log" -Tail 40 -ErrorAction SilentlyContinue
+            throw "the player did not load its page"
+          }
           # Soak: rows, toasts and the badge churned for 45 s; the app must still be there, with no panic recorded.
           $env:RV_SMOKE_SOAK = "45"
           $soak = Start-Process $exe -WorkingDirectory "$app\bin" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\soak-out.txt"
@@ -344,6 +358,7 @@ jobs:
             ${{ runner.temp }}/screenshot.png
             ${{ runner.temp }}/gallery.png
             ${{ runner.temp }}/call.png
+            ${{ runner.temp }}/player.png
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: ${{ failure() }}
@@ -448,7 +463,7 @@ jobs:
         run: |
           sudo mv /opt/homebrew /opt/homebrew-aside
           app="$PWD/dist/rocket-vibe.app"
-          "$app/Contents/MacOS/rocket-vibe-gtk" rocketvibe://salon/smoke > "$RUNNER_TEMP/app.log" 2>&1 &
+          "$app/Contents/MacOS/rocket-vibe-gtk" rocketvibe://room/smoke > "$RUNNER_TEMP/app.log" 2>&1 &
           pid=$!
           sleep 10
           alive=0
@@ -474,6 +489,14 @@ jobs:
           kill "$call" 2>/dev/null || true
           cat "$RUNNER_TEMP/call.log"
           if ! grep -q "native: call loaded https://example.org" "$RUNNER_TEMP/call.log"; then echo "::error::the call window did not load its page"; alive=0; fi
+          # The inline player: WKWebView laid over a frame of the list, on the embed page.
+          RV_SMOKE_GALLERY=1 RV_SMOKE_PLAYER=YouTube:aqz-KE-bpKQ "$app/Contents/MacOS/rocket-vibe-gtk" > "$RUNNER_TEMP/player.log" 2>&1 &
+          player=$!
+          sleep 20
+          screencapture -x "$RUNNER_TEMP/player.png" || true
+          kill "$player" 2>/dev/null || true
+          cat "$RUNNER_TEMP/player.log"
+          if ! grep -q "native: player loaded https://player.rocket-vibe.invalid/" "$RUNNER_TEMP/player.log"; then echo "::error::the player did not load its page"; alive=0; fi
           # Soak: rows, toasts and the badge churned for 45 s; the app must still be there, with no panic recorded.
           RV_SMOKE_GALLERY=1 RV_SMOKE_SOAK=45 "$app/Contents/MacOS/rocket-vibe-gtk" > "$RUNNER_TEMP/soak.log" 2>&1 &
           soak=$!
@@ -518,6 +541,7 @@ jobs:
             ${{ runner.temp }}/screenshot.png
             ${{ runner.temp }}/gallery.png
             ${{ runner.temp }}/call.png
+            ${{ runner.temp }}/player.png
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:

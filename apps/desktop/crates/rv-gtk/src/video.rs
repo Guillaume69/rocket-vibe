@@ -8,7 +8,7 @@ use adw::prelude::*;
 use gtk::{gdk, glib, pango};
 use rv_core::content::{FileAttachment, human_size};
 
-use crate::cards::{local_copy, open_file};
+use crate::cards::{cache_path, local_copy_with, open_file, progress_text};
 use crate::i18n::t;
 use crate::widgets;
 
@@ -38,6 +38,11 @@ struct Player {
     badge: gtk::DrawingArea,
     bar: gtk::Box,
     status: gtk::Label,
+    progress: gtk::ProgressBar,
+    /// A download is under way: another click must not start a second one.
+    fetching: std::cell::Cell<bool>,
+    /// Clicked while downloading: plays once the file is there.
+    play_when_fetched: std::cell::Cell<bool>,
     stream: std::cell::RefCell<Option<gtk::MediaStream>>,
     session: crate::media::Provider,
     file: FileAttachment,
@@ -49,7 +54,7 @@ impl Player {
         if let Some(stream) = self.stream.borrow().clone() {
             return Some(stream);
         }
-        let path = local_copy(self.session.clone(), self.file.clone()).await?;
+        let path = self.fetch().await?;
         if let Some(stream) = self.stream.borrow().clone() {
             return Some(stream);
         }
@@ -71,7 +76,35 @@ impl Player {
         Some(stream)
     }
 
+    /// The file on disk, its download shown on the card while it comes in.
+    async fn fetch(self: &Rc<Self>) -> Option<std::path::PathBuf> {
+        if self.fetching.replace(true) {
+            return None;
+        }
+        let (status, bar, size) = (self.status.clone(), self.progress.clone(), self.file.size);
+        let shown = move |received: u64| {
+            status.set_label(&progress_text(received, size));
+            match size.filter(|s| *s > 0) {
+                Some(size) => bar.set_fraction((received as f64 / size as f64).min(1.0)),
+                None => bar.pulse(),
+            }
+            bar.set_visible(true);
+        };
+        let path = local_copy_with(self.session.clone(), self.file.clone(), shown).await;
+        self.progress.set_visible(false);
+        self.fetching.set(false);
+        if self.play_when_fetched.take() && path.is_some() {
+            let this = self.clone();
+            glib::idle_add_local_once(move || this.play());
+        }
+        path
+    }
+
     fn play(self: &Rc<Self>) {
+        if self.fetching.get() {
+            self.play_when_fetched.set(true);
+            return;
+        }
         let this = self.clone();
         self.status.set_label(t("file.loading"));
         glib::spawn_future_local(async move {
@@ -140,6 +173,15 @@ pub fn card_provider(session: crate::media::Provider, f: &FileAttachment) -> gtk
     let bar = gtk::Box::builder().spacing(4).css_classes(["video-bar"]).valign(gtk::Align::End).visible(false).build();
     bar.append(&fullscreen);
     frame.add_overlay(&bar);
+    let progress = gtk::ProgressBar::builder()
+        .valign(gtk::Align::End)
+        .margin_start(12)
+        .margin_end(12)
+        .margin_bottom(12)
+        .css_classes(["video-progress"])
+        .visible(false)
+        .build();
+    frame.add_overlay(&progress);
 
     let title = gtk::Label::builder()
         .label(&f.title)
@@ -183,6 +225,9 @@ pub fn card_provider(session: crate::media::Provider, f: &FileAttachment) -> gtk
         badge,
         bar,
         status,
+        progress,
+        fetching: Default::default(),
+        play_when_fetched: Default::default(),
         stream: Default::default(),
         session: session.clone(),
         file: f.clone(),
@@ -215,14 +260,15 @@ pub fn card_provider(session: crate::media::Provider, f: &FileAttachment) -> gtk
     open.connect_clicked(move |button| {
         let (p, button) = (p.clone(), button.clone());
         glib::spawn_future_local(async move {
-            if let Some(path) = local_copy(p.session.clone(), p.file.clone()).await {
+            if let Some(path) = p.fetch().await {
+                p.status.set_label(&detail(&p.file));
                 let status = p.status.clone();
                 open_file(&button, &path, move || status.set_label(t("file.no_app")));
             }
         });
     });
     LAST.with_borrow_mut(|last| *last = Rc::downgrade(&player));
-    if f.size.is_some_and(|size| size <= POSTER_MAX_BYTES) {
+    if f.size.is_some_and(|size| size <= POSTER_MAX_BYTES) || cache_path(f).exists() {
         let p = player.clone();
         glib::spawn_future_local(async move {
             p.stream().await;

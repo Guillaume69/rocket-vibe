@@ -10,7 +10,7 @@ export function nativePushScope(value:unknown):NativePushScope|null {
   } catch {return null;}
 }
 export function nativePushMatches(scope:NativePushScope,session:Session):boolean {
-  return session.genre==='rocketvibe'&&scope.instanceId===session.nativeInstanceId&&scope.dataEpoch===session.nativeDataEpoch&&scope.userId===session.userId;
+  return session.kind==='rocketvibe'&&scope.instanceId===session.nativeInstanceId&&scope.dataEpoch===session.nativeDataEpoch&&scope.userId===session.userId;
 }
 export function nativePushServerUrl(value:unknown):string|null {
   if(typeof value!=='string'||value.length>2048)return null;

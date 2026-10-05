@@ -1,0 +1,31 @@
+# Send: existing session, open test-public, send a unique message, see it
+# rendered (the round trip optimistic -> server -> SQLite -> list).
+appId: com.rocketvibe.app
+---
+# `stopApp: false`: killing and relaunching a DEV BUILD reloads the whole
+# bundle from Metro and sometimes lands back on the dev-client launcher;
+# useless here, the previous flow's session is already in the foreground.
+- launchApp:
+    stopApp: false
+# If we are on the dev-client launcher anyway, take back control.
+- runFlow:
+    when:
+      visible: 'Development Servers'
+    commands:
+      - tapOn: 'http://.*:8081'
+- extendedWaitUntil:
+    visible: 'test-public'
+    timeout: 30000
+- tapOn: 'test-public'
+- extendedWaitUntil:
+    visible: 'Message'
+    timeout: 15000
+- tapOn: 'Message'
+# A restored draft (8.7) may occupy the field: start from scratch.
+- eraseText
+- inputText: '${MSG}'
+- tapOn: 'Envoyer'
+- hideKeyboard
+- extendedWaitUntil:
+    visible: '${MSG}'
+    timeout: 15000

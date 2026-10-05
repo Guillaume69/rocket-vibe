@@ -8,6 +8,9 @@ use serde_json::Value;
 pub const STREAM_NOTIFY_LOGGED: &str = "stream-notify-logged";
 pub const USER_STATUS: &str = "user-status";
 pub const USER_ACTIVITY: &str = "user-activity";
+/// On `stream-notify-user`, after `<uid>/`: what the server says to me alone,
+/// such as a slash command's answer.
+pub const PRIVATE_MESSAGE: &str = "message";
 /// A typist who goes quiet without saying so is forgotten after this.
 pub const TYPING_EXPIRY: Duration = Duration::from_secs(15);
 
@@ -55,6 +58,14 @@ pub fn presence_event(args: &[Value]) -> Option<(String, Presence)> {
     let entry = args.first()?.as_array()?;
     let uid = entry.first()?.as_str().filter(|s| !s.is_empty())?;
     Some((uid.to_owned(), Presence::from_code(entry.get(2)?.as_i64()?)?))
+}
+
+/// `<uid>/message` args: `[{rid, msg, private: true, …}]` → (rid, text).
+pub fn private_message(args: &[Value]) -> Option<(String, String)> {
+    let message = args.first()?;
+    let rid = message.get("rid").and_then(Value::as_str).filter(|s| !s.is_empty())?;
+    let text = message.get("msg").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())?;
+    Some((rid.to_owned(), text.to_owned()))
 }
 
 /// `users.presence`: everyone the server reports, by uid.
@@ -117,6 +128,16 @@ impl Typing {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn private_messages_carry_their_room() {
+        let args = [json!({"_id": "1790807900253", "rid": "R1", "msg": "The channel `#nope` does not exist.",
+            "private": true, "u": {"username": "rocket.cat"}})];
+        assert_eq!(private_message(&args), Some(("R1".into(), "The channel `#nope` does not exist.".into())));
+        assert_eq!(private_message(&[json!({"rid": "R1", "msg": "  "})]), None);
+        assert_eq!(private_message(&[json!({"msg": "no room"})]), None);
+        assert_eq!(private_message(&[]), None);
+    }
 
     #[test]
     fn typing_expires_and_stops() {

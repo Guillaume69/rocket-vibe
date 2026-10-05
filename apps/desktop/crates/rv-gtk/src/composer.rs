@@ -11,6 +11,7 @@ use rv_core::session::Session;
 
 use crate::attach::Picked;
 use crate::i18n::{t, tf};
+use crate::on_tokio;
 use crate::widgets::{self, Handler};
 
 const MAX_HEIGHT: i32 = 160;
@@ -50,6 +51,18 @@ pub struct Composer {
     attach: gtk::Button,
     mic: gtk::Button,
     on_send_files: Handler<Outgoing>,
+    commands: RefCell<Commands>,
+    note_bar: gtk::Box,
+    note_body: gtk::Box,
+    note: RefCell<String>,
+}
+
+/// The server's slash commands, and what I may run in the bound room.
+#[derive(Default)]
+struct Commands {
+    key: String,
+    list: Vec<rv_core::commands::Command>,
+    granted: Option<Vec<String>>,
 }
 
 type MentionSource = Rc<dyn Fn(&str) -> Vec<String>>;
@@ -235,6 +248,23 @@ impl Composer {
         reply_bar.append(&reply_text);
         reply_bar.append(&reply_close);
 
+        let note_body = gtk::Box::builder().orientation(gtk::Orientation::Vertical).css_classes(["note-body"]).build();
+        let note_text = gtk::Box::builder().orientation(gtk::Orientation::Vertical).hexpand(true).build();
+        note_text.append(
+            &gtk::Label::builder().label(t("command.only_you")).xalign(0.0).css_classes(["reply-title"]).build(),
+        );
+        note_text.append(&note_body);
+        let note_close =
+            gtk::Button::builder().label("✕").css_classes(["flat", "circular"]).valign(gtk::Align::Start).build();
+        let note_bar = gtk::Box::builder().spacing(8).css_classes(["reply-bar", "private-note"]).visible(false).build();
+        note_bar.append(&note_text);
+        note_bar.append(&note_close);
+        note_close.connect_clicked(glib::clone!(
+            #[weak]
+            note_bar,
+            move |_| note_bar.set_visible(false)
+        ));
+
         let staged = crate::staged::Staged::new();
         let root = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
@@ -244,6 +274,7 @@ impl Composer {
             .margin_start(14)
             .margin_end(14)
             .build();
+        root.append(&note_bar);
         root.append(&reply_bar);
         root.append(&staged.root);
         root.append(&field);
@@ -288,6 +319,10 @@ impl Composer {
             attach: attach.clone(),
             mic: mic.clone(),
             on_send_files: RefCell::default(),
+            commands: RefCell::default(),
+            note_bar,
+            note_body,
+            note: RefCell::default(),
         });
         let weak = Rc::downgrade(&this);
         mic.connect_clicked(move |_| {
@@ -538,7 +573,7 @@ impl Composer {
 
     /// Ties the composer to a room (`thread` None) or a thread: restores its
     /// draft, saves it as it changes, and offers the room's authors after `@`.
-    pub fn bind(&self, session: &Arc<Session>, rid: &str, thread: Option<&str>) {
+    pub fn bind(self: &Rc<Self>, session: &Arc<Session>, rid: &str, thread: Option<&str>) {
         self.unbind_native();
         self.attach.set_sensitive(true);
         self.mic.set_sensitive(true);
@@ -550,6 +585,8 @@ impl Composer {
         self.on_changed.replace(None);
         self.set_text(&session.store.draft(&key).unwrap_or_default());
         self.completion.popdown();
+        self.note_bar.set_visible(false);
+        self.load_commands(session, rid, &key);
         let generation = Rc::new(Cell::new(0u64));
         let store = session.store.clone();
         self.connect_changed(move |text| {
@@ -608,6 +645,9 @@ impl Composer {
         }
         self.on_changed.replace(None);
         self.completion.popdown();
+        // Slash commands and their private notes belong to a Rocket.Chat room.
+        self.note_bar.set_visible(false);
+        self.commands.replace(Commands::default());
     }
     pub fn bind_private(
         &self,
@@ -655,6 +695,39 @@ impl Composer {
         });
     }
 
+    /// Fetches the commands offered after `/`, and my permissions in the room
+    /// to leave out those I may not run.
+    fn load_commands(self: &Rc<Self>, session: &Arc<Session>, rid: &str, key: &str) {
+        self.commands.replace(Commands { key: key.to_owned(), ..Default::default() });
+        let (weak, s, rid, key) = (Rc::downgrade(self), session.clone(), rid.to_owned(), key.to_owned());
+        glib::spawn_future_local(async move {
+            let (list, granted) =
+                on_tokio(async move { (s.commands().await.map(<[_]>::to_vec), s.permissions(&rid).await) }).await;
+            let Some(this) = weak.upgrade() else { return };
+            if this.commands.borrow().key != key {
+                return;
+            }
+            this.commands.replace(Commands { key, list: list.unwrap_or_default(), granted });
+            this.update_completion();
+        });
+    }
+
+    /// What the server told me alone here, such as a command's answer.
+    pub fn show_private(&self, text: &str, me: &str) {
+        while let Some(child) = self.note_body.first_child() {
+            self.note_body.remove(&child);
+        }
+        let blocks = rv_core::markdown::render(None, Some(text), &rv_core::markdown::Context { me });
+        self.note_body.append(&crate::markdown_view::view(&blocks, &[]));
+        self.note.replace(text.to_owned());
+        self.note_bar.set_visible(true);
+    }
+
+    /// The private note on show, if any.
+    pub fn private_note(&self) -> Option<String> {
+        self.note_bar.is_visible().then(|| self.note.borrow().clone())
+    }
+
     /// Usernames offered after `@`, given the prefix typed.
     pub fn set_mention_source(&self, f: impl Fn(&str) -> Vec<String> + 'static) {
         self.mentions.replace(Some(Rc::new(f)));
@@ -669,37 +742,44 @@ impl Composer {
         let buffer = self.text.buffer();
         let cursor = buffer.iter_at_mark(&buffer.get_insert());
         let before = buffer.text(&buffer.start_iter(), &cursor, false).to_string();
-        let offered: Vec<(String, usize, String, Option<gtk::Widget>)> = match rv_core::completion::query(&before) {
-            Some(q) if q.trigger == rv_core::completion::Trigger::Mention => {
-                let source = self.mentions.borrow().clone();
-                source
-                    .map(|f| f(&q.prefix))
-                    .unwrap_or_default()
+        let offered: Vec<(String, usize, String, Option<gtk::Widget>)> =
+            if let Some(prefix) = rv_core::commands::query(&before) {
+                let commands = self.commands.borrow();
+                rv_core::commands::complete(&commands.list, prefix, commands.granted.as_deref(), 8)
                     .into_iter()
-                    .map(|name| {
-                        let card = crate::markdown_view::mention_preview(&name);
-                        (format!("@{name}"), q.start, format!("@{name} "), card)
-                    })
+                    .map(|c| (format!("/{}", c.name), 0, format!("/{} ", c.name), Some(command_choice(c))))
                     .collect()
-            }
-            Some(q) => {
-                let custom = self.custom_emoji.borrow().clone().map(|f| f(&q.prefix)).unwrap_or_default();
-                custom
-                    .into_iter()
-                    .map(|code| {
-                        let image = crate::markdown_view::custom_emoji(&code);
-                        (format!(":{code}:"), q.start, format!(":{code}: "), image)
-                    })
-                    .chain(
-                        rv_core::emoji::complete(&q.prefix, 8)
+            } else {
+                match rv_core::completion::query(&before) {
+                    Some(q) if q.trigger == rv_core::completion::Trigger::Mention => {
+                        let source = self.mentions.borrow().clone();
+                        source
+                            .map(|f| f(&q.prefix))
+                            .unwrap_or_default()
                             .into_iter()
-                            .map(|(code, glyph)| (format!("{glyph}  :{code}:"), q.start, format!("{glyph} "), None)),
-                    )
-                    .take(8)
-                    .collect()
-            }
-            None => Vec::new(),
-        };
+                            .map(|name| {
+                                let card = crate::markdown_view::mention_preview(&name);
+                                (format!("@{name}"), q.start, format!("@{name} "), card)
+                            })
+                            .collect()
+                    }
+                    Some(q) => {
+                        let custom = self.custom_emoji.borrow().clone().map(|f| f(&q.prefix)).unwrap_or_default();
+                        custom
+                            .into_iter()
+                            .map(|code| {
+                                let image = crate::markdown_view::custom_emoji(&code);
+                                (format!(":{code}:"), q.start, format!(":{code}: "), image)
+                            })
+                            .chain(rv_core::emoji::complete(&q.prefix, 8).into_iter().map(|(code, glyph)| {
+                                (format!("{glyph}  :{code}:"), q.start, format!("{glyph} "), None)
+                            }))
+                            .take(8)
+                            .collect()
+                    }
+                    None => Vec::new(),
+                }
+            };
         while let Some(row) = self.choices.first_child() {
             self.choices.remove(&row);
         }
@@ -711,7 +791,9 @@ impl Composer {
         for (label, _, _, preview) in &offered {
             let text = gtk::Label::builder().label(label).xalign(0.0).css_classes(["completion-item"]).build();
             match preview {
-                Some(card) if card.has_css_class("mention-card") => self.choices.append(card),
+                Some(card) if card.has_css_class("mention-card") || card.has_css_class("command-choice") => {
+                    self.choices.append(card)
+                }
                 Some(image) => {
                     image.set_tooltip_text(None);
                     let row = gtk::Box::builder().spacing(8).build();
@@ -915,6 +997,34 @@ impl Composer {
         let bar = scroller.vscrollbar();
         (scroller.height(), bar.is_visible() && bar.is_child_visible(), scroller.vadjustment().value())
     }
+}
+
+/// `/name params` over what the command does.
+fn command_choice(command: &rv_core::commands::Command) -> gtk::Widget {
+    let markup = match command.params.as_str() {
+        "" => format!("<b>/{}</b>", glib::markup_escape_text(&command.name)),
+        params => format!(
+            "<b>/{}</b>  <span alpha=\"60%\">{}</span>",
+            glib::markup_escape_text(&command.name),
+            glib::markup_escape_text(params)
+        ),
+    };
+    let choice = gtk::Box::builder().orientation(gtk::Orientation::Vertical).css_classes(["command-choice"]).build();
+    choice.append(
+        &gtk::Label::builder().label(markup).use_markup(true).xalign(0.0).css_classes(["completion-item"]).build(),
+    );
+    if !command.description.is_empty() {
+        choice.append(
+            &gtk::Label::builder()
+                .label(&command.description)
+                .xalign(0.0)
+                .ellipsize(gtk::pango::EllipsizeMode::End)
+                .max_width_chars(48)
+                .css_classes(["command-description"])
+                .build(),
+        );
+    }
+    choice.upcast()
 }
 
 /// What each styled run of the draft looks like as it is typed.

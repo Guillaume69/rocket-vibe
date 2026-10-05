@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const schemaPath = new URL('../docs/protocol/v1.schema.json', import.meta.url);
-const outputPath = new URL('../apps/mobile/fournisseurs/rocketvibe/protocol.generated.ts', import.meta.url);
+const outputPath = new URL('../apps/mobile/providers/rocketvibe/protocol.generated.ts', import.meta.url);
 const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
 const definitions = schema.$defs;
 

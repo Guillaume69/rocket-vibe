@@ -10,29 +10,29 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Le push iOS, par FCM comme Android (voir docs/PUSH.md, « iOS ») :
+ * iOS push, through FCM like Android (see docs/PUSH.md, "iOS"):
  *
- * - `FirebaseAppDelegateProxyEnabled = false` : Firebase ne swizzle pas
- *   l'AppDelegate, qu'expo-notifications gère déjà ; modules/jeton-fcm lui
- *   remet le jeton APNs à la main ;
- * - les pods Firebase en `modular_headers` : le module Swift jeton-fcm importe
- *   FirebaseMessaging, et FirebaseCoreInternal (Swift) dépend de
- *   GoogleUtilities, qui ne définit pas de module sans ça ;
- * - la Notification Service Extension (ios-notification-service/), cible
- *   `NotificationService`, qui va chercher le contenu par `push.get` ;
- * - un groupe de trousseau partagé par l'app et l'extension, EN TÊTE de la
- *   liste de l'app : c'est le groupe par défaut où expo-secure-store écrit, donc
- *   là où l'extension lit la session.
+ * - `FirebaseAppDelegateProxyEnabled = false`: Firebase does not swizzle the
+ *   AppDelegate, which expo-notifications already handles; modules/fcm-token
+ *   hands it the APNs token by hand;
+ * - the Firebase pods with `modular_headers`: the fcm-token Swift module imports
+ *   FirebaseMessaging, and FirebaseCoreInternal (Swift) depends on
+ *   GoogleUtilities, which defines no module without it;
+ * - the Notification Service Extension (ios-notification-service/), target
+ *   `NotificationService`, which fetches the content through `push.get`;
+ * - a keychain group shared by the app and the extension, FIRST in the app's
+ *   list: it is the default group expo-secure-store writes to, hence where the
+ *   extension reads the session.
  */
 
-const CIBLE = 'NotificationService';
-const SOURCE_SWIFT = path.join(__dirname, 'ios-notification-service', `${CIBLE}.swift`);
-// Session et langue lues au trousseau : même source que la réponse depuis la
-// notification (modules/reponse-notif), compilée dans les deux cibles.
-const SOURCE_SESSION = path.join(__dirname, '..', 'modules', 'reponse-notif', 'ios', 'SessionPush.swift');
-const CIBLE_IOS_MIN = '16.4';
+const TARGET = 'NotificationService';
+const SOURCE_SWIFT = path.join(__dirname, 'ios-notification-service', `${TARGET}.swift`);
+// Session and language read from the keychain: same source as the notification
+// reply (modules/notification-reply), compiled into both targets.
+const SOURCE_SESSION = path.join(__dirname, '..', 'modules', 'notification-reply', 'ios', 'SessionPush.swift');
+const IOS_MIN_TARGET = '16.4';
 
-const PODS_MODULAIRES = [
+const MODULAR_PODS = [
   'FirebaseCore',
   'FirebaseCoreInternal',
   'FirebaseCoreExtension',
@@ -43,28 +43,28 @@ const PODS_MODULAIRES = [
   'nanopb',
 ];
 
-function groupeTrousseau(bundleId) {
+function keychainGroup(bundleId) {
   return `$(AppIdentifierPrefix)${bundleId}`;
 }
 
-function podfileModulaire(podfile) {
+function modularPodfile(podfile) {
   if (podfile.includes("pod 'FirebaseMessaging', :modular_headers => true")) return podfile;
-  const ancre = /^(\s*)use_expo_modules!.*$/m;
-  const trouve = podfile.match(ancre);
-  if (!trouve) throw new Error('with-ios-push : use_expo_modules! introuvable dans le Podfile');
-  const retrait = trouve[1];
-  const lignes = PODS_MODULAIRES.map((pod) => `${retrait}pod '${pod}', :modular_headers => true`).join('\n');
-  return podfile.replace(ancre, (ligne) => `${ligne}\n${lignes}`);
+  const anchor = /^(\s*)use_expo_modules!.*$/m;
+  const found = podfile.match(anchor);
+  if (!found) throw new Error('with-ios-push: use_expo_modules! not found in the Podfile');
+  const inset = found[1];
+  const rows = MODULAR_PODS.map((pod) => `${inset}pod '${pod}', :modular_headers => true`).join('\n');
+  return podfile.replace(anchor, (row) => `${row}\n${rows}`);
 }
 
-function entitlementsExtension(groupe) {
+function extensionEntitlements(group) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>keychain-access-groups</key>
   <array>
-    <string>${groupe}</string>
+    <string>${group}</string>
   </array>
 </dict>
 </plist>
@@ -78,7 +78,7 @@ const INFO_PLIST_EXTENSION = `<?xml version="1.0" encoding="UTF-8"?>
   <key>CFBundleDevelopmentRegion</key>
   <string>$(DEVELOPMENT_LANGUAGE)</string>
   <key>CFBundleDisplayName</key>
-  <string>${CIBLE}</string>
+  <string>${TARGET}</string>
   <key>CFBundleExecutable</key>
   <string>$(EXECUTABLE_NAME)</string>
   <key>CFBundleIdentifier</key>
@@ -98,65 +98,65 @@ const INFO_PLIST_EXTENSION = `<?xml version="1.0" encoding="UTF-8"?>
     <key>NSExtensionPointIdentifier</key>
     <string>com.apple.usernotifications.service</string>
     <key>NSExtensionPrincipalClass</key>
-    <string>$(PRODUCT_MODULE_NAME).${CIBLE}</string>
+    <string>$(PRODUCT_MODULE_NAME).${TARGET}</string>
   </dict>
 </dict>
 </plist>
 `;
 
-function cibleIosMin(projet) {
-  const configurations = projet.pbxXCBuildConfigurationSection();
-  for (const cle of Object.keys(configurations)) {
-    const reglages = configurations[cle]?.buildSettings;
-    if (reglages?.IPHONEOS_DEPLOYMENT_TARGET) return reglages.IPHONEOS_DEPLOYMENT_TARGET;
+function iosMinTarget(project) {
+  const configurations = project.pbxXCBuildConfigurationSection();
+  for (const key of Object.keys(configurations)) {
+    const settings = configurations[key]?.buildSettings;
+    if (settings?.IPHONEOS_DEPLOYMENT_TARGET) return settings.IPHONEOS_DEPLOYMENT_TARGET;
   }
-  return CIBLE_IOS_MIN;
+  return IOS_MIN_TARGET;
 }
 
-function ajouterCible(projet, { bundleId, equipe, version, build }) {
-  if (projet.pbxTargetByName(CIBLE)) return projet;
-  const iosMin = cibleIosMin(projet);
+function addTarget(project, { bundleId, team, version, build }) {
+  if (project.pbxTargetByName(TARGET)) return project;
+  const iosMin = iosMinTarget(project);
 
-  const objets = projet.hash.project.objects;
-  objets.PBXTargetDependency = objets.PBXTargetDependency || {};
-  objets.PBXContainerItemProxy = objets.PBXContainerItemProxy || {};
+  const objects = project.hash.project.objects;
+  objects.PBXTargetDependency = objects.PBXTargetDependency || {};
+  objects.PBXContainerItemProxy = objects.PBXContainerItemProxy || {};
 
-  const groupe = projet.addPbxGroup(
-    [`${CIBLE}.swift`, 'SessionPush.swift', `${CIBLE}-Info.plist`, `${CIBLE}.entitlements`],
-    CIBLE,
-    CIBLE,
+  const group = project.addPbxGroup(
+    [`${TARGET}.swift`, 'SessionPush.swift', `${TARGET}-Info.plist`, `${TARGET}.entitlements`],
+    TARGET,
+    TARGET,
   );
-  projet.addToPbxGroup(groupe.uuid, projet.getFirstProject().firstProject.mainGroup);
+  project.addToPbxGroup(group.uuid, project.getFirstProject().firstProject.mainGroup);
 
-  const cible = projet.addTarget(CIBLE, 'app_extension', CIBLE, `${bundleId}.${CIBLE}`);
-  projet.addBuildPhase([`${CIBLE}.swift`, 'SessionPush.swift'], 'PBXSourcesBuildPhase', 'Sources', cible.uuid);
-  projet.addBuildPhase([], 'PBXResourcesBuildPhase', 'Resources', cible.uuid);
-  projet.addBuildPhase([], 'PBXFrameworksBuildPhase', 'Frameworks', cible.uuid);
+  const target = project.addTarget(TARGET, 'app_extension', TARGET, `${bundleId}.${TARGET}`);
+  project.addBuildPhase([`${TARGET}.swift`, 'SessionPush.swift'], 'PBXSourcesBuildPhase', 'Sources', target.uuid);
+  project.addBuildPhase([], 'PBXResourcesBuildPhase', 'Resources', target.uuid);
+  project.addBuildPhase([], 'PBXFrameworksBuildPhase', 'Frameworks', target.uuid);
 
-  const configurations = projet.pbxXCBuildConfigurationSection();
-  for (const cle of Object.keys(configurations)) {
-    const reglages = configurations[cle]?.buildSettings;
-    if (reglages?.PRODUCT_NAME !== `"${CIBLE}"`) continue;
-    Object.assign(reglages, {
-      CODE_SIGN_ENTITLEMENTS: `${CIBLE}/${CIBLE}.entitlements`,
+  const configurations = project.pbxXCBuildConfigurationSection();
+  for (const key of Object.keys(configurations)) {
+    const settings = configurations[key]?.buildSettings;
+    if (settings?.PRODUCT_NAME !== `"${TARGET}"`) continue;
+    Object.assign(settings, {
+      CODE_SIGN_ENTITLEMENTS: `${TARGET}/${TARGET}.entitlements`,
       CODE_SIGN_STYLE: 'Automatic',
       CURRENT_PROJECT_VERSION: build,
       GENERATE_INFOPLIST_FILE: 'NO',
-      INFOPLIST_FILE: `${CIBLE}/${CIBLE}-Info.plist`,
+      INFOPLIST_FILE: `${TARGET}/${TARGET}-Info.plist`,
       IPHONEOS_DEPLOYMENT_TARGET: iosMin,
       MARKETING_VERSION: version,
       SWIFT_VERSION: '5.0',
       TARGETED_DEVICE_FAMILY: '"1,2"',
-      ...(equipe ? { DEVELOPMENT_TEAM: equipe } : {}),
+      ...(team ? { DEVELOPMENT_TEAM: team } : {}),
     });
   }
-  if (equipe) projet.addTargetAttribute('DevelopmentTeam', equipe, cible);
-  return projet;
+  if (team) project.addTargetAttribute('DevelopmentTeam', team, target);
+  return project;
 }
 
-function bundleIdDe(config) {
+function bundleIdOf(config) {
   const bundleId = config.ios?.bundleIdentifier;
-  if (!bundleId) throw new Error('with-ios-push : ios.bundleIdentifier manquant dans app.json');
+  if (!bundleId) throw new Error('with-ios-push: ios.bundleIdentifier missing from app.json');
   return bundleId;
 }
 
@@ -167,37 +167,37 @@ function withIosPush(config) {
   });
 
   config = withEntitlementsPlist(config, (config) => {
-    const groupe = groupeTrousseau(bundleIdDe(config));
-    const existants = config.modResults['keychain-access-groups'] ?? [];
-    config.modResults['keychain-access-groups'] = [groupe, ...existants.filter((g) => g !== groupe)];
+    const group = keychainGroup(bundleIdOf(config));
+    const existing = config.modResults['keychain-access-groups'] ?? [];
+    config.modResults['keychain-access-groups'] = [group, ...existing.filter((g) => g !== group)];
     return config;
   });
 
   config = withPodfile(config, (config) => {
-    config.modResults.contents = podfileModulaire(config.modResults.contents);
+    config.modResults.contents = modularPodfile(config.modResults.contents);
     return config;
   });
 
   config = withDangerousMod(config, [
     'ios',
     async (config) => {
-      const dossier = path.join(config.modRequest.platformProjectRoot, CIBLE);
-      fs.mkdirSync(dossier, { recursive: true });
-      fs.copyFileSync(SOURCE_SWIFT, path.join(dossier, `${CIBLE}.swift`));
-      fs.copyFileSync(SOURCE_SESSION, path.join(dossier, 'SessionPush.swift'));
-      fs.writeFileSync(path.join(dossier, `${CIBLE}-Info.plist`), INFO_PLIST_EXTENSION);
+      const folder = path.join(config.modRequest.platformProjectRoot, TARGET);
+      fs.mkdirSync(folder, { recursive: true });
+      fs.copyFileSync(SOURCE_SWIFT, path.join(folder, `${TARGET}.swift`));
+      fs.copyFileSync(SOURCE_SESSION, path.join(folder, 'SessionPush.swift'));
+      fs.writeFileSync(path.join(folder, `${TARGET}-Info.plist`), INFO_PLIST_EXTENSION);
       fs.writeFileSync(
-        path.join(dossier, `${CIBLE}.entitlements`),
-        entitlementsExtension(groupeTrousseau(bundleIdDe(config))),
+        path.join(folder, `${TARGET}.entitlements`),
+        extensionEntitlements(keychainGroup(bundleIdOf(config))),
       );
       return config;
     },
   ]);
 
   return withXcodeProject(config, (config) => {
-    ajouterCible(config.modResults, {
-      bundleId: bundleIdDe(config),
-      equipe: config.ios?.appleTeamId ?? null,
+    addTarget(config.modResults, {
+      bundleId: bundleIdOf(config),
+      team: config.ios?.appleTeamId ?? null,
       version: config.version ?? '1.0.0',
       build: config.ios?.buildNumber ?? '1',
     });
@@ -206,4 +206,4 @@ function withIosPush(config) {
 }
 
 module.exports = withIosPush;
-module.exports.chirurgie = { podfileModulaire, ajouterCible, groupeTrousseau };
+module.exports.internals = { modularPodfile, addTarget, keychainGroup };

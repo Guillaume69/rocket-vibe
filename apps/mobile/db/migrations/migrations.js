@@ -17,23 +17,8 @@ import m0012 from './0012_large_boomer.sql';
 import m0013 from './0013_true_echo.sql';
 import m0014 from './0014_concerned_mojo.sql';
 import m0015 from './0015_lyrical_purifiers.sql';
-import m0016 from './0016_illegal_moon_knight.sql';
-import m0017 from './0017_blushing_venom.sql';
-import m0018 from './0018_tearful_stepford_cuckoos.sql';
-import m0019 from './0019_wealthy_pete_wisdom.sql';
-import m0020 from './0020_lowly_photon.sql';
-import m0021 from './0021_redundant_dagger.sql';
-import m0022 from './0022_tense_stone_men.sql';
-import m0023 from './0023_previous_lifeguard.sql';
-import m0024 from './0024_fluffy_thor.sql';
-import m0025 from './0025_jazzy_whiplash.sql';
-import m0026 from './0026_overconfident_silver_centurion.sql';
-import m0027 from './0027_reflective_spencer_smythe.sql';
-import m0028 from './0028_equal_sally_floyd.sql';
-import m0029 from './0029_parallel_scarlet_spider.sql';
-import m0030 from './0030_native_files.sql';
-import m0031 from './0031_native_custom_emojis.sql';
-import m0032 from './0032_native_meetings.sql';
+import m0016 from './0016_english_names.sql';
+import m0017 from './0017_native_provider.sql';
 
   export default {
     journal,
@@ -55,22 +40,7 @@ m0013,
 m0014,
 m0015,
 m0016,
-m0017,
-m0018,
-m0019,
-m0020,
-m0021,
-m0022,
-m0023,
-m0024,
-m0025,
-m0026,
-m0027,
-m0028,
-m0029,
-m0030,
-m0031,
-m0032
+m0017
     }
   }
   

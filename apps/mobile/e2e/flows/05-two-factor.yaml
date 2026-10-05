@@ -1,0 +1,53 @@
+# TOTP 2FA: bob (2FA enabled by the harness), the password alone is
+# refused, the TOTP screen appears, the code ${TOTP} (computed by the
+# harness at launch) unlocks the session.
+appId: com.rocketvibe.app
+---
+- launchApp:
+    clearState: true
+# DEVELOPMENT build: clearState goes back to the expo-dev-client launcher;
+# we tap the Metro server entry (recognised by its URL). In a release build,
+# these lines would become useless.
+- extendedWaitUntil:
+    visible: 'Development Servers'
+    timeout: 20000
+- tapOn: 'http://.*:8081'
+# Dev-client sheets on first launch: "Continue", then the full dev menu,
+# each closed if present.
+- tapOn:
+    text: 'Continue'
+    optional: true
+- runFlow:
+    when:
+      visible: 'Fast Refresh'
+    commands:
+      - back
+- extendedWaitUntil:
+    visible: 'Adresse du serveur'
+    timeout: 60000
+# The field is PREFILLED (DEFAULT_SERVER in dev): erase first.
+- tapOn:
+    below: 'Adresse du serveur'
+- eraseText
+- inputText: '${SERVER}'
+- tapOn: 'Continuer'
+- extendedWaitUntil:
+    visible: 'Identifiant ou email'
+    timeout: 15000
+- tapOn: 'jean.dupont'
+- inputText: 'bob'
+- tapOn: '••••••••'
+- inputText: '${PASSWORD}'
+- hideKeyboard
+- tapOn: 'Se connecter'
+- extendedWaitUntil:
+    visible: "Code de l'application d'authentification"
+    timeout: 15000
+- tapOn: '123456'
+- inputText: '${TOTP}'
+# No hideKeyboard: on the root screen, it sometimes turns into a BACK that
+# quits the app. "Valider" is at the top, visible with the keyboard open.
+- tapOn: 'Valider'
+- extendedWaitUntil:
+    visible: 'Nouvelle conversation'
+    timeout: 30000

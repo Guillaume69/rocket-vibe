@@ -1,3 +1,5 @@
+//! `rocketvibe://room/<rid>?host=<server>`: the links the Android app's
+//! notifications open, handled here too (older `salon/` links still parse).
 //! Links name a service and provider, never credentials or an arbitrary account.
 use crate::{native::Identity, session::SessionInfo};
 use serde::Deserialize;
@@ -134,7 +136,7 @@ pub fn native_permalink(info: &SessionInfo, rid: &str, message: Option<&str>, ro
     if !id(rid) || [message, root].into_iter().flatten().any(|s| !id(s)) {
         return None;
     }
-    let mut url = Url::parse(&format!("rocketvibe://salon/{rid}")).ok()?;
+    let mut url = Url::parse(&format!("rocketvibe://room/{rid}")).ok()?;
     {
         let mut query = url.query_pairs_mut();
         query.append_pair("host", &service_url(&info.base_url)?);
@@ -196,7 +198,7 @@ mod tests {
         assert_eq!(select(&public, &accounts, None), None);
         assert_eq!(select(&public, &accounts, Some(&accounts[1])), Some(1));
         let scope = serde_json::json!({"instanceId":"instance","dataEpoch":"epoch","userId":"alice"});
-        let mut url = Url::parse("rocketvibe://salon/room").unwrap();
+        let mut url = Url::parse("rocketvibe://room/room").unwrap();
         url.query_pairs_mut().append_pair("host", &accounts[0].base_url).append_pair("nativeScope", &scope.to_string());
         let push = parse(url.as_str()).unwrap();
         assert_eq!(select(&push, &accounts, Some(&accounts[1])), Some(0));
@@ -205,16 +207,16 @@ mod tests {
     #[test]
     fn malformed_scope_cannot_fall_back_to_the_active_session() {
         for url in [
-            "https://salon/room",
-            "rocketvibe://salon/room/extra",
-            "rocketvibe://salon/room?host=file%3A%2F%2F%2Ftmp",
-            "rocketvibe://salon/room?host=https%3A%2F%2Fbearer%40chat.example.org",
-            "rocketvibe://salon/room?host=chat.example.org&host=other.example.org",
-            "rocketvibe://salon/room?instanceId=instance",
-            "rocketvibe://salon/room?userId=alice",
-            "rocketvibe://salon/room?nativeScope=null",
-            "rocketvibe://salon/room?msg=..%2Fsecret",
-            "rocketvibe://salon/room#token",
+            "https://room/room",
+            "rocketvibe://room/room/extra",
+            "rocketvibe://room/room?host=file%3A%2F%2F%2Ftmp",
+            "rocketvibe://room/room?host=https%3A%2F%2Fbearer%40chat.example.org",
+            "rocketvibe://room/room?host=chat.example.org&host=other.example.org",
+            "rocketvibe://room/room?instanceId=instance",
+            "rocketvibe://room/room?userId=alice",
+            "rocketvibe://room/room?nativeScope=null",
+            "rocketvibe://room/room?msg=..%2Fsecret",
+            "rocketvibe://room/room#token",
         ] {
             assert!(parse(url).is_none(), "{url}");
         }

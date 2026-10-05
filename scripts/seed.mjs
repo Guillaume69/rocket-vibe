@@ -1,44 +1,44 @@
 #!/usr/bin/env node
-// Peuple le serveur Rocket.Chat de développement avec des données de test.
+// Fills the development Rocket.Chat server with test data.
 //
 //   node scripts/seed.mjs
 //
-// Idempotent, y compris après un échec partiel : chaque message seedé porte un
-// marqueur `[seed i/n]`, et seuls les marqueurs manquants sont reposés. Un
-// script tué après 7 messages sur 12 reprend au huitième.
+// Idempotent, even after a partial failure: every seeded message carries a
+// `[seed i/n]` marker, and only the missing markers are posted again. A script
+// killed after 7 messages out of 12 resumes at the eighth.
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { EMOJIS_CUSTOM } from './emojis-seed.mjs';
+import { CUSTOM_EMOJIS } from './emojis-seed.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-const NB_MESSAGES = 12;
-const NB_REPONSES = 3;
-const RACINE_FIL = '[seed fil] Racine du fil de discussion.';
+const MESSAGE_COUNT = 12;
+const REPLY_COUNT = 3;
+const THREAD_ROOT = '[seed fil] Racine du fil de discussion.';
 
-const texteMessage = (i, label) =>
-  `[seed ${i}/${NB_MESSAGES}] Message de test dans ${label}. **gras**, _italique_, \`code\`.`;
-const texteReponse = (i) => `[seed fil ${i}/${NB_REPONSES}] Réponse dans le fil.`;
+const messageText = (i, label) =>
+  `[seed ${i}/${MESSAGE_COUNT}] Message de test dans ${label}. **gras**, _italique_, \`code\`.`;
+const replyText = (i) => `[seed fil ${i}/${REPLY_COUNT}] Réponse dans le fil.`;
 
 const RE_MESSAGE = /^\[seed (\d+)\/\d+\]/;
-const RE_REPONSE = /^\[seed fil (\d+)\/\d+\]/;
+const RE_REPLY = /^\[seed fil (\d+)\/\d+\]/;
 
 /**
- * Lit un fichier `.env` sans dépendance externe.
- * Les guillemets encadrants sont retirés : `KEY="valeur"` est une forme
- * courante, et la conserver telle quelle produit une URL invalide.
- * Les commentaires en fin de ligne ne sont pas gérés — un `#` peut légitimement
- * figurer dans un mot de passe.
+ * Reads a `.env` file with no external dependency.
+ * Surrounding quotes are stripped: `KEY="value"` is a common form, and keeping
+ * it as is produces an invalid URL.
+ * End-of-line comments are not handled: a `#` can legitimately appear in a
+ * password.
  */
 function readEnvFile(path) {
   let raw;
   try {
     raw = readFileSync(path, 'utf8');
   } catch {
-    throw new Error(`${path} introuvable. Copie docker/.env.example en docker/.env.`);
+    throw new Error(`${path} not found. Copy docker/.env.example to docker/.env.`);
   }
   const env = {};
   for (const line of raw.split('\n')) {
@@ -51,15 +51,15 @@ function readEnvFile(path) {
 
 const env = readEnvFile(join(ROOT, 'docker', '.env'));
 
-// Le `.env` fait autorité : c'est de lui que viennent les identifiants. Un
-// ROOT_URL exporté dans le shell et pointant ailleurs ferait tenter un login
-// sur un serveur avec les identifiants d'un autre.
+// The `.env` is authoritative: the credentials come from it. A ROOT_URL exported
+// in the shell and pointing elsewhere would attempt a login on one server with
+// another's credentials.
 const BASE = (env.ROOT_URL || '').replace(/\/$/, '');
-if (!BASE) throw new Error('ROOT_URL absent de docker/.env.');
+if (!BASE) throw new Error('ROOT_URL missing from docker/.env.');
 if (process.env.ROOT_URL && process.env.ROOT_URL.replace(/\/$/, '') !== BASE) {
   process.stderr.write(
-    `attention : $ROOT_URL (${process.env.ROOT_URL}) diffère de docker/.env (${BASE}).\n` +
-      `           docker/.env fait foi, car il porte aussi les identifiants.\n`,
+    `warning: $ROOT_URL (${process.env.ROOT_URL}) differs from docker/.env (${BASE}).\n` +
+      `         docker/.env wins, since it also carries the credentials.\n`,
   );
 }
 
@@ -67,10 +67,10 @@ const auth = { token: '', userId: '' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Appelle l'API REST. Rejoue sur 429 : `API_Enable_Rate_Limiter` est actif par
- * défaut et plafonne chaque endpoint. Le serveur indique la date de
- * réinitialisation dans `x-ratelimit-reset` (epoch ms) ; à défaut on retombe
- * sur un délai exponentiel.
+ * Calls the REST API. Retries on 429: `API_Enable_Rate_Limiter` is on by default
+ * and caps every endpoint. The server gives the reset time in
+ * `x-ratelimit-reset` (epoch ms); failing that we fall back to an exponential
+ * delay.
  */
 async function api(method, endpoint, body, attempt = 0) {
   const headers = { 'Content-Type': 'application/json' };
@@ -87,11 +87,11 @@ async function api(method, endpoint, body, attempt = 0) {
 
   if (res.status === 429 && attempt < 5) {
     const reset = Number(res.headers.get('x-ratelimit-reset'));
-    // `Number(null)` vaut 0, donc un en-tête absent donne waitMs = 0 et bascule
-    // sur le délai exponentiel — même chemin qu'un en-tête déjà expiré.
+    // `Number(null)` is 0, so a missing header gives waitMs = 0 and falls back
+    // to the exponential delay, the same path as an already expired header.
     const waitMs = Number.isFinite(reset) ? Math.max(reset - Date.now(), 0) : 0;
     const delay = waitMs > 0 ? waitMs + 250 : 1000 * 2 ** attempt;
-    process.stderr.write(`  429 sur ${endpoint}, attente ${Math.round(delay)} ms\n`);
+    process.stderr.write(`  429 on ${endpoint}, waiting ${Math.round(delay)} ms\n`);
     await res.body?.cancel();
     await sleep(delay);
     return api(method, endpoint, body, attempt + 1);
@@ -102,14 +102,14 @@ async function api(method, endpoint, body, attempt = 0) {
   try {
     json = JSON.parse(text);
   } catch {
-    throw new Error(`${endpoint} : réponse non JSON (${res.status}) ${text.slice(0, 120)}`);
+    throw new Error(`${endpoint}: non-JSON response (${res.status}) ${text.slice(0, 120)}`);
   }
   return { ok: res.ok && json.success !== false, status: res.status, json };
 }
 
 async function must(method, endpoint, body) {
   const r = await api(method, endpoint, body);
-  if (!r.ok) throw new Error(`${endpoint} a échoué (${r.status}) : ${JSON.stringify(r.json)}`);
+  if (!r.ok) throw new Error(`${endpoint} failed (${r.status}): ${JSON.stringify(r.json)}`);
   return r.json;
 }
 
@@ -117,13 +117,13 @@ async function login() {
   const j = await must('POST', 'login', { user: env.ADMIN_USERNAME, password: env.ADMIN_PASS });
   auth.token = j.data.authToken;
   auth.userId = j.data.userId;
-  console.log(`connecté comme ${env.ADMIN_USERNAME} (${j.data.me.roles.join(', ')})`);
+  console.log(`logged in as ${env.ADMIN_USERNAME} (${j.data.me.roles.join(', ')})`);
 }
 
 async function ensureUser({ username, name, password }) {
   const found = await api('GET', `users.info?username=${encodeURIComponent(username)}`);
   if (found.ok) {
-    console.log(`  utilisateur ${username} : existe déjà`);
+    console.log(`  user ${username}: already exists`);
     return found.json.user._id;
   }
   const j = await must('POST', 'users.create', {
@@ -131,120 +131,120 @@ async function ensureUser({ username, name, password }) {
     name,
     password,
     email: `${username}@rocket-vibe.test`,
-    // `verified: false` volontairement. Rocket.Chat n'active la 2FA par email
-    // que sur une adresse vérifiée : un utilisateur vérifié ne peut plus se
-    // connecter en dev, faute de serveur mail pour recevoir le code.
-    // La 2FA de l'étape 3.2 se teste en enrôlant un TOTP, pas par email.
+    // `verified: false` on purpose. Rocket.Chat only enables email 2FA on a
+    // verified address: a verified user can no longer log in in dev, for lack
+    // of a mail server to receive the code.
+    // Step 3.2's 2FA is tested by enrolling a TOTP, not by email.
     verified: false,
     requirePasswordChange: false,
     joinDefaultChannels: false,
     sendWelcomeEmail: false,
   });
-  console.log(`  utilisateur ${username} : créé`);
+  console.log(`  user ${username}: created`);
   return j.user._id;
 }
 
-/** `kind` vaut "channels" (public) ou "groups" (privé). */
+/** `kind` is "channels" (public) or "groups" (private). */
 async function ensureRoom(kind, name, members) {
-  const cle = kind === 'channels' ? 'channel' : 'group';
-  const libelle = kind === 'channels' ? 'canal' : 'groupe';
+  const key = kind === 'channels' ? 'channel' : 'group';
+  const kindLabel = kind === 'channels' ? 'channel' : 'group';
   const found = await api('GET', `${kind}.info?roomName=${encodeURIComponent(name)}`);
   if (found.ok) {
-    console.log(`  ${libelle} ${name} : existe déjà`);
-    return found.json[cle]._id;
+    console.log(`  ${kindLabel} ${name}: already exists`);
+    return found.json[key]._id;
   }
   const j = await must('POST', `${kind}.create`, { name, members });
-  console.log(`  ${libelle} ${name} : créé`);
-  return j[cle]._id;
+  console.log(`  ${kindLabel} ${name}: created`);
+  return j[key]._id;
 }
 
-/** `im.create` est déjà idempotent côté serveur. */
+/** `im.create` is already idempotent server-side. */
 async function ensureIm(username) {
   const j = await must('POST', 'im.create', { username });
-  console.log(`  message direct avec ${username} : prêt`);
+  console.log(`  direct message with ${username}: ready`);
   return j.room._id;
 }
 
-async function historique(historyEndpoint, roomId) {
+async function history(historyEndpoint, roomId) {
   const j = await must('GET', `${historyEndpoint}?roomId=${roomId}&count=100`);
   return j.messages || [];
 }
 
-/** Indices déjà présents parmi les messages portant le marqueur de seed. */
-function indicesPresents(messages, regex) {
-  const vus = new Set();
+/** Indices already present among the messages carrying the seed marker. */
+function presentIndices(messages, regex) {
+  const seen = new Set();
   for (const m of messages) {
     const found = regex.exec(m.msg || '');
-    if (found) vus.add(Number(found[1]));
+    if (found) seen.add(Number(found[1]));
   }
-  return vus;
+  return seen;
 }
 
 /**
- * Reposte uniquement les messages manquants. Un salon partiellement seedé est
- * complété, jamais laissé en l'état ni dupliqué.
+ * Posts only the missing messages again. A partially seeded room is completed,
+ * never left as is nor duplicated.
  */
 async function seedMessages(historyEndpoint, roomId, label) {
-  const messages = await historique(historyEndpoint, roomId);
-  const presents = indicesPresents(
+  const messages = await history(historyEndpoint, roomId);
+  const present = presentIndices(
     messages.filter((m) => !m.tmid),
     RE_MESSAGE,
   );
-  const manquants = [];
-  for (let i = 1; i <= NB_MESSAGES; i++) if (!presents.has(i)) manquants.push(i);
+  const missing = [];
+  for (let i = 1; i <= MESSAGE_COUNT; i++) if (!present.has(i)) missing.push(i);
 
-  if (manquants.length === 0) {
-    console.log(`  messages de ${label} : ${NB_MESSAGES}/${NB_MESSAGES}, rien à faire`);
+  if (missing.length === 0) {
+    console.log(`  messages of ${label}: ${MESSAGE_COUNT}/${MESSAGE_COUNT}, nothing to do`);
     return;
   }
-  for (const i of manquants) {
-    await must('POST', 'chat.postMessage', { roomId, text: texteMessage(i, label) });
+  for (const i of missing) {
+    await must('POST', 'chat.postMessage', { roomId, text: messageText(i, label) });
   }
-  console.log(`  messages de ${label} : ${manquants.length} posté(s), total ${NB_MESSAGES}`);
+  console.log(`  messages of ${label}: ${missing.length} posted, total ${MESSAGE_COUNT}`);
 }
 
 /**
- * Le fil est vérifié indépendamment des messages du salon. Le coupler à « on
- * vient de poster les messages » le rendrait impossible à créer sur un salon
- * qui en contient déjà.
+ * The thread is checked independently of the room's messages. Tying it to "we
+ * just posted the messages" would make it impossible to create on a room that
+ * already has them.
  */
 async function seedThread(historyEndpoint, roomId) {
-  const messages = await historique(historyEndpoint, roomId);
-  let racine = messages.find((m) => m.msg === RACINE_FIL && !m.tmid);
-  if (!racine) {
-    const j = await must('POST', 'chat.postMessage', { roomId, text: RACINE_FIL });
-    racine = j.message;
-    console.log('  fil : racine créée');
+  const messages = await history(historyEndpoint, roomId);
+  let root = messages.find((m) => m.msg === THREAD_ROOT && !m.tmid);
+  if (!root) {
+    const j = await must('POST', 'chat.postMessage', { roomId, text: THREAD_ROOT });
+    root = j.message;
+    console.log('  thread: root created');
   }
 
-  const fil = await must('GET', `chat.getThreadMessages?tmid=${racine._id}&count=50`);
-  const presents = indicesPresents(fil.messages || [], RE_REPONSE);
-  const manquants = [];
-  for (let i = 1; i <= NB_REPONSES; i++) if (!presents.has(i)) manquants.push(i);
+  const thread = await must('GET', `chat.getThreadMessages?tmid=${root._id}&count=50`);
+  const present = presentIndices(thread.messages || [], RE_REPLY);
+  const missing = [];
+  for (let i = 1; i <= REPLY_COUNT; i++) if (!present.has(i)) missing.push(i);
 
-  if (manquants.length === 0) {
-    console.log(`  fil : ${NB_REPONSES}/${NB_REPONSES} réponses, rien à faire`);
+  if (missing.length === 0) {
+    console.log(`  thread: ${REPLY_COUNT}/${REPLY_COUNT} replies, nothing to do`);
     return;
   }
-  for (const i of manquants) {
+  for (const i of missing) {
     await must('POST', 'chat.sendMessage', {
-      message: { rid: roomId, tmid: racine._id, msg: texteReponse(i) },
+      message: { rid: roomId, tmid: root._id, msg: replyText(i) },
     });
   }
-  console.log(`  fil : ${manquants.length} réponse(s) postée(s), total ${NB_REPONSES}`);
+  console.log(`  thread: ${missing.length} reply(ies) posted, total ${REPLY_COUNT}`);
 }
 
 /**
- * Poste `emoji-custom.create` (multipart). `must`/`api` ne font que du JSON,
- * d'où ce `fetch` direct — mais il REJOUE le 429 comme `api`, sinon un burst
- * d'emojis mourrait sous le rate limiter là où le reste du seed patiente. La
- * `FormData` est reconstruite à chaque tentative (son corps est consommé).
+ * Posts `emoji-custom.create` (multipart). `must`/`api` only do JSON, hence this
+ * direct `fetch`, but it RETRIES on 429 like `api`, otherwise a burst of emojis
+ * would die under the rate limiter where the rest of the seed waits. The
+ * `FormData` is rebuilt on every attempt (its body is consumed).
  */
-async function creerEmojiCustom(e, attempt = 0) {
-  // `atob` plutôt que `Buffer` : global standard, que le lint RN connaît.
-  const octets = Uint8Array.from(atob(e.b64), (c) => c.charCodeAt(0));
+async function createCustomEmoji(e, attempt = 0) {
+  // `atob` rather than `Buffer`: a standard global the RN lint knows.
+  const bytes = Uint8Array.from(atob(e.b64), (c) => c.charCodeAt(0));
   const fd = new FormData();
-  fd.set('emoji', new Blob([octets], { type: e.type }), `${e.name}.${e.ext}`);
+  fd.set('emoji', new Blob([bytes], { type: e.type }), `${e.name}.${e.ext}`);
   fd.set('name', e.name);
   fd.set('aliases', e.aliases);
   const res = await fetch(`${BASE}/api/v1/emoji-custom.create`, {
@@ -256,62 +256,62 @@ async function creerEmojiCustom(e, attempt = 0) {
     const reset = Number(res.headers.get('x-ratelimit-reset'));
     const waitMs = Number.isFinite(reset) ? Math.max(reset - Date.now(), 0) : 0;
     const delay = waitMs > 0 ? waitMs + 250 : 1000 * 2 ** attempt;
-    process.stderr.write(`  429 sur emoji-custom.create, attente ${Math.round(delay)} ms\n`);
+    process.stderr.write(`  429 on emoji-custom.create, waiting ${Math.round(delay)} ms\n`);
     await res.body?.cancel();
     await sleep(delay);
-    return creerEmojiCustom(e, attempt + 1);
+    return createCustomEmoji(e, attempt + 1);
   }
   const json = await res.json();
   if (!res.ok || json.success === false) {
-    throw new Error(`emoji-custom.create ${e.name} : (${res.status}) ${JSON.stringify(json)}`);
+    throw new Error(`emoji-custom.create ${e.name}: (${res.status}) ${JSON.stringify(json)}`);
   }
 }
 
 /**
- * Emojis custom. `emoji-custom.create` refuse un nom déjà pris : on liste
- * d'abord, on ne crée que les manquants.
+ * Custom emojis. `emoji-custom.create` rejects a name already taken: we list
+ * first, and create only the missing ones.
  */
-async function seedEmojisCustom() {
-  const liste = await must('GET', 'emoji-custom.list');
-  const existants = new Set((liste.emojis?.update ?? []).map((e) => e.name));
-  for (const e of EMOJIS_CUSTOM) {
-    if (existants.has(e.name)) {
-      console.log(`  emoji ${e.name} : existe déjà`);
+async function seedCustomEmojis() {
+  const list = await must('GET', 'emoji-custom.list');
+  const existing = new Set((list.emojis?.update ?? []).map((e) => e.name));
+  for (const e of CUSTOM_EMOJIS) {
+    if (existing.has(e.name)) {
+      console.log(`  emoji ${e.name}: already exists`);
       continue;
     }
-    await creerEmojiCustom(e);
-    console.log(`  emoji ${e.name} : créé`);
+    await createCustomEmoji(e);
+    console.log(`  emoji ${e.name}: created`);
   }
 }
 
 async function main() {
-  console.log(`serveur : ${BASE}`);
+  console.log(`server: ${BASE}`);
   await login();
 
-  console.log('utilisateurs');
+  console.log('users');
   await ensureUser({ username: 'alice', name: 'Alice Martin', password: 'alice-dev-2026' });
   await ensureUser({ username: 'bob', name: 'Bob Durand', password: 'bob-dev-2026' });
 
-  console.log('salons');
+  console.log('rooms');
   const publicId = await ensureRoom('channels', 'test-public', ['alice', 'bob']);
-  const priveId = await ensureRoom('groups', 'test-prive', ['alice']);
+  const privateId = await ensureRoom('groups', 'test-prive', ['alice']);
   const dmId = await ensureIm('alice');
 
-  console.log('emojis custom');
-  await seedEmojisCustom();
+  console.log('custom emojis');
+  await seedCustomEmojis();
 
   console.log('messages');
   await seedMessages('channels.history', publicId, 'test-public');
-  await seedMessages('groups.history', priveId, 'test-prive');
+  await seedMessages('groups.history', privateId, 'test-prive');
   await seedMessages('im.history', dmId, 'le direct avec alice');
   await seedThread('channels.history', publicId);
 
-  console.log('\nterminé.');
+  console.log('\ndone.');
 }
 
 main().catch((e) => {
-  // `fetch` masque la vraie cause (ECONNREFUSED, DNS…) dans `e.cause`.
-  process.stderr.write(`\néchec du seed : ${e.message}\n`);
+  // `fetch` hides the real cause (ECONNREFUSED, DNS…) in `e.cause`.
+  process.stderr.write(`\nseed failed: ${e.message}\n`);
   if (e.cause) process.stderr.write(`cause : ${e.cause}\n`);
   process.exit(1);
 });

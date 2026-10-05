@@ -89,6 +89,7 @@ impl NativeChat {
                     .map(|u| Upload {
                         progress: self.session.upload_progress(&u.id),
                         failed: u.status == "failed",
+                        retrying: false,
                         id: u.id,
                         name: u.name,
                         mime: u.mime,

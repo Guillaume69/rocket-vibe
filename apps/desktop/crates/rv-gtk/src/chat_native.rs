@@ -491,7 +491,10 @@ impl ChatPage {
                         self.crypto_retry(id, false);
                     }
                 }
-                RowEvent::Menu { row, anchor, x, y } => {
+                RowEvent::Menu { row, anchor, x, y, link } => {
+                    if crate::markdown_view::text_menu(&anchor, x, y, crate::markdown_view::selected_text(), link) {
+                        return;
+                    }
                     let popover = gtk::Popover::builder().has_arrow(false).build();
                     popover.set_parent(&anchor);
                     popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
@@ -611,7 +614,10 @@ impl ChatPage {
                     }
                 });
             }
-            RowEvent::Menu { row, anchor, x, y } => {
+            RowEvent::Menu { row, anchor, x, y, link } => {
+                if crate::markdown_view::text_menu(&anchor, x, y, crate::markdown_view::selected_text(), link) {
+                    return;
+                }
                 let popover = gtk::Popover::builder().has_arrow(false).build();
                 popover.set_parent(&anchor);
                 popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));

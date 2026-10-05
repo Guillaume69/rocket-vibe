@@ -1,36 +1,36 @@
-# Serveur Rocket.Chat de développement.
+# Development Rocket.Chat server.
 #
 #   cd docker && cp .env.example .env && docker compose up -d
 #
-# Version épinglée sur 8.5.x, celle du serveur de production visé, et non sur la
-# dernière (8.6) : les écarts d'API entre mineures se paient en fin de parcours.
-# 8.5 est une LTS supportée jusqu'au 2027-06-30.
+# Version pinned to 8.5.x, that of the target production server, not to the
+# latest (8.6): API gaps between minors get paid for at the end of the road.
+# 8.5 is an LTS supported until 2027-06-30.
 name: rocket-vibe
 
 services:
   mongodb:
-    # `compatibleMongoVersions` de la release 8.5.x vaut exactement ["8.0"].
-    # Vérifié sur https://releases.rocket.chat/8.5.1/info
+    # `compatibleMongoVersions` of the 8.5.x release is exactly ["8.0"].
+    # Checked on https://releases.rocket.chat/8.5.1/info
     image: mongodb/mongodb-community-server:${MONGODB_VERSION:-8.0-ubi8}
-    # Le replica set est requis même à un seul nœud : Rocket.Chat s'appuie sur
-    # les change streams MongoDB, qui n'existent pas sur un mongod autonome.
+    # The replica set is required even with a single node: Rocket.Chat relies on
+    # MongoDB change streams, which do not exist on a standalone mongod.
     #
-    # Noyau >= 6.19 : mongod 8.0.5+ REFUSE de démarrer (SERVER-121912, tcmalloc
-    # violait l'ABI rseq réécrite en 6.19), sans dérogation possible — ni
-    # paramètre, ni GLIBC_TUNABLES (testés). 8.0.4 est la dernière 8.0.x qui
-    # démarre ; RC 8.5 exige juste ["8.0"]. D'où MONGODB_VERSION=8.0.4-ubi8
-    # dans .env sur les noyaux récents.
+    # Kernel >= 6.19: mongod 8.0.5+ REFUSES to start (SERVER-121912, tcmalloc
+    # violated the rseq ABI rewritten in 6.19), with no possible override, neither
+    # a parameter nor GLIBC_TUNABLES (tested). 8.0.4 is the last 8.0.x that
+    # starts; RC 8.5 only requires ["8.0"]. Hence MONGODB_VERSION=8.0.4-ubi8
+    # in .env on recent kernels.
     command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     volumes:
       - mongodb_data:/data/db
     healthcheck:
-      # Premier passage : rs.status() lève NotYetInitialized, on initie le
-      # replica set et on sort en échec pour être rejoué. Passage suivant :
-      # myState == 1 (PRIMARY) et le service devient healthy. C'est ce qui
-      # garantit que Rocket.Chat ne démarre pas sur un nœud non initialisé.
-      # On n'initie QUE sur NotYetInitialized (code 94). Un catch fourre-tout
-      # rejouerait rs.initiate() sur une erreur transitoire, donc potentiellement
-      # sur un replica set déjà formé.
+      # First pass: rs.status() throws NotYetInitialized, we initiate the
+      # replica set and exit with failure to be run again. Next pass:
+      # myState == 1 (PRIMARY) and the service becomes healthy. This is what
+      # guarantees Rocket.Chat does not start on an uninitialized node.
+      # We initiate ONLY on NotYetInitialized (code 94). A catch-all would
+      # replay rs.initiate() on a transient error, so potentially on an
+      # already formed replica set.
       test:
         - CMD
         - mongosh
@@ -58,9 +58,9 @@ services:
     ports:
       - "${PORT:-3000}:3000"
     volumes:
-      # Bundle patché pour le push (voir patch-push.mjs), nommé par version :
-      # après un changement de RC_VERSION, le démarrage échoue tant que
-      # `node docker/patch-push.mjs` n'a pas été relancé.
+      # Bundle patched for push (see patch-push.mjs), named by version: after
+      # a RC_VERSION change, startup fails until `node docker/patch-push.mjs`
+      # has been run again.
       - type: bind
         source: ./patched/app-${RC_VERSION:-8.5.1}.js
         target: /app/bundle/programs/server/app/app.js
@@ -68,40 +68,38 @@ services:
         bind:
           create_host_path: false
     environment:
-      # ROOT_URL porte l'IP LAN, pas 10.0.2.2 : un appareil physique doit
-      # joindre le serveur, et ROOT_URL conditionne les payloads push et les
-      # deep links. Pour l'émulateur : adb reverse tcp:3000 tcp:3000
-      # `:?` fait échouer `docker compose up` immédiatement si la variable est
-      # absente, au lieu de substituer une chaîne vide. Meteor construit ses URL
-      # absolues depuis ROOT_URL : un ROOT_URL vide donne des liens de
-      # notification et des deep links silencieusement cassés.
-      ROOT_URL: ${ROOT_URL:?ROOT_URL est requis — copie docker/.env.example en docker/.env}
+      # ROOT_URL carries the LAN IP, not 10.0.2.2: a physical device must reach
+      # the server, and ROOT_URL shapes push payloads and deep links. For the
+      # emulator: adb reverse tcp:3000 tcp:3000
+      # `:?` makes `docker compose up` fail at once if the variable is missing,
+      # instead of substituting an empty string. Meteor builds its absolute URLs
+      # from ROOT_URL: an empty ROOT_URL gives silently broken notification
+      # links and deep links.
+      ROOT_URL: ${ROOT_URL:?ROOT_URL is required, copy docker/.env.example to docker/.env}
       PORT: 3000
-      # Pas de MONGO_OPLOG_URL : la variable a été supprimée en 8.0.0, le
-      # serveur lit désormais les change streams.
+      # No MONGO_OPLOG_URL: the variable was removed in 8.0.0, the server now
+      # reads change streams.
       MONGO_URL: mongodb://mongodb:27017/rocketchat?replicaSet=rs0
       DEPLOY_METHOD: docker
-      # Création de l'administrateur au tout premier démarrage.
+      # Administrator created on the very first startup.
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_NAME: ${ADMIN_NAME:-Admin}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@rocket-vibe.test}
-      # Sans garde, un `up` lancé sans .env créerait le compte admin avec un mot
-      # de passe VIDE, sur un serveur écoutant sur l'IP du LAN.
-      ADMIN_PASS: ${ADMIN_PASS:?ADMIN_PASS est requis — copie docker/.env.example en docker/.env}
-      # Le préfixe OVERWRITE_SETTING_ force la valeur à chaque démarrage. Ici
-      # c'est nécessaire : la création de l'admin par les variables ADMIN_*
-      # écrit elle-même Show_Setup_Wizard à "in_progress", et une valeur sans
-      # préfixe (appliquée seulement si le réglage n'a jamais été écrit)
-      # arriverait trop tard. Sans ça, l'interface d'admin reste bloquée
-      # derrière l'assistant de configuration.
+      # Without a guard, an `up` run without .env would create the admin account
+      # with an EMPTY password, on a server listening on the LAN IP.
+      ADMIN_PASS: ${ADMIN_PASS:?ADMIN_PASS is required, copy docker/.env.example to docker/.env}
+      # The OVERWRITE_SETTING_ prefix forces the value on every startup. Here it
+      # is needed: creating the admin through the ADMIN_* variables itself
+      # writes Show_Setup_Wizard to "in_progress", and an unprefixed value
+      # (applied only if the setting was never written) would come too late.
+      # Without it, the admin UI stays stuck behind the setup wizard.
       #
-      # On se garde d'utiliser OVERWRITE_SETTING_ pour les réglages qu'on veut
-      # pouvoir basculer depuis l'admin pendant les tests (2FA, Push_*, E2E) :
-      # il les réécrirait à chaque redémarrage.
+      # We avoid OVERWRITE_SETTING_ for settings we want to toggle from the
+      # admin during tests (2FA, Push_*, E2E): it would rewrite them on every
+      # restart.
       OVERWRITE_SETTING_Show_Setup_Wizard: completed
     healthcheck:
-      # L'image ne définit pas de HEALTHCHECK et n'embarque pas curl ;
-      # elle embarque node.
+      # The image defines no HEALTHCHECK and ships no curl; it ships node.
       test:
         - CMD
         - node

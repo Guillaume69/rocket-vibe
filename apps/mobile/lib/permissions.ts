@@ -1,68 +1,68 @@
 /**
- * Permissions Rocket.Chat de l'utilisateur, calculées comme le serveur les
- * vérifie : une permission est accordée quand l'un des rôles qui la portent
- * (`permissions.listAll`) est l'un des miens — rôles globaux (`me.roles`) ou
- * rôles dans le salon (`subscription.roles`, en base).
+ * The user's Rocket.Chat permissions, computed the way the server checks them:
+ * a permission is granted when one of the roles carrying it
+ * (`permissions.listAll`) is one of mine, global roles (`me.roles`) or roles in
+ * the room (`subscription.roles`, in the database).
  *
- * `permissions.listAll` pèse ~270 Ko (1 000 permissions, sondé sur 8.5) et
- * bouge rarement : lu une fois par session et par compte, avec `me`, puis
- * gardé en mémoire. Un échec n'est pas retenu — l'appel suivant retente.
+ * `permissions.listAll` weighs ~270 KB (1,000 permissions, probed on 8.5) and
+ * rarely changes: read once per session and account, with `me`, then kept in
+ * memory. A failure is not cached; the next call retries.
  */
 
-import type { ClientRest } from './rest.ts';
+import type { RestClient } from './rest.ts';
 
 export type SourcesPermissions = {
-  /** Permission → rôles qui l'accordent. */
+  /** Permission → roles granting it. */
   roles: Map<string, string[]>;
-  rolesGlobaux: string[];
+  globalRoles: string[];
 };
 
-type LecteurRest = Pick<ClientRest, 'get'>;
+type RestReader = Pick<RestClient, 'get'>;
 
-const chaines = (v: unknown): string[] =>
+const asStrings = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 
-export async function lireSourcesPermissions(client: LecteurRest): Promise<SourcesPermissions> {
-  const [liste, moi] = await Promise.all([
+export async function readPermissionSources(client: RestReader): Promise<SourcesPermissions> {
+  const [list, me] = await Promise.all([
     client.get<{ update?: { _id?: unknown; roles?: unknown }[] }>('permissions.listAll'),
     client.get<{ roles?: unknown }>('me'),
   ]);
   const roles = new Map<string, string[]>();
-  for (const p of liste.update ?? []) {
-    if (typeof p._id === 'string') roles.set(p._id, chaines(p.roles));
+  for (const p of list.update ?? []) {
+    if (typeof p._id === 'string') roles.set(p._id, asStrings(p.roles));
   }
-  return { roles, rolesGlobaux: chaines(moi.roles) };
+  return { roles, globalRoles: asStrings(me.roles) };
 }
 
-/** La colonne `abonnements.roles` → liste ; illisible ou absente = aucun rôle. */
-export function rolesDuSalon(roles: string | null | undefined): string[] {
+/** The `subscriptions.roles` column → list; unreadable or missing = no role. */
+export function roomRoles(roles: string | null | undefined): string[] {
   if (roles == null) return [];
   try {
-    return chaines(JSON.parse(roles));
+    return asStrings(JSON.parse(roles));
   } catch {
     return [];
   }
 }
 
-export function permissionsAccordees(sources: SourcesPermissions, rolesSalon: string[]): string[] {
-  const miens = new Set([...sources.rolesGlobaux, ...rolesSalon]);
-  const accordees: string[] = [];
+export function grantedPermissions(sources: SourcesPermissions, roomRoleList: string[]): string[] {
+  const mine = new Set([...sources.globalRoles, ...roomRoleList]);
+  const granted: string[] = [];
   for (const [permission, roles] of sources.roles) {
-    if (roles.some((r) => miens.has(r))) accordees.push(permission);
+    if (roles.some((r) => mine.has(r))) granted.push(permission);
   }
-  return accordees;
+  return granted;
 }
 
-const enCache = new Map<string, Promise<SourcesPermissions>>();
+const cached = new Map<string, Promise<SourcesPermissions>>();
 
 export function sourcesPermissions(
-  client: LecteurRest & Pick<ClientRest, 'baseUrl' | 'identifiants'>,
+  client: RestReader & Pick<RestClient, 'baseUrl' | 'auth'>,
 ): Promise<SourcesPermissions> {
-  const cle = `${client.baseUrl}|${client.identifiants?.userId ?? ''}`;
-  const connue = enCache.get(cle);
-  if (connue !== undefined) return connue;
-  const lecture = lireSourcesPermissions(client);
-  enCache.set(cle, lecture);
-  lecture.catch(() => enCache.delete(cle));
-  return lecture;
+  const key = `${client.baseUrl}|${client.auth?.userId ?? ''}`;
+  const known = cached.get(key);
+  if (known !== undefined) return known;
+  const request = readPermissionSources(client);
+  cached.set(key, request);
+  request.catch(() => cached.delete(key));
+  return request;
 }

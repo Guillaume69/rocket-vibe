@@ -1,25 +1,25 @@
 #!/usr/bin/env node
-// Spike DDP jetable — étape 1.7.
+// Throwaway DDP spike, step 1.7.
 //
 //   node scripts/spike-ddp.mjs
 //
-// Prouve le chemin temps réel de bout en bout contre le serveur Docker local,
-// et tranche l'incertitude n°2 de ROADMAP.md §7 : les streams privés
-// exigent-ils une session DDP authentifiée (`method login {resume}`) en plus
-// de l'authentification REST ?
+// Proves the realtime path end to end against the local Docker server, and
+// settles uncertainty #2 of ROADMAP.md §7: do private streams require an
+// authenticated DDP session (`method login {resume}`) on top of REST
+// authentication?
 //
-// Protocole : on ouvre DEUX connexions WebSocket. La première ne fait PAS de
-// login DDP et tente de s'abonner à stream-room-messages sur un salon privé ;
-// la seconde fait le login puis s'abonne aux mêmes streams. On poste ensuite
-// un message via REST et on observe qui reçoit quoi.
+// Protocol: we open TWO WebSocket connections. The first does NOT log in over
+// DDP and tries to subscribe to stream-room-messages on a private room; the
+// second logs in then subscribes to the same streams. We then post a message
+// through REST and watch who receives what.
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Le WebSocket GLOBAL de Node 22+, volontairement : c'est la même API
-// navigateur (onopen/onmessage/onerror) que celle de React Native. Le spike
-// valide donc exactement le code qu'utilisera l'app — pas celui de `ws`.
+// Node 22+'s GLOBAL WebSocket, on purpose: it is the same browser API
+// (onopen/onmessage/onerror) as React Native's. The spike therefore validates
+// exactly the code the app will use, not that of `ws`.
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -28,7 +28,7 @@ function readEnvFile(path) {
   try {
     raw = readFileSync(path, 'utf8');
   } catch {
-    console.error(`${path} introuvable. Copie docker/.env.example en docker/.env.`);
+    console.error(`${path} not found. Copy docker/.env.example to docker/.env.`);
     process.exit(1);
   }
   const env = {};
@@ -41,14 +41,14 @@ function readEnvFile(path) {
 
 const env = readEnvFile(join(ROOT, 'docker', '.env'));
 if (!env.ROOT_URL) {
-  console.error('ROOT_URL absent de docker/.env.');
+  console.error('ROOT_URL missing from docker/.env.');
   process.exit(1);
 }
 const BASE = env.ROOT_URL.replace(/\/$/, '');
 const WS_URL = `${BASE.replace(/^http/, 'ws')}/websocket`;
 
 // ---------------------------------------------------------------------------
-// REST : login admin + repérage des salons de test.
+// REST: admin login + locating the test rooms.
 // ---------------------------------------------------------------------------
 async function rest(method, endpoint, auth, body) {
   const headers = { 'Content-Type': 'application/json' };
@@ -69,78 +69,78 @@ async function rest(method, endpoint, auth, body) {
 }
 
 // ---------------------------------------------------------------------------
-// Mini-client DDP jetable. Assez pour connect / login / sub / événements.
+// Throwaway mini DDP client. Enough for connect / login / sub / events.
 // ---------------------------------------------------------------------------
 class SpikeDDP {
-  constructor(nom) {
-    this.nom = nom;
-    this.compteur = 0;
-    this.attentes = new Map(); // id -> {resolve, reject} des sub/method en vol
-    this.evenements = []; // messages `changed` reçus sur les streams
-    this.journal = [];
+  constructor(name) {
+    this.name = name;
+    this.counter = 0;
+    this.pending = new Map(); // id -> {resolve, reject} of in-flight subs/methods
+    this.events = []; // `changed` messages received on the streams
+    this.entries = [];
   }
 
   log(...args) {
-    const ligne = `[${this.nom}] ${args.join(' ')}`;
-    this.journal.push(ligne);
-    console.log(ligne);
+    const line = `[${this.name}] ${args.join(' ')}`;
+    this.entries.push(line);
+    console.log(line);
   }
 
   connect() {
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(WS_URL);
-      this.ws.onerror = (e) => reject(new Error(`websocket : ${e.message ?? 'erreur'}`));
-      this.ws.onmessage = (e) => this.recevoir(JSON.parse(String(e.data)), resolve);
+      this.ws.onerror = (e) => reject(new Error(`websocket: ${e.message ?? 'error'}`));
+      this.ws.onmessage = (e) => this.receive(JSON.parse(String(e.data)), resolve);
       this.ws.onopen = () => {
-        this.envoyer({ msg: 'connect', version: '1', support: ['1'] });
+        this.sendFrame({ msg: 'connect', version: '1', support: ['1'] });
       };
     });
   }
 
-  envoyer(objet) {
-    this.ws.send(JSON.stringify(objet));
+  sendFrame(obj) {
+    this.ws.send(JSON.stringify(obj));
   }
 
-  recevoir(m, onConnected) {
+  receive(m, onConnected) {
     switch (m.msg) {
       case 'connected':
-        this.log('session DDP ouverte :', m.session);
+        this.log('DDP session open:', m.session);
         onConnected?.(m.session);
         break;
       case 'ping':
-        this.envoyer({ msg: 'pong', ...(m.id ? { id: m.id } : {}) });
+        this.sendFrame({ msg: 'pong', ...(m.id ? { id: m.id } : {}) });
         break;
       case 'result': {
-        const attente = this.attentes.get(m.id);
-        if (attente) {
-          this.attentes.delete(m.id);
-          m.error ? attente.reject(new Error(JSON.stringify(m.error))) : attente.resolve(m.result);
+        const waiter = this.pending.get(m.id);
+        if (waiter) {
+          this.pending.delete(m.id);
+          m.error ? waiter.reject(new Error(JSON.stringify(m.error))) : waiter.resolve(m.result);
         }
         break;
       }
       case 'ready':
         for (const id of m.subs) {
-          const attente = this.attentes.get(id);
-          if (attente) {
-            this.attentes.delete(id);
-            attente.resolve('ready');
+          const waiter = this.pending.get(id);
+          if (waiter) {
+            this.pending.delete(id);
+            waiter.resolve('ready');
           }
         }
         break;
       case 'nosub': {
-        const attente = this.attentes.get(m.id);
-        if (attente) {
-          this.attentes.delete(m.id);
-          attente.reject(new Error(`nosub: ${JSON.stringify(m.error ?? '(sans erreur)')}`));
+        const waiter = this.pending.get(m.id);
+        if (waiter) {
+          this.pending.delete(m.id);
+          waiter.reject(new Error(`nosub: ${JSON.stringify(m.error ?? '(no error)')}`));
         }
         break;
       }
       case 'changed':
-        // Format streamer : collection = nom du stream, fields.eventName = clé,
-        // fields.args = charge utile.
-        this.evenements.push(m);
+        // Streamer format: collection = stream name, fields.eventName = key,
+        // fields.args = payload.
+        this.events.push(m);
         this.log(
-          'événement :',
+          'event:',
           m.collection,
           '|',
           m.fields?.eventName,
@@ -149,135 +149,135 @@ class SpikeDDP {
         );
         break;
       default:
-        // updated, added… sans intérêt pour le spike.
+        // updated, added… of no interest to the spike.
         break;
     }
   }
 
-  appeler(methode, ...params) {
-    const id = `m${++this.compteur}`;
+  callMethod(method, ...params) {
+    const id = `m${++this.counter}`;
     return new Promise((resolve, reject) => {
-      this.attentes.set(id, { resolve, reject });
-      this.envoyer({ msg: 'method', id, method: methode, params });
+      this.pending.set(id, { resolve, reject });
+      this.sendFrame({ msg: 'method', id, method, params });
       setTimeout(() => {
-        if (this.attentes.delete(id)) reject(new Error(`méthode ${methode} : pas de result en 5 s`));
+        if (this.pending.delete(id)) reject(new Error(`method ${method}: no result within 5 s`));
       }, 5000);
     });
   }
 
-  souscrire(nom, ...params) {
-    const id = `s${++this.compteur}`;
+  subscribe(name, ...params) {
+    const id = `s${++this.counter}`;
     return new Promise((resolve, reject) => {
-      this.attentes.set(id, { resolve, reject });
-      this.envoyer({ msg: 'sub', id, name: nom, params });
+      this.pending.set(id, { resolve, reject });
+      this.sendFrame({ msg: 'sub', id, name, params });
       setTimeout(() => {
-        if (this.attentes.delete(id)) reject(new Error(`sub ${nom} : ni ready ni nosub en 5 s`));
+        if (this.pending.delete(id)) reject(new Error(`sub ${name}: neither ready nor nosub within 5 s`));
       }, 5000);
     });
   }
 
-  fermer() {
+  close() {
     this.ws?.close();
   }
 }
 
 // ---------------------------------------------------------------------------
-// Le protocole du spike.
+// The spike's protocol.
 // ---------------------------------------------------------------------------
 async function main() {
-  console.log(`serveur : ${BASE}\nwebsocket : ${WS_URL}\n`);
+  console.log(`server: ${BASE}\nwebsocket: ${WS_URL}\n`);
 
   const admin = await rest('POST', 'login', null, {
     user: env.ADMIN_USERNAME,
     password: env.ADMIN_PASS,
   });
   const auth = { token: admin.data.authToken, userId: admin.data.userId };
-  console.log(`REST : connecté comme ${env.ADMIN_USERNAME}\n`);
+  console.log(`REST: logged in as ${env.ADMIN_USERNAME}\n`);
 
-  const prive = await rest('GET', 'groups.info?roomName=test-prive', auth);
+  const privateRoom = await rest('GET', 'groups.info?roomName=test-prive', auth);
   const publicCh = await rest('GET', 'channels.info?roomName=test-public', auth);
-  const ridPrive = prive.group._id;
+  const ridPrivate = privateRoom.group._id;
   const ridPublic = publicCh.channel._id;
-  console.log(`salon privé  : test-prive  (${ridPrive})`);
-  console.log(`salon public : test-public (${ridPublic})\n`);
+  console.log(`private room: test-prive  (${ridPrivate})`);
+  console.log(`public room:  test-public (${ridPublic})\n`);
 
   const verdicts = [];
-  // Une sub anonyme ACCEPTÉE sur un salon privé doit faire échouer le spike,
-  // même si aucun événement ne fuit pendant la fenêtre d'observation.
-  let subAnonymePriveeAcceptee = false;
+  // An anonymous sub ACCEPTED on a private room must fail the spike, even if no
+  // event leaks during the observation window.
+  let anonymousPrivateSubAccepted = false;
 
-  // --- Connexion A : PAS de login DDP -------------------------------------
-  const anonyme = new SpikeDDP('anonyme');
-  await anonyme.connect();
+  // --- Connection A: NO DDP login -----------------------------------------
+  const anonymous = new SpikeDDP('anonymous');
+  await anonymous.connect();
 
   try {
-    await anonyme.souscrire('stream-room-messages', ridPrive, { useCollection: false, args: [] });
-    subAnonymePriveeAcceptee = true;
-    verdicts.push('ANONYME + salon privé : sub ACCEPTÉE (ready) — FUITE, le spike échoue');
+    await anonymous.subscribe('stream-room-messages', ridPrivate, { useCollection: false, args: [] });
+    anonymousPrivateSubAccepted = true;
+    verdicts.push('ANONYMOUS + private room: sub ACCEPTED (ready), LEAK, the spike fails');
   } catch (e) {
-    verdicts.push(`ANONYME + salon privé : sub REFUSÉE (${e.message.slice(0, 60)})`);
+    verdicts.push(`ANONYMOUS + private room: sub REFUSED (${e.message.slice(0, 60)})`);
   }
   try {
-    await anonyme.souscrire('stream-room-messages', ridPublic, { useCollection: false, args: [] });
-    verdicts.push('ANONYME + salon public : sub acceptée (ready)');
+    await anonymous.subscribe('stream-room-messages', ridPublic, { useCollection: false, args: [] });
+    verdicts.push('ANONYMOUS + public room: sub accepted (ready)');
   } catch (e) {
-    verdicts.push(`ANONYME + salon public : sub refusée (${e.message.slice(0, 60)})`);
+    verdicts.push(`ANONYMOUS + public room: sub refused (${e.message.slice(0, 60)})`);
   }
 
-  // --- Connexion B : login DDP par resume token ----------------------------
-  const connecte = new SpikeDDP('connecté');
-  await connecte.connect();
-  const loginResult = await connecte.appeler('login', { resume: auth.token });
-  connecte.log('login DDP accepté, userId =', loginResult.id);
-  verdicts.push('LOGIN DDP par {resume: <authToken REST>} : ACCEPTÉ — le même token sert aux deux');
+  // --- Connection B: DDP login with a resume token -------------------------
+  const connected = new SpikeDDP('logged-in');
+  await connected.connect();
+  const loginResult = await connected.callMethod('login', { resume: auth.token });
+  connected.log('DDP login accepted, userId =', loginResult.id);
+  verdicts.push('DDP LOGIN with {resume: <REST authToken>}: ACCEPTED, the same token serves both');
 
-  await connecte.souscrire('stream-room-messages', ridPrive, { useCollection: false, args: [] });
-  connecte.log('sub stream-room-messages (privé) : ready');
-  await connecte.souscrire('stream-notify-user', `${auth.userId}/subscriptions-changed`, {
+  await connected.subscribe('stream-room-messages', ridPrivate, { useCollection: false, args: [] });
+  connected.log('sub stream-room-messages (private): ready');
+  await connected.subscribe('stream-notify-user', `${auth.userId}/subscriptions-changed`, {
     useCollection: false,
     args: [],
   });
-  connecte.log('sub stream-notify-user subscriptions-changed : ready');
+  connected.log('sub stream-notify-user subscriptions-changed: ready');
 
-  // --- Le déclencheur : un message posté via REST --------------------------
-  const marqueur = `spike-ddp ${new Date().toISOString()}`;
-  await rest('POST', 'chat.postMessage', auth, { roomId: ridPrive, text: marqueur });
-  console.log(`\nREST : message posté dans test-prive (« ${marqueur} »)\n`);
+  // --- The trigger: a message posted through REST -------------------------
+  const marker = `spike-ddp ${new Date().toISOString()}`;
+  await rest('POST', 'chat.postMessage', auth, { roomId: ridPrivate, text: marker });
+  console.log(`\nREST: message posted in test-prive ("${marker}")\n`);
 
-  // Deux secondes pour laisser les événements arriver.
+  // Two seconds to let the events arrive.
   await new Promise((r) => setTimeout(r, 2000));
 
-  const recu = connecte.evenements.some(
+  const received = connected.events.some(
     (m) =>
       m.collection === 'stream-room-messages' &&
-      m.fields?.args?.some?.((a) => a?.msg === marqueur),
+      m.fields?.args?.some?.((a) => a?.msg === marker),
   );
   verdicts.push(
-    recu
-      ? 'CONNECTÉ : le message REST est arrivé par stream-room-messages — temps réel prouvé'
-      : 'CONNECTÉ : message NON reçu — chemin temps réel à diagnostiquer',
+    received
+      ? 'LOGGED IN: the REST message arrived through stream-room-messages, realtime proven'
+      : 'LOGGED IN: message NOT received, realtime path to diagnose',
   );
 
-  const recuAnonyme = anonyme.evenements.some((m) => m.collection === 'stream-room-messages');
+  const receivedAnonymous = anonymous.events.some((m) => m.collection === 'stream-room-messages');
   verdicts.push(
-    recuAnonyme
-      ? 'ANONYME : a reçu des événements — fuite à signaler'
-      : 'ANONYME : aucun événement reçu',
+    receivedAnonymous
+      ? 'ANONYMOUS: received events, leak to report'
+      : 'ANONYMOUS: no event received',
   );
 
-  anonyme.fermer();
-  connecte.fermer();
+  anonymous.close();
+  connected.close();
 
   console.log('\n========== VERDICTS ==========');
   for (const v of verdicts) console.log(' •', v);
 
-  const succes = recu && !recuAnonyme && !subAnonymePriveeAcceptee;
-  console.log(succes ? '\nSPIKE : PASS' : '\nSPIKE : FAIL');
-  process.exit(succes ? 0 : 1);
+  const passed = received && !receivedAnonymous && !anonymousPrivateSubAccepted;
+  console.log(passed ? '\nSPIKE: PASS' : '\nSPIKE: FAIL');
+  process.exit(passed ? 0 : 1);
 }
 
 main().catch((e) => {
-  console.error('échec du spike :', e.message);
-  if (e.cause) console.error('cause :', e.cause);
+  console.error('spike failed:', e.message);
+  if (e.cause) console.error('cause:', e.cause);
   process.exit(1);
 });

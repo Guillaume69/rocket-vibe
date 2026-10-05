@@ -17,7 +17,7 @@ export type CryptoStorageBridge = {
   open: (account: CryptoAccount) => Promise<CryptoInstallationStatus & {handle: string}>;
   status: (handle: string) => Promise<CryptoInstallationStatus>;
   initialize: (handle: string, expectedFingerprint: string) => Promise<CryptoInstallationStatus>;
-  retire: (handle: string, expectedFingerprint: string) => Promise<void>;
+  removed: (handle: string, expectedFingerprint: string) => Promise<void>;
   close: (handle: string) => Promise<void>;
 };
 export type CryptoIdentityStatus = {

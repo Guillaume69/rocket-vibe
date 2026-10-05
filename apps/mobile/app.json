@@ -2,7 +2,7 @@
   "expo": {
     "name": "rocket-vibe",
     "slug": "rocket-vibe",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.rocketvibe.app",
-      "versionCode": 400,
+      "versionCode": 500,
       "adaptiveIcon": {
         "backgroundColor": "#0C0B16",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -46,9 +46,9 @@
       ],
       "./plugins/with-fcm-deeplink",
       "./plugins/with-ios-push",
-      "./plugins/with-architectures-cibles",
+      "./plugins/with-target-architectures",
       "./plugins/with-signature-release",
-      "./plugins/with-partage-entrant",
+      "./plugins/with-incoming-share",
       "expo-audio",
       [
         "expo-font",

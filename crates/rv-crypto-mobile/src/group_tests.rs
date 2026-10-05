@@ -934,6 +934,50 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
                 .any(|m| m["id"] == "edit-first")
         );
     }
+    // Private search runs on the device and sees the edited text.
+    let found = conversation(
+        &bob,
+        &peer,
+        &roster,
+        &state,
+        None,
+        json!({"action":"search","text":"ORIGINAL EDITED","limit":20}),
+    );
+    assert_eq!(found["truncated"], false);
+    assert_eq!(found["messages"][0]["id"], "first-message");
+    assert_eq!(found["messages"].as_array().unwrap().len(), 1);
+    // An unsettled reaction shows on its target with its own operation.
+    let reaction = conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"react","target":"first-message","emoji":"thumbsup","present":true}),
+    );
+    assert!(
+        alice
+            .conversation_action(
+                serde_json::to_string(&own).unwrap(),
+                json!({"roster":roster,"state":state,"thread":null,"command":{"action":"react",
+            "target":"first-message","emoji":":thumbsup:","present":true}})
+                .to_string()
+            )
+            .is_err()
+    );
+    let row = target(&conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"view","before":null,"limit":200}),
+    ));
+    assert_eq!(
+        row["reactions"],
+        json!([{"emoji":"thumbsup","users":["alice"]}])
+    );
+    assert_eq!(row["amendment"]["operation"], reaction["operation"]);
     let pending = conversation(
         &alice,
         &own,

@@ -231,6 +231,31 @@ impl NativeCryptoMessages {
         .await
         .map_err(error)
     }
+    /// Reacts to a journaled message (`present`) or withdraws the reaction.
+    pub async fn react(&self, message_id: String, emoji: String, present: bool) -> Result<(), RvError> {
+        let access = self.access.clone();
+        on_tokio(async move { access.react(message_id, emoji, present).await }).await.map_err(error)
+    }
+    /// Private search on this device, newest first, threads included.
+    pub async fn search(&self, text: String) -> Result<Vec<crate::people::SearchHit>, RvError> {
+        let access = self.access.clone();
+        let found = on_tokio(async move { access.search(text).await }).await.map_err(error)?;
+        self.access.check().map_err(error)?;
+        let ctx = rv_core::markdown::Context { me: &self.username };
+        Ok(found
+            .into_iter()
+            .map(|m| crate::people::SearchHit {
+                body: crate::markup::blocks(rv_core::markdown::render(
+                    m.row.md.as_deref(),
+                    m.row.text.as_deref(),
+                    &ctx,
+                )),
+                author: m.row.author.unwrap_or_default(),
+                id: m.row.id,
+                ts: m.row.ts,
+            })
+            .collect())
+    }
     /// Edits (`Some(text)`) or deletes (`None`) one of my journaled messages.
     pub async fn amend(&self, message_id: String, text: Option<String>) -> Result<(), RvError> {
         let access = self.access.clone();

@@ -4,6 +4,7 @@ import type {ApplicationReceipt,ApplicationSettlement,ApplicationSubmission,Deli
 import type {NativeQuoteAttachment,NativeQuoteSelection,PublicQuoteSources} from './quotes.ts';
 import {ordinaryQuoteRoom,privateQuoteCards,type PrivateQuoteSelection,type PrivateQuotePreview,type CryptoQuotePreview,type PrivateQuoteRoom} from './cryptoQuotes.ts';
 import {NativeError} from './transport.ts';
+import {canonicalEmoji} from './emojis.ts';
 import {decodeNative} from './validation.ts';
 
 export type ConversationTransport={
@@ -18,8 +19,11 @@ export type CryptoMessage={id:string;operation:string;author:string;document:Sen
   author_label?:string;public_files?:import('./protocol.generated.ts').FileDescriptor[];observed_at:string;status:'journaled'|'pending'|'accepted'|'cancelling'|'cancelled';
   /** The author's latest edit is already in `document.text` (E2EE_AMENDMENTS.md). */
   edited?:boolean;
-  /** My unsettled edit or deletion of this row, retried or cancelled by its own operation. */
-  amendment?:{operation:string;status:'pending'|'cancelling'}|null};
+  /** My unsettled edit, deletion or reaction of this row, retried or cancelled by its own operation. */
+  amendment?:{operation:string;status:'pending'|'cancelling'}|null;
+  /** Current reactions: emoji names and the user ids reacting with each. */
+  reactions?:{emoji:string;users:string[]}[]};
+export type CryptoSearch={messages:CryptoMessage[];truncated:boolean};
 export type CryptoConversationView={admission:string;after:string;catching_up:boolean;has_older:boolean;can_send:boolean;draft:string;messages:CryptoMessage[];
   root:CryptoMessage|null;retained_replies:Record<string,number>;quote_cards?:Record<string,NativeQuoteAttachment[]>};
 const id=(v:unknown):v is string=>typeof v==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(v);
@@ -35,6 +39,11 @@ function decodeRow(raw:unknown,target:string|null|undefined):CryptoMessage {
     || !['journaled','pending','accepted','cancelling','cancelled'].includes(String(row.status))
     || document.operation_id!==row.operation || target!==undefined && (document.reply_to??null)!==target
     || row.edited!==undefined && typeof row.edited!=='boolean')integrity();
+  if(row.reactions!==undefined && (!Array.isArray(row.reactions) || row.reactions.length>64 || row.reactions.some(raw=>{
+    const r=object(raw);
+    return typeof r.emoji!=='string' || !/^[a-z0-9_+-]{1,80}$/.test(r.emoji) || !Array.isArray(r.users) || r.users.length===0
+      || r.users.length>256 || r.users.some(u=>!id(u)) || new Set(r.users).size!==r.users.length;
+  })))integrity();
   if(row.amendment!==undefined && row.amendment!==null) {
     const a=object(row.amendment);
     if(!id(a.operation) || a.operation===row.operation || !['pending','cancelling'].includes(String(a.status)) || row.status!=='journaled')integrity();
@@ -286,8 +295,35 @@ export class CryptoConversationAccess {
    * send, an uncertain HTTP result leaves the amendment in the private outbox. */
   async amend(target:string,text:string|null):Promise<string> {
     if(!id(target) || text!==null && (!text.trim() || text.length>65536))integrity();
+    return this.prepared({action:'amend',target,text});
+  }
+  /** Reacts to any journaled message with a standard emoji (`present`), or
+   * withdraws that reaction; an ordinary private operation like a send. */
+  async react(target:string,emoji:string,present:boolean):Promise<string> {
+    const bare=emoji.replace(/^:/,'').replace(/:$/,'');
+    const name=canonicalEmoji(emoji) ?? (!present && /^[a-z0-9_+-]{1,80}$/.test(bare)?bare:null);
+    if(!id(target) || name===null)integrity();
+    return this.prepared({action:'react',target,emoji:name,present});
+  }
+  /** Private search of this room on the device, threads included, newest first. */
+  async search(text:string,limit=50):Promise<CryptoSearch> {
+    if(!text.trim() || text.length>1024 || !Number.isInteger(limit) || limit<1 || limit>200)integrity();
+    return this.run(false,async rpc=>{
+      const v=object(await rpc({action:'search',text,limit}));
+      if(typeof v.admission!=='string' || !/^[0-9a-f]{64}$/.test(v.admission) || typeof v.truncated!=='boolean'
+        || !Array.isArray(v.messages) || v.messages.length>limit)integrity();
+      if(this.admission && this.admission!==v.admission){await this.close();throw new NativeError(409,'crypto_scope_changed');}
+      this.admission=v.admission;
+      const messages=v.messages.map(raw=>decodeRow(raw,undefined));
+      if(messages.some(m=>m.status!=='journaled' || m.position===null) || new Set(messages.map(m=>m.id)).size!==messages.length)integrity();
+      return {messages,truncated:v.truncated};
+    });
+  }
+  /** Prepares an amendment, then delivers it like a send: an uncertain HTTP
+   * result leaves it in the private outbox for a later retry. */
+  private prepared(command:Record<string,unknown>):Promise<string> {
     return this.run(true,async(rpc,_r,_p,_s,call)=>{
-      const prepared=object(await rpc({action:'amend',target,text}));if(!id(prepared.operation))integrity();
+      const prepared=object(await rpc(command));if(!id(prepared.operation))integrity();
       try {await this.resumeInner(prepared.operation,rpc,call);}
       catch(error) {
         if(!(error instanceof NativeError && (['network_error','network_or_protocol_error'].includes(error.code) || error.status>=500 || error.status===429)))throw error;

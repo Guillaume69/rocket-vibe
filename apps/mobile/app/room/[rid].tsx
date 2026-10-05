@@ -428,7 +428,8 @@ function Room({
   const progressions = useFileProgress(files);
   // Decisions (pagination) are made on the FRESH value; only the display is
   // smoothed.
-  const fresh = useMemo(() => protectedRoom ? privateRows(conversation.view,rid) : raw ?? [], [protectedRoom,conversation.view,rid,raw]);
+  const self=client.auth?.userId?{id:client.auth.userId,username:me}:undefined;
+  const fresh = useMemo(() => protectedRoom ? privateRows(conversation.view,rid,false,self) : raw ?? [], [protectedRoom,conversation.view,rid,raw,self?.id,self?.username]);
   // Smoothing of incoming messages (200 ms): at offset 0, the inversion absorbs
   // prepends natively, but a burst would re-render the screen on every write,
   // and SCROLLED UP in history, each prepend shifts the content by its height
@@ -961,7 +962,8 @@ function Room({
             onOpenThread={(protectedRoom?isPrivate?.status!=='journaled':provider.capabilities.threads===false)?null:openThread}
             threadLabel={protectedRoom?t(item.threadCount>0?'conversation.retainedReplies':'thread.reply',{n:item.threadCount}):undefined}
             me={me}
-            onReact={!protectedRoom && sendState === undefined && provider.capabilities.reactions !== false ? react : null}
+            onReact={protectedRoom ? isPrivate?.status==='journaled' && !isPrivate.amendment && !conversation.busy ? (_rid,id,code,put)=>conversation.react(id,code,put) : null
+              : sendState === undefined && provider.capabilities.reactions !== false ? react : null}
             continuation={continuations.has(item.id)}
             repeatedTime={repeatedTimes.has(item.id)}
           />
@@ -988,6 +990,7 @@ function Room({
         onSearch={() => router.push({ pathname: '/message-search', params: { rid } })}
         onMarked={() => router.push({ pathname: '/marked-messages', params: { rid } })}
         availableMessageActions={!protectedRoom}
+        privateSearch={protectedRoom}
       />
       {protectedRoom && <View style={styles.privateNotice}>
         <Text style={[styles.privateText,{color:c.dimmed}]}>{t(conversation.failed || !cryptoAvailable?'conversation.failed':'conversation.observed')}</Text>

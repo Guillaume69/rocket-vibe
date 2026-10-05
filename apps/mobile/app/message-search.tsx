@@ -1,7 +1,8 @@
 import { Redirect, Stack, useLocalSearchParams } from 'expo-router';
-import { useCallback, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   FlatList,
   StyleSheet,
   Text,
@@ -9,12 +10,14 @@ import {
   View,
 } from 'react-native';
 
-import type { LocalMessage } from '../lib/normalize.ts';
+import { CryptoNative } from '../modules/crypto-native/index.ts';
+import type { CryptoConversationAccess } from '../providers/rocketvibe/cryptoConversations.ts';
+import { privateRow } from '../providers/rocketvibe/cryptoProjection.ts';
 import type { Provider } from '../lib/provider.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { KeyboardAvoidingContainer } from '../ui/keyboard.tsx';
 import { useT } from '../ui/i18n.ts';
-import { MessageRow } from '../ui/messageRow.tsx';
+import { MessageRow, type MessageRowData } from '../ui/messageRow.tsx';
 import { useDebouncedSearch } from '../ui/debouncedSearch.ts';
 import { useSession } from '../ui/session.tsx';
 import {useSync} from '../ui/sync.tsx';
@@ -26,11 +29,13 @@ import { useColors, type Colors, FONTS } from '../ui/theme.ts';
  * like any server document), never written to the database; isolated
  * messages outside the window have no business there. No jump to the message
  * in history: noted, will come with a real targeted backward pagination.
+ * An encrypted RocketVibe room is searched on the device only, through its
+ * private journal (`CryptoConversationAccess.search`); the server sees nothing.
  */
 
 /** Stable (module-level): a value recreated on every render would rerun the effect. */
-const NO_MESSAGE: LocalMessage[] = [];
-const NO_RESULT:{version:string|null;revision:number;messages:LocalMessage[]}={version:null,revision:-1,messages:NO_MESSAGE};
+const NO_MESSAGE: MessageRowData[] = [];
+const NO_RESULT:{version:string|null;revision:number;messages:MessageRowData[]}={version:null,revision:-1,messages:NO_MESSAGE};
 function versionOf(f:Provider):string {return JSON.stringify([f.identity,f.native?.chat.searchVersion??null]);}
 
 export default function MessageSearchScreen() {
@@ -52,7 +57,7 @@ export default function MessageSearchScreen() {
       </View>
     );
   }
-  return <MessageSearch c={c} client={state.client} rid={rid} provider={sync.provider} />;
+  return <MessageSearch c={c} client={state.client} rid={rid} provider={sync.provider} username={state.session.username} />;
 }
 
 function MessageSearch({
@@ -60,11 +65,13 @@ function MessageSearch({
   client,
   rid,
   provider,
+  username,
 }: {
   c: Colors;
   client: RestClient;
   rid: string;
   provider:Provider;
+  username:string;
 }) {
   const t = useT();
   const [query, setQuery] = useState('');
@@ -76,13 +83,33 @@ function MessageSearch({
 
   // Results are normalised on arrival (`toMessage`, like any server
   // document), never written to the database; see the file header.
+  // An encrypted room's own actor, closed with the screen or in background.
+  const privateAccess=useRef<CryptoConversationAccess|null>(null);
+  useEffect(()=>{
+    const close=()=>{void privateAccess.current?.close();privateAccess.current=null;};
+    const sub=AppState.addEventListener('change',state=>{if(state!=='active')close();});
+    return()=>{sub.remove();close();};
+  },[]);
+  const searchPrivately=useCallback(async(clean:string):Promise<MessageRowData[]|null>=>{
+    const native=provider.native;
+    const scope=native?await native.store.cryptoRoomAccess(rid):null;
+    if(!native || !scope?.encrypted)return null;
+    if(scope.membership===null || !CryptoNative)throw new Error('unsupported_feature');
+    if(!privateAccess.current || privateAccess.current.isClosed)
+      privateAccess.current=await native.chat.cryptoConversation(CryptoNative,rid,scope.membership,()=>AppState.currentState==='active',null);
+    const found=await privateAccess.current.search(clean);
+    const self=client.auth?.userId?{id:client.auth.userId,username}:undefined;
+    return found.messages.map(m=>privateRow(m,rid,0,null,self));
+  },[provider,rid,client,username]);
   const searchMessages = useCallback(
     async(clean: string) => {
       const version=versionOf(provider);
+      const found=await searchPrivately(clean);
+      if(found)return {version,revision:requestRevision,messages:found};
       if(!provider.capabilities.search || !provider.searchMessages)throw new Error('unsupported_feature');
-      return {version,revision:requestRevision,messages:await provider.searchMessages(rid,clean)};
+      return {version,revision:requestRevision,messages:await provider.searchMessages(rid,clean) as MessageRowData[]};
     },
-    [provider, rid,requestRevision],
+    [provider, rid,requestRevision,searchPrivately],
   );
   const { results, message, answered } = useDebouncedSearch(
     query,

@@ -41,6 +41,7 @@ export function RoomHeader({
   onSearch,
   onMarked,
   availableMessageActions = true,
+  privateSearch = false,
 }: {
   c: Colors;
   rid: string;
@@ -54,6 +55,8 @@ export function RoomHeader({
   /** Opens the room's pinned and starred messages. */
   onMarked: () => void;
   availableMessageActions?: boolean;
+  /** An encrypted room is searched on the device, whatever the server offers. */
+  privateSearch?: boolean;
 }) {
   const name = room ? (room.displayName ?? room.name ?? room.rid) : '…';
   const isDM = room?.type === 'd';
@@ -178,7 +181,7 @@ export function RoomHeader({
       </Tappable>
       <Tappable
         onPress={onSearch}
-        disabled={!availableMessageActions || capabilities?.search === false}
+        disabled={!privateSearch && (!availableMessageActions || capabilities?.search === false)}
         hitSlop={8}
         android_ripple={{ color: c.ripple, borderless: true }}
       >

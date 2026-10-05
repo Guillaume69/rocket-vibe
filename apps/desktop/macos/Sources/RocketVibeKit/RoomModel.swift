@@ -154,14 +154,16 @@ public final class RoomModel {
         return result
     }
     public var supportsMarks: Bool { chat != nil || (provider.native?.supportedFeatures().contains("pins") == true && provider.native?.supportedFeatures().contains("stars") == true) }
-    public var supportsSearch:Bool { active && !privateMode && (chat != nil || provider.native?.supportedFeatures().contains("search") == true) }
+    public var supportsSearch:Bool { active && (privateMode ? privateReady : (chat != nil || provider.native?.supportedFeatures().contains("search") == true)) }
     public let searchContext=UUID().uuidString
     public var searchVersion:String { guard active else {return "closed"};return searchContext+":"+(provider.native.map{(try? $0.searchVersion()) ?? "offline"} ?? "rc") }
     public func search(text:String) async throws -> [SearchHit] {
         guard supportsSearch, !Task.isCancelled else {throw CancellationError()}
         let version=searchVersion
         let hits:[SearchHit]
-        if let native=provider.native {hits=try await native.search(room:room.rid,text:text)}
+        // An encrypted room is searched on this device only.
+        if privateMode {guard let privateHandle else {throw CancellationError()};hits=try await privateHandle.search(text:text)}
+        else if let native=provider.native {hits=try await native.search(room:room.rid,text:text)}
         else if let chat {hits=try await chat.search(rid:room.rid,text:text)}
         else {throw CancellationError()}
         guard active,!Task.isCancelled,version==searchVersion else {throw CancellationError()}
@@ -655,7 +657,11 @@ public final class RoomModel {
     public func react(_ message: MessageItem, shortcode: String, add: Bool) async {
         guard active else { return }
         do {
-            if let native = provider.native {
+            if privateMode {
+                guard let privateHandle, privateJournaled(message.id) else { return }
+                try await privateHandle.react(messageId: message.id, emoji: shortcode, present: add)
+                await refreshPrivate()
+            } else if let native = provider.native {
                 try await native.react(room: room.rid, messageId: message.id, emoji: shortcode, present: add)
                 if active { reload() }
             } else if let chat {
@@ -676,7 +682,10 @@ public final class RoomModel {
                provider.native?.supportedFeatures().contains("threads") == true {
                 result.append(.replyInThread)
             }
-            if privateReady, message.mine, privateJournaled(message.id) { result += [.edit, .delete] }
+            if privateReady, privateJournaled(message.id) {
+                result.append(.react)
+                if message.mine { result += [.edit, .delete] }
+            }
             return result
         }
         if provider.native != nil && message.system != nil { return [] }

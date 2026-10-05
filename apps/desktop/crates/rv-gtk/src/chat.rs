@@ -516,7 +516,18 @@ impl ChatPage {
         let weak = Rc::downgrade(&this);
         search_button.connect_clicked(move |_| {
             let Some(this) = weak.upgrade() else { return };
-            if let (Some(session), Some(rid)) = (this.session(), this.current_rid()) {
+            let private = this.native_crypto.borrow().clone();
+            if let (Some(access), Some(session), Some(rid)) = (private, this.native_session(), this.current_rid()) {
+                let target = Rc::downgrade(&this);
+                let username = session.info.username.clone();
+                crate::details::search_private(&this.split, access, username, &rid, move |id, thread| {
+                    let Some(this) = target.upgrade() else { return };
+                    match thread {
+                        Some(root) => this.open_native_thread(&root),
+                        None => this.jump_to(&id),
+                    }
+                });
+            } else if let (Some(session), Some(rid)) = (this.session(), this.current_rid()) {
                 let target = Rc::downgrade(&this);
                 crate::details::search(&this.split, session, &rid, move |id, thread| {
                     let Some(this) = target.upgrade() else { return };

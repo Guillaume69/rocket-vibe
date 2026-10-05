@@ -482,32 +482,57 @@ pub fn search_native(
 ) -> adw::Dialog {
     search_with_source(parent, SearchSource::Native(session), rid, go)
 }
+/// Private search of an encrypted RocketVibe room, on this device only.
+pub fn search_private(
+    parent: &impl IsA<gtk::Widget>,
+    access: rv_core::native::crypto::enrollment::rooms::messages::Access,
+    username: String,
+    rid: &str,
+    go: impl Fn(String, Option<String>) + 'static,
+) -> adw::Dialog {
+    search_with_source(parent, SearchSource::Private(access, username), rid, go)
+}
 #[derive(Clone)]
 enum SearchSource {
     Legacy(Arc<Session>),
     Native(Arc<rv_core::native::NativeSession>),
+    Private(rv_core::native::crypto::enrollment::rooms::messages::Access, String),
 }
 impl SearchSource {
     fn username(&self) -> &str {
         match self {
             Self::Legacy(s) => &s.info.username,
             Self::Native(s) => &s.info.username,
+            Self::Private(_, username) => username,
         }
     }
     fn version(&self) -> Option<String> {
         match self {
-            Self::Legacy(_) => None,
+            Self::Legacy(_) | Self::Private(..) => None,
             Self::Native(s) => Some(s.search_version().unwrap_or_else(|_| "unavailable".into())),
         }
     }
-    async fn search(
-        &self,
-        rid: &str,
-        text: &str,
-    ) -> Result<Vec<rv_core::normalize::Message>, rv_core::rest::RestError> {
+    async fn search(&self, rid: &str, text: &str) -> Result<Vec<rv_core::normalize::Message>, ()> {
         match self {
-            Self::Legacy(s) => s.search(rid, text).await,
-            Self::Native(s) => s.search(rid, text).await.map_err(rv_core::native::rest_error),
+            Self::Legacy(s) => s.search(rid, text).await.map_err(|_| ()),
+            Self::Native(s) => s.search(rid, text).await.map_err(|_| ()),
+            Self::Private(access, _) => Ok(access
+                .search(text.to_owned())
+                .await
+                .map_err(|_| ())?
+                .into_iter()
+                .map(|m| rv_core::normalize::Message {
+                    id: m.row.id,
+                    rid: m.row.rid,
+                    text: m.row.text,
+                    ts: m.row.ts,
+                    author_id: m.row.author_id,
+                    author_name: m.row.author,
+                    thread_id: m.row.thread_id,
+                    md: m.row.md,
+                    ..Default::default()
+                })
+                .collect()),
         }
     }
 }

@@ -231,6 +231,19 @@ impl Access {
     ) -> Result<groups::MessageReceipt> {
         self.call(|worker| async move { worker.amend_message(room, target, text, operation).await }).await
     }
+    pub async fn react_message(
+        &self,
+        room: &str,
+        target: String,
+        emoji: String,
+        present: bool,
+        operation: String,
+    ) -> Result<groups::MessageReceipt> {
+        self.call(|worker| async move { worker.react_message(room, target, emoji, present, operation).await }).await
+    }
+    pub async fn journal_search(&self, room: &str, text: String, limit: usize) -> Result<groups::JournalSearch> {
+        self.call(|worker| async move { worker.journal_search(room, text, limit).await }).await
+    }
     pub async fn resume_message(&self, operation: &str) -> Result<groups::MessageReceipt> {
         self.call(|worker| async move { worker.resume_message(operation).await }).await
     }

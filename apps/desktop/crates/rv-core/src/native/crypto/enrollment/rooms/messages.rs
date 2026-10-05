@@ -196,27 +196,12 @@ impl Access {
         }
         let draft = room.0.crypto.draft(roster.clone(), self.0.thread.clone()).await?;
         let outgoing = room.0.crypto.outgoing_messages(roster.clone()).await?;
-        let (names, _) = room.names().await?;
+        let (names, usernames, _) = room.members().await?;
         self.check()?;
         self.0.state.lock().unwrap().names = names.clone();
         let mut messages = Vec::with_capacity(projection.messages.len() + outgoing.len() + 1);
         for entry in projection.root.into_iter().chain(projection.messages) {
-            let receipt = &entry.message.receipt;
-            let document = entry.message.message().map_err(rv_crypto::delivery::Error::from)?;
-            let mut row = message(
-                &room.0.id,
-                document,
-                &receipt.header.author,
-                receipt.message.clone(),
-                Some(receipt.position.to_string()),
-                entry.observed_at,
-                Delivery::Journaled,
-                &names,
-            )?;
-            if let Some(edit) = &entry.edit {
-                edited(&mut row, edit.text.to_string());
-            }
-            messages.push(row);
+            messages.push(journaled(&room.0.id, entry, &names, &usernames)?);
         }
         if before.is_none() {
             for entry in outgoing {
@@ -230,9 +215,14 @@ impl Access {
                         continue;
                     }
                     let Some(row) = messages.iter_mut().find(|m| &m.row.id == target) else { continue };
-                    if entry.header.kind == groups::MessageKind::Edit {
-                        let text = entry.message().map_err(rv_crypto::delivery::Error::from)?.text;
-                        edited(row, text);
+                    let text = entry.message().map_err(rv_crypto::delivery::Error::from)?.text;
+                    match entry.header.kind {
+                        groups::MessageKind::Edit => edited(row, text),
+                        groups::MessageKind::React | groups::MessageKind::Unreact => {
+                            let me = usernames.get(&entry.header.author).unwrap_or(&entry.header.author);
+                            react(row, &text, me, entry.header.kind == groups::MessageKind::React)?;
+                        }
+                        _ => (),
                     }
                     row.operation = entry.header.operation.clone();
                     row.delivery = if entry.cancelling { Delivery::Cancelling } else { Delivery::Pending };
@@ -363,6 +353,35 @@ impl Access {
         self.0.room.0.crypto.amend_message(&self.0.room.0.id, target, text, operation).await?;
         self.check()
     }
+    /// Reacts to any journaled message of this view with a standard or
+    /// catalog emoji (`present`), or withdraws that reaction.
+    pub async fn react(&self, target: String, emoji: String, present: bool) -> Result<()> {
+        let _serial = self.0.serial.lock().await;
+        self.0.room.current().await?;
+        self.roster()?;
+        let session = self.0.room.0.session.upgrade().ok_or_else(room_changed)?;
+        let emoji = session.reaction_emoji(&emoji, present)?;
+        let operation = crate::native::room_operation_id();
+        self.0.room.0.crypto.react_message(&self.0.room.0.id, target, emoji, present, operation).await?;
+        self.check()
+    }
+    /// Private search in this room's verified documents on the device, threads
+    /// included, newest first; nothing is sent to the server.
+    pub async fn search(&self, text: String) -> Result<Vec<Message>> {
+        let _serial = self.0.serial.lock().await;
+        let room = &self.0.room;
+        room.current().await?;
+        self.roster()?;
+        let found = room.0.crypto.journal_search(&room.0.id, text, 50).await?;
+        self.check()?;
+        if self.0.state.lock().unwrap().admission.is_some_and(|old| old != found.admission) {
+            self.close();
+            return Err(room_changed());
+        }
+        let (names, usernames, _) = room.members().await?;
+        self.check()?;
+        found.messages.into_iter().map(|entry| journaled(&room.0.id, entry, &names, &usernames)).collect()
+    }
     pub async fn resume(&self, operation: String) -> Result<()> {
         let _serial = self.0.serial.lock().await;
         let roster = self.roster()?;
@@ -403,6 +422,63 @@ impl Access {
     }
 }
 
+/// A verified row, with its author's latest edit and current reactions.
+fn journaled(
+    room: &str,
+    entry: groups::ProjectedMessage,
+    names: &BTreeMap<String, String>,
+    usernames: &BTreeMap<String, String>,
+) -> Result<Message> {
+    let receipt = &entry.message.receipt;
+    let document = entry.message.message().map_err(rv_crypto::delivery::Error::from)?;
+    let mut row = message(
+        room,
+        document,
+        &receipt.header.author,
+        receipt.message.clone(),
+        Some(receipt.position.to_string()),
+        entry.observed_at,
+        Delivery::Journaled,
+        names,
+    )?;
+    if let Some(edit) = &entry.edit {
+        edited(&mut row, edit.text.to_string());
+    }
+    for reaction in &entry.reactions {
+        for user in &reaction.users {
+            react(&mut row, &reaction.emoji, usernames.get(user).unwrap_or(user), true)?;
+        }
+    }
+    Ok(row)
+}
+/// Adds or removes one user's reaction in the row's reaction map, keyed like
+/// the ordinary native rows (`{":name:": {"usernames": [...]}}`).
+fn react(message: &mut Message, emoji: &str, username: &str, present: bool) -> Result<()> {
+    let mut map = message
+        .row
+        .reactions
+        .as_deref()
+        .map(serde_json::from_str::<serde_json::Map<String, serde_json::Value>>)
+        .transpose()
+        .map_err(|_| room_changed())?
+        .unwrap_or_default();
+    let key = format!(":{emoji}:");
+    let mut users = map
+        .remove(&key)
+        .and_then(|v| v.get("usernames").cloned())
+        .and_then(|v| serde_json::from_value::<Vec<String>>(v).ok())
+        .unwrap_or_default();
+    users.retain(|u| u != username);
+    if present {
+        users.push(username.to_owned());
+    }
+    if !users.is_empty() {
+        map.insert(key, serde_json::json!({ "usernames": users }));
+    }
+    message.row.reactions =
+        if map.is_empty() { None } else { Some(serde_json::to_string(&map).map_err(|_| room_changed())?) };
+    Ok(())
+}
 fn edited(message: &mut Message, text: String) {
     message.row.md = Some(crate::native::markdown::cached_tree(None, &text));
     message.row.text = Some(text);

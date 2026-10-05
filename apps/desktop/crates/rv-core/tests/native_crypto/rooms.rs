@@ -1015,6 +1015,22 @@ async fn private_edits_and_deletions_show_on_their_target_and_resume_like_sends(
     let row = &view.messages[0];
     assert!(row.delivery == Delivery::Journaled && row.row.outbox_status.is_none() && row.row.edited);
     assert_eq!((row.row.id.as_str(), row.row.text.as_deref()), (id.as_str(), Some("private-message-cleartext edited")));
+    // Reactions use canonical emoji names and show on the row; the latest wins.
+    chat.react(id.clone(), ":+1:".into(), true).await.unwrap();
+    let view = chat.refresh(None, 50).await.unwrap();
+    assert_eq!(view.messages.len(), 1);
+    let reactions: serde_json::Value =
+        serde_json::from_str(view.messages[0].row.reactions.as_deref().unwrap()).unwrap();
+    assert_eq!(reactions, serde_json::json!({":thumbsup:": {"usernames": ["alice"]}}));
+    assert!(chat.react(id.clone(), "not-an-emoji".into(), true).await.is_err());
+    chat.react(id.clone(), "thumbsup".into(), false).await.unwrap();
+    assert!(chat.refresh(None, 50).await.unwrap().messages[0].row.reactions.is_none());
+    // Private search runs on the device and finds the edited text only.
+    let found = chat.search("CLEARTEXT EDITED".into()).await.unwrap();
+    assert_eq!(found.iter().map(|m| m.row.id.as_str()).collect::<Vec<_>>(), [id.as_str()]);
+    assert!(found[0].row.edited);
+    assert!(chat.search("original".into()).await.unwrap().is_empty());
+    assert!(chat.search("  ".into()).await.is_err());
     // An amendment is never a target, and a deletion removes the row.
     let amendment = book.lock().unwrap().message_receipts.len();
     assert!(chat.amend(format!("private-message-{amendment}"), None).await.is_err());

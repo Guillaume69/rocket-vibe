@@ -107,5 +107,9 @@ export function useEncryptedConversation(chat:NativeChat|undefined,room:string,m
     discard:async id=>{const row=privateRow(view,id);if(!row)throw Error('Private intention unavailable');
       const operation=row.amendment?.operation??row.operation;await run(a=>a.cancel(operation));},
   }),[room,thread,run,view]);
-  return {view,initial,composer,failed,busy,outbox,save,reload};
+  /** An encrypted reaction or its withdrawal, delivered like a send. */
+  const react=useCallback((id:string,code:string,present:boolean)=>{
+    void run(a=>a.react(id,code,present),false,true).catch(()=>{});
+  },[run]);
+  return {view,initial,composer,failed,busy,outbox,save,reload,react};
 }

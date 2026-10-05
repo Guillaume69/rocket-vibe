@@ -193,11 +193,11 @@ function Thread({
 
   // Root first, replies in chronological order: a thread reads from the top.
   const sourceData = useMemo<MessageRowData[]>(() => {
-    if(protectedRoom)return privateRows(conversation.view,rid??'',true);
+    if(protectedRoom)return privateRows(conversation.view,rid??'',true,client.auth?.userId?{id:client.auth.userId,username:me}:undefined);
     if(native && room===undefined)return [];
     const responses = replyRows ?? [];
     return root === undefined ? responses : [root, ...responses];
-  }, [root,replyRows,protectedRoom,conversation.view,rid,native,room]);
+  }, [root,replyRows,protectedRoom,conversation.view,rid,native,room,client,me]);
   const quotes=usePrivateQuotes(native?.chat,rid??'',membership,!protectedRoom && cryptoAvailable,sourceData,threadId);
   const quotesToSend=quotes.send;
   const data=quotes.rows;
@@ -324,7 +324,8 @@ function Thread({
           // We ARE in the thread: no "N replies" indicator on the root.
           onOpenThread={null}
           me={me}
-          onReact={!protectedRoom && sendState === undefined ? react : null}
+          onReact={protectedRoom ? isPrivate?.status==='journaled' && !isPrivate.amendment && !conversation.busy ? (_rid,id,code,put)=>conversation.react(id,code,put) : null
+            : sendState === undefined ? react : null}
           continuation={continuations.has(item.id)}
           repeatedTime={repeatedTimes.has(item.id)}
         /></View>

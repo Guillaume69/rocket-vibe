@@ -976,6 +976,15 @@ impl NativeSession {
         self.submit_command(rid, id, revision, store::MessageCommandKind::Delete, "").await
     }
     pub async fn react(&self, rid: &str, id: &str, emoji: &str, present: bool) -> Result<(), Error> {
+        let emoji = self.reaction_emoji(emoji, present)?;
+        let text = serde_json::to_string(&ReactionIntent { emoji, present })
+            .map_err(|_| Error::Protocol("invalid_message_action"))?;
+        // Explicit state actions have no content-revision precondition.
+        self.submit_command(rid, id, "0", store::MessageCommandKind::React, &text).await
+    }
+    /// The canonical name of a standard or catalog emoji; withdrawing also
+    /// accepts a name that left the catalog.
+    pub(crate) fn reaction_emoji(&self, emoji: &str, present: bool) -> Result<String, Error> {
         let short = rv_protocol::custom_emojis::shortcode(emoji);
         let custom = self
             .store
@@ -984,15 +993,11 @@ impl NativeSession {
             .flat_map(|c| c.items)
             .find(|e| Some(e.name.as_str()) == short || e.aliases.iter().any(|a| Some(a.as_str()) == short))
             .map(|e| e.name);
-        let emoji = rv_protocol::emojis::canonical(emoji)
+        rv_protocol::emojis::canonical(emoji)
             .map(str::to_owned)
             .or(custom)
             .or_else(|| (!present).then(|| short.map(str::to_owned)).flatten())
-            .ok_or(Error::Protocol("unknown_emoji"))?;
-        let text = serde_json::to_string(&ReactionIntent { emoji, present })
-            .map_err(|_| Error::Protocol("invalid_message_action"))?;
-        // Explicit state actions have no content-revision precondition.
-        self.submit_command(rid, id, "0", store::MessageCommandKind::React, &text).await
+            .ok_or(Error::Protocol("unknown_emoji"))
     }
     async fn submit_command(
         &self,

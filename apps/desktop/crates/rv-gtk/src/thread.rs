@@ -319,6 +319,22 @@ impl ThreadPage {
             }
         });
     }
+    /// Reacts to a private message of this thread, or withdraws the reaction.
+    pub fn react_private(self: &Rc<Self>, id: String, emoji: String, present: bool) {
+        let Some(access) = self.crypto.borrow().clone().filter(|_| self.private_current()) else { return };
+        let (weak, generation) = (Rc::downgrade(self), self.private_generation.get());
+        gtk::glib::spawn_future_local(async move {
+            let result = crate::on_tokio(async move { access.react(id, emoji, present).await }).await;
+            if let Some(page) =
+                weak.upgrade().filter(|p| p.private_generation.get() == generation && p.private_current())
+            {
+                if result.is_err() {
+                    page.list.root.set_tooltip_text(Some(t("crypto.failed")));
+                }
+                page.reload();
+            }
+        });
+    }
     /// Edits (`Some(text)`) or deletes (`None`) one of my private messages.
     pub fn amend_private(self: &Rc<Self>, id: String, text: Option<String>) {
         let Some(access) = self.crypto.borrow().clone().filter(|_| self.private_current()) else { return };

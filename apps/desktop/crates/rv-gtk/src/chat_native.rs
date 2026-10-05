@@ -482,6 +482,7 @@ impl ChatPage {
         if self.current.borrow().as_ref().is_some_and(|r| r.encrypted) {
             match event {
                 RowEvent::OpenThread(root) if !in_thread => self.open_native_thread(&root),
+                RowEvent::React { id, shortcode, add } => self.crypto_react(id, shortcode, add, in_thread),
                 RowEvent::CancelEdit => {
                     self.native_edit.replace(None);
                     self.list_of(in_thread).stop_edit();
@@ -558,6 +559,30 @@ impl ChatPage {
                             menu.popdown();
                         });
                         list.append(&button);
+                    }
+                    if row.outbox_status.is_none()
+                        && let Some(session) = self.native_session()
+                    {
+                        let quick = gtk::Box::builder().spacing(4).margin_bottom(4).build();
+                        for shortcode in rv_core::actions::QUICK_REACTIONS {
+                            let glyph = rv_core::emoji::unicode(shortcode);
+                            let mine = rv_core::actions::reactions(row.reactions.as_deref(), &session.info.username)
+                                .iter()
+                                .any(|r| r.mine && rv_core::emoji::unicode(&r.shortcode) == glyph);
+                            let button = gtk::Button::builder()
+                                .label(glyph.unwrap_or(shortcode))
+                                .css_classes(if mine { vec!["quick-reaction", "mine"] } else { vec!["quick-reaction"] })
+                                .build();
+                            let (weak, id, menu) = (Rc::downgrade(self), row.id.clone(), popover.clone());
+                            button.connect_clicked(move |_| {
+                                menu.popdown();
+                                if let Some(page) = weak.upgrade() {
+                                    page.crypto_react(id.clone(), shortcode.into(), !mine, in_thread);
+                                }
+                            });
+                            quick.append(&button);
+                        }
+                        list.prepend(&quick);
                     }
                     let mine = self.native_session().is_some_and(|s| s.info.user_id == row.author_id);
                     if mine && row.outbox_status.is_none() {

@@ -25,7 +25,8 @@ async function setup(thread:string|null=null,mixed=false) {
   let publicMembership:string|null='plain-grant',publicText='ordinary source words';
   let publicRevision='10',publicReads=0,changePublicAt=Infinity;
   let selectedQuotes: import('./protocol.generated.ts').QuoteReference[]=[];
-  let amended:Record<string,unknown>|null=null,amends=0;
+  let amended:Record<string,unknown>|null=null,amends=0,searched:unknown=null;
+  const reactions:{emoji:string;present:boolean}[]=[];
   const source={id:'private-source',operation:'source-op',author:scope.user,
     document:{operation_id:'source-op',text:'private quoted reply',reply_to:'source-root',quotes:mixed?[{room_id:'plain-room',message_id:'plain-source',revision:'10'}]:[],cards:[]},position:'9007199254740993',observed_at:'1700000000',status:'journaled'};
   const forbidden=async()=>{throw Error('No identity, pin, group or plaintext SQL operation');};
@@ -60,6 +61,8 @@ async function setup(thread:string|null=null,mixed=false) {
         case 'cancel':cancelling=true;return JSON.stringify(packet);
         case 'settle':cancelled=c.settlement.kind==='cancelled';cancelling=false;return 'null';
         case 'restore':assert.equal(cancelled,true);draft='private text';return 'null';
+        case 'react':assert.equal(c.target,source.id);reactions.push({emoji:c.emoji,present:c.present});return JSON.stringify({operation:packet.operation_id});
+        case 'search':assert.equal(c.limit,50);return JSON.stringify(searched??{admission,messages:[source],truncated:false});
         case 'amend':assert.equal(c.target,source.id);assert.ok(c.text===null || c.text==='edited text');amends++;return JSON.stringify({operation:packet.operation_id});
         default:throw Error('Unexpected private command');
       }
@@ -80,7 +83,7 @@ async function setup(thread:string|null=null,mixed=false) {
     async(room,ids)=>{if(room==='plain-room' && ++publicReads===changePublicAt)publicMembership='replacement-grant';
       return mixed && room==='plain-room' && publicMembership!==null?{membership:publicMembership,messages:ids.includes('plain-source')?[{id:'plain-source',excerpt:{author:{id:'bob',username:'bob',display_name:'Bob'},text:publicText,created_at:'2026-10-04T08:00:00Z',revision:publicRevision,membership_version:publicMembership,references:[]}}]:[]}:null;});
   const target={...source,document:{...source.document,text:'edited text',reply_to:null,quotes:[]},edited:true};
-  return {access,remote,get amends(){return amends;},
+  return {access,remote,get amends(){return amends;},reactions,answer:(value:unknown)=>{searched=value;},
     showAmendment:(amendment:unknown)=>{amended={...target,amendment};},get posts(){return posts;},get retries(){return retries;},get prepares(){return prepares;},get cancels(){return cancels;},get nativeDrafts(){return nativeDrafts;},get scopeReads(){return scopeReads;},
     lose:()=>{lose=true;},readOnly:()=>{readOnly=true;},switchDevice:()=>{current={...scope,device:'replacement'};},changeAdmission:()=>{admission='cd'.repeat(32);},
     wrongRoot:()=>{if(root)root={...root,id:'foreign-root'};},evictRoot:()=>{root=null;},evictSource:()=>{sourceRetained=false;},withdrawSource:()=>{membership=null;},
@@ -241,4 +244,22 @@ test('an encrypted edit or deletion uses the outbox of a send and shows on its t
   for(const forged of [{operation:'source-op',status:'pending'},{operation:'amend-op',status:'accepted'},{operation:'bad id',status:'pending'}]) {
     f.showAmendment(forged);await assert.rejects(()=>f.access.refresh());
   }
+});
+
+test('encrypted reactions use canonical names, show marked as mine and search stays on the device',async()=>{
+  const f=await setup();await f.access.refresh();
+  await f.access.react('private-source',':+1:',true);await f.access.react('private-source','thumbsup',false);
+  await assert.rejects(()=>f.access.react('private-source','not-an-emoji',true));
+  assert.deepEqual(f.reactions,[{emoji:'thumbsup',present:true},{emoji:'thumbsup',present:false}]);
+  f.showAmendment(null);
+  const reacted={...(await f.access.refresh()).messages[0],reactions:[{emoji:'thumbsup',users:[scope.user,'bob']}]};
+  const rows=privateRows({...(await f.access.refresh()),messages:[reacted]},ack.room_id,false,{id:scope.user,username:'alice-name'});
+  assert.deepEqual(JSON.parse(rows[0].reactions!),{':thumbsup:':{usernames:['alice-name','bob']}});
+  const found=await f.access.search('quoted');
+  assert.deepEqual(found.messages.map(m=>m.id),['private-source']);assert.equal(found.truncated,false);
+  for(const bad of [{emoji:'Thumbs Up',users:['bob']},{emoji:'heart',users:[]},{emoji:'heart',users:['bob','bob']}]) {
+    f.answer({admission:fp,messages:[{...reacted,reactions:[bad]}],truncated:false});
+    await assert.rejects(()=>f.access.search('quoted'));
+  }
+  await assert.rejects(()=>f.access.search('  '));
 });

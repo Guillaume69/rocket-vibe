@@ -195,6 +195,25 @@ impl ChatPage {
             page.crypto_history(false).await;
         });
     }
+    /// Sends an encrypted reaction (`present`) or its withdrawal.
+    pub(super) fn crypto_react(self: &Rc<Self>, id: String, emoji: String, present: bool, in_thread: bool) {
+        if in_thread {
+            if let Some(thread) = self.thread.borrow().as_ref() {
+                thread.react_private(id, emoji, present);
+            }
+            return;
+        }
+        let Some(access) = self.native_crypto.borrow().clone() else { return };
+        let (weak, generation) = (Rc::downgrade(self), self.read_generation.get());
+        glib::spawn_future_local(async move {
+            let result = on_tokio(async move { access.react(id, emoji, present).await }).await;
+            let Some(page) = weak.upgrade().filter(|p| p.read_generation.get() == generation) else { return };
+            if result.is_err() {
+                page.toast(t("crypto.failed").to_owned());
+            }
+            page.crypto_history(false).await;
+        });
+    }
     pub(super) fn crypto_retry(self: &Rc<Self>, id: String, cancel: bool) {
         let Some(access) = self.native_crypto.borrow().clone() else { return };
         let Some((_, operation, _)) = self.native_crypto_meta.borrow().iter().find(|(m, _, _)| m == &id).cloned()

@@ -53,6 +53,7 @@ import { LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
 import { Tappable } from '../ui/tappable.tsx';
 import {CryptoNative} from '../modules/crypto-native/index.ts';
 import type {CryptoConversationAccess} from '../providers/rocketvibe/cryptoConversations.ts';
+import {privateRow} from '../providers/rocketvibe/cryptoProjection.ts';
 import type {NativeChat} from '../providers/rocketvibe/chat.ts';
 
 /**
@@ -185,9 +186,11 @@ export default function MessageActionsScreen() {
         for(let n=0;n<8 && view.catching_up;n++)view=await actor.refresh();
         const message=[...(view.root?[view.root]:[]),...view.messages].find(m=>m.id===id && m.status==='journaled' && !m.amendment);
         if(!alive() || actor.isClosed)return;if(!message)throw Error('Private source unavailable');
+        const shown=privateRow(message,rid,0,null,me && myUsername?{id:me,username:myUsername}:undefined);
         setPayload({privateOwner:native.chat,message:{id,rid,threadId:message.document.reply_to??null,systemType:null,text:message.document.text,
-          authorName:message.author,attachments:null,reactions:null,pinned:false,starred:null},
+          authorName:message.author,attachments:null,reactions:shown.reactions,pinned:false,starred:null},
           room:{type:'p',name:null},actions:['reply',...(message.document.text?['copy'] as const:[]),
+            ...(view.can_send?['react'] as const:[]),
             ...(message.author===me && view.can_send?['edit','delete'] as const:[])]});
         return;
       }
@@ -296,6 +299,12 @@ export default function MessageActionsScreen() {
   // a double tap trigger the action twice, and two `router.back()`, the
   // second of which ejects from the room.
   const inFlight = useRef(false);
+  // An encrypted reaction or its withdrawal, through the sheet's actor.
+  const privateReact = (target: string, code: string, present: boolean) => {
+    const actor = privateAccess.current;
+    if (!actor) throw Error('Private source unavailable');
+    return actor.react(target, code, present);
+  };
   // An encrypted edit (text) or deletion (null), through the sheet's actor.
   const privateAmend = (target: string, text: string | null) => {
     const actor = privateAccess.current;
@@ -495,7 +504,9 @@ export default function MessageActionsScreen() {
                   },
                 ]}
                 onPress={() =>
-                  void act(() => trigger.react(message.rid, message.id, code, !alreadySet))
+                  void act(() => isPrivate === '1'
+                    ? privateReact(message.id, code, !alreadySet)
+                    : trigger.react(message.rid, message.id, code, !alreadySet))
                 }
               >
                 <Text style={styles.emoji}>{unicodeOfShortcode(code) ?? `:${code}:`}</Text>

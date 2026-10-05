@@ -197,12 +197,18 @@ impl Access {
         self.check()
     }
     async fn names(&self) -> Result<(BTreeMap<String, String>, bool)> {
+        let (names, _, create) = self.members().await?;
+        Ok((names, create))
+    }
+    /// Display names and usernames of the room's members, by user id.
+    async fn members(&self) -> Result<(BTreeMap<String, String>, BTreeMap<String, String>, bool)> {
         let session = self.0.session.upgrade().ok_or_else(room_changed)?;
         let details = session.room_details(&self.0.id).await?;
         self.check()?;
         let create = details.room.kind == rv_protocol::RoomKind::Direct
             || details.permissions.role == rv_protocol::parity::RoomRole::Owner;
         let mut names = BTreeMap::new();
+        let mut usernames = BTreeMap::new();
         let mut after: Option<String> = None;
         let mut visited = BTreeSet::new();
         loop {
@@ -212,6 +218,7 @@ impl Access {
                 if names.len() >= 128 || names.contains_key(&member.user.id) {
                     return Err(room_changed());
                 }
+                usernames.insert(member.user.id.clone(), member.user.username.clone());
                 names.insert(
                     member.user.id,
                     if member.user.display_name.is_empty() { member.user.username } else { member.user.display_name },
@@ -223,7 +230,7 @@ impl Access {
                 _ => return Err(room_changed()),
             }
         }
-        Ok((names, create))
+        Ok((names, usernames, create))
     }
     fn recipients(participants: &[Participant], names: &BTreeMap<String, String>) -> Vec<Recipient> {
         participants

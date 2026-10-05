@@ -134,6 +134,10 @@ section here.
   a message: other members see the new text with an "edited" mark, or the message
   disappears. Until the server accepts it, the message shows the change as pending, with
   retry and cancel.
+- React to encrypted messages from the message menu or the reaction chips (GTK and
+  SwiftUI), in rooms and threads; the server never learns the emoji. Search in an encrypted
+  room runs on the device over its private history, recovered history included, and finds
+  edited messages by their new text; nothing is sent to the server.
 
 ### Fixed
 

@@ -74,6 +74,17 @@ enum Command {
         target: String,
         text: Option<String>,
     },
+    /// A reaction (`present`) to any journaled message, or its withdrawal.
+    React {
+        target: String,
+        emoji: String,
+        present: bool,
+    },
+    /// Private search of this room on the device, threads included.
+    Search {
+        text: String,
+        limit: u32,
+    },
     Restore {
         operation: String,
     },
@@ -124,7 +135,48 @@ fn row(
     status: &str,
 ) -> Value {
     json!({"id":id,"operation":header.operation,"author":header.author,"document":doc,
-        "position":position,"observed_at":observed.to_string(),"status":status,"edited":false,"amendment":null})
+        "position":position,"observed_at":observed.to_string(),"status":status,"edited":false,"amendment":null,
+        "reactions":[]})
+}
+/// A verified row with its author's latest edit and its current reactions.
+fn journaled(entry: engine::ProjectedMessage) -> Result<Value> {
+    let receipt = &entry.message.receipt;
+    let mut value = row(
+        &receipt.header,
+        entry.message.message()?,
+        receipt.message.clone(),
+        Some(receipt.position.to_string()),
+        entry.observed_at,
+        "journaled",
+    );
+    if let Some(edit) = &entry.edit {
+        edited(&mut value, &edit.text);
+    }
+    value["reactions"] = json!(
+        entry
+            .reactions
+            .iter()
+            .map(|r| json!({"emoji":r.emoji,"users":r.users}))
+            .collect::<Vec<_>>()
+    );
+    Ok(value)
+}
+/// Adds or removes one user's reaction on a rendered row.
+fn react_row(row: &mut Value, emoji: &str, user: &str, present: bool) {
+    let mut reactions = row["reactions"].as_array().cloned().unwrap_or_default();
+    for reaction in reactions.iter_mut().filter(|r| r["emoji"] == emoji) {
+        if let Some(users) = reaction["users"].as_array_mut() {
+            users.retain(|u| u != user);
+            if present {
+                users.push(json!(user));
+            }
+        }
+    }
+    if present && !reactions.iter().any(|r| r["emoji"] == emoji) {
+        reactions.push(json!({"emoji":emoji,"users":[user]}));
+    }
+    reactions.retain(|r| r["users"].as_array().is_some_and(|u| !u.is_empty()));
+    row["reactions"] = json!(reactions);
 }
 /// The row shows its author's edit; the signed original stays in the journal.
 fn edited(row: &mut Value, text: &str) {
@@ -262,21 +314,6 @@ impl CryptoInstallation {
                 )?;
                 let admission = HEXLOWER.encode(&projection.admission);
                 self.conversation_binding(&key, current, Some(admission.clone()))?;
-                let journaled = |entry: engine::ProjectedMessage| {
-                    let receipt = &entry.message.receipt;
-                    let mut value = row(
-                        &receipt.header,
-                        entry.message.message()?,
-                        receipt.message.clone(),
-                        Some(receipt.position.to_string()),
-                        entry.observed_at,
-                        "journaled",
-                    );
-                    if let Some(edit) = &entry.edit {
-                        edited(&mut value, &edit.text);
-                    }
-                    Ok::<_, CryptoBridgeError>(value)
-                };
                 let root = projection.root.map(journaled).transpose()?;
                 let thread_ready = request.thread.is_none() || root.is_some();
                 let mut rows = projection
@@ -298,8 +335,14 @@ impl CryptoInstallation {
                             let Some(value) = rows.iter_mut().find(|v| v["id"] == **target) else {
                                 continue;
                             };
-                            if entry.header.kind == engine::MessageKind::Edit {
-                                edited(value, &entry.message()?.text);
+                            let text = entry.message()?.text;
+                            match entry.header.kind {
+                                engine::MessageKind::Edit => edited(value, &text),
+                                engine::MessageKind::React | engine::MessageKind::Unreact => {
+                                    let present = entry.header.kind == engine::MessageKind::React;
+                                    react_row(value, &text, &entry.header.author, present);
+                                }
+                                _ => (),
                             }
                             let status = if entry.cancelling {
                                 "cancelling"
@@ -515,6 +558,31 @@ impl CryptoInstallation {
                 // The amendment takes its target's thread, whichever view asked.
                 c.prepare_amendment(current, &target, text, operation.clone(), time)?;
                 json!({"operation":operation})
+            }
+            Command::React {
+                target,
+                emoji,
+                present,
+            } => {
+                if !identifier(&target) {
+                    return Err(CryptoBridgeError::Integrity);
+                }
+                let mut nonce = [0; 16];
+                getrandom::fill(&mut nonce).map_err(|_| CryptoBridgeError::Storage)?;
+                let operation = HEXLOWER.encode(&nonce);
+                c.prepare_reaction(current, &target, &emoji, present, operation.clone(), time)?;
+                json!({"operation":operation})
+            }
+            Command::Search { text, limit } => {
+                let found = c.journal_search(&observation, &text, limit as usize, time)?;
+                let admission = HEXLOWER.encode(&found.admission);
+                self.conversation_binding(&key, current, Some(admission.clone()))?;
+                let rows = found
+                    .messages
+                    .into_iter()
+                    .map(journaled)
+                    .collect::<Result<Vec<_>>>()?;
+                json!({"admission":admission,"messages":rows,"truncated":found.truncated})
             }
             Command::Restore { operation } => {
                 let own = self.own_outgoing(&c, current, &request.thread, &operation, time)?;

@@ -207,8 +207,15 @@ export class NativeChat {
       entry.views.add(view);this.privateFiles.set(file.id,entry);
     }
   }
+  private readonly privateForgotten=new Set<(ids:readonly string[])=>void>();
+  /** Told the ids no open view shows any more, so their plaintext copies go. */
+  onPrivateFilesForgotten(listener:(ids:readonly string[])=>void):()=>void {
+    this.privateForgotten.add(listener);return()=>{this.privateForgotten.delete(listener);};
+  }
   forgetPrivateFiles(view:number):void {
-    for(const [id,entry] of this.privateFiles){entry.views.delete(view);if(!entry.views.size)this.privateFiles.delete(id);}
+    const gone:string[]=[];
+    for(const [id,entry] of this.privateFiles){entry.views.delete(view);if(!entry.views.size){this.privateFiles.delete(id);gone.push(id);}}
+    if(gone.length)for(const listener of this.privateForgotten)listener(gone);
   }
   privateFile(id:string):{room:string;file:NativeTypes['EncryptedFile']}|null {
     const entry=this.privateFiles.get(id);return entry?{room:entry.room,file:entry.file}:null;

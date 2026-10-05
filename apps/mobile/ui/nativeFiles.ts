@@ -72,6 +72,14 @@ export function mountNativeFiles(client:RestClient,provider:Provider):()=>void {
   const acquire=async()=>{if(!active)throw new NativeError(0,'session_closed');if(running<4){running++;return;}await new Promise<void>(resolve=>waiters.push(resolve));if(!active)throw new NativeError(0,'session_closed');};
   const release=()=>{const next=waiters.shift();if(next)next();else running--;};
   const transfers=new Map<string,Promise<string>>(),controllers=new Set<AbortController>();
+  // Plaintext copies of encrypted files, by id: deleted once no view shows them.
+  const opened=new Map<string,Set<string>>();
+  const unforget=chat.onPrivateFilesForgotten(ids=>{
+    for(const id of ids){
+      for(const dir of opened.get(id)??[])void FS.deleteAsync(dir,{idempotent:true}).catch(()=>{});
+      opened.delete(id);
+    }
+  });
   // An encrypted file (E2EE_FILES.md): its opaque object, then opened in Rust
   // into the same private cache; it stays readable while a view shows it.
   const openPrivate=async(id:string,shown:{room:string;file:import('../providers/rocketvibe/protocol.generated.ts').EncryptedFile},progress?:(fraction:number)=>void):Promise<string>=>{
@@ -87,6 +95,7 @@ export function mountNativeFiles(client:RestClient,provider:Provider):()=>void {
     const dir=`${root}${stamp}/~${id}/`,destination=`${dir}${encodeURIComponent(withExtension(safeFileName(shown.file.filename),shown.file.media_type))}`;
     const part=`${dir}object.${stamp}.part`,controller=new AbortController();controllers.add(controller);
     await FS.makeDirectoryAsync(dir,{intermediates:true});
+    opened.set(id,new Set([...(opened.get(id)??[]),dir]));
     try{
       if((await FS.getInfoAsync(destination)).exists){
         await chat.transport.downloadFile(object,expoFetch as typeof fetch,async response=>{if((await response.arrayBuffer()).byteLength!==1)throw new NativeError(502,'invalid_file');},controller.signal,true);
@@ -148,5 +157,5 @@ export function mountNativeFiles(client:RestClient,provider:Provider):()=>void {
   },()=>revision);
   const invalidate=()=>{const old=revision++;for(const c of controllers)c.abort();transfers.clear();void FS.deleteAsync(`${root}${old}/`,{idempotent:true}).catch(()=>{});};
   const unlisten=chat.subscribe(()=>{if(version!==chat.searchVersion){version=chat.searchVersion;invalidate();}});
-  return()=>{active=false;for(const next of waiters.splice(0))next();unlisten();unregistry();invalidate();void FS.deleteAsync(root,{idempotent:true}).catch(()=>{});};
+  return()=>{active=false;for(const next of waiters.splice(0))next();unlisten();unforget();unregistry();invalidate();void FS.deleteAsync(root,{idempotent:true}).catch(()=>{});};
 }

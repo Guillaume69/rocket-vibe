@@ -37,9 +37,12 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub fn chunks(bytes: u64) -> u64 {
     bytes.div_ceil(CHUNK as u64).max(1)
 }
-/// Exact object size for a plaintext of `bytes`.
+/// Exact object size for a plaintext of `bytes`; saturates, so an absurd size
+/// from a peer's descriptor is simply over `MAX_OBJECT`.
 pub fn object_size(bytes: u64) -> u64 {
-    (MAGIC.len() + PREFIX) as u64 + bytes + TAG as u64 * chunks(bytes)
+    ((MAGIC.len() + PREFIX) as u64)
+        .saturating_add(bytes)
+        .saturating_add((TAG as u64).saturating_mul(chunks(bytes)))
 }
 
 /// A sealed file: the descriptor's secret and checks, and the object's own
@@ -263,7 +266,14 @@ pub fn open_path(
     object: &Path,
     target: &Path,
 ) -> Result<()> {
-    let partial = target.with_extension("part");
+    // A fresh name beside the target, never derived from it: a target name
+    // cannot make the partial file collide with the object being read.
+    let mut random = [0u8; 16];
+    getrandom::fill(&mut random).map_err(|_| Error::Unavailable)?;
+    let partial = target
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join(format!(".rv-{}.part", HEXLOWER.encode(&random)));
     let result = (|| {
         let input = std::fs::File::open(object)?;
         let mut writer = std::io::BufWriter::new(private_file(&partial)?);
@@ -288,7 +298,8 @@ pub fn open_path(
 }
 fn private_file(path: &Path) -> Result<std::fs::File> {
     let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    // Never an existing file (nor a link planted there): its own mode 0600.
+    options.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;

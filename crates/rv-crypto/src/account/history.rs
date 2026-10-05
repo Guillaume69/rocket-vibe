@@ -82,14 +82,30 @@ impl Directory {
         {
             return Err(Error::Changed);
         }
-        for item in &self.wire.revocations {
-            let revocation: Revocation =
-                serde_json::from_slice(&decode(&item.signed, 4096)?).map_err(|_| Error::Changed)?;
-            if revocation.device == certificate.device.device
-                && revocation.incarnation == certificate.device.incarnation
-            {
-                return Err(Error::Changed);
-            }
+        if self.revoked(&certificate.device.device, certificate.device.incarnation)? {
+            return Err(Error::Changed);
+        }
+        Ok(())
+    }
+}
+impl Coordinator<'_> {
+    /// A sibling (`Directory::sibling`) whose withdrawal this device never
+    /// learned either: a directory that omits a known withdrawal does not
+    /// make that device trusted again.
+    fn trusted_sibling(&self, directory: &Directory, certificate: &Certificate) -> Result<()> {
+        directory.sibling(certificate, &self.0.account().device)?;
+        let (manager, state) = self.state()?;
+        let withdrawn = manager.inspect(|_, records| {
+            revocations::learned(
+                records,
+                &manager,
+                &state.root,
+                &certificate.device.device,
+                certificate.device.incarnation,
+            )
+        })?;
+        if withdrawn {
+            return Err(Error::Changed);
         }
         Ok(())
     }
@@ -171,7 +187,7 @@ impl Coordinator<'_> {
             };
             let certificate = &request.body.certificate;
             if request.verify(time).is_err()
-                || directory.sibling(certificate, own).is_err()
+                || self.trusted_sibling(directory, certificate).is_err()
                 || entry.device_id != certificate.device.device
                 || request_hex(&request)? != entry.fingerprint
             {
@@ -195,7 +211,7 @@ impl Coordinator<'_> {
         offer: Offer,
         time: u64,
     ) -> Result<SharePreview> {
-        directory.sibling(&offer.request.body.certificate, &self.0.account().device)?;
+        self.trusted_sibling(directory, &offer.request.body.certificate)?;
         let periods = self
             .groups(directory, time)?
             .history_preview(&offer.request, time)?
@@ -224,7 +240,7 @@ impl Coordinator<'_> {
         delegate: bool,
         time: u64,
     ) -> Result<()> {
-        directory.sibling(&preview.request.body.certificate, &self.0.account().device)?;
+        self.trusted_sibling(directory, &preview.request.body.certificate)?;
         if request_hex(&preview.request)? != preview.fingerprint
             || delegate && !(preview.can_delegate && self.state()?.1.controller)
         {
@@ -238,7 +254,8 @@ impl Coordinator<'_> {
     /// root once it matches the account's exactly; the device then controls
     /// the account. Replayable; whether control was adopted.
     pub fn adopt_control(&self) -> Result<bool> {
-        let (manager, _) = self.state()?;
+        // Not `state()`: a withdrawn device must still drop the record.
+        let manager = self.0.load()?.ok_or(vault::Error::NotInitialized)?;
         Ok(manager.transact(|_, records| {
             let Some(bytes) = records.remove(crate::history::DELEGATED_ROOT) else {
                 return Ok(false);
@@ -276,6 +293,7 @@ impl Coordinator<'_> {
         let Some(request) = groups.history_share_request()? else {
             return Ok(None);
         };
+        self.still_trusted(directory, &groups, &request)?;
         let Some(page) = groups.history_share_page(time)? else {
             return Ok(None);
         };
@@ -320,6 +338,9 @@ impl Coordinator<'_> {
     pub fn history_commit(&self, directory: &Directory, time: u64) -> Result<Commit> {
         let groups = self.groups(directory, time)?;
         let request = groups.history_share_request()?.ok_or(Error::Changed)?;
+        // The share (and a delegated root) is sealed only to a device still
+        // trusted now, not merely when the human approved it.
+        self.still_trusted(directory, &groups, &request)?;
         let share = groups.history_share_finish(time)?;
         Ok(Commit {
             request: request_hex(&request)?,
@@ -347,6 +368,22 @@ impl Coordinator<'_> {
         }
         Ok(groups.history_share_forget()?)
     }
+    /// A share job whose target was withdrawn since its approval is dropped.
+    fn still_trusted(
+        &self,
+        directory: &Directory,
+        groups: &groups::Coordinator,
+        request: &HistoryRequest,
+    ) -> Result<()> {
+        if self
+            .trusted_sibling(directory, &request.body.certificate)
+            .is_err()
+        {
+            groups.history_share_forget()?;
+            return Err(Error::Changed);
+        }
+        Ok(())
+    }
     /// Sharing device: drops an unfinished job the server will never accept
     /// (expired or replaced request, share claimed by another device).
     pub fn history_share_abandon(&self, directory: &Directory, time: u64) -> Result<()> {
@@ -363,7 +400,7 @@ impl Coordinator<'_> {
     ) -> Result<ImportStatus> {
         let share =
             Share::from_bytes(&decode(&state.share, SHARE_LIMIT)?).map_err(|_| Error::Changed)?;
-        directory.sibling(&share.certificate, &self.0.account().device)?;
+        self.trusted_sibling(directory, &share.certificate)?;
         if state.scope.instance_id != self.0.account().instance
             || state.scope.data_epoch != self.0.account().data_epoch
             || state.sharer_device_id != share.certificate.device.device
@@ -383,8 +420,10 @@ impl Coordinator<'_> {
         directory: &Directory,
         time: u64,
     ) -> Result<Option<ImportStatus>> {
+        // The directory is observed first: a withdrawal learned there wins.
+        let groups = self.groups(directory, time)?;
         self.adopt_control()?;
-        Ok(self.groups(directory, time)?.history_import()?.map(status))
+        Ok(groups.history_import()?.map(status))
     }
     /// New device: its own listed requests that no local request or import
     /// waits for any more (an import finished before its acknowledgement was

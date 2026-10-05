@@ -277,6 +277,19 @@ async fn a_share_goes_from_one_device_to_its_sibling_once_and_idempotently(pool:
     )
     .await
     .unwrap();
+    // A page held entirely, before the held count, is a replay: no panic.
+    assert_eq!(
+        history::upload(
+            &app,
+            &o.desktop,
+            &request,
+            upload_input(&o.desktop_keys, 0, &records[..1]),
+        )
+        .await
+        .unwrap()
+        .count,
+        records.len().to_string()
+    );
     rejected(
         history::commit(
             &app,

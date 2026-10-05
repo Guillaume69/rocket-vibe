@@ -159,6 +159,20 @@ pub(super) fn apply_known(
     }
     Ok(())
 }
+/// This account learned the withdrawal of `(device, incarnation)`, even if a
+/// later directory omits it.
+pub(super) fn learned(
+    records: &Records,
+    manager: &Manager,
+    root: &Root,
+    device: &str,
+    incarnation: [u8; 16],
+) -> std::result::Result<bool, vault::Error> {
+    Ok(load(records, manager, root)?
+        .learned
+        .iter()
+        .any(|p| p.device == device && p.incarnation == incarnation))
+}
 pub(super) fn pending(
     records: &Records,
     manager: &Manager,

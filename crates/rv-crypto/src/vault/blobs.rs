@@ -103,8 +103,18 @@ fn open_row(
         _ => Err(Error::Integrity),
     }
 }
-/// Re-seals every block from `old` to `next`, inside the rotation's commit.
-pub(super) fn rekey(db: &Connection, scope: &Scope, old: &Key, next: &Key) -> Result<(), Error> {
+/// Re-sealed block ids and the original digests they carry.
+pub(super) type Resealed = Vec<([u8; 16], [u8; 32])>;
+/// Re-seals every block from `old` to `next`, inside the rotation's commit;
+/// the re-sealed ids and the digests they carry. A row the current key does
+/// not open can never be read again: it is dropped rather than blocking every
+/// rotation (and so keeping the old key alive).
+pub(super) fn rekey(
+    db: &Connection,
+    scope: &Scope,
+    old: &Key,
+    next: &Key,
+) -> Result<Resealed, Error> {
     let ids: Vec<Vec<u8>> = {
         let mut statement = db
             .prepare("SELECT id FROM private_blobs")
@@ -117,9 +127,25 @@ pub(super) fn rekey(db: &Connection, scope: &Scope, old: &Key, next: &Key) -> Re
     };
     let cipher =
         XChaCha20Poly1305::new_from_slice(next.0.as_ref()).map_err(|_| Error::Integrity)?;
-    for id in ids {
-        let id: [u8; 16] = id.try_into().map_err(|_| Error::Integrity)?;
-        let (original, content) = open_row(db, scope, old, id)?;
+    let mut sealed = Vec::with_capacity(ids.len());
+    for raw in ids {
+        let Ok(id) = <[u8; 16]>::try_from(raw.as_slice()) else {
+            db.execute("DELETE FROM private_blobs WHERE id=?", params![raw])
+                .map_err(|_| Error::Storage)?;
+            continue;
+        };
+        let (original, content) = match open_row(db, scope, old, id) {
+            Ok(opened) => opened,
+            Err(Error::Integrity) => {
+                db.execute(
+                    "DELETE FROM private_blobs WHERE id=?",
+                    params![id.as_slice()],
+                )
+                .map_err(|_| Error::Storage)?;
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
         let mut envelope = Zeroizing::new(Vec::with_capacity(32 + content.len()));
         envelope.extend_from_slice(&original);
         envelope.extend_from_slice(&content);
@@ -139,6 +165,23 @@ pub(super) fn rekey(db: &Connection, scope: &Scope, old: &Key, next: &Key) -> Re
             params![nonce.as_slice(), ciphertext, id.as_slice()],
         )
         .map_err(|_| Error::Storage)?;
+        sealed.push((id, original));
+    }
+    Ok(sealed)
+}
+/// Every re-sealed block opens under `next` with its original digest, read
+/// back after the state update like `verify_writes`: a schema trigger that
+/// restored old rows would otherwise lose them when the old key goes.
+pub(super) fn verify_rekeyed(
+    db: &Connection,
+    scope: &Scope,
+    next: &Key,
+    sealed: &[([u8; 16], [u8; 32])],
+) -> Result<(), Error> {
+    for (id, original) in sealed {
+        if open_row(db, scope, next, *id)?.0 != *original {
+            return Err(Error::Integrity);
+        }
     }
     Ok(())
 }

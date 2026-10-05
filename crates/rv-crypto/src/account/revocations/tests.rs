@@ -444,3 +444,51 @@ fn checkpoint_failure_returns_no_request_and_reopen_keeps_the_same_signed_intent
     c.acknowledge_withdrawal(&request, receipt(&c, &request))
         .unwrap();
 }
+
+#[test]
+fn a_learned_withdrawal_outlives_a_directory_that_omits_it() {
+    let folder = tempfile::tempdir().unwrap();
+    let keys = Arc::new(Keys::default());
+    let installation = slot(folder.path(), keys.clone());
+    let mut wire = initialized(&installation);
+    let phone = phone(&installation, folder.path(), keys.clone(), &mut wire);
+    let certificate = target(&wire);
+    let c = Coordinator::new(&installation);
+    let directory = c.directory(wire.clone()).unwrap();
+    let manager = c.prepared(&directory, NOW).unwrap().0;
+    approve_target(&manager, &certificate);
+    // The phone asks for history before it is withdrawn.
+    let p = Coordinator::new(&phone);
+    let (fingerprint, input) = p
+        .history_request(&p.directory(wire.clone()).unwrap(), NOW)
+        .unwrap();
+    let listed = http::HistoryRequests {
+        scope: empty().scope,
+        requests: vec![http::HistoryRequestEntry {
+            fingerprint: fingerprint.clone(),
+            device_id: "phone".into(),
+            request: input.request.clone(),
+            expires_at: (NOW + 7 * 86400).to_string(),
+            sharer_device_id: None,
+            committed: false,
+        }],
+    };
+    assert_eq!(
+        c.history_offers(&directory, &listed, NOW + 1)
+            .unwrap()
+            .len(),
+        1
+    );
+    let fp = c.withdrawals(&directory).unwrap().devices[0]
+        .fingerprint
+        .clone();
+    let preview = c.preview_withdrawal(&directory, "phone", &fp).unwrap();
+    c.prepare_withdrawal(&directory, preview).unwrap();
+    // The server omits the withdrawal: the phone stays untrusted anyway.
+    assert!(wire.revocations.is_empty());
+    assert!(
+        c.history_offers(&directory, &listed, NOW + 1)
+            .unwrap()
+            .is_empty()
+    );
+}

@@ -356,7 +356,8 @@ pub async fn upload(
     {
         return Err(Error::conflict());
     }
-    let fresh = &checked[(count - start) as usize..];
+    // A page entirely held already (a replay) has nothing fresh.
+    let fresh = &checked[((count - start) as usize).min(checked.len())..];
     if !fresh.is_empty() && request.expires_at.timestamp() <= now {
         return Err(Error::missing());
     }

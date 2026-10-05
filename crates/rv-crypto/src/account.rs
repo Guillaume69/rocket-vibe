@@ -73,6 +73,17 @@ pub struct Directory {
     user: String,
 }
 impl Directory {
+    /// The directory lists a withdrawal of `(device, incarnation)`.
+    pub(crate) fn revoked(&self, device: &str, incarnation: [u8; 16]) -> Result<bool> {
+        for item in &self.wire.revocations {
+            let revocation: Revocation =
+                serde_json::from_slice(&decode(&item.signed, 4096)?).map_err(|_| Error::Changed)?;
+            if revocation.device == device && revocation.incarnation == incarnation {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
     pub fn verify(slot: &Installation, user: &str, wire: http::Directory) -> Result<Self> {
         let account = slot.account();
         if user.is_empty()
@@ -515,6 +526,17 @@ impl<'a> Coordinator<'a> {
                     .is_some_and(|i| i.fingerprint != requested)
                     || !state.controller
                     || state.root != request.body.root
+                    // A withdrawn incarnation is never certified again.
+                    || directory
+                        .revoked(&request.body.device, request.body.incarnation)
+                        .map_err(|_| vault::Error::Rejected)?
+                    || revocations::learned(
+                        records,
+                        &manager,
+                        &state.root,
+                        &request.body.device,
+                        request.body.incarnation,
+                    )?
                 {
                     return Err(vault::Error::Rejected);
                 }
@@ -554,7 +576,22 @@ impl<'a> Coordinator<'a> {
         {
             return Err(Error::Changed);
         }
+        if directory.revoked(
+            &preview.request.body.device,
+            preview.request.body.incarnation,
+        )? {
+            return Err(Error::Changed);
+        }
         let grant = manager.transact(|_, records| {
+            if revocations::learned(
+                records,
+                &manager,
+                &state.root,
+                &preview.request.body.device,
+                preview.request.body.incarnation,
+            )? {
+                return Err(vault::Error::Rejected);
+            }
             let issuer = private(Issuer::load(
                 records,
                 &manager.scope().instance,

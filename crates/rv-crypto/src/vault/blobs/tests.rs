@@ -256,3 +256,34 @@ fn blocks_written_before_rotations_existed_migrate_and_still_read() {
         b"legacy block"
     );
 }
+
+#[test]
+fn a_row_no_key_opens_is_dropped_and_never_blocks_a_rotation() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("private.sqlite");
+    let mut v = create(&path);
+    let (reference, mark) = v
+        .transact_with_blobs(|_, _, blobs| blobs.put(b"kept"))
+        .unwrap();
+    v.checkpoint_persisted(mark).unwrap();
+    // Junk planted by someone with write access to the file.
+    Connection::open(&path)
+        .unwrap()
+        .execute(
+            "INSERT INTO private_blobs(id,nonce,ciphertext) VALUES(?,zeroblob(24),zeroblob(32))",
+            [[5_u8; 16].as_slice()],
+        )
+        .unwrap();
+    let mark = v.rotate(Key::from_keystore([6; 32]), |_| ()).unwrap();
+    v.checkpoint_persisted(mark).unwrap();
+    assert_eq!(
+        v.inspect_with_blobs(|_, _, b| b.read(&reference).map(|c| c.to_vec()))
+            .unwrap(),
+        b"kept"
+    );
+    let left: i64 = Connection::open(&path)
+        .unwrap()
+        .query_row("SELECT count(*) FROM private_blobs", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(left, 1);
+}

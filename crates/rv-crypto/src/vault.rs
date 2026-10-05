@@ -574,7 +574,7 @@ impl Vault {
             self.checkpoint,
         )?;
         blobs::initialize(&transaction)?;
-        blobs::rekey(&transaction, &self.scope, &self.key, &next)?;
+        let sealed = blobs::rekey(&transaction, &self.scope, &self.key, &next)?;
         mutate(&mut working.records);
         let revision = self
             .checkpoint
@@ -591,6 +591,7 @@ impl Vault {
                 params![row.revision, row.nonce, row.ciphertext],
             )
             .map_err(|_| Error::Storage)?;
+        blobs::verify_rekeyed(&transaction, &self.scope, &next, &sealed)?;
         #[cfg(test)]
         crash_boundary("before-rotation-commit");
         transaction.commit().map_err(|_| Error::Storage)?;

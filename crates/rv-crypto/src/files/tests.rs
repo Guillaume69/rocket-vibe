@@ -161,3 +161,19 @@ fn public_file_vector_matches_the_format() {
     let stored: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(stored, vector);
 }
+
+#[test]
+fn absurd_sizes_saturate_and_a_target_name_never_meets_its_object() {
+    assert!(object_size(u64::MAX) > MAX_OBJECT);
+    assert!(object_size(18_442_241_573_325_638_960) > MAX_OBJECT);
+    // A target named so that `with_extension("part")` would be the object.
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("source.bin");
+    let object = directory.path().join("object.0.part");
+    let target = directory.path().join("object.0.bin");
+    std::fs::write(&source, pattern(1000)).unwrap();
+    let sealed = seal_path(&source, &object).unwrap();
+    open_path(&sealed.key, sealed.bytes, &sealed.sha256, &object, &target).unwrap();
+    assert_eq!(std::fs::read(&target).unwrap(), pattern(1000));
+    assert!(object.exists());
+}

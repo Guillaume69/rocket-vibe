@@ -223,6 +223,7 @@ pub(super) fn message(id: &str) -> SendMessage {
             color: None,
             fields: vec![],
         }],
+        files: vec![],
     }
 }
 pub(super) fn ack(submission: &MessageSubmission, position: u64) -> packet::Receipt {
@@ -278,6 +279,7 @@ fn crafted(
         kind: packet::Kind::Chat,
         thread: request.reply_to.clone(),
         target: None,
+        files: Vec::new(),
     };
     let ciphertext = signer
         .manager

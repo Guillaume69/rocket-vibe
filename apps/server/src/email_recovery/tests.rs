@@ -289,6 +289,7 @@ async fn accepted_mail_code_preserves_totp_backups_messages_and_replay_does_not_
             quotes: vec![],
             operation_id: auth::random_token(),
             text: "Conversation retained after password recovery".into(),
+            files: vec![],
         },
     )
     .await

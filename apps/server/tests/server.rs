@@ -1585,6 +1585,7 @@ async fn edit_delete_receipts_revisions_and_erasure_survive_restart(pool: PgPool
         quotes: vec![],
         operation_id: "reserved-message".into(),
         text: "Original secret".into(),
+        files: vec![],
     };
     let message = client.send(&room.id, &original).await.unwrap();
     let cursor = client.snapshot().await.unwrap().cursor;
@@ -1769,7 +1770,8 @@ async fn edit_delete_receipts_revisions_and_erasure_survive_restart(pool: PgPool
                         reply_to: None,
                         quotes: vec![],
                         operation_id: operation.into(),
-                        text: "Wrong command kind".into()
+                        text: "Wrong command kind".into(),
+                        files: vec![],
                     }
                 )
                 .await,
@@ -1827,6 +1829,7 @@ async fn message_commands_enforce_membership_author_deadlines_and_read_only(pool
                 quotes: vec![],
                 operation_id: "member-message".into(),
                 text: "Author body".into(),
+                files: vec![],
             },
         )
         .await

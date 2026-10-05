@@ -5,6 +5,7 @@ pub mod account;
 pub mod archive;
 #[cfg(feature = "native-http")]
 pub mod delivery;
+pub mod files;
 pub mod groups;
 pub mod history;
 pub mod history_backup;

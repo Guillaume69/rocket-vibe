@@ -376,6 +376,9 @@ pub struct SendMessage {
     pub quotes: Vec<parity::QuoteReference>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cards: Vec<cards::IntegrationCard>,
+    /// Encrypted files of a private message only (E2EE_FILES.md).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<parity::EncryptedFile>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]

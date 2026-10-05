@@ -475,6 +475,23 @@ pub struct FileDescriptor {
     pub encrypted: bool,
 }
 
+/// A file of a private message (E2EE_FILES.md): only inside the encrypted
+/// document, never in a cleartext route.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct EncryptedFile {
+    /// The upload id, also the server's file id of the opaque object.
+    pub id: String,
+    /// The file key, 32 bytes in base64url without padding.
+    pub key: String,
+    pub filename: String,
+    pub media_type: String,
+    /// Plaintext size, decimal.
+    pub bytes: String,
+    /// Plaintext SHA-256, lowercase hex.
+    pub sha256: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PrepareUpload {

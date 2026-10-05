@@ -249,6 +249,7 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
                 quotes: vec![],
                 cards: vec![],
                 reply_to: None,
+                files: vec![],
             },
         )
         .await,

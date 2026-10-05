@@ -64,6 +64,7 @@ async fn send(f: &Fixture, id: &str, text: &str) -> rv_protocol::Message {
             text: text.into(),
             reply_to: None,
             quotes: vec![],
+            files: vec![],
         },
     )
     .await

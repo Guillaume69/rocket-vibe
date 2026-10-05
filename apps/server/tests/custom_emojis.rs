@@ -150,6 +150,7 @@ async fn catalogue_receipts_aliases_and_protected_images_survive_retirement(pool
                 text: ":vibe_parrot:".into(),
                 quotes: vec![],
                 reply_to: None,
+                files: vec![],
             },
         )
         .await

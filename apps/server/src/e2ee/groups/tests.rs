@@ -297,6 +297,7 @@ fn plaintext() -> SendMessage {
         quotes: vec![],
         reply_to: None,
         cards: vec![],
+        files: vec![],
     }
 }
 

@@ -112,6 +112,7 @@ pub(super) fn record(sharer: &Client, author: &Client, room: &str, position: u64
                     kind: Kind::Chat,
                     thread: None,
                     target: None,
+                    files: Vec::new(),
                 },
                 fingerprint: [5; 32],
                 message: format!("message-{position}"),

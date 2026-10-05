@@ -1377,6 +1377,43 @@
       ],
       "type": "object"
     },
+    "EncryptedFile": {
+      "additionalProperties": false,
+      "description": "A file of a private message (E2EE_FILES.md): only inside the encrypted\ndocument, never in a cleartext route.",
+      "properties": {
+        "bytes": {
+          "description": "Plaintext size, decimal.",
+          "type": "string"
+        },
+        "filename": {
+          "type": "string"
+        },
+        "id": {
+          "description": "The upload id, also the server's file id of the opaque object.",
+          "type": "string"
+        },
+        "key": {
+          "description": "The file key, 32 bytes in base64url without padding.",
+          "type": "string"
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "sha256": {
+          "description": "Plaintext SHA-256, lowercase hex.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "filename",
+        "media_type",
+        "bytes",
+        "sha256"
+      ],
+      "type": "object"
+    },
     "EncryptedKeyBackup": {
       "properties": {
         "ciphertext": {
@@ -5638,6 +5675,13 @@
         "cards": {
           "items": {
             "$ref": "#/$defs/IntegrationCard"
+          },
+          "type": "array"
+        },
+        "files": {
+          "description": "Encrypted files of a private message only (E2EE_FILES.md).",
+          "items": {
+            "$ref": "#/$defs/EncryptedFile"
           },
           "type": "array"
         },

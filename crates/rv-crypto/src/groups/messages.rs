@@ -177,15 +177,45 @@ fn validate_basic(message: &SendMessage) -> Result<()> {
                 .ok()
                 .is_none_or(|v| v <= 0 || v.to_string() != q.revision)
     }) || !cards::validate(&message.cards)
+        || !valid_files(&message.files)
     {
         return Err(Error::Changed);
     }
     Ok(())
 }
-/// A chat message carries text, a quote or a card.
+/// Encrypted file descriptors (E2EE_FILES.md): at most 8, distinct ids, a
+/// 32-byte key, a safe name, a printable type and an object within limits.
+fn valid_files(files: &[rv_protocol::parity::EncryptedFile]) -> bool {
+    files.len() <= 8
+        && files.iter().enumerate().all(|(i, f)| {
+            packet::identifier(&f.id)
+                && !files[..i].iter().any(|o| o.id == f.id)
+                && crate::files::decode_key(&f.key).is_ok()
+                && !f.filename.trim().is_empty()
+                && f.filename.chars().count() <= 255
+                && !f
+                    .filename
+                    .chars()
+                    .any(|c| c.is_control() || c == '/' || c == '\\')
+                && !matches!(f.filename.as_str(), "." | "..")
+                && !f.media_type.is_empty()
+                && f.media_type.len() <= 127
+                && f.media_type.bytes().all(|b| b.is_ascii_graphic())
+                && f.bytes.parse::<u64>().ok().is_some_and(|n| {
+                    n.to_string() == f.bytes
+                        && crate::files::object_size(n) <= crate::files::MAX_OBJECT
+                })
+                && crate::files::decode_sha256(&f.sha256).is_ok()
+        })
+}
+/// A chat message carries text, a quote, a card or a file.
 fn validate_message(message: &SendMessage) -> Result<()> {
     validate_basic(message)?;
-    if message.text.trim().is_empty() && message.quotes.is_empty() && message.cards.is_empty() {
+    if message.text.trim().is_empty()
+        && message.quotes.is_empty()
+        && message.cards.is_empty()
+        && message.files.is_empty()
+    {
         return Err(Error::Changed);
     }
     Ok(())
@@ -199,6 +229,7 @@ pub(crate) fn validate_kind(kind: &packet::Kind, message: &SendMessage) -> Resul
             validate_basic(message)?;
             if !message.quotes.is_empty()
                 || !message.cards.is_empty()
+                || !message.files.is_empty()
                 || rv_protocol::custom_emojis::shortcode(&message.text) != Some(&message.text)
             {
                 return Err(Error::Changed);
@@ -210,6 +241,7 @@ pub(crate) fn validate_kind(kind: &packet::Kind, message: &SendMessage) -> Resul
             let empty = message.text.trim().is_empty();
             if !message.quotes.is_empty()
                 || !message.cards.is_empty()
+                || !message.files.is_empty()
                 || empty != matches!(kind, packet::Kind::Delete)
                 || !message.text.is_empty() && matches!(kind, packet::Kind::Delete)
             {
@@ -242,6 +274,12 @@ pub(crate) fn decode(bytes: &[u8], header: &packet::Header) -> Result<SendMessag
         || content.message.operation_id != header.operation
         || content.message.reply_to != header.thread
         || payload(&content.message)?.as_slice() != bytes
+        || !content
+            .message
+            .files
+            .iter()
+            .map(|f| &f.id)
+            .eq(header.files.iter())
     {
         return Err(Error::Changed);
     }
@@ -583,6 +621,7 @@ impl Coordinator {
             reply_to: receipt.header.thread.clone(),
             quotes: Vec::new(),
             cards: Vec::new(),
+            files: vec![],
         };
         validate_kind(&kind, &message)?;
         self.prepare_document(observation, &message, kind, Some(target.to_owned()), now)
@@ -610,6 +649,7 @@ impl Coordinator {
             reply_to: receipt.header.thread.clone(),
             quotes: Vec::new(),
             cards: Vec::new(),
+            files: vec![],
         };
         validate_kind(&kind, &message)?;
         self.prepare_document(observation, &message, kind, Some(target.to_owned()), now)
@@ -691,6 +731,7 @@ impl Coordinator {
                 kind,
                 thread: message.reply_to.clone(),
                 target,
+                files: message.files.iter().map(|f| f.id.clone()).collect(),
             };
             group.set_aad(header.aad()?);
             let ciphertext = group

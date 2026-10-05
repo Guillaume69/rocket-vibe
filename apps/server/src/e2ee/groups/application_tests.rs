@@ -33,6 +33,7 @@ async fn ordinary_quotes_require_private_delivery_access_and_expose_only_referen
             message_id: receipt.message_id.clone(),
             revision: receipt.position.clone(),
         }],
+        files: vec![],
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -162,6 +163,7 @@ fn encrypted_as(
         kind,
         thread: message.reply_to.clone(),
         target,
+        files: message.files.iter().map(|f| f.id.clone()).collect(),
     };
     group.set_aad(header.aad().unwrap());
     let plaintext = serde_json::to_vec(&Payload {
@@ -1185,6 +1187,7 @@ async fn only_the_authors_own_messages_of_the_room_are_amended_in_their_thread(p
         quotes: vec![],
         reply_to,
         cards: vec![],
+        files: vec![],
     };
     // An unknown target, or a thread other than the target's, is refused.
     let unknown = encrypted_as(
@@ -1289,6 +1292,7 @@ async fn any_member_reacts_to_a_message_but_only_its_author_edits_it(pool: PgPoo
         quotes: vec![],
         reply_to: None,
         cards: vec![],
+        files: vec![],
     };
     let forged = encrypted_as(
         &guest,
@@ -1344,4 +1348,153 @@ async fn any_member_reacts_to_a_message_but_only_its_author_edits_it(pool: PgPoo
         messages::submit(&app, &owner.actor, &room.id, chained).await,
         "invalid_amendment_target",
     );
+}
+
+#[sqlx::test]
+async fn encrypted_objects_are_completed_by_their_private_message_and_served_to_members(
+    pool: PgPool,
+) {
+    let root = std::env::temp_dir().join(format!("rv-e2ee-files-{}", auth::random_token()));
+    let app = App::from_pool(pool)
+        .await
+        .unwrap()
+        .with_objects(crate::objects::LocalObjects::open(&root).unwrap());
+    let owner = ready(&app, "file-owner").await;
+    let guest = ready(&app, "file-guest").await;
+    let room = room(&app, &owner, Some(&guest)).await;
+    let plain_room = super::room(&app, &owner, None).await;
+    let object = b"RVF1 opaque ciphertext of the private file".to_vec();
+    let prepare =
+        |room: &str, encrypted: bool, filename: Option<&str>| rv_protocol::parity::PrepareUpload {
+            operation_id: auth::random_token(),
+            room_id: room.into(),
+            bytes: object.len().to_string(),
+            sha256: data_encoding::HEXLOWER
+                .encode(&<sha2::Sha256 as sha2::Digest>::digest(&object)),
+            media_type: "application/octet-stream".into(),
+            filename: filename.map(str::to_owned),
+            encrypted,
+        };
+    // Encrypted objects only in rooms with a group, without a name.
+    rejected(
+        crate::files::prepare(&app, &owner.actor, prepare(&plain_room.id, true, None)).await,
+        "invalid_request",
+    );
+    let (mut group, transition, input) = add(&app, &owner, &guest, &room).await;
+    let receipt = delivery::submit(&app, &owner.actor, &room.id, input)
+        .await
+        .unwrap();
+    group.merge_pending_commit(&owner.provider).unwrap();
+    rejected(
+        crate::files::prepare(
+            &app,
+            &owner.actor,
+            prepare(&room.id, true, Some("name.bin")),
+        )
+        .await,
+        "invalid_request",
+    );
+    rejected(
+        crate::files::prepare(
+            &app,
+            &owner.actor,
+            prepare(&room.id, false, Some("name.bin")),
+        )
+        .await,
+        "crypto_required",
+    );
+    let upload = crate::files::prepare(&app, &owner.actor, prepare(&room.id, true, None))
+        .await
+        .unwrap();
+    assert!(upload.file.encrypted && upload.file.filename.is_none());
+    let stored = crate::files::bytes(
+        &app,
+        &owner.actor,
+        &upload.id,
+        axum::body::Body::from(object.clone()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(stored.state, rv_protocol::parity::UploadState::Ready);
+    // Never through the ordinary confirmation.
+    rejected(
+        crate::files::complete(
+            &app,
+            &owner.actor,
+            &upload.id,
+            rv_protocol::parity::CompleteUpload {
+                operation_id: auth::random_token(),
+                content: rv_protocol::parity::MessageContent::Plain {
+                    markdown: String::new(),
+                    mentions: vec![],
+                    quotes: vec![],
+                    files: vec![upload.id.clone()],
+                },
+                reply_to: None,
+            },
+        )
+        .await,
+        "invalid_request",
+    );
+    let scope = &transition.plan.scope;
+    let with_file = |id: &str| {
+        let mut message = plaintext();
+        message.text = String::new();
+        message.files = vec![rv_protocol::parity::EncryptedFile {
+            id: id.into(),
+            key: "A".repeat(43),
+            filename: "secret.pdf".into(),
+            media_type: "application/pdf".into(),
+            bytes: "10".into(),
+            sha256: "ab".repeat(32),
+        }];
+        message
+    };
+    let unknown = encrypted(
+        &owner,
+        &mut group,
+        scope,
+        &receipt,
+        &with_file("missing-upload"),
+    );
+    rejected(
+        messages::submit(&app, &owner.actor, &room.id, unknown).await,
+        "invalid_encrypted_file",
+    );
+    let sent = encrypted(&owner, &mut group, scope, &receipt, &with_file(&upload.id));
+    messages::submit(&app, &owner.actor, &room.id, sent.clone())
+        .await
+        .unwrap();
+    // An exact retry is the same receipt; another message cannot reuse it.
+    messages::submit(&app, &owner.actor, &room.id, sent)
+        .await
+        .unwrap();
+    let again = encrypted(&owner, &mut group, scope, &receipt, &with_file(&upload.id));
+    rejected(
+        messages::submit(&app, &owner.actor, &room.id, again).await,
+        "invalid_encrypted_file",
+    );
+    let status = crate::files::status(&app, &owner.actor, &upload.id)
+        .await
+        .unwrap();
+    assert_eq!(status.state, rv_protocol::parity::UploadState::Completed);
+    // Members download the opaque object; others do not.
+    let response = crate::files::download(&app, &guest.actor, &upload.id, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        response.headers()[axum::http::header::CONTENT_TYPE],
+        "application/octet-stream"
+    );
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(body.as_ref(), object.as_slice());
+    let stranger = ready(&app, "file-stranger").await;
+    assert!(
+        crate::files::download(&app, &stranger.actor, &upload.id, None)
+            .await
+            .is_err()
+    );
+    let _ = std::fs::remove_dir_all(&root);
 }

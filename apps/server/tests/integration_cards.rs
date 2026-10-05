@@ -62,6 +62,7 @@ async fn cards_use_normal_permissions_receipts_sync_search_edit_and_erasure(pool
         reply_to: None,
         quotes: vec![],
         cards: vec![card],
+        files: vec![],
     };
     let sent = client.send(&room.id, &input).await.unwrap();
     assert_eq!(sent.cards, input.cards);

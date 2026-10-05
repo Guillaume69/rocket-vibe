@@ -574,6 +574,8 @@ pub(crate) async fn send_in_tx(
             && files.is_empty()
             && input.cards.is_empty())
         || input.text.len() > 32_768
+        // Encrypted file descriptors belong to private documents only.
+        || !input.files.is_empty()
         || !crate::quotes::valid_references(&input.quotes, &input.operation_id)
         || !rv_protocol::cards::validate(&input.cards)
     {

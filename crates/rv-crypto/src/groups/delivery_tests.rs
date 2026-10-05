@@ -593,6 +593,7 @@ fn private_message(operation: &str) -> rv_protocol::SendMessage {
         }],
         cards: vec![],
         reply_to: None,
+        files: vec![],
     }
 }
 async fn joined_workers(server: &Server, alice: &Account, bob: &Account) -> (Worker, Worker) {

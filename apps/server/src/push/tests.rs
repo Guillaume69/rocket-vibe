@@ -120,6 +120,7 @@ fn input(text: &str) -> SendMessage {
         reply_to: None,
         quotes: vec![],
         cards: vec![],
+        files: vec![],
     }
 }
 

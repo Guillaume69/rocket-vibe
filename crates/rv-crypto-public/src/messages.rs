@@ -48,6 +48,10 @@ pub struct Header {
     /// The amended message id for `edit` and `delete`; absent for `chat`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+    /// Ids of the encrypted files a chat message carries, in its order
+    /// (E2EE_FILES.md); the server links those uploads to the message.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
 }
 impl Header {
     pub fn validate(&self) -> Result<(), Error> {
@@ -66,6 +70,10 @@ impl Header {
                 .thread
                 .as_ref()
                 .is_some_and(|s| !identifier(s) || s == &self.operation)
+            || self.files.len() > 8
+            || self.files.iter().any(|f| !identifier(f))
+            || (1..self.files.len()).any(|i| self.files[..i].contains(&self.files[i]))
+            || !self.files.is_empty() && self.kind != Kind::Chat
             || match (&self.kind, &self.target) {
                 (Kind::Chat, None) => false,
                 (Kind::Edit | Kind::Delete | Kind::React | Kind::Unreact, Some(target)) => {

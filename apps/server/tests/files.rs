@@ -196,6 +196,7 @@ async fn quoted_files_keep_the_source_room_authority_and_never_create_destinatio
                     revision: source.revision.clone(),
                 }],
                 reply_to: None,
+                files: vec![],
             },
         )
         .await
@@ -449,7 +450,8 @@ async fn file_retry_is_one_atomic_message_with_protected_manifests_and_range_rea
                         operation_id: prepare.operation_id,
                         text: "reuse reservation identity".into(),
                         reply_to: None,
-                        quotes: vec![]
+                        quotes: vec![],
+                        files: vec![],
                     }
                 )
                 .await

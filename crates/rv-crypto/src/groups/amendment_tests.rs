@@ -185,6 +185,7 @@ fn an_amendment_by_another_author_is_ignored_and_payload_shapes_are_checked() {
                 reply_to: None,
                 quotes: Vec::new(),
                 cards: Vec::new(),
+                files: vec![],
             },
             packet::Kind::Delete,
             Some(stored(BASE + 3)),
@@ -476,4 +477,75 @@ fn private_search_matches_the_shown_text_across_threads_newest_first() {
         search(&bob, "CARROT", 2),
         (vec!["plain".to_owned(), "reply".to_owned()], false)
     );
+}
+
+fn file(id: &str) -> rv_protocol::parity::EncryptedFile {
+    rv_protocol::parity::EncryptedFile {
+        id: id.into(),
+        key: crate::files::encode_key(&[3; 32]),
+        filename: "rapport privé.pdf".into(),
+        media_type: "application/pdf".into(),
+        bytes: "12345".into(),
+        sha256: "ab".repeat(32),
+    }
+}
+
+#[test]
+fn a_private_message_carries_encrypted_files_bound_to_its_header() {
+    let (alice, bob, observed) = conversation();
+    let mut document = chat("with-files", None);
+    document.text = String::new();
+    document.files = vec![file("upload-one"), file("upload-two")];
+    let submission = alice
+        .coordinator()
+        .prepare_message(&messages::observation(&alice), &document, NOW)
+        .unwrap();
+    let event = delivered(&alice, submission, BASE + 4);
+    let next = page(&observed, BASE + 3, BASE + 4, vec![event], None);
+    bob.coordinator()
+        .receive_journal(&observed, &next, NOW)
+        .unwrap();
+    let main = bob
+        .reopened()
+        .journal_projection(&observed, &query(None), NOW)
+        .unwrap();
+    let last = main.messages.last().unwrap();
+    assert_eq!(
+        last.message.receipt.header.files,
+        ["upload-one", "upload-two"]
+    );
+    assert_eq!(last.message.message().unwrap().files, document.files);
+    // Invalid descriptors, and files on an amendment, are refused.
+    let refused = |files: Vec<rv_protocol::parity::EncryptedFile>, text: &str| {
+        let mut bad = chat("bad-files", None);
+        bad.text = text.into();
+        bad.files = files;
+        alice
+            .coordinator()
+            .prepare_message(&messages::observation(&alice), &bad, NOW)
+            .is_err()
+    };
+    let with = |change: fn(&mut rv_protocol::parity::EncryptedFile)| {
+        let mut f = file("upload-x");
+        change(&mut f);
+        vec![f]
+    };
+    assert!(refused(vec![file("same"), file("same")], ""));
+    assert!(refused(
+        (0..9).map(|i| file(&format!("f{i}"))).collect(),
+        "x"
+    ));
+    assert!(refused(with(|f| f.key = "short".into()), ""));
+    assert!(refused(with(|f| f.filename = "../etc".into()), ""));
+    assert!(refused(with(|f| f.filename = " ".into()), ""));
+    assert!(refused(
+        with(|f| f.media_type = "text/plain; charset=utf 8".into()),
+        ""
+    ));
+    assert!(refused(with(|f| f.bytes = "104831978".into()), ""));
+    assert!(refused(with(|f| f.bytes = "012".into()), ""));
+    assert!(refused(with(|f| f.sha256 = "AB".repeat(32)), ""));
+    let mut edit = chat("edit-files", None);
+    edit.files = vec![file("upload-three")];
+    assert!(super::messages::validate_kind(&packet::Kind::Edit, &edit).is_err());
 }

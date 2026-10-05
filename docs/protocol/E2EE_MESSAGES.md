@@ -106,7 +106,8 @@ A reply must reference an existing opaque root of the same room, accessible
 during the admission of the author device. A reply cannot serve as a
 new root. Edits, deletions and reactions are amendments, ordinary messages of these
 routes, and search runs on the device ([E2EE_AMENDMENTS.md](E2EE_AMENDMENTS.md)).
-Counters and notifications are not yet wired to them.
+Encrypted files ride on these messages ([E2EE_FILES.md](E2EE_FILES.md)). Counters and
+notifications are not yet wired to them.
 
 ## Order, pagination and admissions
 

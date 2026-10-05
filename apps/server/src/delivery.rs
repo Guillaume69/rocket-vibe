@@ -474,6 +474,7 @@ mod tests {
                 operation_id: "quote-lease-source".into(),
                 text: "Private quote bytes".into(),
                 quotes: vec![],
+                files: vec![],
             },
         )
         .await
@@ -492,6 +493,7 @@ mod tests {
                     message_id: source.id,
                     revision: source.revision,
                 }],
+                files: vec![],
             },
         )
         .await
@@ -678,6 +680,7 @@ mod tests {
                     message_id: middle.id,
                     revision: middle.revision,
                 }],
+                files: vec![],
             },
         )
         .await
@@ -851,6 +854,7 @@ mod tests {
                     quotes: vec![],
                     operation_id: format!("secret-{index}"),
                     text: "private payload".into(),
+                    files: vec![],
                 },
             )
             .await
@@ -1195,6 +1199,7 @@ mod tests {
                 quotes: vec![],
                 operation_id: "protected-message".into(),
                 text: "Before".into(),
+                files: vec![],
             },
         )
         .await
@@ -1294,6 +1299,7 @@ mod tests {
                 quotes: vec![],
                 operation_id: "reserved-view-message".into(),
                 text: "Secret building page".into(),
+                files: vec![],
             },
         )
         .await
@@ -1472,7 +1478,8 @@ mod tests {
                         reply_to: None,
                         quotes: vec![],
                         operation_id: "revoked-intention".into(),
-                        text: "must not commit".into()
+                        text: "must not commit".into(),
+                        files: vec![],
                     }
                 )
                 .await
@@ -1525,7 +1532,8 @@ mod tests {
                             reply_to: None,
                             quotes: vec![],
                             operation_id: "stale-activation".into(),
-                            text: "must revalidate".into()
+                            text: "must revalidate".into(),
+                            files: vec![],
                         }
                     )
                     .await

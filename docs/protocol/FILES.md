@@ -81,7 +81,8 @@ chunk 10 s; SDK 150 s. J5 will expose the operations settings.
 Accepted types: generic bytes, text, PDF, ZIP, PNG, JPEG, GIF, WebP, MP3,
 Ogg, WAV, MP4 / M4A, MOV and WebM. Their signatures do not fully validate
 a codec. HTML and SVG are not declared accepted types. Encrypted
-files remain disabled until the J4 protocol; its opaque DTOs do not enable it.
+files of private rooms are opaque objects completed by their private message
+([E2EE_FILES.md](E2EE_FILES.md)).
 
 Expired reservations release their reference. The avatar collector
 removes unreferenced objects after one hour and also scans active

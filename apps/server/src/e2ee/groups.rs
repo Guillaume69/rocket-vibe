@@ -40,6 +40,21 @@ fn wait() -> Error {
 
 /// Call while holding the room lock. A group starts only before any ordinary
 /// content, and subsequent legacy text/file writes must never leak plaintext.
+/// Encrypted objects (E2EE_FILES.md) belong to rooms with an MLS group only.
+pub(crate) async fn require_encrypted(
+    tx: &mut Transaction<'_, Postgres>,
+    room: &str,
+) -> Result<()> {
+    let encrypted: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM e2ee_groups WHERE room_id=$1)")
+            .bind(room)
+            .fetch_one(&mut **tx)
+            .await?;
+    if !encrypted {
+        return Err(Error::invalid());
+    }
+    Ok(())
+}
 pub(crate) async fn require_plaintext(
     tx: &mut Transaction<'_, Postgres>,
     room: &str,

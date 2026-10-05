@@ -44,6 +44,7 @@ struct Record {
     sha256: String,
     media_type: String,
     filename: String,
+    encrypted: bool,
     state: String,
     object_id: Option<String>,
     lease_id: Option<String>,
@@ -61,8 +62,8 @@ impl Record {
             bytes: self.bytes.to_string(),
             sha256: self.sha256.clone(),
             media_type: self.media_type.clone(),
-            filename: Some(self.filename.clone()),
-            encrypted: false,
+            filename: (!self.encrypted).then(|| self.filename.clone()),
+            encrypted: self.encrypted,
         }
     }
     fn wire(&self) -> Upload {
@@ -172,9 +173,22 @@ pub async fn prepare(app: &App, actor: &Account, input: PrepareUpload) -> Result
         .ok()
         .filter(|b| *b > 0 && *b <= MAX_BYTES && b.to_string() == input.bytes)
         .ok_or_else(Error::invalid)?;
-    let name = input.filename.as_deref().ok_or_else(Error::invalid)?;
-    if input.encrypted
-        || !auth::identifier(&input.operation_id)
+    // An encrypted object (E2EE_FILES.md) is opaque: no name, no real type.
+    let name = match (input.encrypted, input.filename.as_deref()) {
+        (true, None) if input.media_type == "application/octet-stream" => "",
+        (false, Some(name))
+            if !name.trim().is_empty()
+                && name.len() <= 255
+                && !name
+                    .chars()
+                    .any(|c| c.is_control() || c == '/' || c == '\\')
+                && !matches!(name, "." | "..") =>
+        {
+            name
+        }
+        _ => return Err(Error::invalid()),
+    };
+    if !auth::identifier(&input.operation_id)
         || !auth::identifier(&input.room_id)
         || input.sha256.len() != 64
         || !input
@@ -182,12 +196,6 @@ pub async fn prepare(app: &App, actor: &Account, input: PrepareUpload) -> Result
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
         || !allowed(&input.media_type)
-        || name.trim().is_empty()
-        || name.len() > 255
-        || name
-            .chars()
-            .any(|c| c.is_control() || c == '/' || c == '\\')
-        || matches!(name, "." | "..")
     {
         return Err(Error::invalid());
     }
@@ -215,7 +223,11 @@ pub async fn prepare(app: &App, actor: &Account, input: PrepareUpload) -> Result
         return Err(Error::conflict());
     }
     crate::permissions::require_send(&mut tx, &input.room_id, &actor.id).await?;
-    crate::e2ee::groups::require_plaintext(&mut tx, &input.room_id).await?;
+    if input.encrypted {
+        crate::e2ee::groups::require_encrypted(&mut tx, &input.room_id).await?;
+    } else {
+        crate::e2ee::groups::require_plaintext(&mut tx, &input.room_id).await?;
+    }
     let (pending,recent):(i64,i64)=sqlx::query_as("SELECT count(*) FILTER(WHERE state IN ('prepared','ready') AND expires_at>clock_timestamp()),count(*) FILTER(WHERE created_at>clock_timestamp()-interval '60 seconds') FROM uploads WHERE user_id=$1")
  .bind(&actor.id).fetch_one(&mut *tx).await?;
     if pending >= 10 || recent >= 30 {
@@ -230,8 +242,8 @@ pub async fn prepare(app: &App, actor: &Account, input: PrepareUpload) -> Result
         return Err(Error::new(StatusCode::INSUFFICIENT_STORAGE, "file_quota"));
     }
     let id = auth::random_token();
-    sqlx::query("INSERT INTO uploads(id,user_id,operation_id,fingerprint,room_id,membership_version,data_epoch,bytes,sha256,media_type,filename,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'prepared')")
- .bind(&id).bind(&actor.id).bind(&input.operation_id).bind(fingerprint).bind(&input.room_id).bind(membership).bind(epoch).bind(bytes as i64).bind(&input.sha256).bind(&input.media_type).bind(name).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO uploads(id,user_id,operation_id,fingerprint,room_id,membership_version,data_epoch,bytes,sha256,media_type,filename,encrypted,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'prepared')")
+ .bind(&id).bind(&actor.id).bind(&input.operation_id).bind(fingerprint).bind(&input.room_id).bind(membership).bind(epoch).bind(bytes as i64).bind(&input.sha256).bind(&input.media_type).bind(name).bind(input.encrypted).execute(&mut *tx).await?;
     let row = load(&mut tx, actor, &id).await?;
     tx.commit().await?;
     Ok(row.wire())
@@ -323,6 +335,10 @@ pub async fn complete(
     let mut tx = app.pool.begin().await?;
     auth::lock_active(&mut tx, actor).await?;
     let row = load(&mut tx, actor, id).await?;
+    if row.encrypted {
+        // Only the private message submission completes an encrypted object.
+        return Err(Error::invalid());
+    }
     crate::quotes::lock_rooms(&mut tx, &row.room_id, &quotes).await?;
     validate(&mut tx, actor, &row).await?;
     if row.state == "completed" {
@@ -352,6 +368,7 @@ pub async fn complete(
             text: markdown,
             reply_to: input.reply_to,
             quotes,
+            files: vec![],
         },
         &[row.descriptor()],
         Some(&format!("file:{fingerprint}")),
@@ -375,6 +392,7 @@ struct Download {
     session: String,
     room: String,
     message: String,
+    encrypted: bool,
     reader: tokio::fs::File,
     remaining: u64,
     active: Arc<AtomicBool>,
@@ -389,13 +407,16 @@ pub async fn download(
     if !auth::identifier(id) {
         return Err(Error::invalid());
     }
-    let (room,message,object,mime,size,name):(String,String,String,String,i64,String)=sqlx::query_as("SELECT f.room_id,f.message_id,f.object_id,f.media_type,f.bytes,f.filename FROM uploads f JOIN messages m ON m.id=f.message_id JOIN members g ON g.room_id=f.room_id AND g.user_id=$2 WHERE f.id=$1 AND f.state='completed' AND NOT m.deleted")
+    // An ordinary file follows its live message; an encrypted object its
+    // private message, whose deletion the server cannot see.
+    let (room,message,object,mime,size,name,encrypted):(String,String,String,String,i64,String,bool)=sqlx::query_as("SELECT f.room_id,COALESCE(f.message_id,f.e2ee_message_id),f.object_id,f.media_type,f.bytes,f.filename,f.encrypted FROM uploads f JOIN members g ON g.room_id=f.room_id AND g.user_id=$2 LEFT JOIN messages m ON m.id=f.message_id WHERE f.id=$1 AND f.state='completed' AND (f.encrypted OR NOT m.deleted)")
  .bind(id).bind(&actor.id).fetch_optional(&app.pool).await?.ok_or_else(Error::missing)?;
+    let name = if encrypted { id.to_owned() } else { name };
     let proof = ReadProof::capture(app, actor, Scope::Room(&room)).await?;
     let mut initial = proof
         .lock(app, &actor.session_hash, std::slice::from_ref(&room), None)
         .await?;
-    readable(&mut initial, &message).await?;
+    readable(&mut initial, &message, encrypted).await?;
     let mut reader = objects(app)?.open_reader(&object).await?;
     if reader
         .metadata()
@@ -431,6 +452,7 @@ pub async fn download(
         session: actor.session_hash.clone(),
         room,
         message,
+        encrypted,
         reader,
         remaining: end - start + 1,
         active,
@@ -456,7 +478,7 @@ pub async fn download(
             )
             .await
             .map_err(|_| io::Error::other("file access ended"))?;
-        readable(&mut lease, &state.message)
+        readable(&mut lease, &state.message, state.encrypted)
             .await
             .map_err(|_| io::Error::other("file access ended"))?;
         let mut buffer = vec![0u8; state.remaining.min(256 * 1024) as usize];
@@ -514,12 +536,19 @@ pub async fn download(
     );
     Ok(response)
 }
-async fn readable(tx: &mut Transaction<'_, Postgres>, message: &str) -> Result<()> {
-    let exists: Option<String> =
-        sqlx::query_scalar("SELECT id FROM messages WHERE id=$1 AND NOT deleted FOR SHARE")
-            .bind(message)
-            .fetch_optional(&mut **tx)
-            .await?;
+async fn readable(
+    tx: &mut Transaction<'_, Postgres>,
+    message: &str,
+    encrypted: bool,
+) -> Result<()> {
+    let exists: Option<String> = sqlx::query_scalar(if encrypted {
+        "SELECT id FROM e2ee_application_messages WHERE id=$1 FOR SHARE"
+    } else {
+        "SELECT id FROM messages WHERE id=$1 AND NOT deleted FOR SHARE"
+    })
+    .bind(message)
+    .fetch_optional(&mut **tx)
+    .await?;
     if exists.is_none() {
         return Err(Error::missing());
     }

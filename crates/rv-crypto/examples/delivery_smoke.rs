@@ -376,6 +376,7 @@ async fn exchange(
             fields: vec![],
         }],
         reply_to: None,
+        files: vec![],
     };
     let author = alice.worker()?;
     lost(author.send_message(room, root.clone()).await);
@@ -408,6 +409,7 @@ async fn exchange(
         quotes: vec![],
         cards: vec![],
         reply_to: Some(root_ack.message.clone()),
+        files: vec![],
     };
     let peer = bob.worker()?;
     lost(peer.send_message(room, reply.clone()).await);
@@ -576,6 +578,7 @@ async fn run(input: Input) -> Result<()> {
         quotes: vec![],
         cards: vec![],
         reply_to: None,
+        files: vec![],
     };
     let observation = groups::MessageObservation::from_wire(
         &alice.client.crypto_group_roster(&input.room).await?,

@@ -41,6 +41,7 @@ fn fixture() -> (LocalDevice, Receipt, Member, SendMessage, Records) {
             kind: Kind::Chat,
             thread: Some("thread-root".into()),
             target: None,
+            files: Vec::new(),
         },
         fingerprint: [5; 32],
         message: "accepted-message".into(),
@@ -57,6 +58,7 @@ fn fixture() -> (LocalDevice, Receipt, Member, SendMessage, Records) {
         reply_to: origin.header.thread.clone(),
         quotes: Vec::new(),
         cards: Vec::new(),
+        files: vec![],
     };
     (device, origin, member, document, records)
 }

@@ -529,6 +529,7 @@ async fn profile_budget_does_not_block_messages_and_replays_do_not_consume_it(po
                 text: "still works".into(),
                 reply_to: None,
                 quotes: vec![],
+                files: vec![],
             },
         )
         .await

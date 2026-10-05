@@ -111,6 +111,7 @@ async fn search_plaintext_is_room_scoped_paginated_and_tracks_edits_and_deletion
                     revision: secret.revision.clone(),
                 }],
                 reply_to: None,
+                files: vec![],
             },
         )
         .await
@@ -623,6 +624,7 @@ async fn thread_send(
                 text: text.into(),
                 quotes: vec![],
                 reply_to: root.map(str::to_owned),
+                files: vec![],
             },
         )
         .await
@@ -1127,6 +1129,7 @@ impl QuoteBench {
                     operation_id: "quote-source".into(),
                     text: "Privé @quote-outsider 🚀".into(),
                     quotes: vec![],
+                    files: vec![],
                 },
             )
             .await
@@ -1157,6 +1160,7 @@ impl QuoteBench {
             operation_id: operation.into(),
             text: text.into(),
             quotes: vec![self.reference()],
+            files: vec![],
         }
     }
 }
@@ -1202,6 +1206,7 @@ async fn nested_quotes_resolve_each_grant_bound_depth_and_keep_shared_journal_re
                 operation_id: "nested-outer".into(),
                 text: "Outer".into(),
                 quotes: vec![reference(&middle)],
+                files: vec![],
             },
         )
         .await
@@ -1280,6 +1285,7 @@ async fn nested_quotes_resolve_each_grant_bound_depth_and_keep_shared_journal_re
                 operation_id: "nested-third".into(),
                 text: "Third".into(),
                 quotes: vec![reference(&outer)],
+                files: vec![],
             },
         )
         .await
@@ -1719,6 +1725,7 @@ async fn opposing_cross_room_quotes_use_one_domain_lock_order(pool: PgPool) {
                 operation_id: "quote-other-source".into(),
                 text: "Autre source".into(),
                 quotes: vec![],
+                files: vec![],
             },
         )
         .await
@@ -1734,6 +1741,7 @@ async fn opposing_cross_room_quotes_use_one_domain_lock_order(pool: PgPool) {
             message_id: other.id,
             revision: other.revision,
         }],
+        files: vec![],
     };
     let (a, b) = tokio::time::timeout(std::time::Duration::from_secs(10), async {
         tokio::join!(
@@ -1866,6 +1874,7 @@ async fn reads_are_monotone_across_devices_and_only_other_new_roots_count(pool: 
                 quotes: vec![],
                 operation_id: "first-root".into(),
                 text: "First".into(),
+                files: vec![],
             },
         )
         .await
@@ -1879,6 +1888,7 @@ async fn reads_are_monotone_across_devices_and_only_other_new_roots_count(pool: 
                 quotes: vec![],
                 operation_id: "second-root".into(),
                 text: "Second".into(),
+                files: vec![],
             },
         )
         .await
@@ -1913,6 +1923,7 @@ async fn reads_are_monotone_across_devices_and_only_other_new_roots_count(pool: 
                 quotes: vec![],
                 operation_id: "own-root".into(),
                 text: "Own message".into(),
+                files: vec![],
             },
         )
         .await
@@ -2052,6 +2063,7 @@ async fn withdrawal_rejoin_purges_preferences_and_old_receipts_do_not_restore_th
                 quotes: vec![],
                 operation_id: "while-absent".into(),
                 text: "Historical".into(),
+                files: vec![],
             },
         )
         .await
@@ -2128,6 +2140,7 @@ async fn mentions_resolve_current_members_once_and_direct_mentions_take_priority
         quotes: vec![],
         operation_id: "mention-once".into(),
         text: "@bob @bob @all @all @alice @eve `@carol`".into(),
+        files: vec![],
     };
     let message = owner.send(&room, &input).await.unwrap();
     assert_eq!(owner.send(&room, &input).await.unwrap().id, message.id);
@@ -2237,6 +2250,7 @@ async fn edits_can_withdraw_mentions_but_cannot_ping_a_new_or_previous_recipient
                 quotes: vec![],
                 operation_id: "mention-edit-source".into(),
                 text: "Hello @bob".into(),
+                files: vec![],
             },
         )
         .await
@@ -2294,6 +2308,7 @@ async fn joining_after_a_group_mention_and_rejoining_do_not_receive_historical_p
                 quotes: vec![],
                 operation_id: "mention-before-join".into(),
                 text: "@all @carol".into(),
+                files: vec![],
             },
         )
         .await
@@ -2357,6 +2372,7 @@ async fn joining_after_a_group_mention_and_rejoining_do_not_receive_historical_p
                 quotes: vec![],
                 operation_id: "mention-after-join".into(),
                 text: "@bob @all @here".into(),
+                files: vec![],
             },
         )
         .await
@@ -2394,6 +2410,7 @@ async fn read_quota_keeps_retries_state_reads_and_favorite_commands_available(po
                         quotes: vec![],
                         operation_id: format!("quota-root-{n}"),
                         text: "Quota message".into(),
+                        files: vec![],
                     },
                 )
                 .await
@@ -2492,6 +2509,7 @@ async fn favorite_versions_and_membership_lifetimes_ignore_reads_messages_and_ro
                 quotes: vec![],
                 operation_id: "read-version-root".into(),
                 text: "A message during the favorite form".into(),
+                files: vec![],
             },
         )
         .await
@@ -2591,7 +2609,8 @@ async fn reads_and_preferences_reject_forged_fields_future_positions_and_private
                     reply_to: None,
                     quotes: vec![],
                     operation_id: input.operation_id,
-                    text: "Collision".into()
+                    text: "Collision".into(),
+                    files: vec![],
                 }
             )
             .await

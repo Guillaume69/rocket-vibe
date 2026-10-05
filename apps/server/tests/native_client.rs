@@ -178,6 +178,7 @@ async fn rust_client_exchanges_and_replays_on_real_server(pool: PgPool) {
         quotes: vec![],
         operation_id: "rust-native-send".into(),
         text: "Hello from the Rust transport".into(),
+        files: vec![],
     };
     let first = alice.send(&room.id, &operation).await.unwrap();
     assert_eq!(alice.send(&room.id, &operation).await.unwrap(), first);

@@ -265,6 +265,18 @@ pub async fn submit(
     };
     sqlx::query("INSERT INTO e2ee_application_messages(id,room_id,group_revision,user_id,device_id,operation_id,fingerprint,proof,ciphertext,receipt,thread_root,target) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)")
         .bind(&id).bind(room).bind(header.group_revision as i64).bind(&actor.id).bind(&device).bind(&operation).bind(fingerprint).bind(checked.proof_bytes).bind(checked.ciphertext).bind(Json(&receipt)).bind(&header.thread).bind(&header.target).execute(&mut *tx).await?;
+    // Its encrypted files (E2EE_FILES.md): the sender's own ready objects of
+    // this room and membership, completed with the message.
+    for file in &header.files {
+        let linked = sqlx::query("UPDATE uploads u SET state='completed',e2ee_message_id=$2 FROM members m WHERE u.id=$1 AND u.user_id=$3 AND u.room_id=$4 AND u.encrypted AND u.state='ready' AND u.object_id IS NOT NULL AND u.expires_at>clock_timestamp() AND m.room_id=u.room_id AND m.user_id=u.user_id AND m.access_version=u.membership_version")
+            .bind(file).bind(&id).bind(&actor.id).bind(room).execute(&mut *tx).await?;
+        if linked.rows_affected() != 1 {
+            return Err(Error::new(
+                StatusCode::BAD_REQUEST,
+                "invalid_encrypted_file",
+            ));
+        }
+    }
     sqlx::query(
         "INSERT INTO e2ee_delivery(position,room_id,group_revision,message_id) VALUES($1,$2,$3,$4)",
     )

@@ -22,13 +22,13 @@ export function historyPath(type: string): string {
 /** Server page size: the same step as the screen's SQLite window. */
 const PAGE = 50;
 
-export async function loadHistory(
+async function history(
   client: RestClient,
-  engine: SyncEngine,
   rid: string,
   type: string,
   latest?: string,
-): Promise<{ oldest: number | null }> {
+  oldest?: string,
+): Promise<Record<string, unknown>[]> {
   const response = await client.get<{ messages?: Record<string, unknown>[] }>(
     historyPath(type),
     {
@@ -40,10 +40,43 @@ export async function loadHistory(
       // identical to the stream's local filter, otherwise a whole page of
       // hidden replies would make the keyset pagination loop in place (the
       // `latest` comes from the FILTERED list).
-      params: { roomId: rid, count: PAGE, latest, inclusive: true, showThreadMessages: false },
+      params: { roomId: rid, count: PAGE, latest, oldest, inclusive: true, showThreadMessages: false },
     },
   );
-  const batch = response.messages ?? [];
+  return response.messages ?? [];
+}
+
+export const HISTORY_PAGE = PAGE;
+
+export function historyRange(
+  client: RestClient,
+  rid: string,
+  type: string,
+  latest: number | null,
+  oldest: number | null,
+): Promise<Record<string, unknown>[]> {
+  const iso = (ms: number | null) => (ms === null ? undefined : new Date(ms).toISOString());
+  return history(client, rid, type, iso(latest), iso(oldest));
+}
+
+export async function fetchMessage(
+  client: RestClient,
+  id: string,
+): Promise<Record<string, unknown> | null> {
+  const response = await client.get<{ message?: Record<string, unknown> }>('chat.getMessage', {
+    params: { msgId: id },
+  });
+  return response.message ?? null;
+}
+
+export async function loadHistory(
+  client: RestClient,
+  engine: SyncEngine,
+  rid: string,
+  type: string,
+  latest?: string,
+): Promise<{ oldest: number | null }> {
+  const batch = await history(client, rid, type, latest);
   const recent = await engine.ingestMessages(batch);
   // The page's oldest `ts`: IT tells the screen whether the page really went
   // back into the past (see `loadMore` and `pageMovedBack`).

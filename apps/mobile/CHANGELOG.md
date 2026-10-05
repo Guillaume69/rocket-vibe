@@ -9,6 +9,12 @@ release, and its notes are that version's section here.
 
 ### Changed
 
+- Tapping a search result now opens the room at that message. A pinned, starred or searched
+  message older than what the room has loaded shows the conversation around it, whatever its
+  age, instead of "Message not found in recent history". Scrolling reads on in both
+  directions; the button at the bottom, or sending a message, comes back to the latest
+  messages.
+
 - The app moves its local data, settings and notification links to new internal names on
   the first launch after the update. You stay signed in, with your messages, language,
   collapsed sections and unsent messages; notifications already on screen still open and

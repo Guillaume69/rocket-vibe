@@ -2,6 +2,7 @@
 //! Every future runs on this crate's tokio runtime, whatever polls it.
 
 mod accounts;
+mod context;
 pub mod markup;
 pub mod model;
 pub mod people;
@@ -429,11 +430,14 @@ impl Chat {
         Ok(page.count as i64 >= rv_core::sync::HISTORY_PAGE)
     }
 
-    /// One more page before `oldest_ts`. True when there may be more still.
-    pub async fn load_older(&self, rid: String, kind: String, oldest_ts: i64) -> Result<bool, RvError> {
-        let s = self.session.clone();
-        let page = on_tokio(async move { s.sync.load_history(&rid, &kind, Some(oldest_ts)).await }).await?;
-        Ok(page.count > 1)
+    /// One more page before `oldest_ts`.
+    pub async fn load_older(&self, rid: String, kind: String, oldest_ts: i64) -> Result<model::OlderPage, RvError> {
+        let (s, room) = (self.session.clone(), rid.clone());
+        let page = on_tokio(async move { s.sync.load_history(&room, &kind, Some(oldest_ts)).await }).await?;
+        // Down to the page and no further: an older message stored on its own
+        // (starred, edited) would hide the hole above it.
+        let limit = page.oldest_ts.map(|ts| self.session.store.count_since(&rid, ts));
+        Ok(model::OlderPage { more: page.count > 1, limit })
     }
 
     pub async fn load_thread(&self, root_id: String) -> Result<(), RvError> {
@@ -701,13 +705,22 @@ impl Chat {
 
 impl Chat {
     fn lay_out(&self, rows: Vec<rv_core::store::MessageRow>, unread_after: Option<i64>) -> Vec<model::MessageItem> {
-        let info = &self.session.info;
-        let mut laid = timeline::group(rows.into_iter().map(|r| self.session.open_row(r)).collect());
-        if let Some(seen) = unread_after {
-            timeline::mark_new(&mut laid, seen, &info.user_id);
-        }
-        laid.into_iter().map(|d| model::message(d, &info.user_id, &info.username)).collect()
+        lay_out(&self.session, rows, unread_after)
     }
+}
+
+/// Rows as the room shows them: opened when encrypted, grouped, the unread marker placed.
+fn lay_out(
+    session: &Session,
+    rows: Vec<rv_core::store::MessageRow>,
+    unread_after: Option<i64>,
+) -> Vec<model::MessageItem> {
+    let info = &session.info;
+    let mut laid = timeline::group(rows.into_iter().map(|r| session.open_row(r)).collect());
+    if let Some(seen) = unread_after {
+        timeline::mark_new(&mut laid, seen, &info.user_id);
+    }
+    laid.into_iter().map(|d| model::message(d, &info.user_id, &info.username)).collect()
 }
 
 fn draft_key(rid: &str, thread_id: Option<&str>) -> String {

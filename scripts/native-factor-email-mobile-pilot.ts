@@ -2,14 +2,14 @@
  * vault restart; installed Android Keystore qualification remains separate. */
 import assert from 'node:assert/strict';
 import {createHash,randomBytes} from 'node:crypto';
-import {AuthenticationVault} from '../apps/mobile/fournisseurs/rocketvibe/authenticationVault.ts';
-import {startNativeLogin} from '../apps/mobile/fournisseurs/rocketvibe/authentication.ts';
-import {ReauthenticationVault} from '../apps/mobile/fournisseurs/rocketvibe/reauthenticationVault.ts';
-import {NativeChat} from '../apps/mobile/fournisseurs/rocketvibe/chat.ts';
-import {NativeStore} from '../apps/mobile/fournisseurs/rocketvibe/store.ts';
-import {nativeTestDatabase} from '../apps/mobile/fournisseurs/rocketvibe/testDatabase.ts';
-import {NativeError,NativeTransport} from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
-import {creerFileEcritures} from '../apps/mobile/db/fileEcritures.ts';
+import {AuthenticationVault} from '../apps/mobile/providers/rocketvibe/authenticationVault.ts';
+import {startNativeLogin} from '../apps/mobile/providers/rocketvibe/authentication.ts';
+import {ReauthenticationVault} from '../apps/mobile/providers/rocketvibe/reauthenticationVault.ts';
+import {NativeChat} from '../apps/mobile/providers/rocketvibe/chat.ts';
+import {NativeStore} from '../apps/mobile/providers/rocketvibe/store.ts';
+import {nativeTestDatabase} from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
+import {NativeError,NativeTransport} from '../apps/mobile/providers/rocketvibe/transport.ts';
+import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
 import type {Session} from '../apps/mobile/lib/auth.ts';
 
 let phase='initialization';
@@ -29,7 +29,7 @@ async function main(){
   };
   const transport=new NativeTransport(base,fetcher);transport.restore(token);
   const discovery=await transport.discover(),user=await transport.me();
-  const active:Session={baseUrl:base,authToken:token,userId:user.id,username:user.username,siteUrl:null,genre:'rocketvibe',
+  const active:Session={baseUrl:base,authToken:token,userId:user.id,username:user.username,siteUrl:null,kind:'rocketvibe',
     nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
   const values=new Map<string,string>();
   const deps={hash:async(value:string)=>createHash('sha256').update(value).digest('hex'),token:async()=>randomBytes(32).toString('hex'),
@@ -42,7 +42,7 @@ async function main(){
     assert(message.delivered===1 && /^\d{8}$/.test(message.code));return message.code;
   }
   phase='password challenge';
-  const fresh=await startNativeLogin(base,discovery,{utilisateur:user.username,motDePasse:password},fetcher);assert(fresh.kind==='challenge');
+  const fresh=await startNativeLogin(base,discovery,{user:user.username,password:password},fetcher);assert(fresh.kind==='challenge');
   const staged=await authentication().stage(fresh.challenge);assert(staged.kind==='challenge');
   phase='lost login mail ACK';await assert.rejects(authentication().sendEmail(staged.challenge));
   const restored=await authentication().load(base,user.username);assert(restored?.email);
@@ -55,7 +55,7 @@ async function main(){
   assert(completed.userId===active.userId && completed.authToken!==active.authToken);
   assert(await authentication().clearCompleted(delivered,completed));assert(values.size===0);
   assert((await transport.me()).id===active.userId);
-  const {db,adapter}=nativeTestDatabase(),store=new NativeStore(adapter,creerFileEcritures(),active);
+  const {db,adapter}=nativeTestDatabase(),store=new NativeStore(adapter,createWriteQueue(),active);
   const chat=new NativeChat(active,store,()=>randomBytes(32).toString('hex'),{transport});
   try {
     phase='connected account provider';await chat.connect();assert(chat.status.online);

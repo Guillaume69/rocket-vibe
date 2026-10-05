@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {NativeTransport} from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
+import {NativeTransport} from '../apps/mobile/providers/rocketvibe/transport.ts';
 
 const client=new NativeTransport(process.env.RV_PEER_URL!);
 await client.login('desktop',process.env.RV_PEER_PASSWORD!);

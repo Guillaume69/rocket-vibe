@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import {createHash,randomUUID} from 'node:crypto';
-import {NativeError,NativeTransport} from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
-import {NativeChat} from '../apps/mobile/fournisseurs/rocketvibe/chat.ts';
-import {NativeStore} from '../apps/mobile/fournisseurs/rocketvibe/store.ts';
-import {nativeTestDatabase} from '../apps/mobile/fournisseurs/rocketvibe/testDatabase.ts';
-import {creerFileEcritures} from '../apps/mobile/db/fileEcritures.ts';
-import {NativeFileOutbox} from '../apps/mobile/fournisseurs/rocketvibe/uploads.ts';
+import {NativeError,NativeTransport} from '../apps/mobile/providers/rocketvibe/transport.ts';
+import {NativeChat} from '../apps/mobile/providers/rocketvibe/chat.ts';
+import {NativeStore} from '../apps/mobile/providers/rocketvibe/store.ts';
+import {nativeTestDatabase} from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
+import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
+import {NativeFileOutbox} from '../apps/mobile/providers/rocketvibe/uploads.ts';
 import {mkdtempSync,readFileSync,writeFileSync,unlinkSync,rmdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -51,8 +51,8 @@ for(const lost of ['prepare','bytes','complete','cancel']){
  };
  const remote=new NativeTransport(base,fetcher),auth=await remote.login(`mobile-${lost}`,'files-test-password'),discovery=await remote.discover();
  const room=await remote.createRoom({operation_id:randomUUID(),name:`Outbox ${lost}`,private:true});
- const session={baseUrl:base,authToken:auth.token,userId:auth.user.id,username:auth.user.username,genre:'rocketvibe' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
- let h=nativeTestDatabase(database),store=new NativeStore(h.adapter,creerFileEcritures(),session),chat=new NativeChat(session,store,randomUUID,{transport:remote});
+ const session={baseUrl:base,authToken:auth.token,userId:auth.user.id,username:auth.user.username,kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+ let h=nativeTestDatabase(database),store=new NativeStore(h.adapter,createWriteQueue(),session),chat=new NativeChat(session,store,randomUUID,{transport:remote});
  const io={copy:async()=>({uri:pathToFileURL(source).toString(),bytes:bytes.length,sha256:sha}),remove:async()=>{removed++;},
   send:async(url:string,headers:Record<string,string>,uri:string,signal:AbortSignal)=>{
    const response=await fetch(url,{method:'PUT',headers,body:readFileSync(fileURLToPath(uri)),redirect:'error',signal}),body=await response.text();
@@ -62,13 +62,13 @@ for(const lost of ['prepare','bytes','complete','cancel']){
  };
  let outbox=new NativeFileOutbox(chat,io,randomUUID);
  try{
-  await chat.connect();await outbox.envoyer(room.id,{uri:pathToFileURL(source).toString(),nom:'persisted.bin',type:'application/octet-stream',taille:bytes.length},'Original caption');
+  await chat.connect();await outbox.send(room.id,{uri:pathToFileURL(source).toString(),name:'persisted.bin',type:'application/octet-stream',size:bytes.length},'Original caption');
   assert.equal(inject,false);const pending=(await store.uploads.list())[0];assert(pending);assert.equal(pending.complete.content.kind,'plain');
-  if(lost==='cancel'){chat.suspend();await outbox.abandonner(pending.id);assert.equal((await store.uploads.get(pending.id))?.phase,'cancelling');}
+  if(lost==='cancel'){chat.suspend();await outbox.discard(pending.id);assert.equal((await store.uploads.get(pending.id))?.phase,'cancelling');}
   outbox.close();chat.stop();await store.state();h.db.close();
-  h=nativeTestDatabase(database,false);store=new NativeStore(h.adapter,creerFileEcritures(),session);chat=new NativeChat(session,store,()=>{throw new Error('Replay generated a new nonce');},{transport:remote});
+  h=nativeTestDatabase(database,false);store=new NativeStore(h.adapter,createWriteQueue(),session);chat=new NativeChat(session,store,()=>{throw new Error('Replay generated a new nonce');},{transport:remote});
   outbox=new NativeFileOutbox(chat,io,()=>{throw new Error('Replay generated a new nonce');});
-  await chat.connect();await outbox.traiter();assert.deepEqual(await store.uploads.list(),[]);assert.equal(removed,1);
+  await chat.connect();await outbox.process();assert.deepEqual(await store.uploads.list(),[]);assert.equal(removed,1);
   const messages=(await remote.history(room.id)).messages.filter(m=>!m.system);
   if(lost==='cancel')assert.equal(messages.length,0);
   else{assert.equal(messages.length,1);assert.equal(messages[0].id,pending.complete.operation_id);assert.equal(messages[0].text,'Original caption');

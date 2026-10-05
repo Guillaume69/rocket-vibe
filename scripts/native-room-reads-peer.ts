@@ -1,13 +1,13 @@
 // Actual mobile HTTP transport against a disposable PostgreSQL server.
 import assert from 'node:assert/strict';
-import {NativeTransport} from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
-import {NativeStore} from '../apps/mobile/fournisseurs/rocketvibe/store.ts';
-import {NativeChat} from '../apps/mobile/fournisseurs/rocketvibe/chat.ts';
-import {creerFournisseurRV} from '../apps/mobile/fournisseurs/rocketvibe/index.ts';
-import {ClientRest} from '../apps/mobile/lib/rest.ts';
-import {nativeTestDatabase} from '../apps/mobile/fournisseurs/rocketvibe/testDatabase.ts';
-import {creerFileEcritures} from '../apps/mobile/db/fileEcritures.ts';
-import {LectureObservee} from '../apps/mobile/ui/lectureObservee.ts';
+import {NativeTransport} from '../apps/mobile/providers/rocketvibe/transport.ts';
+import {NativeStore} from '../apps/mobile/providers/rocketvibe/store.ts';
+import {NativeChat} from '../apps/mobile/providers/rocketvibe/chat.ts';
+import {createRocketVibeProvider} from '../apps/mobile/providers/rocketvibe/index.ts';
+import {RestClient} from '../apps/mobile/lib/rest.ts';
+import {nativeTestDatabase} from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
+import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
+import {ObservedRead} from '../apps/mobile/ui/observedRead.ts';
 const base=process.env.RV_ROOM_PEER_URL!,room=process.env.RV_ROOM_PEER_ROOM!;
 const owner=new NativeTransport(base),reader=new NativeTransport(base);
 await owner.login('read-owner','read-test-password-2026');
@@ -50,8 +50,8 @@ const discovery=await reader.discover();
 const {db,adapter}=nativeTestDatabase();
 let chat:NativeChat|undefined;
 try {
-  const session={baseUrl:base,authToken:account.token,userId:account.user.id,username:account.user.username,genre:'rocketvibe' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
-  const cache=new NativeStore(adapter,creerFileEcritures(),session);
+  const session={baseUrl:base,authToken:account.token,userId:account.user.id,username:account.user.username,kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+  const cache=new NativeStore(adapter,createWriteQueue(),session);
   await cache.applySnapshot(await reader.snapshot());
   const originalState=(await cache.readState(room))!,projection=cache.projectionToken();
   assert.equal(originalState.favorite,false);assert.equal(originalState.unread_roots,'0');
@@ -68,28 +68,28 @@ try {
   // This HTTP/SQLite test does not consume the WebSocket; replay and response
   // scopes are exercised against the real PostgreSQL server.
   const socket=()=>{const ws={onopen:null,close:()=>{}} as unknown as WebSocket;queueMicrotask(()=>ws.onopen?.(new Event('open')));return ws;};
-  const guardedRest=new ClientRest(base,{fetch:async()=>{throw new Error('Rocket.Chat route in a native room state');}});
-  const provider=creerFournisseurRV(session,guardedRest,()=> 'ts-queue-favorite',cache,{transport:queueTransport,socket});
+  const guardedRest=new RestClient(base,{fetch:async()=>{throw new Error('Rocket.Chat route in a native room state');}});
+  const provider=createRocketVibeProvider(session,guardedRest,()=> 'ts-queue-favorite',cache,{transport:queueTransport,socket});
   chat=provider.native!.chat;await chat.connect();
-  assert.equal(provider.capacites.favorisSalon,true);
-  assert.equal(provider.capacites.lecturesSalon,true);
-  const readBoundary=(await provider.actions.etatLectureSalon!(room))!;
+  assert.equal(provider.capabilities.roomFavorites,true);
+  assert.equal(provider.capabilities.roomReads,true);
+  const readBoundary=(await provider.actions.roomReadState!(room))!;
   assert.equal(readBoundary.adhesion,originalState.membership_version);
-  await assert.rejects(provider.actions.marquerLu(room));
+  await assert.rejects(provider.actions.markRead(room));
   const writes:Promise<void>[]=[],callbacks:(()=>void)[]=[];
-  const visibleRead=new LectureObservee(id=>{
-    const saved=provider.actions.marquerLu(room,{messageId:id,adhesion:readBoundary.adhesion});writes.push(saved);return saved;
-  },{maintenant:()=>0,programmer:f=>{callbacks.push(f);return()=>{};}});
-  visibleRead.activer(true);visibleRead.observer(observed.id);visibleRead.activer(false);
-  visibleRead.observer(newer.id);visibleRead.fermer();callbacks[0]();await Promise.all(writes);
+  const visibleRead=new ObservedRead(id=>{
+    const saved=provider.actions.markRead(room,{messageId:id,adhesion:readBoundary.adhesion});writes.push(saved);return saved;
+  },{now:()=>0,schedule:f=>{callbacks.push(f);return()=>{};}});
+  visibleRead.activate(true);visibleRead.observer(observed.id);visibleRead.activate(false);
+  visibleRead.observer(newer.id);visibleRead.close();callbacks[0]();await Promise.all(writes);
   assert.equal(writes.length,1,'Closed view callbacks cannot create a second read');
-  const displayed=(await provider.actions.favoriSalon!.lire!(room))!;
+  const displayed=(await provider.actions.roomFavorite!.read!(room))!;
   assert.equal(displayed.present,false);
-  await provider.actions.favoriSalon!.modifier(room,true,displayed);
+  await provider.actions.roomFavorite!.edit(room,true,displayed);
   assert.equal((await cache.pendingReads()).length,1);assert.equal((await cache.pendingFavorites()).length,1);
   assert.equal((await reader.roomReadState(room)).root_position,observed.position);
   assert.equal((await reader.roomReadState(room)).unread_roots,'1');
-  assert.equal((await provider.actions.favoriSalon!.lire!(room))?.intention?.cle,'ts-queue-favorite');
+  assert.equal((await provider.actions.roomFavorite!.read!(room))?.intention?.key,'ts-queue-favorite');
   chat.stop();
   const afterAck=await reader.roomReadState(room);
   await reader.setRoomFavorite(room,{operation_id:'ts-queue-other-device',expected_revision:afterAck.favorite_revision!,present:false});
@@ -100,14 +100,14 @@ try {
   await cache.stageRead(room,newer.id);await cache.stageFavorite(room,true,()=> 'ts-queue-before-withdrawal');
   await cache.enqueue('ts-absent-send',room,'Never replay after a missed withdrawal');
   const oldComposer=cache.drafts({room,membership:originalState.membership_version!});
-  await oldComposer.ecrire(room,'Private before withdrawal');
+  await oldComposer.write(room,'Private before withdrawal');
   const details=await reader.roomDetails(room);
   await reader.leaveRoom(room,{operation_id:'ts-cache-leave',expected_revision:details.revision});
   await owner.addMember(room,account.user.id);
   // The client missed room_removed and reconstructs directly from a new snapshot.
   await cache.applySnapshot(await reader.snapshot());
   assert.notEqual((await cache.readState(room))?.membership_version,originalState.membership_version);
-  assert.deepEqual(await cache.pending(),[]);assert.equal(await cache.drafts().lire(room),null);
+  assert.deepEqual(await cache.pending(),[]);assert.equal(await cache.drafts().read(room),null);
   assert.deepEqual(await cache.pendingReads(),[]);assert.deepEqual(await cache.pendingFavorites(),[]);
   assert.equal(await cache.stageRead(room,newer.id,readBoundary.adhesion),false);
   assert.deepEqual(await cache.pendingReads(),[]);
@@ -115,13 +115,13 @@ try {
   assert.equal((await cache.readState(room))?.favorite,false);
   const currentState=(await cache.readState(room))!;
   const newComposer=cache.drafts({room,membership:currentState.membership_version!});
-  await newComposer.ecrire(room,'Fresh after rejoining');
-  await oldComposer.ecrire(room,'Delayed flush from the old open composer');
-  await oldComposer.supprimer(room);
-  assert.equal(await oldComposer.lire(room),null);
-  assert.equal(await newComposer.lire(room),'Fresh after rejoining');
+  await newComposer.write(room,'Fresh after rejoining');
+  await oldComposer.write(room,'Delayed flush from the old open composer');
+  await oldComposer.delete(room);
+  assert.equal(await oldComposer.read(room),null);
+  assert.equal(await newComposer.read(room),'Fresh after rejoining');
   await assert.rejects(cache.enqueue('ts-stale-composer',room,'Delayed send',{membership:originalState.membership_version!}));
   assert.deepEqual(await cache.pending(),[]);
-  await newComposer.supprimer(room);
+  await newComposer.delete(room);
 } finally {chat?.stop();db.close();}
 console.log(JSON.stringify({unreads:true,monotone:true,privateFavorite:true,lostAckRecovered:true,noSecondFavorite:true,oldReplayHarmless:true,mentions:true,sqliteCache:true,missedRejoin:true,durableRunner:true,openComposerFenced:true,providerFavorite:true,scopedObservedRead:true,visibleReadController:true}));

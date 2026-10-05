@@ -1,12 +1,12 @@
 // Disposable PostgreSQL integration peer, using the actual mobile HTTP transport.
 import assert from 'node:assert/strict';
-import { NativeError, NativeTransport } from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
-import type { RoomDetails, UpdateRoom } from '../apps/mobile/fournisseurs/rocketvibe/protocol.generated.ts';
-import {nativeTestDatabase} from '../apps/mobile/fournisseurs/rocketvibe/testDatabase.ts';
-import {NativeStore} from '../apps/mobile/fournisseurs/rocketvibe/store.ts';
-import {creerFournisseurRV} from '../apps/mobile/fournisseurs/rocketvibe/index.ts';
-import {creerFileEcritures} from '../apps/mobile/db/fileEcritures.ts';
-import {ClientRest} from '../apps/mobile/lib/rest.ts';
+import { NativeError, NativeTransport } from '../apps/mobile/providers/rocketvibe/transport.ts';
+import type { RoomDetails, UpdateRoom } from '../apps/mobile/providers/rocketvibe/protocol.generated.ts';
+import {nativeTestDatabase} from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
+import {NativeStore} from '../apps/mobile/providers/rocketvibe/store.ts';
+import {createRocketVibeProvider} from '../apps/mobile/providers/rocketvibe/index.ts';
+import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
+import {RestClient} from '../apps/mobile/lib/rest.ts';
 import type {Session} from '../apps/mobile/lib/auth.ts';
 
 const base=process.env.RV_ROOM_PEER_URL!;
@@ -34,45 +34,45 @@ assert.deepEqual(await owner.leaveRoom(room,leave),left);
 await assert.rejects(owner.roomDetails(room),(e:unknown)=>e instanceof NativeError && e.code==='not_found');
 await assert.rejects(peer.leaveRoom(room,{operation_id:'mobile-last-owner',expected_revision:(await peer.roomDetails(room)).revision}),(e:unknown)=>e instanceof NativeError && e.code==='last_room_owner');
 const discovery=await peer.discover();
-const account:Session={baseUrl:base,authToken:b.token,userId:b.user.id,username:b.user.username,genre:'rocketvibe',siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
-const harness=nativeTestDatabase(),store=new NativeStore(harness.adapter,creerFileEcritures(),account);
+const account:Session={baseUrl:base,authToken:b.token,userId:b.user.id,username:b.user.username,kind:'rocketvibe',siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+const harness=nativeTestDatabase(),store=new NativeStore(harness.adapter,createWriteQueue(),account);
 let lost=false,writes=0;
 const transport=new NativeTransport(base,async(url,options)=>{
   const response=await fetch(url,options);
   if(options?.method==='PATCH'){writes++;if(!lost && response.ok){lost=true;throw new Error('Simulated dropped room acknowledgement');}}
   return response;
 });transport.restore(b.token);
-const provider=creerFournisseurRV(account,new ClientRest(base,{fetch:async()=>{throw new Error('Native room UI must not call Rocket.Chat');}}),()=> 'mobile-ui-original',store,{transport,socket:()=>{
+const provider=createRocketVibeProvider(account,new RestClient(base,{fetch:async()=>{throw new Error('Native room UI must not call Rocket.Chat');}}),()=> 'mobile-ui-original',store,{transport,socket:()=>{
   const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;
 }});
 try{
   await provider.native!.chat.connect();
-  const details=(await provider.actions.infosSalon(room)).gestion!;assert.equal(details.peutModifier,true);
-  const actions=provider.actions.gestionSalon!,fields={nom:details.nom,prive:details.prive,sujet:'Formulaire mobile conservé',description:details.description,annonce:details.annonce,lectureSeule:true};
-  await assert.rejects(actions.modifier(room,details.revision,fields));assert.deepEqual((await actions.intention(room))?.reglages,fields);
-  await actions.reprendre(room);assert.equal(writes,1);assert.equal(await actions.intention(room),null);
-  const fresh=(await provider.actions.infosSalon(room)).gestion!;
-  const members=await actions.membres(room,null,fresh.revision);assert.equal(members.membres[0].role,'owner');
+  const details=(await provider.actions.roomInfo(room)).management!;assert.equal(details.canEdit,true);
+  const actions=provider.actions.roomManagement!,fields={name:details.name,isPrivate:details.isPrivate,topic:'Formulaire mobile conservé',description:details.description,announcement:details.announcement,readOnly:true};
+  await assert.rejects(actions.edit(room,details.revision,fields));assert.deepEqual((await actions.intention(room))?.settings,fields);
+  await actions.resume(room);assert.equal(writes,1);assert.equal(await actions.intention(room),null);
+  const fresh=(await provider.actions.roomInfo(room)).management!;
+  const members=await actions.members(room,null,fresh.revision);assert.equal(members.members[0].role,'owner');
   await store.applySnapshot(await peer.snapshot());
   await provider.native!.chat.refreshRoomAccess(room);
   assert.equal((await store.roomAccess(room))?.can_send,1,'Owners can write in read-only rooms');
-  assert.equal(harness.db.prepare('SELECT lecture_seule FROM salons WHERE rid=?').get(room)?.lecture_seule,0);
+  assert.equal(harness.db.prepare('SELECT read_only FROM rooms WHERE rid=?').get(room)?.read_only,0);
   await peer.addMember(room,a.user.id);
-  const memberHarness=nativeTestDatabase(),memberStore=new NativeStore(memberHarness.adapter,creerFileEcritures(),{...account,authToken:a.token,userId:a.user.id,username:a.user.username});
-  const memberProvider=creerFournisseurRV({...account,authToken:a.token,userId:a.user.id,username:a.user.username},new ClientRest(base,{fetch:async()=>{throw new Error('Native composer must not call Rocket.Chat');}}),()=> 'mobile-composer-original',memberStore,{transport:owner,socket:()=>{
+  const memberHarness=nativeTestDatabase(),memberStore=new NativeStore(memberHarness.adapter,createWriteQueue(),{...account,authToken:a.token,userId:a.user.id,username:a.user.username});
+  const memberProvider=createRocketVibeProvider({...account,authToken:a.token,userId:a.user.id,username:a.user.username},new RestClient(base,{fetch:async()=>{throw new Error('Native composer must not call Rocket.Chat');}}),()=> 'mobile-composer-original',memberStore,{transport:owner,socket:()=>{
     const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;
   }});
   try{
     await memberProvider.native!.chat.connect();
     await memberProvider.native!.chat.refreshRoomAccess(room);
     assert.equal((await memberStore.roomAccess(room))?.can_send,0);
-    assert.equal(memberHarness.db.prepare('SELECT lecture_seule FROM salons WHERE rid=?').get(room)?.lecture_seule,1);
+    assert.equal(memberHarness.db.prepare('SELECT read_only FROM rooms WHERE rid=?').get(room)?.read_only,1);
     await assert.rejects(owner.send(room,{operation_id:'mobile-readonly-denied',text:'Blocked member message'}),(e:unknown)=>e instanceof NativeError && e.status===403);
     await peer.changeRoomRole(room,a.user.id,{operation_id:'mobile-composer-moderator',expected_revision:(await peer.roomDetails(room)).revision,role:'moderator'});
     await memberStore.applySnapshot(await owner.snapshot());
     await memberProvider.native!.chat.refreshRoomAccess(room);
     assert.equal((await memberStore.roomAccess(room))?.can_send,1);
-    assert.equal(memberHarness.db.prepare('SELECT lecture_seule FROM salons WHERE rid=?').get(room)?.lecture_seule,0);
+    assert.equal(memberHarness.db.prepare('SELECT read_only FROM rooms WHERE rid=?').get(room)?.read_only,0);
     assert.equal((await owner.send(room,{operation_id:'mobile-readonly-moderator',text:'Allowed moderator message'})).text,'Allowed moderator message');
   }finally{memberProvider.native!.chat.stop();await memberStore.state();memberHarness.db.close();}
 }finally{provider.native!.chat.stop();await store.state();harness.db.close();}

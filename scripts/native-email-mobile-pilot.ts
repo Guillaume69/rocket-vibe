@@ -1,14 +1,14 @@
 /** In-process PostgreSQL/HTTP/SMTP fixture only; no production mail or account. */
 import assert from 'node:assert/strict';
 import {createHash,randomBytes} from 'node:crypto';
-import {NativeChat} from '../apps/mobile/fournisseurs/rocketvibe/chat.ts';
-import {NativeStore} from '../apps/mobile/fournisseurs/rocketvibe/store.ts';
-import {nativeTestDatabase} from '../apps/mobile/fournisseurs/rocketvibe/testDatabase.ts';
-import {NativeError,NativeTransport} from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
-import {EmailVault} from '../apps/mobile/fournisseurs/rocketvibe/emailVault.ts';
-import {creerFileEcritures} from '../apps/mobile/db/fileEcritures.ts';
+import {NativeChat} from '../apps/mobile/providers/rocketvibe/chat.ts';
+import {NativeStore} from '../apps/mobile/providers/rocketvibe/store.ts';
+import {nativeTestDatabase} from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
+import {NativeError,NativeTransport} from '../apps/mobile/providers/rocketvibe/transport.ts';
+import {EmailVault} from '../apps/mobile/providers/rocketvibe/emailVault.ts';
+import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
 import type {Session} from '../apps/mobile/lib/auth.ts';
-import type {RemoveVerifiedEmail} from '../apps/mobile/fournisseurs/rocketvibe/protocol.generated.ts';
+import type {RemoveVerifiedEmail} from '../apps/mobile/providers/rocketvibe/protocol.generated.ts';
 
 let phase='initialization';
 async function main(){
@@ -23,8 +23,8 @@ async function main(){
   const discovery=await transport.discover(),login=await transport.login('owner',process.env.RV_EMAIL_PILOT_PASSWORD);
   assert.equal(discovery.capabilities.email_verification,true);
   const session:Session={baseUrl:base,authToken:login.token,userId:login.user.id,username:login.user.username,
-    siteUrl:null,genre:'rocketvibe',nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
-  const {db,adapter}=nativeTestDatabase(),store=new NativeStore(adapter,creerFileEcritures(),session);
+    siteUrl:null,kind:'rocketvibe',nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+  const {db,adapter}=nativeTestDatabase(),store=new NativeStore(adapter,createWriteQueue(),session);
   const chat=new NativeChat(session,store,()=>randomBytes(32).toString('hex'),{transport});
   const values=new Map<string,string>();let failReceipt=false;
   const deps={hash:async(value:string)=>createHash('sha256').update(value).digest('hex'),token:async()=>randomBytes(32).toString('hex'),
@@ -79,7 +79,7 @@ async function main(){
     assert.equal(discoveryNoMail.capabilities.second_factors,false);
     assert.equal(discoveryNoMail.capabilities.email_removal,true);
     const noMailSession={...session,baseUrl:noMailBase};
-    const noMailDatabase=nativeTestDatabase(),noMailStore=new NativeStore(noMailDatabase.adapter,creerFileEcritures(),noMailSession);
+    const noMailDatabase=nativeTestDatabase(),noMailStore=new NativeStore(noMailDatabase.adapter,createWriteQueue(),noMailSession);
     const noMailChat=new NativeChat(noMailSession,noMailStore,()=>randomBytes(32).toString('hex'),{transport:noMailTransport});
     try {
       await noMailChat.connect();const noMailAccess=await noMailChat.security();

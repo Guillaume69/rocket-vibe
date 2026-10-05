@@ -1,7 +1,7 @@
 /** Disposable Docker pilot only: provision two factor accounts, never log codes. */
 import {createHmac} from 'node:crypto';
 import {writeFile} from 'node:fs/promises';
-import {NativeTransport} from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
+import {NativeTransport} from '../apps/mobile/providers/rocketvibe/transport.ts';
 
 const base=process.env.RV_PEER_URL;
 if(base!=='http://server:3400' || process.env.RV_PEER_PASSWORD!=='native-pilot-test-password')throw new Error('Requires the disposable Docker pilot');

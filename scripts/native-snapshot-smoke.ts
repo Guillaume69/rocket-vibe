@@ -1,10 +1,10 @@
 /** Real mobile bootstrap with an over-8-MiB immutable snapshot and actual SQLite. */
 import assert from 'node:assert/strict';
-import { NativeTransport } from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
-import { NativeChat } from '../apps/mobile/fournisseurs/rocketvibe/chat.ts';
-import { NativeStore } from '../apps/mobile/fournisseurs/rocketvibe/store.ts';
-import { nativeTestDatabase } from '../apps/mobile/fournisseurs/rocketvibe/testDatabase.ts';
-import { creerFileEcritures } from '../apps/mobile/db/fileEcritures.ts';
+import { NativeTransport } from '../apps/mobile/providers/rocketvibe/transport.ts';
+import { NativeChat } from '../apps/mobile/providers/rocketvibe/chat.ts';
+import { NativeStore } from '../apps/mobile/providers/rocketvibe/store.ts';
+import { nativeTestDatabase } from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
+import { createWriteQueue } from '../apps/mobile/db/writeQueue.ts';
 import type { Session } from '../apps/mobile/lib/auth.ts';
 
 const base = process.env.RV_SMOKE_URL;
@@ -12,9 +12,9 @@ if (!base) throw new Error('RV_SMOKE_URL is required');
 const loginClient = new NativeTransport(base);
 const discovery = await loginClient.discover();
 const login = await loginClient.login('alice',process.env.RV_SMOKE_PASSWORD ?? 'test-password-2026');
-const session: Session = {genre:'rocketvibe',baseUrl:base,siteUrl:null,authToken:login.token,userId:login.user.id,username:login.user.username,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+const session: Session = {kind:'rocketvibe',baseUrl:base,siteUrl:null,authToken:login.token,userId:login.user.id,username:login.user.username,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
 const db = nativeTestDatabase();
-const store = new NativeStore(db.adapter,creerFileEcritures(),session);
+const store = new NativeStore(db.adapter,createWriteQueue(),session);
 let pages = 0;
 const transport = new NativeTransport(base,async (url,options) => {
   if (String(url).includes('/sync/snapshots/')) {

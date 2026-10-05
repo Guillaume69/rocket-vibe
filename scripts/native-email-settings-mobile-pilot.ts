@@ -3,13 +3,13 @@
 import assert from 'node:assert/strict';
 import {createHash,randomBytes} from 'node:crypto';
 import {readFile,writeFile,mkdir,unlink} from 'node:fs/promises';
-import {NativeTransport,NativeError} from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
-import {NativeChat} from '../apps/mobile/fournisseurs/rocketvibe/chat.ts';
-import {NativeStore} from '../apps/mobile/fournisseurs/rocketvibe/store.ts';
-import {FactorVault} from '../apps/mobile/fournisseurs/rocketvibe/factorVault.ts';
-import {ReauthenticationVault} from '../apps/mobile/fournisseurs/rocketvibe/reauthenticationVault.ts';
-import {nativeTestDatabase} from '../apps/mobile/fournisseurs/rocketvibe/testDatabase.ts';
-import {creerFileEcritures} from '../apps/mobile/db/fileEcritures.ts';
+import {NativeTransport,NativeError} from '../apps/mobile/providers/rocketvibe/transport.ts';
+import {NativeChat} from '../apps/mobile/providers/rocketvibe/chat.ts';
+import {NativeStore} from '../apps/mobile/providers/rocketvibe/store.ts';
+import {FactorVault} from '../apps/mobile/providers/rocketvibe/factorVault.ts';
+import {ReauthenticationVault} from '../apps/mobile/providers/rocketvibe/reauthenticationVault.ts';
+import {nativeTestDatabase} from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
+import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
 import type {Session} from '../apps/mobile/lib/auth.ts';
 const directory='/pilot-invitations/mobile-email-settings',base='http://factor-proxy:3401',token=()=>randomBytes(32).toString('hex');
 let step='initialization';
@@ -21,11 +21,11 @@ async function main(){
   let session:Session;
   if(phase==='enable'){
     const discovery=await transport.discover(),login=await transport.login('gtk-email','native-pilot-test-password');
-    session={baseUrl:base,authToken:login.token,userId:login.user.id,username:login.user.username,siteUrl:null,genre:'rocketvibe',nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+    session={baseUrl:base,authToken:login.token,userId:login.user.id,username:login.user.username,siteUrl:null,kind:'rocketvibe',nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
     await writeFile(`${directory}/session`,JSON.stringify(session),{mode:0o600});
   } else {session=JSON.parse(await readFile(`${directory}/session`,'utf8'));transport.restore(session.authToken);}
   const {db,adapter}=nativeTestDatabase(`${directory}/projection.sqlite`,phase==='enable');
-  const store=new NativeStore(adapter,creerFileEcritures(),session),chat=new NativeChat(session,store,token,{transport});
+  const store=new NativeStore(adapter,createWriteQueue(),session),chat=new NativeChat(session,store,token,{transport});
   const deps={hash:async(value:string)=>createHash('sha256').update(value).digest('hex'),token:async()=>token(),storage:{
     read:async(key:string)=>{try{return await readFile(`${directory}/${key}`,'utf8');}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return null;throw e;}},
     write:async(key:string,value:string)=>{await writeFile(`${directory}/${key}`,value,{mode:0o600});},

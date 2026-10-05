@@ -1,11 +1,11 @@
 /** Actual mobile SQLite projections consume native action journal events. */
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { NativeTransport } from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
-import { NativeChat } from '../apps/mobile/fournisseurs/rocketvibe/chat.ts';
-import { NativeStore } from '../apps/mobile/fournisseurs/rocketvibe/store.ts';
-import { nativeTestDatabase } from '../apps/mobile/fournisseurs/rocketvibe/testDatabase.ts';
-import { creerFileEcritures } from '../apps/mobile/db/fileEcritures.ts';
+import { NativeTransport } from '../apps/mobile/providers/rocketvibe/transport.ts';
+import { NativeChat } from '../apps/mobile/providers/rocketvibe/chat.ts';
+import { NativeStore } from '../apps/mobile/providers/rocketvibe/store.ts';
+import { nativeTestDatabase } from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
+import { createWriteQueue } from '../apps/mobile/db/writeQueue.ts';
 import type { Session } from '../apps/mobile/lib/auth.ts';
 const base=process.env.RV_SMOKE_URL;
 if (!base) throw new Error('RV_SMOKE_URL is required');
@@ -45,8 +45,8 @@ async function runner(username:string) {
     return response;
   });
   const discovery=await transport.discover(); const login=await transport.login(username,'test-password-2026');
-  const session: Session={genre:'rocketvibe',baseUrl:base!,siteUrl:null,authToken:login.token,userId:login.user.id,username:login.user.username,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
-  const db=nativeTestDatabase(); const store=new NativeStore(db.adapter,creerFileEcritures(),session);
+  const session: Session={kind:'rocketvibe',baseUrl:base!,siteUrl:null,authToken:login.token,userId:login.user.id,username:login.user.username,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+  const db=nativeTestDatabase(); const store=new NativeStore(db.adapter,createWriteQueue(),session);
   let serial=0;
   const makeChat=() => new NativeChat(session,store,() => `${username}-${namespace}-action-${serial++}`,{transport});
   return {transport,db,store,session,makeChat,attempts,reactions,marks};
@@ -71,8 +71,8 @@ try {
   assert.equal(alice.attempts[1].expected_revision,original.revision);
   const edited=await alice.transport.message(id);
   assert.deepEqual(await alice.transport.editMessage(id,alice.attempts[0]),edited);
-  await until(async () => (await bob.store.messages(room.id)).some(m => m.id===id && m.texte===edited.text));
-  assert.equal(bob.db.db.prepare('SELECT modifie_le FROM messages WHERE id=?').get(id)!.modifie_le,Date.parse(edited.edited_at!));
+  await until(async () => (await bob.store.messages(room.id)).some(m => m.id===id && m.text===edited.text));
+  assert.equal(bob.db.db.prepare('SELECT edited_at FROM messages WHERE id=?').get(id)!.edited_at,Date.parse(edited.edited_at!));
   await assert.rejects(a.react(room.id,id,'+1',true),/simulated_reaction_response_lost/);
   await until(async () => (await alice.store.pendingCommands()).length===0);
   assert.equal(alice.reactions.length,2);
@@ -87,7 +87,7 @@ try {
   assert.deepEqual(await alice.transport.setReaction(id,alice.reactions[0]),removed,'an old add receipt cannot resurrect a removed reaction');
   await until(async () => bob.db.db.prepare('SELECT reactions FROM messages WHERE id=?').get(id)?.reactions===null);
   await a.setMark(room.id,id,true,false);
-  await until(async () => Boolean(bob.db.db.prepare('SELECT epingle FROM messages WHERE id=?').get(id)?.epingle));
+  await until(async () => Boolean(bob.db.db.prepare('SELECT pinned FROM messages WHERE id=?').get(id)?.pinned));
   await assert.rejects(a.setMark(room.id,id,true,true),/simulated_star_response_lost/);
   await until(async () => (await alice.store.pendingCommands()).length===0);
   assert.equal(alice.marks.length,2);assert.deepEqual(alice.marks[0],alice.marks[1]);
@@ -95,7 +95,7 @@ try {
   assert.equal((await a.marked(room.id,true))[0].id,id);
   assert.equal((await b.marked(room.id,false))[0].id,id);
   assert.deepEqual(await b.marked(room.id,true),[],'another member never sees the private star');
-  assert.equal(bob.db.db.prepare('SELECT etoiles FROM messages WHERE id=?').get(id)?.etoiles,null);
+  assert.equal(bob.db.db.prepare('SELECT starred FROM messages WHERE id=?').get(id)?.starred,null);
   await a.setMark(room.id,id,false,true);
   assert.deepEqual(await a.marked(room.id,true),[]);
   const unstarred=await alice.transport.message(id);
@@ -106,7 +106,7 @@ try {
   await assert.rejects(b.delete(room.id,id,edited.revision),/permission_denied/);
   assert.equal((await bob.store.pendingCommands()).length,0,'forbidden deletion must not retry');
   b.stop(); // Miss the deletion and all following events with a populated cache.
-  await bob.store.drafts().ecrire(room.id,'Draft across reset');
+  await bob.store.drafts().write(room.id,'Draft across reset');
   await bob.store.enqueue('bob-pending-reset',room.id,'Pending across reset');
   await a.delete(room.id,id,(await alice.transport.message(id)).revision);
   const deleted=await alice.transport.message(id);
@@ -121,7 +121,7 @@ try {
   await bob.store.applySnapshot(reset);
   assert.equal(await bob.store.ingest([original],oldProjection),false);
   assert.ok(!(await bob.store.messages(room.id)).some(m => m.id===id));
-  assert.equal(await bob.store.drafts().lire(room.id),'Draft across reset');
+  assert.equal(await bob.store.drafts().read(room.id),'Draft across reset');
   assert.equal((await bob.store.pending())[0].id,'bob-pending-reset');
   b=bob.makeChat(); await b.connect();
   await until(async () => (await bob.store.pending()).length===0);

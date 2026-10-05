@@ -1,15 +1,15 @@
 /** Executed by a SQLx integration test against its disposable database. */
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { NativeError, NativeTransport } from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
+import { NativeError, NativeTransport } from '../apps/mobile/providers/rocketvibe/transport.ts';
 import { createInterface } from 'node:readline';
-import { decodeNative } from '../apps/mobile/fournisseurs/rocketvibe/validation.ts';
-import type { SyncBatch } from '../apps/mobile/fournisseurs/rocketvibe/protocol.generated.ts';
+import { decodeNative } from '../apps/mobile/providers/rocketvibe/validation.ts';
+import type { SyncBatch } from '../apps/mobile/providers/rocketvibe/protocol.generated.ts';
 import type { Session as AppSession } from '../apps/mobile/lib/auth.ts';
-import { NativeChat } from '../apps/mobile/fournisseurs/rocketvibe/chat.ts';
-import { NativeStore } from '../apps/mobile/fournisseurs/rocketvibe/store.ts';
-import { nativeTestDatabase } from '../apps/mobile/fournisseurs/rocketvibe/testDatabase.ts';
-import { creerFileEcritures } from '../apps/mobile/db/fileEcritures.ts';
+import { NativeChat } from '../apps/mobile/providers/rocketvibe/chat.ts';
+import { NativeStore } from '../apps/mobile/providers/rocketvibe/store.ts';
+import { nativeTestDatabase } from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
+import { createWriteQueue } from '../apps/mobile/db/writeQueue.ts';
 
 const base = process.env.RV_SMOKE_URL;
 const password = process.env.RV_SMOKE_PASSWORD;
@@ -73,7 +73,7 @@ const discovery = await alice.discover();
 const aliceLogin = await alice.login('alice',password);
 const bobLogin = await bob.login('bob',password);
 function appSession(login: typeof aliceLogin): AppSession {
-  return {baseUrl:base!,genre:'rocketvibe',siteUrl:null,userId:login.user.id,username:login.user.username,authToken:login.token,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+  return {baseUrl:base!,kind:'rocketvibe',siteUrl:null,userId:login.user.id,username:login.user.username,authToken:login.token,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
 }
 async function until(check: () => Promise<boolean>) {
   const deadline = Date.now() + 7000;
@@ -83,7 +83,7 @@ async function until(check: () => Promise<boolean>) {
   }
 }
 const aliceDb = nativeTestDatabase(); const bobDb = nativeTestDatabase();
-const aliceQueue = creerFileEcritures(); const bobQueue = creerFileEcritures();
+const aliceQueue = createWriteQueue(); const bobQueue = createWriteQueue();
 const aliceStore = new NativeStore(aliceDb.adapter,aliceQueue,appSession(aliceLogin));
 const bobStore = new NativeStore(bobDb.adapter,bobQueue,appSession(bobLogin));
 const id = () => randomBytes(12).toString('hex');
@@ -94,7 +94,7 @@ try {
   mobileAlice.suspend();
   const queuedId = await mobileAlice.send(room.id,'Queued by the actual mobile outbox');
   assert.equal((await aliceStore.pending()).length,1);
-  await aliceStore.drafts().ecrire(room.id,'Draft across expired cursor');
+  await aliceStore.drafts().write(room.id,'Draft across expired cursor');
   if (process.env.RV_SMOKE_EXPIRE_CURSOR) {
     const oldCursor = (await aliceStore.state())!.cursor;
     const input = createInterface({input:process.stdin});
@@ -112,7 +112,7 @@ try {
   await until(async () => (await bobStore.messages(room.id)).some(message => message.id === queuedId));
   assert.equal((await aliceStore.pending()).length,0);
   assert.equal((await bobStore.messages(room.id)).filter(message => message.id === queuedId).length,1);
-  assert.equal(await aliceStore.drafts().lire(room.id),'Draft across expired cursor');
+  assert.equal(await aliceStore.drafts().read(room.id),'Draft across expired cursor');
 
   mobileBob.suspend();
   const missedId = await mobileAlice.send(room.id,'Missed while the mobile reader was offline');

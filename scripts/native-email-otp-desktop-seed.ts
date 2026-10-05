@@ -1,7 +1,7 @@
 /** Disposable PostgreSQL/TLS bench only; never print a code or credential. */
 import {randomBytes} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
-import {NativeTransport} from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
+import {NativeTransport} from '../apps/mobile/providers/rocketvibe/transport.ts';
 const token=()=>randomBytes(32).toString('hex');
 async function main(){
   if(process.env.RV_PEER_URL!=='http://server:3400' || process.env.RV_PEER_PASSWORD!=='native-pilot-test-password')throw new Error('fixture');

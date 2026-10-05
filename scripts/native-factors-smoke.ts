@@ -1,11 +1,11 @@
 /** Disposable PostgreSQL fixture only. Never logs provisioning or bearer codes. */
 import assert from 'node:assert/strict';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
-import { NativeError, NativeTransport } from '../apps/mobile/fournisseurs/rocketvibe/transport.ts';
-import { startNativeLogin } from '../apps/mobile/fournisseurs/rocketvibe/authentication.ts';
-import { AuthenticationVault } from '../apps/mobile/fournisseurs/rocketvibe/authenticationVault.ts';
-import {FactorVault,type FactorRemote} from '../apps/mobile/fournisseurs/rocketvibe/factorVault.ts';
-import {ReauthenticationVault,type SecurityScope} from '../apps/mobile/fournisseurs/rocketvibe/reauthenticationVault.ts';
+import { NativeError, NativeTransport } from '../apps/mobile/providers/rocketvibe/transport.ts';
+import { startNativeLogin } from '../apps/mobile/providers/rocketvibe/authentication.ts';
+import { AuthenticationVault } from '../apps/mobile/providers/rocketvibe/authenticationVault.ts';
+import {FactorVault,type FactorRemote} from '../apps/mobile/providers/rocketvibe/factorVault.ts';
+import {ReauthenticationVault,type SecurityScope} from '../apps/mobile/providers/rocketvibe/reauthenticationVault.ts';
 
 const base=process.argv[2];
 if (!base || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) throw new Error('Requires the local disposable SQLx server');
@@ -22,7 +22,7 @@ const privateSecurity=new Map<string,string>();
 const securityDeps={hash:async(value:string)=>createHash('sha256').update(value).digest('hex'),token:async()=>randomBytes(32).toString('hex'),
   storage:{read:async(key:string)=>privateSecurity.get(key)??null,write:async(key:string,value:string)=>{privateSecurity.set(key,value);},remove:async(key:string)=>{privateSecurity.delete(key);}}};
 const remoteFor=(transport:NativeTransport):FactorRemote=>({proof:{status:()=>transport.reauthenticationStatus(),begin:input=>transport.beginReauthentication(input),
-  resume:input=>transport.resumeReauthentication(input),finish:input=>transport.finishReauthentication(input),retire:input=>transport.retireReauthentication(input)},
+  resume:input=>transport.resumeReauthentication(input),finish:input=>transport.finishReauthentication(input),removed:input=>transport.retireReauthentication(input)},
   status:()=>transport.factorStatus(),setup:input=>transport.beginFactorSetup(input),enable:input=>transport.enableFactor(input),
   regenerate:input=>transport.regenerateFactorBackups(input),disable:input=>transport.disableFactor(input)});
 const factorVault=new FactorVault(securityDeps),initialRemote=remoteFor(client);
@@ -58,8 +58,8 @@ const fetcher:typeof fetch=async(url,options)=>{
 };
 const signing=new NativeTransport(base,fetcher);
 signing.restore(logged.token);
-let revoked=false;signing.surJetonRefuse=()=>{revoked=true;};
-const step=await startNativeLogin(base,await client.discover(),{utilisateur:'owner',motDePasse:'factor-test-password-2026'},fetcher);
+let revoked=false;signing.onTokenRejected=()=>{revoked=true;};
+const step=await startNativeLogin(base,await client.discover(),{user:'owner',password:'factor-test-password-2026'},fetcher);
 assert.equal(step.kind,'challenge');
 if (step.kind!=='challenge') throw new Error('Missing native second factor');
 assert.equal(step.challenge.user.id,logged.user.id);
@@ -81,7 +81,7 @@ assert.equal(concurrent.authToken,completed.authToken);assert.equal(verification
 assert.equal(completed.userId,logged.user.id);
 assert.equal(revoked,false);
 assert.equal(await vault.clearCompleted(durable,null),false);assert.equal(stored.size,1);
-const fresh=await startNativeLogin(base,await client.discover(),{utilisateur:'owner',motDePasse:'factor-test-password-2026'},fetcher);
+const fresh=await startNativeLogin(base,await client.discover(),{user:'owner',password:'factor-test-password-2026'},fetcher);
 assert.equal(fresh.kind,'challenge');if(fresh.kind!=='challenge')throw new Error('Missing fresh challenge');
 const recovered=await new AuthenticationVault(deps).stage(fresh.challenge);
 assert.equal(recovered.kind,'session');if(recovered.kind==='session')assert.equal(recovered.session.authToken,completed.authToken);
@@ -106,7 +106,7 @@ const reauthFetcher:typeof fetch=async(url,options)=>{
   return response;
 };
 const reauth=new NativeTransport(base,reauthFetcher);reauth.restore(logged.token);
-reauth.surJetonRefuse=()=>{reauthRevoked=true;};
+reauth.onTokenRejected=()=>{reauthRevoked=true;};
 await assert.rejects(reauth.regenerateFactorBackups({factor_version:status.factor_version,operation_id:'before-reauth'}),e=>e instanceof NativeError && e.status===403);
 const proofStatus=await reauth.reauthenticationStatus();assert.equal(proofStatus.recent,false);
 const proofVault=new ReauthenticationVault(securityDeps),proofRemote=remoteFor(reauth).proof;

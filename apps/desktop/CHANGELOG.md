@@ -11,7 +11,8 @@ section here.
 
 - Existing GTK / SwiftUI message menus can experimentally choose another joined
   room for a quote, across ordinary and encrypted sources / destinations.
-  The destination revalidates the reference before showing its preview. Ordinary
+  The destination revalidates effective send rights and the reference before
+  showing its preview, including encrypted and previously unopened rooms. Ordinary
   composers can send private references through a dedicated coffer coordinator;
   their SQL outbox retains references alone. The caption stays recoverable until
   enqueue succeeds, and newer words typed during preflight survive. Blur,

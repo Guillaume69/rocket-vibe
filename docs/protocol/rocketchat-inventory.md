@@ -174,7 +174,7 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/crates/rv-core/src/uploads.rs:372](../../apps/desktop/crates/rv-core/src/uploads.rs#L372) | call:UPLOAD | &format!("rooms.media/{…}", task_row.rid), |
 | [apps/desktop/crates/rv-core/src/uploads.rs:374](../../apps/desktop/crates/rv-core/src/uploads.rs#L374) | endpoint | rooms.media/{…} |
 | [apps/desktop/crates/rv-gtk/src/chat_native.rs:917](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L917) | endpoint | rooms.new |
-| [apps/desktop/crates/rv-gtk/src/chat_quotes.rs:99](../../apps/desktop/crates/rv-gtk/src/chat_quotes.rs#L99) | endpoint | spotlight |
+| [apps/desktop/crates/rv-gtk/src/chat_quotes.rs:98](../../apps/desktop/crates/rv-gtk/src/chat_quotes.rs#L98) | endpoint | spotlight |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:83](../../apps/desktop/crates/rv-gtk/src/chat.rs#L83) | endpoint | rooms.favorite_add |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:83](../../apps/desktop/crates/rv-gtk/src/chat.rs#L83) | endpoint | rooms.favorite_remove |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:240](../../apps/desktop/crates/rv-gtk/src/chat.rs#L240) | endpoint | rooms.offline |
@@ -312,10 +312,10 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:51](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L51) | endpoint | e2e.locked |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:51](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L51) | endpoint | e2e.unlocked |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:54](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L54) | endpoint | e2e.lock |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:505](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L505) | endpoint | e2e.wrong |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:506](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L506) | endpoint | e2e.no_keys |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:507](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L507) | endpoint | e2e.failed |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:508](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L508) | endpoint | e2e.wrong |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:509](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L509) | endpoint | e2e.no_keys |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:510](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L510) | endpoint | e2e.failed |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:513](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L513) | endpoint | e2e.failed |
 | [apps/mobile/app/actions-message.tsx:84](../../apps/mobile/app/actions-message.tsx#L84) | call:GET | 'settings.public' |
 | [apps/mobile/app/actions-message.tsx:85](../../apps/mobile/app/actions-message.tsx#L85) | endpoint | settings.public |
 | [apps/mobile/app/connexion.tsx:407](../../apps/mobile/app/connexion.tsx#L407) | endpoint | chat.exemple.fr |

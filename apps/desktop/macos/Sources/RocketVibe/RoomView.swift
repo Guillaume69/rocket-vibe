@@ -437,9 +437,9 @@ struct MessageRow: View, Equatable {
                 TextField(L("spotlight.placeholder"), text:$quoteSearch)
                 ScrollView {
                     VStack(alignment:.leading, spacing:4) {
+                        let joined = Set((try? app.native?.quoteDestinations()) ?? [])
                         let candidates = app.rooms.filter { room in
-                            room.rid != model?.rid && !room.readOnly
-                                && (!room.encrypted || app.native?.cryptoSettingsSupported() == true)
+                            room.rid != model?.rid && joined.contains(room.rid)
                                 && (quoteSearch.isEmpty || room.name.localizedCaseInsensitiveContains(quoteSearch))
                         }
                         if candidates.isEmpty { Text(L("quote.destination_empty")).foregroundStyle(Vibe.faint) }

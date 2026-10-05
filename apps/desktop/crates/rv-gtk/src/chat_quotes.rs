@@ -83,8 +83,7 @@ impl ChatPage {
             .iter()
             .filter(|r| {
                 r.rid != source
-                    && !r.read_only
-                    && session.can_send_to_room(&r.rid)
+                    && session.store.room_access(&r.rid).is_ok_and(|access| access.is_none_or(|a| a.can_send))
                     && (!r.encrypted || session.crypto_settings_supported())
             })
             .cloned()
@@ -135,10 +134,6 @@ impl ChatPage {
                 let Some(this) = weak.upgrade().filter(|p| p.quote_scope(&session, &source, generation)) else {
                     return;
                 };
-                if !session.can_send_to_room(&room.rid) {
-                    this.toast(t("quote.unavailable").into());
-                    return;
-                }
                 let (this, session, transfer, target) =
                     (this.clone(), session.clone(), transfer.clone(), room.rid.clone());
                 let source = source.clone();
@@ -160,6 +155,15 @@ impl ChatPage {
         navigation: u64,
     ) {
         if !self.quote_scope(&session, &source, navigation) {
+            return;
+        }
+        let (s, target) = (session.clone(), room.clone());
+        let details = on_tokio(async move { s.room_details(&target).await }).await;
+        if !self.quote_scope(&session, &source, navigation) {
+            return;
+        }
+        if !details.is_ok_and(|d| d.permissions.send) {
+            self.toast(t("quote.unavailable").into());
             return;
         }
         if let Transfer::Ordinary(selected) = &transfer
@@ -205,7 +209,9 @@ impl ChatPage {
                         return;
                     }
                     if let Ok(rows) = session.store.selected_messages(std::slice::from_ref(&reference.message_id))
-                        && let Some(row) = rows.into_iter().find(|r| r.rid == reference.room_id)
+                        && let Some(row) = rows.into_iter().find(|r| r.id == reference.message_id)
+                        && session.store.quote_selection(&reference.room_id, &reference.message_id).ok().as_ref()
+                            == Some(&selected)
                     {
                         self.composer.set_native_reply(&row.author, &row.text, selected);
                     }

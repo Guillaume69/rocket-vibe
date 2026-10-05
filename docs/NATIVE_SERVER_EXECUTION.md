@@ -277,6 +277,24 @@ ce profil, sans retirer d'assertion ni augmenter la borne. Des repères d'étape
 sans contenu privé sont désormais visibles sur stderr, y compris en timeout.
 Le check local de l'exemple passe en 5,21 secondes ; sa durée d'exécution et
 l'issue des nouveaux parcours GTK / Swift restent à confirmer par CI.
+Le build / packaging / démarrage macOS 37250486298 de 7bf7fae passe.
+La CI GTK a identifié un champ de salon absent du DTO de présentation :
+l'aperçu retrouve son message par ID et revalide la sélection SQL qui porte
+le salon exact. Le nouveau test Swift attend maintenant la resynchronisation
+déclenchée par sa première création de salon avant la deuxième commande ; les
+neuf parcours connectés Swift déjà présents passent sur ce commit.
+La CI précédente est désormais terminée : six jobs verts et les trois échecs
+ci-dessus. Le sélecteur ne réutilise plus le refus d'envoi en clair pour une
+destination chiffrée : les droits inconnus d'un salon rejoint n'excluent pas
+celui-ci, tandis qu'un refus effectif connu le masque. Le choix relit les droits
+effectifs du serveur avant navigation / préparation, puis revalide le compte
+et la source. Le record de gestion Swift expose ce droit indépendamment du mode
+chiffré ; le banc existant couvre propriétaire et membre d'un salon en lecture
+seule. Qualification de ces corrections encore ouverte.
+Clippy strict cœur / UniFFI passe sur les corrections en 2,80 secondes ; la
+DLL et les bindings Swift régénérés passent en 53,70 secondes. Formatage,
+changelog et inventaire contrôlés ; GTK / modèles Swift et fixture PostgreSQL
+seront requalifiés dans la CI du prochain commit.
 
 | Jalon | Développement livré | Travail restant pour le fermer |
 |---|---|---|

@@ -22,8 +22,10 @@ final class NativeProviderTests: XCTestCase {
         let native = try XCTUnwrap(app.native)
         try await until { app.connection == .online }
         let rid = try await native.createRoom(name:"swift-quote-source-\(UUID())",private:true)
+        try await until { native.status().state == .online && app.rooms.contains { $0.rid == rid } }
         let destinationId = try await native.createRoom(name:"swift-quote-target-\(UUID())",private:true)
-        try await until { app.rooms.contains { $0.rid == rid } && app.rooms.contains { $0.rid == destinationId } }
+        try await until { native.status().state == .online && app.rooms.contains { $0.rid == destinationId } }
+        XCTAssertTrue(try native.quoteDestinations().contains(destinationId),"An unopened joined destination remains selectable")
         app.open(rid)
         let source = try XCTUnwrap(app.room)
         try await until { !source.loading }
@@ -511,12 +513,13 @@ final class NativeProviderTests: XCTestCase {
         try room.changeFavorite(present:false,state:try XCTUnwrap(room.favoriteState()))
         try await until { (try? room.favoriteState())?.present == false && (try? room.favoriteState())?.intention == nil }
         let original = try await room.roomManagement()
-        XCTAssertTrue(original.canEdit); XCTAssertTrue(original.canChangeRoles); XCTAssertTrue(original.canLeave)
+        XCTAssertTrue(original.canEdit); XCTAssertTrue(original.canChangeRoles); XCTAssertTrue(original.canLeave); XCTAssertTrue(original.canSend)
         var fields = original.fields
         fields.topic = "Topic from existing Swift model"; fields.description = "Description"; fields.announcement = "Announcement"; fields.readOnly = true; fields.privateRoom = false
         try await room.updateRoom(fields: fields, revision: original.revision)
         let current = try await room.roomManagement()
         XCTAssertEqual(current.fields, fields); XCTAssertEqual(current.info.kind, "c"); XCTAssertTrue(current.info.readOnly)
+        XCTAssertTrue(current.canSend,"The owner can compose in a read-only room")
         try await until { !room.room.readOnly }
         XCTAssertNil(try room.roomIntention())
         try await native.invite(room: rid, username: "mobile")
@@ -526,6 +529,9 @@ final class NativeProviderTests: XCTestCase {
         try await until { peer.rooms.contains { $0.rid == rid } }; peer.open(rid)
         let peerRoom = try XCTUnwrap(peer.room)
         try await until { !peerRoom.loading && peerRoom.room.readOnly }
+        let memberRights = try await peerRoom.roomManagement()
+        XCTAssertFalse(memberRights.canSend)
+        XCTAssertFalse(try peer.native!.quoteDestinations().contains(rid))
         try await room.changeRoomRole(target: mobile.id, role: "owner", revision: members.revision)
         try await until { !peerRoom.room.readOnly }
         peerRoom.draft = "Observed Swift read"
@@ -545,7 +551,7 @@ final class NativeProviderTests: XCTestCase {
         let transferred = try await room.roomManagement()
         try await room.changeRoomRole(target: account.userId, role: "member", revision: transferred.revision)
         let demoted = try await room.roomManagement()
-        XCTAssertFalse(demoted.canEdit); XCTAssertFalse(demoted.canChangeRoles); XCTAssertTrue(demoted.canLeave)
+        XCTAssertFalse(demoted.canEdit); XCTAssertFalse(demoted.canChangeRoles); XCTAssertTrue(demoted.canLeave); XCTAssertFalse(demoted.canSend)
         try await until { room.room.readOnly }
         XCTAssertTrue(app.room === room)
         XCTAssertEqual(room.draft, "Draft belonging to the original membership", "Role changes preserve the open composer")

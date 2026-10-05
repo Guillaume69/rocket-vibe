@@ -419,9 +419,12 @@ public final class AppModel {
 
     public func quoteElsewhere(source: RoomModel, message: String, destination: String) async {
         guard let native, source.provider.native === native, source.active, source.membershipIsCurrent,
-              destination != source.rid, rooms.contains(where: { $0.rid == destination && !$0.readOnly }) else { return }
+              destination != source.rid, rooms.contains(where: { $0.rid == destination }) else { return }
         let account = sessionId
         do {
+            let rights = try await native.roomManagement(room:destination)
+            guard account == sessionId, source.active, source.membershipIsCurrent else { return }
+            guard rights.canSend else { throw CancellationError() }
             let transfer = try await source.transferQuote(message)
             guard account == sessionId, source.active, source.membershipIsCurrent else { return }
             open(destination)

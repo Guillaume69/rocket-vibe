@@ -18,6 +18,7 @@ pub struct NativeRoomManagement {
     pub info: crate::people::RoomDetails,
     pub revision: String,
     pub fields: NativeRoomFields,
+    pub can_send: bool,
     pub can_edit: bool,
     pub can_change_roles: bool,
     pub can_leave: bool,
@@ -71,6 +72,23 @@ fn fields(input: &UpdateRoom) -> NativeRoomFields {
 }
 #[uniffi::export]
 impl NativeChat {
+    /// Joined-room hints only. The selected destination must be read again
+    /// before composing; unknown rights must not hide an unopened room.
+    pub fn quote_destinations(&self) -> Result<Vec<String>, RvError> {
+        if self.session.is_closed() {
+            return Ok(vec![]);
+        }
+        let private = self.session.crypto_settings_supported();
+        let mut candidates = Vec::new();
+        for room in self.session.store.rooms().map_err(RvError::local)? {
+            if (!room.encrypted || private)
+                && self.session.store.room_access(&room.id).map_err(RvError::local)?.is_none_or(|a| a.can_send)
+            {
+                candidates.push(room.id);
+            }
+        }
+        Ok(candidates)
+    }
     pub async fn refresh_room_access(&self, room: String) -> Result<(), RvError> {
         let session = self.session.clone();
         on_tokio(async move { session.refresh_room_access(&room).await }).await.map_err(error)
@@ -91,6 +109,7 @@ impl NativeChat {
                     announcement: details.announcement,
                     read_only: details.read_only,
                 },
+                can_send: details.permissions.send,
                 can_edit: details.permissions.change_settings && features.iter().any(|s| s == "room_settings"),
                 can_change_roles: details.permissions.role == RoomRole::Owner
                     && details.room.kind != RoomKind::Direct

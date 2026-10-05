@@ -1405,7 +1405,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat_quotes.rs",
-      "line": 99,
+      "line": 98,
       "kind": "endpoint",
       "surface": "spotlight"
     },
@@ -2233,25 +2233,25 @@
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 505,
+      "line": 508,
       "kind": "endpoint",
       "surface": "e2e.wrong"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 506,
+      "line": 509,
       "kind": "endpoint",
       "surface": "e2e.no_keys"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 507,
+      "line": 510,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 510,
+      "line": 513,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },

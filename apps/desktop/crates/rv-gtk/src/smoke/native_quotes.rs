@@ -470,7 +470,10 @@ async fn cross_room_quotes(
     let mut source = None;
     for _ in 0..120 {
         source = session.store.messages(rid, 100).unwrap().into_iter().find(|m| m.id == id && m.position.is_some());
-        if source.is_some() && window.chat.room_list().row_widget(&id).is_some() {
+        if source.is_some()
+            && window.chat.room_list().row_widget(&id).is_some()
+            && session.status().connection == rv_core::session::Connection::Online
+        {
             break;
         }
         glib::timeout_future(Duration::from_millis(50)).await;

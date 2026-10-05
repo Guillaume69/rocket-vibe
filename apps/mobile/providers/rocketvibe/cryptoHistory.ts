@@ -1,0 +1,140 @@
+import type {CryptoHistoryBridge} from '../../modules/crypto-native/index.ts';
+import type {CryptoIdentityAccess} from './cryptoIdentity.ts';
+import type {CommitHistoryShare,HistoryRecordsPage,HistoryRecordsReceipt,HistoryRequestEntry,HistoryRequests,HistoryShareState,PublishHistoryRequest,UploadHistoryRecords} from './protocol.generated.ts';
+import {decodeNative} from './validation.ts';
+import {NativeError} from './transport.ts';
+
+/** History recovery between devices of the account (E2EE_HISTORY.md, path A).
+ * The bridge keeps every secret and verifies every request, share and record
+ * against the account directory; this adapter only carries HTTP and approval. */
+export type HistoryOffer={fingerprint:string;device:string;issued_at:string;expires_at:string};
+export type HistoryOffers={id:string;offers:HistoryOffer[]};
+export type HistoryPreview={id:string;fingerprint:string;device:string;periods:{room:string;documents:string}[]};
+export type HistoryImportProgress={state:'idle'}|{state:'waiting';request:string}|{state:'done';request:string};
+type ImportStatus={request:string;next:{period:number;after:string}|null};
+type Remote={
+  publishCryptoHistoryRequest:(input:PublishHistoryRequest)=>Promise<HistoryRequestEntry>;
+  cryptoHistoryRequests:()=>Promise<HistoryRequests>;
+  uploadCryptoHistoryRecords:(request:string,input:UploadHistoryRecords)=>Promise<HistoryRecordsReceipt>;
+  commitCryptoHistoryShare:(request:string,input:CommitHistoryShare)=>Promise<HistoryShareState>;
+  cryptoHistoryShare:(request:string)=>Promise<HistoryShareState>;
+  cryptoHistoryRecords:(request:string,period:number,after:string)=>Promise<HistoryRecordsPage>;
+  acknowledgeCryptoHistory:(request:string)=>Promise<void>;
+};
+type Check=()=>Promise<void>;
+type Read=(user:string)=>Promise<string>;
+function fail():never{throw new NativeError(0,'crypto_integrity_failed');}
+function record(value:unknown):Record<string,unknown>{if(!value||typeof value!=='object'||Array.isArray(value))fail();return value as Record<string,unknown>;}
+function fingerprint(value:unknown):string{if(typeof value!=='string'||!/^[0-9a-f]{64}$/.test(value))fail();return value;}
+function id(value:unknown):string{if(typeof value!=='string'||!/^[0-9a-f]{32}$/.test(value))fail();return value;}
+function decimal(value:unknown):string{if(typeof value!=='string'||!/^(0|[1-9][0-9]{0,19})$/.test(value))fail();return value;}
+function label(value:unknown):string{if(typeof value!=='string'||value.length<1||value.length>256)fail();return value;}
+function importStatus(value:unknown):ImportStatus|null {
+  if(value===null)return null;
+  const r=record(value);
+  if(r.next===null)return {request:fingerprint(r.request),next:null};
+  const next=record(r.next);
+  if(typeof next.period!=='number'||!Number.isInteger(next.period)||next.period<0||next.period>=1024)fail();
+  return {request:fingerprint(r.request),next:{period:next.period,after:decimal(next.after)}};
+}
+/** A request gone, or a share another device of the account claimed or committed. */
+function hopeless(error:unknown):boolean {
+  return error instanceof NativeError&&(error.status===404||error.status===409&&(error.code==='history_share_claimed'||error.code==='history_share_committed'));
+}
+export class CryptoHistoryAccess {
+  private readonly identity:CryptoIdentityAccess;
+  private readonly bridge:CryptoHistoryBridge;
+  private readonly remote:Remote;
+  constructor(identity:CryptoIdentityAccess,bridge:CryptoHistoryBridge,remote:Remote){this.identity=identity;this.bridge=bridge;this.remote=remote;}
+  private async action(handle:string,own:string,input:unknown,check:Check):Promise<Record<string,unknown>> {
+    await check();const json=await this.bridge.historyAction(handle,own,JSON.stringify(input));await check();
+    if(typeof json!=='string'||json.length>8*1024*1024)fail();return record(JSON.parse(json) as unknown);
+  }
+  /** New device: publishes its request (created once, replayed) and returns
+   * the fingerprint the human compares on the sharing device. */
+  requestHistory():Promise<string>{return this.identity.withIdentity(async(handle,own,_read,check)=>{
+    const r=await this.action(handle,own,{action:'request'},check);
+    const request=fingerprint(r.fingerprint);
+    const entry=decodeNative('HistoryRequestEntry',await this.remote.publishCryptoHistoryRequest(decodeNative('PublishHistoryRequest',r.input)));
+    await check();if(entry.fingerprint!==request)fail();return request;
+  });}
+  /** New device: imports the committed share page by page, then acknowledges
+   * it. Safe to call again after any interruption. */
+  importHistory():Promise<HistoryImportProgress>{return this.identity.withIdentity(async(handle,own,read,check,scope)=>{
+    const view=await this.action(handle,own,{action:'view'},check);
+    let status=importStatus(view.importing);
+    if(status===null){
+      if(view.pending===null){
+        const listed=decodeNative('HistoryRequests',await this.remote.cryptoHistoryRequests());await check();
+        const stale=await this.action(handle,await read(scope.user),{action:'acknowledgeable',listed},check);
+        if(!Array.isArray(stale.requests))fail();
+        for(const request of stale.requests){await check();await this.remote.acknowledgeCryptoHistory(fingerprint(request));}
+        return {state:'idle'};
+      }
+      const request=fingerprint(view.pending);
+      let state:HistoryShareState;
+      try{state=decodeNative('HistoryShareState',await this.remote.cryptoHistoryShare(request));}
+      catch(error){if(error instanceof NativeError&&error.status===404)return {state:'waiting',request};throw error;}
+      await check();
+      status=importStatus(await this.action(handle,await read(scope.user),{action:'import_begin',state},check));
+      if(status===null)fail();
+    }
+    while(status.next!==null){
+      const page=decodeNative('HistoryRecordsPage',await this.remote.cryptoHistoryRecords(status.request,status.next.period,status.next.after));
+      await check();
+      const next:ImportStatus|null=importStatus(await this.action(handle,await read(scope.user),{action:'import_page',page},check));
+      if(next===null)fail();status=next;
+    }
+    await check();await this.remote.acknowledgeCryptoHistory(status.request);
+    return {state:'done',request:status.request};
+  });}
+  /** Sharing device: requests of other devices of the account it may answer. */
+  offers():Promise<HistoryOffers>{return this.identity.withIdentity(async(handle,_own,read,check,scope)=>{
+    const listed=decodeNative('HistoryRequests',await this.remote.cryptoHistoryRequests());await check();
+    const r=await this.action(handle,await read(scope.user),{action:'offers',listed},check);
+    if(!Array.isArray(r.offers)||r.offers.length>64)fail();
+    return {id:id(r.id),offers:r.offers.map(value=>{const o=record(value);
+      return {fingerprint:fingerprint(o.fingerprint),device:label(o.device),issued_at:decimal(o.issued_at),expires_at:decimal(o.expires_at)};})};
+  });}
+  /** Sharing device: the rooms it would share. Nothing is sent before `share`. */
+  preview(offers:string,request:string):Promise<HistoryPreview>{return this.identity.withIdentity(async(handle,own,_read,check)=>{
+    const r=await this.action(handle,own,{action:'preview',id:id(offers),fingerprint:fingerprint(request)},check);
+    if(r.fingerprint!==request||!Array.isArray(r.periods)||r.periods.length>1024)fail();
+    return {id:id(r.id),fingerprint:request,device:label(r.device),periods:r.periods.map(value=>{const p=record(value);return {room:label(p.room),documents:decimal(p.documents)};})};
+  });}
+  /** Sharing device: the human approved this preview; the share is sealed,
+   * uploaded and committed. Interrupted, `resumeShare` continues it. */
+  share(preview:string):Promise<void>{return this.identity.withIdentity(async(handle,own,read,check,scope)=>{
+    const r=await this.action(handle,own,{action:'approve',id:id(preview)},check);if(r.approved!==true)fail();
+    await this.run(handle,read,check,scope.user);
+  });}
+  /** Sharing device: continues an unfinished share; false when none is open. */
+  resumeShare():Promise<boolean>{return this.identity.withIdentity(async(handle,own,read,check,scope)=>{
+    const view=await this.action(handle,own,{action:'view'},check);
+    if(view.sharing===null)return false;
+    fingerprint(view.sharing);await this.run(handle,read,check,scope.user);return true;
+  });}
+  private async run(handle:string,read:Read,check:Check,user:string):Promise<void> {
+    const abandon=async(error:unknown):Promise<never>=>{
+      if(hopeless(error)){const r=await this.action(handle,await read(user),{action:'abandon'},check);if(r.abandoned!==true)fail();}
+      throw error;
+    };
+    for(;;){
+      const r=await this.action(handle,await read(user),{action:'upload'},check);
+      if(r.upload===null)break;
+      const upload=record(r.upload);const request=fingerprint(upload.request);
+      let receipt:HistoryRecordsReceipt;
+      try{receipt=decodeNative('HistoryRecordsReceipt',await this.remote.uploadCryptoHistoryRecords(request,decodeNative('UploadHistoryRecords',upload.input)));}
+      catch(error){return abandon(error);}
+      await check();
+      const done=await this.action(handle,await read(user),{action:'uploaded',receipt},check);if(done.recorded!==true)fail();
+    }
+    const commit=await this.action(handle,await read(user),{action:'commit'},check);
+    const request=fingerprint(commit.request);
+    let state:HistoryShareState;
+    try{state=decodeNative('HistoryShareState',await this.remote.commitCryptoHistoryShare(request,decodeNative('CommitHistoryShare',commit.input)));}
+    catch(error){return abandon(error);}
+    await check();
+    const done=await this.action(handle,await read(user),{action:'committed',state},check);if(done.committed!==true)fail();
+  }
+}

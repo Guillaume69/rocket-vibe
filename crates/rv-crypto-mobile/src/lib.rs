@@ -13,6 +13,7 @@ use std::{
 use zeroize::Zeroizing;
 mod conversations;
 mod groups;
+mod history;
 mod identity;
 mod peers;
 mod recovery;
@@ -112,6 +113,7 @@ pub struct CryptoInstallation {
     approval: Mutex<Option<(String, rv_crypto::account::Approval)>>,
     withdrawal_approval: Mutex<Option<(String, rv_crypto::account::revocations::Preview)>>,
     recovery_preview: Mutex<Option<(String, recovery::Staged)>>,
+    history_staged: Mutex<history::Staged>,
     peer_review: Mutex<Option<(String, rv_crypto::account::peers::View)>>,
     peer_approval: Mutex<Option<(String, rv_crypto::account::peers::Approval)>>,
     group_preview: Mutex<Option<groups::Staged>>,
@@ -187,6 +189,7 @@ impl CryptoInstallation {
             approval: Mutex::new(None),
             withdrawal_approval: Mutex::new(None),
             recovery_preview: Mutex::new(None),
+            history_staged: Mutex::new(history::Staged::default()),
             peer_review: Mutex::new(None),
             peer_approval: Mutex::new(None),
             group_preview: Mutex::new(None),
@@ -203,6 +206,9 @@ impl CryptoInstallation {
         }
         if let Ok(mut preview) = self.recovery_preview.lock() {
             *preview = None;
+        }
+        if let Ok(mut staged) = self.history_staged.lock() {
+            *staged = history::Staged::default();
         }
         if let Ok(mut review) = self.peer_review.lock() {
             *review = None;

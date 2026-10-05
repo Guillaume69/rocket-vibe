@@ -26,6 +26,11 @@ export class NativeError extends Error {
   }
 }
 
+/** A history request, share and its records are named by the request fingerprint. */
+function historyRequest(value:string):string {
+  if(!/^[0-9a-f]{64}$/.test(value))throw new NativeError(400,'invalid_request');
+  return value;
+}
 export class NativeTransport {
   cryptoGroupRoster(room:string):Promise<NativeTypes['GroupRoster']> {
     return this.request('GroupRoster',`/api/v1/e2ee/rooms/${encodeURIComponent(room)}/roster`);
@@ -82,6 +87,29 @@ export class NativeTransport {
   }
   cancelCryptoRootBackup(input:NativeTypes['PublishRootBackup']):Promise<NativeTypes['RootBackupSettlement']> {
     return this.request('RootBackupSettlement',`/api/v1/e2ee/root-backup/operations/${encodeURIComponent(input.operation_id)}/cancel`,input);
+  }
+  /** History shares between devices of the account: signed opaque bytes only. */
+  publishCryptoHistoryRequest(input:NativeTypes['PublishHistoryRequest']):Promise<NativeTypes['HistoryRequestEntry']> {
+    return this.request('HistoryRequestEntry','/api/v1/e2ee/history/requests',input);
+  }
+  cryptoHistoryRequests():Promise<NativeTypes['HistoryRequests']> {
+    return this.request('HistoryRequests','/api/v1/e2ee/history/requests');
+  }
+  uploadCryptoHistoryRecords(request:string,input:NativeTypes['UploadHistoryRecords']):Promise<NativeTypes['HistoryRecordsReceipt']> {
+    return this.request('HistoryRecordsReceipt',`/api/v1/e2ee/history/requests/${historyRequest(request)}/records`,input,false,undefined,'PUT');
+  }
+  commitCryptoHistoryShare(request:string,input:NativeTypes['CommitHistoryShare']):Promise<NativeTypes['HistoryShareState']> {
+    return this.request('HistoryShareState',`/api/v1/e2ee/history/requests/${historyRequest(request)}/share`,input);
+  }
+  cryptoHistoryShare(request:string):Promise<NativeTypes['HistoryShareState']> {
+    return this.request('HistoryShareState',`/api/v1/e2ee/history/requests/${historyRequest(request)}/share`);
+  }
+  cryptoHistoryRecords(request:string,period:number,after:string):Promise<NativeTypes['HistoryRecordsPage']> {
+    if(!Number.isInteger(period)||period<0||period>=1024||!/^(0|[1-9][0-9]{0,18})$/.test(after))throw new NativeError(400,'invalid_request');
+    return this.request('HistoryRecordsPage',`/api/v1/e2ee/history/requests/${historyRequest(request)}/records?period=${period}&after=${after}`);
+  }
+  async acknowledgeCryptoHistory(request:string):Promise<void> {
+    await this.value(`/api/v1/e2ee/history/requests/${historyRequest(request)}/ack`,{});
   }
   publishKeyPackages(input:NativeTypes['PublishKeyPackages']):Promise<NativeTypes['OperationReceipt']> {
     return this.request('OperationReceipt','/api/v1/e2ee/key-packages',input);
@@ -149,6 +177,7 @@ export class NativeTransport {
       throw new NativeError(response.status, error.code, response.status === 429 ? retry : undefined, error.request_id);
     }
       if (path.startsWith('/api/v1/e2ee/')) {
+        if(response.status===204)return undefined;
         const maximum=4*1024*1024;
         const length=response.headers.get('content-length');
         if(length!==null&&(!/^\d+$/.test(length)||Number(length)>maximum)) {

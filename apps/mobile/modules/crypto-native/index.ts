@@ -50,6 +50,10 @@ export type CryptoWithdrawalBridge = CryptoIdentityBridge & {
 export type CryptoRecoveryBridge = CryptoIdentityBridge & {
   recoveryAction:(handle:string,ownDirectory:string,input:string)=>Promise<string>;
 };
+/** History recovery between devices of the account: public wire values only. */
+export type CryptoHistoryBridge = CryptoIdentityBridge & {
+  historyAction:(handle:string,ownDirectory:string,input:string)=>Promise<string>;
+};
 export type CryptoPeerView = CryptoPeerStatus & {id: string};
 export type CryptoPeerApproval = {
   id: string; user: string; rootFingerprint: string; device: string;
@@ -70,4 +74,4 @@ export type CryptoGroupBridge = CryptoPeerBridge & {
 export type CryptoConversationBridge = CryptoGroupBridge & {
   conversationAction:(handle:string,ownDirectory:string,input:string)=>Promise<string>;
 };
-export const CryptoNative = requireOptionalNativeModule<CryptoConversationBridge & CryptoWithdrawalBridge & CryptoRecoveryBridge>('CryptoNative');
+export const CryptoNative = requireOptionalNativeModule<CryptoConversationBridge & CryptoWithdrawalBridge & CryptoRecoveryBridge & CryptoHistoryBridge>('CryptoNative');

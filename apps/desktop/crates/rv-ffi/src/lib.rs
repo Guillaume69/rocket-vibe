@@ -701,13 +701,22 @@ impl Chat {
 
 impl Chat {
     fn lay_out(&self, rows: Vec<rv_core::store::MessageRow>, unread_after: Option<i64>) -> Vec<model::MessageItem> {
-        let info = &self.session.info;
-        let mut laid = timeline::group(rows.into_iter().map(|r| self.session.open_row(r)).collect());
-        if let Some(seen) = unread_after {
-            timeline::mark_new(&mut laid, seen, &info.user_id);
-        }
-        laid.into_iter().map(|d| model::message(d, &info.user_id, &info.username)).collect()
+        lay_out(&self.session, rows, unread_after)
     }
+}
+
+/// Rows as the room shows them: opened when encrypted, grouped, the unread marker placed.
+fn lay_out(
+    session: &Session,
+    rows: Vec<rv_core::store::MessageRow>,
+    unread_after: Option<i64>,
+) -> Vec<model::MessageItem> {
+    let info = &session.info;
+    let mut laid = timeline::group(rows.into_iter().map(|r| session.open_row(r)).collect());
+    if let Some(seen) = unread_after {
+        timeline::mark_new(&mut laid, seen, &info.user_id);
+    }
+    laid.into_iter().map(|d| model::message(d, &info.user_id, &info.username)).collect()
 }
 
 fn draft_key(rid: &str, thread_id: Option<&str>) -> String {

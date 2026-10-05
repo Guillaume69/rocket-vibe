@@ -170,11 +170,19 @@ impl Manifest {
     }
 }
 
+/// The chain digest of an empty period.
+pub fn chain_start() -> Result<Fingerprint, Error> {
+    Ok(Sha256::digest(signing_bytes(CHAIN_DOMAIN, &())?).into())
+}
+/// Folds the next packet fingerprint into a running chain digest.
+pub fn chain_next(head: Fingerprint, fingerprint: Fingerprint) -> Result<Fingerprint, Error> {
+    Ok(Sha256::digest(signing_bytes(CHAIN_DOMAIN, &(head, fingerprint))?).into())
+}
 /// Folds packet fingerprints, in position order, into a period's chain digest.
 pub fn chain(fingerprints: impl IntoIterator<Item = Fingerprint>) -> Result<Fingerprint, Error> {
-    let mut head: Fingerprint = Sha256::digest(signing_bytes(CHAIN_DOMAIN, &())?).into();
+    let mut head = chain_start()?;
     for fingerprint in fingerprints {
-        head = Sha256::digest(signing_bytes(CHAIN_DOMAIN, &(head, fingerprint))?).into();
+        head = chain_next(head, fingerprint)?;
     }
     Ok(head)
 }

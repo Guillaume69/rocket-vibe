@@ -31,7 +31,6 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 /// OS-random per-document key. No Debug/Clone/serde, display or raw-key export.
 pub struct Key(Zeroizing<[u8; 32]>);
-const DERIVE_DOMAIN: &str = "rocketvibe-history-document-key-v1";
 fn random<const N: usize>() -> Result<[u8; N]> {
     let mut bytes = [0; N];
     getrandom::fill(&mut bytes).map_err(|_| Error::Unavailable)?;
@@ -44,26 +43,9 @@ fn record(packet: &Packet) -> Result<String> {
     ))
 }
 impl Key {
-    /// A shared period's document key: HKDF-SHA256 of the period secret, bound
-    /// to the packet's random `key_id`. Only the period secret is ever shared.
-    pub(crate) fn derive(
-        crypto: &impl openmls_traits::crypto::OpenMlsCrypto,
-        secret: &[u8; 32],
-        key_id: &[u8; 16],
-    ) -> Result<Self> {
-        let hash = openmls_traits::types::HashType::Sha2_256;
-        let prk = crypto
-            .hkdf_extract(hash, &[], secret)
-            .map_err(|_| Error::Unavailable)?;
-        let mut info = DERIVE_DOMAIN.as_bytes().to_vec();
-        info.push(0);
-        info.extend_from_slice(key_id);
-        let okm = crypto
-            .hkdf_expand(hash, prk.as_slice(), &info, 32)
-            .map_err(|_| Error::Unavailable)?;
-        let mut key = Zeroizing::new([0; 32]);
-        key.copy_from_slice(okm.as_slice());
-        Ok(Self(key))
+    /// A key derived by its caller, such as a shared period's document key.
+    pub(crate) fn from_bytes(bytes: Zeroizing<[u8; 32]>) -> Self {
+        Self(bytes)
     }
     /// The destination is the encrypted vault's records, never app preferences.
     pub fn save(&self, packet: &Packet, records: &mut Records) -> Result<()> {
@@ -127,10 +109,14 @@ pub fn seal_from_origin(
         membership,
         document,
         now,
-        |_| Ok(Key(Zeroizing::new(random()?))),
+        random()?,
+        random()?,
+        Key(Zeroizing::new(random()?)),
     )
 }
-/// `seal_from_origin` with the document key chosen from the packet's `key_id`.
+/// `seal_from_origin` with a caller-chosen key, key ID and nonce. Each must be
+/// unique to this document; a caller deriving them reproduces the same packet.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn seal_with(
     device: &LocalDevice,
     original_certificate: &Certificate,
@@ -138,22 +124,23 @@ pub(crate) fn seal_with(
     membership: &Member,
     document: &SendMessage,
     now: u64,
-    key_for: impl FnOnce(&[u8; 16]) -> Result<Key>,
+    key_id: [u8; 16],
+    nonce: [u8; 24],
+    key: Key,
 ) -> Result<(Packet, Key)> {
     let certificate = Certificate::from_credential(&device.credential(now)?.credential)?;
     let header = Header {
         version: 1,
         origin: origin.clone(),
         author_membership: membership.clone(),
-        key_id: random()?,
-        nonce: random()?,
+        key_id,
+        nonce,
     };
     header.validate()?;
     let plain = crate::groups::messages::payload(document).map_err(|_| Error::Document)?;
     // Operation/thread bindings are checked using the same canonical decoder
     // as live messages; a new serialization dialect is not introduced here.
     crate::groups::messages::decode(&plain, &origin.header).map_err(|_| Error::Document)?;
-    let key = key_for(&header.key_id)?;
     let ciphertext = XChaCha20Poly1305::new(key.0.as_ref().into())
         .encrypt(
             XNonce::from_slice(&header.nonce),

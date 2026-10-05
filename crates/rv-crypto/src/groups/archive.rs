@@ -37,6 +37,10 @@ struct Node {
     submission: MessageSubmission,
     #[serde(with = "super::messages::secret_bytes")]
     plaintext: Zeroizing<Vec<u8>>,
+    /// The author's membership in the group plan at reception; absent on
+    /// nodes written before it was recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    author: Option<Member>,
 }
 fn key(binding: &Binding) -> Result<String> {
     Ok(format!(
@@ -194,6 +198,11 @@ impl Coordinator {
             receipt: receipt.clone(),
             submission: submission.clone(),
             plaintext: Zeroizing::new(plaintext.to_vec()),
+            author: plan
+                .members
+                .iter()
+                .find(|m| m.user == receipt.header.author)
+                .cloned(),
         };
         let bytes = Zeroizing::new(serde_json::to_vec(&item).map_err(|_| Error::Changed)?);
         let reference = blocks.put(&bytes)?;

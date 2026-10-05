@@ -134,8 +134,9 @@ fn a_device_of_the_same_account_recovers_every_shared_period() {
             .map(|p| Packet::from_bytes(&p.to_bytes().unwrap()).unwrap())
             .collect::<Vec<_>>();
         check_period(period, &packets).unwrap();
-        for packet in &packets {
-            let message = open_packet(crypto, &share, period, key, packet).unwrap();
+        for (index, packet) in packets.iter().enumerate() {
+            let message =
+                open_packet(crypto, &share, period, key, index as u64 + 1, packet).unwrap();
             assert_eq!(message.operation_id, packet.header.origin.header.operation);
             assert!(message.text.starts_with("recovered words"));
         }
@@ -173,8 +174,11 @@ fn packets_must_be_complete_ordered_bound_and_from_the_share() {
     extra.push(packets[1][0].clone());
     assert!(check_period(general, &extra).is_err());
     // A packet of another period: other room, other key.
-    assert!(open_packet(crypto, &share, general, &keys[0], &packets[1][0]).is_err());
-    assert!(open_packet(crypto, &share, general, &keys[1], &packets[0][0]).is_err());
+    assert!(open_packet(crypto, &share, general, &keys[0], 1, &packets[1][0]).is_err());
+    assert!(open_packet(crypto, &share, general, &keys[1], 1, &packets[0][0]).is_err());
+    // A packet served at another rank of its own period does not open.
+    assert!(open_packet(crypto, &share, general, &keys[0], 1, &packets[0][1]).is_err());
+    assert!(open_packet(crypto, &share, general, &keys[0], 2, &packets[0][1]).is_ok());
     // A packet sealed by another device of the account is not this share's.
     let (_, foreign) = super::share(
         &f.phone,
@@ -188,7 +192,7 @@ fn packets_must_be_complete_ordered_bound_and_from_the_share() {
         NOW,
     )
     .unwrap();
-    assert!(open_packet(crypto, &share, general, &keys[0], &foreign[0][0]).is_err());
+    assert!(open_packet(crypto, &share, general, &keys[0], 1, &foreign[0][0]).is_err());
 }
 
 #[test]
@@ -270,4 +274,73 @@ fn a_share_answers_one_request_of_one_account_within_its_window() {
     .unwrap();
     tampered.manifest.periods[0].count = 1;
     assert!(open(crypto, &f.phone_records, &tampered, NOW + 1).is_err());
+}
+
+#[test]
+fn pages_seal_again_identically_and_both_sides_resume_from_their_vault() {
+    let mut f = fixture();
+    let crypto = f.crypto.crypto();
+    let request = request(&f.phone, crypto, &mut f.phone_records, NOW, 3600).unwrap();
+    let input = period(&f.desktop, "general", &[1, 2, 3, 4, 5]);
+    let mut job = ShareJob::new(
+        &f.desktop,
+        &request,
+        vec![PeriodPlan {
+            scope: input.scope.clone(),
+            grant: input.grant.clone(),
+            admission: input.admission,
+            total: 5,
+        }],
+        NOW,
+    )
+    .unwrap();
+    let first = job
+        .seal_page(crypto, &f.desktop, 0, &input.documents[..2], NOW)
+        .unwrap();
+    // A lost upload seals the same page again, byte for byte.
+    let again = job
+        .seal_page(crypto, &f.desktop, 0, &input.documents[..2], NOW + 5)
+        .unwrap();
+    let bytes = |page: &Page| {
+        page.packets
+            .iter()
+            .map(|p| p.to_bytes().unwrap())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(bytes(&first), bytes(&again));
+    job.advance(&first).unwrap();
+    assert!(job.advance(&again).is_err());
+    let mut job = ShareJob::from_bytes(&job.to_bytes().unwrap()).unwrap();
+    assert_eq!(job.next(), Some((0, 2)));
+    // A page must continue after the sealed prefix.
+    assert!(
+        job.seal_page(crypto, &f.desktop, 0, &input.documents[1..3], NOW)
+            .is_err()
+    );
+    let second = job
+        .seal_page(crypto, &f.desktop, 0, &input.documents[2..], NOW)
+        .unwrap();
+    job.advance(&second).unwrap();
+    let share = job.finish(crypto, &f.desktop, NOW).unwrap();
+    // The envelope is drawn once: a lost commit response gets the same share.
+    assert_eq!(
+        job.finish(crypto, &f.desktop, NOW + 1)
+            .unwrap()
+            .to_bytes()
+            .unwrap(),
+        share.to_bytes().unwrap()
+    );
+    let mut import = ImportJob::open(crypto, &f.phone_records, &share, NOW).unwrap();
+    assert_eq!(import.next(), Some((0, 0)));
+    let documents = import.accept(crypto, 0, &first.packets[..1]).unwrap();
+    assert_eq!(documents[0].operation_id, "general-1");
+    let mut import = ImportJob::from_bytes(&import.to_bytes().unwrap()).unwrap();
+    // Out of sequence: refused, nothing changes.
+    assert!(import.accept(crypto, 0, &second.packets).is_err());
+    assert_eq!(import.next(), Some((0, 1)));
+    import.accept(crypto, 0, &first.packets[1..]).unwrap();
+    assert!(!import.complete(0));
+    import.accept(crypto, 0, &second.packets).unwrap();
+    assert!(import.complete(0));
+    assert_eq!(import.next(), None);
 }

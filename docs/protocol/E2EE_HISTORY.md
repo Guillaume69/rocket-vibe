@@ -59,8 +59,7 @@ strings.
 | Field | Content |
 |---|---|
 | `version` | `1` |
-| `root` | Account root, exact |
-| `certificate` | Current certificate of the requesting device |
+| `certificate` | Current certificate of the requesting device, carrying the account root |
 | `request_id` | Random 32-byte OS identifier |
 | `recipient` | X25519 public key generated for this request only |
 | `issued_at`, `expires_at` | Window of at most 7 days |
@@ -90,10 +89,19 @@ A share answers exactly one request fingerprint. It contains:
 ### Packets
 
 Each document is a [v1 archive packet](E2EE_ARCHIVE.md#first-format-immutable-document-v1)
-sealed by the sharing device from its verified local observation. Its key is not
-random: it is HKDF-SHA256 of the period secret with `info` =
-`rocketvibe-history-document-key-v1` NUL `key_id`. Only the period secrets travel,
-inside the envelope; the packets are useless without it.
+sealed by the sharing device from its verified local observation, with the author's
+membership recorded at reception. Its key, `key_id` and nonce are not random: they
+are the 72 bytes of HKDF-SHA256 of the period secret (empty salt) with `info` =
+`rocketvibe-history-document-v1` NUL the document's rank in the period (from 1, as
+a big-endian u64). Only the period secrets travel, inside the envelope; the packets
+are useless without it. The receiver derives the material for the rank it expects
+and checks `key_id` and nonce: a packet omitted, repeated or served at another rank
+is refused at once, before the chain is complete.
+
+Sealing is deterministic: Ed25519 signatures are, and each rank has its own key
+and nonce over an immutable document. A page lost on the way is sealed again byte
+for byte, so the sharing device keeps only the period secrets and the running
+chain of the pages the server already holds, never the packets.
 
 ## Flow
 
@@ -104,17 +112,22 @@ inside the envelope; the packets are useless without it.
    the signature, the certificate against the verified directory (same root, listed,
    not revoked, not itself) and the window, and shows the same fingerprint with the
    rooms and periods it would share. Nothing is sent yet.
-3. **Approval.** After the human confirms, the sharing device seals the packets and
-   the share in one protected transaction under a fixed operation ID, then uploads
-   the packets by pages and finally commits the share. A lost response resumes with
-   the same operation, packets and share: no second period secret is drawn.
+3. **Approval.** After the human confirms, the sharing device records a share job
+   in its vault: the request, its pinned certificate, and per period the binding, a
+   fresh secret and the number of documents its index holds now. It seals and
+   uploads the periods page by page, recording each page once the server holds it,
+   then draws the envelope once, keeps the signed share and commits it. A lost
+   response resumes from the job: same secrets, same packets, same share. A renewed
+   sharing certificate ends the job; a new approval starts another.
 4. **Import.** The new device fetches the share, verifies the sharing certificate
    against its directory, the signature, the request fingerprint, then opens the
-   envelope. Per manifest entry it downloads the packets by pages, verifies each one
-   (signature, same root, origin scope = entry room, position inside the entry
-   bounds, derived key, document codec) and the chain, then stores the documents in
-   a recovered catalog of its vault in one protected transaction per page. The
-   entry becomes visible only when its chain is complete.
+   envelope and keeps the share and its secrets as an import job in its vault. Per
+   manifest entry it downloads the packets by pages, verifies each one (signed by
+   the share's certificate, origin scope = entry room, increasing position inside
+   the entry bounds, key material of its rank, document codec) and folds the chain,
+   then stores the documents in a recovered catalog of its vault, with the job's
+   progress, in one protected transaction per page. The entry becomes visible only
+   when its count and chain match the manifest.
 5. **Acknowledgement.** Once every entry is imported, the new device acknowledges;
    the server deletes the share and its packets. Unacknowledged shares expire after
    7 days.

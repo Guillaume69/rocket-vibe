@@ -19,14 +19,15 @@ Le premier prototype utilise OpenMLS 0.9.0 et son fournisseur RustCrypto 0.6.0,
 versions stables vérifiées sur crates.io. Suite unique :
 `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` (0x0001). Le moteur déléguera les
 opérations MLS à cette bibliothèque ; pas de ratchet ou d'échange de groupe
-réimplémenté dans l'API. Le prototype reste distinct du serveur et des apps.
+réimplémenté dans l'API. Le moteur est maintenant raccordé au serveur et aux
+interfaces existantes, derrière une capacité E2EE de production désactivée.
 L'existence d'une bibliothèque ne vaut pas audit de notre intégration.
 
 Un moteur Rust partagé évite deux implémentations crypto natives divergentes.
-Il devra être accessible depuis le cœur bureau et un pont natif mobile limité
-aux opérations de clé / message. Les écrans actuels de verrouillage, salon et
-profil restent les points d'entrée. Le pont Android / Hermes est une preuve à
-obtenir avant de retenir définitivement ce choix. OpenMLS annonce des tests sur
+Il est accessible depuis le cœur bureau et un pont natif mobile limité aux
+opérations de clé / message. Les écrans actuels de verrouillage, salon et
+profil restent les points d'entrée. Le pont Android / Hermes, ses deux ABI et
+le vrai Keystore passent en CI sur émulateur. OpenMLS annonce des tests sur
 Linux / Windows / macOS et des builds Android ; cela ne qualifie pas notre app.
 [Source du projet](https://github.com/openmls/openmls).
 
@@ -250,19 +251,28 @@ périodes d'adhésion séparées, récupération explicite pour un nouvel appare
 même compte, aucun historique antérieur automatique pour un nouveau membre et
 conservation des documents déjà authentifiés après retrait de leur auteur.
 Elle distingue les copies locales des autorisations de nouveau téléchargement.
-Les formats / enveloppes et leur qualification restent à livrer.
+Le format de document et le catalogue local sont prolongés ci-dessous ; les
+enveloppes de destinataires et leur qualification restent à livrer.
 
 Un [premier format de document d'archive](../protocol/E2EE_ARCHIVE.md#premier-format--document-immuable-v1)
-implémente AEAD, signature et liaison à l'original. Admission, transport,
-enveloppes / sauvegardes de clés, lecteurs et revue restent à livrer.
+implémente AEAD, signature et liaison à l'original. Le coffre conserve des blocs
+immuables et un catalogue d'observations lié à l'admission. Les projections
+communes bureau / Android lisent un index séparé des pages de journal vérifiées,
+y compris racines / compteurs de fils et dernière page après oubli du cache.
+Le banc de 70 messages, migration / préfixe et worker HTTP passent ; reçus
+synthétiques et qualification installée restent distincts. Éviction automatique,
+sources hors cache, registre d'opérations / charge, admission des paquets portables,
+transport, enveloppes / sauvegardes de clés et revue restent ouverts.
 La sauvegarde de **racine de compte**
 est implémentée séparément : code OS aléatoire, AAD lié à la racine / ID de backup,
 graine privée chiffrée et restauration neuve avec reçu de rejeu exact. Elle ne
 récupère aucun ratchet, clé d'archive, pin ou fichier historique. Un code ancien
 et une ancienne copie conservent l'accès à la racine ; changer le code ne la
 révoque pas. Compromission de racine exige remplacement et vérification.
-Cérémonie UI / réseau et revue restent ouvertes. Ce sont des conditions
-bloquantes du parcours complet, pas des fonctionnalités promises par le prototype.
+Publication / règlement HTTP et cérémonies de sauvegarde / restauration sont
+raccordés aux paramètres Android / GTK / SwiftUI existants. Les CI du serveur,
+modèles Swift, GTK sous Xvfb, macOS et Android / vrai Keystore sont vertes pour
+ce lot. Qualification installée, récupération d'archive et revue restent ouvertes.
 Sans secret ni appareil autorisé, l'historique perdu demeure irrécupérable.
 
 ## Données et compatibilité

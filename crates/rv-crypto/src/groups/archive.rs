@@ -4,6 +4,7 @@ use super::*;
 use rv_crypto_public::messages as packet;
 use vault::blobs::{Access, Reference};
 use zeroize::Zeroizing;
+mod journal;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -21,6 +22,8 @@ struct Head {
     position: u64,
     reference: Reference,
     ordered: bool,
+    #[serde(default)]
+    retired: bool,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -147,6 +150,9 @@ impl Coordinator {
             return Ok(reference);
         }
         let prior = head(records, &binding)?;
+        if prior.as_ref().is_some_and(|h| h.retired) {
+            return Err(Error::MessageRetired);
+        }
         let count = prior.as_ref().map_or(1, |h| h.count.saturating_add(1));
         if count > i64::MAX as u64 {
             return Err(Error::JournalOrder);
@@ -198,6 +204,7 @@ impl Coordinator {
             position: receipt.position,
             reference,
             ordered,
+            retired: false,
         };
         records.insert(
             key(&header.binding)?,
@@ -254,6 +261,9 @@ impl Coordinator {
             let Some(header) = head(records, &binding)? else {
                 return Ok(Vec::new());
             };
+            if header.retired {
+                return Ok(Vec::new());
+            }
             let mut entry = node(blocks, &header.reference, &binding)?;
             if entry.index != header.count || entry.receipt.position != header.position {
                 return Err(Error::Changed);

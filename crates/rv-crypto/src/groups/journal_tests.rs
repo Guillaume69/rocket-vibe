@@ -5,6 +5,231 @@ use rv_protocol::e2ee as http;
 const BASE: u64 = 9007199254740992;
 
 #[test]
+fn archive_projection_reopens_old_pages_and_thread_root_after_cache_eviction() {
+    let (alice, bob, _, initial) = fixture(false);
+    let observed = observation(&alice);
+    let first = page(&observed, 0, 1, vec![group(&initial, 1, None)], None);
+    for account in [&alice, &bob] {
+        account
+            .coordinator()
+            .receive_journal(&observed, &first, NOW)
+            .unwrap();
+    }
+    let root = format!("stored-{}", BASE + 1);
+    let mut after = 1;
+    for batch in 0..7 {
+        let mut events = Vec::new();
+        for number in (batch * 10 + 1)..=(batch * 10 + 10) {
+            let mut doc = messages::message(&format!("archived-journal-{number}"));
+            doc.reply_to = matches!(number, 2 | 70).then(|| root.clone());
+            events.push(send_document(&alice, doc, BASE + number));
+        }
+        let through = BASE + batch * 10 + 10;
+        let next = page(&observed, after, through, events, None);
+        for account in [&alice, &bob] {
+            let result = account
+                .coordinator()
+                .receive_journal(&observed, &next, NOW)
+                .unwrap();
+            for message in result.messages {
+                account
+                    .coordinator()
+                    .forget_message(&message.receipt)
+                    .unwrap();
+            }
+        }
+        after = through;
+    }
+    let projection = bob
+        .reopened()
+        .journal_projection(
+            &observed,
+            &ProjectionQuery {
+                before: None,
+                limit: 20,
+                thread: None,
+            },
+            NOW,
+        )
+        .unwrap();
+    assert!(projection.complete && projection.has_older);
+    assert_eq!(projection.messages.len(), 20);
+    assert_eq!(projection.messages[0].message.receipt.position, BASE + 50);
+    assert_eq!(projection.messages[19].message.receipt.position, BASE + 69);
+    assert_eq!(projection.retained_replies[&root], 2);
+    let older = bob
+        .reopened()
+        .journal_projection(
+            &observed,
+            &ProjectionQuery {
+                before: Some(BASE + 6),
+                limit: 20,
+                thread: None,
+            },
+            NOW,
+        )
+        .unwrap();
+    assert!(!older.has_older);
+    assert_eq!(older.messages.len(), 4);
+    assert_eq!(older.messages[0].message.receipt.position, BASE + 1);
+    let thread = bob
+        .reopened()
+        .journal_projection(
+            &observed,
+            &ProjectionQuery {
+                before: None,
+                limit: 1,
+                thread: Some(root.clone()),
+            },
+            NOW,
+        )
+        .unwrap();
+    assert!(thread.has_older);
+    assert_eq!(thread.root.unwrap().message.receipt.message, root);
+    assert_eq!(thread.messages[0].message.receipt.position, BASE + 70);
+    let replay = bob.reopened().journal_last_batch(&observed, NOW).unwrap();
+    assert_eq!(replay.messages.len(), 10);
+    assert_eq!(replay.messages[0].receipt.position, BASE + 61);
+    assert_eq!(replay.messages[9].receipt.position, BASE + 70);
+    bob.revoke(&alice);
+    let known = bob
+        .reopened()
+        .journal_projection(
+            &observed,
+            &ProjectionQuery {
+                before: Some(BASE + 2),
+                limit: 20,
+                thread: None,
+            },
+            NOW,
+        )
+        .unwrap();
+    assert_eq!(
+        known.messages[0].message.message().unwrap().operation_id,
+        "archived-journal-1"
+    );
+}
+
+#[test]
+fn legacy_journal_cache_is_indexed_but_a_separate_observation_never_enters_the_prefix() {
+    let (alice, bob, _, initial) = fixture(false);
+    let observed = observation(&alice);
+    let first = page(&observed, 0, 1, vec![group(&initial, 1, None)], None);
+    for account in [&alice, &bob] {
+        account
+            .coordinator()
+            .receive_journal(&observed, &first, NOW)
+            .unwrap();
+    }
+    let mut doc = messages::message("legacy-indexed-first");
+    doc.reply_to = None;
+    let first = page(
+        &observed,
+        1,
+        BASE + 1,
+        vec![send_document(&alice, doc.clone(), BASE + 1)],
+        None,
+    );
+    bob.coordinator()
+        .receive_journal(&observed, &first, NOW)
+        .unwrap();
+    // Reconstruct the protected cache schema before archive indexing existed.
+    bob.manager
+        .transact(|_, records| {
+            records.retain(|name, _| {
+                !name.starts_with("crypto-journal-archive-v1/")
+                    && !name.starts_with("crypto-observed-archive-v1/")
+            });
+            let bytes = records.get_mut("crypto-messages-v1").unwrap();
+            let mut ledger: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+            for entry in ledger["cache"].as_object_mut().unwrap().values_mut() {
+                entry.as_object_mut().unwrap().remove("archive");
+            }
+            *bytes = serde_json::to_vec(&ledger).unwrap();
+            Ok(())
+        })
+        .unwrap();
+    doc.operation_id = "new-indexed-second".into();
+    let second = page(
+        &observed,
+        BASE + 1,
+        BASE + 2,
+        vec![send_document(&alice, doc.clone(), BASE + 2)],
+        None,
+    );
+    let result = bob
+        .reopened()
+        .receive_journal(&observed, &second, NOW)
+        .unwrap();
+    bob.coordinator()
+        .forget_message(&result.messages[0].receipt)
+        .unwrap();
+    let frame = match &first.events[0].content {
+        http::DeliveryContent::Message(frame) => frame,
+        _ => panic!(),
+    };
+    let (_, receipt) = MessageSubmission::from_delivered(frame).unwrap();
+    bob.coordinator().forget_message(&receipt).unwrap();
+    doc.operation_id = "separately-observed-third".into();
+    let event = send_document(&alice, doc, BASE + 3);
+    let frame = match event.content {
+        http::DeliveryContent::Message(frame) => frame,
+        _ => panic!(),
+    };
+    let (submission, receipt) = MessageSubmission::from_delivered(&frame).unwrap();
+    let coordinator = bob.coordinator();
+    coordinator
+        .transact_with_blobs(|provider, records, blocks| {
+            coordinator.receive_message_inner(
+                provider,
+                records,
+                blocks,
+                &observed.current,
+                &submission,
+                &receipt,
+                NOW,
+                false,
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    let empty = page(&observed, BASE + 2, BASE + 3, Vec::new(), None);
+    bob.coordinator()
+        .receive_journal(&observed, &empty, NOW)
+        .unwrap();
+    let projection = bob
+        .reopened()
+        .journal_projection(
+            &observed,
+            &ProjectionQuery {
+                before: None,
+                limit: 20,
+                thread: None,
+            },
+            NOW,
+        )
+        .unwrap();
+    assert_eq!(projection.after, BASE + 3);
+    assert_eq!(projection.messages.len(), 2);
+    assert_eq!(
+        projection.messages[0]
+            .message
+            .message()
+            .unwrap()
+            .operation_id,
+        "legacy-indexed-first"
+    );
+    assert_eq!(
+        projection.messages[1]
+            .message
+            .message()
+            .unwrap()
+            .operation_id,
+        "new-indexed-second"
+    );
+}
+
+#[test]
 fn known_own_acceptance_refuses_a_peer_fork_without_spending_the_pending_commit_or_cursor() {
     let (alice, bob, _, initial) = fixture(false);
     let observed = observation(&alice);

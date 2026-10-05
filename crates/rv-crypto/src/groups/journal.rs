@@ -49,10 +49,10 @@ pub struct JournalProjection {
     pub complete: bool,
     pub has_older: bool,
     pub messages: Vec<ProjectedMessage>,
-    /// Root of the requested thread, only when retained in this same verified
+    /// Root of the requested thread, only when observed in this same verified
     /// prefix and personal grant. Never recovered from the ordinary app cache.
     pub root: Option<ProjectedMessage>,
-    /// Counts of retained replies, not remote/full-archive thread counts.
+    /// Counts of locally observed replies, never unverified remote counts.
     pub retained_replies: BTreeMap<String, u32>,
 }
 /// Reader-bound source lookup for private references, including thread replies.
@@ -385,8 +385,18 @@ impl Coordinator {
         observation: &JournalObservation,
         now: u64,
     ) -> Result<JournalBatch> {
-        self.journal_inspect(observation, now, |records, cursor, grant| {
-            let messages = self.journal_clear(records, &cursor.scope, grant, &cursor.positions)?;
+        self.journal_inspect(observation, now, |records, blocks, cursor, grant| {
+            let messages = match self.archive_journal_clear(
+                records,
+                blocks,
+                &cursor.scope,
+                grant,
+                cursor.admission,
+                &cursor.positions,
+            )? {
+                Some(messages) => messages,
+                None => self.journal_clear(records, &cursor.scope, grant, &cursor.positions)?,
+            };
             Ok(JournalBatch {
                 head: cursor.head.clone(),
                 after: cursor.after,
@@ -412,9 +422,19 @@ impl Coordinator {
         {
             return Err(Error::Limit);
         }
-        self.journal_inspect(observation, now, |records, cursor, grant| {
-            let retained =
-                self.project_journal(records, &cursor.scope, grant, cursor.after, query)?;
+        self.journal_inspect(observation, now, |records, blocks, cursor, grant| {
+            let retained = match self.archive_journal_projection(
+                records,
+                blocks,
+                &cursor.scope,
+                grant,
+                cursor.admission,
+                cursor.after,
+                query,
+            )? {
+                Some(projection) => projection,
+                None => self.project_journal(records, &cursor.scope, grant, cursor.after, query)?,
+            };
             Ok(JournalProjection {
                 head: cursor.head.clone(),
                 admission: cursor.admission,
@@ -432,7 +452,7 @@ impl Coordinator {
         observation: &JournalObservation,
         now: u64,
     ) -> Result<JournalSources> {
-        self.journal_inspect(observation, now, |records, cursor, grant| {
+        self.journal_inspect(observation, now, |records, _blocks, cursor, grant| {
             Ok(JournalSources {
                 admission: cursor.admission,
                 after: cursor.after,
@@ -444,7 +464,7 @@ impl Coordinator {
         &self,
         observation: &JournalObservation,
         now: u64,
-        project: impl FnOnce(&Records, &Cursor, &Member) -> Result<T>,
+        project: impl FnOnce(&Records, &vault::blobs::Access<'_>, &Cursor, &Member) -> Result<T>,
     ) -> Result<T> {
         let current = &observation.current;
         check_request(&current.roster, "journal-control", &[])?;
@@ -461,7 +481,7 @@ impl Coordinator {
             .find(|m| m.user == self.manager.scope().user)
             .ok_or(Error::JournalOrder)?;
         let admission = self.admission_witness(&remote.plan, grant)?;
-        self.inspect(|_, records| {
+        self.inspect_with_blobs(|_, records, blocks| {
             self.context(records, now)?;
             let request = self.journal_request_inner(records, &current.head.scope.room)?;
             let state = super::read(records, &request.scope.room)?.ok_or(Error::NotReady)?;
@@ -474,7 +494,7 @@ impl Coordinator {
             {
                 return Err(Error::JournalOrder);
             }
-            project(records, &cursor, grant)
+            project(records, blocks, &cursor, grant)
         })
     }
 }

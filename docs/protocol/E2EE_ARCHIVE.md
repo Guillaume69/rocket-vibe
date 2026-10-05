@@ -161,8 +161,8 @@ ajouté au contrôle serveur. Ce vecteur contient un certificat jetable et un
 paquet AEAD réel, sans clé privée ; il n'atteste pas une admission MLS réelle.
 
 Restent l'admission des paquets portables, les enveloppes de destinataires et
-sauvegardes de leurs clés, le transport serveur, les lecteurs existants et la
-qualification indépendante. Le catalogue local d'originaux observés décrit
+sauvegardes de leurs clés, le transport serveur, les lecteurs de paquets portables
+et la qualification indépendante. Le catalogue local d'originaux observés décrit
 ci-dessous conserve une preuve distincte du paquet portable signé par l'auteur.
 
 ## Stockage local : blocs chiffrés et checkpoint commun
@@ -204,9 +204,9 @@ indisponible. Les cinq anciens tests de coffre passent en 2,93 s, avec vrai kill
 de processus et une entrée enfant ignorée appelée par son banc parent.
 
 Ce stockage est interne et lié à l'installation protégée. Il ne remplace ni
-le paquet portable d'archive, ni les enveloppes / sauvegardes de clés. Les
-lecteurs des interfaces restent à raccorder ; le cache affiché reste actuellement
-limité à 64 documents.
+le paquet portable d'archive, ni les enveloppes / sauvegardes de clés. Le
+raccordement des projections locales est décrit ci-dessous ; le cache chaud
+reste borné à 64 documents, sans éviction automatique à ce stade.
 
 ## Catalogue local des originaux observés
 
@@ -240,7 +240,43 @@ synthétiques : ils ne qualifient pas le transport serveur de l'archive.
 Les trois tests passent en 130,85 s ; les 15 tests de réception et 13 tests du
 journal passent également après ce raccordement.
 
-`Coordinator::observed_archive` expose cette lecture locale au moteur. Les
-projections utilisées par les interfaces conservent encore leur cache de 64
-documents. Ce catalogue ne distribue aucune clé et ne peut pas fabriquer au
-nom d'un autre auteur un paquet portable signé.
+`Coordinator::observed_archive` expose cette lecture locale au moteur. Ce
+catalogue ne distribue aucune clé et ne peut pas fabriquer au nom d'un autre
+auteur un paquet portable signé.
+
+## Lecture des conversations depuis le préfixe archivé
+
+Un deuxième index protégé contient uniquement les documents admis dans une page
+de journal vérifiée. Il référence les blocs d'observation et conserve les
+positions / références de sauts, sans dupliquer leur plaintext. Recevoir un écho
+personnel ou observer un message séparément ne suffit pas à l'ajouter au préfixe.
+Index, document, ratchet et curseur commitent sous le même checkpoint.
+
+`journal_projection` lit désormais cet index dans les lecteurs existants bureau
+et Android, avec la borne du curseur protégé, le filtre de fil, `has_older`, la
+racine observée du fil et ses compteurs locaux. `journal_last_batch` retrouve les
+originaux même après oubli du cache chaud. Aucun trousseau imbriqué n'est ouvert
+pendant la projection. Le document restitué revalide sa soumission / reçu exacts.
+Le retrait d'une admission marque les deux catalogues hors projection ; une
+réadmission distincte ne peut pas les fusionner implicitement.
+
+L'ancien cache protégé reste lisible quand aucun index n'existe. La réception
+suivante indexe ses seules entrées déjà journalisées pour cette adhésion, avant
+les nouveaux documents. Une observation séparée reste exclue même si une page
+vide fait avancer le curseur au-delà de sa position.
+
+Les 15 tests de journal passent en 113,26 s, dont un parcours de 70 messages avec
+oubli des deux caches, réouverture, anciennes pages, racine / compteurs du fil,
+reprise de la dernière page et auteur retiré. La migration de l'ancien cache et
+l'exclusion d'une observation extérieure au préfixe passent aussi. Les reçus
+demeurent synthétiques. Le banc HTTP du worker passe en 1,94 s : réponse de
+lecture perdue, réception MLS réelle, oubli du cache, reprise / projection des
+originaux et refus d'une réponse servie sous le mauvais chemin de salon. Il
+utilise un serveur HTTP de fixture ; PostgreSQL et applications installées
+demeurent des qualifications distinctes.
+
+Cette étape raccorde la lecture des originaux localement reçus. L'éviction
+automatique du cache, la recherche des sources de citations hors cache, le
+déplacement du registre d'opérations actuellement borné à 8 192 et la récupération
+portable restent ouverts. Les compteurs de fils parcourent encore l'index local
+entier : une qualification de charge / un index de métadonnées restent nécessaires.

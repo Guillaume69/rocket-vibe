@@ -7,6 +7,14 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Historique local chiffré expérimental
+
+- Les conversations lisent les documents déjà vérifiés depuis l'archive locale
+  après oubli du cache chaud : anciennes pages, racines / compteurs des fils et
+  dernière page après réouverture. Une admission retirée masque sa projection.
+- L'éviction automatique du cache et la récupération portable de l'historique
+  restent ouvertes. L'E2EE de production demeure désactivé.
+
 ### Récupération expérimentale de l’identité RocketVibe
 
 - Les paramètres existants préparent une copie chiffrée de l’identité et

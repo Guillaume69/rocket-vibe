@@ -816,6 +816,56 @@ impl Coordinator {
         let (mut state, grant) = self.message_observation(records, observation, now)?;
         let mut ledger = self.message_ledger(records)?;
         ledger_clock(&ledger, now)?;
+        let admission = self.admission_witness(
+            &state
+                .active
+                .as_ref()
+                .ok_or(Error::NotReady)?
+                .transition
+                .plan,
+            &grant,
+        )?;
+        if ordered_receive && !self.has_journal_archive(records, &state.scope, &grant, admission)? {
+            // Upgrade only protected, previously journaled cache entries. An
+            // accepted own echo alone never proves inclusion in this prefix.
+            let mut legacy = ledger
+                .cache
+                .iter()
+                .filter_map(|(id, entry)| {
+                    let receipt = entry.receipt.as_ref()?;
+                    (entry.journaled
+                        && !entry.retired
+                        && entry.grant == grant
+                        && receipt.header.scope == state.scope)
+                        .then_some((receipt.position, id.clone()))
+                })
+                .collect::<Vec<_>>();
+            legacy.sort_by_key(|(position, _)| *position);
+            for (_, id) in legacy {
+                let entry = ledger.cache.get_mut(&id).ok_or(Error::Changed)?;
+                let receipt = entry.receipt.as_ref().ok_or(Error::Changed)?;
+                let reference = self.archive_observed(
+                    records,
+                    blobs,
+                    &state,
+                    &grant,
+                    &entry.submission,
+                    receipt,
+                    &entry.plaintext,
+                    entry.created,
+                    entry.archive,
+                )?;
+                self.index_archive_message(
+                    records,
+                    blobs,
+                    reference,
+                    &state.scope,
+                    &grant,
+                    admission,
+                )?;
+                entry.archive = Some(reference);
+            }
+        }
         if let Some(seen) = ledger.seen.get_mut(&id) {
             if seen.cancelled.is_some() {
                 return Err(Error::Receipt);
@@ -838,7 +888,6 @@ impl Coordinator {
             seen.receipt = Some(received_hash.clone());
             seen.cancelling = false;
             entry.receipt = Some(receipt.clone());
-            entry.journaled |= ordered_receive;
             entry.archive = Some(self.archive_observed(
                 records,
                 blobs,
@@ -850,6 +899,17 @@ impl Coordinator {
                 entry.created,
                 entry.archive,
             )?);
+            if ordered_receive && !entry.journaled {
+                self.index_archive_message(
+                    records,
+                    blobs,
+                    entry.archive.ok_or(Error::Changed)?,
+                    &state.scope,
+                    &grant,
+                    admission,
+                )?;
+            }
+            entry.journaled |= ordered_receive;
             let clear = ClearMessage {
                 receipt: receipt.clone(),
                 payload: Zeroizing::new(entry.plaintext.to_vec()),
@@ -924,6 +984,9 @@ impl Coordinator {
         let archived = self.archive_observed(
             records, blobs, &state, &grant, submission, receipt, &plaintext, now, None,
         )?;
+        if ordered_receive {
+            self.index_archive_message(records, blobs, archived, &state.scope, &grant, admission)?;
+        }
         let clear = ClearMessage {
             receipt: receipt.clone(),
             payload: Zeroizing::new(plaintext.to_vec()),
@@ -1152,6 +1215,7 @@ impl Coordinator {
             }
         }
         ledger.clock = now;
+        self.retire_observed_archive(records, room)?;
         save_ledger(records, &ledger)
     }
 }

@@ -633,6 +633,9 @@ async fn journal_worker_reopens_after_lost_read_replays_clear_and_refuses_wrong_
         batch.messages[0].message().unwrap().operation_id,
         "journal-http"
     );
+    bob.coordinator()
+        .forget_message(&batch.messages[0].receipt)
+        .unwrap();
     let replay = server
         .worker(&bob)
         .journal_last_batch("room")

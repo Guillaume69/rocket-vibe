@@ -86,7 +86,7 @@ impl AppWindow {
         let stack = gtk::Stack::builder().transition_type(gtk::StackTransitionType::Crossfade).build();
         stack.add_named(&adw::Spinner::new(), Some("starting"));
         stack.add_named(&login.widget, Some("login"));
-        stack.add_named(chat.widget(), Some("chat"));
+        stack.add_named(chat.root(), Some("chat"));
         let toasts = adw::ToastOverlay::new();
         toasts.set_child(Some(&stack));
         stack.set_visible_child_name("starting");

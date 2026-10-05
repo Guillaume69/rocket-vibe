@@ -259,9 +259,9 @@ pub fn sparkle() -> gtk::DrawingArea {
     area
 }
 
-/// Thin brand-gradient comet sweeping a header's bottom edge while syncing.
+/// Thin brand-gradient comet sweeping the window's top edge while syncing.
 pub fn comet() -> gtk::Box {
-    gtk::Box::builder().css_classes(["comet"]).height_request(3).hexpand(true).build()
+    gtk::Box::builder().css_classes(["comet"]).height_request(3).valign(gtk::Align::Start).can_target(false).build()
 }
 
 #[cfg(test)]

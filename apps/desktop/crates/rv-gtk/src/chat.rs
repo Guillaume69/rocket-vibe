@@ -108,13 +108,14 @@ fn load_collapsed() -> Vec<Section> {
 }
 
 pub struct ChatPage {
+    root: gtk::Overlay,
     split: adw::NavigationSplitView,
     update_slot: gtk::Box,
     account_name: gtk::Label,
     account_host: gtk::Label,
     account_tile: gtk::Box,
     status_dot: gtk::Box,
-    comets: Vec<gtk::Box>,
+    comet: gtk::Box,
     connection: Cell<Connection>,
     room_title: gtk::Box,
     typing_label: gtk::Label,
@@ -232,7 +233,6 @@ impl ChatPage {
             .tooltip_text(t("rooms.new"))
             .build();
         sidebar_header.pack_end(&new_conversation);
-        let sidebar_comet = widgets::comet();
 
         let account_tile = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         let account_name = label("", &["account-name"]);
@@ -251,7 +251,6 @@ impl ChatPage {
 
         let sidebar_toolbar = adw::ToolbarView::new();
         sidebar_toolbar.add_top_bar(&sidebar_header);
-        sidebar_toolbar.add_top_bar(&sidebar_comet);
         sidebar_toolbar.set_content(Some(
             &gtk::ScrolledWindow::builder()
                 .hscrollbar_policy(gtk::PolicyType::Never)
@@ -308,10 +307,8 @@ impl ChatPage {
             .visible(false)
             .build();
         let typing_label = gtk::Label::builder().xalign(0.0).css_classes(["typing"]).visible(false).build();
-        let room_comet = widgets::comet();
         let room_view = adw::ToolbarView::new();
         room_view.add_top_bar(&room_header);
-        room_view.add_top_bar(&room_comet);
         // The composer is content, not a bottom bar: libadwaita wraps bars in a
         // GtkWindowHandle, where a double click maximizes the window.
         let room_content = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -364,15 +361,19 @@ impl ChatPage {
         split.set_content(Some(&content_page));
         split.set_min_sidebar_width(260.0);
         split.set_max_sidebar_width(400.0);
+        let comet = widgets::comet();
+        let root = gtk::Overlay::builder().child(&split).build();
+        root.add_overlay(&comet);
 
         let this = Rc::new(ChatPage {
+            root,
             split,
             update_slot,
             account_name,
             account_host,
             account_tile,
             status_dot,
-            comets: vec![sidebar_comet, room_comet],
+            comet,
             connection: Cell::new(Connection::Offline),
             room_title,
             typing_label,
@@ -787,6 +788,10 @@ impl ChatPage {
         &self.split
     }
 
+    pub fn root(&self) -> &gtk::Overlay {
+        &self.root
+    }
+
     /// Above the account, at the foot of the room list: the update card.
     pub fn set_update_notice(&self, notice: Option<&gtk::Widget>) {
         while let Some(child) = self.update_slot.first_child() {
@@ -1066,22 +1071,19 @@ impl ChatPage {
             button.set_tooltip_text(Some(tip));
         }
         self.connection.set(c);
-        self.update_comets();
+        self.update_comet();
     }
 
     fn set_loading(&self, loading: bool) {
         self.loading.set(loading);
-        self.update_comets();
+        self.update_comet();
     }
 
-    fn update_comets(&self) {
-        let active = self.loading.get() || self.connection.get() != Connection::Online;
-        for comet in &self.comets {
-            if active {
-                comet.add_css_class("active");
-            } else {
-                comet.remove_css_class("active");
-            }
+    fn update_comet(&self) {
+        if self.loading.get() || self.connection.get() != Connection::Online {
+            self.comet.add_css_class("active");
+        } else {
+            self.comet.remove_css_class("active");
         }
     }
 

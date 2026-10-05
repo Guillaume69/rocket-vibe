@@ -23,6 +23,7 @@ use std::{
 };
 
 pub mod history;
+pub mod history_backup;
 pub mod peers;
 pub mod recovery;
 pub mod revocations;

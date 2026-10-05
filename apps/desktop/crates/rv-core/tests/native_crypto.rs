@@ -1,6 +1,8 @@
 mod common;
 #[path = "native_crypto/history.rs"]
 mod history;
+#[path = "native_crypto/history_backup.rs"]
+mod history_backup;
 #[path = "native_crypto/recovery.rs"]
 mod recovery;
 #[path = "native_crypto/revocations.rs"]

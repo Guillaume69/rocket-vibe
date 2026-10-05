@@ -460,5 +460,131 @@ impl Coordinator<'_> {
     }
 }
 
+/// One page to PUT on `…/history-backup/periods/{period}/records`.
+pub struct BackupUpload {
+    pub period: String,
+    pub input: http::UploadHistoryBackup,
+    id: rv_crypto_public::Fingerprint,
+    start: u64,
+    count: u64,
+}
+fn checkpoint(value: &str) -> Result<crate::history_backup::Checkpoint> {
+    crate::history_backup::Checkpoint::from_bytes(&decode(value, 8192)?).map_err(|_| Error::Changed)
+}
+impl Coordinator<'_> {
+    fn backup_groups(
+        &self,
+        directory: &Directory,
+        time: u64,
+    ) -> Result<crate::groups::Coordinator> {
+        let (manager, root) = self.prepared(directory, time)?;
+        Ok(crate::groups::Coordinator::new(manager, root)?)
+    }
+    /// The next page this device should back up, if it holds the history key.
+    pub fn history_backup_upload(
+        &self,
+        directory: &Directory,
+        time: u64,
+    ) -> Result<Option<BackupUpload>> {
+        let Some(page) = self
+            .backup_groups(directory, time)?
+            .history_backup_page(time)?
+        else {
+            return Ok(None);
+        };
+        let records = page
+            .records
+            .iter()
+            .map(|r| Ok(B64.encode(&r.to_bytes()?)))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Some(BackupUpload {
+            period: hex(&page.id),
+            input: http::UploadHistoryBackup {
+                scope: http::Scope {
+                    instance_id: self.0.account().instance.clone(),
+                    data_epoch: self.0.account().data_epoch.clone(),
+                },
+                start: page.start.to_string(),
+                records,
+                checkpoint: B64.encode(&page.checkpoint.to_bytes()?),
+            },
+            id: page.id,
+            start: page.start,
+            count: page.records.len() as u64,
+        }))
+    }
+    /// The server holds this page; its progress is recorded.
+    pub fn history_backup_uploaded(
+        &self,
+        directory: &Directory,
+        upload: BackupUpload,
+        receipt: &http::HistoryBackupReceipt,
+        time: u64,
+    ) -> Result<()> {
+        if receipt.period != upload.period
+            || receipt.count != (upload.start + upload.count).to_string()
+        {
+            return Err(Error::Changed);
+        }
+        Ok(self
+            .backup_groups(directory, time)?
+            .history_backup_uploaded(&upload.id, upload.start, upload.count, time)?)
+    }
+    /// The rank after which to download a listed period, or none when it is
+    /// already imported up to its checkpoint.
+    pub fn history_backup_next(
+        &self,
+        directory: &Directory,
+        listed: &http::HistoryBackupPeriod,
+        time: u64,
+    ) -> Result<Option<u64>> {
+        let checkpoint = checkpoint(&listed.checkpoint)?;
+        if hex(&checkpoint.body.period.id(&checkpoint.body.generation)?) != listed.period {
+            return Err(Error::Changed);
+        }
+        let held = self
+            .backup_groups(directory, time)?
+            .history_backup_imported(&checkpoint)?;
+        Ok((held < checkpoint.body.count).then_some(held))
+    }
+    /// Verifies and stores a downloaded page of a listed period; returns the
+    /// rank after which to continue, or none when it reached the checkpoint.
+    pub fn history_backup_import(
+        &self,
+        directory: &Directory,
+        listed: &http::HistoryBackupPeriod,
+        page: &http::HistoryBackupPage,
+        time: u64,
+    ) -> Result<Option<u64>> {
+        let checkpoint = checkpoint(&listed.checkpoint)?;
+        if page.period != listed.period
+            || hex(&checkpoint.body.period.id(&checkpoint.body.generation)?) != listed.period
+            || page.records.is_empty()
+            || page.records.len() > 200
+        {
+            return Err(Error::Changed);
+        }
+        let start = page.start.parse::<u64>().map_err(|_| Error::Changed)?;
+        let records = page
+            .records
+            .iter()
+            .map(|r| {
+                crate::history::Record::from_bytes(&decode(
+                    r,
+                    rv_crypto_public::archive::WIRE_LIMIT,
+                )?)
+                .map_err(|_| Error::Changed)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let held = self.backup_groups(directory, time)?.history_backup_import(
+            &checkpoint,
+            start,
+            &records,
+            time,
+        )?;
+        Ok((held < checkpoint.body.count).then_some(held))
+    }
+}
+
 #[cfg(test)]
 mod tests;

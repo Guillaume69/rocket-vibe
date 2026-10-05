@@ -22,13 +22,13 @@ export function historyPath(type: string): string {
 /** Server page size: the same step as the screen's SQLite window. */
 const PAGE = 50;
 
-export async function loadHistory(
+async function history(
   client: RestClient,
-  engine: SyncEngine,
   rid: string,
   type: string,
   latest?: string,
-): Promise<{ oldest: number | null }> {
+  oldest?: string,
+): Promise<Record<string, unknown>[]> {
   const response = await client.get<{ messages?: Record<string, unknown>[] }>(
     historyPath(type),
     {
@@ -40,10 +40,20 @@ export async function loadHistory(
       // identical to the stream's local filter, otherwise a whole page of
       // hidden replies would make the keyset pagination loop in place (the
       // `latest` comes from the FILTERED list).
-      params: { roomId: rid, count: PAGE, latest, inclusive: true, showThreadMessages: false },
+      params: { roomId: rid, count: PAGE, latest, oldest, inclusive: true, showThreadMessages: false },
     },
   );
-  const batch = response.messages ?? [];
+  return response.messages ?? [];
+}
+
+export async function loadHistory(
+  client: RestClient,
+  engine: SyncEngine,
+  rid: string,
+  type: string,
+  latest?: string,
+): Promise<{ oldest: number | null }> {
+  const batch = await history(client, rid, type, latest);
   const recent = await engine.ingestMessages(batch);
   // The page's oldest `ts`: IT tells the screen whether the page really went
   // back into the past (see `loadMore` and `pageMovedBack`).

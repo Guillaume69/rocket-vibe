@@ -109,7 +109,7 @@ pub(crate) async fn validate(
         .await?;
         let revision = match revision {
             Some(revision) => revision,
-            None => crate::e2ee::groups::messages::quote_revision(
+            None => crate::e2ee::groups::messages::delivered_position(
                 tx,
                 actor,
                 &reference.room_id,

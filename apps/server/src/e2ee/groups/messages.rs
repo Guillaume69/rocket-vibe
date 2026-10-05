@@ -236,14 +236,14 @@ pub async fn submit(
             return Err(Error::new(StatusCode::BAD_REQUEST, "invalid_thread_root"));
         }
     }
-    // An amendment names an accepted message of this room, keeping its thread;
-    // never another amendment. Only its author edits or deletes it, any member
-    // reacts to it.
+    // An amendment names an accepted message of this room that this device
+    // received (the thread root's witness), keeping its thread; never another
+    // amendment. Only its author edits or deletes it, any member reacts to it.
     if let Some(target) = &header.target {
         let author =
             matches!(header.kind, packet::Kind::Edit | packet::Kind::Delete).then_some(&actor.id);
-        let amendable: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM e2ee_application_messages WHERE id=$1 AND room_id=$2 AND ($3::TEXT IS NULL OR user_id=$3) AND target IS NULL AND thread_root IS NOT DISTINCT FROM $4)")
-            .bind(target).bind(room).bind(author).bind(&header.thread).fetch_one(&mut *tx).await?;
+        let amendable: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM e2ee_application_messages m JOIN e2ee_group_recipients r ON r.room_id=m.room_id AND r.revision=m.group_revision WHERE m.id=$1 AND m.room_id=$2 AND ($3::TEXT IS NULL OR m.user_id=$3) AND m.target IS NULL AND m.thread_root IS NOT DISTINCT FROM $4 AND r.device_id=$5 AND r.witness=$6)")
+            .bind(target).bind(room).bind(author).bind(&header.thread).bind(&device).bind(Json(admission_witness(&plan, participant)?)).fetch_one(&mut *tx).await?;
         if !amendable {
             return Err(Error::new(
                 StatusCode::BAD_REQUEST,
@@ -452,10 +452,11 @@ struct EventRow {
     proof: Option<Vec<u8>>,
     ciphertext: Option<Vec<u8>>,
 }
-/// Ordinary quote commands have already locked the actor/session and all
-/// source/destination rooms. Reuse private delivery's current reader and exact
-/// admission witness; only the historical position leaves this function.
-pub(crate) async fn quote_revision(
+/// Ordinary quote commands and encrypted file downloads have already locked
+/// the actor/session and the rooms. Reuse private delivery's current reader
+/// and exact admission witness: `None` unless this device was delivered the
+/// message. Only the historical position leaves this function.
+pub(crate) async fn delivered_position(
     tx: &mut Transaction<'_, Postgres>,
     actor: &Account,
     room: &str,

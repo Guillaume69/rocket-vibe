@@ -1307,6 +1307,30 @@ async fn any_member_reacts_to_a_message_but_only_its_author_edits_it(pool: PgPoo
         messages::submit(&app, &guest.actor, &room.id, forged).await,
         "invalid_amendment_target",
     );
+    // A device the target never reached (another admission witness) does not
+    // react to it.
+    let hide = |sql: &'static str| {
+        sqlx::query(sql)
+            .bind(guest.client.certificate.device.device.clone())
+            .execute(&app.pool)
+    };
+    hide("UPDATE e2ee_group_recipients SET witness=jsonb_build_array('hidden',witness) WHERE device_id=$1").await.unwrap();
+    let unseen = encrypted_as(
+        &guest,
+        &mut joined,
+        scope,
+        &receipt,
+        &amendment("eyes"),
+        packet::Kind::React,
+        Some(target.clone()),
+    );
+    rejected(
+        messages::submit(&app, &guest.actor, &room.id, unseen).await,
+        "invalid_amendment_target",
+    );
+    hide("UPDATE e2ee_group_recipients SET witness=witness->1 WHERE device_id=$1")
+        .await
+        .unwrap();
     for kind in [packet::Kind::React, packet::Kind::Unreact] {
         let reaction = encrypted_as(
             &guest,
@@ -1493,6 +1517,17 @@ async fn encrypted_objects_are_completed_by_their_private_message_and_served_to_
     let stranger = ready(&app, "file-stranger").await;
     assert!(
         crate::files::download(&app, &stranger.actor, &upload.id, None)
+            .await
+            .is_err()
+    );
+    // A member whose device the private message never reached does not
+    // download its object either.
+    let late = ready(&app, "file-late").await;
+    store::membership(&app, &owner.actor, &room.id, &late.actor.id, false)
+        .await
+        .unwrap();
+    assert!(
+        crate::files::download(&app, &late.actor, &upload.id, None)
             .await
             .is_err()
     );

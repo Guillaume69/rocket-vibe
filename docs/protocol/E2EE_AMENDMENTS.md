@@ -36,6 +36,9 @@ Old headers without `target` encode as before: existing vectors stay valid.
 - Only the **author** edits or deletes: an edit or deletion whose author differs from
   the target's author is ignored, wherever it comes from. The sending device checks it
   before preparing; the server refuses it on submission (`invalid_amendment_target`).
+- The server accepts an amendment only on a message this device was delivered
+  (the thread root's admission witness), so a device never names a message it
+  could not read.
 - Any member reacts to any message. For one user and one emoji, the latest `react` or
   `unreact` by journal position wins. A message shows each emoji with the users whose
   latest action is `react`, in the order of their first remaining reaction.

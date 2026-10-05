@@ -57,8 +57,11 @@ descriptors and header ids differ.
   submission is refused (`invalid_encrypted_file`). An exact retry returns the same
   receipt.
 - `GET /files/{id}` serves a completed encrypted object to current members of the
-  room, as `application/octet-stream`, with the same Range, lease and frame checks as
-  any file. A private deletion cannot cut the access: the server does not know of it,
+  room whose device its private message was delivered to (delivery's exact
+  admission witness at the message's group revision), as
+  `application/octet-stream`, with the same Range, lease and frame checks as any
+  file. A member who joined later, or whose device was never admitted, gets
+  `not_found`. A private deletion cannot cut the access: the server does not know of it,
   and members already hold the key anyway.
 
 ## Clients

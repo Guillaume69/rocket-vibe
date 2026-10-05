@@ -417,6 +417,15 @@ pub async fn download(
         .lock(app, &actor.session_hash, std::slice::from_ref(&room), None)
         .await?;
     readable(&mut initial, &message, encrypted).await?;
+    // An encrypted object goes only to a device its private message was
+    // delivered to (delivery's exact admission witness), not to every member.
+    if encrypted
+        && crate::e2ee::groups::messages::delivered_position(&mut initial, actor, &room, &message)
+            .await?
+            .is_none()
+    {
+        return Err(Error::missing());
+    }
     let mut reader = objects(app)?.open_reader(&object).await?;
     if reader
         .metadata()

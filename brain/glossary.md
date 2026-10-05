@@ -70,7 +70,6 @@ All code, comments and docs are in English. French survives in two places only: 
 
 | Term | Meaning | Where |
 |---|---|---|
-| `bringMessage` | Brings a message into the room's local window (paging history) before jumping to it. | `apps/mobile/ui/bringMessage.ts` |
 | `composer` | Composer shared by room and thread screens. | `apps/mobile/ui/composer.tsx` |
 | `generation` | Connection generation counter in `SyncProvider`, bumped at each connection setup; screen caches compare against it. | `apps/mobile/ui/sync.tsx` |
 | `homeSections` | The room list grouping (`unread`, `favorites`, `rooms`, `directMessages`) and the folded-section codec. | `apps/mobile/ui/homeSections.ts` |
@@ -80,7 +79,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | `launchPickerWithRetry` | Launches a native picker with retry over an Android view-tree NPE (the one argued fixed delay in the repo). | `apps/mobile/ui/launchPicker.ts` |
 | Live query (`useCoalescedLiveQuery`) | A `useLiveQuery` that coalesces write bursts. | `apps/mobile/ui/liveQuery.ts` |
 | Loaded rooms / threads | Which rooms / threads already got their opening load, and under which `generation`. | `apps/mobile/ui/loadedRooms.ts`, `apps/mobile/ui/loadedThreads.ts` |
-| `messageJump` | Jump-to-message target, armed by the pinned/starred list. | `apps/mobile/ui/messageJump.ts` |
+| `messageJump` | Jump-to-message target, armed by the pinned/starred list or the search. | `apps/mobile/ui/messageJump.ts` |
 | `MessageRow` | Message row, shared by room and thread. | `apps/mobile/ui/messageRow.tsx` |
 | `messages` | The i18n catalog (`fr` is the reference, `en` typed against it). | `apps/mobile/ui/messages.ts` |
 | Open rooms (`openRooms`) | Which room screens are mounted and which one is displayed (the only room the catch-up targets). | `apps/mobile/ui/openRooms.ts` |
@@ -140,7 +139,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | `rv-gtk` | The GTK 4 + libadwaita app (Linux, Windows, macOS). | [desktop-gtk](architecture/desktop-gtk.md) |
 | `rv-native` | Windows and macOS shims: system notifications, badges, call web views, tray, start at login. | [desktop-gtk](architecture/desktop-gtk.md) |
 | `RocketVibeKit`, `RocketVibe` | The SwiftUI app's view models and views (`apps/desktop/macos/Sources/`). | [desktop-macos](architecture/desktop-macos.md) |
-| Context window | The history around a message older than what a room has loaded, held in memory and never stored; the list showing it is detached from the present until the window reaches the local history (rv-core `context`). | [room-view](features/room-view.md) |
+| Context window | The history around a message older than what a room has loaded, held in memory and never stored; the list showing it is detached from the present until the window reaches the local history (rv-core `context`, rv-ffi `ContextView`, mobile `lib/contextWindow.ts`). | [room-view](features/room-view.md) |
 | `timeline` | rv-core's message-list grouping (headers, day separators, new-messages marker), shared by both UIs. | [room-view](features/room-view.md) |
 
 ## Project vocabulary

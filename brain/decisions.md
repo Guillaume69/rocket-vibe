@@ -48,6 +48,7 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
 - **Optimistic session resume.** The stored session is trusted at start and validated in the background; an unreachable server is not a reason to drop a session.
 - **Reconnection: jittered backoff, suspended in background, reset on foreground.** No socket is reopened in the background; coming back resets the backoff (measured 59 ms instead of a 22.7 s armed timer). 429s get a dispersed sleep but no per-route queue: the window is per minute, so only not emitting calls helps.
 - **Private edits and deletions are amendments, not server mutations.** On the RocketVibe server the server never sees private text, so it cannot rewrite or erase a message; an edit or deletion is a new encrypted message naming its target, checked by the server only for room, author and thread, and applied by every reader when it projects the journal (newest first, so no separate index). A deletion hides, it cannot recall copies already received. Keeping amendments in the normal outbox gives them resume and cancel for free. Reactions are amendments too, so the server never learns the emoji. See [e2ee-private-actions](features/e2ee-private-actions.md).
+- **Private files: an opaque object, the key in the message.** The server keeps its upload routes, quotas and Range downloads but sees only ciphertext of a known size; a fresh key per file travels inside the encrypted document, so access follows the room's members and no key exchange is needed. The private message completes the upload in its own transaction, so no object is reachable without a message. Sealing and opening are streamed in Rust on all three apps (native, not a JS polyfill). See [e2ee-private-files](features/e2ee-private-files.md).
 - **Private search runs on the device, without an index.** The server holds only ciphertext, and a persistent plaintext index would be a second copy of private text outside the protected archive; search instead walks the verified journal (then recovered history) with amendments applied, at the cost of decrypting documents on each search. See [e2ee-private-actions](features/e2ee-private-actions.md).
 - **Avatar versions go in the URL query.** `/avatar/<user>` has a 1 h cache and no ETag, so Android's image cache freezes it; `avatarETag` is appended and a no-photo marker is set on reset. See [avatars](features/avatars.md).
 
@@ -78,6 +79,7 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
 ## Sources
 
 - `docs/protocol/E2EE_AMENDMENTS.md`
+- `docs/protocol/E2EE_FILES.md`
 - `ROADMAP.md`
 - `CLAUDE.md`
 - `README.md`

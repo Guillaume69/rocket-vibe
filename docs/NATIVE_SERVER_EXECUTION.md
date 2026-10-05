@@ -5,20 +5,33 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 
 ## État synthétique au 5 octobre 2026
 
+Catalogue d'observation local : chaque réception MLS conserve désormais son
+document et sa preuve originale dans un bloc chiffré, ancré avec le ratchet /
+curseur dans le même checkpoint. Lecture par adhésion, pages de 1 à 200 et
+recherche des anciennes positions par sauts ; les échos personnels inversés
+sont conservés et triés. Les trois tests de catalogue passent en 130,85 s,
+dont le banc de 130 messages après oubli du cache, rollback et retrait d'auteur.
+Les 15 tests de réception
+passent en 189,94 s et les 13 tests de journal en 39,47 s. Les lecteurs des
+interfaces utilisent encore le cache de 64 documents : leur raccordement est
+le lot suivant, avant toute éviction automatique.
+
 Stockage d'archive, socle durable : blocs immuables chiffrés dans la même base
 que MLS, référence liée à la portée complète / ciphertext et commit commun avec
 les records protégés. Le retour attend le checkpoint du trousseau. Le banc écrit
 70 blocs / 17,5 Mio, rouvre et lit après le 64e sans grossir le snapshot principal.
 Cinq tests nouveaux passent en 8,93 s ; les huit tests de stockage protégé en
 1,34 s et les cinq anciens tests du coffre en 2,93 s. Clippy strict passe.
-Catalogue / admission / pagination de l'archive et lecteurs restent à raccorder ;
-le cache actuel de l'interface reste de 64 documents.
+Le catalogue / pagination local est prolongé par le lot ci-dessus ; admission
+des paquets portables, clés / transport et lecteurs restent à raccorder.
 
 Le raccordement récupération bureau a maintenant ses neuf jobs natifs verts
 dans 37297575738, dont le test GTK sous Xvfb
 `identity_settings_render_existing_preferences_and_clear_on_close`. Ses CI
-macOS / Android sont aussi vertes. Le format d'archive passe déjà Android dans
-37300711594 ; sa qualification native 37300711657 reste en cours.
+macOS / Android sont aussi vertes. Le format d'archive passe Android dans
+37300711594 et ses neuf jobs natifs dans 37300711657. Le stockage durable passe
+Android dans 37303389634 ; sa CI native 37303389587 a sept jobs verts, GTK et
+le contrôle général restent en cours.
 
 Archive, premier format : paquet immuable signé, clé OS par document et AEAD
 distinct de MLS, liaison au reçu / certificat / adhésion d'origine, positions

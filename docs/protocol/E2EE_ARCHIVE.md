@@ -160,9 +160,10 @@ positions supérieures à 2^53 est vérifié par Rust et indépendamment par
 ajouté au contrôle serveur. Ce vecteur contient un certificat jetable et un
 paquet AEAD réel, sans clé privée ; il n'atteste pas une admission MLS réelle.
 
-Restent la persistance complète des paquets, l'admission / pagination des
-archives, les enveloppes de destinataires et sauvegardes de leurs clés, le
-transport serveur, les lecteurs existants et la qualification indépendante.
+Restent l'admission des paquets portables, les enveloppes de destinataires et
+sauvegardes de leurs clés, le transport serveur, les lecteurs existants et la
+qualification indépendante. Le catalogue local d'originaux observés décrit
+ci-dessous conserve une preuve distincte du paquet portable signé par l'auteur.
 
 ## Stockage local : blocs chiffrés et checkpoint commun
 
@@ -175,8 +176,8 @@ lie SHA-256 de l'AAD, du nonce et du ciphertext. Elle ne contient aucun hash
 public du document en clair.
 
 Les références doivent être conservées dans les records protégés. La liste SQL
-des blocs n'est pas un index de confiance. L'admission et la chaîne / pagination
-des documents d'archive devront lier leurs références à un catalogue protégé.
+des blocs n'est pas un index de confiance. Le catalogue d'observation décrit
+ci-dessous lie ses références à une tête protégée dans ces records.
 Lire un bloc par sa référence ne constitue pas une autorisation de lire un salon.
 
 `Manager::transact_with_blobs` conserve la même lease OS et le même checkpoint
@@ -203,6 +204,43 @@ indisponible. Les cinq anciens tests de coffre passent en 2,93 s, avec vrai kill
 de processus et une entrée enfant ignorée appelée par son banc parent.
 
 Ce stockage est interne et lié à l'installation protégée. Il ne remplace ni
-le paquet portable d'archive, ni les enveloppes / sauvegardes de clés. L'index
-d'observation, la pagination d'archive et les lecteurs ne sont pas encore
-raccordés ; le cache affiché reste actuellement limité à 64 documents.
+le paquet portable d'archive, ni les enveloppes / sauvegardes de clés. Les
+lecteurs des interfaces restent à raccorder ; le cache affiché reste actuellement
+limité à 64 documents.
+
+## Catalogue local des originaux observés
+
+La réception MLS écrit maintenant un nœud immuable chiffré contenant le document
+vérifié, sa soumission publique originale, son reçu et la date d'observation.
+Le nœud et sa tête protégée sont enregistrés dans la même transaction que le
+ratchet et le curseur du journal. Une page annulée ne publie donc ni document
+d'archive ni consommation du ratchet. Un écho personnel déjà connu retrouve sa
+référence exacte sans ajouter un deuxième nœud.
+
+Le catalogue est lié au salon, à l'adhésion personnelle et à un témoin de
+l'admission MLS. Renouveler un certificat ne fusionne pas deux admissions.
+La lecture exige le contexte local courant et la tête de groupe attendue ;
+elle ne réapprouve pas l'auteur original après son retrait. Les contrôles de
+session et de fermeture du lecteur restent nécessaires autour du résultat.
+
+La tête ancre une chaîne de références authentifiées avec des sauts par
+puissances de deux pour chercher les anciennes pages du journal ordonné.
+Les échos personnels reçus dans un autre ordre restent conservés ; dans ce cas
+la lecture parcourt la chaîne et sélectionne les positions demandées, avec
+au plus la taille de page en mémoire. Chaque document rendu revalide sa preuve
+originale et son format. Les pages comportent 1 à 200 messages, leurs positions
+restent des entiers exacts et le filtre de fil est distinct du salon principal.
+
+Le banc utilise deux acteurs MLS réels et 130 messages, oublie le cache après
+chaque réception, rouvre le coffre puis lit des pages au-delà du 64e document,
+avec positions supérieures à 2^53 et refus d'une autre adhésion. Deux autres
+scénarios vérifient rollback / retry, échos inversés et conservation d'un
+original connu après retrait de l'auteur. Les reçus de ces tests restent
+synthétiques : ils ne qualifient pas le transport serveur de l'archive.
+Les trois tests passent en 130,85 s ; les 15 tests de réception et 13 tests du
+journal passent également après ce raccordement.
+
+`Coordinator::observed_archive` expose cette lecture locale au moteur. Les
+projections utilisées par les interfaces conservent encore leur cache de 64
+documents. Ce catalogue ne distribue aucune clé et ne peut pas fabriquer au
+nom d'un autre auteur un paquet portable signé.

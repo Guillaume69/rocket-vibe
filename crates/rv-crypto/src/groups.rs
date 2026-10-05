@@ -23,6 +23,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+mod archive;
 mod drafts;
 mod incoming;
 mod verification;
@@ -441,9 +442,34 @@ impl Coordinator {
         &self,
         operation: impl FnOnce(&OpenMlsRustCrypto, &mut Records) -> Result<T>,
     ) -> Result<T> {
+        self.transact_with_blobs(|provider, records, _| operation(provider, records))
+    }
+    fn transact_with_blobs<T>(
+        &self,
+        operation: impl FnOnce(
+            &OpenMlsRustCrypto,
+            &mut Records,
+            &mut vault::blobs::Access<'_>,
+        ) -> Result<T>,
+    ) -> Result<T> {
         let mut failure = None;
-        let result = self.manager.transact(|provider, records| {
-            operation(provider, records).map_err(|error| {
+        let result = self
+            .manager
+            .transact_with_blobs(|provider, records, blobs| {
+                operation(provider, records, blobs).map_err(|error| {
+                    failure = Some(error);
+                    vault::Error::Rejected
+                })
+            });
+        result.map_err(|error| failure.unwrap_or(Error::Storage(error)))
+    }
+    fn inspect_with_blobs<T>(
+        &self,
+        operation: impl FnOnce(&OpenMlsRustCrypto, &Records, &vault::blobs::Access<'_>) -> Result<T>,
+    ) -> Result<T> {
+        let mut failure = None;
+        let result = self.manager.inspect_with_blobs(|provider, records, blobs| {
+            operation(provider, records, blobs).map_err(|error| {
                 failure = Some(error);
                 vault::Error::Rejected
             })

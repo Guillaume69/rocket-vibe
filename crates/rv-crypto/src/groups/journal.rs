@@ -199,7 +199,7 @@ impl Coordinator {
             .find(|m| m.user == self.manager.scope().user)
             .ok_or(Error::JournalOrder)?;
         let admission = self.admission_witness(&remote.plan, grant)?;
-        self.transact(|provider, records| {
+        self.transact_with_blobs(|provider, records, blobs| {
             let request = self.journal_request_inner(records, &page.room_id)?;
             if request.scope != current.head.scope {
                 return Err(Error::JournalOrder);
@@ -329,6 +329,7 @@ impl Coordinator {
                         messages.push(self.receive_message_inner(
                             provider,
                             records,
+                            blobs,
                             &historical,
                             &submission,
                             &receipt,

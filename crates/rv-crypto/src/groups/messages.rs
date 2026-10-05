@@ -48,7 +48,7 @@ impl MessageSubmission {
     pub fn verified(&self, now: u64) -> Result<packet::Proof> {
         self.checked_at(now, false)
     }
-    fn checked_at(&self, now: u64, historical: bool) -> Result<packet::Proof> {
+    pub(super) fn checked_at(&self, now: u64, historical: bool) -> Result<packet::Proof> {
         if self.ciphertext.len() > packet::CIPHERTEXT_LIMIT {
             return Err(Error::Limit);
         }
@@ -102,7 +102,7 @@ impl CancelledMessage {
 /// Only returned after the protected checkpoint. No Debug/Clone/serialization.
 pub struct ClearMessage {
     pub receipt: packet::Receipt,
-    payload: Zeroizing<Vec<u8>>,
+    pub(super) payload: Zeroizing<Vec<u8>>,
 }
 /// Original own intent retained for compose recovery. A confirmed HTTP receipt
 /// remains here until the ordered protected journal has consumed the message.
@@ -261,6 +261,8 @@ struct Entry {
     plaintext: Zeroizing<Vec<u8>>,
     grant: Member,
     receipt: Option<packet::Receipt>,
+    #[serde(default)]
+    archive: Option<vault::blobs::Reference>,
 }
 impl Entry {
     fn proof(&self) -> Result<packet::Proof> {
@@ -566,6 +568,7 @@ impl Coordinator {
                     plaintext: Zeroizing::new(plaintext.to_vec()),
                     grant,
                     receipt: None,
+                    archive: None,
                 },
             );
             ledger.clock = now;
@@ -780,13 +783,14 @@ impl Coordinator {
         receipt: &packet::Receipt,
         now: u64,
     ) -> Result<ClearMessage> {
-        self.transact(|provider, records| {
+        self.transact_with_blobs(|provider, records, blobs| {
             if super::journal::started(records, &observation.head.scope)? {
                 return Err(Error::JournalOrder);
             }
             self.receive_message_inner(
                 provider,
                 records,
+                blobs,
                 observation,
                 submission,
                 receipt,
@@ -800,6 +804,7 @@ impl Coordinator {
         &self,
         provider: &OpenMlsRustCrypto,
         records: &mut Records,
+        blobs: &mut vault::blobs::Access<'_>,
         observation: &MessageObservation,
         submission: &MessageSubmission,
         receipt: &packet::Receipt,
@@ -834,6 +839,17 @@ impl Coordinator {
             seen.cancelling = false;
             entry.receipt = Some(receipt.clone());
             entry.journaled |= ordered_receive;
+            entry.archive = Some(self.archive_observed(
+                records,
+                blobs,
+                &state,
+                &grant,
+                submission,
+                receipt,
+                &entry.plaintext,
+                entry.created,
+                entry.archive,
+            )?);
             let clear = ClearMessage {
                 receipt: receipt.clone(),
                 payload: Zeroizing::new(entry.plaintext.to_vec()),
@@ -905,6 +921,9 @@ impl Coordinator {
             _ => return Err(Error::Changed),
         };
         decode(&plaintext, &proof.header)?;
+        let archived = self.archive_observed(
+            records, blobs, &state, &grant, submission, receipt, &plaintext, now, None,
+        )?;
         let clear = ClearMessage {
             receipt: receipt.clone(),
             payload: Zeroizing::new(plaintext.to_vec()),
@@ -930,6 +949,7 @@ impl Coordinator {
                 plaintext,
                 grant,
                 receipt: Some(receipt.clone()),
+                archive: Some(archived),
             },
         );
         ledger.clock = now;
@@ -1195,7 +1215,7 @@ fn save_ledger(records: &mut Records, ledger: &Ledger) -> Result<()> {
     records.insert(RECORD.into(), value.to_vec());
     Ok(())
 }
-mod secret_bytes {
+pub(super) mod secret_bytes {
     use super::*;
     pub fn serialize<S: serde::Serializer>(
         value: &Zeroizing<Vec<u8>>,

@@ -274,6 +274,10 @@ wired to the existing Android / GTK / SwiftUI settings. The CI runs for the serv
 Swift models, GTK under Xvfb, macOS and Android / real Keystore are green for
 this batch. Installed qualification, archive recovery and review remain open.
 Without a secret or an authorized device, lost history remains unrecoverable.
+[History on a new device](../protocol/E2EE_HISTORY.md) specifies the recovery:
+first a device-to-device share approved on the sharing device (HPKE envelope of
+period secrets, packets sealed with derived keys, chain digest per period), then an
+archive-key backup protected by a recovery code.
 
 ## Data and compatibility
 

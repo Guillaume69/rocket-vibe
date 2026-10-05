@@ -93,7 +93,8 @@ ordinary cache or to the server's search.
 - Qualification of installed GTK / SwiftUI / Android and independent crypto review.
 
 The rules above fix the recipients and the separation between historical
-reading and current authorization. The formats, APIs, key backups and
+reading and current authorization. [History on a new device](E2EE_HISTORY.md)
+specifies the device-to-device share and, after it, the archive-key backup. The formats, APIs, key backups and
 tests for these criteria remain to be implemented.
 
 ## First format: immutable document v1

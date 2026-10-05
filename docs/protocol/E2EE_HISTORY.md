@@ -1,0 +1,156 @@
+# Encrypted history: recovery on a new device
+
+Contract for RFC 0002 item "history on a new device". It applies the
+[archive access rules](E2EE_ARCHIVE.md): a new device of the same account may
+recover that account's history after an explicit approval, within the account's
+original membership periods. No production capability is enabled by this document.
+
+Two paths are planned, delivered in this order:
+
+- **A. Device-to-device share.** A device that already holds the history shares it
+  with a new device of the same account, after a human approval on the sharing
+  device. Specified and implemented first.
+- **B. Archive-key backup.** A recovery code protects the archive keys so that a new
+  device can recover the history when no old device is left. Its own consent,
+  version and settlement; specified after A ships.
+
+## Trust model
+
+- Both devices belong to the same account: their certificates chain to the same
+  pinned account root, appear in the verified account directory and are not
+  revoked. A server-supplied root, session or notification proves nothing.
+- The sharing device must be approved by a human who compares the request
+  fingerprint shown on both devices, as for device enrollment. A server-side
+  request alone never triggers a share.
+- The new device trusts a recovered document because a device of its own account
+  attests it: the packet is signed by the sharing device's current certificate and
+  binds the exact origin receipt and the original author certificate. It does not
+  re-verify the MLS original, which the new device never received.
+- The server stores and relays opaque bytes. It learns the account, the two
+  devices, the rooms, the number and sizes of the packets and the positions in
+  the receipts it already delivered. It never sees a key or a document.
+- A shared history is deliberately recoverable: it has no forward secrecy. A device
+  revoked later keeps what it already recovered; revocation stops new shares.
+
+## Boundaries
+
+A share covers, per room, the periods for which the sharing device holds a
+verified journal index (its own admissions). Each period keeps its source binding:
+room scope, personal grant (access and activation versions) and admission witness.
+The new device keeps the periods separate and labels them as recovered history.
+
+- No period the sharing device never observed is invented or merged.
+- A new member never receives a share: the request and the share are bound to one
+  account, and the server refuses another account's device.
+- The server refuses an upload or a download for a room the account currently
+  cannot read (excluded or left), as for any online read. Copies already recovered
+  stay local.
+- Sharing does not admit the new device to any MLS group: sending still requires
+  its own Welcome. Recovered history is read only.
+
+## Objects (v1)
+
+The JSON / NUL domain and canonical-decoding rules of [IDENTITY.md](../../crates/rv-crypto/IDENTITY.md)
+apply. Integers above `i64::MAX` are refused; positions cross the wire as decimal
+strings.
+
+### Request (new device)
+
+| Field | Content |
+|---|---|
+| `version` | `1` |
+| `root` | Account root, exact |
+| `certificate` | Current certificate of the requesting device |
+| `request_id` | Random 32-byte OS identifier |
+| `recipient` | X25519 public key generated for this request only |
+| `issued_at`, `expires_at` | Window of at most 7 days |
+| `signature` | Requesting leaf, domain `rocketvibe-history-request-v1` |
+
+The request fingerprint is SHA-256 under `rocketvibe-history-request-fingerprint-v1`.
+The X25519 private key lives only in the encrypted vault records of the new
+device (`crypto-history-request-v1`), with the request. An expired or answered
+request is replaced by a new one with a new key.
+
+### Share (sharing device)
+
+A share answers exactly one request fingerprint. It contains:
+
+- `manifest`: per room and period, the source binding, the first and last position,
+  the packet count and a chain digest: SHA-256 under
+  `rocketvibe-history-chain-v1` folded over the packet fingerprints in position
+  order. The new device refuses a missing, extra, reordered or duplicated packet.
+- `envelope`: HPKE base mode (RFC 9180) to the request's `recipient` key, suite
+  DHKEM(X25519, HKDF-SHA256) / HKDF-SHA256 / ChaCha20-Poly1305, `info` =
+  `rocketvibe-history-share-v1` NUL request fingerprint, `aad` = canonical manifest.
+  The plaintext holds one random 32-byte period secret per manifest entry.
+- `certificate` and `signature`: current certificate of the sharing device and its
+  leaf signature over request fingerprint, manifest and envelope, domain
+  `rocketvibe-history-share-v1`.
+
+### Packets
+
+Each document is a [v1 archive packet](E2EE_ARCHIVE.md#first-format-immutable-document-v1)
+sealed by the sharing device from its verified local observation. Its key is not
+random: it is HKDF-SHA256 of the period secret with `info` =
+`rocketvibe-history-document-key-v1` NUL `key_id`. Only the period secrets travel,
+inside the envelope; the packets are useless without it.
+
+## Flow
+
+1. **Request.** The new device creates the request, saves the private key and the
+   request in one protected transaction, then publishes it. It shows the request
+   fingerprint.
+2. **Preview.** Another device of the account lists the pending requests, verifies
+   the signature, the certificate against the verified directory (same root, listed,
+   not revoked, not itself) and the window, and shows the same fingerprint with the
+   rooms and periods it would share. Nothing is sent yet.
+3. **Approval.** After the human confirms, the sharing device seals the packets and
+   the share in one protected transaction under a fixed operation ID, then uploads
+   the packets by pages and finally commits the share. A lost response resumes with
+   the same operation, packets and share: no second period secret is drawn.
+4. **Import.** The new device fetches the share, verifies the sharing certificate
+   against its directory, the signature, the request fingerprint, then opens the
+   envelope. Per manifest entry it downloads the packets by pages, verifies each one
+   (signature, same root, origin scope = entry room, position inside the entry
+   bounds, derived key, document codec) and the chain, then stores the documents in
+   a recovered catalog of its vault in one protected transaction per page. The
+   entry becomes visible only when its chain is complete.
+5. **Acknowledgement.** Once every entry is imported, the new device acknowledges;
+   the server deletes the share and its packets. Unacknowledged shares expire after
+   7 days.
+
+## Reading recovered history
+
+The recovered catalog is separate from the journal indexes of the new device's own
+admissions. A recovered period is read with the same projection shape (pages of 1
+to 200, `before`, threads, roots and reply counts). Once the new device has its own
+admission to a room, the room projection continues into the recovered periods for
+positions older than its own first indexed document; positions are never merged
+across a period boundary.
+
+## Server API
+
+| Method and route | Who | Effect |
+|---|---|---|
+| `POST /api/v1/e2ee/history/requests` | Requesting device | Stores its signed request (one pending per device) |
+| `GET /api/v1/e2ee/history/requests` | Any device of the account | Pending requests of the account |
+| `PUT /api/v1/e2ee/history/shares/{share}/packets` | Sharing device | One page of packets for one manifest entry (at most 200 packets, 4 MiB) |
+| `POST /api/v1/e2ee/history/shares/{share}` | Sharing device | Commits the signed share once every manifest packet is uploaded |
+| `GET /api/v1/e2ee/history/requests/{request}/share` | Requesting device | The committed share |
+| `GET /api/v1/e2ee/history/shares/{share}/packets` | Requesting device | Packets of one entry by position pages |
+| `POST /api/v1/e2ee/history/shares/{share}/ack` | Requesting device | Deletes the share |
+
+Every route checks the authenticated device against the request or the share, the
+account, the device revocations and, for packets, the account's current read right
+on the room. Upload and commit are idempotent by operation ID.
+
+## Exit criteria for A
+
+- Public vector for request, share, envelope and chain, verified by Rust and by an
+  independent Node / OpenSSL script.
+- Two devices of one account: share of several rooms and periods, lost responses at
+  every step, reopening, forged / reordered / missing packets, another account's
+  device, a revoked device, an expired request.
+- Server tests on PostgreSQL for authorization, idempotence, quotas and expiry.
+- Approval and import screens in the existing GTK, SwiftUI and Android settings.
+- Installed qualification and the independent crypto review stay distinct.

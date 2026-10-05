@@ -5,7 +5,7 @@ use std::sync::Arc;
 use chrono::{SecondsFormat, TimeZone, Utc};
 use serde_json::Value;
 
-use crate::normalize::{to_epoch, to_message, to_room, to_subscription};
+use crate::normalize::{Message, to_epoch, to_message, to_room, to_subscription};
 use crate::rest::{CallOptions, RestClient, RestError};
 use crate::store::{Store, Writer};
 
@@ -245,6 +245,19 @@ impl SyncEngine {
         })
     }
 
+    /// The history between two instants, bounds included, never stored. With
+    /// both bounds the server answers the NEWEST page of the range, not the
+    /// first messages after `oldest`.
+    pub async fn history_range(
+        &self,
+        rid: &str,
+        kind: &str,
+        latest: Option<i64>,
+        oldest: Option<i64>,
+    ) -> Result<Vec<Message>, RestError> {
+        Ok(self.history(rid, kind, latest, oldest).await?.iter().filter_map(to_message).collect())
+    }
+
     async fn history(
         &self,
         rid: &str,
@@ -266,6 +279,12 @@ impl SyncEngine {
 
         let response = self.rest.get(history_endpoint(kind), o).await?;
         Ok(response.get("messages").and_then(Value::as_array).cloned().unwrap_or_default())
+    }
+
+    /// The server's copy of one message, not stored.
+    pub async fn fetch_message(&self, id: &str) -> Result<Option<Message>, RestError> {
+        let response = self.rest.get("chat.getMessage", CallOptions::params([("msgId", id)])).await?;
+        Ok(response.get("message").and_then(to_message))
     }
 }
 

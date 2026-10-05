@@ -89,6 +89,32 @@ pub struct MessageRow {
     pub starred: Option<String>,
 }
 
+impl From<&Message> for MessageRow {
+    fn from(m: &Message) -> Self {
+        MessageRow {
+            id: m.id.clone(),
+            rid: m.rid.clone(),
+            ts: m.ts,
+            text: m.text.clone(),
+            author: m.author_name.clone(),
+            author_id: m.author_id.clone(),
+            system_type: m.system_type.clone(),
+            edited: m.edited_at.is_some(),
+            attachments: m.attachments.clone(),
+            thread_count: m.thread_count,
+            outbox_status: None,
+            md: m.md.clone(),
+            reactions: m.reactions.clone(),
+            thread_id: m.thread_id.clone(),
+            encrypted_raw: m.encrypted_raw.clone(),
+            urls: m.urls.clone(),
+            call_id: m.call_id.clone(),
+            pinned: m.pinned,
+            starred: m.starred.clone(),
+        }
+    }
+}
+
 impl MessageRow {
     pub fn starred_by(&self, uid: &str) -> bool {
         self.starred.as_deref().is_some_and(|ids| ids.split(',').any(|id| id == uid))
@@ -438,6 +464,18 @@ impl Store {
     /// stay in their thread unless also shown in the room (`tshow`).
     pub fn messages(&self, rid: &str, limit: i64) -> Vec<MessageRow> {
         self.message_rows(ROOM_SHOWN, rid, limit)
+    }
+
+    /// How many of the room's messages `messages` would show from `ts` on.
+    pub fn count_since(&self, rid: &str, ts: i64) -> i64 {
+        self.read(|c| {
+            c.query_row(
+                &format!("SELECT COUNT(*) FROM messages m WHERE {ROOM_SHOWN} AND m.ts >= ?2"),
+                params![rid, ts],
+                |r| r.get(0),
+            )
+        })
+        .unwrap_or(0)
     }
 
     /// These messages, in this order; the ones not stored are left out.

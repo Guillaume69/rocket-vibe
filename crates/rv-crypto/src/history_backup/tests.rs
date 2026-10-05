@@ -70,3 +70,136 @@ fn the_key_package_opens_only_with_its_code_and_root() {
             .unwrap()
     );
 }
+
+/// Public vector: Alice's desktop publishes a history key generation and backs
+/// up two of Bob's messages (one a thread reply). `RV_WRITE_HISTORY_BACKUP_VECTOR=1`
+/// regenerates it; the Node verifier checks it independently.
+#[test]
+fn public_history_backup_vector_opens_with_its_code() {
+    use crate::history::tests::{NOW as AT, device, document, grant, scope};
+    use crate::history::{Record, chain, material, open_record, seal_record};
+    use crate::vault::Records;
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../rv-crypto-public/fixtures/history-backup-v1.json");
+    let provider = openmls_rust_crypto::OpenMlsRustCrypto::default();
+    let crypto = openmls_traits::OpenMlsProvider::crypto(&provider);
+    if std::env::var_os("RV_WRITE_HISTORY_BACKUP_VECTOR").is_some() {
+        let alice = Issuer::generate("instance", "alice").unwrap();
+        let desktop = device(&alice, "desktop", &mut Records::new());
+        let bob = Issuer::generate("instance", "bob").unwrap();
+        let laptop = device(&bob, "laptop", &mut Records::new());
+        let certificate = crate::identity::Certificate::from_credential(
+            &desktop.credential(AT).unwrap().credential,
+        )
+        .unwrap();
+        let key = HistoryKey::generate().unwrap();
+        let code = HistoryCode::generate().unwrap();
+        let package = key.seal(&code, alice.root(), AT).unwrap();
+        let publication = publish(
+            &desktop,
+            PublicationBody {
+                version: 1,
+                scope: rv_crypto_public::recovery::Scope {
+                    instance: "instance".into(),
+                    data_epoch: "epoch".into(),
+                },
+                operation: "fixture-history-key".into(),
+                device: "desktop".into(),
+                incarnation: certificate.device.incarnation,
+                device_revision: "1".into(),
+                expected_revision: None,
+                package_digest: package.digest().unwrap(),
+            },
+            package,
+            AT,
+        )
+        .unwrap();
+        let period = Period {
+            scope: scope("general"),
+            grant: grant("alice"),
+            admission: [7; 32],
+            device: "desktop".into(),
+            incarnation: certificate.device.incarnation,
+        };
+        let secret = key.period_secret(crypto, &period).unwrap();
+        let mut reply = document(&laptop, "general", 2);
+        reply.origin.header.thread = Some("general-root".into());
+        reply.message.reply_to = Some("general-root".into());
+        let records = [document(&laptop, "general", 1), reply]
+            .iter()
+            .enumerate()
+            .map(|(index, d)| {
+                let (k, id, nonce) = material(crypto, &secret, index as u64 + 1).unwrap();
+                seal_record(&desktop, d, AT, &k, id, nonce).unwrap()
+            })
+            .collect::<Vec<_>>();
+        let checkpoint = checkpoint(
+            &desktop,
+            CheckpointBody {
+                version: 1,
+                generation: key.generation,
+                period,
+                count: 2,
+                first: records[0].header.origin.position,
+                last: records[1].header.origin.position,
+                chain: chain(records.iter().map(|r| r.digest().unwrap())).unwrap(),
+            },
+            AT,
+        )
+        .unwrap();
+        let text = |bytes: Vec<u8>| String::from_utf8(bytes).unwrap();
+        let vector = format!(
+            "{{\"code\":\"{}\",\"certificate\":{},\"publication\":{},\"checkpoint\":{},\"records\":[{}]}}\n",
+            code.for_display().as_str(),
+            text(serde_json::to_vec(&certificate).unwrap()),
+            text(publication.to_bytes().unwrap()),
+            text(checkpoint.to_bytes().unwrap()),
+            records
+                .iter()
+                .map(|r| text(r.to_bytes().unwrap()))
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+        std::fs::write(&path, vector).unwrap();
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Vector {
+        code: String,
+        certificate: crate::identity::Certificate,
+        publication: Publication,
+        checkpoint: Checkpoint,
+        records: Vec<Record>,
+    }
+    let vector: Vector = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    vector.publication.verify(&vector.certificate).unwrap();
+    vector.checkpoint.verify().unwrap();
+    let root = &vector.publication.package.header.root;
+    let key = HistoryKey::open(
+        &vector.publication.package,
+        &HistoryCode::from_code(&vector.code).unwrap(),
+        root,
+    )
+    .unwrap();
+    let secret = key
+        .period_secret(crypto, &vector.checkpoint.body.period)
+        .unwrap();
+    let texts = vector
+        .records
+        .iter()
+        .enumerate()
+        .map(|(index, record)| {
+            record.authenticate().unwrap();
+            let (k, _, _) = material(crypto, &secret, index as u64 + 1).unwrap();
+            open_record(record, &k).unwrap().text
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        texts,
+        ["recovered words general 1", "recovered words general 2"]
+    );
+    assert_eq!(
+        chain(vector.records.iter().map(|r| r.digest().unwrap())).unwrap(),
+        vector.checkpoint.body.chain
+    );
+}

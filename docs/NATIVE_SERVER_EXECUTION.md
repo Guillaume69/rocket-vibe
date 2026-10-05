@@ -18,8 +18,11 @@ to its last verified checkpoint and each position once across sources. Server mi
 0046 and routes, rv-client, desktop worker, mobile bridge and adapter, and the settings
 blocks in GTK, SwiftUI and Android. Tests: engine (code, package, ceremony, continuous
 upload, growth, import, refusals, dedup), two PostgreSQL tests, a desktop worker test, a
-bridge test and adapter tests. Remaining: the history key inside a path A share, public
-vectors for the package and checkpoint with a Node verifier, installed qualification.
+bridge test and adapter tests. A path A share now carries the sharing device's history key
+in its envelope (kept by a device holding none), and a public vector of the code,
+package, publication, checkpoint and records is verified by Rust and by a Node/OpenSSL
+script sharing its written-out primitives with the path A verifier. Remaining:
+installed qualification.
 
 History recovery on a new device, path A (item 2 of the E2EE plan,
 [E2EE_HISTORY.md](protocol/E2EE_HISTORY.md)), private engine, public vector and

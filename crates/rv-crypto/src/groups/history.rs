@@ -250,7 +250,9 @@ impl Coordinator {
         self.transact(|provider, records| {
             let mut job = load_share(records)?.ok_or(Error::NotReady)?;
             let context = self.context(records, now)?;
-            let share = job.finish(provider.crypto(), &context.local, now)?;
+            // A held history key travels with the share (path B on path A).
+            let key = crate::account::history_backup::held(records)?;
+            let share = job.finish(provider.crypto(), &context.local, key.as_ref(), now)?;
             save_share(records, &job)?;
             Ok(share)
         })
@@ -283,7 +285,13 @@ impl Coordinator {
                     next: job.next(),
                 });
             }
-            let job = ImportJob::open(provider.crypto(), records, received, now)?;
+            let (job, key) = ImportJob::open(provider.crypto(), records, received, now)?;
+            // A device keeps the history key it already holds.
+            if let Some(key) = key
+                && crate::account::history_backup::held(records)?.is_none()
+            {
+                crate::account::history_backup::hold(records, &key)?;
+            }
             save_import(records, &job)?;
             Ok(HistoryImport {
                 share: job.share().clone(),

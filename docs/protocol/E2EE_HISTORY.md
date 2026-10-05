@@ -81,7 +81,11 @@ A share answers exactly one request fingerprint. It contains:
 - `envelope`: HPKE base mode (RFC 9180) to the request's `recipient` key, suite
   DHKEM(X25519, HKDF-SHA256) / HKDF-SHA256 / ChaCha20-Poly1305, `info` =
   `rocketvibe-history-share-v1` NUL request fingerprint, `aad` = canonical manifest.
-  The plaintext holds one random 32-byte period secret per manifest entry.
+  The plaintext is the JSON object `{secrets, history_key}`: one random 32-byte
+  period secret per manifest entry (lowercase hex), and the account history key
+  `{generation, key}` of [path B](E2EE_HISTORY_BACKUP.md) when the sharing device
+  holds one, else `null`. The new device keeps a received history key only if it
+  holds none.
 - `certificate` and `signature`: current certificate of the sharing device and its
   leaf signature over request fingerprint, manifest and envelope, domain
   `rocketvibe-history-share-v1`.

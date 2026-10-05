@@ -114,7 +114,7 @@ jobs:
       - name: Public vectors, verified independently with Node/OpenSSL
         if: runner.os == 'Linux'
         run: |
-          for vector in archive group history; do
+          for vector in archive group history history-backup; do
             node "crates/rv-crypto-public/scripts/verify-$vector-vector.mjs"
           done
       - name: Mobile private bridge format, strict checks and lifetime tests

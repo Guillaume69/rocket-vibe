@@ -60,9 +60,9 @@ the identity backup.
 
 A device holds the history key once it enabled the backup, **entered the code** to
 join an existing backup (the package is fetched and opened locally), or received it
-in a path A share: the share envelope of path A gains an optional `history_key`
-entry `{generation, key}`, so a new device approved by an old one is ready to
-upload. The key and its generation live in the vault's encrypted records, never in
+in a path A share: the share envelope's plaintext carries `history_key`
+`{generation, key}` when the sharing device holds one, so a new device approved by
+an old one is ready to upload. A device that already holds a key keeps its own. The key and its generation live in the vault's encrypted records, never in
 a UI string; the code is displayed only on explicit request, as the identity code.
 
 ## Continuous upload
@@ -135,9 +135,22 @@ per settings view on the desktop and per account on Android; it only reads the
 vault when the device holds no key, and a failure retries next time. The settings
 also offer "Back up now" and "Restore the history".
 
+## Public vector
+
+[`history-backup-v1.json`](../../crates/rv-crypto-public/fixtures/history-backup-v1.json)
+holds a disposable `rvh1-` code, Alice's desktop certificate, its publication of a
+generation, a checkpoint and two of Bob's messages (one a thread reply) as records.
+`rv-crypto-public` authenticates the publication, the checkpoint, the records and the
+chain; `rv-crypto` reopens it with the code alone; and
+[`verify-history-backup-vector.mjs`](../../crates/rv-crypto-public/scripts/verify-history-backup-vector.mjs)
+redoes everything with Node/OpenSSL (code checksum, package under the code key,
+period id and secret, rank-bound records, checkpoint signature and chain), sharing
+its written-out HKDF and XChaCha20-Poly1305 with the path A verifier in
+`history-crypto.mjs`. CI runs both.
+
 ## Exit criteria for B
 
-- Public vectors for the key package, the publication and a checkpoint, verified by
+- **Done:** public vectors for the key package, the publication and a checkpoint, verified by
   Rust and an independent Node / OpenSSL script.
 - Enable, show / confirm the code, join with the code, lost responses at every
   step, rotation to a new generation, a wrong code, another account's package.

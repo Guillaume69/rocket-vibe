@@ -153,7 +153,10 @@ pub(crate) fn held(records: &Records) -> std::result::Result<Option<HistoryKey>,
         .map(|bytes| HistoryKey::from_bytes(bytes).map_err(|_| vault::Error::Integrity))
         .transpose()
 }
-fn hold(records: &mut Records, key: &HistoryKey) -> std::result::Result<(), vault::Error> {
+pub(crate) fn hold(
+    records: &mut Records,
+    key: &HistoryKey,
+) -> std::result::Result<(), vault::Error> {
     let bytes = key.to_bytes().map_err(backup_error)?;
     if let Some(mut old) = records.insert(KEY.into(), bytes.to_vec()) {
         old.zeroize();

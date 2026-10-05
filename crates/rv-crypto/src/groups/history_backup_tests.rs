@@ -236,3 +236,40 @@ fn imports_refuse_foreign_accounts_wrong_keys_and_misplaced_records() {
         "history-1, 2, 4 and 5; history-3 is a thread reply"
     );
 }
+
+#[test]
+fn a_path_a_share_carries_the_history_key_to_a_device_without_one() {
+    let (_alice, bob) = history(3);
+    let tablet = bob.sibling("bob-tablet", [9; 16]);
+    let laptop = bob.sibling("bob-laptop", [8; 16]);
+    let key = HistoryKey::generate().unwrap();
+    hold(&key, &[&bob]);
+    let other = HistoryKey::generate().unwrap();
+    hold(&other, &[&laptop]);
+    let held = |account: &Account| {
+        account
+            .manager
+            .inspect(|_, records| {
+                Ok(crate::account::history_backup::held(records)
+                    .unwrap()
+                    .map(|k| k.generation))
+            })
+            .unwrap()
+    };
+    for (device, expected) in [(&tablet, key.generation), (&laptop, other.generation)] {
+        let request = device.coordinator().history_request(NOW).unwrap();
+        let (share, _) = share_all(&bob, &request);
+        bob.coordinator().history_share_forget().unwrap();
+        device
+            .coordinator()
+            .history_import_begin(&share, NOW)
+            .unwrap();
+        assert_eq!(held(device), Some(expected), "a held key is never replaced");
+    }
+    // The tablet now imports Bob's backup directly.
+    let (_, records, checkpoint) = upload_all(&bob).remove(0);
+    tablet
+        .coordinator()
+        .history_backup_import(&checkpoint, 0, &records, NOW)
+        .unwrap();
+}

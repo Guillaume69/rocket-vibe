@@ -320,7 +320,7 @@ pub fn share(
         packets.push(page.packets.clone());
         job.advance(&page)?;
     }
-    Ok((job.finish(crypto, device, now)?, packets))
+    Ok((job.finish(crypto, device, None, now)?, packets))
 }
 
 /// A period the sharing device will share: its binding and how many documents
@@ -506,6 +506,7 @@ impl ShareJob {
         &mut self,
         crypto: &impl OpenMlsCrypto,
         device: &LocalDevice,
+        history_key: Option<&crate::history_backup::HistoryKey>,
         now: u64,
     ) -> Result<Share> {
         if let Some(share) = &self.share {
@@ -538,7 +539,13 @@ impl ShareJob {
                 .map(|p| HEXLOWER.encode(p.secret.as_slice()))
                 .collect(),
         );
-        let plaintext = Zeroizing::new(serde_json::to_vec(&*encoded).map_err(|_| Error::Changed)?);
+        let plaintext = Zeroizing::new(
+            serde_json::to_vec(&Sealed {
+                secrets: &encoded,
+                history_key,
+            })
+            .map_err(|_| Error::Changed)?,
+        );
         let sealed = crypto
             .hpke_seal(
                 CONFIG,
@@ -577,6 +584,26 @@ impl ShareJob {
     }
 }
 
+/// The envelope's plaintext: one secret per manifest entry and, when the
+/// sharing device holds one, the account history key (E2EE_HISTORY_BACKUP.md).
+#[derive(Serialize)]
+struct Sealed<'a> {
+    secrets: &'a [String],
+    history_key: Option<&'a crate::history_backup::HistoryKey>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Opened {
+    secrets: Vec<String>,
+    history_key: Option<crate::history_backup::HistoryKey>,
+}
+impl Drop for Opened {
+    fn drop(&mut self) {
+        for secret in &mut self.secrets {
+            secret.zeroize();
+        }
+    }
+}
 /// The secret of one shared period. No Debug/Clone/serde or raw export.
 pub struct PeriodKey(Zeroizing<[u8; 32]>);
 
@@ -587,7 +614,7 @@ pub fn open(
     records: &Records,
     share: &Share,
     now: u64,
-) -> Result<Vec<PeriodKey>> {
+) -> Result<(Vec<PeriodKey>, Option<crate::history_backup::HistoryKey>)> {
     let pending = pending(records)?.ok_or(Error::NotRequested)?;
     let fingerprint = pending.request.fingerprint()?;
     share.verify(now)?;
@@ -616,12 +643,12 @@ pub fn open(
             )
             .map_err(|_| Error::Changed)?,
     );
-    let encoded: Zeroizing<Vec<String>> =
-        Zeroizing::new(serde_json::from_slice(&plaintext).map_err(|_| Error::Changed)?);
-    if encoded.len() != share.manifest.periods.len() {
+    let mut opened: Opened = serde_json::from_slice(&plaintext).map_err(|_| Error::Changed)?;
+    if opened.secrets.len() != share.manifest.periods.len() {
         return Err(Error::Changed);
     }
-    encoded
+    let keys = opened
+        .secrets
         .iter()
         .map(|text| {
             let mut bytes = HEXLOWER
@@ -636,7 +663,8 @@ pub fn open(
             bytes.zeroize();
             Ok(PeriodKey(key))
         })
-        .collect()
+        .collect::<Result<Vec<_>>>()?;
+    Ok((keys, opened.history_key.take()))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -666,9 +694,9 @@ impl ImportJob {
         records: &Records,
         share: &Share,
         now: u64,
-    ) -> Result<Self> {
-        let keys = open(crypto, records, share, now)?;
-        Ok(Self {
+    ) -> Result<(Self, Option<crate::history_backup::HistoryKey>)> {
+        let (keys, history_key) = open(crypto, records, share, now)?;
+        let job = Self {
             share: share.clone(),
             secrets: keys.into_iter().map(|key| Secret(key.0)).collect(),
             periods: share
@@ -683,7 +711,8 @@ impl ImportJob {
                     })
                 })
                 .collect::<Result<Vec<_>>>()?,
-        })
+        };
+        Ok((job, history_key))
     }
     pub fn share(&self) -> &Share {
         &self.share
@@ -832,4 +861,4 @@ pub fn check_period(period: &Period, packets: &[Record]) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

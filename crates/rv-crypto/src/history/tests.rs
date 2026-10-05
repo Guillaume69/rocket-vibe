@@ -4,10 +4,10 @@ use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_traits::OpenMlsProvider;
 use rv_crypto_public::messages::{Header as MessageHeader, Kind};
 
-const NOW: u64 = 1_800_000_000;
+pub(crate) const NOW: u64 = 1_800_000_000;
 const BASE: u64 = 9_007_199_254_740_992;
 
-fn device(issuer: &Issuer, name: &str, records: &mut Records) -> LocalDevice {
+pub(crate) fn device(issuer: &Issuer, name: &str, records: &mut Records) -> LocalDevice {
     let mut device = LocalDevice::create(issuer.root(), name, records).unwrap();
     let request = device.request(NOW, records).unwrap();
     let mut issuer_records = Records::new();
@@ -21,7 +21,7 @@ fn device(issuer: &Issuer, name: &str, records: &mut Records) -> LocalDevice {
     device.install(&grant, NOW, records).unwrap();
     device
 }
-fn scope(room: &str) -> Scope {
+pub(crate) fn scope(room: &str) -> Scope {
     Scope {
         instance: "instance".into(),
         data_epoch: "epoch".into(),
@@ -29,14 +29,14 @@ fn scope(room: &str) -> Scope {
         incarnation: [3; 16],
     }
 }
-fn grant(user: &str) -> Member {
+pub(crate) fn grant(user: &str) -> Member {
     Member {
         user: user.into(),
         access_version: "9007199254740996".into(),
         activation_version: "9007199254740997".into(),
     }
 }
-fn document(author: &LocalDevice, room: &str, number: u64) -> Document {
+pub(crate) fn document(author: &LocalDevice, room: &str, number: u64) -> Document {
     let certificate =
         Certificate::from_credential(&author.credential(NOW).unwrap().credential).unwrap();
     let operation = format!("{room}-{number}");
@@ -128,7 +128,7 @@ fn a_device_of_the_same_account_recovers_every_shared_period() {
     // The share travels as bytes; empty periods are not shared.
     let share = Share::from_bytes(&share.to_bytes().unwrap()).unwrap();
     assert_eq!(share.manifest.periods.len(), 2);
-    let keys = open(crypto, &f.phone_records, &share, NOW + 3).unwrap();
+    let (keys, _) = open(crypto, &f.phone_records, &share, NOW + 3).unwrap();
     for ((period, key), packets) in share.manifest.periods.iter().zip(&keys).zip(&packets) {
         let packets = packets
             .iter()
@@ -163,7 +163,7 @@ fn packets_must_be_complete_ordered_bound_and_from_the_share() {
         NOW,
     )
     .unwrap();
-    let keys = open(crypto, &f.phone_records, &share, NOW).unwrap();
+    let (keys, _) = open(crypto, &f.phone_records, &share, NOW).unwrap();
     let general = &share.manifest.periods[0];
     let mut missing = packets[0].clone();
     missing.remove(1);
@@ -322,16 +322,18 @@ fn pages_seal_again_identically_and_both_sides_resume_from_their_vault() {
         .seal_page(crypto, &f.desktop, 0, &input.documents[2..], NOW)
         .unwrap();
     job.advance(&second).unwrap();
-    let share = job.finish(crypto, &f.desktop, NOW).unwrap();
+    let share = job.finish(crypto, &f.desktop, None, NOW).unwrap();
     // The envelope is drawn once: a lost commit response gets the same share.
     assert_eq!(
-        job.finish(crypto, &f.desktop, NOW + 1)
+        job.finish(crypto, &f.desktop, None, NOW + 1)
             .unwrap()
             .to_bytes()
             .unwrap(),
         share.to_bytes().unwrap()
     );
-    let mut import = ImportJob::open(crypto, &f.phone_records, &share, NOW).unwrap();
+    let mut import = ImportJob::open(crypto, &f.phone_records, &share, NOW)
+        .unwrap()
+        .0;
     assert_eq!(import.next(), Some((0, 0)));
     let documents = import.accept(crypto, 0, &first.packets[..1]).unwrap();
     assert_eq!(documents[0].operation_id, "general-1");
@@ -401,7 +403,9 @@ fn public_history_vector_opens_on_the_requesting_device() {
         .unwrap(),
     );
     vector.request.verify(NOW + 3).unwrap();
-    let mut import = ImportJob::open(crypto, &records, &vector.share, NOW + 3).unwrap();
+    let mut import = ImportJob::open(crypto, &records, &vector.share, NOW + 3)
+        .unwrap()
+        .0;
     let messages = import.accept(crypto, 0, &vector.records).unwrap();
     assert!(import.complete(0));
     assert_eq!(

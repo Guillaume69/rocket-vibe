@@ -286,3 +286,42 @@ impl Checkpoint {
         Ok(bytes)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn backup_vector_authenticates_publication_checkpoint_and_records() {
+        // Disposable certificates; the package is opened by rv-crypto and by
+        // scripts/verify-history-backup-vector.mjs.
+        #[derive(Deserialize)]
+        struct Vector {
+            certificate: Certificate,
+            publication: Publication,
+            checkpoint: Checkpoint,
+            records: Vec<crate::history::Record>,
+        }
+        let vector: Vector =
+            serde_json::from_slice(include_bytes!("../fixtures/history-backup-v1.json")).unwrap();
+        vector.publication.verify(&vector.certificate).unwrap();
+        vector.checkpoint.verify().unwrap();
+        for record in &vector.records {
+            record.authenticate().unwrap();
+            assert!(record.certificate == vector.checkpoint.certificate);
+        }
+        assert_eq!(
+            crate::history::chain(vector.records.iter().map(|r| r.digest().unwrap())).unwrap(),
+            vector.checkpoint.body.chain
+        );
+        let mut changed = vector.publication.clone();
+        changed.body.expected_revision = Some("1".into());
+        assert!(changed.verify(&vector.certificate).is_err());
+        let mut changed = vector.checkpoint.clone();
+        changed.body.count = 1;
+        assert!(changed.verify().is_err());
+        // Another device's certificate cannot carry this publication.
+        let mut other = vector.certificate.clone();
+        other.device.device = "phone".into();
+        assert!(vector.publication.verify(&other).is_err());
+    }
+}

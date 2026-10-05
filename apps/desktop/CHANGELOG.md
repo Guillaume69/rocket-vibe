@@ -128,6 +128,7 @@ section here.
   preferences (GTK and SwiftUI): enabling shows the code and publishes once it is saved, other
   devices join with the code, devices holding it upload their encrypted history as messages
   arrive, and a new device restores it with the code alone, even with no other device left.
+  A device approved through a history share receives the key with it.
 
 ### Fixed
 

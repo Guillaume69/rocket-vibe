@@ -152,6 +152,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | Kill gate | Phase 1 of `ROADMAP.md`: the binary proof that a self-built APK receives pushes when killed. |
 | Proof by removal | Delete the fix, check that the expected tests fail, restore. A removal that changes nothing is an empty test. |
 | Step | A step of the (frozen) construction checklist `apps/mobile/EXECUTION.md`, e.g. "8.3". |
+| Storage key | The key of a device's private vault, in the platform keystore; renewed every 30 days, the old one destroyed ([e2ee-storage-keys](features/e2ee-storage-keys.md)). |
 | Unreleased | The changelog section every visible change goes into. |
 | Workstream | A work item of the 2026-07-25 audit, numbered 1 to 16 in `apps/mobile/WORKSTREAMS.md`. |
 

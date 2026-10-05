@@ -80,6 +80,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | [notifications.md](features/notifications.md) | Mobile FCM push with hidden content, the native service, desktop notifier and badge. |
 | [e2ee.md](features/e2ee.md) | Encrypted rooms as the user sees them: lock, unlock, sends, media, notifications. |
 | [e2ee-history.md](features/e2ee-history.md) | RocketVibe server: a new device recovers encrypted history from another device of the account. |
+| [e2ee-storage-keys.md](features/e2ee-storage-keys.md) | RocketVibe server: the vault's storage key renewed every 30 days, old keys destroyed. |
 | [e2ee-private-files.md](features/e2ee-private-files.md) | RocketVibe server: files of private rooms sealed on the device, opaque to the server. |
 | [e2ee-private-actions.md](features/e2ee-private-actions.md) | RocketVibe server: encrypted edits, deletions and reactions of private messages, and private search on the device. |
 | [calls.md](features/calls.md) | Jitsi calls, the mobile WebView exception, desktop call windows. |

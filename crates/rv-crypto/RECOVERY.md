@@ -77,9 +77,13 @@ racine et la vérification explicite des correspondants ; une révocation de
 feuille seule ne suffit pas. La politique des anciennes copies du coffre reste
 celle de [README.md](README.md).
 
-Le contrôle d'appareil délégué, la production / confirmation et l'outbox durable
-du paquet de sauvegarde dans l'UI, la livraison / version active sur le service,
-le pont Android et les écrans actuels de verrouillage restent à intégrer.
+Le coordinateur `account::recovery` prépare maintenant le paquet / code dans
+le coffre protégé avant sortie, exige la confirmation du code conservé avant
+de rendre l'intention HTTP, règle un reçu exact et restaure une feuille neuve.
+Le serveur et les transports gèrent une version active avec CAS et des reçus
+originaux distincts ; voir [le protocole de sauvegarde](../../docs/protocol/E2EE_ROOT_BACKUPS.md).
+Le règlement des conflits concurrents, le pont Android / FFI et la cérémonie
+dans les paramètres existants restent à intégrer.
 L'archive E2EE et la récupération de ses clés ont un format / une autorisation
 propres à définir ; ce paquet ne promet pas l'accès automatique à l'historique.
 Sans code sauvegardé ni contrôleur de racine disponible, cette identité ne peut

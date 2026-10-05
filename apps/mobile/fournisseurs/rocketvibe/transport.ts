@@ -70,6 +70,16 @@ export class NativeTransport {
   revokeCryptoDevice(input:NativeTypes['RevokeDevice']):Promise<NativeTypes['OperationReceipt']> {
     return this.request('OperationReceipt','/api/v1/e2ee/revocations',input);
   }
+  /** Encrypted root only. Recovery codes stay inside the explicit native ceremony. */
+  cryptoRootBackup():Promise<NativeTypes['RootBackupState']> {
+    return this.request('RootBackupState','/api/v1/e2ee/root-backup');
+  }
+  publishCryptoRootBackup(input:NativeTypes['PublishRootBackup']):Promise<NativeTypes['RootBackupReceipt']> {
+    return this.request('RootBackupReceipt','/api/v1/e2ee/root-backup',input);
+  }
+  cryptoRootBackupOperation(operation:string):Promise<NativeTypes['RootBackupReceipt']> {
+    return this.request('RootBackupReceipt',`/api/v1/e2ee/root-backup/operations/${encodeURIComponent(operation)}`);
+  }
   publishKeyPackages(input:NativeTypes['PublishKeyPackages']):Promise<NativeTypes['OperationReceipt']> {
     return this.request('OperationReceipt','/api/v1/e2ee/key-packages',input);
   }

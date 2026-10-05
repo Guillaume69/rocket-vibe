@@ -229,6 +229,26 @@ impl NativeClient {
     ) -> Result<rv_protocol::e2ee::OperationReceipt, Error> {
         self.post("/api/v1/e2ee/revocations", input).await
     }
+    /// Opaque encrypted root only; recovery codes never enter this transport.
+    pub async fn crypto_root_backup(&self) -> Result<rv_protocol::e2ee::RootBackupState, Error> {
+        self.get("/api/v1/e2ee/root-backup").await
+    }
+    pub async fn publish_crypto_root_backup(
+        &self,
+        input: &rv_protocol::e2ee::PublishRootBackup,
+    ) -> Result<rv_protocol::e2ee::RootBackupReceipt, Error> {
+        self.post("/api/v1/e2ee/root-backup", input).await
+    }
+    pub async fn crypto_root_backup_operation(
+        &self,
+        operation: &str,
+    ) -> Result<rv_protocol::e2ee::RootBackupReceipt, Error> {
+        if !path_segment(operation) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/e2ee/root-backup/operations/{operation}"))
+            .await
+    }
     pub async fn publish_key_packages(
         &self,
         input: &rv_protocol::e2ee::PublishKeyPackages,
@@ -489,7 +509,10 @@ impl NativeClient {
             "/api/v1/auth/renew" => Some("session_rotation"),
             "/api/v1/sync/ticket" => Some("ticket"),
             "/api/v1/sync/snapshots" => Some("snapshot"),
-            "/api/v1/e2ee/devices" | "/api/v1/e2ee/key-packages" | "/api/v1/e2ee/revocations"
+            "/api/v1/e2ee/devices"
+            | "/api/v1/e2ee/key-packages"
+            | "/api/v1/e2ee/revocations"
+            | "/api/v1/e2ee/root-backup"
                 if *method == Method::POST =>
             {
                 Some("crypto")

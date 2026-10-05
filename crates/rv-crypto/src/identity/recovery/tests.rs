@@ -12,6 +12,53 @@ const NOW: u64 = 1_900_000_000;
 fn issuer() -> Issuer {
     Issuer::generate("instance", "alice").unwrap()
 }
+#[test]
+fn encrypted_backup_publication_is_root_signed_scope_bound_and_cross_format_compatible() {
+    use rv_crypto_public::recovery::{Publication, PublicationBody, Scope as PublicScope};
+    let issuer = issuer();
+    let secret = RecoverySecret::generate().unwrap();
+    let backup = RootBackup::seal(&issuer, &secret, NOW).unwrap();
+    let public =
+        rv_crypto_public::recovery::RootBackup::from_bytes(&backup.to_bytes().unwrap()).unwrap();
+    assert_eq!(public.to_bytes().unwrap(), backup.to_bytes().unwrap());
+    let body = PublicationBody {
+        version: 1,
+        scope: PublicScope {
+            instance: "instance".into(),
+            data_epoch: "epoch".into(),
+        },
+        operation: "backup-operation".into(),
+        device: "desktop".into(),
+        incarnation: [4; 16],
+        device_revision: "9007199254740993".into(),
+        expected_revision: Some("9007199254740992".into()),
+        packet_digest: public.digest().unwrap(),
+    };
+    let publication = issuer.publish_backup(&backup, body).unwrap();
+    let bytes = publication.to_bytes().unwrap();
+    let decoded = Publication::from_bytes(&bytes).unwrap();
+    let restored = RootBackup::from_bytes(&decoded.packet.to_bytes().unwrap()).unwrap();
+    restore(&restored, &secret, issuer.root()).unwrap();
+    let exposed = std::str::from_utf8(&bytes).unwrap();
+    assert!(!exposed.contains(secret.for_display().as_str()));
+    for key in ["private_key", "seed", "recovery_code", "recovery_secret"] {
+        assert!(!exposed.contains(key));
+    }
+    let mut altered = decoded.clone();
+    altered.packet.nonce[0] ^= 1;
+    assert!(altered.verify().is_err());
+    let mut altered = decoded.clone();
+    altered.body.expected_revision = None;
+    assert!(altered.verify().is_err());
+    let mut altered = decoded.clone();
+    altered.body.device_revision = "09007199254740993".into();
+    assert!(altered.verify().is_err());
+    let mut altered = decoded;
+    altered.body.scope.data_epoch = "foreign".into();
+    assert!(altered.verify().is_err());
+    let stranger = Issuer::generate("instance", "alice").unwrap();
+    assert!(stranger.publish_backup(&backup, publication.body).is_err());
+}
 fn restore(
     backup: &RootBackup,
     secret: &RecoverySecret,

@@ -49,6 +49,7 @@ impl Coordinator<'_> {
             if current.registration.is_some()
                 || current.withdrawn
                 || revocations::pending(records, &manager, &current.root)?
+                || recovery::pending(records, &manager, &current.root)?
                 || serde_json::to_vec(receipt).ok().as_ref() != Some(&baseline)
             {
                 return Err(vault::Error::Stale);

@@ -42,6 +42,38 @@ pub struct PublishKeyPackages {
 }
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct PublishRootBackup {
+    pub scope: Scope,
+    pub operation_id: String,
+    pub publication: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RootBackupReceipt {
+    pub scope: Scope,
+    pub operation_id: String,
+    pub device_id: String,
+    pub incarnation: String,
+    pub device_revision: String,
+    pub root_fingerprint: String,
+    pub backup_id: String,
+    pub backup_revision: String,
+    pub packet_digest: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RootBackupVersion {
+    pub publication: String,
+    pub receipt: RootBackupReceipt,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RootBackupState {
+    pub scope: Scope,
+    pub active: Option<RootBackupVersion>,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Identity {
     pub user_id: String,
     pub root: String,

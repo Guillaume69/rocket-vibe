@@ -110,6 +110,9 @@ les SDK laissent consulter les reçus pendant le délai. Les lectures sont priv�
 
 ## Suite du lot
 
+La livraison du paquet de racine chiffré et signé possède un
+[contrat séparé](E2EE_ROOT_BACKUPS.md). Elle ne transporte aucun code de récupération.
+
 Liste de destinataires / adhésions signée, consommation unique liée au commit,
 ordre / CAS et Welcomes ciblés sont implémentés dans le lot [groupes](E2EE_GROUPS.md).
 Leur vérification, outbox durable et admission locale sont raccordées aux

@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 pub mod enrollment;
 pub mod groups;
 pub mod messages;
+pub mod recovery;
 pub const WIRE_LIMIT: usize = 4096;
 pub const MAX_LIFETIME: u64 = 90 * 86400;
 pub const CERT_DOMAIN: &str = "rocketvibe-device-certificate-v1";

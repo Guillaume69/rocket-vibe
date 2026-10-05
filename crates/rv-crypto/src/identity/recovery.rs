@@ -5,17 +5,43 @@ use chacha20poly1305::{
     XChaCha20Poly1305, XNonce,
     aead::{Aead, KeyInit, Payload},
 };
+use ed25519_dalek::Signer as _;
 use ed25519_dalek::SigningKey;
 use openmls::prelude::OpenMlsProvider;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 const DOMAIN: &str = "rocketvibe-root-recovery-v1";
 const CODE_DOMAIN: &[u8] = b"rocketvibe-recovery-code-v1\0";
 const PACKET_LIMIT: usize = 24 * 1024;
 const RESTORE_RECORD: &str = "crypto-recovery-import-v1";
+impl Issuer {
+    /// Authenticates an opaque packet without exporting the root signing key.
+    pub fn publish_backup(
+        &self,
+        backup: &RootBackup,
+        body: rv_crypto_public::recovery::PublicationBody,
+    ) -> Result<rv_crypto_public::recovery::Publication, Error> {
+        let packet = rv_crypto_public::recovery::RootBackup::from_bytes(&backup.to_bytes()?)?;
+        if packet.header.root != self.root || body.packet_digest != packet.digest()? {
+            return Err(Error::Changed);
+        }
+        let signature = self
+            .signing
+            .sign(&body.signing_bytes()?)
+            .to_bytes()
+            .to_vec();
+        let publication = rv_crypto_public::recovery::Publication {
+            body,
+            packet,
+            signature,
+        };
+        publication.verify()?;
+        Ok(publication)
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -54,6 +80,21 @@ fn hex_pair(pair: &[u8]) -> Result<u8, Error> {
     Ok((digit(pair[0])? << 4) | digit(pair[1])?)
 }
 impl RecoverySecret {
+    /// Internal protected-record persistence, never an FFI/HTTP key export.
+    pub(crate) fn save(&self, records: &mut Records, name: &str) {
+        if let Some(mut old) = records.insert(name.into(), self.0.to_vec()) {
+            old.zeroize();
+        }
+    }
+    pub(crate) fn load(records: &Records, name: &str) -> Result<Self, Error> {
+        let bytes = records
+            .get(name)
+            .filter(|bytes| bytes.len() == 32)
+            .ok_or(Error::Recovery)?;
+        let mut key = Zeroizing::new([0; 32]);
+        key.copy_from_slice(bytes);
+        Ok(Self(key))
+    }
     pub fn generate() -> Result<Self, Error> {
         let mut key = Zeroizing::new([0; 32]);
         getrandom::fill(key.as_mut()).map_err(|_| Error::Unavailable)?;
@@ -115,6 +156,43 @@ pub struct RootBackup {
     pub ciphertext: Vec<u8>,
 }
 impl RootBackup {
+    fn authenticated_signing(
+        &self,
+        secret: &RecoverySecret,
+        expected: &Root,
+    ) -> Result<SigningKey, Error> {
+        self.validate()?;
+        expected.validate()?;
+        if self.header.root != *expected {
+            return Err(Error::Changed);
+        }
+        let plaintext = Zeroizing::new(
+            XChaCha20Poly1305::new((&*secret.0).into())
+                .decrypt(
+                    XNonce::from_slice(&self.nonce),
+                    Payload {
+                        msg: &self.ciphertext,
+                        aad: &self.header.aad()?,
+                    },
+                )
+                .map_err(|_| Error::Recovery)?,
+        );
+        let private: PrivateRoot =
+            serde_json::from_slice(&plaintext).map_err(|_| Error::Recovery)?;
+        if private.root != *expected {
+            return Err(Error::Recovery);
+        }
+        let signing = SigningKey::from_bytes(&private.seed);
+        if signing.verifying_key().to_bytes() != expected.public_key {
+            return Err(Error::Recovery);
+        }
+        Ok(signing)
+    }
+    /// Pure preview: validates the entered code before creating any vault.
+    pub fn authenticate(&self, secret: &RecoverySecret, expected: &Root) -> Result<Root, Error> {
+        self.authenticated_signing(secret, expected)?;
+        Ok(expected.clone())
+    }
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.len() > PACKET_LIMIT {
             return Err(Error::Limit);
@@ -218,26 +296,7 @@ impl RootBackup {
             }
             already_restored = true;
         }
-        let plaintext = Zeroizing::new(
-            XChaCha20Poly1305::new((&*secret.0).into())
-                .decrypt(
-                    XNonce::from_slice(&self.nonce),
-                    Payload {
-                        msg: &self.ciphertext,
-                        aad: &self.header.aad()?,
-                    },
-                )
-                .map_err(|_| Error::Recovery)?,
-        );
-        let private: PrivateRoot =
-            serde_json::from_slice(&plaintext).map_err(|_| Error::Recovery)?;
-        if private.root != *expected {
-            return Err(Error::Recovery);
-        }
-        let signing = SigningKey::from_bytes(&private.seed);
-        if signing.verifying_key().to_bytes() != expected.public_key {
-            return Err(Error::Recovery);
-        }
+        let signing = self.authenticated_signing(secret, expected)?;
         if already_restored {
             return Ok(expected.clone());
         }

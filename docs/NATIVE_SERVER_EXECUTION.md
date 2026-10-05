@@ -5,6 +5,24 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 
 ## État synthétique au 5 octobre 2026
 
+Sauvegarde de racine : format public opaque signé, stockage serveur de la
+version active avec CAS, reçus originaux distincts et transports Rust / mobile
+ajoutés. Le coordinateur partagé protège paquet / clé / intention avant sortie,
+exige le code conservé avant HTTP, règle le reçu exact puis efface la clé
+temporaire. Un aperçu ancien ou une version serveur omise / régressée après
+confirmation sont refusés. La restauration valide le code avant création du
+coffre, importe seulement la racine, crée une feuille neuve et conserve cette
+feuille / les records ultérieurs lors d'une reprise exacte. Les 170 tests du
+moteur passent en 167,98 s, avec un banc HTTP ignoré exécuté séparément en CI ;
+les cinq parcours de récupération passent en 1,64 s après la protection des
+aperçus et le refus d'un appareil délégué sans racine. Douze tests transport /
+OpenSSL passent en 219 ms, typecheck / lint
+mobile et Clippy strict moteur / serveur passent. Le vecteur public, les DTOs
+et six scénarios serveur sont ajoutés, dont cinq PostgreSQL / HTTP à qualifier
+dans la nouvelle CI. Le règlement explicite des conflits, FFI / Keystore et
+paramètres existants restent à raccorder ; aucune capacité de production n'est
+activée. Détails : [contrat de sauvegarde](protocol/E2EE_ROOT_BACKUPS.md).
+
 Retrait signé raccordé au coordinateur protégé et aux paramètres existants
 Android / GTK / SwiftUI : aperçu lié au certificat / incarnation / révision,
 confirmation explicite, preuve permanente et intention originale sauvegardées
@@ -18,8 +36,11 @@ bureau passent en 49,67 secondes, dont fermeture pendant le checkpoint sans
 envoi et reprise du reçu après réouverture. Les neuf tests du pont mobile
 passent en 61,22 secondes ; 14 parcours des adaptateurs passent en 191 ms.
 Typecheck / lint mobile et Clippy strict pont / cœur / FFI passent ; bindings
-Swift et Kotlin réels générés. Compilation / parcours GTK / SwiftUI et vrai
-Keystore Android du nouveau lot attendent sa CI. Qualification installée,
+Swift et Kotlin réels générés. Serveur / GTK et vrai Keystore Android / deux
+ABI passent dans 37268312083 et 37268312069. La compilation SwiftUI a trouvé une
+expression trop grande dans les paramètres ; découpage en composants dans
+`0cc02ff`, validé par build / démarrage macOS de 37281102690. Les neuf jobs
+natifs de 37281102685 sont également verts. Qualification installée,
 récupération visible, politique d'archive après retrait et revue indépendante
 restent ouvertes ; l'E2EE de production demeure désactivé.
 

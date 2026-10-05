@@ -3168,6 +3168,16 @@
             }
           ]
         },
+        "e2ee_publish_root_backup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PublishRootBackup"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "e2ee_register_device": {
           "anyOf": [
             {
@@ -3182,6 +3192,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/RevokeDevice"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_root_backup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RootBackupState"
             },
             {
               "type": "null"
@@ -3853,6 +3873,26 @@
         "operation_id",
         "device_revision",
         "packages"
+      ],
+      "type": "object"
+    },
+    "PublishRootBackup": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        },
+        "publication": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "operation_id",
+        "publication"
       ],
       "type": "object"
     },
@@ -4758,6 +4798,88 @@
         "member"
       ],
       "type": "string"
+    },
+    "RootBackupReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "backup_id": {
+          "type": "string"
+        },
+        "backup_revision": {
+          "type": "string"
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "device_revision": {
+          "type": "string"
+        },
+        "incarnation": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "packet_digest": {
+          "type": "string"
+        },
+        "root_fingerprint": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "operation_id",
+        "device_id",
+        "incarnation",
+        "device_revision",
+        "root_fingerprint",
+        "backup_id",
+        "backup_revision",
+        "packet_digest"
+      ],
+      "type": "object"
+    },
+    "RootBackupState": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RootBackupVersion"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope"
+      ],
+      "type": "object"
+    },
+    "RootBackupVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "publication": {
+          "type": "string"
+        },
+        "receipt": {
+          "$ref": "#/$defs/RootBackupReceipt"
+        }
+      },
+      "required": [
+        "publication",
+        "receipt"
+      ],
+      "type": "object"
     },
     "Scope": {
       "additionalProperties": false,

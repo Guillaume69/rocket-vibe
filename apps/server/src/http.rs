@@ -112,6 +112,14 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/e2ee/devices", post(register_crypto_device))
         .route("/api/v1/e2ee/revocations", post(revoke_crypto_device))
         .route(
+            "/api/v1/e2ee/root-backup",
+            get(crypto_root_backup).post(publish_crypto_root_backup),
+        )
+        .route(
+            "/api/v1/e2ee/root-backup/operations/{operation}",
+            get(crypto_root_backup_operation),
+        )
+        .route(
             "/api/v1/e2ee/rooms/{room}/transitions",
             post(submit_crypto_group).layer(DefaultBodyLimit::max(4 * 1024 * 1024)),
         )
@@ -969,6 +977,30 @@ async fn revoke_crypto_device(
     Ok(secret_session(
         crate::e2ee::revoke(&app, &actor, crypto_body(input)?).await?,
     ))
+}
+async fn publish_crypto_root_backup(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::e2ee::PublishRootBackup>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::e2ee::backups::publish(&app, &actor, crypto_body(input)?).await?,
+    ))
+}
+async fn crypto_root_backup(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let value = crate::e2ee::backups::current(&app, &actor).await?;
+    proof.json(&app, &hash, &value, &[], None).await
+}
+async fn crypto_root_backup_operation(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(operation): Path<String>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let value = crate::e2ee::backups::operation(&app, &actor, &operation).await?;
+    proof.json(&app, &hash, &value, &[], None).await
 }
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]

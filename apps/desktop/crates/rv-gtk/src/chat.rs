@@ -1599,7 +1599,8 @@ impl ChatPage {
         let Some(oldest) = self.list.oldest_ts() else { return false };
         self.set_loading(true);
         let (rid, kind) = (open.rid.clone(), open.kind.clone());
-        let page = crate::on_tokio(async move { session.sync.load_history(&rid, &kind, Some(oldest)).await }).await;
+        let s = session.clone();
+        let page = crate::on_tokio(async move { s.sync.load_history(&rid, &kind, Some(oldest)).await }).await;
         let mut loaded = false;
         if self.current.borrow().as_ref().is_some_and(|c| c.rid == open.rid)
             && let Ok(page) = page
@@ -1608,7 +1609,11 @@ impl ChatPage {
             if page.count <= 1 {
                 self.has_older.set(false);
             }
-            self.limit.set(self.limit.get() + HISTORY_PAGE);
+            // Down to the page and no further: an older message stored on its own
+            // (starred, edited) would hide the hole above it.
+            if let Some(oldest) = page.oldest_ts {
+                self.limit.set(session.store.count_since(&open.rid, oldest));
+            }
             self.reload_messages();
             loaded = true;
         }

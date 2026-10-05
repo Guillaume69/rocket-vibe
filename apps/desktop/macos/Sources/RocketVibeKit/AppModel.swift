@@ -195,7 +195,11 @@ public final class AppModel {
     func handle(_ event: Event) {
         switch event {
         case let .changed(rooms, rids):
-            later(rooms: rooms, rids: rids)
+            // An edit or withdrawal in a source room also invalidates cards
+            // displayed in another ordinary room or thread.
+            let quotes = native != nil && (room?.hasPrivateQuoteProjection == true || thread?.hasPrivateQuoteProjection == true)
+            let destinations = quotes ? [room?.rid, thread?.rid].compactMap { $0 } : []
+            later(rooms: rooms, rids: rids + destinations)
         case .resync:
             for key in native?.withdrawnNotifications() ?? [] { onWithdraw?(key) }
             later(everything: true)

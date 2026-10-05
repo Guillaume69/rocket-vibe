@@ -180,6 +180,11 @@ public final class RoomModel {
     @ObservationIgnored private var privateRestoring = false
     @ObservationIgnored private var privateDraftRevision = UUID()
     @ObservationIgnored private var privateGeneration = UUID()
+    @ObservationIgnored private var quoteVisible = true
+    @ObservationIgnored private var quoteGeneration = UUID()
+    @ObservationIgnored private var quoteReader: NativeCryptoQuoteReader?
+    @ObservationIgnored private var quoteTask: Task<Void, Never>?
+    @ObservationIgnored private var quotePoll: Task<Void, Never>?
     public var canSend: Bool { threadWriteAllowed && (!privateMode || privateReady) && (!draft.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || nativeQuote != nil || privateQuote != nil) }
     public private(set) var threadWriteAllowed = true
     @ObservationIgnored private var actionLoads: Set<String> = []
@@ -243,6 +248,8 @@ public final class RoomModel {
     /// Flush before leaving; a delayed save must not outlive this visible room.
     func deactivate() {
         guard active else { return }
+        closeQuoteReader()
+        quotePoll?.cancel(); quotePoll = nil
         if let native=provider.native {
             let (rid,root,membership)=(room.rid,threadId,nativeMembership)
             Task {try? await native.setTyping(room:rid,root:root,active:false,membership:membership)}
@@ -315,7 +322,11 @@ public final class RoomModel {
         if let native = provider.native, let threadId {
             threadWriteAllowed = (try? native.threadWritable(room:room.rid,root:threadId)) == true
         }
-        guard active, let fresh = try? provider.messages(rid: room.rid, limit: limit, thread: threadId, unreadAfter: unreadAfter, nativeBoundary:nativeReadBoundary,nativeMembership:nativeMembership) else { return }
+        closeQuoteReader()
+        guard active, let fresh = cachedOrdinaryMessages() else {
+            if provider.native != nil { messages = [] }
+            return
+        }
         if fresh != messages {
             let changed = fresh.filter { item in messages.first { $0.id == item.id } != item }
             messages = fresh
@@ -326,6 +337,68 @@ public final class RoomModel {
             }
         }
         if threadId == nil { refreshUploads() }
+        projectQuoteCards(fresh)
+    }
+
+    private func cachedOrdinaryMessages() -> [MessageItem]? {
+        try? provider.messages(rid: room.rid, limit: limit, thread: threadId, unreadAfter: unreadAfter, nativeBoundary:nativeReadBoundary, nativeMembership:nativeMembership)
+    }
+    private func closeQuoteReader() {
+        quoteGeneration = UUID()
+        quoteTask?.cancel(); quoteTask = nil
+        quoteReader?.close(); quoteReader = nil
+    }
+    var hasPrivateQuoteProjection: Bool { quoteReader != nil || quoteTask != nil }
+    /// The list owns its activity gate. Ordinary bodies and drafts remain in
+    /// their existing cache; decrypted quote cards disappear on blur or cover.
+    public func quoteActivity(_ visible: Bool) {
+        guard quoteVisible != visible else { return }
+        quoteVisible = visible
+        guard !privateMode else { return }
+        if !visible {
+            closeQuoteReader()
+            quotePoll?.cancel(); quotePoll = nil
+            if active, provider.native != nil { messages = cachedOrdinaryMessages() ?? [] }
+        } else if active { reload() }
+    }
+    private func projectQuoteCards(_ baseline: [MessageItem]) {
+        guard active, quoteVisible, let native = provider.native, native.cryptoSettingsSupported(),
+              baseline.contains(where: { !$0.quotes.isEmpty }) else {
+            quotePoll?.cancel(); quotePoll = nil
+            return
+        }
+        let generation = quoteGeneration
+        quoteTask = Task { [weak self] in
+            guard let self, self.active, self.quoteVisible, !Task.isCancelled else { return }
+            defer { if self.quoteGeneration == generation { self.quoteTask = nil } }
+            do {
+                let reader = try await native.cryptoQuoteReader(room: self.room.rid)
+                guard self.active, self.quoteVisible, self.quoteGeneration == generation, !Task.isCancelled else { reader.close(); return }
+                self.quoteReader = reader
+                let cards = try await reader.refresh(limit: UInt32(self.limit), root: self.threadId)
+                guard self.active, self.quoteVisible, self.quoteGeneration == generation,
+                      !Task.isCancelled, self.membershipIsCurrent, !reader.isClosed(),
+                      self.cachedOrdinaryMessages() == baseline else { reader.close(); return }
+                let byId = Dictionary(uniqueKeysWithValues: cards.map { ($0.messageId, $0.quotes) })
+                self.messages = baseline.map { item in
+                    var projected = item
+                    if let quotes = byId[item.id] { projected.quotes = quotes }
+                    return projected
+                }
+            } catch {
+                guard self.quoteGeneration == generation else { return }
+                self.quoteReader?.close(); self.quoteReader = nil
+            }
+        }
+        if quotePoll == nil {
+            quotePoll = Task { [weak self] in
+                while !Task.isCancelled {
+                    do { try await Task.sleep(nanoseconds: 10_000_000_000) } catch { return }
+                    guard let self, self.active, self.quoteVisible, !Task.isCancelled else { return }
+                    self.reload()
+                }
+            }
+        }
     }
 
     func refreshTyping() {

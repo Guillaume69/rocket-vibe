@@ -121,6 +121,7 @@ pub struct ChatPage {
     native_crypto_restored: Cell<bool>,
     native_crypto_rows: RefCell<Vec<rv_core::store::MessageRow>>,
     native_crypto_meta: RefCell<Vec<(String, String, Option<String>)>>,
+    native_quote_cards: Rc<crate::native_quote_cards::QuoteCards>,
     native_membership: RefCell<Option<(String, Option<String>)>>,
     native_unread_after: RefCell<Option<String>>,
     native_read_pending: Rc<Cell<bool>>,
@@ -402,6 +403,7 @@ impl ChatPage {
             native_crypto_restored: Cell::new(false),
             native_crypto_rows: RefCell::default(),
             native_crypto_meta: RefCell::default(),
+            native_quote_cards: crate::native_quote_cards::QuoteCards::new(&list),
             native_membership: RefCell::default(),
             native_unread_after: RefCell::default(),
             native_read_pending: Rc::default(),
@@ -1809,21 +1811,16 @@ impl ChatPage {
                 return;
             }
             self.composer.validate_native_reply(&session.store);
-            match session.store.messages(&open.rid, self.limit.get() as usize) {
-                Ok(rows) => self.list.set_native_rows(
-                    rv_core::native::read_presentation::group(
-                        rows,
-                        &open.rid,
-                        &session.info.user_id,
-                        self.native_unread_after
-                            .borrow()
-                            .as_deref()
-                            .filter(|_| session.supported_features().iter().any(|f| f == "read_markers")),
-                    ),
-                    &session.info.user_id,
-                ),
-                Err(error) => self.toast(error.to_string()),
-            }
+            self.native_quote_cards.show(
+                &session,
+                &open.rid,
+                None,
+                self.limit.get() as usize,
+                self.native_unread_after
+                    .borrow()
+                    .clone()
+                    .filter(|_| session.supported_features().iter().any(|f| f == "read_markers")),
+            );
             if let Some(thread) = self.thread.borrow().as_ref() {
                 thread.reload();
             }

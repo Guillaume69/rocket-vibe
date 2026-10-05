@@ -28,6 +28,7 @@ pub struct ThreadPage {
     private_generation: Cell<u64>,
     private_restored: Cell<bool>,
     private_map: Cell<u64>,
+    quote_cards: Rc<crate::native_quote_cards::QuoteCards>,
 }
 
 impl ThreadPage {
@@ -44,6 +45,7 @@ impl ThreadPage {
         let page = adw::NavigationPage::builder().child(&view).title(t("thread.title")).tag("thread").build();
         Rc::new(ThreadPage {
             page,
+            quote_cards: crate::native_quote_cards::QuoteCards::new(&list),
             list,
             composer,
             root_id: root_id.to_owned(),
@@ -111,6 +113,7 @@ impl ThreadPage {
         self.private
     }
     pub fn close_private(&self) {
+        self.quote_cards.close();
         if !self.private {
             return;
         }
@@ -150,6 +153,7 @@ impl ThreadPage {
             let encrypted =
                 native.store.rooms().ok().is_none_or(|rooms| rooms.iter().any(|r| r.id == self.rid && r.encrypted));
             if current != self.membership || current.is_none() || native.is_closed() || encrypted {
+                self.quote_cards.close();
                 self.list.clear();
                 self.composer.unbind_native();
                 self.composer.set_text("");
@@ -161,12 +165,7 @@ impl ThreadPage {
                 native.can_send_to_room(&self.rid)
                     && native.store.thread_writable(&self.rid, &self.root_id).unwrap_or(false),
             );
-            if let Ok(rows) = native.store.thread_messages(&self.rid, &self.root_id) {
-                self.list.set_native_rows(
-                    rv_core::native::read_presentation::group(rows, &self.rid, &native.info.user_id, None),
-                    &native.info.user_id,
-                );
-            }
+            self.quote_cards.show(native, &self.rid, Some(&self.root_id), 200, None);
             return;
         }
         if let Some(session) = self.session.borrow().as_ref() {

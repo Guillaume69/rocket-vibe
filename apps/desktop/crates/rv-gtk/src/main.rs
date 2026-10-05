@@ -26,6 +26,7 @@ mod marked;
 mod media;
 mod message_list;
 mod native_crypto;
+mod native_quote_cards;
 mod native_security;
 mod notifier;
 mod recorder;

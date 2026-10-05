@@ -11,7 +11,9 @@ positions exactes, brouillons séparés, envoi et reprise du ciphertext original
 Les qualifications locales et CI sont distinguées ci-dessous ; les citations
 Android et la composition mixte passent les validations locales détaillées
 ci-dessous. Les dates sont des observations locales, pas des dates d'auteur
-certifiées. Les archives complètes, cartes privées dans les salons ordinaires bureau,
+certifiées. Les lecteurs de cartes privées dans les salons / fils ordinaires bureau
+sont raccordés dans le lot décrit ci-dessous, avec qualification CI encore ouverte.
+Les archives complètes, composition privée dans les salons ordinaires bureau,
 sélection intersalons bureau, édition / actions, recherche et fichiers privés
 restent à livrer, ainsi que récupération /
 révocation visibles et qualification installée. Aucun masque E2EE de production
@@ -200,7 +202,8 @@ Le serveur réutilise le lecteur du journal MLS et le témoin historique exact d
 l’appareil pour valider ces nouvelles références, sans livrer d’extrait privé.
 Le nouveau scénario HTTP / PostgreSQL couvre absence de clair, révision périmée,
 adhésion de domaine sans admission MLS et reçu conservé après expiration ; il
-est compilé par Clippy strict, mais reste à exécuter par la CI de ce lot.
+est compilé par Clippy strict, puis passe réellement en HTTP / PostgreSQL dans
+le job `verify` de la CI `37244716038` du commit `b884e1d`.
 Les 1 321 tests mobiles passent en 50,2 secondes ; typecheck, lint et export
 Hermes (8,3 Mo) passent. Les scénarios du vrai runner avec SQLite couvrent
 lecteur natif, refus tardifs, retrait, réponse perdue et reprise du même message
@@ -219,8 +222,30 @@ en 22,1 secondes ; qualification CI de cette correction encore ouverte.
 La CI verte de `a576db3` révèle un échec de sauvegarde du cache desktop : verrous
 incrémentaux créés par Docker en propriétaire `root`, illisibles par `tar` du
 runner. Le nettoyage rend maintenant les caches générés au runner, comme le
-fait déjà le job Swift. L’efficacité de la nouvelle sauvegarde reste à constater
-sur le prochain run ; aucun contrôle fonctionnel n’est retiré.
+fait déjà le job Swift. La CI `37244716038` de `b884e1d` sauvegarde effectivement
+le cache desktop avec sa clé `native-desktop-fedora-…-b884e1d1041102efea50b4378f23576af43eb8f7`,
+sans erreur de permission. Aucun contrôle fonctionnel n’est retiré.
+
+Lecteurs ordinaires bureau raccordés aux listes GTK / SwiftUI existantes, y
+compris les fils : un acteur distinct s'attache au coffre enregistré et ne
+dispose d'aucune API de brouillon ou d'envoi. Il reconstruit les cartes à partir
+des références du cache sans y écrire de texte privé ; un premier passage
+rattrape une page bornée par source privée, puis relit adhésions et admissions.
+Les corps, fichiers ordinaires, regroupements et marqueurs de non-lus restent
+ceux de la présentation existante. Blur / vue masquée / navigation / changement
+de compte ferment le lecteur et réaffichent le cache brut. Une génération de
+vue, l'adhésion courante et l'égalité de la fenêtre SQL écartent les réponses
+tardives. Un changement dans un autre salon invalide aussi les cartes Swift ;
+le lecteur actif est rafraîchi toutes les dix secondes.
+Les 16 parcours HTTP / MLS / SQLite du cœur passent en 42,25 secondes, dont le
+nouveau cas de lecture ordinaire avec cache inchangé, fermeture et retrait du
+salon. Le test utilise de vrais documents MLS et un serveur HTTP simulé ; il
+ne qualifie pas le rendu GUI. Clippy strict cœur / UniFFI passe en 13,93 secondes,
+la DLL est construite et les vrais bindings Swift sont régénérés. Compilation
+GTK / SwiftUI et régressions connectées du nouveau lot restent à confirmer par
+CI ; parcours privé GUI installé toujours ouvert. Sélecteurs bureau et envoi
+de références privées dans leurs salons ordinaires restent à livrer. Aucun
+masque E2EE de production activé.
 
 | Jalon | Développement livré | Travail restant pour le fermer |
 |---|---|---|
@@ -228,11 +253,11 @@ sur le prochain run ; aucun contrôle fonctionnel n’est retiré.
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils et citations privés dans les trois interfaces, lecture mixte, composition / destination intersalons Android et cartes privées dans ses salons ordinaires | Sélecteurs intersalons bureau, cartes privées dans les salons ordinaires bureau, renouvellement / récupération / révocation visibles, autres actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils et citations privés dans les trois interfaces, lecture mixte, composition / destination intersalons Android et lecteurs de cartes privées dans les salons ordinaires des trois interfaces | Sélecteurs intersalons bureau, composition privée dans les salons ordinaires bureau, qualification CI des nouveaux lecteurs bureau, renouvellement / récupération / révocation visibles, autres actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison serveur qui passe tous les jobs de sa CI (`a576db3`) passe les neuf jobs de la CI
-`37242529465` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison serveur qui passe tous les jobs de sa CI (`b884e1d`) passe les neuf jobs de la CI
+`37244716038` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
 Le job Android `37238019723` passe aussi les deux ABI, le vrai Keystore, la
 cérémonie d'association, les contrôles de confiance, groupes, fils et citations sur émulateur.

@@ -266,17 +266,22 @@ struct MessageList: View {
             }
             .onChange(of:readAllowed) { _,value in
                 if value {scheduleObservedRead()} else {cancelObservedRead()}
+                updateQuoteActivity()
             }
             .onChange(of:controlActive) { _,value in
                 if value == .key {scheduleObservedRead()} else {cancelObservedRead()}
+                updateQuoteActivity()
             }
             .onReceive(NotificationCenter.default.publisher(for:NSApplication.didBecomeActiveNotification)) { _ in
                 windowActive=true;scheduleObservedRead()
+                updateQuoteActivity()
             }
             .onReceive(NotificationCenter.default.publisher(for:NSApplication.didResignActiveNotification)) { _ in
                 windowActive=false;cancelObservedRead()
+                updateQuoteActivity()
             }
-            .onDisappear { cancelObservedRead();visibleNative.removeAll() }
+            .onAppear { updateQuoteActivity() }
+            .onDisappear { cancelObservedRead();visibleNative.removeAll();model.quoteActivity(false) }
             .onChange(of: model.reveal) { _, id in
                 guard let id else { return }
                 withAnimation { proxy.scrollTo(id, anchor: .center) }
@@ -327,6 +332,9 @@ struct MessageList: View {
         }
     }
 
+    private func updateQuoteActivity() {
+        model.quoteActivity(readAllowed && controlActive == .key && windowActive)
+    }
     var visibleObservedId:String? {
         model.messages.last(where:{$0.delivery == .sent && visibleNative.contains($0.id)})?.id
     }

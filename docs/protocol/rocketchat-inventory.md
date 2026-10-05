@@ -2,7 +2,7 @@
 
 Commande : `node scripts/inventory-rocketchat.mjs`. Contrôle : ajouter `--check`.
 
-394 fichiers de production parcourus ; 450 occurrences.
+397 fichiers de production parcourus ; 450 occurrences.
 Les appels à premier argument dynamique restent visibles : leur résolution est
 consignée dans [le contrat de parité](PARITY.md). Les lignes sont des repères de
 source au moment de la génération. Le JSON conserve le périmètre et tous les fichiers.
@@ -176,20 +176,20 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/crates/rv-gtk/src/chat_native.rs:881](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L881) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:81](../../apps/desktop/crates/rv-gtk/src/chat.rs#L81) | endpoint | rooms.favorite_add |
 | [apps/desktop/crates/rv-gtk/src/chat.rs:81](../../apps/desktop/crates/rv-gtk/src/chat.rs#L81) | endpoint | rooms.favorite_remove |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:237](../../apps/desktop/crates/rv-gtk/src/chat.rs#L237) | endpoint | rooms.offline |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:241](../../apps/desktop/crates/rv-gtk/src/chat.rs#L241) | endpoint | rooms.sign_out |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:251](../../apps/desktop/crates/rv-gtk/src/chat.rs#L251) | endpoint | rooms.back_to_room |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:260](../../apps/desktop/crates/rv-gtk/src/chat.rs#L260) | endpoint | rooms.new |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:348](../../apps/desktop/crates/rv-gtk/src/chat.rs#L348) | endpoint | e2e.banner |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:350](../../apps/desktop/crates/rv-gtk/src/chat.rs#L350) | endpoint | e2e.unlock |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1202](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1202) | endpoint | rooms.online |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1203](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1203) | endpoint | rooms.connecting |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1204](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1204) | endpoint | rooms.offline |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1675](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1675) | endpoint | rooms.section_unread |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1676](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1676) | endpoint | rooms.section_favorites |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1677](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1677) | endpoint | rooms.section_channels |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1678](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1678) | endpoint | rooms.section_direct |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1794](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1794) | endpoint | e2e.read_only |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:238](../../apps/desktop/crates/rv-gtk/src/chat.rs#L238) | endpoint | rooms.offline |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:242](../../apps/desktop/crates/rv-gtk/src/chat.rs#L242) | endpoint | rooms.sign_out |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:252](../../apps/desktop/crates/rv-gtk/src/chat.rs#L252) | endpoint | rooms.back_to_room |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:261](../../apps/desktop/crates/rv-gtk/src/chat.rs#L261) | endpoint | rooms.new |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:349](../../apps/desktop/crates/rv-gtk/src/chat.rs#L349) | endpoint | e2e.banner |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:351](../../apps/desktop/crates/rv-gtk/src/chat.rs#L351) | endpoint | e2e.unlock |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1204](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1204) | endpoint | rooms.online |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1205](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1205) | endpoint | rooms.connecting |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1206](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1206) | endpoint | rooms.offline |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1677](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1677) | endpoint | rooms.section_unread |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1678](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1678) | endpoint | rooms.section_favorites |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1679](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1679) | endpoint | rooms.section_channels |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1680](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1680) | endpoint | rooms.section_direct |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1796](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1796) | endpoint | e2e.read_only |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L19) | endpoint | rooms.favorite_add |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L19) | endpoint | rooms.favorite_remove |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:31](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L31) | endpoint | rooms.conflict |
@@ -311,10 +311,10 @@ source au moment de la génération. Le JSON conserve le périmètre et tous les
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:51](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L51) | endpoint | e2e.locked |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:51](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L51) | endpoint | e2e.unlocked |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:54](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L54) | endpoint | e2e.lock |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:487](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L487) | endpoint | e2e.wrong |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:488](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L488) | endpoint | e2e.no_keys |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:489](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L489) | endpoint | e2e.failed |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:492](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L492) | endpoint | e2e.failed |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:491](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L491) | endpoint | e2e.wrong |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:492](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L492) | endpoint | e2e.no_keys |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:493](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L493) | endpoint | e2e.failed |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:496](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L496) | endpoint | e2e.failed |
 | [apps/mobile/app/actions-message.tsx:84](../../apps/mobile/app/actions-message.tsx#L84) | call:GET | 'settings.public' |
 | [apps/mobile/app/actions-message.tsx:85](../../apps/mobile/app/actions-message.tsx#L85) | endpoint | settings.public |
 | [apps/mobile/app/connexion.tsx:407](../../apps/mobile/app/connexion.tsx#L407) | endpoint | chat.exemple.fr |

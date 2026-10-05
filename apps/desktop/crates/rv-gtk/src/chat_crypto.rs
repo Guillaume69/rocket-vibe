@@ -3,6 +3,7 @@ use rv_core::native::{crypto::enrollment::rooms::messages, security::Guard};
 
 impl ChatPage {
     pub(super) fn close_native_crypto(&self) {
+        self.native_quote_cards.close();
         if let Some(thread) = self.thread.borrow().as_ref() {
             thread.close_private();
         }

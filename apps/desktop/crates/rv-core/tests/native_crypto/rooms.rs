@@ -597,6 +597,27 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     assert_eq!(cards[0]["native_unavailable"], false);
     assert_eq!(cards[1]["text"], "Ordinary source words");
     assert_eq!(cards[1]["attachments"][0]["text"], "private-message-cleartext thread draft");
+    // The existing ordinary SQL row has a reference-only private child. Resolve
+    // it in a reader with no draft/outbox API, without changing either cache.
+    let ordinary_reader = message_settings(&pilot).await.quote_reader("plain-origin".into()).await.unwrap();
+    let cached = pilot.session.store.messages("plain-origin", 50).unwrap();
+    let presentation = cached
+        .clone()
+        .into_iter()
+        .map(|row| row.presentation("plain-origin", &pilot.session.info.user_id))
+        .collect::<Vec<_>>();
+    assert!(crypto::enrollment::rooms::messages::QuoteReader::needed(&presentation));
+    assert!(!cached[0].attachments.as_deref().unwrap().contains("private-message-cleartext"));
+    let posts = book.lock().unwrap().message_posts;
+    let projected = ordinary_reader.project(presentation.clone()).await.unwrap();
+    let private_cards: Value = serde_json::from_str(projected[0].attachments.as_ref().unwrap()).unwrap();
+    assert_eq!(private_cards[0]["text"], "private-message-cleartext thread draft");
+    assert_eq!(book.lock().unwrap().message_posts, posts);
+    assert_eq!(pilot.session.store.messages("plain-origin", 50).unwrap(), cached);
+    ordinary_reader.close();
+    assert!(ordinary_reader.project(presentation).await.is_err());
+    assert_eq!(pilot.session.store.messages("plain-origin", 50).unwrap(), cached);
+    let ordinary_reader = message_settings(&pilot).await.quote_reader("plain-origin".into()).await.unwrap();
     clear_message.text = "Updated ordinary source words".into();
     clear_message.revision = "11".into();
     clear_message.position = "11".into();
@@ -616,6 +637,7 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
         })
         .unwrap();
     assert!(reopened.refresh(None, 50).await.is_err(), "a source withdrawal invalidates the old public projection");
+    assert!(ordinary_reader.check().is_err(), "the ordinary destination reader closes with its membership");
     let reopened = message_settings(&pilot).await.messages("room".into(), None).await.unwrap();
     let refreshed = reopened.refresh(None, 50).await.unwrap();
     let row = refreshed.messages.iter().find(|m| m.operation == "private-quote-one").unwrap();

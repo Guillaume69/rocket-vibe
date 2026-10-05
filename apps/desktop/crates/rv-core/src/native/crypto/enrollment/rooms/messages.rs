@@ -4,6 +4,8 @@ use super::*;
 pub use rv_protocol::{SendMessage, parity::QuoteReference};
 mod quotes;
 pub use quotes::{QuotePreview, QuoteSelection};
+mod quote_reader;
+pub use quote_reader::QuoteReader;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Delivery {
@@ -41,6 +43,7 @@ struct State {
 }
 struct Conversation {
     room: super::Access,
+    encrypted: bool,
     thread: Option<String>,
     state: Mutex<State>,
     serial: tokio::sync::Mutex<()>,
@@ -51,6 +54,13 @@ impl super::super::Access {
     /// Opening this actor only attaches the registered coffer. It never creates
     /// an identity or opts the ordinary native outbox into plaintext sending.
     pub async fn messages(&self, room: String, thread: Option<String>) -> Result<Access> {
+        self.message_access(room, thread, true).await
+    }
+    /// Reader-only projection of private references in an ordinary destination.
+    pub async fn quote_reader(&self, room: String) -> Result<QuoteReader> {
+        Ok(QuoteReader(self.message_access(room, None, false).await?))
+    }
+    async fn message_access(&self, room: String, thread: Option<String>, encrypted: bool) -> Result<Access> {
         if thread.as_ref().is_some_and(|id| {
             id.is_empty()
                 || id.len() > 128
@@ -59,12 +69,19 @@ impl super::super::Access {
             return Err(room_changed());
         }
         let session = self.0.context.session.upgrade().ok_or_else(room_changed)?;
-        if !session.store.rooms().map_err(crate::native::Error::from)?.iter().any(|r| r.id == room && r.encrypted) {
+        if !session
+            .store
+            .rooms()
+            .map_err(crate::native::Error::from)?
+            .iter()
+            .any(|r| r.id == room && r.encrypted == encrypted)
+        {
             return Err(room_changed());
         }
         let room = self.room(room).await?;
         Ok(Access(Arc::new(Conversation {
             room,
+            encrypted,
             thread,
             state: Mutex::new(State {
                 revision: 0,
@@ -86,7 +103,7 @@ impl Access {
                 .rooms()
                 .map_err(crate::native::Error::from)?
                 .iter()
-                .any(|r| r.id == self.0.room.0.id && r.encrypted)
+                .any(|r| r.id == self.0.room.0.id && r.encrypted == self.0.encrypted)
             {
                 Ok(())
             } else {

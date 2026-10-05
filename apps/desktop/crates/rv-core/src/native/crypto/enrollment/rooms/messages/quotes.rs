@@ -39,9 +39,15 @@ impl Access {
         }
         Ok(session.store.read_state(room).map_err(crate::native::Error::from)?.and_then(|s| s.membership_version))
     }
-    async fn sources(&self, room: &str) -> Result<Option<RoomSources>> {
+    async fn sources(&self, room: &str, synchronize: bool) -> Result<Option<RoomSources>> {
         let Some(membership) = self.source_membership(room)? else { return Ok(None) };
-        let result = self.0.room.0.crypto.journal_sources(room).await;
+        let result = async {
+            if synchronize {
+                self.0.room.0.crypto.journal_page(room).await?;
+            }
+            self.0.room.0.crypto.journal_sources(room).await
+        }
+        .await;
         self.check()?;
         if self.source_membership(room)?.as_ref() != Some(&membership) {
             return Ok(None);
@@ -88,13 +94,13 @@ impl Access {
         }
         Ok(Some(RoomSources { membership, admission: Some(projection.admission), messages }))
     }
-    async fn reader_sources(&self, room: &str, ids: &[String]) -> Result<Option<RoomSources>> {
+    async fn reader_sources(&self, room: &str, ids: &[String], synchronize: bool) -> Result<Option<RoomSources>> {
         self.check()?;
         let session = self.0.room.0.session.upgrade().ok_or_else(room_changed)?;
         let rooms = session.store.rooms().map_err(crate::native::Error::from)?;
         let Some(source_room) = rooms.iter().find(|r| r.id == room) else { return Ok(None) };
         if source_room.encrypted {
-            return self.sources(room).await;
+            return self.sources(room, synchronize).await;
         }
         let Some(source) = session.store.public_quote_sources(room, ids).map_err(crate::native::Error::from)? else {
             return Ok(None);
@@ -148,7 +154,7 @@ impl Access {
     pub async fn select_source_quote(&self, room: String, id: String) -> Result<QuotePreview> {
         let _serial = self.0.serial.lock().await;
         self.0.room.current().await?;
-        let source = self.reader_sources(&room, std::slice::from_ref(&id)).await?.ok_or_else(unavailable)?;
+        let source = self.reader_sources(&room, std::slice::from_ref(&id), true).await?.ok_or_else(unavailable)?;
         let entry = source.messages.get(&id).ok_or_else(unavailable)?;
         let scope = self.0.room.0.crypto.scope();
         let selection = QuoteSelection {
@@ -184,7 +190,7 @@ impl Access {
                     .collect::<Vec<_>>();
                 rooms.insert(
                     selected.reference.room_id.clone(),
-                    self.reader_sources(&selected.reference.room_id, &ids).await?,
+                    self.reader_sources(&selected.reference.room_id, &ids, true).await?,
                 );
             }
             if rooms[&selected.reference.room_id].as_ref().and_then(|r| self.preview(selected, r)).is_none() {
@@ -197,7 +203,7 @@ impl Access {
                 .filter(|s| s.reference.room_id == room)
                 .map(|s| s.reference.message_id.clone())
                 .collect::<Vec<_>>();
-            let fresh = self.reader_sources(&room, &ids).await?;
+            let fresh = self.reader_sources(&room, &ids, false).await?;
             if fresh.as_ref().map(|s| (&s.membership, s.admission))
                 != old.as_ref().map(|s| (&s.membership, s.admission))
                 || selections
@@ -228,7 +234,8 @@ impl Access {
             }
             for room in changed {
                 let ids = requested[&room].iter().cloned().collect::<Vec<_>>();
-                sources.insert(room.clone(), self.reader_sources(&room, &ids).await?);
+                let synchronize = !sources.contains_key(&room);
+                sources.insert(room.clone(), self.reader_sources(&room, &ids, synchronize).await?);
             }
             if depth == 0 {
                 references = references
@@ -243,7 +250,7 @@ impl Access {
         for (room, value) in &mut sources {
             if let Some(previous) = value {
                 let ids = requested[room].iter().cloned().collect::<Vec<_>>();
-                let fresh = self.reader_sources(room, &ids).await?;
+                let fresh = self.reader_sources(room, &ids, false).await?;
                 if fresh
                     .as_ref()
                     .is_none_or(|s| s.membership != previous.membership || s.admission != previous.admission)

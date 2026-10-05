@@ -88,6 +88,30 @@ export class NativeTransport {
   cancelCryptoRootBackup(input:NativeTypes['PublishRootBackup']):Promise<NativeTypes['RootBackupSettlement']> {
     return this.request('RootBackupSettlement',`/api/v1/e2ee/root-backup/operations/${encodeURIComponent(input.operation_id)}/cancel`,input);
   }
+  /** History backup: the key package sealed under the history code and signed records. */
+  cryptoHistoryKey():Promise<NativeTypes['HistoryKeyState']> {
+    return this.request('HistoryKeyState','/api/v1/e2ee/history-backup');
+  }
+  publishCryptoHistoryKey(input:NativeTypes['PublishHistoryKey']):Promise<NativeTypes['HistoryKeyReceipt']> {
+    return this.request('HistoryKeyReceipt','/api/v1/e2ee/history-backup',input);
+  }
+  cryptoHistoryKeyOperation(operation:string):Promise<NativeTypes['HistoryKeyReceipt']> {
+    return this.request('HistoryKeyReceipt',`/api/v1/e2ee/history-backup/operations/${encodeURIComponent(operation)}`);
+  }
+  cancelCryptoHistoryKey(input:NativeTypes['PublishHistoryKey']):Promise<NativeTypes['HistoryKeySettlement']> {
+    return this.request('HistoryKeySettlement',`/api/v1/e2ee/history-backup/operations/${encodeURIComponent(input.operation_id)}/cancel`,input);
+  }
+  cryptoHistoryBackupPeriods(generation:string,after?:string):Promise<NativeTypes['HistoryBackupPeriods']> {
+    if(!/^[0-9a-f]{32}$/.test(generation)||after!==undefined&&!/^[0-9a-f]{64}$/.test(after))throw new NativeError(400,'invalid_request');
+    return this.request('HistoryBackupPeriods',`/api/v1/e2ee/history-backup/periods?generation=${generation}${after===undefined?'':`&after=${after}`}`);
+  }
+  uploadCryptoHistoryBackup(period:string,input:NativeTypes['UploadHistoryBackup']):Promise<NativeTypes['HistoryBackupReceipt']> {
+    return this.request('HistoryBackupReceipt',`/api/v1/e2ee/history-backup/periods/${historyRequest(period)}/records`,input,false,undefined,'PUT');
+  }
+  cryptoHistoryBackupRecords(period:string,after:string):Promise<NativeTypes['HistoryBackupPage']> {
+    if(!/^(0|[1-9][0-9]{0,18})$/.test(after))throw new NativeError(400,'invalid_request');
+    return this.request('HistoryBackupPage',`/api/v1/e2ee/history-backup/periods/${historyRequest(period)}/records?after=${after}`);
+  }
   /** History shares between devices of the account: signed opaque bytes only. */
   publishCryptoHistoryRequest(input:NativeTypes['PublishHistoryRequest']):Promise<NativeTypes['HistoryRequestEntry']> {
     return this.request('HistoryRequestEntry','/api/v1/e2ee/history/requests',input);

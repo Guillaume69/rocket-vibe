@@ -14,6 +14,7 @@ use zeroize::Zeroizing;
 mod conversations;
 mod groups;
 mod history;
+mod history_backup;
 mod identity;
 mod peers;
 mod recovery;
@@ -114,6 +115,7 @@ pub struct CryptoInstallation {
     withdrawal_approval: Mutex<Option<(String, rv_crypto::account::revocations::Preview)>>,
     recovery_preview: Mutex<Option<(String, recovery::Staged)>>,
     history_staged: Mutex<history::Staged>,
+    history_backup_staged: Mutex<history_backup::Staged>,
     peer_review: Mutex<Option<(String, rv_crypto::account::peers::View)>>,
     peer_approval: Mutex<Option<(String, rv_crypto::account::peers::Approval)>>,
     group_preview: Mutex<Option<groups::Staged>>,
@@ -190,6 +192,7 @@ impl CryptoInstallation {
             withdrawal_approval: Mutex::new(None),
             recovery_preview: Mutex::new(None),
             history_staged: Mutex::new(history::Staged::default()),
+            history_backup_staged: Mutex::new(history_backup::Staged::default()),
             peer_review: Mutex::new(None),
             peer_approval: Mutex::new(None),
             group_preview: Mutex::new(None),
@@ -209,6 +212,9 @@ impl CryptoInstallation {
         }
         if let Ok(mut staged) = self.history_staged.lock() {
             *staged = history::Staged::default();
+        }
+        if let Ok(mut staged) = self.history_backup_staged.lock() {
+            *staged = history_backup::Staged::default();
         }
         if let Ok(mut review) = self.peer_review.lock() {
             *review = None;

@@ -54,6 +54,10 @@ export type CryptoRecoveryBridge = CryptoIdentityBridge & {
 export type CryptoHistoryBridge = CryptoIdentityBridge & {
   historyAction:(handle:string,ownDirectory:string,input:string)=>Promise<string>;
 };
+/** History backup: the history code crosses only the explicit view and join input. */
+export type CryptoHistoryBackupBridge = CryptoIdentityBridge & {
+  historyBackupAction:(handle:string,ownDirectory:string,input:string)=>Promise<string>;
+};
 export type CryptoPeerView = CryptoPeerStatus & {id: string};
 export type CryptoPeerApproval = {
   id: string; user: string; rootFingerprint: string; device: string;
@@ -74,4 +78,4 @@ export type CryptoGroupBridge = CryptoPeerBridge & {
 export type CryptoConversationBridge = CryptoGroupBridge & {
   conversationAction:(handle:string,ownDirectory:string,input:string)=>Promise<string>;
 };
-export const CryptoNative = requireOptionalNativeModule<CryptoConversationBridge & CryptoWithdrawalBridge & CryptoRecoveryBridge & CryptoHistoryBridge>('CryptoNative');
+export const CryptoNative = requireOptionalNativeModule<CryptoConversationBridge & CryptoWithdrawalBridge & CryptoRecoveryBridge & CryptoHistoryBridge & CryptoHistoryBackupBridge>('CryptoNative');

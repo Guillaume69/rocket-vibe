@@ -40,6 +40,7 @@
     "apps/desktop/crates/rv-core/src/native/crypto.rs",
     "apps/desktop/crates/rv-core/src/native/crypto/enrollment.rs",
     "apps/desktop/crates/rv-core/src/native/crypto/enrollment/history.rs",
+    "apps/desktop/crates/rv-core/src/native/crypto/enrollment/history_backup.rs",
     "apps/desktop/crates/rv-core/src/native/crypto/enrollment/peers.rs",
     "apps/desktop/crates/rv-core/src/native/crypto/enrollment/recovery.rs",
     "apps/desktop/crates/rv-core/src/native/crypto/enrollment/revocations.rs",

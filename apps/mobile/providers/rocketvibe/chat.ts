@@ -25,6 +25,7 @@ import {CryptoIdentityAccess} from './cryptoIdentity.ts';
 import {CryptoWithdrawalAccess} from './cryptoWithdrawals.ts';
 import {CryptoRecoveryAccess} from './cryptoRecovery.ts';
 import {CryptoHistoryAccess} from './cryptoHistory.ts';
+import {CryptoHistoryBackupAccess} from './cryptoHistoryBackup.ts';
 import {CryptoPeerAccess} from './cryptoPeers.ts';
 import {CryptoGroupAccess} from './cryptoGroups.ts';
 import {CryptoConversationAccess} from './cryptoConversations.ts';
@@ -599,6 +600,9 @@ export class NativeChat {
   }
   cryptoHistory(identity:CryptoIdentityAccess,bridge:import('../../modules/crypto-native/index.ts').CryptoHistoryBridge):CryptoHistoryAccess {
     return new CryptoHistoryAccess(identity,bridge,this.transport);
+  }
+  cryptoHistoryBackup(identity:CryptoIdentityAccess,bridge:import('../../modules/crypto-native/index.ts').CryptoHistoryBackupBridge):CryptoHistoryBackupAccess {
+    return new CryptoHistoryBackupAccess(identity,bridge,this.transport);
   }
   async cryptoPeer(bridge:import('../../modules/crypto-native/index.ts').CryptoPeerBridge,user:string,
     visible:()=>boolean=()=>true):Promise<CryptoPeerAccess> {

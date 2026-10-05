@@ -162,6 +162,19 @@ admission to a room, the room projection continues into the recovered periods fo
 positions older than its own first indexed document; positions are never merged
 across a period boundary.
 
+## Public vector
+
+[`history-share-v1.json`](../../crates/rv-crypto-public/fixtures/history-share-v1.json)
+holds a request from Alice's phone, the share of Alice's desktop and two of Bob's
+messages (one a thread reply) as records, with the disposable recipient seed. It is
+checked three ways: `rv-crypto-public` authenticates the request, the share, each
+record and the chain; `rv-crypto` reopens it as the phone (envelope, rank material,
+documents); and
+[`verify-history-vector.mjs`](../../crates/rv-crypto-public/scripts/verify-history-vector.mjs)
+redoes everything with Node/OpenSSL alone, HPKE key schedule, DeriveKeyPair and
+HChaCha20 written out (the latter checked against the XChaCha draft vectors). The
+certificates are throwaway and nothing in it attests a real MLS admission.
+
 ## Server API
 
 | Method and route | Who | Effect |
@@ -181,7 +194,7 @@ on the room. Upload and commit are idempotent by operation ID.
 ## Exit criteria for A
 
 - Public vector for request, share, envelope and chain, verified by Rust and by an
-  independent Node / OpenSSL script.
+  independent Node / OpenSSL script. **Done.**
 - Two devices of one account: share of several rooms and periods, lost responses at
   every step, reopening, forged / reordered / missing records, another account's
   device, a revoked device, an expired request.

@@ -353,3 +353,53 @@ impl Record {
         Ok(digest.finalize().into())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn history_vector_authenticates_request_share_and_chained_records() {
+        // Disposable certificates; the envelope and the documents are opened by
+        // rv-crypto and by scripts/verify-history-vector.mjs.
+        #[derive(Deserialize)]
+        struct Vector {
+            request: Request,
+            share: Share,
+            records: Vec<Record>,
+        }
+        let vector: Vector =
+            serde_json::from_slice(include_bytes!("../fixtures/history-share-v1.json")).unwrap();
+        let now = vector.request.body.issued_at + 3;
+        vector.request.verify(now).unwrap();
+        vector.share.verify(now).unwrap();
+        assert_eq!(
+            vector.share.manifest.request,
+            vector.request.fingerprint().unwrap()
+        );
+        let period = &vector.share.manifest.periods[0];
+        for record in &vector.records {
+            record.authenticate().unwrap();
+            assert!(Record::from_bytes(&record.to_bytes().unwrap()).unwrap() == *record);
+        }
+        assert_eq!(
+            chain(vector.records.iter().map(|r| r.digest().unwrap())).unwrap(),
+            period.chain
+        );
+        let mut changed = vector.records[1].clone();
+        changed.header.origin.header.thread = None;
+        assert!(changed.authenticate().is_err());
+        let mut changed = vector.records[0].clone();
+        changed.certificate = vector.request.body.certificate.clone();
+        assert!(changed.authenticate().is_err());
+        let mut changed = vector.share.clone();
+        changed.manifest.periods[0].count = 1;
+        assert!(changed.verify(now).is_err());
+        // The request expires with its window.
+        assert!(
+            vector
+                .request
+                .verify(vector.request.body.expires_at)
+                .is_err()
+        );
+    }
+}

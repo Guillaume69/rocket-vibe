@@ -111,6 +111,12 @@ jobs:
       - run: cargo fmt --manifest-path crates/rv-crypto/Cargo.toml -- --check
       - run: cargo clippy --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore,native-http --target-dir target/native-crypto --all-targets -- -D warnings
       - run: cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore,native-http --target-dir target/native-crypto
+      - name: Public vectors, verified independently with Node/OpenSSL
+        if: runner.os == 'Linux'
+        run: |
+          for vector in archive group history; do
+            node "crates/rv-crypto-public/scripts/verify-$vector-vector.mjs"
+          done
       - name: Mobile private bridge format, strict checks and lifetime tests
         run: |
           cargo fmt --manifest-path crates/rv-crypto-mobile/Cargo.toml -- --check

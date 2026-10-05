@@ -344,3 +344,76 @@ fn pages_seal_again_identically_and_both_sides_resume_from_their_vault() {
     assert!(import.complete(0));
     assert_eq!(import.next(), None);
 }
+
+/// Public vector: Alice's desktop shares two of Bob's messages (one a thread
+/// reply) with Alice's phone. `RV_WRITE_HISTORY_VECTOR=1` regenerates it; the
+/// Node verifier checks it independently, and the phone side reopens it here.
+#[test]
+fn public_history_vector_opens_on_the_requesting_device() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../rv-crypto-public/fixtures/history-share-v1.json");
+    let crypto = OpenMlsRustCrypto::default();
+    let crypto = crypto.crypto();
+    if std::env::var_os("RV_WRITE_HISTORY_VECTOR").is_some() {
+        let mut f = fixture();
+        let bob = Issuer::generate("instance", "bob").unwrap();
+        let laptop = device(&bob, "laptop", &mut Records::new());
+        let request = request(&f.phone, crypto, &mut f.phone_records, NOW, 3600).unwrap();
+        let seed = pending(&f.phone_records).unwrap().unwrap().seed;
+        let mut input = period(&f.desktop, "general", &[]);
+        let mut reply = document(&laptop, "general", 2);
+        reply.origin.header.thread = Some("general-root".into());
+        reply.message.reply_to = Some("general-root".into());
+        input.documents = vec![document(&laptop, "general", 1), reply];
+        let (share, records) = share(&f.desktop, crypto, &request, vec![input], NOW + 2).unwrap();
+        let records = records[0]
+            .iter()
+            .map(|r| String::from_utf8(r.to_bytes().unwrap()).unwrap())
+            .collect::<Vec<_>>()
+            .join(",");
+        let vector = format!(
+            "{{\"recipient_seed\":\"{}\",\"request\":{},\"share\":{},\"records\":[{records}]}}\n",
+            HEXLOWER.encode(seed.as_slice()),
+            String::from_utf8(request.to_bytes().unwrap()).unwrap(),
+            String::from_utf8(share.to_bytes().unwrap()).unwrap(),
+        );
+        std::fs::write(&path, vector).unwrap();
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Vector {
+        recipient_seed: String,
+        request: Request,
+        share: Share,
+        records: Vec<Record>,
+    }
+    let vector: Vector = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let mut seed = Zeroizing::new([0; 32]);
+    seed.copy_from_slice(&HEXLOWER.decode(vector.recipient_seed.as_bytes()).unwrap());
+    let mut records = Records::new();
+    records.insert(
+        RECORD.into(),
+        serde_json::to_vec(&Pending {
+            request: vector.request.clone(),
+            seed,
+        })
+        .unwrap(),
+    );
+    vector.request.verify(NOW + 3).unwrap();
+    let mut import = ImportJob::open(crypto, &records, &vector.share, NOW + 3).unwrap();
+    let messages = import.accept(crypto, 0, &vector.records).unwrap();
+    assert!(import.complete(0));
+    assert_eq!(
+        messages.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(),
+        ["recovered words general 1", "recovered words general 2"]
+    );
+    assert_eq!(messages[1].reply_to.as_deref(), Some("general-root"));
+    // Bob's messages, attested by Alice's desktop for Alice's phone.
+    let record = &vector.records[0];
+    assert_eq!(record.original_certificate.device.root.user, "bob");
+    assert_eq!(record.certificate, vector.share.certificate);
+    assert_eq!(
+        vector.share.certificate.device.root,
+        vector.request.body.certificate.device.root
+    );
+}

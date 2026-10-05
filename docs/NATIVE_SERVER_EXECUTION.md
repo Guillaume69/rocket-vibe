@@ -5,6 +5,11 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 
 ## État synthétique au 5 octobre 2026
 
+La CI native de cette branche conserve désormais le banc déjà actif et met le
+nouveau lot en attente, au lieu d'annuler les tests / sauvegardes de cache lors
+du push. Le workflow macOS indépendant peut démarrer immédiatement. Le groupe
+et les suites restent les mêmes ; les autres branches gardent leur politique.
+
 Récupération bureau : les paramètres GTK / SwiftUI existants proposent désormais
 examen de la version / empreinte, préparation, affichage explicite du code,
 confirmation du code conservé, reprise / abandon et restauration d'un appareil

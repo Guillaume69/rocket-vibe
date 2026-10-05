@@ -35,7 +35,9 @@ on:
 
 concurrency:
   group: native-server-${{ github.ref }}
-  cancel-in-progress: true
+  # Finish this RFC branch's benches and their reusable caches. A new lot can
+  # queue while the independent macOS workflow qualifies its UI immediately.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/feature/rocketvibe-server' }}
 
 permissions:
   contents: read

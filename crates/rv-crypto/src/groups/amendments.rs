@@ -1,11 +1,14 @@
 //! Edits, deletions and reactions applied at projection time
 //! (E2EE_AMENDMENTS.md). Views walk their documents newest first, so an
 //! amendment is met before its target; amendments are never rows. Only the
-//! target's author edits or deletes it; any member reacts.
+//! target's author edits or deletes it; any member reacts. An amendment
+//! counts only after its target in journal order: one at or before the
+//! target's position (which only a server reordering can produce) is ignored,
+//! by every view alike.
 use super::journal::ProjectedMessage;
 use super::*;
 use rv_crypto_public::messages as packet;
-use std::collections::{BTreeSet, btree_map::Entry};
+use std::collections::btree_map::Entry;
 use zeroize::Zeroizing;
 
 /// The latest edit of a message by its author.
@@ -30,7 +33,8 @@ struct Reacted {
 }
 #[derive(Default)]
 pub(super) struct Amendments {
-    deleted: BTreeSet<(String, String)>,
+    /// The highest position of each (target, author) deletion.
+    deleted: BTreeMap<(String, String), u64>,
     edited: BTreeMap<(String, String), Edit>,
     /// Target message id, then (emoji, user).
     reacted: BTreeMap<String, BTreeMap<(String, String), Reacted>>,
@@ -51,7 +55,8 @@ impl Amendments {
         match header.kind {
             packet::Kind::Chat => return Err(Error::Changed),
             packet::Kind::Delete => {
-                self.deleted.insert(key);
+                let kept = self.deleted.entry(key).or_insert(receipt.position);
+                *kept = (*kept).max(receipt.position);
             }
             // The highest position wins: a single walk meets them newest
             // first, but recovered periods are walked one after another.
@@ -100,7 +105,10 @@ impl Amendments {
             return Vec::new();
         };
         let mut grouped: BTreeMap<&str, (u64, Vec<String>)> = BTreeMap::new();
-        for ((emoji, user), reacted) in all.iter().filter(|(_, r)| r.present) {
+        for ((emoji, user), reacted) in all
+            .iter()
+            .filter(|(_, r)| r.present && r.position > receipt.position)
+        {
             let entry = grouped
                 .entry(emoji)
                 .or_insert((reacted.position, Vec::new()));
@@ -122,7 +130,9 @@ impl Amendments {
     }
     /// The author deleted this message: it leaves the views.
     pub(super) fn deleted(&self, receipt: &packet::Receipt) -> bool {
-        self.deleted.contains(&Self::key(receipt))
+        self.deleted
+            .get(&Self::key(receipt))
+            .is_some_and(|position| *position > receipt.position)
     }
     /// The message with its author's latest edit, if any.
     pub(super) fn apply(&self, mut message: ProjectedMessage) -> ProjectedMessage {
@@ -131,11 +141,17 @@ impl Amendments {
         message
     }
     pub(super) fn edit(&self, receipt: &packet::Receipt) -> Option<Edit> {
-        self.edited.get(&Self::key(receipt)).cloned()
+        self.edited
+            .get(&Self::key(receipt))
+            .filter(|edit| edit.position > receipt.position)
+            .cloned()
     }
     /// Adds `other`'s amendments to these.
     pub(super) fn absorb(&mut self, other: &Amendments) {
-        self.deleted.extend(other.deleted.iter().cloned());
+        for (key, position) in &other.deleted {
+            let kept = self.deleted.entry(key.clone()).or_insert(*position);
+            *kept = (*kept).max(*position);
+        }
         for (target, users) in &other.reacted {
             let kept = self.reacted.entry(target.clone()).or_default();
             for (key, reacted) in users {

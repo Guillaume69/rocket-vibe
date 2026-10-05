@@ -45,6 +45,11 @@ Old headers without `target` encode as before: existing vectors stay valid.
 - The latest edit by journal position wins. A deletion is final: a later edit of a
   deleted message is ignored, and its reactions go with it.
 - An amendment never targets another amendment.
+- An amendment counts only after its target in journal order: one at or before the
+  target's position is ignored by every view (live pages, archive pages, recovered
+  history). Honest clients never produce one; it would take a server reordering.
+  Positions remain the server's: among one author's edits, the server can still
+  choose which comes last, a limitation the internal review records.
 - Amendments are never rows: they are left out of pages, of `has_older`, of thread
   roots and of reply counts, and applied to their targets wherever a target is shown
   (pages, thread roots, quote sources, search results). An edited message shows the

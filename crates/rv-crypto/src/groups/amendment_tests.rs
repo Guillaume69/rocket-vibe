@@ -547,3 +547,54 @@ fn a_private_message_carries_encrypted_files_bound_to_its_header() {
     edit.files = vec![file("upload-three")];
     assert!(super::messages::validate_kind(&packet::Kind::Edit, &edit).is_err());
 }
+
+#[test]
+fn an_amendment_at_or_before_its_target_is_ignored_by_every_view() {
+    use crate::groups::amendments::Amendments;
+    let receipt =
+        |message: &str, position: u64, kind: packet::Kind, target: Option<&str>| packet::Receipt {
+            header: packet::Header {
+                version: 1,
+                scope: rv_crypto_public::groups::Scope {
+                    instance: "instance".into(),
+                    data_epoch: "epoch".into(),
+                    room: "room".into(),
+                    incarnation: [1; 16],
+                },
+                operation: format!("operation-{position}"),
+                group_revision: 1,
+                epoch: 1,
+                group_fingerprint: [1; 32],
+                author: "alice".into(),
+                device: "device".into(),
+                incarnation: [1; 16],
+                certificate: [1; 32],
+                kind,
+                thread: None,
+                target: target.map(Into::into),
+                files: Vec::new(),
+            },
+            fingerprint: [position as u8; 32],
+            message: message.into(),
+            position,
+        };
+    let target = receipt("target", 10, packet::Kind::Chat, None);
+    let unused = || -> Result<(ClearMessage, u64)> { unreachable!() };
+    // Only a server reordering puts a deletion before its target.
+    for position in [9, 10] {
+        let mut early = Amendments::default();
+        let delete = receipt("delete", position, packet::Kind::Delete, Some("target"));
+        assert!(early.observe(&delete, unused).unwrap());
+        assert!(!early.deleted(&target));
+    }
+    let mut late = Amendments::default();
+    let delete = receipt("delete", 11, packet::Kind::Delete, Some("target"));
+    late.observe(&delete, unused).unwrap();
+    assert!(late.deleted(&target));
+    // Merging recovered amendments keeps the latest deletion.
+    let mut merged = Amendments::default();
+    let early = receipt("early", 9, packet::Kind::Delete, Some("target"));
+    merged.observe(&early, unused).unwrap();
+    merged.absorb(&late);
+    assert!(merged.deleted(&target));
+}

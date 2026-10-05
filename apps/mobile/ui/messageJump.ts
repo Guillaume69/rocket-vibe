@@ -1,17 +1,14 @@
 /**
- * Jump to a message: channel between the pinned/starred list and the room
- * screen still underneath. Same family as `ui/reply.ts`: the list arms the
- * target and closes; the room, already mounted, brings it into its window,
- * scrolls to it, then consumes it. Key = `rid`. Memory only.
+ * Jump to a message: channel between the pinned/starred list or the search
+ * and the room screen still underneath. Same family as `ui/reply.ts`: the
+ * list arms the target and closes; the room, already mounted, shows it (in a
+ * context window when it is older than the local history), scrolls to it,
+ * then consumes it. Key = `rid`. Memory only.
  */
 
 import { useSyncExternalStore } from 'react';
 
-export type JumpTarget = {
-  id: string;
-  /** To know how far back to load history when the message is not stored. */
-  ts: number;
-};
+export type JumpTarget = { id: string };
 
 const targets = new Map<string, JumpTarget>();
 const subscribers = new Set<() => void>();

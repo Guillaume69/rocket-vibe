@@ -1,4 +1,4 @@
-import { Redirect, Stack, useLocalSearchParams } from 'expo-router';
+import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
@@ -15,6 +15,7 @@ import { KeyboardAvoidingContainer } from '../ui/keyboard.tsx';
 import { useT } from '../ui/i18n.ts';
 import { MessageRow } from '../ui/messageRow.tsx';
 import { useDebouncedSearch } from '../ui/debouncedSearch.ts';
+import { requestJump } from '../ui/messageJump.ts';
 import { useSession } from '../ui/session.tsx';
 import { useColors, type Colors, FONTS } from '../ui/theme.ts';
 
@@ -22,9 +23,9 @@ import { useColors, type Colors, FONTS } from '../ui/theme.ts';
  * Message search within ONE room (8.5): `chat.search` requires a `roomId`.
  * Results are EPHEMERAL: rendered straight from the response (normalised by
  * `toMessage`, like any server document), never written to the database;
- * isolated messages outside the window have no business there. No jump to
- * the message in history: noted, will come with a real targeted backward
- * pagination.
+ * isolated messages outside the window have no business there. A tap goes
+ * back to the room at the message (a context window when it is old), or
+ * opens the thread of a reply that lives there.
  */
 
 /** Stable (module-level): a value recreated on every render would rerun the effect. */
@@ -60,7 +61,19 @@ function MessageSearch({
   rid: string;
 }) {
   const t = useT();
+  const router = useRouter();
   const [query, setQuery] = useState('');
+  const open = useCallback(
+    (m: LocalMessage) => {
+      router.back();
+      if (m.threadId !== null && !m.threadShown) {
+        router.push({ pathname: '/thread/[id]', params: { id: m.threadId } });
+        return;
+      }
+      requestJump(rid, { id: m.id });
+    },
+    [router, rid],
+  );
 
   // Results are normalised on arrival (`toMessage`, like any server
   // document), never written to the database; see the file header.
@@ -121,6 +134,7 @@ function MessageSearch({
               // No actions here: the sheet reads the database by id, and an
               // old result is not necessarily there; a false promise.
               onLongPress={null}
+              onPress={() => open(item)}
               onOpenThread={null}
               // Same reason for reactions: read only, nothing marked.
               me={null}

@@ -153,6 +153,30 @@ revisions.
    the server deletes the share and its records. Unacknowledged shares expire after
    7 days.
 
+## Adapters
+
+`rv_crypto::account::history` is the shared step between transport and vault,
+used by the desktop and, through the bridge, by Android. Every call takes the
+account's verified directory: a request or share is trusted only from another
+device listed in it with the same root, device, incarnation and leaf key, and no
+revocation of that incarnation. Listed requests that fail a check (another
+account, this device, an expired window, a share claimed or committed elsewhere,
+a fingerprint that does not match) are left out of the offers.
+
+- New device: `history_request` (created once, replayed), then
+  `history_import_begin` with the committed share, `history_import_page` per
+  downloaded page, and the acknowledgement. `history_acknowledgeable` lists its
+  own requests nothing local waits for any more (an acknowledgement lost after
+  the import), so a later run deletes them.
+- Sharing device: `history_offers` → `history_preview` (the human compares the
+  fingerprint and sees the rooms) → `history_approve`, then `history_upload` /
+  `history_uploaded` per page, `history_commit` / `history_committed`. A request
+  gone (404), or a share claimed or committed by another device, abandons the job.
+
+The desktop drives both sides in `rv-core` (`enrollment/history.rs`): `request_history`,
+`import_history` (idle, waiting, or done after import and acknowledgement),
+`history_offers`, `preview_history`, `share_history` and `resume_history_share`.
+
 ## Reading recovered history
 
 The recovered catalog is separate from the journal indexes of the new device's own

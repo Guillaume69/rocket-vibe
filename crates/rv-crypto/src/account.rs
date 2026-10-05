@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, sync::Arc};
 
 const RECORD: &str = "crypto-enrollment-ui-v1";
+pub mod history;
 pub mod peers;
 pub mod recovery;
 mod renewal;
@@ -29,6 +30,8 @@ pub enum Error {
     Storage(#[from] vault::Error),
     #[error(transparent)]
     Identity(#[from] crate::identity::Error),
+    #[error(transparent)]
+    History(#[from] crate::groups::Error),
     #[error("crypto_enrollment_changed")]
     Changed,
     #[error("crypto_device_withdrawn")]

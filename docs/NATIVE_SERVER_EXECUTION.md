@@ -23,9 +23,17 @@ requests, claimed shares and records in migration 0045 with the checks of the
 specification (registered certificate byte for byte, attestation by the uploading
 device, readable room, contiguous ranks, commit against count / bounds / chain,
 download by the requesting device only, quotas, expiry by maintenance). The 200
-`rv-crypto` tests and the 2 new PostgreSQL tests pass. The delivery worker,
-FFI / mobile bridge and the GTK / SwiftUI / Android approval and import screens
-remain open, then path B (archive-key backup with a recovery code).
+`rv-crypto` tests and the 2 new PostgreSQL tests pass. The shared adapter
+step `rv_crypto::account::history` trusts a request or share only from another
+device listed in the verified account directory (same root, device, incarnation
+and leaf key, never revoked) and drives both jobs from wire values; the desktop
+runs it in `rv-core` (request, offers, preview, approve, upload / commit with
+abandonment on 404 or a share claimed elsewhere, import page by page and
+acknowledgement, including acknowledgements lost earlier). Two account tests and
+a desktop test against a mock history server pass, with the 226 + desktop
+workspace tests. The FFI / mobile bridge and the GTK / SwiftUI / Android approval
+and import screens remain open, then path B (archive-key backup with a recovery
+code).
 
 Operation registry window: the 8,192 identities no longer stop a long
 conversation. Once a body has left the cache (evicted, retired or forgotten on

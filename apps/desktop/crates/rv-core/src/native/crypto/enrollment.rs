@@ -22,6 +22,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+pub mod history;
 pub mod peers;
 pub mod recovery;
 pub mod revocations;

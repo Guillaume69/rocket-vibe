@@ -144,6 +144,11 @@ impl Account {
     /// hold the root itself.
     fn sibling(&self, device: &str, incarnation: [u8; 16]) -> Account {
         let directory = tempfile::tempdir().unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        }
         let keystore = Arc::new(Keystore::default());
         let manager = Arc::new(
             Manager::new(

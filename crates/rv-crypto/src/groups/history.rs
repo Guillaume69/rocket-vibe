@@ -91,6 +91,10 @@ impl Coordinator {
             )?)
         })
     }
+    /// New device: its pending request, without creating one.
+    pub fn history_pending_request(&self) -> Result<Option<Request>> {
+        self.inspect(|_, records| Ok(share::pending_request(records)?))
+    }
     /// Sharing device: the periods it would share with this request. Nothing
     /// is drawn or recorded; the human approves this exact request fingerprint.
     pub fn history_preview(&self, request: &Request, now: u64) -> Result<Vec<HistoryPeriod>> {
@@ -240,6 +244,10 @@ impl Coordinator {
             save_share(records, &job)?;
             Ok(share)
         })
+    }
+    /// Sharing device: the request its unfinished job answers, if any.
+    pub fn history_share_request(&self) -> Result<Option<Request>> {
+        self.inspect(|_, records| Ok(load_share(records)?.map(|job| job.request().clone())))
     }
     /// Sharing device: forgets the job once the server accepted the share.
     pub fn history_share_forget(&self) -> Result<()> {

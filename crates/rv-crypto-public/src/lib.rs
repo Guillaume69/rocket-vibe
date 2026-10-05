@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 pub mod archive;
 pub mod enrollment;
 pub mod groups;
+pub mod history;
 pub mod messages;
 pub mod recovery;
 pub const WIRE_LIMIT: usize = 4096;

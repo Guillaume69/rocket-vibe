@@ -1,0 +1,273 @@
+use super::*;
+use crate::identity::Issuer;
+use openmls_rust_crypto::OpenMlsRustCrypto;
+use openmls_traits::OpenMlsProvider;
+use rv_crypto_public::messages::{Header as MessageHeader, Kind};
+
+const NOW: u64 = 1_800_000_000;
+const BASE: u64 = 9_007_199_254_740_992;
+
+fn device(issuer: &Issuer, name: &str, records: &mut Records) -> LocalDevice {
+    let mut device = LocalDevice::create(issuer.root(), name, records).unwrap();
+    let request = device.request(NOW, records).unwrap();
+    let mut issuer_records = Records::new();
+    issuer.save(&mut issuer_records).unwrap();
+    let consent = issuer
+        .preview_request(&request, NOW, 30 * 86400, &issuer_records)
+        .unwrap();
+    let grant = issuer
+        .approve_request(&request, &consent, NOW, &mut issuer_records)
+        .unwrap();
+    device.install(&grant, NOW, records).unwrap();
+    device
+}
+fn scope(room: &str) -> Scope {
+    Scope {
+        instance: "instance".into(),
+        data_epoch: "epoch".into(),
+        room: room.into(),
+        incarnation: [3; 16],
+    }
+}
+fn grant(user: &str) -> Member {
+    Member {
+        user: user.into(),
+        access_version: "9007199254740996".into(),
+        activation_version: "9007199254740997".into(),
+    }
+}
+fn document(author: &LocalDevice, room: &str, number: u64) -> Document {
+    let certificate =
+        Certificate::from_credential(&author.credential(NOW).unwrap().credential).unwrap();
+    let operation = format!("{room}-{number}");
+    let origin = Receipt {
+        header: MessageHeader {
+            version: 1,
+            scope: scope(room),
+            operation: operation.clone(),
+            group_revision: 9_007_199_254_740_993,
+            epoch: 9_007_199_254_740_994,
+            group_fingerprint: [4; 32],
+            author: certificate.device.root.user.clone(),
+            device: certificate.device.device.clone(),
+            incarnation: certificate.device.incarnation,
+            certificate: certificate.fingerprint().unwrap(),
+            kind: Kind::Chat,
+            thread: None,
+        },
+        fingerprint: [5; 32],
+        message: format!("message-{room}-{number}"),
+        position: BASE + number,
+    };
+    Document {
+        message: SendMessage {
+            operation_id: operation,
+            text: format!("recovered words {room} {number}"),
+            reply_to: None,
+            quotes: Vec::new(),
+            cards: Vec::new(),
+        },
+        membership: grant(&certificate.device.root.user),
+        original_certificate: certificate,
+        origin,
+    }
+}
+fn period(author: &LocalDevice, room: &str, numbers: &[u64]) -> PeriodInput {
+    PeriodInput {
+        scope: scope(room),
+        grant: grant("alice"),
+        admission: [7; 32],
+        documents: numbers.iter().map(|n| document(author, room, *n)).collect(),
+    }
+}
+struct Fixture {
+    crypto: OpenMlsRustCrypto,
+    issuer: Issuer,
+    desktop: LocalDevice,
+    phone: LocalDevice,
+    phone_records: Records,
+}
+fn fixture() -> Fixture {
+    let issuer = Issuer::generate("instance", "alice").unwrap();
+    let mut desktop_records = Records::new();
+    let desktop = device(&issuer, "desktop", &mut desktop_records);
+    let mut phone_records = Records::new();
+    let phone = device(&issuer, "phone", &mut phone_records);
+    Fixture {
+        crypto: OpenMlsRustCrypto::default(),
+        issuer,
+        desktop,
+        phone,
+        phone_records,
+    }
+}
+
+#[test]
+fn a_device_of_the_same_account_recovers_every_shared_period() {
+    let mut f = fixture();
+    let crypto = f.crypto.crypto();
+    let request = request(&f.phone, crypto, &mut f.phone_records, NOW, 3600).unwrap();
+    // A lost response replays the same pending request and key.
+    assert_eq!(
+        super::request(&f.phone, crypto, &mut f.phone_records, NOW + 1, 3600).unwrap(),
+        request
+    );
+    let (share, packets) = share(
+        &f.desktop,
+        crypto,
+        &request,
+        vec![
+            period(&f.desktop, "general", &[3, 1, 2]),
+            period(&f.desktop, "private", &[10]),
+            period(&f.desktop, "empty", &[]),
+        ],
+        NOW + 2,
+    )
+    .unwrap();
+    // The share travels as bytes; empty periods are not shared.
+    let share = Share::from_bytes(&share.to_bytes().unwrap()).unwrap();
+    assert_eq!(share.manifest.periods.len(), 2);
+    let keys = open(crypto, &f.phone_records, &share, NOW + 3).unwrap();
+    for ((period, key), packets) in share.manifest.periods.iter().zip(&keys).zip(&packets) {
+        let packets = packets
+            .iter()
+            .map(|p| Packet::from_bytes(&p.to_bytes().unwrap()).unwrap())
+            .collect::<Vec<_>>();
+        check_period(period, &packets).unwrap();
+        for packet in &packets {
+            let message = open_packet(crypto, &share, period, key, packet).unwrap();
+            assert_eq!(message.operation_id, packet.header.origin.header.operation);
+            assert!(message.text.starts_with("recovered words"));
+        }
+    }
+    assert_eq!(share.manifest.periods[0].first, BASE + 1);
+    assert_eq!(share.manifest.periods[0].last, BASE + 3);
+    assert_eq!(share.manifest.periods[0].count, 3);
+}
+
+#[test]
+fn packets_must_be_complete_ordered_bound_and_from_the_share() {
+    let mut f = fixture();
+    let crypto = f.crypto.crypto();
+    let request = request(&f.phone, crypto, &mut f.phone_records, NOW, 3600).unwrap();
+    let (share, packets) = share(
+        &f.desktop,
+        crypto,
+        &request,
+        vec![
+            period(&f.desktop, "general", &[1, 2, 3]),
+            period(&f.desktop, "private", &[4]),
+        ],
+        NOW,
+    )
+    .unwrap();
+    let keys = open(crypto, &f.phone_records, &share, NOW).unwrap();
+    let general = &share.manifest.periods[0];
+    let mut missing = packets[0].clone();
+    missing.remove(1);
+    assert!(check_period(general, &missing).is_err());
+    let mut reordered = packets[0].clone();
+    reordered.swap(0, 1);
+    assert!(check_period(general, &reordered).is_err());
+    let mut extra = packets[0].clone();
+    extra.push(packets[1][0].clone());
+    assert!(check_period(general, &extra).is_err());
+    // A packet of another period: other room, other key.
+    assert!(open_packet(crypto, &share, general, &keys[0], &packets[1][0]).is_err());
+    assert!(open_packet(crypto, &share, general, &keys[1], &packets[0][0]).is_err());
+    // A packet sealed by another device of the account is not this share's.
+    let (_, foreign) = super::share(
+        &f.phone,
+        crypto,
+        &{
+            let mut desktop_records = Records::new();
+            let desktop = device(&f.issuer, "laptop", &mut desktop_records);
+            super::request(&desktop, crypto, &mut desktop_records, NOW, 3600).unwrap()
+        },
+        vec![period(&f.phone, "general", &[1])],
+        NOW,
+    )
+    .unwrap();
+    assert!(open_packet(crypto, &share, general, &keys[0], &foreign[0][0]).is_err());
+}
+
+#[test]
+fn a_share_answers_one_request_of_one_account_within_its_window() {
+    let mut f = fixture();
+    let crypto = f.crypto.crypto();
+    let first = request(&f.phone, crypto, &mut f.phone_records, NOW, 3600).unwrap();
+    let (old_share, _) = share(
+        &f.desktop,
+        crypto,
+        &first,
+        vec![period(&f.desktop, "general", &[1])],
+        NOW,
+    )
+    .unwrap();
+    // A replaced request (and key) refuses the share of the previous one.
+    forget_request(&mut f.phone_records);
+    request(&f.phone, crypto, &mut f.phone_records, NOW + 1, 3600).unwrap();
+    assert!(matches!(
+        open(crypto, &f.phone_records, &old_share, NOW + 1),
+        Err(Error::NotRequested)
+    ));
+    // Expired request: no share.
+    assert!(
+        share(
+            &f.desktop,
+            crypto,
+            &first,
+            vec![period(&f.desktop, "general", &[1])],
+            NOW + 3600,
+        )
+        .is_err()
+    );
+    // Another account's device can neither be answered nor answer.
+    let other = Issuer::generate("instance", "mallory").unwrap();
+    let mut mallory_records = Records::new();
+    let mallory = device(&other, "phone", &mut mallory_records);
+    let foreign = request(&mallory, crypto, &mut mallory_records, NOW, 3600).unwrap();
+    assert!(
+        share(
+            &f.desktop,
+            crypto,
+            &foreign,
+            vec![period(&f.desktop, "general", &[1])],
+            NOW,
+        )
+        .is_err()
+    );
+    let current = pending_request(&f.phone_records).unwrap().unwrap();
+    assert!(
+        share(
+            &mallory,
+            crypto,
+            &current,
+            vec![period(&mallory, "general", &[1])],
+            NOW + 1,
+        )
+        .is_err()
+    );
+    // A device does not answer its own request.
+    assert!(
+        share(
+            &f.phone,
+            crypto,
+            &current,
+            vec![period(&f.phone, "general", &[1])],
+            NOW + 1,
+        )
+        .is_err()
+    );
+    // A tampered manifest breaks the share signature.
+    let (mut tampered, _) = share(
+        &f.desktop,
+        crypto,
+        &current,
+        vec![period(&f.desktop, "general", &[1, 2])],
+        NOW + 1,
+    )
+    .unwrap();
+    tampered.manifest.periods[0].count = 1;
+    assert!(open(crypto, &f.phone_records, &tampered, NOW + 1).is_err());
+}

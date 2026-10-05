@@ -10,6 +10,7 @@ All three apps show an "Encrypted history" block in the existing encryption sett
 - **Device that shares.** "Show requests from my devices" lists the requests of the account's other devices ("Request from phone" and the fingerprint). "Review" shows the rooms by name and how many messages each would share; the human compares the fingerprint with the one on the new device, then "Share history" seals, uploads and commits everything. "Resume sharing" continues an interrupted share. With nothing received yet, the review says so and offers no share.
 - Only another device listed in the account's verified directory (same root, device, incarnation and leaf key, never revoked) can be offered or imported from; this device never answers its own request.
 - **In conversations.** Once the new device has its own admission to the room, scrolling past its own oldest message continues into the recovered messages, with the time the sharing device received them; a thread started before the device joined shows its recovered root. Recovered messages are read through the same projection as the device's own, so the three apps show them without a separate screen.
+- **Delegation.** The controller may also hand control of the account over with a share ([e2ee-delegation](e2ee-delegation.md)).
 - **Not yet**: automatic import, reply counts of recovered roots (own replies only), private quotes of recovered messages.
 
 ## History backup with a code (path B)

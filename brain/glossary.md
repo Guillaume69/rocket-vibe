@@ -148,6 +148,7 @@ All code, comments and docs are in English. French survives in two places only: 
 |---|---|
 | Amendment | An encrypted edit, deletion or reaction of a private message on the RocketVibe server: an ordinary MLS message whose header names its target, applied at projection time ([e2ee-private-actions](features/e2ee-private-actions.md)). |
 | Bench | The local Rocket.Chat 8.5.1 test server in `docker/`. |
+| Controller | The device of a RocketVibe account holding its private E2EE root: it approves and withdraws devices; control can be delegated ([e2ee-delegation](features/e2ee-delegation.md)). |
 | Deliberate deviation | A documented departure from the audit's prescribed fix, with its reason (`apps/mobile/WORKSTREAMS.md`). |
 | Kill gate | Phase 1 of `ROADMAP.md`: the binary proof that a self-built APK receives pushes when killed. |
 | Proof by removal | Delete the fix, check that the expected tests fail, restore. A removal that changes nothing is an empty test. |

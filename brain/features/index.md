@@ -43,6 +43,7 @@ two-way parity tracker is [../parity.md](../parity.md). Back to
 | [notifications.md](notifications.md) | Mobile FCM chain (native token, patched server bundle, data-only push, `push.get` for hidden content, WorkManager catch-up, inline reply, iOS extension, badge); desktop notifier on D-Bus, WinRT or UserNotifications, and badge. |
 | [e2ee.md](e2ee.md) | Encrypted rooms for the user: lock tile, placeholders, unlock, key kept across launches, encrypted sends and media, notifications without ciphertext. |
 | [e2ee-history.md](e2ee-history.md) | RocketVibe server: encrypted history requested by a new device, reviewed and shared by another device of the account, imported page by page. |
+| [e2ee-delegation.md](e2ee-delegation.md) | RocketVibe server: the controller hands the account root to another registered device inside a history share, adopted only if it is the account's own. |
 | [e2ee-storage-keys.md](e2ee-storage-keys.md) | RocketVibe server: storage key renewal (state and blocks re-sealed, old key destroyed, resumable), expired KeyPackage keys destroyed. |
 | [e2ee-private-files.md](e2ee-private-files.md) | RocketVibe server: files sealed on the device (`rv-file-v1`), the key only in the encrypted message, opened into the private cache while a view shows them. |
 | [e2ee-private-actions.md](e2ee-private-actions.md) | RocketVibe server: encrypted amendments (the author's edits and deletions, any member's reactions) shown pending until accepted, and private search on the device. |

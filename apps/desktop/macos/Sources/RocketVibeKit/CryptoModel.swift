@@ -103,7 +103,7 @@ public final class CryptoModel {
     }
     private struct HistoryShared: Decodable { let shared: Bool }
     private struct HistoryResumed: Decodable { let resumed: Bool }
-    private func historyCall<T: Decodable>(_ handle: NativeCrypto, _ input: [String: String]) async throws -> T {
+    private func historyCall<T: Decodable>(_ handle: NativeCrypto, _ input: [String: Any]) async throws -> T {
         let input = String(decoding: try JSONSerialization.data(withJSONObject: input), as: UTF8.self)
         let output = try await handle.historyAction(input: input)
         let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -135,10 +135,11 @@ public final class CryptoModel {
         guard let staged = historyOffers else { return }
         await run { .historyPreview(try await historyCall($0, ["action":"preview", "id":staged.id, "fingerprint":offer.fingerprint])) }
     }
-    public func shareHistory() async {
-        guard let selected = historyPreview, !selected.periods.isEmpty else { return }
+    /// `delegate`: also hands control of the account (its root key) to that device.
+    public func shareHistory(delegate: Bool = false) async {
+        guard let selected = historyPreview, !selected.periods.isEmpty, !delegate || selected.canDelegate else { return }
         await run { handle in
-            let _: HistoryShared = try await historyCall(handle, ["action":"share", "id":selected.id])
+            let _: HistoryShared = try await historyCall(handle, ["action":"share", "id":selected.id, "delegate":delegate])
             return .history(.shared)
         }
     }

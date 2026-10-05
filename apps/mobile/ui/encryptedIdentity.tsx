@@ -158,10 +158,14 @@ function Identity({c,chat}:{c:Colors;chat:NativeChat}) {
       if(!live(n))return;setRoomNames(Object.fromEntries(named.map(r=>[r.rid,r.displayName??r.name??r.rid])));setHistoryPreview(preview);});};
   const shareHistory=()=>{const selected=historyPreview,n=epoch.current;if(!selected||selected.periods.length===0)return;
     const listed=selected.periods.map(p=>`${roomNames[p.room]??p.room} · ${t('private.historyMessages',{n:Number(p.documents)})}`).join('\n');
-    Alert.alert(t('private.historyShare'),`${t('private.historyShareBody')}\n\n${selected.device}\n${selected.fingerprint}\n\n${listed}`,[
+    const share=(delegate:boolean)=>()=>{if(!live(n))return;setHistoryPreview(null);
+      historyRun(async(h,m)=>{await h.share(selected.id,delegate);if(live(m))setHistory({label:'private.historyShared'});});};
+    // The root holder may also hand control over (E2EE_DELEGATION.md).
+    const delegation=selected.can_delegate?`\n\n${t('private.historyDelegateBody')}`:'';
+    Alert.alert(t('private.historyShare'),`${t('private.historyShareBody')}\n\n${selected.device}\n${selected.fingerprint}\n\n${listed}${delegation}`,[
       {text:t('common.cancel'),style:'cancel'},
-      {text:t('private.historyShare'),onPress:()=>{if(!live(n))return;setHistoryPreview(null);
-        historyRun(async(h,m)=>{await h.share(selected.id);if(live(m))setHistory({label:'private.historyShared'});});}},
+      {text:t('private.historyShare'),onPress:share(false)},
+      ...(selected.can_delegate?[{text:t('private.historyShareDelegate'),style:'destructive' as const,onPress:share(true)}]:[]),
     ]);};
   const resumeHistory=()=>historyRun(async(h,n)=>{const resumed=await h.resumeShare();if(live(n))setHistory({label:resumed?'private.historyShared':'private.historyIdle'});});
   const backupRun=(action:(b:ReturnType<NativeChat['cryptoHistoryBackup']>,n:number)=>Promise<void>)=>{

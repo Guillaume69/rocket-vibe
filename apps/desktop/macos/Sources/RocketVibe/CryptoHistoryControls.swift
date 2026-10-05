@@ -55,7 +55,14 @@ struct CryptoHistoryControls: View {
         .alert(L("crypto.history_share"), isPresented: $confirm) {
             Button(L("actions.cancel"), role: .cancel) {}
             Button(L("crypto.history_share")) { Task { await model.shareHistory() } }
-        } message: { Text(confirmation) }
+            if model.historyPreview?.canDelegate == true {
+                Button(L("crypto.history_share_delegate"), role: .destructive) { Task { await model.shareHistory(delegate: true) } }
+            }
+        } message: {
+            Text(model.historyPreview?.canDelegate == true ? confirmation + "
+
+" + L("crypto.history_delegate_body") : confirmation)
+        }
         .onDisappear { confirm = false }
     }
 }

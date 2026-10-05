@@ -14,7 +14,7 @@ const directory={scope:wire,identity:null,devices:[],revocations:[],next_revocat
 const request='ab'.repeat(32);
 const stale='cd'.repeat(32);
 function native(pages:number) {
-  const actions:string[]=[];
+  const actions:string[]=[];const delegated:boolean[]=[];
   let pending:string|null=null,sharing:string|null=null,uploads=0;
   let importing:{request:string;next:{period:number;after:string}|null}|null=null;
   const bridge:CryptoHistoryBridge={
@@ -30,8 +30,9 @@ function native(pages:number) {
         case 'acknowledgeable':return JSON.stringify({requests:input.listed.requests.map((e:{fingerprint:string})=>e.fingerprint).filter((f:string)=>f!==pending)});
         case 'offers':return JSON.stringify({id:'01'.repeat(16),offers:[{fingerprint:request,device:'phone',issued_at:'1',expires_at:'2'}]});
         case 'preview':assert.equal(input.id,'01'.repeat(16));assert.equal(input.fingerprint,request);
-          return JSON.stringify({id:'02'.repeat(16),fingerprint:request,device:'phone',periods:[{room:'general',documents:String(pages)}]});
-        case 'approve':assert.equal(input.id,'02'.repeat(16));sharing=request;uploads=0;return '{"approved":true}';
+          return JSON.stringify({id:'02'.repeat(16),fingerprint:request,device:'phone',can_delegate:true,periods:[{room:'general',documents:String(pages)}]});
+        case 'approve':assert.equal(input.id,'02'.repeat(16));assert.equal(typeof input.delegate,'boolean');delegated.push(input.delegate);
+          sharing=request;uploads=0;return '{"approved":true}';
         case 'upload':return JSON.stringify({upload:uploads<pages?{request,input:{scope:wire,period:0,start:String(uploads),records:['cmVjb3Jk']}}:null});
         case 'uploaded':assert.deepEqual(input.receipt,{period:0,count:String(uploads+1)});uploads++;return '{"recorded":true}';
         case 'commit':assert.equal(uploads,pages);return JSON.stringify({request,input:{scope:wire,share:'c2hhcmU'}});
@@ -53,7 +54,7 @@ function native(pages:number) {
     const identity=new CryptoIdentityAccess(storage,bridge,transport);
     return {identity,history:new CryptoHistoryAccess(identity,bridge,transport)};
   };
-  return {open,actions};
+  return {open,actions,delegated};
 }
 type Server={committed:boolean;claimed:boolean;acked:string[];uploads:number;listed:unknown[]};
 function server(state:Server):NativeTransport {
@@ -88,7 +89,10 @@ test('the sharing device previews, uploads every page and commits, and the new d
   assert.deepEqual(await p.history.importHistory(),{state:'waiting',request});
   const offers=await d.history.offers();assert.equal(offers.offers[0]!.device,'phone');
   const preview=await d.history.preview(offers.id,request);assert.deepEqual(preview.periods,[{room:'general',documents:'2'}]);
-  await d.history.share(preview.id);
+  assert.equal(preview.can_delegate,true);
+  // Handing control over is an explicit choice that reaches the bridge.
+  await d.history.share(preview.id,true);
+  assert.deepEqual(desktop.delegated,[true]);
   assert.equal(state.uploads,2);assert(state.committed);
   assert.equal(await d.history.resumeShare(),false);
   assert.deepEqual(await p.history.importHistory(),{state:'done',request});

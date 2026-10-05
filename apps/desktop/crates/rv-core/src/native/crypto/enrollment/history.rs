@@ -19,6 +19,9 @@ pub struct HistoryApproval {
     pub fingerprint: String,
     pub device: String,
     pub periods: Vec<PreviewPeriod>,
+    /// This device holds the account root: it may hand control over with the
+    /// share (E2EE_DELEGATION.md).
+    pub can_delegate: bool,
     context: Arc<Context>,
     inner: SharePreview,
 }
@@ -105,6 +108,7 @@ impl Access {
                     .iter()
                     .map(|p| PreviewPeriod { room: p.room.clone(), documents: p.documents })
                     .collect(),
+                can_delegate: inner.can_delegate,
                 context,
                 inner,
             })
@@ -113,7 +117,8 @@ impl Access {
     }
     /// Sharing device: the human approved; the share is sealed, uploaded page
     /// by page and committed. Interrupted, it resumes with `resume_history_share`.
-    pub async fn share_history(&self, approval: HistoryApproval) -> Result<()> {
+    /// `delegate`: the human also hands control of the account to that device.
+    pub async fn share_history(&self, approval: HistoryApproval, delegate: bool) -> Result<()> {
         let _dispatch = self.0.dispatch.lock().await;
         if !Arc::ptr_eq(&approval.context, &self.0.context)
             || approval.fingerprint != approval.inner.fingerprint
@@ -124,7 +129,7 @@ impl Access {
         let wire = self.observe().await?;
         self.owned(move |slot, time| {
             let c = Coordinator::new(slot);
-            c.history_approve(&c.directory(wire)?, approval.inner, time)?;
+            c.history_approve(&c.directory(wire)?, approval.inner, delegate, time)?;
             Ok(())
         })
         .await?;

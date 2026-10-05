@@ -9,7 +9,9 @@ import {NativeError} from './transport.ts';
  * against the account directory; this adapter only carries HTTP and approval. */
 export type HistoryOffer={fingerprint:string;device:string;issued_at:string;expires_at:string};
 export type HistoryOffers={id:string;offers:HistoryOffer[]};
-export type HistoryPreview={id:string;fingerprint:string;device:string;periods:{room:string;documents:string}[]};
+export type HistoryPreview={id:string;fingerprint:string;device:string;periods:{room:string;documents:string}[];
+  /** This device holds the account root and may hand control over (E2EE_DELEGATION.md). */
+  can_delegate:boolean};
 export type HistoryImportProgress={state:'idle'}|{state:'waiting';request:string}|{state:'done';request:string};
 type ImportStatus={request:string;next:{period:number;after:string}|null};
 type Remote={
@@ -99,13 +101,15 @@ export class CryptoHistoryAccess {
   /** Sharing device: the rooms it would share. Nothing is sent before `share`. */
   preview(offers:string,request:string):Promise<HistoryPreview>{return this.identity.withIdentity(async(handle,own,_read,check)=>{
     const r=await this.action(handle,own,{action:'preview',id:id(offers),fingerprint:fingerprint(request)},check);
-    if(r.fingerprint!==request||!Array.isArray(r.periods)||r.periods.length>1024)fail();
-    return {id:id(r.id),fingerprint:request,device:label(r.device),periods:r.periods.map(value=>{const p=record(value);return {room:label(p.room),documents:decimal(p.documents)};})};
+    if(r.fingerprint!==request||!Array.isArray(r.periods)||r.periods.length>1024||typeof r.can_delegate!=='boolean')fail();
+    return {id:id(r.id),fingerprint:request,device:label(r.device),can_delegate:r.can_delegate,
+      periods:r.periods.map(value=>{const p=record(value);return {room:label(p.room),documents:decimal(p.documents)};})};
   });}
   /** Sharing device: the human approved this preview; the share is sealed,
-   * uploaded and committed. Interrupted, `resumeShare` continues it. */
-  share(preview:string):Promise<void>{return this.identity.withIdentity(async(handle,own,read,check,scope)=>{
-    const r=await this.action(handle,own,{action:'approve',id:id(preview)},check);if(r.approved!==true)fail();
+   * uploaded and committed. Interrupted, `resumeShare` continues it.
+   * `delegate`: the human also hands control of the account to that device. */
+  share(preview:string,delegate=false):Promise<void>{return this.identity.withIdentity(async(handle,own,read,check,scope)=>{
+    const r=await this.action(handle,own,{action:'approve',id:id(preview),delegate},check);if(r.approved!==true)fail();
     await this.run(handle,read,check,scope.user);
   });}
   /** Sharing device: continues an unfinished share; false when none is open. */

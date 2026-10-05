@@ -145,6 +145,9 @@ section here.
   from the encryption preferences (GTK and SwiftUI), which show when it was last renewed.
   The old key is destroyed, so an old copy of the data can no longer be opened; expired
   publication keys are destroyed along the way.
+- Hand control of the account to another of your devices while sharing history with it
+  (GTK and SwiftUI): "Share and hand over control" gives it the account's root key, so it
+  can approve and withdraw devices too. The choice is explicit and cannot be taken back.
 
 ### Fixed
 

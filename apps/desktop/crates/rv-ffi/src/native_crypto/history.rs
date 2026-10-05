@@ -14,8 +14,15 @@ enum Action {
     Request {},
     Import {},
     Offers {},
-    Preview { id: String, fingerprint: String },
-    Share { id: String },
+    Preview {
+        id: String,
+        fingerprint: String,
+    },
+    Share {
+        id: String,
+        #[serde(default)]
+        delegate: bool,
+    },
     Resume {},
 }
 fn changed() -> Error {
@@ -84,15 +91,16 @@ impl NativeCrypto {
                         "fingerprint": preview.fingerprint,
                         "device": preview.device,
                         "periods": periods,
+                        "can_delegate": preview.can_delegate,
                     });
                     let id = stage(&inner, Staged::Preview(Box::new(preview)));
                     let mut output = output;
                     output["id"] = serde_json::json!(id.to_string());
                     output
                 }
-                Action::Share { id } => {
+                Action::Share { id, delegate } => {
                     let Staged::Preview(preview) = take(&inner, &id)? else { return Err(changed()) };
-                    inner.access.share_history(*preview).await?;
+                    inner.access.share_history(*preview, delegate).await?;
                     serde_json::json!({"shared": true})
                 }
                 Action::Resume {} => serde_json::json!({"resumed": inner.access.resume_history_share().await?}),

@@ -29,6 +29,8 @@ public struct CryptoHistoryPreview: Decodable {
     public let fingerprint: String
     public let device: String
     public let periods: [CryptoHistoryPeriod]
+    /// This device holds the root and may hand control over (E2EE_DELEGATION.md).
+    public let canDelegate: Bool
 }
 /// What the history group shows under its title.
 public enum CryptoHistoryState: Equatable {

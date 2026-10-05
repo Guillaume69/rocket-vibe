@@ -35,6 +35,9 @@ enum Action {
     },
     Approve {
         id: String,
+        /// Also hand control of the account over (E2EE_DELEGATION.md).
+        #[serde(default)]
+        delegate: bool,
     },
     Upload {},
     Uploaded {
@@ -130,16 +133,17 @@ impl CryptoInstallation {
                         "fingerprint": preview.fingerprint,
                         "device": preview.device,
                         "periods": periods,
+                        "can_delegate": preview.can_delegate,
                     });
                     staged.preview = Some((id, preview));
                     output
                 }
-                Action::Approve { id } => {
+                Action::Approve { id, delegate } => {
                     let (expected, preview) = staged.preview.take().ok_or_else(changed)?;
                     if id != expected {
                         return Err(changed());
                     }
-                    c.history_approve(d, preview, time)?;
+                    c.history_approve(d, preview, delegate, time)?;
                     json!({"approved": true})
                 }
                 Action::Upload {} => match c.history_upload(d, time)? {

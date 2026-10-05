@@ -16,7 +16,7 @@ pub(super) enum Action {
     Import,
     Offers,
     Preview(Box<HistoryOffer>),
-    Share(Box<HistoryApproval>),
+    Share(Box<HistoryApproval>, bool),
     Resume,
 }
 pub(super) enum Outcome {
@@ -78,8 +78,8 @@ pub(super) async fn perform(access: Access, action: Action) -> Result<super::Out
         Action::Import => Outcome::Imported(access.import_history().await?),
         Action::Offers => Outcome::Offers(access.history_offers().await?),
         Action::Preview(offer) => Outcome::Preview(Box::new(access.preview_history(*offer).await?)),
-        Action::Share(approval) => {
-            access.share_history(*approval).await?;
+        Action::Share(approval, delegate) => {
+            access.share_history(*approval, delegate).await?;
             Outcome::Shared
         }
         Action::Resume => Outcome::Resumed(access.resume_history_share().await?),
@@ -183,17 +183,23 @@ impl Controller {
         if !empty {
             alert.add_responses(&[("confirm", t("crypto.history_share"))]);
             alert.set_response_appearance("confirm", adw::ResponseAppearance::Suggested);
+            // The root holder may also hand control over (E2EE_DELEGATION.md).
+            if approval.can_delegate {
+                alert.add_responses(&[("delegate", t("crypto.history_share_delegate"))]);
+                alert.set_response_appearance("delegate", adw::ResponseAppearance::Destructive);
+                alert.set_body(&format!("{}\n\n{}", alert.body(), t("crypto.history_delegate_body")));
+            }
         }
         *self.history.staged.borrow_mut() = Some(approval);
         let weak = Rc::downgrade(self);
         alert.connect_response(None, move |_, response| {
             let Some(c) = weak.upgrade() else { return };
             let staged = c.history.staged.borrow_mut().take();
-            if response == "confirm"
+            if matches!(response, "confirm" | "delegate")
                 && c.guard.alive()
                 && let Some(approval) = staged
             {
-                c.run(super::Action::History(Action::Share(Box::new(approval))));
+                c.run(super::Action::History(Action::Share(Box::new(approval), response == "delegate")));
             }
         });
         alert.present(Some(&parent));

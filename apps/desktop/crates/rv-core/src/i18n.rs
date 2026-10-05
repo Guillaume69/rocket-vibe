@@ -217,6 +217,12 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("crypto.history_messages", "{n} message | {n} messages", "{n} message | {n} messages"),
     ("crypto.history_shared", "Historique partagé", "History shared"),
     ("crypto.history_resume", "Reprendre le partage", "Resume sharing"),
+    ("crypto.history_share_delegate", "Partager et confier le contrôle", "Share and hand over control"),
+    (
+        "crypto.history_delegate_body",
+        "Confier le contrôle donne aussi à cet appareil la clé racine du compte : il pourra approuver et retirer des appareils. Ce don ne peut pas être repris ; seul un remplacement de la racine l’annule.",
+        "Handing control over also gives that device the account's root key: it will approve and withdraw devices. This cannot be taken back; only replacing the root undoes it.",
+    ),
     ("crypto.storage_title", "Clé de stockage", "Storage key"),
     (
         "crypto.storage_explanation",

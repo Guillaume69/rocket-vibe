@@ -89,6 +89,9 @@ under `rocketvibe-history-backup-checkpoint-v1`, over the body (version, generat
 period, rank count, first and last position, chain digest of the period's record
 fingerprints, E2EE_HISTORY.md#share-sharing-device) and its certificate fingerprint.
 A period only grows: a checkpoint never shrinks or rewrites a held prefix.
+Checkpoints are not fresh, though: the server can serve an older checkpoint or leave
+whole periods out. A restoring device then shows a shorter prefix, still verified;
+the scheme proves what it shows, not that nothing newer exists.
 
 ## Recovery on a new device
 

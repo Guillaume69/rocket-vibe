@@ -7,6 +7,17 @@ section here.
 
 ## [Unreleased]
 
+### Changed
+
+- In the macOS SwiftUI app, a search result, or a pinned or starred message, older than what
+  the room has loaded shows the conversation around it, whatever its age, as the GTK app does
+  since 0.8.0.
+
+### Fixed
+
+- In the macOS SwiftUI app, paging back through a room no longer shows an older message stored
+  on its own above messages that were never loaded.
+
 ## [0.8.0] - 2026-10-05
 
 ### Changed

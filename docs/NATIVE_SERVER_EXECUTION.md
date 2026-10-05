@@ -5,6 +5,22 @@ Destination: [RFC 0001](rfcs/0001-rocketvibe-rust-server.md).
 
 ## Summary status as of 5 October 2026
 
+History recovery path B ([E2EE_HISTORY_BACKUP.md](protocol/E2EE_HISTORY_BACKUP.md)),
+on the user's decisions of 5 October 2026: a separate `rvh1-` history code and continuous
+upload. A 32-byte history key per generation, sealed under the code key in a package
+published by a device signature with compare-and-swap, lost-response recovery and
+cancellation like the identity backup; other devices join with the code. Every device
+holding the key uploads its own verified journal archive per period as history records
+under period secrets derived from the key, with signed growing checkpoints, after each
+private conversation refresh (at most every 10 minutes) or on demand. A blank device
+restores with the code alone into the recovered catalog, which now shows each period up
+to its last verified checkpoint and each position once across sources. Server migration
+0046 and routes, rv-client, desktop worker, mobile bridge and adapter, and the settings
+blocks in GTK, SwiftUI and Android. Tests: engine (code, package, ceremony, continuous
+upload, growth, import, refusals, dedup), two PostgreSQL tests, a desktop worker test, a
+bridge test and adapter tests. Remaining: the history key inside a path A share, public
+vectors for the package and checkpoint with a Node verifier, installed qualification.
+
 History recovery on a new device, path A (item 2 of the E2EE plan,
 [E2EE_HISTORY.md](protocol/E2EE_HISTORY.md)), private engine, public vector and
 server done. Archive v1 packets require the archiving device to share the

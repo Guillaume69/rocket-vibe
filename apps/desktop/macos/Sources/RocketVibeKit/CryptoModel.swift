@@ -17,6 +17,11 @@ public final class CryptoModel {
     public private(set) var history: CryptoHistoryState = .idle
     public private(set) var historyOffers: CryptoHistoryOffers?
     public private(set) var historyPreview: CryptoHistoryPreview?
+    public private(set) var historyBackup: CryptoHistoryBackupStatus?
+    public private(set) var historyBackupApproval: CryptoHistoryBackupPreview?
+    public private(set) var historyCode = ""
+    public private(set) var historyBackupResult = ""
+    public var historyJoinCode = ""
     public var restoreCode = ""
     public private(set) var output = ""
     public private(set) var busy = false
@@ -38,12 +43,14 @@ public final class CryptoModel {
         value = nil; approval = nil; withdrawals = nil; withdrawalApproval = nil; output = ""; code = ""; error = nil; busy = false
         backups = nil; backupApproval = nil; restoreApproval = nil; recoveryCode = ""; restoreCode = ""
         history = .idle; historyOffers = nil; historyPreview = nil
+        historyBackup = nil; historyBackupApproval = nil; historyCode = ""; historyBackupResult = ""; historyJoinCode = ""
     }
     private enum Outcome {
         case view(NativeCryptoState), preview(NativeCryptoApproval), grant(String)
         case withdrawals(CryptoWithdrawalStatus), withdrawalPreview(CryptoWithdrawalPreview)
         case backups(CryptoBackupStatus), backupPreview(CryptoBackupPreview), restorePreview(CryptoRestorePreview), recoveryCode(String)
         case history(CryptoHistoryState), historyOffers(CryptoHistoryOffers), historyPreview(CryptoHistoryPreview)
+        case historyBackup(CryptoHistoryBackupStatus), historyBackupPreview(CryptoHistoryBackupPreview), historyCode(String), historyBackupResult(String)
     }
     private struct DisplayCode: Decodable { let code: String }
     private struct Restored: Decodable { let restored: Bool }
@@ -137,6 +144,61 @@ public final class CryptoModel {
             return .history(resumed.resumed ? .shared : .idle)
         }
     }
+    private struct HistoryPages: Decodable { let pages: String }
+    private struct HistoryRecords: Decodable { let records: String }
+    private func backupCall<T: Decodable>(_ handle: NativeCrypto, _ input: [String: String]) async throws -> T {
+        let input = String(decoding: try JSONSerialization.data(withJSONObject: input), as: UTF8.self)
+        let output = try await handle.historyBackupAction(input: input)
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(T.self, from: Data(output.utf8))
+    }
+    public func refreshHistoryBackup() async {
+        await run { .historyBackup(try await backupCall($0, ["action":"view"])) }
+    }
+    public func reviewHistoryBackup() async {
+        await run { .historyBackupPreview(try await backupCall($0, ["action":"preview"])) }
+    }
+    /// Prepares the reviewed generation and shows its code once.
+    public func prepareHistoryBackup() async {
+        guard let selected = historyBackupApproval else { return }
+        await run { handle in
+            let _: CryptoHistoryBackupStatus = try await backupCall(handle, ["action":"prepare", "id":selected.id])
+            let displayed: DisplayCode = try await backupCall(handle, ["action":"code"])
+            return .historyCode(displayed.code)
+        }
+    }
+    public func showHistoryCode() async {
+        await run { handle in
+            let displayed: DisplayCode = try await backupCall(handle, ["action":"code"])
+            return .historyCode(displayed.code)
+        }
+    }
+    public func confirmHistoryCodeSaved() async {
+        await run { .historyBackup(try await backupCall($0, ["action":"confirm_saved"])) }
+    }
+    public func resumeHistoryBackup() async {
+        await run { .historyBackup(try await backupCall($0, ["action":"resume"])) }
+    }
+    public func cancelHistoryBackup() async {
+        await run { .historyBackup(try await backupCall($0, ["action":"cancel"])) }
+    }
+    public func joinHistoryBackup() async {
+        let entered = historyJoinCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        historyJoinCode = ""
+        await run { .historyBackup(try await backupCall($0, ["action":"join", "code":entered])) }
+    }
+    public func syncHistoryBackup() async {
+        await run { handle in
+            let sent: HistoryPages = try await backupCall(handle, ["action":"sync"])
+            return .historyBackupResult(L("crypto.history_backup_synced", count: Int(sent.pages) ?? 0))
+        }
+    }
+    public func restoreHistoryBackup() async {
+        await run { handle in
+            let restored: HistoryRecords = try await backupCall(handle, ["action":"restore"])
+            return .historyBackupResult(L("crypto.history_backup_restored", count: Int(restored.records) ?? 0))
+        }
+    }
     private func withdrawal<T: Decodable>(_ handle: NativeCrypto, _ input: [String: String]) async throws -> T {
         let input = String(decoding: try JSONSerialization.data(withJSONObject: input), as: UTF8.self)
         let output = try await handle.withdrawalAction(input: input)
@@ -188,6 +250,7 @@ public final class CryptoModel {
         busy = true; error = nil
         recoveryCode = ""; restoreCode = ""
         backupApproval = nil; restoreApproval = nil
+        historyBackupApproval = nil; historyBackupResult = ""
         historyOffers = nil; historyPreview = nil
         defer { if generation == expected { busy = false } }
         do {
@@ -209,6 +272,8 @@ public final class CryptoModel {
                     guard current(expected) else { return }; withdrawals = status
                     let backup: CryptoBackupStatus = try await recovery(active, ["action":"view"])
                     guard current(expected) else { return }; backups = backup
+                    let held: CryptoHistoryBackupStatus? = try? await backupCall(active, ["action":"view"])
+                    guard current(expected) else { return }; historyBackup = held
                 } else { withdrawals = nil }
             case .preview(let fresh): approval = fresh
             case .grant(let fresh): approval = nil; output = fresh; code = fresh
@@ -223,10 +288,16 @@ public final class CryptoModel {
                 historyOffers = fresh.offers.isEmpty ? nil : fresh
                 if fresh.offers.isEmpty { history = .noOffers }
             case .historyPreview(let fresh): historyPreview = fresh
+            case .historyBackup(let fresh): historyBackup = fresh; historyCode = ""
+            case .historyBackupPreview(let fresh): historyBackupApproval = fresh
+            case .historyCode(let fresh):
+                historyCode = fresh
+                historyBackup = try? await backupCall(active, ["action":"view"])
+            case .historyBackupResult(let fresh): historyBackupResult = fresh
             }
         } catch {
             guard current(expected) else { return }
-            recoveryCode = ""; restoreCode = ""; backupApproval = nil; restoreApproval = nil
+            recoveryCode = ""; restoreCode = ""; backupApproval = nil; restoreApproval = nil; historyCode = ""; historyBackupApproval = nil
             if recoverBackup, let handle, let fresh: CryptoBackupStatus = try? await recovery(handle, ["action":"view"]) {
                 guard current(expected) else { return }; backups = fresh
             }

@@ -184,6 +184,10 @@ impl Access {
             .crypto
             .journal_projection(&room.0.id, groups::ProjectionQuery { before, limit, thread: self.0.thread.clone() })
             .await?;
+        if before.is_none() {
+            // New verified messages may be waiting for the history backup.
+            room.0.settings.sync_history_backup_soon();
+        }
         let can_send = can_send && (self.0.thread.is_none() || projection.root.is_some());
         self.check()?;
         if self.0.state.lock().unwrap().admission.is_some_and(|old| old != projection.admission) {

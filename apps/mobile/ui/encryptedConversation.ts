@@ -44,6 +44,8 @@ export function useEncryptedConversation(chat:NativeChat|undefined,room:string,m
           else invalidateNativeReply(replyKey,target);
         }
       }
+      // New verified messages may be waiting for the history backup.
+      if(visible() && CryptoNative)chat.syncHistoryBackupSoon(CryptoNative);
       if(visible()) {
         setView(current);
         if(lastInitial.current!==n || restore){lastInitial.current=n;setInitial(current.draft);setComposer(v=>v+1);}

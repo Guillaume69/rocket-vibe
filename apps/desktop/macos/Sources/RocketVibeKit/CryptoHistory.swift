@@ -50,3 +50,22 @@ public enum CryptoHistoryState: Equatable {
         }
     }
 }
+
+/// History backup (path B): public status only. The history code shows only on
+/// explicit request; the key and the recovered messages stay in Rust.
+public struct CryptoHistoryKeyReceipt: Decodable {
+    public let generation: String
+    public let generationRevision: String
+}
+public struct CryptoHistoryBackupStatus: Decodable {
+    public let holdsKey: Bool
+    public let generation: String?
+    public let receipt: CryptoHistoryKeyReceipt?
+    public let pending: Bool
+    public let codeSaved: Bool
+    public let cancelRequested: Bool
+}
+public struct CryptoHistoryBackupPreview: Decodable {
+    public let id: String
+    public let generationRevision: String?
+}

@@ -289,6 +289,10 @@ release, and its notes are that version's section here.
   The new device then imports it page by page and the server copy is deleted. Scrolling past
   the device's own oldest message then continues into the recovered messages, with the time
   the sharing device received them.
+- History backup with its own code (`rvh1-…`, separate from the identity code), in the same
+  settings: enabling shows the code and publishes once it is saved, other devices join with
+  the code, devices holding it upload their encrypted history as messages arrive, and a new
+  device restores it with the code alone, even with no other device left.
 
 ### Changed
 

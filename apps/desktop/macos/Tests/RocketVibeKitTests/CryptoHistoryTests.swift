@@ -24,6 +24,27 @@ final class CryptoHistoryTests: XCTestCase {
         XCTAssertEqual(CryptoHistoryState.requested("fp").fingerprint, "fp")
         XCTAssertNil(CryptoHistoryState.shared.fingerprint)
     }
+    func testHistoryBackupStatusKeepsTheGenerationAndPendingState() throws {
+        let status: CryptoHistoryBackupStatus = try decode("""
+        {"holds_key":true,"generation":"\(String(repeating: "ab", count: 16))","receipt":{"scope":{"instance_id":"i","data_epoch":"e"},"operation_id":"op","device_id":"desktop","incarnation":"01","device_revision":"1","root_fingerprint":"fp","generation":"g","generation_revision":"9007199254740993","package_digest":"d"},"pending":false,"code_saved":false,"cancel_requested":false}
+        """)
+        XCTAssertTrue(status.holdsKey)
+        XCTAssertEqual(status.receipt?.generationRevision, "9007199254740993")
+        let preview: CryptoHistoryBackupPreview = try decode(#"{"id":"7","generation_revision":null}"#)
+        XCTAssertNil(preview.generationRevision)
+    }
+    @MainActor
+    func testClosedSettingsNeverShowTheHistoryCode() async {
+        let app = AppModel(home: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path)
+        defer { app.end() }
+        let model = CryptoModel(app: app)
+        model.historyJoinCode = "rvh1-disposable"
+        model.close()
+        await model.showHistoryCode()
+        XCTAssertTrue(model.historyCode.isEmpty)
+        XCTAssertTrue(model.historyJoinCode.isEmpty)
+        XCTAssertNil(model.historyBackup)
+    }
     @MainActor
     func testClosedSettingsNeverShareOrKeepOffers() async {
         let app = AppModel(home: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path)

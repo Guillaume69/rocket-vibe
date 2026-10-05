@@ -604,6 +604,19 @@ export class NativeChat {
   cryptoHistoryBackup(identity:CryptoIdentityAccess,bridge:import('../../modules/crypto-native/index.ts').CryptoHistoryBackupBridge):CryptoHistoryBackupAccess {
     return new CryptoHistoryBackupAccess(identity,bridge,this.transport);
   }
+  private historyBackupSynced=0;
+  /** Continuous history backup: after new private messages, uploads this
+   * device's pending pages in the background, at most once every 10 minutes.
+   * Without a held key the bridge only reads the vault; failures retry later. */
+  syncHistoryBackupSoon(bridge:import('../../modules/crypto-native/index.ts').CryptoHistoryBackupBridge):void {
+    const now=Date.now();
+    if(now-this.historyBackupSynced<600_000)return;
+    this.historyBackupSynced=now;
+    void (async()=>{
+      const identity=await this.cryptoIdentity(bridge);
+      try{await this.cryptoHistoryBackup(identity,bridge).sync();}finally{await identity.close();}
+    })().catch(()=>{});
+  }
   async cryptoPeer(bridge:import('../../modules/crypto-native/index.ts').CryptoPeerBridge,user:string,
     visible:()=>boolean=()=>true):Promise<CryptoPeerAccess> {
     if(!user || user.length>256)throw new NativeError(400,'invalid_request');

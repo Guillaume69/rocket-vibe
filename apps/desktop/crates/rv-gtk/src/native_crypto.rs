@@ -14,6 +14,7 @@ use std::{
     sync::Arc,
 };
 mod history;
+mod history_backup;
 mod peers;
 mod recovery;
 mod rooms;
@@ -52,6 +53,7 @@ struct Controller {
     withdrawal_pending: Cell<bool>,
     recovery: recovery::Controls,
     history: history::Controls,
+    history_backup: history_backup::Controls,
 }
 enum Action {
     Refresh,
@@ -68,6 +70,7 @@ enum Action {
     ResumeWithdrawal,
     Recovery(recovery::Action),
     History(history::Action),
+    HistoryBackup(history_backup::Action),
 }
 enum Outcome {
     View(View),
@@ -82,12 +85,15 @@ enum Outcome {
     WithdrawalPreview(Box<rv_core::native::crypto::enrollment::revocations::Approval>),
     Recovery(recovery::Outcome),
     History(history::Outcome),
+    HistoryBackup(history_backup::Outcome),
+    AccountWithHistory(Box<Outcome>, Box<rv_core::native::crypto::enrollment::history_backup::HistoryBackupStatus>),
 }
 impl Controller {
     fn render(&self, view: View) {
         self.clear_withdrawals();
         self.recovery.reset();
         self.history.reset();
+        self.history_backup.reset();
         self.status.set_title(t(match view.stage {
             Stage::Missing => "crypto.missing",
             Stage::IdentityCreated => "crypto.created",
@@ -148,6 +154,7 @@ impl Controller {
         self.withdrawals.set_sensitive(idle);
         self.recovery.buttons(view.as_ref(), idle);
         self.history.buttons(view.as_ref(), idle);
+        self.history_backup.buttons(view.as_ref(), idle);
     }
     fn clear_withdrawals(&self) {
         for row in self.withdrawal_rows.borrow_mut().drain(..) {
@@ -246,6 +253,10 @@ impl Controller {
         let recover_withdrawal = matches!(&action, Action::Withdraw(_) | Action::ResumeWithdrawal);
         let recover_backup = matches!(&action, Action::Recovery(_));
         self.recovery.clear_sensitive();
+        if !matches!(&action, Action::HistoryBackup(history_backup::Action::Saved)) {
+            // The code stays shown until the user confirmed saving it.
+            self.history_backup.secret.set_text("");
+        }
         let this = self.clone();
         glib::spawn_future_local(async move {
             let result: Result<Outcome, rv_core::native::crypto::Error> = async {
@@ -286,14 +297,19 @@ impl Controller {
                         Action::ResumeWithdrawal => access.resume_withdrawal().await.map(Outcome::Withdrawals),
                         Action::Recovery(action) => recovery::perform(access.clone(), action).await,
                         Action::History(action) => history::perform(access.clone(), action).await,
+                        Action::HistoryBackup(action) => history_backup::perform(access.clone(), action).await,
                     }?;
                     match outcome {
                         Outcome::View(view) if matches!(view.stage, Stage::Ready | Stage::Expired) => {
-                            Ok(Outcome::Account(
+                            let account = Outcome::Account(
                                 view,
                                 access.withdrawals().await?,
                                 Box::new(access.backup_status().await?),
-                            ))
+                            );
+                            Ok(match access.history_backup_status().await {
+                                Ok(status) => Outcome::AccountWithHistory(Box::new(account), Box::new(status)),
+                                Err(_) => account,
+                            })
                         }
                         other => Ok(other),
                     }
@@ -329,6 +345,15 @@ impl Controller {
                 Ok(Outcome::WithdrawalPreview(preview)) => this.confirm_withdrawal(*preview),
                 Ok(Outcome::Recovery(outcome)) => this.render_recovery(outcome),
                 Ok(Outcome::History(outcome)) => this.render_history(outcome),
+                Ok(Outcome::HistoryBackup(outcome)) => this.render_history_backup(outcome),
+                Ok(Outcome::AccountWithHistory(account, status)) => {
+                    if let Outcome::Account(view, withdrawals, backup) = *account {
+                        this.render(view);
+                        this.render_withdrawals(withdrawals);
+                        this.render_backup(*backup);
+                    }
+                    this.render_history_backup(history_backup::Outcome::Status(status));
+                }
                 Err(error) => {
                     this.recovery.clear_sensitive();
                     if recover_backup {
@@ -383,6 +408,7 @@ impl Controller {
                         this.clear_withdrawals();
                         this.recovery.reset();
                         this.history.reset();
+                        this.history_backup.reset();
                     }
                     let reauth = matches!(&error, rv_core::native::crypto::Error::Session(e) if e.code()=="reauthentication_required");
                     this.status.set_title(t(if reauth { "devices.reauth" } else { "crypto.failed" }));
@@ -451,6 +477,7 @@ fn build_dialog(session: Arc<NativeSession>) -> (adw::PreferencesDialog, Rc<Cont
     page.add(&withdrawals);
     let recovery = recovery::Controls::new(&page);
     let history = history::Controls::new(&page);
+    let history_backup = history_backup::Controls::new(&page);
     dialog.add(&page);
     let controller = Rc::new(Controller {
         dialog: dialog.downgrade(),
@@ -472,9 +499,11 @@ fn build_dialog(session: Arc<NativeSession>) -> (adw::PreferencesDialog, Rc<Cont
         withdrawal_pending: Cell::new(false),
         recovery,
         history,
+        history_backup,
     });
     controller.connect_recovery();
     controller.connect_history();
+    controller.connect_history_backup();
     for (index, row) in controller.actions.iter().enumerate() {
         let weak = Rc::downgrade(&controller);
         row.connect_activated(move |_| {
@@ -520,6 +549,7 @@ fn build_dialog(session: Arc<NativeSession>) -> (adw::PreferencesDialog, Rc<Cont
         close.recovery.reset();
         close.recovery.detach_focus();
         close.history.reset();
+        close.history_backup.reset();
     });
     (dialog, controller)
 }
@@ -617,6 +647,21 @@ mod tests {
         });
         assert!(!controller.actions[7].is_sensitive(), "Renewal waits for backup settlement");
         assert!(controller.history.group.is_visible(), "History recovery shows on a registered device");
+        controller.render_history_backup(history_backup::Outcome::Status(Box::new(
+            rv_core::native::crypto::enrollment::history_backup::HistoryBackupStatus {
+                holds_key: false,
+                generation: None,
+                receipt: None,
+                pending: true,
+                code_saved: false,
+                cancel_requested: false,
+            },
+        )));
+        controller
+            .render_history_backup(history_backup::Outcome::Code(zeroize::Zeroizing::new("rvh1-disposable".into())));
+        controller.buttons();
+        assert!(controller.history_backup.group.is_visible());
+        assert_eq!(controller.history_backup.secret.text(), "rvh1-disposable");
         controller.render_history(history::Outcome::Imported(
             rv_core::native::crypto::enrollment::history::ImportProgress::Waiting { request: "ef".repeat(32) },
         ));
@@ -654,6 +699,7 @@ mod tests {
         assert!(controller.view.borrow().is_none());
         assert!(controller.recovery.input.text().is_empty());
         assert!(controller.recovery.secret.text().is_empty());
+        assert!(controller.history_backup.secret.text().is_empty(), "The history code is cleared on close");
         window.close();
         session.shutdown();
     }

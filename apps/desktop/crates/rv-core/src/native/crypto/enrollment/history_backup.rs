@@ -173,6 +173,23 @@ impl Access {
             pages += 1;
         }
     }
+    /// Continuous backup: after new private messages, uploads this device's
+    /// pending pages in the background, at most once every 10 minutes per view.
+    /// Without a held key it only reads the vault; failures retry next time.
+    pub fn sync_history_backup_soon(&self) {
+        const EVERY: std::time::Duration = std::time::Duration::from_secs(600);
+        {
+            let mut last = self.0.backup_synced.lock().unwrap();
+            if last.is_some_and(|at| at.elapsed() < EVERY) || self.check().is_err() {
+                return;
+            }
+            *last = Some(std::time::Instant::now());
+        }
+        let access = self.clone();
+        tokio::spawn(async move {
+            let _ = access.sync_history_backup().await;
+        });
+    }
     /// Downloads and imports every backed-up period of the held generation;
     /// returns the records imported.
     pub async fn restore_history_backup(&self) -> Result<u64> {

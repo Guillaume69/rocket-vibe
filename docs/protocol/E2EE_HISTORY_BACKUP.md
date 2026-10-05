@@ -119,6 +119,22 @@ to still read the room, as path A. Quotas per account: 4 generations a day,
 1,000,000 records and 2 GiB stored; the oldest generations beyond the 4 most recent
 are deleted by maintenance.
 
+## Adapters
+
+`rv_crypto::account::history_backup` is the shared step: status, review and
+preparation of a generation, explicit code view, confirmation, acknowledgement
+and cancellation, join with the code, then wire-level upload (`history_backup_upload`
+/ `history_backup_uploaded`) and import (`history_backup_next` /
+`history_backup_import`). The desktop drives it in `rv-core`
+(`enrollment/history_backup.rs`), Android through the bridge's
+`history_backup_action` and `providers/rocketvibe/cryptoHistoryBackup.ts`.
+
+**Continuous upload** is triggered after each successful refresh of a private
+conversation (new verified messages may be waiting), at most once every 10 minutes
+per settings view on the desktop and per account on Android; it only reads the
+vault when the device holds no key, and a failure retries next time. The settings
+also offer "Back up now" and "Restore the history".
+
 ## Exit criteria for B
 
 - Public vectors for the key package, the publication and a checkpoint, verified by

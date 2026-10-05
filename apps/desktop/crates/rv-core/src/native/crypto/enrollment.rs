@@ -63,6 +63,8 @@ struct Inner {
     installation: Arc<Installation>,
     account: Account,
     dispatch: tokio::sync::Mutex<()>,
+    /// Last background history backup upload started by this view.
+    backup_synced: std::sync::Mutex<Option<std::time::Instant>>,
 }
 impl Drop for Inner {
     fn drop(&mut self) {
@@ -308,6 +310,12 @@ impl NativeSession {
             device: device.id.clone(),
         };
         let installation = Arc::new(Installation::new(directory, account.clone(), storage)?);
-        Ok(Access(Arc::new(Inner { context, installation, account, dispatch: tokio::sync::Mutex::new(()) })))
+        Ok(Access(Arc::new(Inner {
+            context,
+            installation,
+            account,
+            dispatch: tokio::sync::Mutex::new(()),
+            backup_synced: std::sync::Mutex::new(None),
+        })))
     }
 }

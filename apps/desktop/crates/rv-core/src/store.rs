@@ -858,6 +858,20 @@ mod tests {
     }
 
     #[test]
+    fn count_since_counts_what_the_room_shows() {
+        let store = Store::in_memory().unwrap();
+        store.write(|w| {
+            for (id, ts) in [("old", 10), ("a", 100), ("b", 200)] {
+                w.upsert_message(&Message { ts, ..message(id, Some("x"), 1, "r") });
+            }
+            w.upsert_message(&Message { ts: 150, thread_id: Some("a".into()), ..message("reply", Some("x"), 1, "r") });
+            w.upsert_message(&Message { ts: 300, ..message("elsewhere", Some("x"), 1, "s") });
+        });
+        assert_eq!(store.count_since("r", 100), 2);
+        assert_eq!(store.count_since("r", 0), 3);
+    }
+
+    #[test]
     fn optimistic_row_is_overwritten_and_never_overwrites() {
         let store = Store::in_memory().unwrap();
         store.write(|w| w.upsert_message(&message("m", Some("local"), 0, "r")));

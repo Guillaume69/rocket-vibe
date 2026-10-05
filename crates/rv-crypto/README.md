@@ -94,13 +94,17 @@ durable withdrawal of the account remain to be wired up.
 
 ## Confidentiality limit of old copies
 
-The WAL and the backups contain **old encrypted documents**. With
-a durable vault key, they become readable again if that key is compromised.
-The checkpoint prevents the engine from reusing them; it does not erase them and
-does not provide forward secrecy of the storage. `secure_delete` is not enough to
-erase the copies on an SSD, in the WAL or in a backup. The ephemeral
-key / rotation policy and the review of their destruction remain conditions of
-J4. [OpenMLS storage requirements](https://book.openmls.tech/user_manual/persistence.html).
+The WAL and the backups contain **old encrypted documents**. The checkpoint
+prevents the engine from reusing them; it does not erase them. `secure_delete` is
+not enough to erase the copies on an SSD, in the WAL or in a backup. The storage key
+is therefore **renewed** (`Manager::rotate`, every 30 days and on request): state
+and blocks are sealed again under a fresh key in one commit, the keystore keeps only
+the fresh key, and the WAL is truncated. A copy made before a renewal stays sealed
+under a key that no longer exists. Blocks keep their references by carrying their
+original digest inside the new seal; an interrupted renewal resumes on either side
+of its commit through the `next` key of the protected record. Expired KeyPackage keys
+are destroyed after a grace period. See [E2EE_STORAGE.md](../../docs/protocol/E2EE_STORAGE.md).
+[OpenMLS storage requirements](https://book.openmls.tech/user_manual/persistence.html).
 
 MLS is not the recoverable archive required by the RFC. This crate still provides
 neither archive / files nor an Android bridge. The optional HTTP worker remains

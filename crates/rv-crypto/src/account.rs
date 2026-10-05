@@ -21,6 +21,7 @@ pub mod peers;
 pub mod recovery;
 mod renewal;
 pub mod revocations;
+pub mod storage;
 use renewal::Renewal;
 const LIFETIME: u64 = 86400 * 30;
 #[cfg(test)]

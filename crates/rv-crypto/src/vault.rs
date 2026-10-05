@@ -389,6 +389,7 @@ impl Vault {
         }
         let db = connection(path)?;
         drop(unseal(&scope, &key, &read(&db)?, checkpoint)?);
+        blobs::migrate(&db)?;
         Ok(Self {
             db,
             scope,
@@ -454,6 +455,7 @@ impl Vault {
             return Err(Error::Stale);
         }
         drop(Working::from_document(document)?);
+        blobs::migrate(&db)?;
         let checkpoint = checkpoint(&scope, &row)?;
         Ok(Self {
             db,
@@ -544,6 +546,75 @@ impl Vault {
         #[cfg(test)]
         crash_boundary("after-commit");
         Ok((result, next))
+    }
+}
+
+impl Vault {
+    /// Storage key rotation: the state and every private block are sealed
+    /// again under `next` in one commit, the next revision, with `mutate`
+    /// recording it. Blocks keep their original digest, so references hold.
+    /// Like `transact`, the result is unusable until its checkpoint, which
+    /// must be protected together with `next`, is persisted.
+    pub fn rotate(
+        &mut self,
+        next: Key,
+        mutate: impl FnOnce(&mut Records),
+    ) -> Result<Checkpoint, Error> {
+        if self.pending {
+            return Err(Error::Pending);
+        }
+        let transaction = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| Error::Storage)?;
+        let mut working = unseal(
+            &self.scope,
+            &self.key,
+            &read(&transaction)?,
+            self.checkpoint,
+        )?;
+        blobs::initialize(&transaction)?;
+        blobs::rekey(&transaction, &self.scope, &self.key, &next)?;
+        mutate(&mut working.records);
+        let revision = self
+            .checkpoint
+            .revision
+            .checked_add(1)
+            .ok_or(Error::Limit)?;
+        let mut document = working.document()?;
+        document.previous = Some(self.checkpoint);
+        let row = seal(&self.scope, &next, revision, &document)?;
+        let checkpoint = checkpoint(&self.scope, &row)?;
+        transaction
+            .execute(
+                "UPDATE state SET revision=?,nonce=?,ciphertext=? WHERE singleton=1",
+                params![row.revision, row.nonce, row.ciphertext],
+            )
+            .map_err(|_| Error::Storage)?;
+        #[cfg(test)]
+        crash_boundary("before-rotation-commit");
+        transaction.commit().map_err(|_| Error::Storage)?;
+        self.key = next;
+        self.checkpoint = checkpoint;
+        self.pending = true;
+        #[cfg(test)]
+        crash_boundary("after-rotation-commit");
+        Ok(checkpoint)
+    }
+    /// After a rotation is protected: move the committed pages into the
+    /// database and empty the WAL, so its frames under the old key go.
+    /// Copies elsewhere (backups, flash remnants) stay sealed under a key
+    /// that no longer exists anywhere.
+    pub fn scrub(&self) -> Result<(), Error> {
+        if self.pending {
+            return Err(Error::Pending);
+        }
+        self.db
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .map_err(|_| Error::Storage)
+            .and_then(|busy| if busy == 0 { Ok(()) } else { Err(Error::Busy) })
     }
 }
 

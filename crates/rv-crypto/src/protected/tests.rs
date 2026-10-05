@@ -338,3 +338,138 @@ fn public_directory_and_symbolic_lock_are_rejected_before_touching_the_keystore(
     assert_eq!(storage.writes.load(Ordering::SeqCst), 0);
     assert_eq!(fs::read(&target).unwrap(), b"Fixture unrelated file");
 }
+
+fn stored(manager: &Manager) -> Secret {
+    manager.read().unwrap().unwrap()
+}
+/// Two blocks, the second naming the first inside its sealed content, both
+/// referenced from protected records.
+fn archive(
+    manager: &Manager,
+) -> (
+    crate::vault::blobs::Reference,
+    crate::vault::blobs::Reference,
+) {
+    manager
+        .transact_with_blobs(|_, records, blocks| {
+            let first = blocks.put(b"first private block")?;
+            let second = blocks.put(&serde_json::to_vec(&first).unwrap())?;
+            records.insert("archive-head".into(), serde_json::to_vec(&second).unwrap());
+            Ok((first, second))
+        })
+        .unwrap()
+}
+fn read_back(manager: &Manager, second: crate::vault::blobs::Reference) -> Vec<u8> {
+    manager
+        .inspect_with_blobs(|_, records, blocks| {
+            let head: crate::vault::blobs::Reference =
+                serde_json::from_slice(&records["archive-head"]).unwrap();
+            assert!(head == second);
+            let first: crate::vault::blobs::Reference =
+                serde_json::from_slice(&blocks.read(&head)?).unwrap();
+            Ok(blocks.read(&first)?.to_vec())
+        })
+        .unwrap()
+}
+
+#[test]
+fn storage_key_rotation_reseals_everything_and_leaves_no_old_key() {
+    let directory = private_directory();
+    let storage = Arc::new(Fixture::default());
+    let manager = test_manager(directory.path(), storage.clone());
+    manager.initialize().unwrap();
+    let (_, second) = archive(&manager);
+    let before = stored(&manager);
+    let old = before.key.unwrap();
+    assert_eq!(manager.rotated_at().unwrap(), None);
+    manager.rotate(1_000).unwrap();
+    let after = stored(&manager);
+    assert!(after.key.unwrap() != old && after.next.is_none());
+    assert_eq!(
+        after.checkpoint.unwrap().revision,
+        before.checkpoint.unwrap().revision + 1
+    );
+    // References made before the rotation, nested ones included, still hold.
+    assert_eq!(read_back(&manager, second), b"first private block");
+    assert_eq!(manager.rotated_at().unwrap(), Some(1_000));
+    // The old key opens nothing any more; the WAL frames under it are gone.
+    assert!(
+        crate::vault::Vault::open(
+            &manager.path(),
+            scope(),
+            Key::from_keystore(old),
+            after.checkpoint.unwrap()
+        )
+        .is_err()
+    );
+    let wal = directory
+        .path()
+        .join(format!("{}.sqlite-wal", manager.name));
+    assert!(fs::metadata(&wal).map(|m| m.len() == 0).unwrap_or(true));
+    // New blocks and a second rotation work on top.
+    let (_, third) = archive(&manager);
+    manager.rotate(2_000).unwrap();
+    assert_eq!(read_back(&manager, third), b"first private block");
+    // Due only after the period.
+    assert!(
+        !manager
+            .rotate_if_due(2_000 + ROTATION_PERIOD - 1, ROTATION_PERIOD)
+            .unwrap()
+    );
+    assert!(
+        manager
+            .rotate_if_due(2_000 + ROTATION_PERIOD, ROTATION_PERIOD)
+            .unwrap()
+    );
+    assert_eq!(manager.rotated_at().unwrap(), Some(2_000 + ROTATION_PERIOD));
+}
+
+#[test]
+fn an_interrupted_rotation_resumes_on_either_side_of_its_commit() {
+    // The intent write fails: nothing changed, the old key still opens.
+    let directory = private_directory();
+    let storage = Arc::new(Fixture::default());
+    let manager = test_manager(directory.path(), storage.clone());
+    manager.initialize().unwrap();
+    let (_, second) = archive(&manager);
+    let old = stored(&manager).key.unwrap();
+    storage
+        .fail_at
+        .store(storage.writes.load(Ordering::SeqCst) + 1, Ordering::SeqCst);
+    assert!(manager.rotate(10).is_err());
+    assert!(stored(&manager).key == Some(old) && stored(&manager).next.is_none());
+    assert_eq!(read_back(&manager, second), b"first private block");
+
+    // Committed under the next key, the final write lost: the next opening
+    // recovers the rotated state with the next key and forgets the old one.
+    storage
+        .fail_at
+        .store(storage.writes.load(Ordering::SeqCst) + 2, Ordering::SeqCst);
+    assert!(manager.rotate(20).is_err());
+    let intent = stored(&manager);
+    assert!(intent.key == Some(old) && intent.next.is_some());
+    let reopened = test_manager(directory.path(), storage.clone());
+    assert_eq!(read_back(&reopened, second), b"first private block");
+    let recovered = stored(&reopened);
+    assert!(recovered.key == intent.next && recovered.next.is_none());
+    assert_eq!(reopened.rotated_at().unwrap(), Some(20));
+
+    // The final write landed but answered an error: already consistent.
+    storage.fail_after.store(true, Ordering::SeqCst);
+    storage
+        .fail_at
+        .store(storage.writes.load(Ordering::SeqCst) + 2, Ordering::SeqCst);
+    assert!(reopened.rotate(30).is_err());
+    storage.fail_after.store(false, Ordering::SeqCst);
+    assert_eq!(read_back(&reopened, second), b"first private block");
+    assert_eq!(reopened.rotated_at().unwrap(), Some(30));
+
+    // An intent left before any commit: the next key sealed nothing and goes.
+    let mut orphan = stored(&reopened);
+    let current = orphan.key;
+    orphan.next = Some([9; 32]);
+    let expected = stored(&reopened);
+    reopened.write(Some(&expected), &orphan).unwrap();
+    assert_eq!(read_back(&reopened, second), b"first private block");
+    assert!(stored(&reopened).key == current && stored(&reopened).next.is_none());
+}

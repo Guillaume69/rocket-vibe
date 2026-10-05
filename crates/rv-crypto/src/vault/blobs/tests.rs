@@ -184,9 +184,75 @@ fn oversized_ciphertext_and_nonpristine_initialization_are_rejected() {
     Connection::open(&genesis)
         .unwrap()
         .execute(
-            "INSERT INTO private_blobs VALUES(?,zeroblob(24),zeroblob(16))",
+            "INSERT INTO private_blobs(id,nonce,ciphertext) VALUES(?,zeroblob(24),zeroblob(16))",
             [[7_u8; 16].as_slice()],
         )
         .unwrap();
     assert!(Vault::recover_initial(&genesis, scope(), key()).err() == Some(Error::Integrity));
+}
+
+#[test]
+fn rekeyed_blocks_keep_their_reference_and_any_change_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("private.sqlite");
+    let mut v = create(&path);
+    let (reference, mark) = v
+        .transact_with_blobs(|_, _, blobs| blobs.put(b"sealed before the rotation"))
+        .unwrap();
+    v.checkpoint_persisted(mark).unwrap();
+    let mark = v.rotate(Key::from_keystore([7; 32]), |_| ()).unwrap();
+    // Unusable until the rotation's checkpoint is protected.
+    assert!(v.inspect_with_blobs(|_, _, b| b.read(&reference)).err() == Some(Error::Pending));
+    v.checkpoint_persisted(mark).unwrap();
+    v.scrub().unwrap();
+    drop(v);
+    // The old key opens nothing; the new one reads the same reference.
+    assert!(Vault::open(&path, scope(), key(), mark).is_err());
+    let v = Vault::open(&path, scope(), Key::from_keystore([7; 32]), mark).unwrap();
+    let read = |v: &Vault| v.inspect_with_blobs(|_, _, b| b.read(&reference).map(|c| c.to_vec()));
+    assert_eq!(read(&v).unwrap(), b"sealed before the rotation");
+    let db = Connection::open(&path).unwrap();
+    let marker: i64 = db
+        .query_row("SELECT rekeyed FROM private_blobs", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(marker, 1);
+    // A flipped byte, or a block claiming the old format, never opens.
+    db.execute(
+        "UPDATE private_blobs SET ciphertext=substr(ciphertext,1,10)||X'00'||substr(ciphertext,12)",
+        [],
+    )
+    .unwrap();
+    assert!(read(&v).is_err());
+    db.execute("UPDATE private_blobs SET rekeyed=0", [])
+        .unwrap();
+    assert!(read(&v).is_err());
+}
+
+#[test]
+fn blocks_written_before_rotations_existed_migrate_and_still_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("private.sqlite");
+    let mut v = create(&path);
+    let (reference, mark) = v
+        .transact_with_blobs(|_, _, blobs| blobs.put(b"legacy block"))
+        .unwrap();
+    v.checkpoint_persisted(mark).unwrap();
+    drop(v);
+    // The previous schema had no rekeyed column.
+    let db = Connection::open(&path).unwrap();
+    db.execute_batch("CREATE TABLE legacy(id BLOB PRIMARY KEY CHECK(length(id)=16),nonce BLOB NOT NULL CHECK(length(nonce)=24),ciphertext BLOB NOT NULL); INSERT INTO legacy SELECT id,nonce,ciphertext FROM private_blobs; DROP TABLE private_blobs; ALTER TABLE legacy RENAME TO private_blobs;").unwrap();
+    drop(db);
+    let mut v = Vault::open(&path, scope(), key(), mark).unwrap();
+    assert_eq!(
+        v.inspect_with_blobs(|_, _, b| b.read(&reference).map(|c| c.to_vec()))
+            .unwrap(),
+        b"legacy block"
+    );
+    let mark = v.rotate(Key::from_keystore([8; 32]), |_| ()).unwrap();
+    v.checkpoint_persisted(mark).unwrap();
+    assert_eq!(
+        v.inspect_with_blobs(|_, _, b| b.read(&reference).map(|c| c.to_vec()))
+            .unwrap(),
+        b"legacy block"
+    );
 }

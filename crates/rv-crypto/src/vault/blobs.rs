@@ -1,8 +1,11 @@
 //! Immutable private blocks in the same SQL transaction as their protected refs.
+//! A storage key rotation re-seals every block under the new key with its
+//! original digest inside (`rekeyed`), so references never change.
 use super::*;
 
 pub const LIMIT: usize = 1024 * 1024;
 const DOMAIN: &str = "rocketvibe-private-blob-v1";
+const REKEYED: &str = "rocketvibe-private-blob-rekeyed-v1";
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Reference {
@@ -21,6 +24,9 @@ struct Row {
 fn aad(scope: &Scope, id: [u8; 16]) -> Result<Vec<u8>, Error> {
     serde_json::to_vec(&(DOMAIN, scope, id)).map_err(|_| Error::Scope)
 }
+fn rekeyed_aad(scope: &Scope, id: [u8; 16]) -> Result<Vec<u8>, Error> {
+    serde_json::to_vec(&(REKEYED, scope, id)).map_err(|_| Error::Scope)
+}
 fn digest(scope: &Scope, id: [u8; 16], row: &Row) -> Result<[u8; 32], Error> {
     let mut hash = Sha256::new();
     hash.update(aad(scope, id)?);
@@ -29,8 +35,112 @@ fn digest(scope: &Scope, id: [u8; 16], row: &Row) -> Result<[u8; 32], Error> {
     Ok(hash.finalize().into())
 }
 pub(super) fn initialize(db: &Connection) -> Result<(), Error> {
-    db.execute_batch("CREATE TABLE IF NOT EXISTS private_blobs(id BLOB PRIMARY KEY CHECK(length(id)=16),nonce BLOB NOT NULL CHECK(length(nonce)=24),ciphertext BLOB NOT NULL);")
-        .map_err(|_| Error::Storage)
+    db.execute_batch("CREATE TABLE IF NOT EXISTS private_blobs(id BLOB PRIMARY KEY CHECK(length(id)=16),nonce BLOB NOT NULL CHECK(length(nonce)=24),ciphertext BLOB NOT NULL,rekeyed INTEGER NOT NULL DEFAULT 0 CHECK(rekeyed IN (0,1)));")
+        .map_err(|_| Error::Storage)?;
+    migrate(db)
+}
+/// Blocks written before rotations existed gain the `rekeyed` marker, 0.
+pub(super) fn migrate(db: &Connection) -> Result<(), Error> {
+    let (table, column): (bool, bool) = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='private_blobs'),EXISTS(SELECT 1 FROM pragma_table_info('private_blobs') WHERE name='rekeyed')",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|_| Error::Storage)?;
+    if table && !column {
+        db.execute_batch("ALTER TABLE private_blobs ADD COLUMN rekeyed INTEGER NOT NULL DEFAULT 0 CHECK(rekeyed IN (0,1));")
+            .map_err(|_| Error::Storage)?;
+    }
+    Ok(())
+}
+/// One stored block: its referenced digest and its content, under `key`.
+fn open_row(
+    db: &Connection,
+    scope: &Scope,
+    key: &Key,
+    id: [u8; 16],
+) -> Result<([u8; 32], Zeroizing<Vec<u8>>), Error> {
+    // Check SQL lengths before allocating a caller-controlled BLOB.
+    let (nonce, ciphertext, rekeyed): (Option<Vec<u8>>, Option<Vec<u8>>, i64) = db.query_row(
+        "SELECT CASE WHEN length(nonce)=24 THEN nonce END,CASE WHEN length(ciphertext) BETWEEN 16 AND ? THEN ciphertext END,rekeyed FROM private_blobs WHERE id=?",
+        params![(LIMIT+48) as i64, id.as_slice()], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+    ).map_err(|_|Error::Integrity)?;
+    let row = Row {
+        nonce: nonce
+            .ok_or(Error::Integrity)?
+            .try_into()
+            .map_err(|_| Error::Integrity)?,
+        ciphertext: ciphertext.ok_or(Error::Integrity)?,
+    };
+    let cipher = XChaCha20Poly1305::new_from_slice(key.0.as_ref()).map_err(|_| Error::Integrity)?;
+    let open = |aad: &[u8]| {
+        cipher
+            .decrypt(
+                XNonce::from_slice(&row.nonce),
+                Payload {
+                    msg: &row.ciphertext,
+                    aad,
+                },
+            )
+            .map(Zeroizing::new)
+            .map_err(|_| Error::Integrity)
+    };
+    match rekeyed {
+        0 if row.ciphertext.len() <= LIMIT + 16 => {
+            let clear = open(&aad(scope, id)?)?;
+            Ok((digest(scope, id, &row)?, clear))
+        }
+        // The original digest travels sealed with the content.
+        1 => {
+            let envelope = open(&rekeyed_aad(scope, id)?)?;
+            if envelope.len() < 32 || envelope.len() > LIMIT + 32 {
+                return Err(Error::Integrity);
+            }
+            let original: [u8; 32] = envelope[..32].try_into().map_err(|_| Error::Integrity)?;
+            Ok((original, Zeroizing::new(envelope[32..].to_vec())))
+        }
+        _ => Err(Error::Integrity),
+    }
+}
+/// Re-seals every block from `old` to `next`, inside the rotation's commit.
+pub(super) fn rekey(db: &Connection, scope: &Scope, old: &Key, next: &Key) -> Result<(), Error> {
+    let ids: Vec<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT id FROM private_blobs")
+            .map_err(|_| Error::Storage)?;
+        statement
+            .query_map([], |r| r.get(0))
+            .map_err(|_| Error::Storage)?
+            .collect::<Result<_, _>>()
+            .map_err(|_| Error::Storage)?
+    };
+    let cipher =
+        XChaCha20Poly1305::new_from_slice(next.0.as_ref()).map_err(|_| Error::Integrity)?;
+    for id in ids {
+        let id: [u8; 16] = id.try_into().map_err(|_| Error::Integrity)?;
+        let (original, content) = open_row(db, scope, old, id)?;
+        let mut envelope = Zeroizing::new(Vec::with_capacity(32 + content.len()));
+        envelope.extend_from_slice(&original);
+        envelope.extend_from_slice(&content);
+        let mut nonce = [0; 24];
+        getrandom::fill(&mut nonce).map_err(|_| Error::Storage)?;
+        let ciphertext = cipher
+            .encrypt(
+                XNonce::from_slice(&nonce),
+                Payload {
+                    msg: &envelope,
+                    aad: &rekeyed_aad(scope, id)?,
+                },
+            )
+            .map_err(|_| Error::Integrity)?;
+        db.execute(
+            "UPDATE private_blobs SET nonce=?,ciphertext=?,rekeyed=1 WHERE id=?",
+            params![nonce.as_slice(), ciphertext, id.as_slice()],
+        )
+        .map_err(|_| Error::Storage)?;
+    }
+    Ok(())
 }
 pub(super) fn empty(db: &Connection) -> Result<bool, Error> {
     let exists: bool = db
@@ -71,33 +181,11 @@ impl<'a> Access<'a> {
         if !reference.valid() {
             return Err(Error::Integrity);
         }
-        // Check SQL lengths before allocating a caller-controlled BLOB.
-        let (nonce, ciphertext): (Option<Vec<u8>>, Option<Vec<u8>>) = self.db.query_row(
-            "SELECT CASE WHEN length(nonce)=24 THEN nonce END,CASE WHEN length(ciphertext) BETWEEN 16 AND ? THEN ciphertext END FROM private_blobs WHERE id=?",
-            params![(LIMIT+16) as i64, reference.id.as_slice()], |r| Ok((r.get(0)?,r.get(1)?))
-        ).map_err(|_|Error::Integrity)?;
-        let row = Row {
-            nonce: nonce
-                .ok_or(Error::Integrity)?
-                .try_into()
-                .map_err(|_| Error::Integrity)?,
-            ciphertext: ciphertext.ok_or(Error::Integrity)?,
-        };
-        if digest(self.scope, reference.id, &row)? != reference.digest {
+        let (digest, clear) = open_row(self.db, self.scope, self.key, reference.id)?;
+        if digest != reference.digest {
             return Err(Error::Integrity);
         }
-        let cipher =
-            XChaCha20Poly1305::new_from_slice(self.key.0.as_ref()).map_err(|_| Error::Integrity)?;
-        let clear = cipher
-            .decrypt(
-                XNonce::from_slice(&row.nonce),
-                Payload {
-                    msg: &row.ciphertext,
-                    aad: &aad(self.scope, reference.id)?,
-                },
-            )
-            .map_err(|_| Error::Integrity)?;
-        Ok(Zeroizing::new(clear))
+        Ok(clear)
     }
     /// Always creates a fresh immutable block. The caller persists/reuses the
     /// original reference for retries; this API cannot silently replace a row.

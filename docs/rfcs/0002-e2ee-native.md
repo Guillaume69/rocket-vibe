@@ -206,11 +206,11 @@ The Android test passes the real ceremony with no key export; mobile groups and
 conversations, keyring backups,
 installed Windows / macOS and power cuts remain open.
 
-The durable vault does not yet claim forward secrecy of the storage:
-an old encrypted copy in the WAL / backup remains decryptable with the compromised
-durable key. Restoration detection prevents its reuse,
-without erasing it. Rotation / destruction of the storage keys and the policy on
-copies are a J4 condition, distinct from the recoverable archive.
+The storage key is renewed every 30 days and on request, destroying the old one
+([E2EE_STORAGE.md](../protocol/E2EE_STORAGE.md)): an old encrypted copy in the WAL /
+backup stays decryptable only with a key that existed before the renewal.
+Restoration detection prevents its reuse, without erasing it. Expired KeyPackage keys
+are destroyed after a grace period; the recoverable archive keeps its own keys.
 
 Fourteen vault tests, including an MLS exchange after a disk reopening and two processes
 killed before / after commit, plus the real keyring pilot verify this

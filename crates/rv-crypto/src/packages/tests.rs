@@ -593,3 +593,43 @@ fn observed_local_revocation_also_forbids_group_preparation() {
         Err(groups::Error::Identity(identity::Error::Revoked))
     ));
 }
+
+#[test]
+fn expired_packages_lose_their_private_keys_after_the_grace_period() {
+    let bob = Account::new("bob", "bob-mobile", [2; 16]);
+    bob.coordinator().prepare("1", 2, bob.now).unwrap();
+    bob.coordinator().confirm(&expected(&bob), bob.now).unwrap();
+    let state = |account: &Account| {
+        account
+            .manager
+            .inspect(|_, records| {
+                Ok(serde_json::from_slice::<State>(records.get(RECORD).unwrap()).unwrap())
+            })
+            .unwrap()
+    };
+    let published = state(&bob).retained;
+    let expiry = published.iter().map(|r| r.expires).max().unwrap();
+    // Until the end of the grace period, nothing goes.
+    assert_eq!(bob.coordinator().prune(bob.now).unwrap(), 0);
+    assert_eq!(bob.coordinator().prune(expiry + GRACE).unwrap(), 0);
+    assert_eq!(state(&bob).retained.len(), 2);
+    assert_eq!(bob.reopened().prune(expiry + GRACE + 1).unwrap(), 2);
+    assert!(state(&bob).retained.is_empty());
+    bob.manager
+        .inspect(|provider, _| {
+            for entry in &published {
+                assert!(
+                    bundle(provider, entry).unwrap().is_none(),
+                    "private keys destroyed"
+                );
+            }
+            Ok(())
+        })
+        .unwrap();
+    // A publication still pending keeps its packages.
+    let carol = Account::new("carol", "carol-mobile", [3; 16]);
+    carol.coordinator().prepare("1", 1, carol.now).unwrap();
+    let far = carol.now + 365 * 86400;
+    assert_eq!(carol.coordinator().prune(far).unwrap(), 0);
+    assert_eq!(state(&carol).retained.len(), 1);
+}

@@ -25,6 +25,9 @@ const PACKAGE_LIMIT: usize = 16 * 1024;
 const BATCH_LIMIT: usize = 8;
 const RETAINED_LIMIT: usize = 64;
 const LIFETIME: u64 = 86400;
+/// Grace after expiry before the private keys of a package never consumed are
+/// destroyed: a Welcome naming it may still be on its way to this device.
+pub const GRACE: u64 = 7 * 86400;
 const MAX_CLOCK: u64 = 253_402_300_799;
 const SUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 
@@ -159,6 +162,36 @@ fn bundle(provider: &OpenMlsRustCrypto, retained: &Retained) -> Result<Option<Ke
     Ok(bundle)
 }
 
+/// Destroys the private keys of retained packages expired for more than the
+/// grace period, except those of a publication still pending; the count.
+fn prune_state(provider: &OpenMlsRustCrypto, state: &mut State, now: u64) -> Result<usize> {
+    let pending: BTreeSet<String> = state
+        .pending
+        .as_ref()
+        .map(|p| p.expected.key_package_refs.iter().cloned().collect())
+        .unwrap_or_default();
+    let mut destroyed = 0;
+    let mut kept = Vec::new();
+    for entry in std::mem::take(&mut state.retained) {
+        if entry.expires.saturating_add(GRACE) >= now || pending.contains(&entry.reference) {
+            kept.push(entry);
+            continue;
+        }
+        if bundle(provider, &entry)?.is_some() {
+            let bytes = encoded(&entry.wire, PACKAGE_LIMIT)?;
+            let reference =
+                make_key_package_ref(&bytes, SUITE, provider.crypto()).map_err(|_| Error::Mls)?;
+            openmls_traits::storage::StorageProvider::delete_key_package(
+                provider.storage(),
+                &reference,
+            )
+            .map_err(|_| Error::Mls)?;
+            destroyed += 1;
+        }
+    }
+    state.retained = kept;
+    Ok(destroyed)
+}
 /// Run on the same owned worker as the group coordinator, outside UI/network.
 /// One pending publication per installation; no private bundle leaves Manager.
 pub struct Coordinator {
@@ -362,7 +395,8 @@ impl Coordinator {
             }
             let (local, certificate) = self.local(records, now)?;
             // A real successful Welcome consumed these bundles in the same vault.
-            // Time alone never deletes a key: an accepted Welcome may still be offline.
+            // Time deletes a key only after the grace period (`prune_state`).
+            prune_state(provider, &mut state, now)?;
             let mut retained = Vec::new();
             for entry in state.retained {
                 if bundle(provider, &entry)?.is_some() {
@@ -451,6 +485,20 @@ impl Coordinator {
             });
             save(records, &state)?;
             Ok(request)
+        })
+    }
+    /// Destroys the private keys of packages expired for more than the grace
+    /// period and never consumed (`prune_state`); how many.
+    pub fn prune(&self, now: u64) -> Result<usize> {
+        self.transact(|provider, records| {
+            let Some(mut state) = self.read(provider, records)? else {
+                return Ok(0);
+            };
+            let destroyed = prune_state(provider, &mut state, now)?;
+            if destroyed > 0 {
+                save(records, &state)?;
+            }
+            Ok(destroyed)
         })
     }
     pub fn retry(&self, now: u64) -> Result<PublishKeyPackages> {

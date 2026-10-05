@@ -12,6 +12,10 @@ use std::{
 use zeroize::{Zeroize, Zeroizing};
 
 const SECRET_LIMIT: usize = 2048;
+/// Protected record of the last storage key rotation (seconds since epoch).
+const ROTATED: &str = "vault-key-rotated-at-v1";
+/// Automatic rotation period of the storage key.
+pub const ROTATION_PERIOD: u64 = 30 * 86400;
 
 pub(crate) struct Lease(File);
 impl Drop for Lease {
@@ -44,6 +48,10 @@ struct Secret {
     key: Option<[u8; 32]>,
     checkpoint: Option<Checkpoint>,
     retired: bool,
+    /// A storage key rotation in progress: the next key, saved before the
+    /// SQLite commit that seals the vault under it, removed after.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    next: Option<[u8; 32]>,
 }
 impl Secret {
     fn valid(&self, scope: &Scope, location: [u8; 32]) -> bool {
@@ -51,9 +59,11 @@ impl Secret {
             && self.scope == *scope
             && self.location == location
             && if self.retired {
-                self.key.is_none() && self.checkpoint.is_none()
+                self.key.is_none() && self.checkpoint.is_none() && self.next.is_none()
             } else {
-                self.key.is_some() && self.checkpoint.is_none_or(|c| c.revision >= 0)
+                self.key.is_some()
+                    && self.checkpoint.is_none_or(|c| c.revision >= 0)
+                    && (self.next.is_none() || self.checkpoint.is_some())
             }
     }
     fn key(&self) -> Result<Key, Error> {
@@ -63,6 +73,9 @@ impl Secret {
 impl Drop for Secret {
     fn drop(&mut self) {
         if let Some(key) = &mut self.key {
+            key.zeroize();
+        }
+        if let Some(key) = &mut self.next {
             key.zeroize();
         }
     }
@@ -149,13 +162,25 @@ impl Manager {
         Ok(())
     }
     fn protect(&self, record: &mut Secret, vault: &mut Vault) -> Result<(), Error> {
+        let key = record.key;
+        self.protect_with(record, key, vault)
+    }
+    /// Replaces the stored `record` with `key` and the vault's checkpoint, no
+    /// rotation in progress, then releases the vault.
+    fn protect_with(
+        &self,
+        record: &mut Secret,
+        key: Option<[u8; 32]>,
+        vault: &mut Vault,
+    ) -> Result<(), Error> {
         let next = Secret {
             version: 1,
             scope: self.scope.clone(),
             location: self.location()?,
-            key: record.key,
+            key,
             checkpoint: Some(vault.checkpoint()),
             retired: false,
+            next: None,
         };
         self.write(Some(record), &next)?;
         *record = next;
@@ -167,15 +192,36 @@ impl Manager {
         }
         let marker = record.checkpoint.ok_or(Error::NotInitialized)?;
         match Vault::open(&self.path(), self.scope.clone(), record.key()?, marker) {
-            Ok(vault) => Ok(vault),
+            Ok(mut vault) => {
+                if record.next.is_some() {
+                    // A rotation stopped before its commit: the next key never
+                    // sealed anything. Forget it; a later rotation draws anew.
+                    self.protect(record, &mut vault)?;
+                }
+                Ok(vault)
+            }
             Err(Error::Stale) => {
-                let mut vault = Vault::recover_committed(
+                let recovered = Vault::recover_committed(
                     &self.path(),
                     self.scope.clone(),
                     record.key()?,
                     marker,
-                )?;
-                self.protect(record, &mut vault)?;
+                );
+                let (mut vault, key) = match (recovered, record.next) {
+                    // A rotation committed but not yet protected: the state
+                    // one revision ahead is sealed under the next key.
+                    (Err(Error::Integrity), Some(next)) => (
+                        Vault::recover_committed(
+                            &self.path(),
+                            self.scope.clone(),
+                            Key::from_keystore(next),
+                            marker,
+                        )?,
+                        Some(next),
+                    ),
+                    (result, _) => (result?, record.key),
+                };
+                self.protect_with(record, key, &mut vault)?;
                 Ok(vault)
             }
             Err(error) => Err(error),
@@ -200,6 +246,7 @@ impl Manager {
                     key: Some(*key.for_keystore()),
                     checkpoint: None,
                     retired: false,
+                    next: None,
                 };
                 self.write(None, &fresh)?;
                 fresh
@@ -262,6 +309,61 @@ impl Manager {
         self.protect(&mut record, &mut vault)?;
         Ok(result)
     }
+    /// Rotates the storage key: a fresh key is saved as the next one, the vault
+    /// and its blocks are sealed again under it in one commit, then the
+    /// protected record keeps only the fresh key and the new checkpoint. The
+    /// old key no longer exists anywhere, so old copies of the database (WAL,
+    /// backups, flash remnants) stay sealed for good. A crash at any step
+    /// resumes on either side at the next opening.
+    pub fn rotate(&self, now: u64) -> Result<(), Error> {
+        let _lease = self.lease()?;
+        let mut record = self.read()?.ok_or(Error::NotInitialized)?;
+        let mut vault = self.open(&mut record)?;
+        let next = Key::generate()?;
+        let intent = Secret {
+            version: 1,
+            scope: self.scope.clone(),
+            location: self.location()?,
+            key: record.key,
+            checkpoint: record.checkpoint,
+            retired: false,
+            next: Some(*next.for_keystore()),
+        };
+        self.write(Some(&record), &intent)?;
+        record = intent;
+        let fresh = *next.for_keystore();
+        vault.rotate(next, |records| {
+            records.insert(ROTATED.into(), now.to_string().into_bytes());
+        })?;
+        self.protect_with(&mut record, Some(fresh), &mut vault)?;
+        vault.scrub()
+    }
+    /// When the storage key was last rotated, if ever.
+    pub fn rotated_at(&self) -> Result<Option<u64>, Error> {
+        self.inspect(|_, records| {
+            records
+                .get(ROTATED)
+                .map(|v| {
+                    std::str::from_utf8(v)
+                        .ok()
+                        .and_then(|s| s.parse().ok())
+                        .ok_or(Error::Integrity)
+                })
+                .transpose()
+        })
+    }
+    /// Rotates when `period` has passed since the last rotation, or none was
+    /// ever made. Whether it rotated.
+    pub fn rotate_if_due(&self, now: u64, period: u64) -> Result<bool, Error> {
+        if self
+            .rotated_at()?
+            .is_some_and(|at| at <= now && now - at < period)
+        {
+            return Ok(false);
+        }
+        self.rotate(now)?;
+        Ok(true)
+    }
     /// Persist a keyless tombstone before unlinking the encrypted files. Keep
     /// the lock and tombstone: old backups must never revive this incarnation.
     pub fn retire(&self) -> Result<(), Error> {
@@ -274,6 +376,7 @@ impl Manager {
             key: None,
             checkpoint: None,
             retired: true,
+            next: None,
         };
         if current.as_ref() != Some(&retired) {
             self.write(current.as_ref(), &retired)?;

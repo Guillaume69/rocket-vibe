@@ -13,15 +13,15 @@ use rv_protocol::CreateRoom;
 
 // Records and shares here are signed but carry opaque ciphertexts: the server
 // never decrypts, and the private SDK exercises the real sealing.
-struct Owner {
-    desktop: Account,
-    desktop_keys: Client,
-    phone: Account,
-    phone_keys: Client,
-    author: Client,
-    room: String,
+pub(super) struct Owner {
+    pub(super) desktop: Account,
+    pub(super) desktop_keys: Client,
+    pub(super) phone: Account,
+    pub(super) phone_keys: Client,
+    pub(super) author: Client,
+    pub(super) room: String,
 }
-async fn owner(app: &App, name: &str) -> Owner {
+pub(super) async fn owner(app: &App, name: &str) -> Owner {
     let (desktop, _) = actor(app, name).await;
     let desktop_keys = client(app, &desktop, None).await;
     register(app, &desktop, desktop_keys.registration.clone())
@@ -84,7 +84,7 @@ fn history_request(keys: &Client, lifetime: u64) -> wire::PublishHistoryRequest 
         request: B64.encode(&request.to_bytes().unwrap()),
     }
 }
-fn group_scope(keys: &Client, room: &str) -> GroupScope {
+pub(super) fn group_scope(keys: &Client, room: &str) -> GroupScope {
     GroupScope {
         instance: keys.registration.scope.instance_id.clone(),
         data_epoch: keys.registration.scope.data_epoch.clone(),
@@ -92,7 +92,7 @@ fn group_scope(keys: &Client, room: &str) -> GroupScope {
         incarnation: [3; 16],
     }
 }
-fn record(sharer: &Client, author: &Client, room: &str, position: u64) -> Record {
+pub(super) fn record(sharer: &Client, author: &Client, room: &str, position: u64) -> Record {
     let original = &author.certificate;
     let mut record = Record {
         header: Header {

@@ -344,6 +344,88 @@ impl NativeClient {
         )
         .await
     }
+    /// History backup (E2EE_HISTORY_BACKUP.md): the key package sealed under the
+    /// history code and periods of signed records. No code or key travels here.
+    pub async fn crypto_history_key(&self) -> Result<rv_protocol::e2ee::HistoryKeyState, Error> {
+        self.get("/api/v1/e2ee/history-backup").await
+    }
+    pub async fn publish_crypto_history_key(
+        &self,
+        input: &rv_protocol::e2ee::PublishHistoryKey,
+    ) -> Result<rv_protocol::e2ee::HistoryKeyReceipt, Error> {
+        self.post("/api/v1/e2ee/history-backup", input).await
+    }
+    pub async fn crypto_history_key_operation(
+        &self,
+        operation: &str,
+    ) -> Result<rv_protocol::e2ee::HistoryKeyReceipt, Error> {
+        if !path_segment(operation) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!(
+            "/api/v1/e2ee/history-backup/operations/{operation}"
+        ))
+        .await
+    }
+    pub async fn cancel_crypto_history_key(
+        &self,
+        input: &rv_protocol::e2ee::PublishHistoryKey,
+    ) -> Result<rv_protocol::e2ee::HistoryKeySettlement, Error> {
+        if !path_segment(&input.operation_id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(
+            &format!(
+                "/api/v1/e2ee/history-backup/operations/{}/cancel",
+                input.operation_id
+            ),
+            input,
+        )
+        .await
+    }
+    pub async fn crypto_history_backup_periods(
+        &self,
+        generation: &str,
+        after: Option<&str>,
+    ) -> Result<rv_protocol::e2ee::HistoryBackupPeriods, Error> {
+        if !path_segment(generation) || after.is_some_and(|a| !path_segment(a)) {
+            return Err(Error::InvalidUrl);
+        }
+        let after = after.map(|a| format!("&after={a}")).unwrap_or_default();
+        self.get(&format!(
+            "/api/v1/e2ee/history-backup/periods?generation={generation}{after}"
+        ))
+        .await
+    }
+    pub async fn upload_crypto_history_backup(
+        &self,
+        period: &str,
+        input: &rv_protocol::e2ee::UploadHistoryBackup,
+    ) -> Result<rv_protocol::e2ee::HistoryBackupReceipt, Error> {
+        if !path_segment(period) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::PUT,
+            &format!("/api/v1/e2ee/history-backup/periods/{period}/records"),
+            Some(input),
+            false,
+        )
+        .await
+    }
+    pub async fn crypto_history_backup_records(
+        &self,
+        period: &str,
+        after: &str,
+    ) -> Result<rv_protocol::e2ee::HistoryBackupPage, Error> {
+        if !path_segment(period) || after.is_empty() || !after.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!(
+            "/api/v1/e2ee/history-backup/periods/{period}/records?after={after}"
+        ))
+        .await
+    }
     pub async fn publish_key_packages(
         &self,
         input: &rv_protocol::e2ee::PublishKeyPackages,
@@ -609,11 +691,13 @@ impl NativeClient {
             | "/api/v1/e2ee/revocations"
             | "/api/v1/e2ee/root-backup"
             | "/api/v1/e2ee/history/requests"
+            | "/api/v1/e2ee/history-backup"
                 if *method == Method::POST =>
             {
                 Some("crypto")
             }
-            _ if path.starts_with("/api/v1/e2ee/root-backup/operations/")
+            _ if (path.starts_with("/api/v1/e2ee/root-backup/operations/")
+                || path.starts_with("/api/v1/e2ee/history-backup/operations/"))
                 && path.ends_with("/cancel")
                 && *method == Method::POST =>
             {

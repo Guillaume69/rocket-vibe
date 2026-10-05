@@ -16,6 +16,8 @@ const PASSWORD: &str = "disposable-e2ee-directory-password";
 mod device_revocations;
 #[path = "groups/tests.rs"]
 mod group_delivery;
+#[path = "history_backup/tests.rs"]
+mod history_backups;
 #[path = "history/tests.rs"]
 mod history_shares;
 #[path = "backups/tests.rs"]

@@ -124,6 +124,28 @@ pub fn router(app: App) -> Router {
             post(cancel_crypto_root_backup),
         )
         .route(
+            "/api/v1/e2ee/history-backup",
+            get(crypto_history_key).post(publish_crypto_history_key),
+        )
+        .route(
+            "/api/v1/e2ee/history-backup/operations/{operation}",
+            get(crypto_history_key_operation),
+        )
+        .route(
+            "/api/v1/e2ee/history-backup/operations/{operation}/cancel",
+            post(cancel_crypto_history_key),
+        )
+        .route(
+            "/api/v1/e2ee/history-backup/periods",
+            get(crypto_history_backup_periods),
+        )
+        .route(
+            "/api/v1/e2ee/history-backup/periods/{period}/records",
+            get(crypto_history_backup_records)
+                .put(upload_crypto_history_backup)
+                .layer(DefaultBodyLimit::max(6 * 1024 * 1024)),
+        )
+        .route(
             "/api/v1/e2ee/history/requests",
             get(crypto_history_requests).post(publish_crypto_history_request),
         )
@@ -1036,6 +1058,101 @@ async fn cancel_crypto_root_backup(
     Ok(secret_session(
         crate::e2ee::backups::cancel(&app, &actor, &operation, crypto_body(input)?).await?,
     ))
+}
+async fn crypto_history_key(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let value = crate::e2ee::history_backup::current(&app, &actor).await?;
+    proof.json(&app, &hash, &value, &[], None).await
+}
+async fn publish_crypto_history_key(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::e2ee::PublishHistoryKey>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::e2ee::history_backup::publish(&app, &actor, crypto_body(input)?).await?,
+    ))
+}
+async fn crypto_history_key_operation(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(operation): Path<String>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let value = crate::e2ee::history_backup::operation(&app, &actor, &operation).await?;
+    proof.json(&app, &hash, &value, &[], None).await
+}
+async fn cancel_crypto_history_key(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(operation): Path<String>,
+    input: Input<rv_protocol::e2ee::PublishHistoryKey>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::e2ee::history_backup::cancel(&app, &actor, &operation, crypto_body(input)?).await?,
+    ))
+}
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CryptoHistoryBackupPeriodsQuery {
+    generation: String,
+    after: Option<String>,
+}
+async fn crypto_history_backup_periods(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(query): Query<CryptoHistoryBackupPeriodsQuery>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let value = crate::e2ee::history_backup::periods(
+        &app,
+        &actor,
+        &query.generation,
+        query.after.as_deref(),
+    )
+    .await?;
+    proof.json(&app, &hash, &value, &[], None).await
+}
+async fn upload_crypto_history_backup(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(period): Path<String>,
+    input: Input<rv_protocol::e2ee::UploadHistoryBackup>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::e2ee::history_backup::upload(&app, &actor, &period, crypto_body(input)?).await?,
+    ))
+}
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CryptoHistoryBackupRecordsQuery {
+    after: Option<String>,
+    limit: Option<usize>,
+}
+async fn crypto_history_backup_records(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(period): Path<String>,
+    Query(query): Query<CryptoHistoryBackupRecordsQuery>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    let hash = auth::bearer(&headers)?;
+    let room = crate::e2ee::history_backup::period_room(&app, &actor, &period).await?;
+    let proof = ReadProof::capture(&app, &actor, Scope::Room(&room)).await?;
+    let value = crate::e2ee::history_backup::records(
+        &app,
+        &actor,
+        &period,
+        query.after.as_deref().unwrap_or("0"),
+        query
+            .limit
+            .unwrap_or(crate::e2ee::history_backup::PAGE_RECORDS),
+    )
+    .await?;
+    proof.json(&app, &hash, &value, &[room], None).await
 }
 async fn publish_crypto_history_request(
     State(app): State<App>,

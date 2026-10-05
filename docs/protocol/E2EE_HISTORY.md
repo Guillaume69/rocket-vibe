@@ -202,7 +202,8 @@ says whether older recovered documents remain. Recovered documents carry the
 sharing device's attested observation time. A thread whose root predates the
 device's own history gets that root from the recovered catalog. Own and recovered
 positions are never merged: a recovered document at or after the oldest own
-position is not shown.
+indexed document is not shown, whatever the query (a thread filter that matches no
+own row, a search) asks.
 
 Not covered yet: reply counts of recovered roots count only own replies, and
 private quotes do not resolve recovered sources.

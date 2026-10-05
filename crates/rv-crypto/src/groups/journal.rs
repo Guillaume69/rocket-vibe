@@ -466,13 +466,27 @@ impl Coordinator {
             };
             // Past the start of this device's own history, the page continues
             // into history recovered from another device of the account: only
-            // positions older than the oldest own document, never merged into it.
+            // positions older than the oldest own document, never merged into it
+            // (even when a thread filter matched no own row).
             if !retained.has_older && retained.messages.len() < query.limit {
-                let before = retained
-                    .messages
-                    .first()
-                    .map(|m| m.message.receipt.position)
-                    .or(query.before);
+                let own = self.journal_archive_first(
+                    records,
+                    blocks,
+                    &cursor.scope,
+                    grant,
+                    cursor.admission,
+                )?;
+                let before = [
+                    retained
+                        .messages
+                        .first()
+                        .map(|m| m.message.receipt.position)
+                        .or(query.before),
+                    own,
+                ]
+                .into_iter()
+                .flatten()
+                .min();
                 let (older, more) = self.recovered_page(
                     records,
                     blocks,
@@ -569,6 +583,13 @@ impl Coordinator {
                     .iter()
                     .map(|m| m.message.receipt.message.clone())
                     .collect::<BTreeSet<_>>();
+                let first = self.journal_archive_first(
+                    records,
+                    blocks,
+                    &cursor.scope,
+                    grant,
+                    cursor.admission,
+                )?;
                 let (older, more) = self.recovered_search(
                     records,
                     blocks,
@@ -577,6 +598,7 @@ impl Coordinator {
                     limit - messages.len(),
                     &own,
                     &seen,
+                    first,
                 )?;
                 truncated = more;
                 messages.extend(older.into_iter().map(|m| ProjectedMessage {

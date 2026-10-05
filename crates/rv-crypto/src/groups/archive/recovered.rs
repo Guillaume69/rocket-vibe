@@ -286,8 +286,8 @@ impl Coordinator {
         Ok(None)
     }
     /// The newest `limit` recovered documents of this room whose shown text
-    /// contains `needle`, newest first, leaving out `seen` ids, and whether
-    /// more match.
+    /// contains `needle`, newest first, leaving out `seen` ids and anything at
+    /// or after `before` (this device's own range), and whether more match.
     #[allow(clippy::too_many_arguments)]
     pub(in super::super) fn recovered_search(
         &self,
@@ -298,6 +298,7 @@ impl Coordinator {
         limit: usize,
         own: &Amendments,
         seen: &std::collections::BTreeSet<String>,
+        before: Option<u64>,
     ) -> Result<(Vec<RecoveredMessage>, bool)> {
         let accept = |source: &Source| same_dataset(source, scope);
         let mut amendments = recovered_amendments(records, blocks, &scope.room, accept)?;
@@ -321,6 +322,7 @@ impl Coordinator {
                 if origin.header.target.is_none()
                     && !amendments.deleted(origin)
                     && !seen.contains(&origin.message)
+                    && before.is_none_or(|b| origin.position < b)
                     && !selected.contains_key(&origin.position)
                     && super::super::journal::matches(&message, edit.as_ref(), needle)?
                 {

@@ -192,6 +192,25 @@ impl Coordinator {
         documents.reverse();
         Ok(documents)
     }
+    /// Position of the oldest indexed document: recovered history shows only
+    /// before it, never inside this device's own range. None when empty or
+    /// retired.
+    pub(in super::super) fn journal_archive_first(
+        &self,
+        records: &Records,
+        blocks: &Access<'_>,
+        scope: &Scope,
+        grant: &Member,
+        admission: Fingerprint,
+    ) -> Result<Option<u64>> {
+        match head(records, &binding(scope, grant, admission))? {
+            Some(header) if !header.retired && header.count > 0 => Ok(self
+                .journal_archive_documents(records, blocks, scope, grant, admission, 1, 1)?
+                .first()
+                .map(|d| d.origin.position)),
+            _ => Ok(None),
+        }
+    }
     /// Position of the newest indexed document; none once retired.
     pub(in super::super) fn journal_archive_position(
         &self,

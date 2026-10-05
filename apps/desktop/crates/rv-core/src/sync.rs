@@ -5,7 +5,7 @@ use std::sync::Arc;
 use chrono::{SecondsFormat, TimeZone, Utc};
 use serde_json::Value;
 
-use crate::normalize::{to_epoch, to_message, to_room, to_subscription};
+use crate::normalize::{Message, to_epoch, to_message, to_room, to_subscription};
 use crate::rest::{CallOptions, RestClient, RestError};
 use crate::store::{Store, Writer};
 
@@ -230,17 +230,7 @@ impl SyncEngine {
     }
 
     pub async fn load_history(&self, rid: &str, kind: &str, latest: Option<i64>) -> Result<HistoryPage, RestError> {
-        let mut o = CallOptions::params([("roomId", rid.to_owned()), ("count", HISTORY_PAGE.to_string())]);
-        if let Some(latest) = latest {
-            o.params.push(("latest".into(), iso(latest)));
-        }
-        // `inclusive`: two messages can share a millisecond; without it the
-        // twin of the boundary message would be a permanent hole.
-        o.params.push(("inclusive".into(), "true".into()));
-        o.params.push(("showThreadMessages".into(), "false".into()));
-
-        let response = self.rest.get(history_endpoint(kind), o).await?;
-        let messages = response.get("messages").and_then(Value::as_array).cloned().unwrap_or_default();
+        let messages = self.history(rid, kind, latest, None).await?;
         self.store.write(|w| {
             let newest = ingest_into(w, &messages);
             if let Some(newest) = newest
@@ -253,6 +243,48 @@ impl SyncEngine {
             count: messages.len(),
             oldest_ts: messages.iter().filter_map(|m| m.get("ts").and_then(to_epoch)).min(),
         })
+    }
+
+    /// The history between two instants, bounds included, never stored. With
+    /// both bounds the server answers the NEWEST page of the range, not the
+    /// first messages after `oldest`.
+    pub async fn history_range(
+        &self,
+        rid: &str,
+        kind: &str,
+        latest: Option<i64>,
+        oldest: Option<i64>,
+    ) -> Result<Vec<Message>, RestError> {
+        Ok(self.history(rid, kind, latest, oldest).await?.iter().filter_map(to_message).collect())
+    }
+
+    async fn history(
+        &self,
+        rid: &str,
+        kind: &str,
+        latest: Option<i64>,
+        oldest: Option<i64>,
+    ) -> Result<Vec<Value>, RestError> {
+        let mut o = CallOptions::params([("roomId", rid.to_owned()), ("count", HISTORY_PAGE.to_string())]);
+        if let Some(latest) = latest {
+            o.params.push(("latest".into(), iso(latest)));
+        }
+        if let Some(oldest) = oldest {
+            o.params.push(("oldest".into(), iso(oldest)));
+        }
+        // `inclusive`: two messages can share a millisecond; without it the
+        // twin of the boundary message would be a permanent hole.
+        o.params.push(("inclusive".into(), "true".into()));
+        o.params.push(("showThreadMessages".into(), "false".into()));
+
+        let response = self.rest.get(history_endpoint(kind), o).await?;
+        Ok(response.get("messages").and_then(Value::as_array).cloned().unwrap_or_default())
+    }
+
+    /// The server's copy of one message, not stored.
+    pub async fn fetch_message(&self, id: &str) -> Result<Option<Message>, RestError> {
+        let response = self.rest.get("chat.getMessage", CallOptions::params([("msgId", id)])).await?;
+        Ok(response.get("message").and_then(to_message))
     }
 }
 

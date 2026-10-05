@@ -16,7 +16,7 @@ Context: [desktop-app.md](desktop-app.md) (workspace, build container), [desktop
 | `login` | `LoginPage`: server, user, password, then the 2FA code field when challenged |
 | `secrets` | Accounts in the system keychain (Secret Service via `oo7` on Linux with a 5 s timeout, `keyring` elsewhere), the `accounts` / `active-account` / `servers` files |
 | `chat` | `ChatPage`: an `adw::NavigationSplitView` with the room list (sections, folds, favourites menu), the open room, its header, the thread pane, upload strip, typing line, back/forward history |
-| `message_list` | `MessageList`: a `gtk::ListView` over a `gio::ListStore` of `BoxedAnyObject`-wrapped `timeline::Display` rows, shared by rooms and threads; scroll pinning, "jump to latest", reveal-a-message, cross-message text selection |
+| `message_list` | `MessageList`: a `gtk::ListView` over a `gio::ListStore` of `BoxedAnyObject`-wrapped `timeline::Display` rows, shared by rooms and threads; scroll pinning, "jump to latest", reveal-a-message, the detached mode of a context window, cross-message text selection |
 | `rows` | Builds one room row or one message row widget from store rows |
 | `markdown_view`, `cards`, `video`, `player`, `media` | Message bodies from `rv-core` markdown blocks, attachment and link cards, video attachments, embedded YouTube/Dailymotion/Vimeo, protected images as GDK textures (fetched and decoded once, shared by every row asking) |
 | `composer`, `staged`, `attach`, `emoji_picker`, `spell`, `recorder` | The message field (Enter sends, Shift+Enter breaks), staged files with captions and image quality, pick/drop/paste, emoji picker, Hunspell spell check, voice recording to Ogg/Opus |

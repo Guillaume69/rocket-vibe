@@ -356,7 +356,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("marked.no_pinned", "Aucun message épinglé ici", "No pinned messages here"),
     ("marked.no_starred", "Aucun favori dans ce salon", "No starred messages in this room"),
     ("marked.attachment", "Pièce jointe", "Attachment"),
-    ("marked.not_loaded", "Ce message est trop ancien pour être affiché", "This message is too old to show"),
+    ("marked.not_loaded", "Ce message n'a pas pu être chargé", "This message could not be loaded"),
     ("actions.unpinned", "Message désépinglé", "Message unpinned"),
     ("actions.star", "Ajouter aux favoris", "Star"),
     ("actions.starred", "Message ajouté aux favoris", "Message starred"),

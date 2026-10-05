@@ -89,11 +89,40 @@ pub struct MessageRow {
     pub starred: Option<String>,
 }
 
+impl From<&Message> for MessageRow {
+    fn from(m: &Message) -> Self {
+        MessageRow {
+            id: m.id.clone(),
+            rid: m.rid.clone(),
+            ts: m.ts,
+            text: m.text.clone(),
+            author: m.author_name.clone(),
+            author_id: m.author_id.clone(),
+            system_type: m.system_type.clone(),
+            edited: m.edited_at.is_some(),
+            attachments: m.attachments.clone(),
+            thread_count: m.thread_count,
+            outbox_status: None,
+            md: m.md.clone(),
+            reactions: m.reactions.clone(),
+            thread_id: m.thread_id.clone(),
+            encrypted_raw: m.encrypted_raw.clone(),
+            urls: m.urls.clone(),
+            call_id: m.call_id.clone(),
+            pinned: m.pinned,
+            starred: m.starred.clone(),
+        }
+    }
+}
+
 impl MessageRow {
     pub fn starred_by(&self, uid: &str) -> bool {
         self.starred.as_deref().is_some_and(|ids| ids.split(',').any(|id| id == uid))
     }
 }
+
+/// A room's messages as its screen shows them: thread replies only when also sent to the room.
+const ROOM_SHOWN: &str = "m.rid = ?1 AND (m.thread_id IS NULL OR m.thread_shown = 1)";
 
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS rooms (
@@ -434,7 +463,19 @@ impl Store {
     /// The newest `limit` messages of a room, oldest first. Thread replies
     /// stay in their thread unless also shown in the room (`tshow`).
     pub fn messages(&self, rid: &str, limit: i64) -> Vec<MessageRow> {
-        self.message_rows("m.rid = ?1 AND (m.thread_id IS NULL OR m.thread_shown = 1)", rid, limit)
+        self.message_rows(ROOM_SHOWN, rid, limit)
+    }
+
+    /// How many of the room's messages `messages` would show from `ts` on.
+    pub fn count_since(&self, rid: &str, ts: i64) -> i64 {
+        self.read(|c| {
+            c.query_row(
+                &format!("SELECT COUNT(*) FROM messages m WHERE {ROOM_SHOWN} AND m.ts >= ?2"),
+                params![rid, ts],
+                |r| r.get(0),
+            )
+        })
+        .unwrap_or(0)
     }
 
     /// These messages, in this order; the ones not stored are left out.
@@ -814,6 +855,20 @@ mod tests {
         assert_eq!(text_of(&store, "m").as_deref(), Some("v2"));
         store.write(|w| w.upsert_message(&message("m", Some("v3"), 30, "r")));
         assert_eq!(text_of(&store, "m").as_deref(), Some("v3"));
+    }
+
+    #[test]
+    fn count_since_counts_what_the_room_shows() {
+        let store = Store::in_memory().unwrap();
+        store.write(|w| {
+            for (id, ts) in [("old", 10), ("a", 100), ("b", 200)] {
+                w.upsert_message(&Message { ts, ..message(id, Some("x"), 1, "r") });
+            }
+            w.upsert_message(&Message { ts: 150, thread_id: Some("a".into()), ..message("reply", Some("x"), 1, "r") });
+            w.upsert_message(&Message { ts: 300, ..message("elsewhere", Some("x"), 1, "s") });
+        });
+        assert_eq!(store.count_since("r", 100), 2);
+        assert_eq!(store.count_since("r", 0), 3);
     }
 
     #[test]

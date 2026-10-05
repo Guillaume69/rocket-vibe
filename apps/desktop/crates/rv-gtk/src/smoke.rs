@@ -666,6 +666,20 @@ fn details_checks(
             glib::timeout_add_local_once(Duration::from_millis(6000), move || {
                 let list = chat.room_list();
                 check("jumped to an old message", list.row(&id).is_some(), list.len());
+                if !list.is_detached() {
+                    return;
+                }
+                let before = list.len();
+                list.scroll_to_bottom();
+                glib::timeout_add_local_once(Duration::from_millis(4000), move || {
+                    let list = chat.room_list();
+                    check("read forward from it", list.len() > before, (before, list.len()));
+                    list.jump();
+                    glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+                        let list = chat.room_list();
+                        check("back to the latest", !list.is_detached() && list.is_pinned(), list.len());
+                    });
+                });
             });
         } else if let Some(text) = what.strip_prefix("search:") {
             let (s, r, q) = (session.clone(), rid.clone(), text.to_owned());

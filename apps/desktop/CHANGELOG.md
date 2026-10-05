@@ -7,6 +7,20 @@ section here.
 
 ## [Unreleased]
 
+### Changed
+
+- Opening a search result, or a pinned or starred message, older than what the room has
+  loaded shows the conversation around it, whatever its age, instead of "This message is too
+  old to show". Scrolling reads on in both directions; the button at the bottom, or sending a
+  message, comes back to the latest messages.
+- One loading bar sweeps the top of the window, instead of two bars out of step under the room
+  list's and the room's headers.
+
+### Fixed
+
+- Paging back through a room no longer shows an older message stored on its own (one starred
+  or edited) above messages that were never loaded.
+
 ## [0.7.0] - 2026-10-03
 
 ### Added

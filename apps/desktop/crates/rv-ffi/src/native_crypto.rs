@@ -108,6 +108,9 @@ impl NativeCrypto {
         let inner = self.inner.clone();
         on_tokio(async move {
             let _serial = inner.serial.lock().await;
+            // A new identity view invalidates and drops any held recovery secret.
+            inner.recovery.lock().unwrap().take();
+            inner.withdrawal.lock().unwrap().take();
             let revision = {
                 let mut state = inner.state.lock().unwrap();
                 state.0 += 1;
@@ -165,6 +168,7 @@ impl NativeCrypto {
         let inner = self.inner.clone();
         on_tokio(async move {
             let _serial = inner.serial.lock().await;
+            inner.recovery.lock().unwrap().take();
             let revision = {
                 let mut state = inner.state.lock().unwrap();
                 state.0 += 1;

@@ -5,6 +5,17 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 
 ## État synthétique au 5 octobre 2026
 
+Récupération bureau : les paramètres GTK / SwiftUI existants proposent désormais
+examen de la version / empreinte, préparation, affichage explicite du code,
+confirmation du code conservé, reprise / abandon et restauration d'un appareil
+neuf. Les contrôles de renouvellement attendent le règlement d'une sauvegarde.
+Fermer la vue ou quitter l'application efface saisie, sortie et confirmations
+opaques ; les résultats tardifs ne peuvent plus les réafficher. Le changement
+de vue FFI retire également la confirmation Rust et sa clé temporaire.
+Clippy strict cœur / FFI passe localement. Deux régressions Swift et un parcours
+GTK sous Xvfb sont ajoutés ; leur compilation / exécution attendent la prochaine
+CI. La qualification des applications installées reste ouverte.
+
 Règlement des sauvegardes et récupération Android : le serveur sérialise
 publication / abandon sous le même verrou. Un original déjà accepté reste
 accepté ; sinon un tombstone empêche sa publication future. Le coffre conserve
@@ -21,9 +32,12 @@ Le cœur bureau / FFI sont raccordés au même parcours ; leurs 25 tests HTTP /
 SQLite passent en 52,32 s, dont appareil HTTP neuf, clé distincte, confirmation
 refusée sur un autre handle, fermeture pendant checkpoint et reprise terminale.
 Clippy strict moteur / pont / serveur / cœur / FFI passe et le binding Swift
-réel expose `recoveryAction`. Quatre scénarios PostgreSQL de règlement sont
-ajoutés et attendent la nouvelle CI, ainsi que le nouveau pont / Keystore.
-Les contrôles GTK / SwiftUI et la qualification GUI installée restent ouverts.
+réel expose `recoveryAction`. Les quatre scénarios PostgreSQL de règlement
+passent dans le job 111708955661 de 37293407750 : le serveur passe ses 179 tests
+en 134,73 s, avec un banc externe ignoré et exécuté séparément. La CI Android
+37293407753 passe le vrai Keystore / deux ABI, et l'app macOS 37293407507 passe
+compilation et démarrage. Les derniers jobs GTK / modèles Swift du lot restent
+en cours ; les nouveaux contrôles bureau sont qualifiés dans le lot ci-dessus.
 Aucun masque de production n'est activé.
 
 La suite complète du pont mobile passe ses 11 tests en 66,99 s. Les bibliothèques

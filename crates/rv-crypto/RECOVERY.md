@@ -85,7 +85,11 @@ originaux distincts ; voir [le protocole de sauvegarde](../../docs/protocol/E2EE
 Le règlement terminal des conflits et le pont Android / FFI sont raccordés.
 Les paramètres Android existants proposent code temporaire / confirmation /
 reprise / abandon et récupération d'une identité sur un appareil neuf.
-Les contrôles GTK / SwiftUI et la qualification installée restent à intégrer.
+Les contrôles GTK / SwiftUI utilisent le même cœur : affichage explicite du
+code, publication après confirmation, reprise / abandon et restauration avec
+empreinte examinée. Ils effacent les textes et confirmations à la fermeture ou
+au passage en arrière-plan. Leur qualification CI et les applications installées
+restent ouvertes.
 L'archive E2EE et la récupération de ses clés ont un format / une autorisation
 propres à définir ; ce paquet ne promet pas l'accès automatique à l'historique.
 Sans code sauvegardé ni contrôleur de racine disponible, cette identité ne peut

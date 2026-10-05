@@ -107,9 +107,16 @@ Les confirmations opaques restent dans Rust et sont retirées à la fermeture.
 Le cœur bureau et la FFI partagent le même parcours, testé avec le vrai
 transport HTTP et le coffre SQLite chiffré.
 
-Restent les contrôles GTK / SwiftUI de récupération, la nouvelle qualification
-Keystore / build après raccordement, les applications installées et la revue
-indépendante.
+Les paramètres GTK / SwiftUI existants proposent aussi examen de version /
+empreinte, préparation, affichage explicite du code et publication après
+confirmation du code conservé, reprise / abandon et restauration. La saisie
+masquée n'est jamais copiée automatiquement au presse-papiers. Fermer la vue,
+changer de compte ou quitter l'application efface les textes et les consentements.
+Le renouvellement attend le règlement d'une sauvegarde en cours.
+Le nouveau raccordement bureau attend la qualification GTK / SwiftUI en CI ;
+le raccordement Android passe le Keystore / deux ABI dans 37293407753 et les
+quatre règlements PostgreSQL passent dans 37293407750.
+Restent les applications installées et la revue indépendante.
 L'archive historique nécessite son propre format et ses propres clés.
 Changer le code ou remplacer le paquet actif n'invalide aucune ancienne copie
 et son ancien code. Aucune garantie de forward secrecy n'est annoncée pour

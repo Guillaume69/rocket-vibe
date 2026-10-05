@@ -9,6 +9,12 @@ section here.
 
 ### Added
 
+- Existing GTK / SwiftUI crypto settings prepare an identity backup, explicitly
+  display its recovery code, confirm the saved code before publishing, and resume
+  or cancel an interrupted publication. A fresh device can review a saved code
+  and restore its root before the existing device approval flow. Closing or
+  leaving the application clears recovery input, output and held confirmations.
+
 - Existing GTK / SwiftUI crypto settings review another encrypted device and
   explicitly confirm its signed withdrawal. Lost replies retain the protected
   original request and resume by receipt; closing during a checkpoint cannot

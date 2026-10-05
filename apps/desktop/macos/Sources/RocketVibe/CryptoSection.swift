@@ -17,6 +17,12 @@ struct CryptoSection: View {
                     if let withdrawals = model.withdrawals {
                         CryptoWithdrawalControls(model: model, status: withdrawals)
                     }
+                    if let backups = model.backups {
+                        CryptoBackupControls(model: model, status: backups)
+                    }
+                    if value.phase == .missing && !value.remoteFingerprint.isEmpty {
+                        CryptoRestoreControls(model: model)
+                    }
                 }
                 if let error = model.error { Text(error).foregroundStyle(.red) }
                 Button(L("crypto.refresh")) { Task { await model.refresh() } }
@@ -28,6 +34,14 @@ struct CryptoSection: View {
             let fresh = CryptoModel(app: app); model = fresh; await fresh.refresh()
         }
         .onDisappear { model?.close() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            model?.close(); model = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            guard model == nil else { return }
+            let fresh = CryptoModel(app: app); model = fresh
+            Task { await fresh.refresh() }
+        }
     }
 }
 
@@ -67,7 +81,7 @@ private struct CryptoIdentityControls: View {
             }
             if value.phase == .ready || value.phase == .expired || value.phase == .renewing {
                 Button(L("crypto.renew")) { Task { await model.renew() } }
-                    .disabled(model.withdrawals?.pending != nil)
+                    .disabled(model.withdrawals?.pending != nil || model.backups?.pending == true)
             }
             if value.controlsRoot && !value.requestCode.isEmpty {
                 Button(L("crypto.own_preview")) { Task { await model.preview(own: true) } }

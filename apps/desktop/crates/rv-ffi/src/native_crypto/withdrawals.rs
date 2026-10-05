@@ -28,6 +28,7 @@ impl NativeCrypto {
                     serde_json::to_value(inner.access.withdrawals().await?)
                 }
                 Action::Preview { device, fingerprint } => {
+                    inner.recovery.lock().unwrap().take();
                     inner.withdrawal.lock().unwrap().take();
                     let preview = inner.access.preview_withdrawal(device, fingerprint).await?;
                     let revision = { let mut state = inner.state.lock().unwrap(); state.0 += 1; state.1 = None; state.0 };

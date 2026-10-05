@@ -157,5 +157,7 @@ fn public_file_vector_matches_the_format() {
     if std::env::var_os("RV_WRITE_FILE_VECTOR").is_some() {
         std::fs::write(&path, &text).unwrap();
     }
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+    // Parsed, so a checkout with other line endings compares equal.
+    let stored: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(stored, vector);
 }

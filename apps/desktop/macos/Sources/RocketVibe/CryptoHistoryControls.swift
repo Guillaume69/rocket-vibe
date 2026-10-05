@@ -59,9 +59,7 @@ struct CryptoHistoryControls: View {
                 Button(L("crypto.history_share_delegate"), role: .destructive) { Task { await model.shareHistory(delegate: true) } }
             }
         } message: {
-            Text(model.historyPreview?.canDelegate == true ? confirmation + "
-
-" + L("crypto.history_delegate_body") : confirmation)
+            Text(model.historyPreview?.canDelegate == true ? confirmation + "\n\n" + L("crypto.history_delegate_body") : confirmation)
         }
         .onDisappear { confirm = false }
     }

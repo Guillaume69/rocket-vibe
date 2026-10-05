@@ -94,8 +94,16 @@ or one already held by the verified journal index of its room's current admissio
 Their identity stays marked `evicted` or `retired`; a replay of the exact receipt
 reads the body back from that index, never by a new decryption. Pending, cancelling
 or cancelled own contents never leave. The cache stays full, and new operations
-are suspended, only when nothing settled is left to evict. The 8,192 identities
-remain a bound (registry compaction is open).
+are suspended, only when nothing settled is left to evict.
+
+The 8,192 identities are a window, not a lifetime bound. Once a body has left the
+cache (evicted, retired or forgotten on request), its identity gets a release
+order; when the registry is full, the oldest released identities are dropped
+first. A dropped received operation stays refused: its stream position never
+moves backwards. A dropped own operation ID cannot be published again either,
+since the server keeps `(user_id, operation_id)` unique and answers
+`409 operation_conflict`. Pending, cancelling, cancelled and cached identities are
+never dropped.
 
 The scenarios use real certified groups and reopened SQLite vaults,
 with simulated external checkpoint: rich exchange, exact echo, lost / altered ACK,

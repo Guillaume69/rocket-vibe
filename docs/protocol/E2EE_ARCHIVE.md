@@ -304,6 +304,13 @@ older pages, the 30 quote sources, the last-page replay after reopening, the
 empty own outbox, the replay of an evicted receipt and the refusal of a forged
 one.
 
-The move of the operation registry currently bounded to 8,192 and portable
-recovery remain open. The thread counters and quote sources still walk the
+The operation registry keeps a window of 8,192 identities: once a body has left
+the cache, its identity gets a release order, and the oldest released identities
+are dropped when the registry is full. A dropped received message stays refused by
+its stream position; a dropped own operation ID stays unique on the server
+(`409 operation_conflict`). A second bench (registry of 40 in tests) sends 60
+messages, reads a still-registered evicted body back from the index and refuses
+the replay of a dropped one.
+
+Portable recovery remains open. The thread counters and quote sources still walk the
 entire local index: a load qualification / a metadata index remain necessary.

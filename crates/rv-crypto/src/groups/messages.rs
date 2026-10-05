@@ -13,7 +13,11 @@ const RECORD: &str = "crypto-messages-v1";
 pub(super) const MAX_CACHE: usize = 64;
 #[cfg(test)]
 pub(super) const MAX_CACHE: usize = 16;
-const MAX_HISTORY: usize = 8192;
+// Identities kept; the oldest released ones are forgotten past it.
+#[cfg(not(test))]
+pub(super) const MAX_HISTORY: usize = 8192;
+#[cfg(test)]
+pub(super) const MAX_HISTORY: usize = 40;
 const RECORD_LIMIT: usize = 4 * 1024 * 1024;
 const PLAIN_LIMIT: usize = 64 * 1024;
 
@@ -256,6 +260,14 @@ struct Seen {
     /// The body left the hot cache after its admission was retired.
     #[serde(default, skip_serializing_if = "is_false")]
     retired: bool,
+    /// Release order once the body left the cache (evicted, retired or
+    /// forgotten on request): the oldest released identities are the first
+    /// dropped once the registry is full.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    released: u64,
+}
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 fn is_false(value: &bool) -> bool {
     !*value
@@ -293,6 +305,9 @@ struct Ledger {
     progress: BTreeMap<String, u64>,
     seen: BTreeMap<String, Seen>,
     cache: BTreeMap<String, Entry>,
+    /// Last release order given; only grows.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    releases: u64,
 }
 impl Coordinator {
     pub fn outgoing_messages(&self, roster: &Roster, now: u64) -> Result<Vec<OutgoingMessage>> {
@@ -341,6 +356,7 @@ impl Coordinator {
                 progress: BTreeMap::new(),
                 seen: BTreeMap::new(),
                 cache: BTreeMap::new(),
+                releases: 0,
             });
         };
         if value.len() > RECORD_LIMIT {
@@ -369,6 +385,8 @@ impl Coordinator {
                 || seen.receipt.is_none()
                     && seen.cancelled.is_none()
                     && (seen.intent.is_none() || !ledger.cache.contains_key(id))
+                || seen.released > ledger.releases
+                || seen.released != 0 && (seen.receipt.is_none() || ledger.cache.contains_key(id))
                 || (seen.evicted || seen.retired)
                     && (seen.receipt.is_none()
                         || seen.cancelling
@@ -576,6 +594,7 @@ impl Coordinator {
                     cancelling: false,
                     evicted: false,
                     retired: false,
+                    released: 0,
                 },
             );
             ledger.cache.insert(
@@ -1053,6 +1072,7 @@ impl Coordinator {
                 cancelling: false,
                 evicted: false,
                 retired: false,
+                released: 0,
             },
         );
         ledger.cache.insert(
@@ -1085,7 +1105,10 @@ impl Coordinator {
             if seen.receipt.as_ref() != Some(&hash) {
                 return Err(Error::Receipt);
             }
-            ledger.cache.remove(&id);
+            if ledger.cache.remove(&id).is_some() {
+                ledger.releases = ledger.releases.checked_add(1).ok_or(Error::Limit)?;
+                ledger.seen.get_mut(&id).ok_or(Error::Changed)?.released = ledger.releases;
+            }
             save_ledger(records, &ledger)
         })
     }
@@ -1305,14 +1328,20 @@ fn capacity(ledger: &Ledger) -> Result<()> {
     Ok(())
 }
 impl Coordinator {
-    /// Frees one hot-cache slot before a new body enters it, oldest first.
-    /// Only settled bodies leave: a retired admission's, or one this
-    /// admission's verified journal index already holds. Own intents still
-    /// pending, cancelling or cancelled stay, so recovery never loses them.
+    /// Frees one hot-cache slot and one registry slot before a new identity
+    /// enters them, oldest first. Only settled bodies leave the cache: a
+    /// retired admission's, or one this admission's verified journal index
+    /// already holds. Own intents still pending, cancelling or cancelled stay,
+    /// so recovery never loses them.
     fn make_room(&self, records: &Records, ledger: &mut Ledger) -> Result<()> {
-        if ledger.cache.len() < MAX_CACHE {
-            return capacity(ledger);
+        if ledger.cache.len() >= MAX_CACHE {
+            self.evict(records, ledger)?;
         }
+        forget_released(ledger)?;
+        capacity(ledger)
+    }
+    /// Releases the bodies needed to free one cache slot.
+    fn evict(&self, records: &Records, ledger: &mut Ledger) -> Result<()> {
         let mut candidates = Vec::new();
         for (id, entry) in &ledger.cache {
             let seen = ledger.seen.get(id).ok_or(Error::Changed)?;
@@ -1340,11 +1369,13 @@ impl Coordinator {
         let excess = ledger.cache.len() + 1 - MAX_CACHE;
         for (_, _, id, retired) in candidates.into_iter().take(excess) {
             ledger.cache.remove(&id);
+            ledger.releases = ledger.releases.checked_add(1).ok_or(Error::Limit)?;
             let seen = ledger.seen.get_mut(&id).ok_or(Error::Changed)?;
             seen.retired = retired;
             seen.evicted = !retired;
+            seen.released = ledger.releases;
         }
-        capacity(ledger)
+        Ok(())
     }
     /// The body sits in the journal index of its room's current admission at
     /// or below that index's head; the index only grows, so it stays there.
@@ -1369,6 +1400,33 @@ impl Coordinator {
             .journal_archive_position(records, scope, &entry.grant, admission)?
             .is_some_and(|head| head >= receipt.position))
     }
+}
+/// Drops the oldest released identities to keep one registry slot free: an
+/// accepted operation whose body already left the cache. A received one stays
+/// refused by its stream position, which only grows; an own operation ID is
+/// unique per account on the server, which refuses its reuse. Pending,
+/// cancelling, cancelled and cached identities are never dropped.
+fn forget_released(ledger: &mut Ledger) -> Result<()> {
+    if ledger.seen.len() < MAX_HISTORY {
+        return Ok(());
+    }
+    let mut released = ledger
+        .seen
+        .iter()
+        .filter(|(id, seen)| {
+            seen.receipt.is_some()
+                && seen.cancelled.is_none()
+                && !seen.cancelling
+                && !ledger.cache.contains_key(*id)
+        })
+        .map(|(id, seen)| (seen.released, id.clone()))
+        .collect::<Vec<_>>();
+    released.sort();
+    let excess = ledger.seen.len() + 1 - MAX_HISTORY;
+    for (_, id) in released.into_iter().take(excess) {
+        ledger.seen.remove(&id);
+    }
+    Ok(())
 }
 fn stream(scope: &Scope) -> Result<String> {
     Ok(HEXLOWER.encode(&digest(&scope.group_id()?)))

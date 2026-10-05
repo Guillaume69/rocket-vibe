@@ -48,7 +48,8 @@ A personal status `409 crypto_message_cancelled`, for example after an abandon
 from another session of the account, triggers recovery of the exact receipt
 against the protected proof. The error code alone is not enough to release the outbox.
 Old ledgers without `cancelled` / `cancelling` fields stay readable. The ledger
-bounds stay 64 bodies and 8192 identities; an abandoned body is not
+keeps at most 64 bodies and 8192 identities; settled bodies and released
+identities leave first (see [messages](MESSAGES.md)), an abandoned body is never
 automatically erased. Transient refusals are never converted into
 an automatic abandon. The [settlement of prepared transitions](GROUP_SETTLEMENT.md)
 has its own original and terminal markers. Withdrawal / new

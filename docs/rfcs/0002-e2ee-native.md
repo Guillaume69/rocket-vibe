@@ -260,8 +260,8 @@ desktop / Android projections read a separate index of the verified journal page
 including thread roots / counters and the last page after the cache is forgotten.
 The 70-message bench, migration / prefix and HTTP worker pass; synthetic
 receipts and installed qualification remain distinct. The hot cache now evicts
-settled bodies automatically and quote sources read the verified index. The operation
-/ load registry, admission of portable packets,
+settled bodies automatically, quote sources read the verified index and the operation
+registry keeps a window of released identities. Load, admission of portable packets,
 transport, key envelopes / backups and review remain open.
 The **account root** backup
 is implemented separately: random OS code, AAD bound to the root / backup ID,

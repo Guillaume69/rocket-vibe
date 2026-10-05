@@ -254,8 +254,9 @@ release, and its notes are that version's section here.
 - Local encrypted history: conversations read already verified documents from the local archive
   once the warm cache is forgotten, covering older pages, thread roots and counters, and the
   last page after reopening. A removed membership hides its projection. Settled messages
-  leave the warm cache by themselves, so conversations keep receiving past 64 messages and
-  quotes can pick sources from the whole verified history. Portable history recovery
+  leave the warm cache and, once settled, the operation registry by themselves, so
+  conversations keep receiving past 64 and 8,192 messages and quotes can pick sources from
+  the whole verified history. Portable history recovery
   remains open.
 - Identity recovery: the existing settings prepare an encrypted copy of the identity and
   temporarily show its code. Publishing requires confirming that the code was kept outside the

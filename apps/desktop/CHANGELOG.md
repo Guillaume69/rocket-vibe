@@ -9,9 +9,10 @@ section here.
 
 ### Added
 
-- Experimental private conversations keep receiving past 64 messages: settled
-  bodies leave the hot cache by themselves once the verified journal archive holds
-  them, and quotes can pick sources from the whole verified history.
+- Experimental private conversations keep receiving past 64 messages, and past
+  8,192: settled bodies leave the hot cache by themselves once the verified journal
+  archive holds them, the oldest settled identities leave the operation registry,
+  and quotes can pick sources from the whole verified history.
 
 - Experimental private conversations read verified local journal archives after
   hot-cache eviction, including older pages, thread roots / reply counts and the

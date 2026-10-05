@@ -5,6 +5,18 @@ Destination: [RFC 0001](rfcs/0001-rocketvibe-rust-server.md).
 
 ## Summary status as of 5 October 2026
 
+Operation registry window: the 8,192 identities no longer stop a long
+conversation. Once a body has left the cache (evicted, retired or forgotten on
+request), its identity gets a release order; a full registry drops the oldest
+released identities first. A dropped received message stays refused by its stream
+position, a dropped own operation ID by the server's unique `(user_id,
+operation_id)`. Pending, cancelling, cancelled and cached identities stay. With a
+registry of 40 in tests, the new bench sends 60 messages, reads an evicted body
+still registered back from the index and refuses the replay of a dropped one. The
+192 `rv-crypto` tests pass in 144.58 s and the 11 mobile bridge tests in 63.97 s.
+Item 1 of the E2EE plan (durable history) is complete; a metadata index for thread
+counters / quote sources and load qualification remain open.
+
 Hot-cache eviction: the protected message registry no longer stops receiving at 64
 bodies. Before a new body enters a full cache, the oldest settled bodies leave it:
 a retired admission's, or one already held by the verified journal index of its

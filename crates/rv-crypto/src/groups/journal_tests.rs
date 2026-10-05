@@ -149,6 +149,87 @@ fn hot_cache_evicts_indexed_bodies_so_reception_and_quote_sources_continue_past_
     ));
 }
 #[test]
+fn registry_drops_the_oldest_released_identities_and_still_refuses_their_replay() {
+    let (alice, bob, _, initial) = fixture(false);
+    let observed = observation(&alice);
+    let first = page(&observed, 0, 1, vec![group(&initial, 1, None)], None);
+    for account in [&alice, &bob] {
+        account
+            .coordinator()
+            .receive_journal(&observed, &first, NOW)
+            .unwrap();
+    }
+    // 60 accepted operations against a registry of MAX_HISTORY (40 in tests).
+    let mut sent = BTreeMap::new();
+    let mut after = 1;
+    for batch in 0..12 {
+        let mut events = Vec::new();
+        for number in (batch * 5 + 1)..=(batch * 5 + 5) {
+            let mut document = messages::message(&format!("registry-{number}"));
+            document.reply_to = None;
+            let (event, submission, receipt) = journal_message(&alice, document, BASE + number);
+            events.push(event);
+            sent.insert(number, (submission, receipt));
+        }
+        let through = BASE + batch * 5 + 5;
+        let next = page(&observed, after, through, events, None);
+        for account in [&alice, &bob] {
+            let result = account
+                .coordinator()
+                .receive_journal(&observed, &next, NOW)
+                .unwrap();
+            assert_eq!(result.messages.len(), 5);
+        }
+        after = through;
+    }
+    let sources = bob.reopened().journal_sources(&observed, NOW).unwrap();
+    assert_eq!(sources.messages.len(), 60);
+    let current = messages::observation(&bob);
+    let coordinator = bob.coordinator();
+    let replay = |number: u64| {
+        let (submission, receipt) = &sent[&number];
+        coordinator.transact_with_blobs(|provider, records, blobs| {
+            coordinator.receive_message_inner(
+                provider, records, blobs, &current, submission, receipt, NOW, true,
+            )
+        })
+    };
+    // Still registered (evicted body): read back from the journal index.
+    let recent = replay(40).unwrap();
+    assert_eq!(recent.message().unwrap().operation_id, "registry-40");
+    // Dropped from the registry: its stream position still refuses it.
+    assert!(matches!(replay(1), Err(Error::Changed)));
+}
+fn journal_message(
+    account: &Account,
+    document: rv_protocol::SendMessage,
+    position: u64,
+) -> (
+    http::DeliveryEvent,
+    MessageSubmission,
+    rv_crypto_public::messages::Receipt,
+) {
+    let submission = account
+        .coordinator()
+        .prepare_message(&messages::observation(account), &document, NOW)
+        .unwrap();
+    let receipt = messages::ack(&submission, position);
+    account
+        .coordinator()
+        .confirm_message(&receipt, NOW)
+        .unwrap();
+    let wire = submission.to_wire().unwrap();
+    let event = http::DeliveryEvent {
+        position: position.to_string(),
+        content: http::DeliveryContent::Message(http::ApplicationMessage {
+            receipt: wire::message_receipt_to_wire(&receipt).unwrap(),
+            proof: wire.proof,
+            ciphertext: wire.ciphertext,
+        }),
+    };
+    (event, submission, receipt)
+}
+#[test]
 fn archive_projection_reopens_old_pages_and_thread_root_after_cache_eviction() {
     let (alice, bob, _, initial) = fixture(false);
     let observed = observation(&alice);

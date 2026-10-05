@@ -95,6 +95,9 @@ impl MessageRow {
     }
 }
 
+/// A room's messages as its screen shows them: thread replies only when also sent to the room.
+const ROOM_SHOWN: &str = "m.rid = ?1 AND (m.thread_id IS NULL OR m.thread_shown = 1)";
+
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS rooms (
   rid TEXT PRIMARY KEY,
@@ -434,7 +437,7 @@ impl Store {
     /// The newest `limit` messages of a room, oldest first. Thread replies
     /// stay in their thread unless also shown in the room (`tshow`).
     pub fn messages(&self, rid: &str, limit: i64) -> Vec<MessageRow> {
-        self.message_rows("m.rid = ?1 AND (m.thread_id IS NULL OR m.thread_shown = 1)", rid, limit)
+        self.message_rows(ROOM_SHOWN, rid, limit)
     }
 
     /// These messages, in this order; the ones not stored are left out.

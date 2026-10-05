@@ -277,6 +277,7 @@ fn crafted(
         certificate: claim.certificate.fingerprint().unwrap(),
         kind: packet::Kind::Chat,
         thread: request.reply_to.clone(),
+        target: None,
     };
     let ciphertext = signer
         .manager

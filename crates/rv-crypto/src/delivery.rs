@@ -695,6 +695,34 @@ impl Worker {
         .await?;
         self.resume_message_inner(&operation).await
     }
+    /// Edit (`Some(text)`) or delete (`None`) one of this account's journaled
+    /// messages (E2EE_AMENDMENTS.md). The amendment is an ordinary private
+    /// operation: same outbox, resume and cancellation as `send_message`.
+    pub async fn amend_message(
+        &self,
+        room: &str,
+        target: String,
+        text: Option<String>,
+        operation: String,
+    ) -> Result<rv_crypto_public::messages::Receipt> {
+        let _dispatch = self.dispatch.lock().await;
+        self.scope().await?;
+        self.gate().await?;
+        let observation = self.message_observation(room).await?;
+        let id = operation.clone();
+        self.owned(move |manager, root, now| {
+            groups::Coordinator::new(manager, root)?.prepare_amendment(
+                &observation,
+                &target,
+                text,
+                id,
+                now,
+            )?;
+            Ok(())
+        })
+        .await?;
+        self.resume_message_inner(&operation).await
+    }
     /// Look up a historical own receipt before any current-state validation or
     /// POST, including after withdrawal, rekey, certificate expiry or cooldown.
     pub async fn resume_message(

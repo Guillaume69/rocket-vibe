@@ -119,6 +119,26 @@ fn encrypted(
     receipt: &wire::GroupReceipt,
     message: &SendMessage,
 ) -> wire::ApplicationSubmission {
+    encrypted_as(
+        owner,
+        group,
+        scope,
+        receipt,
+        message,
+        packet::Kind::Chat,
+        None,
+    )
+}
+/// An edit or deletion of `target` (E2EE_AMENDMENTS.md), or a chat message.
+fn encrypted_as(
+    owner: &Ready,
+    group: &mut MlsGroup,
+    scope: &public::Scope,
+    receipt: &wire::GroupReceipt,
+    message: &SendMessage,
+    kind: packet::Kind,
+    target: Option<String>,
+) -> wire::ApplicationSubmission {
     #[derive(serde::Serialize)]
     struct Payload<'a> {
         version: u8,
@@ -139,8 +159,9 @@ fn encrypted(
         device: owner.client.certificate.device.device.clone(),
         incarnation: owner.client.certificate.device.incarnation,
         certificate: owner.client.certificate.fingerprint().unwrap(),
-        kind: packet::Kind::Chat,
+        kind,
         thread: message.reply_to.clone(),
+        target,
     };
     group.set_aad(header.aad().unwrap());
     let plaintext = serde_json::to_vec(&Payload {
@@ -1144,4 +1165,98 @@ async fn peer_activation_is_fenced_before_room_lock_and_current_send_rights_rema
         "crypto_rekey_required",
     );
     assert_eq!(page(&app, &owner, &room).await.events.len(), 3);
+}
+
+#[sqlx::test]
+async fn only_the_authors_own_messages_of_the_room_are_amended_in_their_thread(pool: PgPool) {
+    let app = App::from_pool(pool).await.unwrap();
+    let owner = ready(&app, "amendment-owner").await;
+    let room = room(&app, &owner, None).await;
+    let (mut group, transition, receipt) = genesis(&app, &owner, &room).await;
+    let scope = &transition.plan.scope;
+    let original = encrypted(&owner, &mut group, scope, &receipt, &plaintext());
+    let target = messages::submit(&app, &owner.actor, &room.id, original)
+        .await
+        .unwrap()
+        .message_id;
+    let amendment = |text: &str, reply_to: Option<String>| SendMessage {
+        operation_id: auth::random_token(),
+        text: text.into(),
+        quotes: vec![],
+        reply_to,
+        cards: vec![],
+    };
+    // An unknown target, or a thread other than the target's, is refused.
+    let unknown = encrypted_as(
+        &owner,
+        &mut group,
+        scope,
+        &receipt,
+        &amendment("edited", None),
+        packet::Kind::Edit,
+        Some("missing-message".into()),
+    );
+    rejected(
+        messages::submit(&app, &owner.actor, &room.id, unknown).await,
+        "invalid_amendment_target",
+    );
+    let threaded = encrypted_as(
+        &owner,
+        &mut group,
+        scope,
+        &receipt,
+        &amendment("edited", Some(target.clone())),
+        packet::Kind::Edit,
+        Some(target.clone()),
+    );
+    rejected(
+        messages::submit(&app, &owner.actor, &room.id, threaded).await,
+        "invalid_amendment_target",
+    );
+    // The author's edit is accepted; an amendment of that amendment is not.
+    let edit = encrypted_as(
+        &owner,
+        &mut group,
+        scope,
+        &receipt,
+        &amendment("edited", None),
+        packet::Kind::Edit,
+        Some(target.clone()),
+    );
+    let edited = messages::submit(&app, &owner.actor, &room.id, edit)
+        .await
+        .unwrap()
+        .message_id;
+    let chained = encrypted_as(
+        &owner,
+        &mut group,
+        scope,
+        &receipt,
+        &amendment("", None),
+        packet::Kind::Delete,
+        Some(edited),
+    );
+    rejected(
+        messages::submit(&app, &owner.actor, &room.id, chained).await,
+        "invalid_amendment_target",
+    );
+    let delete = encrypted_as(
+        &owner,
+        &mut group,
+        scope,
+        &receipt,
+        &amendment("", None),
+        packet::Kind::Delete,
+        Some(target.clone()),
+    );
+    messages::submit(&app, &owner.actor, &room.id, delete)
+        .await
+        .unwrap();
+    let stored: Option<String> = sqlx::query_scalar(
+        "SELECT target FROM e2ee_application_messages WHERE target IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+    )
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(stored, Some(target));
 }

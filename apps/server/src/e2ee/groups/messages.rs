@@ -236,6 +236,18 @@ pub async fn submit(
             return Err(Error::new(StatusCode::BAD_REQUEST, "invalid_thread_root"));
         }
     }
+    // An edit or deletion amends one of the author's own accepted messages of
+    // this room, keeping its thread; never another amendment.
+    if let Some(target) = &header.target {
+        let amendable: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM e2ee_application_messages WHERE id=$1 AND room_id=$2 AND user_id=$3 AND target IS NULL AND thread_root IS NOT DISTINCT FROM $4)")
+            .bind(target).bind(room).bind(&actor.id).bind(&header.thread).fetch_one(&mut *tx).await?;
+        if !amendable {
+            return Err(Error::new(
+                StatusCode::BAD_REQUEST,
+                "invalid_amendment_target",
+            ));
+        }
+    }
     message_budget(&mut tx, actor, &device).await?;
     let position = crate::store::next_position(&mut tx).await?;
     let id = auth::random_token()[..24].to_owned();
@@ -248,8 +260,8 @@ pub async fn submit(
         message_id: id.clone(),
         position: position.to_string(),
     };
-    sqlx::query("INSERT INTO e2ee_application_messages(id,room_id,group_revision,user_id,device_id,operation_id,fingerprint,proof,ciphertext,receipt,thread_root) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)")
-        .bind(&id).bind(room).bind(header.group_revision as i64).bind(&actor.id).bind(&device).bind(&operation).bind(fingerprint).bind(checked.proof_bytes).bind(checked.ciphertext).bind(Json(&receipt)).bind(&header.thread).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO e2ee_application_messages(id,room_id,group_revision,user_id,device_id,operation_id,fingerprint,proof,ciphertext,receipt,thread_root,target) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)")
+        .bind(&id).bind(room).bind(header.group_revision as i64).bind(&actor.id).bind(&device).bind(&operation).bind(fingerprint).bind(checked.proof_bytes).bind(checked.ciphertext).bind(Json(&receipt)).bind(&header.thread).bind(&header.target).execute(&mut *tx).await?;
     sqlx::query(
         "INSERT INTO e2ee_delivery(position,room_id,group_revision,message_id) VALUES($1,$2,$3,$4)",
     )

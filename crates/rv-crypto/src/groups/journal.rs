@@ -41,6 +41,8 @@ pub struct ProjectedMessage {
     pub message: ClearMessage,
     /// Local protected observation/preparation time, not a signed send time.
     pub observed_at: u64,
+    /// The author's latest edit (E2EE_AMENDMENTS.md); the document stays signed.
+    pub edit: Option<super::amendments::Edit>,
 }
 pub struct JournalProjection {
     pub head: Receipt,
@@ -67,6 +69,8 @@ pub(super) struct RetainedProjection {
     pub has_older: bool,
     pub root: Option<ProjectedMessage>,
     pub replies: BTreeMap<String, u32>,
+    /// Amendments met in the walk, also applied to recovered history.
+    pub amendments: super::amendments::Amendments,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -116,6 +120,10 @@ fn read(records: &Records, scope: &Scope) -> Result<Option<Cursor>> {
         return Err(Error::JournalOrder);
     }
     Ok(Some(cursor))
+}
+/// The admission witness of this room's journal cursor, once started.
+pub(super) fn admission(records: &Records, scope: &Scope) -> Result<Option<Fingerprint>> {
+    Ok(read(records, scope)?.map(|cursor| cursor.admission))
 }
 pub(super) fn started(records: &Records, scope: &Scope) -> Result<bool> {
     Ok(read(records, scope)?.is_some())
@@ -453,6 +461,7 @@ impl Coordinator {
                         limit: query.limit - retained.messages.len(),
                         thread: query.thread.clone(),
                     },
+                    &retained.amendments,
                 )?;
                 retained.has_older = more;
                 retained.messages.splice(
@@ -460,16 +469,24 @@ impl Coordinator {
                     older.into_iter().map(|m| ProjectedMessage {
                         message: m.message,
                         observed_at: m.observed_at,
+                        edit: m.edit,
                     }),
                 );
             }
             if retained.root.is_none()
                 && let Some(thread) = &query.thread
-                && let Some(root) = self.recovered_root(records, blocks, &cursor.scope, thread)?
+                && let Some(root) = self.recovered_root(
+                    records,
+                    blocks,
+                    &cursor.scope,
+                    thread,
+                    &retained.amendments,
+                )?
             {
                 retained.root = Some(ProjectedMessage {
                     message: root.message,
                     observed_at: root.observed_at,
+                    edit: root.edit,
                 });
             }
             Ok(JournalProjection {

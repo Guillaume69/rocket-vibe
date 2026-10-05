@@ -54,6 +54,7 @@ pub(crate) fn document(author: &LocalDevice, room: &str, number: u64) -> Documen
             certificate: certificate.fingerprint().unwrap(),
             kind: Kind::Chat,
             thread: None,
+            target: None,
         },
         fingerprint: [5; 32],
         message: format!("message-{room}-{number}"),

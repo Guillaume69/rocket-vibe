@@ -2,6 +2,7 @@
 //! history backup (path B). Kept apart from this device's own journal indexes:
 //! each period has its own chain and shows only up to the last count whose
 //! chain digest was matched; a backed-up period may grow past it later.
+use super::super::amendments::Amendments;
 use super::*;
 use crate::history::Record;
 
@@ -53,6 +54,8 @@ pub struct RecoveredMessage {
     pub sharer: Fingerprint,
     /// Admission witness of the sharing device for this period.
     pub admission: Fingerprint,
+    /// The author's latest edit (E2EE_AMENDMENTS.md).
+    pub edit: Option<super::super::amendments::Edit>,
 }
 const PREFIX: &str = "crypto-recovered-archive-v1/";
 fn key(source: &Source) -> Result<String> {
@@ -230,7 +233,8 @@ impl Coordinator {
             return Err(Error::Limit);
         }
         self.inspect_with_blobs(|_, records, blocks| {
-            Ok(recovered(records, blocks, room, query, |_| true)?.0)
+            let amendments = recovered_amendments(records, blocks, room, |_| true)?;
+            Ok(recovered(records, blocks, room, query, |_| true, &amendments)?.0)
         })
     }
     /// The recovered document with this message id in `room`, for a thread
@@ -241,7 +245,12 @@ impl Coordinator {
         blocks: &Access<'_>,
         scope: &Scope,
         id: &str,
+        own: &Amendments,
     ) -> Result<Option<RecoveredMessage>> {
+        let mut amendments = recovered_amendments(records, blocks, &scope.room, |source| {
+            same_dataset(source, scope)
+        })?;
+        amendments.absorb(own);
         for (name, bytes) in records.range(PREFIX.to_string()..) {
             if !name.starts_with(PREFIX) {
                 break;
@@ -253,8 +262,13 @@ impl Coordinator {
             let mut entry = recovered_node(blocks, &shown.reference, &head.source)?;
             loop {
                 let (packet, message) = opened(&entry)?;
-                if packet.header.origin.message == id {
+                let origin = &packet.header.origin;
+                if origin.message == id && origin.header.target.is_none() {
+                    if amendments.deleted(origin) {
+                        return Ok(None);
+                    }
                     return Ok(Some(RecoveredMessage {
+                        edit: amendments.edit(origin),
                         message,
                         observed_at: packet.observed_at,
                         sharer: head.source.sharer,
@@ -277,10 +291,12 @@ impl Coordinator {
         blocks: &Access<'_>,
         scope: &Scope,
         query: &ProjectionQuery,
+        own: &Amendments,
     ) -> Result<(Vec<RecoveredMessage>, bool)> {
-        recovered(records, blocks, &scope.room, query, |source| {
-            same_dataset(source, scope)
-        })
+        let accept = |source: &Source| same_dataset(source, scope);
+        let mut amendments = recovered_amendments(records, blocks, &scope.room, accept)?;
+        amendments.absorb(own);
+        recovered(records, blocks, &scope.room, query, accept, &amendments)
     }
 }
 
@@ -289,14 +305,48 @@ fn same_dataset(source: &Source, scope: &Scope) -> bool {
         && source.scope.data_epoch == scope.data_epoch
         && source.scope.room == scope.room
 }
+/// The amendments in the shown periods of `room`, newest first per period.
+fn recovered_amendments(
+    records: &Records,
+    blocks: &Access<'_>,
+    room: &str,
+    accept: impl Fn(&Source) -> bool,
+) -> Result<Amendments> {
+    let mut amendments = Amendments::default();
+    for (name, bytes) in records.range(PREFIX.to_string()..) {
+        if !name.starts_with(PREFIX) {
+            break;
+        }
+        let head = read_head(bytes)?;
+        let Some(shown) = head
+            .shown
+            .filter(|_| head.source.scope.room == room && accept(&head.source))
+        else {
+            continue;
+        };
+        let mut entry = recovered_node(blocks, &shown.reference, &head.source)?;
+        loop {
+            let (packet, message) = opened(&entry)?;
+            let observed_at = packet.observed_at;
+            amendments.observe(&packet.header.origin, || Ok((message, observed_at)))?;
+            if entry.jumps.is_empty() {
+                break;
+            }
+            entry = previous_node(blocks, &entry, 0)?;
+        }
+    }
+    Ok(amendments)
+}
 /// Newest `query.limit` matching documents of the complete periods of `room`,
-/// returned in position order, and whether older ones exist.
+/// returned in position order, and whether older ones exist. Amendments are
+/// never rows; deleted documents are left out and edits applied.
 fn recovered(
     records: &Records,
     blocks: &Access<'_>,
     room: &str,
     query: &ProjectionQuery,
     accept: impl Fn(&Source) -> bool,
+    amendments: &Amendments,
 ) -> Result<(Vec<RecoveredMessage>, bool)> {
     let wanted = query.limit.saturating_add(1);
     // Several sources may hold the same position: it shows once.
@@ -319,11 +369,15 @@ fn recovered(
         }
         loop {
             let (packet, message) = opened(&entry)?;
-            let position = packet.header.origin.position;
+            let origin = &packet.header.origin;
+            let position = origin.position;
             if query.before.is_none_or(|p| position < p)
-                && packet.header.origin.header.thread == query.thread
+                && origin.header.thread == query.thread
+                && origin.header.target.is_none()
+                && !amendments.deleted(origin)
             {
                 selected.entry(position).or_insert(RecoveredMessage {
+                    edit: amendments.edit(origin),
                     message,
                     observed_at: packet.observed_at,
                     sharer: head.source.sharer,

@@ -156,7 +156,8 @@ impl Write for Limited {
         Ok(())
     }
 }
-fn validate_message(message: &SendMessage) -> Result<()> {
+/// Limits every document shares, whatever its kind.
+fn validate_basic(message: &SendMessage) -> Result<()> {
     if !packet::identifier(&message.operation_id)
         || message.text.len() > 32_768
         || message
@@ -168,20 +169,45 @@ fn validate_message(message: &SendMessage) -> Result<()> {
     {
         return Err(Error::Limit);
     }
-    if message.text.trim().is_empty() && message.quotes.is_empty() && message.cards.is_empty()
-        || message.quotes.iter().any(|q| {
-            !packet::identifier(&q.room_id)
-                || !packet::identifier(&q.message_id)
-                || q.revision
-                    .parse::<i64>()
-                    .ok()
-                    .is_none_or(|v| v <= 0 || v.to_string() != q.revision)
-        })
-        || !cards::validate(&message.cards)
+    if message.quotes.iter().any(|q| {
+        !packet::identifier(&q.room_id)
+            || !packet::identifier(&q.message_id)
+            || q.revision
+                .parse::<i64>()
+                .ok()
+                .is_none_or(|v| v <= 0 || v.to_string() != q.revision)
+    }) || !cards::validate(&message.cards)
     {
         return Err(Error::Changed);
     }
     Ok(())
+}
+/// A chat message carries text, a quote or a card.
+fn validate_message(message: &SendMessage) -> Result<()> {
+    validate_basic(message)?;
+    if message.text.trim().is_empty() && message.quotes.is_empty() && message.cards.is_empty() {
+        return Err(Error::Changed);
+    }
+    Ok(())
+}
+/// The payload shape each kind allows (E2EE_AMENDMENTS.md): an edit carries
+/// new text only, a deletion nothing.
+pub(crate) fn validate_kind(kind: &packet::Kind, message: &SendMessage) -> Result<()> {
+    match kind {
+        packet::Kind::Chat => validate_message(message),
+        packet::Kind::Edit | packet::Kind::Delete => {
+            validate_basic(message)?;
+            let empty = message.text.trim().is_empty();
+            if !message.quotes.is_empty()
+                || !message.cards.is_empty()
+                || empty != matches!(kind, packet::Kind::Delete)
+                || !message.text.is_empty() && matches!(kind, packet::Kind::Delete)
+            {
+                return Err(Error::Changed);
+            }
+            Ok(())
+        }
+    }
 }
 pub(crate) fn payload(message: &SendMessage) -> Result<Zeroizing<Vec<u8>>> {
     // Bound the serializer before card validation or copying any nested text.
@@ -194,7 +220,7 @@ pub(crate) fn payload(message: &SendMessage) -> Result<Zeroizing<Vec<u8>>> {
         },
     )
     .map_err(|_| Error::Limit)?;
-    validate_message(message)?;
+    validate_basic(message)?;
     Ok(out.0)
 }
 pub(crate) fn decode(bytes: &[u8], header: &packet::Header) -> Result<SendMessage> {
@@ -209,6 +235,7 @@ pub(crate) fn decode(bytes: &[u8], header: &packet::Header) -> Result<SendMessag
     {
         return Err(Error::Changed);
     }
+    validate_kind(&header.kind, &content.message)?;
     Ok(content.message)
 }
 fn operation(user: &str, id: &str) -> Result<String> {
@@ -517,6 +544,61 @@ impl Coordinator {
         message: &SendMessage,
         now: u64,
     ) -> Result<MessageSubmission> {
+        validate_message(message)?;
+        self.prepare_document(observation, message, packet::Kind::Chat, None, now)
+    }
+    /// Prepares an edit (`Some(text)`) or a deletion (`None`) of one of this
+    /// account's journaled messages (E2EE_AMENDMENTS.md), with the target's
+    /// thread so its routing and audience do not change.
+    pub fn prepare_amendment(
+        &self,
+        observation: &MessageObservation,
+        target: &str,
+        text: Option<String>,
+        operation_id: String,
+        now: u64,
+    ) -> Result<MessageSubmission> {
+        let user = &self.manager.scope().user;
+        let found = self.inspect_with_blobs(|_, records, blocks| {
+            let scope = &observation.head.scope;
+            let grant = observation
+                .roster
+                .members
+                .iter()
+                .find(|m| &m.user == user)
+                .ok_or(Error::Changed)?;
+            let Some(admission) = super::journal::admission(records, scope)? else {
+                return Ok(None);
+            };
+            self.journal_archive_find(records, blocks, scope, grant, admission, target)
+        })?;
+        let receipt = found.ok_or(Error::MessageNotRetained)?;
+        if &receipt.header.author != user || receipt.header.target.is_some() {
+            return Err(Error::Changed);
+        }
+        let kind = if text.is_some() {
+            packet::Kind::Edit
+        } else {
+            packet::Kind::Delete
+        };
+        let message = SendMessage {
+            operation_id,
+            text: text.unwrap_or_default(),
+            reply_to: receipt.header.thread.clone(),
+            quotes: Vec::new(),
+            cards: Vec::new(),
+        };
+        validate_kind(&kind, &message)?;
+        self.prepare_document(observation, &message, kind, Some(target.to_owned()), now)
+    }
+    pub(super) fn prepare_document(
+        &self,
+        observation: &MessageObservation,
+        message: &SendMessage,
+        kind: packet::Kind,
+        target: Option<String>,
+        now: u64,
+    ) -> Result<MessageSubmission> {
         check_request(&observation.roster, "message-control", &[])?;
         observation.head.scope.group_id()?;
         if !packet::identifier(&observation.head.operation) {
@@ -560,8 +642,9 @@ impl Coordinator {
                 device: context.certificate.device.device.clone(),
                 incarnation: context.certificate.device.incarnation,
                 certificate: context.certificate.fingerprint()?,
-                kind: packet::Kind::Chat,
+                kind,
                 thread: message.reply_to.clone(),
+                target,
             };
             group.set_aad(header.aad()?);
             let ciphertext = group
@@ -1202,8 +1285,24 @@ impl Coordinator {
                     payload: Zeroizing::new(entry.plaintext.to_vec()),
                 },
                 observed_at: entry.created,
+                edit: None,
             })
         };
+        // Amendments, newest first, then only the messages they leave.
+        let mut amendments = super::amendments::Amendments::default();
+        for (_, entry) in entries.iter().rev() {
+            let receipt = entry.receipt.as_ref().ok_or(Error::Changed)?;
+            amendments.observe(receipt, || {
+                let doc = projected(entry)?;
+                Ok((doc.message, doc.observed_at))
+            })?;
+        }
+        entries.retain(|(_, entry)| {
+            entry
+                .receipt
+                .as_ref()
+                .is_some_and(|r| r.header.target.is_none() && !amendments.deleted(r))
+        });
         let mut replies = BTreeMap::new();
         let mut root = None;
         for (_, entry) in &entries {
@@ -1211,7 +1310,7 @@ impl Coordinator {
             if let Some(thread) = &receipt.header.thread {
                 *replies.entry(thread.clone()).or_insert(0u32) += 1;
             } else if query.thread.as_ref() == Some(&receipt.message) {
-                root = Some(projected(entry)?);
+                root = Some(amendments.apply(projected(entry)?));
             }
         }
         entries.retain(|(position, entry)| {
@@ -1226,13 +1325,14 @@ impl Coordinator {
         let messages = entries
             .into_iter()
             .skip(skip)
-            .map(|(_, entry)| projected(entry))
+            .map(|(_, entry)| Ok(amendments.apply(projected(entry)?)))
             .collect::<Result<Vec<_>>>()?;
         Ok(super::journal::RetainedProjection {
             messages,
             has_older: older,
             root,
             replies,
+            amendments,
         })
     }
     pub(super) fn project_sources(
@@ -1262,6 +1362,7 @@ impl Coordinator {
                         payload: Zeroizing::new(entry.plaintext.to_vec()),
                     },
                     observed_at: entry.created,
+                    edit: None,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -1272,7 +1373,28 @@ impl Coordinator {
         {
             return Err(Error::JournalOrder);
         }
-        Ok(messages)
+        let mut amendments = super::amendments::Amendments::default();
+        let mut kept = Vec::with_capacity(messages.len());
+        for message in messages.into_iter().rev() {
+            let receipt = message.message.receipt.clone();
+            let observed_at = message.observed_at;
+            let payload = message.message.payload.clone();
+            if amendments.observe(&receipt, || {
+                Ok((
+                    ClearMessage {
+                        receipt: receipt.clone(),
+                        payload,
+                    },
+                    observed_at,
+                ))
+            })? || amendments.deleted(&receipt)
+            {
+                continue;
+            }
+            kept.push(amendments.apply(message));
+        }
+        kept.reverse();
+        Ok(kept)
     }
     pub(super) fn retire_message_admission(
         &self,

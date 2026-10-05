@@ -105,6 +105,7 @@ fn projected(value: &Node) -> Result<ProjectedMessage> {
             payload: Zeroizing::new(value.plaintext.to_vec()),
         },
         observed_at: value.observed_at,
+        edit: None,
     })
 }
 fn previous(blocks: &Access<'_>, current: &Node, level: usize) -> Result<Node> {
@@ -335,6 +336,7 @@ impl Coordinator {
                             payload: Zeroizing::new(entry.plaintext.to_vec()),
                         },
                         observed_at: entry.observed_at,
+                        edit: None,
                     });
                     if output.len() == query.limit {
                         break;

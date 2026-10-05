@@ -40,6 +40,7 @@ fn fixture() -> (LocalDevice, Receipt, Member, SendMessage, Records) {
             certificate: certificate.fingerprint().unwrap(),
             kind: Kind::Chat,
             thread: Some("thread-root".into()),
+            target: None,
         },
         fingerprint: [5; 32],
         message: "accepted-message".into(),

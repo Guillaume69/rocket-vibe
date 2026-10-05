@@ -20,6 +20,10 @@ pub fn identifier(value: &str) -> bool {
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
     Chat,
+    /// Replaces the text of `target` (E2EE_AMENDMENTS.md).
+    Edit,
+    /// Removes `target` from the projection.
+    Delete,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,6 +41,9 @@ pub struct Header {
     pub certificate: Fingerprint,
     pub kind: Kind,
     pub thread: Option<String>,
+    /// The amended message id for `edit` and `delete`; absent for `chat`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
 }
 impl Header {
     pub fn validate(&self) -> Result<(), Error> {
@@ -55,6 +62,13 @@ impl Header {
                 .thread
                 .as_ref()
                 .is_some_and(|s| !identifier(s) || s == &self.operation)
+            || match (&self.kind, &self.target) {
+                (Kind::Chat, None) => false,
+                (Kind::Edit | Kind::Delete, Some(target)) => {
+                    !identifier(target) || target == &self.operation
+                }
+                _ => true,
+            }
         {
             return Err(Error::Invalid);
         }

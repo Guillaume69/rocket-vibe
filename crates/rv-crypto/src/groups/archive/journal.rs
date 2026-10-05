@@ -307,13 +307,22 @@ impl Coordinator {
             has_older: false,
             root: None,
             replies: BTreeMap::new(),
+            amendments: Default::default(),
         };
         if header.retired {
             return Ok(Some(projection));
         }
         let mut entry = start(blocks, &header)?;
         loop {
-            if entry.receipt.position <= through {
+            // Amendments (newer than their targets, so met first) are never rows;
+            // a deleted message leaves the page, its thread and the reply counts.
+            let skip = entry.receipt.position > through
+                || projection.amendments.observe(&entry.receipt, || {
+                    let doc = document(blocks, &entry)?;
+                    Ok((doc.message, doc.observed_at))
+                })?
+                || projection.amendments.deleted(&entry.receipt);
+            if !skip {
                 if let Some(thread) = &entry.receipt.header.thread {
                     let count = projection.replies.entry(thread.clone()).or_insert(0u32);
                     *count = count.checked_add(1).ok_or(Error::Limit)?;
@@ -321,13 +330,14 @@ impl Coordinator {
                     if projection.root.is_some() {
                         return Err(Error::JournalOrder);
                     }
-                    projection.root = Some(document(blocks, &entry)?);
+                    projection.root = Some(projection.amendments.apply(document(blocks, &entry)?));
                 }
                 if query.before.is_none_or(|p| entry.receipt.position < p)
                     && entry.receipt.header.thread == query.thread
                 {
                     if projection.messages.len() < query.limit {
-                        projection.messages.push(document(blocks, &entry)?);
+                        let doc = projection.amendments.apply(document(blocks, &entry)?);
+                        projection.messages.push(doc);
                     } else {
                         projection.has_older = true
                     }
@@ -340,6 +350,33 @@ impl Coordinator {
         }
         projection.messages.reverse();
         Ok(Some(projection))
+    }
+    /// The receipt of an indexed document by its message id, newest first.
+    pub(in super::super) fn journal_archive_find(
+        &self,
+        records: &Records,
+        blocks: &Access<'_>,
+        scope: &Scope,
+        grant: &Member,
+        admission: Fingerprint,
+        id: &str,
+    ) -> Result<Option<packet::Receipt>> {
+        let Some(header) = head(records, &binding(scope, grant, admission))? else {
+            return Ok(None);
+        };
+        if header.retired {
+            return Ok(None);
+        }
+        let mut entry = start(blocks, &header)?;
+        loop {
+            if entry.receipt.message == id {
+                return Ok(Some(entry.receipt));
+            }
+            if entry.jumps.is_empty() {
+                return Ok(None);
+            }
+            entry = previous(blocks, &entry, 0)?;
+        }
     }
     /// Every indexed document up to `through`, oldest first: quote sources
     /// outlive the hot cache. Each one revalidates its original proof.
@@ -359,10 +396,17 @@ impl Coordinator {
             return Ok(Some(Vec::new()));
         }
         let mut sources = Vec::new();
+        let mut amendments = super::super::amendments::Amendments::default();
         let mut entry = start(blocks, &header)?;
         loop {
-            if entry.receipt.position <= through {
-                sources.push(document(blocks, &entry)?);
+            if entry.receipt.position <= through
+                && !amendments.observe(&entry.receipt, || {
+                    let doc = document(blocks, &entry)?;
+                    Ok((doc.message, doc.observed_at))
+                })?
+                && !amendments.deleted(&entry.receipt)
+            {
+                sources.push(amendments.apply(document(blocks, &entry)?));
             }
             if entry.jumps.is_empty() {
                 break;

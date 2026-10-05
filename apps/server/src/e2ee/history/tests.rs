@@ -111,6 +111,7 @@ pub(super) fn record(sharer: &Client, author: &Client, room: &str, position: u64
                     certificate: original.fingerprint().unwrap(),
                     kind: Kind::Chat,
                     thread: None,
+                    target: None,
                 },
                 fingerprint: [5; 32],
                 message: format!("message-{position}"),

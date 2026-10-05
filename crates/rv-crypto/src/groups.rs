@@ -23,6 +23,8 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+mod amendments;
+pub use amendments::Edit;
 mod archive;
 pub use archive::RecoveredMessage;
 mod drafts;
@@ -53,6 +55,7 @@ pub use messages::{
     CancelledMessage, ClearMessage, MessageCancellation, MessageObservation, MessagePending,
     MessageSettlement, MessageSubmission, OutgoingMessage,
 };
+pub use rv_crypto_public::messages::Kind as MessageKind;
 pub use rv_crypto_public::messages::Receipt as MessageReceipt;
 
 const SUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;

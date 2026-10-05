@@ -91,8 +91,10 @@ export class CryptoHistoryBackupAccess {
   /** Uploads every pending page of this device's history; returns the pages sent. */
   sync():Promise<number>{return this.identity.withIdentity(async(handle,_own,read,check,scope)=>{
     let pages=0;
+    // Uploads go only under the active generation (E2EE_HISTORY_BACKUP.md).
+    await check();const remote=decodeNative('HistoryKeyState',await this.remote.cryptoHistoryKey());await check();
     for(;;){
-      const r=record(await this.action(handle,await read(scope.user),{action:'upload'},check));
+      const r=record(await this.action(handle,await read(scope.user),{action:'upload',remote},check));
       if(r.upload===null)return pages;
       const upload=record(r.upload);
       if(typeof upload.period!=='string'||!/^[0-9a-f]{64}$/.test(upload.period))fail();

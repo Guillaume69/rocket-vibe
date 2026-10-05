@@ -50,7 +50,9 @@ enum Action {
         remote: e2ee::HistoryKeyState,
         code: EnteredCode,
     },
-    Upload {},
+    Upload {
+        remote: e2ee::HistoryKeyState,
+    },
     Uploaded {
         receipt: e2ee::HistoryBackupReceipt,
     },
@@ -147,7 +149,7 @@ impl CryptoInstallation {
                     c.join_history_backup(d, &remote, &code.0)?;
                     status(c)?
                 }
-                Action::Upload {} => match c.history_backup_upload(d, time)? {
+                Action::Upload { remote } => match c.history_backup_upload(d, &remote, time)? {
                     Some(upload) => {
                         let output = json!({"period": upload.period, "input": upload.input});
                         staged.upload = Some(upload);

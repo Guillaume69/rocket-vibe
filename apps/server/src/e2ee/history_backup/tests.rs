@@ -316,6 +316,23 @@ async fn periods_grow_by_checked_pages_and_any_device_of_the_account_downloads_t
         history_backup::publish(&app, &o.phone, publish_input(&o.phone_keys, Some("4"), 5)).await,
         "history_key_limit",
     );
+    // A retired generation, still known, takes no new records.
+    rejected(
+        history_backup::upload(
+            &app,
+            &o.desktop,
+            &id,
+            upload_input(
+                &o.desktop_keys,
+                1,
+                &period,
+                &records,
+                &[record(&o.desktop_keys, &o.author, &o.room, 16)],
+            ),
+        )
+        .await,
+        "history_generation_superseded",
+    );
     let count = || async {
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM e2ee_history_backup_records")
             .fetch_one(&app.pool)

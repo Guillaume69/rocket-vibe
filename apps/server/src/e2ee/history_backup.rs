@@ -470,6 +470,19 @@ pub async fn upload(
     if !known {
         return Err(Error::missing());
     }
+    // New records go only under the active generation: a rotation retires
+    // the old key for everything after it. Shared lock against publication.
+    let active: Option<String> =
+        sqlx::query_scalar("SELECT generation FROM e2ee_history_keys WHERE user_id=$1 FOR SHARE")
+            .bind(&actor.id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if active.as_deref() != Some(generation.as_str()) {
+        return Err(Error::new(
+            StatusCode::CONFLICT,
+            "history_generation_superseded",
+        ));
+    }
     crate::store::require_member(&mut tx, &room, &actor.id).await?;
     let held: Option<(i64, i64, Vec<u8>)> = sqlx::query_as(
         "SELECT count,last_position,chain FROM e2ee_history_backup_periods WHERE user_id=$1 AND period=$2 FOR UPDATE",

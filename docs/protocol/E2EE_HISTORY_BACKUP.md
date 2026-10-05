@@ -27,7 +27,13 @@ background once the backup is enabled.
 - The backup is deliberately recoverable and claims no forward secrecy. Changing
   the code or deleting the package does not invalidate an old copy and its code;
   the user rotates to a new **generation** (new key, new code) when a code may have
-  leaked or a device is withdrawn. Older generations stay readable with their code.
+  leaked or a device is withdrawn. Older generations stay readable with their code,
+  but take no new records: every device uploads only while the key it holds is the
+  active generation's (checked against the signed active publication before each
+  sync), and the server refuses a page of any other generation
+  (`409 history_generation_superseded`). A device still holding a retired key,
+  including one received in a path A share, pauses its uploads until it joins the
+  new generation with its code.
 - Restoring the history never restores the identity: the new device registers its
   own identity (or restores it from the identity backup) and gets its own Welcome
   to send. Recovered history is read only.
@@ -114,7 +120,8 @@ A period only grows: a checkpoint never shrinks or rewrites a held prefix.
 
 Checks: the uploading device is registered and unrevoked, its certificate attests
 every record and signs the checkpoint; ranks are contiguous, positions increasing,
-the room one the account can still read at upload; downloads require the account
+the room one the account can still read at upload; the generation is the active
+one (otherwise `409 history_generation_superseded`); downloads require the account
 to still read the room, as path A. Quotas per account: 4 generations a day,
 1,000,000 records and 2 GiB stored; the oldest generations beyond the 4 most recent
 are deleted by maintenance.

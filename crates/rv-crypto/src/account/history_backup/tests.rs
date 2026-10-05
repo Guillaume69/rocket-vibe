@@ -158,4 +158,36 @@ fn a_generation_is_enabled_behind_its_code_and_another_device_joins_with_it() {
     let status = d.history_backup_status(&directory).unwrap();
     assert!(!status.pending);
     assert_eq!(status.generation, Some(receipt.generation));
+    assert!(d.holds_active(&active).unwrap() && p.holds_active(&active).unwrap());
+    assert!(!d.holds_active(&nothing).unwrap());
+    // A rotation retires the old key: the phone, still holding it, uploads
+    // nothing under it until it joins the new generation.
+    let preview = d
+        .preview_history_backup(&directory, active.clone())
+        .unwrap();
+    d.prepare_history_backup(&directory, preview, NOW + 2)
+        .unwrap();
+    let code = d.history_backup_code().unwrap();
+    d.confirm_history_backup_code().unwrap();
+    let request = d.pending_history_backup().unwrap();
+    let receipt = issued(&request, "2");
+    d.acknowledge_history_backup(&request, receipt.clone())
+        .unwrap();
+    let rotated = http::HistoryKeyState {
+        scope: scope(),
+        active: Some(http::HistoryKeyVersion {
+            publication: request.publication.clone(),
+            receipt,
+        }),
+    };
+    assert!(d.holds_active(&rotated).unwrap());
+    assert!(!p.holds_active(&rotated).unwrap());
+    assert!(
+        p.history_backup_upload(&phone_directory, &rotated, NOW + 2)
+            .unwrap()
+            .is_none()
+    );
+    p.join_history_backup(&phone_directory, &rotated, &code)
+        .unwrap();
+    assert!(p.holds_active(&rotated).unwrap() && !p.holds_active(&active).unwrap());
 }

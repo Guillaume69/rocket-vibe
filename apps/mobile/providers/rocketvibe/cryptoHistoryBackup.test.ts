@@ -36,7 +36,7 @@ function native(pages:number,periodRecords:number) {
         case 'pending':assert(value.code_saved);return JSON.stringify(request);
         case 'acknowledge':assert.deepEqual(input.receipt,receipt);value={...value,pending:false,holds_key:true,generation,receipt};return JSON.stringify(value);
         case 'join':assert.equal(input.code,code);assert.equal(input.remote.active.receipt.generation,generation);value={...value,holds_key:true,generation};return JSON.stringify(value);
-        case 'upload':return JSON.stringify({upload:uploads<pages?{period,input:{scope:wire,start:String(uploads),records:['cmVjb3Jk'],checkpoint:'Y2hlY2twb2ludA'}}:null});
+        case 'upload':assert.equal(input.remote.active.receipt.generation,generation);return JSON.stringify({upload:uploads<pages?{period,input:{scope:wire,start:String(uploads),records:['cmVjb3Jk'],checkpoint:'Y2hlY2twb2ludA'}}:null});
         case 'uploaded':assert.deepEqual(input.receipt,{period,count:String(uploads+1)});uploads++;return '{"recorded":true}';
         case 'next':assert.equal(input.listed.period,period);return JSON.stringify({after:imported<periodRecords?String(imported):null});
         case 'import':assert.equal(input.page.start,String(imported));imported+=input.page.records.length;return JSON.stringify({after:imported<periodRecords?String(imported):null});

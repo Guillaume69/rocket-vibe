@@ -153,12 +153,15 @@ impl Access {
         let _dispatch = self.0.dispatch.lock().await;
         let session = self.backup_session()?;
         let mut pages = 0;
+        // Uploads go only under the active generation (E2EE_HISTORY_BACKUP.md).
+        let active = session.client.crypto_history_key().await.map_err(native)?;
         loop {
             let wire = self.observe().await?;
+            let state = active.clone();
             let upload = self
                 .owned(move |slot, time| {
                     let c = Coordinator::new(slot);
-                    Ok(c.history_backup_upload(&c.directory(wire)?, time)?)
+                    Ok(c.history_backup_upload(&c.directory(wire)?, &state, time)?)
                 })
                 .await?;
             let Some(upload) = upload else { return Ok(pages) };

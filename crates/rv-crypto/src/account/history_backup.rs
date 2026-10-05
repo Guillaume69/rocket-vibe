@@ -483,12 +483,20 @@ impl Coordinator<'_> {
         let (manager, root) = self.prepared(directory, time)?;
         Ok(crate::groups::Coordinator::new(manager, root)?)
     }
-    /// The next page this device should back up, if it holds the history key.
+    /// The next page this device should back up, if it holds the key of the
+    /// active generation (`active`, the server's signed state). After a
+    /// rotation (a leaked code, a withdrawn device), a device still holding
+    /// the old key uploads nothing until it joins the new generation with its
+    /// code: new history never goes under a key the rotation meant to retire.
     pub fn history_backup_upload(
         &self,
         directory: &Directory,
+        active: &http::HistoryKeyState,
         time: u64,
     ) -> Result<Option<BackupUpload>> {
+        if !self.holds_active(active)? {
+            return Ok(None);
+        }
         let Some(page) = self
             .backup_groups(directory, time)?
             .history_backup_page(time)?
@@ -515,6 +523,15 @@ impl Coordinator<'_> {
             start: page.start,
             count: page.records.len() as u64,
         }))
+    }
+    /// This device holds the key of the generation `active` names.
+    fn holds_active(&self, active: &http::HistoryKeyState) -> Result<bool> {
+        let (manager, account) = self.state()?;
+        let Some(p) = remote(self.0.account(), &account.root, active)? else {
+            return Ok(false);
+        };
+        let key = manager.inspect(|_, records| held(records))?;
+        Ok(key.is_some_and(|k| k.generation == p.package.header.generation))
     }
     /// The server holds this page; its progress is recorded.
     pub fn history_backup_uploaded(

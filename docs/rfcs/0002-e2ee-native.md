@@ -252,8 +252,10 @@ conservation des documents déjà authentifiés après retrait de leur auteur.
 Elle distingue les copies locales des autorisations de nouveau téléchargement.
 Les formats / enveloppes et leur qualification restent à livrer.
 
-Le format d'archive / sauvegarde de ses clés, son AEAD et son authentification
-d'auteur restent à spécifier et revoir. La sauvegarde de **racine de compte**
+Un [premier format de document d'archive](../protocol/E2EE_ARCHIVE.md#premier-format--document-immuable-v1)
+implémente AEAD, signature et liaison à l'original. Admission, transport,
+enveloppes / sauvegardes de clés, lecteurs et revue restent à livrer.
+La sauvegarde de **racine de compte**
 est implémentée séparément : code OS aléatoire, AAD lié à la racine / ID de backup,
 graine privée chiffrée et restauration neuve avec reçu de rejeu exact. Elle ne
 récupère aucun ratchet, clé d'archive, pin ou fichier historique. Un code ancien

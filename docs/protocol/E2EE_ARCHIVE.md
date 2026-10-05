@@ -95,3 +95,71 @@ cache ordinaire ni à la recherche du serveur.
 Les règles ci-dessus fixent les destinataires et la séparation entre lecture
 historique et autorisation courante. Les formats, APIs, sauvegardes de clés et
 tests de ces critères restent à implémenter.
+
+## Premier format : document immuable v1
+
+Le paquet public `rv-crypto-public::archive::Packet` et les primitives privées
+`rv-crypto::archive` sont implémentés. Ce premier lot n'est pas encore raccordé
+au journal, au serveur ou aux interfaces ; il ne supprime pas la limite actuelle
+de 64 documents de la projection. Le reçu d'origine des tests est synthétique.
+
+Le paquet contient :
+
+| Champ | Liaison |
+|---|---|
+| `header.version` | Version 1 uniquement |
+| `header.origin` | Reçu exact : portée / incarnation de groupe, opération, fil, empreinte du groupe et de l'intention, auteur / appareil / incarnation / certificat, ID et position du message |
+| `header.author_membership` | Compte auteur et versions originales d'accès / activation |
+| `header.key_id` | Identifiant OS aléatoire de 16 octets |
+| `header.nonce` | Nonce OS aléatoire de 24 octets |
+| `original_certificate` | Certificat historique correspondant au reçu d'origine |
+| `certificate` | Certificat de la feuille qui signe l'archive ; même racine immuable que l'auteur d'origine |
+| `ciphertext` | Document canonique chiffré ; codec identique au message privé vivant |
+| `signature` | Signature Ed25519 de la feuille d'archive |
+
+`position`, `group_revision` et `epoch` du reçu public sont des chaînes décimales
+canoniques ; les versions d'adhésion le sont également. Les entiers sont bornés
+à `i64::MAX`, avec zéro autorisé seulement pour l'epoch. Les autres champs du
+reçu utilisent son schéma strict existant ; ses clés JSON sont triées lors de
+la sérialisation. Le décodage canonique refuse les champs supplémentaires et
+les versions / nombres ambigus avant d'accepter le paquet.
+
+Une clé OS aléatoire de 32 octets chiffre un seul document avec
+XChaCha20-Poly1305. Les données associées sont
+`rocketvibe-archive-document-aad-v1`, un octet nul, puis le JSON canonique du
+header. Le document déchiffré conserve opération / fil / citations / cartes et
+les mêmes validations que le codec de messages. Sa limite est de 64 Kio ; celle
+du ciphertext est de 64 Kio + 16 octets, et le paquet JSON est borné à 384 Kio.
+
+La signature lie `rocketvibe-archive-document-proof-v1`, un octet nul, puis le
+tuple JSON : header, empreinte du certificat original, empreinte du certificat
+d'archive, SHA-256 du ciphertext. L'empreinte du paquet lie un autre domaine,
+`rocketvibe-archive-document-fingerprint-v1`, à ses octets canoniques complets.
+Les deux certificats sont authentifiés ; le certificat d'archive doit être
+valide actuellement pour une nouvelle publication. Un certificat original
+expiré reste une référence historique. Une feuille renouvelée ou récupérée de
+la même racine peut archiver un original déjà observé sans en réécrire la preuve.
+Une autre racine, même avec le même nom de compte, est refusée.
+
+Les clés privées n'ont ni formatage de diagnostic, ni clone, sérialisation,
+affichage ou export brut. Leur persistance utilise uniquement les records du
+coffre chiffré, sous un nom dérivé de l'empreinte exacte du paquet. Une clé
+substituée ou un paquet AEAD corrompu est refusé avant restitution du document.
+Supprimer cette clé locale n'invalide pas une autre copie déjà détenue.
+
+Ces signatures ne prouvent ni la date d'acceptation, ni l'adhésion, ni l'égalité
+du document avec son original MLS. Le coordinateur devra vérifier cette égalité
+et conserver le témoin d'observation dans la même transaction protégée avant
+d'admettre une archive. La simple décryption ne remplace pas les contrôles des
+droits actuels et des périodes autorisées définis plus haut.
+
+Cinq tests privés exercent AEAD réel, réouverture de clé, liaison exacte,
+substitutions, encodage / limites et certificat renouvelé. Un vecteur public à
+positions supérieures à 2^53 est vérifié par Rust et indépendamment par
+`node crates/rv-crypto-public/scripts/verify-archive-vector.mjs` (Node/OpenSSL),
+ajouté au contrôle serveur. Ce vecteur contient un certificat jetable et un
+paquet AEAD réel, sans clé privée ; il n'atteste pas une admission MLS réelle.
+
+Restent la persistance complète des paquets, l'admission / pagination des
+archives, les enveloppes de destinataires et sauvegardes de leurs clés, le
+transport serveur, les lecteurs existants et la qualification indépendante.

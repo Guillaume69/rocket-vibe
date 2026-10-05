@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 pub mod account;
+pub mod archive;
 #[cfg(feature = "native-http")]
 pub mod delivery;
 pub mod groups;

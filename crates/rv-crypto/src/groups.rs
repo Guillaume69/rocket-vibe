@@ -31,7 +31,7 @@ use verification::Verification;
 mod changes;
 pub use changes::Change;
 mod journal;
-mod messages;
+pub(crate) mod messages;
 mod readmission;
 mod settlement;
 pub use settlement::{CancellationRequest, GroupCancellation, GroupSettlement};

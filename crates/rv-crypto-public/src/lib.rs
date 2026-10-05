@@ -5,6 +5,7 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use openmls::prelude::{BasicCredential, Credential, CredentialType};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+pub mod archive;
 pub mod enrollment;
 pub mod groups;
 pub mod messages;

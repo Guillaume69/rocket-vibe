@@ -5,6 +5,22 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 
 ## État synthétique au 5 octobre 2026
 
+Archive, premier format : paquet immuable signé, clé OS par document et AEAD
+distinct de MLS, liaison au reçu / certificat / adhésion d'origine, positions
+et révisions exactes en chaînes. Une feuille renouvelée de la même racine peut
+archiver un original observé sans modifier sa preuve ; une autre racine est
+refusée. Cinq tests privés passent en 0,07 s et Node/OpenSSL vérifie le vecteur
+public. Les reçus sont synthétiques ; admission, stockage complet / transport,
+enveloppes / sauvegardes de clés et lecteurs ne sont pas encore raccordés.
+Le cache de 64 documents demeure celui des interfaces actuelles. Le format et
+ses limites sont dans [la politique d'archive](protocol/E2EE_ARCHIVE.md).
+
+L'app macOS du raccordement récupération bureau passe compilation / démarrage
+dans 37297575743 ; les modèles Swift passent dans le job 111722379266 de
+37297575738. Android / Keystore / deux ABI passent dans 37297575854. Le dernier
+job GTK de cette CI demeure en cours. Le lot précédent 993db76 a ses neuf jobs
+natifs et ses CI macOS / Android verts.
+
 La CI native de cette branche conserve désormais le banc déjà actif et met le
 nouveau lot en attente, au lieu d'annuler les tests / sauvegardes de cache lors
 du push. Le workflow macOS indépendant peut démarrer immédiatement. Le groupe

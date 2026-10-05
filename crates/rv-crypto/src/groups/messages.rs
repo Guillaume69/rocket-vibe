@@ -175,7 +175,7 @@ fn validate_message(message: &SendMessage) -> Result<()> {
     }
     Ok(())
 }
-pub(super) fn payload(message: &SendMessage) -> Result<Zeroizing<Vec<u8>>> {
+pub(crate) fn payload(message: &SendMessage) -> Result<Zeroizing<Vec<u8>>> {
     // Bound the serializer before card validation or copying any nested text.
     let mut out = Limited(Zeroizing::new(Vec::new()));
     serde_json::to_writer(
@@ -189,7 +189,7 @@ pub(super) fn payload(message: &SendMessage) -> Result<Zeroizing<Vec<u8>>> {
     validate_message(message)?;
     Ok(out.0)
 }
-fn decode(bytes: &[u8], header: &packet::Header) -> Result<SendMessage> {
+pub(crate) fn decode(bytes: &[u8], header: &packet::Header) -> Result<SendMessage> {
     if bytes.is_empty() || bytes.len() > PLAIN_LIMIT {
         return Err(Error::Limit);
     }

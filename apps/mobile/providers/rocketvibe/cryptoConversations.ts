@@ -1,6 +1,6 @@
 import type {CryptoConversationBridge} from '../../modules/crypto-native/index.ts';
 import {CryptoGroupAccess,type CryptoRoomAction} from './cryptoGroups.ts';
-import type {ApplicationReceipt,ApplicationSettlement,ApplicationSubmission,DeliveryPage,GroupRoster,GroupState,SendMessage} from './protocol.generated.ts';
+import type {ApplicationReceipt,ApplicationSettlement,ApplicationSubmission,DeliveryPage,EncryptedFile,GroupRoster,GroupState,SendMessage} from './protocol.generated.ts';
 import type {NativeQuoteAttachment,NativeQuoteSelection,PublicQuoteSources} from './quotes.ts';
 import {ordinaryQuoteRoom,privateQuoteCards,type PrivateQuoteSelection,type PrivateQuotePreview,type CryptoQuotePreview,type PrivateQuoteRoom} from './cryptoQuotes.ts';
 import {NativeError} from './transport.ts';
@@ -260,7 +260,7 @@ export class CryptoConversationAccess {
       return this.quotePreview(selection,room);
     });
   }
-  async send(text:string,quotes:readonly NativeQuoteSelection[]=[]):Promise<string> {
+  async send(text:string,quotes:readonly NativeQuoteSelection[]=[],files:readonly EncryptedFile[]=[]):Promise<string> {
     return this.run(true,async(rpc,_r,peers,scope,call)=>{
       const selected=quotes.map(quoteSelection),sources:PrivateQuoteRoom[]=[];
       if(selected.length>8 || new Set(selected.map(q=>JSON.stringify([q.reference.room_id,q.reference.message_id]))).size!==selected.length)integrity();
@@ -281,7 +281,8 @@ export class CryptoConversationAccess {
       const prepared=object(await rpc({action:'prepare',text,quotes:selected,
         sources:sources.filter(s=>s.room!==this.room && s.observation!==null).map(s=>s.observation),
         public_sources:sources.filter(s=>s.admission===null).map(s=>({room_id:s.room,membership_version:s.membership,
-          references:selected.filter(q=>q.reference.room_id===s.room).map(q=>q.reference)}))}));if(!id(prepared.operation))integrity();
+          references:selected.filter(q=>q.reference.room_id===s.room).map(q=>q.reference)})),
+        ...(files.length?{files:files.map(f=>decodeNative('EncryptedFile',f))}:{})}));if(!id(prepared.operation))integrity();
       // Once prepared, an uncertain HTTP result leaves this exact intention in
       // the private outbox. A retry never prepares a second ciphertext.
       try {await this.resumeInner(prepared.operation,rpc,call);}

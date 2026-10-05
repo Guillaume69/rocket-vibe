@@ -223,6 +223,7 @@ impl NativeCryptoMessages {
                         reply_to: thread,
                         quotes: selections.iter().map(|s| s.reference.clone()).collect(),
                         cards: vec![],
+                        files: vec![],
                     },
                     selections,
                 )
@@ -230,6 +231,34 @@ impl NativeCryptoMessages {
         })
         .await
         .map_err(error)
+    }
+    /// Whether this room's server takes (encrypted) files.
+    pub fn files_available(&self) -> bool {
+        self.access.files_available()
+    }
+    /// Seals a file on the device and sends it in a private message; a
+    /// `temporary` source is deleted afterwards (E2EE_FILES.md).
+    pub async fn send_file(
+        &self,
+        path: String,
+        name: String,
+        mime: String,
+        caption: String,
+        temporary: bool,
+    ) -> Result<(), RvError> {
+        let access = self.access.clone();
+        let source = std::path::PathBuf::from(&path);
+        let result =
+            on_tokio(async move { access.send_file(source, name, mime, caption).await }).await.map_err(|e| match e {
+                rv_core::native::crypto::Error::Session(rv_core::native::Error::Protocol("too-large:100")) => {
+                    RvError::local("too-large:100")
+                }
+                e => error(e),
+            });
+        if temporary {
+            let _ = std::fs::remove_file(&path);
+        }
+        result
     }
     /// Reacts to a journaled message (`present`) or withdraws the reaction.
     pub async fn react(&self, message_id: String, emoji: String, present: bool) -> Result<(), RvError> {

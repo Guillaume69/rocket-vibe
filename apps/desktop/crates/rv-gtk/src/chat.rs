@@ -1556,6 +1556,10 @@ impl ChatPage {
 
     fn send_files(self: &Rc<Self>, outgoing: crate::composer::Outgoing) {
         let Some(rid) = self.current_rid() else { return };
+        if self.current.borrow().as_ref().is_some_and(|r| r.encrypted) {
+            self.send_private_files(outgoing);
+            return;
+        }
         let provider = if let Some(s) = self.native_session() {
             crate::media::Provider::RocketVibe(s)
         } else if let Some(s) = self.session() {

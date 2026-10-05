@@ -771,6 +771,7 @@ impl NativeSession {
                     quotes: pending.quotes,
                     operation_id: pending.id.clone(),
                     text: pending.text,
+                    files: vec![],
                 },
             )
             .await

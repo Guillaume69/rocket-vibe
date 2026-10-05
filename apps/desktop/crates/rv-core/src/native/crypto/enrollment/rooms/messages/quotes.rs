@@ -124,6 +124,7 @@ impl Access {
                             reply_to: None,
                             quotes: doc.references,
                             cards: vec![],
+                            files: vec![],
                         },
                     },
                 ))
@@ -344,6 +345,7 @@ mod tests {
                 reply_to: None,
                 quotes,
                 cards: vec![],
+                files: vec![],
             },
             position: "9007199254740995".into(),
             author: "reader-visible-author".into(),

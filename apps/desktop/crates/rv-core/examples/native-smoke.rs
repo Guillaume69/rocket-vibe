@@ -32,6 +32,7 @@ async fn marker(client: &NativeClient, rid: &str, text: &str) {
                 quotes: vec![],
                 operation_id: format!("{:032x}", fastrand::u128(..)),
                 text: text.into(),
+                files: vec![],
             },
         )
         .await

@@ -1145,7 +1145,7 @@ function Room({
             c={c}
             rid={rid}
             outbox={observedSend}
-            files={protectedRoom || provider.capabilities.files === false ? null : files}
+            files={provider.capabilities.files === false ? null : protectedRoom ? conversation.files : files}
             client={client}
             mentionCandidates={mentionCandidates}
             readOnly={protectedRoom ? canWrite!==true || conversation.view?.can_send!==true || conversation.view.catching_up : provider.native && provider.capabilities.roomInfo ? canWrite!==true : room.readOnly}

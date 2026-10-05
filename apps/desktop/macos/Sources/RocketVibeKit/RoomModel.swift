@@ -31,7 +31,8 @@ public final class RoomModel {
     public let threadId: String?
     public let provider: ChatProvider
     var chat: Chat? { provider.legacy }
-    public var supportsFiles: Bool { !privateMode && provider.supportsFiles }
+    /// Encrypted rooms send files sealed on the device (E2EE_FILES.md), in the room itself.
+    public var supportsFiles: Bool { privateMode ? privateReady && threadId == nil && privateHandle?.filesAvailable() == true : provider.supportsFiles }
     public var supportsEditing: Bool { privateMode ? privateReady : provider.supportsEditing }
     public var supportsRoomInfo: Bool { active && provider.supportsRoomInfo }
     public var supportsCalls: Bool { active && membershipIsCurrent && provider.supportsCalls }
@@ -963,6 +964,12 @@ public final class RoomModel {
     public func attach(path: String, name: String, mime: String, caption: String?, temporary: Bool) async -> String? {
         guard active, membershipIsCurrent else { return L("native.error") }
         do {
+            if privateMode {
+                guard let privateHandle else { return L("crypto.failed") }
+                try await privateHandle.sendFile(path: path, name: name, mime: mime, caption: caption ?? "", temporary: temporary)
+                await refreshPrivate()
+                return nil
+            }
             if let chat {
                 try await chat.attach(rid: room.rid, path: path, name: name, mime: mime, caption: caption, temporary: temporary)
             } else if let native=provider.native, let nativeMembership {

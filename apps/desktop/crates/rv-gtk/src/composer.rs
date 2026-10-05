@@ -656,7 +656,9 @@ impl Composer {
         draft: &str,
     ) {
         self.unbind_native();
-        self.attach.set_sensitive(false);
+        // Encrypted files (E2EE_FILES.md) in the room itself; not yet voice
+        // messages, nor files in a thread, like ordinary native threads.
+        self.attach.set_sensitive(access.files_available() && access.thread().is_none());
         self.mic.set_sensitive(false);
         self.staged.switch(rid);
         self.clear_reply();

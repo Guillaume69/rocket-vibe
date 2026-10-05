@@ -23,6 +23,8 @@ struct Book {
     drop_message: bool,
     available: Option<rv_protocol::e2ee::AvailableKeyPackage>,
     package_gets: usize,
+    /// Encrypted objects by upload id: the reservation, then the opaque bytes.
+    uploads: BTreeMap<String, (rv_protocol::parity::PrepareUpload, Option<Vec<u8>>)>,
 }
 impl Book {
     fn reply(&mut self, request: &common::Request) -> Option<common::Response> {
@@ -130,6 +132,10 @@ impl Book {
                 assert_eq!(proof.header.scope.room, "room");
                 assert_eq!(proof.header.operation, input.operation_id);
                 assert!(!request.body.contains("private-message-cleartext"));
+                // Encrypted files are the sender's ready objects (E2EE_FILES.md).
+                for file in &proof.header.files {
+                    assert!(self.uploads.get(file).is_some_and(|(_, bytes)| bytes.is_some()));
+                }
                 let receipt = rv_crypto::groups::wire::message_receipt_to_wire(&rv_crypto_public::messages::Receipt {
                     header: proof.header.clone(),
                     fingerprint: proof.fingerprint().unwrap(),
@@ -189,6 +195,44 @@ impl Book {
                     .unwrap(),
                 )
             }
+            "/api/v1/uploads" => {
+                let input: rv_protocol::parity::PrepareUpload = serde_json::from_str(&request.body).unwrap();
+                assert!(input.encrypted && input.filename.is_none() && input.media_type == "application/octet-stream");
+                let id = format!("upload-{}", self.uploads.len() + 1);
+                let upload = upload(&id, &input, "prepared");
+                self.uploads.insert(id, (input, None));
+                json_response(upload)
+            }
+            path if path.starts_with("/api/v1/uploads/") && path.ends_with("/bytes") => {
+                let id = path.trim_start_matches("/api/v1/uploads/").trim_end_matches("/bytes").to_owned();
+                let (input, bytes) = self.uploads.get_mut(&id).unwrap();
+                assert_eq!(request.raw.len().to_string(), input.bytes);
+                assert_eq!(hex(&<sha2::Sha256 as sha2::Digest>::digest(&request.raw)), input.sha256);
+                assert!(!request.raw.windows(9).any(|w| w == b"cleartext"), "the object is opaque");
+                *bytes = Some(request.raw.clone());
+                json_response(upload(&id, input, "ready"))
+            }
+            path if path.starts_with("/api/v1/files/") => {
+                let id = path.trim_start_matches("/api/v1/files/");
+                let Some((_, Some(bytes))) = self.uploads.get(id) else { return Some(missing()) };
+                if request.headers.get("range").map(String::as_str) == Some("bytes=0-0") {
+                    return Some(common::Response {
+                        status: 206,
+                        binary: Some(bytes[..1].to_vec()),
+                        headers: vec![
+                            ("content-type".into(), "application/octet-stream".into()),
+                            ("content-range".into(), format!("bytes 0-0/{}", bytes.len())),
+                        ],
+                        ..Default::default()
+                    });
+                }
+                common::Response {
+                    status: 200,
+                    binary: Some(bytes.clone()),
+                    headers: vec![("content-type".into(), "application/octet-stream".into())],
+                    ..Default::default()
+                }
+            }
             path if path.starts_with("/api/v1/e2ee/rooms/room/message-operations/") => {
                 assert_eq!(request.method, "GET");
                 match self.message_receipts.get(path.rsplit('/').next().unwrap()) {
@@ -206,6 +250,11 @@ impl Book {
             _ => return None,
         })
     }
+}
+fn upload(id: &str, input: &rv_protocol::parity::PrepareUpload, state: &str) -> Value {
+    json!({"id":id,"file":{"id":id,"room_id":input.room_id,"bytes":input.bytes,"sha256":input.sha256,
+        "media_type":input.media_type,"filename":null,"encrypted":true},"state":state,
+        "expires_at":"2099-01-01T00:00:00Z","message_id":null})
 }
 fn room() -> rv_protocol::Room {
     rv_protocol::Room {
@@ -254,6 +303,7 @@ async fn setup(include_peer: bool) -> (Pilot, crypto::enrollment::Access, Arc<Mu
         drop_message: false,
         available: None,
         package_gets: 0,
+        uploads: BTreeMap::new(),
     }));
     let remote = book.clone();
     *pilot.room_handler.lock().unwrap() = Some(Arc::new(move |request| remote.lock().unwrap().reply(request)));
@@ -542,6 +592,7 @@ async fn renewed_device_rotates_its_actual_room_leaf_recovers_lost_ack_and_keeps
         reply_to: None,
         quotes: vec![],
         cards: vec![],
+        files: vec![],
     };
     chat.send(message("before-renewal", "private-message-cleartext before renewal")).await.unwrap();
     assert_eq!(chat.refresh(None, 50).await.unwrap().messages.len(), 1);
@@ -679,6 +730,7 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
         reply_to: None,
         quotes: vec![],
         cards: vec![],
+        files: vec![],
     };
     book.lock().unwrap().lose_message_reply = true;
     assert!(chat.send(document.clone()).await.is_err());
@@ -726,7 +778,8 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
                 text: "private-message-cleartext wrong thread".into(),
                 reply_to: Some("unseen-root".into()),
                 quotes: vec![],
-                cards: vec![]
+                cards: vec![],
+                files: vec![],
             })
             .await
             .is_err()
@@ -748,7 +801,8 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
                 text: "private-message-cleartext thread draft".into(),
                 reply_to: Some("private-message-1".into()),
                 quotes: vec![],
-                cards: vec![]
+                cards: vec![],
+                files: vec![],
             })
             .await
             .is_err()
@@ -820,6 +874,7 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
         reply_to: None,
         quotes: vec![selected.selection.reference.clone(), clear_selection.selection.reference.clone()],
         cards: vec![],
+        files: vec![],
     };
     assert!(reopened.send(quoted.clone()).await.is_err(), "references require a current private selection");
     for field in 0..5 {
@@ -993,6 +1048,7 @@ async fn private_edits_and_deletions_show_on_their_target_and_resume_like_sends(
         reply_to: None,
         quotes: vec![],
         cards: vec![],
+        files: vec![],
     })
     .await
     .unwrap();
@@ -1036,4 +1092,49 @@ async fn private_edits_and_deletions_show_on_their_target_and_resume_like_sends(
     assert!(chat.amend(format!("private-message-{amendment}"), None).await.is_err());
     chat.amend(id, None).await.unwrap();
     assert!(chat.refresh(None, 50).await.unwrap().messages.is_empty());
+}
+
+#[tokio::test]
+async fn private_files_are_sealed_on_the_device_and_opened_only_while_shown() {
+    let (pilot, settings, book) = setup(false).await;
+    let group = settings.room("room".into()).await.unwrap();
+    let view = group.refresh().await.unwrap();
+    let preview = group.preview_create(view.revision, vec![]).await.unwrap();
+    group.confirm(preview.revision, preview.review.unwrap().fingerprint).await.unwrap();
+    group.close();
+    encrypted_snapshot(&pilot);
+    let chat = message_settings(&pilot).await.messages("room".into(), None).await.unwrap();
+    chat.refresh(None, 50).await.unwrap();
+    let plain = (0..70_000u32).map(|i| (i % 251) as u8).chain(*b"private-message-cleartext").collect::<Vec<_>>();
+    let source = pilot.directory.path().join("photo.png");
+    std::fs::write(&source, &plain).unwrap();
+    chat.send_file(
+        source.clone(),
+        "photo privée.png".into(),
+        "image/png".into(),
+        "private-message-cleartext caption".into(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(book.lock().unwrap().uploads.len(), 1);
+    let view = chat.refresh(None, 50).await.unwrap();
+    assert_eq!(view.messages.len(), 1);
+    let row = &view.messages[0].row;
+    assert_eq!(row.text.as_deref(), Some("private-message-cleartext caption"));
+    let attachments: serde_json::Value = serde_json::from_str(row.attachments.as_deref().unwrap()).unwrap();
+    assert_eq!(attachments[0]["title"], "photo privée.png");
+    assert_eq!(attachments[0]["image_url"], "rv-file:~upload-1");
+    // Opened on the device, through the session like any protected file.
+    assert!(pilot.session.file_current("rv-file:~upload-1"));
+    let local = pilot.session.local_file("rv-file:~upload-1").await.unwrap();
+    assert_eq!(std::fs::read(&local).unwrap(), plain);
+    assert_eq!(pilot.session.file_media("rv-file:~upload-1").await.unwrap().bytes, plain);
+    // An ordinary id never resolves to a private file, nor the reverse.
+    assert!(!pilot.session.file_current("rv-file:upload-1"));
+    assert!(pilot.session.local_file("rv-file:~unknown").await.is_err());
+    // Closing the view closes its files and their plaintext cache.
+    chat.close();
+    assert!(!pilot.session.file_current("rv-file:~upload-1"));
+    assert!(pilot.session.local_file("rv-file:~upload-1").await.is_err());
+    assert!(!local.exists());
 }

@@ -136,6 +136,7 @@ impl ChatPage {
                             reply_to: None,
                             quotes: quotes.iter().map(|s| s.reference.clone()).collect(),
                             cards: vec![],
+                            files: vec![],
                         },
                         quotes,
                     )
@@ -152,6 +153,34 @@ impl ChatPage {
                 page.composer.clear_reply();
             }
             page.crypto_history(false).await;
+        });
+    }
+    /// Encrypted files, one private message each, the caption on the first.
+    /// Originals only: reducing a picture would need a plaintext copy here.
+    pub(super) fn send_private_files(self: &Rc<Self>, outgoing: crate::composer::Outgoing) {
+        let Some(access) = self.native_crypto.borrow().clone().filter(|_| self.native_crypto_ready.get()) else {
+            self.toast(t("crypto.failed").to_owned());
+            return;
+        };
+        let (weak, generation) = (Rc::downgrade(self), self.read_generation.get());
+        glib::spawn_future_local(async move {
+            for (i, (item, mime)) in outgoing.items.into_iter().enumerate() {
+                let caption = if i == 0 { outgoing.caption.clone() } else { String::new() };
+                let (access, path, name) = (access.clone(), item.path.clone(), item.name.clone());
+                let result = on_tokio(async move { access.send_file(path, name, mime, caption).await }).await;
+                if item.temporary {
+                    let _ = std::fs::remove_file(&item.path);
+                }
+                let Some(page) = weak.upgrade().filter(|p| p.read_generation.get() == generation) else { return };
+                match result {
+                    Err(rv_core::native::crypto::Error::Session(rv_core::native::Error::Protocol("too-large:100"))) => {
+                        page.toast(crate::i18n::tf("attach.too_large", &[("name", &item.name), ("max", "100")]))
+                    }
+                    Err(_) => page.toast(t("crypto.failed").to_owned()),
+                    Ok(()) => (),
+                }
+                page.crypto_history(false).await;
+            }
         });
     }
     pub(super) fn quote_native_crypto(self: &Rc<Self>, id: String) {

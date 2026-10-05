@@ -9,7 +9,7 @@ import {avatarBytes,type ProfileOperation,type ProfileSlot,type SavedProfileOper
 import {avatarBase64} from '../../lib/nativeAvatars.ts';
 import type {MyProfile} from '../../lib/myProfile.ts';
 import { decodeNative } from './validation.ts';
-import type { Capabilities } from './protocol.generated.ts';
+import type { Capabilities, NativeTypes } from './protocol.generated.ts';
 import type {RoomOperation,SavedRoomOperation} from './roomOperations.ts';
 import type {PendingRead,SavedFavorite} from './readIntents.ts';
 import { canonicalEmoji } from './emojis.ts';
@@ -195,6 +195,22 @@ export class NativeChat {
     const meeting=await this.transport.meeting(id);
     await this.checkMeetingScope(scope);
     return publicMeetingUrl(meeting,room,id);
+  }
+  /** Encrypted files shown by open private views (E2EE_FILES.md), by id:
+   * their room, descriptor (key included) and the views showing them. */
+  private readonly privateFiles=new Map<string,{room:string;file:NativeTypes['EncryptedFile'];views:Set<number>}>();
+  registerPrivateFiles(view:number,room:string,files:readonly NativeTypes['EncryptedFile'][]):void {
+    for(const file of files) {
+      const entry=this.privateFiles.get(file.id)??{room,file,views:new Set<number>()};
+      if(entry.room!==room || JSON.stringify(entry.file)!==JSON.stringify(file))continue;
+      entry.views.add(view);this.privateFiles.set(file.id,entry);
+    }
+  }
+  forgetPrivateFiles(view:number):void {
+    for(const [id,entry] of this.privateFiles){entry.views.delete(view);if(!entry.views.size)this.privateFiles.delete(id);}
+  }
+  privateFile(id:string):{room:string;file:NativeTypes['EncryptedFile']}|null {
+    const entry=this.privateFiles.get(id);return entry?{room:entry.room,file:entry.file}:null;
   }
   get filesActive():boolean {return !this.stopped&&this.verified&&this.capabilities?.uploads===true;}
   async fileScope(room:string,membership:string):Promise<{alive:()=>boolean;check:()=>Promise<void>}>{

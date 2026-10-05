@@ -84,12 +84,12 @@ function MessageSearch({
   // Results are normalised on arrival (`toMessage`, like any server
   // document), never written to the database; see the file header.
   // An encrypted room's own actor, closed with the screen or in background.
-  const privateAccess=useRef<CryptoConversationAccess|null>(null);
+  const privateAccess=useRef<CryptoConversationAccess|null>(null),token=useRef(Math.floor(Math.random()*2**52));
   useEffect(()=>{
-    const close=()=>{void privateAccess.current?.close();privateAccess.current=null;};
+    const close=()=>{void privateAccess.current?.close();privateAccess.current=null;provider.native?.chat.forgetPrivateFiles(token.current);};
     const sub=AppState.addEventListener('change',state=>{if(state!=='active')close();});
     return()=>{sub.remove();close();};
-  },[]);
+  },[provider]);
   const searchPrivately=useCallback(async(clean:string):Promise<MessageRowData[]|null>=>{
     const native=provider.native;
     const scope=native?await native.store.cryptoRoomAccess(rid):null;
@@ -98,6 +98,9 @@ function MessageSearch({
     if(!privateAccess.current || privateAccess.current.isClosed)
       privateAccess.current=await native.chat.cryptoConversation(CryptoNative,rid,scope.membership,()=>AppState.currentState==='active',null);
     const found=await privateAccess.current.search(clean);
+    // Their encrypted files open while the results are shown (E2EE_FILES.md).
+    native.chat.forgetPrivateFiles(token.current);
+    native.chat.registerPrivateFiles(token.current,rid,found.messages.flatMap(m=>m.document.files??[]));
     const self=client.auth?.userId?{id:client.auth.userId,username}:undefined;
     return found.messages.map(m=>privateRow(m,rid,0,null,self));
   },[provider,rid,client,username]);

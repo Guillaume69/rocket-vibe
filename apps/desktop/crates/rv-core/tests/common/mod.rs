@@ -12,6 +12,8 @@ pub struct Request {
     pub target: String,
     pub headers: HashMap<String, String>,
     pub body: String,
+    /// The exact body bytes, chunked transfer decoded.
+    pub raw: Vec<u8>,
 }
 
 impl Request {
@@ -97,16 +99,51 @@ impl FakeHttp {
                             .map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_owned()))
                             .collect();
                         let length: usize = headers.get("content-length").and_then(|v| v.parse().ok()).unwrap_or(0);
-                        while buffer.len() < end + 4 + length {
-                            let mut chunk = [0u8; 4096];
-                            match socket.read(&mut chunk).await {
-                                Ok(0) | Err(_) => return,
-                                Ok(n) => buffer.extend_from_slice(&chunk[..n]),
+                        let chunked = headers.get("transfer-encoding").is_some_and(|v| v.contains("chunked"));
+                        buffer.drain(..end + 4);
+                        let mut raw = Vec::new();
+                        if chunked {
+                            // size CRLF data CRLF ... 0 CRLF CRLF
+                            loop {
+                                let Some(line) = buffer.windows(2).position(|w| w == b"\r\n") else {
+                                    let mut chunk = [0u8; 4096];
+                                    match socket.read(&mut chunk).await {
+                                        Ok(0) | Err(_) => return,
+                                        Ok(n) => buffer.extend_from_slice(&chunk[..n]),
+                                    }
+                                    continue;
+                                };
+                                let size = usize::from_str_radix(
+                                    String::from_utf8_lossy(&buffer[..line]).split(';').next().unwrap().trim(),
+                                    16,
+                                )
+                                .unwrap_or(0);
+                                while buffer.len() < line + 2 + size + 2 {
+                                    let mut chunk = [0u8; 4096];
+                                    match socket.read(&mut chunk).await {
+                                        Ok(0) | Err(_) => return,
+                                        Ok(n) => buffer.extend_from_slice(&chunk[..n]),
+                                    }
+                                }
+                                raw.extend_from_slice(&buffer[line + 2..line + 2 + size]);
+                                buffer.drain(..line + 2 + size + 2);
+                                if size == 0 {
+                                    break;
+                                }
                             }
+                        } else {
+                            while buffer.len() < length {
+                                let mut chunk = [0u8; 4096];
+                                match socket.read(&mut chunk).await {
+                                    Ok(0) | Err(_) => return,
+                                    Ok(n) => buffer.extend_from_slice(&chunk[..n]),
+                                }
+                            }
+                            raw = buffer.drain(..length).collect();
                         }
-                        let body = String::from_utf8_lossy(&buffer[end + 4..end + 4 + length]).to_string();
-                        buffer.drain(..end + 4 + length);
-                        let request = Request { method: method.to_owned(), target: target.to_owned(), headers, body };
+                        let body = String::from_utf8_lossy(&raw).to_string();
+                        let request =
+                            Request { method: method.to_owned(), target: target.to_owned(), headers, body, raw };
                         log.lock().unwrap().push(request.clone());
                         let response = handler(&request);
                         if response.drop {

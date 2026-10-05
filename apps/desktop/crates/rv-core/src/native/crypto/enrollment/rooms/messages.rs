@@ -25,6 +25,8 @@ pub struct Message {
     pub observed_at: u64,
     pub delivery: Delivery,
     pub quotes: Vec<rv_protocol::parity::QuoteReference>,
+    /// Encrypted files (E2EE_FILES.md), shown as `rv-file:~<id>` attachments.
+    pub files: Vec<rv_protocol::parity::EncryptedFile>,
 }
 pub struct View {
     pub revision: u64,
@@ -44,6 +46,8 @@ struct State {
     names: BTreeMap<String, String>,
 }
 struct Conversation {
+    /// This view's token in the session's registry of openable private files.
+    view: u64,
     room: super::Access,
     encrypted: bool,
     thread: Option<String>,
@@ -85,6 +89,7 @@ impl super::super::Access {
         }
         let room = self.room(room).await?;
         Ok(Access(Arc::new(Conversation {
+            view: fastrand::u64(..),
             room,
             encrypted,
             thread,
@@ -116,9 +121,7 @@ impl Access {
             }
         });
         if result.is_err() {
-            self.0.room.close();
-            self.0.state.lock().unwrap().roster = None;
-            self.cancel_quote();
+            self.close();
         }
         result
     }
@@ -126,6 +129,15 @@ impl Access {
         self.0.room.close();
         self.0.state.lock().unwrap().roster = None;
         self.cancel_quote();
+        if let Some(session) = self.0.room.0.session.upgrade() {
+            session.forget_private_files(self.0.view);
+        }
+    }
+    /// Makes these rows' encrypted files openable while this view is open.
+    fn register_files(&self, messages: &[Message]) {
+        if let Some(session) = self.0.room.0.session.upgrade() {
+            session.register_private_files(self.0.view, &self.0.room.0.id, messages.iter().flat_map(|m| &m.files));
+        }
     }
     fn roster(&self) -> Result<groups::Roster> {
         self.check()?;
@@ -269,6 +281,7 @@ impl Access {
                 }
             }
         }
+        self.register_files(&messages);
         let revision = {
             let mut state = self.0.state.lock().unwrap();
             state.revision += 1;
@@ -342,6 +355,64 @@ impl Access {
         }
         self.check()
     }
+    /// The thread root this view writes to, if any.
+    pub fn thread(&self) -> Option<&str> {
+        self.0.thread.as_deref()
+    }
+    /// Whether the server takes files: encrypted objects ride on its uploads.
+    pub fn files_available(&self) -> bool {
+        self.check().is_ok() && self.0.room.0.session.upgrade().is_some_and(|s| s.files_available())
+    }
+    /// Seals a file on the device, uploads its opaque object, then sends it in
+    /// a private message with `caption` (E2EE_FILES.md). The key and name
+    /// travel only inside the encrypted document.
+    pub async fn send_file(
+        &self,
+        path: std::path::PathBuf,
+        name: String,
+        media_type: String,
+        caption: String,
+    ) -> Result<()> {
+        self.check()?;
+        let room = &self.0.room;
+        let session = room.0.session.upgrade().ok_or_else(room_changed)?;
+        let (id, sealed) = session.upload_private_object(&room.0.id, &path).await?;
+        let document = SendMessage {
+            operation_id: crate::native::room_operation_id(),
+            text: caption,
+            reply_to: self.0.thread.clone(),
+            quotes: vec![],
+            cards: vec![],
+            files: vec![rv_protocol::parity::EncryptedFile {
+                id: id.clone(),
+                key: sealed.key_text(),
+                filename: name,
+                media_type,
+                bytes: sealed.bytes.to_string(),
+                sha256: sealed.sha256_text(),
+            }],
+        };
+        let operation = document.operation_id.clone();
+        let result = self.send_selected(document, vec![]).await;
+        if result.is_err() {
+            // A prepared message keeps its object for the resume; otherwise
+            // the reservation is released now rather than in 24 h.
+            let kept = match self.roster() {
+                Ok(roster) => room
+                    .0
+                    .crypto
+                    .outgoing_messages(roster)
+                    .await
+                    .map(|o| o.iter().any(|m| m.header.operation == operation))
+                    .unwrap_or(true),
+                Err(_) => true,
+            };
+            if !kept {
+                session.cancel_private_object(&id).await;
+            }
+        }
+        result
+    }
     /// Edits (`Some(text)`) or deletes (`None`) one of the user's own
     /// journaled messages (E2EE_AMENDMENTS.md). Readers apply it once it is
     /// journaled; until then it shows on its target like a pending send.
@@ -380,7 +451,13 @@ impl Access {
         }
         let (names, usernames, _) = room.members().await?;
         self.check()?;
-        found.messages.into_iter().map(|entry| journaled(&room.0.id, entry, &names, &usernames)).collect()
+        let found = found
+            .messages
+            .into_iter()
+            .map(|entry| journaled(&room.0.id, entry, &names, &usernames))
+            .collect::<Result<Vec<_>>>()?;
+        self.register_files(&found);
+        Ok(found)
     }
     pub async fn resume(&self, operation: String) -> Result<()> {
         let _serial = self.0.serial.lock().await;
@@ -495,7 +572,8 @@ fn message(
     delivery: Delivery,
     names: &BTreeMap<String, String>,
 ) -> Result<Message> {
-    let cards = crate::native::cards::attachments(&document.cards)?;
+    let mut cards = crate::native::files::private_attachments(&document.files);
+    cards.extend(crate::native::cards::attachments(&document.cards)?);
     let attachments =
         if cards.is_empty() { None } else { Some(serde_json::to_string(&cards).map_err(|_| room_changed())?) };
     let row = crate::store::MessageRow {
@@ -515,5 +593,13 @@ fn message(
         },
         ..Default::default()
     };
-    Ok(Message { row, operation: document.operation_id, position, observed_at, delivery, quotes: document.quotes })
+    Ok(Message {
+        row,
+        operation: document.operation_id,
+        position,
+        observed_at,
+        delivery,
+        quotes: document.quotes,
+        files: document.files,
+    })
 }

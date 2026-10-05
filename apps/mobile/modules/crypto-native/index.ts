@@ -78,4 +78,10 @@ export type CryptoGroupBridge = CryptoPeerBridge & {
 export type CryptoConversationBridge = CryptoGroupBridge & {
   conversationAction:(handle:string,ownDirectory:string,input:string)=>Promise<string>;
 };
-export const CryptoNative = requireOptionalNativeModule<CryptoConversationBridge & CryptoWithdrawalBridge & CryptoRecoveryBridge & CryptoHistoryBridge & CryptoHistoryBackupBridge>('CryptoNative');
+/** Encrypted files of private rooms (E2EE_FILES.md), between `file://` URIs of
+ * the app. `sealFile` answers JSON: key, bytes, sha256, object_bytes, object_sha256. */
+export type CryptoFileBridge = {
+  sealFile:(source:string,target:string)=>Promise<string>;
+  openFile:(key:string,bytes:string,sha256:string,source:string,target:string)=>Promise<void>;
+};
+export const CryptoNative = requireOptionalNativeModule<CryptoConversationBridge & CryptoWithdrawalBridge & CryptoRecoveryBridge & CryptoHistoryBridge & CryptoHistoryBackupBridge & CryptoFileBridge>('CryptoNative');

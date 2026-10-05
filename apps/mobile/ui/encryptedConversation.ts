@@ -4,7 +4,11 @@ import {AppState} from 'react-native';
 import {CryptoNative} from '../modules/crypto-native/index.ts';
 import type {NativeChat} from '../providers/rocketvibe/chat.ts';
 import type {CryptoConversationAccess,CryptoConversationView,CryptoMessage} from '../providers/rocketvibe/cryptoConversations.ts';
-import type {Outbox} from '../lib/provider.ts';
+import type {FileOutbox,Outbox} from '../lib/provider.ts';
+import * as FS from 'expo-file-system/legacy';
+import {ValidationError} from '../lib/uploadQueue.ts';
+import {PRIVATE_FILE_MAX,sendPrivateFile} from '../providers/rocketvibe/privateFiles.ts';
+import {nativeFileSender} from './nativeFiles.ts';
 import {NativeError} from '../providers/rocketvibe/transport.ts';
 import {refreshNativeReply,invalidateNativeReply,readReply,useReply} from './reply.ts';
 /** A projected row, thread root included. */
@@ -24,9 +28,12 @@ export function useEncryptedConversation(chat:NativeChat|undefined,room:string,m
   const [initial,setInitial]=useState<string|null>(null);
   const focused=useRef(false),epoch=useRef(0),access=useRef<CryptoConversationAccess|null>(null),job=useRef<number|null>(null);
   const opening=useRef<Promise<CryptoConversationAccess>|null>(null),lastInitial=useRef<number|null>(null);
+  // This view's token for the encrypted files it makes openable (E2EE_FILES.md).
+  const token=useRef(Math.floor(Math.random()*2**52));
   const clear=useCallback(()=>{epoch.current++;job.current=null;opening.current=null;lastInitial.current=null;
+    chat?.forgetPrivateFiles(token.current);
     const target=readReply(replyKey);if(target?.native)invalidateNativeReply(replyKey,target);
-    void access.current?.close();access.current=null;setView(null);setInitial(null);setBusy(false);},[replyKey]);
+    void access.current?.close();access.current=null;setView(null);setInitial(null);setBusy(false);},[replyKey,chat]);
   const run=useCallback(async<T,>(action:(a:CryptoConversationAccess)=>Promise<T>,restore=false,retainPrepared=false):Promise<T>=>{
     if(!enabled || !chat || membership==null || !focused.current || AppState.currentState!=='active' || !CryptoNative)throw Error('Private conversation unavailable');
     const n=epoch.current,visible=()=>epoch.current===n && focused.current && AppState.currentState==='active';
@@ -55,6 +62,8 @@ export function useEncryptedConversation(chat:NativeChat|undefined,room:string,m
       // New verified messages may be waiting for the history backup.
       if(visible() && CryptoNative)chat.syncHistoryBackupSoon(CryptoNative);
       if(visible()) {
+        chat.forgetPrivateFiles(token.current);
+        chat.registerPrivateFiles(token.current,room,[...(current.root?[current.root]:[]),...current.messages].flatMap(m=>m.document.files??[]));
         setView(current);
         if(lastInitial.current!==n || restore){lastInitial.current=n;setInitial(current.draft);setComposer(v=>v+1);}
       }
@@ -107,9 +116,38 @@ export function useEncryptedConversation(chat:NativeChat|undefined,room:string,m
     discard:async id=>{const row=privateRow(view,id);if(!row)throw Error('Private intention unavailable');
       const operation=row.amendment?.operation??row.operation;await run(a=>a.cancel(operation));},
   }),[room,thread,run,view]);
+  // Encrypted files: sealed in Rust beside the app's cache, uploaded opaque,
+  // then sent in a private message of the room itself (E2EE_FILES.md).
+  const progress=useRef(new Map<string,number>()),listeners=useRef(new Set<()=>void>());
+  const files=useMemo<FileOutbox|null>(()=>{
+    if(!chat || thread!==null || !CryptoNative?.sealFile || !FS.cacheDirectory)return null;
+    const crypto=CryptoNative,folder=`${FS.cacheDirectory}private-outbox/`;
+    const notify=()=>{for(const l of listeners.current)l();};
+    return {
+      progress:progress.current,
+      subscribe:listener=>{listeners.current.add(listener);return()=>{listeners.current.delete(listener);};},
+      validate:async file=>{if(file.size!==null && file.size>PRIVATE_FILE_MAX)throw new ValidationError({code:'size',maxMb:'100.0'});},
+      send:async(target,file,caption)=>{
+        if(target!==room)throw Error('Private document unavailable');
+        if(file.size!==null && file.size>PRIVATE_FILE_MAX)throw new ValidationError({code:'size',maxMb:'100.0'});
+        const id=`${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`,object=`${folder}${id}`;
+        await FS.makeDirectoryAsync(folder,{intermediates:true});
+        const controller=new AbortController();
+        try {
+          await run(a=>sendPrivateFile({crypto,transport:chat.transport,send:nativeFileSender,access:a,room,
+            file:{uri:file.uri,name:file.name,type:file.type},caption:caption??'',object,operation:id,
+            progress:fraction=>{progress.current.set(id,fraction);notify();},signal:controller.signal}),false,true);
+        } finally {
+          progress.current.delete(id);notify();
+          await FS.deleteAsync(object,{idempotent:true}).catch(()=>{});
+        }
+      },
+      process:async()=>{},retry:async()=>{},discard:async()=>{},
+    };
+  },[chat,room,thread,run]);
   /** An encrypted reaction or its withdrawal, delivered like a send. */
   const react=useCallback((id:string,code:string,present:boolean)=>{
     void run(a=>a.react(id,code,present),false,true).catch(()=>{});
   },[run]);
-  return {view,initial,composer,failed,busy,outbox,save,reload,react};
+  return {view,initial,composer,failed,busy,outbox,save,reload,react,files};
 }

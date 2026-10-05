@@ -2,7 +2,9 @@
 use super::{Error, NativeSession, Ordering, store::FileIntent};
 use crate::media::Media;
 use futures_util::StreamExt;
-use rv_protocol::parity::{CompleteUpload, FileDescriptor, MessageContent, PrepareUpload, Upload, UploadState};
+use rv_protocol::parity::{
+    CompleteUpload, EncryptedFile, FileDescriptor, MessageContent, PrepareUpload, Upload, UploadState,
+};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -21,7 +23,36 @@ pub(crate) struct Files {
     pub(super) progress: Mutex<HashMap<String, f64>>,
     cache: Mutex<HashMap<String, PathBuf>>,
     views: Mutex<HashMap<String, (FileDescriptor, String, String)>>,
+    /// Encrypted files of the open private views, by id: their room and
+    /// descriptor, key included (E2EE_FILES.md). Never persisted.
+    private: Mutex<HashMap<String, Shown>>,
     slots: tokio::sync::Semaphore,
+}
+/// An encrypted file's room and descriptor, and the private views showing it.
+type Shown = (String, EncryptedFile, std::collections::BTreeSet<u64>);
+/// `rv-file:~<id>`: an encrypted file of a private room. `~` never occurs in
+/// an ordinary file id, so every existing `rv-file:` path keeps working.
+const PRIVATE: &str = "rv-file:~";
+/// Attachments of a private message's encrypted files, shaped like ordinary
+/// ones; previews only for the types ordinary files allow.
+pub(crate) fn private_attachments(files: &[EncryptedFile]) -> Vec<Value> {
+    files
+        .iter()
+        .map(|f| {
+            let link = format!("{PRIVATE}{}", f.id);
+            let size = f.bytes.parse::<u64>().unwrap_or_default();
+            let mut card = json!({"title":f.filename,"title_link":link,"title_link_download":true,"format":f.media_type,"size":size});
+            let kind = ["image", "audio", "video"]
+                .into_iter()
+                .find(|k| mime(&f.media_type) && f.media_type.starts_with(&format!("{k}/")));
+            if let Some(kind) = kind {
+                card[format!("{kind}_url")] = json!(link);
+                card[format!("{kind}_type")] = json!(f.media_type);
+                card[format!("{kind}_size")] = json!(size);
+            }
+            card
+        })
+        .collect()
 }
 fn io(_: std::io::Error) -> Error {
     Error::Protocol("file_io_failed")
@@ -113,6 +144,7 @@ impl Files {
             progress: Mutex::default(),
             cache: Mutex::default(),
             views: Mutex::default(),
+            private: Mutex::default(),
             slots: tokio::sync::Semaphore::new(4),
         }
     }
@@ -141,7 +173,203 @@ impl NativeSession {
         )
     }
     pub fn file_current(&self, path: &str) -> bool {
+        if path.starts_with(PRIVATE) {
+            return self.private_file(path).is_ok();
+        }
         self.file_descriptor(path).is_ok()
+    }
+    /// Makes the encrypted files shown by private view `view` openable, until
+    /// that view closes.
+    pub(crate) fn register_private_files<'a>(
+        &self,
+        view: u64,
+        room: &str,
+        files: impl Iterator<Item = &'a EncryptedFile>,
+    ) {
+        let mut private = self.files.private.lock().unwrap();
+        for file in files {
+            let entry =
+                private.entry(file.id.clone()).or_insert_with(|| (room.to_owned(), file.clone(), Default::default()));
+            if entry.0 == room && entry.1 == *file {
+                entry.2.insert(view);
+            }
+        }
+    }
+    /// A closed view's files close with it, cached plaintext included, unless
+    /// another open view still shows them.
+    pub(crate) fn forget_private_files(&self, view: u64) {
+        let mut gone = vec![];
+        self.files.private.lock().unwrap().retain(|id, (_, _, views)| {
+            views.remove(&view);
+            if views.is_empty() {
+                gone.push(format!("~{id}"));
+            }
+            !views.is_empty()
+        });
+        let mut cache = self.files.cache.lock().unwrap();
+        for key in gone {
+            if let Some(path) = cache.remove(&key) {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+    fn private_file(&self, path: &str) -> Result<(String, EncryptedFile), Error> {
+        self.ready()?;
+        let key = path.strip_prefix(PRIVATE).filter(|s| id(s)).ok_or(Error::Protocol("invalid_file"))?;
+        let found = self
+            .files
+            .private
+            .lock()
+            .unwrap()
+            .get(key)
+            .map(|(room, file, _)| (room.clone(), file.clone()))
+            .ok_or(Error::Protocol("file_unavailable"))?;
+        if !self.store.rooms()?.iter().any(|r| r.id == found.0 && r.encrypted) {
+            return Err(Error::Protocol("file_unavailable"));
+        }
+        Ok(found)
+    }
+    /// Seals `source` and uploads its opaque object to an encrypted room; the
+    /// private message then completes it. The id and the descriptor's secret.
+    pub(crate) async fn upload_private_object(
+        &self,
+        room: &str,
+        source: &Path,
+    ) -> Result<(String, rv_crypto::files::Sealed), Error> {
+        self.ready()?;
+        if !self.files_available() {
+            return Err(Error::Protocol("files_unavailable"));
+        }
+        let folder = self.files.directory("private-uploads").await?;
+        let object = folder.join(format!("{:032x}", fastrand::u128(..)));
+        let result = async {
+            let (from, to) = (source.to_owned(), object.clone());
+            let sealed = tokio::task::spawn_blocking(move || rv_crypto::files::seal_path(&from, &to))
+                .await
+                .map_err(|_| Error::Protocol("file_io_failed"))?
+                .map_err(|e| match e {
+                    rv_crypto::files::Error::TooLarge => Error::Protocol("too-large:100"),
+                    _ => Error::Protocol("file_io_failed"),
+                })?;
+            let upload = self
+                .client
+                .prepare_upload(&PrepareUpload {
+                    operation_id: super::room_operation_id(),
+                    room_id: room.into(),
+                    bytes: sealed.object_bytes.to_string(),
+                    sha256: sealed.object_sha256_text(),
+                    media_type: "application/octet-stream".into(),
+                    filename: None,
+                    encrypted: true,
+                })
+                .await?;
+            let sent = async {
+                let file = tokio::fs::File::open(&object).await.map_err(io)?;
+                let stream = futures_util::stream::try_unfold(file, |mut file| async move {
+                    let mut buf = vec![0u8; 256 * 1024];
+                    let n = file.read(&mut buf).await?;
+                    if n == 0 {
+                        return Ok::<_, std::io::Error>(None);
+                    }
+                    buf.truncate(n);
+                    Ok(Some((buf, file)))
+                });
+                let ready = self.client.upload_bytes(&upload.id, rv_client::UploadBody::wrap_stream(stream)).await?;
+                if ready.state != UploadState::Ready
+                    || ready.file.bytes != sealed.object_bytes.to_string()
+                    || ready.file.sha256 != sealed.object_sha256_text()
+                    || !ready.file.encrypted
+                {
+                    return Err(Error::Protocol("invalid_file"));
+                }
+                Ok(())
+            }
+            .await;
+            if let Err(error) = sent {
+                let _ = self.client.cancel_upload(&upload.id).await;
+                return Err(error);
+            }
+            Ok((upload.file.id, sealed))
+        }
+        .await;
+        let _ = tokio::fs::remove_file(&object).await;
+        result
+    }
+    pub(crate) async fn cancel_private_object(&self, id: &str) {
+        let _ = self.client.cancel_upload(id).await;
+    }
+    /// Downloads an encrypted object and opens it into the private cache.
+    async fn private_local_file(&self, path: &str) -> Result<PathBuf, Error> {
+        let (_, file) = self.private_file(path)?;
+        let _slot = self.files.slots.acquire().await.map_err(|_| Error::Protocol("session_closed"))?;
+        let bytes = file.bytes.parse::<u64>().map_err(|_| Error::Protocol("invalid_file"))?;
+        let object_bytes = rv_crypto::files::object_size(bytes);
+        let key = format!("~{}", file.id);
+        let cached = self.files.cache.lock().unwrap().get(&key).cloned();
+        if let Some(cache) = cached.filter(|p| p.is_file()) {
+            // The server still grants the object: membership is current.
+            let proof = self.client.file_response(&file.id, Some("bytes=0-0")).await?;
+            if proof.status().as_u16() != 206
+                || proof.headers().get("content-range").and_then(|v| v.to_str().ok())
+                    != Some(format!("bytes 0-0/{object_bytes}").as_str())
+            {
+                return Err(Error::Protocol("invalid_file"));
+            }
+            self.private_file(path)?;
+            return Ok(cache);
+        }
+        let folder = self.files.directory(&self.files.downloads).await?;
+        let object = folder.join(format!("{:032x}.part", fastrand::u128(..)));
+        let destination = folder.join(format!("~{}-{:032x}", file.id, fastrand::u128(..)));
+        let result = async {
+            let response = self.client.file_response(&file.id, None).await?;
+            if response.status().as_u16() != 200
+                || response.headers().get("content-length").and_then(|v| v.to_str().ok())
+                    != Some(object_bytes.to_string().as_str())
+            {
+                return Err(Error::Protocol("invalid_file"));
+            }
+            let mut out = tokio::fs::OpenOptions::new().write(true).create_new(true).open(&object).await.map_err(io)?;
+            let mut stream = response.bytes_stream();
+            let mut received = 0u64;
+            while let Some(chunk) = stream.next().await {
+                self.private_file(path)?;
+                let chunk = chunk.map_err(|_| Error::Protocol("file_transfer_failed"))?;
+                received += chunk.len() as u64;
+                if received > object_bytes {
+                    return Err(Error::Protocol("file_integrity"));
+                }
+                out.write_all(&chunk).await.map_err(io)?;
+            }
+            out.sync_all().await.map_err(io)?;
+            drop(out);
+            let secret = rv_crypto::files::decode_key(&file.key).map_err(|_| Error::Protocol("invalid_file"))?;
+            let digest = rv_crypto::files::decode_sha256(&file.sha256).map_err(|_| Error::Protocol("invalid_file"))?;
+            let (from, to) = (object.clone(), destination.clone());
+            tokio::task::spawn_blocking(move || rv_crypto::files::open_path(&secret, bytes, &digest, &from, &to))
+                .await
+                .map_err(|_| Error::Protocol("file_io_failed"))?
+                .map_err(|_| Error::Protocol("file_integrity"))?;
+            self.private_file(path)?;
+            let mut cache = self.files.cache.lock().unwrap();
+            let stored: u64 = cache.values().filter_map(|p| std::fs::metadata(p).ok()).map(|m| m.len()).sum();
+            if cache.len() >= 32 || stored + bytes > 512 << 20 {
+                for path in cache.values() {
+                    let _ = std::fs::remove_file(path);
+                }
+                cache.clear();
+            }
+            if let Some(old) = cache.insert(key, destination.clone()) {
+                let _ = std::fs::remove_file(old);
+            }
+            Ok(destination.clone())
+        }
+        .await;
+        let _ = tokio::fs::remove_file(&object).await;
+        if result.is_err() {
+            let _ = tokio::fs::remove_file(&destination).await;
+        }
+        result
     }
     fn file_descriptor(&self, path: &str) -> Result<FileDescriptor, Error> {
         if self.is_closed() {
@@ -560,6 +788,9 @@ impl NativeSession {
     }
     pub async fn local_file(&self, path: &str) -> Result<PathBuf, Error> {
         self.ready()?;
+        if path.starts_with(PRIVATE) {
+            return self.private_local_file(path).await;
+        }
         let file = self.file_descriptor(path)?;
         let _slot = self.files.slots.acquire().await.map_err(|_| Error::Protocol("session_closed"))?;
         let generation = self.security_generation.load(Ordering::SeqCst);
@@ -642,6 +873,17 @@ impl NativeSession {
         result
     }
     pub async fn file_media(&self, path: &str) -> Result<Media, Error> {
+        if path.starts_with(PRIVATE) {
+            let (_, file) = self.private_file(path)?;
+            if file.bytes.parse::<u64>().map_err(|_| Error::Protocol("invalid_file"))? > 32 << 20
+                || !mime(&file.media_type)
+            {
+                return Err(Error::Protocol("file_too_large_to_preview"));
+            }
+            let bytes = tokio::fs::read(self.local_file(path).await?).await.map_err(io)?;
+            self.private_file(path)?;
+            return Ok(Media { bytes, content_type: file.media_type });
+        }
         let file = self.file_descriptor(path)?;
         if file.bytes.parse::<u64>().unwrap() > 32 << 20 {
             return Err(Error::Protocol("file_too_large_to_preview"));

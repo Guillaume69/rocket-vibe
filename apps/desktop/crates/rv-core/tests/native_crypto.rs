@@ -184,6 +184,7 @@ impl Pilot {
                 if handler.is_some() {
                     discovery["capabilities"]["room_info"] = json!(true);
                     discovery["capabilities"]["room_management"] = json!(true);
+                    discovery["capabilities"]["uploads"] = json!(true);
                 }
                 if changed.load(Ordering::SeqCst) { discovery["data_epoch"] = json!("replacement-epoch"); }
                 respond(200, &discovery.to_string())

@@ -8,6 +8,8 @@ import com.rocketvibe.crypto.engine.IdentityStatus
 import com.rocketvibe.crypto.engine.IdentityApproval
 import com.rocketvibe.crypto.engine.PeerApproval
 import com.rocketvibe.crypto.engine.PeerReview
+import com.rocketvibe.crypto.engine.openFile
+import com.rocketvibe.crypto.engine.sealFile
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.io.File
@@ -45,8 +47,22 @@ class CryptoNativeModule : Module() {
     "device" to value.device, "fingerprint" to value.fingerprint, "incarnation" to value.incarnation, "expiresAt" to value.expiresAt,
   )
 
+  /** A private file of the app, given as a `file://` URI; never a content provider. */
+  private fun localPath(uri: String): String {
+    val parsed = android.net.Uri.parse(uri)
+    if (parsed.scheme != "file") throw CryptoBridgeException.Integrity()
+    return parsed.path ?: throw CryptoBridgeException.Integrity()
+  }
+
   override fun definition() = ModuleDefinition {
     Name("CryptoNative")
+    // Encrypted files (E2EE_FILES.md): stateless, streamed in Rust, off the main thread.
+    AsyncFunction("sealFile") { source: String, target: String ->
+      sealFile(localPath(source), localPath(target))
+    }
+    AsyncFunction("openFile") { key: String, bytes: String, sha256: String, source: String, target: String ->
+      openFile(key, bytes, sha256, localPath(source), localPath(target))
+    }
     AsyncFunction("open") { scope: Map<String, String> -> synchronized(lock) {
       if (stopped || views.size >= 16) throw CryptoBridgeException.Closed()
       if (scope.keys != setOf("origin", "instance", "dataEpoch", "user", "device")) throw CryptoBridgeException.Changed()

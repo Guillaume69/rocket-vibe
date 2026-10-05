@@ -12,6 +12,7 @@ use std::{
 };
 use zeroize::Zeroizing;
 mod conversations;
+mod files;
 mod groups;
 mod history;
 mod history_backup;

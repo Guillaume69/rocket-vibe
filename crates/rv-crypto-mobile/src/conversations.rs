@@ -68,6 +68,9 @@ enum Command {
         sources: Vec<SourceObservation>,
         #[serde(default)]
         public_sources: Vec<PublicSourceObservation>,
+        /// Encrypted files sealed by `seal_file` and uploaded (E2EE_FILES.md).
+        #[serde(default)]
+        files: Vec<rv_protocol::parity::EncryptedFile>,
     },
     /// An edit (`text`) or deletion (no `text`) of an own journaled message.
     Amend {
@@ -432,6 +435,7 @@ impl CryptoInstallation {
                 quotes,
                 sources,
                 public_sources,
+                files,
             } => {
                 if quotes.len() > 8 || sources.len() + public_sources.len() > 8 {
                     return Err(CryptoBridgeError::Integrity);
@@ -531,7 +535,7 @@ impl CryptoInstallation {
                         && v.header.target.is_none()
                         && v.header.thread == request.thread
                         && v.message()
-                            .is_ok_and(|m| m.text == text && m.quotes == refs)
+                            .is_ok_and(|m| m.text == text && m.quotes == refs && m.files == files)
                 }) {
                     return Err(CryptoBridgeError::Integrity);
                 }
@@ -544,6 +548,7 @@ impl CryptoInstallation {
                     reply_to: request.thread,
                     quotes: refs,
                     cards: vec![],
+                    files,
                 };
                 c.prepare_message(current, &message, time)?;
                 json!({"operation":operation})

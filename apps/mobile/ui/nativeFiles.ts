@@ -5,7 +5,9 @@ import * as FS from 'expo-file-system/legacy';
 import {FileTransfer} from '../modules/file-transfer/index.ts';
 import {FILE_MAX} from '../providers/rocketvibe/fileDescriptors.ts';
 import {NativeError} from '../providers/rocketvibe/transport.ts';
-import type {NativeFileIO} from '../providers/rocketvibe/uploads.ts';
+import type {NativeFileIO,NativeFileSender} from '../providers/rocketvibe/uploads.ts';
+import {CryptoNative} from '../modules/crypto-native/index.ts';
+import {objectSize} from '../providers/rocketvibe/privateFiles.ts';
 import type {Provider} from '../lib/provider.ts';
 import type {RestClient} from '../lib/rest.ts';
 import {setNativeFiles} from '../lib/nativeFiles.ts';
@@ -38,7 +40,11 @@ export async function createNativeFilesIO(provider:Provider):Promise<NativeFileI
   remove:async(uri)=>{
     if(uri.startsWith(root))await FS.deleteAsync(uri,{idempotent:true});
   },
-  send:async(url,headers,uri,signal,progress)=>{
+  send:nativeFileSender,
+  };
+}
+/** Streams a private file of the app to an upload URL through the native module. */
+export const nativeFileSender:NativeFileSender=async(url,headers,uri,signal,progress)=>{
     if(!FileTransfer)throw new NativeError(501,'file_transfer_module_unavailable');
     if(!(await FS.getInfoAsync(uri)).exists)throw new NativeError(422,'local_file_unavailable');
     if(signal.aborted)throw new NativeError(0,'session_closed');
@@ -48,9 +54,7 @@ export async function createNativeFilesIO(provider:Provider):Promise<NativeFileI
     try{return await FileTransfer.upload(id,url,uri,headers);}
     catch{throw new NativeError(0,'file_transfer_interrupted');}
     finally{signal.removeEventListener('abort',abort);listener.remove();}
-  },
-  };
-}
+};
 
 let cacheMaintenance:Promise<void>=Promise.resolve();
 
@@ -68,11 +72,46 @@ export function mountNativeFiles(client:RestClient,provider:Provider):()=>void {
   const acquire=async()=>{if(!active)throw new NativeError(0,'session_closed');if(running<4){running++;return;}await new Promise<void>(resolve=>waiters.push(resolve));if(!active)throw new NativeError(0,'session_closed');};
   const release=()=>{const next=waiters.shift();if(next)next();else running--;};
   const transfers=new Map<string,Promise<string>>(),controllers=new Set<AbortController>();
+  // An encrypted file (E2EE_FILES.md): its opaque object, then opened in Rust
+  // into the same private cache; it stays readable while a view shows it.
+  const openPrivate=async(id:string,shown:{room:string;file:import('../providers/rocketvibe/protocol.generated.ts').EncryptedFile},progress?:(fraction:number)=>void):Promise<string>=>{
+    if(!CryptoNative)throw new NativeError(501,'crypto_unavailable');
+    const membership=(await chat.store.cryptoRoomAccess(shown.room))?.membership;if(!membership)throw new NativeError(403,'file_access_denied');
+    const scope=await chat.fileScope(shown.room,membership),stamp=revision;
+    const object={id,room_id:shown.room,bytes:String(objectSize(Number(shown.file.bytes))),sha256:'0'.repeat(64),
+      media_type:'application/octet-stream',filename:null,encrypted:true};
+    const check=async()=>{
+      if(!active||revision!==stamp||!scope.alive())throw new NativeError(0,'session_closed');
+      if(JSON.stringify(chat.privateFile(id)?.file)!==JSON.stringify(shown.file))throw new NativeError(403,'file_access_denied');
+    };
+    const dir=`${root}${stamp}/~${id}/`,destination=`${dir}${encodeURIComponent(withExtension(safeFileName(shown.file.filename),shown.file.media_type))}`;
+    const part=`${dir}object.${stamp}.part`,controller=new AbortController();controllers.add(controller);
+    await FS.makeDirectoryAsync(dir,{intermediates:true});
+    try{
+      if((await FS.getInfoAsync(destination)).exists){
+        await chat.transport.downloadFile(object,expoFetch as typeof fetch,async response=>{if((await response.arrayBuffer()).byteLength!==1)throw new NativeError(502,'invalid_file');},controller.signal,true);
+        await scope.check();await check();return destination;
+      }
+      await chat.transport.downloadFile(object,expoFetch as typeof fetch,async response=>{
+        if(!response.body)throw new NativeError(502,'invalid_file');
+        const file=new File(part);file.create({overwrite:true});
+        await copyVerifiedFile({body:response.body,writer:file.writableStream().getWriter(),bytes:Number(object.bytes),sha256:null,
+          alive:()=>active&&revision===stamp&&scope.alive(),progress});
+      },controller.signal);
+      await scope.check();await check();
+      await FS.deleteAsync(destination,{idempotent:true});
+      await CryptoNative.openFile(shown.file.key,shown.file.bytes,shown.file.sha256,part,destination);
+      await check();return destination;
+    }catch(error){await FS.deleteAsync(destination,{idempotent:true}).catch(()=>{});throw error;}
+    finally{await FS.deleteAsync(part,{idempotent:true}).catch(()=>{});controllers.delete(controller);}
+  };
   const unregistry=setNativeFiles(client,async(id,progress)=>{
     const existing=transfers.get(id);if(existing)return existing;
     const operation=(async()=>{
       await ready;await acquire();
       try{
+      const shown=chat.privateFile(id);
+      if(shown)return await openPrivate(id,shown,progress);
       const access=await chat.store.fileAccess(id);if(!access)throw new NativeError(403,'file_access_denied');
       const scope=await chat.fileScope(access.file.room_id,access.membership),stamp=revision;
       const check=async()=>{

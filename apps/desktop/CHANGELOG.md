@@ -138,6 +138,9 @@ section here.
   SwiftUI), in rooms and threads; the server never learns the emoji. Search in an encrypted
   room runs on the device over its private history, recovered history included, and finds
   edited messages by their new text; nothing is sent to the server.
+- Send and open files in encrypted rooms (GTK and SwiftUI): each file is encrypted on the
+  computer before upload, its key travels only inside the encrypted message, and the server
+  stores an object it cannot read. Images, audio and video show inline as in other rooms.
 
 ### Fixed
 

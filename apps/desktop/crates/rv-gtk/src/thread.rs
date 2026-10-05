@@ -284,6 +284,7 @@ impl ThreadPage {
                             reply_to: Some(root),
                             quotes: quotes.iter().map(|s| s.reference.clone()).collect(),
                             cards: vec![],
+                            files: vec![],
                         },
                         quotes,
                     )

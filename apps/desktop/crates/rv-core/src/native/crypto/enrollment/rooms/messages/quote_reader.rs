@@ -36,6 +36,7 @@ impl QuoteReader {
                 observed_at: 0,
                 delivery: Delivery::Journaled,
                 quotes,
+                files: vec![],
             });
         }
         self.0.project_quotes(&mut messages).await?;

@@ -106,6 +106,7 @@ fn projected(value: &Node) -> Result<ProjectedMessage> {
         },
         observed_at: value.observed_at,
         edit: None,
+        reactions: Vec::new(),
     })
 }
 fn previous(blocks: &Access<'_>, current: &Node, level: usize) -> Result<Node> {
@@ -337,6 +338,7 @@ impl Coordinator {
                         },
                         observed_at: entry.observed_at,
                         edit: None,
+                        reactions: Vec::new(),
                     });
                     if output.len() == query.limit {
                         break;

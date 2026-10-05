@@ -191,10 +191,20 @@ fn validate_message(message: &SendMessage) -> Result<()> {
     Ok(())
 }
 /// The payload shape each kind allows (E2EE_AMENDMENTS.md): an edit carries
-/// new text only, a deletion nothing.
+/// new text only, a deletion nothing, a reaction one emoji name.
 pub(crate) fn validate_kind(kind: &packet::Kind, message: &SendMessage) -> Result<()> {
     match kind {
         packet::Kind::Chat => validate_message(message),
+        packet::Kind::React | packet::Kind::Unreact => {
+            validate_basic(message)?;
+            if !message.quotes.is_empty()
+                || !message.cards.is_empty()
+                || rv_protocol::custom_emojis::shortcode(&message.text) != Some(&message.text)
+            {
+                return Err(Error::Changed);
+            }
+            Ok(())
+        }
         packet::Kind::Edit | packet::Kind::Delete => {
             validate_basic(message)?;
             let empty = message.text.trim().is_empty();
@@ -558,22 +568,8 @@ impl Coordinator {
         operation_id: String,
         now: u64,
     ) -> Result<MessageSubmission> {
-        let user = &self.manager.scope().user;
-        let found = self.inspect_with_blobs(|_, records, blocks| {
-            let scope = &observation.head.scope;
-            let grant = observation
-                .roster
-                .members
-                .iter()
-                .find(|m| &m.user == user)
-                .ok_or(Error::Changed)?;
-            let Some(admission) = super::journal::admission(records, scope)? else {
-                return Ok(None);
-            };
-            self.journal_archive_find(records, blocks, scope, grant, admission, target)
-        })?;
-        let receipt = found.ok_or(Error::MessageNotRetained)?;
-        if &receipt.header.author != user || receipt.header.target.is_some() {
+        let receipt = self.amendable(observation, target)?;
+        if receipt.header.author != self.manager.scope().user {
             return Err(Error::Changed);
         }
         let kind = if text.is_some() {
@@ -590,6 +586,56 @@ impl Coordinator {
         };
         validate_kind(&kind, &message)?;
         self.prepare_document(observation, &message, kind, Some(target.to_owned()), now)
+    }
+    /// Prepares a reaction (`present`) or its withdrawal to any journaled
+    /// message of the room, by its emoji name, in the target's thread.
+    pub fn prepare_reaction(
+        &self,
+        observation: &MessageObservation,
+        target: &str,
+        emoji: &str,
+        present: bool,
+        operation_id: String,
+        now: u64,
+    ) -> Result<MessageSubmission> {
+        let receipt = self.amendable(observation, target)?;
+        let kind = if present {
+            packet::Kind::React
+        } else {
+            packet::Kind::Unreact
+        };
+        let message = SendMessage {
+            operation_id,
+            text: emoji.to_owned(),
+            reply_to: receipt.header.thread.clone(),
+            quotes: Vec::new(),
+            cards: Vec::new(),
+        };
+        validate_kind(&kind, &message)?;
+        self.prepare_document(observation, &message, kind, Some(target.to_owned()), now)
+    }
+    /// The receipt of a retained message of this room that is not itself an
+    /// amendment: the only kind of target an amendment may name.
+    fn amendable(&self, observation: &MessageObservation, target: &str) -> Result<packet::Receipt> {
+        let user = &self.manager.scope().user;
+        let found = self.inspect_with_blobs(|_, records, blocks| {
+            let scope = &observation.head.scope;
+            let grant = observation
+                .roster
+                .members
+                .iter()
+                .find(|m| &m.user == user)
+                .ok_or(Error::Changed)?;
+            let Some(admission) = super::journal::admission(records, scope)? else {
+                return Ok(None);
+            };
+            self.journal_archive_find(records, blocks, scope, grant, admission, target)
+        })?;
+        let receipt = found.ok_or(Error::MessageNotRetained)?;
+        if receipt.header.target.is_some() {
+            return Err(Error::Changed);
+        }
+        Ok(receipt)
     }
     pub(super) fn prepare_document(
         &self,
@@ -1286,6 +1332,7 @@ impl Coordinator {
                 },
                 observed_at: entry.created,
                 edit: None,
+                reactions: Vec::new(),
             })
         };
         // Amendments, newest first, then only the messages they leave.
@@ -1363,6 +1410,7 @@ impl Coordinator {
                     },
                     observed_at: entry.created,
                     edit: None,
+                    reactions: Vec::new(),
                 })
             })
             .collect::<Result<Vec<_>>>()?;

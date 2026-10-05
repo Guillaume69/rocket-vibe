@@ -56,6 +56,7 @@ pub struct RecoveredMessage {
     pub admission: Fingerprint,
     /// The author's latest edit (E2EE_AMENDMENTS.md).
     pub edit: Option<super::super::amendments::Edit>,
+    pub reactions: Vec<super::super::amendments::Reaction>,
 }
 const PREFIX: &str = "crypto-recovered-archive-v1/";
 fn key(source: &Source) -> Result<String> {
@@ -269,6 +270,7 @@ impl Coordinator {
                     }
                     return Ok(Some(RecoveredMessage {
                         edit: amendments.edit(origin),
+                        reactions: amendments.reactions(origin),
                         message,
                         observed_at: packet.observed_at,
                         sharer: head.source.sharer,
@@ -282,6 +284,69 @@ impl Coordinator {
             }
         }
         Ok(None)
+    }
+    /// The newest `limit` recovered documents of this room whose shown text
+    /// contains `needle`, newest first, leaving out `seen` ids, and whether
+    /// more match.
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn recovered_search(
+        &self,
+        records: &Records,
+        blocks: &Access<'_>,
+        scope: &Scope,
+        needle: &str,
+        limit: usize,
+        own: &Amendments,
+        seen: &std::collections::BTreeSet<String>,
+    ) -> Result<(Vec<RecoveredMessage>, bool)> {
+        let accept = |source: &Source| same_dataset(source, scope);
+        let mut amendments = recovered_amendments(records, blocks, &scope.room, accept)?;
+        amendments.absorb(own);
+        let mut selected: std::collections::BTreeMap<u64, RecoveredMessage> =
+            std::collections::BTreeMap::new();
+        let mut more = false;
+        for (name, bytes) in records.range(PREFIX.to_string()..) {
+            if !name.starts_with(PREFIX) {
+                break;
+            }
+            let head = read_head(bytes)?;
+            let Some(shown) = head.shown.filter(|_| accept(&head.source)) else {
+                continue;
+            };
+            let mut entry = recovered_node(blocks, &shown.reference, &head.source)?;
+            loop {
+                let (packet, message) = opened(&entry)?;
+                let origin = &packet.header.origin;
+                let edit = amendments.edit(origin);
+                if origin.header.target.is_none()
+                    && !amendments.deleted(origin)
+                    && !seen.contains(&origin.message)
+                    && !selected.contains_key(&origin.position)
+                    && super::super::journal::matches(&message, edit.as_ref(), needle)?
+                {
+                    selected.insert(
+                        origin.position,
+                        RecoveredMessage {
+                            edit,
+                            reactions: amendments.reactions(origin),
+                            message,
+                            observed_at: packet.observed_at,
+                            sharer: head.source.sharer,
+                            admission: head.source.admission,
+                        },
+                    );
+                    if selected.len() > limit {
+                        selected.pop_first();
+                        more = true;
+                    }
+                }
+                if entry.jumps.is_empty() {
+                    break;
+                }
+                entry = previous_node(blocks, &entry, 0)?;
+            }
+        }
+        Ok((selected.into_values().rev().collect(), more))
     }
     /// The recovered documents older than `query.before` in this room, and
     /// whether still older ones exist.
@@ -378,6 +443,7 @@ fn recovered(
             {
                 selected.entry(position).or_insert(RecoveredMessage {
                     edit: amendments.edit(origin),
+                    reactions: amendments.reactions(origin),
                     message,
                     observed_at: packet.observed_at,
                     sharer: head.source.sharer,

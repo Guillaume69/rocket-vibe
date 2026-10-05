@@ -28,6 +28,7 @@ fn delivered(
 }
 fn chat(id: &str, thread: Option<String>) -> rv_protocol::SendMessage {
     let mut document = messages::message(id);
+    document.text = format!("Message {id} PRIVÉ");
     document.reply_to = thread;
     document
 }
@@ -288,5 +289,191 @@ fn recovered_history_carries_and_applies_the_amendments() {
     assert_eq!(
         rows,
         [("plain".to_owned(), Some("edited plain".to_owned()))]
+    );
+}
+
+fn react(
+    account: &Account,
+    target: u64,
+    emoji: &str,
+    present: bool,
+    operation: &str,
+) -> Result<MessageSubmission> {
+    account.coordinator().prepare_reaction(
+        &messages::observation(account),
+        &stored(target),
+        emoji,
+        present,
+        operation.into(),
+        NOW,
+    )
+}
+fn reactions(message: &journal::ProjectedMessage) -> Vec<(String, Vec<String>)> {
+    message
+        .reactions
+        .iter()
+        .map(|r| (r.emoji.clone(), r.users.clone()))
+        .collect()
+}
+
+#[test]
+fn members_react_and_withdraw_and_the_latest_action_per_user_and_emoji_wins() {
+    let (alice, bob, observed) = conversation();
+    // An unknown target, an invalid emoji name and quotes are refused.
+    assert!(react(&bob, 99, "thumbsup", true, "bob-unknown").is_err());
+    for emoji in ["", "Thumbs Up", ":thumbsup:", "👍"] {
+        assert!(react(&bob, BASE + 1, emoji, true, "bob-invalid").is_err());
+    }
+    let events = vec![
+        delivered(
+            &alice,
+            react(&alice, BASE + 1, "thumbsup", true, "a-1").unwrap(),
+            BASE + 4,
+        ),
+        delivered(
+            &bob,
+            react(&bob, BASE + 1, "heart", true, "b-1").unwrap(),
+            BASE + 5,
+        ),
+        delivered(
+            &bob,
+            react(&bob, BASE + 1, "thumbsup", true, "b-2").unwrap(),
+            BASE + 6,
+        ),
+        delivered(
+            &bob,
+            react(&bob, BASE + 1, "heart", false, "b-3").unwrap(),
+            BASE + 7,
+        ),
+        // A reply's reaction stays in its thread.
+        delivered(
+            &bob,
+            react(&bob, BASE + 2, "tada", true, "b-4").unwrap(),
+            BASE + 8,
+        ),
+    ];
+    let next = page(&observed, BASE + 3, BASE + 8, events, None);
+    for account in [&alice, &bob] {
+        account
+            .coordinator()
+            .receive_journal(&observed, &next, NOW)
+            .unwrap();
+        let main = account
+            .reopened()
+            .journal_projection(&observed, &query(None), NOW)
+            .unwrap();
+        assert_eq!(operations(&main.messages), ["root", "plain"]);
+        let alice_id = alice.manager.scope().user.clone();
+        let bob_id = bob.manager.scope().user.clone();
+        let mut both = vec![alice_id, bob_id.clone()];
+        both.sort();
+        assert_eq!(
+            reactions(&main.messages[0]),
+            [("thumbsup".to_owned(), both.clone())]
+        );
+        assert!(main.messages[1].reactions.is_empty());
+        let thread = account
+            .reopened()
+            .journal_projection(&observed, &query(Some(stored(BASE + 1))), NOW)
+            .unwrap();
+        assert_eq!(
+            reactions(&thread.root.unwrap()),
+            [("thumbsup".to_owned(), both)]
+        );
+        assert_eq!(
+            reactions(&thread.messages[0]),
+            [("tada".to_owned(), vec![bob_id])]
+        );
+        // Reactions are amendments: no row, no reply.
+        assert_eq!(main.retained_replies.get(&stored(BASE + 1)), Some(&1));
+    }
+    // A reaction is not itself a target.
+    assert!(react(&alice, BASE + 4, "heart", true, "a-chained").is_err());
+}
+
+#[test]
+fn private_search_matches_the_shown_text_across_threads_newest_first() {
+    let (alice, bob, observed) = conversation();
+    let amend = |target: u64, text: Option<&str>, operation: &str| {
+        alice
+            .coordinator()
+            .prepare_amendment(
+                &messages::observation(&alice),
+                &stored(target),
+                text.map(str::to_owned),
+                operation.into(),
+                NOW,
+            )
+            .unwrap()
+    };
+    let events = vec![
+        delivered(
+            &alice,
+            amend(BASE + 3, Some("Renamed CARROT"), "edit-plain"),
+            BASE + 4,
+        ),
+        delivered(&alice, amend(BASE + 1, None, "delete-root"), BASE + 5),
+    ];
+    let next = page(&observed, BASE + 3, BASE + 5, events, None);
+    bob.coordinator()
+        .receive_journal(&observed, &next, NOW)
+        .unwrap();
+    let search = |account: &Account, text: &str, limit: usize| {
+        let found = account
+            .reopened()
+            .journal_search(&observed, text, limit, NOW)
+            .unwrap();
+        (
+            found
+                .messages
+                .iter()
+                .map(|m| m.message.message().unwrap().operation_id)
+                .collect::<Vec<_>>(),
+            found.truncated,
+        )
+    };
+    // Case-insensitive, thread replies included, deleted and edited-away text
+    // left out, newest first.
+    assert_eq!(
+        search(&bob, "  privé ", 20),
+        (vec!["reply".to_owned()], false)
+    );
+    assert_eq!(
+        search(&bob, "carrot", 20),
+        (vec!["plain".to_owned()], false)
+    );
+    assert_eq!(search(&bob, "message plain", 20), (vec![], false));
+    assert_eq!(
+        search(&bob, "message", 20),
+        (vec!["reply".to_owned()], false)
+    );
+    for (text, limit) in [("", 20), ("   ", 20), ("x", 0), ("x", 201)] {
+        assert!(
+            bob.reopened()
+                .journal_search(&observed, text, limit, NOW)
+                .is_err()
+        );
+    }
+    let long = "x".repeat(257);
+    assert!(
+        bob.reopened()
+            .journal_search(&observed, &long, 20, NOW)
+            .is_err()
+    );
+    // Truncation reports that more match.
+    let both = vec![delivered(
+        &alice,
+        amend(BASE + 2, Some("carrot reply"), "edit-reply"),
+        BASE + 6,
+    )];
+    let next = page(&observed, BASE + 5, BASE + 6, both, None);
+    bob.coordinator()
+        .receive_journal(&observed, &next, NOW)
+        .unwrap();
+    // Order is by message position, not by the time of its edit.
+    assert_eq!(search(&bob, "CARROT", 1), (vec!["plain".to_owned()], true));
+    assert_eq!(
+        search(&bob, "CARROT", 2),
+        (vec!["plain".to_owned(), "reply".to_owned()], false)
     );
 }

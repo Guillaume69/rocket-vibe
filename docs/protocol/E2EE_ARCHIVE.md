@@ -70,8 +70,8 @@ or replacing a backup packet does not destroy an old copy or its
 key. Without a key or a device able to authorize a share, lost data
 remains unrecoverable.
 
-Edits, deletions, reactions and pins will be authenticated events
-applied to the same archive. A deletion removes the document's projection
+Edits, deletions and reactions are authenticated events applied to the same
+archive ([E2EE_AMENDMENTS.md](E2EE_AMENDMENTS.md)); pins are not yet. A deletion removes the document's projection
 according to current rights; it does not guarantee the erasure of an already
 exported copy. Private search indexes only the authorized documents in
 the client's protected storage. Text, index and keys are never added to the

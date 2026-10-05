@@ -1432,7 +1432,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat_native.rs",
-      "line": 958,
+      "line": 983,
       "kind": "endpoint",
       "surface": "rooms.new"
     },
@@ -1492,49 +1492,49 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1234,
+      "line": 1245,
       "kind": "endpoint",
       "surface": "rooms.online"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1235,
+      "line": 1246,
       "kind": "endpoint",
       "surface": "rooms.connecting"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1236,
+      "line": 1247,
       "kind": "endpoint",
       "surface": "rooms.offline"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1713,
+      "line": 1724,
       "kind": "endpoint",
       "surface": "rooms.section_unread"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1714,
+      "line": 1725,
       "kind": "endpoint",
       "surface": "rooms.section_favorites"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1715,
+      "line": 1726,
       "kind": "endpoint",
       "surface": "rooms.section_channels"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1716,
+      "line": 1727,
       "kind": "endpoint",
       "surface": "rooms.section_direct"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1832,
+      "line": 1843,
       "kind": "endpoint",
       "surface": "e2e.read_only"
     },
@@ -2296,13 +2296,13 @@
     },
     {
       "file": "apps/mobile/app/message-actions.tsx",
-      "line": 84,
+      "line": 85,
       "kind": "call:GET",
       "surface": "'settings.public'"
     },
     {
       "file": "apps/mobile/app/message-actions.tsx",
-      "line": 85,
+      "line": 86,
       "kind": "endpoint",
       "surface": "settings.public"
     },

@@ -236,11 +236,14 @@ pub async fn submit(
             return Err(Error::new(StatusCode::BAD_REQUEST, "invalid_thread_root"));
         }
     }
-    // An edit or deletion amends one of the author's own accepted messages of
-    // this room, keeping its thread; never another amendment.
+    // An amendment names an accepted message of this room, keeping its thread;
+    // never another amendment. Only its author edits or deletes it, any member
+    // reacts to it.
     if let Some(target) = &header.target {
-        let amendable: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM e2ee_application_messages WHERE id=$1 AND room_id=$2 AND user_id=$3 AND target IS NULL AND thread_root IS NOT DISTINCT FROM $4)")
-            .bind(target).bind(room).bind(&actor.id).bind(&header.thread).fetch_one(&mut *tx).await?;
+        let author =
+            matches!(header.kind, packet::Kind::Edit | packet::Kind::Delete).then_some(&actor.id);
+        let amendable: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM e2ee_application_messages WHERE id=$1 AND room_id=$2 AND ($3::TEXT IS NULL OR user_id=$3) AND target IS NULL AND thread_root IS NOT DISTINCT FROM $4)")
+            .bind(target).bind(room).bind(author).bind(&header.thread).fetch_one(&mut *tx).await?;
         if !amendable {
             return Err(Error::new(
                 StatusCode::BAD_REQUEST,

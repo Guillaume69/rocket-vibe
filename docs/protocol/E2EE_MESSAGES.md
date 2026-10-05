@@ -104,9 +104,9 @@ Routing metadata, notably the thread root, is visible to the server.
 
 A reply must reference an existing opaque root of the same room, accessible
 during the admission of the author device. A reply cannot serve as a
-new root. Edits and deletions are amendments, ordinary messages of these routes
-([E2EE_AMENDMENTS.md](E2EE_AMENDMENTS.md)). Reactions, cards, counters and
-notifications are not yet wired to them.
+new root. Edits, deletions and reactions are amendments, ordinary messages of these
+routes, and search runs on the device ([E2EE_AMENDMENTS.md](E2EE_AMENDMENTS.md)).
+Counters and notifications are not yet wired to them.
 
 ## Order, pagination and admissions
 

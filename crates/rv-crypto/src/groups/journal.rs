@@ -43,6 +43,8 @@ pub struct ProjectedMessage {
     pub observed_at: u64,
     /// The author's latest edit (E2EE_AMENDMENTS.md); the document stays signed.
     pub edit: Option<super::amendments::Edit>,
+    /// Current reactions, any member's (E2EE_AMENDMENTS.md).
+    pub reactions: Vec<super::amendments::Reaction>,
 }
 pub struct JournalProjection {
     pub head: Receipt,
@@ -59,6 +61,25 @@ pub struct JournalProjection {
 }
 /// Reader-bound source lookup for private references, including thread replies.
 /// Absence never falls back to an ordinary SQL/message cache.
+/// Matches of a private search, newest first (E2EE_AMENDMENTS.md).
+pub struct JournalSearch {
+    pub admission: Fingerprint,
+    pub messages: Vec<ProjectedMessage>,
+    /// More matches exist past `messages`.
+    pub truncated: bool,
+}
+/// Case-insensitive match of the shown text: the latest edit, else the original.
+pub(super) fn matches(
+    message: &ClearMessage,
+    edit: Option<&super::amendments::Edit>,
+    needle: &str,
+) -> Result<bool> {
+    let text = match edit {
+        Some(edit) => zeroize::Zeroizing::new(edit.text.to_lowercase()),
+        None => zeroize::Zeroizing::new(message.message()?.text.to_lowercase()),
+    };
+    Ok(text.contains(needle))
+}
 pub struct JournalSources {
     pub admission: Fingerprint,
     pub after: u64,
@@ -470,6 +491,7 @@ impl Coordinator {
                         message: m.message,
                         observed_at: m.observed_at,
                         edit: m.edit,
+                        reactions: m.reactions,
                     }),
                 );
             }
@@ -487,6 +509,7 @@ impl Coordinator {
                     message: root.message,
                     observed_at: root.observed_at,
                     edit: root.edit,
+                    reactions: root.reactions,
                 });
             }
             Ok(JournalProjection {
@@ -498,6 +521,75 @@ impl Coordinator {
                 messages: retained.messages,
                 root: retained.root,
                 retained_replies: retained.replies,
+            })
+        })
+    }
+    /// Searches this room's verified private documents on the device, own
+    /// journal then recovered history, with edits applied and deleted
+    /// documents left out. Nothing leaves the protected storage.
+    pub fn journal_search(
+        &self,
+        observation: &JournalObservation,
+        text: &str,
+        limit: usize,
+        now: u64,
+    ) -> Result<JournalSearch> {
+        let needle = zeroize::Zeroizing::new(text.trim().to_lowercase());
+        if needle.is_empty() || needle.chars().count() > 256 || limit == 0 || limit > 200 {
+            return Err(Error::Limit);
+        }
+        self.journal_inspect(observation, now, |records, blocks, cursor, grant| {
+            let (mut messages, mut truncated, own) = match self.archive_journal_search(
+                records,
+                blocks,
+                &cursor.scope,
+                grant,
+                cursor.admission,
+                cursor.after,
+                &needle,
+                limit,
+            )? {
+                Some(found) => found,
+                None => {
+                    let mut found = Vec::new();
+                    let sources =
+                        self.project_sources(records, &cursor.scope, grant, cursor.after)?;
+                    for message in sources.into_iter().rev() {
+                        if matches(&message.message, message.edit.as_ref(), &needle)? {
+                            found.push(message);
+                        }
+                    }
+                    let truncated = found.len() > limit;
+                    found.truncate(limit);
+                    (found, truncated, Default::default())
+                }
+            };
+            if !truncated {
+                let seen = messages
+                    .iter()
+                    .map(|m| m.message.receipt.message.clone())
+                    .collect::<BTreeSet<_>>();
+                let (older, more) = self.recovered_search(
+                    records,
+                    blocks,
+                    &cursor.scope,
+                    &needle,
+                    limit - messages.len(),
+                    &own,
+                    &seen,
+                )?;
+                truncated = more;
+                messages.extend(older.into_iter().map(|m| ProjectedMessage {
+                    message: m.message,
+                    observed_at: m.observed_at,
+                    edit: m.edit,
+                    reactions: m.reactions,
+                }));
+            }
+            Ok(JournalSearch {
+                admission: cursor.admission,
+                messages,
+                truncated,
             })
         })
     }

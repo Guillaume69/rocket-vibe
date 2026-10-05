@@ -24,7 +24,7 @@ use std::{
     sync::Arc,
 };
 mod amendments;
-pub use amendments::Edit;
+pub use amendments::{Edit, Reaction};
 mod archive;
 pub use archive::RecoveredMessage;
 mod drafts;
@@ -48,8 +48,8 @@ mod settlement;
 pub use settlement::{CancellationRequest, GroupCancellation, GroupSettlement};
 pub mod wire;
 pub use journal::{
-    JournalBatch, JournalObservation, JournalProjection, JournalRequest, JournalSources,
-    ProjectedMessage, ProjectionQuery,
+    JournalBatch, JournalObservation, JournalProjection, JournalRequest, JournalSearch,
+    JournalSources, ProjectedMessage, ProjectionQuery,
 };
 pub use messages::{
     CancelledMessage, ClearMessage, MessageCancellation, MessageObservation, MessagePending,

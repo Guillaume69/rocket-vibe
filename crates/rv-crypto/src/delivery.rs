@@ -723,6 +723,35 @@ impl Worker {
         .await?;
         self.resume_message_inner(&operation).await
     }
+    /// React (`present`) to any journaled message of the room with an emoji
+    /// name, or withdraw that reaction; an ordinary private operation.
+    pub async fn react_message(
+        &self,
+        room: &str,
+        target: String,
+        emoji: String,
+        present: bool,
+        operation: String,
+    ) -> Result<rv_crypto_public::messages::Receipt> {
+        let _dispatch = self.dispatch.lock().await;
+        self.scope().await?;
+        self.gate().await?;
+        let observation = self.message_observation(room).await?;
+        let id = operation.clone();
+        self.owned(move |manager, root, now| {
+            groups::Coordinator::new(manager, root)?.prepare_reaction(
+                &observation,
+                &target,
+                &emoji,
+                present,
+                id,
+                now,
+            )?;
+            Ok(())
+        })
+        .await?;
+        self.resume_message_inner(&operation).await
+    }
     /// Look up a historical own receipt before any current-state validation or
     /// POST, including after withdrawal, rekey, certificate expiry or cooldown.
     pub async fn resume_message(
@@ -917,6 +946,37 @@ impl Worker {
                 return Err(Error::Scope);
             }
             Ok(groups::Coordinator::new(manager, root)?.journal_last_batch(&observation, now)?)
+        })
+        .await
+    }
+    /// Private search in this room's verified documents on the device.
+    pub async fn journal_search(
+        &self,
+        room: &str,
+        text: String,
+        limit: usize,
+    ) -> Result<groups::JournalSearch> {
+        let _dispatch = self.dispatch.lock().await;
+        self.scope().await?;
+        let roster = self.client.crypto_group_roster(room).await?;
+        self.current()?;
+        let state = self.client.crypto_group_state(room).await?;
+        self.current()?;
+        let room = room.to_owned();
+        self.owned(move |manager, root, now| {
+            let observation = groups::JournalObservation::from_wire(&roster, &state)?;
+            if observation.current.head.scope.room != room
+                || observation.current.head.scope.instance != manager.scope().instance
+                || observation.current.head.scope.data_epoch != manager.scope().data_epoch
+            {
+                return Err(Error::Scope);
+            }
+            Ok(groups::Coordinator::new(manager, root)?.journal_search(
+                &observation,
+                &text,
+                limit,
+                now,
+            )?)
         })
         .await
     }

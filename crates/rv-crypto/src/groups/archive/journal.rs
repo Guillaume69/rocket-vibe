@@ -378,6 +378,59 @@ impl Coordinator {
             entry = previous(blocks, &entry, 0)?;
         }
     }
+    /// The newest `limit` documents up to `through` whose shown text contains
+    /// `needle`, newest first; whether more match; and the amendments met,
+    /// complete when not truncated.
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    pub(in super::super) fn archive_journal_search(
+        &self,
+        records: &Records,
+        blocks: &Access<'_>,
+        scope: &Scope,
+        grant: &Member,
+        admission: Fingerprint,
+        through: u64,
+        needle: &str,
+        limit: usize,
+    ) -> Result<
+        Option<(
+            Vec<ProjectedMessage>,
+            bool,
+            super::super::amendments::Amendments,
+        )>,
+    > {
+        let mut amendments = super::super::amendments::Amendments::default();
+        let Some(header) = head(records, &binding(scope, grant, admission))? else {
+            return Ok(None);
+        };
+        if header.retired {
+            return Ok(Some((Vec::new(), false, amendments)));
+        }
+        let mut found = Vec::new();
+        let mut entry = start(blocks, &header)?;
+        loop {
+            if entry.receipt.position <= through
+                && !amendments.observe(&entry.receipt, || {
+                    let doc = document(blocks, &entry)?;
+                    Ok((doc.message, doc.observed_at))
+                })?
+                && !amendments.deleted(&entry.receipt)
+            {
+                let doc = amendments.apply(document(blocks, &entry)?);
+                if super::super::journal::matches(&doc.message, doc.edit.as_ref(), needle)? {
+                    if found.len() == limit {
+                        return Ok(Some((found, true, amendments)));
+                    }
+                    found.push(doc);
+                }
+            }
+            if entry.jumps.is_empty() {
+                break;
+            }
+            entry = previous(blocks, &entry, 0)?;
+        }
+        Ok(Some((found, false, amendments)))
+    }
     /// Every indexed document up to `through`, oldest first: quote sources
     /// outlive the hot cache. Each one revalidates its original proof.
     pub(in super::super) fn archive_journal_sources(

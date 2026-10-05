@@ -1260,3 +1260,88 @@ async fn only_the_authors_own_messages_of_the_room_are_amended_in_their_thread(p
     .unwrap();
     assert_eq!(stored, Some(target));
 }
+
+#[sqlx::test]
+async fn any_member_reacts_to_a_message_but_only_its_author_edits_it(pool: PgPool) {
+    let app = App::from_pool(pool).await.unwrap();
+    let owner = ready(&app, "reaction-owner").await;
+    let guest = ready(&app, "reaction-guest").await;
+    let room = room(&app, &owner, Some(&guest)).await;
+    let (mut group, transition, input) = add(&app, &owner, &guest, &room).await;
+    let receipt = delivery::submit(&app, &owner.actor, &room.id, input)
+        .await
+        .unwrap();
+    group.merge_pending_commit(&owner.provider).unwrap();
+    let admission = page(&app, &guest, &room).await;
+    let wire::DeliveryContent::Group(event) = &admission.events[0].content else {
+        panic!("expected admission")
+    };
+    let mut joined = join(&guest, event.welcome.as_ref().unwrap());
+    let scope = &transition.plan.scope;
+    let original = encrypted(&owner, &mut group, scope, &receipt, &plaintext());
+    let target = messages::submit(&app, &owner.actor, &room.id, original)
+        .await
+        .unwrap()
+        .message_id;
+    let amendment = |text: &str| SendMessage {
+        operation_id: auth::random_token(),
+        text: text.into(),
+        quotes: vec![],
+        reply_to: None,
+        cards: vec![],
+    };
+    let forged = encrypted_as(
+        &guest,
+        &mut joined,
+        scope,
+        &receipt,
+        &amendment("forged"),
+        packet::Kind::Edit,
+        Some(target.clone()),
+    );
+    rejected(
+        messages::submit(&app, &guest.actor, &room.id, forged).await,
+        "invalid_amendment_target",
+    );
+    for kind in [packet::Kind::React, packet::Kind::Unreact] {
+        let reaction = encrypted_as(
+            &guest,
+            &mut joined,
+            scope,
+            &receipt,
+            &amendment("thumbsup"),
+            kind,
+            Some(target.clone()),
+        );
+        messages::submit(&app, &guest.actor, &room.id, reaction)
+            .await
+            .unwrap();
+    }
+    // A reaction is never itself a target.
+    let reaction = encrypted_as(
+        &guest,
+        &mut joined,
+        scope,
+        &receipt,
+        &amendment("heart"),
+        packet::Kind::React,
+        Some(target.clone()),
+    );
+    let reaction = messages::submit(&app, &guest.actor, &room.id, reaction)
+        .await
+        .unwrap()
+        .message_id;
+    let chained = encrypted_as(
+        &owner,
+        &mut group,
+        scope,
+        &receipt,
+        &amendment("tada"),
+        packet::Kind::React,
+        Some(reaction),
+    );
+    rejected(
+        messages::submit(&app, &owner.actor, &room.id, chained).await,
+        "invalid_amendment_target",
+    );
+}

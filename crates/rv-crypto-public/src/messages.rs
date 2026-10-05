@@ -24,6 +24,10 @@ pub enum Kind {
     Edit,
     /// Removes `target` from the projection.
     Delete,
+    /// Adds the author's reaction (the payload text, an emoji name) to `target`.
+    React,
+    /// Withdraws the author's reaction with that emoji from `target`.
+    Unreact,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,7 +68,7 @@ impl Header {
                 .is_some_and(|s| !identifier(s) || s == &self.operation)
             || match (&self.kind, &self.target) {
                 (Kind::Chat, None) => false,
-                (Kind::Edit | Kind::Delete, Some(target)) => {
+                (Kind::Edit | Kind::Delete | Kind::React | Kind::Unreact, Some(target)) => {
                     !identifier(target) || target == &self.operation
                 }
                 _ => true,

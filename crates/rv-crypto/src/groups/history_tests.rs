@@ -346,4 +346,30 @@ fn the_new_devices_conversation_continues_into_recovered_history() {
         operations(&bobs),
         ["history-4", "history-5", "own-8", "own-9"]
     );
+    // Private search continues into the recovered history, newest first.
+    let search = |limit| {
+        let found = tablet
+            .reopened()
+            .journal_search(&own, "PRIVÉ", limit, NOW)
+            .unwrap();
+        let ids = found
+            .messages
+            .iter()
+            .map(|m| m.message.message().unwrap().operation_id)
+            .collect::<Vec<_>>();
+        (ids, found.truncated)
+    };
+    assert_eq!(
+        search(20),
+        (
+            [9, 8]
+                .map(|n| format!("own-{n}"))
+                .into_iter()
+                .chain((1..=6).rev().map(|n| format!("history-{n}")))
+                .collect::<Vec<_>>(),
+            false
+        )
+    );
+    assert_eq!(search(3).0, ["own-9", "own-8", "history-6"]);
+    assert!(search(3).1);
 }

@@ -1,6 +1,7 @@
-//! History recovered from another device of the account. Kept apart from this
-//! device's own journal indexes: each shared period has its own chain and only
-//! shows once its manifest count and chain digest were matched.
+//! History recovered from another device of the account (path A) or from the
+//! history backup (path B). Kept apart from this device's own journal indexes:
+//! each period has its own chain and shows only up to the last count whose
+//! chain digest was matched; a backed-up period may grow past it later.
 use super::*;
 use crate::history::Record;
 
@@ -10,8 +11,15 @@ struct Source {
     scope: Scope,
     grant: Member,
     admission: Fingerprint,
-    /// Certificate fingerprint of the sharing device.
+    /// Origin: the sharing certificate (path A) or the backed-up period id (path B).
     sharer: Fingerprint,
+}
+/// The verified, visible prefix of a period.
+#[derive(Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Shown {
+    count: u64,
+    reference: Reference,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -22,7 +30,7 @@ struct RecoveredHead {
     count: u64,
     position: u64,
     reference: Reference,
-    complete: bool,
+    shown: Option<Shown>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -64,7 +72,10 @@ fn read_head(bytes: &[u8]) -> Result<RecoveredHead> {
     if head.version != 1
         || head.count == 0
         || head.count > head.total
-        || head.complete != (head.count == head.total)
+        || head
+            .shown
+            .is_some_and(|s| s.count == 0 || s.count > head.count)
+        || head.count == head.total && head.shown.is_none_or(|s| s.count != head.count)
         || head.position == 0
         || head.position > i64::MAX as u64
     {
@@ -151,9 +162,11 @@ impl Coordinator {
             Some(bytes) => Some(read_head(bytes)?),
             None => None,
         };
+        // A period continues towards its total, which may only grow (a backed-up
+        // period gets later checkpoints); the visible prefix never shrinks.
         if prior
             .as_ref()
-            .is_some_and(|h| h.source != source || h.total != total || h.complete)
+            .is_some_and(|h| h.source != source || total < h.total)
         {
             return Err(Error::Changed);
         }
@@ -184,6 +197,11 @@ impl Coordinator {
             opened(&item)?;
             let bytes = Zeroizing::new(serde_json::to_vec(&item).map_err(|_| Error::Changed)?);
             let reference = blocks.put(&bytes)?;
+            let shown = if count == total {
+                Some(Shown { count, reference })
+            } else {
+                prior.as_ref().and_then(|h| h.shown)
+            };
             prior = Some(RecoveredHead {
                 version: 1,
                 source: source.clone(),
@@ -191,7 +209,7 @@ impl Coordinator {
                 count,
                 position,
                 reference,
-                complete: count == total,
+                shown,
             });
         }
         let head = prior.ok_or(Error::Changed)?;
@@ -229,10 +247,10 @@ impl Coordinator {
                 break;
             }
             let head = read_head(bytes)?;
-            if !head.complete || !same_dataset(&head.source, scope) {
+            let Some(shown) = head.shown.filter(|_| same_dataset(&head.source, scope)) else {
                 continue;
-            }
-            let mut entry = recovered_node(blocks, &head.reference, &head.source)?;
+            };
+            let mut entry = recovered_node(blocks, &shown.reference, &head.source)?;
             loop {
                 let (packet, message) = opened(&entry)?;
                 if packet.header.origin.message == id {
@@ -281,17 +299,22 @@ fn recovered(
     accept: impl Fn(&Source) -> bool,
 ) -> Result<(Vec<RecoveredMessage>, bool)> {
     let wanted = query.limit.saturating_add(1);
-    let mut selected: Vec<(u64, RecoveredMessage)> = Vec::new();
+    // Several sources may hold the same position: it shows once.
+    let mut selected: std::collections::BTreeMap<u64, RecoveredMessage> =
+        std::collections::BTreeMap::new();
     for (name, bytes) in records.range(PREFIX.to_string()..) {
         if !name.starts_with(PREFIX) {
             break;
         }
         let head = read_head(bytes)?;
-        if !head.complete || head.source.scope.room != room || !accept(&head.source) {
+        let Some(shown) = head
+            .shown
+            .filter(|_| head.source.scope.room == room && accept(&head.source))
+        else {
             continue;
-        }
-        let mut entry = recovered_node(blocks, &head.reference, &head.source)?;
-        if entry.index != head.count {
+        };
+        let mut entry = recovered_node(blocks, &shown.reference, &head.source)?;
+        if entry.index != shown.count {
             return Err(Error::Changed);
         }
         loop {
@@ -300,18 +323,20 @@ fn recovered(
             if query.before.is_none_or(|p| position < p)
                 && packet.header.origin.header.thread == query.thread
             {
-                selected.push((
-                    position,
-                    RecoveredMessage {
-                        message,
-                        observed_at: packet.observed_at,
-                        sharer: head.source.sharer,
-                        admission: head.source.admission,
-                    },
-                ));
-                selected.sort_by_key(|(position, _)| std::cmp::Reverse(*position));
-                selected.truncate(wanted);
-                if selected.len() == wanted && selected.last().is_some_and(|(p, _)| *p > position) {
+                selected.entry(position).or_insert(RecoveredMessage {
+                    message,
+                    observed_at: packet.observed_at,
+                    sharer: head.source.sharer,
+                    admission: head.source.admission,
+                });
+                while selected.len() > wanted {
+                    selected.pop_first();
+                }
+                if selected.len() == wanted
+                    && selected
+                        .first_key_value()
+                        .is_some_and(|(p, _)| *p > position)
+                {
                     break;
                 }
             }
@@ -322,7 +347,8 @@ fn recovered(
         }
     }
     let more = selected.len() > query.limit;
-    selected.truncate(query.limit);
-    selected.reverse();
-    Ok((selected.into_iter().map(|(_, m)| m).collect(), more))
+    if more {
+        selected.pop_first();
+    }
+    Ok((selected.into_values().collect(), more))
 }

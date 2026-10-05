@@ -27,10 +27,12 @@ mod archive;
 pub use archive::RecoveredMessage;
 mod drafts;
 mod history;
+mod history_backup;
 pub use history::{
     HistoryImport, HistoryPage, HistoryPeriod, PAGE_PACKETS as HISTORY_PAGE_PACKETS,
     REQUEST_LIFETIME as HISTORY_REQUEST_LIFETIME,
 };
+pub use history_backup::BackupPage;
 mod incoming;
 mod verification;
 pub use incoming::Commit;

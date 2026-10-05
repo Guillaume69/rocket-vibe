@@ -672,6 +672,8 @@ mod delivery_tests;
 mod drafts;
 #[path = "settlement_tests.rs"]
 mod group_settlement;
+#[path = "history_backup_tests.rs"]
+mod history_backup_tests;
 #[path = "history_tests.rs"]
 mod history_tests;
 #[path = "incoming_tests.rs"]

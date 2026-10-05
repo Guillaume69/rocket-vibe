@@ -142,16 +142,14 @@ impl Coordinator {
         })
     }
     /// The documents of one page: as many next ranks as fit the page budget.
-    fn page_documents(
+    pub(super) fn page_documents(
         &self,
         records: &Records,
         blocks: &vault::blobs::Access<'_>,
-        job: &ShareJob,
-        period: usize,
+        (scope, grant, admission, total): (&Scope, &Member, &Fingerprint, u64),
         start: u64,
         count: Option<u64>,
     ) -> Result<Vec<Document>> {
-        let (scope, grant, admission, total) = job.binding(period).ok_or(Error::Changed)?;
         let room = read(records, &scope.room)?.ok_or(Error::NotReady)?;
         let plan = &room.active.as_ref().ok_or(Error::NotReady)?.transition.plan;
         let to = start + count.unwrap_or(PAGE_PACKETS as u64).min(total - start);
@@ -201,7 +199,13 @@ impl Coordinator {
                 return Ok(None);
             };
             let context = self.context(records, now)?;
-            let documents = self.page_documents(records, blocks, &job, period, start, None)?;
+            let documents = self.page_documents(
+                records,
+                blocks,
+                job.binding(period).ok_or(Error::Changed)?,
+                start,
+                None,
+            )?;
             let page = job.seal_page(provider.crypto(), &context.local, period, &documents, now)?;
             Ok(Some(HistoryPage {
                 period,
@@ -225,8 +229,13 @@ impl Coordinator {
                 return Err(Error::Changed);
             }
             let context = self.context(records, now)?;
-            let documents =
-                self.page_documents(records, blocks, &job, period, start, Some(count))?;
+            let documents = self.page_documents(
+                records,
+                blocks,
+                job.binding(period).ok_or(Error::Changed)?,
+                start,
+                Some(count),
+            )?;
             if documents.len() as u64 != count {
                 return Err(Error::Changed);
             }

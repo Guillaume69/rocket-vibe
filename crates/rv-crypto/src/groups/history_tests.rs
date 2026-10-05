@@ -7,7 +7,7 @@ const BASE: u64 = 9007199254740992;
 
 /// Bob's desktop receives `count` messages from Alice through journal pages,
 /// one in three as a thread reply.
-fn history(count: u64) -> (Account, Account) {
+pub(super) fn history(count: u64) -> (Account, Account) {
     let (alice, bob, _, initial) = fixture(false);
     let observed = observation(&alice);
     let first = page(&observed, 0, 1, vec![group(&initial, 1, None)], None);
@@ -35,7 +35,7 @@ fn history(count: u64) -> (Account, Account) {
     (alice, bob)
 }
 /// Runs the sharing device's job like the worker: page, upload, record.
-fn share_all(
+pub(super) fn share_all(
     bob: &Account,
     request: &crate::history::Request,
 ) -> (Share, Vec<(usize, Vec<crate::history::Record>)>) {

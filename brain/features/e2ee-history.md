@@ -1,6 +1,6 @@
 # Encrypted history on a new device (RocketVibe server)
 
-On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE), a newly registered device cannot read messages sent before it joined a room. History recovery lets it ask another device of the same account for the encrypted messages that device already received. The protocol is `docs/protocol/E2EE_HISTORY.md` (path A, device to device); path B (archive-key backup with a recovery code) is not built yet.
+On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE), a newly registered device cannot read messages sent before it joined a room. History recovery lets it ask another device of the same account for the encrypted messages that device already received. The protocols are `docs/protocol/E2EE_HISTORY.md` (path A, device to device) and `docs/protocol/E2EE_HISTORY_BACKUP.md` (path B, history backup with its own code).
 
 ## What the user sees
 

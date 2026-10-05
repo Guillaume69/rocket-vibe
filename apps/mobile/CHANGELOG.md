@@ -7,6 +7,16 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Récupération expérimentale de l’identité RocketVibe
+
+- Les paramètres existants préparent une copie chiffrée de l’identité et
+  affichent temporairement son code. La publication exige confirmation que
+  ce code a été conservé hors de l’application. Reprise et abandon gardent
+  l’intention originale, même après une réponse perdue ou un redémarrage.
+- Un appareil neuf peut vérifier son code puis récupérer l’identité avec ses
+  propres clés. Les champs sensibles sont effacés à la fermeture / arrière-plan.
+  Ce parcours ne restaure pas encore l’historique et demeure expérimental.
+
 ### Retrait expérimental des appareils RocketVibe
 
 - Les paramètres existants affichent les autres appareils chiffrés et proposent

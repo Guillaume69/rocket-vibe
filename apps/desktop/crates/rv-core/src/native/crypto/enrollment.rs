@@ -23,6 +23,7 @@ use std::{
 };
 
 pub mod peers;
+pub mod recovery;
 pub mod revocations;
 pub mod rooms;
 fn changed() -> Error {

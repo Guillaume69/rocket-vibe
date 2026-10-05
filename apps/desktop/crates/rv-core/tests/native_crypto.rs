@@ -1,4 +1,6 @@
 mod common;
+#[path = "native_crypto/recovery.rs"]
+mod recovery;
 #[path = "native_crypto/revocations.rs"]
 mod revocations;
 #[path = "native_crypto/rooms.rs"]

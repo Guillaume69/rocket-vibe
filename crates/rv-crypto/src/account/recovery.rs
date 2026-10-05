@@ -14,6 +14,8 @@ struct Pending {
     baseline: Renewal,
     request: http::PublishRootBackup,
     code_saved: bool,
+    #[serde(default)]
+    cancel_requested: bool,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -192,6 +194,7 @@ pub struct Status {
     pub receipt: Option<http::RootBackupReceipt>,
     pub pending: bool,
     pub code_saved: bool,
+    pub cancel_requested: bool,
 }
 pub struct BackupPreview {
     pub root_fingerprint: String,
@@ -224,6 +227,7 @@ impl Coordinator<'_> {
                     receipt: saved.receipt,
                     pending: saved.pending.is_some(),
                     code_saved: saved.pending.as_ref().is_some_and(|p| p.code_saved),
+                    cancel_requested: saved.pending.as_ref().is_some_and(|p| p.cancel_requested),
                 })
             })
             .map_err(Error::from)
@@ -364,6 +368,7 @@ impl Coordinator<'_> {
                     publication: B64.encode(&private(p.to_bytes())?),
                 },
                 code_saved: false,
+                cancel_requested: false,
             });
             secret.save(records, SECRET);
             persist(records, &saved)
@@ -402,7 +407,7 @@ impl Coordinator<'_> {
                 let saved = load(records, &manager, &account.root)?;
                 let p = saved
                     .pending
-                    .filter(|p| p.code_saved)
+                    .filter(|p| p.code_saved && !p.cancel_requested)
                     .ok_or(vault::Error::Rejected)?;
                 Ok(p.request)
             })
@@ -436,6 +441,77 @@ impl Coordinator<'_> {
             }
             saved.pending = None;
             saved.receipt = Some(receipt);
+            if let Some(mut key) = records.remove(SECRET) {
+                key.zeroize();
+            }
+            persist(records, &saved)
+        })?;
+        Ok(())
+    }
+    /// Explicit abandonment, protected before network output. A resumed view
+    /// keeps cancelling this original intent and cannot accidentally publish it.
+    pub fn request_backup_cancellation(&self) -> Result<http::PublishRootBackup> {
+        let (manager, account) = self.state()?;
+        manager
+            .transact(|_, records| {
+                let mut saved = load(records, &manager, &account.root)?;
+                let pending = saved.pending.as_mut().ok_or(vault::Error::Stale)?;
+                pending.cancel_requested = true;
+                let original = pending.request.clone();
+                persist(records, &saved)?;
+                Ok(original)
+            })
+            .map_err(Error::from)
+    }
+    pub fn pending_backup_cancellation(&self) -> Result<http::PublishRootBackup> {
+        let (manager, account) = self.state()?;
+        manager
+            .inspect(|_, records| {
+                load(records, &manager, &account.root)?
+                    .pending
+                    .filter(|p| p.cancel_requested)
+                    .map(|p| p.request)
+                    .ok_or(vault::Error::Stale)
+            })
+            .map_err(Error::from)
+    }
+    pub fn settle_backup_cancellation(
+        &self,
+        request: &http::PublishRootBackup,
+        result: http::RootBackupSettlement,
+    ) -> Result<()> {
+        let original = self.pending_backup_cancellation()?;
+        if !same(request, &original) {
+            return Err(Error::Changed);
+        }
+        let receipt = match result {
+            http::RootBackupSettlement::Accepted(receipt) => {
+                return self.acknowledge_backup(request, receipt);
+            }
+            http::RootBackupSettlement::Cancelled(receipt) => receipt,
+        };
+        let (manager, account) = self.state()?;
+        let p = publication(request)?;
+        if receipt.scope.instance_id != p.body.scope.instance
+            || receipt.scope.data_epoch != p.body.scope.data_epoch
+            || receipt.operation_id != p.body.operation
+            || receipt.device_id != p.body.device
+            || receipt.incarnation != hex(&p.body.incarnation)
+            || receipt.device_revision != p.body.device_revision
+            || receipt.root_fingerprint != hex(&p.packet.header.root.fingerprint()?)
+            || receipt.backup_id != hex(&p.packet.header.backup_id)
+            || receipt.expected_revision != p.body.expected_revision
+            || receipt.packet_digest != hex(&p.body.packet_digest)
+        {
+            return Err(Error::Changed);
+        }
+        manager.transact(|_, records| {
+            let mut saved = load(records, &manager, &account.root)?;
+            let pending = saved.pending.as_ref().ok_or(vault::Error::Stale)?;
+            if !pending.cancel_requested || !same(request, &pending.request) {
+                return Err(vault::Error::Stale);
+            }
+            saved.pending = None;
             if let Some(mut key) = records.remove(SECRET) {
                 key.zeroize();
             }

@@ -13,6 +13,7 @@ La capacité E2EE de production reste désactivée. Le serveur utilise uniquemen
 | `GET /api/v1/e2ee/root-backup` | Portée actuelle et paquet actif éventuel, pour le compte authentifié seulement |
 | `POST /api/v1/e2ee/root-backup` | Publication signée et reçu de la version acceptée |
 | `GET /api/v1/e2ee/root-backup/operations/{operation}` | Reçu original de cet appareil HTTP, même après remplacement du paquet actif |
+| `POST /api/v1/e2ee/root-backup/operations/{operation}/cancel` | Issue terminale de l'intention originale : acceptée ou abandonnée |
 
 Les lectures passent les barrières d'authentification / livraison et sont
 `no-store`. Un nouvel appareil HTTP peut télécharger le paquet du propriétaire
@@ -59,9 +60,23 @@ avant confirmation de la persistance ; la reprise retrouve le même paquet.
 
 Le client relit d'abord le reçu original. Seule une absence positive permet
 de republier l'intention originale ; une erreur réseau ne permet pas de générer
-un autre paquet. Une sauvegarde concurrente et l'abandon d'une intention
-incertaine nécessitent encore leur parcours explicite de règlement dans les
-adaptateurs / interfaces.
+un autre paquet.
+
+L'abandon explicite est lui aussi sauvegardé avant HTTP. La reprise ne peut
+plus publier l'intention : elle relit son issue terminale avec les mêmes octets.
+Le serveur prend le même verrou de racine que la publication. S'il a déjà
+accepté la copie, il conserve celle-ci et rend son reçu original. Sinon, il
+enregistre un tombstone permanent ; tout POST ultérieur de cette intention
+reçoit `crypto_backup_cancelled`. Un quota séparé borne 64 nouveaux abandons
+par jour et appareil, sans cacher les résultats existants. L'abandon peut
+régler une preuve historique sans la réinscrire ou accorder de confiance.
+
+Le reçu d'abandon lie portée, opération, appareil, incarnation / révision,
+empreinte racine, ID / digest du paquet et version attendue exacte. Le moteur
+refuse un résultat substitué. Il ne retire la clé temporaire qu'après
+confirmation de l'issue ; une acceptation n'efface pas le code avant que
+l'utilisateur ne l'ait confirmé conservé. Un conflit peut ainsi être abandonné
+puis remplacé par une nouvelle intention explicitement préparée.
 
 La saisie du code vérifie AEAD, clé racine et empreinte attendue avant toute
 initialisation du coffre. La confirmation importe uniquement la racine dans un
@@ -84,8 +99,17 @@ couvrent concurrence / CAS, reçu après remplacement, substitution / portée /
 contrôleur, connexion récente, quota et réponse HTTP perdue suivie du GET sans
 second POST. Leur exécution réelle passe par la CI PostgreSQL.
 
-Restent le raccordement FFI / Keystore Android et aux paramètres existants
-GTK / SwiftUI / Android, la qualification installée et la revue indépendante.
+Le pont Rust / Kotlin et les paramètres Android existants proposent examen,
+code temporaire, confirmation du code conservé, reprise / abandon et saisie
+du code pour restaurer l'identité d'un appareil neuf. Blur, arrière-plan et
+changement de compte ferment le handle et effacent les textes des contrôles.
+Les confirmations opaques restent dans Rust et sont retirées à la fermeture.
+Le cœur bureau et la FFI partagent le même parcours, testé avec le vrai
+transport HTTP et le coffre SQLite chiffré.
+
+Restent les contrôles GTK / SwiftUI de récupération, la nouvelle qualification
+Keystore / build après raccordement, les applications installées et la revue
+indépendante.
 L'archive historique nécessite son propre format et ses propres clés.
 Changer le code ou remplacer le paquet actif n'invalide aucune ancienne copie
 et son ancien code. Aucune garantie de forward secrecy n'est annoncée pour

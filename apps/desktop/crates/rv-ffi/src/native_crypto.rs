@@ -1,5 +1,6 @@
-//! One opaque settings handle. Only public ceremony values cross UniFFI;
-//! signing keys, protected selection and approval consent stay inside Rust.
+//! One opaque settings handle. Public ceremony values and explicit temporary
+//! recovery-code display/input cross UniFFI. Signing keys, protected selection
+//! and approval consent stay inside Rust.
 use crate::{accounts, model::RvError, on_tokio};
 use rv_core::native::{
     NativeSession,
@@ -14,6 +15,7 @@ pub(crate) mod messages;
 pub(crate) mod peers;
 pub(crate) mod quote_composer;
 pub(crate) mod quote_reader;
+mod recovery;
 pub(crate) mod rooms;
 mod withdrawals;
 
@@ -51,6 +53,7 @@ struct Inner {
     serial: tokio::sync::Mutex<()>,
     state: Mutex<(u64, Option<Approval>)>,
     withdrawal: Mutex<Option<(u64, enrollment::revocations::Approval)>>,
+    recovery: Mutex<Option<(u64, recovery::Staged)>>,
 }
 #[derive(uniffi::Object)]
 pub struct NativeCrypto {
@@ -97,6 +100,7 @@ impl NativeCrypto {
                 serial: tokio::sync::Mutex::new(()),
                 state: Mutex::new((0, None)),
                 withdrawal: Mutex::new(None),
+                recovery: Mutex::new(None),
             }),
         }))
     }
@@ -137,6 +141,7 @@ impl NativeCrypto {
         self.inner.access.close();
         self.inner.state.lock().unwrap().1 = None;
         self.inner.withdrawal.lock().unwrap().take();
+        self.inner.recovery.lock().unwrap().take();
     }
     pub fn is_closed(&self) -> bool {
         self.inner.access.check().is_err()

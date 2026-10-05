@@ -5,6 +5,30 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 
 ## État synthétique au 5 octobre 2026
 
+Règlement des sauvegardes et récupération Android : le serveur sérialise
+publication / abandon sous le même verrou. Un original déjà accepté reste
+accepté ; sinon un tombstone empêche sa publication future. Le coffre conserve
+la phase d'abandon avant sortie, puis reprend seulement cette intention.
+Les huit parcours de récupération du moteur passent en 1,69 s. Le pont Android
+lie les consentements au handle, réserve le code à sa vue / saisie explicites,
+et récupère une vraie racine puis une feuille distincte ; ses deux nouveaux
+tests passent en 4,38 s. Les paramètres Android existants proposent examen,
+code temporaire / confirmation, reprise / abandon et restauration. Trois
+tests de l'adaptateur prouvent absence de code en HTTP, réponse perdue reprise
+par GET et fermeture qui interdit la confirmation ; avec les vecteurs / HTTP,
+sept tests passent en 224 ms. Typecheck et lint ciblé passent.
+Le cœur bureau / FFI sont raccordés au même parcours ; leurs 25 tests HTTP /
+SQLite passent en 52,32 s, dont appareil HTTP neuf, clé distincte, confirmation
+refusée sur un autre handle, fermeture pendant checkpoint et reprise terminale.
+Clippy strict moteur / pont / serveur / cœur / FFI passe et le binding Swift
+réel expose `recoveryAction`. Quatre scénarios PostgreSQL de règlement sont
+ajoutés et attendent la nouvelle CI, ainsi que le nouveau pont / Keystore.
+Les contrôles GTK / SwiftUI et la qualification GUI installée restent ouverts.
+Aucun masque de production n'est activé.
+
+La suite complète du pont mobile passe ses 11 tests en 66,99 s. Les bibliothèques
+Windows réelles produisent les bindings Kotlin et Swift avec `recoveryAction`.
+
 Sauvegarde de racine : format public opaque signé, stockage serveur de la
 version active avec CAS, reçus originaux distincts et transports Rust / mobile
 ajoutés. Le coordinateur partagé protège paquet / clé / intention avant sortie,
@@ -18,10 +42,12 @@ les cinq parcours de récupération passent en 1,64 s après la protection des
 aperçus et le refus d'un appareil délégué sans racine. Douze tests transport /
 OpenSSL passent en 219 ms, typecheck / lint
 mobile et Clippy strict moteur / serveur passent. Le vecteur public, les DTOs
-et six scénarios serveur sont ajoutés, dont cinq PostgreSQL / HTTP à qualifier
-dans la nouvelle CI. Le règlement explicite des conflits, FFI / Keystore et
-paramètres existants restent à raccorder ; aucune capacité de production n'est
-activée. Détails : [contrat de sauvegarde](protocol/E2EE_ROOT_BACKUPS.md).
+et six scénarios serveur sont ajoutés, dont cinq PostgreSQL / HTTP qui passent
+dans le job 111684333233 : le serveur passe 175 tests en 242,97 s. Les neuf jobs
+natifs de 37285805413 et le vrai Keystore / deux ABI de 37285805414 sont verts.
+Le règlement et les clients sont prolongés par le lot ci-dessus ; aucune
+capacité de production n'est activée. Détails :
+[contrat de sauvegarde](protocol/E2EE_ROOT_BACKUPS.md).
 
 Retrait signé raccordé au coordinateur protégé et aux paramètres existants
 Android / GTK / SwiftUI : aperçu lié au certificat / incarnation / révision,

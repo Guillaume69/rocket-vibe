@@ -16,6 +16,17 @@ racine privée et intention originale restent dans Rust. Les paramètres Android
 existants proposent confirmation et reprise. Les retraits restent appris après
 omission / réouverture, sans créer de pin ou d'approbation d'appareil.
 
+`recovery_action` raccorde sauvegarde et restauration de racine. Les clés
+privées / records ne sortent pas de Rust ; seuls l'affichage temporaire et la
+saisie explicites du **code de récupération utilisateur** font exception aux
+valeurs publiques de l'API UI. Ce code ne va jamais en HTTP, logs ou stockage
+JS persistant. Le handle ferme / efface ses aperçus opaques lors de `stop`. Les textes
+de l'écran sont effacés au blur / arrière-plan / changement de compte.
+Deux tests du pont exercent vrai paquet AEAD, consentement lié au handle,
+stop / réouverture, identité restaurée puis feuille distincte enregistrée,
+et abandon terminal qui ne redevient pas une publication. Leur trousseau est
+une doublure ; le nouveau lot attend aussi la qualification Keystore / ABI.
+
 Une clé AES-256-GCM Android Keystore non exportable enveloppe les petits
 enregistrements plateforme. Les blobs et le coffre sont séparés dans
 `noBackupFilesDir`, sous répertoires 0700 / fichiers 0600. L'AAD lie le blob à

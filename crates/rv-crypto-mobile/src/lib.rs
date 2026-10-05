@@ -1,5 +1,6 @@
-//! Native-only Keystore seam. Foreign code sees scope/status; keys, protected
-//! records, checkpoints and MLS providers never cross the React Native bridge.
+//! Native-only Keystore seam. Foreign code sees scope/status and explicit
+//! temporary recovery-code display/input; private keys, protected records,
+//! checkpoints and MLS providers never cross the React Native bridge.
 use rv_crypto::{installation, protected, vault};
 use sha2::{Digest, Sha256};
 use std::{
@@ -14,6 +15,7 @@ mod conversations;
 mod groups;
 mod identity;
 mod peers;
+mod recovery;
 mod withdrawals;
 pub use identity::{IdentityApproval, IdentityPhase, IdentityStatus};
 pub use peers::{PeerApproval, PeerReview};
@@ -109,6 +111,7 @@ pub struct CryptoInstallation {
     closed: AtomicBool,
     approval: Mutex<Option<(String, rv_crypto::account::Approval)>>,
     withdrawal_approval: Mutex<Option<(String, rv_crypto::account::revocations::Preview)>>,
+    recovery_preview: Mutex<Option<(String, recovery::Staged)>>,
     peer_review: Mutex<Option<(String, rv_crypto::account::peers::View)>>,
     peer_approval: Mutex<Option<(String, rv_crypto::account::peers::Approval)>>,
     group_preview: Mutex<Option<groups::Staged>>,
@@ -183,6 +186,7 @@ impl CryptoInstallation {
             closed: AtomicBool::new(false),
             approval: Mutex::new(None),
             withdrawal_approval: Mutex::new(None),
+            recovery_preview: Mutex::new(None),
             peer_review: Mutex::new(None),
             peer_approval: Mutex::new(None),
             group_preview: Mutex::new(None),
@@ -196,6 +200,9 @@ impl CryptoInstallation {
         }
         if let Ok(mut approval) = self.withdrawal_approval.lock() {
             *approval = None;
+        }
+        if let Ok(mut preview) = self.recovery_preview.lock() {
+            *preview = None;
         }
         if let Ok(mut review) = self.peer_review.lock() {
             *review = None;

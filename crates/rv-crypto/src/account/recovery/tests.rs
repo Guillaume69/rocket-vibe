@@ -40,6 +40,97 @@ fn remote_packet(request: &http::PublishRootBackup) -> http::RootBackupState {
         }),
     }
 }
+fn cancelled(request: &http::PublishRootBackup) -> http::RootBackupSettlement {
+    let p = publication(request).unwrap();
+    http::RootBackupSettlement::Cancelled(http::RootBackupCancellation {
+        scope: request.scope.clone(),
+        operation_id: request.operation_id.clone(),
+        device_id: p.body.device.clone(),
+        incarnation: hex(&p.body.incarnation),
+        device_revision: p.body.device_revision.clone(),
+        root_fingerprint: hex(&p.packet.header.root.fingerprint().unwrap()),
+        backup_id: hex(&p.packet.header.backup_id),
+        expected_revision: p.body.expected_revision.clone(),
+        packet_digest: hex(&p.body.packet_digest),
+    })
+}
+#[test]
+fn cancellation_is_saved_before_output_refuses_publish_and_exact_result_allows_a_fresh_backup() {
+    let folder = tempfile::tempdir().unwrap();
+    let keys = Arc::new(Keys::default());
+    let installation = slot(folder.path(), keys.clone());
+    let wire = initialized(&installation);
+    let c = Coordinator::new(&installation);
+    let own = c.directory(wire.clone()).unwrap();
+    c.prepare_backup(&own, c.preview_backup(&own, empty_remote()).unwrap(), NOW)
+        .unwrap();
+    let code = c.backup_code().unwrap();
+    c.confirm_backup_code().unwrap();
+    let original = c.pending_backup().unwrap();
+    assert!(same(&c.request_backup_cancellation().unwrap(), &original));
+    assert!(c.pending_backup().is_err());
+    assert!(c.backup_status(&own).unwrap().cancel_requested);
+    let http::RootBackupSettlement::Cancelled(mut wrong) = cancelled(&original) else {
+        unreachable!()
+    };
+    wrong.expected_revision = Some("1".into());
+    assert!(
+        c.settle_backup_cancellation(&original, http::RootBackupSettlement::Cancelled(wrong))
+            .is_err()
+    );
+    drop(installation);
+    let installation = slot(folder.path(), keys);
+    let c = Coordinator::new(&installation);
+    let own = c.directory(wire).unwrap();
+    assert!(same(&c.pending_backup_cancellation().unwrap(), &original));
+    assert!(c.pending_backup().is_err());
+    assert_eq!(c.backup_code().unwrap().as_str(), code.as_str());
+    c.settle_backup_cancellation(&original, cancelled(&original))
+        .unwrap();
+    assert!(c.backup_code().is_err() && c.pending_backup_cancellation().is_err());
+    assert!(!c.backup_status(&own).unwrap().pending);
+    c.prepare_backup(
+        &own,
+        c.preview_backup(&own, empty_remote()).unwrap(),
+        NOW + 1,
+    )
+    .unwrap();
+    assert_ne!(c.backup_code().unwrap().as_str(), code.as_str());
+    c.confirm_backup_code().unwrap();
+    assert_ne!(
+        c.pending_backup().unwrap().operation_id,
+        original.operation_id
+    );
+}
+#[test]
+fn accepted_original_wins_cancellation_without_forgetting_the_recovery_code_early() {
+    let folder = tempfile::tempdir().unwrap();
+    let keys = Arc::new(Keys::default());
+    let installation = slot(folder.path(), keys);
+    let wire = initialized(&installation);
+    let c = Coordinator::new(&installation);
+    let own = c.directory(wire).unwrap();
+    c.prepare_backup(&own, c.preview_backup(&own, empty_remote()).unwrap(), NOW)
+        .unwrap();
+    let original = c.request_backup_cancellation().unwrap();
+    let receipt = accepted(&original);
+    assert!(
+        c.settle_backup_cancellation(
+            &original,
+            http::RootBackupSettlement::Accepted(receipt.clone())
+        )
+        .is_err()
+    );
+    assert!(c.backup_code().is_ok());
+    c.confirm_backup_code().unwrap();
+    assert!(c.pending_backup().is_err());
+    c.settle_backup_cancellation(&original, http::RootBackupSettlement::Accepted(receipt))
+        .unwrap();
+    let status = c.backup_status(&own).unwrap();
+    assert!(!status.pending && !status.cancel_requested);
+    assert_eq!(status.receipt.unwrap().backup_revision, "1");
+    assert!(c.backup_code().is_err());
+}
 #[test]
 fn backup_outbox_precedes_code_view_requires_saved_confirmation_and_reopens_exact_original() {
     let folder = tempfile::tempdir().unwrap();
@@ -316,6 +407,49 @@ fn an_enrolled_non_controller_cannot_create_a_root_backup() {
 struct FailingKeys {
     keys: Arc<Keys>,
     fail: AtomicBool,
+}
+#[test]
+fn cancellation_checkpoint_failure_hides_request_and_reopen_keeps_abandonment_instead_of_publish() {
+    let folder = tempfile::tempdir().unwrap();
+    let keys = Arc::new(Keys::default());
+    let storage = Arc::new(FailingKeys {
+        keys,
+        fail: AtomicBool::new(false),
+    });
+    let account = crate::installation::Account {
+        origin: "https://example.org".into(),
+        instance: "instance".into(),
+        data_epoch: "epoch".into(),
+        user: "alice".into(),
+        device: "desktop".into(),
+    };
+    let installation = Installation::new(
+        folder.path().join("private"),
+        account.clone(),
+        storage.clone(),
+    )
+    .unwrap();
+    let wire = initialized(&installation);
+    let c = Coordinator::new(&installation);
+    let own = c.directory(wire.clone()).unwrap();
+    c.prepare_backup(&own, c.preview_backup(&own, empty_remote()).unwrap(), NOW)
+        .unwrap();
+    c.confirm_backup_code().unwrap();
+    let original = c.pending_backup().unwrap();
+    storage.fail.store(true, Ordering::SeqCst);
+    assert!(matches!(
+        c.request_backup_cancellation(),
+        Err(Error::Storage(vault::Error::Storage))
+    ));
+    assert!(c.pending_backup().is_err());
+    storage.fail.store(false, Ordering::SeqCst);
+    drop(installation);
+    let installation = Installation::new(folder.path().join("private"), account, storage).unwrap();
+    let c = Coordinator::new(&installation);
+    assert!(c.pending_backup().is_err());
+    assert!(same(&c.pending_backup_cancellation().unwrap(), &original));
+    c.settle_backup_cancellation(&original, cancelled(&original))
+        .unwrap();
 }
 impl Storage for FailingKeys {
     fn read(&self, name: &str) -> std::result::Result<Option<Zeroizing<Vec<u8>>>, vault::Error> {

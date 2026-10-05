@@ -46,6 +46,10 @@ export type CryptoPeerStatus = {
 export type CryptoWithdrawalBridge = CryptoIdentityBridge & {
   withdrawalAction:(handle:string,ownDirectory:string,input:string)=>Promise<string>;
 };
+/** Explicit recovery-code display/input only; no private key or record API. */
+export type CryptoRecoveryBridge = CryptoIdentityBridge & {
+  recoveryAction:(handle:string,ownDirectory:string,input:string)=>Promise<string>;
+};
 export type CryptoPeerView = CryptoPeerStatus & {id: string};
 export type CryptoPeerApproval = {
   id: string; user: string; rootFingerprint: string; device: string;
@@ -66,4 +70,4 @@ export type CryptoGroupBridge = CryptoPeerBridge & {
 export type CryptoConversationBridge = CryptoGroupBridge & {
   conversationAction:(handle:string,ownDirectory:string,input:string)=>Promise<string>;
 };
-export const CryptoNative = requireOptionalNativeModule<CryptoConversationBridge & CryptoWithdrawalBridge>('CryptoNative');
+export const CryptoNative = requireOptionalNativeModule<CryptoConversationBridge & CryptoWithdrawalBridge & CryptoRecoveryBridge>('CryptoNative');

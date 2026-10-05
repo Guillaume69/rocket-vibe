@@ -3208,6 +3208,16 @@
             }
           ]
         },
+        "e2ee_root_backup_settlement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RootBackupSettlement"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "edit_message": {
           "$ref": "#/$defs/EditMessage"
         },
@@ -4799,6 +4809,52 @@
       ],
       "type": "string"
     },
+    "RootBackupCancellation": {
+      "additionalProperties": false,
+      "properties": {
+        "backup_id": {
+          "type": "string"
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "device_revision": {
+          "type": "string"
+        },
+        "expected_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "incarnation": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "packet_digest": {
+          "type": "string"
+        },
+        "root_fingerprint": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "operation_id",
+        "device_id",
+        "incarnation",
+        "device_revision",
+        "root_fingerprint",
+        "backup_id",
+        "packet_digest"
+      ],
+      "type": "object"
+    },
     "RootBackupReceipt": {
       "additionalProperties": false,
       "properties": {
@@ -4842,6 +4898,44 @@
         "packet_digest"
       ],
       "type": "object"
+    },
+    "RootBackupSettlement": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/RootBackupReceipt"
+            },
+            "kind": {
+              "const": "accepted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/RootBackupCancellation"
+            },
+            "kind": {
+              "const": "cancelled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "RootBackupState": {
       "additionalProperties": false,

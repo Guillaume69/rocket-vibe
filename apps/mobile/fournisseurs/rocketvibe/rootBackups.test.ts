@@ -8,6 +8,30 @@ const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixt
 const request=decodeNative('PublishRootBackup',fixture.parity.e2ee_publish_root_backup);
 const state=decodeNative('RootBackupState',fixture.parity.e2ee_root_backup);
 const receipt=state.active!.receipt;
+test('lost abandonment response replays exact original bytes and preserves accepted and cancelled outcomes',async()=>{
+  const cancelled=decodeNative('RootBackupSettlement',fixture.parity.e2ee_root_backup_settlement);
+  const accepted=decodeNative('RootBackupSettlement',{kind:'accepted',data:receipt});
+  const calls:{path:string;options?:RequestInit}[]=[];
+  const transport=new NativeTransport('https://example.org',async(url,options)=>{
+    calls.push({path:new URL(String(url)).pathname,options});
+    if(calls.length===1)throw TypeError('Lost cancellation reply');
+    return Response.json(calls.length===2?cancelled:accepted);
+  });transport.restore('saved-token');
+  await assert.rejects(transport.cancelCryptoRootBackup(request));
+  assert.deepEqual(await transport.cancelCryptoRootBackup(request),cancelled);
+  assert.deepEqual(await transport.cancelCryptoRootBackup(request),accepted);
+  assert.equal(calls[0].options?.body,calls[1].options?.body);
+  assert.equal(calls[1].path,'/api/v1/e2ee/root-backup/operations/fixture-root-backup/cancel');
+  assert.equal(calls[1].options?.method,'POST');
+  assert.equal(cancelled.kind,'cancelled');
+  if(cancelled.kind!=='cancelled')throw Error('Expected cancellation vector');
+  assert.equal(cancelled.data.expected_revision,'9007199254740992');
+  for(const field of ['recovery_code','private_key','plaintext']) {
+    assert.throws(()=>decodeNative('RootBackupSettlement',{...cancelled,[field]:'forbidden'}));
+    assert.throws(()=>decodeNative('RootBackupSettlement',{...cancelled,data:{...cancelled.data,[field]:'forbidden'}}));
+  }
+  assert.throws(()=>decodeNative('RootBackupSettlement',{kind:'cancelled',data:{...cancelled.data,device_revision:9007199254740993}}));
+});
 test('OpenSSL independently verifies the root backup vector and exact packet purpose binding',()=>{
   const publication=JSON.parse(Buffer.from(request.publication,'base64url').toString('utf8'));
   const root=publication.packet.header.root;

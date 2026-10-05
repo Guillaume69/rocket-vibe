@@ -6,6 +6,7 @@ import {CryptoNative,type CryptoIdentityApproval,type CryptoIdentityStatus} from
 import type {NativeChat} from '../fournisseurs/rocketvibe/chat.ts';
 import type {CryptoIdentityAccess} from '../fournisseurs/rocketvibe/cryptoIdentity.ts';
 import type {WithdrawalDevice,WithdrawalPreview,WithdrawalStatus} from '../fournisseurs/rocketvibe/cryptoWithdrawals.ts';
+import type {BackupStatus,BackupPreview,RestorePreview} from '../fournisseurs/rocketvibe/cryptoRecovery.ts';
 import {NativeError} from '../fournisseurs/rocketvibe/transport.ts';
 import {useSynchro} from './synchro.tsx';
 import {useT} from './i18n.ts';
@@ -36,13 +37,16 @@ function Identite({c,chat}:{c:Couleurs;chat:NativeChat}) {
   const [busy,setBusy]=useState(false),[failed,setFailed]=useState(false);
   const [reauth,setReauth]=useState(false);
   const [withdrawals,setWithdrawals]=useState<WithdrawalStatus|null>(null),[withdrawalPreview,setWithdrawalPreview]=useState<WithdrawalPreview|null>(null);
+  const [backup,setBackup]=useState<BackupStatus|null>(null),[backupPreview,setBackupPreview]=useState<BackupPreview|null>(null);
+  const [recoveryCode,setRecoveryCode]=useState(''),[recoveryInput,setRecoveryInput]=useState(''),[restorePreview,setRestorePreview]=useState<RestorePreview|null>(null);
   const focused=useRef(false),epoch=useRef(0),job=useRef<number|null>(null),access=useRef<CryptoIdentityAccess|null>(null);
   const clear=useCallback(()=>{epoch.current++;job.current=null;void access.current?.close();access.current=null;
-    setView(null);setPreview(null);setWithdrawals(null);setWithdrawalPreview(null);setRoot('');setRequest('');setGrant('');setBusy(false);setFailed(false);setReauth(false);},[]);
+    setView(null);setPreview(null);setWithdrawals(null);setWithdrawalPreview(null);setBackup(null);setBackupPreview(null);setRecoveryCode('');setRecoveryInput('');setRestorePreview(null);setRoot('');setRequest('');setGrant('');setBusy(false);setFailed(false);setReauth(false);},[]);
   const run=useCallback(async(action:(a:CryptoIdentityAccess)=>Promise<void>)=>{
     if(!focused.current || job.current!==null || AppState.currentState!=='active' || !CryptoNative)return;
     const n=epoch.current,visible=()=>focused.current && epoch.current===n && AppState.currentState==='active';
     job.current=n;setBusy(true);setFailed(false);setReauth(false);setWithdrawalPreview(null);
+    setBackupPreview(null);setRestorePreview(null);setRecoveryCode('');
     try {
       if(access.current?.isClosed){void access.current.close();access.current=null;}
       const a=access.current??await chat.cryptoIdentity(CryptoNative,visible);
@@ -51,9 +55,11 @@ function Identite({c,chat}:{c:Couleurs;chat:NativeChat}) {
       const latest=await a.view();if(visible())setView(latest);
       const withdrawn=latest.phase==='ready' || latest.phase==='expired' ? await chat.cryptoWithdrawals(a,CryptoNative).view() : null;
       if(visible())setWithdrawals(withdrawn);
+      const saved=latest.phase==='ready'||latest.phase==='expired'?await chat.cryptoRecovery(a,CryptoNative).view():null;
+      if(visible())setBackup(saved);
     } catch(error) {
       if(visible()){
-        setFailed(true);setPreview(null);setWithdrawalPreview(null);
+        setFailed(true);setPreview(null);setWithdrawalPreview(null);setBackupPreview(null);setRestorePreview(null);setRecoveryCode('');setRecoveryInput('');
         setReauth(error instanceof NativeError && error.code==='reauthentication_required');
         // A lost registration response keeps the original intention in Rust.
         // Refresh exposes its retry action without making another HTTP mutation.
@@ -61,7 +67,9 @@ function Identite({c,chat}:{c:Couleurs;chat:NativeChat}) {
           const a=access.current,latest=await a?.view();if(visible() && latest)setView(latest);
           const withdrawn=a && latest && (latest.phase==='ready' || latest.phase==='expired') ? await chat.cryptoWithdrawals(a,CryptoNative).view() : null;
           if(visible())setWithdrawals(withdrawn);
-        } catch {if(visible()){setView(null);setWithdrawals(null);}}
+          const saved=a && latest && (latest.phase==='ready'||latest.phase==='expired')?await chat.cryptoRecovery(a,CryptoNative).view():null;
+          if(visible())setBackup(saved);
+        } catch {if(visible()){setView(null);setWithdrawals(null);setBackup(null);}}
       }
     } finally {if(job.current===n){job.current=null;if(visible())setBusy(false);}}
   },[chat]);
@@ -93,6 +101,27 @@ function Identite({c,chat}:{c:Couleurs;chat:NativeChat}) {
       }},
     ]);
   };
+  const inspectBackup=()=>{const n=epoch.current;void run(async a=>{if(!CryptoNative)return;
+    const selected=await chat.cryptoRecovery(a,CryptoNative).previewBackup();if(focused.current && epoch.current===n)setBackupPreview(selected);});};
+  const prepareBackup=()=>{const selected=backupPreview,n=epoch.current;if(!selected)return;
+    Alert.alert(t('private.backupPrepare'),`${t('private.backupReplaceBody')}\n\n${selected.root_fingerprint}`, [
+      {text:t('commun.annuler'),style:'cancel'},
+      {text:t('private.backupPrepare'),onPress:()=>{if(!focused.current||epoch.current!==n)return;
+        void run(async a=>{if(!CryptoNative)return;const r=chat.cryptoRecovery(a,CryptoNative);await r.prepareBackup(selected.id);
+          const code=await r.code();if(focused.current&&epoch.current===n)setRecoveryCode(code);});}},
+    ]);};
+  const showRecoveryCode=()=>{const n=epoch.current;void run(async a=>{if(!CryptoNative)return;const code=await chat.cryptoRecovery(a,CryptoNative).code();if(focused.current&&epoch.current===n)setRecoveryCode(code);});};
+  const inspectRestore=()=>{const n=epoch.current,code=recoveryInput.trim(),expected=view?.remoteFingerprint??'';setRecoveryInput('');
+    void run(async a=>{if(!CryptoNative)return;const selected=await chat.cryptoRecovery(a,CryptoNative).previewRestore(code,expected);if(focused.current&&epoch.current===n)setRestorePreview(selected);});};
+  const restore=()=>{const selected=restorePreview,n=epoch.current;if(!selected)return;
+    Alert.alert(t('private.restoreConfirm'),`${t('private.restoreBody')}\n\n${selected.root_fingerprint}`, [
+      {text:t('commun.annuler'),style:'cancel',onPress:()=>{setRestorePreview(null);void run(async a=>{if(CryptoNative)await chat.cryptoRecovery(a,CryptoNative).clearPreview();});}},
+      {text:t('private.restoreConfirm'),onPress:()=>{if(!focused.current||epoch.current!==n)return;void run(async a=>{if(CryptoNative)await chat.cryptoRecovery(a,CryptoNative).restore(selected.id);});}},
+    ]);};
+  const cancelBackup=()=>{const n=epoch.current;Alert.alert(t('private.backupCancel'),t('private.backupCancelBody'),[
+    {text:t('commun.annuler'),style:'cancel'},
+    {text:t('private.backupCancel'),style:'destructive',onPress:()=>{if(focused.current&&epoch.current===n)void run(async a=>{if(CryptoNative)await chat.cryptoRecovery(a,CryptoNative).cancel();});}},
+  ]);};
   const fingerprint=(label:CleTraduction,value:string)=><>
     <Text style={[styles.text,{color:c.texteSecondaire}]}>{t(label)}</Text>
     <Text selectable style={[styles.fingerprint,{color:c.texte}]}>{value}</Text>
@@ -107,7 +136,7 @@ function Identite({c,chat}:{c:Couleurs;chat:NativeChat}) {
       {view?.rootFingerprint && fingerprint('private.fingerprint',view.rootFingerprint)}
       {(view?.phase==='ready' || view?.phase==='expired' || view?.phase==='renewing') &&
         <ActionIdentite c={c} busy={busy} label="private.renew" onPress={()=>{const expected=view.rootFingerprint;setPreview(null);setGrant('');
-          void run(async a=>{setView(await a.renew(expected));});}} disabled={!!withdrawals?.pending}/>}
+          void run(async a=>{setView(await a.renew(expected));});}} disabled={!!withdrawals?.pending||!!backup?.pending}/>}
       {view?.phase==='missing' && <>
         {view.remoteFingerprint && <>
           {fingerprint('private.remoteFingerprint',view.remoteFingerprint)}
@@ -115,6 +144,15 @@ function Identite({c,chat}:{c:Couleurs;chat:NativeChat}) {
           <ChampPilule c={c} etiquette={t('private.comparedFingerprint')} valeur={root} onChangeText={setRoot} editable={!busy} maxLength={64} autoCapitalize="none" autoCorrect={false}/>
         </>}
         <ActionIdentite c={c} busy={busy} label="private.begin" onPress={begin} disabled={!!view.remoteFingerprint && root.trim()!==view.remoteFingerprint}/>
+        {view.remoteFingerprint && <>
+          <Text style={[styles.text,{color:c.texteSecondaire}]}>{t('private.restoreBody')}</Text>
+          <ChampPilule c={c} etiquette={t('private.recoveryCode')} valeur={recoveryInput} onChangeText={setRecoveryInput} editable={!busy} maxLength={100} autoCapitalize="none" autoCorrect={false} secureTextEntry/>
+          <ActionIdentite c={c} busy={busy} label="private.restoreInspect" onPress={inspectRestore} disabled={recoveryInput.trim().length!==78}/>
+          {restorePreview && <>
+            {fingerprint('private.fingerprint',restorePreview.root_fingerprint)}
+            <ActionIdentite c={c} busy={busy} label="private.restoreConfirm" onPress={restore}/>
+          </>}
+        </>}
       </>}
       {view?.requestCode && <>
         {fingerprint('private.requestFingerprint',view.requestFingerprint)}
@@ -143,6 +181,27 @@ function Identite({c,chat}:{c:Couleurs;chat:NativeChat}) {
       </>}
       {view?.phase==='registering' && <ActionIdentite c={c} busy={busy} label="private.resume" onPress={()=>void run(async a=>{setView(await a.resume());})}/>}
       {view?.phase==='ready' && <Text style={[styles.text,{color:c.texteSecondaire}]}>{t('private.readyBody')}</Text>}
+      {backup?.controls_root && <>
+        <Text style={[styles.title,{color:c.texte}]}>{t('private.backupTitle')}</Text>
+        <Text style={[styles.text,{color:c.texteSecondaire}]}>{t('private.backupBody')}</Text>
+        {backup.receipt && <Text style={[styles.text,{color:c.texteSecondaire}]}>{t('private.backupRegistered')} · {backup.receipt.backup_revision}</Text>}
+        {!backup.pending && <ActionIdentite c={c} busy={busy} label="private.backupInspect" onPress={inspectBackup} disabled={!!withdrawals?.pending}/>}
+        {backupPreview && <>
+          {fingerprint('private.fingerprint',backupPreview.root_fingerprint)}
+          <ActionIdentite c={c} busy={busy} label="private.backupPrepare" onPress={prepareBackup}/>
+        </>}
+        {backup.pending && <>
+          <Text accessibilityRole="alert" style={[styles.text,{color:c.texteSecondaire}]}>{t(backup.cancel_requested?'private.backupCancelling':backup.code_saved?'private.backupPending':'private.backupKeepCode')}</Text>
+          <ActionIdentite c={c} busy={busy} label="private.recoveryShow" onPress={showRecoveryCode}/>
+          {recoveryCode && <>
+            <Text selectable style={[styles.fingerprint,{color:c.texte}]}>{recoveryCode}</Text>
+            <Text style={[styles.text,{color:c.texteSecondaire}]}>{t('private.backupKeepCode')}</Text>
+            {!backup.code_saved && <ActionIdentite c={c} busy={busy} label="private.backupSaved" onPress={()=>void run(async a=>{if(CryptoNative)await chat.cryptoRecovery(a,CryptoNative).confirmSaved();})}/>}
+          </>}
+          {(backup.code_saved||backup.cancel_requested) && <ActionIdentite c={c} busy={busy} label="private.backupResume" onPress={()=>void run(async a=>{if(CryptoNative)await chat.cryptoRecovery(a,CryptoNative).resume();})}/>}
+          <ActionIdentite c={c} busy={busy} label="private.backupCancel" onPress={cancelBackup}/>
+        </>}
+      </>}
       {withdrawals && <>
         <Text style={[styles.title,{color:c.texte}]}>{t('private.withdrawalTitle')}</Text>
         {!withdrawals.controls_root && <Text style={[styles.text,{color:c.texteSecondaire}]}>{t('private.withdrawalRootOnly')}</Text>}
@@ -164,7 +223,7 @@ function Identite({c,chat}:{c:Couleurs;chat:NativeChat}) {
         {withdrawals.withdrawn.map(device=><Text key={`${device.device}:${device.incarnation}`} selectable style={[styles.text,{color:c.texteSecondaire}]}>{t('private.withdrawn')} : {device.device} · {device.incarnation}</Text>)}
       </>}
       {failed && <Text accessibilityRole="alert" style={[styles.text,{color:c.texteErreur}]}>{t(reauth?'devices.reauth':'private.failed')}</Text>}
-      <ActionIdentite c={c} busy={busy} label="devices.refresh" onPress={()=>void run(async()=>{})}/>
+      <ActionIdentite c={c} busy={busy} label="devices.refresh" onPress={()=>void run(async a=>{if(CryptoNative)await chat.cryptoRecovery(a,CryptoNative).clearPreview();})}/>
     </View>
   </>;
 }

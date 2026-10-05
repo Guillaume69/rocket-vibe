@@ -233,6 +233,22 @@ impl NativeClient {
     pub async fn crypto_root_backup(&self) -> Result<rv_protocol::e2ee::RootBackupState, Error> {
         self.get("/api/v1/e2ee/root-backup").await
     }
+    pub async fn cancel_crypto_root_backup(
+        &self,
+        input: &rv_protocol::e2ee::PublishRootBackup,
+    ) -> Result<rv_protocol::e2ee::RootBackupSettlement, Error> {
+        if !path_segment(&input.operation_id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(
+            &format!(
+                "/api/v1/e2ee/root-backup/operations/{}/cancel",
+                input.operation_id
+            ),
+            input,
+        )
+        .await
+    }
     pub async fn publish_crypto_root_backup(
         &self,
         input: &rv_protocol::e2ee::PublishRootBackup,
@@ -514,6 +530,12 @@ impl NativeClient {
             | "/api/v1/e2ee/revocations"
             | "/api/v1/e2ee/root-backup"
                 if *method == Method::POST =>
+            {
+                Some("crypto")
+            }
+            _ if path.starts_with("/api/v1/e2ee/root-backup/operations/")
+                && path.ends_with("/cancel")
+                && *method == Method::POST =>
             {
                 Some("crypto")
             }

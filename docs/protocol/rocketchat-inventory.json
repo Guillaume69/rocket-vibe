@@ -39,6 +39,7 @@
     "apps/desktop/crates/rv-core/src/native/crypto.rs",
     "apps/desktop/crates/rv-core/src/native/crypto/enrollment.rs",
     "apps/desktop/crates/rv-core/src/native/crypto/enrollment/peers.rs",
+    "apps/desktop/crates/rv-core/src/native/crypto/enrollment/recovery.rs",
     "apps/desktop/crates/rv-core/src/native/crypto/enrollment/revocations.rs",
     "apps/desktop/crates/rv-core/src/native/crypto/enrollment/rooms.rs",
     "apps/desktop/crates/rv-core/src/native/crypto/enrollment/rooms/messages.rs",
@@ -109,6 +110,7 @@
     "apps/desktop/crates/rv-ffi/src/native_crypto/peers.rs",
     "apps/desktop/crates/rv-ffi/src/native_crypto/quote_composer.rs",
     "apps/desktop/crates/rv-ffi/src/native_crypto/quote_reader.rs",
+    "apps/desktop/crates/rv-ffi/src/native_crypto/recovery.rs",
     "apps/desktop/crates/rv-ffi/src/native_crypto/rooms.rs",
     "apps/desktop/crates/rv-ffi/src/native_crypto/withdrawals.rs",
     "apps/desktop/crates/rv-ffi/src/native_emojis.rs",
@@ -3052,73 +3054,73 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 384,
+      "line": 402,
       "kind": "endpoint",
       "surface": "e2e.titre"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 385,
+      "line": 403,
       "kind": "endpoint",
       "surface": "e2e.explication"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 387,
+      "line": 405,
       "kind": "endpoint",
       "surface": "e2e.champ"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 388,
+      "line": 406,
       "kind": "endpoint",
       "surface": "e2e.deverrouiller"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 389,
+      "line": 407,
       "kind": "endpoint",
       "surface": "e2e.erreurMotDePasse"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 390,
+      "line": 408,
       "kind": "endpoint",
       "surface": "e2e.erreurGenerique"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1039,
+      "line": 1075,
       "kind": "endpoint",
       "surface": "e2e.titre"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1040,
+      "line": 1076,
       "kind": "endpoint",
       "surface": "e2e.explication"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1042,
+      "line": 1078,
       "kind": "endpoint",
       "surface": "e2e.champ"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1043,
+      "line": 1079,
       "kind": "endpoint",
       "surface": "e2e.deverrouiller"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1044,
+      "line": 1080,
       "kind": "endpoint",
       "surface": "e2e.erreurMotDePasse"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1045,
+      "line": 1081,
       "kind": "endpoint",
       "surface": "e2e.erreurGenerique"
     }

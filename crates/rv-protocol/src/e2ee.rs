@@ -62,6 +62,30 @@ pub struct RootBackupReceipt {
 }
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct RootBackupCancellation {
+    pub scope: Scope,
+    pub operation_id: String,
+    pub device_id: String,
+    pub incarnation: String,
+    pub device_revision: String,
+    pub root_fingerprint: String,
+    pub backup_id: String,
+    pub expected_revision: Option<String>,
+    pub packet_digest: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    content = "data",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum RootBackupSettlement {
+    Accepted(RootBackupReceipt),
+    Cancelled(RootBackupCancellation),
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RootBackupVersion {
     pub publication: String,
     pub receipt: RootBackupReceipt,

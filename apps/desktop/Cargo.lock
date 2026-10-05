@@ -4286,6 +4286,7 @@ dependencies = [
  "tokio",
  "uniffi",
  "url",
+ "zeroize",
 ]
 
 [[package]]

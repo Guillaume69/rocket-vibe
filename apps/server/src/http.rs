@@ -120,6 +120,10 @@ pub fn router(app: App) -> Router {
             get(crypto_root_backup_operation),
         )
         .route(
+            "/api/v1/e2ee/root-backup/operations/{operation}/cancel",
+            post(cancel_crypto_root_backup),
+        )
+        .route(
             "/api/v1/e2ee/rooms/{room}/transitions",
             post(submit_crypto_group).layer(DefaultBodyLimit::max(4 * 1024 * 1024)),
         )
@@ -1001,6 +1005,17 @@ async fn crypto_root_backup_operation(
     let (actor, hash, proof) = read_access(&app, &headers, Scope::None).await?;
     let value = crate::e2ee::backups::operation(&app, &actor, &operation).await?;
     proof.json(&app, &hash, &value, &[], None).await
+}
+async fn cancel_crypto_root_backup(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(operation): Path<String>,
+    input: Input<rv_protocol::e2ee::PublishRootBackup>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::e2ee::backups::cancel(&app, &actor, &operation, crypto_body(input)?).await?,
+    ))
 }
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]

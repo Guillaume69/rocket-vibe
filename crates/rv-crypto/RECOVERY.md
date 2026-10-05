@@ -82,8 +82,10 @@ le coffre protégé avant sortie, exige la confirmation du code conservé avant
 de rendre l'intention HTTP, règle un reçu exact et restaure une feuille neuve.
 Le serveur et les transports gèrent une version active avec CAS et des reçus
 originaux distincts ; voir [le protocole de sauvegarde](../../docs/protocol/E2EE_ROOT_BACKUPS.md).
-Le règlement des conflits concurrents, le pont Android / FFI et la cérémonie
-dans les paramètres existants restent à intégrer.
+Le règlement terminal des conflits et le pont Android / FFI sont raccordés.
+Les paramètres Android existants proposent code temporaire / confirmation /
+reprise / abandon et récupération d'une identité sur un appareil neuf.
+Les contrôles GTK / SwiftUI et la qualification installée restent à intégrer.
 L'archive E2EE et la récupération de ses clés ont un format / une autorisation
 propres à définir ; ce paquet ne promet pas l'accès automatique à l'historique.
 Sans code sauvegardé ni contrôleur de racine disponible, cette identité ne peut

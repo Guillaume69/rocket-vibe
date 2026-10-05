@@ -80,6 +80,9 @@ export class NativeTransport {
   cryptoRootBackupOperation(operation:string):Promise<NativeTypes['RootBackupReceipt']> {
     return this.request('RootBackupReceipt',`/api/v1/e2ee/root-backup/operations/${encodeURIComponent(operation)}`);
   }
+  cancelCryptoRootBackup(input:NativeTypes['PublishRootBackup']):Promise<NativeTypes['RootBackupSettlement']> {
+    return this.request('RootBackupSettlement',`/api/v1/e2ee/root-backup/operations/${encodeURIComponent(input.operation_id)}/cancel`,input);
+  }
   publishKeyPackages(input:NativeTypes['PublishKeyPackages']):Promise<NativeTypes['OperationReceipt']> {
     return this.request('OperationReceipt','/api/v1/e2ee/key-packages',input);
   }

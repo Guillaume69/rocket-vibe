@@ -1,6 +1,74 @@
 //! Root-authenticated encrypted backup. Receipts survive a replaced active packet.
 use super::*;
 use rv_crypto_public::recovery::{PUBLICATION_LIMIT, Publication};
+fn cancelled() -> Error {
+    Error::new(StatusCode::CONFLICT, "crypto_backup_cancelled")
+}
+async fn saved_cancellation(
+    tx: &mut Transaction<'_, Postgres>,
+    actor: &Account,
+    device: &str,
+    operation: &str,
+    fingerprint: Option<&str>,
+) -> Result<Option<wire::RootBackupCancellation>> {
+    let row:Option<(String,serde_json::Value)> = sqlx::query_as("SELECT fingerprint,receipt FROM e2ee_root_backup_cancellations WHERE user_id=$1 AND device_id=$2 AND operation_id=$3")
+        .bind(&actor.id).bind(device).bind(operation).fetch_optional(&mut **tx).await?;
+    match row {
+        Some((old, value)) if fingerprint.is_none_or(|fp| fp == old) => Ok(Some(
+            serde_json::from_value(value).map_err(|_| Error::internal())?,
+        )),
+        Some(_) => Err(Error::conflict()),
+        None => Ok(None),
+    }
+}
+async fn publish_result(
+    tx: &mut Transaction<'_, Postgres>,
+    actor: &Account,
+    device: &str,
+    operation: &str,
+    fingerprint: Option<&str>,
+) -> Result<Option<wire::RootBackupReceipt>> {
+    if let Some(receipt) = saved_backup(tx, actor, device, operation, fingerprint).await? {
+        return Ok(Some(receipt));
+    }
+    if saved_cancellation(tx, actor, device, operation, fingerprint)
+        .await?
+        .is_some()
+    {
+        return Err(cancelled());
+    }
+    Ok(None)
+}
+async fn decision(
+    tx: &mut Transaction<'_, Postgres>,
+    actor: &Account,
+    device: &str,
+    operation: &str,
+    fingerprint: &str,
+) -> Result<Option<wire::RootBackupSettlement>> {
+    if let Some(receipt) = saved_backup(tx, actor, device, operation, Some(fingerprint)).await? {
+        return Ok(Some(wire::RootBackupSettlement::Accepted(receipt)));
+    }
+    Ok(
+        saved_cancellation(tx, actor, device, operation, Some(fingerprint))
+            .await?
+            .map(wire::RootBackupSettlement::Cancelled),
+    )
+}
+async fn verified(app: &App, input: &wire::PublishRootBackup) -> Result<Publication> {
+    let encoded = input.publication.clone();
+    let p = verify(app, move || {
+        Publication::from_bytes(&decode(&encoded, PUBLICATION_LIMIT)?).map_err(|_| proof())
+    })
+    .await?;
+    if p.body.scope.instance != input.scope.instance_id
+        || p.body.scope.data_epoch != input.scope.data_epoch
+        || p.body.operation != input.operation_id
+    {
+        return Err(proof());
+    }
+    Ok(p)
+}
 async fn saved_backup(
     tx: &mut Transaction<'_, Postgres>,
     actor: &Account,
@@ -36,9 +104,22 @@ pub async fn operation(
         data_epoch: current.1,
     };
     let (device, _) = lock_scope(&mut tx, actor, &scope).await?;
-    let receipt = saved_backup(&mut tx, actor, &device, operation, None)
-        .await?
-        .ok_or_else(Error::missing)?;
+    let receipt = match saved_backup(&mut tx, actor, &device, operation, None).await? {
+        Some(receipt) => receipt,
+        None => {
+            if let Some(receipt) =
+                saved_cancellation(&mut tx, actor, &device, operation, None).await?
+            {
+                if receipt.scope.instance_id != scope.instance_id
+                    || receipt.scope.data_epoch != scope.data_epoch
+                {
+                    return Err(Error::new(StatusCode::CONFLICT, "data_epoch_changed"));
+                }
+                return Err(cancelled());
+            }
+            return Err(Error::missing());
+        }
+    };
     if receipt.scope.instance_id != scope.instance_id
         || receipt.scope.data_epoch != scope.data_epoch
     {
@@ -86,7 +167,7 @@ pub async fn publish(
     // The original result can be recovered without a fresh auth ceremony.
     let mut initial = app.pool.begin().await?;
     let (device, _) = lock_scope(&mut initial, actor, &input.scope).await?;
-    if let Some(receipt) = saved_backup(
+    if let Some(receipt) = publish_result(
         &mut initial,
         actor,
         &device,
@@ -99,21 +180,11 @@ pub async fn publish(
         return Ok(receipt);
     }
     initial.commit().await?;
-    let encoded = input.publication.clone();
-    let publication = verify(app, move || {
-        Publication::from_bytes(&decode(&encoded, PUBLICATION_LIMIT)?).map_err(|_| proof())
-    })
-    .await?;
+    let publication = verified(app, &input).await?;
     let body = &publication.body;
-    if body.scope.instance != input.scope.instance_id
-        || body.scope.data_epoch != input.scope.data_epoch
-        || body.operation != input.operation_id
-    {
-        return Err(proof());
-    }
     let mut tx = app.pool.begin().await?;
     let (device, _) = lock_scope(&mut tx, actor, &input.scope).await?;
-    if let Some(receipt) = saved_backup(
+    if let Some(receipt) = publish_result(
         &mut tx,
         actor,
         &device,
@@ -132,7 +203,7 @@ pub async fn publish(
             .await?;
     let (root, root_fingerprint) = root.ok_or_else(changed)?;
     // Serialize the CAS, quota and duplicate intents for the whole root.
-    if let Some(receipt) = saved_backup(
+    if let Some(receipt) = publish_result(
         &mut tx,
         actor,
         &device,
@@ -206,4 +277,65 @@ pub async fn publish(
         .bind(&actor.id).bind(&receipt.device_id).bind(&receipt.operation_id).bind(fingerprint).bind(value).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(receipt)
+}
+/// Permanently settles the original intent under the same root lock as publish.
+/// An already accepted packet wins; cancellation never deletes that version.
+pub async fn cancel(
+    app: &App,
+    actor: &Account,
+    operation: &str,
+    input: wire::PublishRootBackup,
+) -> Result<wire::RootBackupSettlement> {
+    validate_scope(&input.scope, &input.operation_id)?;
+    if input.operation_id != operation {
+        return Err(Error::invalid());
+    }
+    let fingerprint = intent("root_backup", &input)?;
+    let mut initial = app.pool.begin().await?;
+    let (device, _) = lock_scope(&mut initial, actor, &input.scope).await?;
+    if let Some(result) = decision(&mut initial, actor, &device, operation, &fingerprint).await? {
+        initial.commit().await?;
+        return Ok(result);
+    }
+    initial.commit().await?;
+    let p = verified(app, &input).await?;
+    if p.packet.header.root.user != actor.id || p.body.device != device {
+        return Err(proof());
+    }
+    let mut tx = app.pool.begin().await?;
+    lock_scope(&mut tx, actor, &input.scope).await?;
+    let root: Vec<u8> =
+        sqlx::query_scalar("SELECT root FROM e2ee_identities WHERE user_id=$1 FOR UPDATE")
+            .bind(&actor.id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(changed)?;
+    if let Some(result) = decision(&mut tx, actor, &device, operation, &fingerprint).await? {
+        tx.commit().await?;
+        return Ok(result);
+    }
+    if root != serde_json::to_vec(&p.packet.header.root).map_err(|_| proof())? {
+        return Err(changed());
+    }
+    let count:i64=sqlx::query_scalar("SELECT count(*) FROM e2ee_root_backup_cancellations WHERE user_id=$1 AND device_id=$2 AND created_at>clock_timestamp()-interval '1 day'").bind(&actor.id).bind(&device).fetch_one(&mut *tx).await?;
+    if count >= 64 {
+        return Err(Error::throttled("crypto_backup_cancellation_limit", 3600));
+    }
+    // Historical signed intent authentication grants no enrollment, root trust,
+    // new version, or permission to cancel a different HTTP device's namespace.
+    let receipt = wire::RootBackupCancellation {
+        scope: input.scope,
+        operation_id: operation.into(),
+        device_id: device.clone(),
+        incarnation: hex(&p.body.incarnation),
+        device_revision: p.body.device_revision.clone(),
+        root_fingerprint: hex(&p.packet.header.root.fingerprint().map_err(|_| proof())?),
+        backup_id: hex(&p.packet.header.backup_id),
+        expected_revision: p.body.expected_revision.clone(),
+        packet_digest: hex(&p.body.packet_digest),
+    };
+    sqlx::query("INSERT INTO e2ee_root_backup_cancellations(user_id,device_id,operation_id,fingerprint,receipt) VALUES($1,$2,$3,$4,$5)")
+        .bind(&actor.id).bind(&device).bind(operation).bind(fingerprint).bind(serde_json::to_value(&receipt).map_err(|_|Error::internal())?).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(wire::RootBackupSettlement::Cancelled(receipt))
 }

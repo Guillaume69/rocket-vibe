@@ -1,5 +1,7 @@
 use super::*;
 use rv_crypto_public::recovery::{Header, Publication, PublicationBody, RootBackup};
+#[path = "settlement_tests.rs"]
+mod settlement_tests;
 
 #[test]
 fn root_backup_contract_fixture_is_authentic_and_rejects_secret_fields() {
@@ -11,6 +13,16 @@ fn root_backup_contract_fixture_is_authentic_and_rejects_secret_fields() {
     assert_eq!(p.body.operation, input.operation_id);
     assert_eq!(active.receipt.packet_digest, hex(&p.body.packet_digest));
     assert_eq!(active.receipt.backup_revision, "9007199254740993");
+    let wire::RootBackupSettlement::Cancelled(cancelled) =
+        fixture.parity.e2ee_root_backup_settlement.unwrap()
+    else {
+        panic!("wrong fixture")
+    };
+    assert_eq!(
+        cancelled.expected_revision.as_deref(),
+        Some("9007199254740992")
+    );
+    assert_eq!(cancelled.packet_digest, active.receipt.packet_digest);
     for field in ["recovery_code", "private_key", "seed", "plaintext"] {
         let mut value = serde_json::to_value(&input).unwrap();
         value[field] = serde_json::json!("forbidden");

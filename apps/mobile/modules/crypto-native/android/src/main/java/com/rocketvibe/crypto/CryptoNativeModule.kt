@@ -82,6 +82,9 @@ class CryptoNativeModule : Module() {
     AsyncFunction("withdrawalAction") { handle: String, directory: String, input: String -> synchronized(lock) {
       view(handle).withdrawalAction(directory, input)
     } }
+    AsyncFunction("recoveryAction") { handle: String, directory: String, input: String -> synchronized(lock) {
+      view(handle).recoveryAction(directory, input)
+    } }
     AsyncFunction("groupAction") { handle: String, directory: String, input: String -> synchronized(lock) {
       view(handle).groupAction(directory, input)
     } }

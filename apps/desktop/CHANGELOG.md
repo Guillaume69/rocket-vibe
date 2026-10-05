@@ -9,13 +9,21 @@ section here.
 
 ### Added
 
+- Existing GTK / SwiftUI message menus can experimentally choose another joined
+  room for a quote, across ordinary and encrypted sources / destinations.
+  The destination revalidates the reference before showing its preview. Ordinary
+  composers can send private references through a dedicated coffer coordinator;
+  their SQL outbox retains references alone. The caption stays recoverable until
+  enqueue succeeds, and newer words typed during preflight survive. Blur,
+  navigation, cancellation and replaced selections discard private previews.
+  Production E2EE remains disabled.
+
 - Existing ordinary GTK / SwiftUI rooms and threads can experimentally resolve
   private quote references in a reader attached to the registered coffer. Cards
   are volatile: blur, navigation, source withdrawal and account changes mask
   them, and late results cannot replace a newer cache window. Ordinary bodies,
   drafts, files and unread markers retain their existing presentation; no private
-  excerpt enters SQL. Desktop destination selectors and private-reference
-  authoring in ordinary rooms remain open. Production E2EE remains disabled.
+  excerpt enters SQL. Production E2EE remains disabled.
 
 - Mixed private quote cards retain ordinary source files alongside private
   descendants, using the existing protected file readers. Losing a source masks

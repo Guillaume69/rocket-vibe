@@ -34,7 +34,7 @@ pub struct NativePrivateQuotePreview {
     pub selection: NativePrivateQuoteSelection,
     pub quote: crate::model::Quote,
 }
-fn preview(value: messages::QuotePreview, username: &str) -> NativePrivateQuotePreview {
+pub(super) fn preview(value: messages::QuotePreview, username: &str) -> NativePrivateQuotePreview {
     let selected = value.selection;
     NativePrivateQuotePreview {
         selection: NativePrivateQuoteSelection {
@@ -61,7 +61,7 @@ fn preview(value: messages::QuotePreview, username: &str) -> NativePrivateQuoteP
         ),
     }
 }
-fn selection(value: NativePrivateQuoteSelection) -> Result<messages::QuoteSelection, RvError> {
+pub(super) fn selection(value: NativePrivateQuoteSelection) -> Result<messages::QuoteSelection, RvError> {
     Ok(messages::QuoteSelection {
         reference: messages::QuoteReference {
             room_id: value.room_id,

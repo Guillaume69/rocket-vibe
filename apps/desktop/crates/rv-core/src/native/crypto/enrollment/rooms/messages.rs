@@ -6,6 +6,8 @@ mod quotes;
 pub use quotes::{QuotePreview, QuoteSelection};
 mod quote_reader;
 pub use quote_reader::QuoteReader;
+mod quote_composer;
+pub use quote_composer::QuoteComposer;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Delivery {
@@ -59,6 +61,9 @@ impl super::super::Access {
     /// Reader-only projection of private references in an ordinary destination.
     pub async fn quote_reader(&self, room: String) -> Result<QuoteReader> {
         Ok(QuoteReader(self.message_access(room, None, false).await?))
+    }
+    pub async fn quote_composer(&self, room: String, thread: Option<String>) -> Result<QuoteComposer> {
+        Ok(QuoteComposer(self.message_access(room, thread, false).await?))
     }
     async fn message_access(&self, room: String, thread: Option<String>, encrypted: bool) -> Result<Access> {
         if thread.as_ref().is_some_and(|id| {

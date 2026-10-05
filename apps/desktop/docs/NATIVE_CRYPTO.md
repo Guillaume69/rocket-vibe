@@ -39,8 +39,8 @@ envois / reçus / abandons et pages du journal protégé. Aucun getter ne livre 
 worker brut, un signer, une clé de stockage ou une ratchet. Les previews restent
 des objets opaques à confirmer explicitement. Les messages clairs et pages ne
 sont rendus qu'après leur checkpoint protégé et revalidation du cycle de vie.
-Leur projection dans la liste des messages reste à raccorder ; ils ne sont pas
-écrits dans la SQLite ordinaire.
+Leur projection temporaire réutilise les listes et composeurs existants ;
+ils ne sont pas écrits dans la SQLite ordinaire.
 
 Le contrat commun du salon indique maintenant l'existence d'un groupe MLS.
 Ce booléen, absent ou faux sur les anciens serveurs, n'accorde aucune clé ou
@@ -50,7 +50,19 @@ Les caches et vues de salon existants la conservent et verrouillent le composer,
 y compris après une mise à jour du salon déjà ouvert. Un ancien envoi ordinaire
 hors ligne passe en échec `crypto_required` avant tout POST, avec son corps
 récupérable ; la file ordinaire refuse aussi de nouvelles intentions dans ce
-salon. Aucun message déchiffré n'est encore affiché par ce raccordement.
+salon. Les conversations privées déchiffrées disposent d'une projection séparée.
+
+Les citations intersalons utilisent les menus GTK / SwiftUI existants. La
+navigation transporte uniquement une sélection liée à la référence, instance /
+génération, adhésion et admission éventuelle. Le destinataire relit la source.
+QuoteReader est limité à la projection volatile de cartes dans les salons
+ordinaires ; QuoteComposer est un acteur distinct pour leur envoi de références
+privées. Son permis SQL synchronique est éphémère, avec relecture des sources
+et garde de fermeture indépendante du verrou SQL. Aucun extrait ni admission
+n'est sérialisé dans la file ordinaire. Les brouillons du parent restent
+ordinaires ; intention acceptée et effacement du texte correspondant sont
+atomiques, sans consommer les mots saisis pendant la validation. Blur, navigation
+ou sélection remplacée ferment les acteurs et invalident les résultats tardifs.
 
 ## Vérifications et suite
 
@@ -160,8 +172,8 @@ admission, rattrapage et règlement. Le rendu GTK de l'aperçu est exercé dans
 la CI avec un vrai dialogue ; la compilation SwiftUI reste requise dans sa CI.
 Un groupe enregistré localement ne déverrouille pas le composer ordinaire.
 
-Restent la récupération
-et révocation visibles, la suspension des salons retirés et la projection
-privée, le pont Android, les archives / fichiers et la qualification de la
+Restent le renouvellement, la récupération
+et révocation visibles, l'historique autorisé après retrait, les autres actions
+et la recherche privés, les archives / fichiers et la qualification de la
 [RFC E2EE](../../../docs/rfcs/0002-e2ee-native.md). La capacité reste désactivée
 jusqu'à livraison et validation du parcours complet.

@@ -74,13 +74,13 @@ connue comme groupe protégé, même en attente ou retiré, ne peut devenir clai
 en supprimant son admission. La confiance du témoin clair vient de l’adaptateur
 de cache authentifié, pas d’une signature MLS de l’auteur ordinaire.
 
-La feuille d’actions Android existante permet de choisir une destination où
-l’utilisateur a le droit d’envoyer, parmi les conversations rejointes. Les
-sources privées restent limitées aux destinations chiffrées. L’ouverture du
-composeur n’envoie rien ; il relit les aperçus et conserve uniquement la sélection
-à sa fermeture. Les sélecteurs intersalons bureau et les cartes privées dans
-les salons ordinaires restent à raccorder. Ces parcours ne transmettent aucun
-extrait privé à d’autres membres.
+Les feuilles / menus existants Android, GTK et SwiftUI permettent de choisir
+une destination où l’utilisateur a le droit d’envoyer, parmi les conversations
+rejointes. Les sources en clair ou privées sont relues par la destination, en
+clair ou chiffrée. La navigation ne transporte que la référence et son autorité
+de sélection ; ouvrir le composeur n’envoie rien. Les aperçus privés sont
+volatils, et leur fermeture / remplacement invalide les résultats tardifs.
+Ces parcours ne transmettent aucun extrait privé à d’autres membres.
 
 Parité complète des citations mixtes, fichiers cités, sources
 hors de la fenêtre retenue, évolution des révisions avec l'édition privée et
@@ -255,7 +255,14 @@ Avant l’envoi ordinaire, ce lecteur valide scope, source et position conservé
 une autorisation synchrone en mémoire et la transaction SQL revérifient sa
 durée de vie et l’adhésion de la source. La file ordinaire reçoit exclusivement
 les références. L’appel ordinaire sans lecteur continue à refuser une sélection
-privée. Les lecteurs GTK / SwiftUI pour destinations ordinaires restent à raccorder.
+privée. GTK / SwiftUI appliquent aussi une projection volatile sur leur fenêtre
+SQL ordinaire, y compris dans les fils. Leur lecteur ne peut ni écrire un
+brouillon ni envoyer ; le composeur dispose d'un acteur distinct qui relit les
+sources avant de fournir un permis synchrone non persistant à la file SQL.
+Adhésion, mode chiffré et garde de projection sont revérifiés dans la transaction.
+Le texte personnel du parent reste dans le brouillon pendant cette validation ;
+seul le brouillon correspondant est consommé avec l'intention acceptée. Un texte
+plus récent survit, et une sélection refusée ne perd pas son texte.
 
 Les adaptateurs traduisent les références vers les cartes de citation
 existantes, avec un libellé explicite pour

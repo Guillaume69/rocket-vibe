@@ -382,6 +382,8 @@ struct MessageRow: View, Equatable {
     let askDelete: (MessageItem) -> Void
     @State var draft = ""
     @State var viewing: ImageItem?
+    @State private var choosingQuote = false
+    @State private var quoteSearch = ""
 
     nonisolated static func == (a: MessageRow, b: MessageRow) -> Bool {
         a.message == b.message && a.editing == b.editing && a.revealed == b.revealed && a.model === b.model
@@ -428,6 +430,30 @@ struct MessageRow: View, Equatable {
         }
         .sheet(item: Binding(get: { viewing.map(Viewing.init) }, set: { viewing = $0?.image })) { v in
             ImageViewer(path: v.image.source, title: v.image.title)
+        }
+        .sheet(isPresented: $choosingQuote) {
+            VStack(alignment:.leading, spacing:12) {
+                Text(L("quote.destination")).font(.headline)
+                TextField(L("spotlight.placeholder"), text:$quoteSearch)
+                ScrollView {
+                    VStack(alignment:.leading, spacing:4) {
+                        let candidates = app.rooms.filter { room in
+                            room.rid != model?.rid && !room.readOnly
+                                && (!room.encrypted || app.native?.cryptoSettingsSupported() == true)
+                                && (quoteSearch.isEmpty || room.name.localizedCaseInsensitiveContains(quoteSearch))
+                        }
+                        if candidates.isEmpty { Text(L("quote.destination_empty")).foregroundStyle(Vibe.faint) }
+                        ForEach(candidates, id: \.rid) { destination in
+                            Button(destination.name) {
+                                choosingQuote = false
+                                let id = message.id
+                                if let model { Task { await app.quoteElsewhere(source:model,message:id,destination:destination.rid) } }
+                            }.buttonStyle(.plain).padding(.vertical,6)
+                        }
+                    }.frame(maxWidth:.infinity,alignment:.leading)
+                }
+                Button(L("actions.cancel")) { choosingQuote = false }
+            }.padding(20).frame(width:380,height:360)
         }
     }
 
@@ -571,6 +597,9 @@ struct MessageRow: View, Equatable {
         }
         ForEach(actions.filter { $0 != .react }, id: \.self) { action in
             Button(title(action), role: action == .delete ? .destructive : nil) { run(action) }
+        }
+        if actions.contains(.reply), model?.provider.native != nil {
+            Button(L("quote.elsewhere")) { quoteSearch = ""; choosingQuote = true }
         }
         if message.delivery == .sent, model?.membershipIsCurrent == true,
            let link = app.native?.permalink(room: message.rid, message: message.id, root: message.threadId) {

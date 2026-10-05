@@ -791,10 +791,10 @@ impl NativeSession {
         Ok(())
     }
     pub fn send(&self, rid: &str, text: &str) -> Result<String, Error> {
-        self.send_intention(rid, text, None, &[], None)
+        self.send_intention(rid, text, None, &[], None, None)
     }
     pub fn send_from_membership(&self, rid: &str, text: &str, membership: Option<&str>) -> Result<String, Error> {
-        self.send_intention(rid, text, Some(membership), &[], None)
+        self.send_intention(rid, text, Some(membership), &[], None, None)
     }
     pub fn send_quotes_from_membership(
         &self,
@@ -803,7 +803,7 @@ impl NativeSession {
         membership: Option<&str>,
         selections: &[store::QuoteSelection],
     ) -> Result<String, Error> {
-        self.send_intention(rid, text, Some(membership), selections, None)
+        self.send_intention(rid, text, Some(membership), selections, None, None)
     }
     pub fn send_reply_from_membership(
         &self,
@@ -813,7 +813,18 @@ impl NativeSession {
         membership: Option<&str>,
         selections: &[store::QuoteSelection],
     ) -> Result<String, Error> {
-        self.send_intention(rid, text, Some(membership), selections, Some(root))
+        self.send_intention(rid, text, Some(membership), selections, Some(root), None)
+    }
+    pub(crate) fn send_verified_quotes(
+        &self,
+        rid: &str,
+        root: Option<&str>,
+        text: &str,
+        membership: Option<&str>,
+        selections: &[store::QuoteSelection],
+        permit: &store::VerifiedQuotes<'_>,
+    ) -> Result<String, Error> {
+        self.send_intention(rid, text, Some(membership), selections, root, Some(permit))
     }
     fn send_intention(
         &self,
@@ -822,6 +833,7 @@ impl NativeSession {
         membership: Option<Option<&str>>,
         selections: &[store::QuoteSelection],
         root: Option<&str>,
+        permit: Option<&store::VerifiedQuotes<'_>>,
     ) -> Result<String, Error> {
         if self.closed.load(Ordering::SeqCst) {
             return Err(Error::Protocol("session_closed"));
@@ -844,7 +856,13 @@ impl NativeSession {
             quotes: selections.iter().map(|s| s.reference.clone()).collect(),
             reply_to: root.map(str::to_owned),
         };
-        if !self.store.enqueue_quoted(&pending, &self.info.username, membership, selections)? {
+        let queued = match permit {
+            Some(permit) => {
+                self.store.enqueue_verified(&pending, &self.info.username, membership, selections, permit)?
+            }
+            None => self.store.enqueue_quoted(&pending, &self.info.username, membership, selections)?,
+        };
+        if !queued {
             return Err(Error::Protocol("delivery_revalidate"));
         }
         self.wake.notify_one();

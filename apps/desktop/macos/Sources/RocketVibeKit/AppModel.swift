@@ -417,6 +417,20 @@ public final class AppModel {
         }
     }
 
+    public func quoteElsewhere(source: RoomModel, message: String, destination: String) async {
+        guard let native, source.provider.native === native, source.active, source.membershipIsCurrent,
+              destination != source.rid, rooms.contains(where: { $0.rid == destination && !$0.readOnly }) else { return }
+        let account = sessionId
+        do {
+            let transfer = try await source.transferQuote(message)
+            guard account == sessionId, source.active, source.membershipIsCurrent else { return }
+            open(destination)
+            guard let target = room, target.rid == destination else { throw CancellationError() }
+            try await target.acceptQuote(transfer)
+        } catch {
+            if account == sessionId, room?.rid == source.rid || room?.rid == destination { notice = L("quote.unavailable") }
+        }
+    }
     public func open(_ rid: String, remember: Bool = true, preserveNavigation: Bool = false) {
         guard let provider, let found = rooms.first(where: { $0.rid == rid }) else { return }
         if !preserveNavigation { cancelNotificationNavigation(); pendingRoomLink = nil }

@@ -16,6 +16,7 @@ use super::Identity;
 pub use files::FileIntent;
 pub use notifications::{Notification, NotificationReply};
 pub use profiles::{AvatarUpload, DirectPeer, ProfileOperation, SavedProfileOperation};
+pub(crate) use quotes::VerifiedQuotes;
 pub use quotes::{PublicQuoteSources, QuoteSelection};
 pub use read_intents::{PendingRead, SavedFavorite};
 pub use room_access::RoomAccess;
@@ -849,6 +850,26 @@ impl NativeStore {
         membership: Option<Option<&str>>,
         selections: &[QuoteSelection],
     ) -> rusqlite::Result<bool> {
+        self.enqueue_checked(pending, username, membership, selections, None)
+    }
+    pub(crate) fn enqueue_verified(
+        &self,
+        pending: &Pending,
+        username: &str,
+        membership: Option<Option<&str>>,
+        selections: &[QuoteSelection],
+        permit: &VerifiedQuotes<'_>,
+    ) -> rusqlite::Result<bool> {
+        self.enqueue_checked(pending, username, membership, selections, Some(permit))
+    }
+    fn enqueue_checked(
+        &self,
+        pending: &Pending,
+        username: &str,
+        membership: Option<Option<&str>>,
+        selections: &[QuoteSelection],
+        permit: Option<&VerifiedQuotes<'_>>,
+    ) -> rusqlite::Result<bool> {
         let rid = &pending.room_id;
         self.atomic(|tx| {
             if let Some(expected) = membership
@@ -861,7 +882,25 @@ impl NativeStore {
             {
                 return Err(rusqlite::Error::InvalidQuery);
             }
-            self.enqueue_in(tx, pending, username, selections)?;
+            self.enqueue_in(tx, pending, username, selections, permit)?;
+            if let Some(p) = permit {
+                if p.draft.trim() != pending.text {
+                    return Err(rusqlite::Error::InvalidQuery);
+                }
+                // Accepting the intention and consuming its matching draft are
+                // one commit. A newer caption typed during preflight survives.
+                if let Some(root) = pending.reply_to.as_deref() {
+                    tx.execute(
+                        "UPDATE native_thread_drafts SET text='' WHERE rid=?1 AND root=?2 AND text=?3",
+                        params![rid, root, p.draft],
+                    )?;
+                } else {
+                    tx.execute("UPDATE native_drafts SET text='' WHERE rid=?1 AND text=?2", params![rid, p.draft])?;
+                }
+            }
+            if permit.is_some_and(|p| !(p.current)()) {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
             Ok(true)
         })
     }
@@ -871,9 +910,10 @@ impl NativeStore {
         pending: &Pending,
         username: &str,
         selections: &[QuoteSelection],
+        permit: Option<&VerifiedQuotes<'_>>,
     ) -> rusqlite::Result<()> {
         let rid = &pending.room_id;
-        quotes::enqueue(tx, &self.identity, pending, selections)?;
+        quotes::enqueue(tx, &self.identity, pending, selections, permit)?;
         if let Some(root) = pending.reply_to.as_deref() {
             threads::require_root(tx, rid, root)?;
         }

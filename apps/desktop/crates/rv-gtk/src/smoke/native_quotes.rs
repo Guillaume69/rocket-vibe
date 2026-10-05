@@ -49,14 +49,17 @@ fn reply_button(root: &gtk::Widget) -> Option<gtk::Button> {
     action_button(root, "actions.reply")
 }
 fn action_button(root: &gtk::Widget, key: &str) -> Option<gtk::Button> {
+    button_with_label(root, crate::i18n::t(key))
+}
+fn button_with_label(root: &gtk::Widget, label: &str) -> Option<gtk::Button> {
     if let Some(button) = root.downcast_ref::<gtk::Button>()
-        && button.label().as_deref() == Some(crate::i18n::t(key))
+        && button.label().as_deref() == Some(label)
     {
         return Some(button.clone());
     }
     let mut child = root.first_child();
     while let Some(widget) = child {
-        if let Some(button) = action_button(&widget, key) {
+        if let Some(button) = button_with_label(&widget, label) {
             return Some(button);
         }
         child = widget.next_sibling();
@@ -440,9 +443,114 @@ async fn run(window: Rc<AppWindow>) {
             == "GTK thread draft survives root deletion",
         (),
     );
+    cross_room_quotes(&window, &session, &rid).await;
     search_controls(&window, &session, &rid).await;
     live_controls(&window, &session).await;
     std::process::exit(i32::from(super::FAILED.load(std::sync::atomic::Ordering::SeqCst)));
+}
+
+async fn cross_room_quotes(
+    window: &Rc<AppWindow>,
+    session: &std::sync::Arc<rv_core::native::NativeSession>,
+    rid: &str,
+) {
+    let name = format!("gtk-quote-target-{}", rv_core::native::room_operation_id());
+    let (s, target_name) = (session.clone(), name.clone());
+    let target = crate::on_tokio(async move { s.create_room(&target_name, true).await }).await.unwrap();
+    for _ in 0..120 {
+        if window.chat.has_room(&target) {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    check("GTK quote destination is joined", window.chat.has_room(&target), ());
+    window.chat.open_room(&target);
+    window.chat.open_room(rid);
+    let id = session.send(rid, "GTK cross-room source").unwrap();
+    let mut source = None;
+    for _ in 0..120 {
+        source = session.store.messages(rid, 100).unwrap().into_iter().find(|m| m.id == id && m.position.is_some());
+        if source.is_some() && window.chat.room_list().row_widget(&id).is_some() {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    let source = source.unwrap();
+    window.chat.play(
+        crate::rows::RowEvent::Menu {
+            row: Box::new(source.presentation(rid, &session.info.user_id)),
+            anchor: window.chat.room_list().row_widget(&id).unwrap(),
+            x: 10.0,
+            y: 10.0,
+        },
+        false,
+    );
+    let mut button = None;
+    for _ in 0..100 {
+        button = action_button(window.window.upcast_ref(), "quote.elsewhere");
+        if button.is_some() {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    check("GTK existing menu exposes destination chooser", button.is_some(), ());
+    let Some(button) = button else { std::process::exit(1) };
+    button.emit_clicked();
+    let mut dialog = None;
+    for _ in 0..100 {
+        dialog = super::find_by_class(window.window.upcast_ref(), "quote-destination-dialog");
+        if dialog.is_some() {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    check("GTK destination dialog is rendered", dialog.is_some(), ());
+    let Some(dialog) = dialog else { std::process::exit(1) };
+    let entry =
+        super::find_by_class(&dialog, "quote-destination-search").unwrap().downcast::<gtk::SearchEntry>().unwrap();
+    entry.set_text(&name);
+    let choice = button_with_label(&dialog, &name).unwrap();
+    choice.emit_clicked();
+    for _ in 0..100 {
+        if window.chat.current_rid().as_deref() == Some(&target) && window.chat.composer().native_reply().is_some() {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    check(
+        "GTK chooser transfers a reference into existing composer",
+        window.chat.current_rid().as_deref() == Some(&target)
+            && window
+                .chat
+                .composer()
+                .native_reply()
+                .is_some_and(|s| s.reference.room_id == rid && s.reference.message_id == id),
+        (),
+    );
+    window.chat.composer().set_text("GTK cross-room reference");
+    window.chat.composer().submit_now();
+    let mut parent = None;
+    for _ in 0..160 {
+        parent = session
+            .store
+            .messages(&target, 100)
+            .unwrap()
+            .into_iter()
+            .find(|m| m.text == "GTK cross-room reference" && m.position.is_some());
+        if parent.is_some() {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    check("GTK cross-room reference is confirmed", parent.is_some(), ());
+    let Some(parent) = parent else { std::process::exit(1) };
+    let quotes = rv_core::content::quotes(parent.attachments.as_deref());
+    check(
+        "GTK cross-room source renders through current quote cards",
+        quotes.first().is_some_and(|q| !q.unavailable && q.author.as_deref() == Some(session.info.username.as_str())),
+        (),
+    );
+    window.chat.open_room(rid);
 }
 
 fn search_entry(root: &gtk::Widget) -> Option<gtk::SearchEntry> {

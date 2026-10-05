@@ -380,6 +380,9 @@ impl ChatPage {
         );
         thread.composer.connect_submit(move |text| {
             let (Some(this), Some(thread)) = (weak.upgrade(), target.upgrade()) else { return };
+            if thread.composer.send_private_reference(text.clone()) {
+                return;
+            }
             let quotes = thread.composer.native_reply().into_iter().collect::<Vec<_>>();
             match s.send_reply_from_membership(&r, &root_id, &text, opening.as_deref(), &quotes) {
                 Ok(_) => thread.composer.clear_reply(),
@@ -516,6 +519,17 @@ impl ChatPage {
                             menu.popdown();
                         });
                         list.append(&button);
+                        let elsewhere =
+                            gtk::Button::builder().label(t("quote.elsewhere")).css_classes(["flat"]).build();
+                        let (weak, rid, id, menu) =
+                            (Rc::downgrade(self), row.rid.clone(), row.id.clone(), popover.clone());
+                        elsewhere.connect_clicked(move |_| {
+                            menu.popdown();
+                            if let Some(page) = weak.upgrade() {
+                                page.quote_elsewhere(rid.clone(), id.clone());
+                            }
+                        });
+                        list.append(&elsewhere);
                     }
                     if !in_thread && row.outbox_status.is_none() && row.thread_id.is_none() {
                         let button =
@@ -661,7 +675,10 @@ impl ChatPage {
                             return;
                         }
                         let Ok((message, rights)) = context else { return };
-                        if !message.deleted && expected.supported_features().iter().any(|f| f == "quotes") {
+                        if !message.deleted
+                            && message.system.is_none()
+                            && expected.supported_features().iter().any(|f| f == "quotes")
+                        {
                             let button = gtk::Button::builder().label(t("actions.reply")).css_classes(["flat"]).build();
                             let (weak, s, p, row) = (weak.clone(), expected.clone(), popover.clone(), row.clone());
                             button.connect_clicked(move |_| {
@@ -674,6 +691,25 @@ impl ChatPage {
                                 }
                             });
                             list.append(&button);
+                            let elsewhere =
+                                gtk::Button::builder().label(t("quote.elsewhere")).css_classes(["flat"]).build();
+                            let (weak, s, p, source, id) = (
+                                Rc::downgrade(&this),
+                                expected.clone(),
+                                popover.clone(),
+                                rid.clone(),
+                                message.id.clone(),
+                            );
+                            elsewhere.connect_clicked(move |_| {
+                                p.popdown();
+                                if let Some(this) = weak.upgrade()
+                                    && this.native_session().is_some_and(|current| Arc::ptr_eq(&current, &s))
+                                    && this.current_rid().as_deref() == Some(&source)
+                                {
+                                    this.quote_elsewhere(source.clone(), id.clone());
+                                }
+                            });
+                            list.append(&elsewhere);
                         }
                         if !in_thread
                             && !message.deleted

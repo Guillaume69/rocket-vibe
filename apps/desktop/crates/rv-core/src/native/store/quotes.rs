@@ -13,6 +13,15 @@ pub struct QuoteSelection {
     pub membership_version: String,
 }
 
+/// A synchronous, non-durable authority minted only by the private coordinator.
+/// The guard must not acquire this store's connection lock.
+pub(crate) struct VerifiedQuotes<'a> {
+    pub(crate) selections: &'a [QuoteSelection],
+    pub(crate) private: &'a BTreeSet<(String, String)>,
+    pub(crate) draft: &'a str,
+    pub(crate) current: &'a dyn Fn() -> bool,
+}
+
 pub struct PublicQuoteSource {
     pub id: String,
     pub excerpt: QuoteExcerpt,
@@ -67,6 +76,9 @@ pub(super) fn selection(
     rid: &str,
     id: &str,
 ) -> rusqlite::Result<QuoteSelection> {
+    if NativeStore::encrypted_in(conn, rid)? {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
     let revision: String = conn.query_row(
         "SELECT revision FROM native_messages WHERE id=?1 AND rid=?2 AND NOT deleted AND position IS NOT NULL AND system_type IS NULL",
         params![id, rid],
@@ -89,18 +101,35 @@ pub(super) fn enqueue(
     identity: &Identity,
     pending: &Pending,
     selected: &[QuoteSelection],
+    permit: Option<&VerifiedQuotes<'_>>,
 ) -> rusqlite::Result<()> {
     let mut ids = BTreeSet::new();
     if selected.len() > 8 || pending.quotes.len() != selected.len() {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    if permit.is_some_and(|p| p.selections != selected || !(p.current)()) {
         return Err(rusqlite::Error::InvalidQuery);
     }
     // Validate all sources before writing any reference. Server ACL checks remain final.
     for (selected, reference) in selected.iter().zip(&pending.quotes) {
         if reference.message_id == pending.id
             || !ids.insert(&reference.message_id)
-            || &selection(tx, identity, &reference.room_id, &reference.message_id)? != selected
             || &selected.reference != reference
+            || &selected.identity != identity
+            || !identifier(&reference.room_id)
+            || !identifier(&reference.message_id)
+            || position(&reference.revision)? == 0
         {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        if permit.is_some_and(|p| p.private.contains(&(reference.room_id.clone(), reference.message_id.clone()))) {
+            if !NativeStore::encrypted_in(tx, &reference.room_id)?
+                || read_states::state_in(tx, &reference.room_id)?.and_then(|s| s.membership_version).as_deref()
+                    != Some(selected.membership_version.as_str())
+            {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+        } else if &selection(tx, identity, &reference.room_id, &reference.message_id)? != selected {
             return Err(rusqlite::Error::InvalidQuery);
         }
     }

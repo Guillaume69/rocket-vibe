@@ -618,6 +618,55 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     assert!(ordinary_reader.project(presentation).await.is_err());
     assert_eq!(pilot.session.store.messages("plain-origin", 50).unwrap(), cached);
     let ordinary_reader = message_settings(&pilot).await.quote_reader("plain-origin".into()).await.unwrap();
+    let author = message_settings(&pilot).await.quote_composer("plain-origin".into(), None).await.unwrap();
+    let private_source = author.select_source_quote("room".into(), "private-message-2".into()).await.unwrap();
+    let unverified = native::store::QuoteSelection {
+        reference: private_source.selection.reference.clone(),
+        identity: native::Identity {
+            instance_id: private_source.selection.instance.clone(),
+            data_epoch: private_source.selection.data_epoch.clone(),
+        },
+        membership_version: private_source.selection.membership.clone(),
+    };
+    assert!(
+        pilot
+            .session
+            .send_quotes_from_membership("plain-origin", "unverified parent", Some("plain-membership"), &[unverified])
+            .is_err()
+    );
+    let mut stale = private_source.selection.clone();
+    stale.reference.revision = "9007199254740000".into();
+    pilot
+        .session
+        .store
+        .set_draft_from_membership("plain-origin", "  Ordinary quoted parent  ", Some("plain-membership"))
+        .unwrap();
+    assert!(author.send("stale parent".into(), vec![stale]).await.is_err());
+    assert_eq!(
+        pilot.session.store.draft_from_membership("plain-origin", Some("plain-membership")).unwrap(),
+        "  Ordinary quoted parent  "
+    );
+    let private_reference = private_source.selection.reference.clone();
+    let id = author.send("  Ordinary quoted parent  ".into(), vec![private_source.selection.clone()]).await.unwrap();
+    assert_eq!(pilot.session.store.draft_from_membership("plain-origin", Some("plain-membership")).unwrap(), "");
+    let pending = pilot.session.store.pending().unwrap().into_iter().find(|p| p.id == id).unwrap();
+    assert_eq!(pending.quotes, vec![private_reference]);
+    assert_eq!(pending.text, "Ordinary quoted parent");
+    assert_eq!(pending.reply_to, None);
+    assert!(!serde_json::to_string(&pending.quotes).unwrap().contains("admission"));
+    assert_eq!(book.lock().unwrap().message_posts, posts, "ordinary reference enqueue never publishes an MLS document");
+    pilot.session.store.set_draft_from_membership("plain-origin", "Newer caption", Some("plain-membership")).unwrap();
+    author.send("Older caption".into(), vec![private_source.selection]).await.unwrap();
+    assert_eq!(
+        pilot.session.store.draft_from_membership("plain-origin", Some("plain-membership")).unwrap(),
+        "Newer caption"
+    );
+    author.close();
+    assert!(author.send("closed parent".into(), vec![]).await.is_err());
+    assert!(
+        message_settings(&pilot).await.quote_composer("room".into(), None).await.is_err(),
+        "no ordinary composer in an encrypted destination"
+    );
     clear_message.text = "Updated ordinary source words".into();
     clear_message.revision = "11".into();
     clear_message.position = "11".into();

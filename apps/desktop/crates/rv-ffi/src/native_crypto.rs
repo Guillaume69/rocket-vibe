@@ -12,6 +12,7 @@ use rv_core::native::{
 use std::sync::{Arc, Mutex};
 pub(crate) mod messages;
 pub(crate) mod peers;
+pub(crate) mod quote_composer;
 pub(crate) mod quote_reader;
 pub(crate) mod rooms;
 

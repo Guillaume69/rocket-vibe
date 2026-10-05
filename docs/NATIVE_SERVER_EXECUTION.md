@@ -12,9 +12,11 @@ Les qualifications locales et CI sont distinguées ci-dessous ; les citations
 Android et la composition mixte passent les validations locales détaillées
 ci-dessous. Les dates sont des observations locales, pas des dates d'auteur
 certifiées. Les lecteurs de cartes privées dans les salons / fils ordinaires bureau
-sont raccordés dans le lot décrit ci-dessous, avec qualification CI encore ouverte.
-Les archives complètes, composition privée dans les salons ordinaires bureau,
-sélection intersalons bureau, édition / actions, recherche et fichiers privés
+sont validés par les neuf jobs de la CI native et le build / démarrage macOS de
+10f3005. La sélection intersalons et la composition de références privées dans
+les salons ordinaires bureau sont raccordées dans le nouveau lot ci-dessous ;
+leur qualification CI reste ouverte. Les archives complètes, édition / actions,
+recherche et fichiers privés
 restent à livrer, ainsi que récupération /
 révocation visibles et qualification installée. Aucun masque E2EE de production
 n'est activé.
@@ -242,10 +244,30 @@ nouveau cas de lecture ordinaire avec cache inchangé, fermeture et retrait du
 salon. Le test utilise de vrais documents MLS et un serveur HTTP simulé ; il
 ne qualifie pas le rendu GUI. Clippy strict cœur / UniFFI passe en 13,93 secondes,
 la DLL est construite et les vrais bindings Swift sont régénérés. Compilation
-GTK / SwiftUI et régressions connectées du nouveau lot restent à confirmer par
-CI ; parcours privé GUI installé toujours ouvert. Sélecteurs bureau et envoi
-de références privées dans leurs salons ordinaires restent à livrer. Aucun
+GTK / SwiftUI et régressions connectées confirmées par les neuf jobs de la CI
+native 37247156429 et le build / packaging / démarrage macOS 37247156379 de
+10f3005 ; parcours privé GUI installé toujours ouvert. Aucun
 masque E2EE de production activé.
+
+Sélection intersalons bureau ajoutée dans les menus existants GTK / SwiftUI :
+recherche locale parmi les conversations rejointes où la rédaction est permise,
+sans admission ni envoi implicite. La navigation transporte uniquement référence,
+instance / génération, adhésion et admission privée éventuelle. Le composeur
+destinataire relit la source exacte, en clair ou via le coffre, avant aperçu.
+Un acteur QuoteComposer distinct du lecteur ordinaire valide les références
+privées pour une destination ordinaire ; la file SQL garde uniquement références
+et texte personnel du parent. Ni extrait ni admission ne deviennent autorité
+persistée. L'appel ordinaire sans cet acteur refuse encore la source chiffrée.
+Texte conservé pendant le préflight ; l'intention et la consommation du seul
+brouillon correspondant sont atomiques, tandis qu'un texte plus récent survit.
+Navigation, blur, annulation et sélection remplacée ferment / masquent les
+aperçus ; une réponse tardive ne réarme pas le bandeau.
+Les 56 régressions de stockage passent en 1,13 seconde, les 16 parcours
+HTTP / MLS / SQLite en 46,09 secondes, et Clippy strict cœur / UniFFI en
+17,64 secondes. La DLL et les vrais bindings Swift sont construits.
+Les nouveaux contrôles GTK sous Xvfb et les modèles Swift contre PostgreSQL
+exercent le choix de destination et l'envoi intersalons ; exécution CI encore
+ouverte, ainsi que les parcours privés GUI installés. Aucun masque activé.
 
 | Jalon | Développement livré | Travail restant pour le fermer |
 |---|---|---|
@@ -253,7 +275,7 @@ masque E2EE de production activé.
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils et citations privés dans les trois interfaces, lecture mixte, composition / destination intersalons Android et lecteurs de cartes privées dans les salons ordinaires des trois interfaces | Sélecteurs intersalons bureau, composition privée dans les salons ordinaires bureau, qualification CI des nouveaux lecteurs bureau, renouvellement / récupération / révocation visibles, autres actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils et citations privés dans les trois interfaces, lecture mixte, composition / destination intersalons et lecteurs de cartes privées dans les salons ordinaires des trois interfaces | Qualification CI de la nouvelle composition bureau, renouvellement / récupération / révocation visibles, autres actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
 La dernière livraison serveur qui passe tous les jobs de sa CI (`b884e1d`) passe les neuf jobs de la CI

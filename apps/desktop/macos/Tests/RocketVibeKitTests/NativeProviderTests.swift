@@ -9,6 +9,53 @@ import XCTest
 /// Runs with a disposable native server and a real Secret Service / macOS Keychain.
 final class NativeProviderTests: XCTestCase {
     @MainActor
+    func testCrossRoomQuotesRevalidateSourceAndKeepExistingModels() async throws {
+        guard let server = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_SERVER"],
+              let password = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_PASSWORD"] else {
+            throw XCTSkip("Native integration server unset")
+        }
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("rv-quotes-kit-\(UUID())").path
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let app = AppModel(home:home); defer { app.end() }
+        app.login.server = server; app.login.user = "desktop"; app.login.password = password
+        await app.submitLogin()
+        let native = try XCTUnwrap(app.native)
+        try await until { app.connection == .online }
+        let rid = try await native.createRoom(name:"swift-quote-source-\(UUID())",private:true)
+        let destinationId = try await native.createRoom(name:"swift-quote-target-\(UUID())",private:true)
+        try await until { app.rooms.contains { $0.rid == rid } && app.rooms.contains { $0.rid == destinationId } }
+        app.open(rid)
+        let source = try XCTUnwrap(app.room)
+        try await until { !source.loading }
+        source.draft = "Swift cross-room source"
+        await source.send()
+        try await until { source.messages.contains { $0.text == "Swift cross-room source" && $0.delivery == .sent } }
+        let message = try XCTUnwrap(source.messages.first { $0.text == "Swift cross-room source" })
+        await app.quoteElsewhere(source:source,message:message.id,destination:destinationId)
+        let destination = try XCTUnwrap(app.room)
+        XCTAssertEqual(destination.rid,destinationId)
+        XCTAssertFalse(source.active)
+        XCTAssertNotNil(destination.pendingQuote)
+        XCTAssertFalse(destination.pendingQuote?.unavailable ?? true)
+        destination.draft = "Swift cross-room reference"
+        await destination.send()
+        try await until { destination.messages.contains { $0.text == "Swift cross-room reference" && $0.delivery == .sent && !$0.quotes.isEmpty } }
+        let parent = try XCTUnwrap(destination.messages.first { $0.text == "Swift cross-room reference" })
+        XCTAssertEqual(parent.quotes.first?.author,message.author)
+        XCTAssertEqual(destination.draft,"")
+        let selection = try native.quoteSelection(room:rid,messageId:message.id)
+        let actions = try await native.messageActions(messageId:message.id)
+        try await native.edit(room:rid,messageId:message.id,revision:actions.revision,text:"Source changed after selection")
+        try await until { (try? native.quoteSelection(room:rid,messageId:message.id)) != selection }
+        destination.cancelQuote()
+        do {
+            try await destination.acceptQuote(.ordinary(selection,thread:nil,limit:200))
+            XCTFail("A transferred stale source must be reselected")
+        } catch { XCTAssertNil(destination.pendingQuote) }
+        await app.quoteElsewhere(source:source,message:message.id,destination:rid)
+        XCTAssertTrue(app.room === destination,"A callback from the inactive source cannot navigate")
+    }
+    @MainActor
     func testExistingModelsProfilesAndProtectedAvatars() async throws {
         guard let server = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_SERVER"],
               let password = ProcessInfo.processInfo.environment["RV_NATIVE_TEST_PASSWORD"] else {

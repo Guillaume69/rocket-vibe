@@ -14,6 +14,8 @@ use crate::i18n::{t, tf};
 use crate::widgets::{self, Handler};
 
 const MAX_HEIGHT: i32 = 160;
+#[path = "composer_quotes.rs"]
+mod quote_author;
 
 pub struct Composer {
     pub root: gtk::Box,
@@ -27,6 +29,7 @@ pub struct Composer {
     native_reply: RefCell<Option<rv_core::native::store::QuoteSelection>>,
     private_reply: RefCell<Option<rv_core::native::crypto::enrollment::rooms::messages::QuoteSelection>>,
     private_access: RefCell<Option<rv_core::native::crypto::enrollment::rooms::messages::Access>>,
+    quote_author: quote_author::State,
     on_changed: Handler<String>,
     completion: gtk::Popover,
     choices: gtk::ListBox,
@@ -265,6 +268,7 @@ impl Composer {
             native_reply: RefCell::default(),
             private_reply: RefCell::default(),
             private_access: RefCell::default(),
+            quote_author: quote_author::State::default(),
             on_changed: RefCell::default(),
             completion,
             choices,
@@ -419,6 +423,7 @@ impl Composer {
             glib::Propagation::Stop
         });
         this.text.add_controller(keys);
+        this.watch_ordinary_quotes();
         this
     }
 
@@ -570,6 +575,7 @@ impl Composer {
     pub fn bind_native(&self, session: &Arc<rv_core::native::NativeSession>, rid: &str) {
         self.unbind_native();
         let files = session.supported_features().iter().any(|f| f == "uploads");
+        self.quote_author.files.set(files);
         self.attach.set_sensitive(files);
         self.mic.set_sensitive(files);
         self.staged.switch(rid);
@@ -594,6 +600,9 @@ impl Composer {
         });
     }
     pub fn unbind_native(&self) {
+        self.close_ordinary_quote();
+        self.quote_author.binding.set(self.quote_author.binding.get().wrapping_add(1));
+        self.quote_author.sending.set(false);
         if let Some(access) = self.private_access.take() {
             access.cancel_quote();
         }
@@ -750,6 +759,7 @@ impl Composer {
 
     /// Arms a reply: the bar shows who and what, the send carries the quote.
     pub fn set_reply(&self, name: &str, preview: &str, permalink: String) {
+        self.close_ordinary_quote();
         self.native_reply.replace(None);
         self.private_reply.replace(None);
         self.reply_title.set_label(&tf("composer.replying", &[("name", name)]));
@@ -760,6 +770,7 @@ impl Composer {
     }
 
     pub fn clear_reply(&self) {
+        self.close_ordinary_quote();
         if let Some(access) = self.private_access.borrow().as_ref() {
             access.cancel_quote();
         }
@@ -788,6 +799,9 @@ impl Composer {
     pub fn private_reply(&self) -> Option<rv_core::native::crypto::enrollment::rooms::messages::QuoteSelection> {
         self.private_reply.borrow().clone()
     }
+    pub fn quote_generation(&self) -> u64 {
+        self.quote_author.epoch.get()
+    }
     pub fn refresh_private_reply(
         &self,
         preview: Option<rv_core::native::crypto::enrollment::rooms::messages::QuotePreview>,
@@ -803,7 +817,8 @@ impl Composer {
         }
     }
 
-    pub fn validate_native_reply(&self, store: &rv_core::native::store::NativeStore) {
+    pub fn validate_native_reply(self: &Rc<Self>, store: &rv_core::native::store::NativeStore) {
+        self.refresh_ordinary_quote();
         if let Some(selected) = self.native_reply()
             && store.quote_selection(&selected.reference.room_id, &selected.reference.message_id).ok().as_ref()
                 != Some(&selected)
@@ -819,6 +834,11 @@ impl Composer {
     }
 
     fn submit(&self) {
+        if self.quote_author.sending.get()
+            || (self.quote_author.busy.get() && self.quote_author.actor.borrow().is_none())
+        {
+            return;
+        }
         let mut text = self.text();
         let files = !self.staged.is_empty();
         if text.trim().is_empty()
@@ -829,7 +849,9 @@ impl Composer {
             return;
         }
         self.completion.popdown();
-        self.text.buffer().set_text("");
+        if self.private_reply.borrow().is_none() || self.private_access.borrow().is_some() {
+            self.text.buffer().set_text("");
+        }
         if let Some(link) = self.reply_link.take() {
             text = rv_core::actions::quote(&link, text.trim());
             self.reply_bar.set_visible(false);

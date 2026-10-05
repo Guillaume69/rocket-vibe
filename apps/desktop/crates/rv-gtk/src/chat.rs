@@ -23,6 +23,8 @@ use crate::{actions_menu, on_tokio};
 mod crypto;
 #[path = "chat_native.rs"]
 mod native;
+#[path = "chat_quotes.rs"]
+mod quotes;
 
 #[derive(Debug, Clone)]
 struct OpenRoom {
@@ -2006,6 +2008,9 @@ impl ChatPage {
             return;
         }
         if let Some(session) = self.native_session() {
+            if self.composer.send_private_reference(text.to_owned()) {
+                return;
+            }
             let scope = self.native_membership.borrow().clone();
             let Some((rid, membership)) = scope.filter(|(rid, _)| rid == &open.rid) else {
                 return;

@@ -312,6 +312,9 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("native.pending", "En attente", "Pending"),
     ("native.failed", "Non envoyé", "Not sent"),
     ("quote.unavailable", "Citation indisponible", "Quote unavailable"),
+    ("quote.elsewhere", "Citer dans une autre conversation", "Quote in another conversation"),
+    ("quote.destination", "Choisir la conversation", "Choose conversation"),
+    ("quote.destination_empty", "Aucune conversation disponible", "No conversation available"),
     (
         "native.identity_changed",
         "L'identité du serveur a changé. Déconnecte-toi puis reconnecte-toi.",

@@ -603,6 +603,18 @@ impl NativeChat {
         .await
         .map_err(crate::native_crypto::error)
     }
+    pub async fn crypto_quote_composer(
+        &self,
+        room: String,
+        thread: Option<String>,
+    ) -> Result<Arc<crate::native_crypto::quote_composer::NativeCryptoQuoteComposer>, RvError> {
+        let (session, dirs) = (self.session.clone(), self.dirs.clone());
+        on_tokio(async move {
+            crate::native_crypto::quote_composer::NativeCryptoQuoteComposer::open(session, dirs, room, thread).await
+        })
+        .await
+        .map_err(crate::native_crypto::error)
+    }
     pub async fn crypto_quote_reader(
         &self,
         room: String,

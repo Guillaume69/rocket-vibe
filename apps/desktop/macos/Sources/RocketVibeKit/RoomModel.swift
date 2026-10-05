@@ -4,6 +4,24 @@ import RocketVibeCore
 
 let historyPage: Int64 = 50
 
+/// Only source authority crosses navigation. The destination resolves its own
+/// preview after checking this exact selection again.
+enum QuoteTransfer {
+    case ordinary(NativeQuoteSelection, thread: String?, limit: Int64)
+    case encrypted(NativePrivateQuoteSelection)
+    var room: String { switch self { case let .ordinary(s, _, _): return s.roomId; case let .encrypted(s): return s.roomId } }
+    var message: String { switch self { case let .ordinary(s, _, _): return s.messageId; case let .encrypted(s): return s.messageId } }
+    func matches(_ s: NativePrivateQuoteSelection) -> Bool {
+        switch self {
+        case let .encrypted(original): return s == original
+        case let .ordinary(original, _, _):
+            return s.admission.isEmpty && s.roomId == original.roomId && s.messageId == original.messageId
+                && s.revision == original.revision && s.instance == original.instanceId
+                && s.dataEpoch == original.dataEpoch && s.membership == original.membershipVersion
+        }
+    }
+}
+
 /// One open room, or one thread: its messages as the store holds them,
 /// paged back on demand.
 @MainActor @Observable
@@ -185,7 +203,14 @@ public final class RoomModel {
     @ObservationIgnored private var quoteReader: NativeCryptoQuoteReader?
     @ObservationIgnored private var quoteTask: Task<Void, Never>?
     @ObservationIgnored private var quotePoll: Task<Void, Never>?
-    public var canSend: Bool { threadWriteAllowed && (!privateMode || privateReady) && (!draft.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || nativeQuote != nil || privateQuote != nil) }
+    @ObservationIgnored private var quoteAuthor: NativeCryptoQuoteComposer?
+    @ObservationIgnored private var quoteAuthorGeneration = UUID()
+    private var quoteAuthorBusy = false
+    private var quoteSendingDraft: String?
+    @ObservationIgnored private var quoteAuthorPoll: Task<Void, Never>?
+    public var canSend: Bool { threadWriteAllowed && quoteSendingDraft == nil && (!privateMode || privateReady)
+        && (privateMode || privateQuote == nil || (quoteVisible && quoteAuthor != nil && !quoteAuthorBusy))
+        && (!draft.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || nativeQuote != nil || privateQuote != nil) }
     public private(set) var threadWriteAllowed = true
     @ObservationIgnored private var actionLoads: Set<String> = []
     @ObservationIgnored private var mutations: [String: NativeMessageActions] = [:]
@@ -250,6 +275,7 @@ public final class RoomModel {
         guard active else { return }
         closeQuoteReader()
         quotePoll?.cancel(); quotePoll = nil
+        closeQuoteAuthor()
         if let native=provider.native {
             let (rid,root,membership)=(room.rid,threadId,nativeMembership)
             Task {try? await native.setTyping(room:rid,root:root,active:false,membership:membership)}
@@ -259,7 +285,7 @@ public final class RoomModel {
         if privateMode {
             privateGeneration = UUID(); privateHandle?.close(); privateHandle = nil
             privateMessages = []; privateReady = false
-        } else { try? saveDraft(draft) }
+        } else if quoteSendingDraft != draft { try? saveDraft(draft) }
         active = false
         cancelQuote()
         draft = ""
@@ -338,6 +364,7 @@ public final class RoomModel {
         }
         if threadId == nil { refreshUploads() }
         projectQuoteCards(fresh)
+        if privateQuote != nil { Task { [weak self] in await self?.refreshQuoteAuthor() } }
     }
 
     private func cachedOrdinaryMessages() -> [MessageItem]? {
@@ -348,7 +375,7 @@ public final class RoomModel {
         quoteTask?.cancel(); quoteTask = nil
         quoteReader?.close(); quoteReader = nil
     }
-    var hasPrivateQuoteProjection: Bool { quoteReader != nil || quoteTask != nil }
+    var hasPrivateQuoteProjection: Bool { quoteReader != nil || quoteTask != nil || quoteAuthor != nil || quoteAuthorBusy }
     /// The list owns its activity gate. Ordinary bodies and drafts remain in
     /// their existing cache; decrypted quote cards disappear on blur or cover.
     public func quoteActivity(_ visible: Bool) {
@@ -358,6 +385,7 @@ public final class RoomModel {
         if !visible {
             closeQuoteReader()
             quotePoll?.cancel(); quotePoll = nil
+            if privateQuote != nil || quoteAuthorBusy { cancelQuote() }
             if active, provider.native != nil { messages = cachedOrdinaryMessages() ?? [] }
         } else if active { reload() }
     }
@@ -538,8 +566,29 @@ public final class RoomModel {
             if active, generation == privateGeneration { await refreshPrivate() }
             return
         }
+        if let selected = privateQuote {
+            guard canSend, let author = quoteAuthor, !quoteAuthorBusy else { return }
+            let (text, generation) = (draft, quoteAuthorGeneration)
+            quoteAuthorBusy = true
+            quoteSendingDraft = text
+            draftSave?.cancel()
+            do {
+                // Keep the field and its ordinary draft until preflight accepts
+                // an intention. SQL consumes only this exact caption on commit.
+                try saveDraft(text)
+                _ = try await author.send(text: text, quotes: [selected])
+                if active, draft == text { draft = ""; draftSave?.cancel() }
+                if active, generation == quoteAuthorGeneration, privateQuote == selected { cancelQuote() }
+                if active { reload() }
+            } catch {
+                if active, generation == quoteAuthorGeneration { self.error = error.localizedDescription }
+            }
+            if generation == quoteAuthorGeneration { quoteAuthorBusy = false }
+            quoteSendingDraft = nil
+            return
+        }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty || nativeQuote != nil else { return }
+        guard canSend, !text.isEmpty || nativeQuote != nil || privateQuote != nil else { return }
         draft = ""
         draftSave?.cancel()
         do {
@@ -748,12 +797,14 @@ public final class RoomModel {
     /// Puts a quote of the message at the start of the draft.
     public func quote(_ message: MessageItem) async {
         guard active, membershipIsCurrent else { return }
+        cancelQuote()
+        let quoteGeneration = quoteAuthorGeneration
         if privateMode {
             guard privateReady, let privateHandle else { return }
             let generation = privateGeneration
             do {
                 let preview = try await privateHandle.selectQuote(messageId: message.id)
-                guard active, generation == privateGeneration, membershipIsCurrent else { return }
+                guard active, generation == privateGeneration, quoteGeneration == quoteAuthorGeneration, membershipIsCurrent else { return }
                 privateQuote = preview.selection
                 pendingQuote = preview.quote
             } catch { if active, generation == privateGeneration { self.error = L("quote.unavailable") } }
@@ -776,10 +827,88 @@ public final class RoomModel {
     }
 
     public func cancelQuote() {
+        closeQuoteAuthor()
         privateHandle?.cancelQuote()
         privateQuote = nil
         nativeQuote = nil
         pendingQuote = nil
+    }
+
+    private func closeQuoteAuthor() {
+        quoteAuthorGeneration = UUID(); quoteAuthorBusy = false
+        quoteAuthor?.close(); quoteAuthor = nil
+        quoteAuthorPoll?.cancel(); quoteAuthorPoll = nil
+    }
+    func transferQuote(_ id: String) async throws -> QuoteTransfer {
+        guard active, membershipIsCurrent, let native = provider.native,
+              messages.contains(where: { $0.id == id && $0.delivery == .sent && $0.system == nil }) else { throw CancellationError() }
+        if privateMode {
+            guard privateReady, let privateHandle else { throw CancellationError() }
+            let generation = privateGeneration
+            let value = try await privateHandle.selectQuote(messageId: id)
+            guard active, generation == privateGeneration, membershipIsCurrent else { throw CancellationError() }
+            return .encrypted(value.selection)
+        }
+        return .ordinary(try native.quoteSelection(room: rid, messageId: id), thread: threadId, limit: limit)
+    }
+    func acceptQuote(_ transfer: QuoteTransfer) async throws {
+        guard active, membershipIsCurrent, let native = provider.native else { throw CancellationError() }
+        cancelQuote()
+        if privateMode {
+            let generation = privateGeneration
+            let quoteGeneration = quoteAuthorGeneration
+            await refreshPrivate()
+            guard active, generation == privateGeneration, quoteGeneration == quoteAuthorGeneration, privateReady, let privateHandle else { throw CancellationError() }
+            let value = try await privateHandle.selectSourceQuote(roomId: transfer.room, messageId: transfer.message)
+            guard active, generation == privateGeneration, quoteGeneration == quoteAuthorGeneration, membershipIsCurrent, transfer.matches(value.selection) else { throw CancellationError() }
+            privateQuote = value.selection; pendingQuote = value.quote
+            return
+        }
+        if case let .ordinary(selected, root, sourceLimit) = transfer {
+            guard try native.quoteSelection(room: selected.roomId, messageId: selected.messageId) == selected,
+                  let source = try provider.messages(rid: selected.roomId, limit: sourceLimit, thread: root,
+                    unreadAfter: nil, nativeMembership: selected.membershipVersion).first(where: { $0.id == selected.messageId }),
+                  try native.quoteSelection(room: selected.roomId, messageId: selected.messageId) == selected else { throw CancellationError() }
+            nativeQuote = selected
+            pendingQuote = Quote(unavailable:false,link:"",author:source.author,body:source.body,images:source.images,files:source.files,quotes:[])
+            return
+        }
+        guard quoteVisible else { throw CancellationError() }
+        let generation = quoteAuthorGeneration
+        quoteAuthorBusy = true
+        defer { if generation == quoteAuthorGeneration { quoteAuthorBusy = false } }
+        let author = try await native.cryptoQuoteComposer(room: rid, thread: threadId)
+        guard active, quoteVisible, generation == quoteAuthorGeneration else { author.close(); throw CancellationError() }
+        quoteAuthor = author
+        do {
+            let value = try await author.selectSourceQuote(roomId: transfer.room, messageId: transfer.message)
+            guard active, quoteVisible, generation == quoteAuthorGeneration, membershipIsCurrent,
+                  transfer.matches(value.selection) else { author.close(); throw CancellationError() }
+            privateQuote = value.selection; pendingQuote = value.quote
+            quoteAuthorPoll = Task { [weak self] in
+                while !Task.isCancelled {
+                    do { try await Task.sleep(nanoseconds:10_000_000_000) } catch { return }
+                    guard let self, self.active, self.quoteVisible, self.quoteAuthorGeneration == generation else { return }
+                    await self.refreshQuoteAuthor()
+                }
+            }
+        } catch {
+            if generation == quoteAuthorGeneration { cancelQuote() }
+            throw error
+        }
+    }
+    private func refreshQuoteAuthor() async {
+        guard active, quoteVisible, !quoteAuthorBusy, let author = quoteAuthor, let selected = privateQuote else { return }
+        let generation = quoteAuthorGeneration
+        quoteAuthorBusy = true
+        pendingQuote = Quote(unavailable:true,link:"",author:nil,body:[],images:[],files:[],quotes:[])
+        defer { if generation == quoteAuthorGeneration { quoteAuthorBusy = false } }
+        do {
+            let value = try await author.refresh()
+            guard active, quoteVisible, generation == quoteAuthorGeneration, privateQuote == selected else { return }
+            if let value, value.selection == selected, membershipIsCurrent { pendingQuote = value.quote }
+            else { cancelQuote() }
+        } catch { if generation == quoteAuthorGeneration { cancelQuote() } }
     }
 
     /// My latest message still editable, for the Up arrow in an empty composer.

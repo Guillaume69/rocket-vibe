@@ -411,9 +411,13 @@ avec consentement et frontières d'historique visibles, sans réécriture des bl
    protégé enregistré. Les listes / fils ordinaires Android résolvent aussi les
    sources privées dans une projection volatile après lissage ; leur composeur
    les revalide dans un lecteur natif et ne persiste que les références. Le serveur
-   contrôle l’admission historique exacte sans renvoyer d’extrait. Sélecteurs
-   intersalons bureau, cartes privées dans ses salons ordinaires, révisions
-   d'édition et fichiers chiffrés cités restent ouverts.
+   contrôle l’admission historique exacte sans renvoyer d’extrait. GTK / SwiftUI
+   raccordent aussi les lecteurs de cartes privées dans les salons ordinaires
+   et les sélecteurs intersalons. Un composeur distinct vérifie les références
+   privées avant intention SQL ordinaire, sans y persister excerpt ni admission.
+   Le texte personnel reste récupérable pendant la validation et seuls les mots
+   correspondants sont consommés au commit. Qualification CI de la nouvelle
+   composition bureau, révisions d'édition et fichiers chiffrés cités restent ouverts.
    Renouvellement, récupération / révocation visibles, actions / recherche
    privés et qualification GUI complète restent ouverts ; archive / fichiers,
    historique autorisé et corpus d'import RC depuis cache vierge.

@@ -24,7 +24,13 @@ use std::{
     sync::Arc,
 };
 mod archive;
+pub use archive::RecoveredMessage;
 mod drafts;
+mod history;
+pub use history::{
+    HistoryImport, HistoryPage, HistoryPeriod, PAGE_PACKETS as HISTORY_PAGE_PACKETS,
+    REQUEST_LIFETIME as HISTORY_REQUEST_LIFETIME,
+};
 mod incoming;
 mod verification;
 pub use incoming::Commit;

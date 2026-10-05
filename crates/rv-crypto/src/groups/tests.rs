@@ -140,6 +140,61 @@ impl Account {
             })
             .unwrap();
     }
+    /// Another device of this account, approved by the same root. It does not
+    /// hold the root itself.
+    fn sibling(&self, device: &str, incarnation: [u8; 16]) -> Account {
+        let directory = tempfile::tempdir().unwrap();
+        let keystore = Arc::new(Keystore::default());
+        let manager = Arc::new(
+            Manager::new(
+                directory.path().to_owned(),
+                VaultScope {
+                    instance: "instance".into(),
+                    data_epoch: "epoch".into(),
+                    user: self.root.user.clone(),
+                    device: device.into(),
+                    incarnation: HEXLOWER.encode(&incarnation),
+                },
+                keystore.clone(),
+            )
+            .unwrap(),
+        );
+        manager.initialize().unwrap();
+        let root = self.root.clone();
+        let request = manager
+            .transact(|_, records| {
+                let mut local =
+                    LocalDevice::create_bound(&root, device, incarnation, records).unwrap();
+                Ok(local.request(NOW, records).unwrap())
+            })
+            .unwrap();
+        let grant = self
+            .manager
+            .transact(|_, records| {
+                let issuer = Issuer::load(records, "instance", &root.user).unwrap();
+                let consent = issuer
+                    .preview_request(&request, NOW, 3600, records)
+                    .unwrap();
+                Ok(issuer
+                    .approve_request(&request, &consent, NOW, records)
+                    .unwrap())
+            })
+            .unwrap();
+        manager
+            .transact(|_, records| {
+                let mut local = LocalDevice::load(&root, device, records).unwrap();
+                local.install(&grant, NOW, records).unwrap();
+                Ok(())
+            })
+            .unwrap();
+        Account {
+            directory,
+            keystore,
+            manager,
+            root,
+            certificate: grant.certificate,
+        }
+    }
     fn revoke(&self, peer: &Account) {
         let revocation = peer
             .manager
@@ -612,6 +667,8 @@ mod delivery_tests;
 mod drafts;
 #[path = "settlement_tests.rs"]
 mod group_settlement;
+#[path = "history_tests.rs"]
+mod history_tests;
 #[path = "incoming_tests.rs"]
 mod incoming_commits;
 #[path = "journal_tests.rs"]

@@ -119,7 +119,8 @@ The packet contains:
 | `signature` | Ed25519 signature of the archive leaf |
 
 `position`, `group_revision` and `epoch` of the public receipt are canonical decimal
-strings; the membership versions are too. Integers are bounded
+strings; the membership versions are the roster's opaque identifiers (the server
+draws UUIDs), never parsed as numbers. Integers are bounded
 to `i64::MAX`, with zero allowed only for the epoch. The other fields of the
 receipt use its existing strict schema; its JSON keys are sorted during
 serialization. Canonical decoding rejects extra fields and

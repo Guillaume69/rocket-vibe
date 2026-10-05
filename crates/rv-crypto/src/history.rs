@@ -3,9 +3,12 @@
 //! No trust decision is made here: callers check the account directory, the
 //! human approval and the reader's boundaries.
 use crate::{
-    archive::{self, Packet},
     identity::{Certificate, enrollment::LocalDevice},
     vault::Records,
+};
+use chacha20poly1305::{
+    XChaCha20Poly1305, XNonce,
+    aead::{Aead, KeyInit, Payload},
 };
 use data_encoding::HEXLOWER;
 use openmls_traits::{
@@ -14,10 +17,11 @@ use openmls_traits::{
     types::{HpkeAeadType, HpkeCiphertext, HpkeConfig, HpkeKdfType, HpkeKemType},
 };
 pub use rv_crypto_public::history::{
-    Envelope, Manifest, Period, Request, RequestBody, Share, chain,
+    Envelope, Manifest, Period, Record, Request, RequestBody, Share, chain,
 };
 use rv_crypto_public::{
     Fingerprint,
+    archive::Header,
     groups::{Member, Scope},
     messages::Receipt,
 };
@@ -38,8 +42,10 @@ const MAX_DOCUMENTS: usize = 100_000;
 pub enum Error {
     #[error("crypto_history_identity")]
     Identity(#[from] rv_crypto_public::Error),
-    #[error("crypto_history_archive")]
-    Archive(#[from] archive::Error),
+    #[error("crypto_history_document")]
+    Document,
+    #[error("crypto_history_authentication")]
+    Authentication,
     #[error("crypto_history_changed")]
     Changed,
     #[error("crypto_history_not_requested")]
@@ -56,14 +62,12 @@ fn random<const N: usize>() -> Result<[u8; N]> {
     getrandom::fill(&mut bytes).map_err(|_| Error::Unavailable)?;
     Ok(bytes)
 }
+/// Document key, key ID and nonce.
+type Material = (Zeroizing<[u8; 32]>, [u8; 16], [u8; 24]);
 /// Key, key ID and nonce of the `ordinal`-th document (from 1) of a shared
 /// period: HKDF-SHA256 of the period secret. Re-sealing a page reproduces its
-/// packets, and a packet served at another rank does not open.
-fn material(
-    crypto: &impl OpenMlsCrypto,
-    secret: &[u8; 32],
-    ordinal: u64,
-) -> Result<(archive::Key, [u8; 16], [u8; 24])> {
+/// records, and a record served at another rank does not open.
+fn material(crypto: &impl OpenMlsCrypto, secret: &[u8; 32], ordinal: u64) -> Result<Material> {
     let hash = openmls_traits::types::HashType::Sha2_256;
     let prk = crypto
         .hkdf_extract(hash, &[], secret)
@@ -79,7 +83,69 @@ fn material(
     key.copy_from_slice(&okm[..32]);
     let key_id: [u8; 16] = okm[32..48].try_into().map_err(|_| Error::Changed)?;
     let nonce: [u8; 24] = okm[48..72].try_into().map_err(|_| Error::Changed)?;
-    Ok((archive::Key::from_bytes(key), key_id, nonce))
+    Ok((key, key_id, nonce))
+}
+/// Seals one document as a history record attested by `device`.
+fn seal_record(
+    device: &LocalDevice,
+    document: &Document,
+    now: u64,
+    key: &Zeroizing<[u8; 32]>,
+    key_id: [u8; 16],
+    nonce: [u8; 24],
+) -> Result<Record> {
+    let plain = crate::groups::messages::payload(&document.message).map_err(|_| Error::Document)?;
+    crate::groups::messages::decode(&plain, &document.origin.header)
+        .map_err(|_| Error::Document)?;
+    let mut record = Record {
+        header: Header {
+            version: 1,
+            origin: document.origin.clone(),
+            author_membership: document.membership.clone(),
+            key_id,
+            nonce,
+        },
+        original_certificate: document.original_certificate.clone(),
+        certificate: Certificate::from_credential(
+            &device
+                .credential(now)
+                .map_err(|_| Error::Changed)?
+                .credential,
+        )?,
+        ciphertext: Vec::new(),
+        signature: Vec::new(),
+    };
+    record.ciphertext = XChaCha20Poly1305::new(key.as_ref().into())
+        .encrypt(
+            XNonce::from_slice(&nonce),
+            Payload {
+                msg: &plain,
+                aad: &record.aad()?,
+            },
+        )
+        .map_err(|_| Error::Authentication)?;
+    record.signature = device
+        .sign(&record.signing_bytes()?)
+        .map_err(|_| Error::Authentication)?;
+    record.authenticate()?;
+    Ok(record)
+}
+/// Decrypts an authenticated record with its document key.
+fn open_record(record: &Record, key: &Zeroizing<[u8; 32]>) -> Result<SendMessage> {
+    record.authenticate()?;
+    let plain = Zeroizing::new(
+        XChaCha20Poly1305::new(key.as_ref().into())
+            .decrypt(
+                XNonce::from_slice(&record.header.nonce),
+                Payload {
+                    msg: &record.ciphertext,
+                    aad: &record.aad()?,
+                },
+            )
+            .map_err(|_| Error::Authentication)?,
+    );
+    crate::groups::messages::decode(&plain, &record.header.origin.header)
+        .map_err(|_| Error::Document)
 }
 fn info(request: &Fingerprint) -> Vec<u8> {
     let mut info = rv_crypto_public::history::SHARE_DOMAIN.as_bytes().to_vec();
@@ -225,7 +291,7 @@ pub fn share(
     request: &Request,
     periods: Vec<PeriodInput>,
     now: u64,
-) -> Result<(Share, Vec<Vec<Packet>>)> {
+) -> Result<(Share, Vec<Vec<Record>>)> {
     let mut periods = periods;
     for period in &mut periods {
         period.documents.sort_by_key(|d| d.origin.position);
@@ -277,7 +343,7 @@ pub struct Page {
     pub period: usize,
     /// Documents of the period sealed before this page.
     pub start: u64,
-    pub packets: Vec<Packet>,
+    pub packets: Vec<Record>,
     first: u64,
     last: u64,
     chain: Fingerprint,
@@ -396,17 +462,7 @@ impl ShareJob {
             }
             let ordinal = state.sealed + offset as u64 + 1;
             let (key, key_id, nonce) = material(crypto, &state.secret, ordinal)?;
-            let (packet, _) = archive::seal_with(
-                device,
-                &document.original_certificate,
-                &document.origin,
-                &document.membership,
-                &document.message,
-                now,
-                key_id,
-                nonce,
-                key,
-            )?;
+            let packet = seal_record(device, document, now, &key, key_id, nonce)?;
             if empty {
                 first = position;
             }
@@ -651,7 +707,7 @@ impl ImportJob {
         &mut self,
         crypto: &impl OpenMlsCrypto,
         period: usize,
-        packets: &[Packet],
+        packets: &[Record],
     ) -> Result<Vec<SendMessage>> {
         let entry = self
             .share
@@ -723,7 +779,7 @@ pub fn open_packet(
     period: &Period,
     key: &PeriodKey,
     ordinal: u64,
-    packet: &Packet,
+    packet: &Record,
 ) -> Result<SendMessage> {
     packet.authenticate()?;
     let origin = &packet.header.origin;
@@ -743,17 +799,12 @@ pub fn open_packet(
     if packet.header.key_id != key_id || packet.header.nonce != nonce {
         return Err(Error::Changed);
     }
-    Ok(archive::open(
-        packet,
-        &document_key,
-        origin,
-        &packet.header.author_membership,
-    )?)
+    open_record(packet, &document_key)
 }
 
 /// Checks one period's complete packet list, in position order, against its
 /// manifest entry: count, bounds and chain digest.
-pub fn check_period(period: &Period, packets: &[Packet]) -> Result<()> {
+pub fn check_period(period: &Period, packets: &[Record]) -> Result<()> {
     if packets.len() as u64 != period.count
         || packets.first().map(|p| p.header.origin.position) != Some(period.first)
         || packets.last().map(|p| p.header.origin.position) != Some(period.last)
@@ -765,7 +816,7 @@ pub fn check_period(period: &Period, packets: &[Packet]) -> Result<()> {
     }
     let digests = packets
         .iter()
-        .map(Packet::digest)
+        .map(Record::digest)
         .collect::<std::result::Result<Vec<_>, _>>()?;
     if chain(digests)? != period.chain {
         return Err(Error::Changed);

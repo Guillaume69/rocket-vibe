@@ -43,10 +43,6 @@ fn record(packet: &Packet) -> Result<String> {
     ))
 }
 impl Key {
-    /// A key derived by its caller, such as a shared period's document key.
-    pub(crate) fn from_bytes(bytes: Zeroizing<[u8; 32]>) -> Self {
-        Self(bytes)
-    }
     /// The destination is the encrypted vault's records, never app preferences.
     pub fn save(&self, packet: &Packet, records: &mut Records) -> Result<()> {
         decrypt(packet, self)?;
@@ -102,45 +98,20 @@ pub fn seal_from_origin(
     document: &SendMessage,
     now: u64,
 ) -> Result<(Packet, Key)> {
-    seal_with(
-        device,
-        original_certificate,
-        origin,
-        membership,
-        document,
-        now,
-        random()?,
-        random()?,
-        Key(Zeroizing::new(random()?)),
-    )
-}
-/// `seal_from_origin` with a caller-chosen key, key ID and nonce. Each must be
-/// unique to this document; a caller deriving them reproduces the same packet.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn seal_with(
-    device: &LocalDevice,
-    original_certificate: &Certificate,
-    origin: &Receipt,
-    membership: &Member,
-    document: &SendMessage,
-    now: u64,
-    key_id: [u8; 16],
-    nonce: [u8; 24],
-    key: Key,
-) -> Result<(Packet, Key)> {
     let certificate = Certificate::from_credential(&device.credential(now)?.credential)?;
     let header = Header {
         version: 1,
         origin: origin.clone(),
         author_membership: membership.clone(),
-        key_id,
-        nonce,
+        key_id: random()?,
+        nonce: random()?,
     };
     header.validate()?;
     let plain = crate::groups::messages::payload(document).map_err(|_| Error::Document)?;
     // Operation/thread bindings are checked using the same canonical decoder
     // as live messages; a new serialization dialect is not introduced here.
     crate::groups::messages::decode(&plain, &origin.header).map_err(|_| Error::Document)?;
+    let key = Key(Zeroizing::new(random()?));
     let ciphertext = XChaCha20Poly1305::new(key.0.as_ref().into())
         .encrypt(
             XNonce::from_slice(&header.nonce),

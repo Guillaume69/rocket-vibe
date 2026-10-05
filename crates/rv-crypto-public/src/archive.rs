@@ -61,10 +61,6 @@ mod origin_wire {
         serde_json::from_value(value).map_err(serde::de::Error::custom)
     }
 }
-fn revision(text: &str) -> bool {
-    text.parse::<i64>()
-        .is_ok_and(|v| v > 0 && v.to_string() == text)
-}
 impl Header {
     pub fn validate(&self) -> Result<(), Error> {
         self.origin.validate()?;
@@ -72,8 +68,10 @@ impl Header {
             || self.key_id == [0; 16]
             || self.nonce == [0; 24]
             || self.author_membership.user != self.origin.header.author
-            || !revision(&self.author_membership.access_version)
-            || !revision(&self.author_membership.activation_version)
+            // Membership versions are the roster's opaque identifiers (the
+            // server draws UUIDs), never assumed to be numbers.
+            || !crate::messages::identifier(&self.author_membership.access_version)
+            || !crate::messages::identifier(&self.author_membership.activation_version)
         {
             return Err(Error::Invalid);
         }

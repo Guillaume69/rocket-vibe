@@ -87,6 +87,29 @@ fn document(blocks: &Access<'_>, entry: &Index) -> Result<ProjectedMessage> {
     }
     super::projected(&value)
 }
+/// A verified journaled document, ready to be sealed as a portable packet.
+pub(in super::super) struct ArchivedDocument {
+    pub origin: packet::Receipt,
+    /// The author's certificate from the original MLS proof.
+    pub certificate: identity::Certificate,
+    /// The author's membership at reception; absent on older nodes.
+    pub author: Option<Member>,
+    pub message: rv_protocol::SendMessage,
+}
+fn archived(blocks: &Access<'_>, entry: &Index) -> Result<ArchivedDocument> {
+    let value = super::node(blocks, &entry.document, &entry.binding)?;
+    if value.receipt != entry.receipt {
+        return Err(Error::Changed);
+    }
+    super::authenticate_entry(&value)?;
+    let proof = value.submission.checked_at(value.observed_at, true)?;
+    Ok(ArchivedDocument {
+        message: messages::decode(&value.plaintext, &value.receipt.header)?,
+        origin: value.receipt,
+        certificate: proof.certificate,
+        author: value.author,
+    })
+}
 fn binding(scope: &Scope, grant: &Member, admission: Fingerprint) -> Binding {
     Binding {
         scope: scope.clone(),
@@ -103,6 +126,68 @@ impl Coordinator {
         admission: Fingerprint,
     ) -> Result<bool> {
         Ok(head(records, &binding(scope, grant, admission))?.is_some())
+    }
+    /// Every journal index of this vault that is not retired: its binding and
+    /// how many documents it holds.
+    pub(in super::super) fn journal_archive_periods(
+        &self,
+        records: &Records,
+    ) -> Result<Vec<(Scope, Member, Fingerprint, u64)>> {
+        let mut periods = Vec::new();
+        for (name, bytes) in records.range("crypto-journal-archive-v1/".to_string()..) {
+            if !name.starts_with("crypto-journal-archive-v1/") {
+                break;
+            }
+            let parsed: Head = serde_json::from_slice(bytes).map_err(|_| Error::Changed)?;
+            let header = head(records, &parsed.binding)?.ok_or(Error::Changed)?;
+            if !header.retired {
+                let Binding {
+                    scope,
+                    grant,
+                    admission,
+                } = header.binding;
+                periods.push((scope, grant, admission, header.count));
+            }
+        }
+        Ok(periods)
+    }
+    /// Documents of ranks `from..=to` (from 1) of a journal index, in position
+    /// order, each with its original proof re-verified.
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn journal_archive_documents(
+        &self,
+        records: &Records,
+        blocks: &Access<'_>,
+        scope: &Scope,
+        grant: &Member,
+        admission: Fingerprint,
+        from: u64,
+        to: u64,
+    ) -> Result<Vec<ArchivedDocument>> {
+        let header = head(records, &binding(scope, grant, admission))?.ok_or(Error::NotReady)?;
+        if header.retired {
+            return Err(Error::MessageRetired);
+        }
+        if from == 0 || to < from || to > header.count {
+            return Err(Error::Limit);
+        }
+        let mut entry = start(blocks, &header)?;
+        while entry.index > to {
+            let distance = entry.index - to;
+            let level = (u64::BITS - 1 - distance.leading_zeros()) as usize;
+            let level = level.min(entry.jumps.len().saturating_sub(1));
+            entry = previous(blocks, &entry, level)?;
+        }
+        let mut documents = Vec::with_capacity((to - from + 1) as usize);
+        loop {
+            documents.push(archived(blocks, &entry)?);
+            if entry.index == from {
+                break;
+            }
+            entry = previous(blocks, &entry, 0)?;
+        }
+        documents.reverse();
+        Ok(documents)
     }
     /// Position of the newest indexed document; none once retired.
     pub(in super::super) fn journal_archive_position(

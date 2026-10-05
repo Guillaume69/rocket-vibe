@@ -2,6 +2,7 @@
 //! a read right: each device still checks its own directory, request and window.
 use crate::{
     Certificate, Error, Fingerprint,
+    archive::Header,
     groups::{Member, Scope},
     label, signing_bytes, verifying_key,
 };
@@ -17,6 +18,8 @@ pub const REQUEST_LIFETIME: u64 = 7 * 86400;
 pub const MAX_PERIODS: usize = 1024;
 pub const SHARE_LIMIT: usize = 1024 * 1024;
 pub const ENVELOPE_LIMIT: usize = 64 * 1024;
+pub const RECORD_DOMAIN: &str = "rocketvibe-history-record-v1";
+pub const RECORD_AAD_DOMAIN: &str = "rocketvibe-history-record-aad-v1";
 
 /// Positions, counts and bounds stay exact for a JavaScript verifier.
 mod decimal {
@@ -258,5 +261,95 @@ impl Share {
             return Err(Error::Scope);
         }
         Ok(())
+    }
+}
+
+/// One recovered document: the v1 archive header (exact origin receipt, the
+/// author's membership, key ID, nonce), the author's original certificate, and
+/// an attestation by the sharing device that its account observed it. Unlike an
+/// archive packet, the sharing device need not share the author's root; its own
+/// domains keep a record from ever passing as an author-signed archive packet.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Record {
+    pub header: Header,
+    pub original_certificate: Certificate,
+    /// Certificate of the sharing device that attests the observation.
+    pub certificate: Certificate,
+    pub ciphertext: Vec<u8>,
+    pub signature: Vec<u8>,
+}
+impl Record {
+    /// Associated data of the document's AEAD.
+    pub fn aad(&self) -> Result<Vec<u8>, Error> {
+        self.header.validate()?;
+        signing_bytes(RECORD_AAD_DOMAIN, &self.header)
+    }
+    pub fn signing_bytes(&self) -> Result<Vec<u8>, Error> {
+        self.header.validate()?;
+        self.certificate.device.validate()?;
+        self.original_certificate.device.validate()?;
+        let route = &self.header.origin.header;
+        let author = &self.original_certificate.device;
+        if author.root.instance != route.scope.instance
+            || author.root.user != route.author
+            || author.device != route.device
+            || author.incarnation != route.incarnation
+            || self.original_certificate.fingerprint()? != route.certificate
+            || self.certificate.device.root.instance != route.scope.instance
+        {
+            return Err(Error::Scope);
+        }
+        if self.ciphertext.len() <= 16 || self.ciphertext.len() > crate::archive::CIPHERTEXT_LIMIT {
+            return Err(Error::Limit);
+        }
+        let ciphertext: Fingerprint = Sha256::digest(&self.ciphertext).into();
+        signing_bytes(
+            RECORD_DOMAIN,
+            &(
+                &self.header,
+                self.original_certificate.fingerprint()?,
+                self.certificate.fingerprint()?,
+                ciphertext,
+            ),
+        )
+    }
+    /// Shape and signatures. Whether the attesting device is trusted (same
+    /// account, listed, not revoked) is the receiver's check.
+    pub fn authenticate(&self) -> Result<(), Error> {
+        let body = self.signing_bytes()?;
+        self.certificate.authenticate()?;
+        self.original_certificate.authenticate()?;
+        let signature = Signature::from_slice(&self.signature).map_err(|_| Error::Signature)?;
+        verifying_key(&self.certificate.device.signature_key)?
+            .verify_strict(&body, &signature)
+            .map_err(|_| Error::Signature)
+    }
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        self.signing_bytes()?;
+        if self.signature.len() != 64 {
+            return Err(Error::Signature);
+        }
+        let bytes = serde_json::to_vec(self).map_err(|_| Error::Invalid)?;
+        if bytes.len() > crate::archive::WIRE_LIMIT {
+            return Err(Error::Limit);
+        }
+        Ok(bytes)
+    }
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        if bytes.is_empty() || bytes.len() > crate::archive::WIRE_LIMIT {
+            return Err(Error::Limit);
+        }
+        let record: Self = serde_json::from_slice(bytes).map_err(|_| Error::Invalid)?;
+        if record.to_bytes()? != bytes {
+            return Err(Error::Invalid);
+        }
+        Ok(record)
+    }
+    pub fn digest(&self) -> Result<Fingerprint, Error> {
+        let mut digest = Sha256::new();
+        digest.update(b"rocketvibe-history-record-fingerprint-v1\0");
+        digest.update(self.to_bytes()?);
+        Ok(digest.finalize().into())
     }
 }

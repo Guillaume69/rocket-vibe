@@ -5,6 +5,8 @@ use rv_crypto_public::messages as packet;
 use vault::blobs::{Access, Reference};
 use zeroize::Zeroizing;
 mod journal;
+mod recovered;
+pub use recovered::RecoveredMessage;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

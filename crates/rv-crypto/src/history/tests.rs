@@ -131,7 +131,7 @@ fn a_device_of_the_same_account_recovers_every_shared_period() {
     for ((period, key), packets) in share.manifest.periods.iter().zip(&keys).zip(&packets) {
         let packets = packets
             .iter()
-            .map(|p| Packet::from_bytes(&p.to_bytes().unwrap()).unwrap())
+            .map(|p| Record::from_bytes(&p.to_bytes().unwrap()).unwrap())
             .collect::<Vec<_>>();
         check_period(period, &packets).unwrap();
         for (index, packet) in packets.iter().enumerate() {

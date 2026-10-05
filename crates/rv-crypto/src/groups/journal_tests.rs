@@ -570,7 +570,7 @@ fn journal_peer_successor_preserves_unresolved_original_and_its_cancellation_nev
     assert_eq!(incoming_commits::secret(&bob), before);
 }
 
-fn fixture(third: bool) -> (Account, Account, Option<Account>, Submission) {
+pub(super) fn fixture(third: bool) -> (Account, Account, Option<Account>, Submission) {
     let alice = Account::new("alice", "alice-desktop", [1; 16]);
     let bob = Account::new("bob", "bob-mobile", [2; 16]);
     alice.trust(&bob, true);
@@ -596,7 +596,7 @@ fn fixture(third: bool) -> (Account, Account, Option<Account>, Submission) {
         .unwrap();
     (alice, bob, carol, submission)
 }
-fn observation(account: &Account) -> JournalObservation {
+pub(super) fn observation(account: &Account) -> JournalObservation {
     let current = messages::observation(account);
     let transition = account
         .manager
@@ -616,7 +616,11 @@ fn observation(account: &Account) -> JournalObservation {
         transition,
     }
 }
-fn group(submission: &Submission, position: u64, welcome: Option<&str>) -> http::DeliveryEvent {
+pub(super) fn group(
+    submission: &Submission,
+    position: u64,
+    welcome: Option<&str>,
+) -> http::DeliveryEvent {
     let wire = submission.to_wire().unwrap();
     http::DeliveryEvent {
         position: position.to_string(),
@@ -632,7 +636,7 @@ fn group(submission: &Submission, position: u64, welcome: Option<&str>) -> http:
 fn send(account: &Account, id: &str, position: u64) -> http::DeliveryEvent {
     send_document(account, messages::message(id), position)
 }
-fn send_document(
+pub(super) fn send_document(
     account: &Account,
     document: rv_protocol::SendMessage,
     position: u64,
@@ -839,7 +843,7 @@ fn retained_thread_roots_and_counts_share_the_verified_prefix_grant_and_retireme
             .is_empty()
     );
 }
-fn page(
+pub(super) fn page(
     observed: &JournalObservation,
     after: u64,
     through: u64,

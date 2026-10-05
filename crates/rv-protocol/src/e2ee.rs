@@ -389,3 +389,104 @@ pub struct HistoryRecordsPage {
     /// Start of the next page, or none at the end of the entry.
     pub next: Option<String>,
 }
+
+/// A new history key generation (E2EE_HISTORY_BACKUP.md): the package sealed
+/// under the history code, in a publication signed by the publishing device.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PublishHistoryKey {
+    pub scope: Scope,
+    pub operation_id: String,
+    pub publication: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryKeyReceipt {
+    pub scope: Scope,
+    pub operation_id: String,
+    pub device_id: String,
+    pub incarnation: String,
+    pub device_revision: String,
+    pub root_fingerprint: String,
+    pub generation: String,
+    pub generation_revision: String,
+    pub package_digest: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryKeyCancellation {
+    pub scope: Scope,
+    pub operation_id: String,
+    pub device_id: String,
+    pub incarnation: String,
+    pub device_revision: String,
+    pub root_fingerprint: String,
+    pub generation: String,
+    pub expected_revision: Option<String>,
+    pub package_digest: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    content = "data",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum HistoryKeySettlement {
+    Accepted(HistoryKeyReceipt),
+    Cancelled(HistoryKeyCancellation),
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryKeyVersion {
+    pub publication: String,
+    pub receipt: HistoryKeyReceipt,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryKeyState {
+    pub scope: Scope,
+    pub active: Option<HistoryKeyVersion>,
+}
+/// One backed-up period of a generation and its latest signed checkpoint.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryBackupPeriod {
+    /// Lowercase hex period id (rv_crypto_public::history_backup::Period::id).
+    pub period: String,
+    pub checkpoint: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryBackupPeriods {
+    pub scope: Scope,
+    pub generation: String,
+    pub periods: Vec<HistoryBackupPeriod>,
+    /// Next page of periods, or none.
+    pub next: Option<String>,
+}
+/// Records of ranks `start + 1 ..= start + records.len()` of one period and
+/// the checkpoint signed after them: at most 200 records and 4 MiB.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UploadHistoryBackup {
+    pub scope: Scope,
+    pub start: String,
+    pub records: Vec<String>,
+    pub checkpoint: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryBackupReceipt {
+    pub period: String,
+    /// Ranks the server now holds for this period.
+    pub count: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryBackupPage {
+    pub period: String,
+    pub start: String,
+    pub records: Vec<String>,
+    pub next: Option<String>,
+}

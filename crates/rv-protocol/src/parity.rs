@@ -551,6 +551,20 @@ pub struct RoomKeyEnvelope {
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct ParityContract {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e2ee_publish_history_key: Option<crate::e2ee::PublishHistoryKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e2ee_history_key_settlement: Option<crate::e2ee::HistoryKeySettlement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e2ee_history_key: Option<crate::e2ee::HistoryKeyState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e2ee_history_backup_periods: Option<crate::e2ee::HistoryBackupPeriods>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e2ee_upload_history_backup: Option<crate::e2ee::UploadHistoryBackup>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e2ee_history_backup_receipt: Option<crate::e2ee::HistoryBackupReceipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e2ee_history_backup_page: Option<crate::e2ee::HistoryBackupPage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub e2ee_publish_history_request: Option<crate::e2ee::PublishHistoryRequest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub e2ee_history_requests: Option<crate::e2ee::HistoryRequests>,

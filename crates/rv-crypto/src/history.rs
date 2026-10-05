@@ -63,11 +63,15 @@ fn random<const N: usize>() -> Result<[u8; N]> {
     Ok(bytes)
 }
 /// Document key, key ID and nonce.
-type Material = (Zeroizing<[u8; 32]>, [u8; 16], [u8; 24]);
+pub(crate) type Material = (Zeroizing<[u8; 32]>, [u8; 16], [u8; 24]);
 /// Key, key ID and nonce of the `ordinal`-th document (from 1) of a shared
 /// period: HKDF-SHA256 of the period secret. Re-sealing a page reproduces its
 /// records, and a record served at another rank does not open.
-fn material(crypto: &impl OpenMlsCrypto, secret: &[u8; 32], ordinal: u64) -> Result<Material> {
+pub(crate) fn material(
+    crypto: &impl OpenMlsCrypto,
+    secret: &[u8; 32],
+    ordinal: u64,
+) -> Result<Material> {
     let hash = openmls_traits::types::HashType::Sha2_256;
     let prk = crypto
         .hkdf_extract(hash, &[], secret)
@@ -86,7 +90,7 @@ fn material(crypto: &impl OpenMlsCrypto, secret: &[u8; 32], ordinal: u64) -> Res
     Ok((key, key_id, nonce))
 }
 /// Seals one document as a history record attested by `device`.
-fn seal_record(
+pub(crate) fn seal_record(
     device: &LocalDevice,
     document: &Document,
     now: u64,
@@ -132,7 +136,7 @@ fn seal_record(
     Ok(record)
 }
 /// Decrypts an authenticated record with its document key.
-fn open_record(record: &Record, key: &Zeroizing<[u8; 32]>) -> Result<SendMessage> {
+pub(crate) fn open_record(record: &Record, key: &Zeroizing<[u8; 32]>) -> Result<SendMessage> {
     record.authenticate()?;
     let plain = Zeroizing::new(
         XChaCha20Poly1305::new(key.as_ref().into())

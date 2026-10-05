@@ -7,6 +7,7 @@ pub mod archive;
 pub mod delivery;
 pub mod groups;
 pub mod history;
+pub mod history_backup;
 pub mod identity;
 pub mod installation;
 pub mod packages;

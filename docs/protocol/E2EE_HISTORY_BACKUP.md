@@ -72,14 +72,16 @@ verified journal archive, **per period** (room scope, personal grant, admission
 witness: the path A binding), as v1 history records (E2EE_HISTORY.md#records). Their
 key, `key_id` and nonce come from the period secret
 `HKDF-SHA256(history key, info = "rocketvibe-history-backup-period-v1" NUL
-SHA256(canonical period binding || uploader certificate fingerprint))` and the
-document's rank, exactly as in path A. Pages are re-sealed identically after a lost
+period id)` and the document's rank, exactly as in path A. The period is the path A
+binding plus the uploading device and incarnation (not its certificate, so a period
+continues across certificate renewal); its id is
+`SHA256(rocketvibe-history-backup-period-v1 NUL compact JSON [generation, period])`. Pages are re-sealed identically after a lost
 upload; the device keeps only, per period, the number of ranks the server holds.
 
-After each page the uploader signs a **checkpoint** under
-`rocketvibe-history-backup-checkpoint-v1`: generation, period binding digest,
-uploader certificate fingerprint, rank count, first and last position, and the chain
-digest of the period's record fingerprints (E2EE_HISTORY.md#share-sharing-device).
+After each page the uploader signs a **checkpoint** with its current certificate
+under `rocketvibe-history-backup-checkpoint-v1`, over the body (version, generation,
+period, rank count, first and last position, chain digest of the period's record
+fingerprints, E2EE_HISTORY.md#share-sharing-device) and its certificate fingerprint.
 A period only grows: a checkpoint never shrinks or rewrites a held prefix.
 
 ## Recovery on a new device

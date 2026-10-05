@@ -16,6 +16,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 const RECORD: &str = "crypto-enrollment-ui-v1";
 pub mod history;
+pub mod history_backup;
 pub mod peers;
 pub mod recovery;
 mod renewal;

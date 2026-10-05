@@ -9,6 +9,7 @@ pub mod archive;
 pub mod enrollment;
 pub mod groups;
 pub mod history;
+pub mod history_backup;
 pub mod messages;
 pub mod recovery;
 pub const WIRE_LIMIT: usize = 4096;

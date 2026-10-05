@@ -1903,6 +1903,266 @@
       ],
       "type": "object"
     },
+    "HistoryBackupPage": {
+      "additionalProperties": false,
+      "properties": {
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "type": "string"
+        },
+        "records": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "start": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "period",
+        "start",
+        "records"
+      ],
+      "type": "object"
+    },
+    "HistoryBackupPeriod": {
+      "additionalProperties": false,
+      "description": "One backed-up period of a generation and its latest signed checkpoint.",
+      "properties": {
+        "checkpoint": {
+          "type": "string"
+        },
+        "period": {
+          "description": "Lowercase hex period id (rv_crypto_public::history_backup::Period::id).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "period",
+        "checkpoint"
+      ],
+      "type": "object"
+    },
+    "HistoryBackupPeriods": {
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "type": "string"
+        },
+        "next": {
+          "description": "Next page of periods, or none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "periods": {
+          "items": {
+            "$ref": "#/$defs/HistoryBackupPeriod"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "generation",
+        "periods"
+      ],
+      "type": "object"
+    },
+    "HistoryBackupReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "description": "Ranks the server now holds for this period.",
+          "type": "string"
+        },
+        "period": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "period",
+        "count"
+      ],
+      "type": "object"
+    },
+    "HistoryKeyCancellation": {
+      "additionalProperties": false,
+      "properties": {
+        "device_id": {
+          "type": "string"
+        },
+        "device_revision": {
+          "type": "string"
+        },
+        "expected_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "generation": {
+          "type": "string"
+        },
+        "incarnation": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "package_digest": {
+          "type": "string"
+        },
+        "root_fingerprint": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "operation_id",
+        "device_id",
+        "incarnation",
+        "device_revision",
+        "root_fingerprint",
+        "generation",
+        "package_digest"
+      ],
+      "type": "object"
+    },
+    "HistoryKeyReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "device_id": {
+          "type": "string"
+        },
+        "device_revision": {
+          "type": "string"
+        },
+        "generation": {
+          "type": "string"
+        },
+        "generation_revision": {
+          "type": "string"
+        },
+        "incarnation": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "package_digest": {
+          "type": "string"
+        },
+        "root_fingerprint": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "operation_id",
+        "device_id",
+        "incarnation",
+        "device_revision",
+        "root_fingerprint",
+        "generation",
+        "generation_revision",
+        "package_digest"
+      ],
+      "type": "object"
+    },
+    "HistoryKeySettlement": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/HistoryKeyReceipt"
+            },
+            "kind": {
+              "const": "accepted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/HistoryKeyCancellation"
+            },
+            "kind": {
+              "const": "cancelled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "HistoryKeyState": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoryKeyVersion"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope"
+      ],
+      "type": "object"
+    },
+    "HistoryKeyVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "publication": {
+          "type": "string"
+        },
+        "receipt": {
+          "$ref": "#/$defs/HistoryKeyReceipt"
+        }
+      },
+      "required": [
+        "publication",
+        "receipt"
+      ],
+      "type": "object"
+    },
     "HistoryRecordsPage": {
       "additionalProperties": false,
       "properties": {
@@ -3304,6 +3564,56 @@
             }
           ]
         },
+        "e2ee_history_backup_page": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoryBackupPage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_history_backup_periods": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoryBackupPeriods"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_history_backup_receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoryBackupReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_history_key": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoryKeyState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_history_key_settlement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoryKeySettlement"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "e2ee_history_records_page": {
           "anyOf": [
             {
@@ -3348,6 +3658,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/OperationReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_publish_history_key": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PublishHistoryKey"
             },
             {
               "type": "null"
@@ -3418,6 +3738,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/RootBackupSettlement"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_upload_history_backup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UploadHistoryBackup"
             },
             {
               "type": "null"
@@ -4072,6 +4402,27 @@
       },
       "required": [
         "rooms"
+      ],
+      "type": "object"
+    },
+    "PublishHistoryKey": {
+      "additionalProperties": false,
+      "description": "A new history key generation (E2EE_HISTORY_BACKUP.md): the package sealed\nunder the history code, in a publication signed by the publishing device.",
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        },
+        "publication": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "operation_id",
+        "publication"
       ],
       "type": "object"
     },
@@ -6023,6 +6374,34 @@
         "file",
         "state",
         "expires_at"
+      ],
+      "type": "object"
+    },
+    "UploadHistoryBackup": {
+      "additionalProperties": false,
+      "description": "Records of ranks `start + 1 ..= start + records.len()` of one period and\nthe checkpoint signed after them: at most 200 records and 4 MiB.",
+      "properties": {
+        "checkpoint": {
+          "type": "string"
+        },
+        "records": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "start": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "start",
+        "records",
+        "checkpoint"
       ],
       "type": "object"
     },

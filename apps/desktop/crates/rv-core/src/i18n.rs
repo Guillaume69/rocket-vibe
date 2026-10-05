@@ -217,6 +217,16 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("crypto.history_messages", "{n} message | {n} messages", "{n} message | {n} messages"),
     ("crypto.history_shared", "Historique partagé", "History shared"),
     ("crypto.history_resume", "Reprendre le partage", "Resume sharing"),
+    ("crypto.storage_title", "Clé de stockage", "Storage key"),
+    (
+        "crypto.storage_explanation",
+        "Les données chiffrées de cet appareil sont scellées sous une clé du trousseau, renouvelée tous les 30 jours. Renouveler la détruit : une ancienne copie des données (sauvegarde, journal) ne peut plus être ouverte. Les clés de publication expirées sont détruites au passage.",
+        "This device's encrypted data is sealed under a key in the keyring, renewed every 30 days. Renewing destroys it: an old copy of the data (backup, journal) can no longer be opened. Expired publication keys are destroyed along the way.",
+    ),
+    ("crypto.storage_never", "Clé jamais renouvelée", "Key never renewed"),
+    ("crypto.storage_renewed", "Clé renouvelée le", "Key renewed on"),
+    ("crypto.storage_due", "Prochain renouvellement le", "Next renewal on"),
+    ("crypto.storage_renew", "Renouveler maintenant", "Renew now"),
     ("crypto.history_backup_title", "Sauvegarde de l’historique", "History backup"),
     (
         "crypto.history_backup_explanation",

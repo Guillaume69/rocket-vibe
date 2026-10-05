@@ -21,6 +21,8 @@ public final class CryptoModel {
     public private(set) var historyBackupApproval: CryptoHistoryBackupPreview?
     public private(set) var historyCode = ""
     public private(set) var historyBackupResult = ""
+    /// When the storage key was last renewed (E2EE_STORAGE.md).
+    public private(set) var storage: CryptoStorageStatus?
     public var historyJoinCode = ""
     public var restoreCode = ""
     public private(set) var output = ""
@@ -44,6 +46,7 @@ public final class CryptoModel {
         backups = nil; backupApproval = nil; restoreApproval = nil; recoveryCode = ""; restoreCode = ""
         history = .idle; historyOffers = nil; historyPreview = nil
         historyBackup = nil; historyBackupApproval = nil; historyCode = ""; historyBackupResult = ""; historyJoinCode = ""
+        storage = nil
     }
     private enum Outcome {
         case view(NativeCryptoState), preview(NativeCryptoApproval), grant(String)
@@ -51,6 +54,7 @@ public final class CryptoModel {
         case backups(CryptoBackupStatus), backupPreview(CryptoBackupPreview), restorePreview(CryptoRestorePreview), recoveryCode(String)
         case history(CryptoHistoryState), historyOffers(CryptoHistoryOffers), historyPreview(CryptoHistoryPreview)
         case historyBackup(CryptoHistoryBackupStatus), historyBackupPreview(CryptoHistoryBackupPreview), historyCode(String), historyBackupResult(String)
+        case storage(CryptoStorageStatus)
     }
     private struct DisplayCode: Decodable { let code: String }
     private struct Restored: Decodable { let restored: Bool }
@@ -151,6 +155,16 @@ public final class CryptoModel {
         let output = try await handle.historyBackupAction(input: input)
         let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try decoder.decode(T.self, from: Data(output.utf8))
+    }
+    private func storageCall(_ handle: NativeCrypto, _ action: String) async throws -> CryptoStorageStatus {
+        let input = String(decoding: try JSONSerialization.data(withJSONObject: ["action": action]), as: UTF8.self)
+        let output = try await handle.storageAction(input: input)
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(CryptoStorageStatus.self, from: Data(output.utf8))
+    }
+    /// Destroys expired publication keys and seals this device's data under a fresh storage key.
+    public func renewStorage() async {
+        await run { .storage(try await storageCall($0, "renew")) }
     }
     public func refreshHistoryBackup() async {
         await run { .historyBackup(try await backupCall($0, ["action":"view"])) }
@@ -265,6 +279,10 @@ public final class CryptoModel {
             guard current(expected) else { return }
             switch fresh {
             case .view(let fresh):
+                if fresh.phase != .missing {
+                    let status = try? await storageCall(active, "view")
+                    guard current(expected) else { return }; storage = status
+                }
                 value = fresh; approval = nil; withdrawalApproval = nil; output = fresh.requestCode; code = ""
                 backupApproval = nil; restoreApproval = nil; backups = nil
                 if fresh.phase == .ready || fresh.phase == .expired {
@@ -294,6 +312,7 @@ public final class CryptoModel {
                 historyCode = fresh
                 historyBackup = try? await backupCall(active, ["action":"view"])
             case .historyBackupResult(let fresh): historyBackupResult = fresh
+            case .storage(let fresh): storage = fresh
             }
         } catch {
             guard current(expected) else { return }

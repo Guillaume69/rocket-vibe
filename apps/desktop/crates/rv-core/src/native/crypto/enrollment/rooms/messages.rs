@@ -199,6 +199,8 @@ impl Access {
         if before.is_none() {
             // New verified messages may be waiting for the history backup.
             room.0.settings.sync_history_backup_soon();
+            // Old storage keys are destroyed on schedule (E2EE_STORAGE.md).
+            room.0.settings.renew_storage_soon();
         }
         let can_send = can_send && (self.0.thread.is_none() || projection.root.is_some());
         self.check()?;

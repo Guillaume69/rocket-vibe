@@ -58,6 +58,10 @@ export type CryptoHistoryBridge = CryptoIdentityBridge & {
 export type CryptoHistoryBackupBridge = CryptoIdentityBridge & {
   historyBackupAction:(handle:string,ownDirectory:string,input:string)=>Promise<string>;
 };
+/** Storage key renewal (E2EE_STORAGE.md): dates only, no key crosses. */
+export type CryptoStorageKeyBridge = CryptoIdentityBridge & {
+  storageAction:(handle:string,ownDirectory:string,input:string)=>Promise<string>;
+};
 export type CryptoPeerView = CryptoPeerStatus & {id: string};
 export type CryptoPeerApproval = {
   id: string; user: string; rootFingerprint: string; device: string;
@@ -84,4 +88,4 @@ export type CryptoFileBridge = {
   sealFile:(source:string,target:string)=>Promise<string>;
   openFile:(key:string,bytes:string,sha256:string,source:string,target:string)=>Promise<void>;
 };
-export const CryptoNative = requireOptionalNativeModule<CryptoConversationBridge & CryptoWithdrawalBridge & CryptoRecoveryBridge & CryptoHistoryBridge & CryptoHistoryBackupBridge & CryptoFileBridge>('CryptoNative');
+export const CryptoNative = requireOptionalNativeModule<CryptoConversationBridge & CryptoWithdrawalBridge & CryptoRecoveryBridge & CryptoHistoryBridge & CryptoHistoryBackupBridge & CryptoFileBridge & CryptoStorageKeyBridge>('CryptoNative');

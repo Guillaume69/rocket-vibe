@@ -26,6 +26,7 @@ import {CryptoWithdrawalAccess} from './cryptoWithdrawals.ts';
 import {CryptoRecoveryAccess} from './cryptoRecovery.ts';
 import {CryptoHistoryAccess} from './cryptoHistory.ts';
 import {CryptoHistoryBackupAccess} from './cryptoHistoryBackup.ts';
+import {CryptoStorageKeyAccess} from './cryptoStorageKey.ts';
 import {CryptoPeerAccess} from './cryptoPeers.ts';
 import {CryptoGroupAccess} from './cryptoGroups.ts';
 import {CryptoConversationAccess} from './cryptoConversations.ts';
@@ -624,6 +625,20 @@ export class NativeChat {
   /** Continuous history backup: after new private messages, uploads this
    * device's pending pages in the background, at most once every 10 minutes.
    * Without a held key the bridge only reads the vault; failures retry later. */
+  cryptoStorageKey(identity:CryptoIdentityAccess,bridge:import('../../modules/crypto-native/index.ts').CryptoStorageKeyBridge):CryptoStorageKeyAccess {
+    return new CryptoStorageKeyAccess(identity,bridge);
+  }
+  private storageChecked=0;
+  /** At most once an hour, in the background: renews the storage key when due. */
+  renewStorageSoon(bridge:import('../../modules/crypto-native/index.ts').CryptoStorageKeyBridge):void {
+    const now=Date.now();
+    if(now-this.storageChecked<3_600_000)return;
+    this.storageChecked=now;
+    void (async()=>{
+      const identity=await this.cryptoIdentity(bridge);
+      try{await this.cryptoStorageKey(identity,bridge).renewIfDue();}finally{await identity.close();}
+    })().catch(()=>{});
+  }
   syncHistoryBackupSoon(bridge:import('../../modules/crypto-native/index.ts').CryptoHistoryBackupBridge):void {
     const now=Date.now();
     if(now-this.historyBackupSynced<600_000)return;

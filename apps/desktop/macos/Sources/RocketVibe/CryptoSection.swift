@@ -29,6 +29,9 @@ struct CryptoSection: View {
                     if value.phase == .ready, let backup = model.historyBackup {
                         CryptoHistoryBackupControls(model: model, status: backup)
                     }
+                    if value.phase != .missing, let storage = model.storage {
+                        CryptoStorageControls(model: model, status: storage)
+                    }
                 }
                 if let error = model.error { Text(error).foregroundStyle(.red) }
                 Button(L("crypto.refresh")) { Task { await model.refresh() } }

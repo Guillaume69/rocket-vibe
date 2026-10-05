@@ -19,6 +19,7 @@ pub(crate) mod quote_composer;
 pub(crate) mod quote_reader;
 mod recovery;
 pub(crate) mod rooms;
+mod storage;
 mod withdrawals;
 
 #[derive(Clone, Copy, uniffi::Enum)]

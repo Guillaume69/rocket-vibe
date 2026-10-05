@@ -305,6 +305,10 @@ release, and its notes are that version's section here.
 - Send and open files in encrypted rooms: each file is encrypted on the phone before upload,
   its key travels only inside the encrypted message, and the server stores an object it cannot
   read. Images, audio and video show inline as in other rooms; files open, save and share.
+- The key that seals this device's encrypted data is renewed every 30 days, and on request
+  from the encryption settings, which show when it was last renewed. The old key is
+  destroyed, so an old copy of the data can no longer be opened; expired publication keys
+  are destroyed along the way.
 
 ### Changed
 

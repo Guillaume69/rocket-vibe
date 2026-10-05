@@ -104,6 +104,9 @@ class CryptoNativeModule : Module() {
     AsyncFunction("historyBackupAction") { handle: String, directory: String, input: String -> synchronized(lock) {
       view(handle).historyBackupAction(directory, input)
     } }
+    AsyncFunction("storageAction") { handle: String, directory: String, input: String -> synchronized(lock) {
+      view(handle).storageAction(directory, input)
+    } }
     AsyncFunction("historyAction") { handle: String, directory: String, input: String -> synchronized(lock) {
       view(handle).historyAction(directory, input)
     } }

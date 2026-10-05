@@ -57,6 +57,11 @@ public struct CryptoHistoryKeyReceipt: Decodable {
     public let generation: String
     public let generationRevision: String
 }
+/// Storage key renewal (E2EE_STORAGE.md): decimal seconds since the epoch.
+public struct CryptoStorageStatus: Decodable {
+    public let rotatedAt: String?
+    public let dueAt: String?
+}
 public struct CryptoHistoryBackupStatus: Decodable {
     public let holdsKey: Bool
     public let generation: String?

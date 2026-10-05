@@ -18,6 +18,7 @@ mod history_backup;
 mod peers;
 mod recovery;
 mod rooms;
+mod storage;
 pub use peers::profile_button;
 pub use rooms::room_button;
 
@@ -54,6 +55,7 @@ struct Controller {
     recovery: recovery::Controls,
     history: history::Controls,
     history_backup: history_backup::Controls,
+    storage: storage::Controls,
 }
 enum Action {
     Refresh,
@@ -71,6 +73,7 @@ enum Action {
     Recovery(recovery::Action),
     History(history::Action),
     HistoryBackup(history_backup::Action),
+    RenewStorage,
 }
 enum Outcome {
     View(View),
@@ -87,6 +90,7 @@ enum Outcome {
     History(history::Outcome),
     HistoryBackup(history_backup::Outcome),
     AccountWithHistory(Box<Outcome>, Box<rv_core::native::crypto::enrollment::history_backup::HistoryBackupStatus>),
+    Storage(rv_core::native::crypto::enrollment::storage::StorageStatus),
 }
 impl Controller {
     fn render(&self, view: View) {
@@ -155,6 +159,7 @@ impl Controller {
         self.recovery.buttons(view.as_ref(), idle);
         self.history.buttons(view.as_ref(), idle);
         self.history_backup.buttons(view.as_ref(), idle);
+        self.storage.buttons(view.as_ref(), idle);
     }
     fn clear_withdrawals(&self) {
         for row in self.withdrawal_rows.borrow_mut().drain(..) {
@@ -259,7 +264,10 @@ impl Controller {
         }
         let this = self.clone();
         glib::spawn_future_local(async move {
-            let result: Result<Outcome, rv_core::native::crypto::Error> = async {
+            let result: Result<
+                (Outcome, Option<rv_core::native::crypto::enrollment::storage::StorageStatus>),
+                rv_core::native::crypto::Error,
+            > = async {
                 let cached = this.access.borrow().clone();
                 let access = if let Some(access) = cached {
                     access
@@ -298,25 +306,38 @@ impl Controller {
                         Action::Recovery(action) => recovery::perform(access.clone(), action).await,
                         Action::History(action) => history::perform(access.clone(), action).await,
                         Action::HistoryBackup(action) => history_backup::perform(access.clone(), action).await,
+                        Action::RenewStorage => access.renew_storage().await.map(Outcome::Storage),
                     }?;
-                    match outcome {
+                    // The storage key's status comes with every view of the account.
+                    let storage = match &outcome {
+                        Outcome::View(view) if view.stage != Stage::Missing => access.storage_status().await.ok(),
+                        _ => None,
+                    };
+                    let outcome = match outcome {
                         Outcome::View(view) if matches!(view.stage, Stage::Ready | Stage::Expired) => {
                             let account = Outcome::Account(
                                 view,
                                 access.withdrawals().await?,
                                 Box::new(access.backup_status().await?),
                             );
-                            Ok(match access.history_backup_status().await {
+                            match access.history_backup_status().await {
                                 Ok(status) => Outcome::AccountWithHistory(Box::new(account), Box::new(status)),
                                 Err(_) => account,
-                            })
+                            }
                         }
-                        other => Ok(other),
-                    }
+                        other => other,
+                    };
+                    Ok((outcome, storage))
                 })
                 .await
             }
             .await;
+            let result = result.map(|(outcome, storage)| {
+                if let Some(status) = storage {
+                    this.storage.render(status);
+                }
+                outcome
+            });
             if !this.guard.alive() || this.dialog.upgrade().is_none() {
                 return;
             }
@@ -346,6 +367,7 @@ impl Controller {
                 Ok(Outcome::Recovery(outcome)) => this.render_recovery(outcome),
                 Ok(Outcome::History(outcome)) => this.render_history(outcome),
                 Ok(Outcome::HistoryBackup(outcome)) => this.render_history_backup(outcome),
+                Ok(Outcome::Storage(status)) => this.storage.render(status),
                 Ok(Outcome::AccountWithHistory(account, status)) => {
                     if let Outcome::Account(view, withdrawals, backup) = *account {
                         this.render(view);
@@ -409,6 +431,7 @@ impl Controller {
                         this.recovery.reset();
                         this.history.reset();
                         this.history_backup.reset();
+                        this.storage.reset();
                     }
                     let reauth = matches!(&error, rv_core::native::crypto::Error::Session(e) if e.code()=="reauthentication_required");
                     this.status.set_title(t(if reauth { "devices.reauth" } else { "crypto.failed" }));
@@ -478,6 +501,7 @@ fn build_dialog(session: Arc<NativeSession>) -> (adw::PreferencesDialog, Rc<Cont
     let recovery = recovery::Controls::new(&page);
     let history = history::Controls::new(&page);
     let history_backup = history_backup::Controls::new(&page);
+    let storage = storage::Controls::new(&page);
     dialog.add(&page);
     let controller = Rc::new(Controller {
         dialog: dialog.downgrade(),
@@ -500,10 +524,12 @@ fn build_dialog(session: Arc<NativeSession>) -> (adw::PreferencesDialog, Rc<Cont
         recovery,
         history,
         history_backup,
+        storage,
     });
     controller.connect_recovery();
     controller.connect_history();
     controller.connect_history_backup();
+    controller.connect_storage();
     for (index, row) in controller.actions.iter().enumerate() {
         let weak = Rc::downgrade(&controller);
         row.connect_activated(move |_| {
@@ -668,6 +694,13 @@ mod tests {
         assert_eq!(controller.history.state.subtitle().unwrap_or_default(), "ef".repeat(32));
         controller.render_history(history::Outcome::Offers(Vec::new()));
         assert_eq!(controller.history.state.title(), t("crypto.history_no_offers"));
+        controller.storage.render(rv_core::native::crypto::enrollment::storage::StorageStatus {
+            rotated_at: Some(1_800_000_000),
+            due_at: Some(1_802_592_000),
+        });
+        controller.buttons();
+        assert!(controller.storage.group.is_visible(), "The storage key shows on an initialized device");
+        assert!(controller.storage.state.title().starts_with(t("crypto.storage_renewed")));
         controller.render_recovery(recovery::Outcome::Code(zeroize::Zeroizing::new("disposable-test-code".into())));
         controller.buttons();
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(100);

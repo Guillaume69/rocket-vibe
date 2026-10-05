@@ -28,6 +28,7 @@ pub mod peers;
 pub mod recovery;
 pub mod revocations;
 pub mod rooms;
+pub mod storage;
 fn changed() -> Error {
     crate::native::Error::Protocol("crypto_enrollment_changed").into()
 }
@@ -65,6 +66,8 @@ struct Inner {
     dispatch: tokio::sync::Mutex<()>,
     /// Last background history backup upload started by this view.
     backup_synced: std::sync::Mutex<Option<std::time::Instant>>,
+    /// Last background check of the storage key renewal by this view.
+    storage_checked: std::sync::Mutex<Option<std::time::Instant>>,
 }
 impl Drop for Inner {
     fn drop(&mut self) {
@@ -316,6 +319,7 @@ impl NativeSession {
             account,
             dispatch: tokio::sync::Mutex::new(()),
             backup_synced: std::sync::Mutex::new(None),
+            storage_checked: std::sync::Mutex::new(None),
         })))
     }
 }

@@ -9,6 +9,7 @@ import type {WithdrawalDevice,WithdrawalPreview,WithdrawalStatus} from '../provi
 import type {BackupStatus,BackupPreview,RestorePreview} from '../providers/rocketvibe/cryptoRecovery.ts';
 import type {HistoryOffers,HistoryPreview} from '../providers/rocketvibe/cryptoHistory.ts';
 import type {HistoryBackupPreview,HistoryBackupStatus} from '../providers/rocketvibe/cryptoHistoryBackup.ts';
+import type {StorageKeyStatus} from '../providers/rocketvibe/cryptoStorageKey.ts';
 import {inArray} from 'drizzle-orm';
 import {rooms} from '../db/schema.ts';
 import {NativeError} from '../providers/rocketvibe/transport.ts';
@@ -48,12 +49,13 @@ function Identity({c,chat}:{c:Colors;chat:NativeChat}) {
   const [roomNames,setRoomNames]=useState<Record<string,string>>({});
   const [historyBackup,setHistoryBackup]=useState<HistoryBackupStatus|null>(null),[historyBackupPreview,setHistoryBackupPreview]=useState<HistoryBackupPreview|null>(null);
   const [historyCode,setHistoryCode]=useState(''),[historyJoin,setHistoryJoin]=useState(''),[historyBackupResult,setHistoryBackupResult]=useState('');
+  const [storage,setStorage]=useState<StorageKeyStatus|null>(null);
   const sync=useSync(),base=sync.phase==='ready'?sync.base:null;
   const focused=useRef(false),epoch=useRef(0),job=useRef<number|null>(null),access=useRef<CryptoIdentityAccess|null>(null);
   const clear=useCallback(()=>{epoch.current++;job.current=null;void access.current?.close();access.current=null;
     setView(null);setPreview(null);setWithdrawals(null);setWithdrawalPreview(null);setBackup(null);setBackupPreview(null);setRecoveryCode('');setRecoveryInput('');setRestorePreview(null);setRoot('');setRequest('');setGrant('');setBusy(false);setFailed(false);setReauth(false);
     setHistory({label:'private.historyIdle'});setHistoryOffers(null);setHistoryPreview(null);setRoomNames({});
-    setHistoryBackup(null);setHistoryBackupPreview(null);setHistoryCode('');setHistoryJoin('');setHistoryBackupResult('');},[]);
+    setHistoryBackup(null);setHistoryBackupPreview(null);setHistoryCode('');setHistoryJoin('');setHistoryBackupResult('');setStorage(null);},[]);
   const run=useCallback(async(action:(a:CryptoIdentityAccess)=>Promise<void>)=>{
     if(!focused.current || job.current!==null || AppState.currentState!=='active' || !CryptoNative)return;
     const n=epoch.current,visible=()=>focused.current && epoch.current===n && AppState.currentState==='active';
@@ -72,6 +74,8 @@ function Identity({c,chat}:{c:Colors;chat:NativeChat}) {
       if(visible())setBackup(saved);
       const held=latest.phase==='ready'?await chat.cryptoHistoryBackup(a,CryptoNative).view():null;
       if(visible())setHistoryBackup(held);
+      const sealed=latest.phase==='ready'||latest.phase==='expired'?await chat.cryptoStorageKey(a,CryptoNative).view():null;
+      if(visible())setStorage(sealed);
     } catch(error) {
       if(visible()){
         setFailed(true);setPreview(null);setWithdrawalPreview(null);setBackupPreview(null);setRestorePreview(null);setRecoveryCode('');setRecoveryInput('');
@@ -163,6 +167,8 @@ function Identity({c,chat}:{c:Colors;chat:NativeChat}) {
   const backupRun=(action:(b:ReturnType<NativeChat['cryptoHistoryBackup']>,n:number)=>Promise<void>)=>{
     const n=epoch.current;void run(async a=>{if(CryptoNative)await action(chat.cryptoHistoryBackup(a,CryptoNative),n);});
   };
+  const renewStorage=()=>{const n=epoch.current;void run(async a=>{if(CryptoNative){const fresh=await chat.cryptoStorageKey(a,CryptoNative).renew();if(live(n))setStorage(fresh);}});};
+  const day=(value:string|null)=>value===null?null:new Date(Number(value)*1000).toLocaleDateString();
   const reviewHistoryBackup=()=>backupRun(async(b,n)=>{const preview=await b.preview();if(live(n))setHistoryBackupPreview(preview);});
   const enableHistoryBackup=()=>{const selected=historyBackupPreview,n=epoch.current;if(!selected)return;
     Alert.alert(t('private.historyBackupEnable'),t(selected.generation_revision===null?'private.historyBackupBody':'private.historyBackupReplace'),[
@@ -319,6 +325,13 @@ function Identity({c,chat}:{c:Colors;chat:NativeChat}) {
             <IdentityAction c={c} busy={busy} label="private.historyBackupRestore" onPress={restoreHistoryBackup}/>
           </>}
         </>}
+      </>}
+      {(view?.phase==='ready'||view?.phase==='expired') && storage && <>
+        <Text style={[styles.title,{color:c.text}]}>{t('private.storageTitle')}</Text>
+        <Text style={[styles.text,{color:c.secondaryText}]}>{t('private.storageBody')}</Text>
+        <Text style={[styles.text,{color:c.text}]}>{storage.rotated_at===null?t('private.storageNever'):t('private.storageRenewed',{date:day(storage.rotated_at)??''})}</Text>
+        {storage.due_at!==null && <Text style={[styles.text,{color:c.secondaryText}]}>{t('private.storageDue',{date:day(storage.due_at)??''})}</Text>}
+        <IdentityAction c={c} busy={busy} label="private.storageRenew" onPress={renewStorage}/>
       </>}
       {failed && <Text accessibilityRole="alert" style={[styles.text,{color:c.errorText}]}>{t(reauth?'devices.reauth':'private.failed')}</Text>}
       <IdentityAction c={c} busy={busy} label="devices.refresh" onPress={()=>void run(async a=>{if(CryptoNative)await chat.cryptoRecovery(a,CryptoNative).clearPreview();})}/>

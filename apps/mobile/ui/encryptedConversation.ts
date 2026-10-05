@@ -60,7 +60,11 @@ export function useEncryptedConversation(chat:NativeChat|undefined,room:string,m
         }
       }
       // New verified messages may be waiting for the history backup.
-      if(visible() && CryptoNative)chat.syncHistoryBackupSoon(CryptoNative);
+      if(visible() && CryptoNative){
+        chat.syncHistoryBackupSoon(CryptoNative);
+        // Old storage keys are destroyed on schedule (E2EE_STORAGE.md).
+        chat.renewStorageSoon(CryptoNative);
+      }
       if(visible()) {
         chat.forgetPrivateFiles(token.current);
         chat.registerPrivateFiles(token.current,room,[...(current.root?[current.root]:[]),...current.messages].flatMap(m=>m.document.files??[]));

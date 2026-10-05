@@ -19,6 +19,7 @@ mod history_backup;
 mod identity;
 mod peers;
 mod recovery;
+mod storage;
 mod withdrawals;
 pub use identity::{IdentityApproval, IdentityPhase, IdentityStatus};
 pub use peers::{PeerApproval, PeerReview};

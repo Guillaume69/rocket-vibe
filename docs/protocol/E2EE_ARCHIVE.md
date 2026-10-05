@@ -163,3 +163,46 @@ paquet AEAD réel, sans clé privée ; il n'atteste pas une admission MLS réell
 Restent la persistance complète des paquets, l'admission / pagination des
 archives, les enveloppes de destinataires et sauvegardes de leurs clés, le
 transport serveur, les lecteurs existants et la qualification indépendante.
+
+## Stockage local : blocs chiffrés et checkpoint commun
+
+Le coffre peut désormais conserver des blocs immuables dans `private_blobs`,
+dans la même base SQLite que l'état MLS. Chaque bloc est chiffré sous la clé
+du coffre avec XChaCha20-Poly1305, un nonce OS de 24 octets et un identifiant OS
+de 16 octets. L'AAD lie le domaine `rocketvibe-private-blob-v1`, la portée complète
+du compte / appareil / époque / incarnation et cet identifiant. Une référence
+lie SHA-256 de l'AAD, du nonce et du ciphertext. Elle ne contient aucun hash
+public du document en clair.
+
+Les références doivent être conservées dans les records protégés. La liste SQL
+des blocs n'est pas un index de confiance. L'admission et la chaîne / pagination
+des documents d'archive devront lier leurs références à un catalogue protégé.
+Lire un bloc par sa référence ne constitue pas une autorisation de lire un salon.
+
+`Manager::transact_with_blobs` conserve la même lease OS et le même checkpoint
+que les opérations MLS existantes. Blocs et références commitent dans une seule
+transaction ; le résultat attend l'écriture et la relecture du checkpoint dans
+le stockage protégé. Si cette écriture échoue, la reprise reconnaît uniquement
+le successeur exact, puis rend l'original sans ajouter un second bloc.
+Les blocs écrits sont vérifiés après l'UPDATE de l'état, avant commit : même un
+trigger SQL qui efface ou substitue un nouveau bloc fait échouer la transaction.
+
+Un bloc est borné à 1 Mio et une transaction à 1 024 nouveaux blocs. Son payload
+ne grossit pas le snapshot principal de 16 Mio. L'ancien schéma est étendu dans
+une transaction ; une genèse contenant déjà un bloc ne peut pas être reprise
+comme initialisation vide. Un bloc omis, remplacé, d'une autre portée ou dépassant
+ses limites est refusé avant sortie du clair. Les longueurs SQL sont contrôlées
+avant allocation.
+
+Cinq tests du coffre passent en 8,93 s : 70 blocs de 256 Kio (17,5 Mio) avec
+réouverture et lecture après le 64e, absence de clair en DB / WAL, corruption /
+omission / autre compte, rollback complet, migration, trigger malveillant et
+limites / genèse. Les huit tests du coordinateur protégé passent en 1,34 s,
+dont échec du checkpoint suivi d'une reprise sans doublon et refus d'un trousseau
+indisponible. Les cinq anciens tests de coffre passent en 2,93 s, avec vrai kill
+de processus et une entrée enfant ignorée appelée par son banc parent.
+
+Ce stockage est interne et lié à l'installation protégée. Il ne remplace ni
+le paquet portable d'archive, ni les enveloppes / sauvegardes de clés. L'index
+d'observation, la pagination d'archive et les lecteurs ne sont pas encore
+raccordés ; le cache affiché reste actuellement limité à 64 documents.

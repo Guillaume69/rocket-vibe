@@ -225,9 +225,19 @@ impl Manager {
         &self,
         operation: impl FnOnce(&OpenMlsRustCrypto, &Records) -> Result<T, Error>,
     ) -> Result<T, Error> {
+        self.inspect_with_blobs(|provider, records, _| operation(provider, records))
+    }
+    pub fn inspect_with_blobs<T>(
+        &self,
+        operation: impl FnOnce(
+            &OpenMlsRustCrypto,
+            &Records,
+            &crate::vault::blobs::Access<'_>,
+        ) -> Result<T, Error>,
+    ) -> Result<T, Error> {
         let _lease = self.lease()?;
         let mut record = self.read()?.ok_or(Error::NotInitialized)?;
-        self.open(&mut record)?.inspect(operation)
+        self.open(&mut record)?.inspect_with_blobs(operation)
     }
     /// The callback has no network/UI side effects. Output is returned only
     /// after the protected checkpoint is saved and read back under the OS lease.
@@ -235,10 +245,20 @@ impl Manager {
         &self,
         operation: impl FnOnce(&OpenMlsRustCrypto, &mut Records) -> Result<T, Error>,
     ) -> Result<T, Error> {
+        self.transact_with_blobs(|provider, records, _| operation(provider, records))
+    }
+    pub fn transact_with_blobs<T>(
+        &self,
+        operation: impl FnOnce(
+            &OpenMlsRustCrypto,
+            &mut Records,
+            &mut crate::vault::blobs::Access<'_>,
+        ) -> Result<T, Error>,
+    ) -> Result<T, Error> {
         let _lease = self.lease()?;
         let mut record = self.read()?.ok_or(Error::NotInitialized)?;
         let mut vault = self.open(&mut record)?;
-        let (result, _) = vault.transact(operation)?;
+        let (result, _) = vault.transact_with_blobs(operation)?;
         self.protect(&mut record, &mut vault)?;
         Ok(result)
     }

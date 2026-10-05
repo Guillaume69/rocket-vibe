@@ -62,6 +62,46 @@ fn private_directory() -> tempfile::TempDir {
 }
 
 #[test]
+fn private_blocks_and_index_recover_after_failed_protected_checkpoint_without_early_output() {
+    let directory = private_directory();
+    let storage = Arc::new(Fixture::default());
+    let manager = test_manager(directory.path(), storage.clone());
+    manager.initialize().unwrap();
+    storage
+        .fail_at
+        .store(storage.writes.load(Ordering::SeqCst) + 1, Ordering::SeqCst);
+    let result = manager.transact_with_blobs(|_, records, blocks| {
+        let reference = blocks.put(b"protected private archive fixture")?;
+        records.insert(
+            "archive-reference".into(),
+            serde_json::to_vec(&reference).unwrap(),
+        );
+        Ok(reference)
+    });
+    assert!(
+        result.err() == Some(Error::Storage),
+        "No reference escapes before its protected checkpoint"
+    );
+    storage.fail_at.store(0, Ordering::SeqCst);
+    let reopened = test_manager(directory.path(), storage.clone());
+    reopened
+        .inspect_with_blobs(|_, records, blocks| {
+            let reference: crate::vault::blobs::Reference =
+                serde_json::from_slice(&records["archive-reference"]).unwrap();
+            assert!(blocks.read(&reference)?.as_slice() == b"protected private archive fixture");
+            Ok(())
+        })
+        .unwrap();
+    let count: i64 = rusqlite::Connection::open(reopened.path())
+        .unwrap()
+        .query_row("SELECT count(*) FROM private_blobs", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 1, "The recovered original is not appended twice");
+    storage.unavailable.store(true, Ordering::SeqCst);
+    assert!(reopened.inspect_with_blobs(|_, _, _| Ok(())).err() == Some(Error::Storage));
+}
+
+#[test]
 fn unavailable_or_missing_keystore_never_overwrites_an_existing_database() {
     let directory = private_directory();
     let storage = Arc::new(Fixture::default());

@@ -5,6 +5,21 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 
 ## État synthétique au 5 octobre 2026
 
+Stockage d'archive, socle durable : blocs immuables chiffrés dans la même base
+que MLS, référence liée à la portée complète / ciphertext et commit commun avec
+les records protégés. Le retour attend le checkpoint du trousseau. Le banc écrit
+70 blocs / 17,5 Mio, rouvre et lit après le 64e sans grossir le snapshot principal.
+Cinq tests nouveaux passent en 8,93 s ; les huit tests de stockage protégé en
+1,34 s et les cinq anciens tests du coffre en 2,93 s. Clippy strict passe.
+Catalogue / admission / pagination de l'archive et lecteurs restent à raccorder ;
+le cache actuel de l'interface reste de 64 documents.
+
+Le raccordement récupération bureau a maintenant ses neuf jobs natifs verts
+dans 37297575738, dont le test GTK sous Xvfb
+`identity_settings_render_existing_preferences_and_clear_on_close`. Ses CI
+macOS / Android sont aussi vertes. Le format d'archive passe déjà Android dans
+37300711594 ; sa qualification native 37300711657 reste en cours.
+
 Archive, premier format : paquet immuable signé, clé OS par document et AEAD
 distinct de MLS, liaison au reçu / certificat / adhésion d'origine, positions
 et révisions exactes en chaînes. Une feuille renouvelée de la même racine peut

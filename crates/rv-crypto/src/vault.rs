@@ -21,6 +21,7 @@ use zeroize::{Zeroize, Zeroizing};
 const DOMAIN: &str = "rocketvibe-mls-vault-v1";
 const LIMIT: usize = 16 * 1024 * 1024;
 const MAX_ENTRIES: usize = 65536;
+pub mod blobs;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
@@ -351,6 +352,7 @@ impl Vault {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| Error::Storage)?;
         transaction.execute_batch("CREATE TABLE state(singleton INTEGER PRIMARY KEY CHECK(singleton=1),revision INTEGER NOT NULL,nonce BLOB NOT NULL,ciphertext BLOB NOT NULL);").map_err(|_| Error::Storage)?;
+        blobs::initialize(&transaction)?;
         transaction
             .execute(
                 "INSERT INTO state VALUES(1,?,?,?)",
@@ -410,7 +412,7 @@ impl Vault {
             return Err(Error::Stale);
         }
         let document = decode(&scope, &key, &row)?;
-        if !document.mls.is_empty() || !document.records.is_empty() {
+        if !document.mls.is_empty() || !document.records.is_empty() || !blobs::empty(&db)? {
             return Err(Error::Integrity);
         }
         let checkpoint = checkpoint(&scope, &row)?;
@@ -467,11 +469,18 @@ impl Vault {
         &self,
         operation: impl FnOnce(&OpenMlsRustCrypto, &Records) -> Result<T, Error>,
     ) -> Result<T, Error> {
+        self.inspect_with_blobs(|provider, records, _| operation(provider, records))
+    }
+    pub fn inspect_with_blobs<T>(
+        &self,
+        operation: impl FnOnce(&OpenMlsRustCrypto, &Records, &blobs::Access<'_>) -> Result<T, Error>,
+    ) -> Result<T, Error> {
         if self.pending {
             return Err(Error::Pending);
         }
         let working = unseal(&self.scope, &self.key, &read(&self.db)?, self.checkpoint)?;
-        operation(&working.provider, &working.records)
+        let blobs = blobs::Access::new(&self.db, &self.scope, &self.key);
+        operation(&working.provider, &working.records, &blobs)
     }
     /// Successful provider writes and private operation records become durable
     /// together. On any error, the temporary provider/group is discarded entirely.
@@ -479,6 +488,18 @@ impl Vault {
     pub fn transact<T>(
         &mut self,
         operation: impl FnOnce(&OpenMlsRustCrypto, &mut Records) -> Result<T, Error>,
+    ) -> Result<(T, Checkpoint), Error> {
+        self.transact_with_blobs(|provider, records, _| operation(provider, records))
+    }
+    /// Private blocks and references commit with MLS, then remain unavailable
+    /// until the exact checkpoint is persisted outside SQLite.
+    pub fn transact_with_blobs<T>(
+        &mut self,
+        operation: impl FnOnce(
+            &OpenMlsRustCrypto,
+            &mut Records,
+            &mut blobs::Access<'_>,
+        ) -> Result<T, Error>,
     ) -> Result<(T, Checkpoint), Error> {
         if self.pending {
             return Err(Error::Pending);
@@ -493,7 +514,9 @@ impl Vault {
             &read(&transaction)?,
             self.checkpoint,
         )?;
-        let result = operation(&working.provider, &mut working.records)?;
+        blobs::initialize(&transaction)?;
+        let mut blobs = blobs::Access::new(&transaction, &self.scope, &self.key);
+        let result = operation(&working.provider, &mut working.records, &mut blobs)?;
         let revision = self
             .checkpoint
             .revision
@@ -509,6 +532,10 @@ impl Vault {
                 params![row.revision, row.nonce, row.ciphertext],
             )
             .map_err(|_| Error::Storage)?;
+        // Also catches a malicious schema trigger that alters a block during
+        // the state UPDATE. No callback output escapes on this failure.
+        blobs.verify_writes()?;
+        drop(blobs);
         #[cfg(test)]
         crash_boundary("before-commit");
         transaction.commit().map_err(|_| Error::Storage)?;

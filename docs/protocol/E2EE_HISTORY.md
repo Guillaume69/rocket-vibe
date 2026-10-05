@@ -12,7 +12,7 @@ Two paths are planned, delivered in this order:
   device. Specified and implemented first.
 - **B. Archive-key backup.** A recovery code protects the archive keys so that a new
   device can recover the history when no old device is left. Its own consent,
-  version and settlement; specified after A ships.
+  version and settlement: [E2EE_HISTORY_BACKUP.md](E2EE_HISTORY_BACKUP.md).
 
 ## Trust model
 

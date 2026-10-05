@@ -174,6 +174,8 @@ beta does.
 | Encrypted files, both directions | done | done | done | |
 | Key kept across launches | done | done | done | Keystore on mobile, system keychain on desktop. |
 | Create an encrypted room | missing | missing | missing | |
+| RocketVibe server: a new device asks for history, another device of the account reviews and shares it, the new device imports it ([e2ee-history](features/e2ee-history.md)) | done | done | done | Same settings block in all three; SwiftUI checked by the macOS CI build only. |
+| RocketVibe server: recovered history shown in conversations | missing | missing | missing | Imported messages are stored in the recovered catalog but no room view reads it yet. |
 
 ## 12. Calls - [calls](features/calls.md)
 

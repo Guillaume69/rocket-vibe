@@ -998,7 +998,9 @@ function Room({
             data={listData}
             // Off: at offset 0, a prepend shows by itself, and the native readjustment
             // fired before the JS snap and overwrote it.
-            maintainVisibleContentPosition={{ disabled: true }}
+            // Detached, nothing snaps to the present, and newer pages of the window
+            // land below the message being read: they must not carry it away.
+            maintainVisibleContentPosition={{ disabled: context === null }}
             keyExtractor={(m) => m.id}
             // HETEROGENEOUS content (messages, follow-ups without avatar, unread bar,
             // day separators): without an item type, FlashList's recycling mixes the
@@ -1020,7 +1022,7 @@ function Room({
             onEndReached={loadMore}
             onEndReachedThreshold={0.4}
             // The visual bottom: only a context window has a future to read.
-            onStartReached={context === null ? undefined : loadNewer}
+            onStartReached={context === null || targetJump !== null ? undefined : loadNewer}
             onStartReachedThreshold={0.4}
             contentContainerStyle={styles.content}
           />

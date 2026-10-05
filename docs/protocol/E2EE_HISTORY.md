@@ -177,19 +177,37 @@ certificates are throwaway and nothing in it attests a real MLS admission.
 
 ## Server API
 
+A request, its share and its records are named by the lowercase hex request
+fingerprint (`{request}` below). Bodies carry the `scope` (instance and data
+epoch) of the other E2EE writes; byte values are base64url without padding.
+
 | Method and route | Who | Effect |
 |---|---|---|
-| `POST /api/v1/e2ee/history/requests` | Requesting device | Stores its signed request (one pending per device) |
-| `GET /api/v1/e2ee/history/requests` | Any device of the account | Pending requests of the account |
-| `PUT /api/v1/e2ee/history/shares/{share}/records` | Sharing device | One page of records for one manifest entry (at most 200 records, 4 MiB) |
-| `POST /api/v1/e2ee/history/shares/{share}` | Sharing device | Commits the signed share once every manifest record is uploaded |
+| `POST /api/v1/e2ee/history/requests` | Requesting device | Stores its signed request; a new one replaces the device's previous request and that one's share. A replay returns the same entry |
+| `GET /api/v1/e2ee/history/requests` | Any device of the account | Requests still answerable, and committed shares still kept, with the claiming device |
+| `PUT /api/v1/e2ee/history/requests/{request}/records` | Sharing device | Records of ranks `start + 1 …` of one manifest entry (at most 200 records, 4 MiB). The first page claims the share for this device |
+| `POST /api/v1/e2ee/history/requests/{request}/share` | Sharing device | Commits the signed share |
 | `GET /api/v1/e2ee/history/requests/{request}/share` | Requesting device | The committed share |
-| `GET /api/v1/e2ee/history/shares/{share}/records` | Requesting device | Records of one entry by position pages |
-| `POST /api/v1/e2ee/history/shares/{share}/ack` | Requesting device | Deletes the share |
+| `GET /api/v1/e2ee/history/requests/{request}/records?period=&after=&limit=` | Requesting device | Records of one entry after rank `after`, at most 200 and 4 MiB, with the next rank |
+| `POST /api/v1/e2ee/history/requests/{request}/ack` | Requesting device | Deletes the request, the share and its records (repeatable) |
 
-Every route checks the authenticated device against the request or the share, the
-account, the device revocations and, for records, the account's current read right
-on the room. Upload and commit are idempotent by operation ID.
+Checks, all in the transaction that writes or reads:
+
+- The request is verified (signature, window ≤ 7 days) and its certificate must be
+  the session device's registered, unrevoked certificate, byte for byte.
+- Every record is authenticated, attested by the uploading device's current
+  certificate, which has the request's account root, on the current instance and
+  data epoch. One entry stays in one room, which the account must still be able to
+  read; ranks are contiguous and positions increasing. A page already held is
+  accepted again unchanged; another record at a held rank is a conflict.
+- The commit is the uploading device's, its certificate is that device's current
+  one, and for each manifest entry the held records match the count, first and last
+  positions, room and chain digest. No record may exist beyond the manifest.
+- Downloads are the requesting device's only, once committed, while the account can
+  read the entry's room.
+- Quotas: 16 requests per device per day, 100,000 records and 512 MiB per share.
+  A request is forgotten at its expiry, or 7 days after its share is committed,
+  whichever is later; the periodic maintenance deletes it with its share.
 
 ## Exit criteria for A
 
@@ -199,5 +217,6 @@ on the room. Upload and commit are idempotent by operation ID.
   every step, reopening, forged / reordered / missing records, another account's
   device, a revoked device, an expired request.
 - Server tests on PostgreSQL for authorization, idempotence, quotas and expiry.
+  **Done** for the routes above.
 - Approval and import screens in the existing GTK, SwiftUI and Android settings.
 - Installed qualification and the independent crypto review stay distinct.

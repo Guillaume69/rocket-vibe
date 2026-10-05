@@ -19,6 +19,7 @@ export type CardField = { "short"?: boolean; "title": string; "value": string; }
 export type Change = { "data": Room; "type": "room_upsert"; } | { "data": Message; "type": "message_upsert"; } | { "data": { "room_id": string; }; "type": "room_removed"; };
 export type ChangeEmailFactor = { "context": ReauthenticationContext; "email_version": string; "factor_version"?: string | null; "operation_id": string; };
 export type ChangeRoomRole = { "expected_revision": string; "operation_id": string; "role": RoomRole; };
+export type CommitHistoryShare = { "scope": Scope; "share": string; };
 export type CompleteUpload = { "content": MessageContent; "operation_id": string; "reply_to"?: string | null; };
 export type ConfirmEmailVerification = { "code": string; "context": ReauthenticationContext; "operation_id": string; "verification_id": string; };
 export type CreateRoom = { "name": string; "operation_id"?: string | null; "private": boolean; };
@@ -63,6 +64,11 @@ export type GroupSettlement = { "data": GroupReceipt; "kind": "accepted"; } | { 
 export type GroupState = { "needs_rekey": boolean; "receipt": GroupReceipt; "transition": string; "tree": string; };
 export type GroupSubmission = { "commit"?: string | null; "operation_id": string; "scope": Scope; "transition": string; "tree": string; "welcomes": (GroupWelcome)[]; };
 export type GroupWelcome = { "device_id": string; "incarnation": string; "key_package_ref": string; "payload": string; };
+export type HistoryRecordsPage = { "next"?: string | null; "period": number; "records": (string)[]; "start": string; };
+export type HistoryRecordsReceipt = { "count": string; "period": number; };
+export type HistoryRequestEntry = { "committed": boolean; "device_id": string; "expires_at": string; "fingerprint": string; "request": string; "sharer_device_id"?: string | null; };
+export type HistoryRequests = { "requests": (HistoryRequestEntry)[]; "scope": Scope; };
+export type HistoryShareState = { "fingerprint": string; "scope": Scope; "share": string; "sharer_device_id": string; };
 export type Identity = { "fingerprint": string; "revision": string; "root": string; "user_id": string; };
 export type IntegrationCard = { "author"?: string | null; "color"?: string | null; "fields"?: (CardField)[]; "text"?: string | null; "title"?: string | null; "url"?: string | null; };
 export type JoinMeeting = { "data_epoch": string; "membership_version": string; };
@@ -85,7 +91,7 @@ export type MessageReaction = { "emoji": string; "users": (User)[]; };
 export type Node = { "kind": "text"; "text": string; } | { "children": (Node)[]; "kind": "paragraph"; } | { "children": (Node)[]; "kind": "bold"; } | { "children": (Node)[]; "kind": "italic"; } | { "children": (Node)[]; "kind": "strike"; } | { "kind": "inline_code"; "text": string; } | { "kind": "code_block"; "language": string; "text": string; } | { "children": (Node)[]; "kind": "heading"; "level": number; } | { "children": (Node)[]; "kind": "quote"; } | { "children": (Node)[]; "kind": "list"; "start"?: number | null; } | { "checked"?: boolean | null; "children": (Node)[]; "kind": "list_item"; } | { "children": (Node)[]; "href": string; "kind": "link"; } | { "kind": "mention"; "name": string; } | { "kind": "room_mention"; "name": string; } | { "kind": "emoji"; "shortcode": string; } | { "kind": "break"; } | { "kind": "rule"; };
 export type OperationReceipt = { "device_id": string; "device_revision": string; "incarnation": string; "key_package_refs": (string)[]; "kind": string; "operation_id": string; "root_fingerprint": string; "scope": Scope; };
 export type OwnProfile = { "email"?: string | null; "preferences": UserPreferences; "profile": UserProfile; };
-export type ParityContract = { "accept_invitation"?: AcceptInvitation | null; "account_permissions": AccountPermissions; "auth_challenge": AuthChallenge; "authentication_step"?: AuthenticationStep | null; "begin_email_verification"?: BeginEmailVerification | null; "begin_factor_setup"?: BeginFactorSetup | null; "begin_reauthentication"?: BeginReauthentication | null; "change_email_factor"?: ChangeEmailFactor | null; "change_room_role"?: ChangeRoomRole | null; "complete_upload": CompleteUpload; "confirm_email_verification"?: ConfirmEmailVerification | null; "delete_message": DeleteMessage; "device_session"?: DeviceSession | null; "disable_factor"?: DisableFactor | null; "e2ee_application_receipt"?: ApplicationReceipt | null; "e2ee_application_settlement"?: ApplicationSettlement | null; "e2ee_application_submission"?: ApplicationSubmission | null; "e2ee_available_key_package"?: AvailableKeyPackage | null; "e2ee_delivery_page"?: DeliveryPage | null; "e2ee_directory"?: Directory | null; "e2ee_group_events"?: GroupEventPage | null; "e2ee_group_roster"?: GroupRoster | null; "e2ee_group_settlement"?: GroupSettlement | null; "e2ee_group_state"?: GroupState | null; "e2ee_group_submission"?: GroupSubmission | null; "e2ee_operation_receipt"?: OperationReceipt | null; "e2ee_publish_key_packages"?: PublishKeyPackages | null; "e2ee_publish_root_backup"?: PublishRootBackup | null; "e2ee_register_device"?: RegisterDevice | null; "e2ee_revoke_device"?: RevokeDevice | null; "e2ee_root_backup"?: RootBackupState | null; "e2ee_root_backup_settlement"?: RootBackupSettlement | null; "edit_message": EditMessage; "email_factor_change"?: EmailFactorChange | null; "email_recovery_requested"?: EmailRecoveryRequested | null; "email_removal_receipt"?: EmailRemovalReceipt | null; "email_status"?: EmailStatus | null; "email_verification_step"?: EmailVerificationStep | null; "enable_factor"?: EnableFactor | null; "factor_backup_codes"?: FactorBackupCodes | null; "factor_email_delivery"?: FactorEmailDelivery | null; "factor_setup"?: FactorSetup | null; "factor_status"?: FactorStatus | null; "file": FileDescriptor; "finish_factor"?: FinishFactor | null; "finish_reauthentication"?: FinishReauthentication | null; "key_backup": EncryptedKeyBackup; "leave_room"?: LeaveRoom | null; "mark": SetMark; "mark_read": MarkRead; "message_permissions": MessagePermissions; "preferences": UserPreferences; "prepare_upload": PrepareUpload; "profile": UserProfile; "public_device_key": PublicDeviceKey; "reaction": SetReaction; "read_state": ReadState; "reauthentication_grant"?: ReauthenticationGrant | null; "reauthentication_status"?: ReauthenticationStatus | null; "reauthentication_step"?: ReauthenticationStep | null; "recover_account"?: RecoverAccount | null; "regenerate_factor_backups"?: RegenerateFactorBackups | null; "remove_verified_email"?: RemoveVerifiedEmail | null; "rename_device"?: RenameDevice | null; "renew_session"?: RenewSession | null; "request_email_recovery"?: RequestEmailRecovery | null; "request_factor_email"?: RequestFactorEmail | null; "resume_email_removal"?: ResumeEmailRemoval | null; "resume_email_verification"?: ResumeEmailVerification | null; "resume_reauthentication"?: ResumeReauthentication | null; "retire_email_removal"?: RetireEmailRemoval | null; "retire_email_verification"?: RetireEmailVerification | null; "retire_reauthentication"?: RetireReauthentication | null; "room_command_receipt"?: RoomCommandReceipt | null; "room_details"?: RoomDetails | null; "room_favorite"?: SetRoomFavorite | null; "room_key_envelope": RoomKeyEnvelope; "room_members"?: RoomMemberPage | null; "room_permissions": RoomPermissions; "update_room"?: UpdateRoom | null; "upload": Upload; "verify_factor": VerifyFactor; };
+export type ParityContract = { "accept_invitation"?: AcceptInvitation | null; "account_permissions": AccountPermissions; "auth_challenge": AuthChallenge; "authentication_step"?: AuthenticationStep | null; "begin_email_verification"?: BeginEmailVerification | null; "begin_factor_setup"?: BeginFactorSetup | null; "begin_reauthentication"?: BeginReauthentication | null; "change_email_factor"?: ChangeEmailFactor | null; "change_room_role"?: ChangeRoomRole | null; "complete_upload": CompleteUpload; "confirm_email_verification"?: ConfirmEmailVerification | null; "delete_message": DeleteMessage; "device_session"?: DeviceSession | null; "disable_factor"?: DisableFactor | null; "e2ee_application_receipt"?: ApplicationReceipt | null; "e2ee_application_settlement"?: ApplicationSettlement | null; "e2ee_application_submission"?: ApplicationSubmission | null; "e2ee_available_key_package"?: AvailableKeyPackage | null; "e2ee_commit_history_share"?: CommitHistoryShare | null; "e2ee_delivery_page"?: DeliveryPage | null; "e2ee_directory"?: Directory | null; "e2ee_group_events"?: GroupEventPage | null; "e2ee_group_roster"?: GroupRoster | null; "e2ee_group_settlement"?: GroupSettlement | null; "e2ee_group_state"?: GroupState | null; "e2ee_group_submission"?: GroupSubmission | null; "e2ee_history_records_page"?: HistoryRecordsPage | null; "e2ee_history_records_receipt"?: HistoryRecordsReceipt | null; "e2ee_history_requests"?: HistoryRequests | null; "e2ee_history_share"?: HistoryShareState | null; "e2ee_operation_receipt"?: OperationReceipt | null; "e2ee_publish_history_request"?: PublishHistoryRequest | null; "e2ee_publish_key_packages"?: PublishKeyPackages | null; "e2ee_publish_root_backup"?: PublishRootBackup | null; "e2ee_register_device"?: RegisterDevice | null; "e2ee_revoke_device"?: RevokeDevice | null; "e2ee_root_backup"?: RootBackupState | null; "e2ee_root_backup_settlement"?: RootBackupSettlement | null; "e2ee_upload_history_records"?: UploadHistoryRecords | null; "edit_message": EditMessage; "email_factor_change"?: EmailFactorChange | null; "email_recovery_requested"?: EmailRecoveryRequested | null; "email_removal_receipt"?: EmailRemovalReceipt | null; "email_status"?: EmailStatus | null; "email_verification_step"?: EmailVerificationStep | null; "enable_factor"?: EnableFactor | null; "factor_backup_codes"?: FactorBackupCodes | null; "factor_email_delivery"?: FactorEmailDelivery | null; "factor_setup"?: FactorSetup | null; "factor_status"?: FactorStatus | null; "file": FileDescriptor; "finish_factor"?: FinishFactor | null; "finish_reauthentication"?: FinishReauthentication | null; "key_backup": EncryptedKeyBackup; "leave_room"?: LeaveRoom | null; "mark": SetMark; "mark_read": MarkRead; "message_permissions": MessagePermissions; "preferences": UserPreferences; "prepare_upload": PrepareUpload; "profile": UserProfile; "public_device_key": PublicDeviceKey; "reaction": SetReaction; "read_state": ReadState; "reauthentication_grant"?: ReauthenticationGrant | null; "reauthentication_status"?: ReauthenticationStatus | null; "reauthentication_step"?: ReauthenticationStep | null; "recover_account"?: RecoverAccount | null; "regenerate_factor_backups"?: RegenerateFactorBackups | null; "remove_verified_email"?: RemoveVerifiedEmail | null; "rename_device"?: RenameDevice | null; "renew_session"?: RenewSession | null; "request_email_recovery"?: RequestEmailRecovery | null; "request_factor_email"?: RequestFactorEmail | null; "resume_email_removal"?: ResumeEmailRemoval | null; "resume_email_verification"?: ResumeEmailVerification | null; "resume_reauthentication"?: ResumeReauthentication | null; "retire_email_removal"?: RetireEmailRemoval | null; "retire_email_verification"?: RetireEmailVerification | null; "retire_reauthentication"?: RetireReauthentication | null; "room_command_receipt"?: RoomCommandReceipt | null; "room_details"?: RoomDetails | null; "room_favorite"?: SetRoomFavorite | null; "room_key_envelope": RoomKeyEnvelope; "room_members"?: RoomMemberPage | null; "room_permissions": RoomPermissions; "update_room"?: UpdateRoom | null; "upload": Upload; "verify_factor": VerifyFactor; };
 export type PersonalStar = { "present": boolean; "revision": string; };
 export type PrepareUpload = { "bytes": string; "encrypted": boolean; "filename"?: string | null; "media_type": string; "operation_id": string; "room_id": string; "sha256": string; };
 export type PresenceEntry = { "status": PresenceStatus; "user": User; };
@@ -97,6 +103,7 @@ export type ProfileStamp = { "avatar_file_id"?: string | null; "revision": strin
 export type PublicDeviceKey = { "device_id": string; "fingerprint": string; "format": string; "public_key": string; "revision": string; "user_id": string; };
 export type PublicRoom = { "joined": boolean; "room": Room; };
 export type PublicRoomPage = { "next"?: string | null; "rooms": (PublicRoom)[]; };
+export type PublishHistoryRequest = { "request": string; "scope": Scope; };
 export type PublishKeyPackages = { "device_revision": string; "operation_id": string; "packages": (string)[]; "scope": Scope; };
 export type PublishRootBackup = { "operation_id": string; "publication": string; "scope": Scope; };
 export type PushContent = { "data_epoch": string; "device_id": string; "instance_id": string; "message": Message; "notification_id": string; "room": Room; };
@@ -164,13 +171,14 @@ export type UpdatePreferences = { "clock_24h": boolean; "desktop_notifications":
 export type UpdateProfile = { "bio": string; "display_name": string; "expected_revision": string; "operation_id": string; "status": PresenceStatus; "status_text": string; "username": string; };
 export type UpdateRoom = { "announcement": string; "description": string; "expected_revision": string; "name": string; "operation_id": string; "private": boolean; "read_only": boolean; "topic": string; };
 export type Upload = { "expires_at": string; "file": FileDescriptor; "id": string; "message_id"?: string | null; "state": UploadState; };
+export type UploadHistoryRecords = { "period": number; "records": (string)[]; "scope": Scope; "start": string; };
 export type UploadState = "prepared" | "ready" | "completed" | "cancelled" | "expired";
 export type User = { "display_name": string; "id": string; "username": string; };
 export type UserPreferences = { "clock_24h": boolean; "desktop_notifications"?: DesktopNotifications; "language": string; "push_enabled": boolean; "push_mentions_only": boolean; "revision": string; };
 export type UserProfile = { "avatar_file_id"?: string | null; "bio": string; "revision": string; "status"?: PresenceStatus; "status_text": string; "user": User; };
 export type VerifyFactor = { "challenge_id": string; "code": string; "method": SecondFactor; };
 
-export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; ApiError: ApiError; ApplicationCancellation: ApplicationCancellation; ApplicationMessage: ApplicationMessage; ApplicationReceipt: ApplicationReceipt; ApplicationSettlement: ApplicationSettlement; ApplicationSubmission: ApplicationSubmission; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; AvailableKeyPackage: AvailableKeyPackage; AvatarCommand: AvatarCommand; BeginEmailVerification: BeginEmailVerification; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; Capabilities: Capabilities; CardField: CardField; Change: Change; ChangeEmailFactor: ChangeEmailFactor; ChangeRoomRole: ChangeRoomRole; CompleteUpload: CompleteUpload; ConfirmEmailVerification: ConfirmEmailVerification; CreateRoom: CreateRoom; CustomEmoji: CustomEmoji; DeleteMessage: DeleteMessage; DeliveryContent: DeliveryContent; DeliveryEvent: DeliveryEvent; DeliveryPage: DeliveryPage; DesktopNotifications: DesktopNotifications; Device: Device; DeviceSession: DeviceSession; DirectMessage: DirectMessage; Directory: Directory; DisableFactor: DisableFactor; Discovery: Discovery; Document: Document; EditMessage: EditMessage; EmailDeliveryState: EmailDeliveryState; EmailFactorChange: EmailFactorChange; EmailRecoveryRequested: EmailRecoveryRequested; EmailRemovalReceipt: EmailRemovalReceipt; EmailStatus: EmailStatus; EmailVerificationStep: EmailVerificationStep; EmojiCatalog: EmojiCatalog; EnableFactor: EnableFactor; EncryptedKeyBackup: EncryptedKeyBackup; FactorBackupCodes: FactorBackupCodes; FactorEmailDelivery: FactorEmailDelivery; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; Format: Format; GroupCancellation: GroupCancellation; GroupEvent: GroupEvent; GroupEventPage: GroupEventPage; GroupMember: GroupMember; GroupReceipt: GroupReceipt; GroupRoster: GroupRoster; GroupSettlement: GroupSettlement; GroupState: GroupState; GroupSubmission: GroupSubmission; GroupWelcome: GroupWelcome; Identity: Identity; IntegrationCard: IntegrationCard; JoinMeeting: JoinMeeting; LeaveRoom: LeaveRoom; LinkPreview: LinkPreview; LiveFrame: LiveFrame; LiveRoom: LiveRoom; LiveState: LiveState; Login: Login; MarkRead: MarkRead; MarkThreadRead: MarkThreadRead; Meeting: Meeting; MeetingJoin: MeetingJoin; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageQuote: MessageQuote; MessageReaction: MessageReaction; Node: Node; OperationReceipt: OperationReceipt; OwnProfile: OwnProfile; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PresenceEntry: PresenceEntry; PresenceStatus: PresenceStatus; PreviewImage: PreviewImage; PreviewKind: PreviewKind; ProfileReceipt: ProfileReceipt; ProfileStamp: ProfileStamp; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; PublishKeyPackages: PublishKeyPackages; PublishRootBackup: PublishRootBackup; PushContent: PushContent; PushRegistration: PushRegistration; QuoteExcerpt: QuoteExcerpt; QuoteReference: QuoteReference; ReadState: ReadState; ReauthenticationContext: ReauthenticationContext; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RegisterDevice: RegisterDevice; RegisterPush: RegisterPush; RemoveVerifiedEmail: RemoveVerifiedEmail; RenameDevice: RenameDevice; RenewSession: RenewSession; RequestEmailRecovery: RequestEmailRecovery; RequestFactorEmail: RequestFactorEmail; ResumeEmailRemoval: ResumeEmailRemoval; ResumeEmailVerification: ResumeEmailVerification; ResumeReauthentication: ResumeReauthentication; RetireEmailRemoval: RetireEmailRemoval; RetireEmailVerification: RetireEmailVerification; RetireReauthentication: RetireReauthentication; Revocation: Revocation; RevokeDevice: RevokeDevice; Room: Room; RoomCommandReceipt: RoomCommandReceipt; RoomDetails: RoomDetails; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomMember: RoomMember; RoomMemberPage: RoomMemberPage; RoomPermissions: RoomPermissions; RoomRole: RoomRole; RootBackupCancellation: RootBackupCancellation; RootBackupReceipt: RootBackupReceipt; RootBackupSettlement: RootBackupSettlement; RootBackupState: RootBackupState; RootBackupVersion: RootBackupVersion; Scope: Scope; SearchMessages: SearchMessages; SearchPage: SearchPage; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetPresence: SetPresence; SetReaction: SetReaction; SetRoomFavorite: SetRoomFavorite; SetTyping: SetTyping; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; StartMeeting: StartMeeting; SyncBatch: SyncBatch; SystemMessage: SystemMessage; ThreadPage: ThreadPage; ThreadReadState: ThreadReadState; ThreadSummary: ThreadSummary; Typist: Typist; UpdatePreferences: UpdatePreferences; UpdateProfile: UpdateProfile; UpdateRoom: UpdateRoom; Upload: Upload; UploadState: UploadState; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; };
+export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; ApiError: ApiError; ApplicationCancellation: ApplicationCancellation; ApplicationMessage: ApplicationMessage; ApplicationReceipt: ApplicationReceipt; ApplicationSettlement: ApplicationSettlement; ApplicationSubmission: ApplicationSubmission; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; AvailableKeyPackage: AvailableKeyPackage; AvatarCommand: AvatarCommand; BeginEmailVerification: BeginEmailVerification; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; Capabilities: Capabilities; CardField: CardField; Change: Change; ChangeEmailFactor: ChangeEmailFactor; ChangeRoomRole: ChangeRoomRole; CommitHistoryShare: CommitHistoryShare; CompleteUpload: CompleteUpload; ConfirmEmailVerification: ConfirmEmailVerification; CreateRoom: CreateRoom; CustomEmoji: CustomEmoji; DeleteMessage: DeleteMessage; DeliveryContent: DeliveryContent; DeliveryEvent: DeliveryEvent; DeliveryPage: DeliveryPage; DesktopNotifications: DesktopNotifications; Device: Device; DeviceSession: DeviceSession; DirectMessage: DirectMessage; Directory: Directory; DisableFactor: DisableFactor; Discovery: Discovery; Document: Document; EditMessage: EditMessage; EmailDeliveryState: EmailDeliveryState; EmailFactorChange: EmailFactorChange; EmailRecoveryRequested: EmailRecoveryRequested; EmailRemovalReceipt: EmailRemovalReceipt; EmailStatus: EmailStatus; EmailVerificationStep: EmailVerificationStep; EmojiCatalog: EmojiCatalog; EnableFactor: EnableFactor; EncryptedKeyBackup: EncryptedKeyBackup; FactorBackupCodes: FactorBackupCodes; FactorEmailDelivery: FactorEmailDelivery; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; Format: Format; GroupCancellation: GroupCancellation; GroupEvent: GroupEvent; GroupEventPage: GroupEventPage; GroupMember: GroupMember; GroupReceipt: GroupReceipt; GroupRoster: GroupRoster; GroupSettlement: GroupSettlement; GroupState: GroupState; GroupSubmission: GroupSubmission; GroupWelcome: GroupWelcome; HistoryRecordsPage: HistoryRecordsPage; HistoryRecordsReceipt: HistoryRecordsReceipt; HistoryRequestEntry: HistoryRequestEntry; HistoryRequests: HistoryRequests; HistoryShareState: HistoryShareState; Identity: Identity; IntegrationCard: IntegrationCard; JoinMeeting: JoinMeeting; LeaveRoom: LeaveRoom; LinkPreview: LinkPreview; LiveFrame: LiveFrame; LiveRoom: LiveRoom; LiveState: LiveState; Login: Login; MarkRead: MarkRead; MarkThreadRead: MarkThreadRead; Meeting: Meeting; MeetingJoin: MeetingJoin; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageQuote: MessageQuote; MessageReaction: MessageReaction; Node: Node; OperationReceipt: OperationReceipt; OwnProfile: OwnProfile; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PresenceEntry: PresenceEntry; PresenceStatus: PresenceStatus; PreviewImage: PreviewImage; PreviewKind: PreviewKind; ProfileReceipt: ProfileReceipt; ProfileStamp: ProfileStamp; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; PublishHistoryRequest: PublishHistoryRequest; PublishKeyPackages: PublishKeyPackages; PublishRootBackup: PublishRootBackup; PushContent: PushContent; PushRegistration: PushRegistration; QuoteExcerpt: QuoteExcerpt; QuoteReference: QuoteReference; ReadState: ReadState; ReauthenticationContext: ReauthenticationContext; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RegisterDevice: RegisterDevice; RegisterPush: RegisterPush; RemoveVerifiedEmail: RemoveVerifiedEmail; RenameDevice: RenameDevice; RenewSession: RenewSession; RequestEmailRecovery: RequestEmailRecovery; RequestFactorEmail: RequestFactorEmail; ResumeEmailRemoval: ResumeEmailRemoval; ResumeEmailVerification: ResumeEmailVerification; ResumeReauthentication: ResumeReauthentication; RetireEmailRemoval: RetireEmailRemoval; RetireEmailVerification: RetireEmailVerification; RetireReauthentication: RetireReauthentication; Revocation: Revocation; RevokeDevice: RevokeDevice; Room: Room; RoomCommandReceipt: RoomCommandReceipt; RoomDetails: RoomDetails; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomMember: RoomMember; RoomMemberPage: RoomMemberPage; RoomPermissions: RoomPermissions; RoomRole: RoomRole; RootBackupCancellation: RootBackupCancellation; RootBackupReceipt: RootBackupReceipt; RootBackupSettlement: RootBackupSettlement; RootBackupState: RootBackupState; RootBackupVersion: RootBackupVersion; Scope: Scope; SearchMessages: SearchMessages; SearchPage: SearchPage; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetPresence: SetPresence; SetReaction: SetReaction; SetRoomFavorite: SetRoomFavorite; SetTyping: SetTyping; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; StartMeeting: StartMeeting; SyncBatch: SyncBatch; SystemMessage: SystemMessage; ThreadPage: ThreadPage; ThreadReadState: ThreadReadState; ThreadSummary: ThreadSummary; Typist: Typist; UpdatePreferences: UpdatePreferences; UpdateProfile: UpdateProfile; UpdateRoom: UpdateRoom; Upload: Upload; UploadHistoryRecords: UploadHistoryRecords; UploadState: UploadState; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; };
 
 export const nativeSchema = {
   "$defs": {
@@ -891,6 +899,22 @@ export const nativeSchema = {
         "operation_id",
         "expected_revision",
         "role"
+      ],
+      "type": "object"
+    },
+    "CommitHistoryShare": {
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "share": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "share"
       ],
       "type": "object"
     },
@@ -2058,6 +2082,136 @@ export const nativeSchema = {
         "incarnation",
         "key_package_ref",
         "payload"
+      ],
+      "type": "object"
+    },
+    "HistoryRecordsPage": {
+      "additionalProperties": false,
+      "properties": {
+        "next": {
+          "description": "Start of the next page, or none at the end of the entry.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "records": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "start": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "period",
+        "start",
+        "records"
+      ],
+      "type": "object"
+    },
+    "HistoryRecordsReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "description": "Records the server now holds for this entry.",
+          "type": "string"
+        },
+        "period": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "period",
+        "count"
+      ],
+      "type": "object"
+    },
+    "HistoryRequestEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "committed": {
+          "type": "boolean"
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "fingerprint": {
+          "description": "Lowercase hex request fingerprint.",
+          "type": "string"
+        },
+        "request": {
+          "type": "string"
+        },
+        "sharer_device_id": {
+          "description": "Device that claimed the share by uploading its first page.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "fingerprint",
+        "device_id",
+        "request",
+        "expires_at",
+        "committed"
+      ],
+      "type": "object"
+    },
+    "HistoryRequests": {
+      "additionalProperties": false,
+      "properties": {
+        "requests": {
+          "items": {
+            "$ref": "#/$defs/HistoryRequestEntry"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "requests"
+      ],
+      "type": "object"
+    },
+    "HistoryShareState": {
+      "additionalProperties": false,
+      "properties": {
+        "fingerprint": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "share": {
+          "type": "string"
+        },
+        "sharer_device_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "fingerprint",
+        "sharer_device_id",
+        "share"
       ],
       "type": "object"
     },
@@ -3252,6 +3406,16 @@ export const nativeSchema = {
             }
           ]
         },
+        "e2ee_commit_history_share": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommitHistoryShare"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "e2ee_delivery_page": {
           "anyOf": [
             {
@@ -3322,10 +3486,60 @@ export const nativeSchema = {
             }
           ]
         },
+        "e2ee_history_records_page": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoryRecordsPage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_history_records_receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoryRecordsReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_history_requests": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoryRequests"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_history_share": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoryShareState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "e2ee_operation_receipt": {
           "anyOf": [
             {
               "$ref": "#/$defs/OperationReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_publish_history_request": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PublishHistoryRequest"
             },
             {
               "type": "null"
@@ -3386,6 +3600,16 @@ export const nativeSchema = {
           "anyOf": [
             {
               "$ref": "#/$defs/RootBackupSettlement"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_upload_history_records": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UploadHistoryRecords"
             },
             {
               "type": "null"
@@ -4030,6 +4254,23 @@ export const nativeSchema = {
       },
       "required": [
         "rooms"
+      ],
+      "type": "object"
+    },
+    "PublishHistoryRequest": {
+      "additionalProperties": false,
+      "description": "A new device's signed history request (E2EE_HISTORY.md). The share and its\nrecords are named by the request fingerprint.",
+      "properties": {
+        "request": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "request"
       ],
       "type": "object"
     },
@@ -5964,6 +6205,36 @@ export const nativeSchema = {
         "file",
         "state",
         "expires_at"
+      ],
+      "type": "object"
+    },
+    "UploadHistoryRecords": {
+      "additionalProperties": false,
+      "description": "Records of ranks `start + 1 ..= start + records.len()` of one manifest\nentry: at most 200 records and 4 MiB.",
+      "properties": {
+        "period": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "records": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "start": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "period",
+        "start",
+        "records"
       ],
       "type": "object"
     },

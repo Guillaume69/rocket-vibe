@@ -16,6 +16,8 @@ const PASSWORD: &str = "disposable-e2ee-directory-password";
 mod device_revocations;
 #[path = "groups/tests.rs"]
 mod group_delivery;
+#[path = "history/tests.rs"]
+mod history_shares;
 #[path = "backups/tests.rs"]
 mod root_backups;
 const SUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;

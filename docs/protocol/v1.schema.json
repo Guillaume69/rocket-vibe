@@ -720,6 +720,22 @@
       ],
       "type": "object"
     },
+    "CommitHistoryShare": {
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "share": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "share"
+      ],
+      "type": "object"
+    },
     "CompleteUpload": {
       "additionalProperties": false,
       "properties": {
@@ -1884,6 +1900,136 @@
         "incarnation",
         "key_package_ref",
         "payload"
+      ],
+      "type": "object"
+    },
+    "HistoryRecordsPage": {
+      "additionalProperties": false,
+      "properties": {
+        "next": {
+          "description": "Start of the next page, or none at the end of the entry.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "records": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "start": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "period",
+        "start",
+        "records"
+      ],
+      "type": "object"
+    },
+    "HistoryRecordsReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "description": "Records the server now holds for this entry.",
+          "type": "string"
+        },
+        "period": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "period",
+        "count"
+      ],
+      "type": "object"
+    },
+    "HistoryRequestEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "committed": {
+          "type": "boolean"
+        },
+        "device_id": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "fingerprint": {
+          "description": "Lowercase hex request fingerprint.",
+          "type": "string"
+        },
+        "request": {
+          "type": "string"
+        },
+        "sharer_device_id": {
+          "description": "Device that claimed the share by uploading its first page.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "fingerprint",
+        "device_id",
+        "request",
+        "expires_at",
+        "committed"
+      ],
+      "type": "object"
+    },
+    "HistoryRequests": {
+      "additionalProperties": false,
+      "properties": {
+        "requests": {
+          "items": {
+            "$ref": "#/$defs/HistoryRequestEntry"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "requests"
+      ],
+      "type": "object"
+    },
+    "HistoryShareState": {
+      "additionalProperties": false,
+      "properties": {
+        "fingerprint": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "share": {
+          "type": "string"
+        },
+        "sharer_device_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "fingerprint",
+        "sharer_device_id",
+        "share"
       ],
       "type": "object"
     },
@@ -3078,6 +3224,16 @@
             }
           ]
         },
+        "e2ee_commit_history_share": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommitHistoryShare"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "e2ee_delivery_page": {
           "anyOf": [
             {
@@ -3148,10 +3304,60 @@
             }
           ]
         },
+        "e2ee_history_records_page": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoryRecordsPage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_history_records_receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoryRecordsReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_history_requests": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoryRequests"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_history_share": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoryShareState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "e2ee_operation_receipt": {
           "anyOf": [
             {
               "$ref": "#/$defs/OperationReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_publish_history_request": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PublishHistoryRequest"
             },
             {
               "type": "null"
@@ -3212,6 +3418,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/RootBackupSettlement"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "e2ee_upload_history_records": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UploadHistoryRecords"
             },
             {
               "type": "null"
@@ -3856,6 +4072,23 @@
       },
       "required": [
         "rooms"
+      ],
+      "type": "object"
+    },
+    "PublishHistoryRequest": {
+      "additionalProperties": false,
+      "description": "A new device's signed history request (E2EE_HISTORY.md). The share and its\nrecords are named by the request fingerprint.",
+      "properties": {
+        "request": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "required": [
+        "scope",
+        "request"
       ],
       "type": "object"
     },
@@ -5790,6 +6023,36 @@
         "file",
         "state",
         "expires_at"
+      ],
+      "type": "object"
+    },
+    "UploadHistoryRecords": {
+      "additionalProperties": false,
+      "description": "Records of ranks `start + 1 ..= start + records.len()` of one manifest\nentry: at most 200 records and 4 MiB.",
+      "properties": {
+        "period": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "records": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "start": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "period",
+        "start",
+        "records"
       ],
       "type": "object"
     },

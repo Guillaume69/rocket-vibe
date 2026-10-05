@@ -30,6 +30,7 @@ pub use groups::messages;
 mod revocations;
 pub use revocations::revoke;
 pub mod backups;
+pub mod history;
 
 fn changed() -> Error {
     Error::new(StatusCode::CONFLICT, "crypto_identity_changed")

@@ -265,6 +265,85 @@ impl NativeClient {
         self.get(&format!("/api/v1/e2ee/root-backup/operations/{operation}"))
             .await
     }
+    /// History shares (E2EE_HISTORY.md): signed opaque bytes only. The engine
+    /// verifies every request, share and record against its own directory.
+    pub async fn publish_crypto_history_request(
+        &self,
+        input: &rv_protocol::e2ee::PublishHistoryRequest,
+    ) -> Result<rv_protocol::e2ee::HistoryRequestEntry, Error> {
+        self.post("/api/v1/e2ee/history/requests", input).await
+    }
+    pub async fn crypto_history_requests(
+        &self,
+    ) -> Result<rv_protocol::e2ee::HistoryRequests, Error> {
+        self.get("/api/v1/e2ee/history/requests").await
+    }
+    pub async fn upload_crypto_history_records(
+        &self,
+        request: &str,
+        input: &rv_protocol::e2ee::UploadHistoryRecords,
+    ) -> Result<rv_protocol::e2ee::HistoryRecordsReceipt, Error> {
+        if !path_segment(request) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::PUT,
+            &format!("/api/v1/e2ee/history/requests/{request}/records"),
+            Some(input),
+            false,
+        )
+        .await
+    }
+    pub async fn commit_crypto_history_share(
+        &self,
+        request: &str,
+        input: &rv_protocol::e2ee::CommitHistoryShare,
+    ) -> Result<rv_protocol::e2ee::HistoryShareState, Error> {
+        if !path_segment(request) {
+            return Err(Error::InvalidUrl);
+        }
+        self.post(
+            &format!("/api/v1/e2ee/history/requests/{request}/share"),
+            input,
+        )
+        .await
+    }
+    pub async fn crypto_history_share(
+        &self,
+        request: &str,
+    ) -> Result<rv_protocol::e2ee::HistoryShareState, Error> {
+        if !path_segment(request) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/e2ee/history/requests/{request}/share"))
+            .await
+    }
+    pub async fn crypto_history_records(
+        &self,
+        request: &str,
+        period: u32,
+        after: &str,
+    ) -> Result<rv_protocol::e2ee::HistoryRecordsPage, Error> {
+        if !path_segment(request) || !after.bytes().all(|b| b.is_ascii_digit()) || after.is_empty()
+        {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!(
+            "/api/v1/e2ee/history/requests/{request}/records?period={period}&after={after}"
+        ))
+        .await
+    }
+    pub async fn acknowledge_crypto_history(&self, request: &str) -> Result<(), Error> {
+        if !path_segment(request) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty(
+            Method::POST,
+            &format!("/api/v1/e2ee/history/requests/{request}/ack"),
+            false,
+        )
+        .await
+    }
     pub async fn publish_key_packages(
         &self,
         input: &rv_protocol::e2ee::PublishKeyPackages,
@@ -529,6 +608,7 @@ impl NativeClient {
             | "/api/v1/e2ee/key-packages"
             | "/api/v1/e2ee/revocations"
             | "/api/v1/e2ee/root-backup"
+            | "/api/v1/e2ee/history/requests"
                 if *method == Method::POST =>
             {
                 Some("crypto")

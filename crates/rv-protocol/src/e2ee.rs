@@ -322,3 +322,70 @@ pub struct DeliveryPage {
     pub events: Vec<DeliveryEvent>,
     pub next: Option<String>,
 }
+
+/// A new device's signed history request (E2EE_HISTORY.md). The share and its
+/// records are named by the request fingerprint.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PublishHistoryRequest {
+    pub scope: Scope,
+    pub request: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryRequestEntry {
+    /// Lowercase hex request fingerprint.
+    pub fingerprint: String,
+    pub device_id: String,
+    pub request: String,
+    pub expires_at: String,
+    /// Device that claimed the share by uploading its first page.
+    pub sharer_device_id: Option<String>,
+    pub committed: bool,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryRequests {
+    pub scope: Scope,
+    pub requests: Vec<HistoryRequestEntry>,
+}
+/// Records of ranks `start + 1 ..= start + records.len()` of one manifest
+/// entry: at most 200 records and 4 MiB.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UploadHistoryRecords {
+    pub scope: Scope,
+    pub period: u32,
+    pub start: String,
+    pub records: Vec<String>,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryRecordsReceipt {
+    pub period: u32,
+    /// Records the server now holds for this entry.
+    pub count: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CommitHistoryShare {
+    pub scope: Scope,
+    pub share: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryShareState {
+    pub scope: Scope,
+    pub fingerprint: String,
+    pub sharer_device_id: String,
+    pub share: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryRecordsPage {
+    pub period: u32,
+    pub start: String,
+    pub records: Vec<String>,
+    /// Start of the next page, or none at the end of the entry.
+    pub next: Option<String>,
+}

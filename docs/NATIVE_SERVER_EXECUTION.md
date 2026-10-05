@@ -5,6 +5,28 @@ Destination: [RFC 0001](rfcs/0001-rocketvibe-rust-server.md).
 
 ## Summary status as of 5 October 2026
 
+History recovery on a new device, path A (item 2 of the E2EE plan,
+[E2EE_HISTORY.md](protocol/E2EE_HISTORY.md)), private engine, public vector and
+server done. Archive v1 packets require the archiving device to share the
+author's root, so shared history travels as **history records**: the archive
+header and the author's original certificate, attested by the sharing device under
+its own domains, sealed with XChaCha20-Poly1305 under a key and nonce derived from
+the period secret and the document's rank. The coordinator drives both sides with
+jobs kept in the vault (deterministic pages from the journal archive, uploaded
+progress, a signed share drawn once; ordered import into a recovered catalog shown
+per complete period). Membership versions in archive headers are now opaque
+identifiers, as the server issues UUIDs. A public vector (Alice's desktop shares
+two of Bob's messages with Alice's phone) is checked by `rv-crypto-public`, reopened
+by `rv-crypto`, and redone by a Node/OpenSSL script with HPKE, DeriveKeyPair and
+HChaCha20 written out; CI runs the three Node verifiers. The server keeps
+requests, claimed shares and records in migration 0045 with the checks of the
+specification (registered certificate byte for byte, attestation by the uploading
+device, readable room, contiguous ranks, commit against count / bounds / chain,
+download by the requesting device only, quotas, expiry by maintenance). The 200
+`rv-crypto` tests and the 2 new PostgreSQL tests pass. The delivery worker,
+FFI / mobile bridge and the GTK / SwiftUI / Android approval and import screens
+remain open, then path B (archive-key backup with a recovery code).
+
 Operation registry window: the 8,192 identities no longer stop a long
 conversation. Once a body has left the cache (evicted, retired or forgotten on
 request), its identity gets a release order; a full registry drops the oldest

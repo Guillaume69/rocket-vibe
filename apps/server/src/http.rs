@@ -124,6 +124,26 @@ pub fn router(app: App) -> Router {
             post(cancel_crypto_root_backup),
         )
         .route(
+            "/api/v1/e2ee/history/requests",
+            get(crypto_history_requests).post(publish_crypto_history_request),
+        )
+        .route(
+            "/api/v1/e2ee/history/requests/{request}/records",
+            get(crypto_history_records)
+                .put(upload_crypto_history_records)
+                .layer(DefaultBodyLimit::max(6 * 1024 * 1024)),
+        )
+        .route(
+            "/api/v1/e2ee/history/requests/{request}/share",
+            get(crypto_history_share)
+                .post(commit_crypto_history_share)
+                .layer(DefaultBodyLimit::max(2 * 1024 * 1024)),
+        )
+        .route(
+            "/api/v1/e2ee/history/requests/{request}/ack",
+            post(acknowledge_crypto_history),
+        )
+        .route(
             "/api/v1/e2ee/rooms/{room}/transitions",
             post(submit_crypto_group).layer(DefaultBodyLimit::max(4 * 1024 * 1024)),
         )
@@ -1016,6 +1036,90 @@ async fn cancel_crypto_root_backup(
     Ok(secret_session(
         crate::e2ee::backups::cancel(&app, &actor, &operation, crypto_body(input)?).await?,
     ))
+}
+async fn publish_crypto_history_request(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::e2ee::PublishHistoryRequest>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::e2ee::history::publish_request(&app, &actor, crypto_body(input)?).await?,
+    ))
+}
+async fn crypto_history_requests(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let value = crate::e2ee::history::requests(&app, &actor).await?;
+    proof.json(&app, &hash, &value, &[], None).await
+}
+async fn upload_crypto_history_records(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(request): Path<String>,
+    input: Input<rv_protocol::e2ee::UploadHistoryRecords>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::e2ee::history::upload(&app, &actor, &request, crypto_body(input)?).await?,
+    ))
+}
+async fn commit_crypto_history_share(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(request): Path<String>,
+    input: Input<rv_protocol::e2ee::CommitHistoryShare>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::e2ee::history::commit(&app, &actor, &request, crypto_body(input)?).await?,
+    ))
+}
+async fn crypto_history_share(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(request): Path<String>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let value = crate::e2ee::history::share(&app, &actor, &request).await?;
+    proof.json(&app, &hash, &value, &[], None).await
+}
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CryptoHistoryRecordsQuery {
+    period: u32,
+    after: Option<String>,
+    limit: Option<usize>,
+}
+async fn crypto_history_records(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(request): Path<String>,
+    Query(query): Query<CryptoHistoryRecordsQuery>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    let hash = auth::bearer(&headers)?;
+    // The read proof covers the entry's room, captured before the read.
+    let room = crate::e2ee::history::period_room(&app, &actor, &request, query.period).await?;
+    let proof = ReadProof::capture(&app, &actor, Scope::Room(&room)).await?;
+    let value = crate::e2ee::history::records(
+        &app,
+        &actor,
+        &request,
+        query.period,
+        query.after.as_deref().unwrap_or("0"),
+        query.limit.unwrap_or(crate::e2ee::history::PAGE_RECORDS),
+    )
+    .await?;
+    proof.json(&app, &hash, &value, &[room], None).await
+}
+async fn acknowledge_crypto_history(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(request): Path<String>,
+) -> Result<StatusCode> {
+    let actor = account(&app, &headers).await?;
+    crate::e2ee::history::acknowledge(&app, &actor, &request).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]

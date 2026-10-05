@@ -152,6 +152,8 @@ impl App {
             tracing::warn!(code = error.code, "object garbage collection failed");
         }
         for query in [
+            "DELETE FROM e2ee_history_requests WHERE fingerprint IN (SELECT fingerprint FROM e2ee_history_requests WHERE retained_until<=clock_timestamp() LIMIT 100 FOR UPDATE SKIP LOCKED)",
+            "DELETE FROM e2ee_history_request_log WHERE (device_id,fingerprint) IN (SELECT device_id,fingerprint FROM e2ee_history_request_log WHERE created_at<=clock_timestamp()-interval '1 day' LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM push_notifications WHERE id IN (SELECT id FROM push_notifications WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM link_preview_jobs WHERE (message_id,slot) IN (SELECT j.message_id,j.slot FROM link_preview_jobs j JOIN messages m ON m.id=j.message_id JOIN instance i ON i.singleton WHERE j.expires_at<=clock_timestamp() OR j.token IS DISTINCT FROM m.preview_token OR j.data_epoch<>i.data_epoch OR m.deleted LIMIT 1000 FOR UPDATE OF j SKIP LOCKED)",
             "DELETE FROM presence_leases WHERE device_id IN (SELECT device_id FROM presence_leases WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",

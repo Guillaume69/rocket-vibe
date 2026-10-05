@@ -28,6 +28,9 @@ pub struct SharePreview {
     pub fingerprint: String,
     pub device: String,
     pub periods: Vec<PreviewPeriod>,
+    /// This device holds the account root and may hand control over with the
+    /// share (E2EE_DELEGATION.md).
+    pub can_delegate: bool,
     request: HistoryRequest,
 }
 /// One page to PUT on `…/requests/{request}/records`.
@@ -202,28 +205,58 @@ impl Coordinator<'_> {
                 documents: p.documents,
             })
             .collect();
+        let can_delegate = self.state().is_ok_and(|(_, state)| state.controller);
         Ok(SharePreview {
             fingerprint: offer.fingerprint,
             device: offer.device,
             periods,
+            can_delegate,
             request: offer.request,
         })
     }
     /// Sharing device: the human approved this preview; the job begins (or the
-    /// one already begun for this request is kept).
+    /// one already begun for this request is kept). `delegate`: the human also
+    /// hands control of the account (its private root) to that device.
     pub fn history_approve(
         &self,
         directory: &Directory,
         preview: SharePreview,
+        delegate: bool,
         time: u64,
     ) -> Result<()> {
         directory.sibling(&preview.request.body.certificate, &self.0.account().device)?;
-        if request_hex(&preview.request)? != preview.fingerprint {
+        if request_hex(&preview.request)? != preview.fingerprint
+            || delegate && !(preview.can_delegate && self.state()?.1.controller)
+        {
             return Err(Error::Changed);
         }
         Ok(self
             .groups(directory, time)?
-            .history_share_begin(&preview.request, time)?)
+            .history_share_begin(&preview.request, delegate, time)?)
+    }
+    /// New device: a delegated root received in a share becomes this device's
+    /// root once it matches the account's exactly; the device then controls
+    /// the account. Replayable; whether control was adopted.
+    pub fn adopt_control(&self) -> Result<bool> {
+        let (manager, _) = self.state()?;
+        Ok(manager.transact(|_, records| {
+            let Some(bytes) = records.remove(crate::history::DELEGATED_ROOT) else {
+                return Ok(false);
+            };
+            let bytes = zeroize::Zeroizing::new(bytes);
+            let mut state = read(records, &manager)?.ok_or(vault::Error::NotInitialized)?;
+            if state.withdrawn || state.controller {
+                return Ok(false);
+            }
+            // A root other than the account's is dropped, never adopted.
+            let Ok(issuer) = crate::identity::Issuer::import(&bytes, &state.root) else {
+                return Ok(false);
+            };
+            private(issuer.save(records))?;
+            state.controller = true;
+            save(records, &state)?;
+            Ok(true)
+        })?)
     }
     /// Sharing device: the request of the unfinished job, if any.
     pub fn history_share_pending(
@@ -338,10 +371,11 @@ impl Coordinator<'_> {
         {
             return Err(Error::Changed);
         }
-        Ok(status(
-            self.groups(directory, time)?
-                .history_import_begin(&share, time)?,
-        ))
+        let begun = self
+            .groups(directory, time)?
+            .history_import_begin(&share, time)?;
+        self.adopt_control()?;
+        Ok(status(begun))
     }
     /// New device: the open import, if any.
     pub fn history_import_status(
@@ -349,6 +383,7 @@ impl Coordinator<'_> {
         directory: &Directory,
         time: u64,
     ) -> Result<Option<ImportStatus>> {
+        self.adopt_control()?;
         Ok(self.groups(directory, time)?.history_import()?.map(status))
     }
     /// New device: its own listed requests that no local request or import

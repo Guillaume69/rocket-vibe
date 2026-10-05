@@ -163,8 +163,9 @@ An installed Grant adds **neither a correspondent pin nor a room leaf**.
 The private root stays on the controller; it is not transmitted to the new
 device by this format. The [root recovery](RECOVERY.md) uses a random code
 distinct from the HTTP password and creates a new leaf flow.
-Delegation of control and visible recovery remain to be integrated. Revoking a
-leaf does not withdraw an already compromised private root.
+Control is delegated to another registered device through a history share that
+carries the private root on explicit request ([E2EE_DELEGATION.md](../../docs/protocol/E2EE_DELEGATION.md)).
+Revoking a leaf does not withdraw an already compromised private root.
 
 Requests / Grants are transferred explicitly between devices. The account /
 epoch / UI guards, the Android bridge and the existing security screens

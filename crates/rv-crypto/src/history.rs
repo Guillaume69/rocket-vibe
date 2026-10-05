@@ -320,7 +320,7 @@ pub fn share(
         packets.push(page.packets.clone());
         job.advance(&page)?;
     }
-    Ok((job.finish(crypto, device, None, now)?, packets))
+    Ok((job.finish(crypto, device, None, None, now)?, packets))
 }
 
 /// A period the sharing device will share: its binding and how many documents
@@ -366,6 +366,10 @@ pub struct ShareJob {
     certificate: Certificate,
     periods: Vec<JobPeriod>,
     share: Option<Share>,
+    /// The human also handed control over (E2EE_DELEGATION.md): the private
+    /// root travels in the envelope.
+    #[serde(default)]
+    delegate: bool,
 }
 impl ShareJob {
     /// Begins a share of `plans` for this request. The caller has verified the
@@ -419,6 +423,7 @@ impl ShareJob {
             certificate,
             periods,
             share: None,
+            delegate: false,
         })
     }
     pub fn request(&self) -> &Request {
@@ -501,17 +506,37 @@ impl ShareJob {
         state.chain = page.chain;
         Ok(())
     }
+    pub fn delegated(&self) -> bool {
+        self.delegate
+    }
+    /// Also hands control over, until the share is drawn.
+    pub fn delegate(&mut self) -> Result<()> {
+        if self.share.is_some() {
+            return Err(Error::Changed);
+        }
+        self.delegate = true;
+        Ok(())
+    }
     /// The signed share once every period is sealed; drawn once, then kept.
+    /// `root` is the account's private root when control is handed over.
     pub fn finish(
         &mut self,
         crypto: &impl OpenMlsCrypto,
         device: &LocalDevice,
         history_key: Option<&crate::history_backup::HistoryKey>,
+        root: Option<&crate::identity::Issuer>,
         now: u64,
     ) -> Result<Share> {
         if let Some(share) = &self.share {
             return Ok(share.clone());
         }
+        let root = match (self.delegate, root) {
+            (false, _) => None,
+            (true, Some(issuer)) if issuer.root() == &self.certificate.device.root => Some(
+                Zeroizing::new(HEXLOWER.encode(&issuer.export().map_err(|_| Error::Changed)?)),
+            ),
+            (true, _) => return Err(Error::Changed),
+        };
         if self.next().is_some() || self.periods.is_empty() {
             return Err(Error::Changed);
         }
@@ -543,6 +568,7 @@ impl ShareJob {
             serde_json::to_vec(&Sealed {
                 secrets: &encoded,
                 history_key,
+                root: root.as_ref().map(|r| r.as_str()),
             })
             .map_err(|_| Error::Changed)?,
         );
@@ -590,19 +616,36 @@ impl ShareJob {
 struct Sealed<'a> {
     secrets: &'a [String],
     history_key: Option<&'a crate::history_backup::HistoryKey>,
+    /// The private root, hex, when control is handed over (E2EE_DELEGATION.md).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    root: Option<&'a str>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Opened {
     secrets: Vec<String>,
     history_key: Option<crate::history_backup::HistoryKey>,
+    #[serde(default)]
+    root: Option<String>,
 }
 impl Drop for Opened {
     fn drop(&mut self) {
         for secret in &mut self.secrets {
             secret.zeroize();
         }
+        if let Some(root) = &mut self.root {
+            root.zeroize();
+        }
     }
+}
+/// Record of a delegated private root received in a share, until the account
+/// adopts it (E2EE_DELEGATION.md).
+pub(crate) const DELEGATED_ROOT: &str = "crypto-delegated-root-v1";
+/// What a share's envelope hands over besides the period keys: the account
+/// history key and, on a delegation of control, the private root's bytes.
+pub struct Extras {
+    pub history_key: Option<crate::history_backup::HistoryKey>,
+    pub root: Option<Zeroizing<Vec<u8>>>,
 }
 /// The secret of one shared period. No Debug/Clone/serde or raw export.
 pub struct PeriodKey(Zeroizing<[u8; 32]>);
@@ -614,7 +657,7 @@ pub fn open(
     records: &Records,
     share: &Share,
     now: u64,
-) -> Result<(Vec<PeriodKey>, Option<crate::history_backup::HistoryKey>)> {
+) -> Result<(Vec<PeriodKey>, Extras)> {
     let pending = pending(records)?.ok_or(Error::NotRequested)?;
     let fingerprint = pending.request.fingerprint()?;
     share.verify(now)?;
@@ -664,7 +707,23 @@ pub fn open(
             Ok(PeriodKey(key))
         })
         .collect::<Result<Vec<_>>>()?;
-    Ok((keys, opened.history_key.take()))
+    let root = opened
+        .root
+        .as_ref()
+        .map(|text| {
+            HEXLOWER
+                .decode(text.as_bytes())
+                .map(Zeroizing::new)
+                .map_err(|_| Error::Changed)
+        })
+        .transpose()?;
+    Ok((
+        keys,
+        Extras {
+            history_key: opened.history_key.take(),
+            root,
+        },
+    ))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -694,8 +753,8 @@ impl ImportJob {
         records: &Records,
         share: &Share,
         now: u64,
-    ) -> Result<(Self, Option<crate::history_backup::HistoryKey>)> {
-        let (keys, history_key) = open(crypto, records, share, now)?;
+    ) -> Result<(Self, Extras)> {
+        let (keys, extras) = open(crypto, records, share, now)?;
         let job = Self {
             share: share.clone(),
             secrets: keys.into_iter().map(|key| Secret(key.0)).collect(),
@@ -712,7 +771,7 @@ impl ImportJob {
                 })
                 .collect::<Result<Vec<_>>>()?,
         };
-        Ok((job, history_key))
+        Ok((job, extras))
     }
     pub fn share(&self) -> &Share {
         &self.share

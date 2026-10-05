@@ -79,6 +79,37 @@ impl Issuer {
             signing,
         })
     }
+    /// The private root, only to seal it to another device of the same
+    /// account that receives control (E2EE_DELEGATION.md).
+    pub(crate) fn export(&self) -> Result<Zeroizing<Vec<u8>>, Error> {
+        let private = PrivateRoot {
+            root: self.root.clone(),
+            seed: self.signing.to_bytes(),
+        };
+        Ok(Zeroizing::new(
+            serde_json::to_vec(&private).map_err(|_| Error::Invalid)?,
+        ))
+    }
+    /// A delegated private root: it must be exactly the account's `expected`
+    /// root, and its key must derive that root's public key.
+    pub(crate) fn import(bytes: &[u8], expected: &Root) -> Result<Self, Error> {
+        if bytes.len() > WIRE_LIMIT {
+            return Err(Error::Limit);
+        }
+        let private: PrivateRoot = serde_json::from_slice(bytes).map_err(|_| Error::Invalid)?;
+        private.root.validate()?;
+        if private.root != *expected {
+            return Err(Error::Changed);
+        }
+        let signing = SigningKey::from_bytes(&private.seed);
+        if signing.verifying_key().to_bytes() != private.root.public_key {
+            return Err(Error::Signature);
+        }
+        Ok(Self {
+            root: private.root.clone(),
+            signing,
+        })
+    }
     pub fn save(&self, records: &mut Records) -> Result<(), Error> {
         if records.contains_key(ROOT_RECORD) {
             if Self::load(records, &self.root.instance, &self.root.user)?.root != self.root {

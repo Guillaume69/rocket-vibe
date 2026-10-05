@@ -85,7 +85,9 @@ A share answers exactly one request fingerprint. It contains:
   period secret per manifest entry (lowercase hex), and the account history key
   `{generation, key}` of [path B](E2EE_HISTORY_BACKUP.md) when the sharing device
   holds one, else `null`. The new device keeps a received history key only if it
-  holds none.
+  holds none. When the sharing device's human also hands control over, a `root`
+  field carries the account's private root ([E2EE_DELEGATION.md](E2EE_DELEGATION.md));
+  an ordinary share omits it.
 - `certificate` and `signature`: current certificate of the sharing device and its
   leaf signature over request fingerprint, manifest and envelope, domain
   `rocketvibe-history-share-v1`.

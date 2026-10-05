@@ -87,8 +87,8 @@ A refused transaction saves neither a certificate nor a trust change.
 The [signed request / proof of possession](ENROLLMENT.md), its exact agreement and
 its durable receipts are implemented in the isolated engine, as is the
 [root backup / restore](RECOVERY.md) by distinct code. The new-device
-UI / delivery ceremony, delegation of control and archive recovery
-remain to be integrated.
+UI / delivery ceremony and archive recovery remain to be integrated; delegation
+of control rides on the history share ([E2EE_DELEGATION.md](../../docs/protocol/E2EE_DELEGATION.md)).
 The internal `certify` API must not be exposed directly to a server response.
 The signed list of recipients, the room commits, the single consumption
 of KeyPackages and the network delivery remain to be integrated.

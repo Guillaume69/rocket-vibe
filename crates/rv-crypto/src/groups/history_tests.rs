@@ -40,7 +40,9 @@ pub(super) fn share_all(
     request: &crate::history::Request,
 ) -> (Share, Vec<(usize, Vec<crate::history::Record>)>) {
     let coordinator = bob.coordinator();
-    coordinator.history_share_begin(request, NOW).unwrap();
+    coordinator
+        .history_share_begin(request, false, NOW)
+        .unwrap();
     let mut uploaded = Vec::new();
     while let Some(page) = coordinator.history_share_page(NOW).unwrap() {
         // A lost upload asks for the same page again.
@@ -175,12 +177,12 @@ fn a_share_stays_within_one_account_and_one_request() {
     // Another account's device can neither ask nor share.
     let foreign = alice.coordinator();
     assert!(foreign.history_preview(&request, NOW).is_err());
-    assert!(foreign.history_share_begin(&request, NOW).is_err());
+    assert!(foreign.history_share_begin(&request, false, NOW).is_err());
     // A device does not answer its own request.
     assert!(
         tablet
             .coordinator()
-            .history_share_begin(&request, NOW)
+            .history_share_begin(&request, false, NOW)
             .is_err()
     );
     let (share, _) = share_all(&bob, &request);
@@ -372,4 +374,61 @@ fn the_new_devices_conversation_continues_into_recovered_history() {
     );
     assert_eq!(search(3).0, ["own-9", "own-8", "history-6"]);
     assert!(search(3).1);
+}
+
+#[test]
+fn control_travels_with_a_share_only_on_request_and_only_from_the_root_holder() {
+    let (_, bob) = history(3);
+    let tablet = bob.sibling("bob-tablet", [9; 16]);
+    let request = tablet.coordinator().history_request(NOW).unwrap();
+    // A device without the private root cannot hand control over.
+    let laptop = bob.sibling("bob-laptop", [8; 16]);
+    assert!(
+        laptop
+            .coordinator()
+            .history_share_begin(&request, true, NOW)
+            .is_err()
+    );
+    // Begun without delegation, the job learns it before its share is drawn.
+    let coordinator = bob.coordinator();
+    coordinator
+        .history_share_begin(&request, false, NOW)
+        .unwrap();
+    coordinator
+        .history_share_begin(&request, true, NOW)
+        .unwrap();
+    while let Some(page) = coordinator.history_share_page(NOW).unwrap() {
+        coordinator
+            .history_share_uploaded(page.period, page.start, page.packets.len() as u64, NOW)
+            .unwrap();
+    }
+    let share = coordinator.history_share_finish(NOW).unwrap();
+    tablet
+        .coordinator()
+        .history_import_begin(&share, NOW)
+        .unwrap();
+    // The new device holds the delegated root, exactly the account's.
+    tablet
+        .manager
+        .inspect(|_, records| {
+            let bytes = records.get(crate::history::DELEGATED_ROOT).unwrap();
+            assert!(crate::identity::Issuer::import(bytes, &bob.root).is_ok());
+            Ok(())
+        })
+        .unwrap();
+    // An ordinary share carries no root.
+    let phone = bob.sibling("bob-phone", [7; 16]);
+    let other = phone.coordinator().history_request(NOW).unwrap();
+    let (plain, _) = super::history_tests::share_all(&bob, &other);
+    phone
+        .coordinator()
+        .history_import_begin(&plain, NOW)
+        .unwrap();
+    phone
+        .manager
+        .inspect(|_, records| {
+            assert!(records.get(crate::history::DELEGATED_ROOT).is_none());
+            Ok(())
+        })
+        .unwrap();
 }

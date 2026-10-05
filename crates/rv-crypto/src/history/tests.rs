@@ -325,10 +325,10 @@ fn pages_seal_again_identically_and_both_sides_resume_from_their_vault() {
         .seal_page(crypto, &f.desktop, 0, &input.documents[2..], NOW)
         .unwrap();
     job.advance(&second).unwrap();
-    let share = job.finish(crypto, &f.desktop, None, NOW).unwrap();
+    let share = job.finish(crypto, &f.desktop, None, None, NOW).unwrap();
     // The envelope is drawn once: a lost commit response gets the same share.
     assert_eq!(
-        job.finish(crypto, &f.desktop, None, NOW + 1)
+        job.finish(crypto, &f.desktop, None, None, NOW + 1)
             .unwrap()
             .to_bytes()
             .unwrap(),

@@ -70,8 +70,8 @@ Rust and Node / OpenSSL. [Root recovery](../../crates/rv-crypto/RECOVERY.md)
 by a random 256-bit code, an XChaCha20Poly1305 packet and restoration into a new
 vault is implemented. An exact receipt allows resumption without erasing a leaf
 created since; eight tests cover refusal / tampering / reopening.
-UI ceremony, delivery, control delegation,
-archive recovery and the room list remain to be integrated; a bare MLS `BasicCredential`
+UI ceremony, delivery, archive recovery and the room list remain to be integrated
+(control delegation: [E2EE_DELEGATION.md](../protocol/E2EE_DELEGATION.md)); a bare MLS `BasicCredential`
 does not provide them. If the
 private root is compromised, revoking a single leaf is not enough: the
 root must be replaced with a new out-of-band verification.

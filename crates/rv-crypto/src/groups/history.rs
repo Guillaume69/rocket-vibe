@@ -116,11 +116,22 @@ impl Coordinator {
     }
     /// Sharing device: begins the approved share, or keeps the one already
     /// begun for this request. Another request's unfinished job is replaced.
-    pub fn history_share_begin(&self, request: &Request, now: u64) -> Result<()> {
+    /// `delegate`: control is handed over too; this device must hold the root.
+    pub fn history_share_begin(&self, request: &Request, delegate: bool, now: u64) -> Result<()> {
         request.verify(now)?;
         self.same_account(&request.body.certificate)?;
         self.transact(|_, records| {
-            if load_share(records)?.is_some_and(|job| job.request() == request) {
+            if delegate {
+                let scope = self.manager.scope();
+                crate::identity::Issuer::load(records, &scope.instance, &scope.user)
+                    .map_err(|_| Error::Changed)?;
+            }
+            if let Some(mut job) = load_share(records)?.filter(|job| job.request() == request) {
+                // A replay keeps the job; a later choice to delegate joins it.
+                if delegate && !job.delegated() {
+                    job.delegate()?;
+                    save_share(records, &job)?;
+                }
                 return Ok(());
             }
             let context = self.context(records, now)?;
@@ -134,9 +145,12 @@ impl Coordinator {
                     total,
                 })
                 .collect();
-            let job = ShareJob::new(&context.local, request, plans, now)?;
+            let mut job = ShareJob::new(&context.local, request, plans, now)?;
             if job.next().is_none() {
                 return Err(Error::NotReady);
+            }
+            if delegate {
+                job.delegate()?;
             }
             save_share(records, &job)
         })
@@ -252,7 +266,23 @@ impl Coordinator {
             let context = self.context(records, now)?;
             // A held history key travels with the share (path B on path A).
             let key = crate::account::history_backup::held(records)?;
-            let share = job.finish(provider.crypto(), &context.local, key.as_ref(), now)?;
+            // The private root travels only when the human handed control over.
+            let scope = self.manager.scope();
+            let root = if job.delegated() {
+                Some(
+                    crate::identity::Issuer::load(records, &scope.instance, &scope.user)
+                        .map_err(|_| Error::Changed)?,
+                )
+            } else {
+                None
+            };
+            let share = job.finish(
+                provider.crypto(),
+                &context.local,
+                key.as_ref(),
+                root.as_ref(),
+                now,
+            )?;
             save_share(records, &job)?;
             Ok(share)
         })
@@ -285,12 +315,17 @@ impl Coordinator {
                     next: job.next(),
                 });
             }
-            let (job, key) = ImportJob::open(provider.crypto(), records, received, now)?;
+            let (job, extras) = ImportJob::open(provider.crypto(), records, received, now)?;
             // A device keeps the history key it already holds.
-            if let Some(key) = key
+            if let Some(key) = extras.history_key
                 && crate::account::history_backup::held(records)?.is_none()
             {
                 crate::account::history_backup::hold(records, &key)?;
+            }
+            // A delegated root waits, in the same commit, for the account to
+            // check and adopt it (`account::history::adopt_control`).
+            if let Some(root) = extras.root {
+                records.insert(crate::history::DELEGATED_ROOT.into(), root.to_vec());
             }
             save_import(records, &job)?;
             Ok(HistoryImport {

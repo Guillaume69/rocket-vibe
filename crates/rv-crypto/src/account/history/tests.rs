@@ -128,7 +128,10 @@ fn only_a_listed_sibling_request_is_offered_and_an_empty_history_is_not_shared()
         .remove(0);
     let preview = d.history_preview(&directory, offer, NOW + 2).unwrap();
     assert!(preview.periods.is_empty());
-    assert!(d.history_approve(&directory, preview, NOW + 2).is_err());
+    assert!(
+        d.history_approve(&directory, preview, false, NOW + 2)
+            .is_err()
+    );
     assert_eq!(d.history_share_pending(&directory, NOW + 2).unwrap(), None);
     assert!(d.history_upload(&directory, NOW + 2).unwrap().is_none());
     // The phone acknowledges only its own requests it no longer waits for.
@@ -193,4 +196,68 @@ fn a_share_from_this_device_or_another_account_is_not_imported() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn a_delegated_root_is_adopted_only_when_it_is_the_accounts_own() {
+    let folder = tempfile::tempdir().unwrap();
+    let keys = Arc::new(Keys::default());
+    let desktop = slot(folder.path(), keys.clone());
+    let mut wire = initialized(&desktop);
+    let phone = phone(&desktop, folder.path(), keys, &mut wire);
+    let p = Coordinator::new(&phone);
+    let own = p.directory(wire.clone()).unwrap();
+    assert!(!p.view(&own, NOW).unwrap().controls_root);
+    let deliver = |bytes: Vec<u8>| {
+        phone
+            .load()
+            .unwrap()
+            .unwrap()
+            .transact(|_, records| {
+                records.insert(crate::history::DELEGATED_ROOT.into(), bytes);
+                Ok(())
+            })
+            .unwrap();
+    };
+    // Another root, even well formed, is dropped and never adopted.
+    let stranger = Issuer::generate("instance", &phone.account().user).unwrap();
+    deliver(stranger.export().unwrap().to_vec());
+    assert!(!p.adopt_control().unwrap());
+    assert!(!p.view(&own, NOW).unwrap().controls_root);
+    // The account's own root makes the phone a controller.
+    let manager = desktop.load().unwrap().unwrap();
+    let exported = manager
+        .inspect(|_, records| {
+            let scope = manager.scope();
+            Ok(Issuer::load(records, &scope.instance, &scope.user)
+                .unwrap()
+                .export()
+                .unwrap()
+                .to_vec())
+        })
+        .unwrap();
+    deliver(exported);
+    assert!(p.adopt_control().unwrap());
+    assert!(
+        !p.adopt_control().unwrap(),
+        "adopted once, the record is gone"
+    );
+    let view = p.view(&own, NOW).unwrap();
+    assert!(view.controls_root);
+    // The new controller approves a device on its own.
+    let mut account = phone.account().clone();
+    account.device = "laptop".into();
+    let laptop = Installation::new(
+        folder.path().join("laptop-private"),
+        account,
+        Arc::new(Keys::default()),
+    )
+    .unwrap();
+    let l = Coordinator::new(&laptop);
+    let fresh = l.directory(wire.clone()).unwrap();
+    l.begin(&fresh, &wire.identity.as_ref().unwrap().fingerprint, NOW)
+        .unwrap();
+    let request = l.view(&fresh, NOW).unwrap().request_code;
+    let preview = p.preview(&own, &request, NOW).unwrap();
+    assert!(p.approve(&own, preview, NOW).is_ok());
 }

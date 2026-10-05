@@ -19,6 +19,14 @@ pub enum RvError {
     Local { message: String },
 }
 
+/// One more page of history: whether there may be more still, and how many
+/// messages the room then shows (None: keep the current count).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct OlderPage {
+    pub more: bool,
+    pub limit: Option<i64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct TwoFactor {
     pub method: String,

@@ -430,11 +430,14 @@ impl Chat {
         Ok(page.count as i64 >= rv_core::sync::HISTORY_PAGE)
     }
 
-    /// One more page before `oldest_ts`. True when there may be more still.
-    pub async fn load_older(&self, rid: String, kind: String, oldest_ts: i64) -> Result<bool, RvError> {
-        let s = self.session.clone();
-        let page = on_tokio(async move { s.sync.load_history(&rid, &kind, Some(oldest_ts)).await }).await?;
-        Ok(page.count > 1)
+    /// One more page before `oldest_ts`.
+    pub async fn load_older(&self, rid: String, kind: String, oldest_ts: i64) -> Result<model::OlderPage, RvError> {
+        let (s, room) = (self.session.clone(), rid.clone());
+        let page = on_tokio(async move { s.sync.load_history(&room, &kind, Some(oldest_ts)).await }).await?;
+        // Down to the page and no further: an older message stored on its own
+        // (starred, edited) would hide the hole above it.
+        let limit = page.oldest_ts.map(|ts| self.session.store.count_since(&rid, ts));
+        Ok(model::OlderPage { more: page.count > 1, limit })
     }
 
     pub async fn load_thread(&self, root_id: String) -> Result<(), RvError> {

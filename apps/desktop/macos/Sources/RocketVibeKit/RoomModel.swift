@@ -106,11 +106,11 @@ public final class RoomModel {
             show(context)
             return true
         }
-        guard let more = try? await chat.loadOlder(rid: room.rid, kind: room.kind, oldestTs: oldest) else {
+        guard let page = try? await chat.loadOlder(rid: room.rid, kind: room.kind, oldestTs: oldest) else {
             return false
         }
-        hasOlder = more
-        limit += historyPage
+        hasOlder = page.more
+        if let shown = page.limit { limit = shown }
         reload()
         return true
     }

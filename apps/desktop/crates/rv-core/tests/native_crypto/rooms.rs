@@ -19,6 +19,8 @@ struct Book {
     message_receipts: BTreeMap<String, rv_protocol::e2ee::ApplicationReceipt>,
     message_posts: usize,
     lose_message_reply: bool,
+    available: Option<rv_protocol::e2ee::AvailableKeyPackage>,
+    package_gets: usize,
 }
 impl Book {
     fn reply(&mut self, request: &common::Request) -> Option<common::Response> {
@@ -105,6 +107,13 @@ impl Book {
                 _ => missing(),
             },
             "/api/v1/e2ee/rooms/room/events" => json_response(json!({"events":[],"next":null})),
+            "/api/v1/e2ee/rooms/room/key-packages/bob-id/peer-device" => {
+                self.package_gets += 1;
+                match &self.available {
+                    Some(package) => json_response(serde_json::to_value(package).unwrap()),
+                    None => missing(),
+                }
+            }
             "/api/v1/e2ee/rooms/room/messages" => {
                 assert_eq!(request.method, "POST");
                 let input: rv_protocol::e2ee::ApplicationSubmission = serde_json::from_str(&request.body).unwrap();
@@ -236,6 +245,8 @@ async fn setup(include_peer: bool) -> (Pilot, crypto::enrollment::Access, Arc<Mu
         message_receipts: BTreeMap::new(),
         message_posts: 0,
         lose_message_reply: false,
+        available: None,
+        package_gets: 0,
     }));
     let remote = book.clone();
     *pilot.room_handler.lock().unwrap() = Some(Arc::new(move |request| remote.lock().unwrap().reply(request)));
@@ -359,6 +370,112 @@ async fn room_removal_fences_an_existing_preview_even_after_rejoining() {
     assert_eq!(pilot.memory.writes.load(Ordering::SeqCst), writes);
     let fresh = reopen(&pilot).await;
     assert!(fresh.refresh().await.unwrap().phase == Phase::Empty);
+}
+
+#[tokio::test]
+async fn renewed_peer_becomes_replaceable_and_requires_explicit_removal_before_fresh_package_fetch() {
+    let (pilot, settings, book) = setup(true).await;
+    let mut peer = Peer::new("bob-id");
+    pilot.peer_directories.lock().unwrap().insert("bob-id".into(), peer.directory.clone());
+    let directory = tempfile::tempdir().unwrap();
+    let manager = Arc::new(
+        Manager::new(
+            directory.path().join("peer"),
+            Scope {
+                instance: "fixture-instance".into(),
+                data_epoch: "fixture-epoch".into(),
+                user: "bob-id".into(),
+                device: "peer-device".into(),
+                incarnation: hex(&peer.certificate.device.incarnation),
+            },
+            Arc::new(Memory::default()),
+        )
+        .unwrap(),
+    );
+    manager.initialize().unwrap();
+    manager
+        .transact(|_, records| {
+            *records = std::mem::take(&mut peer.records);
+            Ok(())
+        })
+        .unwrap();
+    // The test HTTP peer acknowledges the actual protected package outbox.
+    // No package bytes, certificate or reference are synthesized here.
+    let package = |revision: &str| {
+        let at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let coordinator = packages::Coordinator::new(manager.clone(), peer.issuer.root().clone()).unwrap();
+        let request = coordinator.prepare(revision, 1, at).unwrap();
+        let expected: rv_protocol::e2ee::OperationReceipt = manager
+            .inspect(|_, records| {
+                let state: Value = serde_json::from_slice(&records["crypto-packages-v1"]).unwrap();
+                Ok(serde_json::from_value(state["pending"]["expected"].clone()).unwrap())
+            })
+            .unwrap();
+        coordinator.confirm(&expected, at).unwrap();
+        rv_protocol::e2ee::AvailableKeyPackage {
+            scope: request.scope,
+            user_id: "bob-id".into(),
+            device_id: "peer-device".into(),
+            incarnation: manager.scope().incarnation.clone(),
+            reference: expected.key_package_refs[0].clone(),
+            wire: request.packages[0].clone(),
+        }
+    };
+    book.lock().unwrap().available = Some(package("1"));
+    approve_peer(&settings, "bob-id").await;
+    let access = settings.room("room".into()).await.unwrap();
+    let view = access.refresh().await.unwrap();
+    let target = || vec![Target { user: "bob-id".into(), device: "peer-device".into() }];
+    let preview = access.preview_create(view.revision, target()).await.unwrap();
+    let accepted = access.confirm(preview.revision, preview.review.unwrap().fingerprint).await.unwrap();
+    assert_eq!(accepted.participants.len(), 2);
+    assert!(!accepted.devices.iter().find(|d| d.user == "bob-id").unwrap().eligible);
+    let old = peer.certificate.fingerprint().unwrap();
+    let renewed = manager
+        .transact(|_, records| {
+            let mut local = LocalDevice::load(peer.issuer.root(), "peer-device", records).unwrap();
+            let at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            let request = local.request(at, records).unwrap();
+            let consent = peer.issuer.preview_request(&request, at, 7200, records).unwrap();
+            let grant = peer.issuer.approve_request(&request, &consent, at, records).unwrap();
+            local.install(&grant, at, records).unwrap();
+            Ok(grant.certificate)
+        })
+        .unwrap();
+    assert_ne!(renewed.fingerprint().unwrap(), old);
+    let mut current = peer.directory.clone();
+    current["devices"][0]["certificate"] = json!(B64.encode(serde_json::to_vec(&renewed).unwrap()));
+    current["devices"][0]["revision"] = json!("2");
+    current["devices"][0]["expires_at"] = json!(renewed.device.expires_at.to_string());
+    pilot.peer_directories.lock().unwrap().insert("bob-id".into(), current);
+    book.lock().unwrap().available = Some(package("2"));
+    let replacement = access.refresh().await.unwrap();
+    let eligible = replacement.devices.iter().find(|d| d.user == "bob-id").unwrap();
+    assert!(eligible.eligible && eligible.fingerprint == hex(&renewed.fingerprint().unwrap()));
+    assert_eq!(replacement.participants.iter().find(|p| p.user == "bob-id").unwrap().fingerprint, hex(&old));
+    let fetches = book.lock().unwrap().package_gets;
+    assert!(access.preview_change(replacement.revision, vec![], target()).await.is_err());
+    assert_eq!(book.lock().unwrap().package_gets, fetches);
+    let replacement = access.refresh().await.unwrap();
+    let preview = access.preview_change(replacement.revision, vec!["peer-device".into()], target()).await.unwrap();
+    assert_eq!(book.lock().unwrap().package_gets, fetches + 1);
+    let peer_preview = preview.review.as_ref().unwrap().recipients.iter().find(|p| p.user == "bob-id").unwrap();
+    assert_eq!(peer_preview.fingerprint, hex(&renewed.fingerprint().unwrap()));
+    book.lock().unwrap().lose_reply = true;
+    assert!(access.confirm(preview.revision, preview.review.unwrap().fingerprint).await.is_err());
+    assert_eq!(book.lock().unwrap().posts, 2);
+    access.close();
+    let reopened = reopen(&pilot).await;
+    let pending = reopened.refresh().await.unwrap();
+    let installed = reopened.resume(pending.revision).await.unwrap();
+    assert!(installed.phase == Phase::Acknowledged);
+    assert_eq!(installed.epoch.parse::<u64>().unwrap(), accepted.epoch.parse::<u64>().unwrap() + 1);
+    assert_eq!(book.lock().unwrap().posts, 2);
+    assert_eq!(
+        installed.participants.iter().find(|p| p.user == "bob-id").unwrap().fingerprint,
+        hex(&renewed.fingerprint().unwrap())
+    );
+    assert!(!installed.devices.iter().find(|d| d.user == "bob-id").unwrap().eligible);
 }
 
 async fn message_settings(pilot: &Pilot) -> crypto::enrollment::Access {

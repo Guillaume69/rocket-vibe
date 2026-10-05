@@ -5,6 +5,25 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 
 ## État synthétique au 5 octobre 2026
 
+Remplacement explicite des pairs renouvelés raccordé aux contrôles existants
+Android / GTK / SwiftUI : un certificat différent de la feuille MLS devient
+sélectionnable avec « Remplacer et réinviter », qui associe retrait et ajout.
+Un retrait simple n'ajoute personne ; certificat de vue changé et pair non
+approuvé sont refusés. Le test du moteur renouvelle deux certificats déjà
+expirés, refuse de conserver le pair expiré / de l'ajouter sans retrait, puis
+valide un vrai Welcome de réadmission et des messages MLS dans les deux sens
+en 2,60 secondes. Les 19 parcours HTTP / MLS / SQLite du cœur bureau passent
+en 46,15 secondes, dont éligibilité, absence de fetch sans retrait, nouveau
+certificat, réponse perdue et reprise sans second POST. Quinze tests des
+adaptateurs mobiles passent en 190 ms ; typecheck, lint ciblé et Clippy strict
+moteur / cœur / FFI passent. Le banc séparé HTTP / PostgreSQL est prolongé par
+renouvellement des deux appareils, remplacement, Welcome, réouverture et deux
+nouveaux messages ; il compile localement, mais sa nouvelle exécution réelle
+et les interfaces GTK / SwiftUI attendent la CI de ce lot. Sa limite de
+90 secondes est conservée. La nouvelle admission retire l'ancien cache :
+archive / récupération historique, qualification installée et revue indépendante
+restent ouvertes. Aucun masque E2EE de production n'est activé.
+
 Rotation après renouvellement raccordée aux contrôles actuels des salons :
 Android / GTK / SwiftUI signalent le certificat à actualiser à partir de la
 feuille MLS vérifiée dans le coffre. Le nouvel envoi est refusé avant la
@@ -16,15 +35,17 @@ POST et envoie ensuite avec la nouvelle feuille / époque. Le parcours de deux
 acteurs du pont Rust mobile passe en 20,27 secondes ; son second acteur reçoit
 le commit renouvelé, avec des reçus synthétiques. Le moteur partagé passe son
 test de feuille réelle en 1,43 seconde ; 21 tests d'adaptateurs mobiles et le
-typecheck passent. La qualification CI de ce lot, le remplacement des feuilles
-de pairs déjà expirées et les parcours installés restent ouverts.
+typecheck passent. Les trois CI de d1e032a sont vertes : neuf jobs natifs dans
+37257228014, build / démarrage macOS dans 37257227947 et vrai Keystore / deux ABI
+Android dans 37257227983. Le remplacement des feuilles de pairs déjà expirées
+est prolongé par le lot ci-dessus ; les parcours installés restent ouverts.
 La suite bureau complète passe ses 18 parcours HTTP / MLS / SQLite en
 53,39 secondes ; les huit tests du pont mobile passent en 56,09 secondes.
 Clippy strict du moteur / pont / cœur / FFI et lint mobile ciblé passent.
 La bibliothèque FFI réelle est reconstruite en 1 min 57 s et ses bindings
 Swift régénérés exposent le booléen natif attendu par l'interface existante.
-La compilation / exécution GTK et SwiftUI de ce nouveau lot restent à confirmer
-par sa CI ; GTK n'est pas construit sur Windows.
+La compilation / exécution GTK et SwiftUI de ce lot sont confirmées par ces CI ;
+GTK n'est pas construit sur Windows.
 
 Le renouvellement explicite des certificats d'appareil est raccordé dans le
 coffre partagé et les paramètres Android / GTK / SwiftUI existants. L'échéance,

@@ -226,7 +226,10 @@ pub(super) fn message(id: &str) -> SendMessage {
     }
 }
 pub(super) fn ack(submission: &MessageSubmission, position: u64) -> packet::Receipt {
-    let proof = submission.verified(NOW).unwrap();
+    ack_at(submission, position, NOW)
+}
+pub(super) fn ack_at(submission: &MessageSubmission, position: u64, now: u64) -> packet::Receipt {
+    let proof = submission.verified(now).unwrap();
     packet::Receipt {
         fingerprint: proof.fingerprint().unwrap(),
         header: proof.header,

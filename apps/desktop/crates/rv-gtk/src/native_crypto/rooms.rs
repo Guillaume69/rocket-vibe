@@ -155,6 +155,9 @@ impl Ui {
                 let name = if d.device.is_empty() { d.name.clone() } else { format!("{} · {}", d.name, d.device) };
                 let row = self.row(&self.include, &name, &d.fingerprint);
                 if d.eligible {
+                    let replacing = value.participants.iter().any(|p| p.user == d.user && p.device == d.device);
+                    let name = if replacing { format!("{} · {}", name, t("crypto.group_replace")) } else { name };
+                    row.set_title(&name);
                     if d.trust == rv_core::native::crypto::enrollment::peers::Trust::Unverified {
                         row.set_title(&format!("{} · {}", name, t("crypto.peer_unverified")));
                     }
@@ -193,6 +196,29 @@ impl Ui {
             }
             self.include.set_visible(true);
             self.members.set_visible(!value.participants.is_empty());
+            // Selecting the explicitly labelled replacement pairs Remove+Add.
+            // A plain removal still never includes a device implicitly.
+            for (user, device, selected) in self.selected.borrow().iter() {
+                if !value.participants.iter().any(|p| &p.user == user && &p.device == device) {
+                    continue;
+                }
+                if let Some((_, removed)) = self.removed.borrow().iter().find(|(d, _)| d == device) {
+                    let other = removed.downgrade();
+                    selected.connect_toggled(move |selected| {
+                        if let Some(removed) = other.upgrade() {
+                            removed.set_active(selected.is_active());
+                        }
+                    });
+                    let other = selected.downgrade();
+                    removed.connect_toggled(move |removed| {
+                        if !removed.is_active()
+                            && let Some(selected) = other.upgrade()
+                        {
+                            selected.set_active(false);
+                        }
+                    });
+                }
+            }
         }
         self.buttons(Some(value), false);
     }
@@ -404,6 +430,37 @@ mod tests {
         ui.render(&renewal);
         assert_eq!(ui.status.subtitle().as_deref(), Some(t("crypto.group_credential_update")));
         assert!(ui.actions.iter().find(|(a, _)| matches!(a, Action::Change)).unwrap().1.is_visible());
+        let replacement = View {
+            devices: vec![rooms::Device {
+                user: "alice".into(),
+                name: "Appareil renouvelé".into(),
+                device: "device".into(),
+                incarnation: "01".repeat(16),
+                fingerprint: "05".repeat(32),
+                root_fingerprint: "02".repeat(32),
+                eligible: true,
+                own: false,
+                trust: rv_core::native::crypto::enrollment::peers::Trust::Verified,
+            }],
+            participants: vec![rooms::Recipient {
+                user: "alice".into(),
+                name: "Ancienne feuille".into(),
+                device: "device".into(),
+                incarnation: "01".repeat(16),
+                root_fingerprint: "02".repeat(32),
+                fingerprint: "03".repeat(32),
+            }],
+            ..renewal
+        };
+        ui.render(&replacement);
+        let included = ui.selected.borrow()[0].2.clone();
+        let removed = ui.removed.borrow()[0].1.clone();
+        included.set_active(true);
+        assert!(removed.is_active(), "replacement pairs the old removal with the new invitation");
+        removed.set_active(false);
+        assert!(!included.is_active(), "without removal the replacement must also be deselected");
+        removed.set_active(true);
+        assert!(!included.is_active(), "plain removal never silently invites a device");
         ui.clear();
         assert!(ui.rows.borrow().is_empty());
         dialog.close();

@@ -17,7 +17,13 @@ section here.
   the protected MLS leaf and offer the explicit group update. New sends wait for
   that update and ordered journal catchup; private history and drafts survive.
   An accepted rotation with a lost reply resumes its original receipt. Installed
-  qualification and expired peer replacement remain open.
+  qualification remains open.
+- Existing GTK / SwiftUI room controls explicitly replace a renewed peer's
+  previous group credential with its fresh approved package and invitation.
+  Selecting replacement pairs removal and addition; plain removal never invites.
+  The exact accepted transition resumes after response loss. A fresh admission
+  retires its previous message cache; historical archive recovery remains open.
+  Production E2EE stays disabled.
 
 - Existing GTK / SwiftUI message menus can experimentally choose another joined
   room for a quote, across ordinary and encrypted sources / destinations.

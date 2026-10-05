@@ -17,9 +17,10 @@ export type GroupTransport={
 };
 type Pending={operation:string;fingerprint:string;cancelling:boolean;superseded:boolean};
 type Local={accepted:GroupReceipt|null;participants:CryptoParticipant[];pending:Pending|null;needs_credential_update:boolean};
-export type CryptoGroupView=Local & {roster:GroupRoster;eligible:{user:string;device:string;incarnation:string}[];event:GroupEvent|null};
+type CurrentDevice={user:string;device:string;incarnation:string;certificate:string};
+export type CryptoGroupView=Local & {roster:GroupRoster;eligible:(CurrentDevice & {replacement:boolean})[];event:GroupEvent|null;own_device:string};
 export type CryptoRoomAction<T>=(rpc:(input:unknown)=>Promise<unknown>,roster:GroupRoster,
-  peers:(source?:GroupRoster)=>Promise<CryptoGroupView['eligible']>,scope:CryptoAccount,
+  peers:(source?:GroupRoster)=>Promise<CurrentDevice[]>,scope:CryptoAccount,
   call:<R>(fn:()=>Promise<R>,mutation?:boolean)=>Promise<R>)=>Promise<T>;
 const fp=(v:unknown):v is string=>typeof v==='string' && /^[0-9a-f]{64}$/.test(v);
 const id=(v:unknown):v is string=>typeof v==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(v);
@@ -84,13 +85,16 @@ export class CryptoGroupAccess {
       const peers=async(source=roster)=>{
         if(source.scope.instance_id!==scope.instance || source.scope.data_epoch!==scope.dataEpoch || source.members.length>128
           || !source.members.some(m=>m.user_id===scope.user))throw new NativeError(409,'crypto_scope_changed');
-        const devices:CryptoGroupView['eligible']=[];
+        const devices:CurrentDevice[]=[];
         for(const member of source.members) {
           const directory=await read(member.user_id);
           const result=await call(()=>this.bridge.peerView(handle,own,member.user_id,directory));
           const status=JSON.parse(result.statusJson) as CryptoPeerStatus;
           if(status.user!==member.user_id || !Array.isArray(status.devices) || status.devices.length>64)integrity();
-          for(const d of status.devices)if(d.approved && d.id!==scope.device)devices.push({user:status.user,device:d.id,incarnation:d.incarnation});
+          for(const d of status.devices) {
+            if(!id(d.id) || !/^[0-9a-f]{32}$/.test(d.incarnation) || !fp(d.fingerprint) || typeof d.approved!=='boolean')integrity();
+            if(d.approved && d.id!==scope.device)devices.push({user:status.user,device:d.id,incarnation:d.incarnation,certificate:d.fingerprint});
+          }
           if(devices.length>256)integrity();
         }
         return devices;
@@ -103,21 +107,26 @@ export class CryptoGroupAccess {
   }
   read():Promise<CryptoGroupView> {return this.run(false,async(rpc,roster,peers,scope,call)=>{
     const value=local(await rpc({action:'view',roster}),this.room,scope);
-    const devices=await peers(),eligible=devices.filter(d=>!value.participants.some(p=>p.device===d.device && p.incarnation===d.incarnation));
+    const devices=await peers(),eligible=devices.flatMap(d=>{
+      const previous=value.participants.find(p=>p.user===d.user && p.device===d.device);
+      return previous?.incarnation===d.incarnation && previous.certificate===d.certificate?[]:[{...d,replacement:!!previous}];
+    });
     let event:GroupEvent|null=null;
     if(roster.group && !value.pending) {
       const state=decodeNative('GroupState',await call(()=>this.remote.cryptoGroupState(this.room)));
       const page=decodeNative('GroupEventPage',await call(()=>this.remote.cryptoGroupEvents(this.room,value.accepted?.revision??'0')));
       const next=await rpc({action:'events',roster,state,page});event=next===null?null:decodeNative('GroupEvent',next);
     }
-    return {...value,roster,eligible,event};
+    return {...value,roster,eligible,event,own_device:scope.device};
   });}
   preview(view:CryptoGroupView,devices:string[],removals:string[]=[],receive=false):Promise<CryptoGroupPreview> {
     return this.run(!receive,async(rpc,roster,peers,_scope,call)=>{
       if(view.roster.room_id!==this.room || new Set(devices).size!==devices.length || new Set(removals).size!==removals.length)integrity();
       const current=await peers();const packages:AvailableKeyPackage[]=[];
       for(const device of devices) {
-        const target=view.eligible.find(d=>d.device===device);if(!target || !current.some(d=>d.device===target.device && d.incarnation===target.incarnation))integrity();
+        const target=view.eligible.find(d=>d.device===device);
+        if(!target || !current.some(d=>d.user===target.user && d.device===target.device && d.incarnation===target.incarnation && d.certificate===target.certificate)
+          || target.replacement && !removals.includes(target.device))integrity();
         packages.push(decodeNative('AvailableKeyPackage',await call(()=>this.remote.availableCryptoKeyPackage(this.room,target.user,target.device))));
       }
       if(receive && (!view.event || devices.length || removals.length))integrity();

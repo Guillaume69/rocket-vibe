@@ -64,6 +64,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("crypto.group_confirm", "Confirmer cet aperçu", "Confirm this review"),
     ("crypto.group_preview", "Appareils destinataires de l’aperçu", "Devices included in this review"),
     ("crypto.group_select", "Appareils approuvés à inclure", "Approved devices to include"),
+    ("crypto.group_replace", "Remplacer et réinviter", "Replace and invite again"),
     ("crypto.group_members", "Appareils du groupe local", "Devices in the local group"),
     ("crypto.group_remove", "Appareils à retirer", "Devices to remove"),
     (

@@ -285,6 +285,7 @@ impl Access {
                             p.user == member.user_id
                                 && p.device == device.id
                                 && hex(&p.incarnation) == device.incarnation
+                                && hex(&p.certificate) == device.fingerprint
                         });
                     devices.push(Device {
                         user: member.user_id.clone(),
@@ -368,13 +369,15 @@ impl Access {
     pub async fn cancel(&self, revision: u64) -> Result<View> {
         self.act(Action::Cancel(revision)).await
     }
-    fn targets(view: &View, targets: Vec<Target>) -> Result<Vec<super::super::Target>> {
+    fn targets(view: &View, targets: Vec<Target>, removals: &[String]) -> Result<Vec<super::super::Target>> {
         let mut seen = BTreeSet::new();
         targets
             .into_iter()
             .map(|t| {
                 if !seen.insert((t.user.clone(), t.device.clone()))
                     || !view.devices.iter().any(|d| d.user == t.user && d.device == t.device && d.eligible)
+                    || view.participants.iter().any(|p| p.user == t.user && p.device == t.device)
+                        && !removals.contains(&t.device)
                 {
                     return Err(room_changed());
                 }
@@ -407,7 +410,7 @@ impl Access {
                 if !previous.can_create || previous.phase != Phase::Empty {
                     return Err(room_changed());
                 }
-                let targets = Self::targets(previous, targets)?;
+                let targets = Self::targets(previous, targets, &[])?;
                 let mut incarnation = [0; 16];
                 SystemRandom::new().fill(&mut incarnation).map_err(|_| room_changed())?;
                 Some(Preview::Create(
@@ -426,7 +429,7 @@ impl Access {
                 {
                     return Err(room_changed());
                 }
-                let targets = Self::targets(previous, targets)?;
+                let targets = Self::targets(previous, targets, &removals)?;
                 Some(Preview::Change(
                     crypto.preview_change(id, crate::native::room_operation_id(), removals, targets).await?,
                 ))

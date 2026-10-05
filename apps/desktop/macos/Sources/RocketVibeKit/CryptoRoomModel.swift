@@ -32,6 +32,21 @@ public final class CryptoRoomModel {
     private func targets(_ value: NativeGroupState) -> [NativeGroupTarget] {
         value.devices.filter { $0.eligible && included.contains($0.id) }.map { NativeGroupTarget(user: $0.user, device: $0.device) }
     }
+    public func includeDevice(_ device: NativeGroupDevice, selected: Bool) {
+        if selected { included.insert(device.id) } else { included.remove(device.id) }
+        guard device.eligible, let value else { return }
+        for person in value.participants where person.user == device.user && person.device == device.device {
+            if selected { removed.insert(person.id) } else { removed.remove(person.id) }
+        }
+    }
+    public func removeDevice(_ person: NativeGroupRecipient, selected: Bool) {
+        if selected { removed.insert(person.id) } else { removed.remove(person.id) }
+        if !selected, let value {
+            for device in value.devices where device.user == person.user && device.device == person.device {
+                included.remove(device.id)
+            }
+        }
+    }
     public func create() async {
         guard let value else { return }; let devices = targets(value)
         await run { try await $0.previewCreate(revision: value.revision, devices: devices) }

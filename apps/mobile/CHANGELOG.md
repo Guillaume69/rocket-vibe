@@ -17,8 +17,13 @@ release, et ses notes sont la section de la version ici.
 - Les contrôles existants du salon signalent le certificat renouvelé à partir
   de la feuille MLS vérifiée. La mise à jour explicite et la reprise du journal
   conditionnent les nouveaux envois. Le pont Rust exerce deux appareils et la
-  réception du commit renouvelé ; qualification installée et remplacement des
-  pairs expirés restent ouverts.
+  réception du commit renouvelé ; qualification installée encore ouverte.
+- Les contrôles du salon proposent explicitement « Remplacer et réinviter »
+  pour un pair renouvelé. Cette sélection associe le retrait de l’ancien appareil
+  à son ajout avec un package frais ; un retrait seul ne le réinvite pas.
+  Certificat périmé dans la vue ou appareil non approuvé : préparation refusée.
+  La nouvelle admission retire l’ancien cache de messages ; récupération de
+  l’archive historique et qualification installée restent ouvertes.
 
 ### Citations privées dans les salons ordinaires RocketVibe
 

@@ -594,6 +594,7 @@ struct Peer {
     issuer: Issuer,
     certificate: rv_crypto::identity::Certificate,
     directory: Value,
+    records: vault::Records,
 }
 impl Peer {
     fn new(user: &str) -> Self {
@@ -615,7 +616,7 @@ impl Peer {
                 "expires_at":certificate.device.expires_at.to_string()}],
             "revocations": [], "next_revocation":null
         });
-        Self { issuer, certificate, directory }
+        Self { issuer, certificate, directory, records }
     }
     fn revoke(&self, device: &str, incarnation: [u8; 16], position: u64) -> Value {
         let signed = self.issuer.revoke(device, incarnation).unwrap();

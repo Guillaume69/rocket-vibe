@@ -111,12 +111,15 @@ impl Account {
         Coordinator::new(manager, self.root.clone()).unwrap()
     }
     fn package(&self) -> Vec<u8> {
+        self.package_at(NOW)
+    }
+    fn package_at(&self, now: u64) -> Vec<u8> {
         self.manager
             .transact(|provider, records| {
                 let local =
                     LocalDevice::load(&self.root, &self.manager.scope().device, records).unwrap();
                 let package = KeyPackage::builder()
-                    .build(SUITE, provider, &local, local.credential(NOW).unwrap())
+                    .build(SUITE, provider, &local, local.credential(now).unwrap())
                     .unwrap();
                 Ok(package.key_package().tls_serialize_detached().unwrap())
             })

@@ -509,6 +509,170 @@ fn lost_preparation_checkpoint_recovers_one_exact_pending_commit() {
 }
 
 #[test]
+fn expired_peers_require_explicit_remove_add_and_fresh_welcome_after_both_certificates_renew() {
+    use super::application_messages as messages;
+    let (alice, bob, _) = incoming::fixture(false);
+    let later = NOW + 3601;
+    let renew = |account: &Account| {
+        account
+            .manager
+            .transact(|_, records| {
+                let issuer = Issuer::load(records, "instance", &account.root.user).unwrap();
+                let mut local =
+                    LocalDevice::load(&account.root, &account.manager.scope().device, records)
+                        .unwrap();
+                let request = local.request(later, records).unwrap();
+                let consent = issuer
+                    .preview_request(&request, later, 7200, records)
+                    .unwrap();
+                let grant = issuer
+                    .approve_request(&request, &consent, later, records)
+                    .unwrap();
+                local.install(&grant, later, records).unwrap();
+                Ok(grant.certificate)
+            })
+            .unwrap()
+    };
+    let own = renew(&alice);
+    let peer = renew(&bob);
+    assert!(alice.certificate.verify(later).is_err() && bob.certificate.verify(later).is_err());
+    assert_eq!(
+        alice.coordinator().needs_credential_update("room", later),
+        Ok(true)
+    );
+    let ordinary = change(&alice, "keep-expired-peer", &["alice", "bob"], &[], vec![]);
+    assert!(
+        alice
+            .coordinator()
+            .preview_change(&ordinary, later)
+            .is_err()
+    );
+    let fresh = bob.package_at(later);
+    let without_remove = change(
+        &alice,
+        "add-without-remove",
+        &["alice", "bob"],
+        &[],
+        vec![fresh.clone()],
+    );
+    assert!(
+        alice
+            .coordinator()
+            .preview_change(&without_remove, later)
+            .is_err()
+    );
+    let replacement = change(
+        &alice,
+        "replace-renewed-peer",
+        &["alice", "bob"],
+        &["bob-mobile"],
+        vec![fresh],
+    );
+    let before = incoming::secret(&bob);
+    let submitted = prepare_change(&alice, &replacement, later);
+    let plan = Transition::from_bytes(&submitted.transition).unwrap().plan;
+    assert_eq!(
+        plan.participants
+            .iter()
+            .find(|p| p.user == "alice")
+            .unwrap()
+            .certificate,
+        own.fingerprint().unwrap()
+    );
+    assert_eq!(
+        plan.participants
+            .iter()
+            .find(|p| p.user == "bob")
+            .unwrap()
+            .certificate,
+        peer.fingerprint().unwrap()
+    );
+    assert_eq!(submitted.welcomes.len(), 1);
+    assert_eq!(submitted.welcomes[0].device, "bob-mobile");
+    assert!(
+        bob.coordinator()
+            .preview_commit(&event(&replacement, &submitted), later)
+            .is_err()
+    );
+    let admission = admission::event(
+        &Genesis {
+            roster: replacement.roster.clone(),
+            operation: replacement.operation.clone(),
+            packages: vec![],
+        },
+        &submitted,
+        "bob-mobile",
+    );
+    let (preview, consent) = bob
+        .reopened()
+        .preview_readmission(&admission, later)
+        .unwrap();
+    assert_eq!(
+        incoming::secret(&bob),
+        before,
+        "preview must preserve the old group and package"
+    );
+    let mut wrong = admission.clone();
+    wrong.welcome.payload[0] ^= 1;
+    assert!(
+        bob.reopened()
+            .accept_readmission(&wrong, &consent, preview.fingerprint, later)
+            .is_err()
+    );
+    assert_eq!(incoming::secret(&bob), before);
+    bob.reopened()
+        .accept_readmission(&admission, &consent, preview.fingerprint, later)
+        .unwrap();
+    alice
+        .coordinator()
+        .confirm(&receipt(&submitted), later)
+        .unwrap();
+    assert_eq!(incoming::secret(&alice), incoming::secret(&bob));
+    assert_eq!(
+        alice.coordinator().needs_credential_update("room", later),
+        Ok(false)
+    );
+    assert_eq!(
+        bob.coordinator().needs_credential_update("room", later),
+        Ok(false)
+    );
+    assert!(
+        bob.reopened()
+            .preview_readmission(&admission, later)
+            .is_err()
+    );
+    let message = messages::message("after-both-expired-renewals");
+    let original = alice
+        .coordinator()
+        .prepare_message(&messages::observation(&alice), &message, later)
+        .unwrap();
+    let ack = messages::ack_at(&original, 100, later);
+    alice.coordinator().confirm_message(&ack, later).unwrap();
+    bob.reopened()
+        .receive_message(&messages::observation(&bob), &original, &ack, later)
+        .unwrap();
+    let own_submission = bob
+        .reopened()
+        .prepare_message(
+            &messages::observation(&bob),
+            &messages::message("renewed-peer-replies"),
+            later,
+        )
+        .unwrap();
+    let peer_ack = messages::ack_at(&own_submission, 101, later);
+    bob.coordinator().confirm_message(&peer_ack, later).unwrap();
+    alice
+        .reopened()
+        .receive_message(
+            &messages::observation(&alice),
+            &own_submission,
+            &peer_ack,
+            later,
+        )
+        .unwrap();
+}
+
+#[test]
 fn singleton_epoch_zero_rotates_then_admits_a_real_new_member() {
     let alice = Account::new("alice", "alice-desktop", [1; 16]);
     let genesis = prepare(&alice.coordinator(), &request(vec![], &["alice"]));

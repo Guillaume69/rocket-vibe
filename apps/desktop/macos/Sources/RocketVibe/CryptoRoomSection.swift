@@ -35,9 +35,10 @@ struct CryptoRoomSection: View {
                         ForEach(value.devices, id: \.id) { device in
                             VStack(alignment: .leading, spacing: 4) {
                                 if device.eligible {
-                                    Toggle(device.name, isOn: Binding(
+                                    let replacing = value.participants.contains(where: { $0.user == device.user && $0.device == device.device })
+                                    Toggle(replacing ? "\(device.name) · \(L("crypto.group_replace"))" : device.name, isOn: Binding(
                                         get: { model.included.contains(device.id) },
-                                        set: { if $0 { model.included.insert(device.id) } else { model.included.remove(device.id) } }
+                                        set: { model.includeDevice(device, selected: $0) }
                                     ))
                                     if device.trust == .unverified { Text(peerTrustTitle(device.trust)).font(.caption) }
                                 } else {
@@ -59,7 +60,7 @@ struct CryptoRoomSection: View {
                                     } else {
                                         Toggle(person.name, isOn: Binding(
                                             get: { model.removed.contains(person.id) },
-                                            set: { if $0 { model.removed.insert(person.id) } else { model.removed.remove(person.id) } }
+                                            set: { model.removeDevice(person, selected: $0) }
                                         ))
                                     }
                                     fingerprint(person.fingerprint)

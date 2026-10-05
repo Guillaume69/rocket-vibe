@@ -41,7 +41,18 @@ function Groupe({c,room,membership,chat}:{c:Couleurs;room:string;membership:stri
   const reload=useCallback(()=>{setPreview(null);setSelected([]);setRemovals([]);void run(a=>a.read());},[run]);
   useFocusEffect(useCallback(()=>{focused.current=true;clear();if(expanded)reload();return()=>{focused.current=false;clear();};},[clear,expanded,reload]));
   useEffect(()=>{const sub=AppState.addEventListener('change',state=>{if(state!=='active')clear();else if(focused.current && expanded)reload();});return()=>sub.remove();},[clear,expanded,reload]);
-  const toggle=(device:string,remove=false)=>{const update=remove?setRemovals:setSelected;update(v=>v.includes(device)?v.filter(d=>d!==device):[...v,device]);};
+  const toggle=(device:string,remove=false)=>{
+    if(remove) {
+      const enabled=!removals.includes(device);
+      setRemovals(enabled?[...removals,device]:removals.filter(d=>d!==device));
+      if(!enabled)setSelected(selected.filter(d=>d!==device));
+    } else {
+      const enabled=!selected.includes(device);
+      setSelected(enabled?[...selected,device]:selected.filter(d=>d!==device));
+      if(view?.eligible.find(d=>d.device===device)?.replacement)
+        setRemovals(enabled?[...new Set([...removals,device])]:removals.filter(d=>d!==device));
+    }
+  };
   const prepare=(receive=false)=>{const current=view;if(!current)return;
     void run(async(a,visible)=>{const result=await a.preview(current,receive?[]:selected,receive?[]:removals,receive);if(visible())setPreview(result);});};
   const confirm=()=>{const current=preview;if(!current)return;setPreview(null);setSelected([]);setRemovals([]);
@@ -73,11 +84,11 @@ function Groupe({c,room,membership,chat}:{c:Couleurs;room:string;membership:stri
           {view.event && <Action c={c} label={t('group.previewEvent')} onPress={()=>prepare(true)} disabled={busy}/>}
           {(!view.roster.group || view.accepted && !view.event) && <>
             <Text style={[styles.text,{color:c.texteSecondaire}]}>{t('group.chooseDevices')}</Text>
-            {view.eligible.map(d=><Action key={d.device} c={c} label={`${selected.includes(d.device)?'☑':'☐'} ${d.user} · ${d.device}`} onPress={()=>toggle(d.device)} disabled={busy}/>)}
+            {view.eligible.map(d=><Action key={d.device} c={c} label={`${selected.includes(d.device)?'☑':'☐'} ${d.user} · ${d.device}${d.replacement?` · ${t('group.replaceDevice')}`:''}`} onPress={()=>toggle(d.device)} disabled={busy}/>)}
             {view.participants.map(p=><View key={p.device} style={styles.device}>
               <Text style={[styles.text,{color:c.texte}]}>{p.user} · {p.device}</Text>
               <Text selectable style={[styles.fingerprint,{color:c.texteSecondaire}]}>{p.certificate}</Text>
-              <Action c={c} label={`${removals.includes(p.device)?'☑':'☐'} ${t('group.removeDevice')}`} onPress={()=>toggle(p.device,true)} disabled={busy}/>
+              {p.device!==view.own_device && <Action c={c} label={`${removals.includes(p.device)?'☑':'☐'} ${t('group.removeDevice')}`} onPress={()=>toggle(p.device,true)} disabled={busy}/>}
             </View>)}
             <Action c={c} label={t(view.roster.group?'group.previewChange':'group.previewCreate')} onPress={()=>prepare()} disabled={busy}/>
           </>}

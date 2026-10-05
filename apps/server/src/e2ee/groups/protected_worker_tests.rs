@@ -138,18 +138,18 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
     );
     assert_eq!(
         packages.load(Ordering::SeqCst),
-        2,
-        "publication was posted twice after losing its ACK"
+        3,
+        "expected two initial publications and one renewed peer publication without replaying an accepted POST"
     );
     assert_eq!(
         transitions.load(Ordering::SeqCst),
-        6,
-        "expected five accepted transitions and one explicitly fenced late abandoned POST"
+        7,
+        "expected six accepted transitions and one explicitly fenced late abandoned POST"
     );
     assert_eq!(
         applications.load(Ordering::SeqCst),
-        9,
-        "expected eight accepted sends and one explicitly fenced late abandoned POST"
+        11,
+        "expected ten accepted sends and one explicitly fenced late abandoned POST"
     );
     let opaque: i64 =
         sqlx::query_scalar("SELECT count(*) FROM e2ee_application_messages WHERE room_id=$1")
@@ -157,7 +157,7 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
             .fetch_one(&app.pool)
             .await
             .unwrap();
-    assert_eq!(opaque, 8);
+    assert_eq!(opaque, 10);
     assert_eq!(cancellation_posts.load(Ordering::SeqCst), 3);
     let abandoned: i64 =
         sqlx::query_scalar("SELECT count(*) FROM e2ee_message_cancellations WHERE user_id=$1")
@@ -179,7 +179,7 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
         .fetch_one(&app.pool)
         .await
         .unwrap();
-    assert_eq!(delivered, 13);
+    assert_eq!(delivered, 16);
     let clear: i64 =
         sqlx::query_scalar("SELECT count(*) FROM messages WHERE room_id=$1 AND system IS NULL")
             .bind(&room.id)
@@ -204,8 +204,8 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
             .fetch_one(&app.pool)
             .await
             .unwrap();
-    assert_eq!(head, (5, 5));
-    for (table, expected) in [("e2ee_group_events", 5_i64), ("e2ee_group_welcomes", 2_i64)] {
+    assert_eq!(head, (6, 6));
+    for (table, expected) in [("e2ee_group_events", 6_i64), ("e2ee_group_welcomes", 3_i64)] {
         let query = format!("SELECT count(*) FROM {table} WHERE room_id=$1");
         let count: i64 = sqlx::query_scalar(&query)
             .bind(&room.id)
@@ -219,8 +219,8 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
         .await
         .unwrap();
     assert_eq!(
-        spent, 2,
-        "only the initial and readmission peer packages may be consumed"
+        spent, 3,
+        "only the initial, readmission and renewed peer packages may be consumed"
     );
     let operations: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM e2ee_operations WHERE result->>'kind'='publish_key_packages'",
@@ -228,7 +228,16 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
     .fetch_one(&app.pool)
     .await
     .unwrap();
-    assert_eq!(operations, 2);
+    assert_eq!(operations, 3);
+    let device_revisions: Vec<i64> = sqlx::query_scalar(
+        "SELECT revision FROM e2ee_devices WHERE user_id=$1 OR user_id=$2 ORDER BY user_id",
+    )
+    .bind(&alice.id)
+    .bind(&bob.id)
+    .fetch_all(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(device_revisions, vec![2, 2]);
     rejected(
         store::send(
             &app,

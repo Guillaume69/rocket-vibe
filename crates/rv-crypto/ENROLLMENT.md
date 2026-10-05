@@ -115,8 +115,16 @@ dans le journal, afin de lire les messages précédents. Historique et brouillon
 restent dans le même coffre. Le banc bureau exerce renouvellement, HTTP réel,
 rotation perdue, reprise sans second POST et nouvel envoi ; le pont mobile
 exerce deux acteurs MLS et la réception du commit renouvelé. Les reçus mobiles
-de ce banc sont synthétiques. Le remplacement des feuilles de pairs déjà
-expirées et les parcours installés restent à qualifier.
+de ce banc sont synthétiques. Les contrôles des trois clients permettent
+désormais de remplacer explicitement un pair renouvelé : retirer sa feuille
+précédente et ajouter un package frais dans le même commit. Une rotation
+conservant un pair expiré et un ajout sans retrait restent refusés. Un Welcome
+de réadmission est requis ; son aperçu ne remplace pas le groupe, sa confirmation
+retire l'ancien cache de messages et ses brouillons. Ce changement ne promet
+pas une récupération d'archive. Le test du moteur exerce les deux certificats
+expirés et de vrais messages MLS ; le banc du cœur bureau exerce sélection,
+HTTP et reprise originale. L'exécution du banc serveur prolongé et les parcours
+installés restent à qualifier.
 Les essais du coordinateur exercent expiration, second appareil, réouverture,
 reçu incorrect, annuaire changé et retrait ; le banc bureau exerce HTTP réel,
 workers précédents et réponse perdue. Qualification installée et revue restent
@@ -134,8 +142,8 @@ feuille ne retire pas une racine privée déjà compromise.
 
 Les demandes / Grants se transfèrent explicitement entre appareils. Les gardes
 de compte / époque / UI, le pont Android et les écrans de sécurité existants
-sont raccordés ; leurs parcours installés complets, les feuilles de pairs
-expirées et la revue indépendante restent à qualifier.
+sont raccordés ; leurs parcours installés complets, le remplacement des pairs
+renouvelés avec le serveur réel et la revue indépendante restent à qualifier.
 La restauration d'une racine ne doit jamais restaurer un ancien état MLS d'envoi.
 Archive / fichiers, protocole de salon et revue indépendante restent ouverts.
 

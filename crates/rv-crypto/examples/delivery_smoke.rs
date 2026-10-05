@@ -193,6 +193,64 @@ impl Account {
         client.update_token(self.token.to_string());
         Ok(Worker::new(manager, self.root.clone(), client)?)
     }
+    async fn renew(&mut self) -> Result<()> {
+        let manager = self.manager.clone();
+        let root = self.root.clone();
+        let old = self.certificate.clone();
+        assert!(
+            now() > old.device.issued_at,
+            "renewal must advance the issuance time"
+        );
+        let (request, grant) = tokio::task::spawn_blocking(move || -> Result<_> {
+            Ok(manager.transact(|_, records| {
+                let issuer = Issuer::load(records, &root.instance, &root.user).unwrap();
+                let mut local = LocalDevice::load(&root, &manager.scope().device, records).unwrap();
+                let at = now();
+                let request = local.request(at, records).unwrap();
+                let consent = issuer.preview_request(&request, at, 7200, records).unwrap();
+                let grant = issuer
+                    .approve_request(&request, &consent, at, records)
+                    .unwrap();
+                local.install(&grant, at, records).unwrap();
+                Ok((request, grant))
+            })?)
+        })
+        .await??;
+        assert!(
+            grant.certificate.device.incarnation == self.certificate.device.incarnation
+                && grant.certificate.device.signature_key == self.certificate.device.signature_key
+                && grant.certificate.device.root == self.root,
+            "renewal changed the installation identity"
+        );
+        let registration = http::RegisterDevice {
+            scope: http::Scope {
+                instance_id: self.manager.scope().instance.clone(),
+                data_epoch: self.manager.scope().data_epoch.clone(),
+            },
+            operation_id: HEXLOWER.encode(&random::<32>()),
+            expected_root_fingerprint: Some(HEXLOWER.encode(&self.root.fingerprint()?)),
+            expected_device_revision: Some(self.revision.clone()),
+            request: data_encoding::BASE64URL_NOPAD.encode(&request.to_bytes()?),
+            grant: data_encoding::BASE64URL_NOPAD.encode(&grant.to_bytes()?),
+            revoke_previous: None,
+        };
+        let receipt = self.client.register_crypto_device(&registration).await?;
+        assert!(
+            receipt.operation_id == registration.operation_id
+                && receipt.kind == "register_device"
+                && receipt.device_id == self.manager.scope().device
+                && receipt.scope.instance_id == registration.scope.instance_id
+                && receipt.scope.data_epoch == registration.scope.data_epoch
+                && receipt.key_package_refs.is_empty()
+                && receipt.incarnation == self.manager.scope().incarnation
+                && receipt.root_fingerprint == HEXLOWER.encode(&self.root.fingerprint()?)
+                && receipt.device_revision.parse::<u64>()? == self.revision.parse::<u64>()? + 1,
+            "wrong renewal receipt"
+        );
+        self.revision = receipt.device_revision;
+        self.certificate = grant.certificate;
+        Ok(())
+    }
     fn head(&self, room: &str) -> Result<groups::Receipt> {
         Ok(
             groups::Coordinator::new(self.manager.clone(), self.root.clone())?
@@ -416,8 +474,8 @@ async fn exchange(
 }
 async fn run(input: Input) -> Result<()> {
     eprintln!("protected-worker-http-smoke: accounts");
-    let alice = Account::new(&input.base, &input.alice).await?;
-    let bob = Account::new(&input.base, &input.bob).await?;
+    let mut alice = Account::new(&input.base, &input.alice).await?;
+    let mut bob = Account::new(&input.base, &input.bob).await?;
     alice.trust(&bob).await?;
     bob.trust(&alice).await?;
     eprintln!("protected-worker-http-smoke: key packages");
@@ -667,11 +725,95 @@ async fn run(input: Input) -> Result<()> {
         joined_batch.complete && joined_batch.head == joined && joined_batch.messages.is_empty(),
         "new admission exposed older journal contents"
     );
-    exchange(&alice, &bob, &input.room, 4, &position).await?;
+    let position = exchange(&alice, &bob, &input.room, 4, &position).await?;
     let head = alice.client.crypto_group_state(&input.room).await?;
     assert!(
         head.receipt.revision == "5" && head.receipt.epoch == "5" && !head.needs_rekey,
         "wrong final server head"
+    );
+    eprintln!("protected-worker-http-smoke: renewed peer replacement");
+    alice.renew().await?;
+    bob.renew().await?;
+    assert!(
+        alice
+            .client
+            .crypto_group_state(&input.room)
+            .await?
+            .needs_rekey,
+        "renewal did not invalidate the previous roster"
+    );
+    assert!(
+        !alice.worker()?.message_roster(&input.room).await?.1,
+        "a renewed certificate authorized sending before the MLS update"
+    );
+    bob.worker()?
+        .publish_packages(bob.revision.clone(), 1)
+        .await?;
+    let before = bob.secret(&input.room)?;
+    let worker = alice.worker()?;
+    let preview = worker
+        .preview_change(
+            &input.room,
+            HEXLOWER.encode(&random::<32>()),
+            vec![bob.manager.scope().device.clone()],
+            vec![Target {
+                user: bob.root.user.clone(),
+                device: bob.manager.scope().device.clone(),
+            }],
+        )
+        .await?;
+    assert!(
+        preview
+            .preview
+            .recipients
+            .iter()
+            .find(|p| p.user == bob.root.user)
+            .unwrap()
+            .certificate
+            == bob.certificate.fingerprint()?,
+        "replacement did not bind the current certificate"
+    );
+    let fingerprint = preview.preview.fingerprint;
+    lost(worker.prepare_change(preview, fingerprint).await);
+    worker.stop();
+    let accepted = alice.worker()?.resume_group(&input.room).await?;
+    let consumed = alice.worker()?.journal_page(&input.room).await?;
+    assert!(
+        consumed.complete && consumed.head == accepted,
+        "renewed author skipped the ordered rotation position"
+    );
+    let worker = bob.worker()?;
+    let batch = worker.events(&input.room).await?;
+    assert!(
+        batch.page.events.len() == 1 && batch.page.events[0].welcome.is_some(),
+        "renewed peer did not receive its exact new Welcome"
+    );
+    let preview = worker.preview_event(batch.page.events[0].clone()).await?;
+    assert!(
+        preview.kind == delivery::EventKind::Readmission && bob.secret(&input.room)? == before,
+        "renewed peer preview replaced its previous admission"
+    );
+    let fingerprint = preview.preview.fingerprint;
+    assert!(
+        worker.accept_event(preview, fingerprint).await? == accepted,
+        "wrong renewed peer admission"
+    );
+    worker.stop();
+    assert!(
+        alice.secret(&input.room)? == bob.secret(&input.room)?
+            && bob.secret(&input.room)? != before,
+        "renewed peer did not receive the new actual MLS secret"
+    );
+    let consumed = bob.worker()?.journal_page(&input.room).await?;
+    assert!(
+        consumed.complete && consumed.head == accepted && consumed.messages.is_empty(),
+        "renewed admission exposed the old retained messages"
+    );
+    exchange(&alice, &bob, &input.room, 5, &position).await?;
+    let head = alice.client.crypto_group_state(&input.room).await?;
+    assert!(
+        head.receipt.revision == "6" && head.receipt.epoch == "6" && !head.needs_rekey,
+        "wrong server head after renewed peer replacement"
     );
     println!("protected-worker-http-smoke: passed");
     Ok(())

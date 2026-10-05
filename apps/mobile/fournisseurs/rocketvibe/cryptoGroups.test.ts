@@ -87,6 +87,40 @@ test('package publication recovers its original receipt without preparing a seco
   assert.equal(f.packagePosts,1);assert.equal(f.packagePrepares,1);
   await f.access.publishPackages();assert.equal(f.packagePosts,1);assert.equal(f.packagePrepares,1);await f.access.close();
 });
+test('renewed peer is an explicit replacement, requires Remove plus fresh Add, and stale certificates or unapproved peers never fetch a package',async()=>{
+  const f=await setup(),roster=await f.remote.cryptoGroupRoster('room');
+  roster.group=f.ack;roster.members.push({user_id:'bob-id',access_version:'bob-access',activation_version:'bob-active'});
+  const old=fp,updated='12'.repeat(32);let current=updated,approved=true,fetches=0;
+  const participant={user:'bob-id',device:'peer-device',incarnation,root:fp,certificate:old};
+  const original=f.bridge.groupAction;
+  f.bridge.groupAction=async(handle,own,input)=>{
+    const command=JSON.parse(input) as {action:string;removals?:string[];packages?:unknown[]};
+    if(command.action==='view')return JSON.stringify({accepted:f.ack,participants:[participant],pending:null,needs_credential_update:false});
+    if(command.action==='events')return 'null';
+    if(command.action==='preview'){
+      assert.deepEqual(command.removals,['peer-device']);assert.equal(command.packages?.length,1);
+      return JSON.stringify({id:previewId,kind:'change',fingerprint:fp,recipients:[{...participant,certificate:current}]});
+    }
+    return original(handle,own,input);
+  };
+  f.bridge.peerView=async(_handle,_own,user)=>({id:previewId,statusJson:JSON.stringify({user,fingerprint:fp,previous_fingerprint:'',trust:'verified',
+    devices:user==='bob-id'?[{id:'peer-device',incarnation,fingerprint:current,expires_at:'2000000000',approved}]:[]})});
+  f.remote.cryptoGroupState=async()=>({receipt:f.ack,needs_rekey:true,transition:'YWJj',tree:'YWJj'});
+  f.remote.cryptoGroupEvents=async()=>({events:[],next:null});
+  f.remote.availableCryptoKeyPackage=async(_room,user,device)=>{
+    assert.equal(user,'bob-id');assert.equal(device,'peer-device');fetches++;
+    return {scope:roster.scope,user_id:user,device_id:device,incarnation,reference:Buffer.alloc(32,1).toString('base64url'),wire:'YWJj'};
+  };
+  const view=await f.access.read();assert.equal(view.own_device,'phone');
+  assert.deepEqual(view.eligible,[{user:'bob-id',device:'peer-device',incarnation,certificate:updated,replacement:true}]);
+  await assert.rejects(f.access.preview(view,['peer-device']),/crypto_integrity_failed/);assert.equal(fetches,0);
+  const preview=await f.access.preview(view,['peer-device'],['peer-device']);assert.equal(fetches,1);
+  assert.equal(preview.kind,'change');assert.equal(preview.recipients[0]?.certificate,updated);assert.equal(f.posts,0);
+  current='34'.repeat(32);await assert.rejects(f.access.preview(view,['peer-device'],['peer-device']),/crypto_integrity_failed/);assert.equal(fetches,1);
+  approved=false;assert.deepEqual((await f.access.read()).eligible,[]);assert.equal(fetches,1);
+  approved=true;current=old;assert.deepEqual((await f.access.read()).eligible,[]);
+  await f.access.close();
+});
 test('read-only room permits resolving an accepted receipt but refuses a fresh group POST',async()=>{
   const f=await setup();const consent=await f.access.preview(await f.access.read(),[]);
   f.remote.submitCryptoGroup=async()=>{throw new NativeError(0,'network_error');};

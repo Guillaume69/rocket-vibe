@@ -61,6 +61,7 @@ pub struct NativeGroupState {
     pub participants: Vec<NativeGroupRecipient>,
     pub can_create: bool,
     pub has_event: bool,
+    pub needs_credential_update: bool,
     pub review: Option<NativeGroupReview>,
 }
 fn recipient(p: rooms::Recipient) -> NativeGroupRecipient {
@@ -88,6 +89,7 @@ fn display(v: rooms::View) -> NativeGroupState {
         pending_operation: v.pending_operation,
         can_create: v.can_create,
         has_event: v.has_event,
+        needs_credential_update: v.needs_credential_update,
         devices: v
             .devices
             .into_iter()

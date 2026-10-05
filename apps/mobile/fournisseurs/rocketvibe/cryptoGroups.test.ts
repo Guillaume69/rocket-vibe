@@ -30,7 +30,7 @@ async function setup() {
     peerPin:forbidden,peerPreview:forbidden,peerApprove:forbidden,
     groupAction:async(_h,_own,input)=>{const command=JSON.parse(input) as Record<string,unknown>;nativeCalls.push(String(command.action));
       switch(command.action) {
-        case 'view':return JSON.stringify({accepted:null,participants:[],pending});
+        case 'view':return JSON.stringify({accepted:null,participants:[],pending,needs_credential_update:false});
         case 'preview':return JSON.stringify({id:previewId,kind:'genesis',fingerprint:fp,recipients:[]});
         case 'confirm':pending={operation:'original',fingerprint:fp,cancelling:false,superseded:false};return JSON.stringify({pending});
         case 'pending':return JSON.stringify(pending);
@@ -61,18 +61,26 @@ async function setup() {
     if(loseRoom){visible=false;throw new NativeError(403,'room_access_denied');}
     if(mutation && readOnly)throw new NativeError(403,'room_access_denied');
   });
-  return {access,remote,nativeCalls,ack,get posts(){return posts;},get packagePosts(){return packagePosts;},get packagePrepares(){return packagePrepares;},
+  return {access,remote,bridge,nativeCalls,ack,get posts(){return posts;},get packagePosts(){return packagePosts;},get packagePrepares(){return packagePrepares;},
     get retries(){return retries;},get cancelWrites(){return cancelWrites;},
     loseResponse:()=>{loseResponse=true;},readOnly:()=>{readOnly=true;},loseRoom:()=>{loseRoom=true;},
     switchDevice:()=>{current={...scope,device:'replacement'};}};
 }
 test('group viewing and native preview do not create identities, pins, packages or group submissions; lost response resumes GET before POST',async()=>{
-  const f=await setup();const view=await f.access.read();assert.deepEqual(f.nativeCalls,['view']);assert.equal(f.posts,0);
+  const f=await setup();const view=await f.access.read();assert.equal(view.needs_credential_update,false);assert.deepEqual(f.nativeCalls,['view']);assert.equal(f.posts,0);
   const consent=await f.access.preview(view,[]);assert.equal(f.posts,0);assert.equal(f.packagePrepares,0);
   f.loseResponse();await assert.rejects(f.access.confirm(consent),/network_error/);assert.equal(f.posts,1);
   assert(f.nativeCalls.includes('confirm'));assert.equal(f.retries,1);
   await f.access.resume();assert.equal(f.posts,1);assert.equal(f.retries,1);
   assert.equal((await f.access.read()).pending,null);await f.access.close();
+});
+test('room certificate update hint must be native boolean and requires an accepted protected group',async()=>{
+  for(const hint of [undefined,'true',1,true]) {
+    const f=await setup();
+    f.bridge.groupAction=async()=>JSON.stringify({accepted:null,participants:[],pending:null,needs_credential_update:hint});
+    await assert.rejects(f.access.read(),/crypto_integrity_failed/);
+    assert.equal(f.posts,0);assert.equal(f.packagePrepares,0);await f.access.close();
+  }
 });
 test('package publication recovers its original receipt without preparing a second batch or repeating its POST',async()=>{
   const f=await setup();f.loseResponse();await assert.rejects(f.access.publishPackages(),/network_error/);

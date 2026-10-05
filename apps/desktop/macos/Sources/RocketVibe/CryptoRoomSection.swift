@@ -13,6 +13,9 @@ struct CryptoRoomSection: View {
                 if model.busy { ProgressView(L("crypto.loading")) }
                 if let value = model.value {
                     Text(groupPhaseTitle(value.phase))
+                    if value.needsCredentialUpdate {
+                        Text(L("crypto.group_credential_update")).font(.caption).foregroundStyle(.secondary)
+                    }
                     if !value.epoch.isEmpty { LabeledContent(L("crypto.group_epoch"), value: value.epoch) }
                     if let review = value.review {
                         Text(L("crypto.group_review_fingerprint")).font(.caption)

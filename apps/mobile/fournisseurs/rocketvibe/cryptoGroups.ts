@@ -16,7 +16,7 @@ export type GroupTransport={
   publishKeyPackages:(input:PublishKeyPackages)=>Promise<OperationReceipt>;
 };
 type Pending={operation:string;fingerprint:string;cancelling:boolean;superseded:boolean};
-type Local={accepted:GroupReceipt|null;participants:CryptoParticipant[];pending:Pending|null};
+type Local={accepted:GroupReceipt|null;participants:CryptoParticipant[];pending:Pending|null;needs_credential_update:boolean};
 export type CryptoGroupView=Local & {roster:GroupRoster;eligible:{user:string;device:string;incarnation:string}[];event:GroupEvent|null};
 export type CryptoRoomAction<T>=(rpc:(input:unknown)=>Promise<unknown>,roster:GroupRoster,
   peers:(source?:GroupRoster)=>Promise<CryptoGroupView['eligible']>,scope:CryptoAccount,
@@ -45,7 +45,8 @@ function pending(value:unknown):Pending|null {
 function local(value:unknown,room:string,scope:CryptoAccount):Local {
   const v=object(value),accepted=v.accepted===null?null:decodeNative('GroupReceipt',v.accepted);
   if(accepted && (accepted.room_id!==room || accepted.scope.instance_id!==scope.instance || accepted.scope.data_epoch!==scope.dataEpoch))integrity();
-  return {accepted,participants:participants(v.participants),pending:pending(v.pending)};
+  if(typeof v.needs_credential_update!=='boolean' || !accepted && v.needs_credential_update)integrity();
+  return {accepted,participants:participants(v.participants),pending:pending(v.pending),needs_credential_update:v.needs_credential_update};
 }
 function preview(value:unknown):CryptoGroupPreview {
   const v=object(value);

@@ -5,6 +5,27 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 
 ## État synthétique au 5 octobre 2026
 
+Rotation après renouvellement raccordée aux contrôles actuels des salons :
+Android / GTK / SwiftUI signalent le certificat à actualiser à partir de la
+feuille MLS vérifiée dans le coffre. Le nouvel envoi est refusé avant la
+transition explicite. Un reçu accepté récupéré après réponse perdue ne saute
+pas l'ancienne époque : le journal applique le commit à sa position exacte.
+Le nouveau parcours bureau HTTP / MLS / SQLite passe en 22,20 secondes et
+conserve historique / brouillon, refuse l'ancien aperçu, reprend sans second
+POST et envoie ensuite avec la nouvelle feuille / époque. Le parcours de deux
+acteurs du pont Rust mobile passe en 20,27 secondes ; son second acteur reçoit
+le commit renouvelé, avec des reçus synthétiques. Le moteur partagé passe son
+test de feuille réelle en 1,43 seconde ; 21 tests d'adaptateurs mobiles et le
+typecheck passent. La qualification CI de ce lot, le remplacement des feuilles
+de pairs déjà expirées et les parcours installés restent ouverts.
+La suite bureau complète passe ses 18 parcours HTTP / MLS / SQLite en
+53,39 secondes ; les huit tests du pont mobile passent en 56,09 secondes.
+Clippy strict du moteur / pont / cœur / FFI et lint mobile ciblé passent.
+La bibliothèque FFI réelle est reconstruite en 1 min 57 s et ses bindings
+Swift régénérés exposent le booléen natif attendu par l'interface existante.
+La compilation / exécution GTK et SwiftUI de ce nouveau lot restent à confirmer
+par sa CI ; GTK n'est pas construit sur Windows.
+
 Le renouvellement explicite des certificats d'appareil est raccordé dans le
 coffre partagé et les paramètres Android / GTK / SwiftUI existants. L'échéance,
 l'expiration, la demande à approuver et la reprise de l'enregistrement original
@@ -17,9 +38,12 @@ Les huit tests du pont mobile passent en 56,69 secondes ; le nouvel adaptateur
 TypeScript couvre aussi réponse perdue et échéance invalide. L'arrêt de deux
 vues partageant le worker est revalidé en 1,92 seconde. Typecheck et Clippy
 strict passent. Les bindings Swift réels sont régénérés en 1 min 31 s ; le
-pont Kotlin réel est construit / généré en 14,85 secondes. Qualification CI de
-ce lot, rotation MLS des salons après renouvellement et parcours installés
-restent ouverts. L'E2EE de production reste désactivé.
+pont Kotlin réel est construit / généré en 14,85 secondes. Les trois CI de
+b447d48 sont vertes : neuf jobs natifs dans 37254983507, build / démarrage macOS
+dans 37254983469 et vrai Keystore / deux ABI Android dans 37254983516. La
+rotation après renouvellement est prolongée par le lot ci-dessus ; parcours
+installés et remplacement des feuilles de pairs expirées restent ouverts.
+L'E2EE de production reste désactivé.
 
 Conversations de texte, fils et citations privées raccordés aux interfaces
 GTK / SwiftUI / Android existantes : lecture du journal conservé dans le coffre,
@@ -326,7 +350,7 @@ Keystore Android sur émulateur passent dans 37252377488. La CI native
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association / renouvellement de certificat, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils et citations privés dans les trois interfaces, lecture mixte, composition / destination intersalons et lecteurs de cartes privées dans les salons ordinaires des trois interfaces | Qualification CI du renouvellement, rotation MLS des salons, récupération / révocation visibles, autres actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association / renouvellement de certificat et signalisation de la rotation des salons, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils et citations privés dans les trois interfaces, lecture mixte, composition / destination intersalons et lecteurs de cartes privées dans les salons ordinaires des trois interfaces | Qualification CI de la rotation après renouvellement, feuilles de pairs expirées, récupération / révocation visibles, autres actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
 La dernière livraison serveur qui passe tous les jobs de sa CI (`41cb92c`) passe les neuf jobs de la CI

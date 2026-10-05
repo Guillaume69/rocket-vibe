@@ -51,6 +51,11 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("crypto.group_empty", "Aucun groupe enregistré", "No group recorded"),
     ("crypto.group_admission", "Cet appareil attend une admission", "This device needs admission"),
     ("crypto.group_ack", "Groupe enregistré sur cet appareil", "Group recorded on this device"),
+    (
+        "crypto.group_credential_update",
+        "Le certificat de cet appareil a été renouvelé. La mise à jour du groupe et la reprise de son journal sont nécessaires avant un nouvel envoi.",
+        "This device certificate was renewed. The group update and ordered history catchup are required before sending again.",
+    ),
     ("crypto.group_pending", "Transition en attente de son reçu", "Transition awaiting its receipt"),
     ("crypto.group_prepare", "Préparer cet appareil pour les invitations", "Prepare this device for invitations"),
     ("crypto.group_create", "Examiner la création du groupe", "Review group creation"),

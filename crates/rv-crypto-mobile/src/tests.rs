@@ -43,7 +43,7 @@ fn empty_directory() -> rv_protocol::e2ee::Directory {
         next_revocation: None,
     }
 }
-fn registration_public(
+pub(super) fn registration_public(
     input: &str,
 ) -> (
     rv_protocol::e2ee::OperationReceipt,
@@ -66,7 +66,12 @@ fn registration_public(
         kind: "register_device".into(),
         device_id: cert.device.clone(),
         incarnation: data_encoding::HEXLOWER.encode(&cert.incarnation),
-        device_revision: "1".into(),
+        device_revision: (request
+            .expected_device_revision
+            .as_ref()
+            .map_or(0, |v| v.parse::<u64>().unwrap())
+            + 1)
+        .to_string(),
         root_fingerprint: fingerprint.clone(),
         key_package_refs: vec![],
     };
@@ -81,7 +86,7 @@ fn registration_public(
         incarnation: receipt.incarnation.clone(),
         certificate: data_encoding::BASE64URL_NOPAD
             .encode(&serde_json::to_vec(&grant.certificate).unwrap()),
-        revision: "1".into(),
+        revision: receipt.device_revision.clone(),
         expires_at: cert.expires_at.to_string(),
     };
     (receipt, identity, device)

@@ -106,8 +106,17 @@ contrôlés. L'ancien baseline n'est supprimé qu'après cet ACK.
 Les enregistrements antérieurs restent lisibles ; le champ privé optionnel de
 renouvellement n'est écrit que pendant cette intention. Les réglages Android,
 GTK et SwiftUI exposent l'expiration, la demande / approbation et la reprise.
-Ils n'émettent pas automatiquement de commit MLS : la feuille de chaque salon
-concerné doit encore être actualisée par sa transition explicite, puis qualifiée.
+Ils n'émettent pas automatiquement de commit MLS. Les contrôles existants de
+chaque salon signalent le décalage entre sa feuille MLS effectivement vérifiée
+et le certificat installé ; la transition explicite actualise cette feuille.
+Le nouveau certificat n'autorise pas d'envoi avant cette mise à jour. Le reçu
+HTTP accepté conserve l'ancienne époque jusqu'à la position exacte du commit
+dans le journal, afin de lire les messages précédents. Historique et brouillon
+restent dans le même coffre. Le banc bureau exerce renouvellement, HTTP réel,
+rotation perdue, reprise sans second POST et nouvel envoi ; le pont mobile
+exerce deux acteurs MLS et la réception du commit renouvelé. Les reçus mobiles
+de ce banc sont synthétiques. Le remplacement des feuilles de pairs déjà
+expirées et les parcours installés restent à qualifier.
 Les essais du coordinateur exercent expiration, second appareil, réouverture,
 reçu incorrect, annuaire changé et retrait ; le banc bureau exerce HTTP réel,
 workers précédents et réponse perdue. Qualification installée et revue restent
@@ -125,8 +134,8 @@ feuille ne retire pas une racine privée déjà compromise.
 
 Les demandes / Grants se transfèrent explicitement entre appareils. Les gardes
 de compte / époque / UI, le pont Android et les écrans de sécurité existants
-sont raccordés ; leurs parcours installés complets et la rotation après
-renouvellement restent à qualifier.
+sont raccordés ; leurs parcours installés complets, les feuilles de pairs
+expirées et la revue indépendante restent à qualifier.
 La restauration d'une racine ne doit jamais restaurer un ancien état MLS d'envoi.
 Archive / fichiers, protocole de salon et revue indépendante restent ouverts.
 

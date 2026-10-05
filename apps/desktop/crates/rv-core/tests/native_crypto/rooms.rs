@@ -11,6 +11,7 @@ struct Book {
     include_peer: bool,
     head: Option<rv_protocol::e2ee::GroupReceipt>,
     submission: Option<rv_protocol::e2ee::GroupSubmission>,
+    delivery: Vec<rv_protocol::e2ee::DeliveryEvent>,
     receipts: BTreeMap<String, rv_protocol::e2ee::GroupReceipt>,
     posts: usize,
     lose_reply: bool,
@@ -81,6 +82,15 @@ impl Book {
                 .unwrap();
                 self.posts += 1;
                 self.receipts.insert(input.operation_id.clone(), receipt.clone());
+                self.delivery.push(rv_protocol::e2ee::DeliveryEvent {
+                    position: (self.delivery.last().map_or(0, |e| e.position.parse::<u64>().unwrap()) + 1).to_string(),
+                    content: rv_protocol::e2ee::DeliveryContent::Group(rv_protocol::e2ee::GroupEvent {
+                        receipt: receipt.clone(),
+                        transition: input.transition.clone(),
+                        commit: input.commit.clone(),
+                        welcome: None,
+                    }),
+                });
                 self.head = Some(receipt.clone());
                 self.submission = Some(input);
                 if self.lose_reply {
@@ -109,12 +119,21 @@ impl Book {
                     header: proof.header.clone(),
                     fingerprint: proof.fingerprint().unwrap(),
                     message: format!("private-message-{}", self.message_receipts.len() + 1),
-                    position: 9007199254740993 + self.message_receipts.len() as u64,
+                    position: (self.delivery.last().map_or(0, |e| e.position.parse::<u64>().unwrap()) + 1)
+                        .max(9007199254740993),
                 })
                 .unwrap();
                 assert!(!self.message_receipts.contains_key(&input.operation_id));
                 self.message_posts += 1;
                 self.message_receipts.insert(input.operation_id.clone(), receipt.clone());
+                self.delivery.push(rv_protocol::e2ee::DeliveryEvent {
+                    position: receipt.position.clone(),
+                    content: rv_protocol::e2ee::DeliveryContent::Message(rv_protocol::e2ee::ApplicationMessage {
+                        receipt: receipt.clone(),
+                        proof: input.proof.clone(),
+                        ciphertext: input.ciphertext.clone(),
+                    }),
+                });
                 self.message_submissions.insert(input.operation_id.clone(), input);
                 if self.lose_message_reply {
                     self.lose_message_reply = false;
@@ -128,40 +147,20 @@ impl Book {
                     .into_owned()
                     .collect::<BTreeMap<_, _>>();
                 let after = query.get("after").unwrap().parse::<u64>().unwrap();
-                let through = query.get("through").map(|s| s.parse::<u64>().unwrap()).unwrap_or_else(|| {
-                    self.message_receipts.values().map(|r| r.position.parse::<u64>().unwrap()).max().unwrap_or(1)
-                });
+                let through = query
+                    .get("through")
+                    .map(|s| s.parse::<u64>().unwrap())
+                    .unwrap_or_else(|| self.delivery.last().unwrap().position.parse::<u64>().unwrap());
                 let head = self.head.as_ref().unwrap();
-                let original = self.submission.as_ref().unwrap();
-                let mut events = vec![];
-                if after == 0 {
-                    events.push(rv_protocol::e2ee::DeliveryEvent {
-                        position: "1".into(),
-                        content: rv_protocol::e2ee::DeliveryContent::Group(rv_protocol::e2ee::GroupEvent {
-                            receipt: head.clone(),
-                            transition: original.transition.clone(),
-                            commit: original.commit.clone(),
-                            welcome: None,
-                        }),
-                    });
-                }
-                for (operation, receipt) in &self.message_receipts {
-                    let position = receipt.position.parse::<u64>().unwrap();
-                    if after < position && position <= through {
-                        let input = &self.message_submissions[operation];
-                        events.push(rv_protocol::e2ee::DeliveryEvent {
-                            position: receipt.position.clone(),
-                            content: rv_protocol::e2ee::DeliveryContent::Message(
-                                rv_protocol::e2ee::ApplicationMessage {
-                                    receipt: receipt.clone(),
-                                    proof: input.proof.clone(),
-                                    ciphertext: input.ciphertext.clone(),
-                                },
-                            ),
-                        });
-                    }
-                }
-                events.sort_by_key(|e| e.position.parse::<u64>().unwrap());
+                let events = self
+                    .delivery
+                    .iter()
+                    .filter(|e| {
+                        let position = e.position.parse::<u64>().unwrap();
+                        after < position && position <= through
+                    })
+                    .cloned()
+                    .collect();
                 json_response(
                     serde_json::to_value(rv_protocol::e2ee::DeliveryPage {
                         scope: self.scope.clone(),
@@ -229,6 +228,7 @@ async fn setup(include_peer: bool) -> (Pilot, crypto::enrollment::Access, Arc<Mu
         include_peer,
         head: None,
         submission: None,
+        delivery: vec![],
         receipts: BTreeMap::new(),
         posts: 0,
         lose_reply: false,
@@ -367,6 +367,143 @@ async fn message_settings(pilot: &Pilot) -> crypto::enrollment::Access {
         .crypto_settings(Guard::new(), pilot.directory.path().join("ceremony"), pilot.memory.clone())
         .await
         .unwrap()
+}
+
+fn encrypted_snapshot(pilot: &Pilot) {
+    let mut encrypted = room();
+    encrypted.encrypted = true;
+    encrypted.read_state = Some(Box::new(rv_protocol::parity::ReadState {
+        room_id: "room".into(),
+        revision: "1".into(),
+        membership_version: Some("private-membership".into()),
+        favorite_revision: Some("1".into()),
+        root_position: "0".into(),
+        reply_position: "0".into(),
+        unread_roots: "0".into(),
+        unread_replies: "0".into(),
+        mentions: "0".into(),
+        group_mentions: "0".into(),
+        favorite: false,
+    }));
+    pilot
+        .session
+        .store
+        .snapshot(&rv_protocol::Snapshot {
+            protocol_version: 1,
+            rooms: vec![encrypted],
+            messages: vec![],
+            cursor: "encrypted".into(),
+        })
+        .unwrap();
+}
+
+#[tokio::test]
+async fn renewed_device_rotates_its_actual_room_leaf_recovers_lost_ack_and_keeps_private_history() {
+    let (pilot, settings, book) = setup(false).await;
+    let group = message_settings(&pilot).await.room("room".into()).await.unwrap();
+    let view = group.refresh().await.unwrap();
+    assert!(!view.needs_credential_update);
+    let review = group.preview_create(view.revision, vec![]).await.unwrap();
+    let accepted = group.confirm(review.revision, review.review.unwrap().fingerprint).await.unwrap();
+    assert!(!accepted.needs_credential_update);
+    group.close();
+    encrypted_snapshot(&pilot);
+    let group = message_settings(&pilot).await.room("room".into()).await.unwrap();
+    let accepted = group.refresh().await.unwrap();
+    let chat = message_settings(&pilot).await.messages("room".into(), None).await.unwrap();
+    assert!(chat.refresh(None, 50).await.unwrap().can_send);
+    let message = |operation: &str, text: &str| rv_protocol::SendMessage {
+        operation_id: operation.into(),
+        text: text.into(),
+        reply_to: None,
+        quotes: vec![],
+        cards: vec![],
+    };
+    chat.send(message("before-renewal", "private-message-cleartext before renewal")).await.unwrap();
+    assert_eq!(chat.refresh(None, 50).await.unwrap().messages.len(), 1);
+    chat.set_draft("private-message-cleartext retained draft".into()).await.unwrap();
+    let stale = group.preview_change(accepted.revision, vec![], vec![]).await.unwrap();
+    let initial = settings.refresh().await.unwrap();
+    let old_directory = pilot.crypto_directory.lock().unwrap().clone();
+    let old: rv_crypto::identity::Certificate =
+        serde_json::from_slice(&B64.decode(old_directory["devices"][0]["certificate"].as_str().unwrap()).unwrap())
+            .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() <= old.device.issued_at {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let renewing = settings.renew(initial.root_fingerprint.clone()).await.unwrap();
+    let preview = settings.preview(renewing.request_code).await.unwrap();
+    let grant = settings.approve(preview).await.unwrap();
+    settings.install(grant).await.unwrap();
+    assert!(chat.refresh(None, 50).await.is_err());
+    assert!(group.confirm(stale.revision, stale.review.unwrap().fingerprint).await.is_err());
+    assert_eq!(book.lock().unwrap().posts, 1);
+    let current_directory = pilot.crypto_directory.lock().unwrap().clone();
+    let certificate: rv_crypto::identity::Certificate =
+        serde_json::from_slice(&B64.decode(current_directory["devices"][0]["certificate"].as_str().unwrap()).unwrap())
+            .unwrap();
+    assert_eq!(certificate.device.incarnation, old.device.incarnation);
+    let renewed_chat = message_settings(&pilot).await.messages("room".into(), None).await.unwrap();
+    let history = renewed_chat.refresh(None, 50).await.unwrap();
+    assert!(!history.can_send && !history.catching_up);
+    assert_eq!(history.messages.len(), 1);
+    assert_eq!(history.messages[0].row.text.as_deref(), Some("private-message-cleartext before renewal"));
+    assert_eq!(history.draft, "private-message-cleartext retained draft");
+    assert!(renewed_chat.send(message("unrotated", "private-message-cleartext blocked")).await.is_err());
+    assert_eq!(book.lock().unwrap().message_posts, 1);
+    let current = message_settings(&pilot).await.room("room".into()).await.unwrap();
+    let view = current.refresh().await.unwrap();
+    assert!(view.needs_credential_update && view.phase == Phase::Acknowledged);
+    let review = current.preview_change(view.revision, vec![], vec![]).await.unwrap();
+    assert_eq!(review.review.as_ref().unwrap().recipients[0].fingerprint, hex(&certificate.fingerprint().unwrap()));
+    book.lock().unwrap().lose_reply = true;
+    assert!(current.confirm(review.revision, review.review.unwrap().fingerprint).await.is_err());
+    let pending = current.refresh().await.unwrap();
+    assert!(pending.phase == Phase::Pending && pending.needs_credential_update);
+    assert_eq!(book.lock().unwrap().posts, 2);
+    let original = book.lock().unwrap().submission.clone().unwrap();
+    current.close();
+    let reopened = reopen(&pilot).await;
+    let pending = reopened.refresh().await.unwrap();
+    let acknowledged = reopened.resume(pending.revision).await.unwrap();
+    // Receipt recovery must not skip unread ciphertext in the previous epoch.
+    // The accepted rotation takes effect at its ordered journal position.
+    assert!(acknowledged.phase == Phase::Pending && acknowledged.needs_credential_update);
+    assert_eq!(acknowledged.epoch, "0");
+    assert_eq!(book.lock().unwrap().posts, 2);
+    assert_eq!(book.lock().unwrap().submission.as_ref().unwrap().operation_id, original.operation_id);
+    let transition = Transition::from_bytes(&B64.decode(&original.transition).unwrap()).unwrap();
+    assert_eq!(transition.certificate, certificate);
+    assert_eq!(transition.plan.participants[0].certificate, certificate.fingerprint().unwrap());
+    let after = renewed_chat.refresh(None, 50).await.unwrap();
+    assert!(after.can_send && !after.catching_up);
+    let rotated = reopened.refresh().await.unwrap();
+    assert!(rotated.phase == Phase::Acknowledged && !rotated.needs_credential_update);
+    assert_eq!(rotated.epoch, "1");
+    assert_eq!(after.messages.len(), 1);
+    assert_eq!(after.draft, "private-message-cleartext retained draft");
+    renewed_chat.send(message("after-renewal", "private-message-cleartext after renewal")).await.unwrap();
+    let after = renewed_chat.refresh(None, 50).await.unwrap();
+    assert_eq!(after.messages.len(), 2);
+    assert!(after.messages.iter().any(|m| m.row.text.as_deref() == Some("private-message-cleartext before renewal")));
+    assert!(after.messages.iter().any(|m| m.row.text.as_deref() == Some("private-message-cleartext after renewal")));
+    let wire = book.lock().unwrap().message_submissions["after-renewal"].clone();
+    let proof = rv_crypto::groups::MessageSubmission::from_wire(&wire)
+        .unwrap()
+        .verified(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs())
+        .unwrap();
+    assert_eq!(proof.header.epoch, 1);
+    assert_eq!(proof.header.certificate, certificate.fingerprint().unwrap());
+    assert_eq!(book.lock().unwrap().message_posts, 2);
+    assert!(pilot.session.store.messages("room", 100).unwrap().is_empty());
+    renewed_chat.close();
+    reopened.close();
+    settings.close();
+    pilot.close().await;
 }
 
 #[tokio::test]

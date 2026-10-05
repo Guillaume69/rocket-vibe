@@ -79,6 +79,7 @@ pub struct LocalGroupStatus {
     pub accepted: Option<groups::Receipt>,
     pub participants: Vec<groups::Participant>,
     pub pending: Option<groups::PendingLookup>,
+    pub needs_credential_update: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -419,7 +420,7 @@ impl Worker {
         let _dispatch = self.dispatch.lock().await;
         self.scope().await?;
         let room = room.to_owned();
-        self.owned(move |manager, root, _| {
+        self.owned(move |manager, root, now| {
             let coordinator = groups::Coordinator::new(manager, root)?;
             let (accepted, participants) = match coordinator.accepted_group(&room) {
                 Ok((receipt, participants)) => (Some(receipt), participants),
@@ -432,6 +433,8 @@ impl Worker {
                 Err(error) => return Err(error.into()),
             };
             Ok(LocalGroupStatus {
+                needs_credential_update: accepted.is_some()
+                    && coordinator.needs_credential_update(&room, now)?,
                 accepted,
                 participants,
                 pending,

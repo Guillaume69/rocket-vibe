@@ -66,6 +66,7 @@ pub struct View {
     pub participants: Vec<Recipient>,
     pub can_create: bool,
     pub has_event: bool,
+    pub needs_credential_update: bool,
     pub review: Option<Review>,
 }
 pub struct Target {
@@ -337,6 +338,7 @@ impl Access {
                 devices,
                 can_create: may_create && roster.group.is_none(),
                 has_event: event.is_some(),
+                needs_credential_update: local.needs_credential_update,
                 review: None,
             },
             event,

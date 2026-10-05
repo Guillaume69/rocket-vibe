@@ -926,7 +926,7 @@ fn two_native_actors_create_join_rotate_reopen_original_and_cancel_without_expor
 {
     let path = tempfile::tempdir().unwrap();
     let key = Arc::new(Keystore::default());
-    let (alice, own) = registered(path.path(), account(), key.clone());
+    let (alice, mut own) = registered(path.path(), account(), key.clone());
     let mut selected = account();
     selected.user = "bob".into();
     selected.device = "bob-phone".into();
@@ -1030,6 +1030,65 @@ fn two_native_actors_create_join_rotate_reopen_original_and_cancel_without_expor
         call(&bob, &peer, json!({"action":"view","roster":roster}))["accepted"]["fingerprint"],
         ack.fingerprint
     );
+    assert_eq!(
+        call(&alice, &own, json!({"action":"view","roster":roster}))["needs_credential_update"],
+        false
+    );
+    let stale = call(
+        &alice,
+        &own,
+        json!({"action":"preview","roster":roster,"packages":[],"removals":[],"event":null}),
+    );
+    let old: rv_crypto::identity::Certificate =
+        serde_json::from_slice(&B64.decode(own.devices[0].certificate.as_bytes()).unwrap())
+            .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        <= old.device.issued_at
+    {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let directory = serde_json::to_string(&own).unwrap();
+    let renewal = alice
+        .identity_renew(
+            directory.clone(),
+            own.identity.as_ref().unwrap().fingerprint.clone(),
+        )
+        .unwrap();
+    assert!(renewal.phase == IdentityPhase::Renewing);
+    let approval = alice
+        .identity_preview(directory.clone(), renewal.request_code)
+        .unwrap();
+    let grant = alice
+        .identity_approve(directory.clone(), approval.id)
+        .unwrap();
+    alice.identity_install(directory.clone(), grant).unwrap();
+    let original = alice.identity_pending(directory.clone()).unwrap();
+    let (registration_receipt, _, device) = super::tests::registration_public(&original);
+    assert_eq!(registration_receipt.device_revision, "2");
+    own.devices = vec![device];
+    let directory = serde_json::to_string(&own).unwrap();
+    alice
+        .identity_acknowledge(
+            directory,
+            serde_json::to_string(&registration_receipt).unwrap(),
+        )
+        .unwrap();
+    assert!(alice.group_action(serde_json::to_string(&own).unwrap(),
+        json!({"action":"confirm","roster":roster,"id":stale["id"],"fingerprint":stale["fingerprint"]}).to_string()).is_err());
+    assert_eq!(
+        call(&alice, &own, json!({"action":"view","roster":roster}))["needs_credential_update"],
+        true
+    );
+    let renewed: rv_crypto::identity::Certificate =
+        serde_json::from_slice(&B64.decode(own.devices[0].certificate.as_bytes()).unwrap())
+            .unwrap();
+    assert_ne!(renewed.fingerprint().unwrap(), old.fingerprint().unwrap());
+    assert_eq!(renewed.device.incarnation, old.device.incarnation);
     let preview = call(
         &alice,
         &own,
@@ -1065,6 +1124,17 @@ fn two_native_actors_create_join_rotate_reopen_original_and_cancel_without_expor
         commit: packet.commit,
         welcome: None,
     };
+    let transition = rv_crypto_public::groups::Transition::from_bytes(
+        &B64.decode(event.transition.as_bytes()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(transition.certificate, renewed);
+    assert_eq!(
+        call(&alice, &own, json!({"action":"view","roster":roster}))["needs_credential_update"],
+        false
+    );
+    // Existing approval binds the unchanged root/incarnation/signing key.
+    // Renewal cannot silently approve a different device or identity.
     let preview = call(
         &bob,
         &peer,

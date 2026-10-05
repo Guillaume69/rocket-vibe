@@ -131,7 +131,7 @@ impl Ui {
             Phase::Acknowledged => "crypto.group_ack",
             Phase::Pending => "crypto.group_pending",
         }));
-        self.status.set_subtitle("");
+        self.status.set_subtitle(if value.needs_credential_update { t("crypto.group_credential_update") } else { "" });
         self.epoch.set_subtitle(&value.epoch);
         self.epoch.set_visible(!value.epoch.is_empty());
         self.fingerprint
@@ -370,6 +370,7 @@ mod tests {
             participants: vec![],
             can_create: true,
             has_event: false,
+            needs_credential_update: false,
             review: Some(rooms::Review {
                 kind: rooms::ReviewKind::Create,
                 fingerprint: "ab".repeat(32),
@@ -399,6 +400,10 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         assert!(page.width() > 0 && page.width() <= window.width());
+        let renewal = View { phase: Phase::Acknowledged, review: None, needs_credential_update: true, ..value };
+        ui.render(&renewal);
+        assert_eq!(ui.status.subtitle().as_deref(), Some(t("crypto.group_credential_update")));
+        assert!(ui.actions.iter().find(|(a, _)| matches!(a, Action::Change)).unwrap().1.is_visible());
         ui.clear();
         assert!(ui.rows.borrow().is_empty());
         dialog.close();

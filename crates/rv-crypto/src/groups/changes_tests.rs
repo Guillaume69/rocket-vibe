@@ -400,6 +400,10 @@ fn new_devices_need_explicit_pins_and_original_spent_packages_cannot_be_readded(
 #[test]
 fn real_credential_renewal_updates_mls_leaf_and_peer_receives_it() {
     let (alice, bob, _) = incoming::fixture(false);
+    assert_eq!(
+        alice.coordinator().needs_credential_update("room", NOW),
+        Ok(false)
+    );
     let request = change(&alice, "renew", &["alice", "bob"], &[], vec![]);
     let (preview, consent) = alice.coordinator().preview_change(&request, NOW).unwrap();
     let renewed = alice
@@ -424,6 +428,10 @@ fn real_credential_renewal_updates_mls_leaf_and_peer_receives_it() {
         alice.certificate.fingerprint().unwrap()
     );
     assert_eq!(
+        alice.coordinator().needs_credential_update("room", NOW + 1),
+        Ok(true)
+    );
+    assert_eq!(
         alice
             .coordinator()
             .prepare_change(&request, &consent, preview.fingerprint, NOW + 1)
@@ -443,6 +451,14 @@ fn real_credential_renewal_updates_mls_leaf_and_peer_receives_it() {
         .confirm(&event.receipt, NOW + 1)
         .unwrap();
     assert_eq!(incoming::secret(&alice), incoming::secret(&bob));
+    assert_eq!(
+        alice.coordinator().needs_credential_update("room", NOW + 1),
+        Ok(false)
+    );
+    assert_eq!(
+        bob.coordinator().needs_credential_update("room", NOW + 1),
+        Ok(false)
+    );
     alice
         .manager
         .inspect(|provider, _| {

@@ -63,6 +63,7 @@ function Groupe({c,room,membership,chat}:{c:Couleurs;room:string;membership:stri
       {view && !preview && <>
         <Text style={[styles.text,{color:c.texte}]}>{t(view.pending?'group.pending':view.accepted?'group.accepted':view.roster.group?'group.notAdmitted':'group.empty')}</Text>
         {view.accepted && <Text selectable style={[styles.text,{color:c.texteSecondaire}]}>{t('group.epoch',{epoch:view.accepted.epoch,revision:view.accepted.revision})}</Text>}
+        {view.needs_credential_update && <Text accessibilityRole="alert" style={[styles.text,{color:c.texteSecondaire}]}>{t('group.credentialUpdate')}</Text>}
         <Action c={c} label={t('group.packages')} onPress={()=>execute('packages')} disabled={busy}/>
         {view.pending ? <>
           <Text selectable style={[styles.fingerprint,{color:c.texteSecondaire}]}>{view.pending.operation}</Text>

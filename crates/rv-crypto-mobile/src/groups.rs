@@ -203,7 +203,10 @@ impl CryptoInstallation {
                     Err(engine::Error::NotReady) => (Value::Null, json!([])),
                     Err(error) => return Err(error.into()),
                 };
-                json!({"accepted":accepted,"participants":members,"pending":pending(&c,&wire.room_id)?})
+                let needs_update =
+                    !accepted.is_null() && c.needs_credential_update(&wire.room_id, time)?;
+                json!({"accepted":accepted,"participants":members,"pending":pending(&c,&wire.room_id)?,
+                    "needs_credential_update":needs_update})
             }
             Action::Preview {
                 roster: wire,

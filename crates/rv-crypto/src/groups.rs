@@ -1166,6 +1166,51 @@ impl Coordinator {
             Ok((active.receipt, active.transition.plan.participants))
         })
     }
+    /// Compare the actual accepted MLS leaf with the current installation
+    /// certificate. This UI hint never authorizes a transition or a send.
+    pub fn needs_credential_update(&self, room: &str, now: u64) -> Result<bool> {
+        self.inspect(|provider, records| {
+            let state = read(records, room)?.ok_or(Error::NotReady)?;
+            self.scope(&state.scope)?;
+            let active = state.active.ok_or(Error::NotReady)?;
+            let group = MlsGroup::load(
+                provider.storage(),
+                &GroupId::from_slice(&state.scope.group_id()?),
+            )
+            .map_err(|_| Error::Mls)?
+            .ok_or(Error::Changed)?;
+            check_actual(group.public_group(), &active.transition.plan)?;
+            if !group.is_active() {
+                return Ok(false);
+            }
+            let context = self.context(records, now)?;
+            let own = group
+                .members()
+                .find(|m| m.index == group.own_leaf_index())
+                .ok_or(Error::Changed)?;
+            let certificate = Certificate::from_credential(&own.credential)?;
+            let verification = Verification::Historical(now);
+            verification.certificate(&certificate)?;
+            let participant = active
+                .transition
+                .plan
+                .participants
+                .iter()
+                .find(|p| p.leaf == own.index.u32())
+                .ok_or(Error::Changed)?;
+            if !verification.own_matches(&certificate, &context.certificate)
+                || own.signature_key.as_slice() != context.certificate.device.signature_key
+                || participant.certificate != certificate.fingerprint()?
+                || participant.device != certificate.device.device
+                || participant.user != certificate.device.root.user
+                || participant.incarnation != certificate.device.incarnation
+                || participant.root != certificate.device.root.fingerprint()?
+            {
+                return Err(Error::Changed);
+            }
+            Ok(certificate != context.certificate)
+        })
+    }
     pub fn ready_epoch(&self, room: &str) -> Result<u64> {
         self.accepted_receipt(room).map(|receipt| receipt.epoch)
     }

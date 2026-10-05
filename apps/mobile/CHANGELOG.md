@@ -13,8 +13,12 @@ release, et ses notes sont la section de la version ici.
   de demander son renouvellement, y compris après expiration. La même racine,
   incarnation, clé de signature et sélection de coffre sont conservées.
 - L’approbation explicite et l’enregistrement reprennent leur opération originale
-  après interruption. La rotation MLS des salons et la qualification installée
-  restent à confirmer ; l’E2EE de production demeure désactivé.
+  après interruption. L’E2EE de production demeure désactivé.
+- Les contrôles existants du salon signalent le certificat renouvelé à partir
+  de la feuille MLS vérifiée. La mise à jour explicite et la reprise du journal
+  conditionnent les nouveaux envois. Le pont Rust exerce deux appareils et la
+  réception du commit renouvelé ; qualification installée et remplacement des
+  pairs expirés restent ouverts.
 
 ### Citations privées dans les salons ordinaires RocketVibe
 

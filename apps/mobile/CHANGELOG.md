@@ -283,6 +283,11 @@ release, and its notes are that version's section here.
   alone does not reinvite it. A stale certificate in the view or an unapproved device refuses
   the preparation. The new membership removes the old message cache, and historical archive
   recovery and installed qualification remain open.
+- Encrypted history from your other devices, in the existing encryption settings: a new
+  device asks for it and shows a fingerprint; another device of the account lists the request,
+  shows the rooms and message counts to share, and shares after you compare the fingerprint.
+  The new device then imports it page by page and the server copy is deleted. Recovered
+  messages are not shown in conversations yet.
 
 ### Changed
 

@@ -11,6 +11,7 @@ use rv_core::native::{
     security::Guard,
 };
 use std::sync::{Arc, Mutex};
+mod history;
 pub(crate) mod messages;
 pub(crate) mod peers;
 pub(crate) mod quote_composer;
@@ -54,6 +55,7 @@ struct Inner {
     state: Mutex<(u64, Option<Approval>)>,
     withdrawal: Mutex<Option<(u64, enrollment::revocations::Approval)>>,
     recovery: Mutex<Option<(u64, recovery::Staged)>>,
+    history: Mutex<Option<(u64, history::Staged)>>,
 }
 #[derive(uniffi::Object)]
 pub struct NativeCrypto {
@@ -101,6 +103,7 @@ impl NativeCrypto {
                 state: Mutex::new((0, None)),
                 withdrawal: Mutex::new(None),
                 recovery: Mutex::new(None),
+                history: Mutex::new(None),
             }),
         }))
     }
@@ -145,6 +148,7 @@ impl NativeCrypto {
         self.inner.state.lock().unwrap().1 = None;
         self.inner.withdrawal.lock().unwrap().take();
         self.inner.recovery.lock().unwrap().take();
+        self.inner.history.lock().unwrap().take();
     }
     pub fn is_closed(&self) -> bool {
         self.inner.access.check().is_err()

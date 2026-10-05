@@ -23,6 +23,9 @@ struct CryptoSection: View {
                     if value.phase == .missing && !value.remoteFingerprint.isEmpty {
                         CryptoRestoreControls(model: model)
                     }
+                    if value.phase == .ready {
+                        CryptoHistoryControls(model: model)
+                    }
                 }
                 if let error = model.error { Text(error).foregroundStyle(.red) }
                 Button(L("crypto.refresh")) { Task { await model.refresh() } }

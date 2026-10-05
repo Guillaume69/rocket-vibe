@@ -118,6 +118,11 @@ section here.
   identity and associate devices with explicit fingerprint approval, protected
   platform storage and restart-safe registration. This experimental section is
   gated by server capabilities; encrypted rooms remain disabled during validation.
+- Encrypted history from your other devices, in the encryption preferences (GTK and SwiftUI):
+  a new device asks for it and shows a fingerprint; another device of the account lists the
+  request, shows the rooms and message counts to share, and shares after you compare the
+  fingerprint. The new device then imports it page by page and the server copy is deleted.
+  Recovered messages are not shown in conversations yet.
 
 ### Fixed
 

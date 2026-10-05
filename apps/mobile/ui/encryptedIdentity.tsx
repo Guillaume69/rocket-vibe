@@ -7,6 +7,9 @@ import type {NativeChat} from '../providers/rocketvibe/chat.ts';
 import type {CryptoIdentityAccess} from '../providers/rocketvibe/cryptoIdentity.ts';
 import type {WithdrawalDevice,WithdrawalPreview,WithdrawalStatus} from '../providers/rocketvibe/cryptoWithdrawals.ts';
 import type {BackupStatus,BackupPreview,RestorePreview} from '../providers/rocketvibe/cryptoRecovery.ts';
+import type {HistoryOffers,HistoryPreview} from '../providers/rocketvibe/cryptoHistory.ts';
+import {inArray} from 'drizzle-orm';
+import {rooms} from '../db/schema.ts';
 import {NativeError} from '../providers/rocketvibe/transport.ts';
 import {useSync} from './sync.tsx';
 import {useT} from './i18n.ts';
@@ -39,14 +42,19 @@ function Identity({c,chat}:{c:Colors;chat:NativeChat}) {
   const [withdrawals,setWithdrawals]=useState<WithdrawalStatus|null>(null),[withdrawalPreview,setWithdrawalPreview]=useState<WithdrawalPreview|null>(null);
   const [backup,setBackup]=useState<BackupStatus|null>(null),[backupPreview,setBackupPreview]=useState<BackupPreview|null>(null);
   const [recoveryCode,setRecoveryCode]=useState(''),[recoveryInput,setRecoveryInput]=useState(''),[restorePreview,setRestorePreview]=useState<RestorePreview|null>(null);
+  const [history,setHistory]=useState<{label:TranslationKey;fingerprint?:string}>({label:'private.historyIdle'});
+  const [historyOffers,setHistoryOffers]=useState<HistoryOffers|null>(null),[historyPreview,setHistoryPreview]=useState<HistoryPreview|null>(null);
+  const [roomNames,setRoomNames]=useState<Record<string,string>>({});
+  const sync=useSync(),base=sync.phase==='ready'?sync.base:null;
   const focused=useRef(false),epoch=useRef(0),job=useRef<number|null>(null),access=useRef<CryptoIdentityAccess|null>(null);
   const clear=useCallback(()=>{epoch.current++;job.current=null;void access.current?.close();access.current=null;
-    setView(null);setPreview(null);setWithdrawals(null);setWithdrawalPreview(null);setBackup(null);setBackupPreview(null);setRecoveryCode('');setRecoveryInput('');setRestorePreview(null);setRoot('');setRequest('');setGrant('');setBusy(false);setFailed(false);setReauth(false);},[]);
+    setView(null);setPreview(null);setWithdrawals(null);setWithdrawalPreview(null);setBackup(null);setBackupPreview(null);setRecoveryCode('');setRecoveryInput('');setRestorePreview(null);setRoot('');setRequest('');setGrant('');setBusy(false);setFailed(false);setReauth(false);
+    setHistory({label:'private.historyIdle'});setHistoryOffers(null);setHistoryPreview(null);setRoomNames({});},[]);
   const run=useCallback(async(action:(a:CryptoIdentityAccess)=>Promise<void>)=>{
     if(!focused.current || job.current!==null || AppState.currentState!=='active' || !CryptoNative)return;
     const n=epoch.current,visible=()=>focused.current && epoch.current===n && AppState.currentState==='active';
     job.current=n;setBusy(true);setFailed(false);setReauth(false);setWithdrawalPreview(null);
-    setBackupPreview(null);setRestorePreview(null);setRecoveryCode('');
+    setBackupPreview(null);setRestorePreview(null);setRecoveryCode('');setHistoryOffers(null);setHistoryPreview(null);
     try {
       if(access.current?.isClosed){void access.current.close();access.current=null;}
       const a=access.current??await chat.cryptoIdentity(CryptoNative,visible);
@@ -122,6 +130,28 @@ function Identity({c,chat}:{c:Colors;chat:NativeChat}) {
     {text:t('common.cancel'),style:'cancel'},
     {text:t('private.backupCancel'),style:'destructive',onPress:()=>{if(focused.current&&epoch.current===n)void run(async a=>{if(CryptoNative)await chat.cryptoRecovery(a,CryptoNative).cancel();});}},
   ]);};
+  const historyRun=(action:(h:ReturnType<NativeChat['cryptoHistory']>,n:number)=>Promise<void>)=>{
+    const n=epoch.current;void run(async a=>{if(CryptoNative)await action(chat.cryptoHistory(a,CryptoNative),n);});
+  };
+  const live=(n:number)=>focused.current&&epoch.current===n;
+  const requestHistory=()=>historyRun(async(h,n)=>{const fp=await h.requestHistory();if(live(n))setHistory({label:'private.historyRequested',fingerprint:fp});});
+  const importHistory=()=>historyRun(async(h,n)=>{const progress=await h.importHistory();if(!live(n))return;
+    setHistory(progress.state==='waiting'?{label:'private.historyWaiting',fingerprint:progress.request}:{label:progress.state==='done'?'private.historyDone':'private.historyIdle'});});
+  const historyRequests=()=>historyRun(async(h,n)=>{const offers=await h.offers();if(!live(n))return;
+    if(offers.offers.length===0)setHistory({label:'private.historyNoOffers'});else setHistoryOffers(offers);});
+  const reviewHistory=(fingerprint:string)=>{const staged=historyOffers;if(!staged)return;
+    historyRun(async(h,n)=>{const preview=await h.preview(staged.id,fingerprint);if(!live(n))return;
+      const ids=preview.periods.map(p=>p.room);
+      const named=base&&ids.length?await base.select({rid:rooms.rid,name:rooms.name,displayName:rooms.displayName}).from(rooms).where(inArray(rooms.rid,ids)):[];
+      if(!live(n))return;setRoomNames(Object.fromEntries(named.map(r=>[r.rid,r.displayName??r.name??r.rid])));setHistoryPreview(preview);});};
+  const shareHistory=()=>{const selected=historyPreview,n=epoch.current;if(!selected||selected.periods.length===0)return;
+    const listed=selected.periods.map(p=>`${roomNames[p.room]??p.room} · ${t('private.historyMessages',{n:Number(p.documents)})}`).join('\n');
+    Alert.alert(t('private.historyShare'),`${t('private.historyShareBody')}\n\n${selected.device}\n${selected.fingerprint}\n\n${listed}`,[
+      {text:t('common.cancel'),style:'cancel'},
+      {text:t('private.historyShare'),onPress:()=>{if(!live(n))return;setHistoryPreview(null);
+        historyRun(async(h,m)=>{await h.share(selected.id);if(live(m))setHistory({label:'private.historyShared'});});}},
+    ]);};
+  const resumeHistory=()=>historyRun(async(h,n)=>{const resumed=await h.resumeShare();if(live(n))setHistory({label:resumed?'private.historyShared':'private.historyIdle'});});
   const fingerprint=(label:TranslationKey,value:string)=><>
     <Text style={[styles.text,{color:c.secondaryText}]}>{t(label)}</Text>
     <Text selectable style={[styles.fingerprint,{color:c.text}]}>{value}</Text>
@@ -181,6 +211,28 @@ function Identity({c,chat}:{c:Colors;chat:NativeChat}) {
       </>}
       {view?.phase==='registering' && <IdentityAction c={c} busy={busy} label="private.resume" onPress={()=>void run(async a=>{setView(await a.resume());})}/>}
       {view?.phase==='ready' && <Text style={[styles.text,{color:c.secondaryText}]}>{t('private.readyBody')}</Text>}
+      {view?.phase==='ready' && <>
+        <Text style={[styles.title,{color:c.text}]}>{t('private.historyTitle')}</Text>
+        <Text style={[styles.text,{color:c.secondaryText}]}>{t('private.historyBody')}</Text>
+        <Text accessibilityRole="text" style={[styles.text,{color:c.text}]}>{t(history.label)}</Text>
+        {history.fingerprint && <Text selectable style={[styles.fingerprint,{color:c.text}]}>{history.fingerprint}</Text>}
+        <IdentityAction c={c} busy={busy} label="private.historyRequest" onPress={requestHistory}/>
+        <IdentityAction c={c} busy={busy} label="private.historyImport" onPress={importHistory}/>
+        <IdentityAction c={c} busy={busy} label="private.historyOffers" onPress={historyRequests}/>
+        <IdentityAction c={c} busy={busy} label="private.historyResume" onPress={resumeHistory}/>
+        {historyOffers?.offers.map(offer=><View key={offer.fingerprint}>
+          <Text style={[styles.text,{color:c.text}]}>{t('private.historyOffer',{device:offer.device})}</Text>
+          <Text selectable style={[styles.fingerprint,{color:c.secondaryText}]}>{offer.fingerprint}</Text>
+          <IdentityAction c={c} busy={busy} label="private.historyReview" onPress={()=>reviewHistory(offer.fingerprint)}/>
+        </View>)}
+        {historyPreview && (historyPreview.periods.length===0
+          ? <Text style={[styles.text,{color:c.secondaryText}]}>{t('private.historyNothing')}</Text>
+          : <>
+            {fingerprint('private.requestFingerprint',historyPreview.fingerprint)}
+            {historyPreview.periods.map(p=><Text key={p.room} style={[styles.text,{color:c.text}]}>{roomNames[p.room]??p.room} · {t('private.historyMessages',{n:Number(p.documents)})}</Text>)}
+            <IdentityAction c={c} busy={busy} label="private.historyShare" onPress={shareHistory}/>
+          </>)}
+      </>}
       {backup?.controls_root && <>
         <Text style={[styles.title,{color:c.text}]}>{t('private.backupTitle')}</Text>
         <Text style={[styles.text,{color:c.secondaryText}]}>{t('private.backupBody')}</Text>

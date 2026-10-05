@@ -14,6 +14,9 @@ public final class CryptoModel {
     public private(set) var backupApproval: CryptoBackupPreview?
     public private(set) var restoreApproval: CryptoRestorePreview?
     public private(set) var recoveryCode = ""
+    public private(set) var history: CryptoHistoryState = .idle
+    public private(set) var historyOffers: CryptoHistoryOffers?
+    public private(set) var historyPreview: CryptoHistoryPreview?
     public var restoreCode = ""
     public private(set) var output = ""
     public private(set) var busy = false
@@ -34,11 +37,13 @@ public final class CryptoModel {
         visible = false; generation = UUID(); handle?.close(); handle = nil
         value = nil; approval = nil; withdrawals = nil; withdrawalApproval = nil; output = ""; code = ""; error = nil; busy = false
         backups = nil; backupApproval = nil; restoreApproval = nil; recoveryCode = ""; restoreCode = ""
+        history = .idle; historyOffers = nil; historyPreview = nil
     }
     private enum Outcome {
         case view(NativeCryptoState), preview(NativeCryptoApproval), grant(String)
         case withdrawals(CryptoWithdrawalStatus), withdrawalPreview(CryptoWithdrawalPreview)
         case backups(CryptoBackupStatus), backupPreview(CryptoBackupPreview), restorePreview(CryptoRestorePreview), recoveryCode(String)
+        case history(CryptoHistoryState), historyOffers(CryptoHistoryOffers), historyPreview(CryptoHistoryPreview)
     }
     private struct DisplayCode: Decodable { let code: String }
     private struct Restored: Decodable { let restored: Bool }
@@ -83,6 +88,53 @@ public final class CryptoModel {
         await run(recoverRegistration: true) { handle in
             let _: Restored = try await recovery(handle, ["action":"restore", "id":selected.id])
             return .view(try await handle.refresh())
+        }
+    }
+    private struct HistoryShared: Decodable { let shared: Bool }
+    private struct HistoryResumed: Decodable { let resumed: Bool }
+    private func historyCall<T: Decodable>(_ handle: NativeCrypto, _ input: [String: String]) async throws -> T {
+        let input = String(decoding: try JSONSerialization.data(withJSONObject: input), as: UTF8.self)
+        let output = try await handle.historyAction(input: input)
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(T.self, from: Data(output.utf8))
+    }
+    /// New device: publishes its request and shows the fingerprint to compare.
+    public func requestHistory() async {
+        await run { handle in
+            let requested: CryptoHistoryRequested = try await historyCall(handle, ["action":"request"])
+            return .history(.requested(requested.fingerprint))
+        }
+    }
+    /// New device: imports a committed share, or reports that none arrived yet.
+    public func importHistory() async {
+        await run { handle in
+            let progress: CryptoHistoryImport = try await historyCall(handle, ["action":"import"])
+            switch progress.state {
+            case "waiting": return .history(.waiting(progress.request ?? ""))
+            case "done": return .history(.imported)
+            default: return .history(.idle)
+            }
+        }
+    }
+    /// Sharing device: requests of the account's other devices it may answer.
+    public func reviewHistoryRequests() async {
+        await run { .historyOffers(try await historyCall($0, ["action":"offers"])) }
+    }
+    public func previewHistory(_ offer: CryptoHistoryOffer) async {
+        guard let staged = historyOffers else { return }
+        await run { .historyPreview(try await historyCall($0, ["action":"preview", "id":staged.id, "fingerprint":offer.fingerprint])) }
+    }
+    public func shareHistory() async {
+        guard let selected = historyPreview, !selected.periods.isEmpty else { return }
+        await run { handle in
+            let _: HistoryShared = try await historyCall(handle, ["action":"share", "id":selected.id])
+            return .history(.shared)
+        }
+    }
+    public func resumeHistoryShare() async {
+        await run { handle in
+            let resumed: HistoryResumed = try await historyCall(handle, ["action":"resume"])
+            return .history(resumed.resumed ? .shared : .idle)
         }
     }
     private func withdrawal<T: Decodable>(_ handle: NativeCrypto, _ input: [String: String]) async throws -> T {
@@ -136,6 +188,7 @@ public final class CryptoModel {
         busy = true; error = nil
         recoveryCode = ""; restoreCode = ""
         backupApproval = nil; restoreApproval = nil
+        historyOffers = nil; historyPreview = nil
         defer { if generation == expected { busy = false } }
         do {
             let active: NativeCrypto
@@ -165,6 +218,11 @@ public final class CryptoModel {
             case .backupPreview(let fresh): backupApproval = fresh; restoreApproval = nil; approval = nil; withdrawalApproval = nil
             case .restorePreview(let fresh): restoreApproval = fresh; backupApproval = nil; approval = nil; withdrawalApproval = nil
             case .recoveryCode(let fresh): recoveryCode = fresh
+            case .history(let fresh): history = fresh
+            case .historyOffers(let fresh):
+                historyOffers = fresh.offers.isEmpty ? nil : fresh
+                if fresh.offers.isEmpty { history = .noOffers }
+            case .historyPreview(let fresh): historyPreview = fresh
             }
         } catch {
             guard current(expected) else { return }

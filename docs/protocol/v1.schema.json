@@ -3178,6 +3178,16 @@
             }
           ]
         },
+        "e2ee_revoke_device": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RevokeDevice"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "edit_message": {
           "$ref": "#/$defs/EditMessage"
         },
@@ -4467,6 +4477,36 @@
       },
       "required": [
         "position",
+        "signed"
+      ],
+      "type": "object"
+    },
+    "RevokeDevice": {
+      "additionalProperties": false,
+      "properties": {
+        "device_revision": {
+          "description": "Exact registered revision and incarnation of the sending controller.",
+          "type": "string"
+        },
+        "incarnation": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "signed": {
+          "description": "Root-signed target device/incarnation; contains no secret material.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "operation_id",
+        "device_revision",
+        "incarnation",
         "signed"
       ],
       "type": "object"

@@ -13,6 +13,8 @@ section here.
   explicit renewal of the same device, including after expiration. Approval and
   interrupted registration retain their protected original request; identity,
   signing key and vault selection are preserved. Production E2EE stays disabled.
+- The authenticated owner directory retains expired certificates for renewal;
+  correspondents continue to receive valid certificates only.
 - Existing room encryption controls identify a renewed device certificate from
   the protected MLS leaf and offer the explicit group update. New sends wait for
   that update and ordered journal catchup; private history and drafts survive.

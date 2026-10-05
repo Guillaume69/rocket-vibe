@@ -573,6 +573,8 @@ pub struct ParityContract {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub e2ee_register_device: Option<crate::e2ee::RegisterDevice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e2ee_revoke_device: Option<crate::e2ee::RevokeDevice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub e2ee_publish_key_packages: Option<crate::e2ee::PublishKeyPackages>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub e2ee_directory: Option<crate::e2ee::Directory>,

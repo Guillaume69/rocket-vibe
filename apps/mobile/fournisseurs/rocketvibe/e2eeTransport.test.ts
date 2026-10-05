@@ -9,6 +9,28 @@ const registration=decodeNative('RegisterDevice',fixture.parity.e2ee_register_de
 const receipt=decodeNative('OperationReceipt',fixture.parity.e2ee_operation_receipt);
 const directory=decodeNative('Directory',fixture.parity.e2ee_directory);
 
+test('signed withdrawal uses exact public original and keeps receipt reads available during crypto cooldown',async()=>{
+  const input=decodeNative('RevokeDevice',fixture.parity.e2ee_revoke_device);
+  assert.equal(input.device_revision,'9007199254740993');
+  const accepted={...receipt,operation_id:input.operation_id,kind:'revoke_device'};
+  const calls:{url:string;options?:RequestInit}[]=[];
+  const transport=new NativeTransport('https://example.org',async(url,options)=>{
+    calls.push({url:String(url),options});
+    return options?.method==='POST'?Response.json({code:'crypto_busy',request_id:'withdrawal'},{status:429,headers:{'retry-after':'30'}}):Response.json(accepted);
+  });
+  transport.restore('saved-token');
+  await assert.rejects(transport.revokeCryptoDevice(input),e=>e instanceof NativeError && e.status===429);
+  assert.equal(new URL(calls[0].url).pathname,'/api/v1/e2ee/revocations');
+  assert.deepEqual(JSON.parse(calls[0].options!.body as string),input);
+  assert.deepEqual(await transport.cryptoOperation(input.operation_id),accepted);
+  assert.equal(calls.length,2);
+  assert.equal(calls[1].options?.method,'GET');
+  assert.equal(new Headers(calls[0].options?.headers).get('authorization'),'Bearer saved-token');
+  for(const field of ['private_key','recovery_code','plaintext','target_user'])
+    assert.throws(()=>decodeNative('RevokeDevice',{...input,[field]:'forbidden'}));
+  assert.throws(()=>decodeNative('RevokeDevice',{...input,device_revision:9007199254740993}));
+});
+
 test('terminal abandonment retries the original opaque intention and retains both outcomes',async()=>{
   const input=decodeNative('ApplicationSubmission',fixture.parity.e2ee_application_submission);
   const cancelled=decodeNative('ApplicationSettlement',fixture.parity.e2ee_application_settlement);

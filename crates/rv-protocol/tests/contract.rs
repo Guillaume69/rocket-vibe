@@ -1,6 +1,23 @@
 use rv_protocol::{Contract, SendMessage};
 
 #[test]
+fn signed_withdrawal_contract_keeps_exact_controller_revision_and_rejects_private_fields() {
+    let fixture: Contract =
+        serde_json::from_str(include_str!("../../../docs/protocol/v1.fixture.json")).unwrap();
+    let value = serde_json::to_value(fixture.parity.e2ee_revoke_device.unwrap()).unwrap();
+    assert_eq!(value["device_revision"], "9007199254740993");
+    assert_eq!(value["incarnation"], "02".repeat(16));
+    let mut numeric = value.clone();
+    numeric["device_revision"] = serde_json::json!(9007199254740993_u64);
+    assert!(serde_json::from_value::<rv_protocol::e2ee::RevokeDevice>(numeric).is_err());
+    for field in ["private_key", "recovery_code", "plaintext", "target_user"] {
+        let mut altered = value.clone();
+        altered[field] = serde_json::json!("forbidden");
+        assert!(serde_json::from_value::<rv_protocol::e2ee::RevokeDevice>(altered).is_err());
+    }
+}
+
+#[test]
 fn encrypted_room_metadata_is_optional_on_old_servers_and_contains_no_private_state() {
     let fixture: Contract =
         serde_json::from_str(include_str!("../../../docs/protocol/v1.fixture.json")).unwrap();

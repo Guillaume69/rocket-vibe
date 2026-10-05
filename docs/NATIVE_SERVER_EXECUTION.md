@@ -5,6 +5,23 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 
 ## État synthétique au 5 octobre 2026
 
+Transport de retrait E2EE signé ajouté au contrat / serveur et aux SDK HTTP
+Rust / TypeScript : preuve de racine courante, contrôleur enregistré, connexion
+récente / facteurs, reçu original, famille HTTP et packages ciblés retirés
+atomiquement. Une ancienne incarnation ne ferme pas sa remplaçante ; un retrait
+peut encore être publié après la déconnexion HTTP de la cible. Le propriétaire
+voit maintenant ses certificats expirés pour pouvoir les renouveler ; les
+correspondants gardent la liste des certificats valides. Le contrat conserve les
+révisions exactes et refuse les champs privés. Le vecteur public est vérifié
+indépendamment par Node / OpenSSL et Rust ; le test Rust passe en 0,02 seconde.
+Neuf tests du transport mobile, typecheck / lint et Clippy strict serveur
+passent localement. Cinq scénarios PostgreSQL / HTTP sont compilés : retrait /
+packages / reçu, falsification / admin / portée / contrôleur périmé, vraie
+incarnation remplacée, réponse perdue observée par le SDK sans second POST et
+certificat réellement expiré renouvelé via HTTP. Leur exécution attend la CI de
+ce lot. Coordinateur protégé, intention durable et contrôles visibles restent
+la suite de ce point ; aucun masque E2EE de production n'est activé.
+
 Remplacement explicite des pairs renouvelés raccordé aux contrôles existants
 Android / GTK / SwiftUI : un certificat différent de la feuille MLS devient
 sélectionnable avec « Remplacer et réinviter », qui associe retrait et ajout.
@@ -18,9 +35,11 @@ certificat, réponse perdue et reprise sans second POST. Quinze tests des
 adaptateurs mobiles passent en 190 ms ; typecheck, lint ciblé et Clippy strict
 moteur / cœur / FFI passent. Le banc séparé HTTP / PostgreSQL est prolongé par
 renouvellement des deux appareils, remplacement, Welcome, réouverture et deux
-nouveaux messages ; il compile localement, mais sa nouvelle exécution réelle
-et les interfaces GTK / SwiftUI attendent la CI de ce lot. Sa limite de
-90 secondes est conservée. La nouvelle admission retire l'ancien cache :
+nouveaux messages ; son exécution réelle passe en 39,19 secondes dans le job
+HTTP de 37259435801. Build / démarrage macOS dans 37259435833 et vrai Keystore /
+deux ABI Android dans 37259435774 passent ; les neuf jobs de la CI native, dont
+les parcours GTK, sont également verts. Sa limite de 90 secondes est conservée.
+La nouvelle admission retire l'ancien cache :
 archive / récupération historique, qualification installée et revue indépendante
 restent ouvertes. Aucun masque E2EE de production n'est activé.
 

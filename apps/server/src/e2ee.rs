@@ -27,6 +27,8 @@ const LIVE_PACKAGES: i64 = 64;
 const DAILY_OPERATIONS: i64 = 256;
 pub mod groups;
 pub use groups::messages;
+mod revocations;
+pub use revocations::revoke;
 
 fn changed() -> Error {
     Error::new(StatusCode::CONFLICT, "crypto_identity_changed")
@@ -521,6 +523,21 @@ pub async fn operation(app: &App, actor: &Account, operation: &str) -> Result<Op
     Ok(receipt)
 }
 pub async fn directory(app: &App, user: &str, after: Option<&str>) -> Result<wire::Directory> {
+    directory_inner(app, user, after, false).await
+}
+pub async fn own_directory(
+    app: &App,
+    actor: &Account,
+    after: Option<&str>,
+) -> Result<wire::Directory> {
+    directory_inner(app, &actor.id, after, true).await
+}
+async fn directory_inner(
+    app: &App,
+    user: &str,
+    after: Option<&str>,
+    historical: bool,
+) -> Result<wire::Directory> {
     if !auth::identifier(user) {
         return Err(Error::invalid());
     }
@@ -553,8 +570,8 @@ pub async fn directory(app: &App, user: &str, after: Option<&str>) -> Result<wir
         revision: revision.to_string(),
     });
     type Row = (String, String, Vec<u8>, i64, i64);
-    let rows: Vec<Row> = sqlx::query_as("SELECT d.device_id,d.incarnation,d.certificate,d.revision,d.expires_at FROM e2ee_devices d JOIN sessions s ON s.device_id=d.device_id WHERE d.user_id=$1 AND s.expires_at>clock_timestamp() AND d.expires_at>EXTRACT(EPOCH FROM clock_timestamp()) ORDER BY d.device_id LIMIT 65")
-        .bind(user).fetch_all(&mut *tx).await?;
+    let rows: Vec<Row> = sqlx::query_as("SELECT d.device_id,d.incarnation,d.certificate,d.revision,d.expires_at FROM e2ee_devices d JOIN sessions s ON s.device_id=d.device_id WHERE d.user_id=$1 AND s.expires_at>clock_timestamp() AND ($2 OR d.expires_at>EXTRACT(EPOCH FROM clock_timestamp())) ORDER BY d.device_id LIMIT 65")
+        .bind(user).bind(historical).fetch_all(&mut *tx).await?;
     if rows.len() > 64 {
         return Err(Error::new(StatusCode::CONFLICT, "crypto_directory_limit"));
     }

@@ -110,6 +110,7 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/auth/renew", post(renew_session))
         .route("/api/v1/me/sessions", get(device_sessions))
         .route("/api/v1/e2ee/devices", post(register_crypto_device))
+        .route("/api/v1/e2ee/revocations", post(revoke_crypto_device))
         .route(
             "/api/v1/e2ee/rooms/{room}/transitions",
             post(submit_crypto_group).layer(DefaultBodyLimit::max(4 * 1024 * 1024)),
@@ -959,6 +960,16 @@ async fn publish_crypto_packages(
         crate::e2ee::publish(&app, &actor, crypto_body(input)?).await?,
     ))
 }
+async fn revoke_crypto_device(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::e2ee::RevokeDevice>,
+) -> Result<Response> {
+    let actor = account(&app, &headers).await?;
+    Ok(secret_session(
+        crate::e2ee::revoke(&app, &actor, crypto_body(input)?).await?,
+    ))
+}
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CryptoDirectoryQuery {
@@ -970,8 +981,12 @@ async fn crypto_directory(
     Path(user): Path<String>,
     Query(query): Query<CryptoDirectoryQuery>,
 ) -> Result<Response> {
-    let (_actor, hash, proof) = read_access(&app, &headers, Scope::None).await?;
-    let directory = crate::e2ee::directory(&app, &user, query.after.as_deref()).await?;
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let directory = if actor.id == user {
+        crate::e2ee::own_directory(&app, &actor, query.after.as_deref()).await?
+    } else {
+        crate::e2ee::directory(&app, &user, query.after.as_deref()).await?
+    };
     proof.json(&app, &hash, &directory, &[], None).await
 }
 async fn crypto_operation(

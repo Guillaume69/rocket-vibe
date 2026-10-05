@@ -67,6 +67,9 @@ export class NativeTransport {
   registerCryptoDevice(input:NativeTypes['RegisterDevice']):Promise<NativeTypes['OperationReceipt']> {
     return this.request('OperationReceipt','/api/v1/e2ee/devices',input);
   }
+  revokeCryptoDevice(input:NativeTypes['RevokeDevice']):Promise<NativeTypes['OperationReceipt']> {
+    return this.request('OperationReceipt','/api/v1/e2ee/revocations',input);
+  }
   publishKeyPackages(input:NativeTypes['PublishKeyPackages']):Promise<NativeTypes['OperationReceipt']> {
     return this.request('OperationReceipt','/api/v1/e2ee/key-packages',input);
   }

@@ -12,6 +12,8 @@ use sqlx::PgPool;
 
 const PASSWORD: &str = "disposable-e2ee-directory-password";
 
+#[path = "revocations/tests.rs"]
+mod device_revocations;
 #[path = "groups/tests.rs"]
 mod group_delivery;
 const SUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;

@@ -23,6 +23,17 @@ pub struct RegisterDevice {
 }
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct RevokeDevice {
+    pub scope: Scope,
+    pub operation_id: String,
+    /// Exact registered revision and incarnation of the sending controller.
+    pub device_revision: String,
+    pub incarnation: String,
+    /// Root-signed target device/incarnation; contains no secret material.
+    pub signed: String,
+}
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PublishKeyPackages {
     pub scope: Scope,
     pub operation_id: String,

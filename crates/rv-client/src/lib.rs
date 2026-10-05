@@ -223,6 +223,12 @@ impl NativeClient {
     ) -> Result<rv_protocol::e2ee::OperationReceipt, Error> {
         self.post("/api/v1/e2ee/devices", input).await
     }
+    pub async fn revoke_crypto_device(
+        &self,
+        input: &rv_protocol::e2ee::RevokeDevice,
+    ) -> Result<rv_protocol::e2ee::OperationReceipt, Error> {
+        self.post("/api/v1/e2ee/revocations", input).await
+    }
     pub async fn publish_key_packages(
         &self,
         input: &rv_protocol::e2ee::PublishKeyPackages,
@@ -483,7 +489,9 @@ impl NativeClient {
             "/api/v1/auth/renew" => Some("session_rotation"),
             "/api/v1/sync/ticket" => Some("ticket"),
             "/api/v1/sync/snapshots" => Some("snapshot"),
-            "/api/v1/e2ee/devices" | "/api/v1/e2ee/key-packages" if *method == Method::POST => {
+            "/api/v1/e2ee/devices" | "/api/v1/e2ee/key-packages" | "/api/v1/e2ee/revocations"
+                if *method == Method::POST =>
+            {
                 Some("crypto")
             }
             _ if path.starts_with("/api/v1/messages/")

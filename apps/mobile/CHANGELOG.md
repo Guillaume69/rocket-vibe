@@ -14,6 +14,8 @@ release, et ses notes sont la section de la version ici.
   incarnation, clé de signature et sélection de coffre sont conservées.
 - L’approbation explicite et l’enregistrement reprennent leur opération originale
   après interruption. L’E2EE de production demeure désactivé.
+- L’annuaire authentifié conserve les certificats expirés du propriétaire pour
+  permettre ce renouvellement ; les correspondants voient les certificats valides.
 - Les contrôles existants du salon signalent le certificat renouvelé à partir
   de la feuille MLS vérifiée. La mise à jour explicite et la reprise du journal
   conditionnent les nouveaux envois. Le pont Rust exerce deux appareils et la

@@ -44,3 +44,11 @@ assert.equal(verify(null, purposeFrame('rocketvibe-device-grant-v1', [enrollment
 assert.equal(verify(null, purposeFrame('rocketvibe-device-grant-v1', [Array(32).fill(0), orderedCertificate]), key,
   Buffer.from(enrollment.grant.signature)), false);
 console.log('Public enrollment fixture: independent request proof, request fingerprint and exact grant verification passed');
+const protocol=JSON.parse(readFileSync(new URL('../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
+const withdrawal=JSON.parse(Buffer.from(protocol.parity.e2ee_revoke_device.signed,'base64url').toString('utf8'));
+const withdrawalFrame=(device)=>purposeFrame('rocketvibe-device-revocation-v1',
+  [rootValue(withdrawal.root),device,withdrawal.incarnation]);
+assert.deepEqual(withdrawal.root,device.root);
+assert.equal(verify(null,withdrawalFrame(withdrawal.device),key,Buffer.from(withdrawal.signature)),true);
+assert.equal(verify(null,withdrawalFrame('substituted-leaf'),key,Buffer.from(withdrawal.signature)),false);
+console.log('Public revocation fixture: independent root signature and target substitution checks passed');

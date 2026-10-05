@@ -141,7 +141,8 @@ for the new Welcome and marks the previous cache outside the current
 projection. Its scheduling in the apps, the history of a revoked device,
 the discovery of an old Welcome when the other grants have changed,
 the final refusals of the outbox, archives / files and app bridges remain
-open. The cache keeps at most 64 documents; it is not an archive.
+open. The cache keeps at most 64 documents; it is not an archive. Once a document
+is indexed in the verified prefix, it may leave the cache automatically.
 
 The server may delay or omit frames. The positions allocated by the
 server are not a cryptographic proof of completeness or of

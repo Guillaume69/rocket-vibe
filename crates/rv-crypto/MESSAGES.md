@@ -88,9 +88,14 @@ Public proof ≤ 16 KiB; ciphertext ≤ 128 KiB; private document ≤ 64 KiB;
 private registry ≤ 4 MiB with 64 kept contents, 8,192 operation identities
 and 1,024 group positions. The global vault limits still apply.
 `forget_message` requires an exact receipt and removes the private content / ciphertext;
-the identity and fingerprint of the receipt stay remembered. No pending content
-is evicted automatically. A bound reached explicitly suspends the
-new operations; the long-term archive / purge policy remains open.
+the identity and fingerprint of the receipt stay remembered. When the 64 contents
+are reached, the oldest settled ones leave automatically: a retired admission's,
+or one already held by the verified journal index of its room's current admission.
+Their identity stays marked `evicted` or `retired`; a replay of the exact receipt
+reads the body back from that index, never by a new decryption. Pending, cancelling
+or cancelled own contents never leave. The cache stays full, and new operations
+are suspended, only when nothing settled is left to evict. The 8,192 identities
+remain a bound (registry compaction is open).
 
 The scenarios use real certified groups and reopened SQLite vaults,
 with simulated external checkpoint: rich exchange, exact echo, lost / altered ACK,

@@ -452,11 +452,22 @@ impl Coordinator {
         observation: &JournalObservation,
         now: u64,
     ) -> Result<JournalSources> {
-        self.journal_inspect(observation, now, |records, _blocks, cursor, grant| {
+        self.journal_inspect(observation, now, |records, blocks, cursor, grant| {
+            let messages = match self.archive_journal_sources(
+                records,
+                blocks,
+                &cursor.scope,
+                grant,
+                cursor.admission,
+                cursor.after,
+            )? {
+                Some(messages) => messages,
+                None => self.project_sources(records, &cursor.scope, grant, cursor.after)?,
+            };
             Ok(JournalSources {
                 admission: cursor.admission,
                 after: cursor.after,
-                messages: self.project_sources(records, &cursor.scope, grant, cursor.after)?,
+                messages,
             })
         })
     }

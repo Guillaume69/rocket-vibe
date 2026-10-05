@@ -259,8 +259,9 @@ blocks and an observation catalog bound to the admission. The shared
 desktop / Android projections read a separate index of the verified journal pages,
 including thread roots / counters and the last page after the cache is forgotten.
 The 70-message bench, migration / prefix and HTTP worker pass; synthetic
-receipts and installed qualification remain distinct. Automatic eviction,
-sources outside the cache, operation / load registry, admission of portable packets,
+receipts and installed qualification remain distinct. The hot cache now evicts
+settled bodies automatically and quote sources read the verified index. The operation
+/ load registry, admission of portable packets,
 transport, key envelopes / backups and review remain open.
 The **account root** backup
 is implemented separately: random OS code, AAD bound to the root / backup ID,

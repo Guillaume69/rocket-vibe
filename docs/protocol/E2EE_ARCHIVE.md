@@ -275,8 +275,35 @@ originals and refusal of a response served under the wrong room path. It
 uses a fixture HTTP server; PostgreSQL and installed applications
 remain distinct qualifications.
 
-This step wires the reading of locally received originals. Automatic
-cache eviction, the search for quote sources outside the cache, the
-move of the operation registry currently bounded to 8,192 and portable
-recovery remain open. The thread counters still walk the entire local index:
-a load qualification / a metadata index remain necessary.
+This step wires the reading of locally received originals.
+
+## Hot-cache eviction and quote sources
+
+The hot cache keeps at most 64 clear bodies. When it is full, the next reception
+or preparation first evicts the oldest settled bodies, by observation date then
+position. A body is settled when its admission was retired, or when it is accepted,
+journaled and held by the verified journal index of its room's current
+admission, at or below that index's head. Own intents that are pending, being
+cancelled or cancelled never leave: their original packet must stay recoverable.
+If nothing settled is left, the cache stays full and the operation is refused as
+before.
+
+An evicted body keeps its operation identity, its packet and receipt
+fingerprints, and an `evicted` (or `retired`) marker. Receiving the exact receipt
+again reads the body back from the journal index by its position and compares the
+whole receipt; it consumes no ratchet and spends no second decryption. Any other
+receipt for that operation is refused, and a retired one stays refused as retired.
+
+`journal_sources` now reads the same index: quote sources cover every verified
+document up to the protected cursor, not only the bodies still in the cache. The
+old cache remains the fallback while no index exists for the admission.
+
+The test bench sends 30 messages through journal pages with a cache reduced to 16
+in tests, never calls `forget_message`, and checks for both actors the newest and
+older pages, the 30 quote sources, the last-page replay after reopening, the
+empty own outbox, the replay of an evicted receipt and the refusal of a forged
+one.
+
+The move of the operation registry currently bounded to 8,192 and portable
+recovery remain open. The thread counters and quote sources still walk the
+entire local index: a load qualification / a metadata index remain necessary.

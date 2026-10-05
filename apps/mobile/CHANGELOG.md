@@ -253,8 +253,10 @@ release, and its notes are that version's section here.
   composer and erased when it closes.
 - Local encrypted history: conversations read already verified documents from the local archive
   once the warm cache is forgotten, covering older pages, thread roots and counters, and the
-  last page after reopening. A removed membership hides its projection. Automatic cache
-  eviction and portable history recovery remain open.
+  last page after reopening. A removed membership hides its projection. Settled messages
+  leave the warm cache by themselves, so conversations keep receiving past 64 messages and
+  quotes can pick sources from the whole verified history. Portable history recovery
+  remains open.
 - Identity recovery: the existing settings prepare an encrypted copy of the identity and
   temporarily show its code. Publishing requires confirming that the code was kept outside the
   app, and resuming or abandoning keep the original intent after a lost response or a restart.

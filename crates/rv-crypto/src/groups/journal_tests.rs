@@ -5,6 +5,150 @@ use rv_protocol::e2ee as http;
 const BASE: u64 = 9007199254740992;
 
 #[test]
+fn hot_cache_evicts_indexed_bodies_so_reception_and_quote_sources_continue_past_it() {
+    let (alice, bob, _, initial) = fixture(false);
+    let observed = observation(&alice);
+    let first = page(&observed, 0, 1, vec![group(&initial, 1, None)], None);
+    for account in [&alice, &bob] {
+        account
+            .coordinator()
+            .receive_journal(&observed, &first, NOW)
+            .unwrap();
+    }
+    // 30 bodies, nobody forgets anything: the hot cache holds MAX_CACHE (16 in tests).
+    let mut oldest = None;
+    let mut after = 1;
+    for batch in 0..6 {
+        let mut events = Vec::new();
+        for number in (batch * 5 + 1)..=(batch * 5 + 5) {
+            let mut document = messages::message(&format!("evicted-journal-{number}"));
+            document.reply_to = None;
+            let submission = alice
+                .coordinator()
+                .prepare_message(&messages::observation(&alice), &document, NOW)
+                .unwrap();
+            let receipt = messages::ack(&submission, BASE + number);
+            alice.coordinator().confirm_message(&receipt, NOW).unwrap();
+            let wire = submission.to_wire().unwrap();
+            events.push(http::DeliveryEvent {
+                position: (BASE + number).to_string(),
+                content: http::DeliveryContent::Message(http::ApplicationMessage {
+                    receipt: wire::message_receipt_to_wire(&receipt).unwrap(),
+                    proof: wire.proof,
+                    ciphertext: wire.ciphertext,
+                }),
+            });
+            if number == 1 {
+                oldest = Some((submission, receipt));
+            }
+        }
+        let through = BASE + batch * 5 + 5;
+        let next = page(&observed, after, through, events, None);
+        for account in [&alice, &bob] {
+            let result = account
+                .coordinator()
+                .receive_journal(&observed, &next, NOW)
+                .unwrap();
+            assert_eq!(result.messages.len(), 5);
+        }
+        after = through;
+    }
+    for account in [&alice, &bob] {
+        let latest = account
+            .reopened()
+            .journal_projection(
+                &observed,
+                &ProjectionQuery {
+                    before: None,
+                    limit: 20,
+                    thread: None,
+                },
+                NOW,
+            )
+            .unwrap();
+        assert!(latest.has_older);
+        assert_eq!(latest.messages[0].message.receipt.position, BASE + 11);
+        assert_eq!(latest.messages[19].message.receipt.position, BASE + 30);
+        let older = account
+            .reopened()
+            .journal_projection(
+                &observed,
+                &ProjectionQuery {
+                    before: Some(BASE + 11),
+                    limit: 5,
+                    thread: None,
+                },
+                NOW,
+            )
+            .unwrap();
+        assert_eq!(older.messages.len(), 5);
+        assert_eq!(older.messages[0].message.receipt.position, BASE + 6);
+        // Quote sources come from the journal index, past the hot cache.
+        let sources = account.reopened().journal_sources(&observed, NOW).unwrap();
+        assert_eq!(sources.messages.len(), 30);
+        assert_eq!(
+            sources.messages[0].message.message().unwrap().operation_id,
+            "evicted-journal-1"
+        );
+        assert_eq!(sources.messages[29].message.receipt.position, BASE + 30);
+        let replay = account
+            .reopened()
+            .journal_last_batch(&observed, NOW)
+            .unwrap();
+        assert_eq!(replay.messages.len(), 5);
+        assert_eq!(replay.messages[0].receipt.position, BASE + 26);
+    }
+    // Alice's own sends are settled: nothing is left to recover.
+    assert!(
+        alice
+            .coordinator()
+            .outgoing_messages(&messages::observation(&alice).roster, NOW)
+            .unwrap()
+            .is_empty()
+    );
+    // A known receipt whose body left the cache is read back from the index,
+    // never decrypted again; a different receipt for that operation is refused.
+    let (submission, receipt) = oldest.unwrap();
+    let current = messages::observation(&bob);
+    let coordinator = bob.coordinator();
+    let replayed = coordinator
+        .transact_with_blobs(|provider, records, blobs| {
+            coordinator.receive_message_inner(
+                provider,
+                records,
+                blobs,
+                &current,
+                &submission,
+                &receipt,
+                NOW,
+                true,
+            )
+        })
+        .unwrap();
+    assert!(replayed.receipt == receipt);
+    assert_eq!(
+        replayed.message().unwrap().operation_id,
+        "evicted-journal-1"
+    );
+    let mut forged = receipt.clone();
+    forged.position = BASE + 500;
+    assert!(matches!(
+        coordinator.transact_with_blobs(|provider, records, blobs| {
+            coordinator.receive_message_inner(
+                provider,
+                records,
+                blobs,
+                &current,
+                &submission,
+                &forged,
+                NOW,
+                true,
+            )
+        }),
+        Err(Error::Receipt)
+    ));
+}
+#[test]
 fn archive_projection_reopens_old_pages_and_thread_root_after_cache_eviction() {
     let (alice, bob, _, initial) = fixture(false);
     let observed = observation(&alice);

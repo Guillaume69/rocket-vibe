@@ -974,7 +974,7 @@ fn bounded_cache_releases_confirmed_plaintext_without_reusing_an_operation_or_sk
     let (alice, bob, _) = incoming_commits::fixture(false);
     let observed = observation(&alice);
     let mut first = None;
-    for i in 0..64 {
+    for i in 0..super::messages::MAX_CACHE as u64 {
         let request = message(&format!("bounded-{i}"));
         let submission = alice
             .coordinator()

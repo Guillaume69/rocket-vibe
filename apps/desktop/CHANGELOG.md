@@ -9,11 +9,14 @@ section here.
 
 ### Added
 
+- Experimental private conversations keep receiving past 64 messages: settled
+  bodies leave the hot cache by themselves once the verified journal archive holds
+  them, and quotes can pick sources from the whole verified history.
+
 - Experimental private conversations read verified local journal archives after
   hot-cache eviction, including older pages, thread roots / reply counts and the
-  last page after reopening. Admission retirement hides old projections. Automatic
-  cache eviction and portable historical recovery remain open; production E2EE
-  stays disabled.
+  last page after reopening. Admission retirement hides old projections. Portable
+  historical recovery remains open; production E2EE stays disabled.
 
 - Existing GTK / SwiftUI crypto settings prepare an identity backup, explicitly
   display its recovery code, confirm the saved code before publishing, and resume

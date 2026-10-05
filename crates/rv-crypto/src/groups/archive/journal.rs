@@ -104,6 +104,18 @@ impl Coordinator {
     ) -> Result<bool> {
         Ok(head(records, &binding(scope, grant, admission))?.is_some())
     }
+    /// Position of the newest indexed document; none once retired.
+    pub(in super::super) fn journal_archive_position(
+        &self,
+        records: &Records,
+        scope: &Scope,
+        grant: &Member,
+        admission: Fingerprint,
+    ) -> Result<Option<u64>> {
+        Ok(head(records, &binding(scope, grant, admission))?
+            .filter(|h| !h.retired)
+            .map(|h| h.position))
+    }
     #[allow(clippy::too_many_arguments)]
     pub(in super::super) fn index_archive_message(
         &self,
@@ -240,6 +252,37 @@ impl Coordinator {
         }
         projection.messages.reverse();
         Ok(Some(projection))
+    }
+    /// Every indexed document up to `through`, oldest first: quote sources
+    /// outlive the hot cache. Each one revalidates its original proof.
+    pub(in super::super) fn archive_journal_sources(
+        &self,
+        records: &Records,
+        blocks: &Access<'_>,
+        scope: &Scope,
+        grant: &Member,
+        admission: Fingerprint,
+        through: u64,
+    ) -> Result<Option<Vec<ProjectedMessage>>> {
+        let Some(header) = head(records, &binding(scope, grant, admission))? else {
+            return Ok(None);
+        };
+        if header.retired {
+            return Ok(Some(Vec::new()));
+        }
+        let mut sources = Vec::new();
+        let mut entry = start(blocks, &header)?;
+        loop {
+            if entry.receipt.position <= through {
+                sources.push(document(blocks, &entry)?);
+            }
+            if entry.jumps.is_empty() {
+                break;
+            }
+            entry = previous(blocks, &entry, 0)?;
+        }
+        sources.reverse();
+        Ok(Some(sources))
     }
     #[allow(clippy::too_many_arguments)]
     pub(in super::super) fn archive_journal_clear(

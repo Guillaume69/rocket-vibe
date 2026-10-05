@@ -5,6 +5,23 @@ Destination: [RFC 0001](rfcs/0001-rocketvibe-rust-server.md).
 
 ## Summary status as of 5 October 2026
 
+Hot-cache eviction: the protected message registry no longer stops receiving at 64
+bodies. Before a new body enters a full cache, the oldest settled bodies leave it:
+a retired admission's, or one already held by the verified journal index of its
+room's current admission. Own pending, cancelling or cancelled intents stay. An
+evicted identity keeps its fingerprints and an `evicted` / `retired` marker; a
+replay of the exact receipt reads the body back from the index without a new
+decryption, and a forged receipt is refused. `journal_sources` reads the same
+index, so quote sources cover the whole verified history. With the cache reduced
+to 16 in tests, the new bench sends 30 messages through journal pages without
+`forget_message`; the 191 `rv-crypto` tests pass in 161.61 s, the 11 mobile bridge
+tests in 69.04 s, the desktop workspace tests, and the HTTP worker against
+PostgreSQL in 58.54 s. The 8,192 operation registry, portable keys / transport,
+a metadata index for thread counters / sources and load remain open.
+
+This batch follows the merge of master (English names, desktop 0.7.0, slash
+commands) and the translation of these documents into English.
+
 Archive reading is wired to the shared desktop / Android conversation
 projections: a separate index of verified journal pages only, older pages,
 thread roots / counters, and resumption of the last page after the cache is

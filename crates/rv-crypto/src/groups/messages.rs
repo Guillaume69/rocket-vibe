@@ -8,7 +8,11 @@ use std::io::Write;
 use zeroize::Zeroizing;
 
 const RECORD: &str = "crypto-messages-v1";
-const MAX_CACHE: usize = 64;
+// Tests exercise eviction without receiving 64 MLS messages each time.
+#[cfg(not(test))]
+pub(super) const MAX_CACHE: usize = 64;
+#[cfg(test)]
+pub(super) const MAX_CACHE: usize = 16;
 const MAX_HISTORY: usize = 8192;
 const RECORD_LIMIT: usize = 4 * 1024 * 1024;
 const PLAIN_LIMIT: usize = 64 * 1024;
@@ -245,6 +249,16 @@ struct Seen {
     cancelled: Option<String>,
     #[serde(default)]
     cancelling: bool,
+    /// The clear body left the hot cache: journaled and indexed, it is read
+    /// back from the protected journal archive by its receipt position.
+    #[serde(default, skip_serializing_if = "is_false")]
+    evicted: bool,
+    /// The body left the hot cache after its admission was retired.
+    #[serde(default, skip_serializing_if = "is_false")]
+    retired: bool,
+}
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -355,6 +369,11 @@ impl Coordinator {
                 || seen.receipt.is_none()
                     && seen.cancelled.is_none()
                     && (seen.intent.is_none() || !ledger.cache.contains_key(id))
+                || (seen.evicted || seen.retired)
+                    && (seen.receipt.is_none()
+                        || seen.cancelling
+                        || seen.evicted && seen.retired
+                        || ledger.cache.contains_key(id))
             {
                 return Err(Error::Changed);
             }
@@ -511,7 +530,7 @@ impl Coordinator {
                 current_packet(&entry.proof()?.header, observation, &context)?;
                 return Ok(entry.submission.clone());
             }
-            capacity(&ledger)?;
+            self.make_room(records, &mut ledger)?;
             let header = packet::Header {
                 version: 1,
                 scope: state.scope.clone(),
@@ -555,6 +574,8 @@ impl Coordinator {
                     receipt: None,
                     cancelled: None,
                     cancelling: false,
+                    evicted: false,
+                    retired: false,
                 },
             );
             ledger.cache.insert(
@@ -870,6 +891,37 @@ impl Coordinator {
             if seen.cancelled.is_some() {
                 return Err(Error::Receipt);
             }
+            if seen.retired {
+                return Err(Error::MessageRetired);
+            }
+            if seen.evicted {
+                // Same receipt only: the body comes back from the verified
+                // journal index of this admission, never from a new decryption.
+                if seen.receipt.as_ref() != Some(&received_hash) {
+                    return Err(Error::Receipt);
+                }
+                receipt.matches(&submission.checked_at(now, true)?)?;
+                let clear = self
+                    .archive_journal_clear(
+                        records,
+                        blobs,
+                        &state.scope,
+                        &grant,
+                        admission,
+                        &[receipt.position],
+                    )?
+                    .and_then(|mut found| found.pop())
+                    .ok_or(Error::MessageNotRetained)?;
+                if clear.receipt != *receipt {
+                    return Err(Error::Conflict);
+                }
+                ledger.clock = now;
+                advance(&mut ledger, receipt)?;
+                state.clock = now;
+                save_ledger(records, &ledger)?;
+                save(records, &state)?;
+                return Ok(clear);
+            }
             let entry = ledger.cache.get_mut(&id).ok_or(Error::MessageNotRetained)?;
             if entry.retired {
                 return Err(Error::MessageRetired);
@@ -921,7 +973,7 @@ impl Coordinator {
             save(records, &state)?;
             return Ok(clear);
         }
-        capacity(&ledger)?;
+        self.make_room(records, &mut ledger)?;
         let stream = stream(&receipt.header.scope)?;
         if ledger
             .progress
@@ -999,6 +1051,8 @@ impl Coordinator {
                 receipt: Some(received_hash.clone()),
                 cancelled: None,
                 cancelling: false,
+                evicted: false,
+                retired: false,
             },
         );
         ledger.cache.insert(
@@ -1249,6 +1303,72 @@ fn capacity(ledger: &Ledger) -> Result<()> {
         return Err(Error::Limit);
     }
     Ok(())
+}
+impl Coordinator {
+    /// Frees one hot-cache slot before a new body enters it, oldest first.
+    /// Only settled bodies leave: a retired admission's, or one this
+    /// admission's verified journal index already holds. Own intents still
+    /// pending, cancelling or cancelled stay, so recovery never loses them.
+    fn make_room(&self, records: &Records, ledger: &mut Ledger) -> Result<()> {
+        if ledger.cache.len() < MAX_CACHE {
+            return capacity(ledger);
+        }
+        let mut candidates = Vec::new();
+        for (id, entry) in &ledger.cache {
+            let seen = ledger.seen.get(id).ok_or(Error::Changed)?;
+            let Some(receipt) = entry.receipt.as_ref() else {
+                continue;
+            };
+            if seen.receipt.is_none() || seen.cancelled.is_some() || seen.cancelling {
+                continue;
+            }
+            let release = if entry.retired {
+                Some(true)
+            } else if entry.journaled
+                && entry.archive.is_some()
+                && self.indexed(records, entry, receipt)?
+            {
+                Some(false)
+            } else {
+                None
+            };
+            if let Some(retired) = release {
+                candidates.push((entry.created, receipt.position, id.clone(), retired));
+            }
+        }
+        candidates.sort();
+        let excess = ledger.cache.len() + 1 - MAX_CACHE;
+        for (_, _, id, retired) in candidates.into_iter().take(excess) {
+            ledger.cache.remove(&id);
+            let seen = ledger.seen.get_mut(&id).ok_or(Error::Changed)?;
+            seen.retired = retired;
+            seen.evicted = !retired;
+        }
+        capacity(ledger)
+    }
+    /// The body sits in the journal index of its room's current admission at
+    /// or below that index's head; the index only grows, so it stays there.
+    fn indexed(&self, records: &Records, entry: &Entry, receipt: &packet::Receipt) -> Result<bool> {
+        let scope = &receipt.header.scope;
+        let Some(state) = read(records, &scope.room)? else {
+            return Ok(false);
+        };
+        let Some(active) = state.active.as_ref() else {
+            return Ok(false);
+        };
+        if state.scope != *scope {
+            return Ok(false);
+        }
+        // A changed grant or admission keeps the body: it is not this index's.
+        let admission = match self.admission_witness(&active.transition.plan, &entry.grant) {
+            Ok(admission) => admission,
+            Err(Error::JournalOrder) => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        Ok(self
+            .journal_archive_position(records, scope, &entry.grant, admission)?
+            .is_some_and(|head| head >= receipt.position))
+    }
 }
 fn stream(scope: &Scope) -> Result<String> {
     Ok(HEXLOWER.encode(&digest(&scope.group_id()?)))

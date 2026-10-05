@@ -11,6 +11,12 @@ publish = false
 [profile.test.package.curve25519-dalek]
 opt-level = 3
 
+# The real HTTP worker fixture is built as an example in the dev profile.
+# Keep its coordinator/debug assertions intact, but use the same curve
+# arithmetic as tests so the full crash/retry scenario fits its deadline.
+[profile.dev.package.curve25519-dalek]
+opt-level = 3
+
 [features]
 system-keystore = ["dep:keyring"]
 native-http = ["dep:rv-client", "dep:tokio"]

@@ -269,6 +269,15 @@ Les nouveaux contrôles GTK sous Xvfb et les modèles Swift contre PostgreSQL
 exercent le choix de destination et l'envoi intersalons ; exécution CI encore
 ouverte, ainsi que les parcours privés GUI installés. Aucun masque activé.
 
+La CI 37250486296 de 7bf7fae a atteint la borne de 90 secondes du banc HTTP
+privé contre PostgreSQL. Le même parcours avait passé en 79,36 secondes sur
+10f3005. Son exécutable est compilé comme exemple en profil dev : l'optimisation
+de l'arithmétique curve25519 déjà utilisée en profil test est aussi appliquée à
+ce profil, sans retirer d'assertion ni augmenter la borne. Des repères d'étape
+sans contenu privé sont désormais visibles sur stderr, y compris en timeout.
+Le check local de l'exemple passe en 5,21 secondes ; sa durée d'exécution et
+l'issue des nouveaux parcours GTK / Swift restent à confirmer par CI.
+
 | Jalon | Développement livré | Travail restant pour le fermer |
 |---|---|---|
 | J0 | Contrats, fixtures communes, inventaire et backlog de parité | Conditions opérateur / export et décisions crypto liées aux jalons suivants |

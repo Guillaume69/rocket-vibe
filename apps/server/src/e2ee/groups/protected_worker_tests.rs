@@ -117,7 +117,8 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
         .kill_on_drop(true)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        // Keep phase diagnostics visible even if the bounded child wait expires.
+        .stderr(Stdio::inherit())
         .spawn()
         .unwrap();
     child.stdin.take().unwrap().write_all(&input).await.unwrap();
@@ -128,8 +129,8 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
     server.abort();
     assert!(
         output.status.success(),
-        "private worker failed: {}",
-        String::from_utf8_lossy(&output.stderr)
+        "private worker failed with {}; see its phase diagnostics above",
+        output.status
     );
     assert_eq!(
         String::from_utf8(output.stdout).unwrap().trim(),

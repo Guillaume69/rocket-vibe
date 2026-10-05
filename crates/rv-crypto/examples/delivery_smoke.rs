@@ -415,10 +415,12 @@ async fn exchange(
     Ok(reply_ack.position.to_string())
 }
 async fn run(input: Input) -> Result<()> {
+    eprintln!("protected-worker-http-smoke: accounts");
     let alice = Account::new(&input.base, &input.alice).await?;
     let bob = Account::new(&input.base, &input.bob).await?;
     alice.trust(&bob).await?;
     bob.trust(&alice).await?;
+    eprintln!("protected-worker-http-smoke: key packages");
     let worker = alice.worker()?;
     lost(worker.publish_packages(alice.revision.clone(), 2).await);
     worker.stop();
@@ -447,6 +449,7 @@ async fn run(input: Input) -> Result<()> {
             }],
         )
         .await?;
+    eprintln!("protected-worker-http-smoke: genesis");
     let fingerprint = preview.preview.fingerprint;
     lost(worker.prepare_genesis(preview, fingerprint).await);
     assert!(
@@ -464,6 +467,7 @@ async fn run(input: Input) -> Result<()> {
         alice.secret(&input.room)? == bob.secret(&input.room)?,
         "initial peer epoch secrets differ"
     );
+    eprintln!("protected-worker-http-smoke: group cancellation");
     // Abandon a true prepared successor without ever accepting it on the
     // server. A lost terminal response must repeat cancellation, never POST
     // that successor. The accepted group's secrets remain intact.
@@ -504,6 +508,7 @@ async fn run(input: Input) -> Result<()> {
         matches!(late, Err(rv_client::Error::Server { status:409, ref code, .. }) if code=="crypto_group_cancelled"),
         "late original transition was accepted"
     );
+    eprintln!("protected-worker-http-smoke: message cancellation");
     // Prepare a genuine private intention without POSTing it. Lose the first
     // durable cancellation response, reopen, recover the exact document, then
     // prove the peer can receive the next sender generation normally.
@@ -546,11 +551,13 @@ async fn run(input: Input) -> Result<()> {
         "late original POST was not fenced"
     );
     coordinator.forget_cancelled_message(&receipt)?;
+    eprintln!("protected-worker-http-smoke: exchanges and rotations");
     let position = exchange(&alice, &bob, &input.room, 1, "0").await?;
     rotate(&alice, &bob, &input.room).await?;
     let position = exchange(&alice, &bob, &input.room, 2, &position).await?;
     rotate(&bob, &alice, &input.room).await?;
     let position = exchange(&alice, &bob, &input.room, 3, &position).await?;
+    eprintln!("protected-worker-http-smoke: withdrawal and readmission");
     let old_secret = bob.secret(&input.room)?;
     let old_grant = bob
         .client

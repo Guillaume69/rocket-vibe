@@ -1,27 +1,27 @@
-# Prototype MLS de J4
+# J4 MLS prototype
 
-Les tests de faisabilité de [RFC 0002](../../docs/rfcs/0002-e2ee-native.md).
-Aucun serveur ou client ne dépend de cette crate ; son workspace et son lock
-sont indépendants pour éviter de modifier les dépendances de production.
+The feasibility tests of [RFC 0002](../../docs/rfcs/0002-e2ee-native.md).
+No server or client depends on this crate; its workspace and its lock
+are independent to avoid modifying the production dependencies.
 
 ```sh
 cargo test --locked --manifest-path crates/rv-crypto-spike/Cargo.toml --target-dir target
 ```
 
-Trois scénarios utilisent OpenMLS 0.9.0 / RustCrypto 0.6.0 avec la suite 0x0001 :
+Three scenarios use OpenMLS 0.9.0 / RustCrypto 0.6.0 with suite 0x0001:
 
-- Welcome, ciphertext et identité / AAD, altération, restauration de l'état puis
-  rejeu refusé. Une réception altérée consomme une clé : le futur moteur doit
-  annuler les écritures et recharger le groupe avant de retenter.
-- Trois appareils, dont deux du même utilisateur de test ; retrait d'une feuille
-  et impossibilité d'ouvrir la nouvelle époque avec son état antérieur.
-- Nouvelle feuille sans accès automatique à l'historique ; commit préparé
-  conservé après rechargement. La bibliothèque permet encore d'émettre dans
-  l'ancienne époque : la politique applicative doit bloquer ces envois.
+- Welcome, ciphertext and identity / AAD, alteration, state restoration then
+  replay refused. An altered reception consumes a key: the future engine must
+  cancel the writes and reload the group before retrying.
+- Three devices, two of them belonging to the same test user; withdrawal of a leaf
+  and impossibility of opening the new epoch with its previous state.
+- New leaf without automatic access to the history; prepared commit
+  kept after reload. The library still allows sending in the
+  old epoch: the application policy must block these sends.
 
-Les identités de test sont des BasicCredentials non certifiés. Le stockage est
-en mémoire, les copies de test contiennent des secrets et le rechargement n'est
-pas un redémarrage disque. Le serveur de livraison et sa confirmation sont
-simulés. Ces preuves ne valident ni la récupération / archive, ni le pont mobile,
-ni l'authentification des comptes, ni la sécurité du stockage ou de l'application.
-Les capacités E2EE natives restent désactivées.
+The test identities are uncertified BasicCredentials. The storage is
+in memory, the test copies contain secrets and the reload is not
+a disk restart. The delivery server and its confirmation are
+simulated. These proofs validate neither recovery / archive, nor the mobile bridge,
+nor the authentication of accounts, nor the security of the storage or of the application.
+The native E2EE capabilities stay disabled.

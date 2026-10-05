@@ -1,9 +1,9 @@
-# Cartes d'intégration natives — P15
+# Native integration cards (P15)
 
-`SendMessage.cards` et `Message.cards` portent des pièces jointes structurées.
-Une intégration utilise une session normale et `POST /api/v1/rooms/{room}/messages` :
-elle doit appartenir au salon et avoir le droit d'y écrire. Aucun webhook
-anonyme, rôle privilégié implicite ou marketplace n'est ajouté.
+`SendMessage.cards` and `Message.cards` carry structured attachments.
+An integration uses a normal session and `POST /api/v1/rooms/{room}/messages`:
+it must belong to the room and have the right to write in it. No anonymous
+webhook, implicit privileged role or marketplace is added.
 
 ```json
 {
@@ -11,40 +11,40 @@ anonyme, rôle privilégié implicite ou marketplace n'est ajouté.
   "text": "",
   "cards": [{
     "author": "CI",
-    "title": "Build terminé",
+    "title": "Build finished",
     "url": "https://example.org/build/42",
-    "text": "Le paquet est disponible.",
+    "text": "The package is available.",
     "color": "#1177aa",
     "fields": [{"title": "Commit", "value": "abcdef", "short": true}]
   }]
 }
 ```
 
-Trois cartes et 16 Kio de JSON au total ; douze champs par carte. Limites UTF-8 :
-auteur 256 octets, titre 512, texte 8 192, libellé de champ 128, valeur 2 048,
-lien 2 048. Les liens sont HTTP(S), avec hôte, sans userinfo ni contrôles.
-La couleur est `#rrggbb`. Les propriétés non reconnues sont refusées ; aucune
-image distante, action exécutable ou balise HTML interprétée n'est transportée.
-Un titre, du texte ou des champs sont nécessaires. Le texte du message peut
-être vide lorsque des cartes sont présentes.
+Three cards and 16 KiB of JSON in total; twelve fields per card. UTF-8 limits:
+author 256 bytes, title 512, text 8,192, field label 128, value 2,048,
+link 2,048. Links are HTTP(S), with a host, without userinfo or control characters.
+The color is `#rrggbb`. Unrecognized properties are refused; no remote
+image, executable action or interpreted HTML tag is carried.
+A title, text or fields are required. The message text may
+be empty when cards are present.
 
-Les cartes entrent dans l'empreinte de l'intention. Une répétition identique
-rend le message courant ; un changement de carte sous le même identifiant
-est un conflit. Une édition du texte conserve les cartes. La suppression
-efface leur JSON et réécrit les anciens événements avec le tombstone courant.
-Un index GIN distinct permet de rechercher leur contenu sans modifier l'index
-du texte ; les mêmes droits et limites de recherche s'appliquent.
+Cards enter the fingerprint of the intent. An identical repeat
+returns the current message; a change of card under the same identifier
+is a conflict. An edit of the text keeps the cards. Deletion
+erases their JSON and rewrites the old events with the current tombstone.
+A distinct GIN index makes it possible to search their content without modifying the
+text index; the same search rights and limits apply.
 
-Les projections SQLite et les résultats temporaires de recherche utilisent
-les pièces jointes existantes. Les actualisations des citations conservent
-les cartes du message. Le cœur GTK fournit le renderer déjà présent ; le
-modèle UniFFI ajoute couleur et champs à la carte SwiftUI existante. Mobile
-complète le rendu des pièces jointes dans la ligne actuelle, avec les styles
-et le renderer Markdown existants. Ces présentations acceptent aussi les
-cartes structurées Rocket.Chat dans leur fournisseur actuel.
+The SQLite projections and the temporary search results use
+the existing attachments. Quote refreshes keep
+the message's cards. The GTK core provides the renderer already present; the
+UniFFI model adds color and fields to the existing SwiftUI card. Mobile
+completes the rendering of attachments in the current row, with the existing styles
+and Markdown renderer. These presentations also accept the structured
+Rocket.Chat cards in their current provider.
 
-Vérifications : validation du contrat, droits / rejeu / recherche / édition /
-effacement HTTP et PostgreSQL, fournisseur mobile réel avec SQLite et recherche,
-rollback et retrait du salon dans les caches, projection UniFFI et widget GTK.
-Les modèles Swift compilent localement ; l'interface AppKit est vérifiée par
-la CI macOS. L'export Android / Hermes ne qualifie pas une application installée.
+Verifications: contract validation, rights / replay / search / edit /
+erasure over HTTP and PostgreSQL, real mobile provider with SQLite and search,
+rollback and room removal in the caches, UniFFI projection and GTK widget.
+The Swift models compile locally; the AppKit interface is verified by
+the macOS CI. The Android / Hermes export does not qualify an installed application.

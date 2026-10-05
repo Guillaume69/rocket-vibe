@@ -1,121 +1,121 @@
-# Annuaire E2EE natif — premier lot de livraison J4
+# Native E2EE directory (first J4 delivery batch)
 
-Ce lot publie des preuves **publiques**. Il ne permet pas encore l'envoi chiffré,
-la création de groupe ou la livraison de Welcome. `capabilities.e2ee` reste faux.
-Les interfaces et le fournisseur Rocket.Chat existants sont conservés.
+This batch publishes **public** proofs. It does not yet allow encrypted sending,
+group creation or Welcome delivery. `capabilities.e2ee` stays false.
+The existing interfaces and the Rocket.Chat provider are kept.
 
-| Route authentifiée | Résultat |
+| Authenticated route | Result |
 |---|---|
-| `POST /api/v1/e2ee/devices` | Enregistrement / renouvellement / remplacement conditionnel du certificat de l'appareil de session courant |
-| `POST /api/v1/e2ee/revocations` | Retrait signé par la racine, fermeture de la famille HTTP ciblée et reçu original du contrôleur |
-| `POST /api/v1/e2ee/key-packages` | Vérification et publication atomique de 1–8 KeyPackages MLS TLS |
-| `GET /api/v1/e2ee/users/{user}?after={position}` | Racine publique, appareils actifs et page de révocations signées |
-| `GET /api/v1/e2ee/operations/{operation}` | Reçu original du compte et de l'appareil courants |
+| `POST /api/v1/e2ee/devices` | Registration / renewal / conditional replacement of the certificate of the current session device |
+| `POST /api/v1/e2ee/revocations` | Removal signed by the root, closure of the targeted HTTP family and original receipt of the controller |
+| `POST /api/v1/e2ee/key-packages` | Verification and atomic publication of 1-8 MLS TLS KeyPackages |
+| `GET /api/v1/e2ee/users/{user}?after={position}` | Public root, active devices and page of signed revocations |
+| `GET /api/v1/e2ee/operations/{operation}` | Original receipt of the current account and device |
 
-Les blobs utilisent base64url sans padding ; `request`, `grant`, `certificate`,
-`root` et `signed` contiennent les formats JSON signés de `rv-crypto-public`.
-Les KeyPackages contiennent la sérialisation TLS d'OpenMLS 0.9.0, suite 0x0001.
-Les chaînes de révision et position sont des décimaux exacts, jamais des nombres
-JavaScript. Décoder le DTO ne vérifie pas ses signatures ou sa confiance.
+Blobs use unpadded base64url; `request`, `grant`, `certificate`,
+`root` and `signed` contain the signed JSON formats of `rv-crypto-public`.
+KeyPackages contain the OpenMLS 0.9.0 TLS serialization, suite 0x0001.
+Revision and position strings are exact decimals, never JavaScript
+numbers. Decoding the DTO does not verify its signatures or its trust.
 
-Pour le propriétaire authentifié, l'annuaire conserve aussi les certificats
-expirés des appareils dont la session HTTP est encore active. Ces preuves
-historiques permettent d'afficher l'expiration et de renouveler / retirer
-l'incarnation précise. Les correspondants reçoivent seulement les certificats
-actuellement valides ; une preuve historique ne permet pas un nouvel envoi MLS.
+For the authenticated owner, the directory also keeps the expired
+certificates of the devices whose HTTP session is still active. These historical
+proofs make it possible to display the expiry and to renew / remove
+the precise incarnation. Correspondents receive only the currently
+valid certificates; a historical proof does not permit a new MLS send.
 
-## Enregistrement
+## Registration
 
-Le client conserve l'intention et son `operation_id` avant HTTP. La portée
-instance / `data_epoch` doit correspondre à la base sous verrou. Le serveur
-vérifie la demande signée par la feuille, le grant et le certificat signés par
-la racine, et leur liaison exacte à l'UID et au `session_device` courant.
-Le premier enregistrement exige les révisions attendues absentes ; les suivants
-exigent l'empreinte de racine et la révision d'appareil observées.
+The client keeps the intent and its `operation_id` before HTTP. The
+instance / `data_epoch` scope must match the database under lock. The server
+verifies the request signed by the leaf, the grant and the certificate signed by
+the root, and their exact binding to the UID and the current `session_device`.
+The first registration requires the expected revisions to be absent; later ones
+require the root fingerprint and the device revision observed.
 
-La racine du compte ne change pas par cette API. Une session HTTP renouvelée
-conserve son appareil. Un login neuf crée un autre appareil ; son certificat
-exige l'approbation de la même racine. Le serveur ne fournit ni cette approbation,
-ni une clé privée. Le premier enregistrement demeure un bootstrap TOFU : un
-bearer volé avant celui-ci peut installer une autre racine. Les pins et la
-vérification hors bande restent obligatoires côté correspondant.
+The account root does not change through this API. A renewed HTTP session
+keeps its device. A fresh login creates another device; its certificate
+requires the approval of the same root. The server provides neither this approval
+nor a private key. The first registration remains a TOFU bootstrap: a
+bearer stolen before it can install another root. Pins and
+out-of-band verification remain mandatory on the correspondent side.
 
-Le renouvellement garde incarnation et clé et ne diminue pas les dates du
-certificat. Remplacer l'incarnation exige une révocation de l'ancienne signée
-par la racine. Cette révocation demeure en base ; les anciens packages sont
-retirés et leurs références ne redeviennent jamais disponibles par publication.
-Une racine changée, une confirmation périmée ou une incarnation révoquée est
-refusée explicitement. La rotation de racine reste à intégrer ; cette route
-ne remplace pas le retrait indépendant ci-dessous.
+Renewal keeps incarnation and key and does not decrease the dates of the
+certificate. Replacing the incarnation requires a revocation of the old one signed
+by the root. This revocation stays in the database; the old packages are
+removed and their references never become available again by publication.
+A changed root, a stale confirmation or a revoked incarnation is
+explicitly refused. Root rotation remains to be integrated; this route
+does not replace the independent removal below.
 
-## Retrait indépendant
+## Independent removal
 
-`RevokeDevice` porte la portée, l'ID original, la révision / incarnation du
-contrôleur enregistré et un `Revocation` signé par la racine. La signature
-désigne l'appareil et l'incarnation à retirer ; elle doit correspondre à la
-racine courante du compte HTTP. Une connexion récente avec les facteurs
-actuellement requis est nécessaire pour accepter une nouvelle opération.
-Une racine / révision / incarnation substituée est refusée. L'expiration du
-certificat du contrôleur ne retire pas son autorité de racine ; son appareil
-HTTP et son inscription doivent toujours exister, sans retrait signé connu.
+`RevokeDevice` carries the scope, the original ID, the revision / incarnation of the
+registered controller and a `Revocation` signed by the root. The signature
+designates the device and the incarnation to remove; it must match the
+current root of the HTTP account. A recent login with the currently
+required factors is necessary to accept a new operation.
+A substituted root / revision / incarnation is refused. The expiry of the
+controller's certificate does not remove its root authority; its HTTP
+device and its enrollment must still exist, with no known signed removal.
 
-Le compte est sérialisé avant l'attribution de la position du retrait. Preuve
-signée, retrait des packages et suppression de la famille HTTP sont dans le
-même commit que le reçu. Une ancienne incarnation ne supprime pas la famille
-d'une incarnation remplacée. Un appareil déjà déconnecté peut encore recevoir
-son retrait permanent ; réémettre le même retrait ne le duplique pas.
-Le contrôleur ne peut pas retirer sa propre incarnation actuelle par cette
-route, afin de conserver l'accès au reçu après réponse perdue.
+The account is serialized before the position of the removal is assigned. Signed
+proof, removal of the packages and deletion of the HTTP family are in the
+same commit as the receipt. An old incarnation does not delete the family
+of a replaced incarnation. An already disconnected device can still receive
+its permanent removal; reissuing the same removal does not duplicate it.
+The controller cannot remove its own current incarnation through this
+route, in order to keep access to the receipt after a lost response.
 
-Le `OperationReceipt` de type `revoke_device` décrit le contrôleur émetteur,
-avec `key_package_refs` vide. `GET /operations/{operation}` retrouve ce résultat
-sans nouvel envoi et un rejeu exact reste lisible après la fenêtre de
-réauthentification. Un ID réutilisé avec un autre retrait est refusé.
-Ce transport ne fournit aucun consentement ou clé privée. Le coordinateur
-protégé signe après confirmation de l'aperçu exact et sauvegarde le retrait
-avec sa demande originale avant publication. Il mémorise aussi les retraits
-reçus pour l'identité locale déjà établie. Omission ultérieure, réouverture ou
-premier pin explicite tardif ne réautorisent pas l'incarnation. Aucun pin ou
-accord d'appareil n'est créé implicitement. Le renouvellement du contrôleur
-attend le règlement du retrait en attente. Les trois interfaces existantes
-proposent confirmation et reprise ; leur qualification CI / installée reste
-distincte. Les groupes concernés attendent leur commit MLS de retrait avant
-reprise. La révocation d'une feuille ne retire pas une racine compromise.
+The `OperationReceipt` of type `revoke_device` describes the issuing controller,
+with an empty `key_package_refs`. `GET /operations/{operation}` finds this result
+without a new send and an exact replay remains readable after the
+reauthentication window. An ID reused with another removal is refused.
+This transport provides no consent or private key. The protected
+coordinator signs after confirmation of the exact preview and saves the removal
+with its original request before publication. It also memorizes the removals
+received for the local identity already established. Later omission, reopening or
+a late first explicit pin do not reauthorize the incarnation. No pin or
+device agreement is created implicitly. Renewal of the controller
+waits for the settlement of the pending removal. The three existing interfaces
+offer confirmation and resume; their CI / installed qualification remains
+distinct. The groups concerned await their MLS removal commit before
+resuming. Revoking a leaf does not remove a compromised root.
 
-## Packages et reçus
+## Packages and receipts
 
-OpenMLS valide effectivement TLS, signatures et durée de vie ; le serveur
-vérifie en plus le certificat et la clé de feuille, l'appareil actif, sa révision
-et sa racine. Une référence est le `KeyPackageRef` RFC 9420, et un SHA-256 TLS
-distinct garde l'intégrité de la publication. Le protocole expérimental de
-[groupes](E2EE_GROUPS.md) consomme ensuite les références avec leur transition,
-sans réservation par une simple lecture.
+OpenMLS effectively validates TLS, signatures and lifetime; the server
+additionally verifies the certificate and the leaf key, the active device, its revision
+and its root. A reference is the RFC 9420 `KeyPackageRef`, and a distinct TLS
+SHA-256 keeps the integrity of the publication. The experimental
+[groups](E2EE_GROUPS.md) protocol then consumes the references with their transition,
+without reservation by a simple read.
 
-Une opération identique retrouve son reçu avant une nouvelle vérification
-crypto, même si le certificat a expiré depuis. Ce reçu décrit l'opération passée
-et ne réactive aucune clé. Réutiliser l'ID avec une autre intention est refusé.
-Reçus et mutation sont dans le même commit PostgreSQL. Logout / suppression de
-famille HTTP retire le certificat et les octets des packages, tout en gardant
-les références retirées. Une restauration / nouvelle génération refuse les
-anciennes intentions et reçus ; la procédure complète de restauration J5 doit
-encore révoquer les sessions et réconcilier les états clients.
+An identical operation finds its receipt before a new crypto
+verification, even if the certificate has expired since. This receipt describes the past
+operation and reactivates no key. Reusing the ID with another intent is refused.
+Receipts and mutation are in the same PostgreSQL commit. Logout / deletion of the
+HTTP family removes the certificate and the bytes of the packages, while keeping
+the removed references. A restoration / new generation refuses the
+old intents and receipts; the complete J5 restoration procedure must
+still revoke the sessions and reconcile the client states.
 
-Limites : quatre workers crypto possédés par processus, y compris après abandon
-HTTP ; 16 Kio TLS par package, 64 packages disponibles par appareil, 256 nouvelles
-opérations par jour et appareil ; 64 appareils et 128 révocations par page.
-Les requêtes de packages sont bornées à 256 Kio ; les autres à 64 Kio. Un lot
-refusé ne laisse ni packages partiels ni reçu. Un `429` conserve `Retry-After` ;
-les SDK laissent consulter les reçus pendant le délai. Les lectures sont privées,
-`no-store`, et soumises aux barrières de livraison du serveur.
+Limits: four crypto workers owned per process, including after HTTP
+abandon; 16 KiB TLS per package, 64 available packages per device, 256 new
+operations per day and device; 64 devices and 128 revocations per page.
+Package requests are bounded to 256 KiB; the others to 64 KiB. A refused
+batch leaves neither partial packages nor a receipt. A `429` keeps `Retry-After`;
+the SDKs let receipts be consulted during the delay. Reads are private,
+`no-store`, and subject to the server's delivery barriers.
 
-## Suite du lot
+## Next steps of the batch
 
-La livraison du paquet de racine chiffré et signé possède un
-[contrat séparé](E2EE_ROOT_BACKUPS.md). Elle ne transporte aucun code de récupération.
+The delivery of the encrypted and signed root package has a
+[separate contract](E2EE_ROOT_BACKUPS.md). It carries no recovery code.
 
-Liste de destinataires / adhésions signée, consommation unique liée au commit,
-ordre / CAS et Welcomes ciblés sont implémentés dans le lot [groupes](E2EE_GROUPS.md).
-Leur vérification, outbox durable et admission locale sont raccordées aux
-écrans GTK / SwiftUI / Android existants. Qualification installée, historique
-récupérable, fichiers / actions privés et revue dédiée restent ouverts. Les clés privées et le
-secret de récupération ne doivent jamais entrer dans ce protocole serveur.
+Signed recipient / membership list, single consumption bound to the commit,
+order / CAS and targeted Welcomes are implemented in the [groups](E2EE_GROUPS.md) batch.
+Their verification, durable outbox and local admission are wired to the
+existing GTK / SwiftUI / Android screens. Installed qualification, recoverable
+history, private files / actions and dedicated review remain open. Private keys and the
+recovery secret must never enter this server protocol.

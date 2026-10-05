@@ -1,209 +1,208 @@
-# Serveur RocketVibe natif — chantier RFC 0001
+# Native RocketVibe server: RFC 0001 workstream
 
-Serveur Rust expérimental, développé sur `feature/rocketvibe-server`. Le socle est
-indépendant de Rocket.Chat : Axum / Tokio, PostgreSQL, contrats `rv-protocol` et
-transport Rust réutilisable `rv-client`. Le workspace natif à la racine exclut le
-workspace bureau existant.
+Experimental Rust server, developed on `feature/rocketvibe-server`. The foundation
+is independent of Rocket.Chat: Axum / Tokio, PostgreSQL, `rv-protocol` contracts and
+the reusable Rust transport `rv-client`. The native workspace at the root excludes
+the existing desktop workspace.
 
-Disponible : comptes créés par CLI, connexion par mot de passe, sessions révocables,
-salons privés / publics avec création idempotente et adhésions contrôlées,
-annuaire paginé des salons publics et adhésion personnelle, DM uniques, messages idempotents,
-historique paginé, snapshot cohérent et reprise du journal par HTTP / WebSocket.
-Les actions natives comprennent édition, suppression, réactions, épingles et
-étoiles privées, avec reçus idempotents, droits et intentions persistées par les
-clients. Les listes marquées utilisent les écrans existants des trois clients.
-L'API fournit aussi la rotation des sessions et la liste / révocation des
-appareils du compte. Les clients renouvellent leur session via SecureStore ou
-le trousseau système, avec reprise d'un successeur durable après réponse perdue.
-Les paramètres existants des trois clients exposent les noms, dates et la
-révocation d'un autre appareil après connexion récente. La qualification sur
-appareils et la récupération email restent suivies dans P01/P02. Les écrans de
-connexion existants proposent inscription sur invitation et récupération par code
-opérateur, avec conservation de l'identité et révocation des anciennes sessions.
+Available: accounts created by CLI, password sign-in, revocable sessions,
+private / public rooms with idempotent creation and controlled memberships,
+a paginated directory of public rooms and personal membership, unique DMs,
+idempotent messages, paginated history, a coherent snapshot and journal resumption
+over HTTP / WebSocket. The native actions include edit, delete, reactions, pins and
+private stars, with idempotent receipts, rights and intents persisted by the
+clients. The marked lists use the existing screens of the three clients.
+The API also provides session rotation and the listing / revocation of the
+account's devices. The clients renew their session through SecureStore or the
+system keyring, resuming a durable successor after a lost response.
+The existing settings of the three clients expose names, dates and the revocation
+of another device after a recent sign-in. Qualification on devices and email
+recovery remain tracked in P01/P02. The existing sign-in screens offer
+registration by invitation and recovery by operator code, preserving the identity
+and revoking the old sessions.
 
-Les [écrans mobiles existants](../../docs/NATIVE_MOBILE_PILOT.md) et les interfaces
-[GTK / SwiftUI existantes](../../docs/NATIVE_DESKTOP_PILOT.md) accueillent les deux
-fournisseurs, avec stockage sécurisé, SQLite, brouillons et outbox. Les transports
-Rust et TypeScript sont testés contre le serveur réel. Le socle 2FA TOTP / secours
-et ses SDK sont décrits dans [l'authentification native](../../docs/protocol/AUTHENTICATION.md) ;
-ses formulaires clients et paramètres sont raccordés. Le
-[parcours d'adresse e-mail vérifiée](../../docs/protocol/EMAIL.md) dispose de routes
-privées, SDK et file SMTP chiffrée durable. Les formulaires mobile, GTK et SwiftUI
-sont raccordés. Le retrait conditionnel du contact est disponible côté serveur
-et SDK, même sans SMTP ; les trois clients sont raccordés. Le second facteur
-e-mail dispose de routes serveur et SDK pour inscription, retrait, livraison et
-reprise des défis de connexion / réauthentification. Le mobile propose ces défis
-dans ses écrans existants. Les parcours bureau, l'inscription du facteur et la
-récupération e-mail sont raccordés aux trois clients. Présence, fils, recherche,
-profils, réglages et avatars protégés utilisent leurs écrans existants.
-Les [notifications Android](../../docs/protocol/PUSH.md) utilisent une file durable,
-FCM HTTP v1 et la récupération privée du contenu dans le plugin mobile existant.
-Le compte de service opérateur se configure avec `RV_FCM_CONFIG_FILE` ; sans ce
-fichier, le push reste désactivé. Qualification Firebase / téléphone encore ouverte.
-L'[administration opérateur](../../docs/protocol/ADMINISTRATION.md) fournit
-comptes / droits / désactivation, salons / membres / réglages, reçus de commande,
-audit transactionnel et diagnostic (`health`). Le [cycle de fichiers](../../docs/protocol/FILES.md)
-propose préparation, transfert streamé, confirmation idempotente et téléchargement
-protégé / Range. Outboxes et lecteurs sont raccordés aux clients existants.
-Notifications bureau, appels,
-chiffrement et parité complète restent au backlog. L'[annuaire crypto public](../../docs/protocol/E2EE_DIRECTORY.md)
-vérifie désormais appareils certifiés et publication de KeyPackages ; il ne
-rend pas encore disponibles les conversations chiffrées. Les limites sont explicites dans
-le [contrat du pilote](../../docs/protocol/README.md).
+The [existing mobile screens](../../docs/NATIVE_MOBILE_PILOT.md) and the
+[existing GTK / SwiftUI interfaces](../../docs/NATIVE_DESKTOP_PILOT.md) host both
+providers, with secure storage, SQLite, drafts and outbox. The Rust and TypeScript
+transports are tested against the real server. The TOTP / recovery-code 2FA
+foundation and its SDKs are described in [native authentication](../../docs/protocol/AUTHENTICATION.md);
+its client forms and settings are wired. The
+[verified email address flow](../../docs/protocol/EMAIL.md) has private routes,
+SDKs and a durable encrypted SMTP queue. The mobile, GTK and SwiftUI forms are
+wired. Conditional removal of the contact is available on the server and SDK side,
+even without SMTP; all three clients are wired. The email second factor has server
+and SDK routes for enrolment, removal, delivery and resumption of sign-in /
+reauthentication challenges. The mobile app offers these challenges in its existing
+screens. The desktop flows, factor enrolment and email recovery are wired to all
+three clients. Presence, threads, search, profiles, settings and protected avatars
+use their existing screens.
+The [Android notifications](../../docs/protocol/PUSH.md) use a durable queue,
+FCM HTTP v1 and private retrieval of the content in the existing mobile plugin.
+The operator service account is configured with `RV_FCM_CONFIG_FILE`; without this
+file, push stays disabled. Firebase / phone qualification is still open.
+[Operator administration](../../docs/protocol/ADMINISTRATION.md) provides
+accounts / rights / deactivation, rooms / members / settings, command receipts,
+transactional audit and diagnostics (`health`). The [file lifecycle](../../docs/protocol/FILES.md)
+offers preparation, streamed transfer, idempotent confirmation and protected
+download / Range. Outboxes and readers are wired to the existing clients.
+Desktop notifications, calls,
+encryption and full parity remain in the backlog. The [public crypto directory](../../docs/protocol/E2EE_DIRECTORY.md)
+now verifies certified devices and KeyPackage publication; it does not yet
+make encrypted conversations available. The limits are explicit in
+the [pilot contract](../../docs/protocol/README.md).
 
-## Démarrage local
+## Local start
 
-Depuis la racine du dépôt, avec Docker Desktop / Docker Engine actif :
+From the repository root, with Docker Desktop / Docker Engine running:
 
-1. Copier `docker/.env.native.example` vers `docker/.env.native`.
-2. Renseigner `RV_DATABASE_PASSWORD` avec un mot de passe aléatoire. Utiliser des
-   caractères compatibles URL, par exemple des octets aléatoires encodés en hexadécimal.
-3. Démarrer :
+1. Copy `docker/.env.native.example` to `docker/.env.native`.
+2. Set `RV_DATABASE_PASSWORD` to a random password. Use URL-compatible
+   characters, for example random bytes encoded in hexadecimal.
+3. Start:
 
 ```sh
 docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml up --build -d
 ```
 
-Le serveur écoute sur `http://127.0.0.1:3400`. PostgreSQL n'a aucun port publié sur
-l'hôte. Ce Compose et ses volumes sont distincts du banc Rocket.Chat.
+The server listens on `http://127.0.0.1:3400`. PostgreSQL has no port published on
+the host. This Compose file and its volumes are separate from the Rocket.Chat bench.
 
-Créer un compte avec un mot de passe d'au moins 12 octets fourni par la variable
-d'environnement `RV_USER_PASSWORD` ; la valeur ne passe pas dans les arguments :
+Create an account with a password of at least 12 bytes supplied by the
+environment variable `RV_USER_PASSWORD`; the value does not go through the arguments:
 
 ```sh
-# Définir RV_USER_PASSWORD dans le shell avant cette commande.
+# Set RV_USER_PASSWORD in the shell before this command.
 docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm -e RV_USER_PASSWORD server create-user alice --admin
 ```
 
-Le flag administrateur est stocké pour la suite du chantier ; il ne permet pas
-de lire les salons privés ni de contourner leurs droits. La CLI exige un accès
-opérateur à la base. Aucune inscription publique n'est ouverte.
+The administrator flag is stored for the rest of the workstream; it does not allow
+reading private rooms or bypassing their rights. The CLI requires operator access
+to the database. No public registration is open.
 
-Pour laisser la personne choisir ses identifiants dans l'app, émettre une invitation :
+To let the person choose their own credentials in the app, issue an invitation:
 
 ```sh
 docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server invite --hours 168
 docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server list-invitations
-docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server revoke-invitation IDENTIFIANT
+docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server revoke-invitation IDENTIFIER
 ```
 
-`invite` affiche une seule fois un JSON contenant le code secret `token` et les
-métadonnées ; transmettre le code au destinataire par le canal choisi par l'opérateur.
-La liste (les 1 000 dernières invitations) et la révocation utilisent l'identifiant
-public, sans redonner le code. Durée : 1–168 heures, par défaut 7 jours ; au plus
-1 000 invitations actives par génération. Le compte créé n'a pas de droit admin.
-Le code crée un seul compte et ne fournit pas de session ; la connexion normale
-suit. Une réponse d'inscription perdue peut être reprise, avant expiration, avec
-le même identifiant et le mot de passe du compte créé. Révocation, désactivation,
-suppression du compte ou changement de génération ferment cette reprise.
-Aucun email n'est envoyé automatiquement.
+`invite` prints once a JSON containing the secret code `token` and the metadata;
+pass the code to the recipient through the channel chosen by the operator.
+The listing (the last 1,000 invitations) and the revocation use the public
+identifier, without giving the code back. Duration: 1 to 168 hours, 7 days by
+default; at most 1,000 active invitations per generation. The created account has
+no admin right. The code creates a single account and provides no session; the
+normal sign-in follows. A lost registration response can be resumed, before expiry,
+with the same identifier and the password of the created account. Revocation,
+deactivation, deletion of the account or a generation change close this resumption.
+No email is sent automatically.
 
-Pour un propriétaire de compte vérifié par l'opérateur, émettre un code de
-récupération de mot de passe ; sa valeur ne passe jamais dans les arguments :
+For an account owner verified by the operator, issue a password recovery code;
+its value never goes through the arguments:
 
 ```sh
 docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server recover-user alice --hours 24
 docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server list-recovery-codes
-docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server revoke-recovery-code IDENTIFIANT
+docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server revoke-recovery-code IDENTIFIER
 ```
 
-Le JSON de `recover-user` affiche le code secret une seule fois. Durée : 1–24 h,
-au plus 3 codes actifs par compte et 1 000 par génération. Dans le formulaire
-existant, choisir « Mot de passe oublié », entrer le code et un nouveau mot de
-passe. Ce parcours conserve UID, rôles et conversations, révoque toutes les
-familles d'appareils puis passe par le login normal. La récupération ne crée pas
-de session par elle-même, ne retire pas de facteur 2FA et ne restaure aucune clé
-E2EE. Une confirmation perdue se reprend avec le nouveau mot de passe pendant
-cinq minutes, sans révoquer les sessions créées depuis. Le changement invalide
-les autres codes de récupération ; les codes sont liés à l'autorité du compte
-et à la génération des données. Pas d'envoi email implicite ni d'énumération
-publique pour demander un code.
+The JSON of `recover-user` prints the secret code once. Duration: 1 to 24 h,
+at most 3 active codes per account and 1,000 per generation. In the existing form,
+choose « Mot de passe oublié », enter the code and a new password. This flow keeps
+UID, roles and conversations, revokes all device families, then goes through the
+normal login. Recovery does not create a session by itself, does not remove a 2FA
+factor and does not restore any E2EE key. A lost confirmation can be resumed with
+the new password for five minutes, without revoking the sessions created since.
+The change invalidates the other recovery codes; the codes are tied to the
+account's authority and to the data generation. No implicit email sending and no
+public enumeration to request a code.
 
-Découverte et état :
+Discovery and status:
 
 ```sh
 curl http://127.0.0.1:3400/.well-known/rocketvibe
 curl -f http://127.0.0.1:3400/health/ready
 ```
 
-## Vérifications reproductibles
+## Reproducible checks
 
-Depuis la racine, lancer :
+From the root, run:
 
 ```sh
 docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml build check
 docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm check bash apps/server/scripts/check.sh
 ```
 
-L'image de vérification contient Rust, rustfmt, clippy et Node 24. Les tests SQLx
-créent des bases temporaires séparées ; aucune donnée de l'instance de développement
-n'est effacée. Ils vérifient HTTP réel, WebSocket, concurrence, refus de droits,
-redémarrage applicatif et échanges par les transports Rust et TypeScript.
+The check image contains Rust, rustfmt, clippy and Node 24. The SQLx tests
+create separate temporary databases; no data from the development instance
+is erased. They verify real HTTP, WebSocket, concurrency, rights refusals,
+application restart and exchanges through the Rust and TypeScript transports.
 
-Le script vérifie aussi les fixtures et l'absence de divergence du schéma / des
-types générés. La CI native exécute les mêmes checks, avec le typecheck, les tests
-mobiles et l'export du bundle JavaScript Android. Cet export n'est ni un APK ni une
-validation visuelle sur appareil.
+The script also verifies the fixtures and the absence of divergence between the
+schema and the generated types. The native CI runs the same checks, with the
+typecheck, the mobile tests and the export of the Android JavaScript bundle. This
+export is neither an APK nor a visual validation on a device.
 
-## Contrat et génération
+## Contract and generation
 
-La demande anonyme de récupération par e-mail est exposée par le serveur et les
-SDK natifs lorsque SMTP et `RV_AUTH_KEY_FILE` sont configurés. Elle utilise
-uniquement le contact vérifié, garde une réponse publique générique et conserve
-le même code après retry. La confirmation reprend la récupération existante,
-sans créer de session ni retirer les facteurs installés. Voir le
-[contrat e-mail](../../docs/protocol/EMAIL.md#récupération-du-mot-de-passe--serveur-et-sdk)
-pour les bornes, versions et parcours clients restant à raccorder.
+The anonymous email recovery request is exposed by the server and the native SDKs
+when SMTP and `RV_AUTH_KEY_FILE` are configured. It uses only the verified
+contact, keeps a generic public response and keeps the same code after a retry.
+The confirmation resumes the existing recovery, without creating a session or
+removing the installed factors. See the
+[email contract](../../docs/protocol/EMAIL.md#password-recovery-server-and-sdk)
+for the bounds, versions and client flows still to be wired.
 
 ```sh
-# Dans l'image check, depuis /src :
+# In the check image, from /src:
 cargo run --locked -p rv-protocol --bin export-schema > docs/protocol/v1.schema.json
 node scripts/generate-native-protocol.mjs
 ```
 
-La source du contrat est `crates/rv-protocol/src/lib.rs`. Les dates sont des chaînes
-UTC et les positions longues restent des chaînes, y compris au-delà de la précision
-des nombres JavaScript. Ne pas modifier à la main les fichiers générés.
+The contract source is `crates/rv-protocol/src/lib.rs`. Dates are UTC strings
+and long positions stay strings, including beyond the precision of JavaScript
+numbers. Do not edit the generated files by hand.
 
-## État et suite
+## State and next steps
 
-Les limites du pilote sont fixées dans `src/limits.rs` : connexion 10 essais par
-pseudo, 30 par IP du pair TCP et 120 au total par fenêtre de 60 secondes, budgets
-partagés en PostgreSQL ; 4 vérifications Argon2 simultanées par processus. Même une
-requête annulée conserve sa place jusqu'à la fin du calcul. Un refus rend `429`
-avec `Retry-After` ; les transports natifs empêchent les retries précoces.
+The pilot limits are set in `src/limits.rs`: sign-in 10 attempts per
+username, 30 per IP of the TCP peer and 120 in total per 60-second window, budgets
+shared in PostgreSQL; 4 simultaneous Argon2 verifications per process. Even a
+cancelled request keeps its slot until the computation ends. A refusal returns
+`429` with `Retry-After`; the native transports prevent early retries.
 
-Les en-têtes `Forwarded` / `X-Forwarded-For` ne sont pas utilisés comme identité
-du pair : derrière un proxy, ses clients partagent le quota de son IP. La gestion
-de proxies explicitement approuvés reste à définir avant une exposition publique.
+The `Forwarded` / `X-Forwarded-For` headers are not used as the identity of the
+peer: behind a proxy, its clients share the quota of its IP. The handling of
+explicitly trusted proxies remains to be defined before public exposure.
 
-Maximum 4 tickets non consommés par session, 128 sockets par processus et 4 par
-session. Les sockets restent vérifiées toutes les 250 ms, avec heartbeat à 15 s et
-délai d'envoi / fermeture de 5 s. Snapshot historique : 100 salons, 50 messages par salon et
-8 Mio de JSON ; refus `409 snapshot_limit` sans vue partielle au-delà. Le snapshot
-matérialisé permet 1 000 salons, 1 Mio par page / 64 Mio au total ; sa vue immuable
-expire après 5 minutes, avec 4 vues par compte / 16 pour l'instance. Le dernier
-curseur n'est rendu qu'après téléchargement complet. Les lots de
-journal sont limités à 100 événements et 1 Mio, sans sauter l'événement qui ne tient
-pas dans le lot. Voir le [contrat de pagination](../../docs/protocol/README.md#snapshots-matérialisés).
+At most 4 unconsumed tickets per session, 128 sockets per process and 4 per
+session. Sockets stay checked every 250 ms, with a 15 s heartbeat and a
+5 s send / close timeout. Historical snapshot: 100 rooms, 50 messages per room and
+8 MiB of JSON; `409 snapshot_limit` refusal with no partial view beyond that. The
+materialized snapshot allows 1,000 rooms, 1 MiB per page / 64 MiB in total; its
+immutable view expires after 5 minutes, with 4 views per account / 16 for the
+instance. The last cursor is returned only after a complete download. Journal
+batches are limited to 100 events and 1 MiB, without skipping the event that does
+not fit in the batch. See the [pagination contract](../../docs/protocol/README.md#materialised-snapshots).
 
-Les réponses et trames revérifient la version de leurs autorisations juste avant
-remise, puis retiennent des verrous PostgreSQL jusqu'à cette remise. Retrait,
-réadhésion, rôle, session ou génération ne valident pas une ancienne réponse.
-Un corps HTTP abandonné / bloqué libère sa barrière au plus tard après 5 s.
-Les mutations retiennent leur session jusqu'au commit, avec attente de verrou
-limitée à 6 s, instruction à 8 s et transaction inactive à 10 s.
-Voir les [garanties de révocation](../../docs/protocol/README.md#révocation-pendant-une-livraison).
+Responses and frames re-verify the version of their authorizations just before
+delivery, then hold PostgreSQL locks until that delivery. Removal,
+re-membership, role, session or generation do not validate an old response.
+An abandoned / blocked HTTP body releases its barrier after 5 s at most.
+Mutations hold their session until the commit, with lock wait
+limited to 6 s, statement to 8 s and idle transaction to 10 s.
+See the [revocation guarantees](../../docs/protocol/README.md#revocation-during-a-delivery).
 
-Un curseur expire après 7 jours sans renouvellement ; 512 curseurs au maximum par
-compte. Un curseur expiré / élagué exige un nouveau snapshot via
-`409 sync_reset_required`, sans effacer les intentions locales encore autorisées.
-Au démarrage puis chaque minute, le serveur supprime jusqu'à 1 000 entrées périmées
-par famille (sessions, tickets, curseurs, quotas), en sautant les lignes verrouillées.
-Il ne purge ni journal ni messages. Ces bornes ne remplacent pas un essai de charge.
+A cursor expires after 7 days without renewal; at most 512 cursors per
+account. An expired / pruned cursor requires a new snapshot through
+`409 sync_reset_required`, without erasing the local intents that are still authorized.
+At startup and then every minute, the server deletes up to 1,000 stale entries
+per family (sessions, tickets, cursors, quotas), skipping locked rows.
+It purges neither journal nor messages. These bounds do not replace a load test.
 
-Le [suivi du chantier](../../docs/NATIVE_SERVER_EXECUTION.md) détaille ce qui est
-livré et ce qui reste à faire pour fermer J0 et J1. La
-[RFC](../../docs/rfcs/0001-serveur-rocketvibe-rust.md) reste la destination de parité.
-Cette version est un banc local, pas un serveur destiné à remplacer une instance
-Rocket.Chat contenant des données réelles.
+The [workstream tracker](../../docs/NATIVE_SERVER_EXECUTION.md) details what is
+delivered and what remains to be done to close J0 and J1. The
+[RFC](../../docs/rfcs/0001-rocketvibe-rust-server.md) remains the parity destination.
+This version is a local bench, not a server meant to replace a Rocket.Chat instance
+containing real data.

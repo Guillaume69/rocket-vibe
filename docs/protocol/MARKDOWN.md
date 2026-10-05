@@ -1,81 +1,81 @@
-# Rendu natif dans les clients existants — P07
+# Native rendering in the existing clients (P07)
 
-Les interfaces GTK / SwiftUI / mobile restent celles du client existant. Le
-fournisseur Rocket.Chat conserve son normaliseur et son rendu historiques.
-Le fournisseur RocketVibe adapte les données natives aux mêmes widgets ; aucun
-nouvel écran, thème, composeur ou client n'est introduit par ce lot.
+The GTK / SwiftUI / mobile interfaces remain those of the existing client. The
+Rocket.Chat provider keeps its historical normalizer and rendering.
+The RocketVibe provider adapts the native data to the same widgets; no
+new screen, theme, composer or client is introduced by this batch.
 
-## Texte et document
+## Text and document
 
-Les activités de salon portent un champ `system` structuré et n'ont pas de
-document Markdown. Elles utilisent les lignes système existantes ; voir
-[leur contrat et leurs garanties](SYSTEM_MESSAGES.md).
+Room activities carry a structured `system` field and have no
+Markdown document. They use the existing system rows; see
+[their contract and guarantees](SYSTEM_MESSAGES.md).
 
-`Message.text` reste la source. Le champ additif optionnel `body` contient un
-`Document` de format `native1`, avec des nœuds typés : texte, styles, code,
-paragraphes, titres, citations de texte, listes / tâches, liens, mentions et
-codes d'emoji. Le protocole n'expose pas d'arbre `md` Rocket.Chat ni de HTML rendu.
-Le serveur calcule le document depuis la source ; envoi et édition n'acceptent
-aucun document de présentation ni droit fourni par le client.
+`Message.text` remains the source. The optional additive field `body` contains a
+`Document` of format `native1`, with typed nodes: text, styles, code,
+paragraphs, headings, text quotes, lists / tasks, links, mentions and
+emoji codes. The protocol exposes no Rocket.Chat `md` tree and no rendered HTML.
+The server computes the document from the source; send and edit accept
+no presentation document and no right supplied by the client.
 
-Le parseur utilise la structure CommonMark de `pulldown-cmark`, les listes de
-tâches et le barré. Les conventions des composeurs existants priment pour les
-styles : `*gras*` / `**gras**`, `_italique_` / `__italique__`, `~barré~` /
-`~~barré~~`. Les marqueurs présents dans le code restent littéraux. Les titres
-sont projetés vers les quatre tailles déjà présentes dans les widgets.
+The parser uses the CommonMark structure of `pulldown-cmark`, task
+lists and strikethrough. The conventions of the existing composers take precedence for
+styles: `*bold*` / `**bold**`, `_italic_` / `__italic__`, `~strike~` /
+`~~strike~~`. Markers present in code remain literal. Headings
+are projected to the four sizes already present in the widgets.
 
-Le document est traduit aux frontières Rust / TypeScript vers les modèles de
-présentation existants. Le cœur commun sert GTK et les runs SwiftUI / UniFFI.
-SQLite conserve le document ou sa projection avec la révision du message ; une
-réponse ancienne ne remplace pas une édition. Le bureau reparcourt la source
-avec le parseur natif pour les anciens caches ou messages sans document. Le
-mobile conserve son repli historique pour un ancien serveur qui omet `body` et
-les messages optimistes antérieurs à la confirmation.
+The document is translated at the Rust / TypeScript boundaries into the existing
+presentation models. The common core serves GTK and the SwiftUI / UniFFI runs.
+SQLite keeps the document or its projection with the message revision; an
+old response does not replace an edit. The desktop rescans the source
+with the native parser for old caches or messages without a document. The
+mobile keeps its historical fallback for an old server that omits `body` and
+for optimistic messages predating the confirmation.
 
-## Contextes et bornes
+## Contexts and bounds
 
-La reconnaissance des mentions pour le rendu et les notifications utilise le
-même parseur. Code, citations, labels / destinations de liens, images, URL
-brutes, adresses email et échappements ne déclenchent pas de mention. Une
-occurrence normale ne rend pas active une occurrence identique dans une
-citation ou un lien. La résolution des destinataires actifs et la politique
-d'édition restent celles de [P05](READ_STATE.md). `@here` reste littéral jusqu'à
-P12. Les mentions de salons sont textuelles ; les profils / références résolues
-restent leurs lots de parité suivants.
+Mention recognition for rendering and notifications uses the
+same parser. Code, quotes, link labels / destinations, images, raw
+URLs, email addresses and escapes do not trigger a mention. A normal
+occurrence does not make an identical occurrence in a
+quote or a link active. The resolution of active recipients and the edit
+policy remain those of [P05](READ_STATE.md). `@here` remains literal until
+P12. Room mentions are textual; resolved profiles / references
+remain their following parity batches.
 
-HTML et images Markdown conservent leur texte littéral. Un URL d'image tiers ne
-reçoit aucune requête authentifiée par ce rendu. Les renderers existants filtrent
-les liens externes ; une destination `javascript:` n'exécute rien. Un permalien
-sans citation native résolue reste visible, au lieu de masquer sa source.
-Les emojis standard utilisent le catalogue local existant ; un code custom
-inconnu reste lisible. Ce document n'active pas le catalogue custom / fichiers.
+HTML and Markdown images keep their literal text. A third-party image URL
+receives no authenticated request from this rendering. The existing renderers filter
+external links; a `javascript:` destination executes nothing. A permalink
+without a resolved native quote remains visible, instead of hiding its source.
+Standard emojis use the existing local catalog; an unknown custom code
+remains readable. This document does not enable the custom catalog / files.
 
-Les sources restent limitées à 32 768 octets. Le parseur borne sa profondeur à
-32 et son parcours à 4 096 événements ; au-delà, il conserve toute la source en
-texte brut. Cette présentation ne crée pas de mention active. Le validateur
-mobile vérifie les discriminateurs avant les enfants et borne sa récursion,
-pour refuser les arbres hostiles sans parcourir des alternatives impossibles.
-Les documents entrent dans les budgets existants de journal / snapshot / lot.
+Sources remain limited to 32,768 bytes. The parser bounds its depth to
+32 and its traversal to 4,096 events; beyond that, it keeps the whole source as
+plain text. This presentation creates no active mention. The mobile
+validator checks the discriminators before the children and bounds its recursion,
+to refuse hostile trees without traversing impossible alternatives.
+Documents fall within the existing journal / snapshot / batch budgets.
 
-## Vérification et suite
+## Verification and next steps
 
-[Corpus natif partagé](native-rendering.fixture.json) : quinze cas traversent le
-parseur Rust, le document sérialisé, les modèles de présentation bureau et mobile,
-les paragraphes GTK et les runs utilisés par SwiftUI. Les arbres locaux sont
-comparés exactement, avec contrôles indépendants du texte et des styles du
-composeur. Le vrai serveur HTTP / PostgreSQL et le transport mobile exercent
-le même corpus, SQLite, édition, ancien replay, suppression du corps dans le
-journal et refus d'un compte hors salon. La limite de profondeur et le volume
-d'une source dense sont vérifiés séparément.
+[Shared native corpus](native-rendering.fixture.json): fifteen cases go through the
+Rust parser, the serialized document, the desktop and mobile presentation models,
+the GTK paragraphs and the runs used by SwiftUI. The local trees are
+compared exactly, with independent checks of the composer's text and styles.
+The real HTTP / PostgreSQL server and the mobile transport exercise
+the same corpus, SQLite, edit, old replay, removal of the body in the
+journal and refusal of an account outside the room. The depth limit and the volume
+of a dense source are verified separately.
 
-Le binaire GTK connecté au serveur PostgreSQL est également vérifié dans une
-fenêtre de 435 px : deux messages riches atteignent les widgets actuels, le
-document est conservé en SQLite et le composeur tient dans la fenêtre. Les
-bindings / modèles Swift se construisent sous Linux et leur test connecté de
-gestion des salons passe avec ce contrat. Le bundle Android Hermes est exporté.
+The GTK binary connected to the PostgreSQL server is also verified in a
+435 px window: two rich messages reach the current widgets, the
+document is kept in SQLite and the composer fits in the window. The
+Swift bindings / models build under Linux and their connected room
+management test passes with this contract. The Android Hermes bundle is exported.
 
-La qualification des applications installées Android / macOS / Windows reste
-ouverte. Les [références de citations et extraits par lecteur](QUOTES.md) sont
-livrés côté serveur ; leur raccordement aux cartes existantes, les messages
-système structurés et le catalogue natif d'emojis restent P07. Les citations
-de messages ne sont pas remplacées par les citations de texte Markdown.
+The qualification of the installed Android / macOS / Windows applications remains
+open. The [quote references and per-reader excerpts](QUOTES.md) are
+delivered server-side; their wiring to the existing cards, the structured
+system messages and the native emoji catalog remain P07. Message
+quotes are not replaced by Markdown text quotes.

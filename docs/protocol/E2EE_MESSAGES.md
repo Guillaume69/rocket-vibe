@@ -1,169 +1,167 @@
-# Livraison des messages MLS natifs
+# Native MLS message delivery
 
-État au 4 octobre 2026 : serveur opaque, journal ordonné et transports Rust /
-TypeScript expérimentaux. `capabilities.e2ee` reste désactivé. Le [worker HTTP privé](../../crates/rv-crypto/GROUP_HTTP.md)
-raccorde envoi / reprise et [pages protégées du journal](../../crates/rv-crypto/JOURNAL.md),
-avec checkpoint commun aux messages / transitions et rattrapage sur la même
-admission, avec authentification historique distincte de la validité actuelle
-des certificats. Les POSTs serveur conservent leurs contrôles de date / roster
-courants. Raccordement aux interfaces, réadmission après retrait,
-archives et fichiers restent ouverts.
-Ce lot ne ferme pas J4 et ne permet pas la bascule J5.
+State as of 4 October 2026: opaque server, ordered journal, and experimental Rust /
+TypeScript transports. `capabilities.e2ee` stays disabled. The [private HTTP worker](../../crates/rv-crypto/GROUP_HTTP.md)
+wires up send / resume and [protected journal pages](../../crates/rv-crypto/JOURNAL.md),
+with a checkpoint shared by messages / transitions and catch-up on the same
+admission, with historical authentication kept distinct from the current validity
+of certificates. Server POSTs keep their current date / roster checks.
+Wiring to the interfaces, readmission after removal, archives and files remain
+open. This batch does not close J4 and does not allow the J5 switchover.
 
 ## Routes
 
-Routes sous `/api/v1/e2ee/rooms/{room}`, session HTTP obligatoire et
-`Cache-Control: no-store` sur les succès comme sur les refus :
+Routes under `/api/v1/e2ee/rooms/{room}`, HTTP session required and
+`Cache-Control: no-store` on successes as well as refusals:
 
-| Route | Contrat |
+| Route | Contract |
 |---|---|
-| `POST /messages` | `ApplicationSubmission` : portée, opération, preuve canonique et ciphertext MLS en base64url sans padding ; reçu durable |
-| `GET /message-operations/{operation}` | Reçu personnel d'une opération acceptée dans ce salon, sans ciphertext |
-| `POST /message-operations/{operation}/cancel` | Intention opaque originale ; décision durable `accepted` ou `cancelled` |
-| `GET /delivery?after={position}&through={position}` | `DeliveryPage` : transitions et messages opaques dans un ordre commun, Welcome ciblé sur cet appareil |
+| `POST /messages` | `ApplicationSubmission`: scope, operation, canonical proof and MLS ciphertext in unpadded base64url; durable receipt |
+| `GET /message-operations/{operation}` | Personal receipt of an operation accepted in this room, without ciphertext |
+| `POST /message-operations/{operation}/cancel` | Original opaque intent; durable decision `accepted` or `cancelled` |
+| `GET /delivery?after={position}&through={position}` | `DeliveryPage`: opaque transitions and messages in a common order, Welcome targeted at this device |
 
-Un nouvel envoi exige la session / l'appareil certifié de l'auteur, l'adhésion
-courante, le droit d'écrire et une tête de groupe exacte. Tous les membres,
-nonces d'activation, appareils, certificats et versions de politique du plan
-accepté sont revalidés avant le commit. Un retrait, une désactivation ou une
-politique devenue obsolète exige d'abord la transition MLS correspondante.
-Les membres ordinaires d'un salon en lecture seule ne peuvent pas publier.
+A new send requires the author's certified session / device, the current
+membership, the right to write and an exact group head. All members,
+activation nonces, devices, certificates and policy versions of the accepted
+plan are revalidated before the commit. A removal, a deactivation or a policy
+that has become obsolete first requires the corresponding MLS transition.
+Ordinary members of a read-only room cannot publish.
 
-Une opération déjà acceptée renvoie le même reçu pour la même intention, même
-après retrait du salon ou expiration du certificat. Le GET de reçu appartient
-à l'utilisateur ; une autre session active de ce compte peut le lire sans être
-admise en crypto. Il ne donne aucun ciphertext et n'accorde aucun droit d'envoi.
-La portée de données courante reste obligatoire. Un autre utilisateur ou salon
-ne retrouve pas ce reçu. Une intention divergente retourne `operation_conflict`.
+An operation that was already accepted returns the same receipt for the same
+intent, even after removal from the room or certificate expiry. The receipt GET
+belongs to the user; another active session of this account can read it without
+being admitted to the crypto. It gives no ciphertext and grants no right to send.
+The current data scope remains mandatory. Another user or room does not find this
+receipt. A diverging intent returns `operation_conflict`.
 
-### Abandon définitif et confirmation perdue
+### Definitive abandon and lost confirmation
 
-L'abandon est une demande explicite, jamais une déduction d'un `404`, d'un
-timeout, d'un quota ou d'un changement de groupe. Il reprend exactement
-`ApplicationSubmission`, y compris preuve et ciphertext originaux ; l'opération
-du chemin doit être identique. Le verrou de compte commun aux envois et aux
-autres opérations sérialise les deux issues :
+Abandoning is an explicit request, never a deduction from a `404`, a timeout,
+a quota or a group change. It resubmits exactly the `ApplicationSubmission`,
+including the original proof and ciphertext; the operation in the path must be
+identical. The account lock shared by sends and the other operations serializes
+the two outcomes:
 
-- `accepted` contient le reçu original si le message a déjà été accepté,
-  même après retrait du salon ou expiration du certificat ;
-- `cancelled` contient portée, salon, opération, Header canonique et empreinte
-  publique. Aucun ID de message ni position n'est alloué. La trace personnelle
-  persistante interdit tous les POSTs tardifs de cette intention.
+- `accepted` contains the original receipt if the message was already accepted,
+  even after removal from the room or certificate expiry;
+- `cancelled` contains scope, room, operation, canonical Header and public
+  fingerprint. No message ID and no position is allocated. The persistent
+  personal trace forbids all late POSTs of this intent.
 
-Un rejeu exact retourne la même décision après redémarrage. Une réutilisation
-divergente de l'opération, y compris dans un autre salon ou une opération
-ordinaire / upload, reste interdite. La migration 0041 conserve uniquement
-l'empreinte de l'intention et le reçu d'abandon : aucun document clair, aucune
-preuve complète ni copie du ciphertext. Un abandon nouveau est limité à
-600 par minute et compte ; les décisions déjà enregistrées restent accessibles.
+An exact replay returns the same decision after a restart. A diverging reuse of
+the operation, including in another room or in an ordinary / upload operation,
+remains forbidden. Migration 0041 keeps only the fingerprint of the intent and
+the abandon receipt: no plaintext document, no complete proof and no copy of
+the ciphertext. A new abandon is limited to 600 per minute and account;
+decisions already recorded remain accessible.
 
-Une session HTTP active du propriétaire suffit pour demander l'abandon, y
-compris depuis un autre appareil de son compte. Une preuve inconnue doit être
-cryptographiquement valide, liée à ce propriétaire et à cette portée / route ;
-un certificat expiré est authentifié historiquement, un certificat futur est
-refusé. Cette vérification ne réadmet aucun appareil et n'accorde aucun droit
-de lecture ou d'envoi. Les nouvelles publications gardent leurs vérifications
-de certificat / roster actuels. Les reçus restent des décisions du serveur
-authentifié, sans preuve cryptographique d'exhaustivité ou de non-acceptation
-face à un serveur malveillant.
+An active HTTP session of the owner is enough to request the abandon, including
+from another device of their account. An unknown proof must be
+cryptographically valid, bound to this owner and to this scope / route;
+an expired certificate is authenticated historically, a future certificate is
+refused. This check readmits no device and grants no right to read or send.
+New publications keep their current certificate / roster checks. Receipts remain
+decisions of the authenticated server, without cryptographic proof of
+completeness or of non-acceptance against a malicious server.
 
-Le worker checkpoint la décision contre son intention protégée avant de la
-publier au fournisseur. Une confirmation d'abandon perdue laisse l'outbox
-incertaine jusqu'à son rejeu exact. Le document privé reste récupérable ; une
-reprise exige une nouvelle opération et les droits / clés actuels. La génération
-MLS originale reste consommée. Le journal n'est jamais avancé par un abandon.
-L'intention d'abandon est elle-même checkpoint avant HTTP : après redémarrage,
-la reprise règle cette décision et ne republie jamais l'ancienne intention.
-Le GET personnel retourne `409 crypto_message_cancelled` pour ce propriétaire
-et ce salon quand un abandon existe. Ce statut pousse le worker à récupérer
-le reçu exact ; aucun abandon ne repose sur le seul code d'erreur.
+The worker checkpoints the decision against its protected intent before
+publishing it to the provider. A lost abandon confirmation leaves the outbox
+uncertain until its exact replay. The private document remains recoverable; a
+retry requires a new operation and the current rights / keys. The original MLS
+generation remains consumed. The journal is never advanced by an abandon.
+The abandon intent is itself checkpointed before HTTP: after a restart,
+the retry settles this decision and never republishes the old intent.
+The personal GET returns `409 crypto_message_cancelled` for this owner
+and this room when an abandon exists. This status pushes the worker to fetch
+the exact receipt; no abandon relies on the error code alone.
 
-La limite persistante est de 600 nouveaux messages par minute et appareil.
-Les confirmations et retries exacts restent disponibles pendant cette limite.
-L'identité d'opération est partagée avec les envois ordinaires, créations,
-actions, commandes de salon et uploads : aucune réutilisation divergente entre
-ces espaces n'est admise.
+The persistent limit is 600 new messages per minute and device.
+Exact confirmations and retries remain available during this limit.
+The operation identity is shared with ordinary sends, creations,
+actions, room commands and uploads: no diverging reuse across
+these spaces is allowed.
 
-## Preuve publique et données conservées
+## Public proof and retained data
 
 [`rv-crypto-public::messages`](../../crates/rv-crypto-public/src/messages.rs)
-définit Header, Proof et Receipt. La preuve lie portée et incarnation du groupe,
-opération, tête acceptée, époque MLS, auteur / appareil / incarnation / certificat,
-type de contenu et racine de fil facultative. La feuille certifiée signe le
-routage et le SHA-256 du ciphertext. Les octets canoniques restent opaques en JS.
+defines Header, Proof and Receipt. The proof binds the scope and incarnation of the group,
+operation, accepted head, MLS epoch, author / device / incarnation / certificate,
+content type and optional thread root. The certified leaf signs the
+routing and the SHA-256 of the ciphertext. The canonical bytes remain opaque in JS.
 
-Le serveur vérifie le certificat, sa signature, l'appareil autorisé, les digests
-et l'enveloppe TLS PrivateMessage / Application avec ID et époque attendus.
-**Il ne déchiffre pas le document et ne valide pas l'auteur interne MLS ni l'AAD
-authentifié** : ces contrôles restent obligatoires dans le coffre client avant
-projection. Un reçu HTTP seul ne prouve pas qu'un pair peut ouvrir le contenu.
+The server verifies the certificate, its signature, the authorized device, the digests
+and the TLS PrivateMessage / Application envelope with expected ID and epoch.
+**It does not decrypt the document and does not validate the internal MLS author
+or the authenticated AAD**: these checks remain mandatory in the client vault
+before projection. An HTTP receipt alone does not prove that a peer can open the content.
 
-PostgreSQL conserve uniquement preuve, ciphertext, métadonnées de routage et
-reçu. Le reçu comporte le Header canonique en base64url, l'empreinte de la
-preuve, l'ID serveur et une position décimale exacte. Le document riche reste
-dans le checkpoint privé. Les tables ordinaires ne reçoivent pas son texte.
-Les métadonnées de routage, notamment la racine de fil, sont visibles au serveur.
+PostgreSQL keeps only the proof, the ciphertext, routing metadata and the
+receipt. The receipt holds the canonical Header in base64url, the fingerprint of the
+proof, the server ID and an exact decimal position. The rich document remains
+in the private checkpoint. Ordinary tables do not receive its text.
+Routing metadata, notably the thread root, is visible to the server.
 
-Une réponse doit référencer une racine opaque existante du même salon, accessible
-pendant l'admission de l'appareil auteur. Une réponse ne peut pas servir de
-nouvelle racine. Les éditions, réactions, suppressions, cartes, compteurs,
-notifications et projections chiffrées ne sont pas encore raccordés à ces routes.
+A reply must reference an existing opaque root of the same room, accessible
+during the admission of the author device. A reply cannot serve as a
+new root. Edits, reactions, deletions, cards, counters,
+notifications and encrypted projections are not yet wired to these routes.
 
-## Ordre, pagination et admissions
+## Order, pagination and admissions
 
-La transaction d'une transition ou d'un message alloue une position au séquenceur
-natif de l'instance et écrit sa trame dans `e2ee_delivery`. Une confirmation et
-sa trame sont donc atomiques ; un retry exact n'alloue aucune nouvelle position.
-Le journal ordinaire peut produire des positions intermédiaires : les trous
-numériques ne constituent pas des messages manquants.
+The transaction of a transition or message allocates a position in the
+instance's native sequencer and writes its frame into `e2ee_delivery`. A confirmation and
+its frame are therefore atomic; an exact retry allocates no new position.
+The ordinary journal may produce intermediate positions: numeric gaps
+are not missing messages.
 
-Toutes les positions HTTP sont des chaînes décimales canoniques comprises entre
-zéro et `i64::MAX`. Elles ne doivent pas être converties en nombres JavaScript.
-La première page fixe `through` à la dernière position crypto du salon. Les
-pages suivantes conservent ce watermark et transmettent `next` comme `after`.
-`next: null` clôt la plage ; les arrivées ultérieures attendent la plage suivante.
-Chaque page comporte au plus 16 trames et environ 2 Mio d'octets opaques avant
-base64 / JSON. Les deux transports bornent les réponses crypto à 4 Mio avant
-décodage JSON. Une preuve de message est bornée à 16 Kio, le ciphertext à 128 Kio
-et la requête POST à 256 Kio.
+All HTTP positions are canonical decimal strings between
+zero and `i64::MAX`. They must not be converted to JavaScript numbers.
+The first page sets `through` to the last crypto position of the room.
+Subsequent pages keep this watermark and pass `next` as `after`.
+`next: null` closes the range; later arrivals wait for the next range.
+Each page holds at most 16 frames and about 2 MiB of opaque bytes before
+base64 / JSON. Both transports bound crypto responses to 4 MiB before
+JSON decoding. A message proof is bounded to 16 KiB, the ciphertext to 128 KiB
+and the POST request to 256 KiB.
 
-La visibilité d'une trame exige un témoin d'admission exact pour l'appareil :
-portée, utilisateur, appareil, incarnation, racine, index de feuille, KeyPackage
-d'admission, nonce d'adhésion et nonce d'activation. Les transitions qui
-conservent cette admission préservent l'accès aux trames précédentes ; un
-renouvellement de certificat seul ne change pas ce témoin. Un nouvel appareil,
-départ / retour ou réadmission après retrait exclut les anciennes trames. Le
-Welcome livré appartient uniquement à cette admission de cet appareil.
+The visibility of a frame requires an exact admission witness for the device:
+scope, user, device, incarnation, root, leaf index, admission
+KeyPackage, membership nonce and activation nonce. Transitions that
+preserve this admission preserve access to previous frames; a
+certificate renewal alone does not change this witness. A new device,
+leave / return or readmission after removal excludes the old frames. The
+delivered Welcome belongs only to this admission of this device.
 
-La migration 0040 reconstruit ces témoins à partir des transitions signées
-existantes et ajoute les transitions au journal dans leur ordre par salon,
-avant le premier message opaque. Les anciens endpoints de groupes restent
-disponibles ; un client de messages doit utiliser l'ordre commun de delivery.
+Migration 0040 rebuilds these witnesses from the existing signed
+transitions and adds the transitions to the journal in their per-room order,
+before the first opaque message. The old group endpoints remain
+available; a message client must use the common delivery order.
 
-La réponse conserve une lease sur session, appareil et accès personnel jusqu'à
-soumission du corps. Une révocation attend sa soumission ; un corps non soumis
-expire au plus en cinq secondes et avant le délai réel de session / certificat.
-Les publications gardent aussi les nonces d'activation des pairs jusqu'au commit,
-avant de verrouiller le salon, pour éviter une course ou un cycle avec une
-désactivation de compte.
+The response keeps a lease on session, device and personal access until the
+body is submitted. A revocation waits for its submission; an unsubmitted body
+expires within five seconds at most and before the real session / certificate timeout.
+Publications also hold the peers' activation nonces until the commit,
+before locking the room, to avoid a race or a cycle with an account
+deactivation.
 
-## Vérification et travail restant
+## Verification and remaining work
 
-Les tests PostgreSQL exercent le vrai MLS, HTTP et le SDK Rust : confirmation
-concurrente / reprise après recréation, un seul ciphertext et reçu, déchiffrement
-effectif par le pair, positions au-delà de `2^53`, transitions et messages
-intercalés, watermark fixe, retrait / réadhésion avec nouveau Welcome, fils,
-quotas durables, conflits d'opération, refus de preuves / têtes / portées,
-leases et expiration, publications concurrentes et désactivation de pair.
-Le backfill exact de la migration est exercé sur de vraies transitions.
-Les fixtures communes et le transport TypeScript contrôlent types, retries,
-watermarks, absence de champs privés / clairs et limites avant JSON.
+The PostgreSQL tests exercise real MLS, HTTP and the Rust SDK: concurrent
+confirmation / resume after recreation, a single ciphertext and receipt, actual
+decryption by the peer, positions beyond `2^53`, interleaved transitions and messages,
+fixed watermark, removal / re-membership with a new Welcome, threads,
+durable quotas, operation conflicts, refusal of proofs / heads / scopes,
+leases and expiry, concurrent publications and peer deactivation.
+The exact backfill of the migration is exercised on real transitions.
+The common fixtures and the TypeScript transport check types, retries,
+watermarks, absence of private / plaintext fields and limits before JSON.
 
-Le worker privé valide maintenant les préfixes multi-époques sur une même
-admission, l'authentification historique des certificats et les rotations
-concurrentes aux envois. Il checkpoint aussi l'abandon définitif des messages
-personnels. Une dernière position de message déchiffré ne vaut pas preuve
-d'une plage complète. Réadmission après retrait, règlement des transitions de
-groupe incertaines, projection privée durable, ponts desktop / Android,
-interfaces de confiance, archives, fichiers et revue crypto indépendante
-restent des critères de J4.
+The private worker now validates multi-epoch prefixes on a single
+admission, historical authentication of certificates and rotations
+concurrent with sends. It also checkpoints the definitive abandon of personal
+messages. A last decrypted message position is not proof
+of a complete range. Readmission after removal, settlement of uncertain group
+transitions, durable private projection, desktop / Android bridges,
+trust interfaces, archives, files and independent crypto review
+remain criteria of J4.

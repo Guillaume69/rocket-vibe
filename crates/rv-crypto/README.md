@@ -1,200 +1,200 @@
-# Stockage privé du moteur E2EE natif
+# Private storage for the native E2EE engine
 
-Fondation Rust de [RFC 0002](../../docs/rfcs/0002-e2ee-native.md), distincte du
-[prototype MLS](../rv-crypto-spike/README.md). Workspace et lock propres ; le
-serveur ne dépend pas du coffre. Le [cœur du fournisseur bureau existant](../../apps/desktop/docs/NATIVE_CRYPTO.md)
-le consomme désormais avec HTTP et garde de génération de session, sans
-activation ni ouverture implicite depuis les interfaces. Les formats / vérificateurs publics sont
-partagés via [`rv-crypto-public`](../rv-crypto-public/README.md), consommé par le
-serveur et réexporté ici sans changement de format. Aucune capacité E2EE activée.
+Rust foundation of [RFC 0002](../../docs/rfcs/0002-e2ee-native.md), separate from the
+[MLS prototype](../rv-crypto-spike/README.md). It has its own workspace and lock; the
+server does not depend on the vault. The [core of the existing desktop provider](../../apps/desktop/docs/NATIVE_CRYPTO.md)
+now consumes it with HTTP and a session-generation guard, with no
+activation or implicit opening from the interfaces. The public formats / verifiers are
+shared through [`rv-crypto-public`](../rv-crypto-public/README.md), consumed by the
+server and re-exported here without any format change. No E2EE capability is enabled.
 
-## Format et transaction
+## Format and transaction
 
-`vault::Vault` stocke le fournisseur OpenMLS RustCrypto 0.6.0 et les enregistrements
-privés d'opération dans **une seule ligne SQLite chiffrée**. Le fournisseur est
-reconstruit à chaque opération ; aucune instance MLS modifiée n'est réutilisée
-après un refus. `transact` persiste dans un même commit la consommation des clés,
-le ciphertext original d'outbox et les éventuels reçus / données privées de
-réception. `inspect` ne persiste aucune mutation ; groupes et fournisseurs ne
-doivent pas sortir de ces callbacks. Cette API Rust est interne au futur moteur,
-pas une surface FFI permettant à l'UI de modifier directement les clés.
+`vault::Vault` stores the OpenMLS RustCrypto 0.6.0 provider and the private
+operation records in **a single encrypted SQLite row**. The provider is
+rebuilt on every operation; no modified MLS instance is reused
+after a refusal. `transact` persists in a single commit the consumption of keys,
+the original outbox ciphertext and any receipts / private reception data.
+`inspect` persists no mutation; groups and providers
+must not escape these callbacks. This Rust API is internal to the future engine,
+not an FFI surface that would let the UI modify keys directly.
 
-- XChaCha20Poly1305, clé de 32 octets, nonce aléatoire OS de 24 octets par commit.
-  Le domaine `rocketvibe-mls-vault-v1`, la portée instance / génération / compte /
-  appareil / incarnation et la révision sont les données associées authentifiées.
-  [Implémentation RustCrypto épinglée](https://docs.rs/chacha20poly1305/0.10.1/chacha20poly1305/).
-- Un document JSON authentifié contient les entrées du stockage OpenMLS, les
-  enregistrements privés et le checkpoint précédent. Le document sérialisé est
-  borné à 16 Mio ; nombre d'entrées et allocations de la lecture SQL sont bornés.
-  Ce stockage complet n'est pas une base d'historique à grande échelle.
-- SQLite : WAL, `synchronous=FULL`, transaction immédiate, fichiers temporaires
-  en mémoire. SQL ne reçoit que la révision publique, le nonce et le ciphertext.
-  Un refus crypto, un dépassement de limite ou un échec SQL annulent l'opération.
-- Le fichier est créé exclusivement, jamais remplacé. Sur Unix : mode 0600,
-  refus des liens et permissions de groupe / tiers, synchronisation du parent à
-  la création. Le parent privé appartenant à l'utilisateur OS reste une
-  précondition du futur adaptateur. ACL Windows et persistance OS sont à qualifier.
+- XChaCha20Poly1305, 32-byte key, 24-byte OS-random nonce per commit.
+  The `rocketvibe-mls-vault-v1` domain, the instance / generation / account /
+  device / incarnation scope and the revision are the authenticated associated data.
+  [Pinned RustCrypto implementation](https://docs.rs/chacha20poly1305/0.10.1/chacha20poly1305/).
+- An authenticated JSON document contains the OpenMLS storage entries, the
+  private records and the previous checkpoint. The serialized document is
+  bounded to 16 MiB; the number of entries and the allocations of the SQL read are bounded.
+  This full storage is not a large-scale history database.
+- SQLite: WAL, `synchronous=FULL`, immediate transaction, temporary files
+  in memory. SQL receives only the public revision, the nonce and the ciphertext.
+  A crypto refusal, a limit overrun or an SQL failure cancels the operation.
+- The file is created exclusively and never replaced. On Unix: mode 0600,
+  refusal of links and of group / other permissions, synchronization of the parent on
+  creation. The private parent directory owned by the OS user remains a
+  precondition of the future adapter. Windows ACLs and OS persistence remain to be qualified.
 
-Les buffers privés possédés sont effacés au mieux à la libération ; aucune
-garantie d'effacement de toutes les copies des bibliothèques, de la RAM, du swap
-ou d'un dump système n'est annoncée. Clé, document, fournisseur et coffre
-n'implémentent pas `Debug` ; les erreurs ne contiennent aucun contenu privé.
+Owned private buffers are wiped on a best-effort basis when released; no
+guarantee is made that all copies held by libraries, RAM, swap
+or a system dump are wiped. Key, document, provider and vault
+do not implement `Debug`; errors contain no private content.
 
-## Checkpoint protégé et reprise
+## Protected checkpoint and recovery
 
-Le checkpoint `(revision, SHA-256(AAD || nonce || ciphertext))` est conservé
-**hors de SQLite dans le stockage protégé**, avec la clé. Son digest est public ;
-sa protection contre remplacement provient du trousseau, pas d'un secret dans
-SHA-256. Le copier à côté de la base annulerait la détection d'une restauration.
+The checkpoint `(revision, SHA-256(AAD || nonce || ciphertext))` is kept
+**outside SQLite in the protected storage**, together with the key. Its digest is public;
+its protection against replacement comes from the keychain, not from a secret in
+SHA-256. Copying it next to the database would defeat the detection of a restore.
 
-1. Sauver la clé dans le trousseau avant `create`. Le coffre neuf est bloqué.
-   Sauver son checkpoint initial, puis appeler `checkpoint_persisted`.
-2. À chaque `transact`, sauver le checkpoint retourné avant publication du
-   résultat réseau / UI. Lecture et transaction suivantes restent bloquées jusque
-   là. `checkpoint_persisted` exige la valeur exacte ; il ne constitue pas la
-   preuve de l'écriture OS, qui incombe à l'adaptateur.
-3. `open` exige la tête exacte protégée et un document authentifié. Une base
-   ancienne, un autre compte / appareil ou une tête altérée sont refusés.
-4. Après crash **entre commit SQLite et écriture au trousseau**, seule la tête
-   exactement une révision plus loin est récupérable par `recover_committed`.
-   Elle doit contenir le prédécesseur protégé dans son document authentifié.
-   Le nouveau checkpoint doit ensuite être protégé avant tout usage.
+1. Save the key in the keychain before `create`. The new vault is blocked.
+   Save its initial checkpoint, then call `checkpoint_persisted`.
+2. On every `transact`, save the returned checkpoint before publishing the
+   network / UI result. The next read and the next transaction stay blocked until
+   then. `checkpoint_persisted` requires the exact value; it is not
+   proof of the OS write, which is the adapter's responsibility.
+3. `open` requires the exact protected head and an authenticated document. An
+   old database, another account / device or an altered head is refused.
+4. After a crash **between the SQLite commit and the keychain write**, only the head
+   exactly one revision ahead is recoverable by `recover_committed`.
+   It must contain the protected predecessor in its authenticated document.
+   The new checkpoint must then be protected before any use.
 
-L'adaptateur doit conserver un verrou OS par portée pendant lecture du trousseau,
-transaction, écriture et vérification du checkpoint. Des écritures de trousseau
-hors ordre pourraient restaurer un ancien marqueur. Une lecture indisponible ne
-vaut jamais absence ; fichier incomplet, clé absente ou tête incompatible exigent
-un arrêt explicite, jamais une recréation silencieuse du même état d'envoi.
+The adapter must hold an OS lock per scope during the keychain read,
+the transaction, the write and the checkpoint verification. Out-of-order keychain writes
+could restore an old marker. An unavailable read
+never means absence; an incomplete file, a missing key or an incompatible head require
+an explicit stop, never a silent re-creation of the same sending state.
 
-`protected::Manager` enveloppe ce cycle dans un worker synchrone possédé : verrou
-OS, lecture du trousseau, commit, écriture conditionnée au prédécesseur, relecture
-de confirmation, puis retour du résultat. Si l'appelant abandonne le worker,
-l'opération OS conserve le verrou jusqu'à son terme. Le verrou est explicitement
-libéré à la fin, même si un lancement de processus a brièvement hérité du descripteur.
-Une concurrence retourne `crypto_storage_busy`, sans seconde opération crypto.
-La portée et le répertoire canonique sont liés à l'entrée protégée : une copie
-de la base sous un autre répertoire / verrou ne peut pas forker le même appareil.
+`protected::Manager` wraps this cycle in an owned synchronous worker: OS
+lock, keychain read, commit, write conditioned on the predecessor, confirmation
+re-read, then return of the result. If the caller abandons the worker,
+the OS operation keeps the lock until it completes. The lock is explicitly
+released at the end, even if a process launch briefly inherited the descriptor.
+Concurrency returns `crypto_storage_busy`, with no second crypto operation.
+The scope and the canonical directory are bound to the protected entry: a copy
+of the database under another directory / lock cannot fork the same device.
 
-L'initialisation est explicite et sauvegarde d'abord la clé. Un crash avant le
-checkpoint initial ne permet de reprendre qu'une genèse authentifiée vide de
-clés MLS / enregistrements. Un fichier incomplet est refusé ; le rétablissement
-exige retrait explicite et nouvelle incarnation, sans remplacement implicite.
-`retire` sauvegarde un tombstone **sans clé**, puis retire uniquement les fichiers
-SQLite de cette portée. Tombstone et fichier de verrou restent en place :
-restaurer une ancienne copie ne réactive pas l'incarnation retirée.
+Initialization is explicit and saves the key first. A crash before the
+initial checkpoint only allows resuming an authenticated genesis empty of
+MLS keys / records. An incomplete file is refused; re-establishment
+requires an explicit withdrawal and a new incarnation, with no implicit replacement.
+`retire` saves a **keyless** tombstone, then removes only the SQLite files
+of that scope. The tombstone and the lock file stay in place:
+restoring an old copy does not reactivate the retired incarnation.
 
-Le backend optionnel `system-keystore` utilise keyring 3.6.3 avec les features
-explicites Secret Service synchrone / transfert chiffré Linux, Keychain macOS et
-Credential Store Windows, dans le service `me.barrut.RocketVibe.crypto.v1`, hors
-des sessions Rocket.Chat. [Contrat de la bibliothèque](https://docs.rs/keyring/3.6.3/keyring/).
-Les plateformes non prises en charge n'obtiennent pas un backend mock de repli.
-Android exigera son propre pont Keystore. Le cycle de session du cœur bureau
-arrête désormais son accès ; widgets, cérémonie / trousseau des interfaces et
-retrait durable du compte restent à raccorder.
+The optional `system-keystore` backend uses keyring 3.6.3 with the
+explicit features synchronous Secret Service / Linux encrypted transfer, macOS Keychain and
+Windows Credential Store, under the service `me.barrut.RocketVibe.crypto.v1`, outside
+the Rocket.Chat sessions. [Library contract](https://docs.rs/keyring/3.6.3/keyring/).
+Unsupported platforms do not get a fallback mock backend.
+Android will require its own Keystore bridge. The session cycle of the desktop core
+now stops its access; widgets, the interfaces' ceremony / keychain and
+durable withdrawal of the account remain to be wired up.
 
-## Limite de confidentialité des anciennes copies
+## Confidentiality limit of old copies
 
-Le WAL et les sauvegardes contiennent des **anciens documents chiffrés**. Avec
-une clé de coffre durable, ils redeviennent lisibles si cette clé est compromise.
-Le checkpoint empêche leur réutilisation par le moteur ; il ne les efface pas et
-n'assure pas la forward secrecy du stockage. `secure_delete` ne suffit pas à
-effacer les copies d'un SSD, du WAL ou d'une sauvegarde. La politique de clés
-éphémères / rotation et la revue de leur destruction restent des conditions de
-J4. [Exigences du stockage OpenMLS](https://book.openmls.tech/user_manual/persistence.html).
+The WAL and the backups contain **old encrypted documents**. With
+a durable vault key, they become readable again if that key is compromised.
+The checkpoint prevents the engine from reusing them; it does not erase them and
+does not provide forward secrecy of the storage. `secure_delete` is not enough to
+erase the copies on an SSD, in the WAL or in a backup. The ephemeral
+key / rotation policy and the review of their destruction remain conditions of
+J4. [OpenMLS storage requirements](https://book.openmls.tech/user_manual/persistence.html).
 
-MLS n'est pas l'archive récupérable demandée par la RFC. Cette crate ne fournit
-encore ni archive / fichiers, ni pont Android. Le worker HTTP optionnel demeure
-expérimental ; son accès est lié au cœur bureau, tandis que les cérémonies,
-trousseaux et projection des interfaces restent à raccorder. Le module
-[`identity`](IDENTITY.md) fournit racines Ed25519, certificats, pins / confirmations
-explicites et révocations ; la cérémonie de nouvel appareil, la récupération
-et la politique d'admission de salon restent à intégrer. Le parcours interne
-[`enrollment`](ENROLLMENT.md) persiste la demande signée et son Grant exact,
-avec confirmation opaque et rejeu durable. La [récupération de racine](RECOVERY.md)
-fournit une sauvegarde AEAD par code aléatoire distinct et une restauration
-transactionnelle neuve / reçu exact, sans importer l'ancien état MLS.
-Trousseaux Windows / macOS, ACL Windows,
-restauration des sauvegardes du trousseau et coupure électrique sont à qualifier.
+MLS is not the recoverable archive required by the RFC. This crate still provides
+neither archive / files nor an Android bridge. The optional HTTP worker remains
+experimental; its access is bound to the desktop core, while the ceremonies,
+keychains and projection of the interfaces remain to be wired up. The
+[`identity`](IDENTITY.md) module provides Ed25519 roots, certificates, explicit
+pins / confirmations and revocations; the new-device ceremony, recovery
+and the room admission policy remain to be integrated. The internal
+[`enrollment`](ENROLLMENT.md) flow persists the signed request and its exact Grant,
+with opaque confirmation and durable replay. The [root recovery](RECOVERY.md)
+provides an AEAD backup under a distinct random code and a fresh
+transactional restore / exact receipt, without importing the old MLS state.
+Windows / macOS keychains, Windows ACLs,
+restoration of keychain backups and power loss remain to be qualified.
 
-## Préparation de groupe et reçu
+## Group preparation and receipt
 
-`groups::Coordinator` prépare la genèse dans le coffre protégé. Le preview lie
-portée / incarnation du salon, politique, nonces d'adhésion, packages, pins et
-certificat local à une confirmation opaque valable cinq minutes au maximum.
-Chaque appareil distant exige une racine observée et une approbation persistante.
-`LocalDevice::create_bound` lie aussi l'incarnation de la feuille au coffre choisi
-avant sa création ; les clés privées restent générées dans la transaction.
+`groups::Coordinator` prepares the genesis in the protected vault. The preview binds the
+room scope / incarnation, policy, membership nonces, packages, pins and
+local certificate to an opaque confirmation valid for five minutes at most.
+Each remote device requires an observed root and a persistent approval.
+`LocalDevice::create_bound` also binds the leaf incarnation to the chosen vault
+before its creation; the private keys are still generated inside the transaction.
 
-Le vrai commit MLS reste **en attente** jusqu'au reçu exact : portée, opération,
-révision, époque et empreinte de transition doivent toutes correspondre. L'arbre
-signé utilise les indices réels de feuilles d'un `PublicGroup` validé, sans
-fusionner prématurément le commit. Commit, Welcome, preuve et état MLS sont
-persistés ensemble ; aucun octet n'est remis au transport avant confirmation
-du checkpoint protégé. Après arrêt ou réponse perdue, `retry` retrouve les
-octets d'origine, sans générer une nouvelle genèse.
+The real MLS commit stays **pending** until the exact receipt: scope, operation,
+revision, epoch and transition fingerprint must all match. The signed tree
+uses the real leaf indices of a validated `PublicGroup`, without
+merging the commit prematurely. Commit, Welcome, proof and MLS state are
+persisted together; no byte is handed to the transport before the
+protected checkpoint is confirmed. After a stop or a lost response, `retry` finds
+the original bytes again, without generating a new genesis.
 
-Un changement de pins ou une expiration interdit la retransmission. La recherche
-du reçu reste disponible : un reçu déjà accepté peut finaliser l'état historique,
-sans réautoriser un nouvel envoi. `ready_epoch` est uniquement un diagnostic.
+A change of pins or an expiry forbids retransmission. The receipt lookup
+stays available: an already accepted receipt can finalize the historical state,
+without re-authorizing a new send. `ready_epoch` is only a diagnostic.
 
-`preview_admission` valide un vrai Welcome dans une copie temporaire du fournisseur :
-aucune consommation de package n'est persistée. La confirmation lie aussi les
-adhésions / activations actuelles observées indépendamment. `accept_admission`
-revérifie le vrai package consommé, son certificat / incarnation, l'auteur MLS
-du Welcome, chaque feuille et pin, l'ID / contexte / arbre / époque. Consommation,
-groupe rejoint et reçu sont sauvegardés ensemble avant tout succès remis aux apps.
-Un refus tardif annule les écritures MLS ; un checkpoint perdu reprend seulement
-l'acceptation exacte historique. Ni une racine ni un appareil inconnu ne sont
-approuvés automatiquement par une signature valide de transition.
+`preview_admission` validates a real Welcome in a temporary copy of the provider:
+no package consumption is persisted. The confirmation also binds the current
+memberships / activations, observed independently. `accept_admission`
+re-verifies the real consumed package, its certificate / incarnation, the MLS author
+of the Welcome, each leaf and pin, the ID / context / tree / epoch. Consumption,
+joined group and receipt are saved together before any success is returned to the apps.
+A late refusal cancels the MLS writes; a lost checkpoint only resumes
+the exact historical acceptance. Neither an unknown root nor an unknown device is
+approved automatically by a valid transition signature.
 
-La [réception de commits](GROUP_COMMITS.md) vérifie maintenant le vrai auteur MLS,
-les AAD de routage et les ajouts / références, puis conserve le successeur avec
-son reçu. Un commit local concurrent n'est remplacé qu'après validation ; les
-refus annulent aussi les mutations MLS. Les références déjà observées restent
-mémorisées après retrait. `confirm` traite également le reçu d'une préparation
-suivant un groupe actif ; les jointures conservent la configuration d'arbre.
+The [commit reception](GROUP_COMMITS.md) now verifies the real MLS author,
+the routing AADs and the additions / references, then keeps the successor with
+its receipt. A concurrent local commit is replaced only after validation; the
+refusals also cancel the MLS mutations. References already observed stay
+remembered after withdrawal. `confirm` also handles the receipt of a preparation
+following an active group; joins preserve the tree configuration.
 
-`preview_change` / `prepare_change` préparent désormais rotation, ajouts, retraits
-et remplacement atomique avec la tête serveur observée et les nonces courants.
-L'outbox conserve la demande exacte avant checkpoint / réseau ; le groupe ne
-fusionne qu'au reçu exact. Les références conservées restent celles de leur
-admission initiale ; une réadmission exige un vrai package frais. Un certificat
-local renouvelé modifie la véritable feuille MLS. Voir les
-[transitions protégées](GROUP_COMMITS.md).
+`preview_change` / `prepare_change` now prepare rotation, additions, withdrawals
+and atomic replacement with the observed server head and the current nonces.
+The outbox keeps the exact request before checkpoint / network; the group only
+merges at the exact receipt. The retained references stay those of their
+initial admission; a readmission requires a genuinely fresh package. A renewed
+local certificate modifies the actual MLS leaf. See the
+[protected transitions](GROUP_COMMITS.md).
 
-La [frontière HTTP](GROUP_HTTP.md) convertit maintenant roster / packages /
-préparations / reçus / admissions / successeurs via les DTOs partagés, avec
-encodages canoniques, révisions exactes, digests et chaînage des pages vérifiés.
-Les conversions n'accordent aucune confiance ni permission d'envoyer. Le SDK
-borne les réponses crypto avant le JSON. La feature `native-http` fournit un
-worker asynchrone : scope du compte / appareil vérifié, travail privé possédé,
-reçu consulté avant renvoi original et cooldown POST durable après recréation.
-Admission / successeur exigent leur preview et confirmation avec roster courant.
-Le banc HTTP utilise une fixture déterministe avec le vrai MLS / coffre. Un
-processus privé séparé passe aussi publication / genèse / admission / deux
-rotations contre le vrai serveur Rust / PostgreSQL, avec réponses perdues et
-réconciliation sans POST supplémentaire. Son checkpoint externe est simulé ;
-la planification dans les apps et les qualifications physiques restent ouvertes.
+The [HTTP boundary](GROUP_HTTP.md) now converts roster / packages /
+preparations / receipts / admissions / successors through the shared DTOs, with
+canonical encodings, exact revisions, digests and verified page chaining.
+The conversions grant no trust and no permission to send. The SDK
+bounds the crypto responses before the JSON. The `native-http` feature provides an
+asynchronous worker: verified account / device scope, owned private work,
+receipt consulted before resending the original and durable POST cooldown after re-creation.
+Admission / successor require their preview and confirmation with the current roster.
+The HTTP bench uses a deterministic fixture with the real MLS / vault. A
+separate private process also runs publication / genesis / admission / two
+rotations against the real Rust / PostgreSQL server, with lost responses and
+reconciliation without an extra POST. Its external checkpoint is simulated;
+scheduling in the apps and the physical qualifications remain open.
 
-Le [coordinateur de messages applicatifs](MESSAGES.md) conserve maintenant
-ratchets MLS, ciphertext original / outbox, contenu privé et reçu / dernière
-position de réception dans le même checkpoint. Routage, vrai auteur MLS et
-document riche sont authentifiés ; les renvois / échos utilisent les octets
-protégés exacts et une rotation locale attend les ACK de messages en attente.
-Journal / HTTP des messages, rattrapage complet et projection dans les apps
-restent ouverts ; E2EE demeure désactivé. Voir le
-[contrat de livraison](../../docs/protocol/E2EE_GROUPS.md).
+The [application message coordinator](MESSAGES.md) now keeps
+MLS ratchets, original ciphertext / outbox, private content and receipt / last
+reception position in the same checkpoint. Routing, real MLS author and
+rich document are authenticated; resends / echoes use the exact protected
+bytes and a local rotation waits for the ACKs of pending messages.
+Message journal / HTTP, full catch-up and projection in the apps
+remain open; E2EE stays disabled. See the
+[delivery contract](../../docs/protocol/E2EE_GROUPS.md).
 
-## Vérifications
+## Verifications
 
-Le [coordinateur de publication](PACKAGES.md) conserve aussi les véritables
-KeyPackages privés avec leur demande HTTP publique exacte avant émission.
-Réouverture / checkpoint perdu reprennent le lot original ; ACK substitué,
-expiration, révocation et package déjà consommé sont refusés. Un reçu passé
-peut être réconcilié sans autoriser de nouvel envoi. Les packages sont retirés
-de l'index seulement après consommation MLS, avec une borne de rétention de 64.
-Le module utilise les DTOs partagés ; transport / abandon confirmé / nettoyage
-des expirés et raccordement aux apps restent à intégrer.
+The [publication coordinator](PACKAGES.md) also keeps the genuine private
+KeyPackages with their exact public HTTP request before emission.
+Reopening / a lost checkpoint resume the original batch; a substituted ACK,
+expiry, revocation and an already consumed package are refused. A past receipt
+can be reconciled without authorizing a new send. Packages are removed
+from the index only after MLS consumption, with a retention bound of 64.
+The module uses the shared DTOs; transport / confirmed abandonment / cleanup
+of expired ones and wiring into the apps remain to be integrated.
 
 ```sh
 cargo fmt --manifest-path crates/rv-crypto/Cargo.toml -- --check
@@ -204,67 +204,67 @@ cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --features syste
 node crates/rv-crypto/scripts/verify-identity-vector.mjs
 ```
 
-Soixante-dix-neuf scénarios Linux passent, dont l'échange OpenMLS entre deux véritables bases
-rouvertes : consommation / ciphertext original conservés, réception altérée
-annulée puis original accepté, et rejeu refusé. Les autres preuves couvrent AEAD,
-portées, tête ancienne restaurée, auteur concurrent, échec SQL, limites, fichier
-incomplet et permissions / liens Unix. Deux arrêts forcés de processus encadrent
-le commit SQLite : avant commit, état original ; après commit, reprise du seul
-successeur authentifié. Le test enfant marqué `ignored` est exécuté par ce test
-parent et tué à la frontière ; ce n'est pas un scénario omis.
+Seventy-nine Linux scenarios pass, including the OpenMLS exchange between two genuine reopened
+databases: consumption / original ciphertext preserved, altered reception
+cancelled then original accepted, and replay refused. The other proofs cover AEAD,
+scopes, restored old head, concurrent author, SQL failure, limits, incomplete
+file and Unix permissions / links. Two forced process stops bracket
+the SQLite commit: before the commit, original state; after the commit, resumption of only the
+authenticated successor. The child test marked `ignored` is executed by this
+parent test and killed at the boundary; it is not an omitted scenario.
 
-Les preuves du coordinateur couvrent aussi erreurs / réponses perdues du stockage
-protégé, checkpoint initial interrompu, purge répétable, base copiée, permissions
-du parent et verrou conservé pendant une écriture retardée. Les fixtures MLS du
-coffre utilisent des BasicCredentials non certifiés. Neuf tests d'identité
-supplémentaires vérifient les vrais KeyPackages / certificats, substitution de
-clé / racine, expiration / portée, refus sans approbation, confirmation ancienne,
-révocation persistante et racine sauvegardée dans le coffre. Le vecteur signé
-public passe aussi le vérificateur indépendant Node. Onze scénarios d'ajout
-d'appareil couvrent la preuve de possession, limites / expiration / retour
-d'horloge, confirmation ancienne, Grant substitué, KeyPackage réel, refus
-transactionnel et reçu original retrouvé après checkpoint perdu. Le vecteur
-public de demande / Grant est également vérifié sous Node / OpenSSL.
-Huit scénarios de récupération vérifient code / checksum, AEAD / portée / bornes,
-clé privée cohérente, refus de coffre actif, refus transactionnel, réouverture et
-rejeu après checkpoint perdu sans effacer la nouvelle feuille.
-Neuf scénarios de groupe vérifient vraie jointure par Welcome et mêmes secrets
-d'époque, commit non fusionné avant reçu, réouverture / retry identique, chaque
-champ du reçu altéré, checkpoint perdu, consentement périmé, pins / révocation,
-certificat expiré, portée / incarnation, genèse solitaire et bornes d'observation.
-Huit scénarios de jointure couvrent preview sans consommation, vrai groupe
-persistant / mêmes secrets, package à usage unique, métadonnées valablement
-signées mais fausses, auteur MLS différent, Welcome corrompu, adhésions / époque
-de salon, approbation de chaque destinataire, refus applicatif après crypto et
-reprise historique après checkpoint perdu.
-Neuf scénarios de publication vérifient le DTO HTTP, références / dates réelles,
-chaînes décimales exactes, chaque champ du reçu, reprise de checkpoint,
-interdiction de renvoyer après consommation / révocation, jointure avec le
-package retrouvé et libération de la borne de rétention après vraie admission.
-Onze scénarios de réception vérifient véritables rotations / ajouts / retraits,
-preuve signée incohérente avec MLS, faux auteur / AAD / référence d'Add,
-réutilisation après retrait, ciphertext applicatif refusé sans consommation,
-nonces exigeant réadmission, propre ACK / concurrent remplacé seulement après
-succès, refus tardif après fusion et reprise historique après checkpoint perdu.
+The coordinator proofs also cover errors / lost responses of the protected
+storage, interrupted initial checkpoint, repeatable purge, copied database, parent
+permissions and a lock held during a delayed write. The vault's MLS fixtures
+use uncertified BasicCredentials. Nine additional identity tests
+verify the real KeyPackages / certificates, key / root substitution,
+expiry / scope, refusal without approval, old confirmation,
+persistent revocation and a root backed up in the vault. The public signed vector
+also passes the independent Node verifier. Eleven device-addition scenarios
+cover proof of possession, limits / expiry / clock rollback, old confirmation,
+substituted Grant, real KeyPackage, transactional refusal and original receipt
+found again after a lost checkpoint. The public request / Grant vector
+is also verified under Node / OpenSSL.
+Eight recovery scenarios verify code / checksum, AEAD / scope / bounds,
+consistent private key, refusal of an active vault, transactional refusal, reopening and
+replay after a lost checkpoint without erasing the new leaf.
+Nine group scenarios verify a real join by Welcome and the same epoch
+secrets, commit not merged before the receipt, identical reopening / retry, each
+altered receipt field, lost checkpoint, stale consent, pins / revocation,
+expired certificate, scope / incarnation, solitary genesis and observation bounds.
+Eight join scenarios cover preview without consumption, real persisted
+group / same secrets, single-use package, validly signed but false
+metadata, different MLS author, corrupted Welcome, room memberships / epoch,
+approval of each recipient, application refusal after crypto and historical
+resumption after a lost checkpoint.
+Nine publication scenarios verify the HTTP DTO, real references / dates,
+exact decimal strings, each receipt field, checkpoint resumption,
+prohibition of resending after consumption / revocation, join with the
+package found again and release of the retention bound after a real admission.
+Eleven reception scenarios verify genuine rotations / additions / withdrawals,
+signed proof inconsistent with MLS, false author / AAD / Add reference,
+reuse after withdrawal, application ciphertext refused without consumption,
+nonces requiring readmission, own ACK / concurrent replaced only after
+success, late refusal after merge and historical resumption after a lost checkpoint.
 
-[`scripts/keystore-smoke.sh`](scripts/keystore-smoke.sh) utilise un **vrai Secret
-Service Linux**, ses répertoires XDG jetables et plusieurs processus CLI. Un
-processus est tué après commit SQLite, avant l'écriture protégée ; un concurrent
-est refusé pendant le verrou. Un nouveau bus / daemon retrouve la clé, confirme
-le successeur et les octets d'outbox originaux, puis retire l'incarnation.
-Ce banc passe sous Fedora dans le conteneur existant, avec `--cap-add IPC_LOCK`.
-Aucun profil utilisateur de l'hôte n'est connecté.
+[`scripts/keystore-smoke.sh`](scripts/keystore-smoke.sh) uses a **real Linux Secret
+Service**, its disposable XDG directories and several CLI processes. One
+process is killed after the SQLite commit, before the protected write; a concurrent one
+is refused during the lock. A new bus / daemon finds the key again, confirms
+the successor and the original outbox bytes, then retires the incarnation.
+This bench passes under Fedora in the existing container, with `--cap-add IPC_LOCK`.
+No user profile of the host is connected.
 
-La CI a une matrice crypto Linux / Windows / macOS : formatage, Clippy, tests et
-compilation du backend natif ; Linux exécute aussi le vrai banc de trousseau.
-Le job `native-crypto-http` compile le binaire privé séparé puis exerce le
-coordinateur sur HTTP / PostgreSQL ; ses tokens passent par stdin et le
-processus client ne reçoit pas les identifiants SQL. Son checkpoint externe simulé
-reste distinct de la qualification du vrai trousseau.
-Les validations serveur / mobile et longs pilotes clients restent obligatoires pour changements clients / serveur,
-workflow, base inconnue, ou moteur crypto consommé par une app. Seuls les lots
-crypto encore isolés et Markdown peuvent les éviter. La détection vise la
-dépendance privée exacte, y compris renommée / indirecte ; `rv-crypto-public`
-seul n'ajoute pas de coffre au serveur. Les tests ne qualifient pas
-la coupure électrique, les trousseaux installés ou une revue crypto indépendante.
-J4 reste ouvert jusqu'à l'intégration et la revue.
+The CI has a Linux / Windows / macOS crypto matrix: formatting, Clippy, tests and
+compilation of the native backend; Linux also runs the real keychain bench.
+The `native-crypto-http` job compiles the separate private binary then exercises the
+coordinator over HTTP / PostgreSQL; its tokens go through stdin and the
+client process does not receive the SQL credentials. Its simulated external checkpoint
+stays distinct from the qualification of the real keychain.
+Server / mobile validations and long client drivers remain mandatory for client / server changes,
+workflow, unknown base, or a crypto engine consumed by an app. Only crypto
+batches that are still isolated, and Markdown, may skip them. Detection targets the exact
+private dependency, including renamed / indirect; `rv-crypto-public`
+alone does not add a vault to the server. The tests do not qualify
+power loss, installed keychains or an independent crypto review.
+J4 stays open until integration and review.

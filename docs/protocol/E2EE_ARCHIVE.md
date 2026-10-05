@@ -1,282 +1,282 @@
-# Archive chiffrée : règles d'accès
+# Encrypted archive: access rules
 
-Politique retenue pour RFC 0002. Elle précède l'implémentation du format et des
-enveloppes ; aucune capacité d'archive de production n'est activée par ce document.
+Policy adopted for RFC 0002. It precedes the implementation of the format and
+envelopes; no production archive capability is enabled by this document.
 
-## Frontières de l'historique
+## History boundaries
 
-L'archive conserve les documents reçus ou envoyés et authentifiés, indépendamment
-des ratchets MLS. Son accès est lié à une identité, un salon et une période
-d'adhésion. La portée inclut l'instance et son époque de données. L'identifiant
-du salon ou le fait de connaître une clé ne constitue pas une autorisation de
-demander d'autres périodes au serveur.
+The archive keeps the documents that were received or sent and authenticated, independently
+of the MLS ratchets. Access to it is bound to an identity, a room and a membership
+period. The scope includes the instance and its data epoch. The room identifier
+or knowing a key does not constitute an authorization to
+ask the server for other periods.
 
-| Destinataire | Accès retenu |
+| Recipient | Access adopted |
 |---|---|
-| Appareil déjà admis, adhésion courante | Documents de la période autorisée ; aucune ouverture d'une autre période implicite |
-| Nouvel appareil du même compte | Récupération explicite des archives de ce compte après approbation ; nouveau Welcome pour envoyer |
-| Nouveau membre du salon | Messages depuis son admission ; aucun accès automatique à l'archive antérieure |
-| Membre qui quitte puis revient | Nouvelle période d'adhésion ; les anciennes périodes ne sont pas fusionnées automatiquement |
-| Appareil retiré | Aucun nouveau paquet ou partage de clés ; les copies et clés déjà détenues ne peuvent pas être rappelées |
-| Compte exclu du salon | Aucun nouveau téléchargement depuis le salon ; ses documents déjà reçus restent des copies locales |
-| Compte dont seule la racine a été restaurée | Aucun historique récupéré sans clés d'archive ou partage autorisé supplémentaires |
+| Device already admitted, current membership | Documents of the authorized period; no implicit opening of another period |
+| New device of the same account | Explicit recovery of this account's archives after approval; new Welcome to send |
+| New room member | Messages since their admission; no automatic access to the earlier archive |
+| Member who leaves then returns | New membership period; the old periods are not merged automatically |
+| Removed device | No new packet or key share; copies and keys already held cannot be recalled |
+| Account excluded from the room | No new download from the room; its documents already received remain local copies |
+| Account whose root alone was restored | No history recovered without additional archive keys or an authorized share |
 
-La récupération par un nouvel appareil conserve les frontières de l'adhésion
-originale du compte. Elle ne transforme pas un nouveau membre en ancien membre.
-Un partage d'une période plus ancienne exige une action séparée, une autorisation
-actuelle et un aperçu des destinataires / bornes confirmé par un appareil qui
-détient les clés concernées. Le parcours initial refuse ce partage tant que son
-contrat et son interface ne sont pas livrés. Un administrateur du serveur n'a
-pas les clés et ne peut accorder seul un accès cryptographique au contenu.
+Recovery by a new device keeps the boundaries of the account's original
+membership. It does not turn a new member into a former member.
+Sharing an older period requires a separate action, a current authorization
+and a preview of the recipients / bounds confirmed by a device that
+holds the relevant keys. The initial flow refuses this sharing until its
+contract and its interface are delivered. A server administrator has
+no keys and cannot alone grant cryptographic access to the content.
 
-Les lectures en ligne revalident les droits et l'incarnation de l'appareil avant
-de publier une réponse. La liste des périodes doit être complète et protégée
-contre l'omission / le remplacement après observation locale. Les positions et
-révisions traversent les interfaces en chaînes décimales exactes.
+Online reads revalidate the rights and the device incarnation before
+publishing a response. The list of periods must be complete and protected
+against omission / replacement after local observation. Positions and
+revisions cross the interfaces as exact decimal strings.
 
-## Auteur retiré et documents déjà reçus
+## Removed author and documents already received
 
-La validité actuelle d'un appareil autorise un nouvel envoi. Elle ne décide pas
-à elle seule si un document déjà authentifié doit disparaître d'une archive.
-Un document déjà accepté et observé dans une transaction protégée conserve son
-contenu, son auteur et sa preuve d'origine après expiration ou retrait de cet
-auteur. L'interface distingue cet état historique d'un appareil encore autorisé
-à envoyer ; elle ne rétablit aucun pin ou consentement actuel pour le lire.
+The current validity of a device authorizes a new send. It does not by itself decide
+whether an already authenticated document must disappear from an archive.
+A document already accepted and observed in a protected transaction keeps its
+content, its author and its proof of origin after the expiry or removal of that
+author. The interface distinguishes this historical state from a device still authorized
+to send; it re-establishes no current pin or consent to read it.
 
-Une simple date fournie par le serveur ne prouve pas qu'un paquet précède un
-retrait. Un paquet jamais observé, signé par une clé désormais retirée, ne peut
-pas être promu silencieusement en ancien document authentifié. Son chemin
-d'admission historique exige une preuve et une politique dédiées ; à défaut,
-il reste indisponible. Une archive restaurée doit préserver les témoins
-d'authentification d'origine ; elle ne relance pas un ancien envoi MLS et
-n'efface pas les retraits connus pour accepter sa signature.
+A mere date supplied by the server does not prove that a packet precedes a
+removal. A packet never observed, signed by a key since removed, cannot
+be silently promoted to an old authenticated document. Its historical admission
+path requires a dedicated proof and policy; failing that,
+it remains unavailable. A restored archive must preserve the original
+authentication witnesses; it does not replay an old MLS send and
+does not erase known removals in order to accept its signature.
 
-Le format devra lier sans ambiguïté document, preuve d'auteur, reçu d'origine,
-salon, période d'adhésion et position. Le remplacement d'une racine, une nouvelle
-époque serveur ou une autre incarnation ne doivent pas réinterpréter une preuve
-historique comme un consentement courant.
+The format will have to bind document, author proof, origin receipt,
+room, membership period and position without ambiguity. Replacing a root, a new
+server epoch or another incarnation must not reinterpret a historical proof as a current
+consent.
 
-## Clés, sauvegardes et actions
+## Keys, backups and actions
 
-Les clés d'archive et leurs enveloppes sont distinctes de la sauvegarde de racine
-`root-backup` et de l'état MLS. La sauvegarde actuelle de racine ne sera pas
-étendue silencieusement pour inclure des conversations. La sauvegarde des clés
-d'archive aura un consentement, une version et un règlement d'intention propres.
-Les paquets seront authentifiés avant tout affichage ou création de projection.
+Archive keys and their envelopes are distinct from the `root-backup` root
+backup and from the MLS state. The current root backup will not be
+silently extended to include conversations. The backup of archive
+keys will have its own consent, version and intent settlement.
+Packets will be authenticated before any display or projection creation.
 
-Une archive récupérable garde volontairement l'accès aux documents archivés :
-elle ne promet pas de forward secrecy pour ces documents. Retirer un appareil
-ou remplacer un paquet de sauvegarde ne détruit pas une ancienne copie ni sa
-clé. Sans clé ou appareil pouvant autoriser un partage, les données perdues
-restent irrécupérables.
+A recoverable archive deliberately keeps access to the archived documents:
+it does not promise forward secrecy for these documents. Removing a device
+or replacing a backup packet does not destroy an old copy or its
+key. Without a key or a device able to authorize a share, lost data
+remains unrecoverable.
 
-Édition, suppression, réactions et épingles seront des événements authentifiés
-appliqués à la même archive. Une suppression retire la projection du document
-selon les droits courants ; elle ne garantit pas l'effacement d'une copie déjà
-exportée. La recherche privée indexe uniquement les documents autorisés dans
-le stockage protégé du client. Texte, index et clés ne sont jamais ajoutés au
-cache ordinaire ni à la recherche du serveur.
+Edits, deletions, reactions and pins will be authenticated events
+applied to the same archive. A deletion removes the document's projection
+according to current rights; it does not guarantee the erasure of an already
+exported copy. Private search indexes only the authorized documents in
+the client's protected storage. Text, index and keys are never added to the
+ordinary cache or to the server's search.
 
-## Critères avant activation
+## Criteria before activation
 
-- Format versionné, AEAD et enveloppes de destinataires spécifiés et revus.
-- Transactions protégées conservant contenu et preuve avant l'acquittement.
-- Historique au-delà du cache actuel de 64 documents, pagination et fils complets.
-- Refus des périodes étrangères, nouveaux membres et appareils non approuvés.
-- Reprise sans doublon après interruption du stockage / réseau / confirmation.
-- Nouvel appareil du même compte avec cache vierge et racine / clés restaurées.
-- Retrait d'auteur : document déjà observé conservé, nouveau paquet refusé.
-- Retrait de lecteur pendant téléchargement et retour avec nouvelle adhésion.
-- Sauvegarde / restauration serveur et refus de réinterpréter l'ancienne époque.
-- Import Rocket.Chat conservant preuves et frontières, sans conversion en clair
-  sur le serveur.
-- Qualification GTK / SwiftUI / Android installés et revue crypto indépendante.
+- Versioned format, AEAD and recipient envelopes specified and reviewed.
+- Protected transactions keeping content and proof before acknowledgement.
+- History beyond the current 64-document cache, pagination and complete threads.
+- Refusal of foreign periods, new members and unapproved devices.
+- Resumption without duplicates after a storage / network / confirmation interruption.
+- New device of the same account with a blank cache and restored root / keys.
+- Author removal: already observed document kept, new packet refused.
+- Reader removal during download and return with a new membership.
+- Server backup / restore and refusal to reinterpret the old epoch.
+- Rocket.Chat import keeping proofs and boundaries, with no conversion to cleartext
+  on the server.
+- Qualification of installed GTK / SwiftUI / Android and independent crypto review.
 
-Les règles ci-dessus fixent les destinataires et la séparation entre lecture
-historique et autorisation courante. Les formats, APIs, sauvegardes de clés et
-tests de ces critères restent à implémenter.
+The rules above fix the recipients and the separation between historical
+reading and current authorization. The formats, APIs, key backups and
+tests for these criteria remain to be implemented.
 
-## Premier format : document immuable v1
+## First format: immutable document v1
 
-Le paquet public `rv-crypto-public::archive::Packet` et les primitives privées
-`rv-crypto::archive` sont implémentés. Ce premier lot n'est pas encore raccordé
-au journal, au serveur ou aux interfaces ; il ne supprime pas la limite actuelle
-de 64 documents de la projection. Le reçu d'origine des tests est synthétique.
+The public packet `rv-crypto-public::archive::Packet` and the private primitives
+`rv-crypto::archive` are implemented. This first batch is not yet wired
+to the journal, the server or the interfaces; it does not remove the current limit
+of 64 documents in the projection. The origin receipt in the tests is synthetic.
 
-Le paquet contient :
+The packet contains:
 
-| Champ | Liaison |
+| Field | Binding |
 |---|---|
-| `header.version` | Version 1 uniquement |
-| `header.origin` | Reçu exact : portée / incarnation de groupe, opération, fil, empreinte du groupe et de l'intention, auteur / appareil / incarnation / certificat, ID et position du message |
-| `header.author_membership` | Compte auteur et versions originales d'accès / activation |
-| `header.key_id` | Identifiant OS aléatoire de 16 octets |
-| `header.nonce` | Nonce OS aléatoire de 24 octets |
-| `original_certificate` | Certificat historique correspondant au reçu d'origine |
-| `certificate` | Certificat de la feuille qui signe l'archive ; même racine immuable que l'auteur d'origine |
-| `ciphertext` | Document canonique chiffré ; codec identique au message privé vivant |
-| `signature` | Signature Ed25519 de la feuille d'archive |
+| `header.version` | Version 1 only |
+| `header.origin` | Exact receipt: group scope / incarnation, operation, thread, fingerprint of the group and of the intent, author / device / incarnation / certificate, message ID and position |
+| `header.author_membership` | Author account and original access / activation versions |
+| `header.key_id` | Random 16-byte OS identifier |
+| `header.nonce` | Random 24-byte OS nonce |
+| `original_certificate` | Historical certificate matching the origin receipt |
+| `certificate` | Certificate of the leaf that signs the archive; same immutable root as the original author |
+| `ciphertext` | Encrypted canonical document; codec identical to the live private message |
+| `signature` | Ed25519 signature of the archive leaf |
 
-`position`, `group_revision` et `epoch` du reçu public sont des chaînes décimales
-canoniques ; les versions d'adhésion le sont également. Les entiers sont bornés
-à `i64::MAX`, avec zéro autorisé seulement pour l'epoch. Les autres champs du
-reçu utilisent son schéma strict existant ; ses clés JSON sont triées lors de
-la sérialisation. Le décodage canonique refuse les champs supplémentaires et
-les versions / nombres ambigus avant d'accepter le paquet.
+`position`, `group_revision` and `epoch` of the public receipt are canonical decimal
+strings; the membership versions are too. Integers are bounded
+to `i64::MAX`, with zero allowed only for the epoch. The other fields of the
+receipt use its existing strict schema; its JSON keys are sorted during
+serialization. Canonical decoding rejects extra fields and
+ambiguous versions / numbers before accepting the packet.
 
-Une clé OS aléatoire de 32 octets chiffre un seul document avec
-XChaCha20-Poly1305. Les données associées sont
-`rocketvibe-archive-document-aad-v1`, un octet nul, puis le JSON canonique du
-header. Le document déchiffré conserve opération / fil / citations / cartes et
-les mêmes validations que le codec de messages. Sa limite est de 64 Kio ; celle
-du ciphertext est de 64 Kio + 16 octets, et le paquet JSON est borné à 384 Kio.
+A random 32-byte OS key encrypts a single document with
+XChaCha20-Poly1305. The associated data is
+`rocketvibe-archive-document-aad-v1`, a null byte, then the canonical JSON of the
+header. The decrypted document keeps operation / thread / quotes / cards and
+the same validations as the message codec. Its limit is 64 KiB; that
+of the ciphertext is 64 KiB + 16 bytes, and the JSON packet is bounded to 384 KiB.
 
-La signature lie `rocketvibe-archive-document-proof-v1`, un octet nul, puis le
-tuple JSON : header, empreinte du certificat original, empreinte du certificat
-d'archive, SHA-256 du ciphertext. L'empreinte du paquet lie un autre domaine,
-`rocketvibe-archive-document-fingerprint-v1`, à ses octets canoniques complets.
-Les deux certificats sont authentifiés ; le certificat d'archive doit être
-valide actuellement pour une nouvelle publication. Un certificat original
-expiré reste une référence historique. Une feuille renouvelée ou récupérée de
-la même racine peut archiver un original déjà observé sans en réécrire la preuve.
-Une autre racine, même avec le même nom de compte, est refusée.
+The signature binds `rocketvibe-archive-document-proof-v1`, a null byte, then the
+JSON tuple: header, fingerprint of the original certificate, fingerprint of the archive
+certificate, SHA-256 of the ciphertext. The packet fingerprint binds another domain,
+`rocketvibe-archive-document-fingerprint-v1`, to its complete canonical bytes.
+Both certificates are authenticated; the archive certificate must be
+currently valid for a new publication. An expired original
+certificate remains a historical reference. A renewed or recovered leaf of
+the same root can archive an already observed original without rewriting its proof.
+Another root, even with the same account name, is rejected.
 
-Les clés privées n'ont ni formatage de diagnostic, ni clone, sérialisation,
-affichage ou export brut. Leur persistance utilise uniquement les records du
-coffre chiffré, sous un nom dérivé de l'empreinte exacte du paquet. Une clé
-substituée ou un paquet AEAD corrompu est refusé avant restitution du document.
-Supprimer cette clé locale n'invalide pas une autre copie déjà détenue.
+Private keys have no diagnostic formatting, no clone, serialization,
+display or raw export. Their persistence uses only the records of the
+encrypted vault, under a name derived from the exact fingerprint of the packet. A
+substituted key or a corrupted AEAD packet is rejected before the document is returned.
+Deleting this local key does not invalidate another copy already held.
 
-Ces signatures ne prouvent ni la date d'acceptation, ni l'adhésion, ni l'égalité
-du document avec son original MLS. Le coordinateur devra vérifier cette égalité
-et conserver le témoin d'observation dans la même transaction protégée avant
-d'admettre une archive. La simple décryption ne remplace pas les contrôles des
-droits actuels et des périodes autorisées définis plus haut.
+These signatures prove neither the acceptance date, nor the membership, nor the equality
+of the document with its MLS original. The coordinator will have to verify this equality
+and keep the observation witness in the same protected transaction before
+admitting an archive. Mere decryption does not replace the checks of the
+current rights and of the authorized periods defined above.
 
-Cinq tests privés exercent AEAD réel, réouverture de clé, liaison exacte,
-substitutions, encodage / limites et certificat renouvelé. Un vecteur public à
-positions supérieures à 2^53 est vérifié par Rust et indépendamment par
+Five private tests exercise real AEAD, key reopening, exact binding,
+substitutions, encoding / limits and a renewed certificate. A public vector with
+positions above 2^53 is verified by Rust and independently by
 `node crates/rv-crypto-public/scripts/verify-archive-vector.mjs` (Node/OpenSSL),
-ajouté au contrôle serveur. Ce vecteur contient un certificat jetable et un
-paquet AEAD réel, sans clé privée ; il n'atteste pas une admission MLS réelle.
+added to the server check. This vector contains a throwaway certificate and a real
+AEAD packet, with no private key; it does not attest a real MLS admission.
 
-Restent l'admission des paquets portables, les enveloppes de destinataires et
-sauvegardes de leurs clés, le transport serveur, les lecteurs de paquets portables
-et la qualification indépendante. Le catalogue local d'originaux observés décrit
-ci-dessous conserve une preuve distincte du paquet portable signé par l'auteur.
+Remaining are the admission of portable packets, the recipient envelopes and
+backups of their keys, the server transport, the portable packet readers
+and the independent qualification. The local catalog of observed originals described
+below keeps a proof distinct from the portable packet signed by the author.
 
-## Stockage local : blocs chiffrés et checkpoint commun
+## Local storage: encrypted blocks and shared checkpoint
 
-Le coffre peut désormais conserver des blocs immuables dans `private_blobs`,
-dans la même base SQLite que l'état MLS. Chaque bloc est chiffré sous la clé
-du coffre avec XChaCha20-Poly1305, un nonce OS de 24 octets et un identifiant OS
-de 16 octets. L'AAD lie le domaine `rocketvibe-private-blob-v1`, la portée complète
-du compte / appareil / époque / incarnation et cet identifiant. Une référence
-lie SHA-256 de l'AAD, du nonce et du ciphertext. Elle ne contient aucun hash
-public du document en clair.
+The vault can now keep immutable blocks in `private_blobs`,
+in the same SQLite database as the MLS state. Each block is encrypted under the vault
+key with XChaCha20-Poly1305, a 24-byte OS nonce and a 16-byte OS identifier.
+The AAD binds the domain `rocketvibe-private-blob-v1`, the full scope of the
+account / device / epoch / incarnation and this identifier. A reference
+binds SHA-256 of the AAD, of the nonce and of the ciphertext. It contains no public
+hash of the cleartext document.
 
-Les références doivent être conservées dans les records protégés. La liste SQL
-des blocs n'est pas un index de confiance. Le catalogue d'observation décrit
-ci-dessous lie ses références à une tête protégée dans ces records.
-Lire un bloc par sa référence ne constitue pas une autorisation de lire un salon.
+The references must be kept in the protected records. The SQL list
+of blocks is not a trust index. The observation catalog described
+below binds its references to a head protected in these records.
+Reading a block by its reference does not constitute an authorization to read a room.
 
-`Manager::transact_with_blobs` conserve la même lease OS et le même checkpoint
-que les opérations MLS existantes. Blocs et références commitent dans une seule
-transaction ; le résultat attend l'écriture et la relecture du checkpoint dans
-le stockage protégé. Si cette écriture échoue, la reprise reconnaît uniquement
-le successeur exact, puis rend l'original sans ajouter un second bloc.
-Les blocs écrits sont vérifiés après l'UPDATE de l'état, avant commit : même un
-trigger SQL qui efface ou substitue un nouveau bloc fait échouer la transaction.
+`Manager::transact_with_blobs` keeps the same OS lease and the same checkpoint
+as the existing MLS operations. Blocks and references commit in a single
+transaction; the result waits for the checkpoint to be written and re-read in
+the protected storage. If this write fails, resumption recognizes only
+the exact successor, then returns the original without adding a second block.
+The written blocks are verified after the state UPDATE, before commit: even a
+SQL trigger that erases or substitutes a new block makes the transaction fail.
 
-Un bloc est borné à 1 Mio et une transaction à 1 024 nouveaux blocs. Son payload
-ne grossit pas le snapshot principal de 16 Mio. L'ancien schéma est étendu dans
-une transaction ; une genèse contenant déjà un bloc ne peut pas être reprise
-comme initialisation vide. Un bloc omis, remplacé, d'une autre portée ou dépassant
-ses limites est refusé avant sortie du clair. Les longueurs SQL sont contrôlées
-avant allocation.
+A block is bounded to 1 MiB and a transaction to 1,024 new blocks. Its payload
+does not grow the main 16 MiB snapshot. The old schema is extended in
+a transaction; a genesis already containing a block cannot be taken up
+as an empty initialization. A block that is omitted, replaced, from another scope or exceeding
+its limits is rejected before cleartext leaves. SQL lengths are checked
+before allocation.
 
-Cinq tests du coffre passent en 8,93 s : 70 blocs de 256 Kio (17,5 Mio) avec
-réouverture et lecture après le 64e, absence de clair en DB / WAL, corruption /
-omission / autre compte, rollback complet, migration, trigger malveillant et
-limites / genèse. Les huit tests du coordinateur protégé passent en 1,34 s,
-dont échec du checkpoint suivi d'une reprise sans doublon et refus d'un trousseau
-indisponible. Les cinq anciens tests de coffre passent en 2,93 s, avec vrai kill
-de processus et une entrée enfant ignorée appelée par son banc parent.
+Five vault tests pass in 8.93 s: 70 blocks of 256 KiB (17.5 MiB) with
+reopening and reading after the 64th, absence of cleartext in the DB / WAL, corruption /
+omission / other account, full rollback, migration, malicious trigger and
+limits / genesis. The eight protected coordinator tests pass in 1.34 s,
+including a checkpoint failure followed by a resumption without duplicates and refusal of an
+unavailable keyring. The five old vault tests pass in 2.93 s, with a real process
+kill and an ignored child entry called by its parent bench.
 
-Ce stockage est interne et lié à l'installation protégée. Il ne remplace ni
-le paquet portable d'archive, ni les enveloppes / sauvegardes de clés. Le
-raccordement des projections locales est décrit ci-dessous ; le cache chaud
-reste borné à 64 documents, sans éviction automatique à ce stade.
+This storage is internal and bound to the protected installation. It replaces neither
+the portable archive packet nor the key envelopes / backups. The
+wiring of the local projections is described below; the hot cache
+remains bounded to 64 documents, with no automatic eviction at this stage.
 
-## Catalogue local des originaux observés
+## Local catalog of observed originals
 
-La réception MLS écrit maintenant un nœud immuable chiffré contenant le document
-vérifié, sa soumission publique originale, son reçu et la date d'observation.
-Le nœud et sa tête protégée sont enregistrés dans la même transaction que le
-ratchet et le curseur du journal. Une page annulée ne publie donc ni document
-d'archive ni consommation du ratchet. Un écho personnel déjà connu retrouve sa
-référence exacte sans ajouter un deuxième nœud.
+MLS reception now writes an immutable encrypted node containing the verified
+document, its original public submission, its receipt and the observation date.
+The node and its protected head are recorded in the same transaction as the
+ratchet and the journal cursor. A cancelled page therefore publishes neither an archive
+document nor a ratchet consumption. An already known personal echo returns its
+exact reference without adding a second node.
 
-Le catalogue est lié au salon, à l'adhésion personnelle et à un témoin de
-l'admission MLS. Renouveler un certificat ne fusionne pas deux admissions.
-La lecture exige le contexte local courant et la tête de groupe attendue ;
-elle ne réapprouve pas l'auteur original après son retrait. Les contrôles de
-session et de fermeture du lecteur restent nécessaires autour du résultat.
+The catalog is bound to the room, to the personal membership and to a witness of the
+MLS admission. Renewing a certificate does not merge two admissions.
+Reading requires the current local context and the expected group head;
+it does not re-approve the original author after their removal. The
+session and reader-close checks remain necessary around the result.
 
-La tête ancre une chaîne de références authentifiées avec des sauts par
-puissances de deux pour chercher les anciennes pages du journal ordonné.
-Les échos personnels reçus dans un autre ordre restent conservés ; dans ce cas
-la lecture parcourt la chaîne et sélectionne les positions demandées, avec
-au plus la taille de page en mémoire. Chaque document rendu revalide sa preuve
-originale et son format. Les pages comportent 1 à 200 messages, leurs positions
-restent des entiers exacts et le filtre de fil est distinct du salon principal.
+The head anchors a chain of authenticated references with power-of-two
+jumps to find the old pages of the ordered journal.
+Personal echoes received in another order are still kept; in that case
+reading walks the chain and selects the requested positions, with
+at most the page size in memory. Each rendered document revalidates its original
+proof and its format. Pages hold 1 to 200 messages, their positions
+remain exact integers and the thread filter is distinct from the main room.
 
-Le banc utilise deux acteurs MLS réels et 130 messages, oublie le cache après
-chaque réception, rouvre le coffre puis lit des pages au-delà du 64e document,
-avec positions supérieures à 2^53 et refus d'une autre adhésion. Deux autres
-scénarios vérifient rollback / retry, échos inversés et conservation d'un
-original connu après retrait de l'auteur. Les reçus de ces tests restent
-synthétiques : ils ne qualifient pas le transport serveur de l'archive.
-Les trois tests passent en 130,85 s ; les 15 tests de réception et 13 tests du
-journal passent également après ce raccordement.
+The bench uses two real MLS actors and 130 messages, forgets the cache after
+each reception, reopens the vault then reads pages beyond the 64th document,
+with positions above 2^53 and refusal of another membership. Two other
+scenarios verify rollback / retry, reversed echoes and retention of a known
+original after the author's removal. The receipts of these tests remain
+synthetic: they do not qualify the server transport of the archive.
+The three tests pass in 130.85 s; the 15 reception tests and 13 journal
+tests also pass after this wiring.
 
-`Coordinator::observed_archive` expose cette lecture locale au moteur. Ce
-catalogue ne distribue aucune clé et ne peut pas fabriquer au nom d'un autre
-auteur un paquet portable signé.
+`Coordinator::observed_archive` exposes this local read to the engine. This
+catalog distributes no key and cannot fabricate a signed portable
+packet in the name of another author.
 
-## Lecture des conversations depuis le préfixe archivé
+## Reading conversations from the archived prefix
 
-Un deuxième index protégé contient uniquement les documents admis dans une page
-de journal vérifiée. Il référence les blocs d'observation et conserve les
-positions / références de sauts, sans dupliquer leur plaintext. Recevoir un écho
-personnel ou observer un message séparément ne suffit pas à l'ajouter au préfixe.
-Index, document, ratchet et curseur commitent sous le même checkpoint.
+A second protected index contains only the documents admitted in a verified
+journal page. It references the observation blocks and keeps the
+positions / jump references, without duplicating their plaintext. Receiving a personal
+echo or observing a message separately is not enough to add it to the prefix.
+Index, document, ratchet and cursor commit under the same checkpoint.
 
-`journal_projection` lit désormais cet index dans les lecteurs existants bureau
-et Android, avec la borne du curseur protégé, le filtre de fil, `has_older`, la
-racine observée du fil et ses compteurs locaux. `journal_last_batch` retrouve les
-originaux même après oubli du cache chaud. Aucun trousseau imbriqué n'est ouvert
-pendant la projection. Le document restitué revalide sa soumission / reçu exacts.
-Le retrait d'une admission marque les deux catalogues hors projection ; une
-réadmission distincte ne peut pas les fusionner implicitement.
+`journal_projection` now reads this index in the existing desktop
+and Android readers, with the bound of the protected cursor, the thread filter, `has_older`, the
+observed thread root and its local counters. `journal_last_batch` finds the
+originals even after the hot cache is forgotten. No nested keyring is opened
+during the projection. The restored document revalidates its exact submission / receipt.
+Removing an admission marks both catalogs as out of projection; a distinct
+readmission cannot merge them implicitly.
 
-L'ancien cache protégé reste lisible quand aucun index n'existe. La réception
-suivante indexe ses seules entrées déjà journalisées pour cette adhésion, avant
-les nouveaux documents. Une observation séparée reste exclue même si une page
-vide fait avancer le curseur au-delà de sa position.
+The old protected cache stays readable when no index exists. The next
+reception indexes only its entries already journaled for this membership, before
+the new documents. A separate observation stays excluded even if an
+empty page advances the cursor beyond its position.
 
-Les 15 tests de journal passent en 113,26 s, dont un parcours de 70 messages avec
-oubli des deux caches, réouverture, anciennes pages, racine / compteurs du fil,
-reprise de la dernière page et auteur retiré. La migration de l'ancien cache et
-l'exclusion d'une observation extérieure au préfixe passent aussi. Les reçus
-demeurent synthétiques. Le banc HTTP du worker passe en 1,94 s : réponse de
-lecture perdue, réception MLS réelle, oubli du cache, reprise / projection des
-originaux et refus d'une réponse servie sous le mauvais chemin de salon. Il
-utilise un serveur HTTP de fixture ; PostgreSQL et applications installées
-demeurent des qualifications distinctes.
+The 15 journal tests pass in 113.26 s, including a run of 70 messages with
+both caches forgotten, reopening, old pages, thread root / counters,
+resumption of the last page and removed author. Migration of the old cache
+and exclusion of an observation outside the prefix also pass. The receipts
+remain synthetic. The worker's HTTP bench passes in 1.94 s: lost read
+response, real MLS reception, cache forgotten, resumption / projection of the
+originals and refusal of a response served under the wrong room path. It
+uses a fixture HTTP server; PostgreSQL and installed applications
+remain distinct qualifications.
 
-Cette étape raccorde la lecture des originaux localement reçus. L'éviction
-automatique du cache, la recherche des sources de citations hors cache, le
-déplacement du registre d'opérations actuellement borné à 8 192 et la récupération
-portable restent ouverts. Les compteurs de fils parcourent encore l'index local
-entier : une qualification de charge / un index de métadonnées restent nécessaires.
+This step wires the reading of locally received originals. Automatic
+cache eviction, the search for quote sources outside the cache, the
+move of the operation registry currently bounded to 8,192 and portable
+recovery remain open. The thread counters still walk the entire local index:
+a load qualification / a metadata index remain necessary.

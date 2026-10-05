@@ -1,308 +1,308 @@
-# Livraison des transitions MLS natives
+# Delivery of native MLS transitions
 
-État au 4 octobre 2026 : protocole serveur expérimental, SDK Rust / TypeScript et
-preuves PostgreSQL / MLS. `capabilities.e2ee` reste désactivé. Le worker privé
-expérimental utilise ces routes ; son intégration aux fournisseurs des
-interfaces existantes reste ouverte.
-Spécification d'ensemble : [RFC 0002](../rfcs/0002-e2ee-native.md).
+State as of 4 October 2026: experimental server protocol, Rust / TypeScript SDKs and
+PostgreSQL / MLS proofs. `capabilities.e2ee` remains disabled. The experimental
+private worker uses these routes; its integration into the providers of the
+existing interfaces remains open.
+Overall specification: [RFC 0002](../rfcs/0002-e2ee-native.md).
 
 ## Routes
 
-Toutes exigent une session HTTP active ; les observations et nouvelles
-transitions exigent l'adhésion courante au salon. Les reçus personnels et
-l'abandon d'une intention propre restent accessibles après retrait. Réponses
-et refus portent `Cache-Control: no-store`.
+All require an active HTTP session; observations and new
+transitions require the current membership of the room. Personal receipts and
+the abandon of one's own intent remain accessible after removal. Responses
+and refusals carry `Cache-Control: no-store`.
 
-| Route sous `/api/v1/e2ee/rooms/{room}` | Usage |
+| Route under `/api/v1/e2ee/rooms/{room}` | Use |
 |---|---|
-| `GET /roster` | Politique et versions d'adhésion / activation des membres actifs, avec métadonnées publiques de tête éventuelle |
-| `POST /transitions` | Transition signée, commit opaque, arbre public et Welcomes nominatifs, dans une transaction |
-| `GET /state` | Dernier reçu, preuve signée, arbre courant et indication `needs_rekey` |
-| `GET /events?after={revision}` | Au plus 16 transitions après une révision décimale canonique ; Welcome de l'appareil appelant seulement |
-| `GET /operations/{operation}` | Reçu durable de cet utilisateur / appareil et de ce salon |
-| `POST /operations/{operation}/cancel` | Décision terminale contre les octets originaux de `GroupSubmission` |
-| `GET /key-packages/{user}/{device}` | Observation d'un KeyPackage publié, actif et disponible d'un membre du salon |
+| `GET /roster` | Policy and membership / activation versions of the active members, with public metadata of the head if any |
+| `POST /transitions` | Signed transition, opaque commit, public tree and named Welcomes, in one transaction |
+| `GET /state` | Last receipt, signed proof, current tree and `needs_rekey` indication |
+| `GET /events?after={revision}` | At most 16 transitions after a canonical decimal revision; Welcome of the calling device only |
+| `GET /operations/{operation}` | Durable receipt of this user / device and of this room |
+| `POST /operations/{operation}/cancel` | Terminal decision against the original bytes of `GroupSubmission` |
+| `GET /key-packages/{user}/{device}` | Observation of a published, active and available KeyPackage of a room member |
 
-L'observation d'un package ne le réserve pas. Deux auteurs peuvent observer la
-même référence ; seule une transition acceptée la consomme. Une observation
-devenue périmée provoque un refus, sans changer de groupe ni de clé silencieusement.
-Les révisions / époques des DTO HTTP restent des chaînes décimales exactes.
+Observing a package does not reserve it. Two authors can observe the
+same reference; only an accepted transition consumes it. An observation
+that has become stale causes a refusal, without silently changing group or key.
+The revisions / epochs of the HTTP DTOs remain exact decimal strings.
 
-## Intention interrompue et abandon
+## Interrupted intent and abandon
 
-Le reçu personnel se consulte avec l'appareil de la session HTTP, même après
-retrait du salon ou expiration du certificat crypto. Il ne contient ni arbre,
-commit, Welcome ni permission de lecture. Les routes d'observation conservent
-leurs contrôles courants. Le rejeu strict d'un POST déjà accepté retrouve aussi
-son reçu avant la vérification d'adhésion.
+The personal receipt is read with the device of the HTTP session, even after
+removal from the room or expiry of the crypto certificate. It contains no tree,
+commit, Welcome or read permission. The observation routes keep
+their current checks. The strict replay of an already accepted POST also returns
+its receipt before the membership check.
 
-L'abandon transmet le **GroupSubmission original complet**, avec une limite
-HTTP de 4 MiB. Le certificat signé désigne l'appareil de l'intention : une autre
-session active du même utilisateur peut demander la décision exacte. Sans
-décision connue, le serveur authentifie signature, portée et digests opaques ;
-un certificat expiré reste utilisable pour ce seul règlement, un certificat
-émis dans le futur est refusé. Il ne réautorise aucune feuille ou admission.
+The abandon transmits the **complete original GroupSubmission**, with an HTTP
+limit of 4 MiB. The signed certificate designates the device of the intent: another active
+session of the same user can request the exact decision. Without a
+known decision, the server authenticates signature, scope and opaque digests;
+an expired certificate remains usable for this settlement only, a certificate
+issued in the future is rejected. It re-authorizes no leaf or admission.
 
-`GroupSettlement` contient soit `accepted` avec le `GroupReceipt original`,
-soit `cancelled` avec portée, salon, incarnation de groupe, opération, appareil
-et empreinte de transition. L'abandon ne réserve aucune révision, époque ou
-position ; il n'enregistre aucun commit / arbre / Welcome et ne consomme aucun
-KeyPackage. Son empreinte d'intention SQL lie les octets originaux complets.
+`GroupSettlement` contains either `accepted` with the original `GroupReceipt`,
+or `cancelled` with scope, room, group incarnation, operation, device
+and transition fingerprint. The abandon reserves no revision, epoch or
+position; it records no commit / tree / Welcome and consumes no
+KeyPackage. Its SQL intent fingerprint binds the complete original bytes.
 
-Acceptation et abandon prennent le même verrou exclusif de l'auteur. Une
-acceptation déjà durable gagne ; sinon le marqueur persistant interdit tout
-POST tardif de cette intention. Un autre corps sous la même opération est
-refusé. Un GET personnel abandonné retourne `409 crypto_group_cancelled` ; le
-client récupère la décision typée contre son original protégé avant de libérer
-le commit. Un code d'erreur seul ne suffit pas.
+Acceptance and abandon take the same exclusive lock of the author. An
+already durable acceptance wins; otherwise the persistent marker forbids any late
+POST of this intent. Another body under the same operation is
+rejected. An abandoned personal GET returns `409 crypto_group_cancelled`; the
+client retrieves the typed decision against its protected original before releasing
+the commit. An error code alone is not enough.
 
-Les nouveaux abandons sont limités à 256 par jour et compte. Les décisions
-exactes déjà connues restent rejouables au-delà du quota. Une restauration
-changeant l'époque des données refuse l'ancienne portée. Cette décision repose
-sur le serveur HTTP authentifié ; elle n'est pas une preuve cryptographique
-d'absence d'acceptation. [Politique du coffre privé](../../crates/rv-crypto/GROUP_SETTLEMENT.md).
+New abandons are limited to 256 per day per account. Exact decisions
+already known remain replayable beyond the quota. A restore
+changing the data epoch rejects the old scope. This decision rests on
+the authenticated HTTP server; it is not a cryptographic proof
+of the absence of acceptance. [Private vault policy](../../crates/rv-crypto/GROUP_SETTLEMENT.md).
 
-`GroupRoster` donne la portée d'instance / époque des données, le salon,
-`authority_version`, les membres triés par UID (`user_id`, `access_version`,
-`activation_version`) et `group`, reçu public de tête ou `null` avant genèse.
-Une session membre peut l'observer avant inscription / admission crypto ;
-cela n'accorde ni Welcome, ni accès au groupe, ni approbation d'identité.
-Les administrateurs sans adhésion privée n'y accèdent pas.
+`GroupRoster` gives the instance / data epoch scope, the room,
+`authority_version`, the members sorted by UID (`user_id`, `access_version`,
+`activation_version`) and `group`, the public head receipt or `null` before genesis.
+A member session can observe it before crypto enrollment / admission;
+this grants no Welcome, no access to the group and no identity approval.
+Administrators without a private membership cannot access it.
 
-La liste provient de la même requête que la validation des plans. Elle est
-complète jusqu'à 128 membres actifs ; un dépassement retourne
-`409 crypto_group_limit`, sans publier une page partielle. Un client peut
-construire le plan avec ces versions, puis présenter sa confirmation locale.
-Une observation n'est pas une réservation : changement de politique, départ /
-retour ou réactivation rendent le plan ancien obsolète. Les versions sont
-revérifiées lors du commit avant toute consommation de package.
+The list comes from the same query as the plan validation. It is
+complete up to 128 active members; an overflow returns
+`409 crypto_group_limit`, without publishing a partial page. A client can
+build the plan with these versions, then present its local confirmation.
+An observation is not a reservation: a change of policy, departure /
+return or reactivation makes the old plan obsolete. The versions are
+re-verified at commit before any package consumption.
 
-L'autorisation propre, l'adhésion et la portée sont gardées jusqu'à soumission
-du corps HTTP. Retrait et changement d'époque attendent la réponse ; sa lease
-expire au plus après cinq secondes et avant l'expiration réelle de session.
-L'activation d'un autre compte peut évoluer après la vue SQL ; sa version est
-une observation, toujours revalidée à la soumission du plan. Les métadonnées
-d'une tête d'une ancienne époque sont refusées, sans remappage implicite.
+The own authorization, the membership and the scope are held until submission
+of the HTTP body. Removal and change of epoch wait for the response; its lease
+expires after five seconds at most and before the actual session expiry.
+The activation of another account can change after the SQL view; its version is
+an observation, always revalidated at plan submission. The head metadata
+of an old epoch is rejected, with no implicit remapping.
 
-## Preuve publique et vérification client
+## Public proof and client verification
 
-[`rv-crypto-public::groups`](../../crates/rv-crypto-public/src/groups.rs) définit
-le `Plan` et la `Transition`. La feuille de l'auteur signe
-`rocketvibe-group-transition-v1\0` suivi du JSON UTF-8 du `Plan` typé : ordre des
-champs de la structure Rust, sans espaces, tableaux de membres triés par UID,
-participants triés par index de feuille et Welcomes par ID d'appareil. Les
-entiers internes sont des `u64` vérifiés côté Rust ; les transports JavaScript
-conservent cette preuve comme octets opaques et ne la reconstruisent pas.
+[`rv-crypto-public::groups`](../../crates/rv-crypto-public/src/groups.rs) defines
+the `Plan` and the `Transition`. The author's leaf signs
+`rocketvibe-group-transition-v1\0` followed by the UTF-8 JSON of the typed `Plan`: order of the
+fields of the Rust structure, without spaces, member arrays sorted by UID,
+participants sorted by leaf index and Welcomes by device ID. The
+internal integers are `u64` verified on the Rust side; the JavaScript transports
+keep this proof as opaque bytes and do not rebuild it.
 
-La preuve lie :
+The proof binds:
 
-- instance, époque des données, salon et incarnation aléatoire du groupe ;
-- opération, révision / époque attendues et empreinte de la transition précédente ;
-- version de politique du salon, nonces d'adhésion et d'activation de chaque membre ;
-- utilisateur / appareil / incarnation, racine, certificat, index de feuille et
-  référence d'admission de chaque destinataire ;
-- SHA-256 des octets TLS du GroupContext, du commit, de l'arbre et des Welcomes.
+- instance, data epoch, room and random incarnation of the group;
+- operation, expected revision / epoch and fingerprint of the previous transition;
+- room policy version, membership and activation nonces of each member;
+- user / device / incarnation, root, certificate, leaf index and
+  admission reference of each recipient;
+- SHA-256 of the TLS bytes of the GroupContext, the commit, the tree and the Welcomes.
 
-L'ID MLS est le SHA-256 du Scope typé cadré par `rocketvibe-group-id-v1\0`.
-L'empreinte d'une transition couvre certificat, plan et signature, avec le
-domaine distinct `rocketvibe-group-transition-fingerprint-v1\0`.
-Le [vecteur public](../../crates/rv-crypto-public/fixtures/group-transition-v1.json)
-et son [vérificateur Node/OpenSSL](../../crates/rv-crypto-public/scripts/verify-group-vector.mjs)
-contrôlent ce cadrage indépendamment. Les digests TLS de ce vecteur sont
-synthétiques ; les tests PostgreSQL utilisent aussi de vrais groupes MLS.
+The MLS ID is the SHA-256 of the typed Scope framed by `rocketvibe-group-id-v1\0`.
+The fingerprint of a transition covers certificate, plan and signature, with the
+distinct domain `rocketvibe-group-transition-fingerprint-v1\0`.
+The [public vector](../../crates/rv-crypto-public/fixtures/group-transition-v1.json)
+and its [Node/OpenSSL verifier](../../crates/rv-crypto-public/scripts/verify-group-vector.mjs)
+check this framing independently. The TLS digests of this vector are
+synthetic; the PostgreSQL tests also use real MLS groups.
 
-Le serveur vérifie possession de la feuille certifiée, identité / session,
-liste des destinataires autorisés, références et digests. Il valide réellement
-les KeyPackages MLS. **Il ne vérifie pas le contenu cryptographique du commit,
-du Welcome ni le transcript MLS**, qui restent opaques.
+The server verifies possession of the certified leaf, identity / session,
+the list of authorized recipients, references and digests. It really validates
+the MLS KeyPackages. **It does not verify the cryptographic content of the commit,
+of the Welcome or the MLS transcript**, which remain opaque.
 
-Avant toute acceptation locale, le moteur client devra vérifier la signature,
-les pins / consentements, la politique de groupe, le véritable ID / contexte /
-époque / arbre MLS et chaque identité de feuille. Un reçu HTTP ou `needs_rekey`
-ne remplace aucune de ces vérifications. Une réception refusée doit aussi
-restaurer les ratchets et les écritures MLS, comme le prévoit le coffre privé.
-Ce raccordement et ses limites réseau sont encore une condition d'activation.
+Before any local acceptance, the client engine will have to verify the signature,
+the pins / consents, the group policy, the true MLS ID / context /
+epoch / tree and each leaf identity. An HTTP receipt or `needs_rekey`
+replaces none of these verifications. A refused reception must also
+restore the ratchets and the MLS writes, as the private vault provides.
+This wiring and its network limits are still an activation condition.
 
-## Admission et ordre
+## Admission and ordering
 
-Une genèse utilise `expected_revision=0`, sans parent ni époque attendue. Le
-créateur est propriétaire du salon, ou membre d'un DM. Le salon doit être vide
-de messages ordinaires et de réservations de fichiers clairs encore actives.
-Les messages structurés d'activité ne constituent pas un historique ordinaire.
+A genesis uses `expected_revision=0`, with no parent or expected epoch. The
+creator is the owner of the room, or a member of a DM. The room must be empty
+of ordinary messages and of still-active cleartext file reservations.
+Structured activity messages do not constitute an ordinary history.
 
-Une genèse à une feuille est à l'époque MLS 0, sans commit ni Welcome. Une
-genèse ajoutant d'autres feuilles publie son commit de l'époque 1 avec leurs
-Welcomes. La feuille initiale du créateur est à l'index 0 et n'a pas de package
-d'admission. Chaque autre nouvelle feuille exige un package et un Welcome exact.
+A single-leaf genesis is at MLS epoch 0, with no commit or Welcome. A
+genesis adding other leaves publishes its epoch 1 commit with their
+Welcomes. The creator's initial leaf is at index 0 and has no admission
+package. Every other new leaf requires an exact package and Welcome.
 
-Pour les transitions suivantes, la révision, l'époque, l'incarnation et
-l'empreinte du parent doivent correspondre à la tête serveur. Chaque transition
-avance la révision et l'époque de un. L'auteur doit avoir conservé son admission
-dans le groupe précédent ; un appareil nouvellement inscrit ne peut reprendre
-seul le contrôle du groupe.
+For the following transitions, the revision, epoch, incarnation and
+fingerprint of the parent must match the server head. Each transition
+advances the revision and the epoch by one. The author must have kept their admission
+in the previous group; a newly enrolled device cannot take back
+control of the group alone.
 
-Une admission conservée garde utilisateur, appareil, incarnation, racine, index
-MLS, référence de package et nonces d'adhésion / activation. Renouveler un
-certificat n'autorise pas à changer ces identités ; son contenu MLS reste à
-mettre à jour et vérifier dans le moteur. Partir puis revenir, ou désactiver
-puis réactiver le compte, exige une nouvelle admission et un nouveau Welcome,
-même si la liste apparente des utilisateurs est identique.
+A kept admission keeps user, device, incarnation, root, MLS index,
+package reference and membership / activation nonces. Renewing a
+certificate does not authorize changing these identities; its MLS content remains to be
+updated and verified in the engine. Leaving then returning, or deactivating
+then reactivating the account, requires a new admission and a new Welcome,
+even if the apparent list of users is identical.
 
-Chaque membre actif doit avoir au moins une feuille certifiée dans le plan.
-Un nouveau membre sans appareil prêt bloque la transition. Les changements
-d'adhésion, de politique, de certificat ou de session rendent l'ancienne liste
-obsolète. `needs_rekey` est une indication recalculée à la lecture ; le futur
-chemin d'envoi chiffré devra revalider cette liste pour chaque nouvel envoi.
+Each active member must have at least one certified leaf in the plan.
+A new member without a ready device blocks the transition. Changes
+of membership, policy, certificate or session make the old list
+obsolete. `needs_rekey` is an indication recomputed at read time; the future
+encrypted send path will have to revalidate this list for each new send.
 
-Tête, événement, Welcomes ciblés, consommation des packages et reçu sont
-committés ensemble. Les octets des packages consommés sont supprimés, leurs
-références restent retirées. Une erreur de preuve, de destinataire, de durée ou
-de CAS annule l'ensemble. Un retry strictement identique retrouve le reçu
-avant de revérifier un certificat désormais expiré ; il ne réactive rien.
-Réutiliser l'ID avec d'autres octets échoue. Les reçus restent privés à l'auteur.
+Head, event, targeted Welcomes, package consumption and receipt are
+committed together. The bytes of the consumed packages are deleted, their
+references remain withdrawn. A proof, recipient, duration or
+CAS error cancels the whole. A strictly identical retry returns the receipt
+before re-verifying a certificate that has since expired; it reactivates nothing.
+Reusing the ID with other bytes fails. Receipts remain private to the author.
 
-Après la genèse, les nouveaux messages ordinaires et préparations de fichiers
-clairs sont refusés avec `crypto_required`. Une conversion inverse n'est pas
-exposée. L'envoi de messages et fichiers chiffrés reste à intégrer avant que
-les apps proposent la genèse d'un salon.
+After the genesis, new ordinary messages and cleartext file preparations
+are rejected with `crypto_required`. A reverse conversion is not
+exposed. Sending encrypted messages and files remains to be integrated before
+the apps offer the genesis of a room.
 
-## Révocation et livraison
+## Revocation and delivery
 
-Des verrous persistants par appareil / incarnation séparent validation de groupe
-et mutation des certificats. Les écritures / suppressions de l'annuaire prennent
-ces verrous en modification ; une transition prend en partage tous les verrous
-anciens et nouveaux, dans un ordre stable, avant de lire les têtes et de
-consommer les packages. La feuille initiale sans package est aussi protégée.
-Une mutation terminée avant cette acquisition est visible et refuse l'admission
-périmée. Une mutation ultérieure attend le commit puis impose la prochaine rotation.
+Persistent per-device / incarnation locks separate group validation
+from certificate mutation. Directory writes / deletions take
+these locks for modification; a transition takes all the
+old and new locks in shared mode, in a stable order, before reading the heads and
+consuming the packages. The initial leaf without a package is also protected.
+A mutation completed before this acquisition is visible and rejects the stale
+admission. A later mutation waits for the commit then forces the next rotation.
 
-Les lecteurs gardent l'autorisation de leur session, le salon et leur propre
-incarnation jusqu'à soumission du corps HTTP. Aucun Welcome n'est remis à un
-autre appareil, une ancienne incarnation ou une ancienne adhésion. Les verrous
-de lecture expirent au plus après cinq secondes, raccourcis par les échéances
-de session / certificat. L'échéance monotone est conservée pendant les requêtes
-et la sérialisation ; le poll du corps la vérifie même si le worker d'expiration
-n'a pas encore pu s'exécuter.
+Readers hold the authorization of their session, the room and their own
+incarnation until submission of the HTTP body. No Welcome is delivered to another
+device, an old incarnation or an old membership. The read locks
+expire after five seconds at most, shortened by the session / certificate
+deadlines. The monotonic deadline is kept during the queries
+and the serialization; the body poll checks it even if the expiry worker
+has not yet been able to run.
 
-Ces barrières ne peuvent retirer des octets déjà reçus. Les tables de destinataires
-ne prennent pas de clé étrangère vers les têtes ou utilisateurs distants pendant
-le commit, pour éviter un cycle avec la désactivation d'un compte qui attend son
-verrou d'incarnation. Les expirations des participants et packages sont revérifiées
-avant commit, après la publication transactionnelle du fanout.
+These barriers cannot withdraw bytes already received. The recipient tables
+take no foreign key to the heads or remote users during
+the commit, to avoid a cycle with the deactivation of an account that waits for its
+incarnation lock. The expiries of the participants and packages are re-verified
+before commit, after the transactional publication of the fanout.
 
-## Coordinateur client : genèse et admission persistantes
+## Client coordinator: persistent genesis and admission
 
-Le module privé `rv-crypto::groups` prépare une genèse réelle dans le coffre
-protégé. La confirmation locale lie la liste, les nonces, la politique, les
-packages, les pins, le certificat auteur et la portée. L'arbre et les indices
-proviennent d'un `PublicGroup` validé sur le véritable GroupInfo et l'arbre
-préparé. L'appareil local est lié à l'incarnation du coffre.
+The private module `rv-crypto::groups` prepares a real genesis in the protected
+vault. The local confirmation binds the list, the nonces, the policy, the
+packages, the pins, the author certificate and the scope. The tree and the indices
+come from a `PublicGroup` validated against the real GroupInfo and the prepared
+tree. The local device is bound to the vault incarnation.
 
-État MLS préparé et demande originale sont committés ensemble avant émission.
-Le commit privé reste en attente jusqu'à un reçu exactement lié à la preuve.
-Un checkpoint échoué ne remet aucun octet ; une réouverture récupère la demande
-originale. Une modification de confiance / expiration bloque son retry, mais
-la recherche du reçu permet de réconcilier une acceptation déjà survenue.
-Finaliser ce reçu historique ne vaut pas permission d'un nouvel envoi.
+The prepared MLS state and the original request are committed together before emission.
+The private commit stays pending until a receipt exactly bound to the proof.
+A failed checkpoint releases no byte; a reopening recovers the original
+request. A change of trust / expiry blocks its retry, but
+the receipt lookup allows reconciling an acceptance that already occurred.
+Finalizing this historical receipt does not amount to permission for a new send.
 
-La jointure utilise maintenant ce coordinateur : preview sur un fournisseur
-temporaire, confirmation opaque puis acceptation dans la transaction protégée.
-Elle compare le package réellement consommé, le certificat / incarnation local,
-l'auteur MLS du Welcome, chaque feuille certifiée / pin et l'ID / contexte /
-arbre / époque avec la preuve. La liste et les nonces doivent correspondre à
-l'état autorisé courant observé séparément. Une preuve signée peut être valide
-et néanmoins refusée si ses déclarations ne décrivent pas le vrai groupe.
+Joining now uses this coordinator: preview on a temporary provider,
+opaque confirmation then acceptance in the protected transaction.
+It compares the package actually consumed, the local certificate / incarnation,
+the MLS author of the Welcome, each certified leaf / pin and the ID / context /
+tree / epoch with the proof. The list and the nonces must match
+the current authorized state observed separately. A signed proof can be valid
+and nonetheless rejected if its declarations do not describe the true group.
 
-Un échec, même après création MLS du groupe, annule consommation et écritures.
-Un succès sauvegarde le reçu et le groupe ensemble avant retour. Le retry
-historique exact après checkpoint perdu ne réaccorde aucun droit d'envoi.
-Les tests utilisent de vraies bases privées rouvertes et prouvent les mêmes
-secrets d'époque. La [réception protégée de commits](../../crates/rv-crypto/GROUP_COMMITS.md)
-valide maintenant vrai auteur MLS, AAD de routage, propositions Add et références,
-contexte / arbre / feuilles, puis sauvegarde successeur et reçu. Un commit local
-concurrent n'est remplacé qu'après succès ; refus tardif / checkpoint interrompu
-ne perdent pas l'ancienne outbox. Les références déjà observées restent mémorisées
-après retrait. Onze scénarios supplémentaires passent, avec 79 tests du coffre
-au total pour ce lot de réception. Le coordinateur prépare également les
-successeurs publics : tête observée exacte, retraits explicites / ajouts frais,
-nonces courants, véritable renouvellement de certificat de feuille et outbox
-originale protégée jusqu'au reçu. Onze scénarios supplémentaires exercent ce
-parcours, y compris rotation d'un singleton à l'époque zéro puis admission.
-Suite privée complète : 90 tests réussis. Rattrapage complet,
-messages et ordonnanceur connecté / fournisseurs restent ouverts ; ce n'est pas encore un
-parcours utilisateur connecté. Aucune capacité E2EE n'est activée.
+A failure, even after the MLS creation of the group, cancels consumption and writes.
+A success saves the receipt and the group together before returning. The exact
+historical retry after a lost checkpoint re-grants no send right.
+The tests use real private databases that are reopened and prove the same
+epoch secrets. The [protected commit reception](../../crates/rv-crypto/GROUP_COMMITS.md)
+now validates the true MLS author, routing AAD, Add proposals and references,
+context / tree / leaves, then saves the successor and the receipt. A concurrent
+local commit is replaced only after success; a late refusal / interrupted checkpoint
+do not lose the old outbox. References already observed stay memorized
+after removal. Eleven additional scenarios pass, with 79 vault tests
+in total for this reception batch. The coordinator also prepares the
+public successors: exact observed head, explicit removals / fresh additions,
+current nonces, true renewal of a leaf certificate and original
+outbox protected until the receipt. Eleven additional scenarios exercise this
+flow, including rotation of a singleton at epoch zero then admission.
+Complete private suite: 90 tests passed. Complete catch-up,
+messages and the connected scheduler / providers remain open; this is not yet a
+connected user flow. No E2EE capability is enabled.
 
-## Limites et preuves exécutées
+## Limits and executed proofs
 
-La [frontière cliente HTTP](../../crates/rv-crypto/GROUP_HTTP.md) convertit les
-observations, packages, préparations, reçus et événements vers le coordinateur
-privé sans exporter ses clés. Métadonnées de packages comparées au vrai TLS,
-hex / base64url / décimaux canoniques, digests et révisions / parents consécutifs
-de pages sont contrôlés. Le vrai MLS et les pins restent vérifiés dans le coffre.
-Le SDK Rust refuse également succès et erreurs crypto dépassant 4 Mio, avant
-JSON et même en chunks. Six tests de conversion, quatre tests réseau de limite
-et les 14 scénarios de routes PostgreSQL passent. Suite privée : 96 réussis.
+The [HTTP client boundary](../../crates/rv-crypto/GROUP_HTTP.md) converts the
+observations, packages, preparations, receipts and events to the private
+coordinator without exporting its keys. Package metadata compared against the real TLS,
+canonical hex / base64url / decimals, digests and consecutive revisions / parents
+of pages are checked. The real MLS and the pins remain verified in the vault.
+The Rust SDK also rejects successes and crypto errors exceeding 4 MiB, before
+JSON and even in chunks. Six conversion tests, four network limit tests
+and the 14 PostgreSQL route scenarios pass. Private suite: 96 passed.
 
-La feature privée `native-http` ajoute un worker asynchrone au-dessus du SDK :
-identité / génération / session courante vérifiées, crypto dans des tâches
-possédées, reçu recherché avant POST original et cooldown durable. Réception
-de page puis preview / confirmation restent distinctes avec roster courant.
-Cinq scénarios HTTP à fixture déterministe exercent le vrai MLS / coffre, dont
-réponses de genèse / rotation perdues, mêmes nouveaux secrets chez le pair,
-reçu divergent, changement d'activation, recréation après 429 et arrêt partagé.
-Suite complète initiale : 100 succès ; les cinq scénarios sont revérifiés
-après ajout de la rotation.
+The private feature `native-http` adds an asynchronous worker on top of the SDK:
+identity / generation / current session verified, crypto in owned
+tasks, receipt looked up before the original POST and durable cooldown. Page
+reception then preview / confirmation remain distinct with the current roster.
+Five HTTP scenarios with a deterministic fixture exercise the real MLS / vault, including
+lost genesis / rotation responses, same new secrets at the peer,
+diverging receipt, activation change, recreation after 429 and shared stop.
+Initial complete suite: 100 successes; the five scenarios are re-verified
+after the addition of rotation.
 
-Le banc combiné worker privé / serveur Rust / PostgreSQL passe aussi : vrais
-appareils enregistrés et packages publiés par HTTP, genèse / admission ciblée,
-rotations par chaque pair. Après réponses coupées suite aux commits serveur,
-des Managers / SDK neufs réconcilient les reçus sans nouveau POST. SQL compte
-exactement deux publications, trois transitions, un Welcome et un package
-consommé ; les secrets d'époque des deux coffres concordent. Le checkpoint
-externe du processus privé est simulé en mémoire ; aucune qualification de
-trousseau ou destruction du processus privé n'en découle. Le test explicitement
-ignoré par défaut est obligatoire dans le job dédié `native-crypto-http`.
-Le banc actuel ajoute messages sur trois époques et abandon d'une rotation
-préparée : réponse terminale perdue, reprise sans republication, POST tardif
-interdit et mêmes secrets de groupe conservés. Trois transitions sont acceptées
-et une tentative tardive est refusée ; un marqueur d'abandon de groupe est
-enregistré sans nouvelle révision. Planification dans les fournisseurs,
-projection des messages et qualification restent ouvertes.
-Aucune capacité E2EE n'est activée.
+The combined private worker / Rust server / PostgreSQL bench also passes: real
+devices enrolled and packages published over HTTP, targeted genesis / admission,
+rotations by each peer. After responses cut off following the server commits,
+fresh Managers / SDKs reconcile the receipts without a new POST. SQL counts
+exactly two publications, three transitions, one Welcome and one package
+consumed; the epoch secrets of the two vaults match. The external
+checkpoint of the private process is simulated in memory; no qualification of the
+keyring or destruction of the private process follows from it. The test explicitly
+ignored by default is mandatory in the dedicated job `native-crypto-http`.
+The current bench adds messages over three epochs and the abandon of a prepared
+rotation: lost terminal response, resumption without republication, late POST
+forbidden and same group secrets kept. Three transitions are accepted
+and a late attempt is rejected; a group abandon marker is
+recorded without a new revision. Scheduling in the providers,
+message projection and qualification remain open.
+No E2EE capability is enabled.
 
-Les limites se cumulent : 128 membres, 256 appareils, index MLS ≤ 4 095,
-preuve ≤ 256 Kio, arbre / commit / Welcome individuel ≤ 1 Mio, charges opaques
-cumulées ≤ 2 Mio et requête HTTP ≤ 4 Mio. Une page comporte au plus 16 événements
-et borne les octets opaques remis à environ 2 Mio avant encodage base64 / JSON.
-Les nouvelles transitions sont limitées à 256 par jour et appareil. Les SDK
-respectent le délai crypto tout en laissant les lectures / reçus disponibles.
+The limits accumulate: 128 members, 256 devices, MLS index ≤ 4,095,
+proof ≤ 256 KiB, tree / commit / individual Welcome ≤ 1 MiB, cumulative opaque
+payloads ≤ 2 MiB and HTTP request ≤ 4 MiB. A page contains at most 16 events
+and bounds the opaque bytes delivered to about 2 MiB before base64 / JSON encoding.
+New transitions are limited to 256 per day per device. The SDKs
+respect the crypto timeout while leaving reads / receipts available.
 
-Les tests exercent : vrai commit d'ajout puis jointure MLS par le Welcome
-effectivement livré, mêmes contexte / arbre, échange local de ciphertext,
-commit de retrait, package consommé une seule fois, rejeu / restart, parent
-concurrent, genèse / refus du clair et des uploads antérieurs, départ / retour,
-autre appareil du même compte, attente de révocation et expiration du corps.
-Les routes HTTP sont exercées par le vrai SDK Rust ; fixtures / transport TS
-préservent des révisions supérieures à la précision entière de JavaScript.
-Six scénarios d'observation ajoutent : liste privée complète / triée, session
-non inscrite en crypto, membre désactivé, plan ancien après départ / retour et
-réactivation, limite sans page partielle, véritables attentes de verrous dans
-PostgreSQL, expiration du corps et tête périmée après changement d'époque.
-Le parcours SDK construit sa preuve avec les versions réellement obtenues par
-HTTP ; refus anonymes et succès portent aussi `no-store`.
+The tests exercise: a real add commit then MLS join through the Welcome
+actually delivered, same context / tree, local ciphertext exchange,
+removal commit, package consumed only once, replay / restart, concurrent
+parent, genesis / refusal of cleartext and earlier uploads, departure / return,
+another device of the same account, revocation wait and body expiry.
+The HTTP routes are exercised by the real Rust SDK; fixtures / TS transport
+preserve revisions above the integer precision of JavaScript.
+Six observation scenarios add: complete / sorted private list, session
+not enrolled in crypto, deactivated member, old plan after departure / return and
+reactivation, limit without a partial page, real lock waits in
+PostgreSQL, body expiry and stale head after a change of epoch.
+The SDK flow builds its proof with the versions actually obtained over
+HTTP; anonymous refusals and successes also carry `no-store`.
 
-Le [lot privé messages](../../crates/rv-crypto/MESSAGES.md) ajoute ratchets
-applicatifs, outbox originale, réception / écho persistants et reçu exact dans
-le checkpoint protégé. Preuve de routage externe et auteur / AAD MLS sont
-vérifiés séparément, avec document riche borné. Un résultat conservé est repris
-après réouverture ; un refus tardif ne consomme ni génération ni position.
-La dernière position reçue ne vaut pas validation d'une page complète du journal.
-Le noyau privé reste distinct des [routes de messages opaques](E2EE_MESSAGES.md)
-et de leur journal ordonné ; leur raccordement au worker reste ouvert et aucune
-capacité n'est activée.
+The [private messages batch](../../crates/rv-crypto/MESSAGES.md) adds application
+ratchets, original outbox, persistent reception / echo and exact receipt in
+the protected checkpoint. External routing proof and MLS author / AAD are
+verified separately, with a bounded rich document. A kept result is resumed
+after reopening; a late refusal consumes neither generation nor position.
+The last received position does not amount to validating a complete page of the journal.
+The private core remains distinct from the [opaque message routes](E2EE_MESSAGES.md)
+and their ordered journal; their wiring to the worker remains open and no
+capability is enabled.
 
-Restent ouverts : suite du coordinateur de groupe dans le coffre, cérémonie de
-consentement et politique vérifiées dans les apps, validation historique et
-raccordement de la livraison des messages au coffre, pont Android, écrans existants, archives /
-fichiers / historique importé et revue crypto indépendante. Ce lot ne ferme
-pas J4 et n'autorise pas la bascule J5.
+Remaining open: continuation of the group coordinator in the vault, consent
+ceremony and policy verified in the apps, historical validation and
+wiring of message delivery to the vault, Android bridge, existing screens, archives /
+files / imported history and independent crypto review. This batch does not close
+J4 and does not authorize the J5 switch.

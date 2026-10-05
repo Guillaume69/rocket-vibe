@@ -20,7 +20,7 @@ mobile is tracked in [`brain/parity.md`](brain/parity.md).
   drafts and durable resumption in SQLite.
 - [Two providers on desktop](docs/NATIVE_DESKTOP_PILOT.md): Rust engine, the existing GTK
   app, SQLite cache / outbox and UniFFI bindings.
-- [RFC 0001: a standalone RocketVibe server in Rust](docs/rfcs/0001-serveur-rocketvibe-rust.md):
+- [RFC 0001: a standalone RocketVibe server in Rust](docs/rfcs/0001-rocketvibe-rust-server.md):
   the server, protocol, client parity and migration from Rocket.Chat.
 - [`ROADMAP.md`](ROADMAP.md): the product decisions and their justification.
 - [`docs/`](docs): the development environment and the survey of the target server

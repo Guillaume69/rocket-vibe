@@ -1,22 +1,22 @@
-# Administration native — P23
+# Native administration (P23)
 
-La CLI `rv-server` utilise le `DATABASE_URL` opérateur. Ce droit d'exploitation
-est distinct du rôle administrateur dans une application : aucune route HTTP
-ne permet à ce rôle de lire implicitement une conversation privée. Les commandes
-de salons ne lisent ni messages, ni fichiers, ni clés de chiffrement.
+The `rv-server` CLI uses the operator's `DATABASE_URL`. This operating right
+is distinct from the administrator role in an application: no HTTP route
+lets this role implicitly read a private conversation. The room commands
+read neither messages, nor files, nor encryption keys.
 
-## Comptes et invitations
+## Accounts and invitations
 
-`create-user <username> [--admin]` conserve le mot de passe dans
-`RV_USER_PASSWORD`, hors des arguments. `invite`, `list-invitations`,
-`revoke-invitation`, `recover-user`, `list-recovery-codes` et
-`revoke-recovery-code` restent disponibles. Les secrets d'invitation et de
-récupération sont rendus uniquement par leur commande d'émission ; leurs listes
-et le journal d'audit n'en contiennent pas.
+`create-user <username> [--admin]` keeps the password in
+`RV_USER_PASSWORD`, outside the arguments. `invite`, `list-invitations`,
+`revoke-invitation`, `recover-user`, `list-recovery-codes` and
+`revoke-recovery-code` remain available. Invitation and
+recovery secrets are rendered only by their issuing command; their lists
+and the audit journal do not contain them.
 
-`list-users [--after <uid>] [--limit 50]` rend `{items,next}` avec UID, pseudo,
-nom, statut actif, rôle administrateur, droits de création et version de
-politique. Email, hash du mot de passe, bearer et facteurs sont exclus.
+`list-users [--after <uid>] [--limit 50]` returns `{items,next}` with UID, username,
+name, active status, administrator role, creation rights and policy
+version. Email, password hash, bearer and factors are excluded.
 
 ```sh
 rv-server set-user <uid> --disabled true --operation-id suspend-account-001
@@ -25,76 +25,76 @@ rv-server set-user <uid> --admin true --revision <revision> --operation-id grant
 rv-server set-user <uid> --create-public-room false --operation-id creation-policy-001
 ```
 
-Les champs absents sont conservés. Une version de politique fournie est
-vérifiée sous verrou ; un conflit ne modifie rien. Un changement effectif
-révoque les familles d'appareils, tickets et preuves associés, annule les
-snapshots / curseurs et invalide les défis d'authentification. Le verrou du
-compte attend la fin d'une remise HTTP / WebSocket déjà autorisée. Mot de passe,
-facteurs, adresse vérifiée, identité, adhésions et historique sont conservés.
-Réactiver le compte exige une nouvelle connexion et ses facteurs habituels ;
-aucun ancien bearer n'est réactivé.
+Absent fields are kept. A supplied policy version is
+verified under lock; a conflict modifies nothing. An effective change
+revokes the associated device families, tickets and proofs, cancels the
+snapshots / cursors and invalidates the authentication challenges. The account
+lock waits for the end of an already authorized HTTP / WebSocket delivery. Password,
+factors, verified address, identity, memberships and history are kept.
+Reactivating the account requires a new login and its usual factors;
+no old bearer is reactivated.
 
-## Salons et membres
+## Rooms and members
 
-`list-rooms` rend les métadonnées, le nombre de membres, la version opaque de
-réglages et la position de journal sous forme de chaîne. `list-members <rid>`
-rend UID, pseudo, nom, rôle et désactivation. Ces listes acceptent `--after` et
-`--limit` (1 à 100). Les UID sont utilisés pour agir même après un renommage.
+`list-rooms` returns the metadata, the member count, the opaque settings version and
+the journal position as a string. `list-members <rid>`
+returns UID, username, name, role and deactivation. These lists accept `--after` and
+`--limit` (1 to 100). UIDs are used to act even after a rename.
 
 ```sh
-rv-server create-room <owner-uid> 'Équipe' --private --operation-id create-team-001
+rv-server create-room <owner-uid> 'Team' --private --operation-id create-team-001
 rv-server set-room <rid> --revision <revision> --topic 'Planning' --read-only true --operation-id team-settings-001
 rv-server set-member <rid> <uid> --revision <revision> --role moderator --operation-id team-moderator-001
 rv-server set-member <rid> <uid> --revision <revision> --remove --operation-id team-remove-001
 ```
 
-Les modifications de réglages / membres exigent la version courante. Le serveur
-verrouille le salon, applique ses contraintes et publie un `RoomUpsert` dans le
-journal commun. Le retrait publie aussi le `RoomRemoved` personnel et annule
-les snapshots concernés. Une réadhésion possède un nouveau jeton d'accès.
-Le dernier propriétaire ne peut être retiré ou rétrogradé ; transférer d'abord
-la propriété. Le propriétaire d'un nouveau salon doit être actif. Les commandes
-de réglages / membres refusent les DM, dont la paire reste immuable.
+Settings / member changes require the current version. The server
+locks the room, applies its constraints and publishes a `RoomUpsert` in the
+common journal. A removal also publishes the personal `RoomRemoved` and cancels
+the snapshots concerned. A re-membership has a new access token.
+The last owner cannot be removed or demoted; transfer
+ownership first. The owner of a new room must be active. The settings /
+member commands refuse DMs, whose pair remains immutable.
 
-Le pouvoir opérateur permet de gérer un salon pour le compte d'un propriétaire,
-y compris sa politique de création. Cette intervention est tracée séparément
-des activités écrites par les membres ; elle ne fabrique pas un message attribué
-à un utilisateur. Les parcours ordinaires de création, découverte, adhésion,
-invitation et gestion continuent à appliquer les droits P04 dans les apps.
+The operator power makes it possible to manage a room on behalf of an owner,
+including their creation policy. This intervention is traced separately
+from the activities written by members; it does not fabricate a message attributed
+to a user. The ordinary journeys of creation, discovery, membership,
+invitation and management continue to apply the P04 rights in the apps.
 
-## Rejeu, audit et diagnostic
+## Replay, audit and diagnostics
 
-Les nouvelles commandes de mutation rendent un reçu
-`{operation_id,subject_id,applied_revision}`. Fournir `--operation-id` avant
-une commande permet de répéter exactement ses arguments après une réponse
-perdue. Sans cet argument, la CLI génère un ID rendu dans le reçu.
+The new mutation commands return a receipt
+`{operation_id,subject_id,applied_revision}`. Supplying `--operation-id` before
+a command makes it possible to repeat its arguments exactly after a lost
+response. Without this argument, the CLI generates an ID returned in the receipt.
 
-Un reçu conservé se rejoue avant les vérifications de révision et ne réapplique
-jamais l'ancien état. Ainsi, rejouer une ancienne désactivation après une
-réactivation ne suspend pas une seconde fois le compte. Un même ID avec d'autres
-arguments, ou après changement de génération, est refusé. Reçu, changement,
-événements et audit sont validés dans la même transaction PostgreSQL.
+A kept receipt is replayed before the revision checks and never reapplies
+the old state. Thus, replaying an old deactivation after a
+reactivation does not suspend the account a second time. The same ID with other
+arguments, or after a generation change, is refused. Receipt, change,
+events and audit are committed in the same PostgreSQL transaction.
 
-`audit [--after <id>] [--limit 50]` rend des événements paginés : ID en chaîne,
-date, rôle PostgreSQL effectif, génération, action, sujet, ID de commande et
-métadonnées publiques avant / après. Les échecs ne produisent pas un événement
-de succès ; un rejeu n'en ajoute pas. La création d'un compte et l'émission /
-révocation des invitations ou codes de récupération sont également enregistrées
-dans leur transaction. Le journal n'atteste pas l'identité humaine derrière
-un compte PostgreSQL partagé. Sa conservation / sauvegarde appartient à J5.
+`audit [--after <id>] [--limit 50]` returns paginated events: ID as a string,
+date, effective PostgreSQL role, generation, action, subject, command ID and
+public before / after metadata. Failures do not produce a success
+event; a replay adds none. The creation of an account and the issuing /
+revocation of invitations or recovery codes are also recorded
+in their transaction. The journal does not attest the human identity behind
+a shared PostgreSQL account. Its retention / backup belongs to J5.
 
-`health` rend la disponibilité PostgreSQL, ses versions, instance / génération,
-position du journal et nombres de comptes, salons et messages. Il ne rend ni
-DSN, ni configuration SMTP, ni secret d'authentification. Les paramètres de
-service restent fournis par les arguments / variables et fichiers privés du
-serveur ; import et restauration seront raccordés dans J5.
+`health` returns PostgreSQL availability, its versions, instance / generation,
+journal position and counts of accounts, rooms and messages. It returns neither
+DSN, nor SMTP configuration, nor authentication secret. Service
+parameters remain supplied by the server's arguments / variables and private
+files; import and restoration will be wired in J5.
 
 ## Validation
 
-Les tests PostgreSQL couvrent la révocation et la réactivation conservant les
-données, le verrou de remise, les reçus concurrents, les conflits, la limite de
-pagination, l'absence d'accès privé implicite, le retrait / réadhésion et l'audit
-sans secrets. Un scénario lance aussi le vrai binaire CLI sur la base isolée
-du test pour vérifier les arguments, les reçus, les codes de sortie et JSON.
-Ces scénarios complètent les validations P04 des parcours dans les apps ; la
-qualification sur applications installées et l'exploitation J5 restent ouvertes.
+The PostgreSQL tests cover revocation and reactivation preserving
+data, the delivery lock, concurrent receipts, conflicts, the pagination
+limit, the absence of implicit private access, removal / re-membership and audit
+without secrets. One scenario also launches the real CLI binary on the isolated database
+of the test to verify the arguments, receipts, exit codes and JSON.
+These scenarios complement the P04 validations of the journeys in the apps; the
+qualification on installed applications and J5 operations remain open.

@@ -1,95 +1,95 @@
-# Publication des clés d'admission MLS
+# Publication of MLS admission keys
 
-Le module `packages::Coordinator` prépare les KeyPackages depuis le même coffre
-protégé que les identités et groupes. Il utilise directement
-`rv_protocol::e2ee::PublishKeyPackages` et `OperationReceipt` : aucune clé HPKE
-privée, seed de signature ou ratchet MLS ne quitte le fournisseur du coffre.
-Ce raccordement de contrat ne lance pas de requête réseau et n'active pas E2EE.
+The `packages::Coordinator` module prepares the KeyPackages from the same protected
+vault as the identities and groups. It directly uses
+`rv_protocol::e2ee::PublishKeyPackages` and `OperationReceipt`: no private HPKE
+key, signing seed or MLS ratchet leaves the vault provider.
+This contract wiring launches no network request and does not enable E2EE.
 
-## Parcours du transport
+## Transport flow
 
-1. Après l'enregistrement de l'appareil, transmettre sa révision décimale exacte
-   à `prepare(revision, count, now)` sur le worker possédé du coffre.
-2. Le moteur génère les clés privées, les véritables packages TLS et un ID
-   d'opération aléatoire dans une transaction. L'outbox conserve le DTO public
-   exact, ses références RFC 9420 et ses liaisons d'identité. Le résultat n'est
-   remis qu'après confirmation du checkpoint par le stockage protégé.
-3. Envoyer ce DTO via le transport existant `crypto_publish_key_packages` /
-   `cryptoPublishKeyPackages`. Après réponse perdue ou redémarrage, `retry`
-   fournit les mêmes octets publics et le même ID. Une préparation répétée
-   avec les mêmes paramètres retrouve aussi le lot initial ; d'autres
-   paramètres sont refusés tant que la publication reste en attente.
-4. `pending_lookup` fournit seulement portée et ID pour consulter la route des
-   opérations. Il ne fabrique pas de reçu accepté. Une expiration, révocation
-   ou consommation par un Welcome interdit le renvoi, tout en gardant cette
-   recherche possible.
-5. Remettre le véritable reçu HTTP à `confirm`. Instance, époque des données,
-   ID, genre d'opération, appareil, incarnation, révision, racine et liste
-   ordonnée des références doivent correspondre exactement. Chaque refus
-   annule la transaction ; l'ACK original conservé permet la reprise après
-   perte de checkpoint. Un ACK historique ne réautorise aucun nouvel envoi.
+1. After the device is registered, pass its exact decimal revision
+   to `prepare(revision, count, now)` on the owned worker of the vault.
+2. The engine generates the private keys, the real TLS packages and a random
+   operation ID in a transaction. The outbox keeps the exact public DTO,
+   its RFC 9420 references and its identity bindings. The result is only
+   handed over after the checkpoint is confirmed by the protected storage.
+3. Send this DTO through the existing transport `crypto_publish_key_packages` /
+   `cryptoPublishKeyPackages`. After a lost response or restart, `retry`
+   provides the same public bytes and the same ID. A repeated preparation
+   with the same parameters also finds the initial batch; other
+   parameters are refused as long as the publication stays pending.
+4. `pending_lookup` provides only scope and ID to consult the operations
+   route. It does not fabricate an accepted receipt. An expiry, revocation
+   or consumption by a Welcome forbids resending, while keeping this
+   lookup possible.
+5. Hand the real HTTP receipt to `confirm`. Instance, data epoch,
+   ID, operation kind, device, incarnation, revision, root and ordered list
+   of references must match exactly. Each refusal
+   cancels the transaction; the original ACK kept allows resumption after
+   a lost checkpoint. A historical ACK reauthorizes no new send.
 
-Le dernier ACK peut être rejoué sans effacer l'outbox suivante. Une nouvelle
-préparation génère son propre ID à l'intérieur du coffre ; l'appelant ne peut
-pas réutiliser un ancien ID pour fabriquer d'autres clés. Un renouvellement
-de certificat ne remplace pas les octets de la demande déjà préparée. Les
-révisions au-delà de la précision entière JavaScript restent des chaînes ; la
-borne est celle du serveur PostgreSQL, entier signé 64 bits positif canonique.
+The last ACK can be replayed without erasing the next outbox. A new
+preparation generates its own ID inside the vault; the caller cannot
+reuse an old ID to fabricate other keys. A certificate renewal
+does not replace the bytes of the request already prepared. Revisions
+beyond JavaScript integer precision stay strings; the
+bound is that of the PostgreSQL server, canonical positive signed 64-bit integer.
 
-## Durée, consommation et bornes
+## Duration, consumption and bounds
 
-Un lot contient 1–8 packages, de 16 Kio TLS au maximum chacun. Ils utilisent
-OpenMLS 0.9.0, suite 0x0001, sans extension last-resort. Leur durée maximale est
-24 heures, bornée par l'expiration du certificat local ; la date initiale
-tolère cinq minutes de décalage. La durée est aussi vérifiée avec l'horloge
-système OpenMLS. Racine, appareil, incarnation et clé de signature doivent
-correspondre à l'installation. Une substitution de racine ou révocation locale
-observée bloque les publications et les préparations de groupe.
+A batch contains 1 to 8 packages, of 16 KiB TLS at most each. They use
+OpenMLS 0.9.0, suite 0x0001, without the last-resort extension. Their maximum duration is
+24 hours, bounded by the expiry of the local certificate; the initial date
+tolerates five minutes of skew. The duration is also verified with the OpenMLS
+system clock. Root, device, incarnation and signing key must
+match the installation. A root substitution or local revocation
+observed blocks the publications and the group preparations.
 
-La publication conserve les bundles privés après l'ACK : seul un vrai Welcome
-les consomme dans la transaction d'admission MLS. Si ce Welcome arrive avant
-la récupération de l'ACK de publication, le renvoi est refusé mais le reçu
-original peut encore être réconcilié. La préparation suivante retire de son
-index uniquement les bundles réellement absents du fournisseur après cette
-consommation ; elle ne recrée jamais leur référence.
+The publication keeps the private bundles after the ACK: only a real Welcome
+consumes them in the MLS admission transaction. If this Welcome arrives before
+the recovery of the publication ACK, the resend is refused but the original
+receipt can still be reconciled. The next preparation removes from its
+index only the bundles actually absent from the provider after this
+consumption; it never recreates their reference.
 
-L'index est borné à 64 bundles conservés et son document privé à 2 Mio, dans
-le coffre global de 16 Mio. Le temps seul ne détruit aucune clé : un Welcome
-accepté peut encore attendre un appareil hors ligne. Si les clés inutilisées
-occupent cette borne, la préparation est refusée. La réconciliation serveur
-permettant de retirer des packages expirés jamais admis, ainsi que le traitement
-d'une publication définitivement refusée ou d'une révision remplacée sans ACK,
-restent à intégrer au parcours réseau complet. Il n'existe pas d'abandon
-automatique fondé sur un délai ou sur une simple absence de réponse HTTP.
+The index is bounded to 64 kept bundles and its private document to 2 MiB, within
+the global 16 MiB vault. Time alone destroys no key: an accepted
+Welcome may still wait for an offline device. If the unused keys
+occupy this bound, the preparation is refused. The server reconciliation
+allowing removal of expired packages never admitted, as well as the handling
+of a definitively refused publication or a revision replaced without ACK,
+remain to be integrated into the full network flow. There is no automatic
+abandon based on a delay or on a mere absence of HTTP response.
 
-Cette rétention n'assure pas la forward secrecy des anciennes copies du
-coffre ; les garanties et limites du [stockage](README.md) restent applicables.
+This retention does not provide forward secrecy of the old copies of the
+vault; the guarantees and limits of the [storage](README.md) still apply.
 
-## Preuves et suite
+## Proofs and next steps
 
-Neuf scénarios testent le DTO réel, la réouverture, les références MLS exactes,
-les révisions décimales, les champs d'ACK substitués, l'ordre des références,
-les interruptions de checkpoint de préparation / ACK, l'expiration,
-la révocation, les paramètres / horloges invalides, la limite de rétention et
-sa libération après une véritable jointure. Une clé récupérée après interruption
-permet effectivement une jointure MLS ; une clé déjà consommée ne peut plus
-être republiée. La recherche publique expose seulement l'ID et la portée.
+Nine scenarios test the real DTO, reopening, the exact MLS references,
+decimal revisions, substituted ACK fields, the order of references,
+the checkpoint interruptions of preparation / ACK, expiry,
+revocation, invalid parameters / clocks, the retention limit and
+its release after a real join. A key recovered after an interruption
+does allow an MLS join; an already consumed key can no longer
+be republished. The public lookup exposes only the ID and the scope.
 
-Les neuf scénarios du coordinateur passent, avec Clippy strict et le backend
-système ; les dernières suites du coffre sont consignées dans le suivi de J4.
-Les derniers changements du module de publication passent aussi leur suite ciblée. La CI
-Linux / Windows / macOS qualifie ses plateformes de compilation / tests ; elle
-ne remplace pas les qualifications des trousseaux installés ou des appareils.
+The nine coordinator scenarios pass, with strict Clippy and the system
+backend; the latest vault suites are recorded in the J4 tracking.
+The latest changes of the publication module also pass their targeted suite. The Linux /
+Windows / macOS CI qualifies its compilation / test platforms; it does
+not replace the qualifications of installed keychains or devices.
 
-Le worker optionnel `native-http` coordonne maintenant le transport et ses
-observations d'appareil avec cette outbox. Le banc combiné vérifie deux
-publications réelles par HTTP / PostgreSQL, puis admission et rotations MLS :
-la première réponse perdue est réconciliée depuis un nouveau Manager / SDK sans
-renvoyer le POST ni recréer les clés. Voir [GROUP_HTTP.md](GROUP_HTTP.md) pour
-le scénario, ses commandes et la limite du checkpoint simulé.
+The optional `native-http` worker now coordinates the transport and its
+device observations with this outbox. The combined bench verifies two
+real publications over HTTP / PostgreSQL, then MLS admission and rotations:
+the first lost response is reconciled from a new Manager / SDK without
+resending the POST nor recreating the keys. See [GROUP_HTTP.md](GROUP_HTTP.md) for
+the scenario, its commands and the limit of the simulated checkpoint.
 
-Suite de J4 : réconcilier refus définitifs / packages expirés et références
-remplacées, livrer les messages chiffrés durables,
-puis raccorder le moteur aux fournisseurs et écrans existants. Les archives,
-fichiers, admission hors ligne à travers plusieurs époques, import et revue
-indépendante demeurent ouverts. `capabilities.e2ee` reste faux.
+Next for J4: reconcile definitive refusals / expired packages and replaced
+references, deliver the durable encrypted messages,
+then wire the engine into the existing providers and screens. Archives,
+files, offline admission across several epochs, import and independent
+review remain open. `capabilities.e2ee` stays false.

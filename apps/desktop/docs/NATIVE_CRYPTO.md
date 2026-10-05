@@ -1,179 +1,179 @@
-# Crypto native dans le fournisseur bureau existant
+# Native crypto in the existing desktop provider
 
-Le cœur `rv-core::native::crypto` dépend maintenant de `rv-crypto`, avec HTTP
-natif. GTK et SwiftUI gardent leurs interfaces actuelles ; le fournisseur
-Rocket.Chat et son moteur E2EE existant ne changent pas. Le serveur annonce
-toujours `e2ee=false` et le masque des fonctionnalités bureau n'annonce pas
-E2EE. Ce raccordement expérimental ne constitue pas un parcours utilisateur
-activé.
+The core `rv-core::native::crypto` now depends on `rv-crypto`, with native
+HTTP. GTK and SwiftUI keep their current interfaces; the Rocket.Chat
+provider and its existing E2EE engine do not change. The server still
+announces `e2ee=false` and the desktop feature mask does not announce
+E2EE. This experimental wiring is not an enabled user
+flow.
 
-## Compte et cycle de vie
+## Account and lifecycle
 
-`NativeSession::crypto(guard, manager, root)` attache explicitement un coffre
-déjà choisi et une racine publique à la session native courante. Aucun coffre,
-certificat, pin ou compte n'est créé par cet appel. Il vérifie instance,
-génération, utilisateur et unique appareil courant avant l'attachement ; un
-désaccord refuse l'accès avant toute lecture privée.
+`NativeSession::crypto(guard, manager, root)` explicitly attaches an already
+chosen vault and a public root to the current native session. No vault,
+certificate, pin or account is created by this call. It verifies instance,
+generation, user and the single current device before attaching; a
+mismatch refuses access before any private read.
 
-L'accès clone le `NativeClient` de la session : même origine et mêmes
-credentials renouvelés, aucune seconde connexion autonome. Une découverte
-fraîche dans le worker remet les capacités de la session à jour. Une capacité
-retirée ou une génération serveur différente suspend cet accès.
+The access clones the session's `NativeClient`: same origin and same renewed
+credentials, no second autonomous connection. A fresh discovery
+in the worker updates the session capabilities. A withdrawn
+capability or a different server generation suspends this access.
 
-Un seul accès vivant est attaché à une génération de session. Ses clones
-partagent le worker et sa queue de dispatch. Le registre et la garde retiennent
-une référence faible au runner ; une vue conservée ne bloque pas sa fermeture.
-La fermeture de la vue, suspension, reconnexion, fin du cycle de synchronisation
-et shutdown arrêtent l'ancien accès. Il ne redevient jamais actif ; le nouvel
-accès réouvre le même coffre sans réinitialiser ses intentions ni ratchets.
+A single live access is attached to a session generation. Its clones
+share the worker and its dispatch queue. The registry and the guard hold
+a weak reference to the runner; a retained view does not block its closing.
+Closing the view, suspension, reconnection, end of the synchronization cycle
+and shutdown stop the old access. It never becomes active again; the new
+access reopens the same vault without resetting its intents or ratchets.
 
-La garde est vérifiée dans le worker après les attentes HTTP et à l'entrée de
-la tâche privée possédée, puis avant publication du résultat. Une écriture de
-checkpoint déjà commencée peut terminer avec son verrou ; son résultat tardif
-est retenu et aucune requête suivante n'est lancée par l'accès fermé.
+The guard is verified in the worker after the HTTP waits and on entry to
+the owned private task, then before publication of the result. A checkpoint
+write already started may finish with its lock; its late result
+is retained and no following request is launched by the closed access.
 
-## Surface privée
+## Private surface
 
-L'accès expose packages, previews / confirmations de groupe, réadmission,
-envois / reçus / abandons et pages du journal protégé. Aucun getter ne livre le
-worker brut, un signer, une clé de stockage ou une ratchet. Les previews restent
-des objets opaques à confirmer explicitement. Les messages clairs et pages ne
-sont rendus qu'après leur checkpoint protégé et revalidation du cycle de vie.
-Leur projection temporaire réutilise les listes et composeurs existants ;
-ils ne sont pas écrits dans la SQLite ordinaire.
+The access exposes packages, group previews / confirmations, readmission,
+sends / receipts / abandons and pages of the protected journal. No getter delivers the
+raw worker, a signer, a storage key or a ratchet. The previews stay
+opaque objects to be confirmed explicitly. The plaintext messages and pages are
+only returned after their protected checkpoint and revalidation of the lifecycle.
+Their temporary projection reuses the existing lists and composers;
+they are not written to the ordinary SQLite.
 
-Le contrat commun du salon indique maintenant l'existence d'un groupe MLS.
-Ce booléen, absent ou faux sur les anciens serveurs, n'accorde aucune clé ou
-admission. Une acceptation crypto publie uniquement cette métadonnée dans le
-journal ordinaire, avec le même emplacement global que la livraison privée.
-Les caches et vues de salon existants la conservent et verrouillent le composer,
-y compris après une mise à jour du salon déjà ouvert. Un ancien envoi ordinaire
-hors ligne passe en échec `crypto_required` avant tout POST, avec son corps
-récupérable ; la file ordinaire refuse aussi de nouvelles intentions dans ce
-salon. Les conversations privées déchiffrées disposent d'une projection séparée.
+The common room contract now indicates the existence of an MLS group.
+This boolean, absent or false on old servers, grants no key or
+admission. A crypto acceptance publishes only this metadata in the
+ordinary journal, with the same global slot as the private delivery.
+The existing room caches and views keep it and lock the composer,
+including after an update of the room already open. An old ordinary offline send
+fails with `crypto_required` before any POST, with its body
+recoverable; the ordinary queue also refuses new intents in this
+room. The decrypted private conversations have a separate projection.
 
-Les citations intersalons utilisent les menus GTK / SwiftUI existants. La
-navigation transporte uniquement une sélection liée à la référence, instance /
-génération, adhésion et admission éventuelle. Le destinataire relit la source.
-QuoteReader est limité à la projection volatile de cartes dans les salons
-ordinaires ; QuoteComposer est un acteur distinct pour leur envoi de références
-privées. Son permis SQL synchronique est éphémère, avec relecture des sources
-et garde de fermeture indépendante du verrou SQL. Aucun extrait ni admission
-n'est sérialisé dans la file ordinaire. Les brouillons du parent restent
-ordinaires ; intention acceptée et effacement du texte correspondant sont
-atomiques, sans consommer les mots saisis pendant la validation. Blur, navigation
-ou sélection remplacée ferment les acteurs et invalident les résultats tardifs.
+The cross-room quotes use the existing GTK / SwiftUI menus. The
+navigation carries only a selection bound to the reference, instance /
+generation, membership and possible admission. The recipient re-reads the source.
+QuoteReader is limited to the volatile projection of cards in ordinary
+rooms; QuoteComposer is a distinct actor for their sending of private
+references. Its synchronous SQL permit is ephemeral, with re-reading of the sources
+and a closing guard independent of the SQL lock. No excerpt nor admission
+is serialized in the ordinary queue. The parent's drafts stay
+ordinary; accepted intent and erasure of the corresponding text are
+atomic, without consuming the words typed during validation. Blur, navigation
+or a replaced selection close the actors and invalidate the late results.
 
-## Vérifications et suite
+## Verifications and next steps
 
-Les tests `native_crypto` utilisent le vrai `NativeSession`, son client HTTP,
-son cache SQLite et des clés / packages MLS réellement préparés dans le coffre.
-Le checkpoint externe est simulé, comme dans le banc privé HTTP ; ces tests ne
-qualifient pas un trousseau installé.
+The `native_crypto` tests use the real `NativeSession`, its HTTP client,
+its SQLite cache and MLS keys / packages actually prepared in the vault.
+The external checkpoint is simulated, as in the private HTTP bench; these tests do not
+qualify an installed keychain.
 
-Ils couvrent refus de capacité / portée / appareil courant ambigu avant coffre,
-fermeture pendant HTTP avant travail privé, annulation réelle du demandeur
-pendant l'écriture du checkpoint avec verrou conservé, non-réactivation après reconnexion,
-reprise d'un package préparé avec exactement le même corps après réouverture,
-capacité retirée et génération serveur remplacée. L'accès ne maintient pas le
-runner fermé en vie.
+They cover refusal of capability / scope / ambiguous current device before the vault,
+closing during HTTP before private work, real cancellation by the requester
+during the checkpoint write with the lock kept, non-reactivation after reconnection,
+resumption of a prepared package with exactly the same body after reopening,
+withdrawn capability and replaced server generation. The access does not keep the
+closed runner alive.
 
-Les réglages GTK et SwiftUI ont maintenant une section de préparation d'identité
-et d'association d'appareil, visible uniquement avec les capacités expérimentales
-E2EE et sessions d'appareils. Les trousseaux des deux interfaces utilisent le même
-service dédié et le même répertoire `rocket-vibe-rs/native-crypto`. Une sélection
-protégée, indexée par URL de serveur / instance / époque / utilisateur / appareil
-HTTP, conserve l'incarnation avant l'initialisation du coffre ; une fermeture
-ne régénère ni racine, ni clé d'appareil, ni enregistrement HTTP en attente.
+The GTK and SwiftUI settings now have an identity preparation
+and device association section, visible only with the experimental
+E2EE and device session capabilities. The keychains of both interfaces use the same
+dedicated service and the same `rocket-vibe-rs/native-crypto` directory. A protected
+selection, indexed by server URL / instance / epoch / user / HTTP
+device, keeps the incarnation before the initialization of the vault; a closing
+does not regenerate root, device key, nor pending HTTP registration.
 
-Créer l'identité est une action explicite. L'appareil contrôleur examine une
-demande signée et affiche les empreintes de racine et de demande avant une seconde
-action d'approbation. Un nouvel appareil accepte explicitement la racine observée,
-transmet un code public de demande au contrôleur puis installe son code public
-d'approbation. Aucun secret de racine ou de coffre ne traverse UniFFI. Le consentement
-reste opaque, lié au viewer ; le pont conserve son aperçu avec une révision locale.
+Creating the identity is an explicit action. The controller device reviews a
+signed request and displays the fingerprints of the root and of the request before a second
+approval action. A new device explicitly accepts the observed root,
+transmits a public request code to the controller then installs its public
+approval code. No root or vault secret crosses UniFFI. The consent
+stays opaque, bound to the viewer; the bridge keeps its preview with a local revision.
 
-L'installation du grant et le corps exact d'enregistrement sont checkpointés dans
-la même transaction. La reprise lit d'abord le reçu personnel et vérifie tous ses
-champs avant de terminer l'intention. Une erreur ou une réponse perdue conserve le
-corps original. Le statut enregistré exige aussi le certificat courant dans
-l'annuaire et la clé locale correspondante. Le renouvellement des certificats,
-le remplacement avec révocation et la résolution d'une demande expirée avant toute
-acceptation restent à raccorder : cette cérémonie n'active pas les salons chiffrés.
+The installation of the grant and the exact registration body are checkpointed in
+the same transaction. Resumption first reads the personal receipt and verifies all its
+fields before completing the intent. An error or a lost response keeps the
+original body. The registered status also requires the current certificate in
+the directory and the matching local key. Certificate renewal,
+replacement with revocation and the resolution of a request expired before any
+acceptance remain to be wired up: this ceremony does not enable the encrypted rooms.
 
-Les profils GTK et SwiftUI existants proposent maintenant la vérification d'un
-participant, avec la même condition expérimentale de capacités. L'annuaire
-public est authentifié et ses révocations paginées sont vérifiées avant affichage.
-Une consultation ne crée ni coffre ni pin. Mémoriser un premier contact conserve
-le statut « non vérifié » ; comparer l'empreinte avec la personne demande une
-action distincte. Un changement de racine bloque les appareils et exige les
-empreintes ancienne et nouvelle avant remplacement. L'approbation d'un certificat
-d'appareil conserve son aperçu opaque et revalide l'annuaire avant confirmation ;
-elle n'accorde aucune admission de groupe MLS. Les pins restent dans le coffre
-protégé et une révocation signée déjà connue ne disparaît pas avec son omission
-d'une réponse ultérieure. La révocation de l'appareil local reste aussi bloquante
-après réouverture du coffre.
+The existing GTK and SwiftUI profiles now offer the verification of a
+participant, with the same experimental capability condition. The public
+directory is authenticated and its paginated revocations are verified before display.
+A consultation creates neither vault nor pin. Remembering a first contact keeps
+the "unverified" status; comparing the fingerprint with the person requires a distinct
+action. A root change blocks the devices and requires the old and new
+fingerprints before replacement. The approval of a device
+certificate keeps its opaque preview and revalidates the directory before confirmation;
+it grants no MLS group admission. The pins stay in the protected
+vault and an already known signed revocation does not disappear with its omission
+from a later response. The revocation of the local device also stays blocking
+after reopening of the vault.
 
-Une révocation locale observée par un autre viewer ferme aussi l'accès de
-conversation vivant pour cette même portée et incarnation, avant toute
-publication suivante. L'arrêt ne vise pas un accès d'une autre incarnation.
+A local revocation observed by another viewer also closes the live
+conversation access for this same scope and incarnation, before any
+following publication. The stop does not target an access of another incarnation.
 
-`enrollment::Access::conversation()` attache l'installation déjà enregistrée et
-sa racine à l'accès de conversation existant. L'absence, un enregistrement
-incomplet ou une incohérence refuse l'attachement sans générer une identité.
-La fermeture explicite de ce viewer ferme aussi les conversations attachées
-avec sa garde.
+`enrollment::Access::conversation()` attaches the already registered installation and
+its root to the existing conversation access. Absence, an incomplete
+record or an inconsistency refuses the attachment without generating an identity.
+The explicit closing of this viewer also closes the conversations attached
+with its guard.
 
-La lecture `local_group_status` distingue un groupe absent, une transition
-privée en attente et son reçu local accepté. Elle reprend les observations du
-coffre sans créer un groupe ni régler automatiquement l'intention ; un reçu
-local ne vaut pas permission d'envoyer ou nouvelle admission. Le parcours HTTP
-avec ACK perdu vérifie maintenant ces trois états, la réouverture et l'absence
-de POST supplémentaire. Les dix-sept tests de livraison MLS passent sur Windows.
+The `local_group_status` read distinguishes an absent group, a pending
+private transition and its accepted local receipt. It resumes the observations of the
+vault without creating a group nor automatically settling the intent; a local
+receipt is worth neither permission to send nor new admission. The HTTP flow
+with lost ACK now verifies these three states, the reopening and the absence
+of an extra POST. The seventeen MLS delivery tests pass on Windows.
 
-Les quatorze scénarios `native_crypto` passent sur Windows ; ils incluent maintenant
-premier contact / comparaison / appareil, changement de racine avec consentement
-périmé, révocations paginées persistantes et révocation locale après réouverture.
-Le contrôle strict du cœur et du pont FFI utilise des caches et temporaires sur D:.
-Le lot des profils `ee3f717` passe les neuf contrôles de la CI native
-`37199651127`, ainsi que la compilation / packaging / lancement macOS
-`37199651129`. La bibliothèque privée passe aussi Clippy strict sur Windows.
-Docker / WSL local a échoué au démarrage lorsque le disque système était plein.
+The fourteen `native_crypto` scenarios pass on Windows; they now include
+first contact / comparison / device, root change with stale
+consent, persistent paginated revocations and local revocation after reopening.
+The strict check of the core and of the FFI bridge uses caches and temporaries on D:.
+The `ee3f717` profiles batch passes the nine checks of the native CI
+`37199651127`, as well as the macOS compilation / packaging / launch
+`37199651129`. The private library also passes strict Clippy on Windows.
+Local Docker / WSL failed at startup when the system disk was full.
 
-## Contrôles de groupe dans les informations du salon
+## Group controls in the room information
 
-GTK et SwiftUI réutilisent les informations du salon existantes, sous la même
-condition expérimentale. `enrollment::Access::room()` attache uniquement
-l'installation enregistrée ; ouvrir ou rafraîchir le panneau ne publie ni
-package ni transition et n'approuve aucun pair. La lecture du groupe expose le
-reçu et les participants du plan signé effectivement vérifié dans MLS.
+GTK and SwiftUI reuse the existing room information, under the same
+experimental condition. `enrollment::Access::room()` attaches only the registered
+installation; opening or refreshing the panel publishes neither
+package nor transition and approves no peer. The group read exposes the
+receipt and the participants of the signed plan actually verified in MLS.
 
-Le contrôleur Rust commun consulte les droits, membres et appareils. Pour
-créer, le salon doit être sans historique et son propriétaire doit agir, sauf
-pour un DM. Le plan doit représenter chaque membre avec un appareil approuvé ;
-un appareil non approuvé ne peut être omis pour contourner cette règle.
-La sélection conduit à un aperçu opaque, avec empreintes de racine et de
-certificat. Une seconde action confirme sa révision et son empreinte exactes.
-Une rotation sans ajout ni retrait suit le même parcours ; les admissions et
-mises à jour reçues passent par l'aperçu vérifié du worker existant.
+The common Rust controller consults the rights, members and devices. To
+create, the room must be without history and its owner must act, except
+for a DM. The plan must represent each member with an approved device;
+an unapproved device cannot be omitted to bypass this rule.
+The selection leads to an opaque preview, with fingerprints of root and
+certificate. A second action confirms its exact revision and fingerprint.
+A rotation without addition or withdrawal follows the same flow; the received
+admissions and updates go through the verified preview of the existing worker.
 
-Une réponse perdue laisse l'intention protégée d'origine. Le panneau propose
-reprise ou abandon explicites ; la reprise consulte d'abord le reçu personnel,
-sans régénérer le commit. Une fermeture, un retrait de salon, une nouvelle
-projection ou une autre version de membership invalident définitivement l'ancien
-panneau. UniFFI et les vues ne reconstruisent pas de consentement à partir de JSON.
-Préparer les packages d'invitation est une action distincte de l'admission.
+A lost response leaves the original protected intent. The panel offers
+explicit resumption or abandon; resumption first consults the personal receipt,
+without regenerating the commit. A closing, a room withdrawal, a new
+projection or another membership version permanently invalidate the old
+panel. UniFFI and the views do not rebuild a consent from JSON.
+Preparing the invitation packages is an action distinct from admission.
 
-Les trois nouveaux tests d'intégration couvrent ouverture sans mutation,
-sélection non approuvée, aperçu incomplet refusé, confirmation erronée ou périmée,
-création / rotation réelles, reçu perdu et réouverture sans second POST, droits
-de création et retrait / réadhésion. Les dix-sept scénarios HTTP privés couvrent
-admission, rattrapage et règlement. Le rendu GTK de l'aperçu est exercé dans
-la CI avec un vrai dialogue ; la compilation SwiftUI reste requise dans sa CI.
-Un groupe enregistré localement ne déverrouille pas le composer ordinaire.
+The three new integration tests cover opening without mutation,
+unapproved selection, incomplete preview refused, erroneous or stale confirmation,
+real creation / rotation, lost receipt and reopening without a second POST, creation
+rights and withdrawal / rejoining. The seventeen private HTTP scenarios cover
+admission, catch-up and settlement. The GTK rendering of the preview is exercised in
+the CI with a real dialog; the SwiftUI compilation remains required in its CI.
+A locally registered group does not unlock the ordinary composer.
 
-Restent le renouvellement, la récupération
-et révocation visibles, l'historique autorisé après retrait, les autres actions
-et la recherche privés, les archives / fichiers et la qualification de la
-[RFC E2EE](../../../docs/rfcs/0002-e2ee-native.md). La capacité reste désactivée
-jusqu'à livraison et validation du parcours complet.
+Remaining are renewal, the visible recovery
+and revocation, the history authorized after withdrawal, the other private actions
+and search, the archives / files and the qualification of the
+[E2EE RFC](../../../docs/rfcs/0002-e2ee-native.md). The capability stays disabled
+until the complete flow is delivered and validated.

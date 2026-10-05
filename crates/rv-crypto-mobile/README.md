@@ -1,168 +1,168 @@
-# Pont privé Android
+# Private Android bridge
 
-Ce workspace indépendant expose le coffre de `rv-crypto` à Kotlin avec
-UniFFI 0.32.2. Le serveur ne dépend pas de ce crate. Le moteur privé conserve
-son interdiction de code `unsafe` ; les exports ABI générés restent ici.
+This independent workspace exposes the `rv-crypto` vault to Kotlin with
+UniFFI 0.32.2. The server does not depend on this crate. The private engine keeps
+its ban on `unsafe` code; the generated ABI exports stay here.
 
-Le module Expo local `apps/mobile/modules/crypto-native` utilise ces bindings.
-Son API JavaScript expose le scope public, un handle terminal, l'état de stockage
-et les messages publics signés de la cérémonie d'association. Le trait étranger `ProtectedKeystore` ne sort pas de Kotlin :
-aucun export Expo ne lit / écrit une clé, un checkpoint ou un enregistrement
-protégé. Les valeurs de ce trait sont bornées à 4096 octets.
+The local Expo module `apps/mobile/modules/crypto-native` uses these bindings.
+Its JavaScript API exposes the public scope, a terminal handle, the storage state
+and the signed public messages of the association ceremony. The foreign trait `ProtectedKeystore` does not leave Kotlin:
+no Expo export reads / writes a key, a checkpoint or a protected
+record. The values of this trait are bounded to 4096 bytes.
 
-`withdrawal_action` transmet seulement les valeurs publiques de l'examen,
-la demande signée et le reçu. L'aperçu est lié au handle terminal ; consentement,
-racine privée et intention originale restent dans Rust. Les paramètres Android
-existants proposent confirmation et reprise. Les retraits restent appris après
-omission / réouverture, sans créer de pin ou d'approbation d'appareil.
+`withdrawal_action` transmits only the public values of the review,
+the signed request and the receipt. The preview is bound to the terminal handle; consent,
+private root and original intent stay in Rust. The existing Android settings
+offer confirmation and resumption. Withdrawals stay learned after
+omission / reopening, without creating a pin or a device approval.
 
-`recovery_action` raccorde sauvegarde et restauration de racine. Les clés
-privées / records ne sortent pas de Rust ; seuls l'affichage temporaire et la
-saisie explicites du **code de récupération utilisateur** font exception aux
-valeurs publiques de l'API UI. Ce code ne va jamais en HTTP, logs ou stockage
-JS persistant. Le handle ferme / efface ses aperçus opaques lors de `stop`. Les textes
-de l'écran sont effacés au blur / arrière-plan / changement de compte.
-Deux tests du pont exercent vrai paquet AEAD, consentement lié au handle,
-stop / réouverture, identité restaurée puis feuille distincte enregistrée,
-et abandon terminal qui ne redevient pas une publication. Leur trousseau est
-une doublure ; le nouveau lot attend aussi la qualification Keystore / ABI.
+`recovery_action` wires up root backup and restoration. The private
+keys / records do not leave Rust; only the explicit temporary display and
+entry of the **user recovery code** are an exception to the public
+values of the UI API. This code never goes to HTTP, logs or persistent
+JS storage. The handle closes / wipes its opaque previews on `stop`. The texts
+of the screen are wiped on blur / background / account change.
+Two bridge tests exercise a real AEAD package, consent bound to the handle,
+stop / reopening, restored identity then distinct leaf registered,
+and terminal abandon that does not become a publication again. Their keychain is
+a stand-in; the new batch also awaits the Keystore / ABI qualification.
 
-Une clé AES-256-GCM Android Keystore non exportable enveloppe les petits
-enregistrements plateforme. Les blobs et le coffre sont séparés dans
-`noBackupFilesDir`, sous répertoires 0700 / fichiers 0600. L'AAD lie le blob à
-son nom exact. Seule une absence confirmée retourne `None` ; clés existantes
-manquantes / indisponibles, tags corrompus et IO ambiguës restent bloquants.
-Les écritures font le travail OS synchrone, synchronisent fichier et répertoire,
-puis vérifient la publication exacte avant de libérer la lease Rust.
+A non-exportable Android Keystore AES-256-GCM key wraps the small
+platform records. The blobs and the vault are separated in
+`noBackupFilesDir`, under 0700 directories / 0600 files. The AAD binds the blob to
+its exact name. Only a confirmed absence returns `None`; existing keys
+missing / unavailable, corrupted tags and ambiguous IO stay blocking.
+The writes do the OS work synchronously, synchronize file and directory,
+then verify the exact publication before releasing the Rust lease.
 
-Rust 1.97 ne fournit pas les méthodes de verrouillage `std::fs::File` sur
-Android. Le moteur prend donc son même verrou exclusif non bloquant via l'API
-sûre `rustix::fs::flock` sur cette seule plateforme. Il reste interprocessus ;
-un appelant fermé n'en détache pas une écriture plateforme en cours.
-[Implémentation de la bibliothèque standard](https://github.com/rust-lang/rust/blob/1.97.0/library/std/src/sys/fs/unix.rs).
+Rust 1.97 does not provide the `std::fs::File` locking methods on
+Android. The engine therefore takes its same non-blocking exclusive lock through the safe
+API `rustix::fs::flock` on this platform only. It remains interprocess;
+a closed caller does not detach a platform write in progress from it.
+[Standard library implementation](https://github.com/rust-lang/rust/blob/1.97.0/library/std/src/sys/fs/unix.rs).
 
-Le fournisseur mobile revalide la découverte épinglée, les capacités et la
-famille HTTP `current` avant et après chaque appel. Une réponse tardive à
-l'ouverture ferme son handle original ; suspension / déconnexion ferme toutes
-les vues existantes. Les champs publics ne rejoignent pas la SQL ordinaire.
+The mobile provider revalidates the pinned discovery, the capabilities and the
+`current` HTTP family before and after each call. A late response on
+opening closes its original handle; suspension / disconnection closes all
+existing views. The public fields do not join the ordinary SQL.
 
-La cérémonie locale est `rv-crypto::account::Coordinator`, également utilisée
-par le fournisseur bureau. Créer / adopter une identité est explicite ; adopter
-une racine demande sa comparaison sur un appareil déjà associé. Un aperçu
-vérifié produit un handle de consentement opaque lié à la vue native ; seule
-une confirmation séparée émet l'approbation. La demande d'enregistrement exacte
-est persistée avant HTTP. Le runner lit son reçu avant toute soumission et
-seul un `404 not_found` compris autorise le POST original. La fermeture n'efface
-ni cette intention ni les clés. Les annuaires complets sont revalidés en Rust ;
-une révocation locale signée est conservée même si le serveur l'omet ensuite.
-Les réglages mobiles existants portent ce parcours, derrière les capacités
-expérimentales du serveur. L'état `ready` du coffre demeure distinct de celui
-de l'identité enregistrée et des groupes MLS admis.
+The local ceremony is `rv-crypto::account::Coordinator`, also used
+by the desktop provider. Creating / adopting an identity is explicit; adopting
+a root requires its comparison on an already associated device. A verified
+preview produces an opaque consent handle bound to the native view; only
+a separate confirmation issues the approval. The exact registration request
+is persisted before HTTP. The runner reads its receipt before any submission and
+only an understood `404 not_found` allows the original POST. Closing erases
+neither this intent nor the keys. The complete directories are revalidated in Rust;
+a signed local revocation is kept even if the server later omits it.
+The existing mobile settings carry this flow, behind the experimental
+capabilities of the server. The `ready` state of the vault remains distinct from that
+of the registered identity and of the admitted MLS groups.
 
-Les fiches utilisateur existantes utilisent aussi les contrôles de confiance
-`rv-crypto::account::peers`, avec le même `Pins` privé que les groupes / desktop.
-La consultation n'accepte aucune nouvelle racine. Premier contact, vérification
-et remplacement sont explicites ; remplacement exige l'ancienne empreinte
-exacte et la nouvelle comparée. L'aperçu d'appareil conserve son consentement
-dans Rust, lié à l'annuaire signé et au handle natif. Les retraits signés d'une
-racine déjà épinglée sont mémorisés avant de refuser un aperçu périmé et restent
-bloquants après omission / réouverture. Seul un état public borné passe par Expo.
-Ces contrôles ne publient aucun package et n'admettent aucun membre de groupe.
+The existing user profiles also use the trust controls
+`rv-crypto::account::peers`, with the same private `Pins` as the groups / desktop.
+Consultation accepts no new root. First contact, verification
+and replacement are explicit; replacement requires the exact old fingerprint
+and the new one compared. The device preview keeps its consent
+in Rust, bound to the signed directory and to the native handle. The signed withdrawals of an
+already pinned root are remembered before refusing a stale preview and stay
+blocking after omission / reopening. Only a bounded public state passes through Expo.
+These controls publish no package and admit no group member.
 
-`Ready` signifie **stockage prêt**. Aucune identité ou groupe n'est créé, aucun
-appareil n'est enregistré et aucun masque E2EE de production n'est activé.
-Le renouvellement des appareils et les actions privées restent à raccorder
-aux contrôleurs partagés et aux écrans existants.
+`Ready` means **storage ready**. No identity or group is created, no
+device is registered and no production E2EE mask is enabled.
+Device renewal and the private actions remain to be wired up
+to the shared controllers and the existing screens.
 
-Les informations du salon, et la fiche du correspondant ouverte depuis un DM,
-portent maintenant les contrôles de groupe : publication explicite de packages,
-création / mise à jour (ajouts, retraits, rotation), admission / réadmission et
-réception d'un commit, avec aperçu des destinataires puis confirmation distincte.
-`groupAction` n'accepte que les DTOs publics bornés. Le consentement opaque reste
-en RAM Rust ; le paquet original, les bundles et le fournisseur MLS restent dans
-le coffre. Le roster frais et les pins sont revérifiés lors de la confirmation.
-Les retraits signés des correspondants sont appris avant une préparation ou reprise.
-La vue est liée à l'adhésion, la projection et l'appareil HTTP ; retrait / retour,
-suspension et changement de compte ferment cette vue. Les versions d'adhésion
-de la projection de lectures et les grants du roster MLS sont distincts.
+The room information, and the correspondent's profile opened from a DM,
+now carry the group controls: explicit publication of packages,
+creation / update (additions, withdrawals, rotation), admission / readmission and
+reception of a commit, with a preview of the recipients then a distinct confirmation.
+`groupAction` only accepts bounded public DTOs. The opaque consent stays
+in Rust RAM; the original packet, the bundles and the MLS provider stay in
+the vault. The fresh roster and the pins are re-verified at confirmation.
+The signed withdrawals of correspondents are learned before a preparation or resumption.
+The view is bound to the membership, the projection and the HTTP device; withdrawal / return,
+suspension and account change close this view. The membership versions
+of the reads projection and the grants of the MLS roster are distinct.
 
-La reprise lit le reçu avant de demander au moteur son paquet original. Un reçu
-accepté ne provoque pas un second POST. Une nouvelle soumission exige encore
-le droit courant d'envoyer ; une décision déjà acceptée reste récupérable en
-lecture seule. L'abandon est checkpointé avant HTTP puis réglé selon la décision
-terminale du serveur. Les publications de packages se reprennent aussi par
-leur reçu, avant de retenter un bundle éventuellement expiré. Aucun texte,
-brouillon privé ou ratchet ne rejoint la SQL ordinaire par ce raccordement.
+Resumption reads the receipt before asking the engine for its original packet. An
+accepted receipt does not cause a second POST. A new submission still requires
+the current right to send; an already accepted decision stays recoverable
+read-only. The abandon is checkpointed before HTTP then settled according to the terminal
+decision of the server. The package publications also resume through
+their receipt, before retrying a possibly expired bundle. No text,
+private draft or ratchet joins the ordinary SQL through this wiring.
 
-## Build et qualification
+## Build and qualification
 
-`conversationAction` raccorde la liste et le composeur Android existants aux
-coordinateurs de journal, brouillons et messages. Les pages, transitions MLS et
-messages sont vérifiés puis checkpointés ensemble avant projection. Un viewer
-est lié au grant personnel et au témoin privé d'admission avant toute commande ;
-une réadmission ne peut réutiliser une ancienne vue. Les positions restent des
-chaînes décimales, y compris au-delà de la précision entière JavaScript.
+`conversationAction` wires the existing Android list and composer to the
+journal, draft and message coordinators. The pages, MLS transitions and
+messages are verified then checkpointed together before projection. A viewer
+is bound to the personal grant and to the private admission witness before any command;
+a readmission cannot reuse an old view. Positions stay
+decimal strings, including beyond JavaScript integer precision.
 
-La projection transitoire comprend le préfixe retenu dans le cache privé (64
-messages maximum) et les intentions personnelles en attente. Elle ne rejoint
-aucune table de messages / outbox / brouillons ordinaire. Les heures exposées
-sont les observations locales, pas une date certifiée de l'auteur. Lecture /
-reprise HTTP revérifient scope, annuaires, roster et droits. La frappe locale
-utilise uniquement le dernier binding public vérifié : Rust contrôle encore son
-identité, son grant, son admission protégée et l'horloge, sans HTTP ni nouveau
-destinataire. Ces écritures sont sérialisées et leur handle devient terminal
-avec la session ; elles ne permettent aucune soumission au serveur.
+The transient projection comprises the prefix kept in the private cache (64
+messages at most) and the pending personal intents. It joins
+no ordinary message / outbox / draft table. The times exposed
+are the local observations, not a certified date of the author. HTTP read /
+resumption re-verify scope, directories, roster and rights. Local typing
+uses only the last verified public binding: Rust still checks its
+identity, its grant, its protected admission and the clock, without HTTP nor a new
+recipient. These writes are serialized and their handle becomes terminal
+with the session; they allow no submission to the server.
 
-Les envois sont préparés avant HTTP, reprennent par GET du reçu et ne POSTent
-l'original qu'après un `404 not_found` compris et un droit d'envoi frais. Un
-résultat incertain garde le même ciphertext. L'abandon est checkpointé avant
-HTTP ; son document reste récupérable dans un brouillon vide. La projection est
-disposée au blur, à la suspension et à la fermeture du runner, sans lissage du
-clair. Le journal opaque est interrogé à l'ouverture, à la reprise, après les
-actions et toutes les dix secondes quand la vue est active / en ligne.
+Sends are prepared before HTTP, resume through a receipt GET and POST
+the original only after an understood `404 not_found` and a fresh right to send. An
+uncertain result keeps the same ciphertext. The abandon is checkpointed before
+HTTP; its document stays recoverable in an empty draft. The projection is
+disposed on blur, on suspension and on closing of the runner, without smoothing of the
+plaintext. The opaque journal is polled on opening, on resumption, after
+actions and every ten seconds when the view is active / online.
 
-Les parcours Rust à deux acteurs couvrent réouverture de l'original, annulation,
-rotation reçue par le journal, brouillons distincts, page altérée sans progression,
-positions exactes et retrait signé persistant après omission. L'instrumentation
-Android exerce le vrai Keystore / ABI / coffre, avec brouillons et messages
-privés, réouverture et reçu substitué ; ses reçus sont synthétiques. Cela ne
-qualifie pas encore le parcours complet de l'application installée contre HTTP.
-Les fils utilisent l’écran existant, une projection de racine / réponses dans
-le même journal privé et un brouillon distinct du salon. Les compteurs sont
-ceux des réponses retenues ; une racine évincée ou provenant d’un autre grant
-ne permet pas de préparer un nouvel envoi. Les parcours Rust à deux acteurs et
-l’instrumentation Android exercent aussi une vraie réponse MLS après réouverture,
-sa racine, les compteurs et le refus d’un fil imbriqué. Les reçus Android restent
-synthétiques ; les qualifications GUI et HTTP installées restent distinctes.
-Les citations utilisent les menus et composeurs Android existants. Sélection
-liée au scope, à l'adhésion et à l'admission ; le pont vérifie la source retenue
-et sa position exacte avant de préparer un document MLS contenant uniquement
-les références. Sources racines et réponses de fil viennent du même journal
-privé. Résolution volatile par salon, deux niveaux, cycles bornés ; retrait,
-blur et suspension effacent les aperçus. Une citation seule garde son paquet
-original après réouverture, y compris si la source devient ensuite indisponible.
-Les tests Rust à deux acteurs et Android Keystore / ABI exercent cette reprise
-et la réception MLS ; leurs reçus restent synthétiques. Les tests JS couvrent
-aussi le refus d'une sélection stale, source retirée et reprise HTTP sans
-second POST. La file SQL ordinaire refuse les sélections privées.
-La composition accepte aussi des sources ordinaires : le runner les relit
-dans son cache autorisé et fournit seulement adhésion et références exactes.
-Rust vérifie scope / correspondance / bornes et refuse de classer un groupe
-protégé enregistré comme source ordinaire. Les sélections privées gardent leur
-contrôle d’admission et de position dans le coffre. Les témoins ordinaires
-viennent du cache authentifié de l’adaptateur, sans signature MLS d’auteur.
-Les tests à deux acteurs et Android exercent envoi mixte, témoin absent, refus
-de rétrogradation et réception du même original après réouverture. Le choix de
-destination est dans la feuille d’actions existante, sans envoi automatique.
-Cartes privées dans les salons ordinaires, autres actions / recherche, archive et fichiers restent
-ouverts, ainsi que la qualification physique et la revue. Aucun masque activé.
+The two-actor Rust flows cover reopening of the original, cancellation,
+rotation received through the journal, distinct drafts, altered page without progress,
+exact positions and signed withdrawal persistent after omission. The Android
+instrumentation exercises the real Keystore / ABI / vault, with private drafts and
+messages, reopening and substituted receipt; its receipts are synthetic. This does not
+yet qualify the full flow of the installed application against HTTP.
+Threads use the existing screen, a projection of root / replies in
+the same private journal and a draft distinct from the room's. The counters are
+those of the retained replies; an evicted root or one coming from another grant
+does not allow preparing a new send. The two-actor Rust flows and
+the Android instrumentation also exercise a real MLS reply after reopening,
+its root, the counters and the refusal of a nested thread. The Android receipts remain
+synthetic; the installed GUI and HTTP qualifications remain distinct.
+Quotes use the existing Android menus and composers. Selection
+bound to the scope, the membership and the admission; the bridge verifies the retained source
+and its exact position before preparing an MLS document containing only
+the references. Root sources and thread replies come from the same private
+journal. Volatile resolution per room, two levels, bounded cycles; withdrawal,
+blur and suspension wipe the previews. A quote alone keeps its original
+packet after reopening, including if the source later becomes unavailable.
+The two-actor Rust and Android Keystore / ABI tests exercise this resumption
+and the MLS reception; their receipts remain synthetic. The JS tests also cover
+the refusal of a stale selection, withdrawn source and HTTP resumption without
+a second POST. The ordinary SQL queue refuses the private selections.
+Composition also accepts ordinary sources: the runner re-reads them
+in its authorized cache and provides only the exact membership and references.
+Rust verifies scope / match / bounds and refuses to classify a registered protected
+group as an ordinary source. The private selections keep their
+admission and position check in the vault. The ordinary witnesses
+come from the adapter's authenticated cache, without an MLS author signature.
+The two-actor and Android tests exercise mixed send, missing witness, refusal
+of downgrade and reception of the same original after reopening. The choice of
+destination is in the existing action sheet, with no automatic send.
+Private cards in ordinary rooms, other actions / search, archive and files remain
+open, as do the physical qualification and the review. No mask enabled.
 
-Prérequis : Rust 1.97, cibles `aarch64-linux-android` et `x86_64-linux-android`,
-Node 24, JDK 17 et NDK 27.1.12297006. Le `preBuild` du module lance
-`build-android.mjs` pour les ABI demandées, génère les bindings depuis la vraie
-bibliothèque, puis les intègre aux sources Kotlin / `jniLibs`. Les `.so` sont
-alignés sur 16 Kio ; les fichiers générés restent dans `android/build/`.
-[Compatibilité des pages Android](https://developer.android.com/guide/practices/page-sizes),
+Prerequisites: Rust 1.97, targets `aarch64-linux-android` and `x86_64-linux-android`,
+Node 24, JDK 17 and NDK 27.1.12297006. The module's `preBuild` launches
+`build-android.mjs` for the requested ABIs, generates the bindings from the real
+library, then integrates them into the Kotlin sources / `jniLibs`. The `.so` files are
+aligned to 16 KiB; the generated files stay in `android/build/`.
+[Android page compatibility](https://developer.android.com/guide/practices/page-sizes),
 [Keystore](https://developer.android.com/privacy-and-security/keystore).
 
 ```sh
@@ -171,30 +171,30 @@ cd apps/mobile/android
 ./gradlew :crypto-native:connectedDebugAndroidTest
 ```
 
-Les tests Android utilisent une APK de test isolée et un scope aléatoire,
-jamais un compte utilisateur. Ils couvrent le vrai Keystore / ABI / coffre,
-réouverture originale, corruption, copie, retrait et lease retenue après
-fermeture pendant une écriture, et cérémonie réelle de création / aperçu /
-approbation / enregistrement / réouverture avec refus d'un reçu substitué.
-La CI dédiée construit les deux ABI et lance
-ces tests sur émulateur. Les tests JS couvrent aussi le runner mobile existant,
-le changement d'identité / appareil, les capacités désactivées et les résultats
-tardifs, pagination exacte au-delà de 2^53 et réponse HTTP perdue sans second POST.
-Le test Rust du pont associe deux vrais appareils et mémorise leur révocation.
-Deux autres scénarios vérifient premier contact / comparaison / remplacement,
-consentement d'appareil et retrait d'un correspondant. Le quatrième test Android
-associe deux identités via le vrai moteur et vérifie la réouverture des pins /
-approbations dans le Keystore. Les tests JS vérifient les gardes lors des requêtes
-publiques et le refus d'un consentement pour un autre utilisateur.
-L'émulateur ne qualifie pas le matériel, les coupures électriques ou
-le parcours E2EE complet dans une application installée.
+The Android tests use an isolated test APK and a random scope,
+never a user account. They cover the real Keystore / ABI / vault,
+original reopening, corruption, copy, withdrawal and lease retained after
+closing during a write, and the real ceremony of creation / preview /
+approval / registration / reopening with refusal of a substituted receipt.
+The dedicated CI builds both ABIs and runs
+these tests on an emulator. The JS tests also cover the existing mobile runner,
+the identity / device change, the disabled capabilities and the late
+results, exact pagination beyond 2^53 and lost HTTP response without a second POST.
+The Rust bridge test associates two real devices and remembers their revocation.
+Two other scenarios verify first contact / comparison / replacement,
+device consent and withdrawal of a correspondent. The fourth Android test
+associates two identities through the real engine and verifies the reopening of the pins /
+approvals in the Keystore. The JS tests verify the guards on public
+requests and the refusal of a consent for another user.
+The emulator does not qualify the hardware, power cuts or
+the complete E2EE flow in an installed application.
 
-Le septième test Rust exerce deux vrais acteurs MLS : packages, création,
-Welcome, rotation, commit, réouverture du paquet original, refus d'un reçu
-substitué / grant changé et règlement d'abandon. Le cinquième test Android
-exerce création / rotation / paquet original après réouverture et abandon sur
-le vrai Keystore / ABI. Les reçus de ces deux bancs privés sont synthétiques ;
-ils ne remplacent pas une qualification contre le serveur HTTP réel.
-Quatre régressions JS qualifient le routage HTTP, réponse perdue sans second
-POST, publication originale, lecture seule et fermeture après changement
-d'appareil / retrait du salon. Conversations mobiles, iOS et GUI installé restent ouverts.
+The seventh Rust test exercises two real MLS actors: packages, creation,
+Welcome, rotation, commit, reopening of the original packet, refusal of a substituted
+receipt / changed grant and abandon settlement. The fifth Android test
+exercises creation / rotation / original packet after reopening and abandon on
+the real Keystore / ABI. The receipts of these two private benches are synthetic;
+they do not replace a qualification against the real HTTP server.
+Four JS regressions qualify HTTP routing, lost response without a second
+POST, original publication, read-only and closing after a device change /
+withdrawal from the room. Mobile conversations, iOS and installed GUI remain open.

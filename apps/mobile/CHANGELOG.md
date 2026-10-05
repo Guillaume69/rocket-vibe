@@ -7,6 +7,280 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Added
+
+- RocketVibe entries concern the native RocketVibe server provider. Rocket.Chat accounts keep
+  all their features, and both providers' accounts live side by side in the existing account
+  switcher. Native capabilities not implemented yet (production E2EE, among others) stay
+  disabled.
+- Everything about RocketVibe end-to-end encryption (E2EE) in the entries without a
+  "RocketVibe:" prefix near the end of this list is experimental. Production E2EE stays
+  disabled, and the panels sit behind the experimental E2EE capabilities.
+- Connection to Rocket.Chat and RocketVibe servers in the same screens: room list, search for
+  people and DMs, Markdown, text, history and persistent drafts. Sessions stay in the Keystore;
+  SQLite keeps messages, cursors and the send queue.
+- RocketVibe: the journal resumes after an interruption, sends are replayed with the same
+  identifier, and a room's local data is purged when you leave it. A change of server identity
+  or generation asks you to sign in again.
+- RocketVibe: sign-up on invitation in the existing sign-in screen. Resuming after a lost
+  response keeps the same account, and the flow checks the server's identity and generation
+  before saving the session.
+- RocketVibe: two-factor authentication in the existing form, with an authenticator app (TOTP)
+  or a backup code. An interrupted validation resumes from secure storage without consuming a
+  second code or touching another account.
+- RocketVibe: password recovery with an operator code in the existing sign-in. Your identity
+  and conversations are kept, old sessions are revoked, a lost confirmation can be resumed, and
+  encryption keys are preserved.
+- RocketVibe: a password recovery code can be requested by e-mail in the existing form, with the
+  original request resumed from secure storage and the retry delay kept. Clearing the form is
+  explicit, and signing in after a reset keeps the installed factors.
+- RocketVibe: sessions are renewed before they expire. The saved intent resumes after a lost
+  response, and signing in again keeps the account's drafts and outbox.
+- RocketVibe: connected devices in the existing settings, with names, activity and expiry
+  dates, and revocation after a recent sign-in. Alerts kept from a former account cannot act on
+  the new one.
+- RocketVibe: server capabilities are checked at every reconnection and limited to the features
+  the app supports. Provider diagnostics carry a request identifier.
+- RocketVibe: the server's delay is respected after a `429`, without losing the account or
+  reconnecting too early. Resuming was tested after a real cursor expiry, with the draft and the
+  offline send kept.
+
+- RocketVibe: TOTP setup, private backup codes, replacement and deactivation in the existing
+  settings. Interrupted operations resume from secure storage, and codes stay recoverable until
+  you confirm them.
+- RocketVibe: private e-mail address in the existing settings, with a verification code,
+  delivery status and resume from secure storage after an interruption. The typed code stays
+  transient, and an old verification never replaces the next one.
+- RocketVibe: e-mail codes for sign-in and identity confirmation in the existing screens, with
+  explicit delivery and the same candidate resumed from secure storage after a lost response.
+  Resends keep the same code and expiry, and the typed code only lives in memory.
+- RocketVibe: e-mail codes can be enabled and removed in the existing settings, with a
+  confirmation tied to the contact and the factors shown, the receipt resumed from secure
+  storage and the shared backup codes presented. Another installed factor is kept, and the
+  address must be released from the profile before it is replaced or removed.
+- RocketVibe: a profile protected by e-mail only shows as active and can regenerate its shared
+  backup codes without SMTP. Requesting or resuming an identity confirmation code clears the
+  previous input.
+- RocketVibe: the e-mail contact can be removed after confirmation, with the original intent
+  resumed from secure storage and a private receipt until you tap Done. A delayed cancellation
+  keeps the next contact, and the flow still works without SMTP.
+- RocketVibe: a rejected address can be dismissed explicitly before a new entry, without
+  blocking the form or erasing the contact already verified.
+- RocketVibe: identity confirmation on the current device before a sensitive action, without a
+  new session. Typed passwords and codes stay transient, and callbacks from an old screen or
+  account cannot start an action.
+
+- RocketVibe: room information shows the topic, description, announcement, member count and
+  read-only state from the active provider. It refreshes after a change and hides its data once
+  you leave the room. Long texts scroll in the sheet.
+- RocketVibe: settings, paginated member list, roles and leaving a room in the existing room
+  sheet, according to your current permissions. Interrupted commands resume from their original
+  receipt, and a rejected form is kept until you reread it or clear it. The last owner must pass
+  the role on before leaving.
+- RocketVibe: search and membership for public rooms in the existing screen. An interrupted
+  creation keeps its identity in SQLite so it can be retried after reconnecting or restarting
+  without creating a second room.
+- RocketVibe: the composer follows your effective permissions after a settings or role change.
+  Owners and moderators can write in a read-only room, and members see the existing message. An
+  old response restores no permission after you leave or after a new room version.
+- RocketVibe: favorites in the existing room sheet. Only the confirmed preference changes the
+  room's ranking. A pending request shows Resume, and a refusal allows an explicit clear.
+  Rocket.Chat keeps its official action through the active provider.
+- RocketVibe: confirmed unread and mention badges, and the existing new-messages bar with the
+  position captured when you open the room. Read timers use a confirmed message that is really
+  visible in the list for the open membership, not just the last cached message. A burst does not
+  push the timer back, and going to the background or closing saves what was already seen.
+  Badges stay confirmed offline, and the bar remains after acknowledgement.
+- RocketVibe: reads and favorites resume from SQLite after an interruption. The observed
+  message is kept and the original favorite receipt is recovered, without restoring an old
+  preference.
+- RocketVibe: presence in DMs and typing in the existing composers, expiring after an outage and
+  stopping when the app is suspended. @here mentions target the members present when you send.
+- RocketVibe: search in a room's messages through the native provider, in the existing screen.
+  Results are temporary, permissions are checked, and Enter reruns the search. Rocket.Chat
+  search uses its own provider.
+- RocketVibe: system lines for room creations, members and settings changes in the existing
+  rows, in French or English, without creating unread counts or message actions on these events.
+
+- RocketVibe: confirmed native messages are rendered by the existing components from a typed
+  document shared with the desktop app. The composer's bold, italic and strikethrough
+  conventions are kept. Code, quotes, link labels and escaped mentions never become active
+  mentions, and Markdown images stay literal until native files arrive.
+- RocketVibe: edit and delete in the existing action sheet, according to server permissions.
+  Intents and revisions are kept in SQLite and resume after an interruption, and the text of a
+  rejected edit stays recoverable when you reopen it. A concurrent conflict is shown without
+  overwriting the new text.
+- RocketVibe: edits and deletions in the existing screens, with an edit marker, local erasure,
+  and revisions that stop a late history from restoring the text. A reset replaces the
+  confirmed history while keeping the drafts and send queue of rooms you can still access.
+- RocketVibe: editing a native reply keeps its quote references, even if the source was deleted
+  or you lost access to it. The saved intent keeps the same content across an outage and a
+  restart. An old edit without captured content keeps its draft and asks you to submit again.
+- RocketVibe: reactions in the existing action sheet and pills. Emoji aliases are deduplicated,
+  and SQLite intents resume after a lost response or restart without changing message order.
+- RocketVibe: public pins and personal stars in the existing actions and lists. Intents resume
+  after a restart, and stars stay private and keep their state when the message is updated.
+- RocketVibe: sends resume after a temporary failure or a lost response, even when the socket
+  stays connected. Retries keep the SQLite identity, respect `Retry-After`, and stop when the
+  account is suspended or signed out.
+- RocketVibe: sends resume automatically after permissions are revalidated, without marking the
+  persistent intent as permanently refused.
+- RocketVibe: native threads in the existing screen, with a reply counter, quotes in a thread, a
+  separate draft and a reply that survives an outage. Reading a thread leaves the others unread.
+  Deleting its root keeps the draft and blocks new replies.
+- RocketVibe: native quotes in the existing Reply action, banner and composer, including
+  without added text. References go to the durable queue, and a rejected selection keeps the
+  words you typed. An unavailable source shows an explicit label and its private preview is
+  erased.
+- RocketVibe: quotes can be nested two levels deep in the existing cards. Each source keeps its
+  own permissions, and removing a child source erases its private text without hiding the parent
+  that is still accessible, even after a restart.
+- RocketVibe: quotes feed the existing cards from a cache that separates references from allowed
+  excerpts. Edits, deletions and access removals at the source update the quotes in other
+  rooms, and older replies do not restore a deleted excerpt. The SQLite migration is additive,
+  and native text is kept even if it looks like an old Rocket.Chat prefix.
+- RocketVibe: quotes keep the source message's files, with a protected thumbnail for images and
+  a compact summary for documents, voice messages and videos. Removal from the source room or
+  deletion of the message removes access to them.
+- RocketVibe: file upload with progress, resume after a restart and cancellation from the
+  existing controls. Native images, voice messages, videos and documents go through a verified
+  private cache and the current players. Streaming from disk requires rebuilding the app with
+  the new native module.
+- RocketVibe: custom server emojis appear in the existing pickers, completion, messages and
+  reactions. Protected images are removed after a catalog update or an account change.
+- RocketVibe: integration cards show author, title, text, color and fields in the current
+  message rows, for Rocket.Chat and RocketVibe. Native cards follow room permissions and message
+  search.
+- RocketVibe: link previews for articles, images and videos use the existing cards, with private
+  thumbnails tied to the message and to room access. The viewer keeps zoom and saving to the
+  gallery, and an edit, an access removal or an account change removes the pixels from memory.
+  The native server enables them when an object volume is configured.
+
+- RocketVibe: edit your profile, status and photo in "My profile", with the language
+  synchronized with native preferences. A save whose confirmation was lost resumes after a
+  restart without overwriting a more recent change. Rejected forms stay recoverable, and a
+  username change can ask for the existing identity confirmation. The verified address is
+  changed from the security section of the settings.
+- RocketVibe: user profiles in the existing sheet, from an author or a mention, with native
+  username, name, bio and photo. Identity changes also update messages and DM avatars. Protected
+  photos go through the provider and a bounded memory cache purged on account change, and
+  preloading refuses responses from the account you left.
+- RocketVibe: calls are wired to the room and profile buttons, the call card and the existing
+  Jitsi screen. An interrupted attempt resumes the same call on the next tap, even after a
+  restart, and account or membership changes and late responses are controlled. The Rocket.Chat
+  flow stays available. Media qualification on Jitsi and on a phone is still open.
+- RocketVibe: native links per instance and epoch, with proxy paths kept and the registered
+  account checked before an explicit switch. The existing menus can copy a message link, and
+  notifications also point to the message or thread, with authorized resolution and
+  highlighting in the current screens.
+- RocketVibe on Android: FCM registrations tied to the RocketVibe account, content fetched
+  through a private session, conversation notifications and idempotent deferred replies. Links
+  and notification removal respect the instance and account. The Rocket.Chat flow stays
+  available. Firebase and phone qualification is still open.
+
+- Crypto vault on Android: a local Kotlin and Rust Expo module tied to the existing provider's
+  session lifecycle. Keys and checkpoints stay in the private engine, and small platform records
+  are wrapped by a non-exportable Android Keystore key and excluded from automatic backups.
+- The vault opens without implicit creation and initializes locally on request. Copied, removed
+  or corrupted vaults are refused, and it closes for good after suspension or an account or HTTP
+  device change. The Android system lock is held until the real write ends, even after the view
+  closes.
+- The Gradle build is reproducible for ARM64 and x86-64, with generated Kotlin bindings and an
+  instrumentation test on the real Keystore. This storage base does not yet enable pairing,
+  groups or the mobile E2EE composer.
+- Encrypted pairing on Android: the existing settings use the Rust identity ceremony shared with
+  the desktop app. It covers explicit creation, fingerprint comparison on another device,
+  preview, a separate approval and manual transfer of the public codes.
+- The original registration is kept in the vault before any HTTP call. A lost response resumes
+  by reading the receipt without a second submission, and a device or account change, closing
+  or a signed revocation refuse late actions. The flow was tested through the Kotlin bindings
+  and the real Android Keystore on an emulator. Full groups, mobile conversations and the full
+  flow in the installed app still need qualification.
+- Encrypted groups on Android: room information and a DM contact's sheet use the same Rust
+  engine as the desktop app. They cover publishing invitation keys, creation, adds, removals and
+  rotation, membership and re-admission, and received transitions.
+- A preview of the recipients and fingerprints comes before a separate confirmation. Consents
+  and originals stay in Rust, a lost response is resumed by receipt without a second
+  submission, and an abandonment is kept before it is sent to the server.
+- The view is tied to the room membership, the projection and the current HTTP device. A new
+  submission revalidates the right to send, and an accepted decision stays recoverable read-only.
+  Wiring the conversations and the full GUI qualification are still open.
+- Contacts' identities: the existing user sheet lets you explicitly view the encrypted identity,
+  with a first contact pinned but not verified, fingerprint comparison, and replacement of a
+  changed root while keeping the old fingerprint.
+- An opaque preview comes before a separate confirmation of the devices. Pins and consents stay
+  in the Rust vault. A learned signed revocation stays blocking after reopening and after a
+  server omission, and an account or device change or closing prevents a late action. The sheet
+  scrolls when available so the actions stay reachable.
+- Encrypted conversations on Android: reading and sending text in the existing list and
+  composer, with history kept in the Rust vault and the exact order of the private journal.
+- Separate private drafts per thread and membership, saved on each keystroke with no network
+  request and no write to the ordinary tables. Suspension, sign-out and a membership change
+  close the view and hide its content.
+- A lost response resumes the original intent by receipt, an abandonment is durable, and the
+  abandoned document is restored into an empty draft.
+- Times are local observations, and the history is what the vault retained. Actions, search,
+  archives and private files are not wired yet.
+- Encrypted threads: open and reply in the existing thread screen, with the root and replies
+  from the private journal, exact order and a draft separate from the room. A send can be
+  resumed or abandoned and its draft restored in the same vault. Leaving the screen or
+  suspending the app closes the view and removes the clear text.
+- Counters show the replies kept on this device. A root missing from the vault leaves the
+  available replies readable and blocks a new send. Full archives are still to come.
+- Encrypted quotes: the existing reply menu and banner quote a retained private message,
+  including a thread reply. A quote alone can be sent, and only its identifier and revision
+  enter the MLS document, with no copy of the excerpt.
+- Cards are resolved in the vault, with access checked for each room, two levels and cycle
+  cutting. An unavailable source loses its excerpt, and leaving the screen or suspending the
+  app also erases the composer preview. A resume keeps the original ciphertext after a lost
+  response or a reopening.
+- Android can quote an encrypted message in an ordinary room, from the same actions and the same
+  composer. Sending keeps only the reference, the server checks the device's history access, and
+  no excerpt is provided. Cards and the banner read the allowed sources from the native vault
+  into a volatile projection. A removal, a membership change, closing or suspension erase the
+  private words, which are never copied to SQLite.
+- Existing private cards also read plain sources from their cache, checking the membership and
+  the room's unencrypted status. An edit or a removal refreshes the excerpt, and neither an old
+  membership nor the ordinary rows of a room that became encrypted can restore it. Encrypted
+  descendants are rebuilt in the volatile view, without copying their words to SQLite.
+- Reply in another conversation: the existing action sheet offers a destination among the joined
+  conversations where sending is allowed, with local search. Private and plain sources can be
+  quoted into the allowed ordinary or encrypted destinations, and the composer stays that of the
+  chosen room.
+- Protected sending accepts plain and private references in the same MLS document. Scope,
+  membership, private membership and revision are reread before preparation, and the original
+  packet stays recoverable after a lost response. Previews are rechecked when returning to the
+  composer and erased when it closes.
+- Local encrypted history: conversations read already verified documents from the local archive
+  once the warm cache is forgotten, covering older pages, thread roots and counters, and the
+  last page after reopening. A removed membership hides its projection. Automatic cache
+  eviction and portable history recovery remain open.
+- Identity recovery: the existing settings prepare an encrypted copy of the identity and
+  temporarily show its code. Publishing requires confirming that the code was kept outside the
+  app, and resuming or abandoning keep the original intent after a lost response or a restart.
+- A new device can verify its code, then recover the identity with its own keys. Sensitive
+  fields are erased when closing or going to the background. This flow does not restore history
+  yet.
+- Device removal: the existing settings list the other encrypted devices and offer review,
+  explicit confirmation and resume of the signed removal, asking for a recent sign-in check
+  when needed. The proof and the original request stay in the vault. A lost response, a view
+  change or an omission from the directory does not restore the device, and a resume reads the
+  receipt before any original send. Conversations must still refresh their recipients, and
+  installed qualification and history recovery remain open.
+- Device renewal: the existing settings show the certificate expiry and let you request its
+  renewal, including after expiry, keeping the same root, incarnation, signing key and vault
+  selection. Explicit approval and registration resume their original operation after an
+  interruption. The authenticated directory keeps the owner's expired certificates to allow
+  this, while correspondents see the valid ones.
+- The existing room controls report the renewed certificate from the verified MLS leaf. An
+  explicit update and a journal resume gate new sends. The Rust bridge exercises two devices and
+  the reception of the renewed commit. Installed qualification is still open.
+- The room controls explicitly offer "Replace and reinvite" for a renewed peer. This choice
+  pairs the removal of the old device with its addition using a fresh package, and a removal
+  alone does not reinvite it. A stale certificate in the view or an unapproved device refuses
+  the preparation. The new membership removes the old message cache, and historical archive
+  recovery and installed qualification remain open.
+
 ### Changed
 
 - The app moves its local data, settings and notification links to new internal names on
@@ -14,422 +288,18 @@ release, and its notes are that version's section here.
   collapsed sections and unsent messages; notifications already on screen still open and
   still take replies.
 
-### Historique local chiffré expérimental
-
-- Les conversations lisent les documents déjà vérifiés depuis l'archive locale
-  après oubli du cache chaud : anciennes pages, racines / compteurs des fils et
-  dernière page après réouverture. Une admission retirée masque sa projection.
-- L'éviction automatique du cache et la récupération portable de l'historique
-  restent ouvertes. L'E2EE de production demeure désactivé.
-
-### Récupération expérimentale de l’identité RocketVibe
-
-- Les paramètres existants préparent une copie chiffrée de l’identité et
-  affichent temporairement son code. La publication exige confirmation que
-  ce code a été conservé hors de l’application. Reprise et abandon gardent
-  l’intention originale, même après une réponse perdue ou un redémarrage.
-- Un appareil neuf peut vérifier son code puis récupérer l’identité avec ses
-  propres clés. Les champs sensibles sont effacés à la fermeture / arrière-plan.
-  Ce parcours ne restaure pas encore l’historique et demeure expérimental.
-
-### Retrait expérimental des appareils RocketVibe
-
-- Les paramètres existants affichent les autres appareils chiffrés et proposent
-  examen, confirmation explicite et reprise du retrait signé. Une vérification
-  récente de la connexion est demandée lorsque nécessaire.
-- La preuve et la demande originale restent dans le coffre. Réponse perdue,
-  changement de vue ou omission de l’annuaire ne restaurent pas l’appareil ;
-  la reprise consulte le reçu avant un éventuel envoi original. Les conversations
-  doivent encore actualiser leurs destinataires. Qualification installée et
-  récupération historique restent ouvertes ; l’E2EE de production reste désactivé.
-
-### Renouvellement expérimental des appareils RocketVibe
-
-- Les paramètres existants affichent l’échéance du certificat et permettent
-  de demander son renouvellement, y compris après expiration. La même racine,
-  incarnation, clé de signature et sélection de coffre sont conservées.
-- L’approbation explicite et l’enregistrement reprennent leur opération originale
-  après interruption. L’E2EE de production demeure désactivé.
-- L’annuaire authentifié conserve les certificats expirés du propriétaire pour
-  permettre ce renouvellement ; les correspondants voient les certificats valides.
-- Les contrôles existants du salon signalent le certificat renouvelé à partir
-  de la feuille MLS vérifiée. La mise à jour explicite et la reprise du journal
-  conditionnent les nouveaux envois. Le pont Rust exerce deux appareils et la
-  réception du commit renouvelé ; qualification installée encore ouverte.
-- Les contrôles du salon proposent explicitement « Remplacer et réinviter »
-  pour un pair renouvelé. Cette sélection associe le retrait de l’ancien appareil
-  à son ajout avec un package frais ; un retrait seul ne le réinvite pas.
-  Certificat périmé dans la vue ou appareil non approuvé : préparation refusée.
-  La nouvelle admission retire l’ancien cache de messages ; récupération de
-  l’archive historique et qualification installée restent ouvertes.
-
-### Citations privées dans les salons ordinaires RocketVibe
-
-- Android peut citer un message chiffré dans un salon ordinaire, depuis les
-  mêmes actions et le même composeur. L’envoi conserve uniquement la référence ;
-  le serveur contrôle l’admission historique de l’appareil et ne fournit aucun extrait.
-- Les cartes et le bandeau lisent les sources autorisées depuis le coffre natif
-  dans une projection volatile. Retrait, changement d’admission, fermeture ou
-  suspension effacent les mots privés ; ils ne sont pas copiés dans SQLite.
-- Une réponse perdue reprend l’intention originale. Les fichiers de sources
-  ordinaires restent affichés dans les cartes mixtes ; les fichiers chiffrés
-  et la qualification des applications installées restent à compléter.
-
-### Répondre dans une autre conversation RocketVibe
-
-- La feuille d’actions existante propose une destination parmi les conversations
-  rejointes où l’envoi est permis, avec recherche locale. Les sources privées et
-  claires se citent dans les destinations ordinaires ou chiffrées autorisées.
-  Le composeur reste celui du salon choisi.
-- L’envoi protégé accepte des références claires et privées dans le même
-  document MLS. Scope, adhésion, admission privée et révision sont relus avant
-  préparation ; le paquet original reste récupérable après réponse perdue.
-  Les aperçus sont revérifiés au retour dans le composeur et effacés à sa fermeture.
-
-### Lecture de citations mixtes dans les salons chiffrés
-
-- Les cartes privées existantes lisent aussi les sources en clair de leur
-  cache, avec vérification de l’adhésion et du statut non chiffré du salon.
-  Édition ou retrait actualisent l’extrait ; une ancienne adhésion et les
-  lignes ordinaires d’un salon devenu chiffré ne peuvent le rétablir.
-- Les descendants chiffrés sont reconstruits dans la vue volatile, sans copie
-  de leurs mots dans SQLite. Les salons ordinaires Android utilisent aussi
-  cette projection volatile pour leurs sources privées.
-
-### Citations chiffrées RocketVibe sur Android
-
-- Le menu et le bandeau de réponse existants citent un message privé conservé,
-  y compris une réponse de fil. Une citation seule peut être envoyée ; seul son
-  identifiant et sa révision entrent dans le document MLS, sans copie de l’extrait.
-- Les cartes sont résolues dans le coffre, avec accès vérifié pour chaque salon,
-  deux niveaux et coupure des cycles. Une source indisponible perd son extrait ;
-  quitter l’écran ou suspendre l’app efface aussi l’aperçu du composeur.
-- La reprise conserve le ciphertext original après réponse perdue ou réouverture.
-  Les sources mêlant clair et chiffré, fichiers cités et archives complètes
-  restent à livrer. L’E2EE demeure expérimental et désactivé en production.
-
-### Fils chiffrés RocketVibe sur Android
-
-- Ouverture et réponse dans l’écran de fil existant, avec racine et réponses
-  issues du journal privé, ordre exact et brouillon distinct du salon.
-- Reprise / abandon d’un envoi et restauration de son brouillon dans le même
-  coffre. Quitter l’écran ou suspendre l’app ferme la vue et retire le clair.
-- Les compteurs indiquent les réponses conservées sur cet appareil. Une racine
-  absente du coffre laisse les réponses disponibles lisibles et empêche un
-  nouvel envoi. Les archives complètes restent à livrer ; E2EE expérimental.
-
-### Conversations chiffrées RocketVibe sur Android
-
-- Lecture et envoi de texte dans la liste et le composeur existants, avec
-  historique conservé dans le coffre Rust et ordre exact du journal privé.
-- Brouillons privés distincts par fil / admission, sauvegardés à chaque frappe
-  sans requête réseau ni écriture dans les tables ordinaires. Suspension,
-  déconnexion et changement d'adhésion ferment la vue et masquent son contenu.
-- Reprise de l'intention originale par reçu après réponse perdue, abandon
-  durable et restauration du document abandonné dans un brouillon vide.
-- Les heures sont des observations locales ; l'historique est celui retenu
-  dans le coffre. Les actions, citations, recherche, archives et
-  fichiers privés restent à raccorder. Aucun masque E2EE de production activé.
-
-### Groupes chiffrés RocketVibe sur Android
-
-- Informations du salon et fiche du correspondant d'un DM raccordées au même
-  moteur Rust que le bureau : publication de clés d'invitation, création,
-  ajouts / retraits / rotation, admission / réadmission et transitions reçues.
-- Aperçu des destinataires et empreintes avant confirmation séparée. Les
-  consentements et originaux restent dans Rust ; réponse perdue reprise par
-  reçu sans seconde soumission et abandon conservé avant sa demande au serveur.
-- Vue liée à l'adhésion au salon, à la projection et à l'appareil HTTP actuel.
-  Une nouvelle soumission revalide le droit d'envoyer ; une décision acceptée
-  reste récupérable en lecture seule. L'E2EE demeure expérimental ; le
-  raccordement des conversations et la qualification GUI complète restent ouverts.
-
-### Identités des correspondants RocketVibe
-
-- Fiche utilisateur existante : consultation explicite de l'identité chiffrée,
-  premier contact épinglé mais non vérifié, comparaison d'empreinte et
-  remplacement d'une racine changée avec conservation de l'ancienne empreinte.
-- Aperçu opaque puis confirmation séparée des appareils. Pins / consentements
-  restent dans le coffre Rust. Une révocation signée apprise reste bloquante
-  après réouverture et omission serveur ; changement de compte / appareil ou
-  fermeture empêche une action tardive.
-- Le panneau reste derrière les capacités E2EE expérimentales. La fiche peut
-  défiler lorsqu'il est disponible pour garder les actions accessibles.
-
-### Association chiffrée RocketVibe sur Android
-
-- Réglages existants raccordés à la cérémonie d'identité Rust partagée avec le
-  desktop : création explicite, comparaison d'empreinte sur un autre appareil,
-  aperçu puis approbation séparée et transfert manuel des codes publics.
-- Enregistrement original conservé dans le coffre avant HTTP. Une réponse
-  perdue se reprend par lecture du reçu sans seconde soumission ; changement
-  d'appareil / compte, fermeture et révocation signée refusent les actions tardives.
-- Parcours testé via les bindings Kotlin et le vrai Android Keystore sur
-  émulateur. L'E2EE de production reste désactivé ; groupes / conversations
-  mobiles et parcours complet dans l'app installée restent à qualifier.
-
-### Coffre crypto RocketVibe sur Android
-
-- Module Expo local Kotlin / Rust raccordé au cycle de session du fournisseur
-  existant. Les clés et checkpoints restent dans le moteur privé, avec les
-  petits enregistrements plateforme enveloppés par une clé Android Keystore
-  non exportable et exclus des sauvegardes automatiques.
-- Ouverture sans création implicite, initialisation locale explicite, refus des
-  coffres copiés / retirés / corrompus et fermeture terminale après suspension
-  ou changement de compte / appareil HTTP. Verrou système Android conservé
-  jusqu'à la fin de l'écriture réelle, même après fermeture de la vue.
-- Build Gradle reproductible ARM64 / x86-64, bindings Kotlin générés et test
-  d'instrumentation sur le vrai Keystore. Ce socle de stockage n'active pas
-  encore l'association, les groupes ou le composeur E2EE mobile.
-
-### Salons RocketVibe
-
-- Appels RocketVibe raccordés aux boutons de salon / profil, à la carte d'appel
-  et à l'écran Jitsi existants. Une tentative interrompue reprend le même appel
-  au prochain clic, même après redémarrage ; changement de compte / adhésion et
-  réponses tardives sont contrôlés. Le parcours Rocket.Chat reste disponible.
-  Qualification des médias sur Jitsi et téléphone encore ouverte.
-
-- Liens natifs par instance et époque, chemins de proxy conservés et vérification
-  du compte enregistré avant une bascule explicite. Les menus existants peuvent
-  copier le lien d'un message ; les notifications pointent aussi le message / fil,
-  avec résolution autorisée et surlignage dans les écrans actuels.
-
-- Android : inscriptions FCM liées au compte RocketVibe, contenu récupéré par
-  session privée, notifications de conversation et réponses différées idempotentes.
-  Les liens et le retrait des notifications respectent l'instance et le compte.
-  Le parcours Rocket.Chat reste disponible ; qualification Firebase / téléphone ouverte.
-
-- Les cartes d'intégration affichent auteur, titre, texte, couleur et champs
-  dans les lignes de message actuelles, avec Rocket.Chat et RocketVibe.
-  Les cartes natives suivent les droits du salon et la recherche des messages.
-
-- Les aperçus d'articles, d'images et de vidéos utilisent les cartes existantes,
-  avec des vignettes privées liées au message et à l'accès au salon. La
-  visionneuse conserve le zoom et l'enregistrement dans la galerie ; une édition,
-  un retrait d'accès ou un changement de compte retire les pixels en mémoire.
-  Le serveur natif les active lorsqu'un volume d'objets est configuré.
-
-- Les emojis personnalisés du serveur apparaissent dans les sélecteurs, la
-  complétion, les messages et les réactions existants. Les images protégées
-  sont retirées après une mise à jour du catalogue ou un changement de compte.
-
-- Les citations conservent les fichiers du message source : vignette protégée
-  pour les images, résumé compact pour les documents, vocaux et vidéos.
-  Le retrait du salon source ou la suppression du message retire leur accès.
-
-- Envoi de fichiers avec progression, reprise après redémarrage et abandon
-  depuis les contrôles existants. Les images, vocaux, vidéos et documents natifs
-  passent par un cache privé vérifié et les lecteurs actuels. Le transfert depuis
-  le disque nécessite la reconstruction de l'app avec le nouveau module natif.
-
-- Édition du profil personnel, du statut et de la photo dans « Mon profil » ;
-  la langue se synchronise avec les préférences natives. Une sauvegarde dont
-  la confirmation est perdue reprend après redémarrage sans écraser une
-  modification plus récente. Les formulaires refusés restent récupérables,
-  et un changement de pseudo peut demander la confirmation d'identité existante.
-  L'adresse vérifiée se change depuis la section de sécurité des paramètres.
-
-- Fiches des utilisateurs dans la feuille existante, depuis un auteur ou une
-  mention, avec pseudo, nom, bio et photo natifs. Les changements d'identité
-  alimentent aussi les messages et les avatars des DM. Les photos protégées
-  passent par le fournisseur et un cache mémoire borné, purgé au changement
-  de compte ; le préchargement refuse les réponses du compte quitté.
-
-- Recherche dans les messages du salon via le fournisseur natif, dans l'écran
-  existant. Résultats temporaires, droits vérifiés et relance avec Entrée ;
-  la recherche Rocket.Chat passe par son propre fournisseur.
-
-- Présence dans les DM et saisie dans les composeurs existants, avec expiration
-  après une coupure et arrêt à la suspension. Les mentions @here ciblent les
-  membres présents au moment de l'envoi.
-
-- Fils natifs dans l'écran existant : compteur de réponses, citations dans un
-  fil, brouillon séparé et réponse durable après une coupure. Lire un fil laisse
-  les autres non lus ; supprimer sa racine conserve le brouillon et bloque
-  les nouvelles réponses.
-- Citations natives imbriquées sur deux niveaux dans les cartes existantes.
-  Chaque source garde ses droits ; le retrait d'une source enfant efface son
-  texte privé sans masquer le parent encore accessible, même après redémarrage.
-- Créations, membres et changements de réglages affichés dans les lignes
-  système existantes, en français ou anglais, sans créer de non-lus ni proposer
-  d'actions de message sur ces événements.
-- Citations natives dans l'action Répondre, le bandeau et le composeur existants,
-  y compris sans texte ajouté. Les références sont transmises à la file durable ;
-  une sélection refusée conserve les mots saisis. Une source indisponible porte
-  un libellé explicite et son aperçu privé est effacé.
-
-- Une édition devenue obsolète conserve les mots saisis et signale un conflit,
-  même si le cache a déjà reçu la nouvelle version du message.
-
-- L'édition d'une réponse native conserve ses références de citation, même après
-  suppression de la source ou perte de son accès. L'intention sauvegardée garde
-  le même contenu après coupure et redémarrage. Une ancienne édition sans contenu
-  capturé conserve son brouillon et demande une nouvelle soumission.
-
-- Les citations natives alimentent les cartes actuelles depuis un cache séparant
-  références et extraits autorisés. Éditions, suppressions et retraits d'accès à
-  la source actualisent les citations dans les autres salons ; les anciennes
-  réponses ne rétablissent pas un extrait supprimé. Migration SQLite additive et
-  texte natif conservé, même s'il ressemble à un ancien préfixe Rocket.Chat.
-
-- Les messages natifs confirmés sont traduits vers les composants de rendu
-  existants depuis un document typé commun avec le bureau. Les conventions de
-  gras, italique et barré du composeur sont conservées. Code, citations, labels
-  de liens et mentions échappées ne deviennent pas des mentions actives ; les
-  images Markdown restent littérales en attendant les fichiers natifs.
-
-- Badges de non-lus et mentions confirmés, et barre existante des nouveaux
-  messages avec la position capturée à l'ouverture. Les minuteries retiennent
-  un message confirmé réellement visible dans FlashList et l'adhésion ouverte,
-  sans prendre le dernier message du cache. Une rafale ne repousse pas le timer ;
-  retour à l'arrière-plan et fermeture sauvent les observations déjà vues. Les
-  badges restent confirmés hors ligne et la barre reste après acquittement.
-
-- Favoris dans la fiche existante : seule la préférence confirmée change le
-  classement du salon. Une demande en attente affiche Reprendre ; un refus
-  permet un effacement explicite. Un ancien clic ne remplace pas une préférence
-  récente et ne traverse pas un changement d'adhésion. Rocket.Chat conserve son
-  action officielle via le fournisseur actif.
-
-- Les composeurs et formulaires ouverts repartent à vide lors d'une nouvelle
-  adhésion. Les sauvegardes et envois tardifs de l'ancien composeur ne peuvent
-  écraser un nouveau brouillon ni remettre l'ancien texte en attente. Un
-  changement de rôle conserve le brouillon courant.
-
-- Lectures et favoris natifs possèdent maintenant une reprise SQLite après
-  interruption : message observé conservé, reçu de favori original récupéré,
-  sans rétablir une ancienne préférence. Un callback de lecture tardif ne peut
-  traverser un retrait suivi d'une réadhésion.
-
-- Le cache détecte un retrait suivi d'une réadhésion même après un événement
-  manqué et un nouveau snapshot : historique privé, brouillons et intentions
-  antérieurs sont purgés. Un changement de rôle conserve les intentions de
-  l'adhésion actuelle. Le premier témoin d'adhésion purge également les
-  intentions des anciens caches qui n'en possédaient pas.
-- Le composeur suit les droits effectifs après changement de réglages ou de
-  rôle : propriétaires et modérateurs peuvent écrire en lecture seule, les
-  membres voient le message existant. Une ancienne réponse ne rétablit aucun
-  droit après retrait ou nouvelle version du salon.
-
-- Réglages, liste paginée des membres, rôles et départ dans la fiche existante,
-  selon les droits actuels. Les commandes interrompues reprennent leur reçu
-  original ; un formulaire refusé reste conservé jusqu'à relecture ou effacement
-  explicite. Le dernier propriétaire doit transmettre le rôle avant de partir.
-
-- La fiche existante affiche le sujet, la description, l'annonce, le nombre de
-  membres et la lecture seule depuis le fournisseur actif. Elle se rafraîchit
-  après modification et masque ses données après retrait du salon. Les textes
-  longs défilent dans la feuille.
-
-### Sécurité RocketVibe
-
-- Demande d’un code de récupération du mot de passe par e-mail dans le
-  formulaire existant, avec lecture locale de SecureStore, reprise de la demande
-  originale et délai de retry conservé. L’effacement du formulaire est explicite ;
-  la connexion après réinitialisation conserve les facteurs installés.
-
-- Activation et retrait explicites des codes par e-mail dans les paramètres
-  existants, avec confirmation liée au contact et aux facteurs affichés, reprise
-  du reçu depuis SecureStore et présentation des secours communs. Un autre
-  facteur installé est conservé ; l’adresse doit être libérée de ce profil avant
-  remplacement ou retrait.
-
-- Un profil protégé uniquement par e-mail est affiché comme actif et peut
-  régénérer ses codes de secours communs sans SMTP. Demander ou reprendre un
-  code de confirmation d’identité efface la saisie précédente.
-- Codes de connexion et de confirmation d’identité par e-mail dans les écrans
-  existants, avec livraison explicite et reprise du même candidat depuis
-  SecureStore après une réponse perdue. Les renvois gardent le même code et
-  son échéance ; le code saisi reste uniquement en mémoire.
-- Retrait du contact e-mail après confirmation, avec reprise de l’intention
-  originale depuis SecureStore et reçu privé jusqu’à Terminer. Une annulation
-  retardée préserve le contact suivant ; le parcours reste disponible sans SMTP.
-- Une adresse refusée peut être fermée explicitement avant une nouvelle saisie,
-  sans bloquer le formulaire ni effacer le contact déjà vérifié.
-- Adresse e-mail privée dans les paramètres existants : code de vérification,
-  état de livraison et reprise depuis SecureStore après une coupure. Le code
-  saisi reste transitoire et une ancienne vérification ne remplace pas la suivante.
-- Configuration TOTP, codes de secours privés, remplacement et désactivation
-  dans les paramètres existants. Les opérations interrompues reprennent depuis
-  SecureStore et les codes restent récupérables jusqu’à leur confirmation.
-- Confirmation d’identité sur l’appareil courant avant une action sensible,
-  sans nouvelle session. Les mots de passe et codes saisis restent transitoires ;
-  les callbacks d’un ancien écran ou compte ne peuvent lancer une action.
-
-### Ajouté
-
-- Double authentification RocketVibe dans le formulaire existant : application
-  TOTP ou code de secours. Une validation interrompue se reprend depuis le
-  stockage sécurisé sans consommer un deuxième code ni modifier un autre compte.
-
-- Récupération du mot de passe RocketVibe par code opérateur dans la connexion
-  existante : identité et conversations conservées, anciennes sessions révoquées
-  et confirmation perdue reprenable. Les clés de chiffrement sont préservées.
-
-- Création d'un compte RocketVibe sur invitation dans l'écran de connexion existant.
-  La reprise après réponse perdue conserve le même compte ; le parcours vérifie
-  l'identité et la génération du serveur avant de sauvegarder la session.
-
-- Appareils RocketVibe connectés dans les paramètres existants : noms, dates
-  d’activité / expiration et révocation après connexion récente. Les alertes
-  conservées d’un ancien compte ne peuvent agir sur le nouveau.
-
-- Renouvellement des sessions RocketVibe avant expiration via SecureStore.
-  L'intention sauvegardée reprend après une réponse perdue ; la reconnexion
-  conserve les brouillons et l'outbox du compte.
-
-- Épingles publiques et étoiles personnelles RocketVibe dans les actions et
-  listes existantes. Les intentions reprennent après redémarrage ; les étoiles
-  restent privées et conservent leur état lors des mises à jour du message.
-
-- Réactions RocketVibe dans la feuille d'actions et les pastilles existantes.
-  Les alias d'emojis sont dédupliqués ; les intentions SQLite reprennent après
-  une réponse perdue ou un redémarrage sans modifier l'ordre des messages.
-
-- Édition et suppression RocketVibe dans la feuille d'actions existante, selon les
-  droits du serveur. Les intentions et révisions sont conservées dans SQLite,
-  reprises après coupure ; le texte d'une édition refusée reste récupérable à
-  la réouverture. Un conflit concurrent s'affiche sans écraser le nouveau texte.
-
-- Projection des éditions et suppressions RocketVibe dans les écrans existants :
-  marqueur d'édition, effacement local et révisions empêchant un historique tardif
-  de rétablir le texte. Un reset remplace l'historique confirmé tout en conservant
-  brouillons et file d'envoi des salons encore accessibles.
-
-- Reprise des envois RocketVibe après panne temporaire ou réponse perdue, même
-  lorsque la socket reste connectée. Les retries conservent l'identité SQLite,
-  respectent `Retry-After` et s'arrêtent en suspension / déconnexion du compte.
-
-- Recherche et adhésion aux salons publics RocketVibe dans l'écran existant.
-  Une création interrompue conserve son identité dans SQLite pour être retentée
-  après reconnexion ou redémarrage sans créer un second salon.
-
-- Reprise automatique des envois RocketVibe après revalidation des droits,
-  sans marquer l'intention persistante comme définitivement refusée.
-
-- Snapshots RocketVibe paginés et immuables, téléchargés puis validés avant
-  remplacement atomique du cache ; pages expirées ou retirées rejetées sans
-  appliquer de vue partielle. Compatibilité conservée avec les anciens serveurs natifs.
-
-- Capacités RocketVibe vérifiées à chaque reconnexion et limitées aux fonctions
-  prises en charge par l'app ; diagnostics fournisseur avec identifiant de requête.
-
-- Respect du délai serveur après un refus `429` RocketVibe, sans perte du compte
-  ni relance prématurée de la connexion ; reprise testée après expiration réelle
-  du curseur, avec brouillon et envoi hors ligne conservés.
-
-- Connexion aux serveurs Rocket.Chat et RocketVibe dans les mêmes écrans :
-  liste des salons, recherche de correspondants / DM, Markdown, texte, historique
-  et brouillons persistants. Les sessions
-  restent dans le Keystore ; SQLite conserve messages, curseurs et file d'envoi.
-- Reprise du journal après coupure, rejeu des envois avec le même identifiant et
-  purge locale au retrait d'un salon. Un changement d'identité / génération du
-  serveur demande une nouvelle connexion.
-
-Les comptes des deux fournisseurs cohabitent dans le sélecteur existant. Les
-capacités natives non implémentées (fils, fichiers, réactions, non-lus, push,
-appels et E2EE) sont désactivées ; Rocket.Chat conserve ses fonctionnalités.
+### Fixed
+
+- RocketVibe: an obsolete edit keeps the words you typed and reports a conflict, even if the
+  cache already received the new version of the message.
+- RocketVibe: the cache detects a removal followed by a rejoin even after a missed event and a
+  new snapshot, and purges the earlier private history, drafts and intents. A role change keeps
+  the current membership's intents, and the first membership witness also purges the intents of
+  older caches that had none.
+- RocketVibe: open composers and forms start empty on a new membership. Late saves and sends
+  from the old composer can no longer overwrite a new draft or requeue the old text, and a role
+  change keeps the current draft. A late read callback cannot cross a removal followed by a
+  rejoin.
 
 ## [0.5.0] - 2026-10-03
 

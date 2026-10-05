@@ -1,150 +1,150 @@
-# Journal protégé des groupes et messages
+# Protected journal of groups and messages
 
-Lot expérimental J4, hors des interfaces actuelles. La capacité E2EE reste
-désactivée. Le [journal serveur](../../docs/protocol/E2EE_MESSAGES.md) fournit
-transitions et messages dans un ordre commun de positions natives décimales.
+Experimental J4 batch, outside the current interfaces. The E2EE capability stays
+disabled. The [server journal](../../docs/protocol/E2EE_MESSAGES.md) provides
+transitions and messages in a common order of decimal native positions.
 
-## Ordre et durabilité
+## Order and durability
 
-Après genèse / admission explicitement acceptée, `Worker::journal_page(room)`
-lit son curseur dans le coffre, demande une page, puis observe de nouveau le
-roster et la tête courants. Le coordinateur vérifie la portée, l'admission,
-la fenêtre fixe, les positions strictement croissantes et les labels exacts
-des paquets avant consommation. Les positions peuvent avoir des écarts liés
-aux autres événements natifs ; les révisions / parents des groupes restent
-strictement chaînés par les transitions et le vrai MLS.
+After an explicitly accepted genesis / admission, `Worker::journal_page(room)`
+reads its cursor in the vault, requests a page, then observes the current
+roster and head again. The coordinator verifies the scope, the admission,
+the fixed window, the strictly increasing positions and the exact labels
+of the packets before consumption. Positions may have gaps linked
+to the other native events; the revisions / parents of groups stay
+strictly chained by the transitions and the real MLS.
 
-Le premier événement doit correspondre à la genèse / au Welcome déjà accepté.
-Il n'est pas consommé une seconde fois. Commits suivants, messages, ratchets,
-contenus privés et curseur complet sont enregistrés **dans une transaction
-protégée par page**. Une signature invalide tardive annule aussi les lectures
-et rotations antérieures de cette page. Aucun résultat clair ne sort avant
-la protection et la relecture du checkpoint externe.
+The first event must match the genesis / Welcome already accepted.
+It is not consumed a second time. Following commits, messages, ratchets,
+private contents and the full cursor are recorded **in a transaction
+protected per page**. A late invalid signature also cancels the earlier reads
+and rotations of this page. No plaintext result leaves before
+the protection and re-read of the external checkpoint.
 
-`JournalBatch` contient tête locale, `after`, `through`, `complete` et contenus
-privés de la page. Avec `next`, le coffre conserve le même `through` pour la
-reprise. Sans `next`, `after` devient `through`, y compris si la dernière
-position livrée est inférieure à cette borne. Le constructeur du worker lie
-toujours les données à l'instance / génération / compte / appareil du coffre.
-Une restauration ou un changement de génération ne réutilise pas ce curseur.
+`JournalBatch` contains local head, `after`, `through`, `complete` and private
+contents of the page. With `next`, the vault keeps the same `through` for
+resumption. Without `next`, `after` becomes `through`, including if the last
+delivered position is lower than this bound. The worker constructor always
+binds the data to the instance / generation / account / device of the vault.
+A restore or a generation change does not reuse this cursor.
 
-Les octets du dernier lot restent dans le cache privé. Au redémarrage,
-`Worker::journal_last_batch(room)` rend ce lot après nouvelle observation de
-l'admission et vérification du checkpoint. Il ne redéchiffre pas et ne
-consomme aucun ratchet. Le fournisseur doit projeter ce résultat avant
-de demander la page suivante. La projection durable / confirmation côté apps
-et l'historique privé au-delà du cache actuel constituent les lots suivants.
-Aucun document clair ne doit entrer dans le cache SQLite public des apps.
+The bytes of the last batch stay in the private cache. On restart,
+`Worker::journal_last_batch(room)` returns this batch after a new observation of
+the admission and verification of the checkpoint. It does not decrypt again and
+consumes no ratchet. The provider must project this result before
+requesting the next page. Durable projection / confirmation on the apps side
+and private history beyond the current cache are the next batches.
+No plaintext document must enter the public SQLite cache of the apps.
 
-## Autorisation et rotations
+## Authorization and rotations
 
-Chaque époque utilise son roster issu du plan signé, vérifié contre le vrai
-arbre MLS et les racines / appareils déjà approuvés. Le roster courant ne
-remplace pas silencieusement celui d'un événement historique. L'admission
-personnelle doit cependant être identique dans le plan courant et dans
-chaque époque : portée, membre / versions d'accès et d'activation, appareil,
-incarnation, racine, feuille et KeyPackage original. Le renouvellement de
-certificat ne change pas cette identité d'admission.
+Each epoch uses its roster from the signed plan, verified against the real
+MLS tree and the roots / devices already approved. The current roster does not
+silently replace that of a historical event. The personal admission
+must however be identical in the current plan and in
+each epoch: scope, member / access and activation versions, device,
+incarnation, root, leaf and original KeyPackage. Certificate renewal
+does not change this admission identity.
 
-Un retrait / nouvel accès ou un remplacement d'appareil exige une nouvelle
-admission ; l'ancien journal ne devient pas un historique du nouvel appareil.
-Le consentement initial et l'approbation des pins restent requis. La lecture
-d'un commit n'approche aucun nouveau pin et n'autorise aucun nouvel envoi.
-L'envoi garde les contrôles de tête, roster, certificats et politique courants.
+A withdrawal / new access or a device replacement requires a new
+admission; the old journal does not become a history of the new device.
+The initial consent and the approval of the pins remain required. Reading
+a commit approaches no new pin and authorizes no new send.
+Sending keeps the current head, roster, certificate and policy checks.
 
-Lorsqu'un journal est commencé, `confirm` réconcilie l'ACK exact d'une rotation
-locale sans fusionner immédiatement le commit. L'ancienne époque reste active
-jusqu'à ce que la page traite les messages qui précèdent cette rotation, puis
-fusionne le commit préparé original. La réception ordonnée peut donc lire un
-message pendant cette attente ; les nouveaux envois restent suspendus.
-Les API séparées `receive_message` et `accept_commit` refusent alors la
-consommation qui contournerait cet ordre. Un compte déjà avancé hors journal
-ne saute pas les anciens événements pour fabriquer un préfixe valide.
+When a journal is started, `confirm` reconciles the exact ACK of a local
+rotation without merging the commit immediately. The old epoch stays active
+until the page processes the messages that precede this rotation, then
+merges the original prepared commit. Ordered reception can therefore read a
+message during this wait; new sends stay suspended.
+The separate `receive_message` and `accept_commit` APIs then refuse
+the consumption that would bypass this order. An account already advanced outside the journal
+does not skip the old events to fabricate a valid prefix.
 
-## Preuves et limites
+## Proofs and limits
 
-Six scénarios avec vrai MLS / SQLite rouverts couvrent trois époques manquées,
-reprise entre pages avec entiers supérieurs à `2^53`, fenêtre modifiée refusée,
-signature tardive annulant tout le lot, métadonnées / positions / ordre
-substitués, ACK de rotation locale avec message encore illisible, retrait
-d'un autre membre et nouvel accès propre refusé. Un échec de checkpoint après
-commit ne publie aucun clair ; la réouverture retrouve le lot privé original.
-Ils passent ensemble en 3,86 s lors de la première vérification. Les gardes
-refusant les consommateurs séparés sont également vérifiées sur ces groupes.
+Six scenarios with real reopened MLS / SQLite cover three missed epochs,
+resumption between pages with integers above `2^53`, modified window refused,
+late signature cancelling the whole batch, substituted metadata / positions / order,
+ACK of local rotation with a message still unreadable, withdrawal
+of another member and refused clean new access. A checkpoint failure after
+commit publishes no plaintext; reopening finds the original private batch again.
+They pass together in 3.86 s on the first verification. The guards
+refusing separate consumers are also verified on these groups.
 
-Un scénario HTTP supplémentaire perd la réponse de lecture avant réception,
-rouvre le worker, retrouve le lot clair protégé et refuse des métadonnées de
-salon valides sous une autre URL. Le curseur reste inchangé après refus.
+An additional HTTP scenario loses the read response before reception,
+reopens the worker, finds the protected plaintext batch again and refuses valid room
+metadata under another URL. The cursor stays unchanged after the refusal.
 
-Le vrai banc HTTP / PostgreSQL utilise maintenant ces pages et leur reprise
-dans les deux coffres, avec six messages / trois époques et confirmations
-perdues après commit réel. Les rotations attendent leur passage dans le
-journal. Il passe en 30,15 s. SQL conserve six messages opaques et neuf trames,
-sans document clair ni POST de message supplémentaire. Le checkpoint externe
-de ce banc est simulé ; aucun essai sur appareil installé n'est revendiqué.
-Formatage / Clippy strict passent avec `system-keystore,native-http` ; la suite
-privée complète initiale du lot compte 124 succès en 157,95 s, avec l'enfant de
-crash exécuté par son parent et aucun filtre. Le scénario HTTP de garde de
-route est ajouté et vérifié séparément ensuite.
-Après les gardes de route, les onze scénarios HTTP passent ensemble en 2,84 s,
-les six scénarios du journal en 4,03 s et le banc réel est revérifié en 30,93 s.
+The real HTTP / PostgreSQL bench now uses these pages and their resumption
+in both vaults, with six messages / three epochs and confirmations
+lost after the real commit. The rotations wait for their passage in the
+journal. It passes in 30.15 s. SQL keeps six opaque messages and nine frames,
+with no plaintext document nor extra message POST. The external checkpoint
+of this bench is simulated; no test on an installed device is claimed.
+Formatting / strict Clippy pass with `system-keystore,native-http`; the initial full
+private suite of the batch counts 124 successes in 157.95 s, with the crash
+child executed by its parent and no filter. The route guard HTTP scenario
+is added and verified separately afterwards.
+After the route guards, the eleven HTTP scenarios pass together in 2.84 s,
+the six journal scenarios in 4.03 s and the real bench is re-verified in 30.93 s.
 
-## Certificats historiques
+## Historical certificates
 
-Le journal authentifie les signatures des anciens certificats, transitions
-et messages sans leur conférer une validité courante. Le lecteur conserve
-un certificat local courant, les mêmes clés / racine / incarnation et la
-même admission. Une ancienne feuille propre reste lisible après renouvellement
-de ce certificat ; elle n'est pas convertie en feuille courante pour envoyer.
+The journal authenticates the signatures of old certificates, transitions
+and messages without conferring current validity on them. The reader keeps
+a current local certificate, the same keys / root / incarnation and the
+same admission. An old own leaf stays readable after renewal
+of this certificate; it is not converted into a current leaf to send.
 
-Racines et appareils des pairs doivent toujours correspondre aux pins
-explicitement approuvés aujourd'hui. Changement de racine, appareil inconnu,
-révocation connue, certificat futur ou signature invalide suspendent les
-nouveaux déchiffrements. Une expiration seule n'annule pas une signature ni
-un groupe MLS authentifié. Les contenus déjà acceptés restent soumis à
-l'admission personnelle actuelle lors du rejeu de cache.
+Roots and devices of peers must still match the pins
+explicitly approved today. Root change, unknown device, known
+revocation, future certificate or invalid signature suspend
+new decryptions. An expiry alone does not invalidate a signature nor
+an authenticated MLS group. Contents already accepted remain subject to
+the current personal admission on cache replay.
 
-L'envoi, le retry, les nouveaux KeyPackages et les admissions explicites
-continuent de vérifier les certificats à la date courante. Les API publiques
-`verify(now, ...)` gardent cette règle, également côté serveur. Le nouveau
-`authenticate(...)` vérifie les signatures / formes seulement ; il ne prouve
-ni date de création, ni validité passée, ni confiance, ni droit de publication.
-Le journal utilise la vraie date de réception pour refuser un certificat futur,
-sans choisir la date déclarée par le signataire comme horloge de validation.
+Sending, retry, new KeyPackages and explicit admissions
+keep verifying the certificates at the current date. The public
+`verify(now, ...)` APIs keep this rule, on the server side too. The new
+`authenticate(...)` verifies only signatures / forms; it proves
+neither a creation date, nor past validity, nor trust, nor a right to publish.
+The journal uses the real reception date to refuse a future certificate,
+without choosing the date declared by the signer as the validation clock.
 
-Les records privés marquent cette politique de réception avec la vraie date
-d'observation, afin de rouvrir un contenu / état historique sans le présenter
-comme accepté sous une autorisation courante. Les anciens records sans ce
-champ conservent leur vérification originale à leur date d'acceptation.
+The private records mark this reception policy with the real observation
+date, in order to reopen a historical content / state without presenting it
+as accepted under a current authorization. The old records without this
+field keep their original verification at their acceptance date.
 
-Quatre scénarios supplémentaires avec vrai MLS / SQLite et horloge de fixture
-prouvent trois époques expirées après renouvellement du lecteur, persistance /
-rejeu, envoi actuel toujours refusé, révocation / signatures / futur refusés,
-et commit propre ancien encore préparé consommé après un message ancien.
-Les dix scénarios du journal passent en 6,40 s lors du premier contrôle.
-Ce banc ne qualifie pas la cérémonie de renouvellement dans les apps.
-Formatage / Clippy strict passent sur les deux workspaces. Les 31 scénarios
-serveur E2EE passent en 9,89 s, le banc réel HTTP / PostgreSQL en 35,27 s et
-la suite privée complète compte 129 succès en 159,96 s, sans filtre ; l'enfant
-de crash reste exécuté par son parent. Les expirations sont exercées par
-l'horloge de fixture dans les coffres ; le banc HTTP réel ne simule pas
-une heure de temps écoulé.
+Four additional scenarios with real MLS / SQLite and fixture clock
+prove three expired epochs after renewal of the reader, persistence /
+replay, current send still refused, revocation / signatures / future refused,
+and old own commit still prepared consumed after an old message.
+The ten journal scenarios pass in 6.40 s on the first check.
+This bench does not qualify the renewal ceremony in the apps.
+Formatting / strict Clippy pass on both workspaces. The 31 E2EE server
+scenarios pass in 9.89 s, the real HTTP / PostgreSQL bench in 35.27 s and
+the full private suite counts 129 successes in 159.96 s, with no filter; the crash
+child is still executed by its parent. Expiries are exercised by
+the fixture clock in the vaults; the real HTTP bench does not simulate
+an hour of elapsed time.
 
-Ce choix ne prouve pas qu'un contenu a été produit avant l'expiration. Une
-compromission conjointe des clés de signature et des secrets d'une ancienne
-époque peut permettre de fabriquer des contenus attribués à cette époque.
-Les contrôles de révocation connue et d'admission ne constituent pas une
-preuve de date de création. Cette limite relève aussi de la revue crypto.
+This choice does not prove that a content was produced before expiry. A
+joint compromise of the signing keys and of the secrets of an old
+epoch may allow fabricating contents attributed to that epoch.
+The known-revocation and admission checks do not constitute a
+proof of creation date. This limit also falls under the crypto review.
 
-[La réadmission dans le même coffre](READMISSION.md) remet le curseur à zéro
-pour le nouveau Welcome et marque le cache précédent hors de la projection
-courante. Sa planification dans les apps, l'historique d'un appareil révoqué,
-la découverte d'un ancien Welcome lorsque les autres grants ont changé,
-les refus définitifs d'outbox, archives / fichiers et ponts des apps restent
-ouverts. Le cache conserve au plus 64 documents ; il n'est pas une archive.
+[Readmission in the same vault](READMISSION.md) resets the cursor to zero
+for the new Welcome and marks the previous cache outside the current
+projection. Its scheduling in the apps, the history of a revoked device,
+the discovery of an old Welcome when the other grants have changed,
+the final refusals of the outbox, archives / files and app bridges remain
+open. The cache keeps at most 64 documents; it is not an archive.
 
-Le serveur peut retarder ou omettre des trames. Les positions allouées par le
-serveur ne constituent pas une preuve cryptographique d'exhaustivité ou de
-date de révocation. Cette implémentation refuse les incohérences reçues et
-protège un préfixe de pages du journal autorisé ; elle ne promet pas de détecter
-toute omission malveillante. La revue crypto indépendante reste nécessaire.
+The server may delay or omit frames. The positions allocated by the
+server are not a cryptographic proof of completeness or of
+revocation date. This implementation refuses the inconsistencies received and
+protects a prefix of authorized journal pages; it does not promise to detect
+every malicious omission. The independent crypto review remains necessary.

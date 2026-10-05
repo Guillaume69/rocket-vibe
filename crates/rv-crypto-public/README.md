@@ -1,18 +1,18 @@
-# Preuves publiques E2EE
+# Public E2EE proofs
 
-Formats et vérificateurs extraits de `rv-crypto` et partagés sans copie avec le
-serveur. Cette crate appartient au workspace racine ; le coffre client conserve
-son workspace et son lock propres. Elle contient racine publique, certificat,
-révocation, demande d'appareil et grant, avec leurs cadrages signés inchangés,
-ainsi que le plan / preuve publique des transitions de groupe.
+Formats and verifiers extracted from `rv-crypto` and shared without copy with the
+server. This crate belongs to the root workspace; the client vault keeps
+its own workspace and lock. It contains public root, certificate,
+revocation, device request and grant, with their signed framings unchanged,
+as well as the public plan / proof of the group transitions.
 
-Aucune clé privée, récupération, persistance ou décision de confiance n'y est
-stockée. Une signature valide ne vaut ni pin confirmé, ni consentement humain,
-ni accès au groupe. Les clients gardent ces décisions dans `rv-crypto`.
-Les fonctions de cadrage publiques servent aussi aux signatures locales ; elles
-ne signent rien et n'acceptent aucun secret.
+No private key, recovery, persistence or trust decision is
+stored there. A valid signature is worth neither a confirmed pin, nor human consent,
+nor access to the group. The clients keep these decisions in `rv-crypto`.
+The public framing functions also serve the local signatures; they
+sign nothing and accept no secret.
 
-Les vecteurs et tests d'identité / enrollment restent dans
-[`rv-crypto`](../rv-crypto/README.md). Le vecteur de groupe est dans cette crate,
-avec tests de cadrage et vérificateur Node indépendant. Le serveur teste les preuves
-réelles, leurs liaisons à la session et le cycle des KeyPackages.
+The identity / enrollment vectors and tests stay in
+[`rv-crypto`](../rv-crypto/README.md). The group vector is in this crate,
+with framing tests and an independent Node verifier. The server tests the real proofs,
+their bindings to the session and the KeyPackage cycle.

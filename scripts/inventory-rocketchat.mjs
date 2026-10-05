@@ -78,7 +78,16 @@ const unique = [...new Map(rows.map(r => [`${r.file}:${r.line}:${r.kind}:${r.sur
   .sort((a, b) => a.file.localeCompare(b.file, 'en') || a.line - b.line || a.kind.localeCompare(b.kind, 'en') || a.surface.localeCompare(b.surface, 'en'));
 const inventory = { format: 1, scopes, scanned: scanned.sort(), entries: unique };
 const escape = s => s.replace(/\|/g, '\\|').replace(/`/g, '\\`');
-const markdown = `# Inventaire Rocket.Chat — généré\n\nCommande : \`node scripts/inventory-rocketchat.mjs\`. Contrôle : ajouter \`--check\`.\n\n${scanned.length} fichiers de production parcourus ; ${unique.length} occurrences.\nLes appels à premier argument dynamique restent visibles : leur résolution est\nconsignée dans [le contrat de parité](PARITY.md). Les lignes sont des repères de\nsource au moment de la génération. Le JSON conserve le périmètre et tous les fichiers.\n\n| Source | Nature | Surface / premier argument |\n|---|---|---|\n` + unique.map(r => `| [${r.file}:${r.line}](../../${r.file}#L${r.line}) | ${r.kind} | ${escape(r.surface)} |\n`).join('');
+const markdown = `# Rocket.Chat inventory (generated)
+
+Command: \`node scripts/inventory-rocketchat.mjs\`. Check: add \`--check\`.
+
+${scanned.length} production files scanned; ${unique.length} occurrences.
+Calls with a dynamic first argument remain visible: their resolution is
+recorded in [the parity contract](PARITY.md). The lines are source
+markers at the time of generation. The JSON keeps the scope and all the files.
+
+| Source | Kind | Surface / first argument |\n|---|---|---|\n` + unique.map(r => `| [${r.file}:${r.line}](../../${r.file}#L${r.line}) | ${r.kind} | ${escape(r.surface)} |\n`).join('');
 for (const [name, value] of [['rocketchat-inventory.json', `${JSON.stringify(inventory, null, 2)}\n`], ['rocketchat-inventory.md', markdown]]) {
   const path = resolve(root, 'docs/protocol', name);
   if (process.argv.includes('--check')) {

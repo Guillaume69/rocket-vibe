@@ -1,280 +1,279 @@
-# Notifications natives — P17 / J3
+# Native notifications (P17 / J3)
 
-RocketVibe réutilise le service FCM Android, les notifications `MessagingStyle`,
-les liens vers les salons et `RemoteInput` du client existant. Le fournisseur
-Rocket.Chat conserve son parcours `push.token` / `push.get` / `chat.sendMessage`.
-Le push RocketVibe Android est annoncé côté client uniquement lorsque son
-récepteur natif est raccordé ; iOS natif reste hors du périmètre de cette RFC.
+RocketVibe reuses the existing client's Android FCM service, `MessagingStyle`
+notifications, room links and `RemoteInput`. The Rocket.Chat provider keeps its
+`push.token` / `push.get` / `chat.sendMessage` flow. RocketVibe Android push is
+advertised on the client side only when its native receiver is wired up; native iOS
+remains outside the scope of this RFC.
 
-## Configuration opérateur
+## Operator configuration
 
-`RV_FCM_CONFIG_FILE` (ou `--fcm-config-file`) désigne le JSON du compte de service
-Firebase, conservé hors Git et lisible seulement par le processus serveur.
-Son `project_id` désigne le projet Firebase utilisé pour construire l'app Android.
-L'opérateur active l'API Firebase Cloud Messaging et autorise ce compte à envoyer
-des messages. Le serveur utilise OAuth et la portée
-`https://www.googleapis.com/auth/firebase.messaging`, avec renouvellement des
-jetons par `gcp_auth`, puis l'API HTTP v1 de Google. Aucun jeton OAuth ne va aux clients.
-Sans configuration, la découverte annonce `push:false` et le worker reste inactif.
-Le registre et les droits restent accessibles pour retirer une inscription.
+`RV_FCM_CONFIG_FILE` (or `--fcm-config-file`) names the Firebase service account JSON,
+kept out of Git and readable only by the server process.
+Its `project_id` names the Firebase project used to build the Android app.
+The operator enables the Firebase Cloud Messaging API and authorises this account to
+send messages. The server uses OAuth with the scope
+`https://www.googleapis.com/auth/firebase.messaging`, with token renewal handled by
+`gcp_auth`, then Google's HTTP v1 API. No OAuth token goes to the clients.
+Without configuration, discovery advertises `push:false` and the worker stays idle.
+The registry and the rights remain accessible so that a registration can be removed.
 
-Dans un conteneur, monter le fichier en lecture seule puis définir
-`RV_FCM_CONFIG_FILE=/run/secrets/firebase-service-account.json` ; ce fichier ne
-doit jamais être copié dans l'image. La configuration de compilation Android
-fictive utilisée localement n'autorise aucun envoi Firebase réel.
+In a container, mount the file read-only and set
+`RV_FCM_CONFIG_FILE=/run/secrets/firebase-service-account.json`; this file must
+never be copied into the image. The dummy Android build configuration used locally
+does not authorise any real Firebase send.
 
-Références primaires : [FCM HTTP v1](https://firebase.google.com/docs/cloud-messaging/send/v1-api),
-[messages de données](https://firebase.google.com/docs/cloud-messaging/customize-messages/set-message-type),
-[codes d'erreur FCM](https://firebase.google.com/docs/cloud-messaging/error-codes).
+Primary references: [FCM HTTP v1](https://firebase.google.com/docs/cloud-messaging/send/v1-api),
+[data messages](https://firebase.google.com/docs/cloud-messaging/customize-messages/set-message-type),
+[FCM error codes](https://firebase.google.com/docs/cloud-messaging/error-codes).
 
-## API et identité
+## API and identity
 
-- `PUT /api/v1/me/push`, bearer natif, corps strict `{token}` : inscrit le jeton
-  FCM Android sur la famille de la session courante. Répond
-  `{device_id,instance_id,data_epoch}`. Le client confirme la découverte puis
-  conserve `nativePushDeviceId` dans la session SecureStore encore active.
-- `DELETE /api/v1/me/push` : désinscription idempotente de cette famille, `204`.
-  Logout, révocation d'appareil et expiration effective de la famille retirent
-  aussi son inscription et ses notifications. La rotation du bearer la conserve.
-- `GET /api/v1/push/notifications/{id}` : lecture privée exclusivement par la
-  famille destinataire. Rend `{notification_id,device_id,instance_id,data_epoch,
-  room,message}` avec les règles de lecture normales des citations / fichiers.
-  Un autre appareil du même utilisateur ne peut pas lire cette notification.
+- `PUT /api/v1/me/push`, native bearer, strict body `{token}`: registers the Android
+  FCM token on the family of the current session. Answers
+  `{device_id,instance_id,data_epoch}`. The client confirms discovery, then
+  keeps `nativePushDeviceId` in the SecureStore session that is still active.
+- `DELETE /api/v1/me/push`: idempotent unregistration of this family, `204`.
+  Logout, device revocation and effective expiry of the family also remove
+  its registration and its notifications. Bearer rotation keeps it.
+- `GET /api/v1/push/notifications/{id}`: private read exclusively by the recipient
+  family. Returns `{notification_id,device_id,instance_id,data_epoch,
+  room,message}` with the normal read rules for quotes / files.
+  Another device of the same user cannot read this notification.
 
-Les lectures personnelles et les lots HTTP / WebSocket de `Message` ajoutent `personal_mention`, un booléen
-optionnel calculé depuis les destinataires capturés à l'envoi. Le journal partagé
-ne le conserve jamais. Une édition n'ajoute pas de destinataire ; les lecteurs
-bureau ne déduisent donc pas une mention depuis un pseudo changé ou `@here`.
+Personal reads and the HTTP / WebSocket batches of `Message` add `personal_mention`, an
+optional boolean computed from the recipients captured at send time. The shared journal
+never keeps it. An edit adds no recipient; desktop readers therefore do not
+infer a mention from a changed username or `@here`.
 
-FCM reçoit uniquement `product`, `instanceId`, `dataEpoch`, `userId`, `deviceId`,
-`notificationId`, `rid`, `messageId`, et éventuellement `tmid`. Aucun bloc
-`notification`, contenu, mot de passe, bearer ou URL de serveur n'est envoyé.
-Android choisit l'URL depuis la session locale qui correspond à toutes ces
-identités. Il refuse les redirections HTTP ; la release exige HTTPS, le debug
-autorise HTTP pour le banc local. La découverte est vérifiée avant chaque lecture
-ou réponse. Un successeur déjà persisté d'une rotation interrompue peut être
-utilisé sans lancer une seconde rotation depuis le récepteur.
+FCM receives only `product`, `instanceId`, `dataEpoch`, `userId`, `deviceId`,
+`notificationId`, `rid`, `messageId`, and optionally `tmid`. No `notification`
+block, content, password, bearer or server URL is sent.
+Android picks the URL from the local session that matches all these
+identities. It refuses HTTP redirects; the release build requires HTTPS, the debug build
+allows HTTP for the local bench. Discovery is verified before each read
+or reply. An already persisted successor of an interrupted rotation can be
+used without starting a second rotation from the receiver.
 
-## File et livraison
+## Queue and delivery
 
-La migration `0036_push_notifications.sql` ajoute le registre, la génération du
-jeton et les tâches. L'envoi d'un message, y compris une confirmation de fichier
-ou une réponse de fil, capture ses destinataires dans **la même transaction**.
-Un rejeu d'envoi ne crée pas de seconde notification. Éditions, aperçus et
-activités système ne créent pas de nouvel événement push.
+Migration `0036_push_notifications.sql` adds the registry, the token generation
+and the tasks. Sending a message, including a file confirmation
+or a thread reply, captures its recipients in **the same transaction**.
+A replayed send does not create a second notification. Edits, previews and system
+activities do not create a new push event.
 
-Éligibilité : autre auteur, compte actif, adhésion courante, push activé, statut
-choisi autre que « occupé », aucun bail actif « en ligne / occupé ». Le réglage
-« mentions uniquement » conserve les DM et les mentions capturées à l'envoi.
-Les lectures de salon et de fil utilisent la position d'origine du message.
-`@here` conserve les destinataires figés par la capture des mentions.
+Eligibility: other author, active account, current membership, push enabled, chosen
+status other than "busy", no active "online / busy" lease. The
+"mentions only" setting keeps DMs and the mentions captured at send time.
+Room and thread reads use the original position of the message.
+`@here` keeps the recipients frozen by the mention capture.
 
-Les workers prennent au plus quatre tâches avec des leases de 60 secondes,
-`SKIP LOCKED` et un identifiant de lease distinct. Ils revérifient l'éligibilité,
-l'époque, la génération du jeton, l'activation du compte et la durée de l'adhésion.
-OAuth et HTTP se font après le commit, sans transaction SQL ouverte.
-Six tentatives maximum, délai exponentiel avec jitter, `Retry-After` et durée
-maximale de 24 heures. Les tâches expirées sont purgées par la maintenance.
-Une erreur FCM explicite `UNREGISTERED` retire seulement la génération concernée ;
-un `INVALID_ARGUMENT` générique ne supprime pas un jeton potentiellement valide.
-Les résultats tardifs d'une lease ou d'un jeton remplacé ne modifient pas le successeur.
+Workers take at most four tasks with leases of 60 seconds,
+`SKIP LOCKED` and a distinct lease identifier. They recheck eligibility,
+the epoch, the token generation, account activation and the duration of the membership.
+OAuth and HTTP happen after the commit, with no SQL transaction open.
+Six attempts at most, exponential delay with jitter, `Retry-After` and a maximum
+duration of 24 hours. Expired tasks are purged by maintenance.
+An explicit FCM `UNREGISTERED` error removes only the generation concerned;
+a generic `INVALID_ARGUMENT` does not delete a potentially valid token.
+Late results from a lease or a replaced token do not modify the successor.
 
-La réponse de lecture conserve des verrous de droits, session, notification,
-génération, message et état de lecture jusqu'à soumission du corps HTTP.
-Une révocation, réadhésion, suppression ou nouvelle révision invalide une réponse
-préparée. Un push déjà parti ne contient que des identifiants.
+The read response holds locks on rights, session, notification,
+generation, message and read state until the HTTP body is submitted.
+A revocation, re-join, deletion or new revision invalidates a prepared
+response. A push that has already left contains only identifiers.
 
-## Android existant
+## Existing Android
 
-Le service affiche un texte générique et confie le fetch privé à WorkManager.
-`onNewToken` conserve le dernier jeton FCM dans le stockage privé puis planifie
-son inscription pour les familles natives déjà enregistrées, même sans runtime
-JS. Les tâches sont sérialisées par famille et relisent le jeton courant et la
-session SecureStore ; aucun bearer n'est persisté dans WorkManager.
-Le rattrapage a huit essais maximum et exige le réseau. Refus définitifs et
-identité de serveur changée retirent la notification générique.
-La notification complète conserve le composant de conversation actuel, groupé
-par instance / époque / compte / salon. Un marqueur durable déduplique les
-livraisons, y compris après un crash serveur entre envoi FCM et acquittement.
-Les non-lus à zéro et le retrait d'un salon effacent la notification de conversation.
-Le lien garde le serveur, son chemin de proxy, le message / fil et l'identité du compte ; un autre
-compte ou une époque restaurée ne peuvent ouvrir le salon à sa place.
+The service displays generic text and entrusts the private fetch to WorkManager.
+`onNewToken` keeps the latest FCM token in private storage, then schedules
+its registration for the native families already registered, even without a JS
+runtime. Tasks are serialised per family and re-read the current token and the
+SecureStore session; no bearer is persisted in WorkManager.
+Catch-up has at most eight attempts and requires the network. Permanent refusals and
+a changed server identity remove the generic notification.
+The full notification keeps the current conversation component, grouped
+by instance / epoch / account / room. A durable marker deduplicates
+deliveries, including after a server crash between the FCM send and the acknowledgement.
+Unread counts at zero and the removal of a room clear the conversation notification.
+The link keeps the server, its proxy path, the message / thread and the account identity; another
+account or a restored epoch cannot open the room in its place.
 
-L'action « Répondre » sauvegarde dans WorkManager un identifiant d'opération,
-l'entrée exacte et la portée avant son acquittement. Chaque tentative utilise
-`POST /api/v1/rooms/{rid}/messages` avec le même `operation_id` et la même racine
-de fil, sans bearer dans la file. Le texte est limité à 4 KiB dans cette action
-pour respecter les 10 KiB de `Data` Android ; un dépassement affiche l'échec dans
-la notification. Les écrans d'envoi conservent leur limite habituelle.
-La famille, l'époque et l'utilisateur sont revérifiés à chaque reprise.
+The "Reply" action saves an operation identifier in WorkManager, together with
+the exact entry and the scope, before acknowledging. Each attempt uses
+`POST /api/v1/rooms/{rid}/messages` with the same `operation_id` and the same thread
+root, with no bearer in the queue. The text is limited to 4 KiB in this action
+to respect Android's 10 KiB `Data` limit; an overflow shows the failure in
+the notification. The send screens keep their usual limit.
+The family, the epoch and the user are rechecked on every resumption.
 
-## Bureau existant
+## Existing desktop
 
-Seuls les lots reçus sur le WebSocket connecté produisent des candidats, dans
-la transaction SQLite qui applique leur curseur. Snapshot, rattrapage HTTP,
-histoire déjà chargée, auteur courant, éditions, suppressions et activités
-système restent silencieux. Une création exige `position == revision` et une
-adhésion déjà connue. Après projection, lectures de salon / fil, suppression et
-durée de l'adhésion sont revérifiées avant toute alerte.
+Only batches received on the connected WebSocket produce candidates, inside
+the SQLite transaction that applies their cursor. Snapshot, HTTP catch-up,
+already loaded history, current author, edits, deletions and system
+activities stay silent. A creation requires `position == revision` and an
+already known membership. After projection, room / thread reads, deletion and
+the duration of the membership are rechecked before any alert.
 
-Les préférences bureau sont chargées au raccord, actualisées par les réglages
-locaux et relues toutes les 60 secondes. Une préférence initiale indisponible
-garde les notifications silencieuses ; elle ne coupe pas la messagerie.
-`all`, `nothing` et DM / mentions réutilisent la règle du client existant.
-Un salon déjà visible dans la fenêtre active ne produit pas de notification.
+Desktop preferences are loaded at connection, refreshed by the local
+settings and re-read every 60 seconds. An initial preference that is unavailable
+keeps notifications silent; it does not cut off messaging.
+`all`, `nothing` and DMs / mentions reuse the existing client's rule.
+A room already visible in the active window produces no notification.
 
-GTK réutilise D-Bus pour la réponse inline KDE, GApplication pour les notifications
-natives sans réponse inline, et les toasts Windows ; SwiftUI conserve
-`UNUserNotificationCenter`. Les références OS portent une clé calculée depuis
-serveur / compte / instance / époque / salon, sans credential. Un clic ou une
-réponse vérifie l'adhésion d'origine et la présence du message. La réponse prend
-le chemin d'envoi persistant habituel, avec la racine du fil si nécessaire.
-Lectures, retrait du salon et préférence désactivée retirent les notifications.
+GTK reuses D-Bus for the KDE inline reply, GApplication for native notifications
+without inline reply, and Windows toasts; SwiftUI keeps
+`UNUserNotificationCenter`. OS references carry a key computed from
+server / account / instance / epoch / room, with no credential. A click or a
+reply verifies the original membership and the presence of the message. The reply takes
+the usual persistent send path, with the thread root if needed.
+Reads, removal from the room and a disabled preference remove the notifications.
 
-Les références d'action sont bornées à 256 et persistées avant remise à l'OS
-dans le SQLite du compte : message, salon, racine, adhésion, position et éligibilité.
-Le registre ne duplique aucun texte, nom, credential ou corps de notification.
-Une préférence encore inconnue au démarrage ne l'efface pas. Une nouvelle époque
-le purge avec la projection ; une adhésion remplacée invalide ses callbacks.
+Action references are capped at 256 and persisted before being handed to the OS
+in the account's SQLite: message, room, root, membership, position and eligibility.
+The registry duplicates no text, name, credential or notification body.
+A preference still unknown at startup does not erase it. A new epoch
+purges it with the projection; a replaced membership invalidates its callbacks.
 
-Les modèles GTK / SwiftUI retrouvent le seul compte correspondant à la clé OS.
-Un clic attend connexion et salons, puis relit message et racine par HTTP privé,
-avec gardes de compte, requête, génération et réponses tardives.
+The GTK / SwiftUI models find the single account that matches the OS key.
+A click waits for connection and rooms, then re-reads the message and root over private HTTP,
+with guards on account, request, generation and late responses.
 
-Une réponse entre dans l'outbox avant reprise du compte ou appel HTTP : texte,
-ID d'envoi, reçu par notification / empreinte de texte et destination capturée
-sont inscrits ensemble. Les captures à froid utilisent une transaction SQLite
-`IMMEDIATE` pour sérialiser des connexions indépendantes ; deux callbacks
-concurrents ou rejoués retrouvent le même ID. Le texte utilise le stockage normal
-des messages en attente, sans nouvelle copie ni bearer. Au plus 256 réponses
-non résolues sont acceptées ; le dépassement est refusé, sans éviction silencieuse.
+A reply enters the outbox before the account resumes or any HTTP call: text,
+send ID, receipt by notification / text fingerprint and captured destination
+are recorded together. Cold captures use a SQLite `IMMEDIATE` transaction
+to serialise independent connections; two concurrent or replayed callbacks
+find the same ID. The text uses the normal storage of pending
+messages, with no new copy and no bearer. At most 256 unresolved replies
+are accepted; overflow is refused, with no silent eviction.
 
-Le rejeu ordinaire exclut ces réponses, y compris après « Réessayer ». Le moteur
-rattrape le journal, vérifie l'époque et l'adhésion d'origine, puis relit message
-et vraie racine avec les credentials actuels avant envoi. Une racine non encore
-en cache n'empêche pas la capture hors ligne. Un refus permanent conserve le
-texte dans le message en échec existant ; retry / abandon gardent leur parcours.
-Une lecture ou préférence retire le toast sans perdre une réponse déjà capturée ;
-retrait / réadhésion, déconnexion avec purge et nouvelle époque effacent ses données
-avec le reste de la projection.
+Ordinary replay excludes these replies, including after "Retry". The engine
+catches up the journal, verifies the original epoch and membership, then re-reads the message
+and the real root with the current credentials before sending. A root not yet
+in the cache does not prevent offline capture. A permanent refusal keeps the
+text in the existing failed message; retry / abandon keep their flow.
+A read or a preference removes the toast without losing a reply already captured;
+removal / re-join, logout with purge and a new epoch erase its data
+along with the rest of the projection.
 
-Avant soumission HTTP, un marqueur de tentative est persisté. Après perte de la
-confirmation, la lecture privée de l'ID d'envoi peut confirmer le message du même
-compte / salon / fil sans répondre de nouveau à une notification entre-temps
-supprimée. Les gardes de projection et d'adhésion restent appliquées autour de
-ce fetch. GTK et SwiftUI délèguent cette reprise au même cœur et aux écrans actuels.
+Before the HTTP submission, an attempt marker is persisted. After the
+confirmation is lost, the private read of the send ID can confirm the message of the same
+account / room / thread without replying again to a notification deleted in the meantime.
+The projection and membership guards remain applied around this fetch. GTK and SwiftUI delegate this resumption to the same core and to the current screens.
 
-GNOME dispose de l'action `(clé, message)` dès le startup GApplication. Les
-installations Linux créent aussi le service D-Bus du même ID et l'entrée desktop
-annonce `DBusActivatable` / `X-GNOME-UsesNotifications`, suivant le
-[contrat GNotification](https://docs.gtk.org/gio/class.Notification.html).
-Le clic
-Windows utilise `rocketvibe://notification?key=…&msg=…`, sans texte ou bearer,
-via le protocole déjà enregistré par l'installeur ; le parser refuse doublons,
-identifiants malformés et paramètres inattendus. SwiftUI traite le callback
-`UNUserNotificationCenter` dans le modèle, même avant reprise du compte.
-La réponse inline Windows passe maintenant par un serveur COM local
-`INotificationActivationCallback`, enregistré par utilisateur avec le même CLSID
-stable dans l'installeur, les raccourcis et le processus. Windows lance le binaire
-avec `-ToastActivated` ; GTK retire ce switch avant parsing, puis le callback
-transmet arguments et texte à son handler existant. Un processus déjà actif
-utilise le même callback, sans second handler WinRT qui doublerait l'envoi.
-L'AUMID, la forme des arguments et les entrées UTF-16 bornées sont vérifiés ;
-la validation privée de compte / adhésion / époque reste dans le cœur natif.
-L'enregistrement suit le [serveur COM de référence Microsoft](https://github.com/CommunityToolkit/WindowsCommunityToolkit/blob/main/Microsoft.Toolkit.Uwp.Notifications/Toasts/Compat/ToastNotificationManagerCompat.cs)
-et l'[ABI du callback](https://learn.microsoft.com/en-us/windows/win32/api/notificationactivationcallback/nf-notificationactivationcallback-inotificationactivationcallback-activate) ;
-les raccourcis utilisent le [CLSID prévu par Inno Setup](https://jrsoftware.org/ishelp/topic_iconssection.htm).
-Le signal KDE / freedesktop historique `NotificationReplied` est adressé au
-processus qui a envoyé `Notify` ; une fois celui-ci sorti, son ancienne adresse
-D-Bus ne peut pas être récupérée. La remise à froid passe désormais par le
-[portail XDG Notification v2](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Notification.html)
-quand `SupportedOptions.button-purpose` annonce `im.reply-with-text`, avec
-GLib ≥ 2.86 pour le marshalling de plusieurs arguments. Les actions exportées
-`app.open-message` et `app.reply-native-notification` sont enregistrées dès le
-startup. Le portail garde la cible `(clé, message)` et transmet le texte saisi
-comme second argument de `org.freedesktop.Application.ActivateAction` ; GTK
-reçoit le tuple `((ss)s)` et suit la même capture durable / validation privée.
-Aucun texte de réponse ne passe par l'URL ou la ligne de commande.
+GNOME has the `(key, message)` action from the GApplication startup. Linux
+installs also create the D-Bus service of the same ID and the desktop entry
+advertises `DBusActivatable` / `X-GNOME-UsesNotifications`, following the
+[GNotification contract](https://docs.gtk.org/gio/class.Notification.html).
+The Windows click
+uses `rocketvibe://notification?key=…&msg=…`, with no text or bearer,
+through the protocol already registered by the installer; the parser refuses duplicates,
+malformed identifiers and unexpected parameters. SwiftUI handles the
+`UNUserNotificationCenter` callback in the model, even before the account resumes.
+The Windows inline reply now goes through a local COM server
+`INotificationActivationCallback`, registered per user with the same stable CLSID
+in the installer, the shortcuts and the process. Windows launches the binary
+with `-ToastActivated`; GTK strips this switch before parsing, then the callback
+passes arguments and text to its existing handler. An already running process
+uses the same callback, with no second WinRT handler that would double the send.
+The AUMID, the shape of the arguments and the bounded UTF-16 inputs are verified;
+the private account / membership / epoch validation stays in the native core.
+Registration follows the [Microsoft reference COM server](https://github.com/CommunityToolkit/WindowsCommunityToolkit/blob/main/Microsoft.Toolkit.Uwp.Notifications/Toasts/Compat/ToastNotificationManagerCompat.cs)
+and the [callback ABI](https://learn.microsoft.com/en-us/windows/win32/api/notificationactivationcallback/nf-notificationactivationcallback-inotificationactivationcallback-activate);
+the shortcuts use the [CLSID provided by Inno Setup](https://jrsoftware.org/ishelp/topic_iconssection.htm).
+The legacy KDE / freedesktop signal `NotificationReplied` is addressed to the
+process that sent `Notify`; once that process has exited, its old D-Bus address
+cannot be recovered. Cold delivery now goes through the
+[XDG Notification v2 portal](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Notification.html)
+when `SupportedOptions.button-purpose` advertises `im.reply-with-text`, with
+GLib ≥ 2.86 for the marshalling of several arguments. The exported actions
+`app.open-message` and `app.reply-native-notification` are registered at
+startup. The portal keeps the `(key, message)` target and passes the typed text
+as the second argument of `org.freedesktop.Application.ActivateAction`; GTK
+receives the tuple `((ss)s)` and follows the same durable capture / private validation.
+No reply text goes through the URL or the command line.
 
-La capacité est sondée avant de choisir ce chemin, uniquement pour le fournisseur
-natif. Les environnements qui ne l'annoncent pas conservent leurs notifications
-existantes ; la réponse inline freedesktop y exige encore un processus actif.
-Le [backend Plasma consulté](https://github.com/KDE/plasma-workspace/blob/a82e8a200a37328ff6cd5cbac68ebd609fed306a/libnotificationmanager/portal_p.cpp)
-expose un portail v1 : sa présence ne suffit donc pas à activer ce parcours v2.
-Une application installée sur un système qui annonce v2 reste à qualifier.
-Les affichages / retraits du portail sont sérialisés par portée : un retrait
-pendant un `AddNotification` finit par `RemoveNotification`, un remplacement
-finit par le message le plus récent. Retirer une notification n'active pas un
-portail absent. Le diagnostic des paramètres indique le backend sélectionné.
-Une navigation par clic reçue hors ligne est maintenant conservée dans
-`notification-navigation.sqlite`, dans la configuration bureau partagée par GTK
-et SwiftUI. Une seule destination explicite est gardée, sans texte, auteur ou
-bearer : clé de portée, message / salon / racine, adhésion et position d'origine.
-Une réservation est écrite avant d'attendre le trousseau ; une capture tardive
-ne peut modifier qu'elle-même. Au redémarrage, le compte exact est sélectionné
-avant le compte par défaut. Le retrait du toast ou une fenêtre de snapshot bornée
-ne perdent pas un clic déjà capturé. Le message et la racine sont relus en privé,
-avec les gardes d'adhésion / époque / projection ; seules les erreurs temporaires
-conservent la destination pour reprise. L'ouverture dans les écrans existants
-acquitte l'ID exact, sans effacer un clic plus récent. Un nouveau lien, un changement
-explicite de salon / fil / compte ou la déconnexion annulent la navigation en attente.
-Les parcours système installés restent à qualifier sur Linux,
-Windows et macOS ; P21 reste ouvert pour ces chemins et les anciens liens importés.
-Les permaliens natifs et leur routage au démarrage utilisent le [contrat P21](ROOM_LINKS.md).
+The capability is probed before choosing this path, only for the native
+provider. Environments that do not advertise it keep their existing notifications;
+freedesktop inline reply there still requires a running process.
+The [Plasma backend consulted](https://github.com/KDE/plasma-workspace/blob/a82e8a200a37328ff6cd5cbac68ebd609fed306a/libnotificationmanager/portal_p.cpp)
+exposes a v1 portal: its presence is therefore not enough to enable this v2 flow.
+An application installed on a system that advertises v2 remains to be qualified.
+Portal displays / removals are serialised per scope: a removal
+during an `AddNotification` ends with `RemoveNotification`, a replacement
+ends with the most recent message. Removing a notification does not activate an absent
+portal. The settings diagnostic shows the selected backend.
+A click navigation received offline is now kept in
+`notification-navigation.sqlite`, in the desktop configuration shared by GTK
+and SwiftUI. Only one explicit destination is kept, with no text, author or
+bearer: scope key, message / room / root, original membership and position.
+A reservation is written before waiting for the keyring; a late capture
+can modify only itself. On restart, the exact account is selected
+before the default account. Removal of the toast or a bounded snapshot window
+does not lose a click already captured. The message and the root are re-read privately,
+with the membership / epoch / projection guards; only temporary errors
+keep the destination for resumption. Opening in the existing screens
+acknowledges the exact ID, without erasing a more recent click. A new link, an
+explicit change of room / thread / account or logout cancels the pending navigation.
+The installed system flows remain to be qualified on Linux,
+Windows and macOS; P21 stays open for these paths and for the old imported links.
+Native permalinks and their startup routing use the [P21 contract](ROOM_LINKS.md).
 
-## Preuves et qualification encore ouverte
+## Evidence and qualification still open
 
-Tests PostgreSQL / HTTP : capture atomique, rejeu, concurrence, récupération de
-lease, dernier essai en vol, backoff, rotation du bearer / FCM, purge de jeton,
-logout, mentions / DM / présence / préférences, lectures de fils, retrait puis
-réadhésion, époque restaurée, mauvaise famille, suppression et verrous de réponse.
-Un serveur HTTP FCM simulé exerce les payloads et les réponses, avec vrais appels HTTP.
-Tests TypeScript : inscription épinglée, refus de reçus tardifs ou étrangers,
-API privée, navigation et identifiants de notification par compte.
+PostgreSQL / HTTP tests: atomic capture, replay, concurrency, lease recovery,
+last attempt in flight, backoff, bearer / FCM rotation, token purge,
+logout, mentions / DMs / presence / preferences, thread reads, removal then
+re-join, restored epoch, wrong family, deletion and reply locks.
+A simulated FCM HTTP server exercises the payloads and the responses, with real HTTP calls.
+TypeScript tests: pinned registration, refusal of late or foreign receipts,
+private API, navigation and notification identifiers per account.
 
-Le passage par Firebase réel et le parcours sur **Android physique app arrêtée**
-restent ouverts : réception, réveil WorkManager, langue, tap, réponse après perte
-de confirmation, refus de permission et révocation. Une compilation ou un banc
-HTTP simulé ne ferme pas ce critère. Les bancs bureau vérifient les créations sur
-un vrai WebSocket, le rejeu, la transaction / rollback, les lectures, les préférences,
-les réponses de fils, la suppression et la réadhésion. Une base sur disque est
-fermée puis rouverte : résolution HTTP authentifiée, compte / époque, racine,
-réponse identique et purge de restauration sont exercés. Un vrai binaire GTK est
-démarré à la demande par D-Bus dans un XDG jetable, avec description et dispatch
-de l'action avant activation normale ; il utilise une portée étrangère sans
-compte, et ne prouve donc ni un clic sur un toast réel ni la navigation privée.
-Ils ne prouvent pas les
-interactions avec les notifications système installées. P17 / J3 ne sont pas
-déclarés terminés.
+The pass through real Firebase and the flow on a **physical Android with the app stopped**
+remain open: reception, WorkManager wake-up, language, tap, reply after loss
+of confirmation, permission refusal and revocation. A build or a simulated
+HTTP bench does not close this criterion. The desktop benches verify creations on
+a real WebSocket, replay, the transaction / rollback, reads, preferences,
+thread replies, deletion and re-join. An on-disk database is
+closed then reopened: authenticated HTTP resolution, account / epoch, root,
+identical reply and restore purge are exercised. A real GTK binary is
+started on demand by D-Bus in a throwaway XDG, with description and dispatch
+of the action before normal activation; it uses a foreign scope with no
+account, and therefore proves neither a click on a real toast nor private navigation.
+They do not prove the
+interactions with installed system notifications. P17 / J3 are not
+declared complete.
 
-Les réponses hors ligne sont exercées sur SQLite disque fermé puis rouvert et
-véritables échanges HTTP : zéro requête à la capture, racine absente du cache,
-deux connexions concurrentes, retrait du registre OS après capture, retry gardé,
-cible / racine supprimée, adhésion remplacée, époque restaurée et réponse HTTP
-perdue après commit. La confirmation privée au redémarrage produit un seul POST,
-même si la cible originale a été supprimée. Les tests vérifient aussi la purge
-des intentions retirées et la conservation du texte des refus permanents.
-Les clics hors ligne passent aussi par SQLite disque et HTTP réel : capture sans
-réseau, racine hors cache, registre OS retiré, redémarrage après un 503, refus des
-cibles / racines supprimées, adhésion remplacée et époque restaurée. Réservation,
-capture lente, annulation et acquittement tardif ne peuvent écraser un nouveau
-clic ; les métadonnées malformées / trop volumineuses sont refusées.
-Les modèles Swift compilent avec leurs bindings régénérés ; les notifications
-OS installées restent une qualification distincte de ces tests.
+Offline replies are exercised on a closed then reopened on-disk SQLite and
+real HTTP exchanges: zero requests at capture, root absent from the cache,
+two concurrent connections, removal from the OS registry after capture, guarded retry,
+deleted target / root, replaced membership, restored epoch and HTTP reply
+lost after commit. The private confirmation at restart produces a single POST,
+even if the original target was deleted. The tests also verify the purge
+of removed intents and the retention of the text of permanent refusals.
+Offline clicks also go through on-disk SQLite and real HTTP: capture with no
+network, root outside the cache, OS registry removed, restart after a 503, refusal of
+deleted targets / roots, replaced membership and restored epoch. Reservation,
+slow capture, cancellation and late acknowledgement cannot overwrite a new
+click; malformed / oversized metadata is refused.
+The Swift models compile with their regenerated bindings; installed OS
+notifications remain a qualification distinct from these tests.
 
-Le pont Windows passe neuf tests, dont un callback COM réellement invoqué depuis
-un second processus avec le texte saisi ; la classe du banc est temporaire et
-n'écrit pas de registre utilisateur. Le helper est exécuté par ce test, pas
-silencieusement ignoré. Des entrées étrangères / répétées / malformées sont
-refusées. Les sept tests portables et Clippy Windows / Linux passent. Ce banc
-prouve le dispatch COM entre processus, mais pas encore le lancement par le
-centre de notifications d'une application installée et arrêtée.
+The Windows bridge passes nine tests, including a COM callback actually invoked from
+a second process with the typed text; the bench class is temporary and
+writes no user registry entry. The helper is executed by this test, not
+silently skipped. Foreign / repeated / malformed inputs are
+refused. The seven portable tests and Windows / Linux Clippy pass. This bench
+proves COM dispatch across processes, but not yet launch by the notification
+center of an installed, stopped application.
 
-Le portail v2 possède deux tests de capacités / payload et un vrai serveur D-Bus
-jetable qui retarde `AddNotification` pour exercer remplacement et retrait en
-vol. Ce test est marqué conditionnel à une session bus et exécuté explicitement
-par le script de qualification, sans faux succès à zéro test. Le même script
-ferme le premier GTK, vérifie la disparition du nom D-Bus, puis réactive un
-second vrai processus par `ActivateAction` avec cible et réponse Unicode ; les
-paramètres malformés sont refusés. Cette cible étrangère n'a pas de credentials :
-elle prouve l'ABI et le démarrage, pas un envoi privé ni un portail Plasma réel.
+The v2 portal has two capability / payload tests and a real throwaway D-Bus
+server that delays `AddNotification` to exercise replacement and in-flight
+removal. This test is marked conditional on a session bus and run explicitly
+by the qualification script, with no false success at zero tests. The same script
+closes the first GTK, verifies that the D-Bus name has disappeared, then reactivates a
+second real process through `ActivateAction` with a Unicode target and reply; malformed
+parameters are refused. This foreign target has no credentials:
+it proves the ABI and the startup, not a private send nor a real Plasma portal.

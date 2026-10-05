@@ -1,103 +1,103 @@
-# Récupération de la racine E2EE — format v1
+# E2EE root recovery: format v1
 
-`identity::recovery` sauvegarde l'identité de compte de [RFC 0002](../../docs/rfcs/0002-e2ee-native.md).
-Elle restaure la capacité de certifier une **nouvelle feuille**, sans exporter
-ou restaurer l'ancien état MLS d'envoi. Ce lot reste hors des apps et ne récupère
-pas encore les messages / fichiers historiques.
+`identity::recovery` backs up the account identity of [RFC 0002](../../docs/rfcs/0002-e2ee-native.md).
+It restores the ability to certify a **new leaf**, without exporting
+or restoring the old MLS sending state. This batch stays outside the apps and does not
+yet recover the historical messages / files.
 
-## Secret et sauvegarde
+## Secret and backup
 
-`RecoverySecret::generate` remplit une clé de 32 bytes avec l'aléa OS, dans un
-buffer effacé au drop. Le secret n'a ni `Debug`, ni `Clone`, ni serde. Il est
-indépendant du mot de passe HTTP, des sessions et des codes de récupération du
-compte. `for_display` produit une chaîne temporaire `Zeroizing<String>`, réservée
-à l'affichage explicite / copie du code. Aucun flux réseau, log ou index ne doit
-la recevoir. L'adaptateur devra effacer aussi son état de vue au verrouillage.
+`RecoverySecret::generate` fills a 32-byte key with OS randomness, in a
+buffer wiped on drop. The secret has no `Debug`, no `Clone`, no serde. It is
+independent of the HTTP password, the sessions and the account recovery
+codes. `for_display` produces a temporary `Zeroizing<String>` string, reserved
+for the explicit display / copy of the code. No network flow, log or index must
+receive it. The adapter will also have to wipe its view state on lock.
 
-Le code a 78 caractères : `rvk1-`, 64 chiffres hexadécimaux, `-`, puis 8 chiffres
-de checksum. Celui-ci est constitué des quatre premiers bytes de
-`SHA256("rocketvibe-recovery-code-v1\0" || clé)`. Il détecte les erreurs de saisie,
-sans authentifier un compte. Le parseur borne la taille avant allocation et
-accepte les hexadécimaux minuscules / majuscules ; un mot de passe n'est pas un code.
+The code has 78 characters: `rvk1-`, 64 hexadecimal digits, `-`, then 8 checksum
+digits. The latter is made of the first four bytes of
+`SHA256("rocketvibe-recovery-code-v1\0" || key)`. It detects typing errors,
+without authenticating an account. The parser bounds the size before allocation and
+accepts lowercase / uppercase hexadecimal; a password is not a code.
 
-`RootBackup::seal` exporte uniquement un paquet chiffré. XChaCha20Poly1305 utilise
-cette clé de récupération et un nonce OS de 24 bytes différent à chaque
-sauvegarde. L'AEAD est l'[implémentation RustCrypto épinglée 0.10.1](https://docs.rs/chacha20poly1305/0.10.1/chacha20poly1305/).
-La racine publique, l'ID de sauvegarde aléatoire et son instant de création sont
-authentifiés dans l'AAD. Le service peut stocker le paquet opaque ; il ne possède
-ni code ni clé privée.
+`RootBackup::seal` exports only an encrypted package. XChaCha20Poly1305 uses
+this recovery key and a 24-byte OS nonce different for each
+backup. The AEAD is the [pinned RustCrypto implementation 0.10.1](https://docs.rs/chacha20poly1305/0.10.1/chacha20poly1305/).
+The public root, the random backup ID and its creation instant are
+authenticated in the AAD. The service may store the opaque package; it holds
+neither the code nor the private key.
 
-## Encodage v1
+## v1 encoding
 
-Les [règles JSON ordonné](IDENTITY.md) s'appliquent. Le paquet a les champs
-`header, nonce, ciphertext`. Le header a l'ordre
-`version, root, backup_id, created_at` ; `version=1` fixe XChaCha20Poly1305.
-`backup_id` a 16 bytes non nuls, `created_at` est un timestamp Unix en secondes.
-Racine et tableaux de bytes suivent l'encodage v1 des identités.
+The [ordered JSON rules](IDENTITY.md) apply. The package has the fields
+`header, nonce, ciphertext`. The header has the order
+`version, root, backup_id, created_at`; `version=1` fixes XChaCha20Poly1305.
+`backup_id` has 16 non-zero bytes, `created_at` is a Unix timestamp in seconds.
+Root and byte arrays follow the v1 encoding of the identities.
 
-- AAD : `UTF8("rocketvibe-root-recovery-v1") || 0x00 || JSON_compact(header)`.
-- Clair : objet `root, seed`, avec la graine Ed25519 de 32 bytes ; il est borné
-  à 4096 bytes et effacé au drop, ainsi que le buffer temporaire de décodage.
-- Nonce : 24 bytes ; ciphertext : au plus 4096 bytes plus les 16 bytes du tag.
-- Paquet JSON : au plus 24 Kio, tenant compte de l'expansion des tableaux de
-  bytes ; champs inconnus et versions non prises en charge sont refusés.
+- AAD: `UTF8("rocketvibe-root-recovery-v1") || 0x00 || JSON_compact(header)`.
+- Plaintext: object `root, seed`, with the 32-byte Ed25519 seed; it is bounded
+  to 4096 bytes and wiped on drop, as is the temporary decoding buffer.
+- Nonce: 24 bytes; ciphertext: at most 4096 bytes plus the 16 bytes of the tag.
+- JSON package: at most 24 KiB, accounting for the expansion of the byte
+  arrays; unknown fields and unsupported versions are refused.
 
-La racine du clair doit être identique au header et à la racine attendue ; la
-clé publique dérivée de la graine doit également correspondre. Un paquet AEAD
-authentifié contenant une autre racine / graine est refusé.
+The root of the plaintext must be identical to the header and to the expected root; the
+public key derived from the seed must also match. An authenticated AEAD package
+containing another root / seed is refused.
 
-## Restauration et confirmation perdue
+## Restoration and lost confirmation
 
-La première restauration exige un coffre / fournisseur OpenMLS vierge. Elle
-ne remplace jamais une identité ou une feuille déjà présente. L'adaptateur
-confirme la racine attendue et vérifie compte / instance / époque / génération
-de l'action avant d'appeler `restore` sur le worker protégé. HTTP ne fournit pas
-ce consentement. Le résultat public ne sort qu'après confirmation du checkpoint.
+The first restoration requires a blank OpenMLS vault / provider. It
+never replaces an identity or a leaf already present. The adapter
+confirms the expected root and verifies account / instance / epoch / generation
+of the action before calling `restore` on the protected worker. HTTP does not provide
+this consent. The public result only leaves after the checkpoint is confirmed.
 
-Dans le même commit que la racine, `crypto-recovery-import-v1` conserve les
-empreintes de racine et de **ce paquet exact** : SHA-256 du JSON compact du paquet
-reconstruit dans l'ordre v1. Si le checkpoint / résultat est perdu, répéter la
-même restauration avec le code correct retrouve le résultat. La répétition est
-une lecture : elle ne retire aucune feuille, demande ou donnée MLS créée depuis.
-Un autre paquet, même pour la même racine, ne peut pas emprunter ce reçu. Un
-code incorrect reste refusé lors du rejeu.
+In the same commit as the root, `crypto-recovery-import-v1` keeps the
+fingerprints of the root and of **this exact package**: SHA-256 of the compact JSON of the package
+rebuilt in v1 order. If the checkpoint / result is lost, repeating the
+same restoration with the correct code finds the result again. The repetition is
+a read: it removes no leaf, request or MLS data created since.
+Another package, even for the same root, cannot borrow this receipt. An
+incorrect code stays refused on replay.
 
-L'appareil neuf génère ensuite sa clé et son incarnation via le
-[parcours d'ajout](ENROLLMENT.md). Il doit recevoir un nouveau Welcome / commit
-autorisé. Ni ancien ratchet, KeyPackage consommé, outbox, pin de correspondant,
-ni révocation ne sont importés par ce paquet.
+The new device then generates its key and incarnation through the
+[enrollment flow](ENROLLMENT.md). It must receive a new authorized Welcome / commit.
+Neither old ratchet, consumed KeyPackage, outbox, correspondent pin,
+nor revocation is imported by this package.
 
-## Conditions restantes
+## Remaining conditions
 
-Détenir le code et le paquet donne la clé racine privée : il faut protéger les
-deux. Cette sauvegarde est volontairement récupérable et ne revendique pas de
-forward secrecy. Changer le code ou supprimer un paquet du service **n'invalide
-pas une ancienne copie** et son code. Une compromission exige une nouvelle
-racine et la vérification explicite des correspondants ; une révocation de
-feuille seule ne suffit pas. La politique des anciennes copies du coffre reste
-celle de [README.md](README.md).
+Holding the code and the package gives the private root key: both must be
+protected. This backup is deliberately recoverable and claims no
+forward secrecy. Changing the code or deleting a package from the service **does not
+invalidate an old copy** and its code. A compromise requires a new
+root and the explicit verification of correspondents; a leaf revocation
+alone is not enough. The policy on old copies of the vault stays
+that of [README.md](README.md).
 
-Le coordinateur `account::recovery` prépare maintenant le paquet / code dans
-le coffre protégé avant sortie, exige la confirmation du code conservé avant
-de rendre l'intention HTTP, règle un reçu exact et restaure une feuille neuve.
-Le serveur et les transports gèrent une version active avec CAS et des reçus
-originaux distincts ; voir [le protocole de sauvegarde](../../docs/protocol/E2EE_ROOT_BACKUPS.md).
-Le règlement terminal des conflits et le pont Android / FFI sont raccordés.
-Les paramètres Android existants proposent code temporaire / confirmation /
-reprise / abandon et récupération d'une identité sur un appareil neuf.
-Les contrôles GTK / SwiftUI utilisent le même cœur : affichage explicite du
-code, publication après confirmation, reprise / abandon et restauration avec
-empreinte examinée. Ils effacent les textes et confirmations à la fermeture ou
-au passage en arrière-plan. Leur qualification CI et les applications installées
-restent ouvertes.
-L'archive E2EE et la récupération de ses clés ont un format / une autorisation
-propres à définir ; ce paquet ne promet pas l'accès automatique à l'historique.
-Sans code sauvegardé ni contrôleur de racine disponible, cette identité ne peut
-pas être récupérée. Revue indépendante et qualifications installées restent
-conditions d'activation.
+The `account::recovery` coordinator now prepares the package / code in
+the protected vault before output, requires confirmation of the kept code before
+returning the HTTP intent, settles an exact receipt and restores a new leaf.
+The server and the transports handle an active version with CAS and distinct
+original receipts; see [the backup protocol](../../docs/protocol/E2EE_ROOT_BACKUPS.md).
+The terminal settlement of conflicts and the Android / FFI bridge are wired up.
+The existing Android settings offer temporary code / confirmation /
+resumption / abandon and recovery of an identity on a new device.
+The GTK / SwiftUI controls use the same core: explicit display of the
+code, publication after confirmation, resumption / abandon and restoration with
+examined fingerprint. They wipe the texts and confirmations on close or
+when moving to the background. Their CI qualification and the installed applications
+remain open.
+The E2EE archive and the recovery of its keys have their own format / authorization
+still to be defined; this package does not promise automatic access to the history.
+Without a saved code or an available root controller, this identity cannot
+be recovered. Independent review and installed qualifications remain
+activation conditions.
 
-Huit tests couvrent code / checksum / bornes, nonce / roundtrip, nouvelles clés
-distinctes, altération / mauvaise portée / mauvais code, clair incohérent,
-coffre actif refusé, refus transactionnel / réouverture et checkpoint perdu avec
-rejeu préservant le nouvel appareil. Le backend de trousseau de ces tests est
-une doublure ; le vrai trousseau Linux est testé séparément par le coffre.
+Eight tests cover code / checksum / bounds, nonce / roundtrip, distinct new keys,
+alteration / wrong scope / wrong code, inconsistent plaintext,
+active vault refused, transactional refusal / reopening and lost checkpoint with
+replay preserving the new device. The keychain backend of these tests is
+a stand-in; the real Linux keychain is tested separately by the vault.

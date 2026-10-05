@@ -1,71 +1,72 @@
-# RocketVibe natif dans le client bureau existant
+# Native RocketVibe in the existing desktop client
 
-Branche : `feature/rocketvibe-server`. Le formulaire de connexion reconnaît
-Rocket.Chat ou RocketVibe avant l'authentification. Les deux fournisseurs alimentent
-le même `ChatPage` GTK : liste de salons, en-têtes, Markdown, liste de messages,
-composeur et navigation. Il n'existe plus de page de chat native parallèle.
+Branch: `feature/rocketvibe-server`. The sign-in form recognizes Rocket.Chat or
+RocketVibe before authentication. Both providers feed the same GTK `ChatPage`: room
+list, headers, Markdown, message list, composer and navigation. There is no longer
+a parallel native chat page.
 
-Les comptes des deux types cohabitent dans le stockage sécurisé. La tuile du compte
-ouvre les paramètres habituels, avec ajout et changement de compte. Les anciens
-comptes sans genre restent Rocket.Chat. Un changement ferme le transport précédent ;
-les événements en retard ne sont pas appliqués au compte nouvellement affiché.
+Accounts of both kinds coexist in secure storage. The account tile opens the usual
+settings, with account adding and switching. Older accounts without a kind stay
+Rocket.Chat. A switch closes the previous transport; late events are not applied
+to the newly displayed account.
 
-## Utilisation
+## Usage
 
-Démarrer le [serveur local](../apps/server/README.md) et créer ses comptes par CLI.
-Construire le bureau dans Fedora avec `apps/desktop/scripts/build.sh`. La connexion
-à `http://127.0.0.1:3400` ouvre la même interface que celle d'un serveur Rocket.Chat.
+Start the [local server](../apps/server/README.md) and create its accounts through
+the CLI. Build the desktop app in Fedora with `apps/desktop/scripts/build.sh`.
+Signing in to `http://127.0.0.1:3400` opens the same interface as for a Rocket.Chat
+server.
 
-Le bouton nouvelle conversation permet un DM ou la création d'un salon privé/public.
-L'en-tête d'un salon ouvre l'invitation par pseudo ; le serveur réserve ce droit au
-propriétaire. La recherche existante permet de découvrir et rejoindre les salons publics.
+The new conversation button allows a DM or the creation of a private/public room.
+A room header opens the invitation by username; the server reserves this right for
+the owner. The existing search lets users discover and join public rooms.
 
-Le texte, l'historique, le brouillon et les envois hors ligne sont disponibles.
-Réessayer / abandonner utilisent le menu d'un envoi refusé. Les fonctions natives
-non prises en charge (fichiers, vocaux, fils, réactions, non-lus, recherche, push,
-E2EE et appels) restent désactivées. Rocket.Chat garde ses fonctions actuelles.
-Les menus et éditeurs existants permettent aussi l'édition et la suppression,
-avec droits du serveur, révision capturée à l'ouverture et intention SQLite.
-Une édition refusée conserve son texte pour la réouverture de l'éditeur.
+Text, history, the draft and offline sends are available. Retry / abandon use the
+menu of a refused send. The unsupported native features (files, voice messages,
+threads, reactions, unreads, search, push, E2EE and calls) stay disabled.
+Rocket.Chat keeps its current features. The existing menus and editors also allow
+editing and deletion, with server rights, a revision captured on opening and a
+SQLite intent. A refused edit keeps its text for the next time the editor is
+opened.
 
-## Cache et reprise
+## Cache and resumption
 
-- Jetons dans le trousseau existant ; genre et `instance_id` / `data_epoch` persistés.
-- Cache natif séparé `native-<sha256 URL complète + utilisateur>.sqlite`.
-- Projection, curseur et acquittement d'écho dans une transaction SQLite fallible.
-- Ordre des messages par position décimale exacte ; affichage des dates réelles.
-- Rejeu du journal et retrait des accès avant émission de l'outbox.
-- Snapshot autoritaire, purge des salons absents et rejet des historiques tardifs.
-- Identité revérifiée après lecture d'un snapshot ; une autre génération ne rejoue
-  pas les anciennes intentions.
-- Trames consommées en série, invalidations GTK bornées, watchdog de 45 secondes.
+- Tokens in the existing keyring; kind and `instance_id` / `data_epoch` persisted.
+- Separate native cache `native-<sha256 full URL + user>.sqlite`.
+- Projection, cursor and echo acknowledgement in a fallible SQLite transaction.
+- Message order by exact decimal position; display of real dates.
+- Journal replay and removal of accesses before the outbox is emitted.
+- Authoritative snapshot, purge of absent rooms and rejection of late histories.
+- Identity re-verified after a snapshot is read; another generation does not replay
+  the old intents.
+- Frames consumed serially, bounded GTK invalidations, 45-second watchdog.
 
-`NativeSession.shutdown()` est appelé au changement de compte et à la fermeture.
-La déconnexion révoque le jeton en ligne puis retire le compte local.
+`NativeSession.shutdown()` is called on account switch and on close. Sign-out
+revokes the token online, then removes the local account.
 
 ## SwiftUI / UniFFI
 
-`Client.native_login` et `native_resume` exposent le moteur par `NativeChat` :
-statut, messages, salons, brouillons, historique, outbox, DM et gestion des salons.
-L'API historique refuse d'envoyer des identifiants natifs aux routes Rocket.Chat.
-`ChatProvider` raccorde les deux transports aux modèles `AppModel` et `RoomModel` :
-les vues SwiftUI de connexion, salons, messages, recherche de personnes, DM,
-composeur et comptes restent communes. Le rendu Markdown, les groupes d'auteurs
-et les séparateurs de jour utilisent les mêmes objets UniFFI que Rocket.Chat,
-en conservant l'ordre du journal natif. Les avatars natifs restent des initiales.
-Les fonctions absentes du serveur sont désactivées dans ces vues.
+`Client.native_login` and `native_resume` expose the engine through `NativeChat`:
+status, messages, rooms, drafts, history, outbox, DMs and room management. The
+legacy API refuses to send native credentials to Rocket.Chat routes.
+`ChatProvider` connects both transports to the `AppModel` and `RoomModel` models:
+the SwiftUI views for sign-in, rooms, messages, people search, DMs, composer and
+accounts stay shared. Markdown rendering, author groups and day separators use the
+same UniFFI objects as Rocket.Chat, keeping the order of the native journal. Native
+avatars remain initials. The features absent from the server are disabled in these
+views.
 
-Le banc Swift utilise le vrai serveur PostgreSQL et un Secret Service déverrouillé,
-avec un compte jetable. Après génération et compilation par
-`apps/desktop/macos/scripts/check-linux.sh`, démarrer uniquement les services
-`postgres bootstrap server` du Compose pilote puis lancer
+The Swift bench uses the real PostgreSQL server and an unlocked Secret Service,
+with a throwaway account. After generation and compilation by
+`apps/desktop/macos/scripts/check-linux.sh`, start only the services
+`postgres bootstrap server` of the pilot Compose file, then run
 `docker compose -f docker/compose.native-pilot.yml run --rm --no-deps swift`.
-Il exerce les modèles Swift et les bindings Rust réels ; l'affichage AppKit /
-SwiftUI complet est construit et lancé séparément par la CI macOS.
+It exercises the Swift models and the real Rust bindings; the complete AppKit /
+SwiftUI display is built and launched separately by the macOS CI.
 
-## Banc reproductible
+## Reproducible bench
 
-Depuis la racine, dans Bash avec Docker :
+From the root, in Bash with Docker:
 
 ```sh
 docker build -t rocket-vibe-rs-build apps/desktop/docker
@@ -87,87 +88,86 @@ docker compose -f docker/compose.native-pilot.yml logs --no-color
 docker compose -f docker/compose.native-pilot.yml down -v
 ```
 
-Lancer `desktop` immédiatement après `mobile` : le pair dispose d'un délai borné.
-Le banc jetable utilise PostgreSQL en tmpfs, sans port hôte ni volume de développement.
-Il emploie la façade mobile réelle, ses migrations SQLite et le binaire GTK réel.
-Il vérifie échange, reprise après réouverture du fichier, brouillon, unicité du DM,
-création / invitation, retrait privé, révocation et widgets affichés, en large et à
-435 pixels. Captures : `artifacts/native-desktop*.png`.
+Run `desktop` immediately after `mobile`: the peer has a bounded wait.
+The throwaway bench uses PostgreSQL in tmpfs, with no host port and no development
+volume. It uses the real mobile facade, its SQLite migrations and the real GTK
+binary. It verifies exchange, resumption after the file is reopened, draft, DM
+uniqueness, creation / invitation, private removal, revocation and the displayed
+widgets, at full width and at 435 pixels. Screenshots: `artifacts/native-desktop*.png`.
 
-GTK et les modèles Swift utilisent un vrai Secret Service dans ce banc Linux.
-La politique SQL jetable raccourcit le premier jeton à un jour, ce qui déclenche
-son renouvellement dans les clients existants. `session-check` exige une rotation
-pour les deux comptes, même si les sessions ont ensuite été déconnectées ; ses
-compteurs ne contiennent aucun secret. Le pair mobile exerce la vraie façade
-SQLite et la reprise portable, avec une sauvegarde en mémoire propre au banc.
-La qualification SecureStore Android, le trousseau Windows / macOS et les essais
-sur appareils restent ouverts dans le [suivi](NATIVE_SERVER_EXECUTION.md).
+GTK and the Swift models use a real Secret Service in this Linux bench.
+The throwaway SQL policy shortens the first token to one day, which triggers its
+renewal in the existing clients. `session-check` requires a rotation for both
+accounts, even if the sessions were signed out afterwards; its counters contain no
+secret. The mobile peer exercises the real SQLite facade and portable resumption,
+with an in-memory backup specific to the bench. The qualification of Android
+SecureStore, the Windows / macOS keyring and tests on devices remain open in the
+[tracker](NATIVE_SERVER_EXECUTION.md).
 
-Le parcours GTK ouvre aussi les paramètres puis la liste d'appareils, développe
-l'appareil courant et applique un nom par le véritable champ Adwaita. Il vérifie
-la valeur serveur et que le champ tient dans la fenêtre. Les modèles Swift
-renomment l'appareil courant, révoquent une seconde session et vérifient son
-refus HTTP 401 ; les contrôles retenus du précédent compte restent inactifs.
+The GTK path also opens the settings and then the device list, expands the current
+device and applies a name through the real Adwaita field. It verifies the server
+value and that the field fits in the window. The Swift models rename the current
+device, revoke a second session and verify its HTTP 401 refusal; the controls held
+over from the previous account stay inactive.
 
-Le bootstrap jetable émet des invitations dans un volume privé, monté en lecture
-seule par les clients. GTK utilise le champ d'invitation de sa page de connexion,
-crée un compte, efface les secrets du formulaire puis reprend ce compte depuis
-Secret Service après un redémarrage. Le modèle Swift exerce le même parcours
-et le logout. Le pair mobile inscrit un compte, reprend la réponse puis connecte
-son fournisseur SQLite. Le volume d'invitations est supprimé avec `down -v` ;
-aucun code ne rejoint les logs ou les artifacts. Ces essais ne remplacent pas
-la qualification des appareils physiques.
+The throwaway bootstrap issues invitations in a private volume, mounted read-only
+by the clients. GTK uses the invitation field of its sign-in page, creates an
+account, clears the form secrets, then resumes that account from the Secret Service
+after a restart. The Swift model exercises the same path and the logout. The mobile
+peer registers an account, resumes the response, then connects its SQLite provider.
+The invitation volume is deleted with `down -v`; no code reaches the logs or the
+artifacts. These tests do not replace the qualification of physical devices.
 
-Le banc émet aussi des codes opérateur liés à trois comptes de récupération.
-GTK passe par sa variante « Mot de passe oublié » puis reprend la nouvelle session
-après redémarrage. Swift vérifie en plus le rejet HTTP 401 de l'ancien bearer.
-Le pair mobile conserve l'UID et une conversation réellement écrite avant reset,
-revérifie son contenu dans SQLite et rejoue la confirmation sans révoquer sa
-session récente. Codes d'invitation et de récupération partagent le volume
-privé jetable, jamais les artifacts.
+The bench also issues operator codes tied to three recovery accounts. GTK goes
+through its « Mot de passe oublié » variant, then resumes the new session after a
+restart. Swift additionally verifies the HTTP 401 rejection of the old bearer. The
+mobile peer keeps the UID and a conversation actually written before the reset,
+re-verifies its content in SQLite and replays the confirmation without revoking its
+recent session. Invitation and recovery codes share the private throwaway volume,
+never the artifacts.
 
-Le bootstrap génère aussi une clé opérateur aléatoire privée pour les facteurs,
-lisible uniquement par le serveur, puis provisionne deux comptes de test avec
-TOTP et dix secours. Un proxy privé jette chaque réponse de validation réussie.
-GTK utilise son formulaire et Secret Service : mauvais secours refusé, compte
-encore inactif après réponse perdue, récupération du candidat sans nouveau code,
-écriture de session puis effacement de la preuve. Un redémarrage sous un nouveau
-D-Bus / daemon de trousseau reprend ce compte. `factor-check` exige une seule
-famille d'appareil et exactement un secours consommé pour `gtk-factor`.
-Les secrets de ce banc restent dans le volume privé supprimé par `down -v` ;
-ils ne sont ni journalisés ni ajoutés aux captures. Ce parcours Linux ne qualifie
-pas le trousseau macOS / Windows ni un appareil Android physique.
+The bootstrap also generates a private random operator key for the factors,
+readable only by the server, then provisions two test accounts with TOTP and ten
+recovery codes. A private proxy discards each successful validation response. GTK
+uses its form and the Secret Service: wrong recovery code refused, account still
+inactive after a lost response, candidate recovered without a new code, session
+written, then the proof erased. A restart under a new D-Bus / keyring daemon
+resumes that account. `factor-check` requires a single device family and exactly
+one recovery code consumed for `gtk-factor`. The secrets of this bench stay in the
+private volume deleted by `down -v`; they are neither logged nor added to the
+screenshots. This Linux path does not qualify the macOS / Windows keyring or a
+physical Android device.
 
-Le service `swift` reçoit un compte distinct et le même proxy de réponse perdue.
-Ses modèles conservent le compte précédent pendant le défi ; une preuve privée
-reste absente de l'index des sessions. Le modèle et le client sont recréés avant
-confirmation, une requête est quittée en cours, puis la session se récupère sans
-code et se reprend depuis le vrai trousseau. Il s'agit d'une recréation des
-modèles, pas d'un processus macOS tué. Un compte `swift-replay` couvre aussi le
-rejeu d'un handle opaque après la rotation forcée de son premier bearer.
+The `swift` service receives a distinct account and the same lost-response proxy.
+Its models keep the previous account during the challenge; a private proof stays
+absent from the session index. The model and the client are recreated before
+confirmation, a request is abandoned mid-flight, then the session is recovered
+without a code and resumed from the real keyring. This is a recreation of the
+models, not a killed macOS process. A `swift-replay` account also covers the replay
+of an opaque handle after the forced rotation of its first bearer.
 
-Le job Swift démarre `factor-seed` / `factor-proxy`, lance `swift`, puis vérifie
-ses compteurs propres avec :
+The Swift job starts `factor-seed` / `factor-proxy`, runs `swift`, then verifies
+its own counters with:
 
 ```sh
 docker compose -f docker/compose.native-pilot.yml run --rm --no-deps \
   -e 'PGOPTIONS=-c rocketvibe.pilot_factor_user=swift-factor' factor-check
 ```
 
-## Paramètres de sécurité et adresse e-mail
+## Security settings and email address
 
-L'overlay `docker/compose.native-security-pilot.yml` vérifie les paramètres
-existants dans deux processus GTK ou Swift, avec le vrai Secret Service Linux.
-Il ajoute un relais SMTP TLS local dans l'espace réseau du serveur ; son
-certificat de localhost est une fixture synthétique explicitement publique.
-La configuration SMTP privée et les codes reçus restent dans le volume jetable
-d'invitations, sans port hôte ni adresse extérieure. Le proxy perd une réponse
-réussie par endpoint. L'adresse en attente survit au restart, sa confirmation
-se reprend sans nouveau code et une adresse refusée peut être fermée sans
-effacer le contact. La vérification SQL exige une famille, une preuve, un mail
-admis et confirmé, puis l'effacement de la charge de livraison chiffrée.
+The overlay `docker/compose.native-security-pilot.yml` verifies the existing
+settings in two GTK or Swift processes, with the real Linux Secret Service.
+It adds a local TLS SMTP relay in the server's network namespace; its localhost
+certificate is a synthetic fixture that is explicitly public. The private SMTP
+configuration and the received codes stay in the throwaway invitation volume, with
+no host port and no external address. The proxy loses one successful response per
+endpoint. The pending address survives the restart, its confirmation resumes
+without a new code and a refused address can be closed without erasing the contact.
+The SQL verification requires one family, one proof, one admitted and confirmed
+mail, then the erasure of the encrypted delivery payload.
 
-Après construction des images et binaires ci-dessus, lancer un projet frais :
+After building the images and binaries above, run a fresh project:
 
 ```sh
 docker compose -p rocketvibe-email-gtk-pilot -f docker/compose.native-pilot.yml \
@@ -180,18 +180,19 @@ docker compose -p rocketvibe-email-gtk-pilot -f docker/compose.native-pilot.yml 
   -f docker/compose.native-security-pilot.yml down -v
 ```
 
-Pour les modèles Swift, générer les bindings et tests avec
-`apps/desktop/macos/scripts/check-linux.sh`, puis utiliser un autre projet frais
-avec `security-swift` et `security-swift-check`. La CI lance ces deux parcours.
-Ces essais Linux ne ferment pas la qualification des trousseaux Windows /
-macOS, de SecureStore Android installé ou du rendu SwiftUI sur macOS.
+For the Swift models, generate the bindings and tests with
+`apps/desktop/macos/scripts/check-linux.sh`, then use another fresh project
+with `security-swift` and `security-swift-check`. The CI runs both paths.
+These Linux tests do not close the qualification of the Windows / macOS keyrings,
+of an installed Android SecureStore or of the SwiftUI rendering on macOS.
 
-## Inscription explicite du facteur e-mail
+## Explicit email factor enrolment
 
-Après construction des images / binaires, l'overlay d'inscription vérifie trois
-processus par client, avec pertes des réponses de profil et de preuve. Il reprend
-les dix secours d'origine et conserve le contact après retrait du dernier profil.
-Un projet frais par client est obligatoire : le proxy perd une réponse par route.
+After building the images / binaries, the enrolment overlay verifies three
+processes per client, with losses of the profile and proof responses. It resumes
+the original ten recovery codes and keeps the contact after the last profile is
+removed. A fresh project per client is mandatory: the proxy loses one response per
+route.
 
 ```sh
 files='-f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-email-settings-pilot.yml'
@@ -201,8 +202,8 @@ docker compose -p rocketvibe-email-settings-gtk $files run --rm --no-deps email-
 docker compose -p rocketvibe-email-settings-gtk $files down -v
 ```
 
-Pour Swift, ajouter `-f docker/compose.native-swift-email-otp-pilot.yml` avant
-l'overlay d'inscription et utiliser le projet `rocketvibe-email-settings-swift`
-avec `email-settings-swift`. Le contrôle `email-settings-check` reçoit
+For Swift, add `-f docker/compose.native-swift-email-otp-pilot.yml` before the
+enrolment overlay and use the project `rocketvibe-email-settings-swift`
+with `email-settings-swift`. The `email-settings-check` control receives
 `-e 'PGOPTIONS=-c rocketvibe.pilot_email_settings_user=swift-email'`.
-La CI exécute ces parcours et leur nettoyage. Le relais du banc reste local.
+The CI runs these paths and their cleanup. The bench relay stays local.

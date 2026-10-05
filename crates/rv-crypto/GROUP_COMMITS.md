@@ -1,156 +1,156 @@
-# Transitions MLS protégées
+# Protected MLS transitions
 
-`groups::Commit` porte la transition signée, son vrai commit TLS, le reçu et les
-versions de salon / adhésions observées indépendamment. `preview_commit` valide
-le successeur dans un fournisseur temporaire ; `accept_commit` répète cette
-validation et conserve état MLS, reçu et invalidation de l'outbox concurrente
-dans la même transaction protégée. Rien n'est remis avant le checkpoint.
+`groups::Commit` carries the signed transition, its real TLS commit, the receipt and the
+room / membership versions observed independently. `preview_commit` validates
+the successor in a temporary provider; `accept_commit` repeats this
+validation and keeps the MLS state, receipt and invalidation of the concurrent outbox
+in the same protected transaction. Nothing is handed over before the checkpoint.
 
-## Préparation du successeur
+## Successor preparation
 
-`groups::Change` fournit le roster courant observé indépendamment, la tête
-serveur complète, l'opération, les IDs d'appareils à retirer explicitement et
-leurs nouveaux KeyPackages publics. `preview_change` exige cette tête identique
-au reçu local accepté et vérifie l'ancien arbre réel avant confirmation. Un
-état hors ligne périmé doit rattraper les événements avant préparation.
+`groups::Change` supplies the independently observed current roster, the complete
+server head, the operation, the IDs of devices to withdraw explicitly and
+their new public KeyPackages. `preview_change` requires this head to be identical
+to the accepted local receipt and verifies the real old tree before confirmation. A
+stale offline state must catch up on the events before preparation.
 
-Sans ajout ni retrait, le parcours fait une vraie rotation de feuille. Ajouts,
-retraits et remplacements Remove+Add sont inclus dans un seul commit, même avec
-des nombres différents. L'auteur reste admis ; un retrait local relève du
-parcours distinct à intégrer. Tous les utilisateurs du roster doivent être
-représentés. Un nonce d'accès / activation changé interdit de conserver une
-ancienne admission : les appareils concernés doivent être retirés et réadmis
-avec packages frais. Les références déjà observées restent interdites.
+Without addition or withdrawal, the flow performs a real leaf rotation. Additions,
+withdrawals and Remove+Add replacements are included in a single commit, even with
+different numbers. The author stays admitted; a local withdrawal belongs to the
+distinct flow still to be integrated. All the users of the roster must be
+represented. A changed access / activation nonce forbids keeping an
+old admission: the devices concerned must be withdrawn and readmitted
+with fresh packages. References already observed stay forbidden.
 
-Les appareils conservés gardent leur identité, indice et référence initiale de
-package, avec certificat courant et pins approuvés. Un appareil retiré peut
-déjà être révoqué ou expiré. Le certificat local renouvelé est installé dans la
-véritable feuille MLS par les paramètres du commit ; sa racine, incarnation et
-clé de signature doivent rester les mêmes. Les autres appareils vérifient
-ensuite le certificat renouvelé par le parcours de réception.
+The retained devices keep their identity, index and initial package reference,
+with current certificate and approved pins. A withdrawn device may
+already be revoked or expired. The renewed local certificate is installed in the
+real MLS leaf by the commit parameters; its root, incarnation and
+signing key must stay the same. The other devices then verify
+the renewed certificate through the reception flow.
 
-La confirmation opaque lie demande, état accepté, pins, certificat local et
-échéance de cinq minutes au maximum. Les indices des nouveaux destinataires
-dans le preview sont provisoires ; le plan signé emploie les vrais indices
-du PublicGroup validé après préparation. Le contexte, arbre, époque et chaque
-feuille sont contrôlés avant persistance. Les entrées sont bornées avant copie
-et hash ; l'ordre des retraits ou packages ne modifie pas l'identité de demande.
-Les propositions MLS déjà en attente sont refusées, sans ajout implicite.
+The opaque confirmation binds request, accepted state, pins, local certificate and
+a deadline of five minutes at most. The indices of the new recipients
+in the preview are provisional; the signed plan uses the real indices
+of the PublicGroup validated after preparation. The context, tree, epoch and each
+leaf are checked before persistence. Inputs are bounded before copy
+and hash; the order of withdrawals or packages does not change the request identity.
+MLS proposals already pending are refused, with no implicit addition.
 
-`prepare_change` conserve état MLS préparé, preuve, arbre, commit et Welcomes
-originaux dans la même transaction protégée avant toute remise au réseau.
-L'époque acceptée demeure ancienne jusqu'au reçu exact. Réouverture, réponse
-perdue et checkpoint interrompu reprennent les mêmes octets ; une demande
-différente ne remplace pas l'outbox. Le retry original reste possible après
-expiration du preview seulement si certificat et confiance sont toujours
-valides. Le reçu historique exact demeure réconciliable séparément.
+`prepare_change` keeps the prepared MLS state, proof, tree, commit and original
+Welcomes in the same protected transaction before any handover to the network.
+The accepted epoch stays old until the exact receipt. Reopening, lost response
+and interrupted checkpoint resume the same bytes; a different request
+does not replace the outbox. The original retry remains possible after
+the preview expires only if the certificate and trust are still
+valid. The exact historical receipt remains separately reconcilable.
 
-## Validation et réception
+## Validation and reception
 
-La preuve doit désigner exactement la portée du coffre et son groupe, le parent
-accepté, la révision et l'époque précédentes, ainsi que les versions de politique
-et membres observées. Le reçu lie la preuve et son opération. OpenMLS authentifie
-et déchiffre ensuite le message : un contenu applicatif, une proposition isolée,
-un auteur externe, une auto-exclusion ou une proposition PSK sont refusés dans
-ce parcours. La [réadmission par un nouveau Welcome](READMISSION.md) remplace
-le groupe dans le même coffre, sans héritage implicite. La suspension après
-retrait et le raccordement de ces parcours aux apps restent à intégrer.
+The proof must designate exactly the vault scope and its group, the accepted
+parent, the previous revision and epoch, as well as the observed policy
+and member versions. The receipt binds the proof and its operation. OpenMLS then authenticates
+and decrypts the message: application content, an isolated proposal,
+an external sender, a self-removal or a PSK proposal are refused in
+this flow. The [readmission through a new Welcome](READMISSION.md) replaces
+the group in the same vault, with no implicit inheritance. Suspension after
+withdrawal and the wiring of these flows into the apps remain to be integrated.
 
-Le véritable auteur MLS doit correspondre à la racine / appareil / incarnation
-et clé de signature du certificat déclarant la transition, avec son indice
-réel. Une signature de preuve valide ne suffit pas à attribuer le commit d'un
-autre membre. Un certificat renouvelé peut garder sa clé ; sa preuve courante
-reste soumise aux pins et révocations. Après fusion, contexte, arbre, époque,
-indices, certificats et clés de **chaque** feuille correspondent à la preuve.
-Les appareils distants exigent leurs approbations locales persistantes.
+The real MLS author must match the root / device / incarnation
+and signing key of the certificate declaring the transition, with its real
+index. A valid proof signature is not enough to attribute the commit of
+another member. A renewed certificate may keep its key; its current proof
+stays subject to pins and revocations. After merging, context, tree, epoch,
+indices, certificates and keys of **each** leaf match the proof.
+Remote devices require their persistent local approvals.
 
-Une admission conservée garde ses nonces, identité, indice et référence initiale
-de package. Un membre réactivé / revenu ou un appareil déplacé exige un vrai
-ajout MLS avec nouveau package et Welcome déclaré. Le moteur compare la référence
-RFC 9420 au package réellement couvert par la proposition Add ; les Welcomes
-déclarés concernent exactement les nouvelles admissions. Changer les nonces
-locaux exige une réadmission distincte : les anciennes ratchets ne deviennent
-pas celles de la nouvelle adhésion.
+A retained admission keeps its nonces, identity, index and initial package
+reference. A reactivated / returned member or a moved device requires a real
+MLS addition with a new package and a declared Welcome. The engine compares the RFC 9420
+reference with the package actually covered by the Add proposal; the declared
+Welcomes concern exactly the new admissions. Changing the local nonces
+requires a distinct readmission: the old ratchets do not become
+those of the new membership.
 
-Les références observées dans les états acceptés sont conservées après retrait
-du membre. Une nouvelle admission ne peut pas réutiliser une telle référence,
-même après disparition de la feuille. Cette mémoire est bornée à 8 192 références
-par incarnation de groupe, sans éviction qui rendrait un ancien package réutilisable.
-Le document reste borné à 8 Mio ; le coffre global à 16 Mio. Les anciennes
-genèses / admissions sans cet index le reconstruisent depuis leur plan accepté.
-Ce cache ne prétend pas connaître des références antérieures jamais observées
-par cette installation ; le serveur conserve également ses références dépensées.
+The references observed in accepted states are kept after the member
+is withdrawn. A new admission cannot reuse such a reference,
+even after the leaf has disappeared. This memory is bounded to 8,192 references
+per group incarnation, with no eviction that would make an old package reusable.
+The document stays bounded to 8 MiB; the global vault to 16 MiB. Old
+genesis / admissions without this index rebuild it from their accepted plan.
+This cache does not claim to know earlier references never observed
+by this installation; the server also keeps its spent references.
 
-## Données authentifiées du commit
+## Authenticated data of the commit
 
-La genèse préparée par le coffre utilise désormais les AAD de ce profil pour
-son commit d'ajout. La réception exige ces mêmes octets authentifiés. Les AAD
-sont le préfixe UTF-8 `rocketvibe-mls-commit-routing-v1`, un octet nul, puis le
-JSON compact sérialisé dans cet ordre :
+The genesis prepared by the vault now uses the AAD of this profile for
+its add commit. Reception requires these same authenticated bytes. The AAD
+are the UTF-8 prefix `rocketvibe-mls-commit-routing-v1`, a null byte, then the
+compact JSON serialized in this order:
 
 `version`, `scope`, `operation`, `expected_revision`, `expected_epoch`, `epoch`,
 `previous`, `authority_version`, `members`, `devices`.
 
-Les champs reprennent les types et ordres du plan signé, avec `version = 1`.
-Les appareils sont triés par ID et contiennent, dans cet ordre : `user`, `device`,
-`incarnation`, `root`, `certificate`, `key_package`. Les empreintes sont les
-tableaux de 32 octets du plan, l'incarnation ses 16 octets ; l'absence de référence
-est `null`. Les membres gardent l'ordre canonique de leurs UID. Les entiers
-sont sérialisés exactement par Rust, sans passage par un nombre JavaScript.
+The fields reuse the types and orders of the signed plan, with `version = 1`.
+Devices are sorted by ID and contain, in this order: `user`, `device`,
+`incarnation`, `root`, `certificate`, `key_package`. The fingerprints are the
+32-byte arrays of the plan, the incarnation its 16 bytes; the absence of a reference
+is `null`. Members keep the canonical order of their UIDs. Integers
+are serialized exactly by Rust, without passing through a JavaScript number.
 
-Les indices de feuilles, contexte / arbre / commit et digests de Welcomes sont
-exclus : leurs valeurs finales dépendent du commit en préparation et créeraient
-une dépendance circulaire. Le moteur vérifie séparément ces déclarations avec
-les véritables résultats MLS. L'opération, les nonces, destinataires et références
-restent authentifiés par le commit ; une preuve re-signée pour une autre
-opération ne peut pas réattribuer son ciphertext original.
+The leaf indices, context / tree / commit and Welcome digests are
+excluded: their final values depend on the commit being prepared and would create
+a circular dependency. The engine verifies these declarations separately against
+the real MLS results. The operation, nonces, recipients and references
+stay authenticated by the commit; a proof re-signed for another
+operation cannot reassign its original ciphertext.
 
-Ce profil client demeure expérimental et désactivé. Le serveur livre des octets
-opaques ; sa validation publique ne prouve pas les AAD ou le contenu MLS. Les
-fixtures de preuve publique ne revendiquent pas cette validation privée.
+This client profile remains experimental and disabled. The server delivers opaque
+bytes; its public validation does not prove the AAD or the MLS content. The
+public proof fixtures do not claim this private validation.
 
-## Commit concurrent et reprise
+## Concurrent commit and resumption
 
-Le coffre vérifie son commit local en attente contre son état préparé. Un
-successeur reçu différent peut le remplacer après validation complète et
-confirmation. Les previews, TLS altérés et refus applicatifs tardifs annulent
-également les mutations OpenMLS : ils ne suppriment pas l'outbox précédente.
-Après succès, un ACK tardif du commit remplacé ne réactive pas cet ancien fork.
+The vault verifies its pending local commit against its prepared state. A different
+received successor may replace it after full validation and
+confirmation. Previews, altered TLS and late application refusals
+also cancel the OpenMLS mutations: they do not delete the previous outbox.
+After success, a late ACK of the replaced commit does not reactivate this old fork.
 
-L'écho exact de sa propre préparation conserve son état original sans essayer
-de déchiffrer son propre PrivateMessage. Le reçu exact peut aussi être traité
-par `confirm`, désormais valable après une genèse déjà active. Le dernier ACK
-historique peut être répété après interruption / expiration / révocation, sans
-transformer ce diagnostic d'état en autorisation d'envoyer. Une nouvelle
-transition exige à nouveau les versions, pins et certificats valides.
+The exact echo of its own preparation keeps its original state without trying
+to decrypt its own PrivateMessage. The exact receipt can also be handled
+by `confirm`, now valid after an already active genesis. The last historical
+ACK can be repeated after interruption / expiry / revocation, without
+turning this state diagnostic into an authorization to send. A new
+transition again requires valid versions, pins and certificates.
 
-Les groupes rejoints conservent la configuration d'extension d'arbre, nécessaire
-à la préparation ultérieure d'un vrai GroupInfo et à sa vérification publique.
+Joined groups keep the tree extension configuration, needed
+for the later preparation of a real GroupInfo and its public verification.
 
-## Preuves et travail restant
+## Proofs and remaining work
 
-Onze scénarios utilisent de vrais coffres / commits MLS : rotations et secrets
-identiques après réouverture, ajout / retrait, approbations, nonces réactivés,
-vrai remplacement avec package frais, preuve re-signée mais faux contexte /
-arbre / index / auteur / AAD / Welcome, référence déclarée différente de l'Add,
-réutilisation après retrait, ciphertext applicatif à la place d'un commit,
-conflit entre deux préparations, rollback après fusion, ACK propre et récupération
-après checkpoint perdu. Les bornes, reçus changés et consentements périmés sont
-également refusés. La suite complète conserve les scénarios antérieurs.
+Eleven scenarios use real vaults / MLS commits: rotations and identical secrets
+after reopening, addition / withdrawal, approvals, reactivated nonces,
+real replacement with a fresh package, proof re-signed but false context /
+tree / index / author / AAD / Welcome, declared reference different from the Add,
+reuse after withdrawal, application ciphertext in place of a commit,
+conflict between two preparations, rollback after merge, own ACK and recovery
+after a lost checkpoint. Bounds, changed receipts and stale consents are
+also refused. The full suite keeps the earlier scenarios.
 
-Onze scénarios de préparation supplémentaires passent par l'API du coordinateur,
-avec vrais coffres et commits : rotation / retry exact, ajout et retrait révoqué,
-deux retraits avec un ajout, nonces réactivés, approbations et références dépensées,
-ancien head, certificat renouvelé dans la vraie feuille, checkpoint perdu,
-bounds et historique de références plein, puis rotation d'un singleton à
-l'époque zéro avant admission. La suite complète compte 90 tests réussis,
-plus l'enfant de crash exécuté par son parent.
+Eleven additional preparation scenarios go through the coordinator API,
+with real vaults and commits: rotation / exact retry, addition and revoked withdrawal,
+two withdrawals with one addition, reactivated nonces, approvals and spent references,
+old head, renewed certificate in the real leaf, lost checkpoint,
+bounds and full reference history, then rotation of a singleton at
+epoch zero before admission. The full suite counts 90 passing tests,
+plus the crash child executed by its parent.
 
-Les [conversions HTTP contrôlées](GROUP_HTTP.md) sont désormais livrées.
-Ordonnanceur réseau et réconciliation des refus restent à intégrer. Cette réception
-vise un successeur correspondant aux versions observées ; le rattrapage complet
-de pages à travers des changements d'adhésion, Welcome initial ancien, retrait
-local / retour et nouvelles incarnations reste ouvert. L'outbox et l'inbox des
-messages, les fichiers / archives / import, pont Android et interfaces existantes,
-qualifications des appareils / trousseaux et revue indépendante restent les
-conditions de J4. Aucune capacité E2EE n'est activée.
+The [controlled HTTP conversions](GROUP_HTTP.md) are now delivered.
+Network scheduler and reconciliation of refusals remain to be integrated. This reception
+targets a successor matching the observed versions; the full catch-up
+of pages across membership changes, old initial Welcome, local
+withdrawal / return and new incarnations remains open. The outbox and inbox of
+messages, files / archives / import, Android bridge and existing interfaces,
+qualifications of devices / keychains and independent review remain the
+conditions of J4. No E2EE capability is enabled.

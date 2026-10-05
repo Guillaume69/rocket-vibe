@@ -1,429 +1,429 @@
-# Protocole natif RocketVibe — premier incrément
+# RocketVibe native protocol: first increment
 
-Le serveur est expérimental. La [RFC 0001](../rfcs/0001-serveur-rocketvibe-rust.md)
-décrit la destination ; ce contrat ne couvre que le socle livré, pas toute la parité.
+The server is experimental. [RFC 0001](../rfcs/0001-rocketvibe-rust-server.md)
+describes the destination; this contract covers only the delivered foundation, not full parity.
 
-`crates/rv-protocol` est la source des DTO. Son binaire `export-schema` produit
-`v1.schema.json`. `scripts/generate-native-protocol.mjs` génère les bindings et la
-validation à l'exécution dans le pilote TypeScript mobile. Ces fichiers générés
-sont versionnés et vérifiés sans diff en CI.
+`crates/rv-protocol` is the source of the DTOs. Its `export-schema` binary produces
+`v1.schema.json`. `scripts/generate-native-protocol.mjs` generates the bindings and the
+runtime validation in the mobile TypeScript pilot. These generated files
+are versioned and checked for zero diff in CI.
 
-La [recherche native en salon](SEARCH.md) utilise PostgreSQL, des résultats
-temporaires et les écrans existants ; son index local chiffré reste lié à J4.
+The [native in-room search](SEARCH.md) uses PostgreSQL, temporary results
+and the existing screens; its encrypted local index remains tied to J4.
 
-Les [profils et préférences](PROFILES.md) disposent d'API versionnées et d'un
-stockage local d'avatars protégés, raccordés aux écrans existants.
+[Profiles and preferences](PROFILES.md) have versioned APIs and a
+local storage of protected avatars, wired into the existing screens.
 
-Le [cycle des fichiers natifs](FILES.md) fournit réservation, transfert streamé,
-confirmation idempotente et téléchargement protégé. Les SDK sont disponibles ;
-outboxes et lecteurs des trois clients restent à raccorder.
+The [native file lifecycle](FILES.md) provides reservation, streamed transfer,
+idempotent confirmation and protected download. The SDKs are available;
+outboxes and readers of the three clients remain to be wired.
 
-Les [documents Markdown natifs](MARKDOWN.md) sont traduits vers les renderers
-existants aux frontières des fournisseurs. Le texte source reste présent ;
-ce contrat ne transporte pas le format `md` Rocket.Chat.
+The [native Markdown documents](MARKDOWN.md) are translated to the existing
+renderers at the provider boundaries. The source text stays present;
+this contract does not carry the Rocket.Chat `md` format.
 
-Le [contrat de citations natives](QUOTES.md) décrit les références, la résolution
-par lecteur et les protections de remise ; son raccordement aux cartes existantes
-reste un lot distinct avant l'annonce de la capacité.
+The [native quotes contract](QUOTES.md) describes references, per-reader resolution
+and delivery protections; its wiring into the existing cards
+remains a distinct batch before the capability is advertised.
 
-## Transport et identité
+## Transport and identity
 
-Les [réunions Jitsi natives](MEETINGS.md) disposent d'un serveur et de transports
-avec reçus de démarrage, contrôle d'adhésion et JWT courts. Le raccordement des
-écrans d'appel existants et la qualification d'un service Jitsi restent ouverts.
+The [native Jitsi meetings](MEETINGS.md) have a server and transports
+with start receipts, membership checks and short-lived JWTs. Wiring of the existing
+call screens and qualification of a Jitsi service remain open.
 
-Le [contrat temporaire de présence et saisie](LIVE.md) définit les deux routes
-PUT, `GET /api/v1/live` et les photos WebSocket négociées avec `live=true`.
-Ces photos ne modifient ni le journal ni le curseur de reprise.
+The [temporary presence and typing contract](LIVE.md) defines the two
+PUT routes, `GET /api/v1/live` and the WebSocket snapshots negotiated with `live=true`.
+These snapshots modify neither the journal nor the resumption cursor.
 
-- Découverte : `GET /.well-known/rocketvibe`, produit `rocketvibe`, protocole `1`,
-  identité et génération persistantes, capacités effectives.
-- Base HTTP : `/api/v1`, JSON UTF-8, credentials `Authorization: Bearer <token>`.
-- Le développement écoute sur loopback. Utiliser HTTPS via un proxy pour un appareil.
-- Les versions, types et capacités inconnus ne sont pas assimilés à Rocket.Chat.
-- Dates RFC 3339 UTC ; IDs opaques ; positions / révisions en chaînes décimales.
-  La révision de `RoomPermissions` est un jeton opaque combinant politique et
-  adhésion ; elle ne se compare pas comme une position du journal.
-- Erreurs métier : `{ code, request_id }`. Aucun texte SQL ou secret dans la réponse.
-- `429` conserve cette enveloppe et ajoute `Retry-After` en secondes entières.
-  Les transports natifs gardent le délai (borné à 5 min) par famille login / ticket / snapshot,
-  sans révoquer la session ni bloquer la consultation ou le logout.
-- Le transport Rust conserve l'identité du refus et son délai dans le fournisseur,
-  les erreurs bureau et UniFFI ; un retry différé localement garde le même request ID.
+- Discovery: `GET /.well-known/rocketvibe`, product `rocketvibe`, protocol `1`,
+  persistent identity and generation, effective capabilities.
+- HTTP base: `/api/v1`, UTF-8 JSON, credentials `Authorization: Bearer <token>`.
+- Development listens on loopback. Use HTTPS through a proxy for a device.
+- Unknown versions, types and capabilities are not assimilated to Rocket.Chat.
+- RFC 3339 UTC dates; opaque IDs; positions / revisions as decimal strings.
+  The `RoomPermissions` revision is an opaque token combining policy and
+  membership; it is not compared like a journal position.
+- Business errors: `{ code, request_id }`. No SQL text or secret in the response.
+- `429` keeps this envelope and adds `Retry-After` in whole seconds.
+  The native transports keep the delay (capped at 5 min) per login / ticket / snapshot family,
+  without revoking the session or blocking reading or logout.
+- The Rust transport keeps the identity of the refusal and its delay in the provider,
+  the desktop errors and UniFFI; a locally deferred retry keeps the same request ID.
 
-## Routes disponibles
+## Available routes
 
-Les [contrats de parité J0](PARITY.md), le [backlog complet](PARITY.md#backlog-complet)
-et l'[inventaire Rocket.Chat](rocketchat-inventory.md) décrivent les lots suivants.
-Les DTO `parity` du schéma sont des contrats de destination et des fixtures ; leur
-présence ne déclare pas les endpoints correspondants disponibles.
+The [J0 parity contracts](PARITY.md), the [full backlog](PARITY.md#full-backlog)
+and the [Rocket.Chat inventory](rocketchat-inventory.md) describe the following batches.
+The `parity` DTOs of the schema are destination contracts and fixtures; their
+presence does not declare the corresponding endpoints available.
 
-| Méthode | Route | Usage |
+| Method | Route | Use |
 |---|---|---|
-| GET | `/health/live`, `/health/ready` | État du processus et de la base |
-| POST | `/auth/login` | `{ username, password }` → session, expiration, utilisateur |
-| POST | `/auth/start` | Mot de passe → `AuthenticationStep` ; aucun bearer avant facteur pour un compte protégé |
-| POST | `/auth/factors/verify` | `FinishFactor` → session avec candidat durable ; reprise de la même validation |
-| GET | `/me/factors` | Méthodes, version et secours restants |
-| GET | `/me/email` | Contact vérifié privé, versions et contexte ; réponse `no-store` |
-| POST | `/me/email/verification/start`, `/me/email/verification/resume`, `/me/email/verification/confirm`, `/me/email/verification/retire` | Vérification privée et reprise du candidat original ; [file SMTP durable et bornes](EMAIL.md) |
-| POST | `/me/email/removal/start`, `/me/email/removal/resume`, `/me/email/removal/retire` | Retrait conditionnel du contact privé, reprise du reçu et annulation de l’intention originale ; disponible sans SMTP |
-| POST | `/me/factors/totp/setup`, `/me/factors/totp/enable`, `/me/factors/totp/disable` | Inscription prouvée et gestion après authentification récente |
-| POST | `/auth/invitations/accept` | `{ token, username, password }` → utilisateur ; anonyme, sans session ni droit admin |
-| POST | `/auth/recovery` | `{ token, username, new_password }` → utilisateur conservé ; révoque les anciennes sessions, login normal ensuite |
-| POST | `/auth/logout` | Révoquer cette session et ses tickets WebSocket |
-| GET | `/me`, `/users` | Compte courant ; annuaire de l'instance limité à 100 entrées |
-| GET | `/me/permissions` | Droits effectifs de création et d'administration |
-| GET | `/rooms/{room}/permissions`, `/messages/{message}/permissions` | Droits fins pour un membre actuel ; sinon `404` |
-| GET / POST | `/rooms` | Salons dont je suis membre ; créer `{ name, private, operation_id? }` |
-| GET | `/rooms/discover?q=…&after=…`, `/rooms/public?q=…&after=…` | Noms des salons publics, 20 entrées, `PublicRoomPage` ; alias identiques |
-| POST | `/rooms/{room}/join` | Adhérer soi-même à un salon public ; rejouable |
-| POST | `/direct-messages` | `{ user_id }` → DM unique pour cette paire |
-| POST / DELETE | `/rooms/{room}/members/{user}` | Ajouter / retirer, propriétaire du salon uniquement |
-| GET / PATCH | `/rooms/{room}` | Détails et paramètres versionnés ; modification par le propriétaire hors DM |
-| GET | `/rooms/{room}/members?after=…&revision=…` | Membres / rôles, pages de 50, adhésion actuelle obligatoire |
-| PUT | `/rooms/{room}/members/{user}/role` | Rôle explicite, révision attendue et opération persistante |
-| POST | `/rooms/{room}/leave` | Départ versionné hors DM ; protection du dernier propriétaire |
-| GET | `/rooms/{room}/commands/{operation}` | Reçu privé de l'auteur, également après départ |
-| GET | `/rooms/{room}/messages?before=…&limit=…` | Racines par position décroissante, keyset, limite 1–100 |
-| POST | `/rooms/{room}/messages` | `{ operation_id, text, quotes?, reply_to? }` → message committé |
-| POST | `/uploads` | Réservation privée avec opération persistante |
-| GET / DELETE | `/uploads/{id}` | État privé ; abandon avant confirmation |
-| PUT | `/uploads/{id}/bytes` | Octets streamés, taille / SHA-256 vérifiés |
-| POST | `/uploads/{id}/complete` | Message et descripteur confirmés atomiquement |
-| GET | `/files/{id}` | Corps protégé streamé ; plages `Range` simples |
-| GET | `/messages/{root}/thread?before=…&limit=…` | Racine et réponses paginées avec état personnel |
-| GET / POST | `/messages/{root}/replies` | Route réservée de parité : même page de fil ; envoi avec racine implicite |
-| POST | `/messages/{root}/thread/read` | Position observée, lecture monotone de ce seul fil |
-| GET | `/messages/{id}` | Message courant ou tombstone, pour un membre actuel |
-| PATCH | `/messages/{id}` | `EditMessage` avec opération et révision attendue ; Markdown clair |
-| DELETE | `/messages/{id}` | Corps `DeleteMessage` avec opération et révision attendue ; tombstone |
-| PUT | `/messages/{id}/reactions` | `{ operation_id, emoji, present }` → état courant du message |
-| GET | `/sync/snapshot` | Vue cohérente des salons, 50 racines et 50 réponses récentes par salon, curseur |
-| POST | `/sync/snapshots` | Matérialiser une vue immuable ; première `SnapshotPage` |
-| GET | `/sync/snapshots/{token}` | Page suivante liée au compte ; curseur uniquement sur la dernière |
-| GET | `/sync/changes?cursor=…` | Lot ordonné, curseur opaque suivant, `has_more` |
-| POST | `/sync/ticket` | Ticket WebSocket à usage unique, valable 30 secondes |
-| GET / upgrade | `/sync/socket?ticket=…&cursor=…` | Même format `SyncBatch`, replay puis suivi |
+| GET | `/health/live`, `/health/ready` | State of the process and of the database |
+| POST | `/auth/login` | `{ username, password }` → session, expiry, user |
+| POST | `/auth/start` | Password → `AuthenticationStep`; no bearer before the factor for a protected account |
+| POST | `/auth/factors/verify` | `FinishFactor` → session with durable candidate; resumption of the same validation |
+| GET | `/me/factors` | Methods, version and remaining backup codes |
+| GET | `/me/email` | Private verified contact, versions and context; `no-store` response |
+| POST | `/me/email/verification/start`, `/me/email/verification/resume`, `/me/email/verification/confirm`, `/me/email/verification/retire` | Private verification and resumption of the original candidate; [durable SMTP queue and bounds](EMAIL.md) |
+| POST | `/me/email/removal/start`, `/me/email/removal/resume`, `/me/email/removal/retire` | Conditional removal of the private contact, receipt resumption and cancellation of the original intent; available without SMTP |
+| POST | `/me/factors/totp/setup`, `/me/factors/totp/enable`, `/me/factors/totp/disable` | Proven enrolment and management after recent authentication |
+| POST | `/auth/invitations/accept` | `{ token, username, password }` → user; anonymous, no session or admin right |
+| POST | `/auth/recovery` | `{ token, username, new_password }` → user kept; revokes the old sessions, normal login afterwards |
+| POST | `/auth/logout` | Revoke this session and its WebSocket tickets |
+| GET | `/me`, `/users` | Current account; instance directory limited to 100 entries |
+| GET | `/me/permissions` | Effective creation and administration rights |
+| GET | `/rooms/{room}/permissions`, `/messages/{message}/permissions` | Fine-grained rights for a current member; otherwise `404` |
+| GET / POST | `/rooms` | Rooms I am a member of; create `{ name, private, operation_id? }` |
+| GET | `/rooms/discover?q=…&after=…`, `/rooms/public?q=…&after=…` | Names of public rooms, 20 entries, `PublicRoomPage`; identical aliases |
+| POST | `/rooms/{room}/join` | Join a public room oneself; replayable |
+| POST | `/direct-messages` | `{ user_id }` → unique DM for this pair |
+| POST / DELETE | `/rooms/{room}/members/{user}` | Add / remove, room owner only |
+| GET / PATCH | `/rooms/{room}` | Details and versioned settings; modification by the owner outside DMs |
+| GET | `/rooms/{room}/members?after=…&revision=…` | Members / roles, pages of 50, current membership required |
+| PUT | `/rooms/{room}/members/{user}/role` | Explicit role, expected revision and persistent operation |
+| POST | `/rooms/{room}/leave` | Versioned leave outside DMs; last-owner protection |
+| GET | `/rooms/{room}/commands/{operation}` | Private receipt of the author, also after leaving |
+| GET | `/rooms/{room}/messages?before=…&limit=…` | Roots by descending position, keyset, limit 1-100 |
+| POST | `/rooms/{room}/messages` | `{ operation_id, text, quotes?, reply_to? }` → committed message |
+| POST | `/uploads` | Private reservation with persistent operation |
+| GET / DELETE | `/uploads/{id}` | Private state; abandonment before confirmation |
+| PUT | `/uploads/{id}/bytes` | Streamed bytes, size / SHA-256 verified |
+| POST | `/uploads/{id}/complete` | Message and descriptor confirmed atomically |
+| GET | `/files/{id}` | Protected streamed body; simple `Range` ranges |
+| GET | `/messages/{root}/thread?before=…&limit=…` | Root and paginated replies with personal state |
+| GET / POST | `/messages/{root}/replies` | Reserved parity route: same thread page; send with implicit root |
+| POST | `/messages/{root}/thread/read` | Observed position, monotonic read of this thread only |
+| GET | `/messages/{id}` | Current message or tombstone, for a current member |
+| PATCH | `/messages/{id}` | `EditMessage` with operation and expected revision; plain Markdown |
+| DELETE | `/messages/{id}` | `DeleteMessage` body with operation and expected revision; tombstone |
+| PUT | `/messages/{id}/reactions` | `{ operation_id, emoji, present }` → current state of the message |
+| GET | `/sync/snapshot` | Consistent view of the rooms, 50 roots and 50 recent replies per room, cursor |
+| POST | `/sync/snapshots` | Materialise an immutable view; first `SnapshotPage` |
+| GET | `/sync/snapshots/{token}` | Next page bound to the account; cursor only on the last one |
+| GET | `/sync/changes?cursor=…` | Ordered batch, next opaque cursor, `has_more` |
+| POST | `/sync/ticket` | Single-use WebSocket ticket, valid for 30 seconds |
+| GET / upgrade | `/sync/socket?ticket=…&cursor=…` | Same `SyncBatch` format, replay then follow |
 
-La création de compte est une commande locale, pas une inscription HTTP publique.
-La capacité [`threads`](THREADS.md) est activée ; `uploads`, `push`, `e2ee`, `calls` restent fausses.
-`reactions` annonce les ajouts / retraits explicites, disponibles dans les trois clients.
-`room_discovery` annonce l'annuaire et l'adhésion ; `idempotent_room_creation`
-annonce les reçus de création. Leurs handlers sont disponibles dans les trois clients.
-Les droits d'administration ne donnent pas accès aux conversations privées.
+Account creation is a local command, not a public HTTP registration.
+The [`threads`](THREADS.md) capability is enabled; `uploads`, `push`, `e2ee`, `calls` stay false.
+`reactions` advertises explicit additions / removals, available in the three clients.
+`room_discovery` advertises the directory and joining; `idempotent_room_creation`
+advertises the creation receipts. Their handlers are available in the three clients.
+Administration rights do not give access to private conversations.
 
-`fine_permissions` annonce les lectures de droits. Les booléens décrivent
-l'autorité du compte ; les capacités de fonctionnalité doivent également être
-disponibles avant d'offrir une action. La présence de `edit: true` ne déclare donc
-pas, à lui seul, une route disponible. L'auteur dispose de 15 minutes pour éditer,
-le propriétaire / modérateur peut supprimer et épingler, et un salon en lecture
-seule bloque les nouveaux envois de membres ordinaires. Les propriétaires seuls
-invitent / retirent et règlent les salons hors DM. Chaque mutation revérifie ses
-droits en transaction. Un reçu d'une création / d'un envoi déjà committé peut
-toujours être consulté par son auteur membre après restriction, sans nouvelle écriture.
-Les changements de rôle, politique de salon et droits du compte changent leur
-version ; une réponse préparée avant eux est revalidée et leurs mises à jour
-attendent la fin d'une livraison déjà autorisée. Aucune autorité cliente forgée
-n'est acceptée dans les commandes.
+`fine_permissions` advertises the rights reads. The booleans describe
+the account's authority; the feature capabilities must also be
+available before offering an action. The presence of `edit: true` therefore does not
+by itself declare an available route. The author has 15 minutes to edit,
+the owner / moderator can delete and pin, and a read-only
+room blocks new sends by ordinary members. Only owners
+invite / remove and configure rooms outside DMs. Each mutation rechecks its
+rights in the transaction. A receipt of a creation / send already committed can
+still be consulted by its author as a member after restriction, with no new write.
+Changes of role, room policy and account rights change their
+version; a response prepared before them is revalidated and their updates
+wait for the end of a delivery already authorised. No forged client authority
+is accepted in the commands.
 
-### Inscription sur invitation
+### Registration by invitation
 
-Le [contrat d'authentification P02](AUTHENTICATION.md) détaille les routes TOTP /
-secours, la clé opérateur hors PostgreSQL, les quotas, la reprise après réponse
-perdue et les validations restantes. `second_factors` est additive et dépend
-de la configuration de clé ; les méthodes viennent du défi. Le socle serveur /
-SDK ne signifie pas encore que les écrans des trois clients sont raccordés.
+The [P02 authentication contract](AUTHENTICATION.md) details the TOTP /
+backup code routes, the operator key kept outside PostgreSQL, the quotas, resumption after a lost
+response and the remaining validations. `second_factors` is additive and depends
+on the key configuration; the methods come from the challenge. The server /
+SDK foundation does not yet mean that the screens of the three clients are wired.
 
-La capacité additive `account_invitations` autorise le formulaire des clients
-natifs. Les anciens serveurs qui l'omettent et Rocket.Chat gardent leur parcours
-de connexion. La CLI opérateur émet un code CSPRNG de 32 octets, valide 1–168 h
-(7 jours par défaut). PostgreSQL conserve son SHA-256 et la génération des
-données. Aucun chemin d'inscription publique ni droit admin saisi par le client.
+The additive capability `account_invitations` authorises the form of the native
+clients. Older servers that omit it and Rocket.Chat keep their login
+flow. The operator CLI issues a CSPRNG code of 32 bytes, valid 1-168 h
+(7 days by default). PostgreSQL keeps its SHA-256 and the data
+generation. No public registration path and no admin right entered by the client.
 
-`POST /auth/invitations/accept` est anonyme, strict et `no-store`. Il crée un
-utilisateur sans session, puis le client utilise le login normal. Mot de passe :
-au moins 12 caractères et au plus 1 024 octets ; identifiant ASCII, lettres,
-chiffres, tirets ou underscore, 1–128 octets. L'invitation lie un seul UID.
-Une confirmation perdue retrouve ce compte avec ses identifiants actuels tant
-que le code reste valide ; elle ne crée jamais un deuxième compte. Mot de passe
-vérifié avec Argon2, sans empreinte rapide de mot de passe. Une consommation
-survit à la suppression du compte et ne rend pas le code réutilisable.
+`POST /auth/invitations/accept` is anonymous, strict and `no-store`. It creates a
+user without a session, then the client uses the normal login. Password:
+at least 12 characters and at most 1,024 bytes; ASCII identifier, letters,
+digits, hyphens or underscore, 1-128 bytes. The invitation binds a single UID.
+A lost confirmation finds this account again with its current identifiers as long
+as the code remains valid; it never creates a second account. Password
+verified with Argon2, with no fast password hash. A consumption
+survives the deletion of the account and does not make the code reusable.
 
-Le serveur revérifie génération, état du compte et expiration après les verrous.
-Codes invalides, expirés, révoqués ou liés à d'autres identifiants rendent
-`400 invitation_rejected` ; entrées mal formées : `400 invalid_request`.
-Les quotas persistants de connexion (global / IP / identifiant) sont partagés
-avec cette route, plus 10 admissions par code et minute. Argon2 partage les
-quatre places de connexion, retenues pendant le calcul malgré une annulation.
-Révoquer le code ne désactive pas le compte qu'il a déjà créé. Les clients
-vérifient instance / génération avant et après création / login et comparent
-l'UID avant de sauvegarder la session. Code et mot de passe restent transitoires.
+The server rechecks generation, account state and expiry after the locks.
+Invalid, expired, revoked codes or codes bound to other identifiers return
+`400 invitation_rejected`; malformed inputs: `400 invalid_request`.
+The persistent login quotas (global / IP / identifier) are shared
+with this route, plus 10 admissions per code and minute. Argon2 shares the
+four login slots, held during the computation despite a cancellation.
+Revoking the code does not disable the account it has already created. The clients
+verify instance / generation before and after creation / login and compare
+the UID before saving the session. Code and password stay transient.
 
-### Récupération de mot de passe
+### Password recovery
 
-`account_recovery` permet la variante des écrans de connexion existants. La CLI
-émet un code de 32 octets pour un propriétaire de compte vérifié par l'opérateur,
-conservé sous SHA-256, lié à son UID, autorité actuelle et génération. Durée
-1–24 h ; 3 codes actifs par compte, 1 000 par génération. Le code d'invitation
-ne peut servir de code de récupération et réciproquement.
+`account_recovery` enables the variant of the existing login screens. The CLI
+issues a 32-byte code for an account owner verified by the operator,
+kept under SHA-256, bound to its UID, current authority and generation. Duration
+1-24 h; 3 active codes per account, 1,000 per generation. The invitation code
+cannot serve as a recovery code and vice versa.
 
-L'entrée anonyme stricte change le hash Argon2 et l'autorité de connexion, révoque
-les appareils, leurs sessions / tickets / reçus et les reprises de snapshots / journal.
-Elle conserve UID, permissions, conversations et données de chiffrement. Elle
-retourne `User` avec `no-store`, puis le client exécute le login normal. Aucun
-facteur indépendant n'est désactivé et aucune clé E2EE n'est récupérée.
+The strict anonymous entry changes the Argon2 hash and the login authority, revokes
+the devices, their sessions / tickets / receipts and the snapshot / journal resumptions.
+It keeps UID, permissions, conversations and encryption data. It
+returns `User` with `no-store`, then the client runs the normal login. No
+independent factor is disabled and no E2EE key is recovered.
 
-Un reçu lié à la nouvelle autorité permet le rejeu pendant cinq minutes avec
-le nouveau mot de passe, sans nouvelle réinitialisation ni révocation des sessions
-postérieures. Les autres codes sont révoqués. Expiration après attente de verrou,
-changement d'autorité / génération, compte désactivé ou mauvais code donnent
-`400 recovery_rejected`. Quotas de connexion global / IP / identifiant partagés,
-plus 10 tentatives par code et minute ; même limite Argon2 avec maintien du permis
-après annulation. Le login revérifie son hash sous verrou, empêchant un ancien
-mot de passe vérifié avant la récupération de créer une session après elle.
+A receipt bound to the new authority allows replay for five minutes with
+the new password, with no new reset and no revocation of later
+sessions. The other codes are revoked. Expiry after a lock wait,
+change of authority / generation, disabled account or wrong code give
+`400 recovery_rejected`. Global / IP / identifier login quotas are shared,
+plus 10 attempts per code and minute; same Argon2 limit with the permit kept
+after cancellation. The login rechecks its hash under lock, preventing an old
+password verified before the recovery from creating a session after it.
 
-### Renouvellement et appareils
+### Renewal and devices
 
-`POST /auth/renew` prend `{operation_id,next_token}` avec le bearer actuel.
-Le client produit le prochain secret avec un CSPRNG (32 octets, hexadécimal
-minuscule) et le conserve dans le stockage sécurisé **avant** la requête. Le
-serveur stocke uniquement des empreintes, conserve l'identité de l'appareil,
-renouvelle l'expiration de 30 jours et invalide l'ancien bearer et ses tickets.
-Les réponses de connexion / renouvellement portent `Cache-Control: no-store`.
+`POST /auth/renew` takes `{operation_id,next_token}` with the current bearer.
+The client produces the next secret with a CSPRNG (32 bytes, lowercase
+hexadecimal) and keeps it in secure storage **before** the request. The
+server stores only fingerprints, keeps the device identity,
+renews the 30-day expiry and invalidates the old bearer and its tickets.
+Login / renewal responses carry `Cache-Control: no-store`.
 
-Une confirmation perdue se reprend avec le secret suivant déjà conservé, ou
-avec la même intention pendant cinq minutes. Proposer un autre successeur depuis
-ce bearer consommé révoque la famille de l'appareil. Les autres appareils restent
-valides. Limites : 10 nouveaux renouvellements par appareil et minute, 64 appareils
-actifs par compte ; les reçus identiques ne consomment pas à nouveau le quota.
+A lost confirmation is resumed with the next secret already kept, or
+with the same intent for five minutes. Proposing another successor from
+this consumed bearer revokes the device's family. The other devices stay
+valid. Limits: 10 new renewals per device and minute, 64 active
+devices per account; identical receipts do not consume the quota again.
 
-`GET /me/sessions` expose uniquement les appareils du compte, leurs noms, dates,
-expiration et indicateur `current`. `PATCH /me/sessions/{id}` renomme un appareil ;
-`DELETE` révoque sa famille, ses reçus et tickets. Un identifiant d'un autre compte
-ne peut modifier ni révoquer sa session. Aucun bearer ni empreinte n'est exposé
-dans la liste. Révoquer un autre appareil exige une connexion datant de moins
-de 15 minutes ; une rotation ne renouvelle pas cette ancienneté. Les primitives
-de reprise Rust / TypeScript sont raccordées aux clients existants : SecureStore
-mobile, Secret Service / Credential Manager GTK et Keychain Swift. GTK et Swift
-sérialisent leurs écritures avec un fichier de verrou vide commun ; aucun secret
-de renouvellement ne rejoint SQLite. Les écritures déjà engagées conservent le
-verrou si leur appelant est annulé. La connexion et un contrôle quotidien déclenchent
-un renouvellement à moins de deux jours de l'expiration. Les paramètres existants
-des trois clients listent et renomment les appareils et révoquent une autre
-session après connexion récente. L'appareil courant utilise le parcours de
-déconnexion existant. La date d'activité est actualisée au plus une fois toutes
-les cinq minutes par trafic authentifié ; ce suivi saute un appareil verrouillé
-au lieu de retarder la requête et ne prolonge pas la connexion récente.
-La qualification sur systèmes / appareils réels reste dans P01.
+`GET /me/sessions` exposes only the account's devices, their names, dates,
+expiry and `current` indicator. `PATCH /me/sessions/{id}` renames a device;
+`DELETE` revokes its family, its receipts and tickets. An identifier of another account
+can neither modify nor revoke its session. No bearer or fingerprint is exposed
+in the list. Revoking another device requires a login less than
+15 minutes old; a rotation does not renew this age. The Rust / TypeScript
+resumption primitives are wired into the existing clients: mobile SecureStore,
+GTK Secret Service / Credential Manager and Swift Keychain. GTK and Swift
+serialise their writes with a common empty lock file; no renewal secret
+reaches SQLite. Writes already under way keep the
+lock if their caller is cancelled. Login and a daily check trigger
+a renewal when less than two days remain before expiry. The existing settings
+of the three clients list and rename the devices and revoke another
+session after a recent login. The current device uses the existing
+logout flow. The activity date is updated at most once every
+five minutes by authenticated traffic; this tracking skips a locked device
+rather than delaying the request and does not extend the recent login.
+Qualification on real systems / devices remains in P01.
 
-### Réactions
+### Reactions
 
-Les shortcodes standard proviennent de la table emoji-toolkit utilisée par les
-clients. Les alias d'un glyphe sont canonicalisés, avec ou sans `:` ; Unicode
-brut et noms inconnus sont refusés. L'état est unique par message, compte et emoji.
-Un reçu réutilise l'opération persistée sans réappliquer un ancien état : rejouer
-un ajout après un retrait retourne le message actuel. Une opération déjà utilisée
-avec un autre contenu est refusée. L'adhésion actuelle est exigée, y compris pour
-consulter un reçu ; la lecture seule bloque les nouvelles réactions de membres.
+The standard shortcodes come from the emoji-toolkit table used by the
+clients. The aliases of a glyph are canonicalised, with or without `:`; raw
+Unicode and unknown names are refused. The state is unique per message, account and emoji.
+A receipt reuses the persisted operation without reapplying an old state: replaying
+an addition after a removal returns the current message. An operation already used
+with other content is refused. Current membership is required, including to
+consult a receipt; read-only blocks new reactions from members.
 
-Limites : 16 réactions par auteur et message, 32 groupes et 256 participations
-par message ; 30 nouvelles actions de message par compte et minute, partagées
-avec édition / suppression. Les reçus existants contournent ce quota ; `429`
-fournit `Retry-After`. Un changement augmente la révision et émet un upsert sans
-changer la position de création ni le marqueur d'édition. La suppression du
-message efface les participations et remplace ses anciens événements par le tombstone.
+Limits: 16 reactions per author and message, 32 groups and 256 participations
+per message; 30 new message actions per account and minute, shared
+with edit / delete. Existing receipts bypass this quota; `429`
+provides `Retry-After`. A change increases the revision and emits an upsert without
+changing the creation position or the edit marker. Deleting the
+message erases the participations and replaces its old events with the tombstone.
 
-### Épingles et étoiles personnelles
+### Personal pins and stars
 
-`PUT /messages/{id}/pin` et `/star` prennent `{operation_id,present}`.
-Un propriétaire ou modérateur épingle ; chaque membre peut étoiler pour lui-même,
-y compris en lecture seule. Les nouveaux états d'un message supprimé sont refusés.
-Les reçus retournent l'état actuel sans rejouer une ancienne intention. Le quota
-d'actions est partagé avec réactions, éditions et suppressions.
+`PUT /messages/{id}/pin` and `/star` take `{operation_id,present}`.
+An owner or moderator pins; each member can star for themselves,
+including in read-only rooms. New states of a deleted message are refused.
+The receipts return the current state without replaying an old intent. The action
+quota is shared with reactions, edits and deletions.
 
-`pinned` appartient à la révision publique du message. `personal_star` contient
-uniquement l'état du compte qui lit et sa propre révision décimale ; les événements
-publics omettent ce champ. Un changement d'étoile publie un événement réservé à
-son propriétaire sans changer la révision publique ni le marqueur d'édition.
-La suppression efface les étoiles et épingles, ainsi que leurs anciens événements.
+`pinned` belongs to the public revision of the message. `personal_star` contains
+only the state of the reading account and its own decimal revision; public
+events omit this field. A star change publishes an event reserved for
+its owner without changing the public revision or the edit marker.
+Deletion erases the stars and pins, as well as their old events.
 
-`GET /rooms/{id}/pins` et `/stars` utilisent `limit` (1–100) et `before`, position
-de création exclusive, avec `has_more`. Les étoiles d'un autre compte sont exclues.
-Les clients valident toutes les pages avant de projeter le résultat ; ils refusent
-les positions non décroissantes et les messages d'un autre salon.
+`GET /rooms/{id}/pins` and `/stars` use `limit` (1-100) and `before`, exclusive
+creation position, with `has_more`. The stars of another account are excluded.
+The clients validate all pages before projecting the result; they refuse
+non-decreasing positions and messages from another room.
 
-### Édition et suppression
+### Edit and delete
 
-L'édition accepte actuellement `MessageContent.plain` avec Markdown et listes
-de mentions / citations / fichiers vides. Les autres contenus sont refusés comme
-indisponibles. L'auteur édite pendant 15 minutes s'il peut envoyer ; auteur dans
-ce délai ou propriétaire / modérateur supprime. L'édition d'autrui n'est pas
-accordée par la propriété du salon. `409 revision_conflict` distingue un état
-concurrent de `409 operation_conflict`, qui signale une identité réutilisée.
+Editing currently accepts `MessageContent.plain` with Markdown and empty lists
+of mentions / quotes / files. Other content is refused as
+unavailable. The author edits for 15 minutes if they can send; the author within
+this delay or the owner / moderator deletes. Editing someone else's message is not
+granted by room ownership. `409 revision_conflict` distinguishes a concurrent
+state from `409 operation_conflict`, which signals a reused identity.
 
-Un reçu appliqué se rejoue sans nouvelle publication et retourne l'état actuel,
-y compris un tombstone après suppression. Il reste lié au compte et à la commande
-complète. Création, envoi et actions ne peuvent réutiliser une identité entre eux.
-L'envoi initial conserve son empreinte même après édition ; son replay ne restaure
-ni l'ancien texte ni un message supprimé. Les reçus d'action gardent des empreintes,
-aucun texte. Ces empreintes servent à comparer les commandes.
+An applied receipt is replayed without new publication and returns the current state,
+including a tombstone after deletion. It stays bound to the account and to the complete
+command. Creation, send and actions cannot reuse an identity among themselves.
+The initial send keeps its fingerprint even after an edit; its replay restores
+neither the old text nor a deleted message. Action receipts keep fingerprints,
+no text. These fingerprints serve to compare the commands.
 
-`Message.deleted: true` porte un texte vide ; `edited_at` marque une édition.
-Ces champs sont additifs dans v1 et la diffusion garde `message_upsert`. La position
-de création ne change pas, la révision avance. Les clients récents cachent le
-tombstone mais conservent sa révision pour refuser les anciennes réponses. Lors
-d'un reset, ils remplacent l'historique confirmé par la fenêtre du snapshot,
-conservent brouillons / outbox des salons présents et rejettent les réponses
-commencées avant cette projection. L'historique antérieur se recharge par pagination.
-Cette étape livre transport et intégration des événements ; les commandes
-persistantes et menus d'actions des trois clients sont le lot suivant.
+`Message.deleted: true` carries an empty text; `edited_at` marks an edit.
+These fields are additive in v1 and the broadcast keeps `message_upsert`. The creation
+position does not change, the revision advances. Recent clients hide the
+tombstone but keep its revision to refuse old responses. On
+a reset, they replace the confirmed history with the snapshot window,
+keep drafts / outbox of the rooms present and reject responses
+started before this projection. Earlier history is reloaded by pagination.
+This step delivers transport and event integration; the persistent commands
+and action menus of the three clients are the next batch.
 
-La mutation change la version d'autorité du salon, attend ses livraisons et
-invalide les vues matérialisées de ses participants. Une construction en cours
-est trouvée par son compte même si ses IDs de salon ne sont pas encore publiés.
-La suppression réserve le message et efface les charges antérieures du journal
-actif. Le traitement de la rétention des sauvegardes appartient à J5.
+The mutation changes the room's authority version, waits for its deliveries and
+invalidates the materialised views of its participants. A build in progress
+is found by its account even if its room IDs are not yet published.
+Deletion reserves the message and erases the earlier payloads of the active
+journal. Handling of backup retention belongs to J5.
 
-### Création et découverte des salons
+### Room creation and discovery
 
-Les clients récents enregistrent l'identité de création dans SQLite avant la
-requête. Un formulaire interrompu reprend la même identité et le même nom / genre
-après réessai ou redémarrage ; ils ne lancent pas automatiquement une autre création.
-Après réception du résultat, le formulaire est terminé ; une création ultérieure
-est une nouvelle intention. Un serveur natif plus ancien reçoit encore `{name,private}`.
+Recent clients record the creation identity in SQLite before the
+request. An interrupted form resumes the same identity and the same name / kind
+after retry or restart; they do not automatically launch another creation.
+After the result is received, the form is finished; a later creation
+is a new intent. An older native server still receives `{name,private}`.
 
-Les reçus PostgreSQL sont liés au compte et persistants. Un rejeu renvoie le même
-salon sans événement supplémentaire, après vérification de son adhésion ; une
-identité utilisée avec un autre nom / genre ou une opération d'envoi produit
-`409 operation_conflict`. `operation_id` reste facultatif pour les anciens clients
-v1, qui n'ont donc pas cette garantie de création. Le nom est normalisé par `trim`.
+The PostgreSQL receipts are bound to the account and persistent. A replay returns the same
+room without extra event, after verification of its membership; an
+identity used with another name / kind or a send operation produces
+`409 operation_conflict`. `operation_id` remains optional for the old v1
+clients, which therefore lack this creation guarantee. The name is normalised by `trim`.
 
-L'annuaire expose uniquement les métadonnées publiques, recherche une sous-chaîne
-littérale sans joker et utilise l'ID du dernier résultat comme `after`. Il ne
-donne accès ni aux messages ni aux adhésions des autres comptes. Chaque livraison
-retient les salons publics et revérifie leur nom / révision / visibilité ; une
-visibilité devenue privée invalide une réponse préparée. L'adhésion ne vise que
-l'acteur, conserve un rôle existant et publie un `room_upsert` avec une nouvelle
-révision pour les membres actuels. Les salons privés, DM et IDs absents renvoient
-le même `404`. Les [détails / rôles et réglages P04](ROOMS.md) décrivent les
-commandes versionnées, les reçus et la protection du dernier propriétaire.
+The directory exposes only public metadata, searches a literal
+substring with no wildcard and uses the ID of the last result as `after`. It gives
+access neither to messages nor to the memberships of other accounts. Each delivery
+holds the public rooms and rechecks their name / revision / visibility; a
+visibility that has become private invalidates a prepared response. Joining targets only
+the actor, keeps an existing role and publishes a `room_upsert` with a new
+revision for the current members. Private rooms, DMs and absent IDs return
+the same `404`. The [P04 details / roles and settings](ROOMS.md) describe the
+versioned commands, the receipts and the protection of the last owner.
 
-## Garanties de l'incrément
+## Guarantees of the increment
 
-Une intention d'envoi garde `operation_id`. Même intention → même message ; même
-ID avec un autre texte / salon → `409 operation_conflict`. La confirmation HTTP et
-l'événement viennent de la même transaction. Les opérations d'envoi sont conservées
-avec les messages ; tombstones et reçus continuent de réserver leurs identifiants.
+A send intent keeps `operation_id`. Same intent → same message; same
+ID with another text / room → `409 operation_conflict`. The HTTP confirmation and
+the event come from the same transaction. Send operations are kept
+with the messages; tombstones and receipts continue to reserve their identifiers.
 
-Le séquenceur est transactionnel. La diffusion relit le journal PostgreSQL ; elle
-peut rejouer les lots. L'intégrateur client doit appliquer le lot et son curseur
-dans une même transaction locale avant de reprendre à ce curseur.
+The sequencer is transactional. The broadcast rereads the PostgreSQL journal; it
+may replay batches. The client integrator must apply the batch and its cursor
+in a single local transaction before resuming at this cursor.
 
-Les curseurs sont aléatoires et liés au compte / génération. Un curseur d'un autre
-compte, d'une autre génération, expiré (7 jours sans renouvellement) ou élagué
-(512 curseurs maximum par compte) produit `409 sync_reset_required`. Ils ne révèlent
-pas les positions globales des événements inaccessibles. Une suppression d'adhésion
-produit `room_removed` pour son ancien membre ; replay et historique filtrent les
-messages avec les droits présents. Après logout la socket est fermée au prochain tick.
+Cursors are random and bound to the account / generation. A cursor of another
+account, of another generation, expired (7 days without renewal) or pruned
+(512 cursors maximum per account) produces `409 sync_reset_required`. They do not reveal
+the global positions of inaccessible events. A membership deletion
+produces `room_removed` for its former member; replay and history filter the
+messages with the present rights. After logout the socket is closed at the next tick.
 
-### Révocation pendant une livraison
+### Revocation during a delivery
 
-Une lecture capture la version opaque de chaque adhésion et la génération avant
-de construire son résultat. Juste avant livraison, le serveur revérifie ces
-versions, le compte et la session puis conserve des verrous PostgreSQL sur ces
-lignes. Un retrait / changement de rôle, logout, compte désactivé ou restauration
-attend la fin de cette livraison autorisée ; un retrait suivi de réadhésion ne
-valide pas une réponse préparée avec l'ancienne autorisation.
-Une activation de compte porte également une version opaque. Les transactions
-d'écriture retiennent et revérifient compte / session jusqu'au commit ; un acteur
-authentifié avant un logout ou une désactivation ne peut pas publier ensuite.
-La gestion des curseurs possède son verrou séparé : une écriture attendant le
-séquenceur ne bloque pas la lecture du dernier watermark committé.
+A read captures the opaque version of each membership and the generation before
+building its result. Just before delivery, the server rechecks these
+versions, the account and the session, then keeps PostgreSQL locks on these
+rows. A removal / role change, logout, disabled account or restore
+waits for the end of this authorised delivery; a removal followed by re-join does not
+validate a response prepared with the old authorisation.
+An account activation also carries an opaque version. The write
+transactions hold and recheck account / session until the commit; an actor
+authenticated before a logout or a deactivation cannot publish afterwards.
+Cursor management has its separate lock: a write waiting for the
+sequencer does not block the reading of the last committed watermark.
 
-Les réponses JSON remettent un seul corps au transport HTTP sous ce verrou ; la
-socket conserve son verrou jusqu'à la fin de l'envoi de la trame. Une réponse
-abandonnée libère le verrou. Un corps HTTP non consommé expire après 5 secondes
-et ne peut plus produire de contenu ; l'envoi WebSocket garde son délai de 5 s.
-Les verrous sont en base, y compris entre deux processus serveur. Les incréments
-du séquenceur restent compatibles avec le verrou de génération.
+JSON responses hand a single body to the HTTP transport under this lock; the
+socket keeps its lock until the end of the frame send. An
+abandoned response releases the lock. An unconsumed HTTP body expires after 5 seconds
+and can no longer produce content; the WebSocket send keeps its 5 s delay.
+The locks are in the database, including between two server processes. The sequencer
+increments remain compatible with the generation lock.
 
-Une course détectée avant remise HTTP donne `409 delivery_revalidate` ; le client
-reprend avec ses intentions locales conservées. La socket relit le journal depuis
-son dernier curseur envoyé. L'événement minimal `room_removed` passe sans exposer
-le salon ; aucune charge utile ne le suit sur cette connexion tant qu'une nouvelle
-adhésion n'est pas accordée. Un autre salon autorisé continue sur la même socket.
-Les vues matérialisées retiennent également leur ligne de validité pendant remise.
+A race detected before HTTP delivery gives `409 delivery_revalidate`; the client
+resumes with its local intents kept. The socket rereads the journal from
+its last sent cursor. The minimal `room_removed` event passes without exposing
+the room; no payload follows it on this connection until a new
+membership is granted. Another authorised room continues on the same socket.
+The materialised views also hold their validity row during delivery.
 
-Ces garanties portent sur l'autorisation et l'ordre d'émission serveur. Des octets
-déjà remis au transport peuvent être tamponnés et arriver plus tard sur un autre
-réseau / une autre connexion ; aucun mécanisme ne les efface sur un appareil.
-Tout endpoint futur d'historique, recherche ou fichiers doit utiliser cette même
-barrière, avec son propre transfert borné pour les objets.
+These guarantees concern authorisation and the order of server emission. Bytes
+already handed to the transport may be buffered and arrive later on another
+network / another connection; no mechanism erases them on a device.
+Any future history, search or files endpoint must use this same
+barrier, with its own bounded transfer for objects.
 
-Une socket inactive reçoit au moins toutes les 15 secondes un `SyncBatch` vide,
-avec son curseur courant et `has_more: false`. Le pilote mobile ferme et reprend
-une connexion n'ayant reçu aucune trame pendant plus de 45 secondes.
+An idle socket receives at least every 15 seconds an empty `SyncBatch`,
+with its current cursor and `has_more: false`. The mobile pilot closes and resumes
+a connection that has received no frame for more than 45 seconds.
 
-### Snapshots matérialisés
+### Materialised snapshots
 
-La capacité additive `snapshot_paging` annonce les deux nouvelles routes. Les
-clients mobiles et bureau l'utilisent lorsqu'elle est présente et conservent la
-route historique pour les serveurs v1 antérieurs. `snapshot_id` et `page_index`
-identifient une vue capturée dans une unique transaction PostgreSQL repeatable read.
-Les pages sont immuables : une arrivée pendant le téléchargement sera rejouée après
-le curseur final. Aucun curseur n'est publié sur une page intermédiaire.
+The additive capability `snapshot_paging` advertises the two new routes. The
+mobile and desktop clients use it when present and keep the historical
+route for earlier v1 servers. `snapshot_id` and `page_index`
+identify a view captured in a single PostgreSQL repeatable read transaction.
+The pages are immutable: an arrival during the download will be replayed after
+the final cursor. No cursor is published on an intermediate page.
 
-Une vue contient au plus 1 000 salons, 50 racines et 50 réponses récentes par salon, 1 Mio de JSON
-par page et 64 Mio au total. Elle expire 5 minutes après réservation ; 4 vues par
-compte et 16 dans l'instance, admissions concurrentes sérialisées en base. Refus
-`429 snapshot_busy` avec délai de 30 s ou `409 snapshot_limit` ; un échec de
-matérialisation annule ses pages et restitue sa réservation. Une construction
-annulée sans résultat reste bornée par ces quotas jusqu'à expiration.
+A view contains at most 1,000 rooms, 50 roots and 50 recent replies per room, 1 MiB of JSON
+per page and 64 MiB in total. It expires 5 minutes after reservation; 4 views per
+account and 16 in the instance, concurrent admissions serialised in the database. Refusal
+`429 snapshot_busy` with a 30 s delay or `409 snapshot_limit`; a materialisation
+failure cancels its pages and returns its reservation. A build
+cancelled with no result stays bounded by these quotas until expiry.
 
-Chaque page revérifie compte, génération et adhésions. Un retrait invalide toutes
-les vues du compte dans la transaction de révocation ; une nouvelle adhésion ne
-réactive aucun ancien token. Expiration, restauration ou retrait donnent
-`409 sync_reset_required`. Le nettoyage supprime 8 vues périmées par passage et
-cascade sur leurs pages, sans purger le journal ni les messages.
+Each page rechecks account, generation and memberships. A removal invalidates all
+the account's views in the revocation transaction; a new membership does not
+reactivate any old token. Expiry, restore or removal give
+`409 sync_reset_required`. Cleanup deletes 8 stale views per pass and
+cascades to their pages, without purging the journal or the messages.
 
-Les clients vérifient identité, ordre, doublons, références, taille, tokens locaux
-et présence du seul curseur final avant de remplacer atomiquement leur cache.
-Ils bornent l'assemblage à 128 pages / 64 Mio / 5 minutes. Rust borne également
-les octets reçus avant décodage, y compris une réponse chunked ; le fetch mobile
-tamponne son corps natif puis contrôle la taille avant parsing, et interrompt dès
-un Content-Length trop grand. La qualification de mémoire sur Android reste ouverte.
+The clients verify identity, order, duplicates, references, size, local tokens
+and presence of the final cursor alone before atomically replacing their cache.
+They bound assembly to 128 pages / 64 MiB / 5 minutes. Rust also bounds
+the bytes received before decoding, including a chunked response; the mobile fetch
+buffers its native body then checks the size before parsing, and interrupts as soon as
+a Content-Length is too large. Memory qualification on Android remains open.
 
-## Limites connues
+## Known limits
 
-- Le [mobile](../NATIVE_MOBILE_PILOT.md) et les clients [GTK / SwiftUI](../NATIVE_DESKTOP_PILOT.md)
-  utilisent leurs écrans existants pour les deux fournisseurs. Les essais manuels
-  sur appareils restent ouverts.
-- Route historique de snapshot non paginé : maximum 100 salons (refus explicite au-delà) et 50 racines / 50 réponses
-  récents par salon ; taille JSON maximum 8 Mio, refus `409 snapshot_limit` sans
-  création de curseur ni réponse partielle. Les autres messages se chargent par
-  l'historique. Les clients actuels utilisent les pages matérialisées décrites ci-dessus.
-- Lots HTTP / WebSocket : maximum 100 événements scannés et 1 Mio de JSON. Le
-  curseur n'avance pas au-delà d'un événement livré dans le lot suivant.
-- Tickets valables 30 s, maximum 4 non consommés par session. Le démarrage et un
-  passage chaque minute nettoient par lots de 1 000 les sessions, tickets, curseurs
-  et quotas périmés, sans attendre les lignes verrouillées. Le journal reste conservé.
-- Sessions valables 30 jours et renouvelables ; 2FA non livré. La concurrence des
-  calculs Argon2 reste bornée à 4 par processus après annulation HTTP. Connexion :
-  10 essais par pseudo, 30 par IP TCP et 120 au total par fenêtre de 60 s, en base
-  et conservés après redémarrage ; `429 auth_busy` / `auth_rate_limited` avec délai.
-  Aucun en-tête de proxy n'est accepté comme preuve d'IP ; derrière un proxy,
-  ses clients partagent le quota. La configuration de proxies approuvés reste ouverte.
-- Le suivi WebSocket interroge le journal toutes les 250 ms et ferme les clients
-  dont un envoi / une fermeture dépasse 5 s. Limite de 128 sockets par processus,
-  4 par session ; `429 socket_limit` avec délai dès la demande de ticket, puis
-  nouveau contrôle à l'upgrade pour les courses concurrentes. Les heartbeats sont
-  présents ; la charge et les déploiements multiprocessus restent à qualifier.
-- La barrière de livraison et les révocations HTTP / WebSocket sont testées en
-  PostgreSQL ; la charge, les appareils et les fonctions restantes de la RFC
-  doivent encore être qualifiés avant de remplacer une instance Rocket.Chat.
-- Modifications / suppressions disponibles dans les clients existants, avec
-  intentions SQLite et révisions attendues. Les compteurs de non-lus et le reste
-  de la matrice restent ouverts. La création est idempotente sur les clients récents.
+- The [mobile](../NATIVE_MOBILE_PILOT.md) and the [GTK / SwiftUI](../NATIVE_DESKTOP_PILOT.md) clients
+  use their existing screens for both providers. Manual trials
+  on devices remain open.
+- Historical non-paginated snapshot route: maximum 100 rooms (explicit refusal beyond) and 50 roots / 50 recent
+  replies per room; maximum JSON size 8 MiB, refusal `409 snapshot_limit` with no
+  cursor creation or partial response. The other messages are loaded through
+  history. The current clients use the materialised pages described above.
+- HTTP / WebSocket batches: maximum 100 events scanned and 1 MiB of JSON. The
+  cursor does not advance beyond an event delivered in the next batch.
+- Tickets valid for 30 s, maximum 4 unconsumed per session. Startup and a
+  pass every minute clean up expired sessions, tickets, cursors
+  and quotas in batches of 1,000, without waiting for locked rows. The journal is kept.
+- Sessions valid for 30 days and renewable; 2FA not delivered. The concurrency of
+  Argon2 computations stays bounded to 4 per process after HTTP cancellation. Login:
+  10 attempts per username, 30 per TCP IP and 120 in total per 60 s window, in the database
+  and kept after restart; `429 auth_busy` / `auth_rate_limited` with delay.
+  No proxy header is accepted as proof of IP; behind a proxy,
+  its clients share the quota. Configuration of trusted proxies remains open.
+- WebSocket tracking polls the journal every 250 ms and closes the clients
+  whose send / close exceeds 5 s. Limit of 128 sockets per process,
+  4 per session; `429 socket_limit` with delay as soon as the ticket is requested, then
+  a new check at upgrade for concurrent races. Heartbeats are
+  present; load and multi-process deployments remain to be qualified.
+- The delivery barrier and the HTTP / WebSocket revocations are tested in
+  PostgreSQL; load, devices and the remaining functions of the RFC
+  must still be qualified before replacing a Rocket.Chat instance.
+- Edits / deletions available in the existing clients, with
+  SQLite intents and expected revisions. The unread counters and the rest
+  of the matrix remain open. Creation is idempotent on the recent clients.
 
-Ces limites délimitent le pilote ; elles ne réduisent pas le périmètre de la RFC.
+These limits bound the pilot; they do not reduce the scope of the RFC.

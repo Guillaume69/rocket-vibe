@@ -1,84 +1,85 @@
-# Liens de salon et de message — P21
+# Room and message links (P21)
 
-Les clients existants GTK, SwiftUI et Android utilisent le même contrat :
+The existing GTK, SwiftUI and Android clients use the same contract:
 
 ```text
-rocketvibe://salon/<rid>?host=<URL complète>&instanceId=<instance>&dataEpoch=<époque>&msg=<message>&tmid=<racine>
+rocketvibe://room/<rid>?host=<full URL>&instanceId=<instance>&dataEpoch=<epoch>&msg=<message>&tmid=<root>
 ```
 
-`msg` et `tmid` sont facultatifs. `host` conserve protocole, port et chemin du
-reverse proxy. Le nom d'hôte et le port HTTP par défaut sont normalisés ; les
-chemins distincts ne sont jamais fusionnés. Une URL avec credentials, query ou
-fragment n'est pas une adresse de service. Une autre URL canonique exige une
-reconnexion explicite, même si elle désigne le même serveur physique.
+`msg` and `tmid` are optional. `host` keeps the protocol, port and path of the
+reverse proxy. The host name and the default HTTP port are normalized; distinct
+paths are never merged. A URL with credentials, query or
+fragment is not a service address. Another canonical URL requires an explicit
+reconnection, even if it designates the same physical server.
 
-Un permalien natif identifie instance et époque ; il ne contient ni bearer,
-contenu, ni compte de l'auteur. Un autre membre autorisé peut l'ouvrir avec son
-propre compte. Le contrôle d'accès du serveur demeure nécessaire.
+A native permalink identifies instance and epoch; it contains neither bearer,
+content, nor the author's account. Another authorized member can open it with their
+own account. The server's access control remains necessary.
 
-Une notification porte en plus le destinataire via `userId` ou le `nativeScope`
-JSON existant `{instanceId,dataEpoch,userId}`. Les deux formes, si présentes,
-doivent correspondre. Une identité partielle, un paramètre répété, une racine
-invalide ou une portée malformée provoquent un refus, sans repli sur la session
-active. Identifiants : 1 à 128 caractères ASCII alphanumériques, `_` ou `-` ;
-URL au plus 8 Kio. Aucun lien ne fournit un jeton au transport.
+A notification additionally carries the recipient via `userId` or the existing
+JSON `nativeScope` `{instanceId,dataEpoch,userId}`. Both forms, if present,
+must match. A partial identity, a repeated parameter, an invalid root
+or a malformed scope causes a refusal, with no fallback to the active
+session. Identifiers: 1 to 128 ASCII alphanumeric characters, `_` or `-`;
+URL at most 8 KiB. No link supplies a token to the transport.
 
-Les anciens liens `rocketvibe://salon/…` et `rocketvibe://room/…` sans identité
-native restent Rocket.Chat. Leur service explicite suit aussi la comparaison
-de l'URL complète. Sans service, seul un compte Rocket.Chat convient. Les
-liens reçus par le système sont marqués dans Expo Router afin qu'ils ne soient
-pas confondus avec les routes internes vers un salon du compte actif.
+Old links `rocketvibe://salon/…` and `rocketvibe://room/…` without native
+identity remain Rocket.Chat (`salon/` still parses; the apps now generate
+`room/`). Their explicit service also follows the comparison
+of the full URL. Without a service, only a Rocket.Chat account fits. Links
+received by the system are marked in Expo Router so that they are not
+confused with the internal routes to a room of the active account.
 
-## Compte et résolution
+## Account and resolution
 
-Le bureau garde le compte déjà choisi s'il correspond. Sinon, une seule session
-enregistrée doit correspondre exactement au service, au fournisseur et à la
-portée. Plusieurs comptes compatibles nécessitent le sélecteur existant :
-jamais le premier de la liste. Le lien attend les salons et la connexion ;
-un résultat tardif d'un ancien lien ou compte n'ouvre rien.
+The desktop keeps the account already chosen if it matches. Otherwise, a single registered
+session must match the service, the provider and the
+scope exactly. Several compatible accounts require the existing selector:
+never the first of the list. The link waits for the rooms and the connection;
+a late result of an old link or account opens nothing.
 
-Android conserve l'écran « autre serveur » et son geste explicite. La session
-SecureStore doit correspondre **avant** de changer le pointeur de reprise. Le
-plugin Kotlin ajoute maintenant message et racine au lien de notification.
+Android keeps the "other server" screen and its explicit gesture. The
+SecureStore session must match **before** changing the resume pointer. The
+Kotlin plugin now adds message and root to the notification link.
 
-Les fournisseurs natifs relisent le message avec le transport authentifié,
-vérifient son salon et sa suppression, puis prennent sa vraie racine de fil.
-Une racine fournie qui contredit le message est refusée. La découverte,
-l'adhésion d'origine et la génération de projection sont vérifiées autour de
-la lecture, avant l'ingestion SQLite. Aucun curseur de journal n'est acquitté
-par cette lecture ciblée. Une adhésion remplacée, une restauration ou une
-session fermée annulent le résultat.
+The native providers reread the message with the authenticated transport,
+verify its room and its deletion, then take its real thread root.
+A supplied root that contradicts the message is refused. Discovery,
+the origin membership and the projection generation are verified around
+the read, before the SQLite ingestion. No journal cursor is acknowledged
+by this targeted read. A replaced membership, a restoration or a
+closed session cancel the result.
 
-Les menus existants ajoutent « Copier le lien du message » pour les messages
-natifs confirmés. Texte et fichiers partagés gardent leur chemin habituel.
-Un saut natif compte les positions décimales, sans flottant ou horodatage ; les
-réponses ouvrent le fil existant et y révèlent le message.
+The existing menus add "Copy message link" for confirmed native
+messages. Shared text and files keep their usual path.
+A native jump counts decimal positions, without floats or timestamps; replies
+open the existing thread and reveal the message there.
 
-## Qualification et travaux restants
+## Qualification and remaining work
 
-Tests du cœur Rust : parsing / comptes, protocole HTTP réel, changement de
-salon, suppression, racine falsifiée, réadhésion et restauration pendant le
-fetch ; SQLite ordonne les positions au-delà de `2^53` malgré des dates inversées.
-Tests mobiles : mêmes barrières avec la projection SQLite réelle, arrêt du
-runner, URLs du récepteur et routage du système. Les bindings et modèles Swift
-compilent ; leurs tests appellent le parser Rust via UniFFI.
+Rust core tests: parsing / accounts, real HTTP protocol, room
+change, deletion, forged root, re-membership and restoration during the
+fetch; SQLite orders positions beyond `2^53` despite inverted dates.
+Mobile tests: same barriers with the real SQLite projection, runner
+stop, receiver URLs and system routing. The Swift bindings and models
+compile; their tests call the Rust parser via UniFFI.
 
-Le clic à froid sur un **permalien** est raccordé ; les parcours installés des
-trois plateformes restent à exercer. Le registre des **actions de notification
-bureau** est maintenant persisté dans le SQLite du compte ; sélection du compte,
-attente de connexion, validation privée et réponse idempotente passent par les
-modèles existants. GNOME enregistre l'action au startup, Windows utilise le
-protocole app pour le clic, SwiftUI attend le compte destinataire. La réponse
-Windows possède son activateur COM natif et un test entre vrais processus.
-Les réponses sont conservées avant le réseau dans l'outbox, avec destination
-capturée, validation privée et preuve d'un envoi dont la confirmation est perdue.
-Les clics reçus hors ligne conservent aussi leur destination et adhésion avant
-reprise du compte, avec validation privée après redémarrage et acquittement lié
-au dernier clic. Une navigation explicite annule l'ancienne attente.
-Le portail XDG Notification v2 raccorde aussi la réponse à froid à l'action
-exportée GTK, quand le service annonce la capacité et GLib ≥ 2.86. Le parcours
-Windows installé à processus arrêté et les portails / Plasma installés restent
-à qualifier ; la réponse freedesktop ancienne exige un processus actif : [détails](PUSH.md).
-Les anciens permaliens HTTP
-Rocket.Chat importés attendent la table de correspondance et le résolveur J5.
-P21 et J3 ne sont pas déclarés terminés.
+The cold click on a **permalink** is wired; the installed journeys of the
+three platforms remain to be exercised. The registry of **desktop notification
+actions** is now persisted in the account's SQLite; account selection,
+waiting for connection, private validation and idempotent reply go through the
+existing models. GNOME registers the action at startup, Windows uses the app
+protocol for the click, SwiftUI waits for the recipient account. The Windows
+reply has its native COM activator and a test between real processes.
+Replies are kept before the network in the outbox, with captured
+destination, private validation and proof of a send whose confirmation is lost.
+Clicks received offline also keep their destination and membership before
+the account resumes, with private validation after restart and acknowledgement bound
+to the last click. An explicit navigation cancels the old wait.
+The XDG Notification v2 portal also wires the cold reply to the exported
+GTK action, when the service announces the capability and GLib ≥ 2.86. The
+installed Windows journey with the process stopped and the installed portals / Plasma remain
+to be qualified; the old freedesktop reply requires an active process: [details](PUSH.md).
+Old Rocket.Chat HTTP permalinks that are imported
+await the correspondence table and the J5 resolver.
+P21 and J3 are not declared complete.

@@ -1,53 +1,53 @@
-# Règlement des transitions de groupe
+# Settlement of group transitions
 
-Le coordinateur conserve chaque `GroupSubmission` préparé dans le coffre avant
-HTTP, avec l'état OpenMLS. La décision d'abandon est checkpoint avant son appel
-réseau. L'outbox ne se libère qu'après comparaison du reçu terminal avec
-l'original : portée complète, opération, appareil auteur et empreinte signée.
-Signature, digests du commit / arbre / Welcomes et identité locale sont
-revérifiés. Une signature historique ne permet aucun nouvel envoi.
+The coordinator keeps each prepared `GroupSubmission` in the vault before
+HTTP, together with the OpenMLS state. The abandon decision is checkpointed before its network
+call. The outbox is only released after comparing the terminal receipt with
+the original: complete scope, operation, author device and signed fingerprint.
+Signature, commit / tree / Welcome digests and local identity are
+re-verified. A historical signature allows no new send.
 
-`Coordinator::request_group_cancellation` fournit l'original checkpointé ou la
-décision déjà connue, y compris sans la feature HTTP. `Worker::cancel_group(room, operation)` renvoie `GroupSettlement::Accepted` ou
-`Cancelled`. Une acceptation déjà durable gagne toujours. `resume_group` reprend
-l'abandon demandé après coupure ; il ne republie pas cette transition. Les
-marqueurs terminaux permettent le rejeu local de `cancel_group` et interdisent
-de préparer une autre intention avec le même ID. Une erreur réseau, un reçu
-substitué ou une réponse non checkpointée ne libère aucun commit.
+`Coordinator::request_group_cancellation` provides the checkpointed original or the
+decision already known, including without the HTTP feature. `Worker::cancel_group(room, operation)` returns `GroupSettlement::Accepted` or
+`Cancelled`. An already durable acceptance always wins. `resume_group` resumes
+the requested abandon after a cut; it does not republish this transition. The
+terminal markers allow the local replay of `cancel_group` and forbid
+preparing another intent with the same ID. A network error, a substituted
+receipt or a non-checkpointed response releases no commit.
 
-Un abandon de genèse supprime son groupe OpenMLS non accepté et son état local,
-puis exige une nouvelle opération et une nouvelle confirmation pour le groupe
-suivant. Une rotation / ajout abandonné efface seulement le commit préparé ;
-l'époque acceptée, les ratchets et les références de packages acceptées restent
-intacts. Les packages d'un ajout jamais accepté ne deviennent pas consommés.
+A genesis abandon deletes its unaccepted OpenMLS group and its local state,
+then requires a new operation and a new confirmation for the next
+group. An abandoned rotation / addition only erases the prepared commit;
+the accepted epoch, the ratchets and the accepted package references stay
+intact. The packages of an addition never accepted do not become consumed.
 
-Un successeur valide reçu d'un pair peut remplacer le commit préparé. L'original
-public incertain reste alors dans le coffre, disponible après redémarrage. Une
-nouvelle transition propre est bloquée jusqu'à son règlement. Un statut 404
-n'autorise pas sa republication depuis le nouvel état MLS. Son abandon libère
-l'intention sans toucher au groupe accepté. Si le serveur prétend avoir accepté
-cet ancien fork, le coordinateur refuse de remplacer l'état courant. Une
-confirmation propre déjà acceptée ne peut être supplantée par un fork de pair.
+A valid successor received from a peer may replace the prepared commit. The uncertain
+public original then stays in the vault, available after restart. A
+new own transition is blocked until its settlement. A 404 status
+does not authorize its republication from the new MLS state. Its abandon releases
+the intent without touching the accepted group. If the server claims to have accepted
+this old fork, the coordinator refuses to replace the current state. An
+own confirmation already accepted cannot be supplanted by a peer fork.
 
-Une rotation acceptée après démarrage du journal garde le commit préparé jusqu'à
-sa position native. Le reçu HTTP terminal est mémorisé, mais il ne supprime pas
-l'époque avec messages non lus. Réception, marqueur terminal éventuel, état MLS
-et curseur partagent la transaction protégée ; tout refus tardif les annule.
+A rotation accepted after the journal started keeps the prepared commit until
+its native position. The terminal HTTP receipt is remembered, but it does not delete
+the epoch with unread messages. Reception, possible terminal marker, MLS state
+and cursor share the protected transaction; any late refusal cancels them.
 
-Le registre est lié à l'instance, l'époque des données, l'utilisateur,
-l'appareil / incarnation et la racine de compte du coffre. Son horloge interdit
-de recommencer une genèse à une date antérieure après suppression de son état.
-Les anciens états sans registre sont enregistrés avant règlement ou succession.
-Les bornes sont 16 intentions incertaines, une par salon, 8192 marqueurs et 8 MiB
-par registre ; les limites globales du coffre peuvent refuser plus tôt. Aucun
-marqueur n'est supprimé pour rendre un ancien ID réutilisable.
+The registry is bound to the instance, the data epoch, the user,
+the device / incarnation and the account root of the vault. Its clock forbids
+restarting a genesis at an earlier date after deletion of its state.
+Old states without a registry are recorded before settlement or succession.
+The bounds are 16 uncertain intents, one per room, 8192 markers and 8 MiB
+per registry; the global vault limits may refuse earlier. No
+marker is deleted to make an old ID reusable.
 
-Le serveur garde le marqueur sans commit / arbre / Welcome, sous le même verrou
-que l'acceptation ; [contrat HTTP](../../docs/protocol/E2EE_GROUPS.md). Sa décision
-HTTP authentifiée n'est pas une preuve cryptographique de non-acceptation.
-Les quotas et refus transitoires ne déclenchent pas d'abandon automatique.
+The server keeps the marker without commit / tree / Welcome, under the same lock
+as the acceptance; [HTTP contract](../../docs/protocol/E2EE_GROUPS.md). Its authenticated
+HTTP decision is not a cryptographic proof of non-acceptance.
+Quotas and transient refusals do not trigger an automatic abandon.
 
-[La réadmission avec nouveau Welcome](READMISSION.md) dans le même coffre est
-ajoutée séparément. Projection dans les interfaces existantes,
-archives / fichiers, pont Android, qualification des trousseaux / appareils et
-revue indépendante restent ouverts. `capabilities.e2ee` reste désactivé.
+[Readmission with a new Welcome](READMISSION.md) in the same vault is
+added separately. Projection in the existing interfaces,
+archives / files, Android bridge, qualification of keychains / devices and
+independent review remain open. `capabilities.e2ee` stays disabled.

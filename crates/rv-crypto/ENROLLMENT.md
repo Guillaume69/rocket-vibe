@@ -1,179 +1,179 @@
-# Ajout d'appareil — moteur isolé v1
+# Device enrollment: isolated engine v1
 
-`identity::enrollment` complète les [identités certifiées](IDENTITY.md) avec une
-preuve de possession, une approbation locale liée à la demande exacte et son
-reçu privé durable. Aucune capacité ni interface supplémentaire n'est activée.
+`identity::enrollment` completes the [certified identities](IDENTITY.md) with a
+proof of possession, a local approval bound to the exact request and its durable
+private receipt. No additional capability or interface is enabled.
 
-## Parcours et stockage
+## Flow and storage
 
-1. Dans un coffre neuf, `LocalDevice::create` génère une clé Ed25519 de feuille
-   et une incarnation aléatoire. La racine attendue doit déjà avoir été confirmée
-   par le parcours d'identité ; une racine fournie par HTTP ne devient pas fiable
-   parce qu'elle figure dans la demande. Une clé existante n'est pas remplacée.
-2. `request` crée et sauvegarde une demande signée par cette **clé de feuille**.
-   Elle lie racine, appareil, incarnation, ID aléatoire de 32 bytes, clé et fenêtre
-   d'au plus 10 minutes. Un rejeu reprend exactement la même demande / expiration.
-   Une demande expirée peut être remplacée, en gardant la clé et l'incarnation.
-3. Sur le contrôleur qui détient la racine privée, `Issuer::preview_request`
-   vérifie la preuve et retourne un consentement opaque lié à la racine, demande,
-   état du registre et expiration choisie du certificat. L'UI devra présenter
-   l'empreinte / QR de la demande à comparer avec le nouvel appareil. Une
-   notification serveur, session HTTP ou preuve de possession n'est pas un
-   accord humain. Le token n'est pas désérialisable depuis le réseau.
-4. Après confirmation, `approve_request` signe le certificat et un `Grant` qui
-   lie ce certificat à l'empreinte de la demande. Le registre `crypto-issuance-v1`
-   persiste ce résultat dans le même commit. Répéter cette demande rend le Grant
-   original ; réutiliser son ID avec un autre contenu ou confirmer une autre
-   demande avec un aperçu périmé est refusé.
-5. Le nouvel appareil vérifie le Grant, sa signature de racine et son lien exact
-   à la demande privée encore en attente. `install` sauvegarde le certificat et
-   retire cette attente. Une clé / incarnation différente ou un ancien Grant
-   présenté pour une nouvelle demande sont refusés. Un rejeu déjà installé ne
-   retire pas une autre demande de renouvellement en attente.
+1. In a new vault, `LocalDevice::create` generates an Ed25519 leaf key
+   and a random incarnation. The expected root must already have been confirmed
+   by the identity flow; a root supplied over HTTP does not become trusted
+   because it appears in the request. An existing key is not replaced.
+2. `request` creates and saves a request signed by this **leaf key**.
+   It binds root, device, incarnation, a random 32-byte ID, key and a window
+   of at most 10 minutes. A replay resumes exactly the same request / expiry.
+   An expired request may be replaced, keeping the key and the incarnation.
+3. On the controller that holds the private root, `Issuer::preview_request`
+   verifies the proof and returns an opaque consent bound to the root, request,
+   registry state and chosen certificate expiry. The UI will have to present the
+   fingerprint / QR of the request to compare with the new device. A
+   server notification, HTTP session or proof of possession is not a human
+   agreement. The token cannot be deserialized from the network.
+4. After confirmation, `approve_request` signs the certificate and a `Grant` that
+   binds this certificate to the fingerprint of the request. The `crypto-issuance-v1`
+   registry persists this result in the same commit. Repeating this request returns the
+   original Grant; reusing its ID with other content or confirming another
+   request with a stale preview is refused.
+5. The new device verifies the Grant, its root signature and its exact link
+   to the private request still pending. `install` saves the certificate and
+   removes this pending state. A different key / incarnation or an old Grant
+   presented for a new request is refused. An already installed replay does not
+   remove another pending renewal request.
 
-`crypto-device-v1` contient la graine de feuille, la demande et le Grant dans
-les enregistrements chiffrés du coffre. `LocalDevice` n'a ni `Debug`, ni `Clone`,
-ni export privé. Il implémente le
-[`Signer` OpenMLS 0.6.0](https://docs.rs/openmls_traits/0.6.0/openmls_traits/signatures/trait.Signer.html)
-pour créer les KeyPackages / messages avec la clé certifiée. Un objet chargé
-avant une autre écriture ne peut pas écraser le nouvel enregistrement.
+`crypto-device-v1` contains the leaf seed, the request and the Grant in
+the encrypted records of the vault. `LocalDevice` has no `Debug`, no `Clone`,
+and no private export. It implements the
+[OpenMLS 0.6.0 `Signer`](https://docs.rs/openmls_traits/0.6.0/openmls_traits/signatures/trait.Signer.html)
+to create the KeyPackages / messages with the certified key. An object loaded
+before another write cannot overwrite the new record.
 
-Ces méthodes sont internes : elles s'exécutent dans un callback
-`protected::Manager::transact` sur le worker possédé. La demande ou le Grant
-n'est remis à la livraison qu'après confirmation du checkpoint protégé. Un
-refus annule le registre ; si l'écriture du checkpoint échoue après le commit,
-la reprise retrouve le Grant original. L'état MLS / `LocalDevice` ne doit pas
-sortir du callback, ni être réutilisé après une transaction refusée.
+These methods are internal: they run inside a
+`protected::Manager::transact` callback on the owned worker. The request or the Grant
+is only handed to delivery after the protected checkpoint is confirmed. A
+refusal cancels the registry; if the checkpoint write fails after the commit,
+resumption finds the original Grant again. The MLS state / `LocalDevice` must not
+leave the callback, nor be reused after a refused transaction.
 
-Le registre garde au plus 256 reçus encore rejouables / 2 Mio. Les reçus dont
-la demande a expiré sont retirés lors d'une nouvelle émission ; la demande
-expirée reste refusée avant ce traitement. Le dernier instant d'émission est
-persisté : un retour d'horloge avant ce marqueur ne rouvre pas une fenêtre
-ancienne après purge. `now` vient de l'horloge locale du worker, jamais d'HTTP.
-Ces bornes n'évincent pas une décision encore rejouable pour faire de la place.
+The registry keeps at most 256 still-replayable receipts / 2 MiB. Receipts whose
+request has expired are removed on a new issuance; the expired
+request stays refused before this processing. The last issuance instant is
+persisted: a clock rollback before this marker does not reopen an
+old window after purge. `now` comes from the worker's local clock, never from HTTP.
+These bounds do not evict a still-replayable decision to make room.
 
-## Cadres v1 et vecteur
+## v1 frames and vector
 
-Les règles JSON / domaine NUL de [IDENTITY.md](IDENTITY.md) s'appliquent :
+The JSON / NUL domain rules of [IDENTITY.md](IDENTITY.md) apply:
 
-| Objet | Ordre du payload | Domaine |
+| Object | Payload order | Domain |
 | --- | --- | --- |
-| Corps de demande | `version, root, device, incarnation, request_id, signature_key, issued_at, expires_at` | `rocketvibe-device-request-v1`, signature de feuille |
-| Demande | `body, signature` | `rocketvibe-request-fingerprint-v1`, SHA-256 |
-| Grant | tableau `[empreinte_demande, certificat]` | `rocketvibe-device-grant-v1`, signature de racine |
+| Request body | `version, root, device, incarnation, request_id, signature_key, issued_at, expires_at` | `rocketvibe-device-request-v1`, leaf signature |
+| Request | `body, signature` | `rocketvibe-request-fingerprint-v1`, SHA-256 |
+| Grant | array `[request_fingerprint, certificate]` | `rocketvibe-device-grant-v1`, root signature |
 
-Le JSON du Grant réseau contient `request, certificate, signature`. Les
-décodeurs explicites `from_bytes` sont bornés à 4096 bytes pour une demande et
-8192 pour un Grant ; champs inconnus / doublons / formats hérités sont refusés.
-Décoder n'est pas vérifier : il faut ensuite appeler la vérification et les
-contrôles de portée / attente. Les signatures et empreintes sont des tableaux
-de bytes ; les objets imbriqués suivent leur ordre v1.
+The network Grant JSON contains `request, certificate, signature`. The explicit
+`from_bytes` decoders are bounded to 4096 bytes for a request and
+8192 for a Grant; unknown fields / duplicates / legacy formats are refused.
+Decoding is not verifying: the verification and the scope / pending
+checks must then be called. Signatures and fingerprints are byte arrays;
+nested objects follow their v1 order.
 
-Le [vecteur public](fixtures/enrollment-v1.json) utilise les mêmes graines de
-fixture publiques que le certificat, et un ID de demande `[5; 32]`. Il passe les
-vérificateurs de production Rust et le vérificateur indépendant Node / OpenSSL :
+The [public vector](fixtures/enrollment-v1.json) uses the same public fixture
+seeds as the certificate, and a request ID `[5; 32]`. It passes the
+Rust production verifiers and the independent Node / OpenSSL verifier:
 
 ```sh
 node crates/rv-crypto/scripts/verify-identity-vector.mjs
 cargo run --locked --manifest-path crates/rv-crypto/Cargo.toml --target-dir target --example enrollment_vector
 ```
 
-## Renouvellement de l'incarnation enregistrée
+## Renewal of the registered incarnation
 
-Le coordinateur partagé propose une demande explicite de renouvellement.
-Il authentifie le certificat historique et le reçu actuel de l'appareil, y
-compris après expiration, sans les employer pour autoriser un nouvel envoi MLS.
-Une date antérieure à l'émission, une racine remplacée, une révision substituée
-ou un retrait signé refusent la cérémonie. Le certificat de l'annuaire doit
-être exactement celui installé, pas seulement contenir la même clé publique.
+The shared coordinator offers an explicit renewal request.
+It authenticates the historical certificate and the current receipt of the device,
+including after expiry, without using them to authorize a new MLS send.
+A date earlier than the issuance, a replaced root, a substituted revision
+or a signed withdrawal refuses the ceremony. The directory certificate must
+be exactly the installed one, not merely contain the same public key.
 
-La demande conserve racine, incarnation, clé de signature et coffre. Un second
-appareil transmet sa demande à son contrôleur de racine ; le contrôleur compare
-et approuve explicitement, même si son propre certificat de feuille a expiré.
-L'expiration de cette feuille ne détruit pas son autorité de racine. Une demande
-encore valable se reprend sans prolonger sa durée ; son renouvellement après
-expiration crée une nouvelle demande et invalide l'ancienne approbation.
+The request keeps root, incarnation, signing key and vault. A second
+device transmits its request to its root controller; the controller compares
+and approves explicitly, even if its own leaf certificate has expired.
+The expiry of this leaf does not destroy its root authority. A request
+still valid is resumed without extending its duration; its renewal after
+expiry creates a new request and invalidates the old approval.
 
-Le certificat valide précédent peut encore servir tant que seule la demande
-est en attente. Installer le Grant conserve le certificat et le reçu précédents
-comme baseline privée, checkpoint l'enregistrement original et suspend les
-nouveaux accès de conversation jusqu'à son ACK exact. L'adaptateur bureau ferme
-les workers précédents à cette installation. Un serveur ayant accepté le POST
-avant une réponse perdue est interrogé par l'ID original avant toute nouvelle
-publication ; révision, portée, appareil, incarnation et racine du reçu sont
-contrôlés. L'ancien baseline n'est supprimé qu'après cet ACK.
+The previous valid certificate can still be used as long as only the request
+is pending. Installing the Grant keeps the previous certificate and receipt
+as a private baseline, checkpoints the original record and suspends
+new conversation accesses until its exact ACK. The desktop adapter closes
+the previous workers at this installation. A server that accepted the POST
+before a lost response is queried by the original ID before any new
+publication; revision, scope, device, incarnation and root of the receipt are
+checked. The old baseline is only deleted after this ACK.
 
-Les enregistrements antérieurs restent lisibles ; le champ privé optionnel de
-renouvellement n'est écrit que pendant cette intention. Les réglages Android,
-GTK et SwiftUI exposent l'expiration, la demande / approbation et la reprise.
-Ils n'émettent pas automatiquement de commit MLS. Les contrôles existants de
-chaque salon signalent le décalage entre sa feuille MLS effectivement vérifiée
-et le certificat installé ; la transition explicite actualise cette feuille.
-Le nouveau certificat n'autorise pas d'envoi avant cette mise à jour. Le reçu
-HTTP accepté conserve l'ancienne époque jusqu'à la position exacte du commit
-dans le journal, afin de lire les messages précédents. Historique et brouillon
-restent dans le même coffre. Le banc bureau exerce renouvellement, HTTP réel,
-rotation perdue, reprise sans second POST et nouvel envoi ; le pont mobile
-exerce deux acteurs MLS et la réception du commit renouvelé. Les reçus mobiles
-de ce banc sont synthétiques. Les contrôles des trois clients permettent
-désormais de remplacer explicitement un pair renouvelé : retirer sa feuille
-précédente et ajouter un package frais dans le même commit. Une rotation
-conservant un pair expiré et un ajout sans retrait restent refusés. Un Welcome
-de réadmission est requis ; son aperçu ne remplace pas le groupe, sa confirmation
-retire l'ancien cache de messages et ses brouillons. Ce changement ne promet
-pas une récupération d'archive. Le test du moteur exerce les deux certificats
-expirés et de vrais messages MLS ; le banc du cœur bureau exerce sélection,
-HTTP et reprise originale. L'exécution du banc serveur prolongé et les parcours
-installés restent à qualifier.
-Les essais du coordinateur exercent expiration, second appareil, réouverture,
-reçu incorrect, annuaire changé et retrait ; le banc bureau exerce HTTP réel,
-workers précédents et réponse perdue. Qualification installée et revue restent
-des conditions distinctes.
+Earlier records stay readable; the optional private renewal field
+is only written during this intent. The Android, GTK and SwiftUI settings
+expose the expiry, the request / approval and the resumption.
+They do not automatically emit an MLS commit. The existing controls of
+each room flag the gap between its effectively verified MLS leaf
+and the installed certificate; the explicit transition updates this leaf.
+The new certificate does not authorize a send before this update. The accepted
+HTTP receipt keeps the old epoch until the exact position of the commit
+in the journal, in order to read the preceding messages. History and draft
+stay in the same vault. The desktop bench exercises renewal, real HTTP,
+lost rotation, resumption without a second POST and a new send; the mobile bridge
+exercises two MLS actors and the reception of the renewed commit. The mobile receipts
+of this bench are synthetic. The controls of the three clients now allow
+explicitly replacing a renewed peer: withdrawing its previous leaf
+and adding a fresh package in the same commit. A rotation
+keeping an expired peer and an addition without withdrawal stay refused. A readmission
+Welcome is required; its preview does not replace the group, its confirmation
+removes the old message cache and its drafts. This change does not promise
+an archive recovery. The engine test exercises the two expired certificates
+and real MLS messages; the desktop core bench exercises selection,
+HTTP and original resumption. Running the extended server bench and the
+installed flows remain to be qualified.
+The coordinator tests exercise expiry, second device, reopening,
+incorrect receipt, changed directory and withdrawal; the desktop bench exercises real HTTP,
+previous workers and lost response. Installed qualification and review remain
+distinct conditions.
 
-## Prochaines conditions de sortie
+## Next exit conditions
 
-Le retrait indépendant emploie `account::Coordinator::preview_withdrawal`
-puis `prepare_withdrawal` après confirmation. L'aperçu opaque lie portée,
-certificat / incarnation / révision de la cible, certificat et reçu exacts du
-contrôleur. Un autre contrôleur, une cible remplacée, une demande de
-renouvellement ou un certificat changé refusent sa préparation. L'expiration
-ne retire pas l'autorité de racine : le certificat historique authentifié du
-contrôleur demeure nécessaire, sans permettre un nouvel envoi MLS.
+Independent withdrawal uses `account::Coordinator::preview_withdrawal`
+then `prepare_withdrawal` after confirmation. The opaque preview binds scope,
+certificate / incarnation / revision of the target, and the exact certificate and receipt of the
+controller. Another controller, a replaced target, a renewal request
+or a changed certificate refuses its preparation. Expiry
+does not remove root authority: the controller's authenticated historical certificate
+remains necessary, without allowing a new MLS send.
 
-Le retrait signé et le `RevokeDevice` original sont checkpointés ensemble avant
-HTTP. Dès cette confirmation, le retrait reste appris, même après une omission
-de l'annuaire ou une réouverture ; seule la preuve pour l'identité locale déjà
-établie est apprise. Un pin existant l'applique immédiatement, un premier pin
-explicite ultérieur ne peut pas ressusciter l'appareil. Aucun pin / accord
-d'appareil n'est créé par le retrait. `acknowledge_withdrawal` exige le reçu
-exact du contrôleur et règle uniquement l'intention, sans effacer la preuve.
-Le renouvellement du contrôleur attend cet ACK. Les adaptateurs réutilisent
-leurs sessions et interrogent le reçu avant un éventuel POST original.
-Fermeture pendant le checkpoint : le worker termine sa sauvegarde, son ancien
-viewer ne publie rien et la vue suivante retrouve l'intention exacte.
+The signed withdrawal and the original `RevokeDevice` are checkpointed together before
+HTTP. From this confirmation, the withdrawal stays learned, even after an omission
+from the directory or a reopening; only the proof for the already
+established local identity is learned. An existing pin applies it immediately,
+a later explicit first pin cannot resurrect the device. No device pin / agreement
+is created by the withdrawal. `acknowledge_withdrawal` requires the exact receipt
+of the controller and only settles the intent, without erasing the proof.
+The controller's renewal waits for this ACK. The adapters reuse
+their sessions and query the receipt before any original POST.
+Closing during the checkpoint: the worker finishes its save, its old
+viewer publishes nothing and the next view finds the exact intent again.
 
-Les paramètres GTK / SwiftUI / Android existants proposent examen, confirmation
-explicite et reprise du retrait. Leur qualification CI / installée, la
-récupération visible et la politique d'historique après retrait restent des
-conditions distinctes. Les groupes doivent encore retirer leur ancienne feuille
-par un commit MLS ; un retrait ne récupère ni n'efface l'archive historique.
+The existing GTK / SwiftUI / Android settings offer review, explicit confirmation
+and resumption of the withdrawal. Their CI / installed qualification, the visible
+recovery and the history policy after withdrawal remain distinct
+conditions. Groups must still remove their old leaf
+through an MLS commit; a withdrawal neither recovers nor erases the historical archive.
 
-Un Grant installé n'ajoute **ni pin de correspondant ni feuille de salon**.
-`Pins` et la politique de groupe exigent leurs approbations / commits propres.
-La racine privée reste sur le contrôleur ; elle n'est pas transmise au nouvel
-appareil par ce format. La [récupération de racine](RECOVERY.md) emploie un code
-aléatoire distinct du mot de passe HTTP et crée un nouveau parcours de feuille.
-Délégation de contrôle et récupération visible restent à intégrer. Révoquer une
-feuille ne retire pas une racine privée déjà compromise.
+An installed Grant adds **neither a correspondent pin nor a room leaf**.
+`Pins` and the group policy require their own approvals / commits.
+The private root stays on the controller; it is not transmitted to the new
+device by this format. The [root recovery](RECOVERY.md) uses a random code
+distinct from the HTTP password and creates a new leaf flow.
+Delegation of control and visible recovery remain to be integrated. Revoking a
+leaf does not withdraw an already compromised private root.
 
-Les demandes / Grants se transfèrent explicitement entre appareils. Les gardes
-de compte / époque / UI, le pont Android et les écrans de sécurité existants
-sont raccordés ; leurs parcours installés complets, le remplacement des pairs
-renouvelés avec le serveur réel et la revue indépendante restent à qualifier.
-La restauration d'une racine ne doit jamais restaurer un ancien état MLS d'envoi.
-Archive / fichiers, protocole de salon et revue indépendante restent ouverts.
+Requests / Grants are transferred explicitly between devices. The account /
+epoch / UI guards, the Android bridge and the existing security screens
+are wired up; their full installed flows, the replacement of renewed
+peers with the real server and the independent review remain to be qualified.
+The restoration of a root must never restore an old MLS sending state.
+Archive / files, room protocol and independent review remain open.
 
-Onze tests couvrent preuves altérées, expiration / retour d'horloge, KeyPackage
-réel, Grant substitué, objet local périmé, limites / purge / parseurs, refus de
-transaction, réouverture du coffre et checkpoint perdu. Ils constituent des
-preuves du moteur, sans qualification d'un parcours sur appareil installé.
+Eleven tests cover altered proofs, expiry / clock rollback, real KeyPackage,
+substituted Grant, stale local object, limits / purge / parsers, transaction
+refusal, vault reopening and lost checkpoint. They are engine
+proofs, without qualification of a flow on an installed device.

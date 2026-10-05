@@ -1,45 +1,45 @@
-# Présence et saisie natives — P12
+# Native presence and typing (P12)
 
-Les clients conservent leurs composeurs, indicateurs de saisie et pastilles de DM.
-Le fournisseur Rocket.Chat garde son transport actuel. Le fournisseur RocketVibe
-expose `presence` / `typing` uniquement si le serveur les annonce aussi.
+The clients keep their composers, typing indicators and DM badges.
+The Rocket.Chat provider keeps its current transport. The RocketVibe provider
+exposes `presence` / `typing` only if the server also announces them.
 
-## Écriture et expiration
+## Writing and expiry
 
-- `PUT /api/v1/me/presence` : `{ "status": "online" }`, avec `online`,
-  `away`, `busy` ou `offline`. Un bail appartient à un appareil authentifié,
-  survit au renouvellement de son bearer et expire après **60 secondes**.
-  `offline` retire ses baux de présence et de saisie. Un autre appareil actif
-  conserve la présence du compte. Priorité d'agrégation : busy, online, away.
-- `PUT /api/v1/rooms/{id}/typing` : `{ "active": true,
-  "membership_version": "jeton-du-read-state" }`, avec `root_id` optionnel
-  pour un fil. Le jeton public d'adhésion doit encore être courant ; une
-  réadhésion ne réanime aucun ancien composeur. Une saisie active exige le
-  droit d'envoyer et une racine disponible dans ce même salon. Un arrêt reste
-  autorisé après passage en lecture seule. Le bail expire après **10 secondes**.
-- Ces deux écritures répondent HTTP 200 / JSON `null`. Elles ne constituent pas
-  des commandes durables et ne disposent d'aucun reçu ni mécanisme de rejeu.
-- Les clients actifs renouvellent la présence toutes les **20 secondes** et
-  limitent les émissions de saisie active à une toutes les **3 secondes** par
-  composeur. Les arrêts suivent les émissions engagées. Hors connexion, aucune
-  intention de présence / saisie ne rejoint SQLite ou l'outbox.
+- `PUT /api/v1/me/presence`: `{ "status": "online" }`, with `online`,
+  `away`, `busy` or `offline`. A lease belongs to an authenticated device,
+  survives the renewal of its bearer and expires after **60 seconds**.
+  `offline` removes its presence and typing leases. Another active device
+  keeps the account's presence. Aggregation priority: busy, online, away.
+- `PUT /api/v1/rooms/{id}/typing`: `{ "active": true,
+  "membership_version": "read-state-token" }`, with optional `root_id`
+  for a thread. The public membership token must still be current; a
+  re-membership revives no old composer. Active typing requires the
+  right to send and an available root in this same room. A stop remains
+  allowed after switching to read-only. The lease expires after **10 seconds**.
+- Both writes answer HTTP 200 / JSON `null`. They are not
+  durable commands and have no receipt or replay mechanism.
+- Active clients renew presence every **20 seconds** and
+  limit active typing emissions to one every **3 seconds** per
+  composer. Stops follow the emissions already committed. Offline, no
+  presence / typing intent reaches SQLite or the outbox.
 
-Les tables PostgreSQL sont **UNLOGGED** : plusieurs processus partagent les
-baux, mais une récupération après crash n'a pas à restaurer un ancien « écrit ».
-Les lecteurs vérifient aussi les sessions valides, la génération d'instance,
-l'activation du compte, l'adhésion actuelle et les droits / racines actuels.
-Une suspension / fermeture oublie immédiatement la photo locale et tente un
-`offline` sans bloquer l'interface. Si le réseau est coupé, les baux expirent.
+The PostgreSQL tables are **UNLOGGED**: several processes share the
+leases, but a recovery after a crash need not restore an old "writing".
+The readers also verify valid sessions, the instance generation,
+account activation, current membership and current rights / roots.
+A suspension / closure immediately forgets the local snapshot and attempts an
+`offline` without blocking the interface. If the network is cut, the leases expire.
 
-## Lecture et temps réel
+## Read and real time
 
-Le lot [profils P16](PROFILES.md) ajoute des `profiles` optionnels à la photo :
-identité, révision, version d'avatar et texte de statut de soi et des membres
-de salons partagés. Ils respectent la même limite et expiration ; ils ne
-contiennent ni email ni préférences et n'ajoutent aucun événement durable.
+The [profiles P16](PROFILES.md) batch adds optional `profiles` to the snapshot:
+identity, revision, avatar version and status text of oneself and of the members
+of shared rooms. They respect the same limit and expiry; they contain
+neither email nor preferences and add no durable event.
 
-`GET /api/v1/live` renvoie une photo autorisée. La même photo est envoyée toutes
-les **2 secondes** par la socket de synchronisation négociée avec `live=true` :
+`GET /api/v1/live` returns an authorized snapshot. The same snapshot is sent every
+**2 seconds** through the sync socket negotiated with `live=true`:
 
 ```json
 {"type":"live","data":{"ttl_ms":8000,"limited":false,
@@ -47,42 +47,42 @@ les **2 secondes** par la socket de synchronisation négociée avec `live=true` 
   "rooms":[{"room_id":"r1","membership_version":"grant1","typing":[]}]}}
 ```
 
-Une entrée de salon peut porter `direct_peer` pour raccorder la pastille du DM
-à l'identité réelle du correspondant, sans dériver son UID du nom du salon.
-Les saisies portent un utilisateur et éventuellement `root_id` : les saisies
-d'un fil ne s'affichent pas dans le flux principal du salon.
+A room entry may carry `direct_peer` to link the DM badge
+to the correspondent's real identity, without deriving their UID from the room name.
+Typing entries carry a user and possibly `root_id`: the typing
+of a thread is not displayed in the room's main flow.
 
-Ces trames sont distinctes des `SyncBatch`, n'ont **aucun curseur** et ne
-modifient pas le journal. Une ancienne socket sans `live=true` continue de
-recevoir uniquement les lots durables. HTTP et WebSocket conservent la barrière
-de livraison des adhésions / politiques. Les clients refusent une photo d'une
-ancienne adhésion et l'oublient à la révocation, à la suspension ou après
-**8 secondes sans nouvelle photo**, sans dépendre de leur horloge murale pour
-valider un bail serveur. Un utilisateur absent d'une photo valide est hors ligne ;
-une photo absente / expirée signifie que son statut est inconnu.
+These frames are distinct from `SyncBatch`es, have **no cursor** and do not
+modify the journal. An old socket without `live=true` continues to
+receive only the durable batches. HTTP and WebSocket keep the delivery barrier
+of memberships / policies. Clients refuse a snapshot of an
+old membership and forget it on revocation, suspension or after
+**8 seconds without a new snapshot**, without depending on their wall clock to
+validate a server lease. A user absent from a valid snapshot is offline;
+an absent / expired snapshot means their status is unknown.
 
-Bornes du pilote : 1 000 salons, 512 utilisateurs présents, 512 saisies et
-256 Kio par photo. Au-delà, `limited=true` fait oublier les observations au lieu
-d'exposer une liste tronquée. Un appareil dispose de 60 écritures temporaires
-par minute, avec HTTP 429 / `live_rate_limited` et `Retry-After`. Ce budget est
-indépendant des envois, actions et lectures. Un appareil n'a qu'un composeur
-actif côté serveur ; l'ouverture d'une autre saisie remplace la précédente.
+Pilot bounds: 1,000 rooms, 512 present users, 512 typings and
+256 KiB per snapshot. Beyond that, `limited=true` makes observations be forgotten instead of
+exposing a truncated list. A device has 60 temporary writes
+per minute, with HTTP 429 / `live_rate_limited` and `Retry-After`. This budget is
+independent of sends, actions and reads. A device has only one active
+composer server-side; opening another typing replaces the previous one.
 
-## Mentions `@here`
+## `@here` mentions
 
-Les destinataires sont capturés dans la transaction du premier envoi : autres
-membres actifs du salon ayant un appareil avec un bail `online` ou `busy`
-encore valable. Les utilisateurs `away` / hors ligne ne sont pas ajoutés.
-Une connexion ultérieure ou une édition n'ajoute aucun destinataire. Retirer
-le token lors d'une édition retire le ping d'origine. `@here` ne signifie jamais
-`@all` ; les règles de Markdown et de lecture des fils restent les mêmes.
+The recipients are captured in the transaction of the first send: other
+active members of the room having a device with a still-valid `online` or `busy`
+lease. `away` / offline users are not added.
+A later connection or an edit adds no recipient. Removing
+the token during an edit removes the original ping. `@here` never means
+`@all`; the Markdown and thread reading rules remain the same.
 
 ## Qualification
 
-Les tests PostgreSQL / WebSocket couvrent expiration, isolement des salons,
-appareils multiples, révocation de session, génération, réadhésion, budget et
-capture de `@here`. Les tests clients couvrent expiration sans arrêt reçu,
-photos périmées, séparation des composeurs, absence de persistance et arrêt
-sérialisé. Les bancs connectés utilisent les fournisseurs mobiles réels, les
-widgets GTK et les modèles Swift existants. La qualification des applications
-installées Android / Windows / macOS reste un critère ouvert de la RFC.
+The PostgreSQL / WebSocket tests cover expiry, room isolation,
+multiple devices, session revocation, generation, re-membership, budget and
+`@here` capture. The client tests cover expiry without a received stop,
+stale snapshots, separation of composers, absence of persistence and serialized
+stop. The connected benches use the real mobile providers, the existing
+GTK widgets and Swift models. The qualification of the installed
+Android / Windows / macOS applications remains an open criterion of the RFC.

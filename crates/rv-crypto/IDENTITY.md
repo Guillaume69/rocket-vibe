@@ -1,105 +1,105 @@
-# Identités et approbations E2EE — format v1
+# E2EE identities and approvals: format v1
 
-`identity` fournit les racines de compte, certificats d'appareil, pins locaux et
-révocations de [RFC 0002](../../docs/rfcs/0002-e2ee-native.md). Cette crate reste
-isolée : aucune UI ni capacité E2EE n'est activée par ce lot.
+`identity` provides the account roots, device certificates, local pins and
+revocations of [RFC 0002](../../docs/rfcs/0002-e2ee-native.md). This crate stays
+isolated: no UI nor E2EE capability is enabled by this batch.
 
-## Racine et certificat
+## Root and certificate
 
-`Issuer::generate` crée une graine Ed25519 avec l'aléa OS. La racine publique lie
-l'identifiant immuable d'instance, l'UID et une génération aléatoire de 16
-octets. Un nom affiché, un bearer ou le mot de passe HTTP ne remplace pas cette
-identité. `Issuer` n'a ni `Debug`, ni `Clone`, ni export public de la clé privée.
-`save` / `load` utilisent `crypto-root-v1` dans les enregistrements **chiffrés du
-coffre** ; une racine existante différente est refusée, jamais remplacée.
+`Issuer::generate` creates an Ed25519 seed with OS randomness. The public root binds
+the immutable instance identifier, the UID and a random 16-byte
+generation. A display name, a bearer or the HTTP password does not replace this
+identity. `Issuer` has no `Debug`, no `Clone`, and no public export of the private key.
+`save` / `load` use `crypto-root-v1` in the **encrypted records of the
+vault**; a different existing root is refused, never replaced.
 
-Le certificat signé lie cette racine à un ID d'appareil, une incarnation de 16
-octets, un numéro aléatoire, la suite MLS `0x0001`, la clé de signature de la
-feuille et une durée d'au plus 90 jours. Sa signature Ed25519 est vérifiée avec
+The signed certificate binds this root to a device ID, a 16-byte
+incarnation, a random number, the MLS suite `0x0001`, the signing key of the
+leaf and a duration of at most 90 days. Its Ed25519 signature is verified with
 [`verify_strict`](https://docs.rs/ed25519-dalek/2.2.0/ed25519_dalek/struct.VerifyingKey.html#method.verify_strict),
-en refusant aussi les clés faibles. Les timestamps Unix sont en secondes ;
-l'admission exige `issued_at <= now < expires_at`.
+also refusing weak keys. Unix timestamps are in seconds;
+admission requires `issued_at <= now < expires_at`.
 
-Le `BasicCredential` MLS transporte le JSON du certificat, au plus 4096 octets.
-Un texte Rocket.Chat, des champs inconnus ou un format non Basic sont refusés.
-Le certificat n'est **ni une preuve de possession, ni une autorisation de salon**.
-Le KeyPackage reçu doit d'abord passer la validation OpenMLS (signature et
-lifetime) ; `authorize_key_package` compare ensuite sa suite et sa clé de
-signature au certificat, puis exige le pin et l'approbation d'appareil exacts.
-Un KeyPackage valide signé par une autre clé avec un certificat copié est refusé.
+The MLS `BasicCredential` carries the certificate JSON, at most 4096 bytes.
+A Rocket.Chat text, unknown fields or a non-Basic format are refused.
+The certificate is **neither a proof of possession, nor a room authorization**.
+The received KeyPackage must first pass OpenMLS validation (signature and
+lifetime); `authorize_key_package` then compares its suite and signing key
+to the certificate, then requires the exact pin and device approval.
+A valid KeyPackage signed by another key with a copied certificate is refused.
 
-## Encodage signé et vecteur public
+## Signed encoding and public vector
 
-Chaque cadre est `UTF8(domaine) || 0x00 || UTF8(JSON compact ordonné)`. Il ne
-s'agit pas de JCS / RFC 8785. Les champs sont reconstruits dans l'ordre ci-dessous,
-sans espaces. Les entiers sont décimaux et les tableaux de bytes des tableaux
-JSON d'entiers `0..255`. Les noms ont au plus 256 octets, sans contrôle Unicode.
-Le payload signé a au plus 4096 octets. Un changement d'ordre ou de représentation
-exige une nouvelle version.
+Each frame is `UTF8(domain) || 0x00 || UTF8(ordered compact JSON)`. It is not
+JCS / RFC 8785. The fields are rebuilt in the order below,
+without spaces. Integers are decimal and byte arrays are JSON
+arrays of integers `0..255`. Names are at most 256 bytes, with no Unicode control characters.
+The signed payload is at most 4096 bytes. A change of order or of representation
+requires a new version.
 
-| Objet | Ordre du payload | Domaine |
+| Object | Payload order | Domain |
 | --- | --- | --- |
-| Racine | `version, instance, user, generation, public_key` | `rocketvibe-root-fingerprint-v1` pour SHA-256 |
-| Appareil | `version, root, device, incarnation, serial, suite, signature_key, issued_at, expires_at` | `rocketvibe-device-certificate-v1` pour la signature |
-| Certificat | `device, signature` | `rocketvibe-certificate-fingerprint-v1` pour SHA-256 |
-| Révocation | tableau `[root, device, incarnation]` | `rocketvibe-device-revocation-v1` pour la signature |
+| Root | `version, instance, user, generation, public_key` | `rocketvibe-root-fingerprint-v1` for SHA-256 |
+| Device | `version, root, device, incarnation, serial, suite, signature_key, issued_at, expires_at` | `rocketvibe-device-certificate-v1` for the signature |
+| Certificate | `device, signature` | `rocketvibe-certificate-fingerprint-v1` for SHA-256 |
+| Revocation | array `[root, device, incarnation]` | `rocketvibe-device-revocation-v1` for the signature |
 
-La racine imbriquée respecte son ordre propre. Les signatures sont des tableaux
-de 64 bytes. Le [vecteur public](fixtures/identity-certificate-v1.json) est produit
-par [`identity_vector`](examples/identity_vector.rs) avec les graines publiques
-`[7; 32]` et `[11; 32]`, exclusivement pour ce fixture. Le test Rust utilise le
-vérificateur de production. Un vérificateur indépendant Node / OpenSSL reconstruit
-le cadre, vérifie la signature et refuse substitutions d'appareil et de domaine :
+The nested root respects its own order. Signatures are arrays
+of 64 bytes. The [public vector](fixtures/identity-certificate-v1.json) is produced
+by [`identity_vector`](examples/identity_vector.rs) with the public seeds
+`[7; 32]` and `[11; 32]`, exclusively for this fixture. The Rust test uses the
+production verifier. An independent Node / OpenSSL verifier rebuilds
+the frame, verifies the signature and refuses device and domain substitutions:
 
 ```sh
 node crates/rv-crypto/scripts/verify-identity-vector.mjs
 cargo run --locked --manifest-path crates/rv-crypto/Cargo.toml --target-dir target --example identity_vector
 ```
 
-## Confiance persistante et confirmation locale
+## Persistent trust and local confirmation
 
-`Pins::observe` est une lecture ; elle n'ajoute rien. Le premier pin exige
-`accept_first` avec l'empreinte exacte affichée. Il reste **non vérifié** : une
-substitution au premier contact reste possible. `verify_root` ne doit être appelé
-qu'après comparaison hors bande. Une réponse HTTP ne suffit pas. Un changement
-de racine bloque l'admission ; son remplacement exige les empreintes ancienne
-et nouvelle confirmées et efface toutes les approbations d'appareils.
+`Pins::observe` is a read; it adds nothing. The first pin requires
+`accept_first` with the exact fingerprint displayed. It stays **unverified**: a
+substitution at first contact remains possible. `verify_root` must only be called
+after an out-of-band comparison. An HTTP response is not enough. A root
+change blocks admission; its replacement requires the old and new fingerprints
+confirmed and erases all device approvals.
 
-`preview_device` retourne un `Consent` local opaque, sans désérialisation réseau,
-lié au certificat exact et à l'état du pin. `approve` refuse une confirmation
-ancienne après une autre décision. Répéter la confirmation d'un appareil déjà
-approuvé est idempotent. Changer sa clé sous la même incarnation est refusé.
-Le futur adaptateur UI doit aussi contrôler compte actif, génération et portée
-de la demande : ce token ne remplace pas les gardes de navigation des apps.
+`preview_device` returns an opaque local `Consent`, with no network deserialization,
+bound to the exact certificate and to the pin state. `approve` refuses an old
+confirmation after another decision. Repeating the confirmation of an already
+approved device is idempotent. Changing its key under the same incarnation is refused.
+The future UI adapter must also check the active account, generation and scope
+of the request: this token does not replace the navigation guards of the apps.
 
-Les pins sont dans `crypto-trust-v1`, au plus 2 Mio / 1024 comptes / 64 appareils
-par compte. Une révocation signée par la racine est additive, idempotente et
-conservée après réouverture ; réémettre un certificat pour l'incarnation révoquée
-ne la réadmet pas. La limite de 4096 révocations par compte bloque les ajouts
-supplémentaires, sans éviction silencieuse d'une révocation ancienne.
+The pins are in `crypto-trust-v1`, at most 2 MiB / 1024 accounts / 64 devices
+per account. A revocation signed by the root is additive, idempotent and
+kept after reopening; re-issuing a certificate for the revoked incarnation does
+not readmit it. The limit of 4096 revocations per account blocks additional
+additions, with no silent eviction of an old revocation.
 
-Les décisions et clés sont sauvegardées via `protected::Manager::transact` ;
-leur résultat ne sort qu'après confirmation du checkpoint dans le trousseau.
-Une transaction refusée ne sauvegarde ni certificat ni changement de confiance.
+Decisions and keys are saved through `protected::Manager::transact`;
+their result only leaves after the checkpoint is confirmed in the keychain.
+A refused transaction saves neither a certificate nor a trust change.
 
-## Conditions encore ouvertes
+## Conditions still open
 
-La [demande signée / preuve de possession](ENROLLMENT.md), son accord exact et
-ses reçus durables sont implémentés dans le moteur isolé, ainsi que la
-[sauvegarde / restauration de racine](RECOVERY.md) par code distinct. La cérémonie
-UI / livraison de nouvel appareil, délégation de contrôle et récupération
-d'archive restent à intégrer.
-L'API interne `certify` ne doit pas être exposée directement à une réponse du serveur.
-La liste signée des destinataires, les commits de salon, la consommation unique
-des KeyPackages et la livraison réseau restent à intégrer.
+The [signed request / proof of possession](ENROLLMENT.md), its exact agreement and
+its durable receipts are implemented in the isolated engine, as is the
+[root backup / restore](RECOVERY.md) by distinct code. The new-device
+UI / delivery ceremony, delegation of control and archive recovery
+remain to be integrated.
+The internal `certify` API must not be exposed directly to a server response.
+The signed list of recipients, the room commits, the single consumption
+of KeyPackages and the network delivery remain to be integrated.
 
-Une révocation n'efface pas les données reçues auparavant. Un service peut
-retenir sa livraison ; le retrait de feuille MLS et la suspension des envois
-doivent être appliqués par le moteur / serveur. Si la **racine privée** est
-compromise, un simple retrait d'appareil ne suffit pas : une nouvelle racine et
-sa confirmation hors bande sont nécessaires. L'expiration d'un certificat
-d'admission ne définit pas à elle seule la vérification des archives historiques.
+A revocation does not erase the data received earlier. A service may
+withhold its delivery; the withdrawal of the MLS leaf and the suspension of sends
+must be applied by the engine / server. If the **private root** is
+compromised, a simple device withdrawal is not enough: a new root and
+its out-of-band confirmation are necessary. The expiry of an admission
+certificate does not by itself define the verification of historical archives.
 
-Ces tests ne sont pas une revue crypto indépendante. J4 reste ouvert jusqu'aux
-parcours intégrés, à la récupération / archive / fichiers et aux qualifications
-des plateformes consignées dans la RFC.
+These tests are not an independent crypto review. J4 stays open until the integrated
+flows, the recovery / archive / files and the platform qualifications
+recorded in the RFC.

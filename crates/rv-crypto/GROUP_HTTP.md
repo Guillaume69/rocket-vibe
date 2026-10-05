@@ -1,244 +1,244 @@
-# Frontière HTTP des groupes et messages MLS
+# HTTP boundary of MLS groups and messages
 
-Le module `groups::wire` convertit les DTOs publics de `rv-protocol::e2ee` vers
-le coordinateur protégé. Une conversion n'approuve aucune racine, aucun appareil
-et aucune époque MLS. Le réseau et les callbacks UI restent hors du verrou du
-coffre ; les validations / décisions et mutations privées restent dans le
-worker possédé du coordinateur.
+The `groups::wire` module converts the public DTOs of `rv-protocol::e2ee` into
+the protected coordinator. A conversion approves no root, no device
+and no MLS epoch. The network and the UI callbacks stay outside the vault
+lock; the private validations / decisions and mutations stay in the owned
+worker of the coordinator.
 
-## Observations et préparation
+## Observations and preparation
 
-Les [transitions interrompues](GROUP_SETTLEMENT.md) gardent leur original dans
-le coffre même après un successeur de pair. `cancel_group` checkpoint l'intention
-d'abandon avant HTTP et valide le reçu terminal avant de libérer le commit.
-Les rotations acceptées restent ordonnées par le journal.
+[Interrupted transitions](GROUP_SETTLEMENT.md) keep their original in
+the vault even after a peer successor. `cancel_group` checkpoints the abandon
+intent before HTTP and validates the terminal receipt before releasing the commit.
+Accepted rotations stay ordered by the journal.
 
-Un Welcome pour un salon déjà accepté passe maintenant par une preview de
-[réadmission](READMISSION.md) : `EventKind::Readmission`, package frais,
-confirmation liée à l'ancien état et remplacement atomique du groupe / curseur
-dans le même coffre. Le cache précédent reste protégé et ne devient pas une
-page visible de l'admission nouvelle. Les interfaces restent à raccorder.
+A Welcome for an already accepted room now goes through a
+[readmission](READMISSION.md) preview: `EventKind::Readmission`, fresh package,
+confirmation bound to the old state and atomic replacement of the group / cursor
+in the same vault. The previous cache stays protected and does not become a
+visible page of the new admission. The interfaces remain to be wired up.
 
-Le [fournisseur bureau existant](../../apps/desktop/docs/NATIVE_CRYPTO.md)
-attache maintenant ce worker à son client HTTP et à sa génération de session.
-`Worker::new_guarded` vérifie une `Lifecycle` avant / après les attentes et à
-l'entrée du travail privé possédé. Son arrêt est terminal et partagé entre
-clones. La découverte validée actualise la garde des capacités sans seconde
-requête. Aucun réseau ni callback de coffre dans cette garde. Les opérations
-déjà en cours de checkpoint finissent sous leur verrou et ne rendent pas leur
-résultat à un accès fermé. Ce raccordement ne remplit pas encore les contrôles
-de création / appareils / pins ni la projection des interfaces.
+The [existing desktop provider](../../apps/desktop/docs/NATIVE_CRYPTO.md)
+now attaches this worker to its HTTP client and to its session generation.
+`Worker::new_guarded` checks a `Lifecycle` before / after the waits and on
+entry to the owned private work. Its stop is terminal and shared between
+clones. The validated discovery refreshes the capability guard without a second
+request. No network and no vault callback inside this guard. Operations
+already in the checkpoint phase finish under their lock and do not return their
+result to a closed access. This wiring does not yet fill in the creation /
+device / pin controls nor the projection of the interfaces.
 
-`Genesis::from_wire` prend le roster courant sans groupe, une nouvelle incarnation
-de salon non nulle, l'opération et les réponses de packages disponibles.
-`Change::from_wire` prend le roster avec sa tête, les retraits explicites et les
-packages frais. Ces objets passent ensuite par les previews / confirmations
-et préparations décrits dans [GROUP_COMMITS.md](GROUP_COMMITS.md).
+`Genesis::from_wire` takes the current roster without a group, a new non-null room
+incarnation, the operation and the available package responses.
+`Change::from_wire` takes the roster with its head, the explicit withdrawals and the
+fresh packages. These objects then go through the previews / confirmations
+and preparations described in [GROUP_COMMITS.md](GROUP_COMMITS.md).
 
-Les en-têtes doivent désigner la même instance, génération et salle. Le roster
-est complet, borné à 128 utilisateurs, trié et sans doublons ; IDs et nonces
-sont canoniques. Chaque réponse de package est bornée avant décodage. Son vrai
-KeyPackage TLS est validé : suite, signature, certificat public, identité / UID /
-appareil / incarnation et référence RFC 9420 correspondent aux métadonnées.
-Ni les métadonnées serveur ni cette validation ne remplacent les pins du coffre
-ou la vérification des certificats au moment de la préparation.
+The headers must designate the same instance, generation and room. The roster
+is complete, bounded to 128 users, sorted and free of duplicates; IDs and nonces
+are canonical. Each package response is bounded before decoding. Its real TLS
+KeyPackage is validated: suite, signature, public certificate, identity / UID /
+device / incarnation and RFC 9420 reference match the metadata.
+Neither the server metadata nor this validation replaces the vault pins
+or the verification of the certificates at preparation time.
 
-`Submission::to_wire` conserve les octets publics originaux. Il vérifie signature
-historique et correspondance exacte entre preuve, opération, portée, arbre,
-commit et tous les Welcomes ciblés avant d'encoder. Il ne recrée aucun commit.
-Le retry du coffre reste chargé de vérifier confiance / expiration courantes.
-Les clés privées, état OpenMLS, ratchets et signers ne figurent pas dans le DTO.
+`Submission::to_wire` keeps the original public bytes. It verifies the historical
+signature and the exact match between proof, operation, scope, tree,
+commit and all targeted Welcomes before encoding. It recreates no commit.
+The vault retry remains responsible for verifying current trust / expiry.
+Private keys, OpenMLS state, ratchets and signers do not appear in the DTO.
 
-Les références de package sont en base64url sans padding ; incarnations et
-empreintes de reçu sont en hexadécimal minuscule. Les révisions / époques HTTP
-restent des chaînes décimales canoniques dans l'intervalle PostgreSQL `i64`.
-L'époque zéro est permise, la révision zéro ne l'est pas. Aucun passage par
-un nombre JavaScript ni normalisation d'une forme ambiguë n'est effectué.
+Package references are base64url without padding; incarnations and
+receipt fingerprints are lowercase hexadecimal. HTTP revisions / epochs
+stay canonical decimal strings within the PostgreSQL `i64` range.
+Epoch zero is allowed, revision zero is not. No passage through
+a JavaScript number and no normalization of an ambiguous form is performed.
 
-## Réception et reprise
+## Reception and resumption
 
-`Receipt::from_wire` décode le reçu exact pour `Coordinator::confirm` ; ses
-champs restent tous vérifiés contre l'outbox privée. `Receipt::from_state`
-contrôle aussi la preuve publique et le digest de l'arbre d'une réponse de
-tête. Le drapeau `needs_rekey = false` n'est pas une permission de chiffrer.
+`Receipt::from_wire` decodes the exact receipt for `Coordinator::confirm`; its
+fields are all still verified against the private outbox. `Receipt::from_state`
+also checks the public proof and the tree digest of a head
+response. The flag `needs_rekey = false` is not a permission to encrypt.
 
-`Admission::from_wire` exige le Welcome ciblé de l'événement et le roster
-indépendamment observé. `Commit::from_wire` concerne un successeur sans nouveau
-Welcome local. Preuve, reçu et digests doivent correspondre. Leur acceptation
-reste soumise à la validation MLS réelle, aux approbations et aux nonces dans
-le coffre. Un ancien Welcome n'est pas rejeté uniquement parce qu'une tête plus
-récente existe si les versions observées correspondent encore à son plan.
+`Admission::from_wire` requires the event's targeted Welcome and the independently
+observed roster. `Commit::from_wire` concerns a successor without a new local
+Welcome. Proof, receipt and digests must match. Their acceptance
+remains subject to the real MLS validation, to the approvals and to the nonces in
+the vault. An old Welcome is not rejected merely because a more
+recent head exists if the observed versions still match its plan.
 
-`wire::validate_page` borne la page à 16 événements, vérifie portée, révisions
-consécutives à partir du curseur, parent / époque entre événements et curseur
-suivant exact. Les payloads cumulés respectent la borne de 2 Mio, avec la même
-exception que le serveur pour un seul événement complet. Ce contrôle ne
-remplace pas la politique de rattrapage à travers les changements d'adhésion.
-Un premier parent doit encore correspondre à l'état local avant fusion.
+`wire::validate_page` bounds the page to 16 events, verifies scope, consecutive
+revisions starting from the cursor, parent / epoch between events and exact next
+cursor. The cumulative payloads respect the 2 MiB bound, with the same
+exception as the server for a single complete event. This check does not
+replace the catch-up policy across membership changes.
+A first parent must still match the local state before merging.
 
-Le SDK Rust borne également les réponses `/api/v1/e2ee/` à **4 Mio avant Serde**,
-via longueur annoncée puis somme des chunks, pour les succès et erreurs. Cette
-borne couvre le plus gros événement permis après encodage JSON / base64. Les
-reçus, lectures et règles de `Retry-After` conservent leur comportement ; une
-réponse incorrecte retourne `InvalidCrypto` sans contenu privé dans l'erreur.
+The Rust SDK also bounds the `/api/v1/e2ee/` responses to **4 MiB before Serde**,
+via announced length then sum of chunks, for successes and errors. This
+bound covers the largest event allowed after JSON / base64 encoding. The
+receipts, reads and `Retry-After` rules keep their behavior; an
+incorrect response returns `InvalidCrypto` with no private content in the error.
 
-## Worker asynchrone expérimental
+## Experimental asynchronous worker
 
-La feature optionnelle `native-http` expose `delivery::Worker` au-dessus du
-SDK existant. Chaque appel vérifie découverte anonyme, instance / génération,
-compte et unique session d'appareil courante. Les clones partagent ordre de
-dispatch et arrêt ; une nouvelle génération de vue doit arrêter son ancien
-worker. La crypto et les checkpoints s'exécutent dans des tâches bloquantes
-possédées ; aucun appel réseau n'a lieu sous le verrou du coffre. L'arrêt
-empêche la publication du résultat d'une ancienne génération ; un travail
-privé déjà lancé conserve son verrou jusqu'à son terme.
+The optional `native-http` feature exposes `delivery::Worker` on top of the
+existing SDK. Each call verifies anonymous discovery, instance / generation,
+account and the single current device session. Clones share dispatch order and
+stop; a new view generation must stop its old
+worker. Crypto and checkpoints run in owned blocking
+tasks; no network call takes place under the vault lock. The stop
+prevents the publication of the result of an old generation; private work
+already launched keeps its lock until it completes.
 
-`preview_genesis` / `preview_change` collectent roster et packages publics,
-puis produisent un consentement opaque protégé. La préparation conserve
-l'outbox avant réseau. `resume_group` recherche d'abord le reçu personnel ;
-seul un 404 autorise le retry original après les contrôles de confiance /
-expiration. Un reçu exact est nécessaire à la fusion. Réponse perdue,
-reçu divergent ou refus conservent la demande pour réconciliation.
-`publish_packages` / `resume_packages` suivent aussi la recherche du reçu
-avant renvoi du lot original ; l'appareil doit déjà être enregistré et sa
-révision vient de l'observation publique autorisée.
+`preview_genesis` / `preview_change` collect the public roster and packages,
+then produce a protected opaque consent. The preparation keeps
+the outbox before the network. `resume_group` first looks up the personal receipt;
+only a 404 allows the original retry after the trust /
+expiry checks. An exact receipt is necessary for the merge. A lost response,
+divergent receipt or refusal keep the request for reconciliation.
+`publish_packages` / `resume_packages` also follow the receipt lookup
+before resending the original batch; the device must already be registered and its
+revision comes from the authorized public observation.
 
-Un 429 sur POST sauvegarde dans le coffre son délai borné à 300 secondes.
-Un nouveau worker / client respecte ce délai, mais peut consulter un reçu
-et terminer une opération déjà acceptée. Chaque appel effectue une tentative ;
-le fournisseur doit encore gérer réveil, suspension et rythme des reprises.
+A 429 on POST saves in the vault its delay, bounded to 300 seconds.
+A new worker / client respects this delay, but may consult a receipt
+and complete an already accepted operation. Each call makes one attempt;
+the provider must still handle wake-up, suspension and the pace of resumptions.
 
-`events` charge la tête et la page depuis le reçu local accepté, refuse recul /
-fork observé et valide l'enveloppe publique. Chaque événement exige ensuite
-`preview_event` / `accept_event`, avec un roster de nouveau observé à
-l'acceptation. Une page ou une tête ne vaut aucune approbation.
+`events` loads the head and the page from the accepted local receipt, refuses rollback /
+observed fork and validates the public envelope. Each event then requires
+`preview_event` / `accept_event`, with a roster observed anew at
+acceptance. A page or a head is worth no approval.
 
-## Messages applicatifs
+## Application messages
 
-`MessageSubmission::to_wire` / `from_wire` et `from_delivered` conservent
-preuve et ciphertext originaux, avec décodage borné, base64url / JSON canoniques,
-digest et portée / opération / reçu liés exactement. Les conversions du reçu
-préservent Header opaque, empreinte, ID serveur et position décimale, y compris
-au-delà de `2^53`. Cette validation de forme ne remplace pas l'authentification
-du certificat, de la signature, de l'auteur MLS et de l'AAD dans le coffre.
+`MessageSubmission::to_wire` / `from_wire` and `from_delivered` keep the original
+proof and ciphertext, with bounded decoding, canonical base64url / JSON,
+digest and scope / operation / receipt exactly bound. The receipt conversions
+preserve the opaque Header, fingerprint, server ID and decimal position, including
+beyond `2^53`. This form validation does not replace the authentication
+of the certificate, signature, MLS author and AAD in the vault.
 
-Le worker ajoute `send_message(room, SendMessage)` : observation de tête / roster
-courant, préparation / checkpoint privé, puis recherche du reçu avant POST.
-Le document clair entre seulement dans la tâche privée ; le transport reçoit
-les octets opaques déjà protégés. `resume_message(operation)` cherche d'abord
-le reçu propre à partir des métadonnées historiques du coffre. Un reçu exact
-confirme l'opération sans nouvel envoi, même après expiration du certificat,
-changement de roster ou pendant un cooldown de POST. Un 404 seulement permet
-un retry original, après nouveau contrôle de tête, droits, pins et expiration.
-Un refus ne libère pas silencieusement l'outbox ni ne rechiffre son document.
-`cancel_message(operation)` règle explicitement l'intention originale : une
-acceptation antérieure gagne, sinon le serveur interdit tout POST tardif et le
-coffre conserve le document avec un marqueur terminal. Rejeu exact, certificat
-expiré et perte de confirmation sont traités sans nouveau chiffrement.
-[Règlement définitif](SETTLEMENT.md).
+The worker adds `send_message(room, SendMessage)`: observation of the current head /
+roster, private preparation / checkpoint, then receipt lookup before POST.
+The plaintext document only enters the private task; the transport receives
+the already protected opaque bytes. `resume_message(operation)` first looks up
+the own receipt from the vault's historical metadata. An exact receipt
+confirms the operation without a new send, even after certificate expiry,
+roster change or during a POST cooldown. Only a 404 allows
+an original retry, after a new check of head, rights, pins and expiry.
+A refusal does not silently release the outbox nor re-encrypt its document.
+`cancel_message(operation)` explicitly settles the original intent: an
+earlier acceptance wins, otherwise the server forbids any late POST and the
+vault keeps the document with a terminal marker. Exact replay, expired
+certificate and loss of confirmation are handled without new encryption.
+[Final settlement](SETTLEMENT.md).
 
-`receive_message(ApplicationMessage)` observe le groupe courant, convertit la
-trame et appelle le coordinateur dans une tâche possédée. Le vrai auteur / AAD,
-contenu et ratchet sont validés ; le résultat clair n'est remis qu'après
-checkpoint et contrôle de l'arrêt du worker. Réouverture, doublon et écho propre
-utilisent le contenu privé conservé. Un message inconnu d'une ancienne tête
-reste refusé : cette API ne fournit pas encore le rattrapage historique ni un
-checkpoint de préfixe complet du journal. Les fournisseurs ne doivent pas
-avancer une page à partir de cette seule confirmation de message ni conserver
-le document clair dans leur cache public ordinaire.
+`receive_message(ApplicationMessage)` observes the current group, converts the
+frame and calls the coordinator in an owned task. The real author / AAD,
+content and ratchet are validated; the plaintext result is only returned after
+checkpoint and a check of the worker stop. Reopening, duplicate and own echo
+use the retained private content. An unknown message from an old head
+stays refused: this API does not yet provide historical catch-up nor a
+complete journal prefix checkpoint. Providers must not
+advance a page from this message confirmation alone nor keep
+the plaintext document in their ordinary public cache.
 
-Le lot initial de messages ajoute cinq scénarios HTTP à fixture : confirmation perdue / worker
-neuf, vrai déchiffrement par le pair et l'écho, retry identique après absence
-de commit, rotation propre bloquée, reçu divergent, ACK après expiration et
-sans roster, et cooldown durable laissant les confirmations disponibles.
-Les dix scénarios HTTP passent en 2,85 s ; deux scénarios de conversions avec
-vrais paquets passent en 0,89 s. Le banc combiné est étendu à six messages
-sur trois époques, avec réponses perdues après les vrais commits serveur.
-Il passe en 29,76 s : six POSTs de messages, six lignes opaques, neuf trames
-de livraison et aucun document clair dans SQL. Les deux coffres rouverts
-retrouvent texte riche, citations exactes, cartes et réponse dans le fil.
-La fixture consomme chaque époque avant sa rotation ; elle ne qualifie pas
-un rattrapage d'époques manquées. La suite privée de ce lot comptait 118 succès
-en 162,91 s, avec l'enfant ignoré exécuté par le parent de crash, sans filtre.
+The initial batch of messages adds five fixture HTTP scenarios: lost confirmation / fresh
+worker, real decryption by the peer and the echo, identical retry after absence
+of commit, own rotation blocked, divergent receipt, ACK after expiry and
+without roster, and durable cooldown leaving the confirmations available.
+The ten HTTP scenarios pass in 2.85 s; two conversion scenarios with
+real packets pass in 0.89 s. The combined bench is extended to six messages
+over three epochs, with responses lost after the real server commits.
+It passes in 29.76 s: six message POSTs, six opaque rows, nine delivery
+frames and no plaintext document in SQL. The two reopened vaults
+find again the rich text, exact quotes, cards and thread reply.
+The fixture consumes each epoch before its rotation; it does not qualify
+a catch-up of missed epochs. The private suite of this batch counted 118 successes
+in 162.91 s, with the ignored child executed by the crash parent, without filter.
 
-## Pages du journal protégé
+## Protected journal pages
 
-`journal_page(room)` utilise le curseur du coffre et la fenêtre fixe du journal
-opaque. Déchiffrement, transitions, contenu privé et préfixe complet partagent
-le même checkpoint. Une erreur tardive annule toute la page. Les rosters
-historiques viennent des plans signés / vrais arbres MLS ; l'admission propre
-doit rester identique à l'observation courante. `journal_last_batch(room)`
-reprend le dernier lot après réouverture sans nouvelle consommation.
+`journal_page(room)` uses the vault cursor and the fixed window of the opaque
+journal. Decryption, transitions, private content and full prefix share
+the same checkpoint. A late error cancels the whole page. The historical
+rosters come from the signed plans / real MLS trees; the own admission
+must stay identical to the current observation. `journal_last_batch(room)`
+resumes the last batch after reopening without new consumption.
 
-Une fois ce journal commencé, l'ACK d'une rotation propre conserve l'ancienne
-époque jusqu'à la lecture des messages qui précèdent sa position. Les API
-isolées de message / commit refusent de contourner l'ordre. Six tests privés
-et le banc réel HTTP / PostgreSQL passent ; les règles, preuves et limites
-sont dans [JOURNAL.md](JOURNAL.md). Le banc réel couvre maintenant les pages
-protégées et leur rejeu après réouverture ; le rattrapage de trois époques
-manquées est prouvé séparément contre de vrais groupes MLS sur disque.
+Once this journal has started, the ACK of an own rotation keeps the old
+epoch until the messages preceding its position have been read. The isolated
+message / commit APIs refuse to bypass the order. Six private tests
+and the real HTTP / PostgreSQL bench pass; the rules, proofs and limits
+are in [JOURNAL.md](JOURNAL.md). The real bench now covers the protected
+pages and their replay after reopening; the catch-up of three missed
+epochs is proven separately against real MLS groups on disk.
 
-## Historique des vérifications de groupes
+## History of group verifications
 
-Six scénarios du coffre traversent les vrais DTOs avec commits et bases privées :
-genèse / jointure / rotation et mêmes secrets d'époque, retry HTTP exact,
-révisions supérieures à la précision JavaScript, métadonnées de package
-substituées, roster / portée / nonces périmés, payloads / Welcomes modifiés et
-pages avec événement réellement manquant. La suite privée complète compte
-96 tests réussis, plus l'enfant de crash exécuté par son parent ; les six
-scénarios ciblés sont vérifiés à nouveau après renforcement du chaînage.
+Six vault scenarios go through the real DTOs with commits and private databases:
+genesis / join / rotation and same epoch secrets, exact HTTP retry,
+revisions above JavaScript precision, substituted package metadata,
+stale roster / scope / nonces, modified payloads / Welcomes and
+pages with a truly missing event. The full private suite counts
+96 passing tests, plus the crash child executed by its parent; the six
+targeted scenarios are verified again after the chaining was hardened.
 
-Quatre tests réseau du SDK couvrent `Content-Length` excessif sans corps,
-chunks excessifs sur succès et erreur, JSON / grands entiers préservés et
-`Retry-After` sans bloquer les GET. Les 14 tests de routes de groupe contre
-PostgreSQL, dont le vrai SDK sur HTTP, passent également.
+Four SDK network tests cover excessive `Content-Length` without a body,
+excessive chunks on success and error, JSON / big integers preserved and
+`Retry-After` without blocking GETs. The 14 group route tests against
+PostgreSQL, including the real SDK over HTTP, also pass.
 
-Le worker traverse également HTTP, le vrai MLS et les coffres sur disque dans
-une fixture réseau déterministe : réponse de genèse perdue et reprise sans
-second POST, rotation perdue conservant son parent jusqu'au reçu puis rattrapage
-du pair avec les mêmes nouveaux secrets, reçu incorrect / activation changée,
-429 conservé et arrêt / changement d'identité. Ces cinq scénarios ne constituent pas
-à eux seuls le banc combiné worker privé / serveur Rust / PostgreSQL. La
-suite complète initiale du worker compte 100 succès et l'enfant de crash
-exécuté par son parent ; les cinq scénarios HTTP sont revérifiés après ajout
-du cas de rotation. Formatage et Clippy strict passent avec les deux features.
+The worker also goes through HTTP, real MLS and the on-disk vaults in
+a deterministic network fixture: lost genesis response and resumption without a
+second POST, lost rotation keeping its parent until the receipt then peer
+catch-up with the same new secrets, incorrect receipt / changed activation,
+429 preserved and stop / identity change. These five scenarios do not by themselves
+constitute the combined private worker / Rust server / PostgreSQL bench. The
+initial full worker suite counts 100 successes and the crash child
+executed by its parent; the five HTTP scenarios are re-verified after the addition
+of the rotation case. Formatting and strict Clippy pass with both features.
 
-Le banc combiné `delivery_smoke` passe également contre le vrai routeur Rust et
-PostgreSQL : appareils / certificats enregistrés par HTTP, deux publications
-de vrais packages, genèse, Welcome ciblé, puis rotations par les deux auteurs.
-Le serveur perd volontairement la réponse de la première publication et de
-chaque transition après commit réel. Chaque reprise rouvre le coffre avec un
-nouveau Manager / SDK et retrouve le reçu : deux POSTs de publication et trois
-POSTs de transition au total, trois événements SQL, un seul Welcome et un seul
-package consommé. Le parent local reste actif avant ACK et les secrets MLS
-des pairs concordent à chaque époque. L'envoi en clair est ensuite refusé.
+The combined `delivery_smoke` bench also passes against the real Rust router and
+PostgreSQL: devices / certificates registered over HTTP, two publications
+of real packages, genesis, targeted Welcome, then rotations by both authors.
+The server deliberately loses the response of the first publication and of
+each transition after the real commit. Each resumption reopens the vault with a
+new Manager / SDK and finds the receipt: two publication POSTs and three
+transition POSTs in total, three SQL events, a single Welcome and a single
+consumed package. The local parent stays active before ACK and the peers'
+MLS secrets agree at each epoch. Sending in plaintext is then refused.
 
-La fixture privée est un processus séparé, sans accès à `DATABASE_URL`, avec
-tokens temporaires via stdin. Son SQLite est réel ; son stockage de checkpoint
-externe est simulé en mémoire. Ce banc ne prouve pas la reprise après destruction
-du processus privé ni les trousseaux physiques. Le vrai banc Secret Service
-Linux reste une preuve distincte. Le scénario combiné initial passe en 12,62 s ;
-les 15 tests de routes de groupe passent ensemble en 14,05 s. Le scénario est
-revérifié après suppression de l'environnement SQL client en 12,36 s.
-Le job CI `native-crypto-http` fournit toujours le binaire et exécute ce test
-explicitement ignoré dans les suites générales, afin de ne pas masquer son
-absence par un résultat positif conditionnel.
+The private fixture is a separate process, with no access to `DATABASE_URL`, with
+temporary tokens via stdin. Its SQLite is real; its external checkpoint
+storage is simulated in memory. This bench does not prove resumption after destruction
+of the private process nor the physical keychains. The real Linux Secret Service
+bench remains a distinct proof. The initial combined scenario passes in 12.62 s;
+the 15 group route tests pass together in 14.05 s. The scenario is
+re-verified after removal of the client SQL environment in 12.36 s.
+The `native-crypto-http` CI job always provides the binary and runs this test,
+explicitly ignored in the general suites, so as not to mask its
+absence with a conditional positive result.
 
-Pour le rejouer sous Linux avec `DATABASE_URL` vers un PostgreSQL jetable :
+To replay it under Linux with `DATABASE_URL` pointing to a disposable PostgreSQL:
 
 ```sh
 cargo build --locked --manifest-path crates/rv-crypto/Cargo.toml --features native-http --target-dir target/native-crypto --example delivery_smoke
 RV_CRYPTO_HTTP_SMOKE_BINARY="$PWD/target/native-crypto/debug/examples/delivery_smoke" cargo test --locked -p rv-server --lib protected_http_worker_publishes_joins_rotates_and_reconciles_real_postgres -- --ignored --nocapture
 ```
 
-Le journal authentifie désormais les anciennes feuilles expirées sans
-autoriser de nouveau POST sous ces certificats : lecteur courant, même
-admission et pins / révocations actuels restent requis. Quatre scénarios
-MLS supplémentaires passent ; les détails de politique sont dans
-[JOURNAL.md](JOURNAL.md). Le renouvellement dans les apps reste à raccorder.
+The journal now authenticates old expired leaves without
+authorizing a new POST under these certificates: current reader, same
+admission and current pins / revocations remain required. Four additional
+MLS scenarios pass; the policy details are in
+[JOURNAL.md](JOURNAL.md). Renewal in the apps remains to be wired up.
 
-Planification dans les fournisseurs, réconciliation des refus,
-suspension après retrait et réadmission dans les apps, projection des messages, fichiers / archives /
-import, pont Android et interfaces existantes restent ouverts. Les qualifications
-sur appareils / trousseaux et la revue indépendante demeurent nécessaires.
-Aucune capacité E2EE n'est activée.
+Scheduling in the providers, reconciliation of refusals,
+suspension after withdrawal and readmission in the apps, message projection, files / archives /
+import, Android bridge and the existing interfaces remain open. The qualifications
+on devices / keychains and the independent review remain necessary.
+No E2EE capability is enabled.

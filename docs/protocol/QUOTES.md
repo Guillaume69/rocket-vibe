@@ -1,291 +1,291 @@
-# Citations natives — P07
+# Native quotes (P07)
 
-Les références, leur résolution côté serveur, les caches bureau commun
-GTK / SwiftUI et mobile, et les corps d'intention durables sont livrés. La capacité
-`quotes` active les actions de réponse des trois interfaces existantes : cartes,
-menus, bandeaux et composeurs sont réutilisés, y compris les citations imbriquées
-sur deux niveaux. Qualification des applications installées et parité complète
-des citations privées restent ouvertes ; ce lot ne ferme pas P07.
+The references, their server-side resolution, the shared desktop
+GTK / SwiftUI and mobile caches, and the durable intent bodies are delivered. The `quotes`
+capability enables the reply actions of the three existing interfaces: cards,
+menus, banners and composers are reused, including quotes nested
+to two levels. Qualification of installed applications and full parity
+of private quotes remain open; this batch does not close P07.
 
-## Citations privées expérimentales — GTK / SwiftUI / Android
+## Experimental private quotes (GTK / SwiftUI / Android)
 
-Les menus de réponse, bandeaux et cartes existants peuvent maintenant citer un
-message conservé dans le journal privé, racine ou réponse de fil. Le composeur
-garde une sélection transitoire liée à l'instance, à sa génération, à la durée
-d'adhésion publique et à l'admission personnelle du coffre. Une nouvelle commande
-revérifie cette sélection avant de préparer le document MLS ; seuls les trois
-champs de `QuoteReference` sont dans ce document, jamais l'auteur ou l'extrait.
-Dans ce premier format privé immuable, la révision observée est la position
-signée de publication, conservée comme chaîne décimale exacte.
+The existing reply menus, banners and cards can now quote a
+message kept in the private journal, root or thread reply. The composer
+keeps a transient selection bound to the instance, its generation, the lifetime
+of the public membership and the personal admission of the vault. A new command
+re-verifies this selection before preparing the MLS document; only the three
+fields of `QuoteReference` are in this document, never the author or the excerpt.
+In this first immutable private format, the observed revision is the signed
+publication position, kept as an exact decimal string.
 
-Une citation seule est possible. Après réponse perdue, reprise et réouverture
-consultent le reçu de l'original protégé ; elles ne resélectionnent pas sa source
-et ne rechiffrent pas son document. Le SDK borne les références à huit sources
-distinctes ; les composeurs actuels sélectionnent une citation à la fois.
+A quote alone is possible. After a lost response, resumption and reopening
+consult the receipt of the protected original; they do not reselect its source
+and do not re-encrypt its document. The SDK bounds the references to eight distinct
+sources; the current composers select one quote at a time.
 
-Le lecteur résout les sources retenues, y compris les réponses de fil, depuis
-le même préfixe privé vérifié. Les observations sont regroupées par salon source.
-Chaque source doit conserver son adhésion et son admission ; une relecture avant
-exposition masque les sources retirées, sans récupérer leurs mots dans SQLite.
-Les noms peuvent réutiliser les identités publiques déjà connues. Les extraits
-sont bornés à 1 024 caractères Unicode, les descendants à deux niveaux et les
-cycles à leur couple salon / message. Un parent inaccessible ne révèle aucun
-enfant. La liste privée est reconstruite sur toute sa fenêtre retenue pour ne
-pas conserver une ancienne carte après retrait d'un autre salon.
+The reader resolves the retained sources, including thread replies, from
+the same verified private prefix. Observations are grouped by source room.
+Each source must keep its membership and its admission; a re-read before
+exposure masks the removed sources, without recovering their words in SQLite.
+Names can reuse the public identities already known. Excerpts
+are bounded to 1,024 Unicode characters, descendants to two levels and
+cycles to their room / message pair. An inaccessible parent reveals no
+child. The private list is rebuilt over its whole retained window so as not
+to keep an old card after removal from another room.
 
-Sur Android, la feuille d'actions ouvre une vue privée volatile avant toute
-lecture SQL du message. « Répondre » transmet uniquement la sélection au
-composeur ; son aperçu est reconstruit depuis un accès frais au coffre. Blur,
-suspension et retrait effacent ses mots tout en gardant la référence pour
-validation ou annulation. La copie relit également le message privé courant.
-Une sélection portant une admission crypto est refusée par la file SQL
-ordinaire, avant toute écriture. Aucun texte privé ne transite dans les
-paramètres de navigation.
+On Android, the action sheet opens a volatile private view before any
+SQL read of the message. "Répondre" passes only the selection to the
+composer; its preview is rebuilt from a fresh vault access. Blur,
+suspension and removal erase its words while keeping the reference for
+validation or cancellation. Copy also re-reads the current private message.
+A selection carrying a crypto admission is rejected by the ordinary SQL
+queue, before any write. No private text transits in the navigation
+parameters.
 
-### Sources en clair dans une conversation chiffrée
+### Cleartext sources in an encrypted conversation
 
-Les lecteurs GTK / SwiftUI / Android réunissent maintenant les sources du
-coffre et les extraits ordinaires déjà conservés. La lecture ordinaire est
-bornée aux identifiants demandés, à la génération de cache et à l’adhésion
-actuelle ; le salon source doit être connu et non chiffré. Une ancienne ligne
-SQLite d’un salon devenu chiffré ne sert jamais de source privée. Les extraits
-du cache portent leur révision publique courante et seulement les références
-de leurs descendants. Les mots d’un descendant privé sont reconstruits dans
-la carte volatile depuis son propre coffre, jamais enregistrés dans ce parent.
-Relecture avant exposition, deux niveaux et cycles par salon / message
-restent appliqués. Source éditée : nouvel extrait ; source retirée ou d’une
-ancienne adhésion : parent indisponible et aucun descendant. Un retrait qui
-invalide la projection ferme la vue ; une nouvelle vue reconstruit les cartes.
+The GTK / SwiftUI / Android readers now combine the sources of the
+vault and the ordinary excerpts already kept. The ordinary read is
+bounded to the requested identifiers, the cache generation and the current
+membership; the source room must be known and unencrypted. An old SQLite
+row of a room that has become encrypted never serves as a private source. The cache
+excerpts carry their current public revision and only the references
+of their descendants. The words of a private descendant are rebuilt in
+the volatile card from its own vault, never recorded in this parent.
+Re-read before exposure, two levels and cycles by room / message
+remain applied. Edited source: new excerpt; removed source or one from an
+old membership: parent unavailable and no descendant. A removal that
+invalidates the projection closes the view; a new view rebuilds the cards.
 
-Le SDK bureau et UniFFI peuvent aussi sélectionner une source ordinaire pour
-un document MLS, après vérification de sa révision et de son adhésion. Seules
-ses références sont envoyées. La sélection distingue explicitement source
-ordinaire et admission protégée ; effacer l’admission d’une sélection privée
-ne la rend pas ordinaire. Après réponse perdue, le même ciphertext reste
-repris par reçu, même si la source a changé.
+The desktop SDK and UniFFI can also select an ordinary source for
+an MLS document, after verifying its revision and its membership. Only
+its references are sent. The selection explicitly distinguishes ordinary source
+and protected admission; clearing the admission of a private selection
+does not make it ordinary. After a lost response, the same ciphertext stays
+resumed by receipt, even if the source has changed.
 
-Android prépare aussi des références en clair dans le document MLS : le runner
-revalide les sources exactes dans le cache ordinaire, leur scope, statut non
-chiffré, adhésion et révision, puis les relit avant la commande native. Il passe
-au pont un témoin par salon portant seulement adhésion et références. Aucun
-extrait n’est inclus dans ce témoin ou dans l’intention protégée. Rust vérifie
-scope, bornes, unicité et correspondance exacte des témoins ; une source déjà
-connue comme groupe protégé, même en attente ou retiré, ne peut devenir claire
-en supprimant son admission. La confiance du témoin clair vient de l’adaptateur
-de cache authentifié, pas d’une signature MLS de l’auteur ordinaire.
+Android also prepares cleartext references in the MLS document: the runner
+revalidates the exact sources in the ordinary cache, their scope, unencrypted status,
+membership and revision, then re-reads them before the native command. It passes
+to the bridge one witness per room carrying only membership and references. No
+excerpt is included in this witness or in the protected intent. Rust verifies
+scope, bounds, uniqueness and exact matching of the witnesses; a source already
+known as a protected group, even pending or removed, cannot become cleartext
+by deleting its admission. The trust in the cleartext witness comes from the authenticated
+cache adapter, not from an MLS signature of the ordinary author.
 
-Les feuilles / menus existants Android, GTK et SwiftUI permettent de choisir
-une destination où l’utilisateur a le droit d’envoyer, parmi les conversations
-rejointes. Les sources en clair ou privées sont relues par la destination, en
-clair ou chiffrée. La navigation ne transporte que la référence et son autorité
-de sélection ; ouvrir le composeur n’envoie rien. Les aperçus privés sont
-volatils, et leur fermeture / remplacement invalide les résultats tardifs.
-Ces parcours ne transmettent aucun extrait privé à d’autres membres.
+The existing Android, GTK and SwiftUI sheets / menus make it possible to choose
+a destination where the user has the right to send, among the joined
+conversations. Cleartext or private sources are re-read by the destination, whether
+cleartext or encrypted. Navigation carries only the reference and its selection
+authority; opening the composer sends nothing. Private previews are
+volatile, and their closing / replacement invalidates late results.
+These flows transmit no private excerpt to other members.
 
-Parité complète des citations mixtes, fichiers cités, sources
-hors de la fenêtre retenue, évolution des révisions avec l'édition privée et
-qualification GUI installée restent ouverts. La capacité E2EE de production
-reste désactivée ; ce lot ne ferme ni P07 ni J4.
+Full parity of mixed quotes, quoted files, sources
+outside the retained window, evolution of revisions with private editing and
+installed GUI qualification remain open. The production E2EE capability
+stays disabled; this batch closes neither P07 nor J4.
 
-## Commandes et reçus
+## Commands and receipts
 
-`SendMessage.quotes` est une liste optionnelle de `QuoteReference` :
-`room_id`, `message_id`, `revision`. Une commande d'édition utilise la même liste
-dans `MessageContent::Plain`. Aucun auteur, extrait, droit ou pièce jointe calculée
-n'est accepté dans ces références. Une ancienne commande sans `quotes` conserve
-son comportement et son empreinte de rejeu.
+`SendMessage.quotes` is an optional list of `QuoteReference`:
+`room_id`, `message_id`, `revision`. An edit command uses the same list
+in `MessageContent::Plain`. No author, excerpt, right or computed attachment
+is accepted in these references. An old command without `quotes` keeps
+its behavior and its replay fingerprint.
 
-Une commande accepte jusqu'à huit références distinctes. IDs et révisions sont
-validés ; les révisions sont des chaînes décimales positives exactes. Un message
-ne se cite pas lui-même. Une citation seule est possible sans texte de réponse.
-À l'ajout, la source doit exister, être lisible par l'auteur et porter la révision
-observée ; sinon la commande échoue sans publication. `quote_revision_conflict`
-demande une nouvelle sélection de la source. Les verrous de salons sont acquis
-dans l'ordre des IDs, avant adhésions, messages et séquenceur.
+A command accepts up to eight distinct references. IDs and revisions are
+validated; revisions are exact positive decimal strings. A message
+does not quote itself. A quote alone is possible without reply text.
+On addition, the source must exist, be readable by the author and carry the observed
+revision; otherwise the command fails without publication. `quote_revision_conflict`
+requests a new selection of the source. Room locks are acquired
+in the order of the IDs, before memberships, messages and the sequencer.
 
-L'identité durable inclut la liste ordonnée des références. Un renvoi divergent
-échoue avec `operation_conflict` ; le renvoi original conserve son résultat même
-après édition ou suppression de la source. Une édition peut conserver une
-référence existante devenue inaccessible, sans conserver son extrait privé.
+The durable identity includes the ordered list of references. A diverging resend
+fails with `operation_conflict`; the original resend keeps its result even
+after edit or deletion of the source. An edit can keep an existing
+reference that has become inaccessible, without keeping its private excerpt.
 
-## Lectures et autorisation
+## Reads and authorization
 
-`Message.quotes` contient des `MessageQuote` : `reference`, `excerpt`,
-`view_position` et `source_membership_version`. L'extrait
-est absent (`null`) si la source est supprimée ou inaccessible au lecteur.
-L'administration de l'instance ne contourne pas l'adhésion au salon source.
-Une référence inaccessible ne contient ni texte ni identité de l'auteur source.
+`Message.quotes` contains `MessageQuote` entries: `reference`, `excerpt`,
+`view_position` and `source_membership_version`. The excerpt
+is absent (`null`) if the source is deleted or inaccessible to the reader.
+Instance administration does not bypass membership of the source room.
+An inaccessible reference contains neither text nor the identity of the source author.
 
-Un `QuoteExcerpt` autorisé contient auteur, texte borné à 1 024 caractères Unicode,
-date, révision **actuelle** de la source et `membership_version` du lecteur dans
-le salon source. La référence conserve la révision observée lors de la sélection.
-L'extrait suit le contenu actuel ; une ancienne copie du texte n'est pas conservée
-dans le message de réponse. Les références ne déclenchent aucune mention.
+An authorized `QuoteExcerpt` contains author, text bounded to 1,024 Unicode characters,
+date, **current** revision of the source and `membership_version` of the reader in
+the source room. The reference keeps the revision observed at selection time.
+The excerpt follows the current content; an old copy of the text is not kept
+in the reply message. References trigger no mention.
 
-L'extrait porte aussi les `references` actuelles de sa source et les `quotes`
-résolues pour ce lecteur. Les deux listes sont additives et vides par défaut.
-Le serveur résout au plus deux niveaux, avec huit références par source : une
-réponse porte au plus huit extraits directs et soixante-quatre enfants. Le niveau
-terminal conserve les références de sa source mais aucun extrait supplémentaire.
-Chaque enfant possède sa propre position et son propre droit d'accès ; lire la
-source parente ne donne pas accès à ses citations privées. Un parent inaccessible
-ne divulgue aucune référence enfant. Les messages système ne sont pas citables.
+The excerpt also carries the current `references` of its source and the resolved
+`quotes` for this reader. Both lists are additive and empty by default.
+The server resolves at most two levels, with eight references per source: a
+response carries at most eight direct excerpts and sixty-four children. The terminal
+level keeps the references of its source but no additional excerpt.
+Each child has its own position and its own access right; reading the
+parent source does not grant access to its private quotes. An inaccessible parent
+discloses no child reference. System messages are not quotable.
 
-Chaque résolution porte une `view_position`, chaîne décimale exacte du journal
-d'instance, même quand l'extrait est absent. La source, l'adhésion et cette position
-sont lus dans une seule vue SQL. `source_membership_version` est présent si le
-lecteur appartient au salon source, y compris après suppression du message cité ;
-il est absent sans adhésion. Quand l'extrait existe, ses deux durées d'adhésion
-doivent correspondre. Ces champs n'entrent pas dans l'événement partagé.
+Each resolution carries a `view_position`, an exact decimal string of the instance
+journal, even when the excerpt is absent. The source, the membership and this position
+are read in a single SQL view. `source_membership_version` is present if the
+reader belongs to the source room, including after deletion of the quoted message;
+it is absent without membership. When the excerpt exists, its two membership lifetimes
+must match. These fields do not enter the shared event.
 
-La table PostgreSQL des messages et le journal partagé ne reçoivent pas de copie
-d'extrait serveur : les
-événements SQL gardent les références. Historique, message, épingles / étoiles,
-snapshot et rattrapage HTTP / WebSocket calculent l'extrait pour le lecteur.
-Les snapshots matérialisés personnalisés incluent ces extraits dans leurs budgets
-et sont invalidés au changement de contenu ou d'accès à la source.
+The PostgreSQL messages table and the shared journal receive no copy
+of a server excerpt: the
+SQL events keep the references. History, message, pins / stars,
+snapshot and HTTP / WebSocket catch-up compute the excerpt for the reader.
+The personalized materialized snapshots include these excerpts in their budgets
+and are invalidated on a change of content or of access to the source.
 
-La preuve de remise couvre le salon de destination et chaque salon source dont
-un extrait ou une durée d'adhésion est inclus. Elle revérifie identité d'instance, compte / session,
-adhésion et version d'autorité, puis garde les verrous jusqu'à la soumission du
-corps HTTP ou au flush WebSocket. Retrait / réadhésion ou modification de la
-source pendant la construction de la réponse empêchent la remise des anciens
-octets ; la vérification porte sur la source même si la destination reste lisible.
+The delivery proof covers the destination room and each source room whose
+excerpt or membership lifetime is included. It re-verifies instance identity, account / session,
+membership and authority version, then keeps the locks until submission of the
+HTTP body or the WebSocket flush. Removal / rejoin or modification of the
+source while the response is being built prevent delivery of the old
+bytes; the verification applies to the source itself even if the destination remains readable.
 
-## Caches existants bureau et mobile
+## Existing desktop and mobile caches
 
-SQLite garde les références ordonnées séparément des vues de leurs sources.
-Une vue mémorise salon, durée d'adhésion, position de résolution et extrait
-nullable. Les réponses d'historique ou d'action peuvent actualiser la vue source
-même si la révision publique de la réponse citante est inchangée ou plus ancienne.
-Elles ne remplacent jamais les références d'une réponse plus récente.
+SQLite keeps the ordered references separately from the views of their sources.
+A view memorizes room, membership lifetime, resolution position and nullable
+excerpt. History or action responses can refresh the source view
+even if the public revision of the quoting reply is unchanged or older.
+They never replace the references of a more recent reply.
 
-Une édition / suppression reçue de la source actualise les cartes dans tous les
-salons. Un résultat indisponible gagne une égalité de position. Un retrait ou une
-nouvelle adhésion purge les extraits de l'origine dans les autres salons ; le
-jeton de projection existant écarte les anciens appels HTTP. Une absence d'adhésion
-datée avant la nouvelle adhésion ne purge pas ses données. Un reset de snapshot
-reconstruit les extraits pour ne pas conserver une suppression manquée.
+An edit / deletion received from the source refreshes the cards in all
+rooms. An unavailable result wins a position tie. A removal or a
+new membership purges the excerpts of the origin in the other rooms; the existing
+projection token discards old HTTP calls. An absence of membership
+dated before the new membership does not purge its data. A snapshot reset
+rebuilds the excerpts so as not to keep a missed deletion.
 
-Une ligne source garde seulement son extrait et ses références ; elle ne garde
-jamais de copie du texte de ses descendants. Les cartes imbriquées sont rebâties
-depuis les lignes source, avec contrôle de chaque adhésion, limite de profondeur
-et coupure des cycles. Le cache mobile actualise aussi les réponses dépendant
-indirectement d'une source modifiée ou retirée, dans la transaction existante.
-Les charges source conservées après un retrait ne contiennent donc aucun texte
-privé descendant, et une réponse tardive ne le restaure pas après réouverture.
+A source row keeps only its excerpt and its references; it never keeps
+a copy of the text of its descendants. Nested cards are rebuilt
+from the source rows, with a check of each membership, depth limit
+and cycle cutting. The mobile cache also refreshes the replies depending
+indirectly on a modified or removed source, in the existing transaction.
+The source payloads kept after a removal therefore contain no private
+descendant text, and a late response does not restore it after reopening.
 
-Les fournisseurs projettent les références et vues autorisées vers les pièces locales
-déjà consommées par `content::quotes`, les modèles Swift et le composant mobile
-`Citation`. SQLite mobile actualise `messages.pieces_jointes` dans la transaction
-de projection / curseur ; ses listeners existants actualisent les listes ouvertes.
-La migration additive conserve l'historique et les positions exactes déjà présents.
-Le protocole ne porte
-aucun arbre Rocket.Chat ni permalien Rocket.Chat. Les cartes existantes gardent
-le Markdown de l'extrait, et une référence indisponible ne garde ni auteur ni
-texte. Les notifications de cache existantes actualisent les salons ouverts.
-Le texte natif est conservé même s'il ressemble à un ancien préfixe de citation
-Rocket.Chat ; les citations officielles gardent leur traitement historique.
+The providers project the authorized references and views to the local parts
+already consumed by `content::quotes`, the Swift models and the mobile component
+`Citation`. Mobile SQLite refreshes `messages.pieces_jointes` in the
+projection / cursor transaction; its existing listeners refresh the open lists.
+The additive migration keeps the history and the exact positions already present.
+The protocol carries
+no Rocket.Chat tree or Rocket.Chat permalink. The existing cards keep
+the Markdown of the excerpt, and an unavailable reference keeps neither author nor
+text. The existing cache notifications refresh the open rooms.
+Native text is kept even if it looks like an old Rocket.Chat quote
+prefix; official quotes keep their historical handling.
 
-## Intentions d'édition existantes
+## Existing edit intents
 
-Les commandes d'édition bureau et mobile capturent les références ordonnées dans
-la même transaction que le texte et l'identifiant d'opération. La révision attendue
-doit correspondre à la réponse actuellement projetée. Les références restent
-lisibles après perte d'accès ou suppression de la source, sans copier son extrait
-ni sa durée d'adhésion dans la commande. Une projection plus récente, un reset ou
-une réouverture SQLite ne reconstruisent pas le corps d'une opération en attente.
-Les adaptateurs le transmettent au champ `content.quotes` du protocole natif.
-Si le cache contient déjà une autre révision, l'intention est conservée en échec
-avec `revision_conflict` et ses mots restent disponibles dans le formulaire ;
-aucune référence d'une version différente n'est capturée ni envoyée.
+The desktop and mobile edit commands capture the ordered references in
+the same transaction as the text and the operation identifier. The expected revision
+must match the reply currently projected. The references remain
+readable after loss of access or deletion of the source, without copying its excerpt
+or its membership lifetime into the command. A more recent projection, a reset or
+a SQLite reopening do not rebuild the body of a pending operation.
+The adapters transmit it to the `content.quotes` field of the native protocol.
+If the cache already holds another revision, the intent is kept as failed
+with `revision_conflict` and its words remain available in the form;
+no reference of a different version is captured or sent.
 
-La migration additive marque les anciennes commandes par une colonne nullable.
-Une ancienne édition sans corps capturé s'arrête avant l'appel réseau ; son texte
-reste disponible dans le formulaire actuel et une nouvelle soumission crée une
-nouvelle opération. Cette limite évite de changer silencieusement le corps d'une
-clé qui a pu être acceptée avant la coupure. Les autres anciennes actions restent
-rejouables. Le fournisseur Rocket.Chat et les interfaces d'édition restent inchangés.
+The additive migration marks the old commands with a nullable column.
+An old edit without a captured body stops before the network call; its text
+remains available in the current form and a new submission creates a
+new operation. This limit avoids silently changing the body of a
+key that may have been accepted before the cut. The other old actions remain
+replayable. The Rocket.Chat provider and the edit interfaces remain unchanged.
 
-## Files d'envoi natives existantes
+## Existing native send queues
 
-Le cœur bureau et le moteur mobile capturent une sélection depuis un message
-confirmé du cache, avec sa révision exacte, l'instance / génération et l'adhésion
-de la source. La transaction de mise en file revérifie cette sélection et, si
-fourni, le contexte d'adhésion du composeur de destination. Sources optimistes,
-supprimées, anciennes adhésions, autres générations et références dupliquées sont
-refusées avant de publier l'intention locale.
+The desktop core and the mobile engine capture a selection from a confirmed
+message in the cache, with its exact revision, the instance / generation and the membership
+of the source. The queueing transaction re-verifies this selection and, if
+provided, the membership context of the destination composer. Optimistic sources,
+deleted ones, old memberships, other generations and duplicated references are
+rejected before publishing the local intent.
 
-Seules les références ordonnées sont persistées dans le corps envoyé. Une citation
-seule peut être mise en file ; le même identifiant et le même corps sont transmis
-à `SendMessage` après réouverture ou reset, même si l'accès à la source a depuis
-disparu. Les cartes optimistes utilisent le cache de vues existant et perdent leur
-extrait lors du retrait. Confirmation, suppression de l'intention et curseur restent
-transactionnels ; abandon et changement de génération purgent les lignes associées.
-Les anciennes intentions texte migrent avec une liste vide sans modifier leur rejeu.
+Only the ordered references are persisted in the sent body. A quote
+alone can be queued; the same identifier and the same body are transmitted
+to `SendMessage` after reopening or reset, even if access to the source has since
+disappeared. The optimistic cards use the existing view cache and lose their
+excerpt on removal. Confirmation, deletion of the intent and cursor remain
+transactional; abandon and change of generation purge the associated rows.
+The old text intents migrate with an empty list without changing their replay.
 
-Le pont UniFFI expose cette sélection et l'envoi lié à l'adhésion pour les modèles
-Swift existants. Le parcours du fournisseur mobile, HTTP / PostgreSQL et SQLite vérifie réponse
-perdue après commit, retrait de source, reprise du corps original, message unique,
-conflit après édition et nouvelle sélection. Les trois menus et composeurs sont
-raccordés aux références natives. Rocket.Chat conserve ses permaliens et son
-affichage optimiste historique. Une sélection native seule peut être envoyée
-sans texte ajouté. Une mise en file refusée conserve les mots et la sélection
-pour correction / annulation. Les aperçus ouverts perdent leurs mots et auteur
-si la source n'est plus actuelle ou accessible ; une référence indisponible a un
-libellé traduit dans les cartes existantes.
+The UniFFI bridge exposes this selection and the membership-bound send for the existing
+Swift models. The mobile provider, HTTP / PostgreSQL and SQLite flow verifies a response
+lost after commit, source removal, resumption of the original body, single message,
+conflict after edit and new selection. The three menus and composers are
+wired to the native references. Rocket.Chat keeps its permalinks and its
+historical optimistic display. A native selection alone can be sent
+without added text. A refused queueing keeps the words and the selection
+for correction / cancellation. Open previews lose their words and author
+if the source is no longer current or accessible; an unavailable reference has a
+translated label in the existing cards.
 
-## Raccordement suivant et conditions de sortie
+## Next wiring and exit conditions
 
-Une nouvelle référence vers un message MLS dans un salon ordinaire exige le
-même contrôle de lecteur que le journal privé : session / certificat actuels,
-incarnation, adhésion et activation, puis témoin exact de l’admission historique
-au message. La révision attendue est sa position opaque. Le serveur ne renvoie
-que la référence et le watermark d’adhésion ; aucun extrait privé, auteur,
-ciphertext ou fichier ne rejoint la réponse ordinaire. Une opération déjà
-acceptée conserve son reçu même après expiration du certificat.
+A new reference to an MLS message in an ordinary room requires the
+same reader check as the private journal: current session / certificate,
+incarnation, membership and activation, then exact witness of the historical admission
+to the message. The expected revision is its opaque position. The server returns
+only the reference and the membership watermark; no private excerpt, author,
+ciphertext or file joins the ordinary response. An already
+accepted operation keeps its receipt even after the certificate expires.
 
-Android résout ces références dans un lecteur natif distinct du composeur MLS,
-sans préparation de message ni brouillon. Le rendu applique ses cartes après
-le lissage de la liste ordinaire ; le cache SQL et le tampon de lissage ne
-reçoivent aucun mot privé. Une relecture d’adhésion / admission précède leur
-publication. Blur, suspension, remplacement de compte / génération et retrait
-disposent les lecteurs et purgent aussi le bandeau du composeur.
-Avant l’envoi ordinaire, ce lecteur valide scope, source et position conservée ;
-une autorisation synchrone en mémoire et la transaction SQL revérifient sa
-durée de vie et l’adhésion de la source. La file ordinaire reçoit exclusivement
-les références. L’appel ordinaire sans lecteur continue à refuser une sélection
-privée. GTK / SwiftUI appliquent aussi une projection volatile sur leur fenêtre
-SQL ordinaire, y compris dans les fils. Leur lecteur ne peut ni écrire un
-brouillon ni envoyer ; le composeur dispose d'un acteur distinct qui relit les
-sources avant de fournir un permis synchrone non persistant à la file SQL.
-Adhésion, mode chiffré et garde de projection sont revérifiés dans la transaction.
-Le texte personnel du parent reste dans le brouillon pendant cette validation ;
-seul le brouillon correspondant est consommé avec l'intention acceptée. Un texte
-plus récent survit, et une sélection refusée ne perd pas son texte.
+Android resolves these references in a native reader distinct from the MLS composer,
+with no message preparation or draft. Rendering applies its cards after
+the smoothing of the ordinary list; the SQL cache and the smoothing buffer
+receive no private word. A re-read of membership / admission precedes their
+publication. Blur, suspension, account / generation replacement and removal
+dispose of the readers and also purge the composer banner.
+Before the ordinary send, this reader validates scope, source and retained position;
+a synchronous in-memory authorization and the SQL transaction re-verify its
+lifetime and the membership of the source. The ordinary queue receives exclusively
+the references. The ordinary call without a reader continues to refuse a private
+selection. GTK / SwiftUI also apply a volatile projection on their ordinary
+SQL window, including in threads. Their reader can neither write a
+draft nor send; the composer has a distinct actor that re-reads the
+sources before supplying a non-persistent synchronous permit to the SQL queue.
+Membership, encrypted mode and projection guard are re-verified in the transaction.
+The parent's personal text stays in the draft during this validation;
+only the matching draft is consumed with the accepted intent. A more
+recent text survives, and a refused selection does not lose its text.
 
-Les adaptateurs traduisent les références vers les cartes de citation
-existantes, avec un libellé explicite pour
-les références indisponibles. Le cache des extraits reste distinct de la révision publique
-de la réponse, suivre les révisions de la source et être lié à son adhésion.
-Les positions de résolution ordonnent aussi les résultats sans extrait : une
-ancienne réponse ne doit jamais restaurer le texte après une suppression ou un
-retrait. À position égale, un résultat indisponible prévaut sur un extrait.
-La position par défaut `0` d'un ancien prototype ne fournit aucune autorité
-pour restaurer ou effacer le cache. Une réponse antérieure à une réadhésion ne
-peut effacer l'extrait de la nouvelle adhésion.
-Un retrait purge les extraits de cette origine jusque dans les autres salons ;
-une réponse tardive de l'ancienne adhésion ne les restaure pas. Une édition ou
-suppression reçue de la source actualise les citations déjà affichées ailleurs.
-La file d'envoi durable conserve les références, sans capturer un droit ni un
-extrait comme autorité. Les scénarios de perte de réponse et de reprise doivent
-traverser les vrais caches mobile / desktop et les modèles Swift.
-Les commandes durables d'édition conservent maintenant les références ; le
-raccordement de l'envoi depuis les contrôles de réponse existants est livré.
+The adapters translate the references to the existing quote cards,
+with an explicit label for
+unavailable references. The excerpt cache stays distinct from the public revision
+of the reply, follows the source revisions and is bound to its membership.
+The resolution positions also order the results without an excerpt: an
+old response must never restore the text after a deletion or a
+removal. At equal position, an unavailable result prevails over an excerpt.
+The default position `0` of an old prototype provides no authority
+to restore or erase the cache. A response older than a rejoin cannot
+erase the excerpt of the new membership.
+A removal purges the excerpts of this origin even in the other rooms;
+a late response from the old membership does not restore them. An edit or
+deletion received from the source refreshes the quotes already displayed elsewhere.
+The durable send queue keeps the references, without capturing a right or an
+excerpt as authority. The scenarios of response loss and resumption must
+go through the real mobile / desktop caches and the Swift models.
+The durable edit commands now keep the references; the
+wiring of sending from the existing reply controls is delivered.
 
-Les fichiers cités sont raccordés aux cartes et lecteurs protégés des trois
-clients : [contrat P14](FILES.md#fichiers-cités). Le cache conserve les fichiers
-de chaque source dans sa propre adhésion, même sans message source en historique.
-Un parent ne conserve pas les métadonnées privées de ses descendants.
-Les essais installés
-Android / macOS / Windows restent ouverts. Ces lots ne clôturent pas P07.
+Quoted files are wired to the protected cards and readers of the three
+clients: [P14 contract](FILES.md#quoted-files). The cache keeps the files
+of each source in its own membership, even without a source message in history.
+A parent does not keep the private metadata of its descendants.
+Installed trials on
+Android / macOS / Windows remain open. These batches do not close P07.

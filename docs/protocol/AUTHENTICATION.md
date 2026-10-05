@@ -1,439 +1,439 @@
-# Authentification native — P02, facteurs et secours
+# Native authentication (P02, factors and backup codes)
 
-Ce lot livre le serveur, les SDK et les connexions mobile / GTK / SwiftUI, ainsi
-que la réauthentification et la gestion des facteurs dans les paramètres des
-trois clients. Le serveur et les SDK proposent aussi le facteur e-mail décrit
-dans [EMAIL.md](EMAIL.md). Les défis e-mail de connexion / réauthentification
-sont raccordés aux trois clients ; les coffres du cœur Rust bureau reprennent
-leur livraison dans la tentative d'origine. Les coffres Rust / mobile reprennent
-aussi l'inscription et le retrait explicites du profil e-mail, avec versions du
-contact et des profils affichés. Les boutons d'inscription / retrait explicites
-sont raccordés aux paramètres des trois clients et aux secours communs.
-P02 reste ouvert pour la récupération e-mail et la
-qualification des appareils.
-Le fournisseur Rocket.Chat garde son parcours.
+This batch delivers the server, the SDKs and the mobile / GTK / SwiftUI logins, as
+well as reauthentication and factor management in the settings of the
+three clients. The server and the SDKs also offer the email factor described in
+[EMAIL.md](EMAIL.md). The email login / reauthentication challenges
+are wired into the three clients; the vaults of the desktop Rust core resume
+their delivery within the original attempt. The Rust / mobile vaults
+also resume the explicit enrolment and removal of the email profile, with versions of the
+contact and of the displayed profiles. The explicit enrolment / removal buttons
+are wired into the settings of the three clients and into the shared backup codes.
+P02 remains open for email recovery and for
+device qualification.
+The Rocket.Chat provider keeps its own flow.
 
-Les coordinateurs `rv-core::native::authentication` et
-`fournisseurs/rocketvibe/authentication.ts` préparent ce raccordement. Ils séparent
-challenge et compte actif, épinglent instance / génération / UID, sauvegardent
-le candidat via un callback de trousseau avant validation, puis le sondent en
-priorité après réponse perdue. Une session déjà committée se récupère même après
-expiration du défi. Seul un `401 session_rejected` compris autorise un nouvel
-envoi du code ; refus de proxy, panne réseau ou réponse ambiguë conservent le
-pending. Le formulaire mobile utilise son coffre SecureStore privé ; GTK utilise
-le trousseau système, partagé avec FFI / SwiftUI sur macOS. Le pending n'est effacé
-qu'après sauvegarde de la session active.
-Inscription et récupération passent par le même parcours complet et comparent
-l'UID rendu par le code opérateur avec celui du challenge / de la session.
+The coordinators `rv-core::native::authentication` and
+`providers/rocketvibe/authentication.ts` prepare this wiring. They separate
+challenge and active account, pin instance / generation / UID, save
+the candidate through a keyring callback before validation, then probe it
+first after a lost response. An already committed session is recovered even after
+the challenge has expired. Only an understood `401 session_rejected` allows a new
+sending of the code; proxy refusal, network outage or an ambiguous response keep
+the pending. The mobile form uses its private SecureStore vault; GTK uses
+the system keyring, shared with FFI / SwiftUI on macOS. The pending is erased
+only after the active session has been saved.
+Enrolment and recovery go through the same complete flow and compare
+the UID returned by the operator code with that of the challenge / of the session.
 
-### Coffre et formulaire mobile
+### Vault and mobile form
 
-L'écran de connexion existant propose TOTP, e-mail et les secours annoncés par le serveur.
-Mot de passe et code opérateur quittent son état dès le défi ; les codes TOTP /
-secours restent seulement en mémoire. Retour ou perte du focus empêche une
-réponse tardive de commencer l'installation du compte. Le fournisseur Rocket.Chat
-garde son parcours de facteur existant.
+The existing login screen offers TOTP, email and the backup codes advertised by the server.
+Password and operator code leave its state as soon as the challenge is issued; TOTP /
+backup codes stay in memory only. Going back or losing focus prevents a
+late response from starting the account installation. The Rocket.Chat provider
+keeps its existing factor flow.
 
-Le coffre utilise une clé `native-auth-` dérivée d'un tuple JSON domaine / URL
-canonique / identifiant, distincte des sessions et des clés E2EE. SecureStore
-emploie `WHEN_UNLOCKED_THIS_DEVICE_ONLY` ; ni SQLite, ni extension push ne lisent
-ce candidat. Une file partagée entre instances couvre lectures, écritures,
-HTTP et comparaison du pending. Les données corrompues échouent sans exposer
-leur JSON dans une erreur.
+The vault uses a `native-auth-` key derived from a JSON tuple of domain / canonical
+URL / identifier, distinct from the sessions and the E2EE keys. SecureStore
+uses `WHEN_UNLOCKED_THIS_DEVICE_ONLY`; neither SQLite nor the push extension reads
+this candidate. A queue shared between instances covers reads, writes,
+HTTP and the comparison of the pending. Corrupted data fails without exposing
+its JSON in an error.
 
-Une nouvelle preuve de mot de passe sonde d'abord le candidat précédent. Elle
-le conserve tant que l'ancien défi peut encore valider une requête retardée.
-Son remplacement exige un nouveau défi émis après l'expiration du précédent
-(TTL serveur fixe de cinq minutes) et une sonde après cette barrière : `start`
-et `verify` détiennent le même verrou de compte. Une erreur ambiguë, un UID,
-une instance ou une génération différents ne peuvent effacer ce pending.
-Le mobile conserve aussi le pending si les deux instants tombent dans la même
-milliseconde : PostgreSQL est plus précis que `Date.parse`, et cette égalité
-ne prouve pas que l'ancien défi était déjà expiré au moment de la nouvelle preuve.
+A new password proof first probes the previous candidate. It
+keeps it as long as the old challenge can still validate a delayed request.
+Replacing it requires a new challenge issued after the previous one has expired
+(fixed server TTL of five minutes) and a probe after that barrier: `start`
+and `verify` hold the same account lock. An ambiguous error, or a different UID,
+instance or generation, cannot erase this pending.
+The mobile client also keeps the pending if the two instants fall within the same
+millisecond: PostgreSQL is more precise than `Date.parse`, and this equality
+does not prove that the old challenge had already expired at the time of the new proof.
 
-Après perte de réponse, « Valider » sans code sonde la session déjà acceptée.
-Après redémarrage, une nouvelle connexion par mot de passe reprend ce même
-candidat avant toute demande d'un nouveau code. Le nettoyage compare défi,
-identité et bearer réellement sauvegardé ; une session renouvelée ou une autre
-tentative conserve le pending par prudence. Un échec du stockage actif garde
-la reprise possible ; une erreur de nettoyage ne défait pas un compte installé.
+After a lost response, "Validate" without a code probes the session already accepted.
+After a restart, a new password login resumes this same
+candidate before any request for a new code. Cleanup compares challenge,
+identity and the bearer actually saved; a renewed session or another
+attempt keeps the pending out of caution. A failure of the active storage keeps
+resumption possible; a cleanup error does not undo an installed account.
 
-Onze tests du coffre couvrent interruptions, concurrence, preuve fraîche,
-comparaison du stockage et isolement. Le banc HTTP / PostgreSQL utilise un
-adaptateur portable, pas le Keystore Android : la qualification SecureStore
-sur appareil, processus réellement tué et verrouillage système reste ouverte.
+Eleven vault tests cover interruptions, concurrency, fresh proof,
+storage comparison and isolation. The HTTP / PostgreSQL bench uses a
+portable adapter, not the Android Keystore: SecureStore qualification
+on a device, with a process really killed and system lock, remains open.
 
-### Coffre partagé bureau
+### Desktop shared vault
 
-`rv-core::native::authentication_vault` porte les mêmes règles pour GTK et FFI :
-clé privée par URL canonique / identifiant, défi séparé du compte actif,
-comparaison du pending avant écriture, récupération prioritaire et remplacement
-après la barrière de compte. Le nettoyage vise exactement le défi et le bearer
-installés ; un compte, une génération ou une session renouvelée différents ne
-peuvent enlever la preuve précédente.
+`rv-core::native::authentication_vault` carries the same rules for GTK and FFI:
+private key per canonical URL / identifier, challenge separate from the active account,
+comparison of the pending before writing, priority recovery and replacement
+after the account barrier. Cleanup targets exactly the challenge and the bearer
+installed; a different account, generation or renewed session cannot
+remove the previous proof.
 
-Un fichier vide au nom condensé porte un verrou système entre instances / processus.
-Le trait de stockage transmet ce verrou à chaque opération de trousseau et impose
-de le garder jusqu'à sa fin réelle. L'annulation de la future appelante ne doit
-pas libérer une écriture de plateforme déjà engagée. Sept tests vérifient les
-scopes, réponses perdues, reprises parallèles, expiration, stockage indisponible,
-JSON corrompu et annulation avec écriture bloquante encore active. Clippy,
-régressions cœur / bindings et compilation GTK passent dans Fedora.
+An empty file with a hashed name carries a system lock between instances / processes.
+The storage trait passes this lock to each keyring operation and requires
+holding it until its real end. Cancelling the calling future must not
+release a platform write that is already under way. Seven tests verify
+scopes, lost responses, parallel resumptions, expiry, unavailable storage,
+corrupted JSON and cancellation with a blocking write still active. Clippy,
+core / bindings regressions and the GTK build pass in Fedora.
 
-### Formulaire et trousseau GTK
+### GTK form and keyring
 
-La page existante propose les méthodes TOTP / e-mail / secours annoncées par le serveur.
-Le défi et son candidat utilisent une entrée privée distincte des sessions :
-`kind: authentication` dans Secret Service ; une clé non indexée dans les
-trousseaux Windows / macOS. Les énumérations des comptes actifs ignorent cette
-entrée. Aucun mot de passe, code de facteur ou secours saisi n'est persisté.
+The existing page offers the TOTP / email / backup code methods advertised by the server.
+The challenge and its candidate use a private entry distinct from the sessions:
+`kind: authentication` in Secret Service; a non-indexed key in the
+Windows / macOS keyrings. The enumerations of active accounts ignore this
+entry. No password, factor code or backup code entered is persisted.
 
-Le choix e-mail présente envoi explicite, statut de livraison, reprise du candidat
-privé après une réponse perdue et renvoi borné après relecture du cooldown. Un
-nouveau processus conserve la livraison ambiguë malgré son nouveau passage par
-le mot de passe ; les délais du défi et de sa livraison ne sont pas prolongés.
-Les paramètres GTK raccordent les mêmes commandes à la preuve de la famille
-active. La reprise après code accepté retrouve la session ou la preuve d'origine.
+The email choice presents explicit sending, delivery status, resumption of the private
+candidate after a lost response and bounded resending after rereading the cooldown. A
+new process keeps the ambiguous delivery despite its new pass through
+the password; the delays of the challenge and of its delivery are not extended.
+The GTK settings wire the same commands to the proof of the active
+family. Resumption after an accepted code finds the original session or proof again.
 
-Les tâches de plateforme gardent le verrou jusqu'à la fin réelle de leurs
-opérations, même après annulation ou délai de cinq secondes. Le compte conserve
-sa date d'expiration et sa clé E2EE lors de l'écriture du credential accepté.
-Une erreur de stockage ne commence pas la session et garde le candidat récupérable.
-Le nettoyage compare la preuve exacte à la session effectivement sauvegardée.
+Platform tasks hold the lock until the real end of their
+operations, even after cancellation or the five-second timeout. The account keeps
+its expiry date and its E2EE key when the accepted credential is written.
+A storage error does not start the session and keeps the candidate recoverable.
+Cleanup compares the exact proof with the session actually saved.
 
-Retour, changement de compte et masquage de la fenêtre invalident les réponses
-tardives. Mot de passe et code opérateur quittent le formulaire dès le défi ;
-le code de facteur est effacé au changement de méthode, au retour et après
-confirmation. La connexion Rocket.Chat conserve ses méthodes existantes.
-Les adaptateurs Windows / macOS et SecureStore Android restent à qualifier sur
-appareils ; les paramètres restent ouverts.
+Going back, switching account and hiding the window invalidate late
+responses. Password and operator code leave the form as soon as the challenge is issued;
+the factor code is erased on method change, on going back and after
+confirmation. The Rocket.Chat login keeps its existing methods.
+The Windows / macOS adapters and Android SecureStore remain to be qualified on
+devices; the settings remain open.
 
-### Tentatives FFI et formulaire SwiftUI
+### FFI attempts and SwiftUI form
 
-`NativeLoginAttempt` est un objet opaque UniFFI : Swift voit les méthodes
-disponibles et l'indication d'une confirmation en attente, jamais le défi,
-le candidat ou le bearer. Vérification et commit sont sérialisés. Le candidat
-reste dans une entrée de trousseau non indexée ; les tâches bloquantes de la
-plateforme gardent le verrou après annulation et délai de cinq secondes.
+`NativeLoginAttempt` is an opaque UniFFI object: Swift sees the available methods
+and the indication of a pending confirmation, never the challenge,
+the candidate or the bearer. Verification and commit are serialised. The candidate
+stays in a non-indexed keyring entry; the blocking platform tasks
+keep the lock after cancellation and the five-second timeout.
 
-Le formulaire SwiftUI existant propose TOTP / e-mail / secours. Il efface mot de passe
-et code opérateur dès le défi. Changement de serveur / identifiant, retour,
-annulation et disparition de la vue invalident sa génération. Le commit écrit
-le credential avec expiration et préserve la clé E2EE du même compte, puis
-nettoie la preuve exacte. Il ne change pas le pointeur de compte actif.
-L'application active le compte après ses gardes de formulaire et de sélection,
-sans attente entre cette vérification et l'installation du fournisseur.
+The existing SwiftUI form offers TOTP / email / backup codes. It erases password
+and operator code as soon as the challenge is issued. Change of server / identifier, going back,
+cancellation and disappearance of the view invalidate its generation. The commit writes
+the credential with expiry and preserves the E2EE key of the same account, then
+cleans up the exact proof. It does not change the active account pointer.
+The application activates the account after its form and selection guards,
+with no wait between this check and the installation of the provider.
 
-Un handle déjà committé rend le même fournisseur : son rejeu ne réécrit pas
-le bearer initial après rotation ou logout. Le fournisseur Rocket.Chat conserve
-ses méthodes de facteur et son transport. Le banc Linux utilise le vrai Secret
-Service ; les essais sur le Keychain macOS et l'interface macOS installée restent
-distincts des tests de modèles Swift et de la compilation SwiftUI distante.
+An already committed handle returns the same provider: replaying it does not rewrite
+the initial bearer after rotation or logout. The Rocket.Chat provider keeps
+its factor methods and its transport. The Linux bench uses the real Secret
+Service; trials on the macOS Keychain and the installed macOS interface remain
+distinct from the Swift model tests and the remote SwiftUI build.
 
-## Clé opérateur
+## Operator key
 
-`rv-server` accepte `RV_AUTH_KEY_FILE` ou `--auth-key-file CHEMIN`, jamais la clé
-dans un argument. Le fichier contient 64 caractères hexadécimaux, éventuellement
-suivis d'une fin de ligne : 32 octets générés par un CSPRNG. Il doit être régulier,
-dans un répertoire privé ; sous Unix, aucun accès groupe / autres (mode `600`).
-Les liens symboliques, valeurs mal formées et fichiers trop grands sont refusés.
-Lecture bornée, enveloppes et clés sans `Debug`, effacement des clés et des
-plaintexts déchiffrés à leur libération avec `zeroize`.
+`rv-server` accepts `RV_AUTH_KEY_FILE` or `--auth-key-file PATH`, never the key
+in an argument. The file contains 64 hexadecimal characters, optionally
+followed by a line ending: 32 bytes generated by a CSPRNG. It must be a regular file,
+in a private directory; on Unix, no group / other access (mode `600`).
+Symbolic links, malformed values and oversized files are refused.
+Bounded read, envelopes and keys without `Debug`, erasure of the keys and of the decrypted
+plaintexts when they are released, with `zeroize`.
 
-La clé est provisionnée et sauvegardée séparément de PostgreSQL, avec contrôle
-d'accès opérateur. Conserver la même clé lors d'une restauration. Une perte rend
-les facteurs inutilisables ; un reset de mot de passe ne les supprime pas. Le
-chantier J5 doit encore livrer la procédure complète de sauvegarde / restauration
-et rotation de cette clé. Aucun secret par défaut, génération implicite au
-redémarrage, ni inclusion dans l'export utilisateur.
+The key is provisioned and backed up separately from PostgreSQL, with operator
+access control. Keep the same key during a restore. A loss makes
+the factors unusable; a password reset does not delete them. Workstream J5
+must still deliver the complete procedure for backup / restore
+and rotation of this key. No default secret, no implicit generation at
+restart, and no inclusion in the user export.
 
-Sans clé, la capacité additive `second_factors` est fausse et l'inscription d'un
-facteur est refusée. Un compte déjà protégé reste protégé : clé absente,
-incorrecte ou ciphertext corrompu donnent `503 factor_unavailable`, jamais une
-session avec le seul mot de passe. Le login historique donne `400 factor_required`.
+Without a key, the additive capability `second_factors` is false and the enrolment of a
+factor is refused. An already protected account stays protected: a missing,
+incorrect key or corrupted ciphertext gives `503 factor_unavailable`, never
+a session with the password alone. The historical login gives `400 factor_required`.
 
-Le chiffrement repose sur AES-256-GCM-SIV de RustCrypto, enveloppe version 1,
-nonce aléatoire de 96 bits. L'AAD sérialise version, usage, identité stable
-d'instance, UID et ID du facteur. Les secrets TOTP et les reçus temporaires de
-secours utilisent des usages distincts. Pour les secrets de profils, la génération
-`data_epoch` reste hors AAD pour permettre le déchiffrement après restauration ;
-elle invalide les défis. Les charges de livraison OTP et leurs reçus épinglent
-aussi cette génération et ne sont pas réutilisables après restauration.
-La bibliothèque est documentée [ici](https://docs.rs/aes-gcm-siv/0.11.1/aes_gcm_siv/).
-Ses tests et ceux du projet ne constituent pas une revue cryptographique externe.
+Encryption relies on RustCrypto's AES-256-GCM-SIV, envelope version 1,
+random 96-bit nonce. The AAD serialises version, usage, stable instance
+identity, UID and factor ID. TOTP secrets and the temporary backup code
+receipts use distinct usages. For profile secrets, the `data_epoch`
+generation stays out of the AAD to allow decryption after a restore;
+it invalidates the challenges. The OTP delivery payloads and their receipts also
+pin this generation and cannot be reused after a restore.
+The library is documented [here](https://docs.rs/aes-gcm-siv/0.11.1/aes_gcm_siv/).
+Its tests and the project's tests do not constitute an external cryptographic review.
 
-## Parcours anonyme
+## Anonymous flow
 
-`POST /auth/start` accepte le même `Login` strict que `/auth/login` et renvoie
-`AuthenticationStep` : `kind: session` avec une session, ou `kind: challenge` avec
-`AuthChallenge` et l'utilisateur dont le mot de passe vient d'être vérifié.
-Un compte protégé ne crée aucune session à cette étape. Le défi opaque de
-256 bits n'est conservé que sous SHA-256, lié à l'UID, l'autorité, la version des
-facteurs et la génération. Il expire après cinq minutes ; au plus cinq défis
-non consommés par compte. Les méthodes annoncées sont `totp` et, s'il reste
-des codes, `recovery_code`. Un profil e-mail explicitement installé annonce
-aussi `email` lorsque SMTP est configuré. Son absence retire cette méthode des
-nouveaux défis ; un code déjà livré reste vérifiable jusqu'à son échéance initiale.
+`POST /auth/start` accepts the same strict `Login` as `/auth/login` and returns
+`AuthenticationStep`: `kind: session` with a session, or `kind: challenge` with
+`AuthChallenge` and the user whose password has just been verified.
+A protected account creates no session at this step. The opaque 256-bit challenge
+is kept only under SHA-256, bound to the UID, the authority, the factor
+version and the generation. It expires after five minutes; at most five
+unconsumed challenges per account. The advertised methods are `totp` and, if any
+codes remain, `recovery_code`. An explicitly installed email profile also advertises
+`email` when SMTP is configured. Its absence removes this method from
+new challenges; a code already delivered stays verifiable until its initial deadline.
 
-`POST /auth/factors/verify` reçoit `FinishFactor` : défi, méthode, code,
-`operation_id` et `next_token`. Le client génère un candidat CSPRNG de 32 octets
-hexadécimaux et le sauvegarde dans le stockage sécurisé **avant** HTTP. Il garde
-le même candidat / opération sur retry ; un défi ne peut servir de bearer.
-Le candidat ne remplace pas un compte actif avant vérification de la réponse et
-des identités d'instance / génération / UID. Les SDK ne font pas cette installation
-automatiquement et les étapes anonymes ne révoquent pas le compte actif sur `401`.
+`POST /auth/factors/verify` receives `FinishFactor`: challenge, method, code,
+`operation_id` and `next_token`. The client generates a CSPRNG candidate of 32 bytes
+in hexadecimal and saves it in secure storage **before** HTTP. It keeps
+the same candidate / operation on retry; a challenge cannot serve as a bearer.
+The candidate does not replace an active account before the response and the
+instance / generation / UID identities have been verified. The SDKs do not perform this installation
+automatically and the anonymous steps do not revoke the active account on `401`.
 
-Les verrous instance / compte / défi / facteur sont retenus jusqu'au commit ;
-les expirations sont relues à l'horloge après attente. Une validation crée une
-seule famille d'appareil et conserve un reçu de cinq minutes avec seulement le
-hash du candidat. Après réponse perdue, défi + opération + candidat retrouvent
-la même session existante sans nouvelle consommation du code. Un autre candidat,
-un compte désactivé, une génération / autorité modifiée, une session révoquée /
-renouvelée ou un reçu expiré ferment cette reprise.
+The instance / account / challenge / factor locks are held until the commit;
+expiries are reread from the clock after waiting. A validation creates a
+single device family and keeps a five-minute receipt with only the
+hash of the candidate. After a lost response, challenge + operation + candidate find
+the same existing session without consuming the code again. Another candidate,
+a disabled account, a changed generation / authority, a revoked / renewed
+session or an expired receipt close this resumption.
 
-Les quotas persistants global / IP / identifiant sont partagés avec le login,
-plus une fenêtre par défi. Cinq codes erronés condamnent le défi, y compris
-après redémarrage. Les codes non supportés / expirés / consommés rendent
-`400 factor_rejected` ; le corps strict refuse les identités et droits forgés.
-Les succès contenant des credentials portent `Cache-Control: no-store`.
+The persistent global / IP / identifier quotas are shared with the login,
+plus one window per challenge. Five wrong codes condemn the challenge, including
+after a restart. Unsupported / expired / consumed codes return
+`400 factor_rejected`; the strict body refuses forged identities and rights.
+Successes containing credentials carry `Cache-Control: no-store`.
 
-Le contrôle d'une session déjà authentifiée relit l'horloge PostgreSQL après
-les verrous de compte et de session. Un bearer expiré pendant l'une de ces
-attentes est refusé avant de rendre l'autorisation à la mutation. L'heure de
-début de transaction et un prédicat évalué avant l'attente de `FOR SHARE` ne
-suffisent pas. La régression HTTP vérifie les deux verrous, dont une expiration
-naturelle sans modification de la ligne bloquée, et l'absence de renommage.
+The check of an already authenticated session rereads the PostgreSQL clock after
+the account and session locks. A bearer that expired during one of these
+waits is refused before the authorisation is returned to the mutation. The
+transaction start time and a predicate evaluated before the `FOR SHARE` wait are not
+enough. The HTTP regression verifies both locks, including a natural
+expiry with no modification of the blocked row, and the absence of renaming.
 
-## TOTP et codes de secours
+## TOTP and backup codes
 
-La construction suit [RFC 6238](https://www.rfc-editor.org/rfc/rfc6238), avec
-HMAC-SHA1, secret individuel aléatoire de 160 bits, six chiffres et période
-30 secondes. La fenêtre comporte le pas précédent, courant et suivant ; les
-comparaisons de codes passent par `subtle`. Le compteur accepté est persisté
-sous verrou et doit croître strictement, empêchant un second usage même sur
-un autre défi. Les tests utilisent les vecteurs normatifs, dont les dates après
-2038. La bibliothèque [HMAC](https://docs.rs/hmac/0.12.1/hmac/) fournit la primitive.
+The construction follows [RFC 6238](https://www.rfc-editor.org/rfc/rfc6238), with
+HMAC-SHA1, an individual random 160-bit secret, six digits and a 30-second
+period. The window comprises the previous, current and next steps; code
+comparisons go through `subtle`. The accepted counter is persisted
+under lock and must increase strictly, preventing a second use even on
+another challenge. The tests use the normative vectors, including dates after
+2038. The [HMAC](https://docs.rs/hmac/0.12.1/hmac/) library provides the primitive.
 
-Dix codes de secours indépendants de 128 bits sont générés à l'activation.
-Tirets et casse sont de présentation ; PostgreSQL conserve leur SHA-256,
-et chaque code est consommé atomiquement. Ils complètent le mot de passe et
-ne servent pas à le réinitialiser. Aucun code de secours n'entre dans SQLite,
-les logs ou le journal de synchronisation.
+Ten independent 128-bit backup codes are generated at activation.
+Dashes and case are presentation only; PostgreSQL keeps their SHA-256,
+and each code is consumed atomically. They complement the password and
+do not serve to reset it. No backup code enters SQLite,
+the logs or the sync journal.
 
-## Configuration privée
+## Private configuration
 
-- `GET /me/factors` : méthodes actives, version et nombre de secours restants.
-- `POST /me/factors/totp/setup` : `BeginFactorSetup` ; secret Base32 et URI
-  `otpauth`, valables dix minutes. Même opération = même secret ; une opération
-  concurrente est refusée. Le pending reste chiffré et lié à l'autorité / génération.
-- `POST /me/factors/totp/enable` : `EnableFactor`, preuve par code TOTP. Cinq
-  erreurs bornent l'inscription. Succès = dix secours, changement d'autorité,
-  révocation des autres appareils et reprises de sync. Le secret n'est actif
-  qu'après preuve. Un reçu chiffré de cinq minutes récupère les mêmes secours
-  après réponse perdue, sans régénération ni seconde révocation.
-- `POST /me/factors/totp/disable` : `DisableFactor` visant la version affichée.
-  Un retry après désactivation est sans effet ; il ne peut enlever un facteur
-  réinscrit entre-temps. La désactivation supprime le pending TOTP, conserve le
-  profil e-mail et les secours s'il est actif, change l'autorité et révoque les
-  autres familles. Les secours disparaissent au retrait du dernier profil.
-- `POST /me/factors/recovery/regenerate` : `RegenerateFactorBackups`, version
-  affichée et ID d'opération sauvegardés avant HTTP. Une preuve complète récente
-  remplace atomiquement les dix secours, avance la version / autorité et révoque
-  les autres appareils et reprises de sync. Le secret TOTP et son compteur
-  anti-rejeu restent inchangés. Aucun ancien secours ne demeure utilisable.
+- `GET /me/factors`: active methods, version and number of remaining backup codes.
+- `POST /me/factors/totp/setup`: `BeginFactorSetup`; Base32 secret and `otpauth`
+  URI, valid for ten minutes. Same operation = same secret; a concurrent
+  operation is refused. The pending stays encrypted and bound to the authority / generation.
+- `POST /me/factors/totp/enable`: `EnableFactor`, proof by TOTP code. Five
+  errors bound the enrolment. Success = ten backup codes, change of authority,
+  revocation of the other devices and sync resumptions. The secret is active
+  only after proof. A five-minute encrypted receipt recovers the same backup codes
+  after a lost response, with no regeneration and no second revocation.
+- `POST /me/factors/totp/disable`: `DisableFactor` targeting the displayed version.
+  A retry after deactivation has no effect; it cannot remove a factor
+  re-enrolled in the meantime. Deactivation deletes the TOTP pending, keeps the
+  email profile and the backup codes if it is active, changes the authority and revokes the
+  other families. The backup codes disappear when the last profile is removed.
+- `POST /me/factors/recovery/regenerate`: `RegenerateFactorBackups`, displayed
+  version and operation ID saved before HTTP. A recent complete proof
+  atomically replaces the ten backup codes, advances the version / authority and revokes
+  the other devices and sync resumptions. The TOTP secret and its anti-replay
+  counter stay unchanged. No old backup code remains usable.
 
-La régénération conserve un reçu chiffré pendant cinq minutes, lié à l'instance,
-UID, appareil initiateur, opération, versions attendue / résultante, autorité et
-génération. Après réponse perdue, le même corps retrouve le même lot, même après
-rotation du bearer sur cet appareil ou redémarrage serveur. Le rejeu ne consomme
-aucun code, ne rajeunit aucune preuve et ne révoque pas un appareil ajouté depuis.
-Une autre régénération, changement d'autorité / génération, révocation de
-l'appareil ou expiration ferme ce reçu. Son horloge est relue après verrou.
-Les réponses contenant les codes portent `Cache-Control: no-store`.
+Regeneration keeps an encrypted receipt for five minutes, bound to the instance,
+UID, initiating device, operation, expected / resulting versions, authority and
+generation. After a lost response, the same body finds the same batch, even after
+bearer rotation on this device or a server restart. The replay consumes
+no code, rejuvenates no proof and does not revoke a device added since.
+Another regeneration, a change of authority / generation, revocation of
+the device or expiry closes this receipt. Its clock is reread after the lock.
+Responses containing the codes carry `Cache-Control: no-store`.
 
-Au plus trois régénérations réussies par compte et fenêtre glissante de quinze
-minutes ; `429 factor_regeneration_limit` donne `Retry-After`. Les replays ne
-consomment pas ce quota. La révocation de l'appareil retire son accès au reçu,
-mais conserve le compteur : changer d'appareil ne contourne pas la limite.
-Le nettoyage borné efface le ciphertext expiré puis les métadonnées après un
-jour. La version initiale empêche une ancienne demande de régénérer des codes
-après cet effacement. Codes et reçus restent hors SQLite et journal de sync.
+At most three successful regenerations per account and sliding window of fifteen
+minutes; `429 factor_regeneration_limit` gives `Retry-After`. Replays do not
+consume this quota. Revoking the device removes its access to the receipt,
+but keeps the counter: changing device does not circumvent the limit.
+Bounded cleanup erases the expired ciphertext, then the metadata after one
+day. The initial version prevents an old request from regenerating codes
+after this erasure. Codes and receipts stay out of SQLite and the sync journal.
 
-Une connexion de moins de quinze minutes autorise l'inscription initiale.
-Après activation, le login complet ou la preuve explicite récente doit avoir
-prouvé l'identité du facteur courant. L'appareil inscrit initialement peut continuer à chatter,
-mais confirme son identité avant désactivation / régénération ou révocation
-d'un autre appareil. Rotation, activité et reprise ne rajeunissent pas cette
-autorisation. Une preuve ancienne rend `403 reauthentication_required`.
+A login less than fifteen minutes old authorises the initial enrolment.
+After activation, the full login or the recent explicit proof must
+have proven the identity of the current factor. The device enrolled initially can keep chatting,
+but confirms its identity before deactivation / regeneration or revocation
+of another device. Rotation, activity and resumption do not rejuvenate this
+authorisation. An old proof returns `403 reauthentication_required`.
 
-## Réauthentification explicite sur la famille courante
+## Explicit reauthentication on the current family
 
-La capacité additive `reauthentication` annonce les routes, absente / fausse
-sur les serveurs v1 précédents. Aucun nouveau bearer ni appareil n'est créé.
-L'appel reste protégé par le bearer courant ; son renouvellement garde la famille.
+The additive capability `reauthentication` advertises the routes, absent / false
+on the earlier v1 servers. No new bearer or device is created.
+The call remains protected by the current bearer; its renewal keeps the family.
 
-- `GET /me/reauth` : `ReauthenticationStatus`, UID, appareil, identité /
-  génération, version de preuve et indication `recent` issue de la même règle
-  SQL que les opérations sensibles. Ce booléen ne remplace pas leur autorisation.
-- `POST /me/reauth/start` : `BeginReauthentication`, mot de passe, version de
-  preuve affichée, ID d'opération et candidat de défi CSPRNG de 32 octets hex
-  minuscules. Le client sauvegarde version / candidat / opération et leur
-  contexte de compte dans une entrée privée **avant** HTTP, jamais le mot de
-  passe. Un compte sans facteur obtient `kind: granted` ; sinon `kind: challenge`
-  avec TOTP / secours disponibles. La clé incorrecte / absente ne contourne
-  pas le facteur. Le candidat est haché en base, dans un espace distinct du login.
-- `POST /me/reauth/finish` : `FinishReauthentication`, défi / opération, méthode
-  et code transitoire. La réussite rend `ReauthenticationGrant`, uniquement
-  des métadonnées de preuve, sans credential. La famille demeure la même.
-- `POST /me/reauth/resume` : `ResumeReauthentication`, candidat / opération.
-  Sans renvoyer mot de passe ou OTP, retrouve le défi ou la preuve déjà acceptée,
-  même après réponse perdue, restart ou rotation sur la même famille. Un pending
-  absent donne `404 reauthentication_not_found`, sans révoquer le chat.
-- `POST /me/reauth/retire` : capacité additive `reauthentication_retirement`,
-  contexte UID / appareil / instance / génération obligatoire et version de
-  preuve attendue. Sous le verrou de famille, avance cette version si elle est
-  encore courante et retire les défis non acceptés associés. Une demande tardive
-  de start ne peut plus les recréer. Un replay d'ancienne version ne modifie pas
-  une nouvelle preuve. Une preuve déjà valide garde exactement son âge,
-  expiration et provenance de facteur, y compris lorsqu'une autre tentative
-  est annulée. La réponse est le statut courant, sans secret ni nouveau bearer.
+- `GET /me/reauth`: `ReauthenticationStatus`, UID, device, identity /
+  generation, proof version and `recent` indication derived from the same
+  SQL rule as the sensitive operations. This boolean does not replace their authorisation.
+- `POST /me/reauth/start`: `BeginReauthentication`, password, displayed proof
+  version, operation ID and CSPRNG challenge candidate of 32 bytes in lowercase
+  hex. The client saves version / candidate / operation and their account
+  context in a private entry **before** HTTP, never the
+  password. An account with no factor gets `kind: granted`; otherwise `kind: challenge`
+  with the available TOTP / backup codes. An incorrect / absent key does not bypass
+  the factor. The candidate is hashed in the database, in a space distinct from the login.
+- `POST /me/reauth/finish`: `FinishReauthentication`, challenge / operation, method
+  and transient code. Success returns `ReauthenticationGrant`, only
+  proof metadata, no credential. The family stays the same.
+- `POST /me/reauth/resume`: `ResumeReauthentication`, candidate / operation.
+  Without resending password or OTP, finds the challenge or the proof already accepted,
+  even after a lost response, restart or rotation on the same family. An absent
+  pending gives `404 reauthentication_not_found`, without revoking the chat.
+- `POST /me/reauth/retire`: additive capability `reauthentication_retirement`,
+  mandatory UID / device / instance / generation context and expected proof
+  version. Under the family lock, advances this version if it is
+  still current and removes the associated unaccepted challenges. A late start
+  request can no longer recreate them. A replay of an old version does not modify
+  a new proof. A proof that is already valid keeps exactly its age,
+  expiry and factor provenance, including when another attempt
+  is cancelled. The response is the current status, with no secret or new bearer.
 
-Sur les serveurs annonçant cette dernière capacité, start accepte aussi le
-champ additif `context` et vérifie ses quatre identifiants sous verrou avant
-toute émission de défi / preuve. Les SDK précédents peuvent omettre ce champ ;
-les nouveaux coffres le fournissent systématiquement. Après retirement, ils
-re-sondent le candidat original : un finish qui avait déjà gagné la course
-peut encore être récupéré. Une erreur réseau seule ne permet aucun remplacement.
+On servers advertising this last capability, start also accepts the
+additive field `context` and verifies its four identifiers under lock before
+any challenge / proof is issued. Earlier SDKs may omit this field;
+the new vaults always supply it. After retirement, they
+reprobe the original candidate: a finish that had already won the race
+can still be recovered. A network error alone allows no replacement.
 
-Argon2 utilise le même sémaphore CPU de quatre travaux que le login, conservé
-par le vrai travail bloquant après annulation. Son hash est revérifié sous
-verrou après calcul. Compte, session, appareil / version, défi et facteur sont
-verrouillés dans cet ordre après l'instance. Expiration de session et de défi
-est relue à l'horloge après les attentes correspondantes, avant consommation.
-Les limites persistantes globales / IP / utilisateur sont partagées avec le login,
-plus une fenêtre de défi ; cinq essais erronés et cinq défis pending par compte.
-Mot de passe / code erroné donne `400 reauthentication_rejected`, jamais une
-révocation du chat. Un bearer réellement expiré / révoqué conserve son `401`.
+Argon2 uses the same four-job CPU semaphore as the login, held
+by the real blocking work after cancellation. Its hash is rechecked under
+lock after computation. Account, session, device / version, challenge and factor are
+locked in that order after the instance. Session and challenge expiry
+are reread from the clock after the corresponding waits, before consumption.
+The persistent global / IP / user limits are shared with the login,
+plus a challenge window; five wrong attempts and five pending challenges per account.
+A wrong password / code gives `400 reauthentication_rejected`, never a
+revocation of the chat. A bearer that is really expired / revoked keeps its `401`.
 
-Une validation accepte un code une seule fois et fixe la preuve à quinze minutes.
-Login et réauthentification partagent le même compteur TOTP et les mêmes secours.
-Le reçu de cinq minutes permet un replay sans consommation, nouvelle preuve ou
-prolongation. Une autre famille, autorité, version ou génération ferme cette
-reprise. Les métadonnées de défi / preuve expirées sont nettoyées par lots bornés.
-L'acceptation avance aussi la version de preuve de l'appareil : après nettoyage
-du reçu, le corps initial ne peut recréer / prolonger l'opération. Une nouvelle
-confirmation exige version courante, nouveau candidat / opération et vraie preuve.
+A validation accepts a code only once and fixes the proof at fifteen minutes.
+Login and reauthentication share the same TOTP counter and the same backup codes.
+The five-minute receipt allows a replay with no consumption, new proof or
+extension. Another family, authority, version or generation closes this
+resumption. Expired challenge / proof metadata is cleaned up in bounded batches.
+Acceptance also advances the proof version of the device: after cleanup
+of the receipt, the initial body cannot recreate / extend the operation. A new
+confirmation requires the current version, a new candidate / operation and a real proof.
 
-Les autorisations explicites sont liées à l'identité / génération, versions
-d'autorité / facteurs, famille / version de preuve et identité du secret TOTP
-effectivement prouvé. Une opération de facteur autorisée avance les versions
-du gardien sans modifier l'heure, son identité de facteur prouvé ou transformer
-une preuve par mot de passe en preuve de second facteur. Régénérer les secours
-garde le même authentificateur ; en inscrire un nouveau exige une nouvelle preuve,
-y compris après recul d'horloge. Les réponses privées portent `Cache-Control: no-store`.
-Les familles migrées dont la provenance de facteur est inconnue doivent confirmer
-à nouveau leur identité ; leur date seule ne prouve pas le facteur courant.
+Explicit authorisations are bound to the identity / generation, authority /
+factor versions, family / proof version and identity of the TOTP secret
+actually proven. An authorised factor operation advances the guardian
+versions without modifying the time, its proven factor identity or turning
+a password proof into a second-factor proof. Regenerating the backup codes
+keeps the same authenticator; enrolling a new one requires a new proof,
+including after a clock rollback. Private responses carry `Cache-Control: no-store`.
+Migrated families whose factor provenance is unknown must confirm
+their identity again; their date alone does not prove the current factor.
 
-Le mobile utilise désormais ces routes dans les paramètres existants. Un coffre
-privé est lié à l'URL canonique, UID, famille, instance et génération ; sa file
-sérialise les appels HTTP et les écritures entre instances. Il sauvegarde le
-candidat / opération / version avant start et finish, jamais mot de passe ou
-code saisi. Il reprend une preuve déjà acceptée avant de redemander un code.
-Les générations de fournisseur et de focus bloquent les callbacks après
-déconnexion, changement de compte, sortie de l'écran ou suspension.
+The mobile client now uses these routes in the existing settings. A private
+vault is bound to the canonical URL, UID, family, instance and generation; its queue
+serialises HTTP calls and writes between instances. It saves the
+candidate / operation / version before start and finish, never the password or
+the code entered. It resumes a proof already accepted before asking for a code again.
+The provider and focus generations block callbacks after
+logout, account change, leaving the screen or suspension.
 
-Un second coffre de ce même périmètre conserve les intentions de configuration,
-activation, remplacement et désactivation. Les reçus privés de codes portent
-la version de facteur **originellement commitée**, également chiffrée dans le
-reçu serveur, et non une version inférée après HTTP. Une modification concurrente
-ne peut présenter une ancienne liste comme courante. Les codes restent dans
-SecureStore jusqu'à confirmation explicite ; les reçus périmés sont fermés
-explicitement sans lancer une autre mutation. Configuration et codes sont
-effacés de l'écran à la sortie / suspension. Toutes ces entrées utilisent
-`WHEN_UNLOCKED_THIS_DEVICE_ONLY`, hors SQLite, push et index des comptes.
+A second vault of the same scope keeps the intents for configuration,
+activation, replacement and deactivation. The private code receipts carry
+the factor version **originally committed**, also encrypted in the
+server receipt, and not a version inferred after HTTP. A concurrent modification
+cannot present an old list as current. The codes stay in
+SecureStore until explicit confirmation; stale receipts are closed
+explicitly without starting another mutation. Configuration and codes are
+erased from the screen on exit / suspension. All these entries use
+`WHEN_UNLOCKED_THIS_DEVICE_ONLY`, outside SQLite, push and the account index.
 
-Ces parcours et leurs pertes d'ACK sont éprouvés via les vrais endpoints sur
-PostgreSQL jetable et des coffres portables ; ce banc ne valide pas le Keystore
-sur téléphone physique.
+These flows and their ACK losses are tested through the real endpoints on
+throwaway PostgreSQL and portable vaults; this bench does not validate the Keystore
+on a physical phone.
 
-GTK raccorde les mêmes opérations dans les préférences existantes. Le coffre
-commun `rv-core::native::security` utilise des entrées privées du trousseau,
-hors index des comptes / SQLite ; seul un fichier de verrou sans secret est
-créé. Le verrou OS couvre HTTP et KV et reste détenu jusqu'à la fin du vrai
-travail de trousseau, même si son appelant est annulé. Les intentions / reçus
-portent les cinq champs de portée, la version initiale et l'opération originale.
-Le dialogue garde cette portée entre appels et efface ses secrets à la fermeture.
-Chaque accès vérifie aussi la génération de connexion avant et après HTTP.
-Une fermeture de socket après mutation de facteur refuse le résultat ancien ;
-Actualiser peut reprendre sur le nouveau runner de cette même famille, de façon
-bornée et sans renvoyer mot de passe ou code saisi. Fermeture du fournisseur,
-changement d'identité ou sortie du dialogue interdisent cette reprise.
+GTK wires the same operations into the existing preferences. The shared
+vault `rv-core::native::security` uses private keyring entries,
+outside the account index / SQLite; only a lock file with no secret is
+created. The OS lock covers HTTP and KV and is held until the end of the real
+keyring work, even if its caller is cancelled. The intents / receipts
+carry the five scope fields, the initial version and the original operation.
+The dialog keeps this scope between calls and erases its secrets on close.
+Each access also verifies the connection generation before and after HTTP.
+A socket closure after a factor mutation refuses the old result;
+Refresh can resume on the new runner of this same family, in a bounded
+way and without resending the password or code entered. Closing the provider,
+a change of identity or leaving the dialog forbid this resumption.
 
-Le banc `compose.native-security-pilot.yml`, ajouté en overlay d'un projet
-jetable distinct, valide les vrais widgets GTK, les ACK perdus, le reçu privé
-après redémarrage de Secret Service et la reconnexion. Ses contrôles SQL sans
-secret prouvent une famille, une preuve complète, deux secours consommés,
-une régénération et l'âge original de la preuve. Les captures ne conservent
-aucun code de secours. Les trousseaux sur appareils restent à qualifier.
+The bench `compose.native-security-pilot.yml`, added as an overlay on a distinct
+throwaway project, validates the real GTK widgets, lost ACKs, the private receipt
+after a Secret Service restart and reconnection. Its secret-free SQL checks
+prove one family, one full proof, two backup codes consumed,
+one regeneration and the original age of the proof. The captures keep
+no backup code. The keyrings on devices remain to be qualified.
 
-### Paramètres SwiftUI et objet de sécurité FFI
+### SwiftUI settings and FFI security object
 
-`NativeSecurity` utilise ce même coffre privé et la famille du `NativeChat`
-existant. Sa portée reste épinglée entre appels ; aucun candidat, identifiant
-de preuve / opération / reçu ou bearer n'est exposé à Swift. Le DTO ne contient
-que l'état de formulaire et les valeurs privées nécessaires à l'affichage.
-Le mutex pris **dans le travail Tokio réel** reste détenu après annulation d'un
-appel Swift. Le verrou OS du coffre protège aussi les autres processus GTK / FFI.
+`NativeSecurity` uses this same private vault and the family of the existing
+`NativeChat`. Its scope stays pinned between calls; no candidate, proof /
+operation / receipt identifier or bearer is exposed to Swift. The DTO contains
+only the form state and the private values needed for display.
+The mutex taken **in the real Tokio work** stays held after cancellation of a
+Swift call. The vault's OS lock also protects the other GTK / FFI processes.
 
-Les confirmations d'activation, remplacement, désactivation et sauvegarde
-portent la révision affichée. Une ancienne confirmation est refusée avant
-mutation ou effacement du reçu ; les identifiants originaux restent internes.
-La copie relit le coffre et la version courante avant de rendre secret, URI ou
-secours. `SecurityModel` vérifie encore compte, fournisseur, visibilité et
-génération avant son callback synchrone sur MainActor qui écrit le presse-papiers.
-Fermeture / suspension efface champs saisis et DTO, en conservant l'intention
-privée à reprendre ; un handle fermé refuse tous ses appels ultérieurs.
+The confirmations of activation, replacement, deactivation and saving
+carry the displayed revision. An old confirmation is refused before
+mutation or erasure of the receipt; the original identifiers stay internal.
+Copying rereads the vault and the current version before returning the secret, URI or
+backup codes. `SecurityModel` still verifies account, provider, visibility and
+generation before its synchronous callback on MainActor that writes the clipboard.
+Closing / suspension erases the fields entered and the DTO, keeping the private
+intent to resume; a closed handle refuses all its later calls.
 
-La section est ajoutée au formulaire groupé existant quand le serveur annonce
-la réauthentification et son retrait sûr. Actualiser peut reprendre après le
-changement de connexion causé par le facteur, sur cette seule portée et sans
-renvoyer une saisie. Le projet jetable `rocketvibe-swift-security-pilot` utilise
-l'overlay ci-dessus et deux processus de tests Swift avec un vrai Secret Service.
-Il perd les réponses de connexion, preuve et mutation, reprend le reçu après
-restart, vérifie copie / confirmation périmées, sortie en cours de copie et
-ancien fournisseur. Les mêmes postconditions PostgreSQL prouvent une famille,
-une preuve, deux codes consommés et une régénération, sans renouveler l'âge de
-preuve. Ce banc Linux qualifie les modèles et la FFI ; la compilation SwiftUI
-macOS et le Keychain d'une app installée sont des validations distinctes.
+The section is added to the existing grouped form when the server advertises
+reauthentication and its safe retirement. Refresh can resume after the
+connection change caused by the factor, on this scope only and without
+resending an entry. The throwaway project `rocketvibe-swift-security-pilot` uses
+the overlay above and two Swift test processes with a real Secret Service.
+It loses the login, proof and mutation responses, resumes the receipt after
+restart, and verifies stale copy / confirmation, exit during a copy
+and old provider. The same PostgreSQL postconditions prove one family,
+one proof, two codes consumed and one regeneration, without renewing the age of the
+proof. This Linux bench qualifies the models and the FFI; the macOS SwiftUI
+build and the Keychain of an installed app are distinct validations.
 
-### Profils indépendants et secours communs — socle du facteur e-mail
+### Independent profiles and shared backup codes (foundation of the email factor)
 
-La migration 0019 ajoute un profil e-mail distinct, lié à la version du contact
-vérifié. Elle n'active aucune adresse existante. Connexion, preuve récente et
-réauthentification prennent désormais en compte les deux profils : TOTP reste
-la provenance préférée lorsqu'il coexiste avec l'e-mail, ce qui conserve les
-identités des preuves TOTP antérieures. Ajouter TOTP à un profil e-mail seul ou
-retirer TOTP en laissant l'e-mail impose une nouvelle preuve du profil courant.
+Migration 0019 adds a distinct email profile, bound to the version of the verified
+contact. It activates no existing address. Login, recent proof and
+reauthentication now take both profiles into account: TOTP remains
+the preferred provenance when it coexists with email, which preserves the
+identities of earlier TOTP proofs. Adding TOTP to an email-only profile or
+removing TOTP while leaving email requires a new proof of the current profile.
 
-Les secours sont rattachés au compte. Retirer un facteur les conserve tant que
-l'autre reste installé ; retirer le dernier efface toute la liste, consommée
-ou non. Une inscription TOTP explicite présente une liste de remplacement de
-dix codes, sans accumuler les anciennes listes. La régénération et son reçu
-initial peuvent aussi fonctionner avec un profil e-mail seul, sans SMTP.
+The backup codes are attached to the account. Removing one factor keeps them as long as
+the other remains installed; removing the last one erases the whole list, consumed
+or not. An explicit TOTP enrolment presents a replacement list of
+ten codes, without accumulating the old lists. Regeneration and its initial
+receipt can also work with an email-only profile, without SMTP.
 
-Avant de proposer un défi ou de consommer un secours, le serveur valide les
-chiffrements de tous les profils installés. Le marqueur e-mail est authentifié
-avec la clé opérateur et lié à l'instance, au compte, au profil et à la version
-du contact. Clé absente, erronée, marqueur invalide ou portée différente ferment
-le parcours protégé sans consommer le secours ni délivrer une session.
+Before offering a challenge or consuming a backup code, the server validates the
+encryptions of all installed profiles. The email marker is authenticated
+with the operator key and bound to the instance, account, profile and version
+of the contact. A missing or wrong key, an invalid marker or a different scope close
+the protected flow without consuming the backup code or issuing a session.
 
-Un contact portant un facteur actif doit être désinscrit de ce facteur avant
-remplacement ou retrait. Les routes de contact répondent `email_factor_active`,
-et les contraintes PostgreSQL refusent aussi retrait ou changement de version
-directs. L'effacement d'un compte après retrait de ses références de sessions
-peut toujours supprimer ensemble contact, profil et secours.
+A contact carrying an active factor must be unenrolled from that factor before
+replacement or removal. The contact routes answer `email_factor_active`,
+and the PostgreSQL constraints also refuse direct removal or version change.
+Erasing an account after removing its session references
+can still delete contact, profile and backup codes together.
 
-Ce socle ne fournit pas encore d'inscription e-mail publique ni d'émission OTP.
-La méthode e-mail n'est pas annoncée ; les profils des tests sont inscrits dans
-leurs seules bases jetables. Sans transport utilisable, un profil e-mail seul
-reste protégé par ses secours, puis fermé si ceux-ci sont épuisés.
+This foundation does not yet provide public email enrolment or OTP issuance.
+The email method is not advertised; the test profiles are enrolled in
+their throwaway databases only. Without a usable transport, an email-only profile
+stays protected by its backup codes, then closed if these are exhausted.

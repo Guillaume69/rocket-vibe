@@ -1,199 +1,199 @@
-# Lectures, non-lus et favoris de salons — P05
+# Reads, unread counts and room favorites (P05)
 
-Serveur, transports Rust / TypeScript et contrôleurs durables raccordés aux
-interfaces GTK / SwiftUI / mobile existantes. Les capacités clientes
-`read_markers` et `favorites` suivent les fonctionnalités annoncées par le serveur.
-La qualification des applications installées reste ouverte.
+Server, Rust / TypeScript transports and durable controllers wired to the
+existing GTK / SwiftUI / mobile interfaces. The client capabilities
+`read_markers` and `favorites` follow the features announced by the server.
+Qualification of installed applications remains open.
 
-## État personnel
+## Personal state
 
-`GET /api/v1/rooms/{id}/read` retourne `ReadState` pour le compte authentifié,
-avec adhésion actuelle obligatoire, y compris pour un administrateur. Le même
-état optionnel est attaché à `Room.read_state` dans les listes, snapshots et
-événements `room_upsert`. Un ancien serveur v1 peut omettre ce champ.
-Il est ajouté après filtrage des destinataires et des adhésions, dans la même
-vue transactionnelle que la lecture. Le journal partagé ne stocke jamais ces
-données personnelles ; les limites de taille incluent les champs ajoutés.
-La remise HTTP / WebSocket conserve les barrières de révocation existantes.
+`GET /api/v1/rooms/{id}/read` returns `ReadState` for the authenticated account,
+with a current membership mandatory, including for an administrator. The same
+optional state is attached to `Room.read_state` in lists, snapshots and
+`room_upsert` events. An old v1 server may omit this field.
+It is added after filtering recipients and memberships, in the same
+transactional view as the read. The shared journal never stores this
+personal data; the size limits include the added fields.
+HTTP / WebSocket delivery keeps the existing revocation barriers.
 
-Trois versions ont des usages distincts :
+Three versions have distinct uses:
 
-- `revision`, position décimale globale, ordonne l'ensemble de l'état personnel ;
-- `favorite_revision`, version décimale du favori, sert au contrôle concurrent
-  de cette préférence. Messages et lectures ne rendent pas un formulaire de
-  favori obsolète ;
-- `membership_version`, nonce opaque de la durée d'adhésion, change après
-  retrait / réadhésion. Un changement de rôle ne le modifie pas.
+- `revision`, a global decimal position, orders the whole personal state;
+- `favorite_revision`, the decimal version of the favorite, is used for concurrency control
+  of this preference. Messages and reads do not make a favorite
+  form stale;
+- `membership_version`, an opaque nonce of the membership lifetime, changes after
+  removal / rejoin. A role change does not modify it.
 
-La révision des métadonnées `Room.revision` reste indépendante. Un événement
-personnel ne doit pas invalider les droits ou les détails du salon. Les clients
-doivent comparer séparément les versions des métadonnées et de l'état personnel,
-ainsi que leur identité / génération et la durée d'adhésion.
+The metadata revision `Room.revision` remains independent. A personal event
+must not invalidate the rights or the details of the room. Clients
+must compare the metadata and personal state versions separately,
+as well as their identity / generation and the membership lifetime.
 
-## Lecture monotone
+## Monotonic read
 
-`POST /api/v1/rooms/{id}/read` accepte uniquement `MarkRead` :
-`root_position` et `reply_position`, chaînes décimales canoniques non négatives.
-Le serveur avance par maximum transactionnel. Un ancien appareil ne ramène
-jamais la lecture en arrière ; un retry identique ne consomme pas de quota et
-ne publie pas un second événement. Une position supérieure au dernier message
-du salon produit `409 invalid_read_position`. Les nouveaux avancements sont
-limités à 60 par minute et compte, indépendamment des autres commandes.
+`POST /api/v1/rooms/{id}/read` accepts only `MarkRead`:
+`root_position` and `reply_position`, canonical non-negative decimal strings.
+The server advances by transactional maximum. An old device never brings
+the read position backwards; an identical retry consumes no quota and
+publishes no second event. A position greater than the last message
+of the room produces `409 invalid_read_position`. New advances are
+limited to 60 per minute per account, independently of the other commands.
 
-Les non-lus comptent les nouveaux messages racines d'autres auteurs après la
-position de lecture. Édition et réaction ne les augmentent pas ; supprimer un
-message non lu les diminue sans avancer cette position. Envoi propre exclu.
-Les compteurs et positions restent des chaînes, même au-delà de `2^53`.
-Une nouvelle adhésion initialise sa lecture au dernier message existant ;
-l'historique antérieur reste accessible, sans ajouter un arriéré de badges.
-La migration adopte la même règle pour les adhésions existantes.
+Unread counts count new root messages from other authors after the
+read position. Edits and reactions do not increase them; deleting an
+unread message decreases them without advancing this position. Own sends excluded.
+Counters and positions remain strings, even beyond `2^53`.
+A new membership initializes its read position to the last existing message;
+earlier history stays accessible, without adding a backlog of badges.
+The migration adopts the same rule for existing memberships.
 
-Les [fils P11](THREADS.md) possèdent leurs lectures propres. `reply_position`
-sert à une lecture globale des réponses du salon ; chaque réponse utilise le
-maximum de cette position et de la lecture de son fil. `unread_replies` et les
-mentions suivent cette même règle. Lire un fil ne lit pas les autres fils.
+The [P11 threads](THREADS.md) have their own reads. `reply_position`
+serves a global read of the room's replies; each reply uses the
+maximum of this position and of the read of its thread. `unread_replies` and
+mentions follow this same rule. Reading one thread does not read the other threads.
 
 ## Mentions
 
-À l'envoi original, le serveur dérive les destinataires depuis le Markdown.
-Les pseudos natifs sont exacts et sensibles à la casse. Ils doivent correspondre
-à un membre actif du salon ; l'auteur et les personnes extérieures sont exclus.
-Les répétitions ne comptent qu'une fois par message. `@all` vise les autres
-adhérents actifs au moment de l'envoi. Un message qui
-mentionne directement un destinataire et contient aussi `@all` compte dans
-`mentions`, avec priorité sur `group_mentions` : aucun double badge.
+On the original send, the server derives the recipients from the Markdown.
+Native usernames are exact and case-sensitive. They must match
+an active member of the room; the author and outsiders are excluded.
+Repetitions count only once per message. `@all` targets the other active
+members at the time of sending. A message that
+directly mentions a recipient and also contains `@all` counts in
+`mentions`, with priority over `group_mentions`: no double badge.
 
-Le parseur [pulldown-cmark](https://docs.rs/pulldown-cmark/0.13.4/pulldown_cmark/)
-identifie la structure Markdown ; le [document natif partagé](MARKDOWN.md) utilise
-les mêmes règles et les marqueurs des composeurs existants. Ses offsets source
-conservent les échappements.
-Code en ligne / blocs, citations, liens et labels d'images ne déclenchent pas de
-mention. Les adresses email et URL brutes sont également exclues. Les noms
-formatés en gras / italique restent reconnus. Aucun ID de destinataire fourni
-par le client n'est accepté. La limite de texte reste 32 768 octets.
+The [pulldown-cmark](https://docs.rs/pulldown-cmark/0.13.4/pulldown_cmark/) parser
+identifies the Markdown structure; the [shared native document](MARKDOWN.md) uses
+the same rules and the markers of the existing composers. Its source offsets
+preserve escapes.
+Inline code / blocks, quotes, links and image labels do not trigger a
+mention. Email addresses and raw URLs are also excluded. Names
+formatted in bold / italic are still recognized. No recipient ID supplied
+by the client is accepted. The text limit remains 32,768 bytes.
 
-Les compteurs ne concernent que les messages non lus et non supprimés. Une
-édition peut retirer une mention originale en supprimant son token ; elle ne
-peut ajouter de destinataire ni rétablir une mention retirée auparavant. Lire
-ou supprimer le message retire le badge. Une nouvelle adhésion ne récupère pas
-de notification historique, tout en gardant accès à l'historique.
+Counters concern only unread, non-deleted messages. An
+edit may remove an original mention by deleting its token; it cannot
+add a recipient or restore a previously removed mention. Reading
+or deleting the message removes the badge. A new membership does not receive
+a historical notification, while keeping access to the history.
 
-`@here` attend les baux de présence P12 : il reste du texte sans notification
-dans ce lot. Il ne signifie jamais `@all`. Le catalogue / rendu complet des
-mentions dans les trois clients sera qualifié avec P07 / P12.
+`@here` waits for the P12 presence leases: it remains text with no notification
+in this batch. It never means `@all`. The full catalog / rendering of
+mentions in the three clients will be qualified with P07 / P12.
 
-## Favori explicite et reçu
+## Explicit favorite and receipt
 
-`PUT /api/v1/rooms/{id}/favorite` accepte `SetRoomFavorite` :
-`operation_id`, `expected_revision` égal à la `favorite_revision` observée,
-et `present`. Le favori est privé, exige une adhésion et utilise le quota
-des commandes de salon : 30 nouvelles commandes par minute et compte.
-Les champs inconnus et une identité de destinataire forgée sont refusés.
-Un conflit de version produit `409 revision_conflict`.
+`PUT /api/v1/rooms/{id}/favorite` accepts `SetRoomFavorite`:
+`operation_id`, `expected_revision` equal to the observed `favorite_revision`,
+and `present`. The favorite is private, requires a membership and uses the quota
+of room commands: 30 new commands per minute per account.
+Unknown fields and a forged recipient identity are rejected.
+A version conflict produces `409 revision_conflict`.
 
-La réponse est un `RoomCommandReceipt` personnel minimal. Le client peut le
-relire via `GET /api/v1/rooms/{id}/commands/{operation}` après une réponse
-perdue, sans seconde écriture et même après le départ du salon. Le reçu ne
-projette pas une valeur de favori : le client relit l'état actuel. Rejouer
-l'opération originale rend le même reçu sans rétablir une ancienne préférence,
-même après retrait / réadhésion. Réutiliser son ID avec un autre corps ou dans
-un autre domaine de commande produit un conflit.
+The response is a minimal personal `RoomCommandReceipt`. The client can
+re-read it via `GET /api/v1/rooms/{id}/commands/{operation}` after a lost
+response, without a second write and even after leaving the room. The receipt does not
+project a favorite value: the client re-reads the current state. Replaying
+the original operation returns the same receipt without restoring an old preference,
+even after removal / rejoin. Reusing its ID with another body or in
+another command domain produces a conflict.
 
-Le retrait supprime l'état personnel serveur. À la réadhésion, la préférence
-repart à faux avec une nouvelle durée d'adhésion et une nouvelle version.
-Les lectures d'état et de reçu restent possibles pendant `Retry-After` ;
-aucun secret ou ancienne préférence n'est rendu à un autre compte.
+Removal deletes the server's personal state. On rejoin, the preference
+restarts at false with a new membership lifetime and a new version.
+State and receipt reads remain possible during `Retry-After`;
+no secret or old preference is returned to another account.
 
-## Vérification
+## Verification
 
-Six cas Markdown et dix scénarios PostgreSQL / HTTP couvrent deux appareils concurrents, envois
-propres et suppressions, confidentialité du journal, retrait / réadhésion,
-versions indépendantes des rôles, conflits et champs forgés. Le transport
-mobile réel simule une réponse de favori perdue et retrouve le reçu sans
-seconde écriture ; son ancien rejeu ne rétablit pas le favori supprimé. Il
-vérifie aussi mentions dédupliquées, retrait par édition et lecture du message.
-Le quota réel de lecture garde disponibles l'état, les reçus et les favoris ;
-un retry ancien reçu par le serveur ne consomme aucun avancement.
+Six Markdown cases and ten PostgreSQL / HTTP scenarios cover two concurrent devices, own sends
+and deletions, journal confidentiality, removal / rejoin,
+role-independent versions, conflicts and forged fields. The real
+mobile transport simulates a lost favorite response and finds the receipt without a
+second write; its old replay does not restore the deleted favorite. It
+also verifies deduplicated mentions, removal by edit and reading of the message.
+The real read quota keeps the state, receipts and favorites available;
+an old retry received by the server consumes no advance.
 
-## Caches clients
+## Client caches
 
-Le mobile et le cœur bureau gardent l'état personnel dans une table SQLite
-séparée des métadonnées du salon. Une réponse personnelle ancienne ne rétablit
-pas un favori ; une ancienne révision de salon n'écrase pas son nom actuel.
-Une mise à jour personnelle conserve les droits effectifs tant que la révision
-des métadonnées reste la même. Les réponses HTTP identiques ne réécrivent pas
-l'état et ne réarment pas les minuteries de lecture.
+Mobile and the desktop core keep the personal state in a SQLite table
+separate from the room metadata. An old personal response does not restore
+a favorite; an old room revision does not overwrite its current name.
+A personal update keeps the effective rights as long as the metadata
+revision stays the same. Identical HTTP responses do not rewrite
+the state and do not re-arm the read timers.
 
-Un snapshot ou événement autorisé portant une nouvelle `membership_version`
-purge les anciennes données privées, brouillons et intentions du salon, puis
-invalide les réponses d'historique / commandes en vol. Le changement de rôle
-conserve cette durée d'adhésion et les intentions courantes. Une réponse HTTP
-ne peut changer elle-même la durée d'adhésion du cache. Les caches sans témoin
-d'adhésion ne peuvent prouver que leurs anciennes intentions ont survécu à un
-retrait manqué : leur premier snapshot portant ce témoin les purge également.
-Le bureau récupère les témoins déjà présents dans ses anciens payloads de salon.
+An authorized snapshot or event carrying a new `membership_version`
+purges the old private data, drafts and intents of the room, then
+invalidates the in-flight history / command responses. A role change
+keeps this membership lifetime and the current intents. An HTTP response
+cannot itself change the cache's membership lifetime. Caches without a membership
+witness cannot prove that their old intents survived a missed
+removal: their first snapshot carrying this witness purges them too.
+Desktop recovers the witnesses already present in its old room payloads.
 
-Le composeur capture aussi cette durée d'adhésion à son ouverture. Lecture,
-sauvegarde et effacement de brouillon, ainsi qu'ajout à l'outbox, vérifient
-ce témoin dans la même transaction SQLite que l'écriture. Un flush de démontage
-ou une sauvegarde différée de l'ancien écran ne peut donc réintroduire son texte
-après la purge, ni effacer le nouveau brouillon. Les buffers et formulaires ouverts
-sont remis à zéro quand le témoin change ; une mise à jour de rôle les conserve.
-Le mobile attend la première lecture du témoin avant de monter le composeur.
+The composer also captures this membership lifetime when it opens. Reading,
+saving and clearing a draft, as well as adding to the outbox, check
+this witness in the same SQLite transaction as the write. An unmount flush
+or a deferred save from the old screen therefore cannot reintroduce its text
+after the purge, nor erase the new draft. Open buffers and forms
+are reset when the witness changes; a role update keeps them.
+Mobile waits for the first read of the witness before mounting the composer.
 
-Les deux clients conservent maintenant leurs intentions dans des tables privées
-`native_read_intents` / `native_favorite_intents`. Le renderer fournit l'ID du
-message réellement observé ; seul un message confirmé du même salon peut être
-enregistré. Les positions observées se regroupent par maximum exact, sans prendre
-le dernier message du cache au moment du retry. Une réponse antérieure n'efface
-pas une observation plus récente, et l'enregistrement seul ne réarme aucun timer.
-Le chemin destiné aux minuteries reçoit aussi la durée d'adhésion capturée par
-l'écran : sa vérification et l'enregistrement se font dans la même transaction.
-Un callback ancien après retrait / réadhésion ne peut donc lire l'historique de
-la nouvelle adhésion. Le fournisseur mobile exige un ID observé explicite ; les
-bindings et le modèle Swift gardent les positions sous forme de chaînes.
+Both clients now keep their intents in the private tables
+`native_read_intents` / `native_favorite_intents`. The renderer supplies the ID of the
+message actually observed; only a confirmed message of the same room can be
+recorded. Observed positions are grouped by exact maximum, without taking
+the last message in the cache at retry time. An earlier response does not erase
+a more recent observation, and recording alone re-arms no timer.
+The path intended for the timers also receives the membership lifetime captured
+by the screen: its verification and the recording happen in the same transaction.
+An old callback after removal / rejoin therefore cannot read the history of
+the new membership. The mobile provider requires an explicit observed ID; the
+bindings and the Swift model keep positions as strings.
 
-Le favori enregistre une fois son ID, sa durée d'adhésion, sa révision attendue et
-sa valeur explicite. Une autre valeur ne remplace pas une tentative non résolue.
-Le runner relit le reçu original ; seul `404 not_found` autorise le PUT original.
-Un reçu sauvegardé devient une borne de version : la commande reste confirmée
-jusqu'à un état actuel dont `favorite_revision` couvre cette borne. Après crash,
-une lecture d'état reprend cette confirmation sans second PUT. Un refus permanent
-reste conservé et exige l'effacement explicite de son ID exact avant remplacement.
+The favorite records its ID, membership lifetime, expected revision and
+explicit value once. Another value does not replace an unresolved attempt.
+The runner re-reads the original receipt; only `404 not_found` allows the original PUT.
+A saved receipt becomes a version bound: the command stays confirmed
+until a current state whose `favorite_revision` covers this bound. After a crash,
+a state read resumes this confirmation without a second PUT. A permanent refusal
+is kept and requires explicit clearing of its exact ID before replacement.
 
-Les lectures relisent d'abord l'état pour récupérer un acquittement perdu, puis
-renvoient seulement la position observée sauvegardée. Les délais de lecture et de
-favori sont séparés ; un quota de lecture laisse le journal, les envois et favoris
-disponibles. Identité, génération, projection et durée d'adhésion sont revérifiées
-autour des requêtes. Une connexion modernise un cache sans témoin d'adhésion par
-snapshot avant de rejouer ses intentions.
+Reads first re-read the state to recover a lost acknowledgement, then
+send only the saved observed position. Read and favorite timeouts
+are separate; a read quota leaves the journal, sends and favorites
+available. Identity, generation, projection and membership lifetime are re-verified
+around the requests. A connection upgrades a cache without a membership witness through
+a snapshot before replaying its intents.
 
-Les favoris sont raccordés aux fiches et menus existants GTK / SwiftUI et à la
-fiche mobile, avec leur capacité cliente activée. Le clic conserve la révision
-et la durée d'adhésion affichées, contrôlées atomiquement avant l'enregistrement.
-Seul l'état personnel confirmé modifie le classement dans les favoris ; une
-demande en attente affiche Reprendre, un refus permet l'effacement de son ID exact.
-Les handlers Rocket.Chat conservent leur route officielle via le fournisseur actif.
+Favorites are wired to the existing GTK / SwiftUI cards and menus and to the
+mobile card, with their client capability enabled. The click keeps the revision
+and the membership lifetime displayed, checked atomically before recording.
+Only the confirmed personal state changes the ranking among favorites; a
+pending request shows Resume, a refusal allows clearing its exact ID.
+The Rocket.Chat handlers keep their official route through the active provider.
 
-Les badges, séparateurs et minuteries de lecture existants sont raccordés dans
-GTK, SwiftUI et mobile ; `read_markers` est activée côté bureau et intersectée
-avec `lecturesSalon` côté mobile. Les badges utilisent uniquement les compteurs
-confirmés et les bornent pour l'affichage, sans convertir les positions en
-nombres flottants. La borne du séparateur reste celle capturée à l'ouverture,
-même après l'acquittement de la lecture.
+The existing badges, separators and read timers are wired into
+GTK, SwiftUI and mobile; `read_markers` is enabled on desktop and intersected
+with `lecturesSalon` on mobile. Badges use only the confirmed
+counters and clamp them for display, without converting positions to
+floating-point numbers. The separator bound remains the one captured on opening,
+even after the read has been acknowledged.
 
-GTK retient l'ID confirmé d'une ligne liée dont les bounds intersectent le
-viewport ; fenêtre inactive / masquée, fiche modale ou liste remontée ne
-programment pas de lecture. SwiftUI utilise la visibilité des lignes, la fenêtre
-au clavier et la fermeture des panneaux. Le mobile lit les indices visibles
-de FlashList avec la projection affichée et ses positions confirmées, après
-résolution de la borne d'ouverture, uniquement au premier plan sur la route
-active. Les timers conservent leur ID initial pendant une rafale ; un ID vu
-ensuite attend le timer suivant. Le mobile flush les observations déjà vues
-au changement de route / passage en arrière-plan, sans lire un nouvel ID du
-cache. Les callbacks annulés / fermés ne créent pas de seconde demande.
+GTK retains the confirmed ID of a bound row whose bounds intersect the
+viewport; an inactive / hidden window, a modal card or a scrolled-up list do not
+schedule a read. SwiftUI uses row visibility, the keyboard-focused window
+and the closing of panels. Mobile reads the visible indices
+of FlashList with the displayed projection and its confirmed positions, after
+resolution of the opening bound, only in the foreground on the active
+route. Timers keep their initial ID during a burst; an ID seen
+afterwards waits for the next timer. Mobile flushes the observations already seen
+on route change / moving to the background, without reading a new ID from the
+cache. Cancelled / closed callbacks do not create a second request.
 
-Les parcours GTK et modèles Swift connectés, contrôleur mobile / PostgreSQL,
-tests des positions exactes et export Hermes sont qualifiés localement. La
-compilation des nouvelles vues SwiftUI attend leur CI ; les parcours sur
-applications Android, Windows et macOS installées restent à qualifier.
+The connected GTK flows and Swift models, mobile controller / PostgreSQL,
+exact-position tests and Hermes export are qualified locally. The
+compilation of the new SwiftUI views awaits their CI; flows on installed
+Android, Windows and macOS applications remain to be qualified.

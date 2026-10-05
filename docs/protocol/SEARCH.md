@@ -1,51 +1,51 @@
-# Recherche native dans un salon — P13 / J2
+# Native in-room search (P13 / J2)
 
-`GET /api/v1/rooms/{room}/messages/search?q=…&before=…&limit=…` rend
-`SearchPage { membership_version, messages, has_more }`. `before` est la
-position décimale exacte du dernier résultat ; les pages sont triées de la plus
-grande position à la plus petite, racines et réponses ensemble. Défaut et maximum :
-50 résultats. La réponse reste limitée à 512 Kio ; une page écourtée conserve
-`has_more`. Les écrans existants présentent les 50 premiers résultats, comme
-leur recherche Rocket.Chat ; le protocole permet de poursuivre la pagination.
+`GET /api/v1/rooms/{room}/messages/search?q=…&before=…&limit=…` returns
+`SearchPage { membership_version, messages, has_more }`. `before` is the exact
+decimal position of the last result; pages are sorted from the greatest
+position to the smallest, roots and replies together. Default and maximum:
+50 results. The response stays limited to 512 KiB; a shortened page keeps
+`has_more`. The existing screens present the first 50 results, like
+their Rocket.Chat search; the protocol allows continuing the pagination.
 
-PostgreSQL utilise un vecteur `simple` généré à partir du texte écrit et un index
-GIN. Tous les mots de la requête doivent être présents. Casse ignorée, accents
-conservés ; pas de regex, syntaxe SQL, stemming ni opérateur booléen fourni par
-le client. Limites : 256 octets, 16 mots, au moins un caractère alphanumérique.
-Les messages supprimés et les événements système sont exclus de l'index.
-Une édition actualise le vecteur dans sa transaction habituelle.
+PostgreSQL uses a `simple` vector generated from the written text and a GIN
+index. All the words of the query must be present. Case ignored, accents
+kept; no regex, SQL syntax, stemming or boolean operator supplied by
+the client. Limits: 256 bytes, 16 words, at least one alphanumeric character.
+Deleted messages and system events are excluded from the index.
+An edit updates the vector in its usual transaction.
 
-Seuls les membres actuels peuvent chercher dans un salon, public, privé ou DM.
-Le rôle administrateur ne donne aucun accès implicite. La requête autorisée et
-ses citations personnalisées sont lues dans une vue cohérente ; la barrière de
-remise revalide session, génération et droits de chaque salon source avant de
-transmettre. Le texte des citations d'un autre salon n'entre pas dans l'index
-du message qui les cite. Requête, résultats et budget n'écrivent pas au journal.
+Only current members can search a room, public, private or DM.
+The administrator role gives no implicit access. The authorized query and
+its custom quotes are read in a consistent view; the delivery barrier
+revalidates session, generation and rights of each source room before
+transmitting. The text of quotes from another room does not enter the index
+of the message that quotes them. Query, results and budget do not write to the journal.
 
-Budget séparé : 20 recherches / minute / appareil, partagé entre processus via
-une table UNLOGGED. `429 search_rate_limited` porte `Retry-After` ; le transport
-mobile respecte ce délai. L'expiration du budget est nettoyée par lots. Les
-lectures SQL sont bornées à deux secondes et les commandes de messagerie gardent
-leurs propres budgets. Champs inconnus, limite excessive et position non
-canonique sont refusés.
+Separate budget: 20 searches / minute / device, shared between processes via
+an UNLOGGED table. `429 search_rate_limited` carries `Retry-After`; the mobile
+transport respects this delay. Budget expiry is cleaned up in batches. SQL
+reads are bounded to two seconds and the messaging commands keep
+their own budgets. Unknown fields, excessive limit and non-canonical
+position are refused.
 
-Les fournisseurs normalisent les résultats pour les mêmes lignes mobile,
-panneaux GTK et modèles / vues SwiftUI. Ils ne les ajoutent pas à SQLite, à la
-fenêtre d'historique, à l'outbox ou au curseur de synchronisation. La version
-d'adhésion publique est vérifiée avant affichage. Édition, suppression, retrait,
-nouvelle génération et suspension invalident les observations temporaires ; une
-simple actualisation de lecture ne les périme pas. Le champ de recherche permet
-une relance avec Entrée. Une réponse tardive de l'ancien compte ou de l'ancien
-salon ne repeuple pas les résultats.
+The providers normalize the results for the same mobile rows,
+GTK panels and SwiftUI models / views. They do not add them to SQLite, to the
+history window, to the outbox or to the sync cursor. The public membership
+version is verified before display. Edit, deletion, removal,
+new generation and suspension invalidate the temporary observations; a
+simple read refresh does not stale them. The search field allows
+a relaunch with Enter. A late response from the old account or the old
+room does not repopulate the results.
 
-La capacité `search` expose cette recherche de texte en clair. RocketVibe
-n'annonce pas encore `e2ee`. **La partie P13 / J4 reste ouverte** : index local
-borné du contenu déchiffré disponible, indication de l'historique téléchargé,
-effacement au verrouillage, à la suppression et selon la rétention. Elle doit
-être intégrée au cycle des clés natif de J4 ; aucun plaintext chiffré n'est
-envoyé au serveur pour contourner cette étape.
+The `search` capability exposes this plaintext text search. RocketVibe
+does not yet announce `e2ee`. **The P13 / J4 part remains open**: bounded local
+index of the available decrypted content, indication of the downloaded history,
+erasure on lock, on deletion and according to retention. It must
+be integrated into the J4 native key lifecycle; no encrypted plaintext is
+sent to the server to bypass this step.
 
-Qualification : scénarios PostgreSQL d'accès, pagination, Unicode, édition,
-suppression et budget ; validation des pages et SQLite réel côté clients ;
-parcours du fournisseur mobile réel et contrôles du panneau GTK et des modèles
-Swift connectés. La qualification d'applications installées reste ouverte.
+Qualification: PostgreSQL scenarios for access, pagination, Unicode, edit,
+deletion and budget; validation of pages and real SQLite on the client side;
+journeys of the real mobile provider and checks of the GTK panel and the connected
+Swift models. The qualification of installed applications remains open.

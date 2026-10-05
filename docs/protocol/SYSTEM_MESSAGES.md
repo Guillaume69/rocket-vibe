@@ -1,39 +1,39 @@
-# Activité structurée des salons — P07
+# Structured room activity (P07)
 
-Le champ additif `Message.system` décrit une action du serveur. Il est absent
-des messages ordinaires et des anciennes réponses v1. Il contient un `kind`
-typé et les seules données nécessaires : nom, sujet, description, annonce,
-confidentialité, lecture seule, utilisateur cible et rôles avant / après.
-La création, l'arrivée, le départ, l'ajout et le retrait de membres sont couverts.
-Les futures activités de fichiers, appels et administration suivront leurs lots.
+The additive field `Message.system` describes a server action. It is absent
+from ordinary messages and from old v1 responses. It contains a typed `kind`
+and only the necessary data: name, topic, description, announcement,
+privacy, read-only, target user and roles before / after.
+Creation, join, leave, adding and removing members are covered.
+Future file, call and administration activities will follow their batches.
 
-L'auteur de la ligne reste le compte qui a réalisé l'action. Aucune phrase
-traduite, aucun arbre Markdown et aucun identifiant de type Rocket.Chat ne
-voyagent dans ce champ. `SendMessage` refuse ce champ ; le client ne peut pas
-créer une activité serveur en envoyant du texte. La base impose texte vide,
-absence de références citées et absence de tombstone pour ces lignes.
+The author of the row remains the account that performed the action. No translated
+sentence, no Markdown tree and no Rocket.Chat type identifier
+travel in this field. `SendMessage` refuses this field; the client cannot
+create a server activity by sending text. The database enforces empty text,
+absence of quoted references and absence of tombstone for these rows.
 
-La ligne, sa position et son événement de journal sont écrits dans la transaction
-du changement de salon. Les reçus de commandes et les opérations sans changement
-évitent les doublons. Une mise à jour de plusieurs champs produit une ligne par
-champ modifié ; un conflit de révision annule toute la transaction. Les événements
-de ces lignes et les pages d'historique utilisent les mêmes ACL que les messages.
-Un membre retiré reçoit le retrait du salon, sans l'activité privée qui suit.
+The row, its position and its journal event are written in the transaction
+of the room change. Command receipts and operations with no change
+avoid duplicates. An update of several fields produces one row per
+modified field; a revision conflict cancels the whole transaction. The events
+of these rows and the history pages use the same ACLs as messages.
+A removed member receives the removal from the room, without the private activity that follows.
 
-Ces lignes ne créent ni non-lus, ni mentions, ni séparateur de nouveaux messages.
-Elles n'acceptent ni édition, ni suppression, ni réaction, ni épingle, ni étoile,
-ni sélection comme source de citation. Les lectures peuvent avancer au-delà
-d'une activité visible sans transformer cette activité en message non lu.
+These rows create neither unread, nor mentions, nor a new-messages separator.
+They accept neither edit, nor deletion, nor reaction, nor pin, nor star,
+nor selection as a quote source. Reads can advance beyond
+a visible activity without turning this activity into an unread message.
 
-Les adapters convertissent les données vers les lignes système existantes,
-avec leur auteur et leur paramètre. SQLite conserve cette projection dans la
-transaction de synchronisation. Le cœur bureau sert GTK et UniFFI / SwiftUI ;
-le mobile utilise `texteSysteme`. Français et anglais sont disponibles. Les
-événements Rocket.Chat continuent à passer par leur normaliseur historique.
+The adapters convert the data into the existing system rows,
+with their author and their parameter. SQLite keeps this projection in the
+sync transaction. The desktop core serves GTK and UniFFI / SwiftUI;
+mobile uses `systemText`. French and English are available. The
+Rocket.Chat events continue to go through their historical normalizer.
 
-Le scénario HTTP / PostgreSQL vérifie les rejeux, conflits, tentatives de
-falsification, actions refusées, compteurs, synchronisation et retrait privé.
-Les tests de projection vérifient les lignes et leur traduction. Le banc GTK
-inspecte la ligne dans le widget existant ; le banc Swift exerce les modèles
-partagés contre le serveur et le stockage sécurisé. La qualification visuelle
-des applications installées Android / Windows / macOS reste ouverte.
+The HTTP / PostgreSQL scenario verifies replays, conflicts, forgery
+attempts, refused actions, counters, synchronization and private removal.
+The projection tests verify the rows and their translation. The GTK bench
+inspects the row in the existing widget; the Swift bench exercises the shared
+models against the server and the secure storage. The visual qualification
+of the installed Android / Windows / macOS applications remains open.

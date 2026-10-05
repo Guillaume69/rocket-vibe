@@ -1,59 +1,59 @@
-# Nouveau Welcome dans le même coffre
+# New Welcome in the same vault
 
-Une nouvelle admission n'utilise pas les secrets MLS précédents. Le même coffre
-peut conserver son identité / appareil, ses pins et ses marqueurs d'opérations,
-puis rejoindre avec un KeyPackage frais et un Welcome ciblé. Aucun remplacement
-n'est déclenché par un simple changement de roster ou un code HTTP de refus.
+A new admission does not use the previous MLS secrets. The same vault
+can keep its identity / device, its pins and its operation markers,
+then join with a fresh KeyPackage and a targeted Welcome. No replacement
+is triggered by a mere roster change or an HTTP refusal code.
 
-`Coordinator::preview_readmission` authentifie le paquet, la portée complète,
-le roster courant et les destinataires avec les pins / révocations actuels.
-Il exige un état accepté, aucune transition / intention de message incertaine,
-un package non observé dans les admissions acceptées et, pour la même portée de
-groupe, une révision / époque plus récente. Une rotation confirmée mais encore
-en attente de sa position dans le journal bloque aussi le remplacement.
+`Coordinator::preview_readmission` authenticates the packet, the complete scope,
+the current roster and the recipients with the current pins / revocations.
+It requires an accepted state, no uncertain transition / message intent,
+a package not observed in the accepted admissions and, for the same group
+scope, a more recent revision / epoch. A confirmed rotation still
+waiting for its position in the journal also blocks the replacement.
 
-La preview supprime l'ancien groupe uniquement dans une copie temporaire du
-provider. Elle ouvre le vrai Welcome et vérifie arbre / contexte, feuille
-propre, auteur, signature et correspondance du package privé. Les secrets et
-le package persistants restent intacts. Le consentement lie le paquet exact,
-l'état précédent, les pins, le certificat local et une échéance bornée.
+The preview deletes the old group only in a temporary copy of the
+provider. It opens the real Welcome and verifies tree / context, own
+leaf, author, signature and match of the private package. The persistent secrets and
+package stay intact. The consent binds the exact packet,
+the previous state, the pins, the local certificate and a bounded deadline.
 
-`accept_readmission` revalide ce consentement et les contrôles courants dans
-une transaction protégée. Suppression de l'ancien état OpenMLS, consommation
-du nouveau package, nouveau groupe, conservation de l'historique de références,
-retrait du curseur précédent et marquage du cache précédent sont atomiques.
-Corps modifié, pins / droits devenus périmés ou erreur MLS laissent l'ancien
-checkpoint intact. Une coupure de checkpoint externe ne libère aucun résultat ;
-le même consentement réconcilie après réouverture un ancien état ou l'admission
-nouvelle déjà enregistrée. Un ACK exact n'accorde aucun nouvel envoi après expiry.
+`accept_readmission` revalidates this consent and the current checks in
+a protected transaction. Deletion of the old OpenMLS state, consumption
+of the new package, new group, preservation of the reference history,
+removal of the previous cursor and marking of the previous cache are atomic.
+Modified body, pins / rights gone stale or MLS error leave the old
+checkpoint intact. An external checkpoint cut releases no result;
+the same consent reconciles after reopening an old state or the new admission
+already recorded. An exact ACK grants no new send after expiry.
 
-Le worker annonce `EventKind::Readmission` dans la preview d'un nouveau Welcome
-pour un salon déjà présent. `accept_event` ne remplace le groupe qu'après la
-confirmation exacte de cette preview. Les previews de première admission,
-réadmission et commits ont des intentions distinctes. Ce type permettra aux
-interfaces existantes d'annoncer les frontières d'historique lors du consentement.
-Il n'active aucune capacité dans les apps.
+The worker announces `EventKind::Readmission` in the preview of a new Welcome
+for a room already present. `accept_event` only replaces the group after the
+exact confirmation of this preview. The previews of first admission,
+readmission and commits have distinct intents. This type will let the
+existing interfaces announce the history boundaries at consent time.
+It enables no capability in the apps.
 
-Le journal repart de son début autorisé par **la nouvelle admission**. Le serveur
-filtre les anciennes frames avec ses témoins d'accès / activation / package ;
-le coffre vérifie lui-même cette admission sur chaque plan signé. Un ancien
-cache ou reçu HTTP ne fournit pas les clés des époques manquées. Les corps de
-l'admission précédente restent marqués dans le cache privé borné ; réception
-courante et rejeu de page les refusent. Les marqueurs de messages sont conservés
-et les documents personnels abandonnés restent récupérables par leur API propre.
-Une archive autorisée de cet ancien cache reste un lot distinct ; il ne devient
-pas automatiquement une projection visible de la nouvelle admission.
+The journal restarts from its start authorized by **the new admission**. The server
+filters the old frames with its access / activation / package witnesses;
+the vault itself verifies this admission on each signed plan. An old
+cache or HTTP receipt does not provide the keys of the missed epochs. The bodies of
+the previous admission stay marked in the bounded private cache; current reception
+and page replay refuse them. The message markers are kept
+and the abandoned personal documents stay recoverable through their own API.
+An authorized archive of this old cache remains a distinct batch; it does not
+automatically become a visible projection of the new admission.
 
-L'effacement vise le provider et checkpoint actifs. Les anciennes copies
-chiffrées SQLite / WAL / backups gardent les limites décrites dans
-[README.md](README.md) ; aucune garantie nouvelle d'effacement
-physique ou de forward secrecy des backups n'est annoncée.
+Erasure targets the active provider and checkpoint. The old encrypted
+SQLite / WAL / backup copies keep the limits described in
+[README.md](README.md); no new guarantee of physical
+erasure or of forward secrecy of backups is announced.
 
-Preuves : six scénarios avec vrais Welcomes dans le même coffre, paquet MLS
-corrompu mais correctement signé, pins / roster périmés, opérations incertaines,
-cache précédent, réouverture et checkpoint externe interrompu. Le banc HTTP /
-PostgreSQL exerce un vrai départ / retour de membership, deux packages distincts
-consommés par la première admission et la réadmission, puis nouveaux messages
-sur la cinquième époque. Son stockage externe est simulé ; appareils / trousseaux
-physiques, suspension après retrait, archives, projection dans les apps,
-intégration Android et revue indépendante restent ouverts.
+Proofs: six scenarios with real Welcomes in the same vault, corrupted
+but correctly signed MLS packet, stale pins / roster, uncertain operations,
+previous cache, reopening and interrupted external checkpoint. The HTTP /
+PostgreSQL bench exercises a real membership departure / return, two distinct packages
+consumed by the first admission and the readmission, then new messages
+on the fifth epoch. Its external storage is simulated; physical devices / keychains,
+suspension after withdrawal, archives, projection in the apps,
+Android integration and independent review remain open.

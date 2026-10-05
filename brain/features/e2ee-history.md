@@ -10,14 +10,14 @@ All three apps show an "Encrypted history" block in the existing encryption sett
 - **Device that shares.** "Show requests from my devices" lists the requests of the account's other devices ("Request from phone" and the fingerprint). "Review" shows the rooms by name and how many messages each would share; the human compares the fingerprint with the one on the new device, then "Share history" seals, uploads and commits everything. "Resume sharing" continues an interrupted share. With nothing received yet, the review says so and offers no share.
 - Only another device listed in the account's verified directory (same root, device, incarnation and leaf key, never revoked) can be offered or imported from; this device never answers its own request.
 - **In conversations.** Once the new device has its own admission to the room, scrolling past its own oldest message continues into the recovered messages, with the time the sharing device received them; a thread started before the device joined shows its recovered root. Recovered messages are read through the same projection as the device's own, so the three apps show them without a separate screen.
-- **Not yet**: automatic import, reply counts of recovered roots (own replies only), private quotes of recovered messages, the history key inside a path A share.
+- **Not yet**: automatic import, reply counts of recovered roots (own replies only), private quotes of recovered messages.
 
 ## History backup with a code (path B)
 
 When no old device is left, a separate history code recovers the history ([E2EE_HISTORY_BACKUP.md](../../docs/protocol/E2EE_HISTORY_BACKUP.md)). A "History backup" block sits in the same settings of all three apps, on a registered device:
 
 - **Enable** draws a history key and an `rvh1-` code (never the identity `rvk1-` code), shows the code on request, and publishes the generation only after "I have saved this code". A lost publication response is found again; the intent can be cancelled. Enabling again rotates to a new generation; older ones stay readable with their code.
-- **Join with the code** on another device of the account (or a new one) opens the active generation; a path A share does not carry the key yet.
+- **Join with the code** on another device of the account (or a new one) opens the active generation. A device approved through a path A share also receives the key in the share, unless it already holds one.
 - Devices holding the key **upload continuously**: after a private conversation refresh, at most once every 10 minutes, their own periods go up as history records with signed checkpoints. "Back up now" forces it.
 - **Restore the history** downloads every backed-up period of the held generation into the same recovered catalog as path A, so conversations continue into it; a position held by several sources shows once.
 

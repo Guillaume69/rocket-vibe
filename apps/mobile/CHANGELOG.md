@@ -7,6 +7,17 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Retrait expérimental des appareils RocketVibe
+
+- Les paramètres existants affichent les autres appareils chiffrés et proposent
+  examen, confirmation explicite et reprise du retrait signé. Une vérification
+  récente de la connexion est demandée lorsque nécessaire.
+- La preuve et la demande originale restent dans le coffre. Réponse perdue,
+  changement de vue ou omission de l’annuaire ne restaurent pas l’appareil ;
+  la reprise consulte le reçu avant un éventuel envoi original. Les conversations
+  doivent encore actualiser leurs destinataires. Qualification installée et
+  récupération historique restent ouvertes ; l’E2EE de production reste désactivé.
+
 ### Renouvellement expérimental des appareils RocketVibe
 
 - Les paramètres existants affichent l’échéance du certificat et permettent

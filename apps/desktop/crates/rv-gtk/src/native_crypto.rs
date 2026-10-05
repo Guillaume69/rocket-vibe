@@ -45,6 +45,9 @@ struct Controller {
     code: adw::EntryRow,
     output: gtk::Label,
     actions: Vec<adw::ButtonRow>,
+    withdrawals: adw::PreferencesGroup,
+    withdrawal_rows: RefCell<Vec<adw::ActionRow>>,
+    withdrawal_pending: Cell<bool>,
 }
 enum Action {
     Refresh,
@@ -55,14 +58,22 @@ enum Action {
     Approve(Box<Approval>),
     Install(String),
     Resume,
+    Withdrawals,
+    WithdrawalPreview(String, String),
+    Withdraw(Box<rv_core::native::crypto::enrollment::revocations::Approval>),
+    ResumeWithdrawal,
 }
 enum Outcome {
     View(View),
+    Account(View, rv_core::native::crypto::enrollment::revocations::Status),
     Preview(Box<Approval>),
     Grant(String),
+    Withdrawals(rv_core::native::crypto::enrollment::revocations::Status),
+    WithdrawalPreview(Box<rv_core::native::crypto::enrollment::revocations::Approval>),
 }
 impl Controller {
     fn render(&self, view: View) {
+        self.clear_withdrawals();
         self.status.set_title(t(match view.stage {
             Stage::Missing => "crypto.missing",
             Stage::IdentityCreated => "crypto.created",
@@ -109,13 +120,105 @@ impl Controller {
                         matches!(v.stage, Stage::IdentityCreated | Stage::WaitingForApproval | Stage::Renewing)
                     }),
                     6 => view.as_ref().is_some_and(|v| v.stage == Stage::Registering),
-                    7 => view
-                        .as_ref()
-                        .is_some_and(|v| matches!(v.stage, Stage::Ready | Stage::Expired | Stage::Renewing)),
+                    7 => {
+                        view.as_ref()
+                            .is_some_and(|v| matches!(v.stage, Stage::Ready | Stage::Expired | Stage::Renewing))
+                            && !self.withdrawal_pending.get()
+                    }
+                    8 => view.as_ref().is_some_and(|v| matches!(v.stage, Stage::Ready | Stage::Expired)),
                     _ => false,
                 },
             );
         }
+        self.withdrawals.set_sensitive(idle);
+    }
+    fn clear_withdrawals(&self) {
+        for row in self.withdrawal_rows.borrow_mut().drain(..) {
+            self.withdrawals.remove(&row);
+        }
+        self.withdrawals.set_visible(false);
+    }
+    fn render_withdrawals(self: &Rc<Self>, status: rv_core::native::crypto::enrollment::revocations::Status) {
+        self.clear_withdrawals();
+        self.withdrawals.set_visible(true);
+        self.withdrawal_pending.set(status.pending.is_some());
+        self.withdrawals.set_description(Some(t(if status.controls_root {
+            "crypto.withdrawal_body"
+        } else {
+            "crypto.withdrawal_root_only"
+        })));
+        for device in status.devices {
+            let row = adw::ActionRow::builder()
+                .title(&device.device)
+                .subtitle(format!("{} · {}", device.fingerprint, device.incarnation))
+                .subtitle_selectable(true)
+                .build();
+            if status.controls_root && !self.withdrawal_pending.get() {
+                let button = gtk::Button::with_label(t("crypto.withdrawal_review"));
+                button.set_valign(gtk::Align::Center);
+                let weak = Rc::downgrade(self);
+                button.connect_clicked(move |_| {
+                    if let Some(c) = weak.upgrade() {
+                        c.run(Action::WithdrawalPreview(device.device.clone(), device.fingerprint.clone()));
+                    }
+                });
+                row.add_suffix(&button);
+            }
+            self.withdrawals.add(&row);
+            self.withdrawal_rows.borrow_mut().push(row);
+        }
+        if let Some(pending) = status.pending {
+            let row = adw::ActionRow::builder().title(t("crypto.withdrawal_pending")).subtitle(pending.device).build();
+            let button = gtk::Button::with_label(t("crypto.withdrawal_resume"));
+            button.set_valign(gtk::Align::Center);
+            let weak = Rc::downgrade(self);
+            button.connect_clicked(move |_| {
+                if let Some(c) = weak.upgrade() {
+                    c.run(Action::ResumeWithdrawal);
+                }
+            });
+            row.add_suffix(&button);
+            self.withdrawals.add(&row);
+            self.withdrawal_rows.borrow_mut().push(row);
+        }
+        for device in status.withdrawn {
+            let row = adw::ActionRow::builder()
+                .title(t("crypto.withdrawn"))
+                .subtitle(format!("{} · {}", device.device, device.incarnation))
+                .subtitle_selectable(true)
+                .build();
+            self.withdrawals.add(&row);
+            self.withdrawal_rows.borrow_mut().push(row);
+        }
+    }
+    fn confirm_withdrawal(self: &Rc<Self>, preview: rv_core::native::crypto::enrollment::revocations::Approval) {
+        let Some(parent) = self.dialog.upgrade() else { return };
+        let alert = adw::AlertDialog::builder()
+            .heading(t("crypto.withdrawal_confirm"))
+            .body(format!(
+                "{}\n\n{}\n{}\n{}\n{}",
+                t("crypto.withdrawal_body"),
+                preview.device,
+                preview.fingerprint,
+                preview.incarnation,
+                preview.root_fingerprint
+            ))
+            .default_response("cancel")
+            .close_response("cancel")
+            .build();
+        alert.add_responses(&[("cancel", t("actions.cancel")), ("confirm", t("crypto.withdrawal_confirm"))]);
+        alert.set_response_appearance("confirm", adw::ResponseAppearance::Destructive);
+        let weak = Rc::downgrade(self);
+        let preview = RefCell::new(Some(preview));
+        alert.connect_response(Some("confirm"), move |_, _| {
+            if let Some(c) = weak.upgrade()
+                && c.guard.alive()
+                && let Some(preview) = preview.borrow_mut().take()
+            {
+                c.run(Action::Withdraw(Box::new(preview)));
+            }
+        });
+        alert.present(Some(&parent));
     }
     fn run(self: &Rc<Self>, action: Action) {
         if self.busy.replace(true) || !self.guard.alive() {
@@ -123,9 +226,10 @@ impl Controller {
         }
         self.buttons();
         let recover_registration = matches!(&action, Action::Install(_) | Action::Resume);
+        let recover_withdrawal = matches!(&action, Action::Withdraw(_) | Action::ResumeWithdrawal);
         let this = self.clone();
         glib::spawn_future_local(async move {
-            let result = async {
+            let result: Result<Outcome, rv_core::native::crypto::Error> = async {
                 let cached = this.access.borrow().clone();
                 let access = if let Some(access) = cached {
                     access
@@ -145,7 +249,7 @@ impl Controller {
                 let fingerprint = this.view.borrow().as_ref().map(|v| v.remote_fingerprint.clone()).unwrap_or_default();
                 let own = this.view.borrow().as_ref().map(|v| v.request_code.clone()).unwrap_or_default();
                 on_tokio(async move {
-                    match action {
+                    let outcome = match action {
                         Action::Refresh => access.refresh().await.map(Outcome::View),
                         Action::Begin => access.begin(fingerprint).await.map(Outcome::View),
                         Action::Renew => access.renew(fingerprint).await.map(Outcome::View),
@@ -154,6 +258,19 @@ impl Controller {
                         Action::Approve(preview) => access.approve(*preview).await.map(Outcome::Grant),
                         Action::Install(code) => access.install(code).await.map(Outcome::View),
                         Action::Resume => access.resume().await.map(Outcome::View),
+                        Action::Withdrawals => access.withdrawals().await.map(Outcome::Withdrawals),
+                        Action::WithdrawalPreview(device, fingerprint) => access
+                            .preview_withdrawal(device, fingerprint)
+                            .await
+                            .map(|p| Outcome::WithdrawalPreview(Box::new(p))),
+                        Action::Withdraw(preview) => access.withdraw_device(*preview).await.map(Outcome::Withdrawals),
+                        Action::ResumeWithdrawal => access.resume_withdrawal().await.map(Outcome::Withdrawals),
+                    }?;
+                    match outcome {
+                        Outcome::View(view) if matches!(view.stage, Stage::Ready | Stage::Expired) => {
+                            Ok(Outcome::Account(view, access.withdrawals().await?))
+                        }
+                        other => Ok(other),
                     }
                 })
                 .await
@@ -165,6 +282,10 @@ impl Controller {
             this.busy.set(false);
             match result {
                 Ok(Outcome::View(view)) => this.render(view),
+                Ok(Outcome::Account(view, status)) => {
+                    this.render(view);
+                    this.render_withdrawals(status);
+                }
                 Ok(Outcome::Preview(preview)) => {
                     this.root.set_subtitle(&preview.root_fingerprint);
                     this.request.set_subtitle(&preview.request_fingerprint);
@@ -178,7 +299,20 @@ impl Controller {
                     this.code.set_text(&code);
                     this.status.set_title(t("crypto.grant_ready"));
                 }
-                Err(_) => {
+                Ok(Outcome::Withdrawals(status)) => this.render_withdrawals(status),
+                Ok(Outcome::WithdrawalPreview(preview)) => this.confirm_withdrawal(*preview),
+                Err(error) => {
+                    if recover_withdrawal {
+                        let access = this.access.borrow().clone();
+                        if let Some(access) = access
+                            && let Ok(status) = on_tokio(async move { access.withdrawals().await }).await
+                        {
+                            if !this.guard.alive() || this.dialog.upgrade().is_none() {
+                                return;
+                            }
+                            this.render_withdrawals(status);
+                        }
+                    }
                     if recover_registration {
                         let access = this.access.borrow().clone();
                         if let Some(access) = access
@@ -206,8 +340,10 @@ impl Controller {
                         this.device.set_subtitle("");
                         this.code.set_text("");
                         this.output.set_text("");
+                        this.clear_withdrawals();
                     }
-                    this.status.set_title(t("crypto.failed"));
+                    let reauth = matches!(&error, rv_core::native::crypto::Error::Session(e) if e.code()=="reauthentication_required");
+                    this.status.set_title(t(if reauth { "devices.reauth" } else { "crypto.failed" }));
                 }
             }
             this.buttons();
@@ -258,6 +394,7 @@ fn build_dialog(session: Arc<NativeSession>) -> (adw::PreferencesDialog, Rc<Cont
         "crypto.install",
         "crypto.resume",
         "crypto.renew",
+        "crypto.withdrawals",
     ];
     let actions: Vec<_> = keys
         .iter()
@@ -268,6 +405,8 @@ fn build_dialog(session: Arc<NativeSession>) -> (adw::PreferencesDialog, Rc<Cont
         })
         .collect();
     page.add(&codes);
+    let withdrawals = adw::PreferencesGroup::builder().title(t("crypto.withdrawals")).visible(false).build();
+    page.add(&withdrawals);
     dialog.add(&page);
     let controller = Rc::new(Controller {
         dialog: dialog.downgrade(),
@@ -284,6 +423,9 @@ fn build_dialog(session: Arc<NativeSession>) -> (adw::PreferencesDialog, Rc<Cont
         code,
         output,
         actions,
+        withdrawals,
+        withdrawal_rows: RefCell::default(),
+        withdrawal_pending: Cell::new(false),
     });
     for (index, row) in controller.actions.iter().enumerate() {
         let weak = Rc::downgrade(&controller);
@@ -300,7 +442,8 @@ fn build_dialog(session: Arc<NativeSession>) -> (adw::PreferencesDialog, Rc<Cont
                 }
                 5 => Action::Install(c.code.text().trim().into()),
                 6 => Action::Resume,
-                _ => Action::Renew,
+                7 => Action::Renew,
+                _ => Action::Withdrawals,
             };
             c.run(action);
         });
@@ -325,6 +468,7 @@ fn build_dialog(session: Arc<NativeSession>) -> (adw::PreferencesDialog, Rc<Cont
         close.view.borrow_mut().take();
         close.code.set_text("");
         close.output.set_text("");
+        close.clear_withdrawals();
     });
     (dialog, controller)
 }

@@ -43,6 +43,9 @@ export type CryptoPeerStatus = {
   trust: 'unknown' | 'unverified' | 'verified' | 'changed';
   devices: {id: string; incarnation: string; fingerprint: string; expires_at: string; approved: boolean}[];
 };
+export type CryptoWithdrawalBridge = CryptoIdentityBridge & {
+  withdrawalAction:(handle:string,ownDirectory:string,input:string)=>Promise<string>;
+};
 export type CryptoPeerView = CryptoPeerStatus & {id: string};
 export type CryptoPeerApproval = {
   id: string; user: string; rootFingerprint: string; device: string;
@@ -63,4 +66,4 @@ export type CryptoGroupBridge = CryptoPeerBridge & {
 export type CryptoConversationBridge = CryptoGroupBridge & {
   conversationAction:(handle:string,ownDirectory:string,input:string)=>Promise<string>;
 };
-export const CryptoNative = requireOptionalNativeModule<CryptoConversationBridge>('CryptoNative');
+export const CryptoNative = requireOptionalNativeModule<CryptoConversationBridge & CryptoWithdrawalBridge>('CryptoNative');

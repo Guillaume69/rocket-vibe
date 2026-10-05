@@ -20,6 +20,7 @@ rv-crypto = { path = "../../../../crates/rv-crypto", features = ["system-keystor
 chrono = "0.4.45"
 rv-core = { path = "../rv-core" }
 serde_json = "1.0.151"
+serde = { version = "1", features = ["derive"] }
 thiserror = "2.0.20"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "sync", "time", "macros"] }
 uniffi = { version = "0.32.2", features = ["cli"] }

@@ -10,6 +10,12 @@ et les messages publics signés de la cérémonie d'association. Le trait étran
 aucun export Expo ne lit / écrit une clé, un checkpoint ou un enregistrement
 protégé. Les valeurs de ce trait sont bornées à 4096 octets.
 
+`withdrawal_action` transmet seulement les valeurs publiques de l'examen,
+la demande signée et le reçu. L'aperçu est lié au handle terminal ; consentement,
+racine privée et intention originale restent dans Rust. Les paramètres Android
+existants proposent confirmation et reprise. Les retraits restent appris après
+omission / réouverture, sans créer de pin ou d'approbation d'appareil.
+
 Une clé AES-256-GCM Android Keystore non exportable enveloppe les petits
 enregistrements plateforme. Les blobs et le coffre sont séparés dans
 `noBackupFilesDir`, sous répertoires 0700 / fichiers 0600. L'AAD lie le blob à

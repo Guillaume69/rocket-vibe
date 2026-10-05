@@ -17,8 +17,11 @@ use std::{collections::BTreeSet, sync::Arc};
 const RECORD: &str = "crypto-enrollment-ui-v1";
 pub mod peers;
 mod renewal;
+pub mod revocations;
 use renewal::Renewal;
 const LIFETIME: u64 = 86400 * 30;
+#[cfg(test)]
+mod testing;
 #[derive(thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
@@ -252,21 +255,8 @@ impl<'a> Coordinator<'a> {
         }) {
             return Err(Error::Changed);
         }
-        for item in &directory.wire.revocations {
-            let revocation: Revocation =
-                serde_json::from_slice(&decode(&item.signed, 4096)?).map_err(|_| Error::Changed)?;
-            if revocation.root == state.root
-                && revocation.device == manager.scope().device
-                && hex(&revocation.incarnation) == manager.scope().incarnation
-            {
-                manager.transact(|_, records| {
-                    let mut current =
-                        read(records, manager)?.ok_or(vault::Error::NotInitialized)?;
-                    current.withdrawn = true;
-                    save(records, &current)
-                })?;
-                return Err(Error::Withdrawn(manager.scope().clone()));
-            }
+        if revocations::observe(manager, state, directory)? {
+            return Err(Error::Withdrawn(manager.scope().clone()));
         }
         Ok(())
     }

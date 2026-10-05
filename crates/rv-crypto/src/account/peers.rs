@@ -83,8 +83,14 @@ impl Directory {
             && serde_json::to_vec(&self.wire).map_err(|_| Error::Changed)?
                 == serde_json::to_vec(&other.wire).map_err(|_| Error::Changed)?)
     }
-    fn apply_peer(&self, pins: &mut Pins) -> std::result::Result<(), vault::Error> {
+    fn apply_peer(
+        &self,
+        pins: &mut Pins,
+        records: &Records,
+        manager: &Manager,
+    ) -> std::result::Result<(), vault::Error> {
         let root = self.peer_root().map_err(|_| vault::Error::Rejected)?;
+        super::revocations::apply_known(records, manager, &root, pins)?;
         if pins.pinned_root(&root.user) == Some(&root) {
             for item in &self.wire.revocations {
                 let signed: Revocation = serde_json::from_slice(
@@ -142,13 +148,13 @@ impl Coordinator {
         let changed = self.manager.inspect(|_, records| {
             let mut next = private(Pins::load(records, &self.account.instance))?;
             let before = serde_json::to_vec(&next).map_err(|_| vault::Error::Integrity)?;
-            directory.apply_peer(&mut next)?;
+            directory.apply_peer(&mut next, records, &self.manager)?;
             Ok(before != serde_json::to_vec(&next).map_err(|_| vault::Error::Integrity)?)
         })?;
         if changed {
             self.manager.transact(|_, records| {
                 let mut pins = private(Pins::load(records, &self.account.instance))?;
-                directory.apply_peer(&mut pins)?;
+                directory.apply_peer(&mut pins, records, &self.manager)?;
                 private(pins.save(records))
             })?;
         }
@@ -223,7 +229,7 @@ impl Coordinator {
                     confirmed,
                 ))?,
             }
-            current.apply_peer(&mut pins)?;
+            current.apply_peer(&mut pins, records, &self.manager)?;
             private(pins.save(records))
         })?;
         self.read(current, time)
@@ -269,7 +275,7 @@ impl Coordinator {
         }
         self.manager.transact(|_, records| {
             let mut pins = private(Pins::load(records, &self.account.instance))?;
-            current.apply_peer(&mut pins)?;
+            current.apply_peer(&mut pins, records, &self.manager)?;
             private(pins.approve(&approval.certificate, &approval.consent, time))?;
             private(pins.save(records))
         })?;

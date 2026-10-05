@@ -23,6 +23,7 @@ use std::{
 };
 
 pub mod peers;
+pub mod revocations;
 pub mod rooms;
 fn changed() -> Error {
     crate::native::Error::Protocol("crypto_enrollment_changed").into()

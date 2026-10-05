@@ -1,4 +1,6 @@
 mod common;
+#[path = "native_crypto/revocations.rs"]
+mod revocations;
 #[path = "native_crypto/rooms.rs"]
 mod room_controls;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as B64};

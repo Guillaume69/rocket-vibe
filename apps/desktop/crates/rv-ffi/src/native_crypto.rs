@@ -15,6 +15,7 @@ pub(crate) mod peers;
 pub(crate) mod quote_composer;
 pub(crate) mod quote_reader;
 pub(crate) mod rooms;
+mod withdrawals;
 
 #[derive(Clone, Copy, uniffi::Enum)]
 pub enum NativeCryptoPhase {
@@ -49,6 +50,7 @@ struct Inner {
     access: Access,
     serial: tokio::sync::Mutex<()>,
     state: Mutex<(u64, Option<Approval>)>,
+    withdrawal: Mutex<Option<(u64, enrollment::revocations::Approval)>>,
 }
 #[derive(uniffi::Object)]
 pub struct NativeCrypto {
@@ -90,7 +92,12 @@ impl NativeCrypto {
             )
             .await?;
         Ok(Arc::new(Self {
-            inner: Arc::new(Inner { access, serial: tokio::sync::Mutex::new(()), state: Mutex::new((0, None)) }),
+            inner: Arc::new(Inner {
+                access,
+                serial: tokio::sync::Mutex::new(()),
+                state: Mutex::new((0, None)),
+                withdrawal: Mutex::new(None),
+            }),
         }))
     }
     async fn view(&self, action: ViewAction) -> Result<NativeCryptoState, RvError> {
@@ -129,6 +136,7 @@ impl NativeCrypto {
     pub fn close(&self) {
         self.inner.access.close();
         self.inner.state.lock().unwrap().1 = None;
+        self.inner.withdrawal.lock().unwrap().take();
     }
     pub fn is_closed(&self) -> bool {
         self.inner.access.check().is_err()

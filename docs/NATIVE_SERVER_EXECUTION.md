@@ -5,6 +5,24 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 
 ## État synthétique au 5 octobre 2026
 
+Retrait signé raccordé au coordinateur protégé et aux paramètres existants
+Android / GTK / SwiftUI : aperçu lié au certificat / incarnation / révision,
+confirmation explicite, preuve permanente et intention originale sauvegardées
+avant HTTP, reçu lié au contrôleur et reprise sans second POST après réponse
+perdue. Le retrait local bloque immédiatement l'appareil ; une omission
+ultérieure de l'annuaire, même avant un premier pin explicite, ne le réautorise
+pas. Aucun pin ou accord d'appareil n'est créé implicitement. Le renouvellement
+du contrôleur attend le règlement de sa demande de retrait. Les 148 tests du
+moteur passent en 165,75 secondes ; les 21 parcours HTTP / MLS / SQLite du cœur
+bureau passent en 49,67 secondes, dont fermeture pendant le checkpoint sans
+envoi et reprise du reçu après réouverture. Les neuf tests du pont mobile
+passent en 61,22 secondes ; 14 parcours des adaptateurs passent en 191 ms.
+Typecheck / lint mobile et Clippy strict pont / cœur / FFI passent ; bindings
+Swift et Kotlin réels générés. Compilation / parcours GTK / SwiftUI et vrai
+Keystore Android du nouveau lot attendent sa CI. Qualification installée,
+récupération visible, politique d'archive après retrait et revue indépendante
+restent ouvertes ; l'E2EE de production demeure désactivé.
+
 Transport de retrait E2EE signé ajouté au contrat / serveur et aux SDK HTTP
 Rust / TypeScript : preuve de racine courante, contrôleur enregistré, connexion
 récente / facteurs, reçu original, famille HTTP et packages ciblés retirés
@@ -15,12 +33,13 @@ correspondants gardent la liste des certificats valides. Le contrat conserve les
 révisions exactes et refuse les champs privés. Le vecteur public est vérifié
 indépendamment par Node / OpenSSL et Rust ; le test Rust passe en 0,02 seconde.
 Neuf tests du transport mobile, typecheck / lint et Clippy strict serveur
-passent localement. Cinq scénarios PostgreSQL / HTTP sont compilés : retrait /
+passent localement. Cinq scénarios PostgreSQL / HTTP passent : retrait /
 packages / reçu, falsification / admin / portée / contrôleur périmé, vraie
 incarnation remplacée, réponse perdue observée par le SDK sans second POST et
-certificat réellement expiré renouvelé via HTTP. Leur exécution attend la CI de
-ce lot. Coordinateur protégé, intention durable et contrôles visibles restent
-la suite de ce point ; aucun masque E2EE de production n'est activé.
+certificat réellement expiré renouvelé via HTTP. Les neuf jobs natifs de
+37261684546 et le vrai Keystore / deux ABI Android de 37261684547 sont verts.
+Le job serveur passe 169 tests en 227,51 secondes. Le raccordement des clients
+est prolongé par le lot ci-dessus ; aucun masque E2EE de production n'est activé.
 
 Remplacement explicite des pairs renouvelés raccordé aux contrôles existants
 Android / GTK / SwiftUI : un certificat différent de la feuille MLS devient
@@ -390,10 +409,10 @@ Keystore Android sur émulateur passent dans 37252377488. La CI native
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association / renouvellement de certificat et signalisation de la rotation des salons, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils et citations privés dans les trois interfaces, lecture mixte, composition / destination intersalons et lecteurs de cartes privées dans les salons ordinaires des trois interfaces | Qualification CI de la rotation après renouvellement, feuilles de pairs expirées, récupération / révocation visibles, autres actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association / renouvellement de certificat, rotation des salons et remplacement des pairs renouvelés, retrait signé dans les paramètres existants, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils et citations privés dans les trois interfaces, lecture mixte, composition / destination intersalons et lecteurs de cartes privées dans les salons ordinaires des trois interfaces | Qualification CI du retrait visible, récupération visible, autres actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison serveur qui passe tous les jobs de sa CI (`41cb92c`) passe les neuf jobs de la CI
+Le lot serveur `41cb92c` passe les neuf jobs de la CI
 `37252377514` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
 Le job Android `37238019723` passe aussi les deux ABI, le vrai Keystore, la

@@ -4280,6 +4280,7 @@ dependencies = [
  "keyring",
  "rv-core",
  "rv-crypto",
+ "serde",
  "serde_json",
  "thiserror",
  "tokio",

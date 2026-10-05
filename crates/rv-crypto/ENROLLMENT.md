@@ -132,6 +132,32 @@ des conditions distinctes.
 
 ## Prochaines conditions de sortie
 
+Le retrait indépendant emploie `account::Coordinator::preview_withdrawal`
+puis `prepare_withdrawal` après confirmation. L'aperçu opaque lie portée,
+certificat / incarnation / révision de la cible, certificat et reçu exacts du
+contrôleur. Un autre contrôleur, une cible remplacée, une demande de
+renouvellement ou un certificat changé refusent sa préparation. L'expiration
+ne retire pas l'autorité de racine : le certificat historique authentifié du
+contrôleur demeure nécessaire, sans permettre un nouvel envoi MLS.
+
+Le retrait signé et le `RevokeDevice` original sont checkpointés ensemble avant
+HTTP. Dès cette confirmation, le retrait reste appris, même après une omission
+de l'annuaire ou une réouverture ; seule la preuve pour l'identité locale déjà
+établie est apprise. Un pin existant l'applique immédiatement, un premier pin
+explicite ultérieur ne peut pas ressusciter l'appareil. Aucun pin / accord
+d'appareil n'est créé par le retrait. `acknowledge_withdrawal` exige le reçu
+exact du contrôleur et règle uniquement l'intention, sans effacer la preuve.
+Le renouvellement du contrôleur attend cet ACK. Les adaptateurs réutilisent
+leurs sessions et interrogent le reçu avant un éventuel POST original.
+Fermeture pendant le checkpoint : le worker termine sa sauvegarde, son ancien
+viewer ne publie rien et la vue suivante retrouve l'intention exacte.
+
+Les paramètres GTK / SwiftUI / Android existants proposent examen, confirmation
+explicite et reprise du retrait. Leur qualification CI / installée, la
+récupération visible et la politique d'historique après retrait restent des
+conditions distinctes. Les groupes doivent encore retirer leur ancienne feuille
+par un commit MLS ; un retrait ne récupère ni n'efface l'archive historique.
+
 Un Grant installé n'ajoute **ni pin de correspondant ni feuille de salon**.
 `Pins` et la politique de groupe exigent leurs approbations / commits propres.
 La racine privée reste sur le contrôleur ; elle n'est pas transmise au nouvel

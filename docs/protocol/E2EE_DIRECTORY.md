@@ -72,8 +72,14 @@ avec `key_package_refs` vide. `GET /operations/{operation}` retrouve ce résulta
 sans nouvel envoi et un rejeu exact reste lisible après la fenêtre de
 réauthentification. Un ID réutilisé avec un autre retrait est refusé.
 Ce transport ne fournit aucun consentement ou clé privée. Le coordinateur
-protégé, l'intention cliente durable et les contrôles des trois apps restent
-à raccorder ; les groupes concernés attendent leur commit MLS de retrait avant
+protégé signe après confirmation de l'aperçu exact et sauvegarde le retrait
+avec sa demande originale avant publication. Il mémorise aussi les retraits
+reçus pour l'identité locale déjà établie. Omission ultérieure, réouverture ou
+premier pin explicite tardif ne réautorisent pas l'incarnation. Aucun pin ou
+accord d'appareil n'est créé implicitement. Le renouvellement du contrôleur
+attend le règlement du retrait en attente. Les trois interfaces existantes
+proposent confirmation et reprise ; leur qualification CI / installée reste
+distincte. Les groupes concernés attendent leur commit MLS de retrait avant
 reprise. La révocation d'une feuille ne retire pas une racine compromise.
 
 ## Packages et reçus
@@ -106,7 +112,7 @@ les SDK laissent consulter les reçus pendant le délai. Les lectures sont priv�
 
 Liste de destinataires / adhésions signée, consommation unique liée au commit,
 ordre / CAS et Welcomes ciblés sont implémentés dans le lot [groupes](E2EE_GROUPS.md).
-Leur vérification et l'admission locale restent à raccorder aux clients.
-Ensuite : outbox crypto durable, pont Android, raccordement aux
-écrans actuels, historique récupérable et revue dédiée. Les clés privées et le
+Leur vérification, outbox durable et admission locale sont raccordées aux
+écrans GTK / SwiftUI / Android existants. Qualification installée, historique
+récupérable, fichiers / actions privés et revue dédiée restent ouverts. Les clés privées et le
 secret de récupération ne doivent jamais entrer dans ce protocole serveur.

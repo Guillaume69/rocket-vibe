@@ -8,6 +8,8 @@ import RocketVibeCore
 public final class CryptoModel {
     public private(set) var value: NativeCryptoState?
     public private(set) var approval: NativeCryptoApproval?
+    public private(set) var withdrawals: CryptoWithdrawalStatus?
+    public private(set) var withdrawalApproval: CryptoWithdrawalPreview?
     public private(set) var output = ""
     public private(set) var busy = false
     public private(set) var error: String?
@@ -25,9 +27,25 @@ public final class CryptoModel {
     }
     public func close() {
         visible = false; generation = UUID(); handle?.close(); handle = nil
-        value = nil; approval = nil; output = ""; code = ""; error = nil; busy = false
+        value = nil; approval = nil; withdrawals = nil; withdrawalApproval = nil; output = ""; code = ""; error = nil; busy = false
     }
-    private enum Outcome { case view(NativeCryptoState), preview(NativeCryptoApproval), grant(String) }
+    private enum Outcome { case view(NativeCryptoState), preview(NativeCryptoApproval), grant(String), withdrawals(CryptoWithdrawalStatus), withdrawalPreview(CryptoWithdrawalPreview) }
+    private func withdrawal<T: Decodable>(_ handle: NativeCrypto, _ input: [String: String]) async throws -> T {
+        let input = String(decoding: try JSONSerialization.data(withJSONObject: input), as: UTF8.self)
+        let output = try await handle.withdrawalAction(input: input)
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(T.self, from: Data(output.utf8))
+    }
+    public func reviewWithdrawal(_ device: CryptoWithdrawalDevice) async {
+        await run { .withdrawalPreview(try await withdrawal($0, ["action":"preview", "device":device.device, "fingerprint":device.fingerprint])) }
+    }
+    public func confirmWithdrawal() async {
+        guard let selected = withdrawalApproval else { return }
+        await run(recoverWithdrawal: true) { .withdrawals(try await withdrawal($0, ["action":"confirm", "id":selected.id])) }
+    }
+    public func resumeWithdrawal() async {
+        await run(recoverWithdrawal: true) { .withdrawals(try await withdrawal($0, ["action":"resume"])) }
+    }
     public func refresh() async { await run { .view(try await $0.refresh()) } }
     public func begin() async {
         guard let value else { return }
@@ -57,7 +75,7 @@ public final class CryptoModel {
         guard current(generation), !busy, handle?.isClosed() == false, !output.isEmpty else { return }
         receive(output)
     }
-    private func run(recoverRegistration: Bool = false, _ action: (NativeCrypto) async throws -> Outcome) async {
+    private func run(recoverRegistration: Bool = false, recoverWithdrawal: Bool = false, _ action: (NativeCrypto) async throws -> Outcome) async {
         let expected = generation
         guard current(expected), !busy, let chat else { return }
         busy = true; error = nil
@@ -73,20 +91,33 @@ public final class CryptoModel {
             let fresh = try await action(active)
             guard current(expected) else { return }
             switch fresh {
-            case .view(let fresh): value = fresh; approval = nil; output = fresh.requestCode; code = ""
+            case .view(let fresh):
+                value = fresh; approval = nil; withdrawalApproval = nil; output = fresh.requestCode; code = ""
+                if fresh.phase == .ready || fresh.phase == .expired {
+                    let status: CryptoWithdrawalStatus = try await withdrawal(active, ["action":"view"])
+                    guard current(expected) else { return }; withdrawals = status
+                } else { withdrawals = nil }
             case .preview(let fresh): approval = fresh
             case .grant(let fresh): approval = nil; output = fresh; code = fresh
+            case .withdrawals(let fresh): withdrawals = fresh; withdrawalApproval = nil; approval = nil
+            case .withdrawalPreview(let fresh): withdrawalApproval = fresh; approval = nil
             }
         } catch {
             guard current(expected) else { return }
+            if recoverWithdrawal, let handle, let fresh: CryptoWithdrawalStatus = try? await withdrawal(handle, ["action":"view"]) {
+                guard current(expected) else { return }; withdrawals = fresh
+            }
             if recoverRegistration, let handle, let fresh = try? await handle.refresh() {
                 guard current(expected) else { return }
                 value = fresh; output = fresh.requestCode; code = ""
             }
             guard current(expected) else { return }
             approval = nil
-            if handle?.isClosed() == true { handle?.close(); handle = nil; value = nil; output = ""; code = "" }
-            self.error = L("crypto.failed")
+            withdrawalApproval = nil
+            if handle?.isClosed() == true { handle?.close(); handle = nil; value = nil; withdrawals = nil; output = ""; code = "" }
+            if case let RvError.Server(_, _, code, _, _, _) = error, code == "reauthentication_required" {
+                self.error = L("devices.reauth")
+            } else { self.error = L("crypto.failed") }
         }
     }
 }

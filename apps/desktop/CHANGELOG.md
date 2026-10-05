@@ -9,6 +9,13 @@ section here.
 
 ### Added
 
+- Existing GTK / SwiftUI crypto settings review another encrypted device and
+  explicitly confirm its signed withdrawal. Lost replies retain the protected
+  original request and resume by receipt; closing during a checkpoint cannot
+  dispatch from the old view. Learned withdrawal survives directory omission
+  and later explicit trust. Recent sign-in requirements are shown. Conversations
+  still need their MLS recipient update; installed qualification and historical
+  recovery remain open. Production E2EE stays disabled.
 - Existing GTK / SwiftUI crypto settings show certificate expiry and offer
   explicit renewal of the same device, including after expiration. Approval and
   interrupted registration retain their protected original request; identity,

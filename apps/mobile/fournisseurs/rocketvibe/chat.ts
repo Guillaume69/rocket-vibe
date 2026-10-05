@@ -22,6 +22,7 @@ import {previewImageIdentity} from './linkPreviews.ts';
 import {publicMeetingUrl,privateMeetingUrl} from './meetings.ts';
 import {CryptoStorageAccess} from './cryptoStorage.ts';
 import {CryptoIdentityAccess} from './cryptoIdentity.ts';
+import {CryptoWithdrawalAccess} from './cryptoWithdrawals.ts';
 import {CryptoPeerAccess} from './cryptoPeers.ts';
 import {CryptoGroupAccess} from './cryptoGroups.ts';
 import {CryptoConversationAccess} from './cryptoConversations.ts';
@@ -587,6 +588,9 @@ export class NativeChat {
   async cryptoIdentity(bridge:import('../../modules/crypto-native/index.ts').CryptoIdentityBridge,
     visible:()=>boolean=()=>true):Promise<CryptoIdentityAccess> {
     return new CryptoIdentityAccess(await this.cryptoStorage(bridge,visible),bridge,this.transport);
+  }
+  cryptoWithdrawals(identity:CryptoIdentityAccess,bridge:import('../../modules/crypto-native/index.ts').CryptoWithdrawalBridge):CryptoWithdrawalAccess {
+    return new CryptoWithdrawalAccess(identity,bridge,this.transport);
   }
   async cryptoPeer(bridge:import('../../modules/crypto-native/index.ts').CryptoPeerBridge,user:string,
     visible:()=>boolean=()=>true):Promise<CryptoPeerAccess> {

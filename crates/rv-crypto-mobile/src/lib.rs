@@ -14,6 +14,7 @@ mod conversations;
 mod groups;
 mod identity;
 mod peers;
+mod withdrawals;
 pub use identity::{IdentityApproval, IdentityPhase, IdentityStatus};
 pub use peers::{PeerApproval, PeerReview};
 
@@ -107,6 +108,7 @@ pub struct CryptoInstallation {
     serial: Mutex<()>,
     closed: AtomicBool,
     approval: Mutex<Option<(String, rv_crypto::account::Approval)>>,
+    withdrawal_approval: Mutex<Option<(String, rv_crypto::account::revocations::Preview)>>,
     peer_review: Mutex<Option<(String, rv_crypto::account::peers::View)>>,
     peer_approval: Mutex<Option<(String, rv_crypto::account::peers::Approval)>>,
     group_preview: Mutex<Option<groups::Staged>>,
@@ -180,6 +182,7 @@ impl CryptoInstallation {
             serial: Mutex::new(()),
             closed: AtomicBool::new(false),
             approval: Mutex::new(None),
+            withdrawal_approval: Mutex::new(None),
             peer_review: Mutex::new(None),
             peer_approval: Mutex::new(None),
             group_preview: Mutex::new(None),
@@ -189,6 +192,9 @@ impl CryptoInstallation {
     pub fn stop(&self) {
         self.closed.store(true, Ordering::SeqCst);
         if let Ok(mut approval) = self.approval.lock() {
+            *approval = None;
+        }
+        if let Ok(mut approval) = self.withdrawal_approval.lock() {
             *approval = None;
         }
         if let Ok(mut review) = self.peer_review.lock() {

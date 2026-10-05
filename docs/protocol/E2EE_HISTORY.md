@@ -98,8 +98,9 @@ shared history is mostly other people's messages. A record holds:
 | `header` | The v1 archive header: exact origin receipt, the author's membership recorded at reception (`author_membership`), `key_id`, `nonce` |
 | `original_certificate` | The author's original certificate, whose fingerprint, device and incarnation must match the receipt route |
 | `certificate` | Current certificate of the sharing device, which attests the observation |
+| `observed_at` | When the sharing device observed the document (its local clock, Unix seconds, decimal string): a display time, never a signed send time |
 | `ciphertext` | XChaCha20-Poly1305 of the document payload, AAD = canonical header under `rocketvibe-history-record-aad-v1` |
-| `signature` | Leaf signature of the sharing device, domain `rocketvibe-history-record-v1`, over header, original certificate fingerprint, sharing certificate fingerprint and SHA-256 of the ciphertext |
+| `signature` | Leaf signature of the sharing device, domain `rocketvibe-history-record-v1`, over header, original certificate fingerprint, sharing certificate fingerprint, `observed_at` and SHA-256 of the ciphertext |
 
 The sharing device must be on the receipt's instance; it need not share the
 author's root. Whether it belongs to the receiver's account is the receiver's
@@ -186,11 +187,19 @@ and the same orchestration as the desktop.
 ## Reading recovered history
 
 The recovered catalog is separate from the journal indexes of the new device's own
-admissions. A recovered period is read with the same projection shape (pages of 1
-to 200, `before`, threads, roots and reply counts). Once the new device has its own
-admission to a room, the room projection continues into the recovered periods for
-positions older than its own first indexed document; positions are never merged
-across a period boundary.
+admissions. Once the new device has its own admission to a room, the room
+projection (`journal_projection`, which every app already reads) continues into the
+recovered periods when its own history is exhausted: a page that ends at the oldest
+own document is completed with recovered documents of strictly older positions
+(the same `before`, limit and thread filter, newest first), and `has_older` then
+says whether older recovered documents remain. Recovered documents carry the
+sharing device's attested observation time. A thread whose root predates the
+device's own history gets that root from the recovered catalog. Own and recovered
+positions are never merged: a recovered document at or after the oldest own
+position is not shown.
+
+Not covered yet: reply counts of recovered roots count only own replies, and
+private quotes do not resolve recovered sources.
 
 ## Public vector
 

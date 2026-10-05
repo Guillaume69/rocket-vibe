@@ -126,6 +126,7 @@ fn record(sharer: &Client, author: &Client, room: &str, position: u64) -> Record
         },
         original_certificate: original.clone(),
         certificate: sharer.certificate.clone(),
+        observed_at: Utc::now().timestamp() as u64,
         ciphertext: vec![7; 64],
         signature: Vec::new(),
     };

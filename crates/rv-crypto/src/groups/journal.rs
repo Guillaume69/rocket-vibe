@@ -423,7 +423,7 @@ impl Coordinator {
             return Err(Error::Limit);
         }
         self.journal_inspect(observation, now, |records, blocks, cursor, grant| {
-            let retained = match self.archive_journal_projection(
+            let mut retained = match self.archive_journal_projection(
                 records,
                 blocks,
                 &cursor.scope,
@@ -435,6 +435,43 @@ impl Coordinator {
                 Some(projection) => projection,
                 None => self.project_journal(records, &cursor.scope, grant, cursor.after, query)?,
             };
+            // Past the start of this device's own history, the page continues
+            // into history recovered from another device of the account: only
+            // positions older than the oldest own document, never merged into it.
+            if !retained.has_older && retained.messages.len() < query.limit {
+                let before = retained
+                    .messages
+                    .first()
+                    .map(|m| m.message.receipt.position)
+                    .or(query.before);
+                let (older, more) = self.recovered_page(
+                    records,
+                    blocks,
+                    &cursor.scope,
+                    &ProjectionQuery {
+                        before,
+                        limit: query.limit - retained.messages.len(),
+                        thread: query.thread.clone(),
+                    },
+                )?;
+                retained.has_older = more;
+                retained.messages.splice(
+                    0..0,
+                    older.into_iter().map(|m| ProjectedMessage {
+                        message: m.message,
+                        observed_at: m.observed_at,
+                    }),
+                );
+            }
+            if retained.root.is_none()
+                && let Some(thread) = &query.thread
+                && let Some(root) = self.recovered_root(records, blocks, &cursor.scope, thread)?
+            {
+                retained.root = Some(ProjectedMessage {
+                    message: root.message,
+                    observed_at: root.observed_at,
+                });
+            }
             Ok(JournalProjection {
                 head: cursor.head.clone(),
                 admission: cursor.admission,

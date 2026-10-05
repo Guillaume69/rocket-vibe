@@ -70,6 +70,7 @@ fn document(author: &LocalDevice, room: &str, number: u64) -> Document {
         membership: grant(&certificate.device.root.user),
         original_certificate: certificate,
         origin,
+        observed_at: NOW - 100 + number,
     }
 }
 fn period(author: &LocalDevice, room: &str, numbers: &[u64]) -> PeriodInput {

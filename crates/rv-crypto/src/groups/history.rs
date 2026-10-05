@@ -187,6 +187,7 @@ impl Coordinator {
                 original_certificate: item.certificate,
                 membership,
                 message: item.message,
+                observed_at: item.observed_at,
             });
         }
         Ok(documents)

@@ -95,6 +95,8 @@ pub(in super::super) struct ArchivedDocument {
     /// The author's membership at reception; absent on older nodes.
     pub author: Option<Member>,
     pub message: rv_protocol::SendMessage,
+    /// Local protected observation time of this device.
+    pub observed_at: u64,
 }
 fn archived(blocks: &Access<'_>, entry: &Index) -> Result<ArchivedDocument> {
     let value = super::node(blocks, &entry.document, &entry.binding)?;
@@ -108,6 +110,7 @@ fn archived(blocks: &Access<'_>, entry: &Index) -> Result<ArchivedDocument> {
         origin: value.receipt,
         certificate: proof.certificate,
         author: value.author,
+        observed_at: value.observed_at,
     })
 }
 fn binding(scope: &Scope, grant: &Member, admission: Fingerprint) -> Binding {

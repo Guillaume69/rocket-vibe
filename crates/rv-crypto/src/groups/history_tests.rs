@@ -210,3 +210,140 @@ fn a_share_stays_within_one_account_and_one_request() {
             .is_ok()
     );
 }
+
+#[test]
+fn the_new_devices_conversation_continues_into_recovered_history() {
+    use super::{admission, changes};
+    let (alice, bob) = history(6);
+    let tablet = bob.sibling("bob-tablet", [9; 16]);
+    for account in [&alice, &bob] {
+        account.trust(&tablet, true);
+        tablet.trust(account, true);
+    }
+    // Recovered first, while the tablet has no admission of its own yet.
+    let request = tablet.coordinator().history_request(NOW).unwrap();
+    let (share, uploaded) = share_all(&bob, &request);
+    tablet
+        .coordinator()
+        .history_import_begin(&share, NOW)
+        .unwrap();
+    let records = uploaded
+        .into_iter()
+        .flat_map(|(_, p)| p)
+        .collect::<Vec<_>>();
+    tablet
+        .coordinator()
+        .history_import_page(0, &records, NOW)
+        .unwrap();
+    // Alice adds the tablet; its own journal starts at that change.
+    let change = changes::change(
+        &alice,
+        "add-tablet",
+        &["alice", "bob"],
+        &[],
+        vec![tablet.package()],
+    );
+    let submission = changes::prepare_change(&alice, &change, NOW);
+    let genesis = Genesis {
+        roster: change.roster.clone(),
+        operation: change.operation.clone(),
+        packages: vec![],
+    };
+    admission::accept(
+        &tablet,
+        &admission::event(&genesis, &submission, "bob-tablet"),
+    );
+    alice
+        .coordinator()
+        .confirm(&receipt(&submission), NOW)
+        .unwrap();
+    // The server's current head is the change, settled for Alice by the journal.
+    let observed = JournalObservation {
+        current: MessageObservation {
+            roster: change.roster.clone(),
+            head: receipt(&submission),
+            needs_rekey: false,
+        },
+        transition: submission.transition.clone(),
+    };
+    // Only the admitted device's page carries its Welcome.
+    let changed = |welcome| vec![group(&submission, BASE + 7, welcome)];
+    let after = tablet.coordinator().journal_request("room").unwrap().after;
+    for (account, from, welcome) in [
+        (&alice, BASE + 6, None),
+        (&bob, BASE + 6, None),
+        (&tablet, after, Some("bob-tablet")),
+    ] {
+        account
+            .coordinator()
+            .receive_journal(
+                &observed,
+                &page(&observed, from, BASE + 7, changed(welcome), None),
+                NOW,
+            )
+            .unwrap();
+    }
+    let events = [8, 9]
+        .map(|number| {
+            let mut document = messages::message(&format!("own-{number}"));
+            document.reply_to = None;
+            send_document(&alice, document, BASE + number)
+        })
+        .to_vec();
+    for account in [&alice, &bob, &tablet] {
+        account
+            .coordinator()
+            .receive_journal(
+                &observed,
+                &page(&observed, BASE + 7, BASE + 9, events.clone(), None),
+                NOW,
+            )
+            .unwrap();
+    }
+    let own = observation(&tablet);
+    let query = |before, limit, thread: Option<String>| ProjectionQuery {
+        before,
+        limit,
+        thread,
+    };
+    let operations = |p: &JournalProjection| {
+        p.messages
+            .iter()
+            .map(|m| m.message.message().unwrap().operation_id)
+            .collect::<Vec<_>>()
+    };
+    let latest = tablet
+        .reopened()
+        .journal_projection(&own, &query(None, 4, None), NOW)
+        .unwrap();
+    assert_eq!(
+        operations(&latest),
+        ["history-4", "history-5", "own-8", "own-9"]
+    );
+    assert!(latest.has_older);
+    // Recovered documents keep the time the sharing device observed them.
+    assert!(latest.messages[..2].iter().all(|m| m.observed_at == NOW));
+    let older = tablet
+        .reopened()
+        .journal_projection(&own, &query(Some(BASE + 4), 4, None), NOW)
+        .unwrap();
+    assert_eq!(operations(&older), ["history-1", "history-2"]);
+    assert!(!older.has_older);
+    // A thread rooted before the tablet's admission finds its recovered root.
+    let root = format!("stored-{}", BASE + 1);
+    let thread = tablet
+        .reopened()
+        .journal_projection(&own, &query(None, 10, Some(root.clone())), NOW)
+        .unwrap();
+    assert_eq!(operations(&thread), ["history-3", "history-6"]);
+    assert_eq!(thread.root.unwrap().message.receipt.message, root);
+    // Bob's own view is unchanged: his history is his own.
+    let bobs = bob
+        .reopened()
+        .journal_projection(&observed, &query(None, 4, None), NOW)
+        .unwrap();
+    assert_eq!(
+        operations(&bobs),
+        ["history-4", "history-5", "own-8", "own-9"]
+    );
+}

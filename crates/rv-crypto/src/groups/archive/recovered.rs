@@ -39,6 +39,8 @@ struct RecoveredNode {
 /// A document of a complete recovered period.
 pub struct RecoveredMessage {
     pub message: ClearMessage,
+    /// When the sharing device observed it, as it attested.
+    pub observed_at: u64,
     /// Fingerprint of the sharing device's certificate.
     pub sharer: Fingerprint,
     /// Admission witness of the sharing device for this period.
@@ -210,49 +212,117 @@ impl Coordinator {
             return Err(Error::Limit);
         }
         self.inspect_with_blobs(|_, records, blocks| {
-            let mut selected: Vec<(u64, RecoveredMessage)> = Vec::new();
-            for (name, bytes) in records.range(PREFIX.to_string()..) {
-                if !name.starts_with(PREFIX) {
-                    break;
-                }
-                let head = read_head(bytes)?;
-                if !head.complete || head.source.scope.room != room {
-                    continue;
-                }
-                let mut entry = recovered_node(blocks, &head.reference, &head.source)?;
-                if entry.index != head.count {
-                    return Err(Error::Changed);
-                }
-                loop {
-                    let (packet, message) = opened(&entry)?;
-                    let position = packet.header.origin.position;
-                    if query.before.is_none_or(|p| position < p)
-                        && packet.header.origin.header.thread == query.thread
-                    {
-                        selected.push((
-                            position,
-                            RecoveredMessage {
-                                message,
-                                sharer: head.source.sharer,
-                                admission: head.source.admission,
-                            },
-                        ));
-                        selected.sort_by_key(|(position, _)| std::cmp::Reverse(*position));
-                        selected.truncate(query.limit);
-                        if selected.len() == query.limit
-                            && selected.last().is_some_and(|(p, _)| *p > position)
-                        {
-                            break;
-                        }
-                    }
-                    if entry.jumps.is_empty() {
-                        break;
-                    }
-                    entry = previous_node(blocks, &entry, 0)?;
-                }
-            }
-            selected.reverse();
-            Ok(selected.into_iter().map(|(_, message)| message).collect())
+            Ok(recovered(records, blocks, room, query, |_| true)?.0)
         })
     }
+    /// The recovered document with this message id in `room`, for a thread
+    /// root older than this device's own history.
+    pub(in super::super) fn recovered_root(
+        &self,
+        records: &Records,
+        blocks: &Access<'_>,
+        scope: &Scope,
+        id: &str,
+    ) -> Result<Option<RecoveredMessage>> {
+        for (name, bytes) in records.range(PREFIX.to_string()..) {
+            if !name.starts_with(PREFIX) {
+                break;
+            }
+            let head = read_head(bytes)?;
+            if !head.complete || !same_dataset(&head.source, scope) {
+                continue;
+            }
+            let mut entry = recovered_node(blocks, &head.reference, &head.source)?;
+            loop {
+                let (packet, message) = opened(&entry)?;
+                if packet.header.origin.message == id {
+                    return Ok(Some(RecoveredMessage {
+                        message,
+                        observed_at: packet.observed_at,
+                        sharer: head.source.sharer,
+                        admission: head.source.admission,
+                    }));
+                }
+                if entry.jumps.is_empty() {
+                    break;
+                }
+                entry = previous_node(blocks, &entry, 0)?;
+            }
+        }
+        Ok(None)
+    }
+    /// The recovered documents older than `query.before` in this room, and
+    /// whether still older ones exist.
+    pub(in super::super) fn recovered_page(
+        &self,
+        records: &Records,
+        blocks: &Access<'_>,
+        scope: &Scope,
+        query: &ProjectionQuery,
+    ) -> Result<(Vec<RecoveredMessage>, bool)> {
+        recovered(records, blocks, &scope.room, query, |source| {
+            same_dataset(source, scope)
+        })
+    }
+}
+
+fn same_dataset(source: &Source, scope: &Scope) -> bool {
+    source.scope.instance == scope.instance
+        && source.scope.data_epoch == scope.data_epoch
+        && source.scope.room == scope.room
+}
+/// Newest `query.limit` matching documents of the complete periods of `room`,
+/// returned in position order, and whether older ones exist.
+fn recovered(
+    records: &Records,
+    blocks: &Access<'_>,
+    room: &str,
+    query: &ProjectionQuery,
+    accept: impl Fn(&Source) -> bool,
+) -> Result<(Vec<RecoveredMessage>, bool)> {
+    let wanted = query.limit.saturating_add(1);
+    let mut selected: Vec<(u64, RecoveredMessage)> = Vec::new();
+    for (name, bytes) in records.range(PREFIX.to_string()..) {
+        if !name.starts_with(PREFIX) {
+            break;
+        }
+        let head = read_head(bytes)?;
+        if !head.complete || head.source.scope.room != room || !accept(&head.source) {
+            continue;
+        }
+        let mut entry = recovered_node(blocks, &head.reference, &head.source)?;
+        if entry.index != head.count {
+            return Err(Error::Changed);
+        }
+        loop {
+            let (packet, message) = opened(&entry)?;
+            let position = packet.header.origin.position;
+            if query.before.is_none_or(|p| position < p)
+                && packet.header.origin.header.thread == query.thread
+            {
+                selected.push((
+                    position,
+                    RecoveredMessage {
+                        message,
+                        observed_at: packet.observed_at,
+                        sharer: head.source.sharer,
+                        admission: head.source.admission,
+                    },
+                ));
+                selected.sort_by_key(|(position, _)| std::cmp::Reverse(*position));
+                selected.truncate(wanted);
+                if selected.len() == wanted && selected.last().is_some_and(|(p, _)| *p > position) {
+                    break;
+                }
+            }
+            if entry.jumps.is_empty() {
+                break;
+            }
+            entry = previous_node(blocks, &entry, 0)?;
+        }
+    }
+    let more = selected.len() > query.limit;
+    selected.truncate(query.limit);
+    selected.reverse();
+    Ok((selected.into_iter().map(|(_, m)| m).collect(), more))
 }

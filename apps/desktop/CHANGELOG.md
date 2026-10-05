@@ -122,7 +122,8 @@ section here.
   a new device asks for it and shows a fingerprint; another device of the account lists the
   request, shows the rooms and message counts to share, and shares after you compare the
   fingerprint. The new device then imports it page by page and the server copy is deleted.
-  Recovered messages are not shown in conversations yet.
+  Scrolling past the device's own oldest message then continues into the recovered messages,
+  with the time the sharing device received them.
 
 ### Fixed
 

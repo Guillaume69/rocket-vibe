@@ -112,6 +112,7 @@ fn seal_record(
                 .map_err(|_| Error::Changed)?
                 .credential,
         )?,
+        observed_at: document.observed_at,
         ciphertext: Vec::new(),
         signature: Vec::new(),
     };
@@ -275,6 +276,8 @@ pub struct Document {
     pub original_certificate: Certificate,
     pub membership: Member,
     pub message: SendMessage,
+    /// When the sharing device observed it, carried as the display time.
+    pub observed_at: u64,
 }
 /// One period to share: its binding and its documents, any order. Test and
 /// small-history convenience over [`ShareJob`].

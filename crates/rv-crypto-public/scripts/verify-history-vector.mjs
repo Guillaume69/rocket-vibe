@@ -125,7 +125,7 @@ const material=(periodSecret,rank)=>{
   const okm=expand(extract(empty,periodSecret),Buffer.concat([Buffer.from('rocketvibe-history-document-v1\0'),rankBytes]),72);
   return {key:okm.subarray(0,32),keyId:list(okm.subarray(32,48)),nonce:okm.subarray(48,72)};
 };
-const recordBody=r=>frame('rocketvibe-history-record-v1',[r.header,certificate(r.original_certificate),certificate(r.certificate),list(sha(Buffer.from(r.ciphertext)))]);
+const recordBody=r=>frame('rocketvibe-history-record-v1',[r.header,certificate(r.original_certificate),certificate(r.certificate),r.observed_at,list(sha(Buffer.from(r.ciphertext)))]);
 let chain=sha(frame('rocketvibe-history-chain-v1',null));
 let previous=0n;
 const periodSecret=Buffer.from(secrets[0],'hex');
@@ -145,6 +145,9 @@ records.forEach((record,index)=>{
   previous=position;
   const signature=Buffer.from(record.signature);
   assert(verify(null,recordBody(record),ed(desktop.device.signature_key),signature));
+  // The sharing device's observation time is attested, as an exact decimal.
+  assert.match(record.observed_at,/^[1-9][0-9]*$/);
+  assert(!verify(null,recordBody({...record,observed_at:String(BigInt(record.observed_at)+1n)}),ed(desktop.device.signature_key),signature));
   assert(!verify(null,frame('rocketvibe-archive-document-proof-v1',JSON.parse(recordBody(record).subarray('rocketvibe-history-record-v1\0'.length))),ed(desktop.device.signature_key),signature));
   for(const change of [h=>h.origin.header.scope.room='foreign',h=>h.origin.header.author='mallory',h=>h.origin.position='9007199254740999',h=>h.origin.header.thread='another-thread',h=>h.author_membership.access_version='other',h=>h.key_id[0]^=1,h=>h.nonce[0]^=1]) {
     const changed=structuredClone(record);change(changed.header);

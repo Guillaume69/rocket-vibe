@@ -276,6 +276,10 @@ pub struct Record {
     pub original_certificate: Certificate,
     /// Certificate of the sharing device that attests the observation.
     pub certificate: Certificate,
+    /// When the sharing device observed the document (its local clock, Unix
+    /// seconds): a display time, not a signed send time.
+    #[serde(with = "decimal")]
+    pub observed_at: u64,
     pub ciphertext: Vec<u8>,
     pub signature: Vec<u8>,
 }
@@ -303,6 +307,9 @@ impl Record {
         if self.ciphertext.len() <= 16 || self.ciphertext.len() > crate::archive::CIPHERTEXT_LIMIT {
             return Err(Error::Limit);
         }
+        if self.observed_at == 0 || self.observed_at > 253_402_300_799 {
+            return Err(Error::Invalid);
+        }
         let ciphertext: Fingerprint = Sha256::digest(&self.ciphertext).into();
         signing_bytes(
             RECORD_DOMAIN,
@@ -310,6 +317,7 @@ impl Record {
                 &self.header,
                 self.original_certificate.fingerprint()?,
                 self.certificate.fingerprint()?,
+                self.observed_at.to_string(),
                 ciphertext,
             ),
         )

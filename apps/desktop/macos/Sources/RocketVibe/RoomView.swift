@@ -211,6 +211,13 @@ struct MessageList: View {
                         .equatable()
                         .id(message.id)
                     }
+                    if model.hasNewer {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(maxWidth: .infinity)
+                            .padding(8)
+                            .onAppear { Task { await model.loadNewer() } }
+                    }
                     Color.clear.frame(height: 6).id("bottom")
                 }
                 .padding(.vertical, 8)
@@ -231,7 +238,7 @@ struct MessageList: View {
                 }
             }
             .onChange(of: model.messages.last?.id) { _, _ in
-                if pinned { proxy.scrollTo("bottom", anchor: .bottom) }
+                if pinned && model.context == nil { proxy.scrollTo("bottom", anchor: .bottom) }
             }
             .onChange(of: model.reveal) { _, id in
                 guard let id else { return }
@@ -243,15 +250,20 @@ struct MessageList: View {
             }
             .task(id: model.messages.last?.id) {
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
-                if pinned && NSApp.isActive && model.threadId == nil && (model.room.unread > 0 || model.room.alert) {
+                if pinned && model.context == nil && NSApp.isActive && model.threadId == nil
+                    && (model.room.unread > 0 || model.room.alert) {
                     await app.markRead()
                     Notifier.shared.withdraw(rid: model.rid)
                 }
             }
             .overlay(alignment: .bottomTrailing) {
-                if farFromBottom {
+                if farFromBottom || model.context != nil {
                     Button {
-                        withAnimation(Vibe.spring) { proxy.scrollTo("bottom", anchor: .bottom) }
+                        model.leaveContext()
+                        Task {
+                            await Task.yield()
+                            withAnimation(Vibe.spring) { proxy.scrollTo("bottom", anchor: .bottom) }
+                        }
                     } label: {
                         Image(systemName: "arrow.down")
                             .font(.system(size: 14, weight: .bold))

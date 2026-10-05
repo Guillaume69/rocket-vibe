@@ -312,6 +312,7 @@ fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex
             };
             if book.message_wrong_ack {
                 stored.fingerprint = HEXLOWER.encode(&[7; 32]);
+                stored.message_id = rv_crypto_public::messages::message_id(&[7; 32]);
             }
             return json(&stored);
         }
@@ -336,7 +337,7 @@ fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex
             let receipt = rv_crypto_public::messages::Receipt {
                 header: proof.header,
                 fingerprint,
-                message: format!("stored-message-{}", book.message_receipts.len() + 1),
+                message: rv_crypto_public::messages::message_id(&fingerprint),
                 position: 9007199254740993 + book.message_receipts.len() as u64,
             };
             let receipt = wire::message_receipt_to_wire(&receipt).unwrap();
@@ -1044,7 +1045,7 @@ async fn message_cooldown_is_durable_while_a_late_historical_receipt_remains_rea
     let ack = wire::message_receipt_to_wire(&rv_crypto_public::messages::Receipt {
         header: proof.header,
         fingerprint,
-        message: "late-stored-message".into(),
+        message: rv_crypto_public::messages::message_id(&fingerprint),
         position: 9007199254740993,
     })
     .unwrap();

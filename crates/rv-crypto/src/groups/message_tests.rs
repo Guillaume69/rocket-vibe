@@ -231,12 +231,26 @@ pub(super) fn ack(submission: &MessageSubmission, position: u64) -> packet::Rece
 }
 pub(super) fn ack_at(submission: &MessageSubmission, position: u64, now: u64) -> packet::Receipt {
     let proof = submission.verified(now).unwrap();
+    let fingerprint = proof.fingerprint().unwrap();
+    let message = packet::message_id(&fingerprint);
+    ACCEPTED.with(|a| a.borrow_mut().insert(position, message.clone()));
     packet::Receipt {
-        fingerprint: proof.fingerprint().unwrap(),
+        fingerprint,
         header: proof.header,
-        message: format!("stored-{position}"),
+        message,
         position,
     }
+}
+thread_local! {
+    /// Accepted ids by position: an id derives from its proof, so a test
+    /// names a message by the position it was acknowledged at.
+    static ACCEPTED: std::cell::RefCell<std::collections::HashMap<u64, String>> = Default::default();
+}
+/// The id of the message acknowledged at `position` (`ack`).
+pub(super) fn stored(position: u64) -> String {
+    ACCEPTED
+        .with(|a| a.borrow().get(&position).cloned())
+        .unwrap_or_else(|| format!("unacknowledged-{position}"))
 }
 pub(super) fn resign(
     account: &Account,
@@ -403,8 +417,10 @@ fn message_wire_refuses_relabelled_scopes_receipts_noncanonical_encoding_and_bou
         proof: input.proof,
         ciphertext: input.ciphertext,
     };
+    let fingerprint = frame.receipt.fingerprint.clone();
     frame.receipt.fingerprint = HEXLOWER.encode(&[7; 32]);
     assert!(MessageSubmission::from_delivered(&frame).is_err());
+    frame.receipt.fingerprint = fingerprint;
     frame.ciphertext = "A".repeat(packet::CIPHERTEXT_LIMIT.div_ceil(3) * 4 + 1);
     assert!(matches!(
         MessageSubmission::from_delivered(&frame),
@@ -668,11 +684,9 @@ fn every_ack_field_and_reused_operation_are_checked_without_reencrypting() {
         Err(Error::Receipt)
     ));
     changed = receipt.clone();
+    // An id the proof does not derive is not a receipt at all.
     changed.message = "other-stored-message".into();
-    assert!(matches!(
-        alice.coordinator().confirm_message(&changed, NOW),
-        Err(Error::Receipt)
-    ));
+    assert!(alice.coordinator().confirm_message(&changed, NOW).is_err());
     bob.coordinator()
         .receive_message(&observation(&bob), &original, &receipt, NOW)
         .unwrap();

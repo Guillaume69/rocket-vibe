@@ -14,6 +14,8 @@ assert.deepEqual(certificate.device.root,original.device.root);
 const certificateDigest=c=>[...createHash('sha256').update(frame('rocketvibe-certificate-fingerprint-v1',c)).digest()];
 assert.deepEqual(certificateDigest(original),packet.header.origin.header.certificate);
 assert.equal(packet.header.origin.position,'9007199254740995');
+// The origin's id derives from its proof fingerprint (E2EE_MESSAGES.md), never from the server.
+assert.equal(packet.header.origin.message,createHash('sha256').update(Buffer.concat([Buffer.from('rocketvibe-mls-message-id-v1\0'),Buffer.from(packet.header.origin.fingerprint)])).digest('hex').slice(0,32));
 assert.equal(packet.header.origin.header.group_revision,'9007199254740993');
 assert.equal(packet.header.origin.header.epoch,'9007199254740994');
 const ciphertext=()=>[...createHash('sha256').update(Buffer.from(packet.ciphertext)).digest()];

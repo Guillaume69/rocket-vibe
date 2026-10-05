@@ -17,11 +17,11 @@ pub(super) fn history(count: u64) -> (Account, Account) {
             .receive_journal(&observed, &first, NOW)
             .unwrap();
     }
-    let root = format!("stored-{}", BASE + 1);
     let mut after = 1;
     for number in 1..=count {
         let mut document = messages::message(&format!("history-{number}"));
-        document.reply_to = (number % 3 == 0).then(|| root.clone());
+        // The root is acknowledged (so has its id) before any reply.
+        document.reply_to = (number % 3 == 0).then(|| messages::stored(BASE + 1));
         let event = send_document(&alice, document, BASE + number);
         let next = page(&observed, after, BASE + number, vec![event], None);
         for account in [&alice, &bob] {
@@ -156,7 +156,7 @@ fn a_new_device_of_the_account_recovers_the_shared_journal_history() {
     );
     let thread = tablet
         .reopened()
-        .recovered_history("room", &query(None, Some(&format!("stored-{}", BASE + 1))))
+        .recovered_history("room", &query(None, Some(&messages::stored(BASE + 1))))
         .unwrap();
     assert_eq!(
         operations(&thread),
@@ -332,7 +332,7 @@ fn the_new_devices_conversation_continues_into_recovered_history() {
     assert_eq!(operations(&older), ["history-1", "history-2"]);
     assert!(!older.has_older);
     // A thread rooted before the tablet's admission finds its recovered root.
-    let root = format!("stored-{}", BASE + 1);
+    let root = messages::stored(BASE + 1);
     let thread = tablet
         .reopened()
         .journal_projection(&own, &query(None, 10, Some(root.clone())), NOW)

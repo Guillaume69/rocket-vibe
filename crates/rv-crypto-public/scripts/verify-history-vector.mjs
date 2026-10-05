@@ -79,6 +79,8 @@ records.forEach((record,index)=>{
   assert.deepEqual(author.incarnation,route.incarnation);
   assert.deepEqual(certificate(record.original_certificate),route.certificate);
   assert.equal(author.root.user,record.header.author_membership.user);
+  // The origin's id derives from its proof fingerprint, never from the server.
+  assert.equal(record.header.origin.message,sha(Buffer.concat([Buffer.from('rocketvibe-mls-message-id-v1\0'),Buffer.from(record.header.origin.fingerprint)])).subarray(0,16).toString('hex'));
   const position=BigInt(record.header.origin.position);
   assert(position>previous&&position>=BigInt(period.first)&&position<=BigInt(period.last));
   previous=position;

@@ -40,6 +40,7 @@ pub(crate) fn document(author: &LocalDevice, room: &str, number: u64) -> Documen
     let certificate =
         Certificate::from_credential(&author.credential(NOW).unwrap().credential).unwrap();
     let operation = format!("{room}-{number}");
+    let fingerprint: [u8; 32] = <sha2::Sha256 as sha2::Digest>::digest(operation.as_bytes()).into();
     let origin = Receipt {
         header: MessageHeader {
             version: 1,
@@ -57,8 +58,8 @@ pub(crate) fn document(author: &LocalDevice, room: &str, number: u64) -> Documen
             target: None,
             files: Vec::new(),
         },
-        fingerprint: [5; 32],
-        message: format!("message-{room}-{number}"),
+        fingerprint,
+        message: rv_crypto_public::messages::message_id(&fingerprint),
         position: BASE + number,
     };
     Document {

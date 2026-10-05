@@ -200,6 +200,19 @@ impl Proof {
     }
 }
 
+/// The id of an accepted message: derived from its proof fingerprint (which
+/// covers the routing header), never chosen by the server. An amendment, a
+/// reply or a file names exactly the message its author signed.
+pub fn message_id(fingerprint: &Fingerprint) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"rocketvibe-mls-message-id-v1\0");
+    digest.update(fingerprint);
+    digest.finalize()[..16]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Receipt {
@@ -212,7 +225,7 @@ pub struct Receipt {
 impl Receipt {
     pub fn validate(&self) -> Result<(), Error> {
         self.header.validate()?;
-        if !identifier(&self.message)
+        if self.message != message_id(&self.fingerprint)
             || self.position == 0
             || self.position > i64::MAX as u64
             || self.fingerprint == [0; 32]

@@ -240,13 +240,14 @@ fn archive_projection_reopens_old_pages_and_thread_root_after_cache_eviction() {
             .receive_journal(&observed, &first, NOW)
             .unwrap();
     }
-    let root = format!("stored-{}", BASE + 1);
+    // The root's id exists once it is acknowledged (its first send below).
+    let root = || messages::stored(BASE + 1);
     let mut after = 1;
     for batch in 0..7 {
         let mut events = Vec::new();
         for number in (batch * 10 + 1)..=(batch * 10 + 10) {
             let mut doc = messages::message(&format!("archived-journal-{number}"));
-            doc.reply_to = matches!(number, 2 | 70).then(|| root.clone());
+            doc.reply_to = matches!(number, 2 | 70).then(root);
             events.push(send_document(&alice, doc, BASE + number));
         }
         let through = BASE + batch * 10 + 10;
@@ -281,7 +282,7 @@ fn archive_projection_reopens_old_pages_and_thread_root_after_cache_eviction() {
     assert_eq!(projection.messages.len(), 20);
     assert_eq!(projection.messages[0].message.receipt.position, BASE + 50);
     assert_eq!(projection.messages[19].message.receipt.position, BASE + 69);
-    assert_eq!(projection.retained_replies[&root], 2);
+    assert_eq!(projection.retained_replies[&root()], 2);
     let older = bob
         .reopened()
         .journal_projection(
@@ -304,13 +305,13 @@ fn archive_projection_reopens_old_pages_and_thread_root_after_cache_eviction() {
             &ProjectionQuery {
                 before: None,
                 limit: 1,
-                thread: Some(root.clone()),
+                thread: Some(root()),
             },
             NOW,
         )
         .unwrap();
     assert!(thread.has_older);
-    assert_eq!(thread.root.unwrap().message.receipt.message, root);
+    assert_eq!(thread.root.unwrap().message.receipt.message, root());
     assert_eq!(thread.messages[0].message.receipt.position, BASE + 70);
     let replay = bob.reopened().journal_last_batch(&observed, NOW).unwrap();
     assert_eq!(replay.messages.len(), 10);
@@ -671,24 +672,23 @@ fn retained_thread_roots_and_counts_share_the_verified_prefix_grant_and_retireme
             .receive_journal(&observed, &first, NOW)
             .unwrap();
     }
-    let root_id = format!("stored-{}", BASE + 1);
+    // Each reply is written once its root is acknowledged (and so has an id).
     let mut root = messages::message("root-document");
     root.reply_to = None;
+    let mut events = vec![send_document(&alice, root, BASE + 1)];
+    let root_id = messages::stored(BASE + 1);
     let mut reply = messages::message("reply-document");
     reply.reply_to = Some(root_id.clone());
+    events.push(send_document(&alice, reply, BASE + 2));
     let mut other = messages::message("another-root-document");
     other.reply_to = None;
+    events.push(send_document(&alice, other, BASE + 3));
     let mut unrelated = messages::message("another-reply-document");
-    unrelated.reply_to = Some(format!("stored-{}", BASE + 3));
+    unrelated.reply_to = Some(messages::stored(BASE + 3));
+    events.push(send_document(&alice, unrelated, BASE + 4));
     let mut latest = messages::message("latest-reply-document");
     latest.reply_to = Some(root_id.clone());
-    let events = vec![
-        send_document(&alice, root, BASE + 1),
-        send_document(&alice, reply, BASE + 2),
-        send_document(&alice, other, BASE + 3),
-        send_document(&alice, unrelated, BASE + 4),
-        send_document(&alice, latest, BASE + 5),
-    ];
+    events.push(send_document(&alice, latest, BASE + 5));
     let prefix = page(&observed, 1, BASE + 5, events, None);
     for account in [&alice, &bob] {
         account
@@ -727,10 +727,7 @@ fn retained_thread_roots_and_counts_share_the_verified_prefix_grant_and_retireme
     );
     assert!(projection.has_older);
     assert_eq!(projection.retained_replies[&root_id], 2);
-    assert_eq!(
-        projection.retained_replies[&format!("stored-{}", BASE + 3)],
-        1
-    );
+    assert_eq!(projection.retained_replies[&messages::stored(BASE + 3)], 1);
     let older = bob
         .reopened()
         .journal_projection(
@@ -747,7 +744,7 @@ fn retained_thread_roots_and_counts_share_the_verified_prefix_grant_and_retireme
         older.messages[0].message.message().unwrap().operation_id,
         "reply-document"
     );
-    for invalid in ["unseen-root".to_string(), format!("stored-{}", BASE + 2)] {
+    for invalid in ["unseen-root".to_string(), messages::stored(BASE + 2)] {
         let filtered = bob
             .reopened()
             .journal_projection(
@@ -1401,6 +1398,8 @@ fn historical_authentication_keeps_known_revocation_and_signature_refusals() {
     submission.proof = proof.to_bytes().unwrap();
     frame.proof = B64.encode(&submission.proof);
     frame.receipt.fingerprint = HEXLOWER.encode(&proof.fingerprint().unwrap());
+    frame.receipt.message_id =
+        rv_crypto_public::messages::message_id(&proof.fingerprint().unwrap());
     assert!(matches!(
         bob.coordinator().receive_journal(&observed, &invalid, at),
         Err(Error::Identity(identity::Error::Signature))
@@ -1432,6 +1431,7 @@ fn future_issued_historical_certificate_is_refused_before_spending_the_valid_epo
     let mut receipt = wire::message_receipt(&frame.receipt).unwrap();
     receipt.header = proof.header.clone();
     receipt.fingerprint = proof.fingerprint().unwrap();
+    receipt.message = rv_crypto_public::messages::message_id(&receipt.fingerprint);
     frame.receipt = wire::message_receipt_to_wire(&receipt).unwrap();
     assert!(matches!(
         bob.coordinator()

@@ -44,7 +44,7 @@ fn fixture() -> (LocalDevice, Receipt, Member, SendMessage, Records) {
             files: Vec::new(),
         },
         fingerprint: [5; 32],
-        message: "accepted-message".into(),
+        message: rv_crypto_public::messages::message_id(&[5; 32]),
         position: 9_007_199_254_740_995,
     };
     let member = Member {

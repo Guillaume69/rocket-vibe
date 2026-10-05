@@ -92,6 +92,11 @@ pub(super) fn group_scope(keys: &Client, room: &str) -> GroupScope {
         incarnation: [3; 16],
     }
 }
+fn origin_fingerprint(position: u64) -> [u8; 32] {
+    let mut fingerprint = [5; 32];
+    fingerprint[..8].copy_from_slice(&position.to_be_bytes());
+    fingerprint
+}
 pub(super) fn record(sharer: &Client, author: &Client, room: &str, position: u64) -> Record {
     let original = &author.certificate;
     let mut record = Record {
@@ -114,8 +119,8 @@ pub(super) fn record(sharer: &Client, author: &Client, room: &str, position: u64
                     target: None,
                     files: Vec::new(),
                 },
-                fingerprint: [5; 32],
-                message: format!("message-{position}"),
+                fingerprint: origin_fingerprint(position),
+                message: rv_crypto_public::messages::message_id(&origin_fingerprint(position)),
                 position,
             },
             author_membership: Member {

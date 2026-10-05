@@ -32,9 +32,7 @@ fn chat(id: &str, thread: Option<String>) -> rv_protocol::SendMessage {
     document.reply_to = thread;
     document
 }
-fn stored(position: u64) -> String {
-    format!("stored-{position}")
-}
+use messages::stored;
 /// Alice posts a root, a reply to it and another message; Alice and Bob read
 /// them through the journal.
 fn conversation() -> (Account, Account, JournalObservation) {

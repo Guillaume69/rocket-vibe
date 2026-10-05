@@ -26,6 +26,20 @@ struct Book {
     /// Encrypted objects by upload id: the reservation, then the opaque bytes.
     uploads: BTreeMap<String, (rv_protocol::parity::PrepareUpload, Option<Vec<u8>>)>,
 }
+/// The id of the `n`-th accepted private message (from 1): ids derive from
+/// their proofs, so tests name messages by acceptance order.
+fn accepted(book: &Mutex<Book>, n: usize) -> String {
+    book.lock()
+        .unwrap()
+        .delivery
+        .iter()
+        .filter_map(|event| match &event.content {
+            rv_protocol::e2ee::DeliveryContent::Message(message) => Some(message.receipt.message_id.clone()),
+            _ => None,
+        })
+        .nth(n - 1)
+        .expect("accepted message")
+}
 impl Book {
     fn reply(&mut self, request: &common::Request) -> Option<common::Response> {
         let json_response = |value: Value| respond(200, &value.to_string());
@@ -139,7 +153,7 @@ impl Book {
                 let receipt = rv_crypto::groups::wire::message_receipt_to_wire(&rv_crypto_public::messages::Receipt {
                     header: proof.header.clone(),
                     fingerprint: proof.fingerprint().unwrap(),
-                    message: format!("private-message-{}", self.message_receipts.len() + 1),
+                    message: rv_crypto_public::messages::message_id(&proof.fingerprint().unwrap()),
                     position: (self.delivery.last().map_or(0, |e| e.position.parse::<u64>().unwrap()) + 1)
                         .max(9007199254740993),
                 })
@@ -756,7 +770,7 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     assert_eq!(view.messages.len(), 1);
     assert!(view.messages[0].delivery == Delivery::Journaled);
     assert_eq!(view.messages[0].position.as_deref(), Some("9007199254740993"));
-    assert_eq!(view.messages[0].row.id, "private-message-1");
+    assert_eq!(view.messages[0].row.id, accepted(&book, 1));
     assert_eq!(view.messages[0].row.text.as_deref(), Some("private-message-cleartext **changed** 🐾"));
     assert!(view.messages[0].row.md.as_ref().unwrap().contains("BOLD"));
     assert!(view.messages[0].row.outbox_status.is_none());
@@ -786,8 +800,7 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     );
     assert_eq!(book.lock().unwrap().message_posts, 1);
     unavailable.close();
-    let thread =
-        message_settings(&pilot).await.messages("room".into(), Some("private-message-1".into())).await.unwrap();
+    let thread = message_settings(&pilot).await.messages("room".into(), Some(accepted(&book, 1))).await.unwrap();
     let view = thread.refresh(None, 50).await.unwrap();
     assert!(view.can_send && view.messages.len() == 1 && view.messages[0].row.thread_id.is_none());
     reopened.set_draft("private-message-cleartext room draft".into()).await.unwrap();
@@ -799,7 +812,7 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
             .send(rv_protocol::SendMessage {
                 operation_id: "private-thread-one".into(),
                 text: "private-message-cleartext thread draft".into(),
-                reply_to: Some("private-message-1".into()),
+                reply_to: Some(accepted(&book, 1)),
                 quotes: vec![],
                 cards: vec![],
                 files: vec![],
@@ -809,8 +822,7 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     );
     assert_eq!(book.lock().unwrap().message_posts, 2);
     thread.close();
-    let thread =
-        message_settings(&pilot).await.messages("room".into(), Some("private-message-1".into())).await.unwrap();
+    let thread = message_settings(&pilot).await.messages("room".into(), Some(accepted(&book, 1))).await.unwrap();
     thread.refresh(Some("9007199254740995".into()), 50).await.unwrap();
     assert_eq!(thread.draft().await.unwrap(), "private-message-cleartext thread draft");
     thread.resume("private-thread-one".into()).await.unwrap();
@@ -818,21 +830,20 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     assert!(thread.draft().await.unwrap().is_empty());
     let view = thread.refresh(None, 50).await.unwrap();
     assert!(view.can_send && view.messages.len() == 2);
-    assert_eq!(view.messages[0].row.id, "private-message-1");
+    assert_eq!(view.messages[0].row.id, accepted(&book, 1));
     assert_eq!(view.messages[0].row.thread_count, 1);
-    assert_eq!(view.messages[1].row.thread_id.as_deref(), Some("private-message-1"));
+    assert_eq!(view.messages[1].row.thread_id.as_deref(), Some(accepted(&book, 1).as_str()));
     assert_eq!(reopened.refresh(None, 50).await.unwrap().messages[0].row.thread_count, 1);
-    let nested =
-        message_settings(&pilot).await.messages("room".into(), Some("private-message-2".into())).await.unwrap();
+    let nested = message_settings(&pilot).await.messages("room".into(), Some(accepted(&book, 2))).await.unwrap();
     let view = nested.refresh(None, 50).await.unwrap();
     assert!(!view.can_send && view.messages.is_empty());
     nested.close();
     // A reply can be quoted from the root conversation. Only its typed reference
     // is in the encrypted document, and a lost response reuses the original.
-    let selected = thread.select_quote("private-message-2".into()).await.unwrap();
+    let selected = thread.select_quote(accepted(&book, 2)).await.unwrap();
     assert_eq!(selected.selection.reference.revision, "9007199254740994");
     assert_eq!(selected.text, "private-message-cleartext thread draft");
-    assert!(thread.select_source_quote("unseen-room".into(), "private-message-2".into()).await.is_err());
+    assert!(thread.select_source_quote("unseen-room".into(), accepted(&book, 2)).await.is_err());
     let mut public_room = room();
     public_room.id = "plain-origin".into();
     let mut read = pilot.session.store.read_state("room").unwrap().unwrap();
@@ -935,7 +946,7 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     assert_eq!(pilot.session.store.messages("plain-origin", 50).unwrap(), cached);
     let ordinary_reader = message_settings(&pilot).await.quote_reader("plain-origin".into()).await.unwrap();
     let author = message_settings(&pilot).await.quote_composer("plain-origin".into(), None).await.unwrap();
-    let private_source = author.select_source_quote("room".into(), "private-message-2".into()).await.unwrap();
+    let private_source = author.select_source_quote("room".into(), accepted(&book, 2)).await.unwrap();
     let unverified = native::store::QuoteSelection {
         reference: private_source.selection.reference.clone(),
         identity: native::Identity {
@@ -1009,7 +1020,7 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     let cards: Value = serde_json::from_str(row.row.attachments.as_ref().unwrap()).unwrap();
     assert_eq!(cards[1]["native_unavailable"], true);
     assert!(cards[1].get("attachments").is_none());
-    let selected = reopened.select_quote("private-message-3".into()).await.unwrap();
+    let selected = reopened.select_quote(accepted(&book, 3)).await.unwrap();
     assert!(selected.text.is_empty(), "quote-only sources do not copy their children's words");
     assert!(reopened.refresh(None, 50).await.unwrap().selected_quote.is_some());
     reopened.cancel_quote();

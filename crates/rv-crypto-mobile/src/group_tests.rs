@@ -297,13 +297,14 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
         &B64.decode(packet.proof.as_bytes()).unwrap(),
     )
     .unwrap();
+    let first = rv_crypto_public::messages::message_id(&proof.fingerprint().unwrap());
     let receipt = http::ApplicationReceipt {
         scope: own.scope.clone(),
         room_id: "room".into(),
         operation_id: operation.into(),
         header: B64.encode(&serde_json::to_vec(&proof.header).unwrap()),
         fingerprint: HEXLOWER.encode(&proof.fingerprint().unwrap()),
-        message_id: "first-message".into(),
+        message_id: first.clone(),
         position: "9007199254740993".into(),
     };
     let mut wrong = receipt.clone();
@@ -505,7 +506,7 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
         &own,
         &roster,
         &state,
-        Some("first-message"),
+        Some(first.as_str()),
         json!({"action":"view","before":null,"limit":200}),
     );
     assert_eq!(thread_view["root"]["document"]["text"], "private original");
@@ -515,7 +516,7 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
         &own,
         &roster,
         &state,
-        Some("first-message"),
+        Some(first.as_str()),
         json!({"action":"draft","text":"private thread reply"}),
     );
     let reply = conversation(
@@ -523,7 +524,7 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
         &own,
         &roster,
         &state,
-        Some("first-message"),
+        Some(first.as_str()),
         json!({"action":"prepare","text":"private thread reply"}),
     );
     let reply_operation = reply["operation"].as_str().unwrap();
@@ -532,7 +533,7 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
         &own,
         &roster,
         &state,
-        Some("first-message"),
+        Some(first.as_str()),
         json!({"action":"retry","operation":reply_operation}),
     ))
     .unwrap();
@@ -540,14 +541,15 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
         &B64.decode(reply_packet.proof.as_bytes()).unwrap(),
     )
     .unwrap();
-    assert_eq!(reply_proof.header.thread.as_deref(), Some("first-message"));
+    assert_eq!(reply_proof.header.thread.as_deref(), Some(first.as_str()));
+    let thread_reply = rv_crypto_public::messages::message_id(&reply_proof.fingerprint().unwrap());
     let reply_receipt = http::ApplicationReceipt {
         scope: own.scope.clone(),
         room_id: "room".into(),
         operation_id: reply_operation.into(),
         header: B64.encode(&serde_json::to_vec(&reply_proof.header).unwrap()),
         fingerprint: HEXLOWER.encode(&reply_proof.fingerprint().unwrap()),
-        message_id: "thread-reply".into(),
+        message_id: thread_reply.clone(),
         position: "9007199254740995".into(),
     };
     conversation(
@@ -555,7 +557,7 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
         &own,
         &roster,
         &state,
-        Some("first-message"),
+        Some(first.as_str()),
         json!({"action":"acknowledge","receipt":reply_receipt}),
     );
     let reply_page = http::DeliveryPage {
@@ -580,7 +582,7 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
             directory,
             &roster,
             &state,
-            Some("first-message"),
+            Some(first.as_str()),
             json!({"action":"receive","page":reply_page}),
         );
         let thread = conversation(
@@ -588,15 +590,15 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
             directory,
             &roster,
             &state,
-            Some("first-message"),
+            Some(first.as_str()),
             json!({"action":"view","before":null,"limit":200}),
         );
-        assert_eq!(thread["root"]["id"], "first-message");
+        assert_eq!(thread["root"]["id"], first.as_str());
         assert_eq!(
             thread["messages"][0]["document"]["reply_to"],
-            "first-message"
+            first.as_str()
         );
-        assert_eq!(thread["retained_replies"]["first-message"], 1);
+        assert_eq!(thread["retained_replies"][first.as_str()], 1);
         let root = conversation(
             actor,
             directory,
@@ -606,13 +608,13 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
             json!({"action":"view","before":null,"limit":200}),
         );
         assert_eq!(root["messages"].as_array().unwrap().len(), 1);
-        assert_eq!(root["retained_replies"]["first-message"], 1);
+        assert_eq!(root["retained_replies"][first.as_str()], 1);
         let nested = conversation(
             actor,
             directory,
             &roster,
             &state,
-            Some("thread-reply"),
+            Some(thread_reply.as_str()),
             json!({"action":"view","before":null,"limit":200}),
         );
         assert!(nested["root"].is_null());
@@ -635,7 +637,7 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
         &roster,
         &state,
         None,
-        json!({"action":"select_quote","message":"thread-reply","membership":"private-membership"}),
+        json!({"action":"select_quote","message":thread_reply,"membership":"private-membership"}),
     );
     assert_eq!(selected["text"], "private thread reply");
     assert_eq!(
@@ -743,13 +745,14 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
         &B64.decode(packet.proof.as_bytes()).unwrap(),
     )
     .unwrap();
+    let private_quote = rv_crypto_public::messages::message_id(&proof.fingerprint().unwrap());
     let quote_receipt = http::ApplicationReceipt {
         scope: own.scope.clone(),
         room_id: "room".into(),
         operation_id: quote_operation.into(),
         header: B64.encode(&serde_json::to_vec(&proof.header).unwrap()),
         fingerprint: HEXLOWER.encode(&proof.fingerprint().unwrap()),
-        message_id: "private-quote".into(),
+        message_id: private_quote.clone(),
         position: "9007199254740996".into(),
     };
     conversation(
@@ -797,7 +800,7 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
             .as_array()
             .unwrap()
             .iter()
-            .find(|m| m["id"] == "private-quote")
+            .find(|m| m["id"] == private_quote.as_str())
             .unwrap();
         assert_eq!(quoted["document"]["text"], "");
         assert_eq!(
@@ -815,7 +818,7 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
         bob.conversation_action(
             serde_json::to_string(&peer).unwrap(),
             json!({"roster":roster,"state":state,"thread":null,"command":{"action":"amend",
-            "target":"first-message","text":"forged"}})
+            "target":first,"text":"forged"}})
             .to_string()
         )
         .is_err()
@@ -826,7 +829,7 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
         &roster,
         &state,
         None,
-        json!({"action":"amend","target":"first-message","text":"private original edited"}),
+        json!({"action":"amend","target":first,"text":"private original edited"}),
     );
     let edit_operation = edit["operation"].as_str().unwrap();
     let view = conversation(
@@ -842,7 +845,7 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
             .as_array()
             .unwrap()
             .iter()
-            .find(|m| m["id"] == "first-message")
+            .find(|m| m["id"] == first.as_str())
             .cloned()
             .unwrap()
     };
@@ -869,14 +872,15 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
         &B64.decode(packet.proof.as_bytes()).unwrap(),
     )
     .unwrap();
-    assert_eq!(proof.header.target.as_deref(), Some("first-message"));
+    assert_eq!(proof.header.target.as_deref(), Some(first.as_str()));
+    let edit_first = rv_crypto_public::messages::message_id(&proof.fingerprint().unwrap());
     let edit_receipt = http::ApplicationReceipt {
         scope: own.scope.clone(),
         room_id: "room".into(),
         operation_id: edit_operation.into(),
         header: B64.encode(&serde_json::to_vec(&proof.header).unwrap()),
         fingerprint: HEXLOWER.encode(&proof.fingerprint().unwrap()),
-        message_id: "edit-first".into(),
+        message_id: edit_first.clone(),
         position: "9007199254740997".into(),
     };
     conversation(
@@ -931,7 +935,7 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|m| m["id"] == "edit-first")
+                .any(|m| m["id"] == edit_first.as_str())
         );
     }
     // Private search runs on the device and sees the edited text.
@@ -944,7 +948,7 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
         json!({"action":"search","text":"ORIGINAL EDITED","limit":20}),
     );
     assert_eq!(found["truncated"], false);
-    assert_eq!(found["messages"][0]["id"], "first-message");
+    assert_eq!(found["messages"][0]["id"], first.as_str());
     assert_eq!(found["messages"].as_array().unwrap().len(), 1);
     // An unsettled reaction shows on its target with its own operation.
     let reaction = conversation(
@@ -953,14 +957,14 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
         &roster,
         &state,
         None,
-        json!({"action":"react","target":"first-message","emoji":"thumbsup","present":true}),
+        json!({"action":"react","target":first,"emoji":"thumbsup","present":true}),
     );
     assert!(
         alice
             .conversation_action(
                 serde_json::to_string(&own).unwrap(),
                 json!({"roster":roster,"state":state,"thread":null,"command":{"action":"react",
-            "target":"first-message","emoji":":thumbsup:","present":true}})
+            "target":first,"emoji":":thumbsup:","present":true}})
                 .to_string()
             )
             .is_err()

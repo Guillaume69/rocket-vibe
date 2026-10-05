@@ -253,13 +253,24 @@ pub async fn submit(
     }
     message_budget(&mut tx, actor, &device).await?;
     let position = crate::store::next_position(&mut tx).await?;
-    let id = auth::random_token()[..24].to_owned();
+    // The id is the proof's own (E2EE_MESSAGES.md), so clients can check it.
+    let proof_fingerprint = checked.proof.fingerprint().map_err(|_| proof())?;
+    let id = packet::message_id(&proof_fingerprint);
+    if sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM e2ee_application_messages WHERE id=$1)",
+    )
+    .bind(&id)
+    .fetch_one(&mut *tx)
+    .await?
+    {
+        return Err(Error::conflict());
+    }
     let receipt = wire::ApplicationReceipt {
         scope,
         room_id: room.into(),
         operation_id: operation.clone(),
         header: B64.encode(&serde_json::to_vec(header).map_err(|_| Error::internal())?),
-        fingerprint: hex(&checked.proof.fingerprint().map_err(|_| proof())?),
+        fingerprint: hex(&proof_fingerprint),
         message_id: id.clone(),
         position: position.to_string(),
     };

@@ -46,6 +46,29 @@ async function history(
   return response.messages ?? [];
 }
 
+export const HISTORY_PAGE = PAGE;
+
+export function historyRange(
+  client: RestClient,
+  rid: string,
+  type: string,
+  latest: number | null,
+  oldest: number | null,
+): Promise<Record<string, unknown>[]> {
+  const iso = (ms: number | null) => (ms === null ? undefined : new Date(ms).toISOString());
+  return history(client, rid, type, iso(latest), iso(oldest));
+}
+
+export async function fetchMessage(
+  client: RestClient,
+  id: string,
+): Promise<Record<string, unknown> | null> {
+  const response = await client.get<{ message?: Record<string, unknown> }>('chat.getMessage', {
+    params: { msgId: id },
+  });
+  return response.message ?? null;
+}
+
 export async function loadHistory(
   client: RestClient,
   engine: SyncEngine,

@@ -255,6 +255,21 @@ export interface Provider {
     latest?: string,
   ): Promise<{ oldest: number | null }>;
   /**
+   * The history between two instants (epoch ms), bounds included, NOT
+   * ingested; `null` = unbounded. The server answers the NEWEST
+   * `historyPage` documents of the range, whatever `oldest` is.
+   */
+  historyRange(
+    rid: string,
+    type: string,
+    latest: number | null,
+    oldest: number | null,
+  ): Promise<Record<string, unknown>[]>;
+  /** The server's copy of one message, not ingested; `null` when it answers without it. */
+  fetchMessage(id: string): Promise<Record<string, unknown> | null>;
+  /** Documents per page of `loadHistory` and `historyRange`. */
+  readonly historyPage: number;
+  /**
    * The whole `threadId` thread (root included), ingested into the engine.
    * Replayable: the same idempotent upserts as the rest of sync.
    */

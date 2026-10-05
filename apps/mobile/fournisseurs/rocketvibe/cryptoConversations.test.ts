@@ -34,7 +34,7 @@ async function setup(thread:string|null=null,mixed=false) {
     document:{operation_id:packet.operation_id,text:preparedText,reply_to:thread,quotes:selectedQuotes,cards:[]},position:null,observed_at:'1700000000',status:cancelled?'cancelled':cancelling?'cancelling':accepted?'accepted':'pending'});
   let root=thread?{id:thread,operation:'root-op',author:'bob',document:{operation_id:'root-op',text:'retained root',reply_to:null,quotes:[],cards:[]},position:'1',observed_at:'1700000000',status:'journaled'}:null;
   const bridge:CryptoConversationBridge={open:async()=>({handle:'native-conversation',phase:'ready',accountFingerprint:fp,incarnation:'cd'.repeat(16)}),
-    status:forbidden,initialize:forbidden,retire:forbidden,close:async()=>{closed=true;},identityView:forbidden,identityBegin:forbidden,
+    status:forbidden,initialize:forbidden,retire:forbidden,close:async()=>{closed=true;},identityView:forbidden,identityBegin:forbidden,identityRenew:forbidden,
     identityPreview:forbidden,identityApprove:forbidden,identityInstall:forbidden,identityPending:forbidden,identityAcknowledge:forbidden,
     peerView:async()=>({id:'ef'.repeat(16),statusJson:JSON.stringify({user:'alice',fingerprint:fp,previous_fingerprint:'',trust:'unknown',devices:[]})}),
     peerPin:forbidden,peerPreview:forbidden,peerApprove:forbidden,groupAction:forbidden,

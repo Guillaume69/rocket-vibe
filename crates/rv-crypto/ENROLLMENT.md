@@ -78,6 +78,41 @@ node crates/rv-crypto/scripts/verify-identity-vector.mjs
 cargo run --locked --manifest-path crates/rv-crypto/Cargo.toml --target-dir target --example enrollment_vector
 ```
 
+## Renouvellement de l'incarnation enregistrée
+
+Le coordinateur partagé propose une demande explicite de renouvellement.
+Il authentifie le certificat historique et le reçu actuel de l'appareil, y
+compris après expiration, sans les employer pour autoriser un nouvel envoi MLS.
+Une date antérieure à l'émission, une racine remplacée, une révision substituée
+ou un retrait signé refusent la cérémonie. Le certificat de l'annuaire doit
+être exactement celui installé, pas seulement contenir la même clé publique.
+
+La demande conserve racine, incarnation, clé de signature et coffre. Un second
+appareil transmet sa demande à son contrôleur de racine ; le contrôleur compare
+et approuve explicitement, même si son propre certificat de feuille a expiré.
+L'expiration de cette feuille ne détruit pas son autorité de racine. Une demande
+encore valable se reprend sans prolonger sa durée ; son renouvellement après
+expiration crée une nouvelle demande et invalide l'ancienne approbation.
+
+Le certificat valide précédent peut encore servir tant que seule la demande
+est en attente. Installer le Grant conserve le certificat et le reçu précédents
+comme baseline privée, checkpoint l'enregistrement original et suspend les
+nouveaux accès de conversation jusqu'à son ACK exact. L'adaptateur bureau ferme
+les workers précédents à cette installation. Un serveur ayant accepté le POST
+avant une réponse perdue est interrogé par l'ID original avant toute nouvelle
+publication ; révision, portée, appareil, incarnation et racine du reçu sont
+contrôlés. L'ancien baseline n'est supprimé qu'après cet ACK.
+
+Les enregistrements antérieurs restent lisibles ; le champ privé optionnel de
+renouvellement n'est écrit que pendant cette intention. Les réglages Android,
+GTK et SwiftUI exposent l'expiration, la demande / approbation et la reprise.
+Ils n'émettent pas automatiquement de commit MLS : la feuille de chaque salon
+concerné doit encore être actualisée par sa transition explicite, puis qualifiée.
+Les essais du coordinateur exercent expiration, second appareil, réouverture,
+reçu incorrect, annuaire changé et retrait ; le banc bureau exerce HTTP réel,
+workers précédents et réponse perdue. Qualification installée et revue restent
+des conditions distinctes.
+
 ## Prochaines conditions de sortie
 
 Un Grant installé n'ajoute **ni pin de correspondant ni feuille de salon**.
@@ -85,12 +120,13 @@ Un Grant installé n'ajoute **ni pin de correspondant ni feuille de salon**.
 La racine privée reste sur le contrôleur ; elle n'est pas transmise au nouvel
 appareil par ce format. La [récupération de racine](RECOVERY.md) emploie un code
 aléatoire distinct du mot de passe HTTP et crée un nouveau parcours de feuille.
-Délégation de contrôle et cérémonie / livraison restent à intégrer. Révoquer une
+Délégation de contrôle et récupération visible restent à intégrer. Révoquer une
 feuille ne retire pas une racine privée déjà compromise.
 
-Le service de livraison des demandes / Grants, les contrôles des appareils
-autorisés, la gestion des retraits en vol, les gardes de compte / époque / UI,
-le pont Android et les écrans de sécurité existants ne sont pas encore raccordés.
+Les demandes / Grants se transfèrent explicitement entre appareils. Les gardes
+de compte / époque / UI, le pont Android et les écrans de sécurité existants
+sont raccordés ; leurs parcours installés complets et la rotation après
+renouvellement restent à qualifier.
 La restauration d'une racine ne doit jamais restaurer un ancien état MLS d'envoi.
 Archive / fichiers, protocole de salon et revue indépendante restent ouverts.
 

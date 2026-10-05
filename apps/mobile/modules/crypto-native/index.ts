@@ -21,9 +21,9 @@ export type CryptoStorageBridge = {
   close: (handle: string) => Promise<void>;
 };
 export type CryptoIdentityStatus = {
-  phase: 'missing' | 'identity_created' | 'waiting_for_approval' | 'registering' | 'ready';
+  phase: 'missing' | 'identity_created' | 'waiting_for_approval' | 'registering' | 'ready' | 'expired' | 'renewing';
   rootFingerprint: string; remoteFingerprint: string; requestFingerprint: string;
-  requestCode: string; controlsRoot: boolean;
+  requestCode: string; controlsRoot: boolean; certificateExpiresAt: string | null;
 };
 export type CryptoIdentityApproval = {
   id: string; rootFingerprint: string; requestFingerprint: string; device: string; expiresAt: string;
@@ -31,6 +31,7 @@ export type CryptoIdentityApproval = {
 export type CryptoIdentityBridge = CryptoStorageBridge & {
   identityView: (handle: string, directory: string) => Promise<CryptoIdentityStatus>;
   identityBegin: (handle: string, directory: string, expectedRoot: string) => Promise<CryptoIdentityStatus>;
+  identityRenew: (handle: string, directory: string, expectedRoot: string) => Promise<CryptoIdentityStatus>;
   identityPreview: (handle: string, directory: string, request: string) => Promise<CryptoIdentityApproval>;
   identityApprove: (handle: string, directory: string, approvalId: string) => Promise<string>;
   identityInstall: (handle: string, directory: string, grant: string) => Promise<CryptoIdentityStatus>;

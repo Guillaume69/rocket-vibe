@@ -9,6 +9,12 @@ section here.
 
 ### Added
 
+- Existing GTK / SwiftUI crypto settings show certificate expiry and offer
+  explicit renewal of the same device, including after expiration. Approval and
+  interrupted registration retain their protected original request; identity,
+  signing key and vault selection are preserved. Installed qualification and
+  room MLS rotation remain open; production E2EE stays disabled.
+
 - Existing GTK / SwiftUI message menus can experimentally choose another joined
   room for a quote, across ordinary and encrypted sources / destinations.
   The destination revalidates effective send rights and the reference before

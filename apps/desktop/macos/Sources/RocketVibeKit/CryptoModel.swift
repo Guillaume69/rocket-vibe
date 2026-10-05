@@ -38,6 +38,11 @@ public final class CryptoModel {
         let request = own ? value?.requestCode ?? "" : code.trimmingCharacters(in: .whitespacesAndNewlines)
         await run { .preview(try await $0.preview(requestCode: request)) }
     }
+    public func renew() async {
+        guard let value else { return }
+        let expected = value.rootFingerprint
+        await run { .view(try await $0.renew(expectedFingerprint: expected)) }
+    }
     public func approve() async {
         guard let approval else { return }
         let revision = approval.viewRevision
@@ -45,14 +50,14 @@ public final class CryptoModel {
     }
     public func install() async {
         let grant = code.trimmingCharacters(in: .whitespacesAndNewlines)
-        await run { .view(try await $0.install(code: grant)) }
+        await run(recoverRegistration:true) { .view(try await $0.install(code: grant)) }
     }
-    public func resume() async { await run { .view(try await $0.resume()) } }
+    public func resume() async { await run(recoverRegistration:true) { .view(try await $0.resume()) } }
     public func copyOutput(receive: @MainActor (String) -> Void) {
         guard current(generation), !busy, handle?.isClosed() == false, !output.isEmpty else { return }
         receive(output)
     }
-    private func run(_ action: (NativeCrypto) async throws -> Outcome) async {
+    private func run(recoverRegistration: Bool = false, _ action: (NativeCrypto) async throws -> Outcome) async {
         let expected = generation
         guard current(expected), !busy, let chat else { return }
         busy = true; error = nil
@@ -74,6 +79,11 @@ public final class CryptoModel {
             }
         } catch {
             guard current(expected) else { return }
+            if recoverRegistration, let handle, let fresh = try? await handle.refresh() {
+                guard current(expected) else { return }
+                value = fresh; output = fresh.requestCode; code = ""
+            }
+            guard current(expected) else { return }
             approval = nil
             if handle?.isClosed() == true { handle?.close(); handle = nil; value = nil; output = ""; code = "" }
             self.error = L("crypto.failed")
@@ -88,5 +98,7 @@ public func cryptoPhaseTitle(_ phase: NativeCryptoPhase) -> String {
     case .waitingForApproval: return L("crypto.waiting")
     case .registering: return L("crypto.registering")
     case .ready: return L("crypto.ready")
+    case .expired: return L("crypto.expired")
+    case .renewing: return L("crypto.renewing")
     }
 }

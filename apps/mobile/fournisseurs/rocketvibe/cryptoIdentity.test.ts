@@ -15,18 +15,54 @@ const directory:Directory={scope:request.scope,identity:null,devices:[],revocati
 function fixture() {
   let enrolled=false,phase:CryptoIdentityStatus['phase']='registering',closed=0;
   const view=():CryptoIdentityStatus=>({phase,rootFingerprint:'aa'.repeat(32),remoteFingerprint:'aa'.repeat(32),
-    requestFingerprint:'cc'.repeat(32),requestCode:'public-request',controlsRoot:false});
+    requestFingerprint:'cc'.repeat(32),requestCode:'public-request',controlsRoot:false,certificateExpiresAt:null});
   const bridge:CryptoIdentityBridge={
     open:async()=>({handle:'native-view',phase:'ready',accountFingerprint:'dd'.repeat(32),incarnation:'bb'.repeat(16)}),
     status:async()=>({phase:'ready',accountFingerprint:'dd'.repeat(32),incarnation:'bb'.repeat(16)}),
     initialize:async()=>{throw Error('No implicit storage initialization');},retire:async()=>{},close:async()=>{closed++;},
     identityView:async()=>view(),identityBegin:async()=>{throw Error('No new identity during retry');},
+    identityRenew:async()=>{throw Error('No renewal during registration retry');},
     identityPreview:async()=>{throw Error('No new consent during retry');},identityApprove:async()=>{throw Error('No new approval during retry');},
     identityInstall:async()=>{phase='registering';return view();},identityPending:async()=>JSON.stringify(request),
     identityAcknowledge:async(_handle,_dir,json)=>{assert.deepEqual(JSON.parse(json),receipt);phase='ready';return view();},
   };
   return {bridge,view,enrolled:()=>enrolled,accept:()=>{enrolled=true;},closed:()=>closed};
 }
+test('renewal creates a public request once and recovers an accepted original registration after response loss',async()=>{
+  const f=fixture(),renewal={...request,operation_id:'renew-original',expected_device_revision:'1'};
+  const renewed={...receipt,operation_id:renewal.operation_id,device_revision:'2'};
+  let requests=0,posts=0,accepted=false;
+  f.bridge.identityRenew=async(_handle,json,expected)=>{
+    assert.deepEqual(JSON.parse(json),directory);assert.equal(expected,'aa'.repeat(32));requests++;
+    return {...f.view(),phase:'renewing',certificateExpiresAt:'1800000000'};
+  };
+  f.bridge.identityPending=async()=>JSON.stringify(renewal);
+  f.bridge.identityAcknowledge=async(_handle,_directory,json)=>{
+    assert.deepEqual(JSON.parse(json),renewed);
+    return {...f.view(),phase:'ready',certificateExpiresAt:'1802592000'};
+  };
+  const transport=new NativeTransport(scope.origin,async(url,options)=>{
+    const path=new URL(String(url)).pathname;
+    if(path.includes('/users/'))return Response.json(directory);
+    if(path.includes('/operations/'))return accepted?Response.json(renewed):Response.json({code:'not_found',request_id:'missing'},{status:404});
+    if(path.endsWith('/e2ee/devices')){
+      posts++;assert.deepEqual(JSON.parse(String(options?.body)),renewal);accepted=true;
+      throw TypeError('Lost renewal acknowledgement');
+    }
+    throw Error(path);
+  });transport.restore('fixture-token');
+  const first=new CryptoIdentityAccess(await CryptoStorageAccess.open(f.bridge,async()=>scope,()=>true),f.bridge,transport);
+  assert.equal((await first.renew('aa'.repeat(32))).phase,'renewing');
+  await assert.rejects(first.install('approved-renewal'));
+  await first.close();
+  const reopened=new CryptoIdentityAccess(await CryptoStorageAccess.open(f.bridge,async()=>scope,()=>true),f.bridge,transport);
+  assert.equal((await reopened.resume()).phase,'ready');
+  assert.equal(requests,1);assert.equal(posts,1);
+  f.bridge.identityView=async()=>({...f.view(),certificateExpiresAt:'9007199254740993'});
+  await assert.rejects(reopened.view());
+  await reopened.close();
+});
+
 test('lost registration response reopens the original native intention and reads its receipt without another POST',async()=>{
   const f=fixture(),requests:{path:string;body:string|null}[]=[];
   const transport=new NativeTransport(scope.origin,async(url,options)=>{

@@ -5,6 +5,22 @@ Destination : [RFC 0001](rfcs/0001-serveur-rocketvibe-rust.md).
 
 ## État synthétique au 5 octobre 2026
 
+Le renouvellement explicite des certificats d'appareil est raccordé dans le
+coffre partagé et les paramètres Android / GTK / SwiftUI existants. L'échéance,
+l'expiration, la demande à approuver et la reprise de l'enregistrement original
+sont visibles ; identité, incarnation, signature et sélection du coffre sont
+conservées. Les trois tests du coordinateur passent en 2,20 secondes, notamment
+un second appareil expiré approuvé par le contrôleur existant. Les 17 parcours
+HTTP / MLS / SQLite bureau passent en 46,35 secondes ; le nouveau parcours
+arrête les anciens workers et récupère une réponse perdue sans second POST.
+Les huit tests du pont mobile passent en 56,69 secondes ; le nouvel adaptateur
+TypeScript couvre aussi réponse perdue et échéance invalide. L'arrêt de deux
+vues partageant le worker est revalidé en 1,92 seconde. Typecheck et Clippy
+strict passent. Les bindings Swift réels sont régénérés en 1 min 31 s ; le
+pont Kotlin réel est construit / généré en 14,85 secondes. Qualification CI de
+ce lot, rotation MLS des salons après renouvellement et parcours installés
+restent ouverts. L'E2EE de production reste désactivé.
+
 Conversations de texte, fils et citations privées raccordés aux interfaces
 GTK / SwiftUI / Android existantes : lecture du journal conservé dans le coffre,
 positions exactes, brouillons séparés, envoi et reprise du ciphertext original.
@@ -14,8 +30,8 @@ ci-dessous. Les dates sont des observations locales, pas des dates d'auteur
 certifiées. Les lecteurs de cartes privées dans les salons / fils ordinaires bureau
 sont validés par les neuf jobs de la CI native et le build / démarrage macOS de
 10f3005. La sélection intersalons et la composition de références privées dans
-les salons ordinaires bureau sont raccordées dans le nouveau lot ci-dessous ;
-leur qualification CI reste ouverte. Les archives complètes, édition / actions,
+les salons ordinaires bureau sont raccordées et passent les neuf jobs natifs
+de 41cb92c ainsi que le build / démarrage macOS. Les archives complètes, édition / actions,
 recherche et fichiers privés
 restent à livrer, ainsi que récupération /
 révocation visibles et qualification installée. Aucun masque E2EE de production
@@ -296,17 +312,25 @@ DLL et les bindings Swift régénérés passent en 53,70 secondes. Formatage,
 changelog et inventaire contrôlés ; GTK / modèles Swift et fixture PostgreSQL
 seront requalifiés dans la CI du prochain commit.
 
+Les corrections 41cb92c passent le banc HTTP complet en 26,42 secondes, avec
+la borne inchangée de 90 secondes. Les neuf jobs natifs sont verts ;
+le parcours GTK citations intersalons a passé, ainsi que les régressions
+sécurité / e-mail. Le build,
+packaging et démarrage macOS 37252377479 passe ; les deux ABI et le vrai
+Keystore Android sur émulateur passent dans 37252377488. La CI native
+37252377514 est terminée avec succès.
+
 | Jalon | Développement livré | Travail restant pour le fermer |
 |---|---|---|
 | J0 | Contrats, fixtures communes, inventaire et backlog de parité | Conditions opérateur / export et décisions crypto liées aux jalons suivants |
 | J1 | Serveur Rust, compte / salons / DM, journal, cache / reprise et fournisseurs dans les interfaces actuelles | Parcours Android ↔ Windows sur appareils avec coupures et processus tués |
 | J2 | Principaux parcours de messagerie, droits, actions, fils, lectures, présence, recherche, profils | Qualification des applications installées et écarts explicités dans les lots ci-dessous |
 | J3 | Fichiers, vocaux, cartes, emojis, transports de notifications et réponses / liens | Push Android physique, codecs et qualification des parcours natifs installés |
-| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils et citations privés dans les trois interfaces, lecture mixte, composition / destination intersalons et lecteurs de cartes privées dans les salons ordinaires des trois interfaces | Qualification CI de la nouvelle composition bureau, renouvellement / récupération / révocation visibles, autres actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
+| J4 | Appels raccordés, identités / coffre crypto, packages / transitions MLS, journal opaque, pages protégées, signatures historiques, règlement des intentions interrompues, réadmission, accès crypto lié à la session, identité / association / renouvellement de certificat, pairs / groupes et conversations GTK / SwiftUI, coffre / association / confiance / groupes et conversations de texte Android, fils et citations privés dans les trois interfaces, lecture mixte, composition / destination intersalons et lecteurs de cartes privées dans les salons ordinaires des trois interfaces | Qualification CI du renouvellement, rotation MLS des salons, récupération / révocation visibles, autres actions / recherche privées, parcours GUI E2EE complet, historique après révocation, archives / fichiers, revue crypto et essais Jitsi réels |
 | J5 | Préparation des contrats et de l'administration opérateur | Import reprenable, sauvegarde / restauration, exploitation et pilote de bascule |
 
-La dernière livraison serveur qui passe tous les jobs de sa CI (`b884e1d`) passe les neuf jobs de la CI
-`37244716038` : contrôles généraux, suites crypto Linux / Windows / macOS,
+La dernière livraison serveur qui passe tous les jobs de sa CI (`41cb92c`) passe les neuf jobs de la CI
+`37252377514` : contrôles généraux, suites crypto Linux / Windows / macOS,
 banc HTTP / PostgreSQL et fournisseurs bureau GTK / Windows / SwiftUI.
 Le job Android `37238019723` passe aussi les deux ABI, le vrai Keystore, la
 cérémonie d'association, les contrôles de confiance, groupes, fils et citations sur émulateur.

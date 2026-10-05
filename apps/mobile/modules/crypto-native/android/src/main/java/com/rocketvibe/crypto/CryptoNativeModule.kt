@@ -33,6 +33,7 @@ class CryptoNativeModule : Module() {
     "rootFingerprint" to status.rootFingerprint, "remoteFingerprint" to status.remoteFingerprint,
     "requestFingerprint" to status.requestFingerprint, "requestCode" to status.requestCode,
     "controlsRoot" to status.controlsRoot,
+    "certificateExpiresAt" to status.certificateExpiresAt,
   )
   private fun approvalDto(value: IdentityApproval) = mapOf(
     "id" to value.id, "rootFingerprint" to value.rootFingerprint,
@@ -86,6 +87,9 @@ class CryptoNativeModule : Module() {
     } }
     AsyncFunction("identityBegin") { handle: String, directory: String, expectedRoot: String -> synchronized(lock) {
       identityDto(view(handle).identityBegin(directory, expectedRoot))
+    } }
+    AsyncFunction("identityRenew") { handle: String, directory: String, expectedRoot: String -> synchronized(lock) {
+      identityDto(view(handle).identityRenew(directory, expectedRoot))
     } }
     AsyncFunction("identityPreview") { handle: String, directory: String, request: String -> synchronized(lock) {
       approvalDto(view(handle).identityPreview(directory, request))

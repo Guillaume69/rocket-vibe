@@ -7,6 +7,15 @@ release, et ses notes sont la section de la version ici.
 
 ## [Non publié]
 
+### Renouvellement expérimental des appareils RocketVibe
+
+- Les paramètres existants affichent l’échéance du certificat et permettent
+  de demander son renouvellement, y compris après expiration. La même racine,
+  incarnation, clé de signature et sélection de coffre sont conservées.
+- L’approbation explicite et l’enregistrement reprennent leur opération originale
+  après interruption. La rotation MLS des salons et la qualification installée
+  restent à confirmer ; l’E2EE de production demeure désactivé.
+
 ### Citations privées dans les salons ordinaires RocketVibe
 
 - Android peut citer un message chiffré dans un salon ordinaire, depuis les

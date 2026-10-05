@@ -24,7 +24,7 @@ async function setup() {
     incarnation,device_revision:'1',root_fingerprint:fp,key_package_refs:['YWJj']};
   const bridge:CryptoGroupBridge={open:async()=>({handle:'native-group',phase:'ready',accountFingerprint:fp,incarnation}),
     status:forbidden,initialize:forbidden,retire:forbidden,close:async()=>{},
-    identityView:forbidden,identityBegin:forbidden,identityPreview:forbidden,identityApprove:forbidden,
+    identityView:forbidden,identityBegin:forbidden,identityRenew:forbidden,identityPreview:forbidden,identityApprove:forbidden,
     identityInstall:forbidden,identityPending:forbidden,identityAcknowledge:forbidden,
     peerView:async()=>({id:previewId,statusJson:JSON.stringify({user:'alice',fingerprint:fp,previous_fingerprint:'',trust:'unknown',devices:[]})}),
     peerPin:forbidden,peerPreview:forbidden,peerApprove:forbidden,

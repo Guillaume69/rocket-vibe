@@ -181,6 +181,18 @@ impl Access {
         .await?;
         self.view(next).await
     }
+    pub async fn renew(&self, expected_fingerprint: String) -> Result<View> {
+        let _dispatch = self.0.dispatch.lock().await;
+        let wire = self.observe().await?;
+        let next = wire.clone();
+        self.owned(move |slot, time| {
+            let coordinator = Coordinator::new(slot);
+            let directory = coordinator.directory(wire)?;
+            Ok(coordinator.renew(&directory, &expected_fingerprint, time)?)
+        })
+        .await?;
+        self.view(next).await
+    }
     pub async fn preview(&self, code: String) -> Result<Approval> {
         let _dispatch = self.0.dispatch.lock().await;
         let wire = self.observe().await?;
@@ -216,12 +228,17 @@ impl Access {
     pub async fn install(&self, code: String) -> Result<View> {
         let _dispatch = self.0.dispatch.lock().await;
         let wire = self.observe().await?;
-        self.owned(move |slot, time| {
-            let coordinator = Coordinator::new(slot);
-            let directory = coordinator.directory(wire)?;
-            Ok(coordinator.install(&directory, &code, time)?)
-        })
-        .await?;
+        let scope = self
+            .owned(move |slot, time| {
+                let coordinator = Coordinator::new(slot);
+                let directory = coordinator.directory(wire)?;
+                coordinator.install(&directory, &code, time)?;
+                Ok(slot.load()?.ok_or_else(changed)?.scope().clone())
+            })
+            .await?;
+        if let Some(session) = self.0.context.session.upgrade() {
+            session.crypto.stop_scope(&scope);
+        }
         self.resume_inner().await
     }
     pub async fn resume(&self) -> Result<View> {

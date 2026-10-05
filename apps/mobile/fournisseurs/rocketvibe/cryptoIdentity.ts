@@ -15,10 +15,13 @@ function position(value:string):bigint {
 }
 function status(value:CryptoIdentityStatus):CryptoIdentityStatus {
   const fingerprint=(v:string)=>v==='' || /^[0-9a-f]{64}$/.test(v);
-  if(!['missing','identity_created','waiting_for_approval','registering','ready'].includes(value.phase)
+  if(!['missing','identity_created','waiting_for_approval','registering','ready','expired','renewing'].includes(value.phase)
     || ![value.rootFingerprint,value.remoteFingerprint,value.requestFingerprint].every(fingerprint)
     || typeof value.controlsRoot!=='boolean' || typeof value.requestCode!=='string' || value.requestCode.length>5500
-    || value.phase!=='missing' && !value.rootFingerprint)throw new NativeError(0,'crypto_integrity_failed');
+    || value.phase!=='missing' && !value.rootFingerprint
+    || value.certificateExpiresAt!==null && (typeof value.certificateExpiresAt!=='string'
+      || !/^[1-9][0-9]{0,11}$/.test(value.certificateExpiresAt)
+      || BigInt(value.certificateExpiresAt)>253402300799n))throw new NativeError(0,'crypto_integrity_failed');
   return value;
 }
 /** HTTP carries signed public material only. Rust owns the ceremony and its
@@ -59,6 +62,8 @@ export class CryptoIdentityAccess {
   }
   begin(expectedRoot:string):Promise<CryptoIdentityStatus> {return this.storage.withNative(async(handle,scope,check)=>
     status(await this.bridge.identityBegin(handle,await this.directory(scope,check),expectedRoot)));}
+  renew(expectedRoot:string):Promise<CryptoIdentityStatus> {return this.storage.withNative(async(handle,scope,check)=>
+    status(await this.bridge.identityRenew(handle,await this.directory(scope,check),expectedRoot)));}
   preview(request:string):Promise<CryptoIdentityApproval> {return this.storage.withNative(async(handle,scope,check)=>{
     if(request.length>5500)throw new NativeError(400,'invalid_request');
     const value=await this.bridge.identityPreview(handle,await this.directory(scope,check),request);

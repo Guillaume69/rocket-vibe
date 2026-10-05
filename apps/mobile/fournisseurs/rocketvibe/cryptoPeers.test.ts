@@ -17,7 +17,7 @@ test('peer controls use opaque native consent and current public directories, wi
   const forbidden=async()=>{throw Error('No identity mutation or group admission from profile controls');};
   const bridge:CryptoPeerBridge={open:async()=>({handle:'native-peer-view',phase:'ready',accountFingerprint:fp,incarnation}),
     status:forbidden,initialize:forbidden,retire:forbidden,close:async()=>{},
-    identityView:forbidden,identityBegin:forbidden,identityPreview:forbidden,identityApprove:forbidden,
+    identityView:forbidden,identityBegin:forbidden,identityRenew:forbidden,identityPreview:forbidden,identityApprove:forbidden,
     identityInstall:forbidden,identityPending:forbidden,identityAcknowledge:forbidden,
     peerView:async()=>review(),peerPin:async(...args)=>{pinCalls.push(args);trust='unverified';return review();},
     peerPreview:async()=>({id,user:'bob',rootFingerprint:fp,device:'bob-phone',fingerprint:fp,incarnation,expiresAt:'2000000000'}),

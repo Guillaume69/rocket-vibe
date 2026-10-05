@@ -146,7 +146,7 @@ impl Pilot {
                 else { respond(404, r#"{"code":"not_found","request_id":"crypto-pilot"}"#) }
             }
             path if path.starts_with("/api/v1/e2ee/operations/") => {
-                if let Some(receipt) = receipt_reply.lock().unwrap().as_ref() { respond(200, &receipt.to_string()) }
+                if let Some(receipt) = receipt_reply.lock().unwrap().as_ref().filter(|r| r["operation_id"].as_str() == path.rsplit('/').next()) { respond(200, &receipt.to_string()) }
                 else { respond(404, r#"{"code":"not_found","request_id":"crypto-pilot"}"#) }
             }
             "/api/v1/e2ee/devices" => {
@@ -160,12 +160,13 @@ impl Pilot {
                 assert_eq!(grant.request, signed.fingerprint().unwrap());
                 let hex = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
                 let certificate = &grant.certificate.device;
+                let revision = input.expected_device_revision.as_ref().map(|r| r.parse::<u64>().unwrap()).unwrap_or(0) + 1;
                 let receipt = json!({"scope": input.scope, "operation_id":input.operation_id, "kind":"register_device", "device_id":certificate.device,
-                    "incarnation":hex(&certificate.incarnation), "device_revision":"1", "root_fingerprint":hex(&certificate.root.fingerprint().unwrap()), "key_package_refs":[]});
+                    "incarnation":hex(&certificate.incarnation), "device_revision":revision.to_string(), "root_fingerprint":hex(&certificate.root.fingerprint().unwrap()), "key_package_refs":[]});
                 *receipt_reply.lock().unwrap() = Some(receipt.clone());
                 let mut directory = directory_reply.lock().unwrap();
                 directory["identity"] = json!({"user_id": certificate.root.user, "root": B64.encode(serde_json::to_vec(&certificate.root).unwrap()), "fingerprint":receipt["root_fingerprint"], "revision":"1"});
-                directory["devices"] = json!([{"device_id":certificate.device, "incarnation":receipt["incarnation"], "certificate":B64.encode(serde_json::to_vec(&grant.certificate).unwrap()), "revision":"1", "expires_at":certificate.expires_at.to_string()}]);
+                directory["devices"] = json!([{"device_id":certificate.device, "incarnation":receipt["incarnation"], "certificate":B64.encode(serde_json::to_vec(&grant.certificate).unwrap()), "revision":revision.to_string(), "expires_at":certificate.expires_at.to_string()}]);
                 if lose_reply.load(Ordering::SeqCst) { respond(503, r#"{"code":"response_lost","request_id":"crypto-pilot"}"#) }
                 else { respond(200, &receipt.to_string()) }
             }
@@ -621,6 +622,66 @@ impl Peer {
         json!({"position":position.to_string(), "signed":B64.encode(serde_json::to_vec(&signed).unwrap())})
     }
 }
+#[tokio::test]
+async fn device_renewal_closes_old_workers_and_recovers_accepted_original_after_reopen() {
+    use crypto::enrollment::Stage;
+    let pilot = Pilot::new(true).await;
+    online(&pilot.session).await;
+    let access = ready(&pilot).await;
+    let initial = access.refresh().await.unwrap();
+    let original_directory = pilot.crypto_directory.lock().unwrap().clone();
+    let old: rv_crypto::identity::Certificate =
+        serde_json::from_slice(&B64.decode(original_directory["devices"][0]["certificate"].as_str().unwrap()).unwrap())
+            .unwrap();
+    let old_worker = access.conversation().await.unwrap();
+    let other_worker = access.conversation().await.unwrap();
+    let scope = old_worker.scope().clone();
+    // Registration is second-granularity; the renewed certificate must advance
+    // its issuance time rather than issuing an identical lease in the same tick.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() <= old.device.issued_at {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let renewing = access.renew(initial.root_fingerprint.clone()).await.unwrap();
+    assert!(renewing.stage == Stage::Renewing);
+    assert_eq!(pilot.registrations.lock().unwrap().len(), 1);
+    let preview = access.preview(renewing.request_code).await.unwrap();
+    let grant = access.approve(preview).await.unwrap();
+    pilot.lose_registration.store(true, Ordering::SeqCst);
+    assert!(access.install(grant).await.is_err());
+    assert!(old_worker.check().is_err());
+    assert!(other_worker.check().is_err());
+    assert!(old_worker.local_group_status("room").await.is_err());
+    assert!(access.refresh().await.unwrap().stage == Stage::Registering);
+    access.close();
+    let reopened = pilot
+        .session
+        .crypto_settings(Guard::new(), pilot.directory.path().join("ceremony"), pilot.memory.clone())
+        .await
+        .unwrap();
+    let ready = reopened.resume().await.unwrap();
+    assert!(ready.stage == Stage::Ready);
+    assert_eq!(ready.root_fingerprint, initial.root_fingerprint);
+    assert_eq!(pilot.registrations.lock().unwrap().len(), 2);
+    let latest = pilot.crypto_directory.lock().unwrap().clone();
+    assert_eq!(latest["devices"][0]["revision"], "2");
+    let renewed: rv_crypto::identity::Certificate =
+        serde_json::from_slice(&B64.decode(latest["devices"][0]["certificate"].as_str().unwrap()).unwrap()).unwrap();
+    assert_eq!(renewed.device.root, old.device.root);
+    assert_eq!(renewed.device.signature_key, old.device.signature_key);
+    assert_eq!(renewed.device.incarnation, old.device.incarnation);
+    assert!(renewed.device.expires_at > old.device.expires_at);
+    let new_worker = reopened.conversation().await.unwrap();
+    assert!(new_worker.scope() == &scope);
+    new_worker.local_group_status("room").await.unwrap();
+    assert_eq!(pilot.registrations.lock().unwrap().len(), 2);
+    reopened.close();
+    pilot.close().await;
+}
+
 async fn ready(pilot: &Pilot) -> crypto::enrollment::Access {
     let access = pilot
         .session

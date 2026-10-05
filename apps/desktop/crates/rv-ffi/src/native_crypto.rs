@@ -23,6 +23,8 @@ pub enum NativeCryptoPhase {
     WaitingForApproval,
     Registering,
     Ready,
+    Expired,
+    Renewing,
 }
 #[derive(Clone, uniffi::Record)]
 pub struct NativeCryptoState {
@@ -32,6 +34,7 @@ pub struct NativeCryptoState {
     pub request_fingerprint: String,
     pub request_code: String,
     pub controls_root: bool,
+    pub certificate_expires_at: Option<u64>,
     pub view_revision: u64,
 }
 #[derive(Clone, uniffi::Record)]
@@ -65,12 +68,15 @@ fn state(view: enrollment::View, revision: u64) -> NativeCryptoState {
             Stage::WaitingForApproval => NativeCryptoPhase::WaitingForApproval,
             Stage::Registering => NativeCryptoPhase::Registering,
             Stage::Ready => NativeCryptoPhase::Ready,
+            Stage::Expired => NativeCryptoPhase::Expired,
+            Stage::Renewing => NativeCryptoPhase::Renewing,
         },
         root_fingerprint: view.root_fingerprint,
         remote_fingerprint: view.remote_fingerprint,
         request_fingerprint: view.request_fingerprint,
         request_code: view.request_code,
         controls_root: view.controls_root,
+        certificate_expires_at: view.certificate_expires_at,
         view_revision: revision,
     }
 }
@@ -100,6 +106,7 @@ impl NativeCrypto {
             let view = match action {
                 ViewAction::Refresh => inner.access.refresh().await,
                 ViewAction::Begin(fingerprint) => inner.access.begin(fingerprint).await,
+                ViewAction::Renew(fingerprint) => inner.access.renew(fingerprint).await,
                 ViewAction::Install(code) => inner.access.install(code).await,
                 ViewAction::Resume => inner.access.resume().await,
             }?;
@@ -113,6 +120,7 @@ impl NativeCrypto {
 enum ViewAction {
     Refresh,
     Begin(String),
+    Renew(String),
     Install(String),
     Resume,
 }
@@ -130,6 +138,9 @@ impl NativeCrypto {
     }
     pub async fn begin(&self, expected_fingerprint: String) -> Result<NativeCryptoState, RvError> {
         self.view(ViewAction::Begin(expected_fingerprint)).await
+    }
+    pub async fn renew(&self, expected_fingerprint: String) -> Result<NativeCryptoState, RvError> {
+        self.view(ViewAction::Renew(expected_fingerprint)).await
     }
     pub async fn install(&self, code: String) -> Result<NativeCryptoState, RvError> {
         self.view(ViewAction::Install(code)).await

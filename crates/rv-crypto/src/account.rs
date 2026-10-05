@@ -16,6 +16,8 @@ use std::{collections::BTreeSet, sync::Arc};
 
 const RECORD: &str = "crypto-enrollment-ui-v1";
 pub mod peers;
+mod renewal;
+use renewal::Renewal;
 const LIFETIME: u64 = 86400 * 30;
 #[derive(thiserror::Error)]
 pub enum Error {
@@ -136,6 +138,8 @@ struct State {
     request: Option<Request>,
     registration: Option<http::RegisterDevice>,
     receipt: Option<http::OperationReceipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    renewal: Option<Renewal>,
     #[serde(default)]
     withdrawn: bool,
 }
@@ -152,6 +156,14 @@ fn read(records: &Records, manager: &Manager) -> std::result::Result<Option<Stat
         || state.root.user != manager.scope().user
         || state.root.validate().is_err()
         || state.registration.is_some() && state.receipt.is_some()
+        || state.renewal.as_ref().is_some_and(|r| {
+            !r.bound(manager, &state.root)
+                || state.request.is_none()
+                || state.receipt.is_none() && state.registration.is_none()
+                || state.receipt.as_ref().is_some_and(|receipt| {
+                    serde_json::to_vec(receipt).ok() != serde_json::to_vec(&r.receipt).ok()
+                })
+        })
     {
         return Err(vault::Error::Integrity);
     }
@@ -182,6 +194,8 @@ pub enum Stage {
     WaitingForApproval,
     Registering,
     Ready,
+    Expired,
+    Renewing,
 }
 pub struct View {
     pub stage: Stage,
@@ -190,6 +204,7 @@ pub struct View {
     pub request_code: String,
     pub controls_root: bool,
     pub remote_fingerprint: String,
+    pub certificate_expires_at: Option<u64>,
 }
 pub struct Approval {
     pub root_fingerprint: String,
@@ -255,13 +270,12 @@ impl<'a> Coordinator<'a> {
         }
         Ok(())
     }
-    fn registered(
+    fn registered_certificate(
         &self,
         manager: &Manager,
         state: &State,
         directory: &Directory,
-        time: u64,
-    ) -> Result<()> {
+    ) -> Result<Certificate> {
         self.guard_state(manager, state, directory)?;
         let receipt = state.receipt.as_ref().ok_or(Error::Changed)?;
         if directory
@@ -281,7 +295,7 @@ impl<'a> Coordinator<'a> {
             .ok_or(Error::Changed)?;
         let certificate: Certificate = serde_json::from_slice(&decode(&device.certificate, 4096)?)
             .map_err(|_| Error::Changed)?;
-        certificate.verify(time)?;
+        certificate.authenticate()?;
         if certificate.device.root != state.root
             || certificate.device.device != manager.scope().device
             || hex(&certificate.device.incarnation) != manager.scope().incarnation
@@ -299,8 +313,23 @@ impl<'a> Coordinator<'a> {
             if local.public_key() != certificate.device.signature_key {
                 return Err(vault::Error::Integrity);
             }
-            private(local.credential(time)).map(|_| ())
+            let credential = private(local.credential(certificate.device.issued_at))?;
+            if private(Certificate::from_credential(&credential.credential))? != certificate {
+                return Err(vault::Error::Integrity);
+            }
+            Ok(())
         })?;
+        Ok(certificate)
+    }
+    fn registered(
+        &self,
+        manager: &Manager,
+        state: &State,
+        directory: &Directory,
+        time: u64,
+    ) -> Result<()> {
+        self.registered_certificate(manager, state, directory)?
+            .verify(time)?;
         Ok(())
     }
     pub fn prepared(&self, directory: &Directory, time: u64) -> Result<(Arc<Manager>, Root)> {
@@ -344,6 +373,7 @@ impl<'a> Coordinator<'a> {
                 request_code: String::new(),
                 controls_root: false,
                 remote_fingerprint,
+                certificate_expires_at: None,
             });
         };
         self.guard_state(selected.as_ref().ok_or(Error::Changed)?, &state, directory)?;
@@ -351,14 +381,26 @@ impl<'a> Coordinator<'a> {
         if !remote_fingerprint.is_empty() && remote_fingerprint != root_fingerprint {
             return Err(Error::Changed);
         }
-        if state.receipt.is_some() {
-            self.registered(
+        let certificate = if state.receipt.is_some() {
+            Some(self.registered_certificate(
                 selected.as_ref().ok_or(Error::Changed)?,
                 &state,
                 directory,
-                time,
-            )?;
-        }
+            )?)
+        } else {
+            state.renewal.as_ref().map(|r| r.certificate.clone())
+        };
+        let expired = if let Some(certificate) = &certificate {
+            match certificate.verify(time) {
+                Ok(()) => false,
+                Err(crate::identity::Error::Expired) if time >= certificate.device.expires_at => {
+                    true
+                }
+                Err(error) => return Err(error.into()),
+            }
+        } else {
+            false
+        };
         let (request_fingerprint, request_code) = state
             .request
             .as_ref()
@@ -366,10 +408,16 @@ impl<'a> Coordinator<'a> {
             .transpose()?
             .unwrap_or_default();
         Ok(View {
-            stage: if state.receipt.is_some() {
-                Stage::Ready
-            } else if state.registration.is_some() {
+            stage: if state.registration.is_some() {
                 Stage::Registering
+            } else if state.renewal.is_some() {
+                Stage::Renewing
+            } else if state.receipt.is_some() {
+                if expired {
+                    Stage::Expired
+                } else {
+                    Stage::Ready
+                }
             } else if state.controller {
                 Stage::IdentityCreated
             } else {
@@ -380,6 +428,7 @@ impl<'a> Coordinator<'a> {
             request_code,
             controls_root: state.controller,
             remote_fingerprint,
+            certificate_expires_at: certificate.map(|c| c.device.expires_at),
         })
     }
     pub fn begin(
@@ -433,6 +482,7 @@ impl<'a> Coordinator<'a> {
                         request: None,
                         registration: None,
                         receipt: None,
+                        renewal: None,
                         withdrawn: false,
                     }
                 }
@@ -525,7 +575,10 @@ impl<'a> Coordinator<'a> {
         self.guard_state(&manager, &state, directory)?;
         manager.transact(|_, records| {
             let mut state = read(records, &manager)?.ok_or(vault::Error::NotInitialized)?;
-            if state.registration.is_some() || state.receipt.is_some() || state.withdrawn {
+            if state.registration.is_some()
+                || state.receipt.is_some() && state.renewal.is_none()
+                || state.withdrawn
+            {
                 return Err(vault::Error::Rejected);
             }
             let request = state.request.as_ref().ok_or(vault::Error::Rejected)?;
@@ -545,6 +598,20 @@ impl<'a> Coordinator<'a> {
                 .find(|d| d.device_id == manager.scope().device);
             if previous.is_some_and(|d| d.incarnation != manager.scope().incarnation) {
                 return Err(vault::Error::Rejected);
+            }
+            if let Some(renewal) = &state.renewal {
+                let previous = previous.ok_or(vault::Error::Rejected)?;
+                let certificate: Certificate = serde_json::from_slice(
+                    &decode(&previous.certificate, 4096).map_err(|_| vault::Error::Rejected)?,
+                )
+                .map_err(|_| vault::Error::Rejected)?;
+                if previous.revision != renewal.receipt.device_revision
+                    || certificate != renewal.certificate
+                    || grant.certificate.device.issued_at <= certificate.device.issued_at
+                    || grant.certificate.device.expires_at < certificate.device.expires_at
+                {
+                    return Err(vault::Error::Rejected);
+                }
             }
             let mut local = private(LocalDevice::load(
                 &state.root,
@@ -568,6 +635,7 @@ impl<'a> Coordinator<'a> {
                 grant: B64.encode(&private(grant.to_bytes())?),
                 revoke_previous: None,
             });
+            state.receipt = None;
             save(records, &state)
         })?;
         Ok(())
@@ -613,6 +681,7 @@ impl<'a> Coordinator<'a> {
             state.registration = None;
             state.receipt = Some(receipt);
             state.request = None;
+            state.renewal = None;
             save(records, &state)
         })?;
         Ok(())

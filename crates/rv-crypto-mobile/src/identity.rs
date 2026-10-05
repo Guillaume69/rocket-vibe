@@ -12,6 +12,8 @@ pub enum IdentityPhase {
     WaitingForApproval,
     Registering,
     Ready,
+    Expired,
+    Renewing,
 }
 #[derive(Clone, uniffi::Record)]
 pub struct IdentityStatus {
@@ -21,6 +23,7 @@ pub struct IdentityStatus {
     pub request_fingerprint: String,
     pub request_code: String,
     pub controls_root: bool,
+    pub certificate_expires_at: Option<String>,
 }
 impl From<account::View> for IdentityStatus {
     fn from(value: account::View) -> Self {
@@ -31,12 +34,15 @@ impl From<account::View> for IdentityStatus {
                 account::Stage::WaitingForApproval => IdentityPhase::WaitingForApproval,
                 account::Stage::Registering => IdentityPhase::Registering,
                 account::Stage::Ready => IdentityPhase::Ready,
+                account::Stage::Expired => IdentityPhase::Expired,
+                account::Stage::Renewing => IdentityPhase::Renewing,
             },
             root_fingerprint: value.root_fingerprint,
             remote_fingerprint: value.remote_fingerprint,
             request_fingerprint: value.request_fingerprint,
             request_code: value.request_code,
             controls_root: value.controls_root,
+            certificate_expires_at: value.certificate_expires_at.map(|time| time.to_string()),
         }
     }
 }
@@ -97,6 +103,16 @@ impl CryptoInstallation {
     ) -> Result<IdentityStatus> {
         self.identity_call(&directory, |c, d, time| {
             c.begin(d, &expected_root, time)?;
+            Ok(c.view(d, time)?.into())
+        })
+    }
+    pub fn identity_renew(
+        &self,
+        directory: String,
+        expected_root: String,
+    ) -> Result<IdentityStatus> {
+        self.identity_call(&directory, |c, d, time| {
+            c.renew(d, &expected_root, time)?;
             Ok(c.view(d, time)?.into())
         })
     }

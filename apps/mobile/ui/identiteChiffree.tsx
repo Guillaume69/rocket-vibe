@@ -15,7 +15,7 @@ import type {CleTraduction} from './messages.ts';
 const keys=new WeakMap<NativeChat,number>();let nextKey=0;
 function key(chat:NativeChat):number {let k=keys.get(chat);if(k===undefined){k=++nextKey;keys.set(chat,k);}return k;}
 const labels={missing:'private.missing',identity_created:'private.created',waiting_for_approval:'private.waiting',
-  registering:'private.registering',ready:'private.ready'} as const;
+  registering:'private.registering',ready:'private.ready',expired:'private.expired',renewing:'private.renewing'} as const;
 export function SectionIdentiteChiffree({c}:{c:Couleurs}) {
   const sync=useSynchro(),chat=sync.phase==='pret'?sync.fournisseur.native?.chat:null;
   return CryptoNative && chat?.capabilities?.e2ee && chat.capabilities.device_sessions
@@ -72,7 +72,11 @@ function Identite({c,chat}:{c:Couleurs;chat:NativeChat}) {
       <Text style={[styles.text,{color:c.texteSecondaire}]}>{t('private.experimental')}</Text>
       {busy && <ActivityIndicator color={c.accent}/>}
       {view && <Text style={[styles.title,{color:c.texte}]}>{t(labels[view.phase])}</Text>}
+      {view?.certificateExpiresAt && <Text style={[styles.text,{color:c.texteSecondaire}]}>{t('private.expires')} : {new Date(Number(view.certificateExpiresAt)*1000).toLocaleString()}</Text>}
       {view?.rootFingerprint && fingerprint('private.fingerprint',view.rootFingerprint)}
+      {(view?.phase==='ready' || view?.phase==='expired' || view?.phase==='renewing') &&
+        action('private.renew',()=>{const expected=view.rootFingerprint;setPreview(null);setGrant('');
+          void run(async a=>{setView(await a.renew(expected));});})}
       {view?.phase==='missing' && <>
         {view.remoteFingerprint && <>
           {fingerprint('private.remoteFingerprint',view.remoteFingerprint)}
@@ -85,7 +89,7 @@ function Identite({c,chat}:{c:Couleurs;chat:NativeChat}) {
         {fingerprint('private.requestFingerprint',view.requestFingerprint)}
         <Text style={[styles.text,{color:c.texteSecondaire}]}>{t('private.transferRequest')}</Text>
         {action('private.copyRequest',()=>copy(view.requestCode))}
-        {view.phase==='identity_created' && action('private.selfPreview',()=>inspect(view.requestCode))}
+        {view.controlsRoot && (view.phase==='identity_created' || view.phase==='renewing') && action('private.selfPreview',()=>inspect(view.requestCode))}
       </>}
       {view?.controlsRoot && view.phase!=='registering' && <>
         <ChampPilule c={c} etiquette={t('private.request')} valeur={request} onChangeText={value=>{setRequest(value);setPreview(null);setGrant('');}} editable={!busy} multiline maxLength={5500} autoCapitalize="none" autoCorrect={false}/>
@@ -102,7 +106,7 @@ function Identite({c,chat}:{c:Couleurs;chat:NativeChat}) {
         <Text style={[styles.text,{color:c.texteSecondaire}]}>{t('private.transferGrant')}</Text>
         {action('private.copyGrant',()=>copy(grant))}
       </>}
-      {(view?.phase==='waiting_for_approval' || view?.phase==='identity_created') && <>
+      {(view?.phase==='waiting_for_approval' || view?.phase==='identity_created' || view?.phase==='renewing') && <>
         <ChampPilule c={c} etiquette={t('private.grant')} valeur={grant} onChangeText={setGrant} editable={!busy} multiline maxLength={11000} autoCapitalize="none" autoCorrect={false}/>
         {action('private.install',()=>{const code=grant.trim();setGrant('');void run(async a=>{setView(await a.install(code));});},!grant.trim())}
       </>}

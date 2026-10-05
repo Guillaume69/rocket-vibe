@@ -49,6 +49,7 @@ struct Controller {
 enum Action {
     Refresh,
     Begin,
+    Renew,
     OwnPreview,
     Preview(String),
     Approve(Box<Approval>),
@@ -68,7 +69,17 @@ impl Controller {
             Stage::WaitingForApproval => "crypto.waiting",
             Stage::Registering => "crypto.registering",
             Stage::Ready => "crypto.ready",
+            Stage::Expired => "crypto.expired",
+            Stage::Renewing => "crypto.renewing",
         }));
+        let expiration = view
+            .certificate_expires_at
+            .and_then(|time| i64::try_from(time).ok())
+            .and_then(|time| glib::DateTime::from_unix_local(time).ok())
+            .and_then(|date| date.format("%x %X").ok())
+            .map(|date| format!("{} : {date}", t("crypto.expires")))
+            .unwrap_or_default();
+        self.status.set_subtitle(&expiration);
         self.root.set_subtitle(if view.root_fingerprint.is_empty() {
             &view.remote_fingerprint
         } else {
@@ -94,10 +105,13 @@ impl Controller {
                     2 => view.as_ref().is_some_and(|v| v.controls_root && !v.request_code.is_empty()),
                     3 => view.as_ref().is_some_and(|v| v.controls_root),
                     4 => self.preview.borrow().is_some(),
-                    5 => view
-                        .as_ref()
-                        .is_some_and(|v| matches!(v.stage, Stage::IdentityCreated | Stage::WaitingForApproval)),
+                    5 => view.as_ref().is_some_and(|v| {
+                        matches!(v.stage, Stage::IdentityCreated | Stage::WaitingForApproval | Stage::Renewing)
+                    }),
                     6 => view.as_ref().is_some_and(|v| v.stage == Stage::Registering),
+                    7 => view
+                        .as_ref()
+                        .is_some_and(|v| matches!(v.stage, Stage::Ready | Stage::Expired | Stage::Renewing)),
                     _ => false,
                 },
             );
@@ -108,6 +122,7 @@ impl Controller {
             return;
         }
         self.buttons();
+        let recover_registration = matches!(&action, Action::Install(_) | Action::Resume);
         let this = self.clone();
         glib::spawn_future_local(async move {
             let result = async {
@@ -133,6 +148,7 @@ impl Controller {
                     match action {
                         Action::Refresh => access.refresh().await.map(Outcome::View),
                         Action::Begin => access.begin(fingerprint).await.map(Outcome::View),
+                        Action::Renew => access.renew(fingerprint).await.map(Outcome::View),
                         Action::OwnPreview => access.preview(own).await.map(|p| Outcome::Preview(Box::new(p))),
                         Action::Preview(code) => access.preview(code).await.map(|p| Outcome::Preview(Box::new(p))),
                         Action::Approve(preview) => access.approve(*preview).await.map(Outcome::Grant),
@@ -163,6 +179,21 @@ impl Controller {
                     this.status.set_title(t("crypto.grant_ready"));
                 }
                 Err(_) => {
+                    if recover_registration {
+                        let access = this.access.borrow().clone();
+                        if let Some(access) = access
+                            && let Ok(view) = on_tokio(async move { access.refresh().await }).await
+                        {
+                            if !this.guard.alive() || this.dialog.upgrade().is_none() {
+                                return;
+                            }
+                            this.render(view);
+                            this.code.set_text("");
+                        }
+                        if !this.guard.alive() || this.dialog.upgrade().is_none() {
+                            return;
+                        }
+                    }
                     this.preview.borrow_mut().take();
                     let inactive = this.access.borrow().as_ref().is_some_and(|a| a.check().is_err());
                     if inactive {
@@ -226,6 +257,7 @@ fn build_dialog(session: Arc<NativeSession>) -> (adw::PreferencesDialog, Rc<Cont
         "crypto.approve",
         "crypto.install",
         "crypto.resume",
+        "crypto.renew",
     ];
     let actions: Vec<_> = keys
         .iter()
@@ -267,7 +299,8 @@ fn build_dialog(session: Arc<NativeSession>) -> (adw::PreferencesDialog, Rc<Cont
                     Action::Approve(Box::new(p))
                 }
                 5 => Action::Install(c.code.text().trim().into()),
-                _ => Action::Resume,
+                6 => Action::Resume,
+                _ => Action::Renew,
             };
             c.run(action);
         });
@@ -332,6 +365,7 @@ mod tests {
             request_code: "fixture-public-request".into(),
             controls_root: true,
             remote_fingerprint: String::new(),
+            certificate_expires_at: None,
         });
         assert!(controller.actions[2].is_sensitive());
         assert!(!controller.actions[4].is_sensitive());
@@ -365,6 +399,7 @@ mod tests {
             request_code: "fixture-public-request".into(),
             controls_root: true,
             remote_fingerprint: "ab".repeat(32),
+            certificate_expires_at: Some(1_800_000_000),
         });
         assert!(!controller.actions[1].is_sensitive());
         assert!(controller.actions[6].is_sensitive());

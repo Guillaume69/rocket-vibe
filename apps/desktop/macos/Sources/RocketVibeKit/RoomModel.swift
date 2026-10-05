@@ -32,7 +32,7 @@ public final class RoomModel {
     public let provider: ChatProvider
     var chat: Chat? { provider.legacy }
     public var supportsFiles: Bool { !privateMode && provider.supportsFiles }
-    public var supportsEditing: Bool { !privateMode && provider.supportsEditing }
+    public var supportsEditing: Bool { privateMode ? privateReady : provider.supportsEditing }
     public var supportsRoomInfo: Bool { active && provider.supportsRoomInfo }
     public var supportsCalls: Bool { active && membershipIsCurrent && provider.supportsCalls }
     public func callAvailable() async -> Bool {
@@ -676,6 +676,7 @@ public final class RoomModel {
                provider.native?.supportedFeatures().contains("threads") == true {
                 result.append(.replyInThread)
             }
+            if privateReady, message.mine, privateJournaled(message.id) { result += [.edit, .delete] }
             return result
         }
         if provider.native != nil && message.system != nil { return [] }
@@ -703,6 +704,9 @@ public final class RoomModel {
         actionsOf[message.id] = actions
         return actions
     }
+    private func privateJournaled(_ id: String) -> Bool {
+        privateMessages.contains { $0.id == id && $0.delivery == .journaled }
+    }
     public func canResumePrivate(_ id: String) -> Bool {
         active && privateMode && privateMessages.contains { $0.id == id && $0.delivery != .journaled && $0.delivery != .cancelled }
     }
@@ -726,6 +730,10 @@ public final class RoomModel {
     /// Capture the text and revision before opening the existing editor or confirmation.
     public func prepareMutation(_ message: MessageItem, editing: Bool) async throws {
         guard active else { throw RvError.Local(message: L("native.error")) }
+        if privateMode {
+            guard privateReady, message.mine, privateJournaled(message.id) else { throw RvError.Local(message: L("actions.refused")) }
+            return
+        }
         guard let native = provider.native else { return }
         let context = try await native.messageActions(messageId: message.id)
         guard active, editing ? context.edit : context.delete else { throw RvError.Local(message: L("actions.refused")) }
@@ -765,6 +773,7 @@ public final class RoomModel {
     }
 
     public func edit(_ message: MessageItem, text: String) async throws {
+        if privateMode { return try await amendPrivate(message, text: text) }
         if let native = provider.native {
             guard active, let context = mutations[message.id] else { throw RvError.Local(message: "revision_required") }
             try await native.edit(room: room.rid, messageId: message.id, revision: context.revision, text: text)
@@ -775,7 +784,15 @@ public final class RoomModel {
         try await editableChat().edit(rid: room.rid, messageId: message.id, text: text)
     }
 
+    /// An encrypted edit (`text`) or deletion (`nil`), applied once journaled.
+    private func amendPrivate(_ message: MessageItem, text: String?) async throws {
+        guard active, let privateHandle, privateJournaled(message.id) else { throw RvError.Local(message: L("crypto.failed")) }
+        try await privateHandle.amend(messageId: message.id, text: text)
+        await refreshPrivate()
+    }
+
     public func delete(_ message: MessageItem) async throws {
+        if privateMode { return try await amendPrivate(message, text: nil) }
         if let native = provider.native {
             guard active, let context = mutations[message.id] else { throw RvError.Local(message: "revision_required") }
             try await native.delete(room: room.rid, messageId: message.id, revision: context.revision)

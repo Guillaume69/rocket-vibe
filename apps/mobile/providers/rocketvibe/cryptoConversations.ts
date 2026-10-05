@@ -15,7 +15,11 @@ export type ConversationTransport={
   cancelCryptoMessage:(room:string,input:ApplicationSubmission)=>Promise<ApplicationSettlement>;
 };
 export type CryptoMessage={id:string;operation:string;author:string;document:SendMessage;position:string|null;
-  author_label?:string;public_files?:import('./protocol.generated.ts').FileDescriptor[];observed_at:string;status:'journaled'|'pending'|'accepted'|'cancelling'|'cancelled'};
+  author_label?:string;public_files?:import('./protocol.generated.ts').FileDescriptor[];observed_at:string;status:'journaled'|'pending'|'accepted'|'cancelling'|'cancelled';
+  /** The author's latest edit is already in `document.text` (E2EE_AMENDMENTS.md). */
+  edited?:boolean;
+  /** My unsettled edit or deletion of this row, retried or cancelled by its own operation. */
+  amendment?:{operation:string;status:'pending'|'cancelling'}|null};
 export type CryptoConversationView={admission:string;after:string;catching_up:boolean;has_older:boolean;can_send:boolean;draft:string;messages:CryptoMessage[];
   root:CryptoMessage|null;retained_replies:Record<string,number>;quote_cards?:Record<string,NativeQuoteAttachment[]>};
 const id=(v:unknown):v is string=>typeof v==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(v);
@@ -29,7 +33,12 @@ function decodeRow(raw:unknown,target:string|null|undefined):CryptoMessage {
   if(!id(row.id) || !id(row.operation) || !id(row.author) || (row.position!==null && !position(row.position,false))
     || !position(row.observed_at) || BigInt(row.observed_at)>253402300799n
     || !['journaled','pending','accepted','cancelling','cancelled'].includes(String(row.status))
-    || document.operation_id!==row.operation || target!==undefined && (document.reply_to??null)!==target)integrity();
+    || document.operation_id!==row.operation || target!==undefined && (document.reply_to??null)!==target
+    || row.edited!==undefined && typeof row.edited!=='boolean')integrity();
+  if(row.amendment!==undefined && row.amendment!==null) {
+    const a=object(row.amendment);
+    if(!id(a.operation) || a.operation===row.operation || !['pending','cancelling'].includes(String(a.status)) || row.status!=='journaled')integrity();
+  }
   return {...row,document} as CryptoMessage;
 }
 function quoteSelection(value:unknown):NativeQuoteSelection {
@@ -266,6 +275,19 @@ export class CryptoConversationAccess {
           references:selected.filter(q=>q.reference.room_id===s.room).map(q=>q.reference)}))}));if(!id(prepared.operation))integrity();
       // Once prepared, an uncertain HTTP result leaves this exact intention in
       // the private outbox. A retry never prepares a second ciphertext.
+      try {await this.resumeInner(prepared.operation,rpc,call);}
+      catch(error) {
+        if(!(error instanceof NativeError && (['network_error','network_or_protocol_error'].includes(error.code) || error.status>=500 || error.status===429)))throw error;
+      }
+      return prepared.operation;
+    });
+  }
+  /** Edits (`text`) or deletes (`null`) one of my journaled messages. Like a
+   * send, an uncertain HTTP result leaves the amendment in the private outbox. */
+  async amend(target:string,text:string|null):Promise<string> {
+    if(!id(target) || text!==null && (!text.trim() || text.length>65536))integrity();
+    return this.run(true,async(rpc,_r,_p,_s,call)=>{
+      const prepared=object(await rpc({action:'amend',target,text}));if(!id(prepared.operation))integrity();
       try {await this.resumeInner(prepared.operation,rpc,call);}
       catch(error) {
         if(!(error instanceof NativeError && (['network_error','network_or_protocol_error'].includes(error.code) || error.status>=500 || error.status===429)))throw error;

@@ -231,6 +231,11 @@ impl NativeCryptoMessages {
         .await
         .map_err(error)
     }
+    /// Edits (`Some(text)`) or deletes (`None`) one of my journaled messages.
+    pub async fn amend(&self, message_id: String, text: Option<String>) -> Result<(), RvError> {
+        let access = self.access.clone();
+        on_tokio(async move { access.amend(message_id, text).await }).await.map_err(error)
+    }
     pub async fn resume(&self, operation: String) -> Result<(), RvError> {
         let access = self.access.clone();
         on_tokio(async move { access.resume(operation).await }).await.map_err(error)

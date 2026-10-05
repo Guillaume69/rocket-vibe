@@ -12,7 +12,7 @@ import { messages, rooms, outbox, nativeRoomAccess } from '../../db/schema.ts';
 import {CryptoNative} from '../../modules/crypto-native/index.ts';
 import {privateRows} from '../../providers/rocketvibe/cryptoProjection.ts';
 import {usePrivateQuotes} from '../../ui/privateQuotes.ts';
-import {useEncryptedConversation} from '../../ui/encryptedConversation.ts';
+import {useEncryptedConversation,privateRow,privateInterrupted} from '../../ui/encryptedConversation.ts';
 import {Tappable} from '../../ui/tappable.tsx';
 import type { ActivityEngine } from '../../lib/activity.ts';
 import type { ProviderActions, Provider, Listener, Outbox } from '../../lib/provider.ts';
@@ -309,8 +309,8 @@ function Thread({
         return <DaySeparator c={c} ts={item.ts} />;
       }
       const sendState = outboxById.get(item.id);
-      const isPrivate=protectedRoom?conversation.view?.messages.find(row=>row.id===item.id):undefined;
-      const interrupted=isPrivate && ['pending','cancelling','cancelled'].includes(isPrivate.status);
+      const isPrivate=protectedRoom?privateRow(conversation.view,item.id):undefined;
+      const interrupted=isPrivate && privateInterrupted(isPrivate);
       return (
         <View style={item.id===messageTarget?{backgroundColor:c.surfaceActive}:undefined}><MessageRow
           c={c}
@@ -320,7 +320,7 @@ function Thread({
           failureLabel={interrupted?t(isPrivate.status==='cancelled'?'conversation.cancelled':'conversation.pending'):undefined}
           onRetry={(protectedRoom?interrupted && !conversation.busy:sendState?.status==='failed')?()=>retry(item.id):null}
           onDiscard={(protectedRoom?interrupted && isPrivate.status!=='cancelled' && !conversation.busy:sendState?.status==='failed')?discard:null}
-          onLongPress={protectedRoom?isPrivate?.status==='journaled' || item.id===conversation.view?.root?.id?openActions:null:sendState === undefined ? openActions : null}
+          onLongPress={protectedRoom?isPrivate?.status==='journaled' && !isPrivate.amendment?openActions:null:sendState === undefined ? openActions : null}
           // We ARE in the thread: no "N replies" indicator on the root.
           onOpenThread={null}
           me={me}

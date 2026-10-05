@@ -10,6 +10,6 @@ export function privateRows(view:CryptoConversationView|null,room:string,thread=
   if(thread){rows.reverse();if(view?.root)rows.unshift(view.root);}
   return rows.map(v=>({id:v.id,rid:room,text:v.document.text,ts:Number(v.observed_at)*1000,
     authorId:v.author,authorName:v.author,systemType:null,threadId:v.document.reply_to??null,threadCount:view?.retained_replies[v.id]??0,threadLast:null,
-    threadShown:false,editedAt:null,md:null,attachments:view?.quote_cards?.[v.id]?.length?JSON.stringify(view.quote_cards[v.id]):null,reactions:null,urls:null,callId:null,encryptedRaw:null,
+    threadShown:false,editedAt:v.edited?Number(v.observed_at)*1000:null,md:null,attachments:view?.quote_cards?.[v.id]?.length?JSON.stringify(view.quote_cards[v.id]):null,reactions:null,urls:null,callId:null,encryptedRaw:null,
     pinned:false,starred:null,updatedAt:0}));
 }

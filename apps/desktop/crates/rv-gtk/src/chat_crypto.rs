@@ -168,6 +168,33 @@ impl ChatPage {
             }
         });
     }
+    /// Edits my private message in place; saving sends an encrypted edit.
+    pub(super) fn start_crypto_edit(self: &Rc<Self>, row: rv_core::store::MessageRow, in_thread: bool) {
+        if row.outbox_status.is_some() {
+            return;
+        }
+        self.native_edit.replace(Some((row.id.clone(), String::new(), row.text.clone().unwrap_or_default())));
+        self.list_of(in_thread).start_edit(&row);
+    }
+    /// Sends an encrypted edit (`Some(text)`) or deletion (`None`).
+    pub(super) fn crypto_amend(self: &Rc<Self>, id: String, text: Option<String>, in_thread: bool) {
+        if in_thread {
+            if let Some(thread) = self.thread.borrow().as_ref() {
+                thread.amend_private(id, text);
+            }
+            return;
+        }
+        let Some(access) = self.native_crypto.borrow().clone() else { return };
+        let (weak, generation) = (Rc::downgrade(self), self.read_generation.get());
+        glib::spawn_future_local(async move {
+            let result = on_tokio(async move { access.amend(id, text).await }).await;
+            let Some(page) = weak.upgrade().filter(|p| p.read_generation.get() == generation) else { return };
+            if result.is_err() {
+                page.toast(t("crypto.failed").to_owned());
+            }
+            page.crypto_history(false).await;
+        });
+    }
     pub(super) fn crypto_retry(self: &Rc<Self>, id: String, cancel: bool) {
         let Some(access) = self.native_crypto.borrow().clone() else { return };
         let Some((_, operation, _)) = self.native_crypto_meta.borrow().iter().find(|(m, _, _)| m == &id).cloned()

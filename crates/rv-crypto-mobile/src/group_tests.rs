@@ -810,6 +810,130 @@ fn private_mobile_messages_keep_originals_drafts_and_verified_journal_across_reo
                 .contains("private thread reply")
         );
     }
+    // Only the author amends; an unsettled edit shows on its target.
+    assert!(
+        bob.conversation_action(
+            serde_json::to_string(&peer).unwrap(),
+            json!({"roster":roster,"state":state,"thread":null,"command":{"action":"amend",
+            "target":"first-message","text":"forged"}})
+            .to_string()
+        )
+        .is_err()
+    );
+    let edit = conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"amend","target":"first-message","text":"private original edited"}),
+    );
+    let edit_operation = edit["operation"].as_str().unwrap();
+    let view = conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"view","before":null,"limit":200}),
+    );
+    let target = |view: &Value| {
+        view["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["id"] == "first-message")
+            .cloned()
+            .unwrap()
+    };
+    let row = target(&view);
+    assert_eq!(
+        (&row["status"], &row["amendment"], &row["edited"]),
+        (
+            &json!("journaled"),
+            &json!({"operation":edit_operation,"status":"pending"}),
+            &json!(true)
+        )
+    );
+    assert_eq!(row["document"]["text"], "private original edited");
+    let packet: http::ApplicationSubmission = serde_json::from_value(conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"retry","operation":edit_operation}),
+    ))
+    .unwrap();
+    let proof = rv_crypto_public::messages::Proof::from_bytes(
+        &B64.decode(packet.proof.as_bytes()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(proof.header.target.as_deref(), Some("first-message"));
+    let edit_receipt = http::ApplicationReceipt {
+        scope: own.scope.clone(),
+        room_id: "room".into(),
+        operation_id: edit_operation.into(),
+        header: B64.encode(&serde_json::to_vec(&proof.header).unwrap()),
+        fingerprint: HEXLOWER.encode(&proof.fingerprint().unwrap()),
+        message_id: "edit-first".into(),
+        position: "9007199254740997".into(),
+    };
+    conversation(
+        &alice,
+        &own,
+        &roster,
+        &state,
+        None,
+        json!({"action":"acknowledge","receipt":edit_receipt}),
+    );
+    let edit_page = http::DeliveryPage {
+        scope: own.scope.clone(),
+        room_id: "room".into(),
+        incarnation: ack.incarnation.clone(),
+        after: "9007199254740996".into(),
+        through: edit_receipt.position.clone(),
+        next: None,
+        events: vec![http::DeliveryEvent {
+            position: edit_receipt.position.clone(),
+            content: http::DeliveryContent::Message(http::ApplicationMessage {
+                receipt: edit_receipt,
+                proof: packet.proof,
+                ciphertext: packet.ciphertext,
+            }),
+        }],
+    };
+    for (actor, directory) in [(&*alice, &own), (&*bob, &peer)] {
+        conversation(
+            actor,
+            directory,
+            &roster,
+            &state,
+            None,
+            json!({"action":"receive","page":edit_page}),
+        );
+        let view = conversation(
+            actor,
+            directory,
+            &roster,
+            &state,
+            None,
+            json!({"action":"view","before":null,"limit":200}),
+        );
+        let row = target(&view);
+        assert_eq!(
+            (&row["amendment"], &row["edited"]),
+            (&Value::Null, &json!(true))
+        );
+        assert_eq!(row["document"]["text"], "private original edited");
+        assert!(
+            !view["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m["id"] == "edit-first")
+        );
+    }
     let pending = conversation(
         &alice,
         &own,

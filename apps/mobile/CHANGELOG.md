@@ -294,6 +294,10 @@ release, and its notes are that version's section here.
   the code, devices holding it upload their encrypted history as messages arrive, and a new
   device restores it with the code alone, even with no other device left. A device approved
   through a history share receives the key with it.
+- Edit and delete your own encrypted messages from the message's long-press sheet, in rooms
+  and threads. The change is encrypted like a message: other members see the new text with an
+  "edited" mark, or the message disappears. Until the server accepts it, the message shows the
+  change as pending, with retry and cancel.
 
 ### Changed
 

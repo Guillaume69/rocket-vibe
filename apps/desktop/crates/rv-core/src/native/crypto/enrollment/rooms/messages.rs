@@ -203,7 +203,7 @@ impl Access {
         for entry in projection.root.into_iter().chain(projection.messages) {
             let receipt = &entry.message.receipt;
             let document = entry.message.message().map_err(rv_crypto::delivery::Error::from)?;
-            messages.push(message(
+            let mut row = message(
                 &room.0.id,
                 document,
                 &receipt.header.author,
@@ -212,11 +212,31 @@ impl Access {
                 entry.observed_at,
                 Delivery::Journaled,
                 &names,
-            )?);
+            )?;
+            if let Some(edit) = &entry.edit {
+                edited(&mut row, edit.text.to_string());
+            }
+            messages.push(row);
         }
         if before.is_none() {
             for entry in outgoing {
                 if entry.header.thread != self.0.thread {
+                    continue;
+                }
+                if let Some(target) = &entry.header.target {
+                    // An unsettled amendment shows on its target, which then
+                    // carries its operation for retry and cancellation.
+                    if entry.cancelled || entry.receipt.is_some() {
+                        continue;
+                    }
+                    let Some(row) = messages.iter_mut().find(|m| &m.row.id == target) else { continue };
+                    if entry.header.kind == groups::MessageKind::Edit {
+                        let text = entry.message().map_err(rv_crypto::delivery::Error::from)?.text;
+                        edited(row, text);
+                    }
+                    row.operation = entry.header.operation.clone();
+                    row.delivery = if entry.cancelling { Delivery::Cancelling } else { Delivery::Pending };
+                    row.row.outbox_status = Some("pending".into());
                     continue;
                 }
                 let delivery = if entry.cancelled {
@@ -308,6 +328,9 @@ impl Access {
             return Err(crate::native::Error::Protocol("crypto_thread_root_not_retained").into());
         }
         for entry in crypto.outgoing_messages(roster.clone()).await? {
+            if entry.header.target.is_some() {
+                continue;
+            }
             let original = entry.message().map_err(rv_crypto::delivery::Error::from)?;
             if !entry.cancelled
                 && original.reply_to == document.reply_to
@@ -329,6 +352,17 @@ impl Access {
         }
         self.check()
     }
+    /// Edits (`Some(text)`) or deletes (`None`) one of the user's own
+    /// journaled messages (E2EE_AMENDMENTS.md). Readers apply it once it is
+    /// journaled; until then it shows on its target like a pending send.
+    pub async fn amend(&self, target: String, text: Option<String>) -> Result<()> {
+        let _serial = self.0.serial.lock().await;
+        self.0.room.current().await?;
+        self.roster()?;
+        let operation = crate::native::room_operation_id();
+        self.0.room.0.crypto.amend_message(&self.0.room.0.id, target, text, operation).await?;
+        self.check()
+    }
     pub async fn resume(&self, operation: String) -> Result<()> {
         let _serial = self.0.serial.lock().await;
         let roster = self.roster()?;
@@ -344,7 +378,7 @@ impl Access {
             crypto.resume_message(&operation).await?;
         }
         self.check()?;
-        if crypto.draft(roster.clone(), self.0.thread.clone()).await? == text {
+        if original.header.target.is_none() && crypto.draft(roster.clone(), self.0.thread.clone()).await? == text {
             crypto.set_draft(roster, self.0.thread.clone(), String::new()).await?;
         }
         self.check()
@@ -369,6 +403,11 @@ impl Access {
     }
 }
 
+fn edited(message: &mut Message, text: String) {
+    message.row.md = Some(crate::native::markdown::cached_tree(None, &text));
+    message.row.text = Some(text);
+    message.row.edited = true;
+}
 #[allow(clippy::too_many_arguments)]
 fn message(
     room: &str,

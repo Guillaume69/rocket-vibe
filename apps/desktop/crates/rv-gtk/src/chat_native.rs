@@ -482,6 +482,19 @@ impl ChatPage {
         if self.current.borrow().as_ref().is_some_and(|r| r.encrypted) {
             match event {
                 RowEvent::OpenThread(root) if !in_thread => self.open_native_thread(&root),
+                RowEvent::CancelEdit => {
+                    self.native_edit.replace(None);
+                    self.list_of(in_thread).stop_edit();
+                    self.composer_of(in_thread).grab_focus();
+                }
+                RowEvent::SaveEdit => {
+                    let Some((id, _, initial)) = self.native_edit.borrow_mut().take() else { return };
+                    let Some((edited, text)) = self.list_of(in_thread).stop_edit() else { return };
+                    self.composer_of(in_thread).grab_focus();
+                    if edited == id && !text.trim().is_empty() && text != initial {
+                        self.crypto_amend(id, Some(text), in_thread);
+                    }
+                }
                 RowEvent::Retry(id) => {
                     if in_thread {
                         if let Some(thread) = self.thread.borrow().as_ref() {
@@ -500,7 +513,7 @@ impl ChatPage {
                     popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
                     let list = gtk::Box::new(gtk::Orientation::Vertical, 0);
                     let copy = gtk::Button::builder().label(t("actions.copy")).css_classes(["flat"]).build();
-                    let (target, text, menu) = (anchor, row.text.unwrap_or_default(), popover.clone());
+                    let (target, text, menu) = (anchor, row.text.clone().unwrap_or_default(), popover.clone());
                     copy.connect_clicked(move |_| {
                         target.clipboard().set_text(&text);
                         menu.popdown();
@@ -545,6 +558,28 @@ impl ChatPage {
                             menu.popdown();
                         });
                         list.append(&button);
+                    }
+                    let mine = self.native_session().is_some_and(|s| s.info.user_id == row.author_id);
+                    if mine && row.outbox_status.is_none() {
+                        for (key, edit) in [("actions.edit", true), ("actions.delete", false)] {
+                            let button = gtk::Button::builder().label(t(key)).css_classes(["flat"]).build();
+                            let (weak, r, menu) = (Rc::downgrade(self), row.clone(), popover.clone());
+                            button.connect_clicked(move |_| {
+                                menu.popdown();
+                                let Some(page) = weak.upgrade() else { return };
+                                if edit {
+                                    page.start_crypto_edit(*r.clone(), in_thread);
+                                    return;
+                                }
+                                let (weak, id) = (weak.clone(), r.id.clone());
+                                actions_menu::confirm_delete(Some(page.split.upcast_ref()), move || {
+                                    if let Some(page) = weak.upgrade() {
+                                        page.crypto_amend(id.clone(), None, in_thread);
+                                    }
+                                });
+                            });
+                            list.append(&button);
+                        }
                     }
                     if row.outbox_status.is_some() {
                         for (key, cancel) in [("native.retry", false), ("native.abandon", true)] {

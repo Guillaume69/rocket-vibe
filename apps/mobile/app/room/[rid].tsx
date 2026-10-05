@@ -39,7 +39,7 @@ import type { RestClient } from '../../lib/rest.ts';
 import { TypingEngine, summarizeTyping } from '../../lib/typing.ts';
 import { bringMessage } from '../../ui/bringMessage.ts';
 import { useDraft } from '../../ui/drafts.ts';
-import {useEncryptedConversation} from '../../ui/encryptedConversation.ts';
+import {useEncryptedConversation,privateRow,privateInterrupted} from '../../ui/encryptedConversation.ts';
 import {privateRows} from '../../providers/rocketvibe/cryptoProjection.ts';
 import {usePrivateQuotes} from '../../ui/privateQuotes.ts';
 import {CryptoNative} from '../../modules/crypto-native/index.ts';
@@ -937,8 +937,8 @@ function Room({
         return <DaySeparator c={c} ts={item.ts} />;
       }
       const sendState = outboxById.get(item.id);
-      const isPrivate=protectedRoom?conversation.view?.messages.find(row=>row.id===item.id):undefined;
-      const interrupted=isPrivate && ['pending','cancelling','cancelled'].includes(isPrivate.status);
+      const isPrivate=protectedRoom?privateRow(conversation.view,item.id):undefined;
+      const interrupted=isPrivate && privateInterrupted(isPrivate);
       return (
         <View
           style={[
@@ -957,7 +957,7 @@ function Room({
             // No actions on an outbox row: its client `_id` has not been accepted by
             // the server; `chat.delete`/`chat.update` on it can only fail. Its real
             // actions are retry/discard.
-            onLongPress={protectedRoom?isPrivate?.status==='journaled'?openActions:null:sendState === undefined ? openActions : null}
+            onLongPress={protectedRoom?isPrivate?.status==='journaled' && !isPrivate.amendment?openActions:null:sendState === undefined ? openActions : null}
             onOpenThread={(protectedRoom?isPrivate?.status!=='journaled':provider.capabilities.threads===false)?null:openThread}
             threadLabel={protectedRoom?t(item.threadCount>0?'conversation.retainedReplies':'thread.reply',{n:item.threadCount}):undefined}
             me={me}

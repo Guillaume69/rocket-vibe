@@ -19,6 +19,8 @@ struct Book {
     message_receipts: BTreeMap<String, rv_protocol::e2ee::ApplicationReceipt>,
     message_posts: usize,
     lose_message_reply: bool,
+    /// Fail the next message POST before the server records it.
+    drop_message: bool,
     available: Option<rv_protocol::e2ee::AvailableKeyPackage>,
     package_gets: usize,
 }
@@ -113,6 +115,10 @@ impl Book {
                     Some(package) => json_response(serde_json::to_value(package).unwrap()),
                     None => missing(),
                 }
+            }
+            "/api/v1/e2ee/rooms/room/messages" if self.drop_message => {
+                self.drop_message = false;
+                respond(503, r#"{"code":"unavailable","request_id":"private-compose"}"#)
             }
             "/api/v1/e2ee/rooms/room/messages" => {
                 assert_eq!(request.method, "POST");
@@ -245,6 +251,7 @@ async fn setup(include_peer: bool) -> (Pilot, crypto::enrollment::Access, Arc<Mu
         message_receipts: BTreeMap::new(),
         message_posts: 0,
         lose_message_reply: false,
+        drop_message: false,
         available: None,
         package_gets: 0,
     }));
@@ -966,4 +973,51 @@ async fn private_conversation_recovers_lost_send_reopens_drafts_and_never_projec
     snapshot(&pilot, true);
     assert!(reopened.refresh(None, 50).await.is_err());
     assert_eq!(book.lock().unwrap().message_posts, 3);
+}
+
+#[tokio::test]
+async fn private_edits_and_deletions_show_on_their_target_and_resume_like_sends() {
+    use crypto::enrollment::rooms::messages::Delivery;
+    let (pilot, settings, book) = setup(false).await;
+    let group = settings.room("room".into()).await.unwrap();
+    let view = group.refresh().await.unwrap();
+    let preview = group.preview_create(view.revision, vec![]).await.unwrap();
+    group.confirm(preview.revision, preview.review.unwrap().fingerprint).await.unwrap();
+    group.close();
+    encrypted_snapshot(&pilot);
+    let chat = message_settings(&pilot).await.messages("room".into(), None).await.unwrap();
+    chat.refresh(None, 50).await.unwrap();
+    chat.send(rv_protocol::SendMessage {
+        operation_id: "amend-original".into(),
+        text: "private-message-cleartext original".into(),
+        reply_to: None,
+        quotes: vec![],
+        cards: vec![],
+    })
+    .await
+    .unwrap();
+    let view = chat.refresh(None, 50).await.unwrap();
+    let id = view.messages[0].row.id.clone();
+    assert!(!view.messages[0].row.edited);
+    // A failed POST leaves the edit unsettled: it shows on its target, which
+    // carries the edit's operation until it is resumed.
+    book.lock().unwrap().drop_message = true;
+    assert!(chat.amend(id.clone(), Some("private-message-cleartext edited".into())).await.is_err());
+    let pending = chat.refresh(None, 50).await.unwrap();
+    assert_eq!(pending.messages.len(), 1);
+    let row = &pending.messages[0];
+    assert!(row.delivery == Delivery::Pending && row.row.outbox_status.as_deref() == Some("pending"));
+    assert_eq!(row.row.text.as_deref(), Some("private-message-cleartext edited"));
+    chat.resume(row.operation.clone()).await.unwrap();
+    assert_eq!(book.lock().unwrap().message_posts, 2);
+    let view = chat.refresh(None, 50).await.unwrap();
+    assert_eq!(view.messages.len(), 1);
+    let row = &view.messages[0];
+    assert!(row.delivery == Delivery::Journaled && row.row.outbox_status.is_none() && row.row.edited);
+    assert_eq!((row.row.id.as_str(), row.row.text.as_deref()), (id.as_str(), Some("private-message-cleartext edited")));
+    // An amendment is never a target, and a deletion removes the row.
+    let amendment = book.lock().unwrap().message_receipts.len();
+    assert!(chat.amend(format!("private-message-{amendment}"), None).await.is_err());
+    chat.amend(id, None).await.unwrap();
+    assert!(chat.refresh(None, 50).await.unwrap().messages.is_empty());
 }

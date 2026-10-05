@@ -3,10 +3,18 @@ import {useFocusEffect} from 'expo-router';
 import {AppState} from 'react-native';
 import {CryptoNative} from '../modules/crypto-native/index.ts';
 import type {NativeChat} from '../providers/rocketvibe/chat.ts';
-import type {CryptoConversationAccess,CryptoConversationView} from '../providers/rocketvibe/cryptoConversations.ts';
+import type {CryptoConversationAccess,CryptoConversationView,CryptoMessage} from '../providers/rocketvibe/cryptoConversations.ts';
 import type {Outbox} from '../lib/provider.ts';
 import {NativeError} from '../providers/rocketvibe/transport.ts';
 import {refreshNativeReply,invalidateNativeReply,readReply,useReply} from './reply.ts';
+/** A projected row, thread root included. */
+export function privateRow(view:CryptoConversationView|null,id:string):CryptoMessage|undefined {
+  return view?.root?.id===id?view.root:view?.messages.find(row=>row.id===id);
+}
+/** A send or an amendment of this row waits for the server. */
+export function privateInterrupted(row:CryptoMessage|undefined):boolean {
+  return !!row && (['pending','cancelling','cancelled'].includes(row.status) || !!row.amendment);
+}
 /** The existing room list consumes a volatile native projection. Blur,
  * suspension and membership changes dispose it; no lissage retains clear rows. */
 export function useEncryptedConversation(chat:NativeChat|undefined,room:string,membership:string|null|undefined,enabled:boolean,thread:string|null=null) {
@@ -88,12 +96,16 @@ export function useEncryptedConversation(chat:NativeChat|undefined,room:string,m
       return run(a=>a.send(text,quotes),false,true);
     },
     process:async()=>{
-      const pending=(view?.messages??[]).filter(row=>row.status==='pending' || row.status==='cancelling');
-      await run(async a=>{for(const row of pending)await a.resume(row.operation);});
+      const rows=[...(view?.root?[view.root]:[]),...(view?.messages??[])];
+      const pending=[...rows.filter(row=>row.status==='pending' || row.status==='cancelling').map(row=>row.operation),
+        ...rows.flatMap(row=>row.amendment?[row.amendment.operation]:[])];
+      await run(async a=>{for(const operation of pending)await a.resume(operation);});
     },
-    retry:async id=>{const row=view?.messages.find(v=>v.id===id);if(!row)throw Error('Private intention unavailable');
+    retry:async id=>{const row=privateRow(view,id);if(!row)throw Error('Private intention unavailable');
+      if(row.amendment){const operation=row.amendment.operation;await run(a=>a.resume(operation));return;}
       await run(a=>row.status==='cancelled'?a.restore(row.operation):a.resume(row.operation),row.status==='cancelled');},
-    discard:async id=>{const row=view?.messages.find(v=>v.id===id);if(!row)throw Error('Private intention unavailable');await run(a=>a.cancel(row.operation));},
+    discard:async id=>{const row=privateRow(view,id);if(!row)throw Error('Private intention unavailable');
+      const operation=row.amendment?.operation??row.operation;await run(a=>a.cancel(operation));},
   }),[room,thread,run,view]);
   return {view,initial,composer,failed,busy,outbox,save,reload};
 }

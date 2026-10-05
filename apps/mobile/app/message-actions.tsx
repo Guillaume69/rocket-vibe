@@ -183,11 +183,12 @@ export default function MessageActionsScreen() {
         unsubscribe=native.chat.subscribe(invalidate);appSubscription=AppState.addEventListener('change',invalidate);
         let view=await actor.refresh();
         for(let n=0;n<8 && view.catching_up;n++)view=await actor.refresh();
-        const message=[...(view.root?[view.root]:[]),...view.messages].find(m=>m.id===id && m.status==='journaled');
+        const message=[...(view.root?[view.root]:[]),...view.messages].find(m=>m.id===id && m.status==='journaled' && !m.amendment);
         if(!alive() || actor.isClosed)return;if(!message)throw Error('Private source unavailable');
         setPayload({privateOwner:native.chat,message:{id,rid,threadId:message.document.reply_to??null,systemType:null,text:message.document.text,
           authorName:message.author,attachments:null,reactions:null,pinned:false,starred:null},
-          room:{type:'p',name:null},actions:['reply',...(message.document.text?['copy'] as const:[])]});
+          room:{type:'p',name:null},actions:['reply',...(message.document.text?['copy'] as const:[]),
+            ...(message.author===me && view.can_send?['edit','delete'] as const:[])]});
         return;
       }
       // The rules depend on nothing local: the request goes out right
@@ -295,6 +296,12 @@ export default function MessageActionsScreen() {
   // a double tap trigger the action twice, and two `router.back()`, the
   // second of which ejects from the room.
   const inFlight = useRef(false);
+  // An encrypted edit (text) or deletion (null), through the sheet's actor.
+  const privateAmend = (target: string, text: string | null) => {
+    const actor = privateAccess.current;
+    if (!actor) throw Error('Private source unavailable');
+    return actor.amend(target, text);
+  };
   const act = useCallback(
     async (action: () => Promise<unknown>) => {
       if (inFlight.current) return;
@@ -533,13 +540,15 @@ export default function MessageActionsScreen() {
               disabled={busy}
               onPress={() =>
                 void act(() =>
-                  trigger.edit(
-                    message.rid,
-                    message.id,
-                    editing ?? '',
-                    message.systemType === ENCRYPTED_TYPE ? (e2e ?? undefined) : undefined,
-                    payload.revision,
-                  ),
+                  isPrivate === '1'
+                    ? privateAmend(message.id, editing ?? '')
+                    : trigger.edit(
+                        message.rid,
+                        message.id,
+                        editing ?? '',
+                        message.systemType === ENCRYPTED_TYPE ? (e2e ?? undefined) : undefined,
+                        payload.revision,
+                      ),
                 )
               }
               style={({ pressed }) => [
@@ -686,6 +695,10 @@ export default function MessageActionsScreen() {
               destructive
               onPress={() =>
                 void act(async () => {
+                  if (isPrivate === '1') {
+                    await privateAmend(message.id, null);
+                    return;
+                  }
                   try {
                     await trigger.delete(message.rid, message.id, payload.revision);
                     // The local row will go via the `deleteMessage` stream.

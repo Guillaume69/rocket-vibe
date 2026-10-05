@@ -1057,7 +1057,11 @@ impl ChatPage {
     fn edit_last(self: &Rc<Self>, in_thread: bool) {
         if let Some(session) = self.native_session() {
             if let Some(row) = self.list_of(in_thread).last_mine(&session.info.user_id) {
-                self.start_native_edit(row, in_thread);
+                if self.current.borrow().as_ref().is_some_and(|r| r.encrypted) {
+                    self.start_crypto_edit(row, in_thread);
+                } else {
+                    self.start_native_edit(row, in_thread);
+                }
             }
             return;
         }

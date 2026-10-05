@@ -25,6 +25,7 @@ async function setup(thread:string|null=null,mixed=false) {
   let publicMembership:string|null='plain-grant',publicText='ordinary source words';
   let publicRevision='10',publicReads=0,changePublicAt=Infinity;
   let selectedQuotes: import('./protocol.generated.ts').QuoteReference[]=[];
+  let amended:Record<string,unknown>|null=null,amends=0;
   const source={id:'private-source',operation:'source-op',author:scope.user,
     document:{operation_id:'source-op',text:'private quoted reply',reply_to:'source-root',quotes:mixed?[{room_id:'plain-room',message_id:'plain-source',revision:'10'}]:[],cards:[]},position:'9007199254740993',observed_at:'1700000000',status:'journaled'};
   const forbidden=async()=>{throw Error('No identity, pin, group or plaintext SQL operation');};
@@ -44,7 +45,7 @@ async function setup(thread:string|null=null,mixed=false) {
       switch(c.action) {
         case 'journal_request':return JSON.stringify({after:'0',through:null});
         case 'receive':assert.deepEqual(c.page,page);return 'null';
-        case 'view':return JSON.stringify({admission,after:thread?'2':'0',catching_up:false,has_older:false,can_send:!thread || root!==null,draft,messages:prepared?[row()]:[],root,retained_replies:thread?{[thread]:1}:{}});
+        case 'view':return JSON.stringify({admission,after:thread?'2':'0',catching_up:false,has_older:false,can_send:!thread || root!==null,draft,messages:prepared?[row()]:amended?[amended]:[],root,retained_replies:thread?{[thread]:1}:{}});
         case 'draft':if(c.text===null)return JSON.stringify(draft);draft=c.text;nativeDrafts++;return 'null';
         case 'select_quote':assert.equal(c.message,source.id);return JSON.stringify({selection:{reference:{room_id:ack.room_id,message_id:source.id,revision:source.position},
           instance_id:scope.instance,data_epoch:scope.dataEpoch,membership_version:c.membership,crypto_admission:admission},author:source.author,text:source.document.text});
@@ -59,6 +60,7 @@ async function setup(thread:string|null=null,mixed=false) {
         case 'cancel':cancelling=true;return JSON.stringify(packet);
         case 'settle':cancelled=c.settlement.kind==='cancelled';cancelling=false;return 'null';
         case 'restore':assert.equal(cancelled,true);draft='private text';return 'null';
+        case 'amend':assert.equal(c.target,source.id);assert.ok(c.text===null || c.text==='edited text');amends++;return JSON.stringify({operation:packet.operation_id});
         default:throw Error('Unexpected private command');
       }
     }};
@@ -77,7 +79,9 @@ async function setup(thread:string|null=null,mixed=false) {
   const access=new CryptoConversationAccess(group,bridge,remote,ack.room_id,thread,'member',async room=>room===ack.room_id?membership:null,
     async(room,ids)=>{if(room==='plain-room' && ++publicReads===changePublicAt)publicMembership='replacement-grant';
       return mixed && room==='plain-room' && publicMembership!==null?{membership:publicMembership,messages:ids.includes('plain-source')?[{id:'plain-source',excerpt:{author:{id:'bob',username:'bob',display_name:'Bob'},text:publicText,created_at:'2026-10-04T08:00:00Z',revision:publicRevision,membership_version:publicMembership,references:[]}}]:[]}:null;});
-  return {access,remote,get posts(){return posts;},get retries(){return retries;},get prepares(){return prepares;},get cancels(){return cancels;},get nativeDrafts(){return nativeDrafts;},get scopeReads(){return scopeReads;},
+  const target={...source,document:{...source.document,text:'edited text',reply_to:null,quotes:[]},edited:true};
+  return {access,remote,get amends(){return amends;},
+    showAmendment:(amendment:unknown)=>{amended={...target,amendment};},get posts(){return posts;},get retries(){return retries;},get prepares(){return prepares;},get cancels(){return cancels;},get nativeDrafts(){return nativeDrafts;},get scopeReads(){return scopeReads;},
     lose:()=>{lose=true;},readOnly:()=>{readOnly=true;},switchDevice:()=>{current={...scope,device:'replacement'};},changeAdmission:()=>{admission='cd'.repeat(32);},
     wrongRoot:()=>{if(root)root={...root,id:'foreign-root'};},evictRoot:()=>{root=null;},evictSource:()=>{sourceRetained=false;},withdrawSource:()=>{membership=null;},
     editPublic:()=>{publicText='edited ordinary words';publicRevision='11';},withdrawPublic:()=>{publicMembership=null;},
@@ -221,4 +225,20 @@ test('evicting a private root keeps available replies readable and disables new 
   const f=await setup('retained-root');await f.access.send('private text');f.evictRoot();
   const view=await f.access.refresh();assert.equal(view.can_send,false);assert.equal(view.root,null);
   assert.equal(privateRows(view,'room',true)[0].threadId,'retained-root');await f.access.close();
+});
+
+test('an encrypted edit or deletion uses the outbox of a send and shows on its target',async()=>{
+  const f=await setup();await f.access.refresh();
+  await assert.rejects(()=>f.access.amend('private-source','  '));await assert.rejects(()=>f.access.amend('bad id',null));
+  assert.equal(f.amends,0);
+  assert.equal(await f.access.amend('private-source','edited text'),packet.operation_id);
+  assert.equal(f.posts,1);assert.equal(f.retries,1);
+  await f.access.amend('private-source',null);assert.equal(f.amends,2);
+  f.showAmendment({operation:'amend-op',status:'pending'});
+  const view=await f.access.refresh();
+  assert.equal(view.messages[0].edited,true);assert.deepEqual(view.messages[0].amendment,{operation:'amend-op',status:'pending'});
+  assert.notEqual(privateRows(view,ack.room_id)[0].editedAt,null);
+  for(const forged of [{operation:'source-op',status:'pending'},{operation:'amend-op',status:'accepted'},{operation:'bad id',status:'pending'}]) {
+    f.showAmendment(forged);await assert.rejects(()=>f.access.refresh());
+  }
 });

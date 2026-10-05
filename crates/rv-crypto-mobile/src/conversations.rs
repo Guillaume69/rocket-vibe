@@ -69,6 +69,11 @@ enum Command {
         #[serde(default)]
         public_sources: Vec<PublicSourceObservation>,
     },
+    /// An edit (`text`) or deletion (no `text`) of an own journaled message.
+    Amend {
+        target: String,
+        text: Option<String>,
+    },
     Restore {
         operation: String,
     },
@@ -119,7 +124,12 @@ fn row(
     status: &str,
 ) -> Value {
     json!({"id":id,"operation":header.operation,"author":header.author,"document":doc,
-        "position":position,"observed_at":observed.to_string(),"status":status})
+        "position":position,"observed_at":observed.to_string(),"status":status,"edited":false,"amendment":null})
+}
+/// The row shows its author's edit; the signed original stays in the journal.
+fn edited(row: &mut Value, text: &str) {
+    row["document"]["text"] = json!(text);
+    row["edited"] = json!(true);
 }
 fn source_rows(room: &str, sources: engine::JournalSources) -> Result<Value> {
     let admission = HEXLOWER.encode(&sources.admission);
@@ -252,36 +262,52 @@ impl CryptoInstallation {
                 )?;
                 let admission = HEXLOWER.encode(&projection.admission);
                 self.conversation_binding(&key, current, Some(admission.clone()))?;
-                let root = projection
-                    .root
-                    .map(|entry| {
-                        let receipt = &entry.message.receipt;
-                        Ok::<_, CryptoBridgeError>(row(
-                            &receipt.header,
-                            entry.message.message()?,
-                            receipt.message.clone(),
-                            Some(receipt.position.to_string()),
-                            entry.observed_at,
-                            "journaled",
-                        ))
-                    })
-                    .transpose()?;
-                let thread_ready = request.thread.is_none() || root.is_some();
-                let mut rows = Vec::new();
-                for entry in projection.messages {
+                let journaled = |entry: engine::ProjectedMessage| {
                     let receipt = &entry.message.receipt;
-                    rows.push(row(
+                    let mut value = row(
                         &receipt.header,
                         entry.message.message()?,
                         receipt.message.clone(),
                         Some(receipt.position.to_string()),
                         entry.observed_at,
                         "journaled",
-                    ));
-                }
+                    );
+                    if let Some(edit) = &entry.edit {
+                        edited(&mut value, &edit.text);
+                    }
+                    Ok::<_, CryptoBridgeError>(value)
+                };
+                let root = projection.root.map(journaled).transpose()?;
+                let thread_ready = request.thread.is_none() || root.is_some();
+                let mut rows = projection
+                    .messages
+                    .into_iter()
+                    .map(journaled)
+                    .collect::<Result<Vec<_>>>()?;
                 if before.is_none() {
                     for entry in c.outgoing_messages(&current.roster, time)? {
                         if entry.header.thread != request.thread {
+                            continue;
+                        }
+                        if let Some(target) = &entry.header.target {
+                            // An unsettled amendment shows on its target, with
+                            // its own operation for retry and cancellation.
+                            if entry.cancelled || entry.receipt.is_some() {
+                                continue;
+                            }
+                            let Some(value) = rows.iter_mut().find(|v| v["id"] == **target) else {
+                                continue;
+                            };
+                            if entry.header.kind == engine::MessageKind::Edit {
+                                edited(value, &entry.message()?.text);
+                            }
+                            let status = if entry.cancelling {
+                                "cancelling"
+                            } else {
+                                "pending"
+                            };
+                            value["amendment"] =
+                                json!({"operation":entry.header.operation,"status":status});
                             continue;
                         }
                         let status = if entry.cancelled {
@@ -459,6 +485,7 @@ impl CryptoInstallation {
                 }
                 if c.outgoing_messages(&current.roster, time)?.iter().any(|v| {
                     !v.cancelled
+                        && v.header.target.is_none()
                         && v.header.thread == request.thread
                         && v.message()
                             .is_ok_and(|m| m.text == text && m.quotes == refs)
@@ -478,9 +505,21 @@ impl CryptoInstallation {
                 c.prepare_message(current, &message, time)?;
                 json!({"operation":operation})
             }
+            Command::Amend { target, text } => {
+                if !identifier(&target) {
+                    return Err(CryptoBridgeError::Integrity);
+                }
+                let mut nonce = [0; 16];
+                getrandom::fill(&mut nonce).map_err(|_| CryptoBridgeError::Storage)?;
+                let operation = HEXLOWER.encode(&nonce);
+                // The amendment takes its target's thread, whichever view asked.
+                c.prepare_amendment(current, &target, text, operation.clone(), time)?;
+                json!({"operation":operation})
+            }
             Command::Restore { operation } => {
                 let own = self.own_outgoing(&c, current, &request.thread, &operation, time)?;
-                if !own.cancelled
+                if own.header.target.is_some()
+                    || !own.cancelled
                     || !c
                         .draft(&current.roster, request.thread.clone(), time)?
                         .is_empty()
@@ -511,9 +550,10 @@ impl CryptoInstallation {
                     self.own_outgoing(&c, current, &request.thread, &ack.header.operation, time)?;
                 c.confirm_message(&ack, time)?;
                 let sent = own.message()?.text;
-                if c.draft(&current.roster, request.thread.clone(), time)?
-                    .as_str()
-                    == sent
+                if own.header.target.is_none()
+                    && c.draft(&current.roster, request.thread.clone(), time)?
+                        .as_str()
+                        == sent
                 {
                     c.set_draft(&current.roster, request.thread, String::new(), time)?;
                 }

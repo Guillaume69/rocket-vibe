@@ -222,6 +222,15 @@ impl Access {
     pub async fn send_message(&self, room: &str, message: rv_protocol::SendMessage) -> Result<groups::MessageReceipt> {
         self.call(|worker| async move { worker.send_message(room, message).await }).await
     }
+    pub async fn amend_message(
+        &self,
+        room: &str,
+        target: String,
+        text: Option<String>,
+        operation: String,
+    ) -> Result<groups::MessageReceipt> {
+        self.call(|worker| async move { worker.amend_message(room, target, text, operation).await }).await
+    }
     pub async fn resume_message(&self, operation: &str) -> Result<groups::MessageReceipt> {
         self.call(|worker| async move { worker.resume_message(operation).await }).await
     }

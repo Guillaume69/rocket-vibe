@@ -14,7 +14,7 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 
 - Format and streaming seal / open: `crates/rv-crypto/src/files.rs` (64 KiB chunks, XChaCha20-Poly1305 STREAM nonces, size and SHA-256 of the plaintext checked again, partial file published only when valid).
 - Descriptor: `EncryptedFile` (`crates/rv-protocol/src/parity.rs`) in `SendMessage.files`; the header lists the same ids in `files` (`crates/rv-crypto-public/src/messages.rs`), checked against the payload on decode; validation in `valid_files` (`crates/rv-crypto/src/groups/messages.rs`). Edits, deletions and reactions carry no file. The ordinary send path refuses `files` (`apps/server/src/store.rs`).
-- Server: `apps/server/src/files.rs` takes `encrypted: true` preparations only in rooms with an MLS group (`require_encrypted`), never completes them through `/complete`, and serves them to members as `application/octet-stream`; the private message submission completes them (`apps/server/src/e2ee/groups/messages.rs`, `invalid_encrypted_file`). Migration `0048_e2ee_files.sql`.
+- Server: `apps/server/src/files.rs` takes `encrypted: true` preparations only in rooms with an MLS group (`require_encrypted`), never completes them through `/complete`, and serves them as `application/octet-stream` only to a member whose device the private message reached (`delivered_position`, delivery's admission witness); the private message submission completes them (`apps/server/src/e2ee/groups/messages.rs`, `invalid_encrypted_file`). Migration `0048_e2ee_files.sql`.
 
 ## Mobile
 

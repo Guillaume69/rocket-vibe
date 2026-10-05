@@ -245,6 +245,13 @@ réadmet un appareil neuf ; elle ne restaure pas un ancien état MLS pour envoye
 Nouveau membre, appareil neuf et ancien membre ne sont pas des destinataires
 équivalents ; les règles d'historique sont figées avant l'implémentation.
 
+La [politique d'archive](../protocol/E2EE_ARCHIVE.md) fixe maintenant ces règles :
+périodes d'adhésion séparées, récupération explicite pour un nouvel appareil du
+même compte, aucun historique antérieur automatique pour un nouveau membre et
+conservation des documents déjà authentifiés après retrait de leur auteur.
+Elle distingue les copies locales des autorisations de nouveau téléchargement.
+Les formats / enveloppes et leur qualification restent à livrer.
+
 Le format d'archive / sauvegarde de ses clés, son AEAD et son authentification
 d'auteur restent à spécifier et revoir. La sauvegarde de **racine de compte**
 est implémentée séparément : code OS aléatoire, AAD lié à la racine / ID de backup,

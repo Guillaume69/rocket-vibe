@@ -146,7 +146,7 @@ All code, comments and docs are in English. French survives in two places only: 
 
 | Term | Meaning |
 |---|---|
-| Amendment | An encrypted edit or deletion of a private message on the RocketVibe server: an ordinary MLS message whose header names its target, applied at projection time ([e2ee-private-edits](features/e2ee-private-edits.md)). |
+| Amendment | An encrypted edit, deletion or reaction of a private message on the RocketVibe server: an ordinary MLS message whose header names its target, applied at projection time ([e2ee-private-actions](features/e2ee-private-actions.md)). |
 | Bench | The local Rocket.Chat 8.5.1 test server in `docker/`. |
 | Deliberate deviation | A documented departure from the audit's prescribed fix, with its reason (`apps/mobile/WORKSTREAMS.md`). |
 | Kill gate | Phase 1 of `ROADMAP.md`: the binary proof that a self-built APK receives pushes when killed. |

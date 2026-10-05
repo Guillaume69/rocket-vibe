@@ -603,7 +603,7 @@ public final class RoomModel {
             } catch {
                 if draft.isEmpty { draft = text }
                 let reason: String
-                if case let RvError.Server(_, message, _, _) = error { reason = message } else { reason = error.localizedDescription }
+                if case let RvError.Server(_, message, _, _, _, _) = error { reason = message } else { reason = error.localizedDescription }
                 return L("command.failed", ["error": reason])
             }
         }

@@ -22,6 +22,7 @@ import { Platform } from 'react-native';
 
 import { rooms, subscriptions } from '../db/schema.ts';
 import { isRoomEncrypted, setEncryptedRooms } from './notificationState.ts';
+import { markServerUnread } from './serverDots.ts';
 import { roomNotificationId } from '../lib/notificationId.ts';
 import { translateCurrent } from './i18n.ts';
 import {useSession} from './session.tsx';
@@ -45,6 +46,8 @@ function notificationTarget(content: Notifications.NotificationContent): Notific
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const target = notificationTarget(notification.request.content);
+    // Another server's push lights its dot in the rail; the open one ignores it.
+    if (target?.host != null) markServerUnread(target.host);
     if (target !== null && isRoomEncrypted(target.rid)) {
       // Never show the ciphertext: repost a generic text.
       Notifications.scheduleNotificationAsync({

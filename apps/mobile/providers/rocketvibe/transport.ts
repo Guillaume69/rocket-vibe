@@ -379,6 +379,12 @@ export class NativeTransport {
   searchMessages(room:string,q:string,before?:string):Promise<NativeTypes['SearchPage']> {
     return this.request('SearchPage',`/api/v1/rooms/${encodeURIComponent(room)}/messages/search?q=${encodeURIComponent(q)}${before?`&before=${encodeURIComponent(before)}`:''}`);
   }
+  /** My rooms with their read states: what the server rail reads of an account not open. */
+  async rooms(): Promise<Room[]> {
+    const rooms = await this.value('/api/v1/rooms');
+    if (!Array.isArray(rooms)) throw new Error('Invalid native rooms');
+    return rooms.map(room => decodeNative('Room', room));
+  }
   async users(): Promise<NativeTypes['User'][]> {
     const users = await this.value('/api/v1/users');
     if (!Array.isArray(users)) throw new Error('Invalid native directory');

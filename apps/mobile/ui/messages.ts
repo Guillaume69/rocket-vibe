@@ -540,6 +540,7 @@ const fr = {
 
   // ── Home (conversation list)
   'home.settings': 'Paramètres',
+  'rail.add': 'Ajouter un serveur',
   'home.sectionUnread': 'Non lus',
   'home.sectionFavorites': 'Favoris',
   'home.sectionRooms': 'Salons',
@@ -1260,6 +1261,7 @@ const en: Record<TranslationKey, string> = {
   'sys.unknownWithParam': '(system action “{type}”: {p})',
 
   'home.settings': 'Settings',
+  'rail.add': 'Add a server',
   'home.sectionUnread': 'Unread',
   'home.sectionFavorites': 'Favorites',
   'home.sectionRooms': 'Channels',

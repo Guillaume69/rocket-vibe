@@ -13,6 +13,9 @@ struct PeerIdentitySection: View {
                 if model.busy { ProgressView(L("crypto.loading")) }
                 if let value = model.value {
                     Text(peerTrustTitle(value.trust))
+                    if value.approval == nil, let next = peerNextStep(value) {
+                        Text(next).font(.caption).foregroundStyle(.secondary)
+                    }
                     Text(value.fingerprint).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                     if let approval = value.approval {
                         Text(approval.device).textSelection(.enabled)

@@ -67,6 +67,7 @@ pub struct NativeCrypto {
 pub(crate) fn error(error: Error) -> RvError {
     match error {
         Error::Session(error) => rv_core::native::rest_error(error).into(),
+        error if error.untrusted() => RvError::Local { message: "crypto_peer_untrusted".into() },
         _ => RvError::Local { message: "crypto_operation_failed".into() },
     }
 }

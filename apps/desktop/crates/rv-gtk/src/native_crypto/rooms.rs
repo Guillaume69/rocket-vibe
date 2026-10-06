@@ -326,7 +326,7 @@ impl Controller {
                     this.ui.clear();
                     this.ui.buttons(None, false);
                     this.ui.status.set_title(t("crypto.failed"));
-                    this.ui.status.set_subtitle(t(if untrusted(&error.to_string()) {
+                    this.ui.status.set_subtitle(t(if error.untrusted() {
                         "crypto.group_untrusted"
                     } else {
                         "crypto.group_need_empty"
@@ -470,15 +470,4 @@ mod tests {
         dialog.close();
         window.close();
     }
-}
-/// A member is not trusted yet: fixed in their profile, not by retrying.
-fn untrusted(code: &str) -> bool {
-    matches!(
-        code,
-        "crypto_identity_untrusted"
-            | "crypto_device_unapproved"
-            | "crypto_device_revoked"
-            | "crypto_identity_changed"
-            | "crypto_identity_expired"
-    )
 }

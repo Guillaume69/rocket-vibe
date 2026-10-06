@@ -83,7 +83,7 @@ public final class CryptoRoomModel {
             value = fresh; included = []; removed = []
         } catch {
             guard current(expected) else { return }
-            value = nil; included = []; removed = []; self.error = L("crypto.failed")
+            value = nil; included = []; removed = []; self.error = cryptoFailure(error)
             if handle?.isClosed() == true { handle?.close(); handle = nil }
         }
     }

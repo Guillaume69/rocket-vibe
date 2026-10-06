@@ -64,6 +64,26 @@ public final class PeerIdentityModel {
     }
 }
 
+/// What to do next in a member's identity check, said where it is seen: the
+/// device list where the approval happens comes after it.
+public func peerNextStep(_ value: NativePeerState) -> String? {
+    switch value.trust {
+    case .unknown: return L("crypto.peer_next_pin")
+    case .changed: return nil
+    case .unverified, .verified:
+        if value.devices.isEmpty { return L("crypto.peer_no_devices") }
+        return L(value.devices.contains { !$0.approved } ? "crypto.peer_next_devices" : "crypto.peer_all_approved")
+    }
+}
+
+/// A crypto failure as shown: an untrusted member says what to do.
+public func cryptoFailure(_ error: Error) -> String {
+    if case RvError.Local(let message) = error, message == "crypto_peer_untrusted" {
+        return L("crypto.group_untrusted")
+    }
+    return L("crypto.failed")
+}
+
 public func peerTrustTitle(_ trust: NativePeerTrust) -> String {
     switch trust {
     case .unknown: return L("crypto.peer_unknown")

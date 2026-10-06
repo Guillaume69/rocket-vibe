@@ -152,11 +152,12 @@ section here.
 ### Fixed
 
 - RocketVibe: the encryption identity check of a profile says what to do next (save the
-  fingerprint, approve the devices below, or that all are approved) and is tall enough to
-  show the devices, where the approval happens; its result used to sit out of view.
+  fingerprint, approve the devices below, or that all are approved), in GTK and SwiftUI;
+  GTK's dialog is also tall enough to show the devices, where the approval happens, whose
+  result used to sit out of view.
 
 - RocketVibe: when a member of an encrypted group is not trusted yet, the room encryption
-  dialog says so and what to do instead of a generic failure.
+  dialog (GTK) and section (SwiftUI) say so and what to do instead of a generic failure.
 
 - RocketVibe: the composer shows again in an encrypted room and its threads, once this
   device is in the group; they were shown as read-only ("Unlock the room to write") to

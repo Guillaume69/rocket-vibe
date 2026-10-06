@@ -31,6 +31,21 @@ pub enum Error {
     Account(#[from] rv_crypto::account::Error),
 }
 type Result<T> = std::result::Result<T, Error>;
+impl Error {
+    /// A member's identity is not pinned, or a device of theirs is not
+    /// approved (or revoked, expired, changed): fixed in that member's profile,
+    /// not by retrying.
+    pub fn untrusted(&self) -> bool {
+        matches!(
+            self.to_string().as_str(),
+            "crypto_identity_untrusted"
+                | "crypto_device_unapproved"
+                | "crypto_device_revoked"
+                | "crypto_identity_changed"
+                | "crypto_identity_expired"
+        )
+    }
+}
 fn closed() -> super::Error {
     super::Error::Protocol("session_closed")
 }
@@ -325,5 +340,21 @@ impl NativeSession {
         let worker =
             delivery::Worker::new_guarded(manager.clone(), root.clone(), self.client.clone(), context.clone())?;
         self.crypto.attach(Binding { context, worker, scope }, &manager, &root)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rv_crypto::{groups, identity};
+
+    #[test]
+    fn an_untrusted_member_is_told_apart_from_other_failures() {
+        assert!(Error::Identity(identity::Error::Unapproved).untrusted());
+        assert!(Error::Identity(identity::Error::Untrusted).untrusted());
+        // Wrapped by the delivery worker, as a room dialog receives it.
+        assert!(Error::Delivery(delivery::Error::Group(groups::Error::Identity(identity::Error::Revoked))).untrusted());
+        assert!(!Error::Storage(rv_crypto::vault::Error::Busy).untrusted());
+        assert!(!Error::Delivery(delivery::Error::Group(groups::Error::Mls)).untrusted());
     }
 }

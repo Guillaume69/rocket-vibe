@@ -151,6 +151,10 @@ section here.
 
 ### Fixed
 
+- In the encryption identity settings, the association code, the recovery code and the
+  history code wrap inside the dialog: a code with no spaces used to widen it, pushing
+  the buttons' labels out of view.
+
 - Learning a signed withdrawal of the local RocketVibe encryption device also
   closes its already open conversation access, including when another profile
   viewer observes the withdrawal. The stop applies to the matching incarnation.

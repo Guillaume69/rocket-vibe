@@ -41,7 +41,12 @@ impl Controls {
             .visible(false)
             .build();
         let version = adw::ActionRow::builder().title(t("crypto.backup_version")).build();
-        let secret = gtk::Label::builder().selectable(true).wrap(true).max_width_chars(50).build();
+        let secret = gtk::Label::builder()
+            .selectable(true)
+            .wrap(true)
+            .wrap_mode(gtk::pango::WrapMode::WordChar)
+            .max_width_chars(50)
+            .build();
         let input = adw::PasswordEntryRow::builder().title(t("crypto.backup_code")).build();
         group.add(&version);
         group.add(&secret);

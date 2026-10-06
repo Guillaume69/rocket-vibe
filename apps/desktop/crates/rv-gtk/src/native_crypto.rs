@@ -469,6 +469,8 @@ fn build_dialog(session: Arc<NativeSession>) -> (adw::PreferencesDialog, Rc<Cont
     let output = gtk::Label::builder()
         .selectable(true)
         .wrap(true)
+        // A code has no spaces: break anywhere rather than widen the dialog.
+        .wrap_mode(gtk::pango::WrapMode::WordChar)
         .max_width_chars(50)
         .css_classes(["native-crypto-output"])
         .build();

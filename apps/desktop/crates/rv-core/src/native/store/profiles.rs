@@ -147,7 +147,7 @@ impl NativeStore {
                 let direct: bool = tx.query_row("SELECT json_extract(payload,'$.kind')='direct' FROM native_rooms WHERE id=?1", [&room.room_id], |r| r.get(0)).optional()?.unwrap_or(false);
                 match room.direct_peer.as_ref().filter(|_| direct) {
                     Some(user) => {
-                        tx.execute("INSERT INTO native_direct_peers VALUES(?1,?2,?3,?4) ON CONFLICT(rid) DO UPDATE SET membership=excluded.membership,uid=excluded.uid,payload=excluded.payload",params![room.room_id,room.membership_version,user.id,json(user)?])?;
+                        tx.execute("INSERT INTO native_direct_peers VALUES(?1,?2,?3,?4) ON CONFLICT(rid) DO UPDATE SET membership=excluded.membership,uid=excluded.uid,payload=excluded.payload WHERE membership IS NOT excluded.membership OR uid IS NOT excluded.uid OR payload IS NOT excluded.payload",params![room.room_id,room.membership_version,user.id,json(user)?])?;
                     }
                     None => { tx.execute("DELETE FROM native_direct_peers WHERE rid=?1", [&room.room_id])?; }
                 }

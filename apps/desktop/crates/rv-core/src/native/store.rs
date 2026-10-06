@@ -306,14 +306,21 @@ impl NativeStore {
         fnc: impl FnOnce(&Transaction) -> rusqlite::Result<(T, bool)>,
     ) -> rusqlite::Result<T> {
         let mut conn = self.conn.lock().unwrap();
+        let before = conn.total_changes();
         let tx = conn.transaction_with_behavior(behavior)?;
         let (result, rotate) = fnc(&tx)?;
         tx.commit()?;
         if rotate {
             self.projection.fetch_add(1, Ordering::SeqCst);
         }
+        // Only a write is a change: listeners reload on it (an open encrypted
+        // room decrypts its history again), and live frames arrive every few
+        // seconds with nothing new.
+        let changed = rotate || conn.total_changes() != before;
         drop(conn);
-        let _ = self.changes.send(());
+        if changed {
+            let _ = self.changes.send(());
+        }
         Ok(result)
     }
     pub fn projection_token(&self) -> u64 {

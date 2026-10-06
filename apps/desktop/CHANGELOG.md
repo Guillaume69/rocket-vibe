@@ -151,6 +151,9 @@ section here.
 
 ### Fixed
 
+- RocketVibe: the loading bars no longer stay on in an open encrypted room. Every presence
+  update (every few seconds) counted as a change and decrypted the room's history again.
+
 - RocketVibe: the encryption identity check of a profile says what to do next (save the
   fingerprint, approve the devices below, or that all are approved), in GTK and SwiftUI;
   GTK's dialog is also tall enough to show the devices, where the approval happens, whose

@@ -153,10 +153,16 @@ fn direct_peer_identity_survives_offline_and_tracks_profile_changes_only_for_cur
     assert!(store.live_profiles(&frame, || alive.fetch_add(1, Ordering::SeqCst) == 0).is_err());
     assert!(store.direct_peer(&room.id).unwrap().is_none());
     assert!(!store.avatar_current(&"a".repeat(64)).unwrap());
+    let mut changes = store.changes();
     store.live_profiles(&frame, || true).unwrap();
+    assert!(changes.try_recv().is_ok(), "a new peer is a change");
     let peer = store.direct_peer(&room.id).unwrap().unwrap();
     assert_eq!(peer.user.id, stamp.user.id);
     assert_eq!(peer.avatar_file_id, stamp.avatar_file_id);
+    // The same frame again (live frames repeat every few seconds) changes nothing,
+    // so nothing reloads: an open encrypted room would decrypt its history again.
+    store.live_profiles(&frame, || true).unwrap();
+    assert!(changes.try_recv().is_err(), "a repeated live frame is not a change");
     drop(store);
     let store = NativeStore::open(&path, identity()).unwrap();
     store.snapshot(&snap).unwrap();

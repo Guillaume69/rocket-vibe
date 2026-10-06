@@ -19,7 +19,12 @@ struct Args {
     jitsi_config_file: Option<std::path::PathBuf>,
     /// Advertise the unreviewed native E2EE to clients (test benches only:
     /// RFC 0002 activates it after the independent review).
-    #[arg(long, env = "RV_E2EE_PREVIEW")]
+    #[arg(
+        long,
+        env = "RV_E2EE_PREVIEW",
+        action = clap::ArgAction::SetTrue,
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
     e2ee_preview: bool,
     /// Durable volume; include it with PostgreSQL in backups.
     #[arg(long, env = "RV_OBJECTS_DIR", default_value = "data/objects")]

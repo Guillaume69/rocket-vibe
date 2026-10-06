@@ -111,6 +111,20 @@ fn login_rooms_send_and_hear_it() {
     let avatar = block_on(chat.media(chat.user_avatar("alice".into()))).expect("avatar");
     assert!(!avatar.bytes.is_empty());
 
+    let hits = block_on(chat.search(room.rid.clone(), "seed".into())).expect("search");
+    let old = hits.into_iter().min_by_key(|h| h.ts).expect("a seed message");
+    let local_oldest = chat.local_oldest(room.rid.clone(), 50);
+    assert!(local_oldest.is_some_and(|ts| ts > old.ts), "the seed is older than the newest page");
+    let window = block_on(chat.context_around(room.rid.clone(), room.kind.clone(), old.id.clone(), local_oldest))
+        .expect("context")
+        .expect("the server gives the message back");
+    assert!(window.messages(None).iter().any(|m| m.id == old.id));
+    while window.has_newer() {
+        block_on(window.newer(local_oldest)).expect("newer");
+    }
+    let shown = window.merge();
+    assert!(chat.messages(room.rid.clone(), shown, None).iter().any(|m| m.id == old.id), "merged into the store");
+
     chat.set_draft(room.rid.clone(), None, "half typed".into());
     assert_eq!(chat.draft(room.rid.clone(), None), "half typed");
     chat.set_draft(room.rid.clone(), None, String::new());

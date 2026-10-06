@@ -213,6 +213,11 @@ pub struct MessageList {
     on_event: Handler<RowEvent>,
     on_top: Handler<()>,
     on_visible: Handler<()>,
+    on_bottom: Handler<()>,
+    on_latest: Handler<()>,
+    /// Showing a stretch of history away from the present: never pinned, the
+    /// button back to the latest always there.
+    detached: Cell<bool>,
     /// (last seen, my uid): the first later message from someone else gets the marker.
     unread_after: RefCell<Option<(i64, String)>>,
     session: Shared<Arc<Session>>,
@@ -310,6 +315,9 @@ impl MessageList {
             on_event: RefCell::default(),
             on_top: RefCell::default(),
             on_visible: RefCell::default(),
+            on_bottom: RefCell::default(),
+            on_latest: RefCell::default(),
+            detached: Cell::new(false),
             unread_after: RefCell::default(),
             session: session.clone(),
             editing: RefCell::default(),
@@ -387,9 +395,9 @@ impl MessageList {
         adjustment.connect_value_changed(move |adj| {
             let Some(this) = w.upgrade() else { return };
             if this.settling.get() == 0 {
-                this.pinned.set(adj.value() + adj.page_size() >= adj.upper() - 48.0);
+                this.pinned.set(!this.detached.get() && adj.value() + adj.page_size() >= adj.upper() - 48.0);
             }
-            this.jump.set_visible(adj.upper() - adj.value() - adj.page_size() > adj.page_size());
+            this.jump.set_visible(this.detached.get() || adj.upper() - adj.value() - adj.page_size() > adj.page_size());
             this.notify_visible();
         });
         let w = weak.clone();
@@ -401,16 +409,23 @@ impl MessageList {
         let w = weak.clone();
         self.jump.connect_clicked(move |_| {
             if let Some(this) = w.upgrade() {
+                if let Some(latest) = this.on_latest.borrow().clone() {
+                    latest(());
+                }
                 this.pinned.set(true);
                 this.scroll_to_bottom();
             }
         });
         let w = weak;
         self.scroll.connect_edge_reached(move |_, position| {
-            if position == gtk::PositionType::Top
-                && let Some(top) = w.upgrade().and_then(|this| this.on_top.borrow().clone())
-            {
-                top(());
+            let Some(this) = w.upgrade() else { return };
+            let handler = match position {
+                gtk::PositionType::Top => this.on_top.borrow().clone(),
+                gtk::PositionType::Bottom => this.on_bottom.borrow().clone(),
+                _ => None,
+            };
+            if let Some(handler) = handler {
+                handler(());
             }
         });
     }
@@ -722,6 +737,27 @@ impl MessageList {
             .map(|row| row.row.id.clone())
     }
 
+    pub fn connect_bottom_reached(&self, f: impl Fn() + 'static) {
+        self.on_bottom.replace(Some(Rc::new(move |()| f())));
+    }
+
+    /// Runs before the button back to the latest message scrolls.
+    pub fn connect_latest(&self, f: impl Fn() + 'static) {
+        self.on_latest.replace(Some(Rc::new(move |()| f())));
+    }
+
+    pub fn set_detached(&self, detached: bool) {
+        self.detached.set(detached);
+        if detached {
+            self.pinned.set(false);
+            self.jump.set_visible(true);
+        }
+    }
+
+    pub fn is_detached(&self) -> bool {
+        self.detached.get()
+    }
+
     /// Empties the list and pins it to the bottom again.
     pub fn clear(&self) {
         self.stop_players();
@@ -848,6 +884,7 @@ impl MessageList {
         });
     }
 
+    /// Drops a reveal waiting for a message that never came.
     pub fn forget_reveal(&self) {
         self.revealing.replace(None);
     }

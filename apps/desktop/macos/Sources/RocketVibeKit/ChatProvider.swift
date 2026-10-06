@@ -118,9 +118,10 @@ public enum ChatProvider {
             return try await chat.history(room: room.rid, older: false)
         }
     }
-    func loadOlder(room: Room, oldestTs: Int64) async throws -> Bool {
+    /// Whether more is older, and how many rows to show when the server says.
+    func loadOlder(room: Room, oldestTs: Int64) async throws -> OlderPage {
         switch self { case let .rocketChat(chat): return try await chat.loadOlder(rid: room.rid, kind: room.kind, oldestTs: oldestTs)
-        case let .rocketVibe(chat): return try await chat.history(room: room.rid, older: true) }
+        case let .rocketVibe(chat): return OlderPage(more: try await chat.history(room: room.rid, older: true), limit: nil) }
     }
     public func send(rid: String, text: String, thread: String? = nil) async throws {
         switch self { case let .rocketChat(chat): await chat.send(rid: rid, text: text, threadId: thread)

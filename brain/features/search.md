@@ -23,13 +23,13 @@ This is the only place the apps call `spotlight`; `@` mention completion deliber
 
 `GET chat.search?roomId=&searchText=&count=50`, opened from the room header's search button.
 
-- Mobile: `app/message-search.tsx`. Results are **ephemeral**: normalised with `toMessage` like any server document, rendered with the regular `MessageRow`, and never written to SQLite (isolated old messages have no place in the local window). They are read-only: no long press (the action sheet reads the database by id, and an old result may not be there), no reaction toggling, each with its own header. There is **no jump** to the message in the history; the file header records that it waits for targeted backward paging.
-- GTK: a dialog (`details::search` in `rv-gtk/src/details.rs`) listing author, date and the rendered body. A click closes it and **goes to the message**: a thread reply opens its thread, anything else is revealed in the room after paging older history up to 30 times (`Chat::jump_to`), with a "not loaded" toast if it is still not there.
-- SwiftUI: `SearchView` in `Details.swift`, the same list; a tap jumps through `RoomModel.jump(to:)` (also up to 30 older pages). It does not special-case thread replies.
+- Mobile: `app/message-search.tsx`. Results are **ephemeral**: normalised with `toMessage` like any server document, rendered with the regular `MessageRow`, and never written to SQLite (isolated old messages have no place in the local window). They are read-only: no long press (the action sheet reads the database by id, and an old result may not be there), no reaction toggling, each with its own header. A tap goes back to the room at the message (`ui/messageJump.ts`; a context window when it is older than the local history, see [room-view.md](room-view.md)), or opens the thread of a reply that lives there.
+- GTK: a dialog (`details::search` in `rv-gtk/src/details.rs`) listing author, date and the rendered body. A click closes it and **goes to the message**: a thread reply opens its thread, anything else is revealed in the room, in the history around it when it is older than what is loaded, whatever its age (`Chat::jump_to`, the context window of [room-view.md](room-view.md)). A toast says so only when the server cannot give the message back.
+- SwiftUI: `SearchView` in `Details.swift`, the same list; a tap jumps through `RoomModel.jump(to:)`, which opens the history around an old message as GTK does. It does not special-case thread replies.
 
 ## Parity
 
-Both apps: spotlight for new conversations, `chat.search` in a room. Desktop only: jumping from a result to the message. Neither: a search across rooms, or a filter over the local room list.
+Both apps: spotlight for new conversations, `chat.search` in a room, jumping from a result to the message whatever its age. Neither: a search across rooms, or a filter over the local room list.
 
 ## Sources
 
@@ -41,6 +41,7 @@ Both apps: spotlight for new conversations, `chat.search` in a room. Desktop onl
 - apps/mobile/providers/rocketchat/actions.ts
 - apps/mobile/lib/normalize.ts
 - apps/desktop/crates/rv-core/src/session.rs
+- apps/desktop/crates/rv-core/src/context.rs
 - apps/desktop/crates/rv-core/src/rooms.rs
 - apps/desktop/crates/rv-core/src/info.rs
 - apps/desktop/crates/rv-gtk/src/spotlight.rs

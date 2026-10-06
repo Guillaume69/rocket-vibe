@@ -1,5 +1,5 @@
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
-import { and, count, eq, gt, isNull, min, or } from 'drizzle-orm';
+import { and, count, eq, gte, isNull, lte, or } from 'drizzle-orm';
 import { useCoalescedLiveQuery } from '../../ui/liveQuery.ts';
 import { Redirect, Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -37,7 +37,6 @@ import type {
 } from '../../lib/provider.ts';
 import type { RestClient } from '../../lib/rest.ts';
 import { TypingEngine, summarizeTyping } from '../../lib/typing.ts';
-import { bringMessage } from '../../ui/bringMessage.ts';
 import { useDraft } from '../../ui/drafts.ts';
 import {useEncryptedConversation,privateRow,privateInterrupted} from '../../ui/encryptedConversation.ts';
 import {privateRows} from '../../providers/rocketvibe/cryptoProjection.ts';
@@ -65,6 +64,8 @@ import {
 } from '../../ui/backToLatest.ts';
 import { keepWarm, roomCovered } from '../../ui/hotRooms.ts';
 import { consumeJump, requestJump, useJump } from '../../ui/messageJump.ts';
+import { ContextWindow, type HistoryReader, type WindowItem } from '../../lib/contextWindow.ts';
+import type { LocalMessage } from '../../lib/normalize.ts';
 import { notify } from '../../ui/toast.tsx';
 import { markRoomLoaded, roomLoadedUnder } from '../../ui/loadedRooms.ts';
 import { PrimaryButton, TypingIndicator, DaySeparator } from '../../ui/kit.tsx';
@@ -317,7 +318,7 @@ function Room({
       if(canceled)return;
       consumedLink.current=linkTarget;
       if(link.root){router.push({pathname:'/thread/[id]',params:{id:link.root,...(link.message?{message:link.message}:{})}});}
-      else if(link.message&&message)requestJump(rid,{id:link.message,ts:Date.parse(message.created_at)});
+      else if(link.message&&message)requestJump(rid,{id:link.message});
     }).catch(()=>{if(!canceled){consumedLink.current=linkTarget;notify(t('room.linkUnavailable'));}});
     return()=>{canceled=true;};
   },[linkTarget,online,nativeChat,rid,router,t,membership]);
@@ -432,7 +433,30 @@ function Room({
   // and SCROLLED UP in history, each prepend shifts the content by its height
   // (mVCP off, see the header): might as well group the burst into a single
   // shift. We smooth the projection, not the database.
-  const ordinaryData = useSmoothedData(raw ?? [], 200);
+  // Context window (`lib/contextWindow.ts`): the history around a message
+  // older than the local window, shown INSTEAD of it (newest first) until it
+  // reaches it. A row also stored is shown in its stored, live version.
+  const [context, setContext] = useState<{
+    window: ContextWindow<ContextItem>;
+    rows: LocalMessage[];
+  } | null>(null);
+  const contextFrom = context?.rows[context.rows.length - 1]?.ts ?? 0;
+  const contextTo = context?.rows[0]?.ts ?? -1;
+  const { data: storedInContext } = useCoalescedLiveQuery(
+    base
+      .select()
+      .from(messages)
+      .where(
+        and(eq(messages.rid, rid), gte(messages.ts, contextFrom), lte(messages.ts, contextTo)),
+      ),
+    [rid, contextFrom, contextTo],
+  );
+  const contextData = useMemo(() => {
+    if (context === null) return null;
+    const stored = new Map((storedInContext ?? []).map((m) => [m.id, m]));
+    return context.rows.map((m): MessageRowData => stored.get(m.id) ?? m);
+  }, [context, storedInContext]);
+  const ordinaryData = useSmoothedData(contextData ?? raw ?? [], 200);
   const quotes=usePrivateQuotes(nativeChat,rid,membership,!protectedRoom && cryptoAvailable,ordinaryData);
   const quotesToSend=quotes.send;
   const quotedData=quotes.rows;
@@ -564,9 +588,15 @@ function Room({
     },
     [applyReturn],
   );
+  const detached = useRef(false);
+  useEffect(() => {
+    detached.current = context !== null;
+  }, [context]);
   const goToLatest = useCallback(() => {
+    const leaving = detached.current;
+    setContext(null);
     applyReturn(onBackToLatestPress());
-    list.current?.scrollToOffset({ offset: 0, animated: true });
+    list.current?.scrollToOffset({ offset: 0, animated: !leaving });
   }, [applyReturn]);
   const latest = data[0];
   useEffect(() => {
@@ -574,7 +604,8 @@ function Room({
     const prev = lastTracked.current;
     lastTracked.current = { id: latest.id, ts: latest.ts };
     // First fill: the inverted list is born already pinned to the bottom.
-    if (prev === null) return;
+    // Detached, a newer head is the window reading forward, not an arrival.
+    if (prev === null || detached.current) return;
     // A head OLDER than the previous one is not an incoming message: it is the
     // DELETION of the most recent (deleteMessage stream, discarded send).
     // Snapping on that would tear the reader away from history.
@@ -741,6 +772,106 @@ function Room({
     };
   }, [type, loadHistory, generation, activity, rid, provider, engine,protectedRoom]);
 
+  // The context window reads the server without storing; each document keeps
+  // its raw form, ingested once the window reaches the local history.
+  const reader = useMemo<HistoryReader<ContextItem> | null>(() => {
+    if (type === undefined) return null;
+    const items = (raws: Record<string, unknown>[]): ContextItem[] =>
+      raws.flatMap((raw) =>
+        engine.normalizeMessages([raw]).map((message) => ({ id: message.id, ts: message.ts, raw, message })),
+      );
+    return {
+      pageSize: provider.historyPage,
+      range: (latest, oldest) =>
+        activity.track(rid, provider.historyRange(rid, type, latest, oldest)).then(items),
+      message: (id) =>
+        activity.track(rid, provider.fetchMessage(id)).then((raw) => (raw === null ? null : (items([raw])[0] ?? null))),
+    };
+  }, [type, engine, provider, activity, rid]);
+  // The oldest message of the local history, which runs unbroken to the present.
+  const freshRef = useRef(fresh);
+  useEffect(() => {
+    freshRef.current = fresh;
+  }, [fresh]);
+  const localOldest = useCallback(() => {
+    const rows = freshRef.current;
+    return rows[rows.length - 1]?.ts ?? null;
+  }, []);
+  const contextWindow = useRef<ContextWindow<ContextItem> | null>(null);
+  const anchor = useRef<string | null>(null);
+  // Reached the local history: the window joins the database, the room is live again.
+  const mergeContext = useCallback(
+    async (window: ContextWindow<ContextItem>) => {
+      await engine.ingestMessages(window.messages.map((m) => m.raw));
+      const oldest = window.oldestTs;
+      if (oldest !== null) {
+        const [row] = await base
+          .select({ n: count() })
+          .from(messages)
+          .where(
+            and(
+              eq(messages.rid, rid),
+              or(isNull(messages.threadId), eq(messages.threadShown, true)),
+              gte(messages.ts, oldest),
+            ),
+          );
+        setLimit((l) => Math.max(l, row?.n ?? 0));
+      }
+      if (contextWindow.current !== window) return;
+      contextWindow.current = null;
+      anchor.current = window.messages[window.messages.length - 1]?.id ?? null;
+      setContext(null);
+    },
+    [engine, base, rid],
+  );
+  const showContext = useCallback(
+    (window: ContextWindow<ContextItem>) => {
+      contextWindow.current = window;
+      if (!window.hasNewer) {
+        mergeContext(window).catch((e: unknown) => console.warn('room: context merge failed', e));
+        return;
+      }
+      setContext({ window, rows: window.messages.map((m) => m.message).reverse() });
+    },
+    [mergeContext],
+  );
+  const contextBusy = useRef(false);
+  const contextPage = useCallback(
+    (newer: boolean) => {
+      const window = contextWindow.current;
+      if (window === null || contextBusy.current || !(newer ? window.hasNewer : window.hasOlder)) {
+        return;
+      }
+      contextBusy.current = true;
+      (newer ? window.newer(localOldest(), Date.now()) : window.older())
+        .then(() => {
+          if (contextWindow.current === window) showContext(window);
+        })
+        .catch((e: unknown) => console.warn('room: context page failed', e))
+        .finally(() => {
+          contextBusy.current = false;
+        });
+    },
+    [localOldest, showContext],
+  );
+  const loadNewer = useCallback(() => contextPage(true), [contextPage]);
+  useEffect(() => {
+    if (context === null) contextWindow.current = null;
+  }, [context]);
+  // Sending leaves the window: my message belongs to the present.
+  const head = fresh[0];
+  const detachedSince = useRef(0);
+  useEffect(() => {
+    if (context === null) return;
+    if (detachedSince.current === 0) detachedSince.current = Date.now();
+    if (head !== undefined && head.authorId === client.auth?.userId && head.ts >= detachedSince.current) {
+      goToLatest();
+    }
+  }, [context, head, client, goToLatest]);
+  useEffect(() => {
+    if (context === null) detachedSince.current = 0;
+  }, [context]);
+
   // Scrolling back to the past: widen the local window, and if it is already
   // exhausted, ask the server for the older page (keyset pagination on
   // `latest`, never an offset).
@@ -756,6 +887,10 @@ function Room({
   const previousBound = useRef<{ id: string; pages: number } | null>(null);
   const loadMore = useCallback(() => {
     if(protectedRoom)return;
+    if (detached.current) {
+      contextPage(false);
+      return;
+    }
     const exhausted = fresh.length < limit;
     if (!exhausted) {
       setLimit((l) => l + PAGE);
@@ -786,21 +921,17 @@ function Room({
       .finally(() => {
         inFlight.current = false;
       });
-  }, [fresh, limit, type, loadHistory, rid,protectedRoom]);
+  }, [fresh, limit, type, loadHistory, rid, protectedRoom, contextPage]);
 
-  // Jump to a message chosen in the pinned/favourites (`ui/messageJump.ts`):
-  // bring it into the window (`ui/bringMessage.ts`), wait until it appears in
-  // the list's data, scroll to it and highlight it.
+  // Jump to a message chosen in the pinned or starred list or a search
+  // (`ui/messageJump.ts`): one already in the list is scrolled to and
+  // highlighted; any other, however old, opens a context window around it.
   const jumpTarget = useJump(rid);
   const [targetJump, setTargetJump] = useState<string | null>(null);
   useEffect(() => {
-    if (jumpTarget === null || type === undefined) return;
-    let canceled = false;
+    if (jumpTarget === null || reader === null) return;
     const target = jumpTarget;
-    const mainStream = and(
-      eq(messages.rid, rid),
-      or(isNull(messages.threadId), eq(messages.threadShown, true)),
-    );
+    let canceled = false;
     const fail = () => {
       if (canceled) return;
       consumeJump(rid, target.id);
@@ -814,44 +945,26 @@ function Room({
       },fail);
       return()=>{canceled=true;};
     }
-    bringMessage({
-      ts: target.ts,
-      rank: async () => {
-        const found = await base
-          .select({ ts: messages.ts })
-          .from(messages)
-          .where(and(eq(messages.id, target.id), mainStream))
-          .limit(1);
-        if (found.length === 0) return null;
-        const [latest] = await base
-          .select({ n: count() })
-          .from(messages)
-          .where(and(mainStream, gt(messages.ts, found[0].ts)));
-        return latest?.n ?? 0;
-      },
-      older: async () => {
-        const [row] = await base
-          .select({ h: min(messages.ts) })
-          .from(messages)
-          .where(eq(messages.rid, rid));
-        return row?.h ?? null;
-      },
-      loadPage: (latest) =>
-        activity.track(rid, loadHistory(type, new Date(latest).toISOString())),
-    }).then((rank) => {
+    const shown = data.some((m) => m.id === target.id);
+    (shown
+      ? Promise.resolve('shown' as const)
+      : ContextWindow.around(reader, target.id, localOldest(), Date.now())
+    ).then((window) => {
       if (canceled) return;
-      if (rank === null) {
+      if (window === null) {
         fail();
         return;
       }
       consumeJump(rid, target.id);
-      setLimit((l) => Math.max(l, rank + PAGE));
+      if (window !== 'shown') showContext(window);
       setTargetJump(target.id);
     }, fail);
     return () => {
       canceled = true;
     };
-  }, [jumpTarget, type, base, rid, activity, loadHistory, t,provider]);
+    // `data` read once, when the target arrives: following it would restart the jump.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpTarget, reader, rid, t, localOldest, showContext, provider]);
   const jumpIndex = useMemo(
     () =>
       targetJump === null
@@ -859,6 +972,14 @@ function Room({
         : listData.findIndex((l) => !('bar' in l) && !('day' in l) && l.id === targetJump),
     [targetJump, listData],
   );
+  useEffect(() => {
+    const id = anchor.current;
+    if (id === null || context !== null) return;
+    const index = listData.findIndex((l) => !('bar' in l) && !('day' in l) && l.id === id);
+    if (index < 0) return;
+    anchor.current = null;
+    list.current?.scrollToIndex({ index, animated: false, viewPosition: 0.5 });
+  }, [listData, context]);
   const alreadyScrolled = useRef<string | null>(null);
   useEffect(() => {
     if (targetJump === null || jumpIndex < 0) return;
@@ -1024,7 +1145,9 @@ function Room({
             viewabilityConfig={nativeReads?nativeViewability:undefined}
             // Off: at offset 0, a prepend shows by itself, and the native readjustment
             // fired before the JS snap and overwrote it.
-            maintainVisibleContentPosition={{ disabled: true }}
+            // Detached, nothing snaps to the present, and newer pages of the window
+            // land below the message being read: they must not carry it away.
+            maintainVisibleContentPosition={{ disabled: context === null }}
             keyExtractor={(m) => m.id}
             // HETEROGENEOUS content (messages, follow-ups without avatar, unread bar,
             // day separators): without an item type, FlashList's recycling mixes the
@@ -1045,9 +1168,12 @@ function Room({
             // Inverted: the end of the DATA is the visual top, the past.
             onEndReached={loadMore}
             onEndReachedThreshold={0.4}
+            // The visual bottom: only a context window has a future to read.
+            onStartReached={context === null || targetJump !== null ? undefined : loadNewer}
+            onStartReachedThreshold={0.4}
             contentContainerStyle={styles.content}
           />
-          {backVisible && (
+          {(backVisible || context !== null) && (
             <Tappable
               onPress={goToLatest}
               android_ripple={{ color: c.ripple, borderless: true }}
@@ -1129,6 +1255,8 @@ function Room({
     </KeyboardAvoidingContainer>
   );
 }
+
+type ContextItem = WindowItem & { raw: Record<string, unknown>; message: LocalMessage };
 
 const styles = StyleSheet.create({
   privateNotice: {paddingHorizontal:16,paddingVertical:8,flexDirection:'row',alignItems:'center',gap:10},

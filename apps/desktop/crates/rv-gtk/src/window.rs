@@ -134,8 +134,8 @@ impl AppWindow {
         let rail = crate::rail::Rail::new();
         let chat_area = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         chat_area.append(&rail.root);
-        chat.widget().set_hexpand(true);
-        chat_area.append(chat.widget());
+        chat.root().set_hexpand(true);
+        chat_area.append(chat.root());
         let stack = gtk::Stack::builder().transition_type(gtk::StackTransitionType::Crossfade).build();
         stack.add_named(&adw::Spinner::new(), Some("starting"));
         stack.add_named(&login.widget, Some("login"));

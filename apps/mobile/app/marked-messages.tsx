@@ -96,7 +96,7 @@ function MarkedMessages({
         router.push({ pathname: '/thread/[id]', params: { id: m.threadId } });
         return;
       }
-      requestJump(rid, { id: m.id, ts: m.ts });
+      requestJump(rid, { id: m.id });
     },
     [router, rid],
   );

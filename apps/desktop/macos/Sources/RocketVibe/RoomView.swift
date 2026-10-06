@@ -236,6 +236,13 @@ struct MessageList: View {
                             scheduleObservedRead()
                         }
                     }
+                    if model.hasNewer {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(maxWidth: .infinity)
+                            .padding(8)
+                            .onAppear { Task { await model.loadNewer() } }
+                    }
                     Color.clear.frame(height: 6).id("bottom")
                 }
                 .padding(.vertical, 8)
@@ -256,7 +263,7 @@ struct MessageList: View {
                 }
             }
             .onChange(of: model.messages.last?.id) { _, _ in
-                if pinned { proxy.scrollTo("bottom", anchor: .bottom) }
+                if pinned && model.context == nil { proxy.scrollTo("bottom", anchor: .bottom) }
             }
             .onChange(of:pinned) { _,value in
                 if value {scheduleObservedRead()} else {cancelObservedRead()}
@@ -293,15 +300,20 @@ struct MessageList: View {
             .task(id: model.messages.last?.id) {
                 guard model.provider.legacy != nil else {return}
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
-                if !Task.isCancelled && pinned && NSApp.isActive && model.threadId == nil && (model.room.unread > 0 || model.room.alert) {
+                if !Task.isCancelled && pinned && model.context == nil && NSApp.isActive && model.threadId == nil
+                    && (model.room.unread > 0 || model.room.alert) {
                     await model.markLegacyRead()
                     Notifier.shared.withdraw(rid: model.rid)
                 }
             }
             .overlay(alignment: .bottomTrailing) {
-                if farFromBottom {
+                if farFromBottom || model.context != nil {
                     Button {
-                        withAnimation(Vibe.spring) { proxy.scrollTo("bottom", anchor: .bottom) }
+                        model.leaveContext()
+                        Task {
+                            await Task.yield()
+                            withAnimation(Vibe.spring) { proxy.scrollTo("bottom", anchor: .bottom) }
+                        }
                     } label: {
                         Image(systemName: "arrow.down")
                             .font(.system(size: 14, weight: .bold))

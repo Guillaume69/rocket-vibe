@@ -516,6 +516,35 @@ section here.
 - A backslash before punctuation keeps it literal in room list previews and in
   messages read without a server tree: `¯\_(ツ)_/¯` no longer loses its arms.
 
+## [0.9.0] - 2026-10-06
+
+### Changed
+
+- In the macOS SwiftUI app, a search result, or a pinned or starred message, older than what
+  the room has loaded shows the conversation around it, whatever its age, as the GTK app does
+  since 0.8.0.
+
+### Fixed
+
+- In the macOS SwiftUI app, paging back through a room no longer shows an older message stored
+  on its own above messages that were never loaded.
+
+## [0.8.0] - 2026-10-05
+
+### Changed
+
+- Opening a search result, or a pinned or starred message, older than what the room has
+  loaded shows the conversation around it, whatever its age, instead of "This message is too
+  old to show". Scrolling reads on in both directions; the button at the bottom, or sending a
+  message, comes back to the latest messages.
+- One loading bar sweeps the top of the window, instead of two bars out of step under the room
+  list's and the room's headers.
+
+### Fixed
+
+- Paging back through a room no longer shows an older message stored on its own (one starred
+  or edited) above messages that were never loaded.
+
 ## [0.7.0] - 2026-10-03
 
 ### Added
@@ -836,7 +865,9 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.7.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.9.0...HEAD
+[0.9.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.8.0...desktop-v0.9.0
+[0.8.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.7.0...desktop-v0.8.0
 [0.7.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.6.1...desktop-v0.7.0
 [0.6.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.6.0...desktop-v0.6.1
 [0.6.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.5.0...desktop-v0.6.0

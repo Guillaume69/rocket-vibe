@@ -119,6 +119,7 @@ beta does.
 | Confirmation before deleting | done | done | done | |
 | Pin (`chat.pinMessage`) | done | done | done | |
 | Pinned and starred lists, jump to the message | done | done | done | |
+| Jump to a message of any age (the history around it) | done | done | done | A context window around the message ([room-view](features/room-view.md), "Jumps"). |
 
 ## 6. Threads - [threads](features/threads.md)
 
@@ -133,7 +134,7 @@ beta does.
 | Feature | Mobile | GTK | SwiftUI | Notes |
 |---|---|---|---|---|
 | Search messages in the room (`chat.search`) | done | done | done | |
-| Open a result at its message | missing | done | done | Mobile results cannot be tapped. |
+| Open a result at its message | done | done | done | SwiftUI does not open a thread reply in its thread. |
 | Search across rooms | missing | missing | missing | |
 
 ## 8. Room info and profiles - [room-info-and-profiles](features/room-info-and-profiles.md)
@@ -221,8 +222,7 @@ gaps, listed last.
 
 - **Mobile**: several accounts per server; time and `@n` badge in the room list;
   `mailto:` links; mentions of me highlighted; formatting toolbar; list
-  continuation; opening a search result at its message;
-  removing my photo; logs folder; meeting information.
+  continuation; removing my photo; logs folder; meeting information.
 - **GTK**: email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.

@@ -23,7 +23,8 @@ enum QuoteTransfer {
 }
 
 /// One open room, or one thread: its messages as the store holds them,
-/// paged back on demand.
+/// paged back on demand; or, after a jump to an old message, the history
+/// around it (`context`) until that reaches the local one.
 @MainActor @Observable
 public final class RoomModel {
     public private(set) var room: Room
@@ -175,6 +176,9 @@ public final class RoomModel {
     var active = true
     public private(set) var messages: [MessageItem] = []
     public private(set) var hasOlder = true
+    /// The history around an old message, shown instead of the store's.
+    public private(set) var context: ContextView?
+    public var hasNewer: Bool { context?.hasNewer() ?? false }
     public private(set) var loading = false
     public private(set) var typing: [String] = []
     public private(set) var uploads: [Upload] = []
@@ -354,7 +358,9 @@ public final class RoomModel {
             threadWriteAllowed = (try? native.threadWritable(room:room.rid,root:threadId)) == true
         }
         closeQuoteReader()
-        guard active, let fresh = cachedOrdinaryMessages() else {
+        // A context window shows the stretch around an old message, not the latest page.
+        let window = threadId == nil ? context?.messages(unreadAfter: unreadAfter) : nil
+        guard active, let fresh = window ?? cachedOrdinaryMessages() else {
             if provider.native != nil { messages = [] }
             return
         }
@@ -530,28 +536,80 @@ public final class RoomModel {
         guard active, !loading, hasOlder, threadId == nil, let oldest = messages.first?.ts else { return false }
         loading = true
         defer { loading = false }
-        guard let more = try? await provider.loadOlder(room: room, oldestTs: oldest), active else {
+        if let context {
+            guard (try? await context.older()) != nil else { return false }
+            show(context)
+            return true
+        }
+        guard let page = try? await provider.loadOlder(room: room, oldestTs: oldest), active else {
             return false
         }
-        hasOlder = more
-        limit += historyPage
+        hasOlder = page.more
+        if let shown = page.limit { limit = shown } else { limit += historyPage }
         reload()
         return true
     }
 
-    /// Pages back until the message is loaded, then asks the view to scroll to it.
+    /// One more page of the context window, toward the present.
+    @discardableResult
+    public func loadNewer() async -> Bool {
+        guard !loading, let context, context.hasNewer() else { return false }
+        loading = true
+        defer { loading = false }
+        guard (try? await context.newer(localOldest: localOldest())) != nil else { return false }
+        show(context)
+        return true
+    }
+
+    /// Back to the store's messages, live again.
+    public func leaveContext() {
+        guard context != nil else { return }
+        context = nil
+        hasOlder = true
+        reload()
+    }
+
+    /// Scrolls to the message; one not loaded, however old, is shown in the
+    /// history around it.
     public func jump(to id: String) async -> Bool {
-        if active, threadId == nil, let native = provider.native,
-           let rank = try? native.messageRank(room: room.rid, message: id) {
-            limit = max(limit, Int64(rank) + historyPage)
-            reload()
-        }
-        for _ in 0..<30 where !messages.contains(where: { $0.id == id }) {
-            if !(await loadOlder()) { break }
+        if let native = provider.native {
+            // RocketVibe: its rank says how far back to read, then pages to it.
+            if active, threadId == nil, let rank = try? native.messageRank(room: room.rid, message: id) {
+                limit = max(limit, Int64(rank) + historyPage)
+                reload()
+            }
+            for _ in 0..<30 where !messages.contains(where: { $0.id == id }) {
+                if !(await loadOlder()) { break }
+            }
+        } else if !messages.contains(where: { $0.id == id }), let chat {
+            guard threadId == nil else { return false }
+            loading = true
+            let window = try? await chat.contextAround(
+                rid: room.rid, kind: room.kind, id: id, localOldest: localOldest())
+            loading = false
+            guard let window else { return false }
+            show(window)
         }
         let found = messages.contains { $0.id == id }
         if found { reveal = id }
         return found
+    }
+
+    /// The oldest message of the local history, which runs unbroken to the present.
+    func localOldest() -> Int64? {
+        chat?.localOldest(rid: room.rid, limit: limit)
+    }
+
+    /// Shows the window, or merges it into the store once it reached the local history.
+    func show(_ window: ContextView) {
+        hasOlder = window.hasOlder()
+        if window.hasNewer() {
+            context = window
+        } else {
+            limit = max(limit, window.merge())
+            context = nil
+        }
+        reload()
     }
 
     /// Sends the draft, or runs it when it names a slash command. A refused
@@ -619,6 +677,7 @@ public final class RoomModel {
         }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canSend, !text.isEmpty || nativeQuote != nil || privateQuote != nil else { return nil }
+        if threadId == nil { leaveContext() }
         draft = ""
         draftSave?.cancel()
         if let chat, text.hasPrefix("/") {

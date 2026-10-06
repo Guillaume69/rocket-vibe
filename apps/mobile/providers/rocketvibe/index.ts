@@ -54,8 +54,11 @@ export function createRocketVibeProvider(session: Session, client: RestClient, g
   return {
     identity:{kind:'rocketvibe',origin:session.baseUrl,accountId:session.userId,instanceId:session.nativeInstanceId ?? null,generation:session.nativeDataEpoch ?? null},
     describeError:describeProviderError,
-    // The native server has no slash commands: no private note to route.
+    // No private notes here: a refused slash command answers in its HTTP error.
     privateNote:()=>null,
+    // An old message is reached by its local rank (`messageRank`), not through
+    // the Rocket.Chat context window, which reads these.
+    historyRange:unsupported, fetchMessage:unsupported, historyPage:0,
     readProfile:async target=>{
       const p=await chat.profile(target);
       return {_id:p.user.id,username:p.user.username,name:p.user.display_name,status:p.status??'online',statusText:p.status_text,bio:p.bio,avatarETag:p.avatar_file_id??'none'};

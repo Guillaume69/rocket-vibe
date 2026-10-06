@@ -1,12 +1,14 @@
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::{gdk, gio, glib};
+use rv_core::context::Window;
 use rv_core::rooms::Section;
 use rv_core::session::{Connection, Session};
-use rv_core::store::{Change, RoomRow};
+use rv_core::store::{Change, MessageRow, RoomRow};
 use rv_core::sync::HISTORY_PAGE;
 
 use crate::composer::Composer;
@@ -133,13 +135,14 @@ pub struct ChatPage {
     native_read_last: Rc<RefCell<Option<String>>>,
     search_button: gtk::Button,
     marked_button: gtk::Button,
+    root: gtk::Overlay,
     split: adw::NavigationSplitView,
     update_slot: gtk::Box,
     account_name: gtk::Label,
     account_host: gtk::Label,
     account_tile: gtk::Box,
     status_dot: gtk::Box,
-    comets: Vec<gtk::Box>,
+    comet: gtk::Box,
     connection: Cell<Connection>,
     room_title: gtk::Box,
     typing_label: gtk::Label,
@@ -170,6 +173,8 @@ pub struct ChatPage {
     limit: Cell<i64>,
     loading: Cell<bool>,
     has_older: Cell<bool>,
+    /// Old history around a message reached from elsewhere, shown instead of the local one.
+    context: RefCell<Option<Window>>,
     on_logout: Callback<()>,
     on_room_changed: Callback<Option<String>>,
     on_room_opened: Callback<String>,
@@ -266,7 +271,6 @@ impl ChatPage {
             .tooltip_text(t("rooms.new"))
             .build();
         sidebar_header.pack_end(&new_conversation);
-        let sidebar_comet = widgets::comet();
 
         let account_tile = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         let account_name = label("", &["account-name"]);
@@ -285,7 +289,6 @@ impl ChatPage {
 
         let sidebar_toolbar = adw::ToolbarView::new();
         sidebar_toolbar.add_top_bar(&sidebar_header);
-        sidebar_toolbar.add_top_bar(&sidebar_comet);
         sidebar_toolbar.set_content(Some(
             &gtk::ScrolledWindow::builder()
                 .hscrollbar_policy(gtk::PolicyType::Never)
@@ -342,10 +345,8 @@ impl ChatPage {
             .visible(false)
             .build();
         let typing_label = gtk::Label::builder().xalign(0.0).css_classes(["typing"]).visible(false).build();
-        let room_comet = widgets::comet();
         let room_view = adw::ToolbarView::new();
         room_view.add_top_bar(&room_header);
-        room_view.add_top_bar(&room_comet);
         // The composer is content, not a bottom bar: libadwaita wraps bars in a
         // GtkWindowHandle, where a double click maximizes the window.
         let room_content = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -398,6 +399,9 @@ impl ChatPage {
         split.set_content(Some(&content_page));
         split.set_min_sidebar_width(260.0);
         split.set_max_sidebar_width(400.0);
+        let comet = widgets::comet();
+        let root = gtk::Overlay::builder().child(&split).build();
+        root.add_overlay(&comet);
 
         let this = Rc::new(ChatPage {
             native: native_session,
@@ -416,13 +420,14 @@ impl ChatPage {
             native_read_last: Rc::default(),
             search_button: search_button.clone(),
             marked_button: marked_button.clone(),
+            root,
             split,
             update_slot,
             account_name,
             account_host,
             account_tile,
             status_dot,
-            comets: vec![sidebar_comet, room_comet],
+            comet,
             connection: Cell::new(Connection::Offline),
             room_title,
             typing_label,
@@ -451,6 +456,7 @@ impl ChatPage {
             limit: Cell::new(HISTORY_PAGE),
             loading: Cell::new(false),
             has_older: Cell::new(true),
+            context: RefCell::default(),
             on_logout: RefCell::default(),
             on_room_changed: RefCell::default(),
             on_room_opened: RefCell::default(),
@@ -778,6 +784,20 @@ impl ChatPage {
             }
         });
         let w = weak.clone();
+        self.list.connect_bottom_reached(move || {
+            if let Some(this) = w.upgrade().filter(|this| this.context.borrow().is_some()) {
+                glib::spawn_future_local(async move {
+                    this.context_page(true).await;
+                });
+            }
+        });
+        let w = weak.clone();
+        self.list.connect_latest(move || {
+            if let Some(this) = w.upgrade() {
+                this.leave_context();
+            }
+        });
+        let w = weak.clone();
         self.call_button.connect_clicked(move |_| {
             let Some(this) = w.upgrade() else { return };
             if this.native_session().is_some() {
@@ -882,6 +902,10 @@ impl ChatPage {
 
     pub fn widget(&self) -> &adw::NavigationSplitView {
         &self.split
+    }
+
+    pub fn root(&self) -> &gtk::Overlay {
+        &self.root
     }
 
     /// Above the account, at the foot of the room list: the update card.
@@ -1223,22 +1247,19 @@ impl ChatPage {
             button.set_tooltip_text(Some(tip));
         }
         self.connection.set(c);
-        self.update_comets();
+        self.update_comet();
     }
 
     fn set_loading(&self, loading: bool) {
         self.loading.set(loading);
-        self.update_comets();
+        self.update_comet();
     }
 
-    fn update_comets(&self) {
-        let active = self.loading.get() || self.connection.get() != Connection::Online;
-        for comet in &self.comets {
-            if active {
-                comet.add_css_class("active");
-            } else {
-                comet.remove_css_class("active");
-            }
+    fn update_comet(&self) {
+        if self.loading.get() || self.connection.get() != Connection::Online {
+            self.comet.add_css_class("active");
+        } else {
+            self.comet.remove_css_class("active");
         }
     }
 
@@ -1884,7 +1905,85 @@ impl ChatPage {
             return;
         }
         let Some(session) = self.session.borrow().clone() else { return };
-        self.list.set_rows(session.store.messages(&open.rid, self.limit.get()));
+        let rows = match self.context.borrow().as_ref() {
+            // A row the store also holds is the one live events keep up to date.
+            Some(window) => {
+                let rows = window.rows();
+                let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
+                let stored: HashMap<String, MessageRow> =
+                    session.store.messages_by_id(&ids).into_iter().map(|r| (r.id.clone(), r)).collect();
+                rows.into_iter().map(|r| stored.get(&r.id).cloned().unwrap_or(r)).collect()
+            }
+            None => session.store.messages(&open.rid, self.limit.get()),
+        };
+        self.list.set_rows(rows);
+    }
+
+    /// The oldest message of the local history, which runs unbroken to the present.
+    fn local_oldest(&self, session: &Session, rid: &str) -> Option<i64> {
+        session.store.messages(rid, self.limit.get()).first().map(|r| r.ts)
+    }
+
+    fn show_context(&self, window: Window) {
+        let reached = !window.has_newer;
+        self.context.replace(Some(window));
+        if reached {
+            self.merge_context();
+        } else {
+            self.list.set_detached(true);
+            self.reload_messages();
+        }
+    }
+
+    /// The window reached the local history: it joins it, and the room is live again.
+    fn merge_context(&self) {
+        let Some(window) = self.context.take() else { return };
+        let Some(session) = self.session() else { return };
+        session.store.write(|w| {
+            for m in window.messages() {
+                w.upsert_message(m);
+            }
+        });
+        if let Some(oldest) = window.oldest_ts() {
+            self.limit.set(session.store.count_since(window.rid(), oldest).max(self.limit.get()));
+        }
+        self.has_older.set(window.has_older);
+        self.list.set_detached(false);
+        self.reload_messages();
+    }
+
+    fn leave_context(&self) {
+        if self.context.take().is_some() {
+            self.list.set_detached(false);
+            self.reload_messages();
+        }
+    }
+
+    /// One more page of the window, older or newer; false when there is none.
+    async fn context_page(self: &Rc<Self>, newer: bool) -> bool {
+        let Some(mut window) = self.context.borrow().clone() else { return false };
+        if self.loading.get() || !(if newer { window.has_newer } else { window.has_older }) {
+            return false;
+        }
+        let Some(session) = self.session() else { return false };
+        let local_oldest = self.local_oldest(&session, window.rid());
+        self.set_loading(true);
+        let window = on_tokio(async move {
+            let read = if newer {
+                window.newer(&session.sync, local_oldest, chrono::Utc::now().timestamp_millis()).await
+            } else {
+                window.older(&session.sync).await
+            };
+            read.map(|()| window)
+        })
+        .await;
+        self.set_loading(false);
+        let Ok(window) = window else { return false };
+        if !self.context.borrow().as_ref().is_some_and(|c| c.rid() == window.rid()) {
+            return false;
+        }
+        self.show_context(window);
+        true
     }
 
     pub fn open_room(self: &Rc<Self>, rid: &str) {
@@ -1951,6 +2050,8 @@ impl ChatPage {
         self.thread.replace(None);
         self.composer.clear_reply();
         self.composer.bind(&session, rid, None);
+        self.context.replace(None);
+        self.list.set_detached(false);
         self.list.clear();
         self.reload_messages();
         self.refresh_uploads();
@@ -2006,6 +2107,9 @@ impl ChatPage {
 
     /// One more page of history; false when there is none, or one is already coming.
     async fn older_page(self: &Rc<Self>) -> bool {
+        if self.context.borrow().is_some() {
+            return self.context_page(false).await;
+        }
         if self.native_session().is_some() {
             return self.native_history(true).await;
         }
@@ -2017,9 +2121,9 @@ impl ChatPage {
         let Some(oldest) = self.list.oldest_ts() else { return false };
         self.set_loading(true);
         let (rid, kind) = (open.rid.clone(), open.kind.clone());
-        let expected = session.clone();
-        let page = crate::on_tokio(async move { session.sync.load_history(&rid, &kind, Some(oldest)).await }).await;
-        if self.session().is_none_or(|s| !Arc::ptr_eq(&s, &expected)) {
+        let s = session.clone();
+        let page = crate::on_tokio(async move { s.sync.load_history(&rid, &kind, Some(oldest)).await }).await;
+        if self.session().is_none_or(|current| !Arc::ptr_eq(&current, &session)) {
             return false;
         }
         let mut loaded = false;
@@ -2030,7 +2134,11 @@ impl ChatPage {
             if page.count <= 1 {
                 self.has_older.set(false);
             }
-            self.limit.set(self.limit.get() + HISTORY_PAGE);
+            // Down to the page and no further: an older message stored on its own
+            // (starred, edited) would hide the hole above it.
+            if let Some(oldest) = page.oldest_ts {
+                self.limit.set(session.store.count_since(&open.rid, oldest));
+            }
             self.reload_messages();
             loaded = true;
         }
@@ -2038,20 +2146,52 @@ impl ChatPage {
         loaded
     }
 
-    /// Scrolls the open room to a message, paging back through history until it is loaded.
+    /// Scrolls the open room to a message; one not loaded, however old, is
+    /// shown in the history around it until that reaches the local one.
     pub fn jump_to(self: &Rc<Self>, id: &str) {
         self.user_navigation();
-        self.list.reveal(id);
+        if self.list.row(id).is_some() {
+            self.list.reveal(id);
+            return;
+        }
+        if self.native_session().is_some() {
+            // A RocketVibe room pages back through its history until it is there.
+            self.list.reveal(id);
+            let (this, id) = (self.clone(), id.to_owned());
+            glib::spawn_future_local(async move {
+                for _ in 0..30 {
+                    if this.list.row(&id).is_some() || !this.older_page().await {
+                        break;
+                    }
+                }
+                if this.list.row(&id).is_none() {
+                    this.list.forget_reveal();
+                    this.toast(t("marked.not_loaded").to_owned());
+                }
+            });
+            return;
+        }
+        let (Some(open), Some(session)) = (self.current.borrow().clone(), self.session()) else { return };
+        let local_oldest = self.local_oldest(&session, &open.rid);
+        self.set_loading(true);
         let (this, id) = (self.clone(), id.to_owned());
         glib::spawn_future_local(async move {
-            for _ in 0..30 {
-                if this.list.row(&id).is_some() || !this.older_page().await {
-                    break;
-                }
+            let (rid, kind, target) = (open.rid.clone(), open.kind.clone(), id.clone());
+            let window = on_tokio(async move {
+                let now = chrono::Utc::now().timestamp_millis();
+                Window::around(&session.sync, &rid, &kind, &target, local_oldest, now).await
+            })
+            .await;
+            this.set_loading(false);
+            if this.current_rid().as_deref() != Some(open.rid.as_str()) {
+                return;
             }
-            if this.list.row(&id).is_none() {
-                this.list.forget_reveal();
-                this.toast(t("marked.not_loaded").to_owned());
+            match window {
+                Ok(Some(window)) => {
+                    this.show_context(window);
+                    this.list.reveal(&id);
+                }
+                _ => this.toast(t("marked.not_loaded").to_owned()),
             }
         });
     }
@@ -2092,6 +2232,9 @@ impl ChatPage {
     /// server refuses goes back into `composer`.
     fn send_or_run(self: &Rc<Self>, composer: &Rc<Composer>, rid: &str, thread: Option<&str>, text: String) {
         let Some(session) = self.session.borrow().clone() else { return };
+        if thread.is_none() && self.list.is_detached() {
+            self.list.jump();
+        }
         let (rid, thread) = (rid.to_owned(), thread.map(str::to_owned));
         if rv_core::commands::split(&text).is_none() {
             runtime().spawn(async move { session.send_in(&rid, &text, thread.as_deref()).await });

@@ -303,6 +303,18 @@ export class SyncEngine {
     return latest;
   }
 
+  /** REST documents as the database would hold them, decrypted when possible, NOT stored. */
+  normalizeMessages(rawItems: Record<string, unknown>[]): LocalMessage[] {
+    const out: LocalMessage[] = [];
+    for (const raw of rawItems) {
+      const message = this.translator.toMessage(raw);
+      if (message === null) continue;
+      this.decrypt(message);
+      out.push(message);
+    }
+    return out;
+  }
+
   async ingestRooms(rawItems: Record<string, unknown>[]): Promise<number | null> {
     let latest: number | null = null;
     await this.store.transaction(async (tx) => {

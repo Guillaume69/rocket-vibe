@@ -28,7 +28,7 @@ import type { OutboxEncryptor, OutboxStore } from '../../lib/outbox.ts';
 import type { UploadEncryption, UploadStore } from '../../lib/uploadQueue.ts';
 import type { TransportUpload } from '../../lib/upload.ts';
 import { ActionsRC } from './actions.ts';
-import { loadThread, loadHistory } from './history.ts';
+import { fetchMessage, HISTORY_PAGE, historyRange, loadThread, loadHistory } from './history.ts';
 import { AVATAR_EVENT, RcTranslator } from './translator.ts';
 
 function urlWebSocket(baseUrl: string): string {
@@ -85,6 +85,9 @@ export function createRcProvider(
     },
     loadHistory: (engine, rid, type, latest) =>
       loadHistory(client, engine, rid, type, latest),
+    historyRange: (rid, type, latest, oldest) => historyRange(client, rid, type, latest, oldest),
+    fetchMessage: (id) => fetchMessage(client, id),
+    historyPage: HISTORY_PAGE,
     loadThread: (engine, threadId, isDiscarded) => loadThread(client, engine, threadId, isDiscarded),
     createOutbox(store: OutboxStore, ingest: Ingest, encryptor?: OutboxEncryptor): Outbox {
       return new OutboxEngine({

@@ -10,6 +10,7 @@ pub mod commands;
 pub mod completion;
 pub mod compose;
 pub mod content;
+pub mod context;
 pub mod ddp;
 pub mod diff;
 pub mod e2e;

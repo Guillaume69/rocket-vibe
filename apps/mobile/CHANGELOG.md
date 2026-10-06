@@ -332,6 +332,17 @@ release, and its notes are that version's section here.
 
 - The encryption settings no longer warn that device enrollment is experimental:
   native end-to-end encryption is on by default on RocketVibe servers.
+
+## [0.6.0] - 2026-10-06
+
+### Changed
+
+- Tapping a search result now opens the room at that message. A pinned, starred or searched
+  message older than what the room has loaded shows the conversation around it, whatever its
+  age, instead of "Message not found in recent history". Scrolling reads on in both
+  directions; the button at the bottom, or sending a message, comes back to the latest
+  messages.
+
 - The app moves its local data, settings and notification links to new internal names on
   the first launch after the update. You stay signed in, with your messages, language,
   collapsed sections and unsent messages; notifications already on screen still open and
@@ -499,7 +510,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.5.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.6.0...HEAD
+[0.6.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.5.0...mobile-v0.6.0
 [0.5.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.4.0...mobile-v0.5.0
 [0.4.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.3.1...mobile-v0.4.0
 [0.3.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.3.0...mobile-v0.3.1

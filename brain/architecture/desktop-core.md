@@ -25,6 +25,7 @@ Context: [desktop-app.md](desktop-app.md) for the crate layout, [rocket-chat.md]
 | `ddp` | Listen-only DDP actor: connect, `login` resume, ref-counted subscriptions, liveness probe |
 | `store` | SQLite schema, migrations, `_updatedAt`-arbitrated upserts, cursors, outbox and upload rows, drafts |
 | `sync` | Stream events and REST pages into the store: global catch-up, per-room catch-up, history paging |
+| `context` | A window of old history around one message, read from the server and never stored, paged both ways without a hole; see [../features/room-view.md](../features/room-view.md) |
 | `outbox` | Optimistic send with a client `_id`, replay-safe delivery check |
 | `uploads` | Two-step upload queue with persisted `fileId`, offline retry, discard |
 | `normalize` | Rocket.Chat documents to local rows; every document-shape quirk lives here |
@@ -154,6 +155,7 @@ Unit tests sit next to the code; integration tests in `crates/rv-core/tests/` (`
 - apps/desktop/crates/rv-core/src/parse.rs
 - apps/desktop/crates/rv-core/src/runs.rs
 - apps/desktop/crates/rv-core/src/timeline.rs
+- apps/desktop/crates/rv-core/src/context.rs
 - apps/desktop/crates/rv-core/src/diff.rs
 - apps/desktop/crates/rv-core/src/rooms.rs
 - apps/desktop/crates/rv-core/src/server.rs

@@ -44,14 +44,14 @@ Mobile wraps them in `ActionsRC` (`providers/rocketchat/actions.ts`, behind the 
 - **Reply** arms the quote target for the composer the sheet came from ([composer](composer.md#replies-quotes)); **Reply in thread** opens `/thread/<tmid or id>`.
 - A ref guards against double taps: two `router.back()` would pop the room too.
 - Rows still in the outbox have no actions; their only actions are retry and discard.
-- **Pinned and starred lists**: `app/marked-messages.tsx`, two tabs, each loaded on first open (one request per tab per visit, the route being limited). The lists are ephemeral, rendered from the response and never written to the database. Tapping a message closes the screen and jumps to it in the room (`ui/messageJump.ts`, `ui/bringMessage.ts`, paging history back up to 4 pages from the oldest local message, never an isolated page that would leave a hidden gap); a thread reply opens its thread.
+- **Pinned and starred lists**: `app/marked-messages.tsx`, two tabs, each loaded on first open (one request per tab per visit, the route being limited). The lists are ephemeral, rendered from the response and never written to the database. Tapping a message closes the screen and jumps to it in the room (`ui/messageJump.ts`; an old one opens in a context window, see [room-view.md](room-view.md)); a thread reply opens its thread.
 
 ## Desktop (GTK)
 
 - Right-click on a message, or its "more" button, opens a popover (`rv-gtk/src/actions_menu.rs`). A right-click on selected text or a link shows the text menu instead.
 - Quick reactions on top, then the allowed actions. **Delete asks for confirmation** (`adw::AlertDialog`) and removes the local row at once on success. **Edit** is in place in the message list (Escape cancels, saving an unchanged or empty text does nothing); the returned document is ingested. **Up** in an empty composer edits my last message if still allowed ("too late" toast otherwise). Pin, star and failures confirm with a toast.
 - **Download** saves into the Downloads folder under a free name.
-- **Pinned and starred**: a dialog with a tab each (`rv-gtk/src/marked.rs`); the lists are ingested into the store (`Session::marked`). A click jumps to the message, paging older history up to 30 times, else a "not loaded" toast.
+- **Pinned and starred**: a dialog with a tab each (`rv-gtk/src/marked.rs`); the lists are ingested into the store (`Session::marked`). A click jumps to the message; one older than the loaded history opens in the history around it (`Chat::jump_to`, see [room-view.md](room-view.md)). The toast remains for a message the server cannot give back.
 
 ## Desktop (SwiftUI)
 
@@ -74,7 +74,7 @@ Same rule set in both apps, delete confirmation included. Desktop adds Up-to-edi
 - apps/mobile/ui/messageRow.tsx
 - apps/mobile/ui/attachmentActions.ts
 - apps/mobile/ui/messageJump.ts
-- apps/mobile/ui/bringMessage.ts
+- apps/mobile/lib/contextWindow.ts
 - apps/desktop/crates/rv-core/src/actions.rs
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-gtk/src/actions_menu.rs

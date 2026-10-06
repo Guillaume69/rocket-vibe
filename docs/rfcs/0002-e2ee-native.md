@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Date | 3 October 2026 |
-| Status | J4 working specification; isolated vault, server opaque journal and protected pages in the HTTP worker, no capability enabled |
+| Status | Activated 6 October 2026: the `e2ee` capability is on by default (`RV_E2EE=false` turns it off for an instance). The independent review (step 6) remains to be done; see [Activation](#activation-6-october-2026) |
 | Reference | RFC 0001 §13, P18 / P19 |
 | Clients | Providers of the current mobile, GTK and SwiftUI apps |
 
@@ -20,7 +20,7 @@ versions verified on crates.io. Single suite:
 `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` (0x0001). The engine will delegate
 the MLS operations to this library; no ratchet or group exchange is
 reimplemented in the API. The engine is now wired to the server and to the existing
-interfaces, behind a production E2EE capability that is disabled.
+interfaces, behind the production `e2ee` capability, on by default since 6 October 2026.
 The existence of a library is not an audit of our integration.
 
 A shared Rust engine avoids two diverging native crypto implementations.
@@ -445,7 +445,26 @@ with consent and visible history boundaries, without rewriting the blobs.
    and full GUI qualification remain open; archive / files,
    authorized history and RC import corpus from a blank cache.
 6. Independent review of the application / storage protocol and qualification of the
-   keyrings, Android / Hermes, GTK / SwiftUI. Activation only after proof.
+   keyrings, Android / Hermes, GTK / SwiftUI. Activation was planned only after proof;
+   it came first, by decision, see below.
+
+## Activation (6 October 2026)
+
+The project owner activated native E2EE before the independent review of step 6. The
+server advertises `e2ee` by default; an operator turns it off with `RV_E2EE=false`
+(it was an opt-in preview, `RV_E2EE_PREVIEW`, until then).
+
+The basis: the [internal review](../protocol/E2EE_REVIEW.md), which found nothing
+that breaks confidentiality against the server alone and whose medium findings
+are fixed; the crate, server and client test suites; the CI qualification of the
+Android / Hermes bridge with the real Keystore, of GTK and SwiftUI with the system
+keyrings; and real use on the three apps.
+
+Accepted until the independent review, and listed there as open: the server's
+choice among one author's edits (M-F2), silent resolution of conflicting
+recovered copies (H-2), no zeroization of temporary key copies (S-5), unconfined
+bridge paths (T-5), the cost of views (M-F4, H-6), and the keystore rollback
+limitation. The independent review stays to be done; it no longer gates activation.
 
 A library's test suite does not replace review of our model
 of identity, persistence or archive. P18 / P19 and J4 remain open until

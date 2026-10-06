@@ -1,7 +1,7 @@
 # Encrypted backup of the account root
 
 Experimental extension of [RFC 0002](../rfcs/0002-e2ee-native.md).
-The production E2EE capability stays disabled. The server uses only
+Since 6 October 2026 the `e2ee` capability is on by default ([RFC 0002, Activation](../rfcs/0002-e2ee-native.md#activation-6-october-2026)). The server uses only
 `rv-crypto-public`; it receives no recovery code, no private key and no MLS
 state. The existing AEAD format is described in
 [RECOVERY.md](../../crates/rv-crypto/RECOVERY.md).

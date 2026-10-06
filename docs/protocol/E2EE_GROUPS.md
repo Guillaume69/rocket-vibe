@@ -1,9 +1,8 @@
 # Delivery of native MLS transitions
 
 State as of 4 October 2026: experimental server protocol, Rust / TypeScript SDKs and
-PostgreSQL / MLS proofs. `capabilities.e2ee` remains disabled. The experimental
-private worker uses these routes; its integration into the providers of the
-existing interfaces remains open.
+PostgreSQL / MLS proofs. The private worker uses these routes and the three apps
+reach them through their providers. Since 6 October 2026 the `e2ee` capability is on by default ([RFC 0002, Activation](../rfcs/0002-e2ee-native.md#activation-6-october-2026)).
 Overall specification: [RFC 0002](../rfcs/0002-e2ee-native.md).
 
 ## Routes

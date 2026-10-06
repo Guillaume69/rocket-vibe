@@ -7,6 +7,10 @@ code before it was fixed or recorded. It is not the independent review that
 team wrote and reviewed the code, so it lowers the risk, it does not qualify the
 protocol.
 
+On 6 October 2026 native E2EE was activated on the basis of this review (RFC 0002,
+[Activation](../rfcs/0002-e2ee-native.md#activation-6-october-2026)): its open items
+below are accepted risks until the independent review.
+
 ## Scope
 
 | Area | Code |

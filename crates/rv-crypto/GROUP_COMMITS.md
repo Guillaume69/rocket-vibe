@@ -105,7 +105,7 @@ the real MLS results. The operation, nonces, recipients and references
 stay authenticated by the commit; a proof re-signed for another
 operation cannot reassign its original ciphertext.
 
-This client profile remains experimental and disabled. The server delivers opaque
+This client profile is on with the `e2ee` capability since 6 October 2026. The server delivers opaque
 bytes; its public validation does not prove the AAD or the MLS content. The
 public proof fixtures do not claim this private validation.
 

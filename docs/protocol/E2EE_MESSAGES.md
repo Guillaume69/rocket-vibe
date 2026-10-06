@@ -1,7 +1,7 @@
 # Native MLS message delivery
 
 State as of 4 October 2026: opaque server, ordered journal, and experimental Rust /
-TypeScript transports. `capabilities.e2ee` stays disabled. The [private HTTP worker](../../crates/rv-crypto/GROUP_HTTP.md)
+TypeScript transports. Since 6 October 2026 the `e2ee` capability is on by default ([RFC 0002, Activation](../rfcs/0002-e2ee-native.md#activation-6-october-2026)). The [private HTTP worker](../../crates/rv-crypto/GROUP_HTTP.md)
 wires up send / resume and [protected journal pages](../../crates/rv-crypto/JOURNAL.md),
 with a checkpoint shared by messages / transitions and catch-up on the same
 admission, with historical authentication kept distinct from the current validity

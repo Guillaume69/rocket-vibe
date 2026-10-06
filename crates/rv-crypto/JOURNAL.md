@@ -1,7 +1,7 @@
 # Protected journal of groups and messages
 
-Experimental J4 batch, outside the current interfaces. The E2EE capability stays
-disabled. The [server journal](../../docs/protocol/E2EE_MESSAGES.md) provides
+J4 batch, used by the three apps through their providers.
+Since 6 October 2026 the `e2ee` capability is on by default ([RFC 0002, Activation](../../docs/rfcs/0002-e2ee-native.md#activation-6-october-2026)). The [server journal](../../docs/protocol/E2EE_MESSAGES.md) provides
 transitions and messages in a common order of decimal native positions.
 
 ## Order and durability

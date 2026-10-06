@@ -107,7 +107,7 @@ pub trait Lifecycle: Send + Sync {
 
 /// One immutable account/vault scope. Clones share stop state and dispatch
 /// ordering; a new viewer generation gets a new worker and stops its old one.
-/// This feature remains experimental; existing apps still gate E2EE off.
+/// The apps reach it when the server offers `e2ee` (on by default).
 #[derive(Clone)]
 pub struct Worker {
     manager: Arc<Manager>,

@@ -1,7 +1,7 @@
 # Final settlement of personal sends
 
-State as of 4 October 2026: server / SDKs / experimental worker delivered; no
-new flow in the interfaces, E2EE capability still disabled.
+State as of 4 October 2026: server / SDKs / worker delivered.
+Since 6 October 2026 the `e2ee` capability is on by default ([RFC 0002, Activation](../../docs/rfcs/0002-e2ee-native.md#activation-6-october-2026)).
 [Server contract](../../docs/protocol/E2EE_MESSAGES.md).
 
 `Worker::cancel_message(operation)` resumes the exact opaque intent from

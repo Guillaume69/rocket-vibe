@@ -1188,6 +1188,17 @@ impl Coordinator {
     }
     /// The actual MLS roster checked against the accepted signed plan. These
     /// public observations still do not authorize a new send or transition.
+    /// The members' grants (access and activation versions) the accepted
+    /// group was built with. A member whose grant has changed since (a role
+    /// or right changed) must have their devices removed and added again.
+    pub fn accepted_grants(&self, room: &str) -> Result<Vec<Member>> {
+        self.inspect(|_, records| {
+            let state = read(records, room)?.ok_or(Error::NotReady)?;
+            self.scope(&state.scope)?;
+            let active = state.active.ok_or(Error::NotReady)?;
+            Ok(active.transition.plan.members)
+        })
+    }
     pub fn accepted_group(&self, room: &str) -> Result<(Receipt, Vec<Participant>)> {
         self.inspect(|provider, records| {
             let state = read(records, room)?.ok_or(Error::NotReady)?;

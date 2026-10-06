@@ -322,6 +322,9 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- RocketVibe: after a member's role or rights change in an encrypted room, the encrypted
+  group offers to replace that member's device, the update the group needs before anyone
+  can write again.
 - RocketVibe: when a member of an encrypted group is not trusted yet, the room information
   says so and what to do (pin their identity and approve their device in their profile)
   instead of a generic "Operation unavailable". The group review names members instead of

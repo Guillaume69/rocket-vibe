@@ -286,14 +286,23 @@ impl Access {
                     let own = member.user_id == account.user
                         && device.id == self.0.crypto.scope().device
                         && device.incarnation == self.0.crypto.scope().incarnation;
+                    // A member whose grant changed since the group was built
+                    // (a role or right) keeps their devices only through a
+                    // Remove+Add: they are offered for replacement then.
+                    let regranted = local.grants.iter().any(|g| {
+                        g.user == member.user_id
+                            && (g.access_version != member.access_version
+                                || g.activation_version != member.activation_version)
+                    });
                     let eligible = device.approved
                         && !own
-                        && !local.participants.iter().any(|p| {
-                            p.user == member.user_id
-                                && p.device == device.id
-                                && hex(&p.incarnation) == device.incarnation
-                                && hex(&p.certificate) == device.fingerprint
-                        });
+                        && (regranted
+                            || !local.participants.iter().any(|p| {
+                                p.user == member.user_id
+                                    && p.device == device.id
+                                    && hex(&p.incarnation) == device.incarnation
+                                    && hex(&p.certificate) == device.fingerprint
+                            }));
                     devices.push(Device {
                         user: member.user_id.clone(),
                         name: name.clone(),

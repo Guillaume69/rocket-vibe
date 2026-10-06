@@ -30,7 +30,7 @@ async function setup() {
     peerPin:forbidden,peerPreview:forbidden,peerApprove:forbidden,
     groupAction:async(_h,_own,input)=>{const command=JSON.parse(input) as Record<string,unknown>;nativeCalls.push(String(command.action));
       switch(command.action) {
-        case 'view':return JSON.stringify({accepted:null,participants:[],pending,needs_credential_update:false});
+        case 'view':return JSON.stringify({accepted:null,participants:[],pending,needs_credential_update:false,grants:[]});
         case 'preview':return JSON.stringify({id:previewId,kind:'genesis',fingerprint:fp,recipients:[]});
         case 'confirm':pending={operation:'original',fingerprint:fp,cancelling:false,superseded:false};return JSON.stringify({pending});
         case 'pending':return JSON.stringify(pending);
@@ -91,11 +91,12 @@ test('renewed peer is an explicit replacement, requires Remove plus fresh Add, a
   const f=await setup(),roster=await f.remote.cryptoGroupRoster('room');
   roster.group=f.ack;roster.members.push({user_id:'bob-id',access_version:'bob-access',activation_version:'bob-active'});
   const old=fp,updated='12'.repeat(32);let current=updated,approved=true,fetches=0;
+  let grants=[{user:'bob-id',access_version:'bob-access',activation_version:'bob-active'}];
   const participant={user:'bob-id',device:'peer-device',incarnation,root:fp,certificate:old};
   const original=f.bridge.groupAction;
   f.bridge.groupAction=async(handle,own,input)=>{
     const command=JSON.parse(input) as {action:string;removals?:string[];packages?:unknown[]};
-    if(command.action==='view')return JSON.stringify({accepted:f.ack,participants:[participant],pending:null,needs_credential_update:false});
+    if(command.action==='view')return JSON.stringify({accepted:f.ack,participants:[participant],pending:null,needs_credential_update:false,grants});
     if(command.action==='events')return 'null';
     if(command.action==='preview'){
       assert.deepEqual(command.removals,['peer-device']);assert.equal(command.packages?.length,1);
@@ -119,6 +120,10 @@ test('renewed peer is an explicit replacement, requires Remove plus fresh Add, a
   current='34'.repeat(32);await assert.rejects(f.access.preview(view,['peer-device'],['peer-device']),/crypto_integrity_failed/);assert.equal(fetches,1);
   approved=false;assert.deepEqual((await f.access.read()).eligible,[]);assert.equal(fetches,1);
   approved=true;current=old;assert.deepEqual((await f.access.read()).eligible,[]);
+  // Bob's grant changed since the group was built (his role changed): the same
+  // device must be removed and added again, so it is offered as a replacement.
+  grants=[{user:'bob-id',access_version:'bob-access-before',activation_version:'bob-active'}];
+  assert.deepEqual((await f.access.read()).eligible,[{user:'bob-id',device:'peer-device',incarnation,certificate:old,replacement:true}]);
   await f.access.close();
 });
 test('read-only room permits resolving an accepted receipt but refuses a fresh group POST',async()=>{

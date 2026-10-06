@@ -151,6 +151,10 @@ section here.
 
 ### Fixed
 
+- RocketVibe: after a member's role or rights change in an encrypted room, the room
+  encryption dialog offers to replace that member's device ("Replace and invite again"),
+  the update the group needs before anyone can write again; the update used to fail.
+
 - RocketVibe: the loading bars no longer stay on in an open encrypted room. Every presence
   update (every few seconds) counted as a change and decrypted the room's history again.
 

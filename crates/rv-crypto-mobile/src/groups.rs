@@ -213,8 +213,14 @@ impl CryptoInstallation {
                 };
                 let needs_update =
                     !accepted.is_null() && c.needs_credential_update(&wire.room_id, time)?;
+                let grants = if accepted.is_null() {
+                    json!([])
+                } else {
+                    serde_json::to_value(c.accepted_grants(&wire.room_id)?)
+                        .map_err(|_| CryptoBridgeError::Integrity)?
+                };
                 json!({"accepted":accepted,"participants":members,"pending":pending(&c,&wire.room_id)?,
-                    "needs_credential_update":needs_update})
+                    "needs_credential_update":needs_update,"grants":grants})
             }
             Action::Preview {
                 roster: wire,

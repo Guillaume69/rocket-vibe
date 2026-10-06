@@ -78,6 +78,8 @@ pub struct Batch {
 pub struct LocalGroupStatus {
     pub accepted: Option<groups::Receipt>,
     pub participants: Vec<groups::Participant>,
+    /// The members' grants the accepted group was built with.
+    pub grants: Vec<rv_crypto_public::groups::Member>,
     pub pending: Option<groups::PendingLookup>,
     pub needs_credential_update: bool,
 }
@@ -422,9 +424,13 @@ impl Worker {
         let room = room.to_owned();
         self.owned(move |manager, root, now| {
             let coordinator = groups::Coordinator::new(manager, root)?;
-            let (accepted, participants) = match coordinator.accepted_group(&room) {
-                Ok((receipt, participants)) => (Some(receipt), participants),
-                Err(groups::Error::NotReady) => (None, vec![]),
+            let (accepted, participants, grants) = match coordinator.accepted_group(&room) {
+                Ok((receipt, participants)) => (
+                    Some(receipt),
+                    participants,
+                    coordinator.accepted_grants(&room)?,
+                ),
+                Err(groups::Error::NotReady) => (None, vec![], vec![]),
                 Err(error) => return Err(error.into()),
             };
             let pending = match coordinator.pending_lookup(&room) {
@@ -437,6 +443,7 @@ impl Worker {
                     && coordinator.needs_credential_update(&room, now)?,
                 accepted,
                 participants,
+                grants,
                 pending,
             })
         })

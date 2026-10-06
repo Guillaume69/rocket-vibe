@@ -16,7 +16,8 @@ export type GroupTransport={
   publishKeyPackages:(input:PublishKeyPackages)=>Promise<OperationReceipt>;
 };
 type Pending={operation:string;fingerprint:string;cancelling:boolean;superseded:boolean};
-type Local={accepted:GroupReceipt|null;participants:CryptoParticipant[];pending:Pending|null;needs_credential_update:boolean};
+type Grant={user:string;access_version:string;activation_version:string};
+type Local={accepted:GroupReceipt|null;participants:CryptoParticipant[];pending:Pending|null;needs_credential_update:boolean;grants:Grant[]};
 type CurrentDevice={user:string;device:string;incarnation:string;certificate:string};
 export type CryptoGroupView=Local & {roster:GroupRoster;eligible:(CurrentDevice & {replacement:boolean})[];event:GroupEvent|null;own_device:string};
 export type CryptoRoomAction<T>=(rpc:(input:unknown)=>Promise<unknown>,roster:GroupRoster,
@@ -47,7 +48,11 @@ function local(value:unknown,room:string,scope:CryptoAccount):Local {
   const v=object(value),accepted=v.accepted===null?null:decodeNative('GroupReceipt',v.accepted);
   if(accepted && (accepted.room_id!==room || accepted.scope.instance_id!==scope.instance || accepted.scope.data_epoch!==scope.dataEpoch))integrity();
   if(typeof v.needs_credential_update!=='boolean' || !accepted && v.needs_credential_update)integrity();
-  return {accepted,participants:participants(v.participants),pending:pending(v.pending),needs_credential_update:v.needs_credential_update};
+  if(!Array.isArray(v.grants) || v.grants.length>128)integrity();
+  const grants=(v.grants as unknown[]).map(g=>{const x=object(g);
+    if(!id(x.user) || typeof x.access_version!=='string' || typeof x.activation_version!=='string')integrity();
+    return x as Grant;});
+  return {accepted,participants:participants(v.participants),pending:pending(v.pending),needs_credential_update:v.needs_credential_update,grants};
 }
 function preview(value:unknown):CryptoGroupPreview {
   const v=object(value);
@@ -107,9 +112,13 @@ export class CryptoGroupAccess {
   }
   read():Promise<CryptoGroupView> {return this.run(false,async(rpc,roster,peers,scope,call)=>{
     const value=local(await rpc({action:'view',roster}),this.room,scope);
+    // A member whose grant changed since the group was built (a role or a
+    // right) keeps their devices only through a Remove+Add: offered as a replacement.
+    const regranted=(user:string)=>value.grants.some(g=>{const now=roster.members.find(m=>m.user_id===user);
+      return g.user===user && !!now && (g.access_version!==now.access_version || g.activation_version!==now.activation_version);});
     const devices=await peers(),eligible=devices.flatMap(d=>{
       const previous=value.participants.find(p=>p.user===d.user && p.device===d.device);
-      return previous?.incarnation===d.incarnation && previous.certificate===d.certificate?[]:[{...d,replacement:!!previous}];
+      return previous?.incarnation===d.incarnation && previous.certificate===d.certificate && !regranted(d.user)?[]:[{...d,replacement:!!previous}];
     });
     let event:GroupEvent|null=null;
     if(roster.group && !value.pending) {

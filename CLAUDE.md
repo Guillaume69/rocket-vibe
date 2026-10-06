@@ -39,7 +39,7 @@ The three apps (Android, GTK, SwiftUI) aim at the same features, and none is the
 
 1. Implement.
 2. Keep the reflex of checking that it holds (`npx tsc --noEmit` in `apps/mobile/` and a real launch when the change touches code), but it is no longer a formal exit criterion that blocks.
-3. Commit (conventional message) and `git push origin master`.
+3. Commit (conventional message) and `git push origin master`. Once per clone, `git config core.hooksPath .githooks`: the pre-commit hook regenerates the Rocket.Chat inventory CI checks (`docs/DEV.md`).
 
 - **No more systematic `/code-review`.** Review only runs on explicit request.
 - No more obligation of a ticked/dated box in `apps/mobile/EXECUTION.md` nor of an `Étape: N.M` trailer (the keyword the history carries). `EXECUTION.md` can still be updated when it clarifies the state, but it is no longer mandatory.

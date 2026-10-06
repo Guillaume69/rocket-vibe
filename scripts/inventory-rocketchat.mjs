@@ -5,13 +5,19 @@ import { fileURLToPath } from 'node:url';
 import { relative, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-const root = fileURLToPath(new URL('../', import.meta.url));
+const repo = fileURLToPath(new URL('../', import.meta.url));
+// RV_INVENTORY_ROOT: a copy of the index (the pre-commit hook, `.githooks/pre-commit`),
+// so the inventory matches what is committed, not unstaged edits.
+const staged = process.env.RV_INVENTORY_ROOT;
+const root = staged ? `${resolve(staged)}/` : repo;
 const require = createRequire(new URL('../apps/mobile/package.json', import.meta.url));
 const ts = require('typescript');
 const scopes = ['apps/mobile/app', 'apps/mobile/lib', 'apps/mobile/ui', 'apps/mobile/providers/rocketchat', 'apps/mobile/plugins', 'apps/desktop/crates', 'apps/desktop/macos/Sources'];
 // Generated/ignored bindings can exist locally and be absent in a clean checkout.
-// Include new non-ignored source files too so regeneration works before staging.
-const sourceFiles = new Set(execFileSync('git', ['-c', `safe.directory=${root}`, 'ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', ...scopes], {cwd:root,encoding:'utf8'}).split('\0'));
+// Include new non-ignored source files too so regeneration works before staging;
+// from the index, only what is staged.
+const listed = staged ? ['--cached'] : ['--cached', '--others', '--exclude-standard'];
+const sourceFiles = new Set(execFileSync('git', ['-c', `safe.directory=${repo}`, 'ls-files', ...listed, '-z', '--', ...scopes], {cwd:repo,encoding:'utf8'}).split('\0'));
 const rows = [];
 const scanned = [];
 const atom = /^(?:(?:chat|rooms|subscriptions|users|permissions|channels|groups|im|e2e|emoji-custom|video-conference|push)\.[A-Za-z][\w.-]*(?:\/[^\s]*)?|settings\.public|spotlight|api\/info)$/;

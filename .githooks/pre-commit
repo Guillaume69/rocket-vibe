@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Regenerates the Rocket.Chat inventory (docs/protocol/rocketchat-inventory.*)
+# when a commit touches the files it scans, from what is being committed: the
+# staged content, exported to a temporary copy, never unstaged edits. CI checks
+# the same files with `node scripts/inventory-rocketchat.mjs --check`.
+# Enabled once per clone: git config core.hooksPath .githooks
+set -euo pipefail
+
+repo=$(git rev-parse --show-toplevel)
+cd "$repo"
+scanned=(apps/mobile/app apps/mobile/lib apps/mobile/ui apps/mobile/providers/rocketchat
+  apps/mobile/plugins apps/desktop/crates apps/desktop/macos/Sources scripts/inventory-rocketchat.mjs)
+
+# Nothing the inventory reads is in this commit.
+git diff --cached --quiet -- "${scanned[@]}" && exit 0
+
+if ! command -v node >/dev/null 2>&1 || [ ! -d apps/mobile/node_modules/typescript ]; then
+  echo "pre-commit: node or apps/mobile/node_modules missing; Rocket.Chat inventory not regenerated" >&2
+  exit 0
+fi
+
+copy=$(mktemp -d)
+trap 'rm -rf "$copy"' EXIT
+git ls-files -z -- "${scanned[@]}" | xargs -0 git checkout-index --prefix="$copy/" --
+mkdir -p "$copy/docs/protocol"
+
+RV_INVENTORY_ROOT="$copy" node scripts/inventory-rocketchat.mjs >/dev/null
+for name in rocketchat-inventory.json rocketchat-inventory.md; do
+  if ! cmp -s "$copy/docs/protocol/$name" "docs/protocol/$name"; then
+    cp "$copy/docs/protocol/$name" "docs/protocol/$name"
+    git add "docs/protocol/$name"
+    echo "pre-commit: regenerated docs/protocol/$name" >&2
+  fi
+done

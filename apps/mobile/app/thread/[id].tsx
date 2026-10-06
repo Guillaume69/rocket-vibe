@@ -8,14 +8,14 @@ import { ActivityIndicator, AppState, StyleSheet, Text, View } from 'react-nativ
 
 import type { LocalDatabase } from '../../db/client.ts';
 import type { DraftStore } from '../../db/store.ts';
-import { messages, rooms, outbox, nativeRoomAccess } from '../../db/schema.ts';
+import { messages, rooms, outbox, nativeRoomAccess, uploads } from '../../db/schema.ts';
 import {CryptoNative} from '../../modules/crypto-native/index.ts';
 import {privateRows} from '../../providers/rocketvibe/cryptoProjection.ts';
 import {usePrivateQuotes} from '../../ui/privateQuotes.ts';
 import {useEncryptedConversation,privateRow,privateInterrupted} from '../../ui/encryptedConversation.ts';
 import {Tappable} from '../../ui/tappable.tsx';
 import type { ActivityEngine } from '../../lib/activity.ts';
-import type { ProviderActions, Provider, Listener, Outbox } from '../../lib/provider.ts';
+import type { ProviderActions, Provider, Listener, Outbox, FileOutbox } from '../../lib/provider.ts';
 import type { RestClient } from '../../lib/rest.ts';
 import { SyncEngine } from '../../lib/sync.ts';
 import { useActivity } from '../../ui/activity.ts';
@@ -34,6 +34,7 @@ import { useT } from '../../ui/i18n.ts';
 import { MessageRow, type MessageRowData } from '../../ui/messageRow.tsx';
 import { useSession } from '../../ui/session.tsx';
 import { useSync } from '../../ui/sync.tsx';
+import { UploadBands } from '../../ui/uploadBands.tsx';
 import { useColors, type Colors, FONTS } from '../../ui/theme.ts';
 
 /**
@@ -79,6 +80,7 @@ export default function ThreadScreen() {
       drafts={sync.drafts}
       engine={sync.engine}
       outbox={sync.outbox}
+      files={sync.files}
       ddp={sync.ddp}
       provider={sync.provider}
       actions={sync.actions}
@@ -104,6 +106,7 @@ function Thread({
   drafts,
   engine,
   outbox: outboxQueue,
+  files,
   ddp,
   provider,
   actions,
@@ -123,6 +126,7 @@ function Thread({
   drafts: DraftStore;
   engine: SyncEngine;
   outbox: Outbox;
+  files: FileOutbox;
   ddp: Listener;
   provider: Provider;
   actions: ProviderActions;
@@ -181,6 +185,11 @@ function Thread({
   const protectedRoom=!!native && room?.encrypted===true;
   const cryptoAvailable=!!CryptoNative && native?.chat.capabilities?.e2ee===true && native.chat.capabilities.device_sessions===true;
   const conversation=useEncryptedConversation(native?.chat,rid??'',membership,protectedRoom && cryptoAvailable,threadId);
+  // This thread's queued files: waiting, sending, refused (with Retry).
+  const { data: threadUploads } = useCoalescedLiveQuery(
+    base.select().from(uploads).where(and(eq(uploads.rid, rid ?? ''), eq(uploads.tmid, threadId))),
+    [rid, threadId],
+  );
   const {data:nativePermissions}=useCoalescedLiveQuery(base.select().from(nativeRoomAccess).where(eq(nativeRoomAccess.rid,rid??'')).limit(1),[rid]);
   const { data: outboxRows } = useCoalescedLiveQuery(
     base.select().from(outbox).where(eq(outbox.threadId, threadId)),
@@ -440,10 +449,11 @@ function Thread({
           maintainVisibleContentPosition={{ autoscrollToBottomThreshold: 0.2 }}
         />
       )}
+      {protectedRoom ? null : <UploadBands c={c} rows={threadUploads ?? []} files={files} />}
       {/* The SHARED composer (ui/composer.tsx): the encrypted / read-only
           variants live inside it; in an encrypted room, it now offers the
-          E2E unlock, like the room screen. `files` is null: no attachments
-          or voice messages in a thread. */}
+          E2E unlock, like the room screen. Files and voice messages answer
+          the thread: the queue carries its id. */}
       {rid !== undefined && room !== undefined && persistence.initial !== null && (
         <Composer
           key={JSON.stringify([rid,threadId,membership,protectedRoom?conversation.view?.admission:null,protectedRoom?conversation.composer:null])}
@@ -451,7 +461,7 @@ function Thread({
           rid={rid}
           threadId={threadId}
           outbox={linkedSend}
-          files={null}
+          files={provider.capabilities.files === false ? null : protectedRoom ? conversation.files : files}
           client={client}
           mentionCandidates={mentionCandidates}
           readOnly={protectedRoom?nativePermissions?.[0]?.canSend!==true || conversation.view?.can_send!==true || conversation.view.catching_up:room.readOnly || !!native && (membership==null || !root)}

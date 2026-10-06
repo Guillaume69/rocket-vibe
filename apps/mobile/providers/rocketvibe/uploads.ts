@@ -43,7 +43,7 @@ export class NativeFileOutbox implements FileOutbox {
     validateFile({maxSize:FILE_MAX,acceptedTypes:FILE_TYPES,encryptedFiles:false},file);
     if(file.size!==null&&(!Number.isSafeInteger(file.size)||file.size<=0))throw new NativeError(422,'invalid_file');
   }
-  async send(room:string,file:FileToSend&{size:number|null},caption=''):Promise<void>{
+  async send(room:string,file:FileToSend&{size:number|null},caption='',thread:string|null=null):Promise<void>{
     if(this.closed)throw new NativeError(0,'session_closed');
     await this.validate(file);
     const membership=(await this.chat.store.readState(room))?.membership_version;
@@ -55,7 +55,7 @@ export class NativeFileOutbox implements FileOutbox {
       const descriptor=fileDescriptor({id,room_id:room,bytes:String(copy.bytes),sha256:copy.sha256,media_type:file.type,filename:file.name.trim(),encrypted:false},room);
       await this.chat.store.uploads.stage({id,room,membership,uri:copy.uri,
         prepare:{operation_id:id,room_id:room,bytes:descriptor.bytes,sha256:descriptor.sha256,media_type:descriptor.media_type,filename:descriptor.filename,encrypted:false},
-        complete:{operation_id:operation,content:{kind:'plain',markdown:caption,mentions:[],quotes:[],files:[]}},
+        complete:{operation_id:operation,content:{kind:'plain',markdown:caption,mentions:[],quotes:[],files:[]},reply_to:thread},
       });
     }catch(error){await this.io.remove(copy.uri).catch(()=>{});throw error;}
     this.notify();await this.process();

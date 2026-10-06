@@ -204,6 +204,8 @@ export const uploads = sqliteTable(
     name: text('name').notNull(),
     type: text('type').notNull(),
     caption: text('caption'),
+    /** The thread the file answers (`rooms.mediaConfirm` `tmid`); null in the room. */
+    tmid: text('tmid'),
     status: text('status')
       .$type<'pending' | 'sending' | 'failed'>()
       .notNull()

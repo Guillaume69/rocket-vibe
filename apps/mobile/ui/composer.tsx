@@ -318,7 +318,7 @@ export function Composer({
                 : original;
             const captionCarrier = i === 0 && textToSend !== '';
             try {
-              await files.send(rid, ready, captionCarrier ? textToSend : undefined);
+              await files.send(rid, ready, captionCarrier ? textToSend : undefined, threadId);
             } catch (e) {
               handedOff.current.delete(original.key);
               // Validation refusal: the attachment (the original) stays in place; the

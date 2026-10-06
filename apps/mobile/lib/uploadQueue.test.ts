@@ -256,6 +256,25 @@ describe('UploadEngine', () => {
     assert.equal(engine.progress.size, 0, 'progress is cleared even when the pass is abandoned');
   });
 
+  test('a file sent in a thread is confirmed with its tmid, a room file without', async () => {
+    const { store } = fakeStore();
+    const bodies: unknown[] = [];
+    const client = new RestClient('http://x', {
+      fetch: async (url, init) => {
+        const confirm = String(url).includes('mediaConfirm');
+        if (confirm) bodies.push(JSON.parse(String(init?.body)));
+        return Response.json(confirm ? { success: true, message: { _id: 'm1', rid: 'r1' } } : { settings: [] });
+      },
+      sleep: async () => {},
+    });
+    const transport: TransportUpload = async () => ({ status: 200, body: JSON.stringify({ file: { _id: 'f1' } }) });
+    let id = 0;
+    const engine = new UploadEngine({ store, client, transport, generateId: () => `u${id++}`, ingest: async () => {} });
+    await engine.send('r1', FILE, 'in the thread', 'root1');
+    await engine.send('r1', FILE, '', null);
+    assert.deepEqual(bodies, [{ msg: 'in the thread', tmid: 'root1' }, {}]);
+  });
+
   test('unreachable stops the pass: the next row is not attempted', async () => {
     const { store, rows, calls } = fakeStore();
     let attempts = 0;
@@ -270,8 +289,8 @@ describe('UploadEngine', () => {
       generateId: () => 'x',
       ingest: async () => {},
     });
-    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
-    await store.insert({ id: 't2', rid: 'r1', ...FILE, caption: null });
+    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null, tmid: null });
+    await store.insert({ id: 't2', rid: 'r1', ...FILE, caption: null, tmid: null });
 
     await engine.process();
 
@@ -303,7 +322,7 @@ describe('UploadEngine', () => {
       generateId: () => 'x',
       ingest: async () => {},
     });
-    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
+    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null, tmid: null });
 
     await engine.process();
     assert.equal([...rows.values()][0]?.status, 'pending');
@@ -327,7 +346,7 @@ describe('UploadEngine', () => {
       ingest: async () => {},
     });
     // The state a kill mid-upload leaves behind.
-    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
+    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null, tmid: null });
     await store.claim('t1');
     assert.equal([...rows.values()][0]?.status, 'sending');
 
@@ -352,7 +371,7 @@ describe('UploadEngine', () => {
       generateId: () => 'x',
       ingest: async () => {},
     });
-    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
+    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null, tmid: null });
 
     await engine.process();
     assert.equal([...rows.values()][0]?.status, 'failed');
@@ -404,7 +423,7 @@ describe('UploadEngine', () => {
       generateId: () => 'x',
       ingest: async (d) => void ingested.push(d),
     });
-    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
+    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null, tmid: null });
 
     await engine.process();
     assert.equal(bytes, 1);
@@ -460,7 +479,7 @@ describe('UploadEngine', () => {
       generateId: () => 'x',
       ingest: async (d) => void ingested.push(d),
     });
-    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
+    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null, tmid: null });
 
     await engine.process();
     await engine.process();
@@ -511,7 +530,7 @@ describe('UploadEngine', () => {
         posted.add('f1');
       },
     });
-    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
+    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null, tmid: null });
 
     await engine.process(); // the bytes leave, the confirm gets lost
     assert.equal(confirms, 1);
@@ -562,7 +581,7 @@ describe('UploadEngine', () => {
         throw new Error('catch-up impossible');
       },
     });
-    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
+    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null, tmid: null });
 
     await engine.process();
     await engine.process();
@@ -599,7 +618,7 @@ describe('UploadEngine', () => {
       ingest: async (d) => void ingested.push(d),
       deleteLocalFile: async (uri) => void deleted.push(uri),
     });
-    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
+    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null, tmid: null });
 
     const pass = engine.process();
     await entry.waitFor;
@@ -646,7 +665,7 @@ describe('UploadEngine', () => {
       generateId: () => 'x',
       ingest: async (d) => void ingested.push(d),
     });
-    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
+    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null, tmid: null });
 
     const pass = engine.process();
     await entry.waitFor;
@@ -688,7 +707,7 @@ describe('UploadEngine', () => {
       generateId: () => 'x',
       ingest: async (d) => void ingested.push(d),
     });
-    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
+    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null, tmid: null });
 
     const pass = engine.process();
     await entry.waitFor;
@@ -772,7 +791,7 @@ describe('UploadEngine', () => {
       generateId: () => 'x',
       ingest: async () => {},
     });
-    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null });
+    await store.insert({ id: 't1', rid: 'r1', ...FILE, caption: null, tmid: null });
 
     const firstPass = engine.process();
     await entry.waitFor; // the pass is REALLY in flight, no waiting delay
@@ -925,7 +944,7 @@ describe('UploadEngine, encrypted room', () => {
   test('key lost between the two steps (killed process): the file goes again, freshly encrypted', async () => {
     const { store, rows } = fakeStore();
     const { encryption: c, encryptedFiles } = encryption();
-    await store.insert({ id: 'l1', rid: 'p1', uri: 'file:///cache/a.png', name: 'a.png', type: 'image/png', caption: null });
+    await store.insert({ id: 'l1', rid: 'p1', uri: 'file:///cache/a.png', name: 'a.png', type: 'image/png', caption: null, tmid: null });
     await store.recordFileId('l1', 'f-old');
     const confirmed: unknown[] = [];
     const engine = new UploadEngine({

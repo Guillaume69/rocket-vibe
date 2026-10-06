@@ -23,7 +23,7 @@ export class NativeUploadIntents {
       if(!await this.valid(intent.room,intent.membership))throw new Error('upload_scope_changed');
       await this.db.runAsync('INSERT INTO native_upload_intents(id,rid,payload,phase) VALUES(?,?,?,?)',[intent.id,intent.room,JSON.stringify(intent),'pending']);
       const caption=intent.complete.content.kind==='plain'?intent.complete.content.markdown:'';
-      await this.db.runAsync(INSERT_UPLOAD,[intent.id,intent.room,intent.uri,intent.prepare.filename??'',intent.prepare.media_type,caption,Date.now()]);
+      await this.db.runAsync(INSERT_UPLOAD,[intent.id,intent.room,intent.uri,intent.prepare.filename??'',intent.prepare.media_type,caption,Date.now(),intent.complete.reply_to??null]);
     });
   }
   list():Promise<SavedUpload[]> {return this.atomic(async()=>{

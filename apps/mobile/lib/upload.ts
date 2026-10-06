@@ -120,12 +120,15 @@ export async function confirmMedia(options: {
   rid: string;
   fileId: string;
   message?: string;
+  /** The thread the file answers: `sendFileMessage` validates `tmid` (8.5). */
+  tmid?: string | null;
   /** Full body, instead of `message`: the one of an encrypted file. */
   body?: Record<string, unknown>;
 }): Promise<Record<string, unknown>> {
-  const { client, rid, fileId, message } = options;
+  const { client, rid, fileId, message, tmid } = options;
+  const thread = tmid === undefined || tmid === null ? {} : { tmid };
   const confirmation = await client.post<ConfirmResponse>(`rooms.mediaConfirm/${rid}/${fileId}`, {
-    body: options.body ?? (message === undefined || message === '' ? {} : { msg: message }),
+    body: options.body ?? (message === undefined || message === '' ? thread : { msg: message, ...thread }),
   });
   if (confirmation.message === undefined) {
     throw new UploadError('rooms.mediaConfirm: no message in the response.');

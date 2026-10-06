@@ -157,7 +157,7 @@ export function useEncryptedConversation(chat:NativeChat|undefined,room:string,m
   // then sent in a private message of the room itself (E2EE_FILES.md).
   const progress=useRef(new Map<string,number>()),listeners=useRef(new Set<()=>void>());
   const files=useMemo<FileOutbox|null>(()=>{
-    if(!chat || thread!==null || !CryptoNative?.sealFile || !FS.cacheDirectory)return null;
+    if(!chat || !CryptoNative?.sealFile || !FS.cacheDirectory)return null;
     const crypto=CryptoNative,folder=`${FS.cacheDirectory}private-outbox/`;
     const notify=()=>{for(const l of listeners.current)l();};
     return {

@@ -127,6 +127,13 @@
       "when": 1791205024688,
       "tag": "0017_native_provider",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1791282972302,
+      "tag": "0018_upload_thread",
+      "breakpoints": true
     }
   ]
 }

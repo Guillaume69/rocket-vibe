@@ -44,7 +44,7 @@ import {privateRows} from '../../providers/rocketvibe/cryptoProjection.ts';
 import {usePrivateQuotes} from '../../ui/privateQuotes.ts';
 import {CryptoNative} from '../../modules/crypto-native/index.ts';
 import {RoomMembershipBound} from '../../ui/roomMembership.tsx';
-import { useFileProgress } from '../../ui/fileProgress.ts';
+import { UploadBands } from '../../ui/uploadBands.tsx';
 import { KeyboardAvoidingContainer } from '../../ui/keyboard.tsx';
 import { useMentionCandidates } from '../../ui/mentionCompletion.tsx';
 import { Composer } from '../../ui/composer.tsx';
@@ -423,9 +423,6 @@ function Room({
     [rid],
   );
   const filesInProgress = uploadRows ?? [];
-  // The progress fraction only lives in the engine's memory: no SQLite write
-  // carries it, so `useCoalescedLiveQuery` would never see it move.
-  const progressions = useFileProgress(files);
   // Decisions (pagination) are made on the FRESH value; only the display is
   // smoothed.
   const self=client.auth?.userId?{id:client.auth.userId,username:me}:undefined;
@@ -1071,39 +1068,7 @@ function Room({
           )}
         </View>
       )}
-      {filesInProgress.map((upload) => {
-        const failed = upload.status === 'failed';
-        const label = failed
-          ? t('room.fileNotSent', { name: upload.name })
-          : upload.status === 'sending'
-            ? t('room.fileSending', {
-                name: upload.name,
-                percent: String(Math.round((progressions.get(upload.id) ?? 0) * 100)),
-              })
-            : t('room.filePending', { name: upload.name });
-        return (
-          <View key={upload.id} style={styles.fileFailureBand}>
-            <Text
-              style={[styles.time, { color: failed ? c.errorText : c.dimmed }]}
-              numberOfLines={1}
-            >
-              {label}
-            </Text>
-            {/* "Retry" only makes sense on a failure, and it needs the id: the
-                automatic replay no longer sees failed rows, a plain `process()`
-                would miss it. A `pending` or `sending` row goes out on its
-                own already. */}
-            {failed && (
-              <Pressable onPress={() => void files.retry(upload.id)}>
-                <Text style={[styles.time, { color: c.accent }]}>{t('room.retry')}</Text>
-              </Pressable>
-            )}
-            <Pressable onPress={() => void files.discard(upload.id, upload.uri)}>
-              <Text style={[styles.time, { color: c.dimmed }]}>{t('room.discard')}</Text>
-            </Pressable>
-          </View>
-        );
-      })}
+      <UploadBands c={c} rows={filesInProgress} files={files} />
       {/* A refused THREAD reply has no row in this stream (filtered by
           threadId): without this banner, its failure would only be visible by
           reopening that exact thread, i.e. silently never, in practice. */}

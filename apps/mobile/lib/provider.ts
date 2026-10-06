@@ -281,6 +281,8 @@ export interface FileOutbox {
     rid: string,
     file: FileToSend & { size: number | null },
     caption?: string,
+    /** The thread the file answers; null or absent in the room itself. */
+    thread?: string | null,
   ): Promise<void>;
   process(): Promise<void>;
   /**

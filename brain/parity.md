@@ -174,6 +174,7 @@ beta does.
 | Encrypted files, both directions | done | done | done | |
 | Key kept across launches | done | done | done | Keystore on mobile, system keychain on desktop. |
 | Create an encrypted room | missing | missing | missing | |
+| RocketVibe server: create an encrypted room (MLS group): prepare the device for invitations, review and confirm creation, admission and device changes | done | done | done | From any native room the user belongs to, before the group exists too; the server allows creation to the owner (any member of a DM) in a room with no plaintext history. Mobile from the room info, GTK and SwiftUI from the room details. SwiftUI checked by the macOS CI build only. |
 | RocketVibe server: a new device asks for history, another device of the account reviews and shares it, the new device imports it ([e2ee-history](features/e2ee-history.md)) | done | done | done | Same settings block in all three; SwiftUI checked by the macOS CI build only. |
 | RocketVibe server: history backup with a separate code (enable, join, continuous upload, restore) | done | done | done | Same settings block in all three; SwiftUI checked by the macOS CI build only. |
 | RocketVibe server: edit and delete own private messages, pending on the target until accepted ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | done | done | Text only. Mobile from the long-press sheet, GTK and SwiftUI from the message menu and Up in an empty composer; SwiftUI checked by the macOS CI build only. |

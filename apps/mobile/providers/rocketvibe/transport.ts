@@ -379,6 +379,10 @@ export class NativeTransport {
   searchMessages(room:string,q:string,before?:string):Promise<NativeTypes['SearchPage']> {
     return this.request('SearchPage',`/api/v1/rooms/${encodeURIComponent(room)}/messages/search?q=${encodeURIComponent(q)}${before?`&before=${encodeURIComponent(before)}`:''}`);
   }
+  /** The slash commands the server offers (`rv_protocol::commands`). */
+  commands(): Promise<NativeTypes['CommandList']> { return this.request('CommandList', '/api/v1/commands'); }
+  /** Runs a server-side slash command; the text commands never come here. */
+  async runCommand(input: NativeTypes['RunCommand']): Promise<void> { await this.value('/api/v1/commands/run', input); }
   /** My rooms with their read states: what the server rail reads of an account not open. */
   async rooms(): Promise<Room[]> {
     const rooms = await this.value('/api/v1/rooms');

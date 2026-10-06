@@ -506,6 +506,23 @@ export class NativeChat {
   async changeRoomRole(room:string,target:string,input:Omit<import('./protocol.generated.ts').ChangeRoomRole,'operation_id'>):Promise<void> {
     await this.submitRoomOperation(room,{kind:'role',target,input:{...input,operation_id:this.id()}});
   }
+  private slashList:Promise<import('./protocol.generated.ts').CommandList>|null=null;
+  /** The server's slash commands, read once per session (a failure is not kept); none on a server without them. */
+  slashCommands():Promise<import('./protocol.generated.ts').CommandList> {
+    if(!this.capabilities?.slash_commands)return Promise.resolve({commands:[]});
+    if(this.slashList===null){
+      const request=(async()=>{this.ready();return this.transport.commands();})();
+      this.slashList=request;
+      request.catch(()=>{if(this.slashList===request)this.slashList=null;});
+    }
+    return this.slashList;
+  }
+  /** Runs a server-side slash command in `room`; what it changed comes back through sync. */
+  async runSlashCommand(room:string,command:string,params:string):Promise<void> {
+    this.ready();
+    checkIdentity(this.session,await this.transport.discover());
+    await this.transport.runCommand({room_id:room,command,params});
+  }
   async leaveRoom(room:string,revision:string):Promise<void> {
     await this.submitRoomOperation(room,{kind:'leave',input:{operation_id:this.id(),expected_revision:revision}});
   }

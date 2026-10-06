@@ -36,7 +36,8 @@ import {
 } from 'react-native';
 
 import { quote } from '../lib/quote.ts';
-import { splitCommand, runCommand } from '../lib/commands.ts';
+import { commandErrorKey, splitCommand, runCommand, textCommand } from '../lib/commands.ts';
+import { NativeError } from '../providers/rocketvibe/transport.ts';
 import type { MentionCandidate } from '../lib/mentionCompletion.ts';
 import type { Outbox, FileOutbox } from '../lib/provider.ts';
 import type { RestClient } from '../lib/rest.ts';
@@ -269,11 +270,31 @@ export function Composer({
     const caption = draft.trim();
     // An armed quote prefixes the text with its permalink `[ ](…)`: the server
     // will turn it into the quote attachment (lib/quote.ts).
-    const textToSend = response === null || response.native ? caption : quote(response.permalink, caption);
+    let textToSend = response === null || response.native ? caption : quote(response.permalink, caption);
     // Staged attachments take the files path below, the caption with the first:
     // this text path dropped them.
     if (client.kind === 'rocketvibe' && pending.length === 0) {
       if (nativeSend || caption === '' && !response?.native) return;
+      // A slash command the server lists: a text command (`/shrug`) is written
+      // here and goes out below, encrypted or not; another runs on the server,
+      // a refusal putting it back. A quote leads the message: what follows is text.
+      const split = response === null ? splitCommand(caption) : null;
+      const native = sync.phase === 'ready' ? sync.provider.native : undefined;
+      if (split !== null && native !== undefined && commands.some((c) => c.name === split.name)) {
+        const written = textCommand(split.name, split.params);
+        if (written === null || written.kind === 'done') {
+          setDraft(''); reset(); clearDraft(); onInput?.(false);
+          if (written !== null) return;
+          void native.chat.runSlashCommand(rid, split.name, split.params).catch((e: unknown) => {
+            if (unmounted.current) return;
+            if (draftRef.current === '') { setDraft(caption); saveDraft(caption); }
+            const key = e instanceof NativeError ? commandErrorKey(e.code) : null;
+            notify(t('room.commandRejected', { error: key !== null ? t(key) : t('native.error') }));
+          });
+          return;
+        }
+        textToSend = written.text;
+      }
       setNativeSend(true);
       onInput?.(false);
       setFileError(null);
@@ -365,10 +386,10 @@ export function Composer({
     // know stays an ordinary message. Refused, it comes back to the field.
     if (response === null && splitCommand(caption) !== null) {
       void runCommand(client, rid, caption, threadId)
-        .then((launched) => {
-          if (launched) return;
+        .then((run) => {
+          if (run?.kind === 'done') return;
           outbox
-            .send(rid, caption, threadId, null)
+            .send(rid, run === null ? caption : run.text, threadId, null)
             .then((idMessage) => afterSend?.(idMessage))
             .catch((e: unknown) => console.warn('send: local failure', e));
         })
@@ -413,6 +434,8 @@ export function Composer({
     onInput,
     reset,
     t,
+    commands,
+    sync,
   ]);
 
   // Stages the picked media/files as chips, waiting for a caption and ➤. Each

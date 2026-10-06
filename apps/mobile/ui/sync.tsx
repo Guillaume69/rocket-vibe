@@ -26,6 +26,7 @@ import {mountProviderCalls} from '../lib/providerCalls.ts';
 import {mountProviderEmojis} from '../lib/providerEmojis.ts';
 import {mountNativePreviews} from '../lib/nativePreviews.ts';
 import { createContext, useContext, useEffect, useState } from 'react';
+import { afterSystemPicker } from './roomCover.ts';
 import { AppState, Platform } from 'react-native';
 import {registerNativePush} from '../providers/rocketvibe/push.ts';
 
@@ -179,7 +180,12 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       let stop: (() => void) | undefined;
       let runner: import('../providers/rocketvibe/chat.ts').NativeChat | undefined;
       const appState = AppState.addEventListener('change',state => {
-        if (state === 'active') runner?.resume(); else runner?.suspend();
+        if (state === 'active') {runner?.resume();return;}
+        // The composer's system picker is an activity of its own: suspending
+        // then closed the room's private view and lost the pick. Suspend only
+        // if the app is still away once the picker has returned (its result
+        // can arrive just before the app is active again).
+        afterSystemPicker(() => setTimeout(() => { if (AppState.currentState !== 'active') runner?.suspend(); }, 1000));
       });
       void (async () => {
         const {base,raw,writeQueue} = openDatabase(session.baseUrl,session.userId);

@@ -91,6 +91,7 @@ export function Composer({
   client,
   mentionCandidates,
   readOnly,
+  catchingUp = false,
   encrypted,
   placeholder,
   afterSend,
@@ -113,6 +114,8 @@ export function Composer({
   /** Recent authors of the room (`useMentionCandidates`), computed by the parent. */
   mentionCandidates: MentionCandidate[];
   readOnly: boolean;
+  /** Writing pauses while the encrypted view catches up: said as such, not as read-only. */
+  catchingUp?: boolean;
   encrypted: boolean;
   /** Placeholder of the empty field: a pending attachment replaces it. */
   placeholder: string;
@@ -267,7 +270,9 @@ export function Composer({
     // An armed quote prefixes the text with its permalink `[ ](…)`: the server
     // will turn it into the quote attachment (lib/quote.ts).
     const textToSend = response === null || response.native ? caption : quote(response.permalink, caption);
-    if (client.kind === 'rocketvibe') {
+    // Staged attachments take the files path below, the caption with the first:
+    // this text path dropped them.
+    if (client.kind === 'rocketvibe' && pending.length === 0) {
       if (nativeSend || caption === '' && !response?.native) return;
       setNativeSend(true);
       onInput?.(false);
@@ -613,7 +618,7 @@ export function Composer({
   if (readOnly) {
     return (
       <View style={[styles.composer, { borderTopColor: c.softBorder }]}>
-        <Text style={[styles.noteComposer, { color: c.dimmed }]}>{t('room.readOnly')}</Text>
+        <Text style={[styles.noteComposer, { color: c.dimmed }]}>{t(catchingUp ? 'room.catchingUp' : 'room.readOnly')}</Text>
       </View>
     );
   }
@@ -724,7 +729,9 @@ export function Composer({
           <Pressable
             onPress={send}
             disabled={fileSend || nativeSend}
-            style={({ pressed }) => ({ opacity: pressed || fileSend ? 0.7 : 1 })}
+            // An encrypted send takes a few seconds: the dimmed button says it
+            // is under way, instead of a tap that seems lost.
+            style={({ pressed }) => ({ opacity: pressed || fileSend || nativeSend ? 0.5 : 1 })}
             accessibilityLabel={t('common.send')}
           >
             <AvatarTile

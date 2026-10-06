@@ -1151,6 +1151,7 @@ function Room({
             readOnly={protectedRoom ? canWrite!==true || conversation.view?.can_send!==true || conversation.view.catching_up : provider.native && provider.capabilities.roomInfo ? canWrite!==true : room.readOnly}
             encrypted={room.encrypted}
             nativeEncryptedReady={protectedRoom && conversation.view!==null}
+            catchingUp={protectedRoom && conversation.view?.catching_up===true}
             availableQuotes={!protectedRoom || conversation.view!==null}
             placeholder={t('room.messagePlaceholder')}
             initialDraft={persistence.initial}

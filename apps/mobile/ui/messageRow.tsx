@@ -452,7 +452,10 @@ function Quote({
   // The quoted message may itself be a reply: show only its words, not its
   // quote permalink; its quote shows as a nested block.
   const text = quoteText(attachment).trim();
-  const author = typeof attachment.author_name === 'string' ? attachment.author_name : null;
+  // A private source names its author by uid: shown as the rows show it.
+  const identities = useIdentities();
+  const named = typeof attachment.author_name === 'string' ? attachment.author_name : null;
+  const author = named === null ? null : (identities.get(named) ?? named);
   const nested = Array.isArray(attachment.attachments) ? attachment.attachments : [];
   const subQuotes =
     depth < MAX_QUOTE_DEPTH ? nested.filter((j) => isQuoteAttachment(j)) : [];
@@ -585,11 +588,14 @@ function AttachedImage({
   const viewer = useImageViewer();
   const t = useT();
   const c = useColors();
+  // Without announced dimensions (a private file's descriptor carries none),
+  // the decoded picture gives them: a square frame cropped it.
+  const [measured, setMeasured] = useState<{ width: number; height: number } | null>(null);
   if (typeof attachment.image_url !== 'string') return null;
   const source = typeof attachment.title_link === 'string' ? attachment.title_link : attachment.image_url;
   const url = local ?? protectedFileUrl(client, source);
-  const realWidth = attachment.image_dimensions?.width ?? null;
-  const realHeight = attachment.image_dimensions?.height ?? null;
+  const realWidth = attachment.image_dimensions?.width ?? measured?.width ?? null;
+  const realHeight = attachment.image_dimensions?.height ?? measured?.height ?? null;
   const width = Math.max(Math.min(realWidth ?? maxWidth, maxWidth), minWidth);
   const ratio = (realHeight ?? width) / Math.max(realWidth ?? width, 1);
   const height = Math.min(Math.max(Math.round(width * ratio), minHeight), maxHeight);
@@ -615,8 +621,16 @@ function AttachedImage({
         source={{ uri: url }}
         style={[style, { width, height }]}
         resizeMode="cover"
+        onLoad={
+          attachment.image_dimensions
+            ? undefined
+            : (e) => {
+                const { width: w, height: h } = e.nativeEvent.source;
+                if (w > 0 && h > 0) setMeasured((m) => (m?.width === w && m.height === h ? m : { width: w, height: h }));
+              }
+        }
       />
-      <TransferBar key={source} c={c} radius={10} />
+      <TransferBar transfer={source} c={c} radius={10} />
     </Pressable>
   );
 }
@@ -777,7 +791,7 @@ function Attachments({
               title={attachment.title ?? null}
               onLongPress={onLongPress}
               overlay={
-                <TransferBar key={attachment.title_link ?? attachment.video_url} c={c} radius={14} />
+                <TransferBar transfer={attachment.title_link ?? attachment.video_url} c={c} radius={14} />
               }
             />
           );
@@ -868,7 +882,7 @@ function FileAttachment({
       <Text style={[styles.text, { color: c.accent }]} numberOfLines={2}>
         📄 {title ?? t('messageRow.file')}
       </Text>
-      <TransferBar key={path} c={c} />
+      <TransferBar transfer={path} c={c} />
     </Pressable>
   );
 }

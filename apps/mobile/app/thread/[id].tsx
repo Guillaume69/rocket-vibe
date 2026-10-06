@@ -457,6 +457,7 @@ function Thread({
           readOnly={protectedRoom?nativePermissions?.[0]?.canSend!==true || conversation.view?.can_send!==true || conversation.view.catching_up:room.readOnly || !!native && (membership==null || !root)}
           encrypted={room.encrypted}
           nativeEncryptedReady={protectedRoom && conversation.view!==null}
+          catchingUp={protectedRoom && conversation.view?.catching_up===true}
           availableQuotes={!protectedRoom || conversation.view!==null}
           placeholder={t('thread.reply')}
           afterSend={afterSend}

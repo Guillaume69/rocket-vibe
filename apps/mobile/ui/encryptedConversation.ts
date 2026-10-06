@@ -1,5 +1,5 @@
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
-import {useFocusEffect} from 'expo-router';
+import {useFocusEffect,useNavigation} from 'expo-router';
 import {AppState} from 'react-native';
 import {CryptoNative} from '../modules/crypto-native/index.ts';
 import type {NativeChat} from '../providers/rocketvibe/chat.ts';
@@ -11,6 +11,7 @@ import {PRIVATE_FILE_MAX,sendPrivateFile} from '../providers/rocketvibe/privateF
 import {nativeFileSender} from './nativeFiles.ts';
 import {NativeError} from '../providers/rocketvibe/transport.ts';
 import {refreshNativeReply,invalidateNativeReply,readReply,useReply} from './reply.ts';
+import {sheetOverRoom,systemPickerOpen} from './roomCover.ts';
 /** A projected row, thread root included. */
 export function privateRow(view:CryptoConversationView|null,id:string):CryptoMessage|undefined {
   return view?.root?.id===id?view.root:view?.messages.find(row=>row.id===id);
@@ -19,14 +20,19 @@ export function privateRow(view:CryptoConversationView|null,id:string):CryptoMes
 export function privateInterrupted(row:CryptoMessage|undefined):boolean {
   return !!row && (['pending','cancelling','cancelled'].includes(row.status) || !!row.amendment);
 }
-/** The existing room list consumes a volatile native projection. Blur,
- * suspension and membership changes dispose it; no lissage retains clear rows. */
+/** The existing room list consumes a volatile native projection. Leaving the
+ * room (another screen, suspension) and membership changes dispose it; no
+ * lissage retains clear rows. A sheet over the room and the composer's system
+ * picker do not leave it (`ui/roomCover.ts`). */
 export function useEncryptedConversation(chat:NativeChat|undefined,room:string,membership:string|null|undefined,enabled:boolean,thread:string|null=null) {
   const replyKey=thread===null?room:`${room}:${thread}`,response=useReply(replyKey);
   const [view,setView]=useState<CryptoConversationView|null>(null),[failed,setFailed]=useState(false);
   const [busy,setBusy]=useState(false),[composer,setComposer]=useState(0);
   const [initial,setInitial]=useState<string|null>(null);
-  const focused=useRef(false),epoch=useRef(0),access=useRef<CryptoConversationAccess|null>(null),job=useRef<number|null>(null);
+  const navigation=useNavigation();
+  // On screen: focused, or under one of the room's sheets.
+  const onScreen=useCallback(()=>navigation.isFocused() || sheetOverRoom(navigation.getState()),[navigation]);
+  const focused=useRef(false),covered=useRef(false),epoch=useRef(0),access=useRef<CryptoConversationAccess|null>(null),job=useRef<number|null>(null);
   const opening=useRef<Promise<CryptoConversationAccess>|null>(null),lastInitial=useRef<number|null>(null);
   // This view's token for the encrypted files it makes openable (E2EE_FILES.md).
   const token=useRef(Math.floor(Math.random()*2**52));
@@ -35,8 +41,9 @@ export function useEncryptedConversation(chat:NativeChat|undefined,room:string,m
     const target=readReply(replyKey);if(target?.native)invalidateNativeReply(replyKey,target);
     void access.current?.close();access.current=null;setView(null);setInitial(null);setBusy(false);},[replyKey,chat]);
   const run=useCallback(async<T,>(action:(a:CryptoConversationAccess)=>Promise<T>,restore=false,retainPrepared=false):Promise<T>=>{
-    if(!enabled || !chat || membership==null || !focused.current || AppState.currentState!=='active' || !CryptoNative)throw Error('Private conversation unavailable');
-    const n=epoch.current,visible=()=>epoch.current===n && focused.current && AppState.currentState==='active';
+    if(!enabled || !chat || membership==null || !focused.current || !onScreen() || AppState.currentState!=='active' || !CryptoNative)throw Error('Private conversation unavailable');
+    const n=epoch.current,visible=()=>epoch.current===n && focused.current && onScreen()
+      && (AppState.currentState==='active' || systemPickerOpen());
     setBusy(true);setFailed(false);
     let completed=false,result:T|undefined;
     try {
@@ -79,15 +86,37 @@ export function useEncryptedConversation(chat:NativeChat|undefined,room:string,m
       }
       if(visible()){clear();setFailed(true);}throw error;
     } finally {if(visible())setBusy(false);}
-  },[chat,room,membership,enabled,thread,clear,replyKey]);
+  },[chat,room,membership,enabled,thread,clear,replyKey,onScreen]);
+  // A reload asked while one runs (an edit saved from a sheet, the sheet's
+  // return) runs again once it ends: dropped, the change waited for the timer.
+  const again=useRef(false);
   const reload=useCallback(()=>{
-    if(job.current!==null || !enabled)return;
-    const n=epoch.current;job.current=n;
-    void run(async()=>{}).catch(()=>{}).finally(()=>{if(job.current===n)job.current=null;});
+    if(!enabled)return;
+    if(job.current!==null){again.current=true;return;}
+    const n=epoch.current;job.current=n;again.current=false;
+    void run(async()=>{}).catch(()=>{}).finally(()=>{
+      if(job.current!==n)return;
+      job.current=null;
+      if(again.current && focused.current){again.current=false;reloadRef.current();}
+    });
   },[run,enabled]);
+  const reloadRef=useRef(reload);reloadRef.current=reload;
   useEffect(()=>{if(enabled && focused.current && response?.native)reload();},[enabled,response?.native,reload]);
-  useFocusEffect(useCallback(()=>{focused.current=true;clear();if(enabled)reload();return()=>{focused.current=false;clear();};},[clear,enabled,reload]));
-  useEffect(()=>{const sub=AppState.addEventListener('change',state=>{if(state!=='active')clear();else if(focused.current)reload();});return()=>sub.remove();},[clear,reload]);
+  useFocusEffect(useCallback(()=>{
+    focused.current=true;
+    // Back from a sheet over the room: the view stayed, only refresh it.
+    if(!covered.current)clear();
+    covered.current=false;
+    if(enabled)reload();
+    return()=>{
+      if(sheetOverRoom(navigation.getState())){covered.current=true;return;}
+      focused.current=false;clear();
+    };
+  },[clear,enabled,reload,navigation]));
+  useEffect(()=>{const sub=AppState.addEventListener('change',state=>{
+    if(state!=='active'){if(!systemPickerOpen())clear();}
+    else if(focused.current)reload();
+  });return()=>sub.remove();},[clear,reload]);
   useEffect(()=>{if(!enabled || !chat)return;
     let online=chat.status.online;
     const unsubscribe=chat.subscribe(()=>{
@@ -96,9 +125,13 @@ export function useEncryptedConversation(chat:NativeChat|undefined,room:string,m
       if(next && !online && focused.current)reload();
       online=next;
     });
-    const timer=setInterval(()=>{if(focused.current && AppState.currentState==='active' && chat.status.online)reload();},10000);
+    const timer=setInterval(()=>{
+      // Left from a sheet (it navigated elsewhere): no blur came, dispose now.
+      if(covered.current && !onScreen()){covered.current=false;focused.current=false;clear();return;}
+      if(focused.current && AppState.currentState==='active' && chat.status.online)reload();
+    },10000);
     return()=>{clearInterval(timer);unsubscribe();};
-  },[enabled,chat,reload,clear]);
+  },[enabled,chat,reload,clear,onScreen]);
   const save=useCallback((text:string)=>{
     if(!focused.current || AppState.currentState!=='active')return;
     void access.current?.saveDraft(text).catch(()=>{if(focused.current){clear();setFailed(true);}});

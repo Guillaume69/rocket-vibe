@@ -10,16 +10,17 @@ import { progressLabel, useProgress } from './transfers.ts';
  * chip. Nothing when no transfer is in progress.
  */
 export function TransferBar({
-  key,
+  transfer,
   c,
   radius,
 }: {
-  key: string | null;
+  /** The transfer's key (never `key`: React keeps that prop to itself). */
+  transfer: string | null;
   c: Colors;
   /** Overlay on a media, with corners of this radius; absent = row form. */
   radius?: number;
 }) {
-  const p = useProgress(key);
+  const p = useProgress(transfer);
   if (p === undefined) return null;
   const padding = (
     <View

@@ -329,6 +329,18 @@ release, and its notes are that version's section here.
 - RocketVibe: an open encrypted room refreshes about four times faster: a refresh no longer
   re-checks the device over the network before each of its steps, nor re-reads the same
   directories and member devices several times.
+- RocketVibe: an encrypted room stays on screen under its action sheets and while a photo or a
+  file is being picked: it no longer empties and reloads for seconds, a picked attachment is
+  no longer lost, and an edit, a quote or a reaction no longer fails because the room closed
+  under it. The room still closes as soon as it is left.
+- RocketVibe: attachments staged in an encrypted room are sent with their caption; the caption
+  alone went out and the attachments stayed behind.
+- RocketVibe: a quote of an encrypted message, and the "Replying to" banner, name its author
+  instead of showing an id.
+- Encrypted images keep their proportions; they were cropped into a square.
+- The download progress bar of an image, a video or a file shows again.
+- The send button dims while an encrypted message is being sent, and the composer says it is
+  updating the encrypted messages instead of "This channel is read-only".
 - RocketVibe: after a member's role or rights change in an encrypted room, the encrypted
   group offers to replace that member's device, the update the group needs before anyone
   can write again.

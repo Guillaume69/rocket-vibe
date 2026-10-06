@@ -151,6 +151,10 @@ section here.
 
 ### Fixed
 
+- RocketVibe: the composer shows again in an encrypted room and its threads, once this
+  device is in the group; they were shown as read-only ("Unlock the room to write") to
+  every member.
+
 - RocketVibe: a click on an author's photo or name opens their profile again, where the
   encryption identity is verified; it did nothing in RocketVibe rooms.
 

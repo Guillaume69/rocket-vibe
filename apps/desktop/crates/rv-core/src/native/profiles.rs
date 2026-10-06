@@ -79,7 +79,7 @@ impl NativeSession {
                 let peer = self.store.direct_peer(&room.id)?;
                 let (unread, mentions, alert) =
                     if reads { super::read_presentation::badges(room.read_state.as_deref()) } else { (0, 0, false) };
-                let read_only = !self.can_send_to_room(&room.id);
+                let read_only = !self.room_send_permitted(&room.id);
                 let last = self.store.messages(&room.id, 1)?.pop();
                 Ok(crate::store::RoomRow {
                     rid: room.id,

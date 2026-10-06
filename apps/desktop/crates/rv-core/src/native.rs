@@ -917,10 +917,13 @@ impl NativeSession {
         Ok(details)
     }
     /// An offline cache is only a UI hint; every send is authorized by the server.
+    /// The ordinary (plaintext) send path: never into an encrypted room.
     pub fn can_send_to_room(&self, room: &str) -> bool {
-        if self.store.room_encrypted(room).unwrap_or(true) {
-            return false;
-        }
+        !self.store.room_encrypted(room).unwrap_or(true) && self.room_send_permitted(room)
+    }
+    /// The server lets this account write in the room, encrypted or not: an
+    /// encrypted room is written through its private conversation.
+    pub fn room_send_permitted(&self, room: &str) -> bool {
         if !self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.room_info) {
             return true;
         }

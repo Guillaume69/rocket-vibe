@@ -252,7 +252,9 @@ impl ThreadPage {
                         &page.native.as_ref().unwrap().info.user_id,
                     );
                     page.composer.root.set_visible(
-                        view.can_send && !view.catching_up && page.native.as_ref().unwrap().can_send_to_room(&page.rid),
+                        view.can_send
+                            && !view.catching_up
+                            && page.native.as_ref().unwrap().room_send_permitted(&page.rid),
                     );
                 }
                 Err(_) => {

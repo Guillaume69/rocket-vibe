@@ -56,6 +56,9 @@ async fn encrypted_room_sync_refuses_plaintext_posts_and_preserves_the_old_outbo
     assert!(session.store.room_encrypted(&rid).unwrap());
     assert!(session.room_rows().unwrap().iter().find(|r| r.rid == rid).unwrap().encrypted);
     assert!(!session.can_send_to_room(&rid));
+    // Still writable: through the private conversation, not the ordinary path.
+    let row = session.room_rows().unwrap().into_iter().find(|r| r.rid == rid).unwrap();
+    assert!(session.room_send_permitted(&rid) && !row.read_only);
     assert_eq!(session.send(&rid, "No ordinary send").err().unwrap().code(), "crypto_required");
     assert!(session.store.pending().unwrap().is_empty());
     let kept = session.store.messages(&rid, 10).unwrap();

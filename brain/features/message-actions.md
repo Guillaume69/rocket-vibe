@@ -39,7 +39,7 @@ Mobile wraps them in `ActionsRC` (`providers/rocketchat/actions.ts`, behind the 
 - A long press on a message row (with a haptic "pop") opens `app/message-actions.tsx`, a native bottom sheet (`presentation: 'formSheet'` from react-native-screens, fitted to content, capped at 80 % of the screen; bottom-sheet libraries are banned). It reads the message from SQLite by id; a message deleted in between shows "not found".
 - The six quick reactions (👍 ❤️ 😂 🎉 😮 🙏, sent as `+1`, `heart`, `joy`, `tada`, `open_mouth`, `pray`) show mine outlined; tapping one of mine removes it. Reaction pills under a message also toggle on tap (`ui/messageRow.tsx`), fire-and-forget: the stream echo rewrites `messages.reactions`.
 - **Edit** swaps the list for a text field with Cancel / Save in the same sheet. The result arrives through the stream.
-- **Delete** has no confirmation dialog. If `chat.delete` fails, `messageGoneFromServer` asks `chat.getMessage`: a 400 means the server no longer knows the message (deleted from another client while the app was closed), so purging the local row is the requested deletion. Any other outcome keeps the original error. Otherwise the row disappears through the `deleteMessage` stream.
+- **Delete asks for confirmation** in a native `Alert` over the sheet ("Delete this message?", Cancel / Delete), private messages of an encrypted RocketVibe room included. If `chat.delete` fails, `messageGoneFromServer` asks `chat.getMessage`: a 400 means the server no longer knows the message (deleted from another client while the app was closed), so purging the local row is the requested deletion. Any other outcome keeps the original error. Otherwise the row disappears through the `deleteMessage` stream.
 - **Copy** uses `expo-clipboard`. **Share** sends the text through the system share sheet, or downloads the file and shares the local copy; **Save** stores it in the gallery or Downloads. Both run in the background with progress on the message row ([uploads](uploads.md#downloads)).
 - **Reply** arms the quote target for the composer the sheet came from ([composer](composer.md#replies-quotes)); **Reply in thread** opens `/thread/<tmid or id>`.
 - A ref guards against double taps: two `router.back()` would pop the room too.
@@ -59,7 +59,7 @@ The same actions come from `rv-ffi` (`Chat::actions`, cached per message per lis
 
 ## Parity
 
-Same rule set in both apps. Desktop adds delete confirmation and Up-to-edit; mobile adds the ghost-delete purge and Share. Neither offers the full emoji picker for reactions from the menu, only the six quick ones.
+Same rule set in both apps, delete confirmation included. Desktop adds Up-to-edit; mobile adds the ghost-delete purge and Share. Neither offers the full emoji picker for reactions from the menu, only the six quick ones.
 
 ## Sources
 

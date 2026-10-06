@@ -112,7 +112,7 @@ beta does.
 | Share an attachment | done | mapped | mapped | Desktop: download or open. |
 | Edit within the server's time limit and permissions (`chat.update`) | done | done | done | |
 | Delete (`chat.delete`) | done | done | done | |
-| Confirmation before deleting | missing | done | done | |
+| Confirmation before deleting | done | done | done | |
 | Pin (`chat.pinMessage`) | done | done | done | |
 | Pinned and starred lists, jump to the message | done | done | done | |
 
@@ -217,7 +217,7 @@ gaps, listed last.
 
 - **Mobile**: several accounts per server; time and `@n` badge in the room list;
   `mailto:` links; mentions of me highlighted; formatting toolbar; list
-  continuation; delete confirmation; opening a search result at its message;
+  continuation; opening a search result at its message;
   removing my photo; logs folder; meeting information.
 - **GTK**: email 2FA resend; replay of an offline sign-out; padlock tile once
   unlocked; DM avatar versions in the list; video reduction; voice replay before

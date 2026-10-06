@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   AppState,
   Pressable,
   Share,
@@ -704,25 +705,35 @@ export default function MessageActionsScreen() {
               icon="🗑"
               label={t('common.delete')}
               destructive
+              // A deletion is for everyone and cannot be undone: confirmed,
+              // as on desktop, in a native dialog over the sheet.
               onPress={() =>
-                void act(async () => {
-                  if (isPrivate === '1') {
-                    await privateAmend(message.id, null);
-                    return;
-                  }
-                  try {
-                    await trigger.delete(message.rid, message.id, payload.revision);
-                    // The local row will go via the `deleteMessage` stream.
-                  } catch (e) {
-                    if (client.kind === 'rocketvibe') throw e;
-                    // Ghost: already deleted from ANOTHER client while
-                    // the app was closed; the server no longer knows it,
-                    // only the local row remains. Purging it IS the
-                    // requested deletion; any other error stays fatal.
-                    if (!(await messageGoneFromServer(client, message.id))) throw e;
-                    await engine.syncStore.deleteMessage(message.id);
-                  }
-                })
+                Alert.alert(t('messageActions.deleteTitle'), t('messageActions.deleteBody'), [
+                  { text: t('common.cancel'), style: 'cancel' },
+                  {
+                    text: t('common.delete'),
+                    style: 'destructive',
+                    onPress: () =>
+                      void act(async () => {
+                        if (isPrivate === '1') {
+                          await privateAmend(message.id, null);
+                          return;
+                        }
+                        try {
+                          await trigger.delete(message.rid, message.id, payload.revision);
+                          // The local row will go via the `deleteMessage` stream.
+                        } catch (e) {
+                          if (client.kind === 'rocketvibe') throw e;
+                          // Ghost: already deleted from ANOTHER client while
+                          // the app was closed; the server no longer knows it,
+                          // only the local row remains. Purging it IS the
+                          // requested deletion; any other error stays fatal.
+                          if (!(await messageGoneFromServer(client, message.id))) throw e;
+                          await engine.syncStore.deleteMessage(message.id);
+                        }
+                      }),
+                  },
+                ])
               }
             />
           )}

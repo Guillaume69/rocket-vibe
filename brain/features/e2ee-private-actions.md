@@ -4,7 +4,7 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 
 ## What the user sees
 
-- **Edit and Delete** appear on the user's own journaled private messages, in rooms and threads, next to Reply and Copy. Edit opens the existing in-place editor with the current text; Delete asks for confirmation on desktop.
+- **Edit and Delete** appear on the user's own journaled private messages, in rooms and threads, next to Reply and Copy. Edit opens the existing in-place editor with the current text; Delete asks for confirmation in all three apps.
 - **Reactions** work on any journaled private message, as in ordinary rooms: quick reactions in the message menu or sheet, and the chips under a message add or withdraw one's own. Standard and catalog emojis; the server never learns which.
 - **For everyone in the room**, an edited message shows its new text and the "edited" mark; a deleted one leaves the list and the thread's reply count, and a deleted thread root is no longer shown and its thread can no longer be answered. Reactions show with their counts, one's own marked.
 - **Pending change.** Until the server accepts it, the message already shows the change (new text or reaction), with the usual pending mark, Retry and Cancel. Cancelling leaves the message as it was.

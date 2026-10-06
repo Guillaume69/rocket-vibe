@@ -339,6 +339,7 @@ release, and its notes are that version's section here.
   instead of showing an id.
 - Encrypted images keep their proportions; they were cropped into a square.
 - The download progress bar of an image, a video or a file shows again.
+- Deleting a message asks for confirmation first, as on desktop.
 - The send button dims while an encrypted message is being sent, and the composer says it is
   updating the encrypted messages instead of "This channel is read-only".
 - RocketVibe: after a member's role or rights change in an encrypted room, the encrypted

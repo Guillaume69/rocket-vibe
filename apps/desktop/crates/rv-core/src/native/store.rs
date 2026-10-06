@@ -2,7 +2,6 @@
 mod custom_emojis;
 mod files;
 mod link_previews;
-mod meetings;
 mod membership;
 mod notifications;
 mod profiles;
@@ -123,7 +122,8 @@ impl MessageRow {
             starred: self.starred.then(|| uid.into()),
             thread_id: self.reply_to,
             thread_count: self.thread_replies,
-            call_id: (self.system_type.as_deref() == Some("videoconf")).then(|| self.text.clone()),
+            // A native `call_started` row names a voice ring, not a joinable meeting.
+            call_id: None,
             text: Some(self.text),
             md: self.system_type.is_none().then_some(md),
             system_type: self.system_type,
@@ -160,7 +160,8 @@ impl NativeStore {
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_room_creations(id TEXT PRIMARY KEY,name TEXT NOT NULL,private INTEGER NOT NULL,UNIQUE(name,private));")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_emoji_catalog(singleton INTEGER PRIMARY KEY CHECK(singleton=1),revision TEXT NOT NULL,payload TEXT);")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_room_operations(id TEXT PRIMARY KEY,rid TEXT NOT NULL UNIQUE,payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','failed')),error TEXT);")?;
-        conn.execute_batch("CREATE TABLE IF NOT EXISTS native_meeting_intents(id TEXT PRIMARY KEY,rid TEXT NOT NULL UNIQUE,payload TEXT NOT NULL);")?;
+        // Retired with native Jitsi meetings: their retry intents are moot.
+        conn.execute_batch("DROP TABLE IF EXISTS native_meeting_intents;")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_room_access(rid TEXT PRIMARY KEY,revision TEXT NOT NULL,read_only INTEGER NOT NULL,can_send INTEGER NOT NULL,role TEXT NOT NULL);")?;
         conn.execute_batch("CREATE TABLE IF NOT EXISTS native_read_states(rid TEXT PRIMARY KEY,payload TEXT NOT NULL);
             INSERT INTO native_read_states SELECT id,json_extract(payload,'$.read_state') FROM native_rooms WHERE json_type(payload,'$.read_state')='object' ON CONFLICT(rid) DO NOTHING;")?;
@@ -255,7 +256,6 @@ impl NativeStore {
                 "native_room_creations",
                 "native_commands",
                 "native_room_operations",
-                "native_meeting_intents",
                 "native_room_access",
                 "native_read_states",
                 "native_read_intents",
@@ -596,7 +596,6 @@ impl NativeStore {
             "native_drafts",
             "native_commands",
             "native_room_operations",
-            "native_meeting_intents",
             "native_room_access",
             "native_read_states",
             "native_read_intents",
@@ -633,7 +632,6 @@ impl NativeStore {
                     "native_room_creations",
                     "native_commands",
                     "native_room_operations",
-                    "native_meeting_intents",
                     "native_room_access",
                     "native_read_states",
                     "native_read_intents",
@@ -1112,6 +1110,25 @@ mod tests {
         assert!(crate::timeline::is_system(&row));
         assert!(!crate::actions::has_actions(row.system_type.as_deref(), row.text.as_deref()));
         assert!(row.md.is_none());
+    }
+    #[test]
+    fn a_direct_call_row_offers_no_meeting_to_join_and_voice_channels_persist() {
+        let store = store();
+        let mut snapshot = snapshot();
+        snapshot.rooms[0].voice = true;
+        let message = &mut snapshot.messages[0];
+        message.text.clear();
+        message.body = None;
+        message.system = Some(Box::new(rv_protocol::system::SystemMessage::CallStarted { meeting_id: "ring".into() }));
+        store.snapshot(&snapshot).unwrap();
+        let row = store.messages(&snapshot.rooms[0].id, 10).unwrap().remove(0).presentation(&snapshot.rooms[0].id, "a");
+        assert_eq!(row.system_type.as_deref(), Some("videoconf"));
+        assert_eq!(row.call_id, None);
+        assert!(store.rooms().unwrap()[0].voice);
+        let conn = store.conn.lock().unwrap();
+        assert!(
+            conn.query_row("SELECT 1 FROM sqlite_master WHERE name='native_meeting_intents'", [], |_| Ok(())).is_err()
+        );
     }
     #[test]
     fn unresolved_room_creation_survives_reopen_and_reuses_its_intent() {

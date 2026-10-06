@@ -801,7 +801,6 @@ impl ChatPage {
         self.call_button.connect_clicked(move |_| {
             let Some(this) = w.upgrade() else { return };
             if this.native_session().is_some() {
-                this.native_call(None);
                 return;
             }
             let (Some(session), Some(rid)) = (this.session(), this.current_rid()) else { return };
@@ -1359,25 +1358,8 @@ impl ChatPage {
             }),
             call: Box::new(move |found| {
                 let Some(this) = w2.upgrade() else { return };
-                let rv_core::rooms::Found::User { id, username, .. } = found else { return };
-                if let Some(session) = this.native_session() {
-                    let (weak, expected, navigation) =
-                        (Rc::downgrade(&this), session.clone(), this.read_generation.get());
-                    glib::spawn_future_local(async move {
-                        let room = username.clone();
-                        let result = on_tokio(async move { session.start_direct_call(&id).await }).await;
-                        let Some(this) = weak.upgrade() else { return };
-                        if this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected))
-                            || this.read_generation.get() != navigation
-                            || expected.is_closed()
-                        {
-                            return;
-                        }
-                        match result {
-                            Ok(link) => this.open_call(&link, &room),
-                            Err(_) => this.toast(t("call.failed").to_owned()),
-                        }
-                    });
+                let rv_core::rooms::Found::User { username, .. } = found else { return };
+                if this.native_session().is_some() {
                     return;
                 }
                 let Some(session) = this.session() else { return };

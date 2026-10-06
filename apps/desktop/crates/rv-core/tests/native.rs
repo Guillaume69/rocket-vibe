@@ -455,12 +455,12 @@ async fn room_creation_retries_a_lost_reply_with_its_durable_intention() {
     })
     .await
     .unwrap();
-    assert!(session.create_room("  Durable room  ", true).await.is_err());
+    assert!(session.create_room("  Durable room  ", true, false).await.is_err());
     assert_eq!(
         session.spotlight("Public").await.unwrap(),
         vec![rv_core::rooms::Found::Room { id: "public-room-id".into(), name: "Public room".into(), kind: "c".into() }]
     );
-    assert_eq!(session.create_room("Durable room", true).await.unwrap(), "room-id");
+    assert_eq!(session.create_room("Durable room", true, false).await.unwrap(), "room-id");
     common::close_native(session).await;
     let requests = server.requests();
     let sends: Vec<_> = requests

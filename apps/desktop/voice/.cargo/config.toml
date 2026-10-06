@@ -1,0 +1,8 @@
+# libwebrtc's prebuilt webrtc.lib is compiled /MT (static CRT): without this,
+# link.exe fails with LNK2038 'MT_StaticRelease' vs 'MD_DynamicRelease' + LNK1169.
+# Only read when cargo runs from apps/desktop/voice.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

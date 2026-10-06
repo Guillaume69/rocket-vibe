@@ -12,7 +12,6 @@ pub(crate) mod link_previews;
 mod links;
 mod live;
 pub mod markdown;
-mod meetings;
 pub mod notification_navigation;
 pub mod notifications;
 pub mod profiles;
@@ -20,6 +19,7 @@ mod read_intents;
 pub mod read_presentation;
 mod room_operations;
 mod search;
+mod voice;
 pub use room_operations::{
     ChangeRoomRole, LeaveRoom, RoomDetails, RoomMemberPage, RoomRole, UpdateRoom, room_operation_id,
 };
@@ -318,6 +318,7 @@ pub struct NativeSession {
     files: files::Files,
     file_wake: Notify,
     file_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    voice: crate::voice::VoiceController,
 }
 impl NativeSession {
     pub fn start(info: SessionInfo, path: &Path) -> Result<Arc<Self>, Error> {
@@ -380,6 +381,7 @@ impl NativeSession {
             files,
             file_wake: Notify::new(),
             file_task: Mutex::new(None),
+            voice: crate::voice::VoiceController::new(),
         });
         let weak = Arc::downgrade(&session);
         let task = tokio::spawn(async move {
@@ -572,6 +574,8 @@ impl NativeSession {
         if let Some(task) = self.file_task.lock().unwrap().take() {
             task.abort();
         }
+        let voice = self.voice.clone();
+        self.runtime_handle.spawn(async move { voice.disconnect().await });
         self.set_status(Connection::Offline, None);
     }
     pub fn is_closed(&self) -> bool {
@@ -614,8 +618,8 @@ impl NativeSession {
                     custom_emojis: true,
                     link_previews: true,
                     structured_cards: true,
-                    calls: true,
                     fine_permissions: true,
+                    voice: crate::voice::available(),
                     session_rotation: self.credentials.is_some(),
                     device_sessions: true,
                     slash_commands: true,
@@ -1378,11 +1382,15 @@ impl NativeSession {
         }
         Err(Error::Protocol("thread_too_large"))
     }
-    pub async fn create_room(&self, name: &str, private: bool) -> Result<String, Error> {
+    /// `voice` makes a voice channel, which only a server announcing `voice` knows.
+    pub async fn create_room(&self, name: &str, private: bool, voice: bool) -> Result<String, Error> {
         self.ready()?;
         let name = name.trim();
         if name.is_empty() || name.len() > 128 {
             return Err(Error::Protocol("invalid_room"));
+        }
+        if voice && !self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.voice) {
+            return Err(Error::Protocol("unsupported_feature"));
         }
         let supported = self.capabilities.lock().unwrap().as_ref().is_some_and(|caps| caps.idempotent_room_creation);
         let operation_id = if supported { Some(self.store.room_creation(name, private)?) } else { None };
@@ -1392,7 +1400,7 @@ impl NativeSession {
                 name: name.into(),
                 private,
                 operation_id: operation_id.clone(),
-                voice: false,
+                voice,
             })
             .await?;
         self.ready()?;
@@ -1478,6 +1486,9 @@ impl NativeSession {
         Ok(())
     }
     pub async fn logout(&self) -> Result<(), Error> {
+        if self.voice.snapshot().room.is_some() {
+            self.disconnect_voice().await;
+        }
         self.identity().await?;
         self.refresh_credentials().await?;
         self.client.logout().await?;

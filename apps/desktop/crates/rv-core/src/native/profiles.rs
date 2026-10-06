@@ -113,6 +113,7 @@ impl NativeSession {
                     read_only,
                     slug: None,
                     last_encrypted: None,
+                    voice: room.voice,
                 })
             })
             .collect()

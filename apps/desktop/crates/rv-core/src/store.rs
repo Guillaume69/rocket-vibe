@@ -65,6 +65,8 @@ pub struct RoomRow {
     pub last_type: Option<String>,
     pub last_author: Option<String>,
     pub last_encrypted: Option<String>,
+    /// A native voice channel: selecting it joins its voice session. False on Rocket.Chat.
+    pub voice: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -457,6 +459,7 @@ impl Store {
                     last_type: r.get(14)?,
                     last_author: r.get(15)?,
                     last_encrypted: r.get(16)?,
+                    voice: false,
                 })
             })?
             .collect()

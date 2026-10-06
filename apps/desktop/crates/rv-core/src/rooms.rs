@@ -104,6 +104,7 @@ mod tests {
             last_type: None,
             last_author: None,
             last_encrypted: None,
+            voice: false,
         }
     }
 

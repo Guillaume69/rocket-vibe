@@ -164,6 +164,12 @@ section here.
   (GTK and SwiftUI): "Share and hand over control" gives it the account's root key, so it
   can approve and withdraw devices too. The choice is explicit and cannot be taken back.
 
+### Removed
+
+- Jitsi meetings on a RocketVibe server (GTK and SwiftUI): the room header's call button,
+  a profile's call button and the join and link buttons of a call message are gone there,
+  as the server retired them for voice sessions. Rocket.Chat calls are unchanged.
+
 ### Fixed
 
 - RocketVibe: confirming an encrypted group review (creation, update, admission) no longer

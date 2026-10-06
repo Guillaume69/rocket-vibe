@@ -60,7 +60,6 @@
     "apps/desktop/crates/rv-core/src/native/links.rs",
     "apps/desktop/crates/rv-core/src/native/live.rs",
     "apps/desktop/crates/rv-core/src/native/markdown.rs",
-    "apps/desktop/crates/rv-core/src/native/meetings.rs",
     "apps/desktop/crates/rv-core/src/native/notification_navigation.rs",
     "apps/desktop/crates/rv-core/src/native/notifications.rs",
     "apps/desktop/crates/rv-core/src/native/profiles.rs",
@@ -77,7 +76,6 @@
     "apps/desktop/crates/rv-core/src/native/store/custom_emojis.rs",
     "apps/desktop/crates/rv-core/src/native/store/files.rs",
     "apps/desktop/crates/rv-core/src/native/store/link_previews.rs",
-    "apps/desktop/crates/rv-core/src/native/store/meetings.rs",
     "apps/desktop/crates/rv-core/src/native/store/membership.rs",
     "apps/desktop/crates/rv-core/src/native/store/notifications.rs",
     "apps/desktop/crates/rv-core/src/native/store/profiles.rs",
@@ -89,6 +87,7 @@
     "apps/desktop/crates/rv-core/src/native/store/room_operations.rs",
     "apps/desktop/crates/rv-core/src/native/store/threads.rs",
     "apps/desktop/crates/rv-core/src/native/store/threads/tests.rs",
+    "apps/desktop/crates/rv-core/src/native/voice.rs",
     "apps/desktop/crates/rv-core/src/normalize.rs",
     "apps/desktop/crates/rv-core/src/notify.rs",
     "apps/desktop/crates/rv-core/src/outbox.rs",
@@ -105,6 +104,7 @@
     "apps/desktop/crates/rv-core/src/tls.rs",
     "apps/desktop/crates/rv-core/src/update.rs",
     "apps/desktop/crates/rv-core/src/uploads.rs",
+    "apps/desktop/crates/rv-core/src/voice.rs",
     "apps/desktop/crates/rv-ffi/src/accounts.rs",
     "apps/desktop/crates/rv-ffi/src/bin/uniffi-bindgen-swift.rs",
     "apps/desktop/crates/rv-ffi/src/context.rs",
@@ -214,6 +214,7 @@
     "apps/desktop/crates/rv-native/src/windows_player.rs",
     "apps/desktop/crates/rv-native/src/windows_shell.rs",
     "apps/desktop/crates/rv-native/src/windows_toast.rs",
+    "apps/desktop/crates/rv-voice-protocol/src/lib.rs",
     "apps/desktop/macos/Sources/RocketVibe/BodyView.swift",
     "apps/desktop/macos/Sources/RocketVibe/CallWindow.swift",
     "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
@@ -1325,7 +1326,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/store.rs",
-      "line": 318,
+      "line": 320,
       "kind": "resource",
       "surface": "/file-upload/{…}/%"
     },
@@ -1475,7 +1476,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat_native.rs",
-      "line": 1033,
+      "line": 985,
       "kind": "endpoint",
       "surface": "rooms.new"
     },
@@ -1535,49 +1536,49 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1241,
+      "line": 1240,
       "kind": "endpoint",
       "surface": "rooms.online"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1242,
+      "line": 1241,
       "kind": "endpoint",
       "surface": "rooms.connecting"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1243,
+      "line": 1242,
       "kind": "endpoint",
       "surface": "rooms.offline"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1755,
+      "line": 1737,
       "kind": "endpoint",
       "surface": "rooms.section_unread"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1756,
+      "line": 1738,
       "kind": "endpoint",
       "surface": "rooms.section_favorites"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1757,
+      "line": 1739,
       "kind": "endpoint",
       "surface": "rooms.section_channels"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1758,
+      "line": 1740,
       "kind": "endpoint",
       "surface": "rooms.section_direct"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat.rs",
-      "line": 1874,
+      "line": 1856,
       "kind": "endpoint",
       "surface": "e2e.read_only"
     },

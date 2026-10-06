@@ -1,6 +1,7 @@
 //! An expiring in-memory photo, separate from the durable SQLite projection.
 use crate::live::Presence;
 use rv_protocol::live::{LiveState, PresenceStatus};
+use rv_protocol::voice::{VoiceParticipant, VoiceRing};
 use std::time::{Duration, Instant};
 
 #[derive(Default)]
@@ -43,6 +44,20 @@ impl LiveCache {
         result.dedup();
         result
     }
+    /// Who the SFU last reported in the room's voice session.
+    pub fn voice(&self, room: &str, now: Instant) -> Vec<VoiceParticipant> {
+        if !self.until.is_some_and(|t| t > now) {
+            return vec![];
+        }
+        self.state.iter().flat_map(|s| &s.rooms).filter(|r| r.room_id == room).flat_map(|r| r.voice.clone()).collect()
+    }
+    /// Direct calls ringing or just resolved, where this account is caller or callee.
+    pub fn rings(&self, now: Instant) -> Vec<VoiceRing> {
+        if !self.until.is_some_and(|t| t > now) {
+            return vec![];
+        }
+        self.state.iter().flat_map(|s| s.rings.clone()).collect()
+    }
     pub fn presence(&self, uid: &str, now: Instant) -> Option<Presence> {
         if !self.until.is_some_and(|t| t > now) {
             return None;
@@ -84,13 +99,31 @@ mod tests {
                 direct_peer: None,
                 typing: vec![
                     Typist { user: user.clone(), root_id: None },
-                    Typist { user, root_id: Some("root".into()) },
+                    Typist { user: user.clone(), root_id: Some("root".into()) },
                 ],
-                voice: vec![],
+                voice: vec![VoiceParticipant {
+                    user: user.clone(),
+                    muted: true,
+                    deafened: false,
+                    camera: false,
+                    screen: false,
+                }],
             }],
-            rings: vec![],
+            rings: vec![VoiceRing {
+                id: "ring".into(),
+                room_id: "room".into(),
+                caller: user.clone(),
+                callee: user,
+                state: rv_protocol::voice::RingState::Ringing,
+                expires_in_ms: 30_000,
+            }],
         };
         cache.apply(state.clone(), now);
+        assert!(cache.voice("room", now)[0].muted);
+        assert!(cache.voice("other-room", now).is_empty());
+        assert_eq!(cache.rings(now)[0].id, "ring");
+        assert!(cache.voice("room", now + Duration::from_secs(8)).is_empty());
+        assert!(cache.rings(now + Duration::from_secs(8)).is_empty());
         assert_eq!(cache.typing("room", None, "me", now), ["bob"]);
         assert_eq!(cache.typing("room", Some("root"), "me", now), ["bob"]);
         assert!(cache.typing("room", None, "other", now).is_empty());

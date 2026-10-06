@@ -1,0 +1,96 @@
+# DRAFT: builds the rv-voice sidecar (apps/desktop/voice) on the three desktop
+# platforms and uploads it. Not wired into desktop.yml's packages yet: the
+# installers/bundles must still copy rv-voice next to the app's executable.
+name: desktop-voice
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'apps/desktop/voice/**'
+      - 'apps/desktop/crates/rv-voice-protocol/**'
+      - '.github/workflows/desktop-voice.yml'
+  pull_request:
+    paths:
+      - 'apps/desktop/voice/**'
+      - 'apps/desktop/crates/rv-voice-protocol/**'
+      - '.github/workflows/desktop-voice.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-voice-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  # ubuntu:22.04 (glibc 2.35) so the binary runs on older distributions;
+  # webrtc-sys needs clang >= 21, from apt.llvm.org.
+  linux:
+    runs-on: ubuntu-24.04
+    container: ubuntu:22.04
+    defaults:
+      run:
+        working-directory: apps/desktop/voice
+    steps:
+      - name: Toolchain
+        working-directory: /
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg git build-essential pkg-config libglib2.0-dev python3
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /usr/share/keyrings/llvm.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main" > /etc/apt/sources.list.d/llvm.list
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends clang-21
+          ln -sf /usr/bin/clang-21 /usr/bin/clang
+          ln -sf /usr/bin/clang++-21 /usr/bin/clang++
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal -c clippy -c rustfmt
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            apps/desktop/voice/target
+          key: voice-linux-${{ hashFiles('apps/desktop/voice/Cargo.lock') }}
+      - run: cargo fmt --check
+      - run: cargo clippy --release --locked -- -D warnings
+      - run: cargo build --release --locked
+      - run: target/release/rv-voice --version
+      - name: The sidecar answers and leaves on end of input
+        run: |
+          printf '{"type":"list_devices"}\n' | RV_VOICE_FAKE_AUDIO=sine target/release/rv-voice | tee out.jsonl
+          grep -q '"type":"hello"' out.jsonl
+          grep -q '"type":"devices"' out.jsonl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rv-voice-linux-x86_64
+          path: apps/desktop/voice/target/release/rv-voice
+
+  windows:
+    runs-on: windows-2025
+    defaults:
+      run:
+        working-directory: apps/desktop/voice
+    steps:
+      - uses: actions/checkout@v5
+      # cl.exe is not long-path aware: libwebrtc's headers need a short target dir.
+      - run: cargo build --release --locked --target-dir C:\t
+      - run: C:\t\release\rv-voice.exe --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rv-voice-windows-x86_64
+          path: C:\t\release\rv-voice.exe
+
+  macos:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: apps/desktop/voice
+    steps:
+      - uses: actions/checkout@v5
+      - run: cargo build --release --locked
+      - run: target/release/rv-voice --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rv-voice-macos-arm64
+          path: apps/desktop/voice/target/release/rv-voice

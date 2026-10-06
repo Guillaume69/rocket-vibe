@@ -38,3 +38,4 @@ pub mod timeline;
 pub mod tls;
 pub mod update;
 pub mod uploads;
+pub mod voice;

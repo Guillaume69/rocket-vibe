@@ -588,6 +588,7 @@ mod tests {
             last_type: None,
             last_author: None,
             last_encrypted: None,
+            voice: false,
         };
         let quoted = RoomRow { last_message: Some("[ ](https://x/?msg=1) hi :smile:".into()), ..base.clone() };
         assert_eq!(room(quoted, None, None).preview, RoomPreview::Text { text: "hi 😄".into() });

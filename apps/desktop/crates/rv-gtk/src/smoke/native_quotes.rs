@@ -459,7 +459,7 @@ async fn cross_room_quotes(
 ) {
     let name = format!("gtk-quote-target-{}", rv_core::native::room_operation_id());
     let (s, target_name) = (session.clone(), name.clone());
-    let target = crate::on_tokio(async move { s.create_room(&target_name, true).await }).await.unwrap();
+    let target = crate::on_tokio(async move { s.create_room(&target_name, true, false).await }).await.unwrap();
     for _ in 0..120 {
         if window.chat.has_room(&target) {
             break;

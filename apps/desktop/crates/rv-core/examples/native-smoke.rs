@@ -113,7 +113,7 @@ async fn main() {
     let (message, _) = desktop.message_action_context(&id).await.unwrap();
     desktop.delete(&rid, &id, &message.revision).await.unwrap();
     until(|| !desktop.store.messages(&rid, 1000).unwrap().iter().any(|m| m.id == id)).await;
-    let created = desktop.create_room("Created by desktop", true).await.unwrap();
+    let created = desktop.create_room("Created by desktop", true, false).await.unwrap();
     until(|| {
         room(&desktop, "Created by desktop").as_deref() == Some(&created)
             && desktop.status().connection == Connection::Online
@@ -132,7 +132,7 @@ async fn main() {
     desktop.set_mark(&created, &marked_id, false, false).await.unwrap();
     assert!(desktop.marked(&created, true).await.unwrap().is_empty());
     assert!(desktop.marked(&created, false).await.unwrap().is_empty());
-    let public = desktop.create_room("Desktop public discovery", false).await.unwrap();
+    let public = desktop.create_room("Desktop public discovery", false, false).await.unwrap();
     until(|| {
         desktop.status().connection == Connection::Online
             && desktop.store.rooms().unwrap().iter().any(|r| r.id == public)

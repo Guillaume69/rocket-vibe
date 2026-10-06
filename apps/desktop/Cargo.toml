@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
-members = ["crates/rv-core", "crates/rv-ffi", "crates/rv-gtk", "crates/rv-native"]
+members = ["crates/rv-core", "crates/rv-ffi", "crates/rv-gtk", "crates/rv-native", "crates/rv-voice-protocol"]
+# The voice sidecar links libwebrtc: its own workspace, never built with these.
+exclude = ["voice"]
 
 [workspace.package]
 edition = "2024"

@@ -1,0 +1,14 @@
+# LiveKit SFU of the native bench (docker/compose.voice.yml). Keys come from
+# LIVEKIT_KEYS, the node IP from the command line: no secret here.
+port: 7880
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50020
+  use_external_ip: false
+room:
+  # Rooms are created on join and closed once empty.
+  empty_timeout: 300
+  departure_timeout: 20
+logging:
+  level: info

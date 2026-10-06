@@ -1071,8 +1071,16 @@ impl Worker {
             .crypto_group_events(&head.scope.room, &after.to_string())
             .await?;
         let scope = head.scope.clone();
-        self.owned(move |_, _, _| {
+        self.owned(move |manager, root, _| {
             groups::wire::validate_page(&page, &scope, after)?;
+            let mut page = page;
+            // A commit after the journal started is applied by the journal
+            // when the room is read: it is not a transition to review.
+            if page.events.first().is_some_and(|e| e.welcome.is_none())
+                && groups::Coordinator::new(manager, root)?.journal_started(&scope.room)?
+            {
+                page.events.clear();
+            }
             Ok(Batch { head, page })
         })
         .await

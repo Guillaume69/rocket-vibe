@@ -477,7 +477,15 @@ impl CryptoInstallation {
                     &head.scope,
                     local.as_ref().map_or(0, |v| v.revision),
                 )?;
-                public(&page.events.first())?
+                // A commit after the journal started is applied by the journal
+                // when the room is read: it is not a transition to review.
+                let journal = c.journal_started(&wire.room_id)?;
+                public(
+                    &page
+                        .events
+                        .first()
+                        .filter(|e| e.welcome.is_some() || !journal),
+                )?
             }
             Action::PackagesPrepare => {
                 packages::Coordinator::new(manager, root)?.prepare(&revision, 4, time)?;

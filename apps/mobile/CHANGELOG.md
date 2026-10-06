@@ -324,6 +324,8 @@ release, and its notes are that version's section here.
 
 - RocketVibe: confirming an encrypted group review (creation, update, admission) no longer
   fails now and then with "Operation unavailable" while the room is open.
+- RocketVibe: an encrypted group update received after the room was read is no longer
+  offered for a review that could only fail with "Operation unavailable": reading the room applies it.
 - RocketVibe: after a member's role or rights change in an encrypted room, the encrypted
   group offers to replace that member's device, the update the group needs before anyone
   can write again.

@@ -131,6 +131,11 @@ impl Coordinator {
         let (transition, intent) = checked(commit)?;
         self.scope(&transition.plan.scope)?;
         self.inspect(|provider, records| {
+            // The acceptance would refuse it: no consent for what only the
+            // journal may apply.
+            if super::journal::started(records, &transition.plan.scope)? {
+                return Err(Error::JournalOrder);
+            }
             let state = read(records, &transition.plan.scope.room)?.ok_or(Error::NotReady)?;
             check_clock(Some(&state), now)?;
             let context = self.context(records, now)?;

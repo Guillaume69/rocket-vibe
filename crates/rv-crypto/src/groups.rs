@@ -1193,6 +1193,14 @@ impl Coordinator {
     pub fn has_recorded_group(&self, room: &str) -> Result<bool> {
         self.inspect(|_, records| Ok(read(records, room)?.is_some()))
     }
+    /// Once a room's journal has started, its commits arrive through the
+    /// journal only: they are never offered for an explicit review.
+    pub fn journal_started(&self, room: &str) -> Result<bool> {
+        self.inspect(|_, records| match read(records, room)? {
+            Some(state) => journal::started(records, &state.scope),
+            None => Ok(false),
+        })
+    }
     /// The actual MLS roster checked against the accepted signed plan. These
     /// public observations still do not authorize a new send or transition.
     /// The members' grants (access and activation versions) the accepted

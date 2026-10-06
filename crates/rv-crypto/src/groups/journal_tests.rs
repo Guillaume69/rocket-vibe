@@ -1186,10 +1186,14 @@ fn own_rotation_ack_preserves_old_epoch_until_unread_message_and_commit_share_pr
         transition: submission.transition.clone(),
         commit: submission.commit.clone().unwrap(),
     };
-    let (preview, consent) = bob.coordinator().preview_commit(&commit, NOW).unwrap();
-    assert!(matches!(
+    // Once the journal has started, the commit is never offered for review.
+    assert!(
         bob.coordinator()
-            .accept_commit(&commit, &consent, preview.fingerprint, NOW),
+            .journal_started(&commit.roster.scope.room)
+            .unwrap()
+    );
+    assert!(matches!(
+        bob.coordinator().preview_commit(&commit, NOW),
         Err(Error::JournalOrder)
     ));
     let result = alice

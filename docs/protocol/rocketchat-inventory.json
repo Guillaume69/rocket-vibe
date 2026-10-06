@@ -3118,73 +3118,73 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 451,
+      "line": 450,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 452,
+      "line": 451,
       "kind": "endpoint",
       "surface": "e2e.explanation"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 453,
+      "kind": "endpoint",
+      "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 454,
       "kind": "endpoint",
-      "surface": "e2e.field"
+      "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 455,
       "kind": "endpoint",
-      "surface": "e2e.unlock"
+      "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 456,
       "kind": "endpoint",
-      "surface": "e2e.wrongPassword"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 457,
-      "kind": "endpoint",
       "surface": "e2e.genericError"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1186,
+      "line": 1184,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1187,
+      "line": 1185,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1189,
+      "line": 1187,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1190,
+      "line": 1188,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1191,
+      "line": 1189,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1192,
+      "line": 1190,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

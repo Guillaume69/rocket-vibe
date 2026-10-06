@@ -31,7 +31,7 @@ two-way parity tracker is [../parity.md](../parity.md). Back to
 | Doc | What's here |
 |---|---|
 | [composer.md](composer.md) | Where a send goes (outbox, upload queue, `commands.run`), drafts per room and thread, quote replies, `@` mentions, editing, GTK formatting and spell check, staged attachments. |
-| [slash-commands.md](slash-commands.md) | `commands.list` with i18n keys, completion filtered by permissions, `commands.run`, unknown names sent as text, the private answer above the composer. |
+| [slash-commands.md](slash-commands.md) | `commands.list` with i18n keys, the RocketVibe server's commands, text commands written by the client, the command panel, `commands.run`, unknown names sent as text, the private answer above the composer. |
 | [uploads.md](uploads.md) | `rooms.media` then `rooms.mediaConfirm` behind a persisted queue, the saved `fileId` and the local check that avoids duplicates, re-arming after a kill, retries, progress, validation, protected downloads. |
 | [voice-messages.md](voice-messages.md) | AAC `.m4a` on mobile and SwiftUI, Ogg/Opus through GStreamer on GTK, replay and caption before sending, playback. |
 | [message-actions.md](message-actions.md) | Which actions show (time limits, permissions, encrypted and system messages), the endpoints, the menus per app, pinned and starred lists. |

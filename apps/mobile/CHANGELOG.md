@@ -9,6 +9,12 @@ release, and its notes are that version's section here.
 
 ### Added
 
+- Slash commands on a RocketVibe server: /topic, /invite, /kick, /leave, /join,
+  /msg and /status run on the server; /me, /shrug, /tableflip, /unflip,
+  /lennyface and /gimme are written by the app, so they also work in encrypted
+  rooms (on Rocket.Chat too).
+- Typing "/" lists every command in a panel that narrows as you type; tap one to
+  complete it.
 - A server rail down the home screen's left edge: a button per signed-in server to
   switch in one tap, "+" to add one, and a dot on a server with unread messages
   (checked every minute while the app is open).

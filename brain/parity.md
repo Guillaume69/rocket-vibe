@@ -103,6 +103,8 @@ beta does.
 | Voice recording | done | done | done | Mobile and SwiftUI send AAC `.m4a`, GTK Ogg/Opus. |
 | Replay and caption a voice message before sending | done | done | done | SwiftUI checked by the macOS CI build only. |
 | Slash commands (`commands.list`, `commands.run`) and their private answers | done | done | done | |
+| Slash commands on a RocketVibe server (`/api/v1/commands`), text commands written by the client so they work in encrypted rooms | done | done | done | SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
+| Every command listed after `/` in a titled panel, narrowed as one types, completed with a tap or Tab/Enter | done | done | done | SwiftUI checked by the macOS CI build only. |
 
 ## 5. Message actions - [message-actions](features/message-actions.md)
 

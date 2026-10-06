@@ -78,7 +78,7 @@ async fn materialize(app: &App, user: &Account, id: &str) -> Result<String> {
     if !valid {
         return Err(reset());
     }
-    let rooms = sqlx::query_as::<_, RoomRow>("SELECT r.id,r.name,r.kind,r.revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=r.id) AS encrypted FROM rooms r JOIN members m ON m.room_id=r.id WHERE m.user_id=$1 ORDER BY r.id LIMIT 1001")
+    let rooms = sqlx::query_as::<_, RoomRow>("SELECT r.id,r.name,r.kind,r.revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=r.id) AS encrypted,r.voice FROM rooms r JOIN members m ON m.room_id=r.id WHERE m.user_id=$1 ORDER BY r.id LIMIT 1001")
         .bind(&user.id).fetch_all(&mut *tx).await?;
     if rooms.len() > 1000 {
         return Err(limit());

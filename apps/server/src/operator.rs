@@ -33,6 +33,7 @@ pub struct Room {
     pub name: String,
     pub kind: String,
     pub read_only: bool,
+    pub voice: bool,
     pub topic: String,
     pub description: String,
     pub announcement: String,
@@ -60,7 +61,7 @@ pub struct AuditEntry {
     pub details: Json<Value>,
 }
 const USERS: &str = "SELECT id,username,display_name,admin,disabled,create_public_room,create_private_room,activation_version AS revision FROM users";
-const ROOMS: &str = "SELECT r.id,r.name,r.kind,r.read_only,r.topic,r.description,r.announcement,r.details_version AS revision,r.revision::text AS journal_position,(SELECT count(*) FROM members m WHERE m.room_id=r.id) AS member_count FROM rooms r";
+const ROOMS: &str = "SELECT r.id,r.name,r.kind,r.read_only,r.voice,r.topic,r.description,r.announcement,r.details_version AS revision,r.revision::text AS journal_position,(SELECT count(*) FROM members m WHERE m.room_id=r.id) AS member_count FROM rooms r";
 fn limit(value: u32) -> Result<i64> {
     if !(1..=100).contains(&value) {
         return Err(Error::invalid());
@@ -149,6 +150,7 @@ pub struct RoomChanges {
     pub topic: Option<String>,
     pub description: Option<String>,
     pub announcement: Option<String>,
+    pub voice: Option<bool>,
 }
 #[derive(Clone, Serialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
@@ -162,6 +164,7 @@ pub enum Command {
         owner: String,
         name: String,
         private: bool,
+        voice: bool,
     },
     Room {
         id: String,
@@ -226,7 +229,8 @@ pub async fn apply(app: &App, operation: &str, command: Command) -> Result<Recei
             owner,
             name,
             private,
-        } => create_room(&mut tx, &owner, &name, private).await?,
+            voice,
+        } => create_room(&mut tx, &owner, &name, private, voice).await?,
         Command::Room {
             id,
             expected,
@@ -320,6 +324,7 @@ async fn create_room(
     owner: &str,
     title: &str,
     private: bool,
+    voice: bool,
 ) -> Result<(String, String)> {
     if !auth::identifier(owner) {
         return Err(Error::invalid());
@@ -334,10 +339,11 @@ async fn create_room(
         return Err(Error::missing());
     }
     let id = auth::random_token()[..24].to_owned();
-    sqlx::query("INSERT INTO rooms(id,name,kind) VALUES($1,$2,$3)")
+    sqlx::query("INSERT INTO rooms(id,name,kind,voice) VALUES($1,$2,$3,$4)")
         .bind(&id)
         .bind(title)
         .bind(if private { "private" } else { "public" })
+        .bind(voice)
         .execute(&mut **tx)
         .await?;
     sqlx::query("INSERT INTO members(room_id,user_id,role) VALUES($1,$2,'owner')")
@@ -394,6 +400,7 @@ async fn set_room(
         .map(|p| if p { "private" } else { "public" })
         .unwrap_or(&before.kind);
     let read_only = changes.read_only.unwrap_or(before.read_only);
+    let voice = changes.voice.unwrap_or(before.voice);
     let topic = changes.topic.as_deref().unwrap_or(&before.topic);
     let description = changes
         .description
@@ -420,10 +427,11 @@ async fn set_room(
             before.topic.as_str(),
             before.description.as_str(),
             before.announcement.as_str(),
-        );
+        )
+        || voice != before.voice;
     if changed {
-        sqlx::query("UPDATE rooms SET name=$2,kind=$3,read_only=$4,topic=$5,description=$6,announcement=$7 WHERE id=$1")
-            .bind(id).bind(title).bind(kind).bind(read_only).bind(topic).bind(description).bind(announcement).execute(&mut **tx).await?;
+        sqlx::query("UPDATE rooms SET name=$2,kind=$3,read_only=$4,topic=$5,description=$6,announcement=$7,voice=$8 WHERE id=$1")
+            .bind(id).bind(title).bind(kind).bind(read_only).bind(topic).bind(description).bind(announcement).bind(voice).execute(&mut **tx).await?;
         invalidate(tx, id, None).await?;
         room_details::publish(tx, id).await?;
     }

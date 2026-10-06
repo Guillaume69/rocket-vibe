@@ -519,6 +519,59 @@ impl NativeClient {
         )
         .await
     }
+    /// A LiveKit grant for the room's voice session (docs/protocol/VOICE.md).
+    pub async fn join_voice(
+        &self,
+        room: &str,
+        input: &rv_protocol::voice::JoinVoice,
+    ) -> Result<rv_protocol::voice::VoiceGrant, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::POST,
+            &format!("/api/v1/rooms/{room}/voice/join"),
+            Some(input),
+            false,
+        )
+        .await
+    }
+    pub async fn leave_voice(&self) -> Result<(), Error> {
+        self.empty(Method::POST, "/api/v1/voice/leave", false).await
+    }
+    pub async fn voice_ring(&self, id: &str) -> Result<rv_protocol::voice::VoiceRing, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/voice/rings/{id}")).await
+    }
+    pub async fn accept_ring(
+        &self,
+        id: &str,
+        input: &rv_protocol::voice::AnswerRing,
+    ) -> Result<rv_protocol::voice::VoiceGrant, Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::POST,
+            &format!("/api/v1/voice/rings/{id}/accept"),
+            Some(input),
+            false,
+        )
+        .await
+    }
+    pub async fn decline_ring(&self, id: &str) -> Result<(), Error> {
+        if !path_segment(id) {
+            return Err(Error::InvalidUrl);
+        }
+        self.empty(
+            Method::POST,
+            &format!("/api/v1/voice/rings/{id}/decline"),
+            false,
+        )
+        .await
+    }
     pub fn new(base: &str) -> Result<Self, Error> {
         let parsed = Url::parse(base).map_err(|_| Error::InvalidUrl)?;
         if !matches!(parsed.scheme(), "http" | "https")

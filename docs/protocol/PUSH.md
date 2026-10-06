@@ -55,6 +55,14 @@ allows HTTP for the local bench. Discovery is verified before each read
 or reply. An already persisted successor of an interrupted rotation can be
 used without starting a second rotation from the receiver.
 
+A ringing direct call sends the callee's devices a data push `type:
+voice_ring` (then `voice_ring_end` when it resolves) with `product`,
+`instanceId`, `dataEpoch`, `userId`, `deviceId`, `ringId` and `rid`, high
+priority, TTL 30 s, from a separate fenced queue (`voice_pushes`): three quick
+attempts, retired as soon as the ring is no longer ringing. An online callee
+gets it too; a callee whose chosen status is busy gets none. The app reads the
+ring with `GET /api/v1/voice/rings/{id}` ([VOICE.md](VOICE.md)).
+
 ## Queue and delivery
 
 Migration `0036_push_notifications.sql` adds the registry, the token generation

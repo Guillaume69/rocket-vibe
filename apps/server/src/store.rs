@@ -15,6 +15,7 @@ pub(crate) struct RoomRow {
     pub kind: String,
     pub revision: i64,
     pub encrypted: bool,
+    pub voice: bool,
 }
 
 impl RoomRow {
@@ -30,7 +31,7 @@ impl RoomRow {
             revision: self.revision.to_string(),
             read_state: None,
             encrypted: self.encrypted,
-            voice: false,
+            voice: self.voice,
         }
     }
 }
@@ -58,6 +59,7 @@ pub(crate) struct MessageRow {
     pub files: Json<Vec<rv_protocol::parity::FileDescriptor>>,
     pub previews: Json<Vec<rv_protocol::link_previews::LinkPreview>>,
     pub cards: Json<Vec<rv_protocol::cards::IntegrationCard>>,
+    pub call: Option<Json<rv_protocol::voice::CallSummary>>,
 }
 
 impl MessageRow {
@@ -105,7 +107,7 @@ impl MessageRow {
             pinned: self.pinned,
             personal_star: None,
             personal_mention: None,
-            call: None,
+            call: self.call.map(|call| Box::new(call.0)),
             cards: if self.deleted {
                 Vec::new()
             } else {
@@ -125,7 +127,7 @@ impl MessageRow {
     }
 }
 
-pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,m.text,m.reply_to,(SELECT count(*) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_replies,(SELECT max(r.created_at) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_last_reply,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,m.files,m.previews,m.cards,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
+pub(crate) const MESSAGE_SELECT: &str = "SELECT m.id,m.room_id,m.author_id,u.username,u.display_name,m.text,m.reply_to,(SELECT count(*) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_replies,(SELECT max(r.created_at) FROM messages r WHERE r.reply_to=m.id AND NOT r.deleted) AS thread_last_reply,m.system,m.created_at,m.position,m.revision,m.deleted,m.edited_at,m.pinned,m.quote_references,m.files,m.previews,m.cards,(SELECT jsonb_strip_nulls(jsonb_build_object('state',v.state,'duration_seconds',CASE WHEN v.answered_at IS NOT NULL AND v.ended_at IS NOT NULL THEN floor(extract(epoch FROM v.ended_at-v.answered_at))::int END)) FROM voice_rings v WHERE v.message_id=m.id) AS call,COALESCE((SELECT jsonb_agg(jsonb_build_object('emoji',g.emoji,'users',g.users) ORDER BY g.emoji) FROM (SELECT e.emoji,jsonb_agg(jsonb_build_object('id',a.id,'username',a.username,'display_name',a.display_name) ORDER BY a.id) AS users FROM message_reactions e JOIN users a ON a.id=e.user_id WHERE e.message_id=m.id GROUP BY e.emoji) g),'[]'::jsonb) AS reactions FROM messages m JOIN users u ON u.id=m.author_id";
 
 pub(crate) fn send_fingerprint(room: &str, text: &str) -> String {
     crate::auth::hash_token(&serde_json::json!([room, text]).to_string())
@@ -211,15 +213,15 @@ pub async fn create_room(app: &App, account: &Account, input: CreateRoom) -> Res
     let mut tx = app.pool.begin().await?;
     lock_active(&mut tx, account).await?;
     if let Some(operation) = &input.operation_id {
-        let previous: Option<(String,bool,String)> = sqlx::query_as("SELECT name,private,room_id FROM room_creation_requests WHERE user_id=$1 AND operation_id=$2")
+        let previous: Option<(String,bool,bool,String)> = sqlx::query_as("SELECT name,private,voice,room_id FROM room_creation_requests WHERE user_id=$1 AND operation_id=$2")
             .bind(&account.id).bind(operation).fetch_optional(&mut *tx).await?;
-        if let Some((previous_name, private, room_id)) = previous {
-            if previous_name != name || private != input.private {
+        if let Some((previous_name, private, voice, room_id)) = previous {
+            if previous_name != name || private != input.private || voice != input.voice {
                 return Err(Error::conflict());
             }
             require_member(&mut tx, &room_id, &account.id).await?;
             let room =
-                sqlx::query_as::<_, RoomRow>("SELECT id,name,kind,revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=rooms.id) AS encrypted FROM rooms WHERE id=$1")
+                sqlx::query_as::<_, RoomRow>("SELECT id,name,kind,revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=rooms.id) AS encrypted,rooms.voice FROM rooms WHERE id=$1")
                     .bind(room_id)
                     .fetch_one(&mut *tx)
                     .await?
@@ -243,12 +245,16 @@ pub async fn create_room(app: &App, account: &Account, input: CreateRoom) -> Res
     if !allowed {
         return Err(Error::forbidden());
     }
+    if input.voice && app.livekit.is_none() {
+        return Err(crate::voice::unavailable());
+    }
     let id = random_token()[..24].to_owned();
     let kind = if input.private { "private" } else { "public" };
-    sqlx::query("INSERT INTO rooms(id,name,kind) VALUES($1,$2,$3)")
+    sqlx::query("INSERT INTO rooms(id,name,kind,voice) VALUES($1,$2,$3,$4)")
         .bind(&id)
         .bind(name)
         .bind(kind)
+        .bind(input.voice)
         .execute(&mut *tx)
         .await?;
     sqlx::query("INSERT INTO members(room_id,user_id,role) VALUES($1,$2,'owner')")
@@ -268,11 +274,12 @@ pub async fn create_room(app: &App, account: &Account, input: CreateRoom) -> Res
         kind: kind.into(),
         revision: position,
         encrypted: false,
+        voice: input.voice,
     }
     .wire();
     if let Some(operation) = input.operation_id {
-        sqlx::query("INSERT INTO room_creation_requests(user_id,operation_id,name,private,room_id) VALUES($1,$2,$3,$4,$5)")
-            .bind(&account.id).bind(operation).bind(name).bind(input.private).bind(&room.id).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO room_creation_requests(user_id,operation_id,name,private,voice,room_id) VALUES($1,$2,$3,$4,$5,$6)")
+            .bind(&account.id).bind(operation).bind(name).bind(input.private).bind(input.voice).bind(&room.id).execute(&mut *tx).await?;
     }
     event(
         &mut tx,
@@ -305,20 +312,22 @@ pub async fn public_rooms(
         return Err(Error::invalid());
     }
     // Literal substring search: user '%'/'_' characters are not SQL wildcards.
-    let rows: Vec<(String,String,String,i64,bool,bool)> = sqlx::query_as("SELECT r.id,r.name,r.kind,r.revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=r.id) AS encrypted,EXISTS(SELECT 1 FROM members m WHERE m.room_id=r.id AND m.user_id=$1) FROM rooms r WHERE r.kind='public' AND strpos(lower(r.name),lower($2))>0 AND r.id>$3 ORDER BY r.id LIMIT 21")
+    #[allow(clippy::type_complexity)]
+    let rows: Vec<(String,String,String,i64,bool,bool,bool)> = sqlx::query_as("SELECT r.id,r.name,r.kind,r.revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=r.id) AS encrypted,r.voice,EXISTS(SELECT 1 FROM members m WHERE m.room_id=r.id AND m.user_id=$1) FROM rooms r WHERE r.kind='public' AND strpos(lower(r.name),lower($2))>0 AND r.id>$3 ORDER BY r.id LIMIT 21")
         .bind(&account.id).bind(query.trim()).bind(after.unwrap_or("")).fetch_all(&app.pool).await?;
     let more = rows.len() > 20;
     let rooms: Vec<_> = rows
         .into_iter()
         .take(20)
         .map(
-            |(id, name, kind, revision, encrypted, joined)| rv_protocol::PublicRoom {
+            |(id, name, kind, revision, encrypted, voice, joined)| rv_protocol::PublicRoom {
                 room: RoomRow {
                     id,
                     name,
                     kind,
                     revision,
                     encrypted,
+                    voice,
                 }
                 .wire(),
                 joined,
@@ -340,7 +349,7 @@ pub async fn join_public(app: &App, account: &Account, room_id: &str) -> Result<
     let mut tx = app.pool.begin().await?;
     lock_active(&mut tx, account).await?;
     let mut room = sqlx::query_as::<_, RoomRow>(
-        "SELECT id,name,kind,revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=rooms.id) AS encrypted FROM rooms WHERE id=$1 AND kind='public' FOR UPDATE",
+        "SELECT id,name,kind,revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=rooms.id) AS encrypted,rooms.voice FROM rooms WHERE id=$1 AND kind='public' FOR UPDATE",
     )
     .bind(room_id)
     .fetch_optional(&mut *tx)
@@ -397,7 +406,7 @@ pub async fn direct(app: &App, account: &Account, target: &str) -> Result<Room> 
     let name = format!("{} / {}", found[0].1, found[1].1);
     let pair = format!("{}:{}", users[0], users[1]);
     if let Some(room) =
-        sqlx::query_as::<_, RoomRow>("SELECT id,name,kind,revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=rooms.id) AS encrypted FROM rooms WHERE direct_pair=$1")
+        sqlx::query_as::<_, RoomRow>("SELECT id,name,kind,revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=rooms.id) AS encrypted,rooms.voice FROM rooms WHERE direct_pair=$1")
             .bind(&pair)
             .fetch_optional(&mut *tx)
             .await?
@@ -431,6 +440,7 @@ pub async fn direct(app: &App, account: &Account, target: &str) -> Result<Room> 
         kind: "direct".into(),
         revision: position,
         encrypted: false,
+        voice: false,
     }
     .wire();
     event(
@@ -538,7 +548,7 @@ pub async fn rooms(app: &App, account: &Account) -> Result<Vec<Room>> {
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         .execute(&mut *tx)
         .await?;
-    let mut rooms:Vec<_>=sqlx::query_as::<_, RoomRow>("SELECT r.id,r.name,r.kind,r.revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=r.id) AS encrypted FROM rooms r JOIN members m ON m.room_id=r.id WHERE m.user_id=$1 ORDER BY r.revision DESC,r.id")
+    let mut rooms:Vec<_>=sqlx::query_as::<_, RoomRow>("SELECT r.id,r.name,r.kind,r.revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=r.id) AS encrypted,r.voice FROM rooms r JOIN members m ON m.room_id=r.id WHERE m.user_id=$1 ORDER BY r.revision DESC,r.id")
         .bind(&account.id).fetch_all(&mut *tx).await?.into_iter().map(RoomRow::wire).collect();
     for room in &mut rooms {
         crate::room_reads::personalize(&mut tx, &account.id, room).await?;

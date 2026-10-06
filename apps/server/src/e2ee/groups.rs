@@ -17,7 +17,7 @@ async fn publish_activity(
     room: &str,
     position: i64,
 ) -> Result<()> {
-    let row: crate::store::RoomRow = sqlx::query_as("UPDATE rooms SET revision=$2 WHERE id=$1 RETURNING id,name,kind,revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=rooms.id) AS encrypted")
+    let row: crate::store::RoomRow = sqlx::query_as("UPDATE rooms SET revision=$2 WHERE id=$1 RETURNING id,name,kind,revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=rooms.id) AS encrypted,rooms.voice")
         .bind(room).bind(position).fetch_one(&mut **tx).await?;
     crate::store::event(
         tx,

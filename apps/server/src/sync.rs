@@ -67,7 +67,7 @@ pub async fn snapshot(app: &App, account: &Account) -> Result<Snapshot> {
         sqlx::query_as("SELECT data_epoch,position FROM instance WHERE singleton")
             .fetch_one(&mut *tx)
             .await?;
-    let rooms = sqlx::query_as::<_, RoomRow>("SELECT r.id,r.name,r.kind,r.revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=r.id) AS encrypted FROM rooms r JOIN members m ON m.room_id=r.id WHERE m.user_id=$1 ORDER BY r.id LIMIT 101")
+    let rooms = sqlx::query_as::<_, RoomRow>("SELECT r.id,r.name,r.kind,r.revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=r.id) AS encrypted,r.voice FROM rooms r JOIN members m ON m.room_id=r.id WHERE m.user_id=$1 ORDER BY r.id LIMIT 101")
         .bind(&account.id).fetch_all(&mut *tx).await?;
     // J1 deliberately refuses oversize snapshots instead of silently dropping rooms.
     if rooms.len() > 100 {

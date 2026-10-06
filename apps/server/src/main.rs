@@ -14,6 +14,9 @@ struct Args {
     /// Firebase HTTP v1 service-account JSON, kept outside the repository.
     #[arg(long, env = "RV_FCM_CONFIG_FILE", hide_env_values = true)]
     fcm_config_file: Option<std::path::PathBuf>,
+    /// The LiveKit SFU of voice sessions: client origin, API origin and key.
+    #[arg(long, env = "RV_LIVEKIT_CONFIG_FILE", hide_env_values = true)]
+    livekit_config_file: Option<std::path::PathBuf>,
     /// Private operator configuration shared with the Jitsi token verifier.
     #[arg(long, env = "RV_JITSI_CONFIG_FILE", hide_env_values = true)]
     jitsi_config_file: Option<std::path::PathBuf>,
@@ -107,6 +110,9 @@ enum Command {
         name: String,
         #[arg(long)]
         private: bool,
+        /// A voice channel: selecting it joins its voice session.
+        #[arg(long)]
+        voice: bool,
         #[arg(long)]
         operation_id: Option<String>,
     },
@@ -126,6 +132,8 @@ enum Command {
         description: Option<String>,
         #[arg(long)]
         announcement: Option<String>,
+        #[arg(long)]
+        voice: Option<bool>,
         #[arg(long)]
         operation_id: Option<String>,
     },
@@ -235,6 +243,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .map(rv_server::meetings::Jitsi::from_file)
                 .transpose()?,
         )
+        .with_livekit(
+            args.livekit_config_file
+                .as_deref()
+                .map(rv_server::livekit::LiveKit::from_file)
+                .transpose()?,
+        )
         .with_e2ee(args.e2ee);
     match args.command {
         Command::Emoji { command } => match command {
@@ -305,6 +319,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     }
                 }
             });
+            let voice_app = app.clone();
+            let voice_worker = tokio::spawn(async move {
+                let mut tick = tokio::time::interval(std::time::Duration::from_secs(2));
+                tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                loop {
+                    tick.tick().await;
+                    if let Err(error) = rv_server::voice::reconcile(&voice_app).await {
+                        tracing::error!(code = error.code, "voice worker iteration failed");
+                    }
+                }
+            });
             let preview_app = app.clone();
             let preview_worker = tokio::spawn(async move {
                 let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
@@ -340,6 +365,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             mail_worker.abort();
             preview_worker.abort();
             push_worker.abort();
+            voice_worker.abort();
         }
         Command::CreateUser { username, admin } => {
             let password = std::env::var("RV_USER_PASSWORD")
@@ -420,6 +446,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             owner_id,
             name,
             private,
+            voice,
             operation_id,
         } => {
             apply_operator(
@@ -429,6 +456,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     owner: owner_id,
                     name,
                     private,
+                    voice,
                 },
             )
             .await?
@@ -442,6 +470,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             topic,
             description,
             announcement,
+            voice,
             operation_id,
         } => {
             apply_operator(
@@ -457,6 +486,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         topic,
                         description,
                         announcement,
+                        voice,
                     },
                 },
             )

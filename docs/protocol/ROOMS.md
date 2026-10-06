@@ -52,6 +52,10 @@ under lock: an obsolete UI grants nothing.
 `description`, `announcement`, `read_only`. The name is normalized by `trim`,
 non-empty, without control characters and limited to 128 UTF-8 bytes. The topic is
 limited to 1,024 bytes; description and announcement to 4,096 each. NUL is refused.
+On a server announcing `voice`, `UpdateRoom` may add `voice`: `true` makes
+the room a voice channel, `false` an ordinary room, absent leaves it unchanged
+(an older client's form never resets it). `RoomDetails.voice` and `Room.voice`
+expose it; `CreateRoom.voice` creates a voice channel ([VOICE.md](VOICE.md)).
 A public / private conversion keeps the current members. Read-only
 still lets owners / moderators write. A DM cannot be
 converted, configured, left nor receive a role transfer through these routes.

@@ -50,7 +50,10 @@ neither email nor preferences and add no durable event.
 A room entry may carry `direct_peer` to link the DM badge
 to the correspondent's real identity, without deriving their UID from the room name.
 Typing entries carry a user and possibly `root_id`: the typing
-of a thread is not displayed in the room's main flow.
+of a thread is not displayed in the room's main flow. On a server announcing
+`voice`, a room entry may also carry `voice`, the accounts connected to its voice
+session, and the snapshot `rings`, the direct calls ringing the reader or rung
+by them ([VOICE.md](VOICE.md)). Both count against the same limits.
 
 These frames are distinct from `SyncBatch`es, have **no cursor** and do not
 modify the journal. An old socket without `live=true` continues to

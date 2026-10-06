@@ -26,6 +26,11 @@ use crate::{
 
 pub fn router(app: App) -> Router {
     Router::new()
+        .route("/api/v1/rooms/{room}/voice/join", post(join_voice))
+        .route("/api/v1/voice/leave", post(leave_voice))
+        .route("/api/v1/voice/rings/{id}", get(voice_ring))
+        .route("/api/v1/voice/rings/{id}/accept", post(accept_ring))
+        .route("/api/v1/voice/rings/{id}/decline", post(decline_ring))
         .route("/api/v1/rooms/{room}/meetings", post(start_meeting))
         .route("/api/v1/meetings/{id}", get(meeting_info))
         .route("/api/v1/meetings/{id}/join", post(join_meeting))
@@ -312,7 +317,9 @@ async fn private_metadata_no_store(
             | "/api/v1/me/reauth/email/resume"
             | "/api/v1/me/factors/email/enable"
             | "/api/v1/me/factors/email/disable"
-    ) || request.uri().path().starts_with("/api/v1/e2ee/");
+    ) || request.uri().path().starts_with("/api/v1/e2ee/")
+        || request.uri().path().starts_with("/api/v1/voice/")
+        || request.uri().path().ends_with("/voice/join");
     let mut response = next.run(request).await;
     // Rejections, including malformed input, have the same cache policy as
     // successful private receipts and delivery status.
@@ -417,6 +424,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             structured_cards: true,
             push: app.push.is_some(),
             calls: app.jitsi.is_some(),
+            voice: app.livekit.is_some(),
             e2ee: app.e2ee,
             session_rotation: true,
             device_sessions: true,
@@ -436,6 +444,49 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
     }))
 }
 
+// Grants carry a media token: never cached (private_metadata_no_store).
+async fn join_voice(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    input: Input<rv_protocol::voice::JoinVoice>,
+) -> Result<Json<rv_protocol::voice::VoiceGrant>> {
+    let actor = account(&app, &headers).await?;
+    Ok(Json(
+        crate::voice::join(&app, &actor, &room, body(input)?).await?,
+    ))
+}
+async fn leave_voice(State(app): State<App>, headers: HeaderMap) -> Result<StatusCode> {
+    crate::voice::leave(&app, &account(&app, &headers).await?).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn voice_ring(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<rv_protocol::voice::VoiceRing>> {
+    let actor = account(&app, &headers).await?;
+    Ok(Json(crate::voice::read_ring(&app, &actor, &id).await?))
+}
+async fn accept_ring(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    input: Input<rv_protocol::voice::AnswerRing>,
+) -> Result<Json<rv_protocol::voice::VoiceGrant>> {
+    let actor = account(&app, &headers).await?;
+    Ok(Json(
+        crate::voice::accept(&app, &actor, &id, body(input)?).await?,
+    ))
+}
+async fn decline_ring(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<StatusCode> {
+    crate::voice::decline(&app, &account(&app, &headers).await?, &id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
 async fn start_meeting(
     State(app): State<App>,
     headers: HeaderMap,

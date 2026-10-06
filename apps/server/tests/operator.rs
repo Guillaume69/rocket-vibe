@@ -45,6 +45,7 @@ async fn account_policy_revokes_sessions_and_replay_never_reapplies_an_old_disab
             owner: uid.clone(),
             name: "Private history".into(),
             private: true,
+            voice: false,
         },
     )
     .await
@@ -192,6 +193,7 @@ async fn room_commands_are_idempotent_revision_checked_and_delivered_to_existing
         owner: uid.clone(),
         name: "Operator private room".into(),
         private: true,
+        voice: false,
     };
     let (a, b) = tokio::join!(
         operator::apply(&bench.app, "new-room", command.clone()),

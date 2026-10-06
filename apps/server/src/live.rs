@@ -11,6 +11,7 @@ use rv_protocol::{
         LiveFrame, LiveRoom, LiveState, PresenceEntry, PresenceStatus, SetPresence, SetTyping,
         Typist,
     },
+    voice::VoiceParticipant,
 };
 use sqlx::{Postgres, Transaction};
 
@@ -24,7 +25,10 @@ struct Grant {
     peer_display_name: Option<String>,
 }
 
-async fn device(tx: &mut Transaction<'_, Postgres>, actor: &Account) -> Result<(String, String)> {
+pub(crate) async fn device(
+    tx: &mut Transaction<'_, Postgres>,
+    actor: &Account,
+) -> Result<(String, String)> {
     auth::lock_active(tx, actor).await?;
     let (device, epoch): (String,String) = sqlx::query_as("SELECT s.device_id,i.data_epoch FROM sessions s CROSS JOIN instance i WHERE s.token_hash=$1 AND i.singleton")
         .bind(&actor.session_hash).fetch_one(&mut **tx).await?;
@@ -188,7 +192,13 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
         .bind(&ids).fetch_all(&mut *tx).await?;
     let typists:Vec<(String,String,String,String,String)>=sqlx::query_as("SELECT DISTINCT t.room_id,t.root_key,u.id,u.username,u.display_name FROM typing_leases t JOIN members m ON m.room_id=t.room_id AND m.user_id=t.user_id JOIN room_read_states g ON g.room_id=m.room_id AND g.user_id=m.user_id AND g.membership_version=t.membership_version JOIN users u ON u.id=t.user_id JOIN rooms r ON r.id=t.room_id CROSS JOIN instance i WHERE t.room_id=ANY($1) AND t.expires_at>clock_timestamp() AND t.data_epoch=i.data_epoch AND NOT u.disabled AND (NOT r.read_only OR m.role IN ('owner','moderator')) AND EXISTS(SELECT 1 FROM sessions s WHERE s.device_id=t.device_id AND s.expires_at>clock_timestamp()) AND (t.root_key='' OR EXISTS(SELECT 1 FROM messages q WHERE q.id=t.root_key AND q.room_id=t.room_id AND NOT q.deleted)) ORDER BY t.room_id,t.root_key,u.id LIMIT 513")
         .bind(&ids).fetch_all(&mut *tx).await?;
-    if people.len() > MAX_OBSERVATIONS || typists.len() > MAX_OBSERVATIONS {
+    #[allow(clippy::type_complexity)]
+    let voices:Vec<(String,String,String,String,bool,bool)>=sqlx::query_as("SELECT s.room_id,u.id,u.username,u.display_name,s.muted,s.deafened FROM voice_sessions s JOIN users u ON u.id=s.user_id JOIN members m ON m.room_id=s.room_id AND m.user_id=s.user_id CROSS JOIN instance i WHERE s.room_id=ANY($1) AND s.state='connected' AND s.data_epoch=i.data_epoch AND NOT u.disabled ORDER BY s.room_id,s.joined_at,u.id LIMIT 513")
+        .bind(&ids).fetch_all(&mut *tx).await?;
+    if people.len() > MAX_OBSERVATIONS
+        || typists.len() > MAX_OBSERVATIONS
+        || voices.len() > MAX_OBSERVATIONS
+    {
         state.limited = true;
         return Ok(state);
     }
@@ -225,6 +235,20 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
             voice: vec![],
         })
         .collect();
+    for (room, id, username, display_name, muted, deafened) in voices {
+        if let Some(room) = state.rooms.iter_mut().find(|r| r.room_id == room) {
+            room.voice.push(VoiceParticipant {
+                user: User {
+                    id,
+                    username,
+                    display_name,
+                },
+                muted,
+                deafened,
+            });
+        }
+    }
+    state.rings = crate::voice::live_rings(&mut tx, &actor.id).await?;
     for (room, root, id, username, display_name) in typists {
         if let Some(room) = state.rooms.iter_mut().find(|r| r.room_id == room) {
             room.typing.push(Typist {
@@ -246,6 +270,7 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
         state.limited = true;
         state.presence.clear();
         state.rooms.clear();
+        state.rings.clear();
     }
     Ok(state)
 }

@@ -15,6 +15,7 @@ pub mod invitations;
 mod limits;
 pub mod link_previews;
 mod live;
+pub mod livekit;
 pub mod mail;
 mod mail_admission;
 mod marks;
@@ -39,6 +40,7 @@ mod store;
 mod sync;
 mod system_messages;
 mod threads;
+pub mod voice;
 
 use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
 use rand_core::OsRng;
@@ -51,6 +53,8 @@ pub struct App {
     pub mail: Option<Arc<mail::Sender>>,
     pub push: Option<Arc<push::Sender>>,
     pub jitsi: Option<Arc<meetings::Jitsi>>,
+    /// The operator's SFU: advertises the `voice` capability when configured.
+    pub livekit: Option<Arc<livekit::LiveKit>>,
     /// Advertises the `e2ee` capability: on by default, an operator may turn
     /// native end-to-end encryption off for an instance (`RV_E2EE=false`).
     pub e2ee: bool,
@@ -109,6 +113,7 @@ impl App {
             mail: None,
             push: None,
             jitsi: None,
+            livekit: None,
             e2ee: true,
             objects: None,
             image_slots: Arc::new(tokio::sync::Semaphore::new(2)),
@@ -144,6 +149,11 @@ impl App {
         self
     }
 
+    pub fn with_livekit(mut self, livekit: Option<livekit::LiveKit>) -> Self {
+        self.livekit = livekit.map(Arc::new);
+        self
+    }
+
     pub fn with_e2ee(mut self, enabled: bool) -> Self {
         self.e2ee = enabled;
         self
@@ -167,6 +177,8 @@ impl App {
             "DELETE FROM push_notifications WHERE id IN (SELECT id FROM push_notifications WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM link_preview_jobs WHERE (message_id,slot) IN (SELECT j.message_id,j.slot FROM link_preview_jobs j JOIN messages m ON m.id=j.message_id JOIN instance i ON i.singleton WHERE j.expires_at<=clock_timestamp() OR j.token IS DISTINCT FROM m.preview_token OR j.data_epoch<>i.data_epoch OR m.deleted LIMIT 1000 FOR UPDATE OF j SKIP LOCKED)",
             "DELETE FROM presence_leases WHERE device_id IN (SELECT device_id FROM presence_leases WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "DELETE FROM voice_sessions WHERE user_id IN (SELECT user_id FROM voice_sessions WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
+            "DELETE FROM voice_pushes WHERE id IN (SELECT id FROM voice_pushes WHERE expires_at<=clock_timestamp()-interval '1 day' LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM typing_leases WHERE (device_id,room_id,root_key) IN (SELECT device_id,room_id,root_key FROM typing_leases WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM live_windows WHERE device_id IN (SELECT device_id FROM live_windows WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",
             "DELETE FROM search_windows WHERE device_id IN (SELECT device_id FROM search_windows WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)",

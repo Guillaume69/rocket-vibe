@@ -28,9 +28,9 @@ remains a distinct batch before the capability is advertised.
 
 ## Transport and identity
 
-The [native Jitsi meetings](MEETINGS.md) have a server and transports
-with start receipts, membership checks and short-lived JWTs. Wiring of the existing
-call screens and qualification of a Jitsi service remain open.
+[Native voice](VOICE.md) gives every room a voice session over the operator's
+LiveKit SFU: voice channels, calls from any room and ringing direct calls. The
+server mints short join tokens and mirrors who is connected; media never crosses it.
 
 The [temporary presence and typing contract](LIVE.md) defines the two
 PUT routes, `GET /api/v1/live` and the WebSocket snapshots negotiated with `live=true`.

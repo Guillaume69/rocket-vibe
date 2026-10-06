@@ -49,6 +49,7 @@ pub async fn read(app: &App, actor: &Account, room: &str) -> Result<RoomDetails>
         &row.core.authority_version,
         &row.actor_access,
     );
+    let voice = row.core.room.voice;
     Ok(RoomDetails {
         room: row.core.room.wire(),
         revision: row.core.details_version,
@@ -57,8 +58,8 @@ pub async fn read(app: &App, actor: &Account, room: &str) -> Result<RoomDetails>
         announcement: row.core.announcement,
         read_only: row.core.read_only,
         member_count: u32::try_from(row.member_count).map_err(|_| Error::internal())?,
+        voice,
         permissions: p,
-        voice: false,
     })
 }
 pub async fn members(
@@ -144,21 +145,25 @@ impl Command {
                 {
                     return Err(Error::invalid());
                 }
-                (
-                    &i.operation_id,
-                    &i.expected_revision,
-                    serde_json::json!([
-                        "settings",
-                        room,
-                        i.expected_revision,
-                        name,
-                        i.private,
-                        i.topic,
-                        i.description,
-                        i.announcement,
-                        i.read_only
-                    ]),
-                )
+                let mut fields = serde_json::json!([
+                    "settings",
+                    room,
+                    i.expected_revision,
+                    name,
+                    i.private,
+                    i.topic,
+                    i.description,
+                    i.announcement,
+                    i.read_only
+                ]);
+                // Absent from older clients' commands: their receipts keep matching.
+                if let Some(voice) = i.voice {
+                    fields
+                        .as_array_mut()
+                        .unwrap()
+                        .push(serde_json::json!(["voice", voice]));
+                }
+                (&i.operation_id, &i.expected_revision, fields)
             }
             Self::Role { target, input: i } => {
                 if !identifier(target) {
@@ -253,7 +258,12 @@ pub async fn apply(
     let changed = match &command {
         Command::Settings(input) => {
             let kind = if input.private { "private" } else { "public" };
+            let voice = input.voice.unwrap_or(current.room.voice);
+            if voice && !current.room.voice && app.livekit.is_none() {
+                return Err(crate::voice::unavailable());
+            }
             let changed = current.room.name != input.name.trim()
+                || current.room.voice != voice
                 || current.room.kind != kind
                 || current.read_only != input.read_only
                 || current.topic != input.topic
@@ -291,8 +301,8 @@ pub async fn apply(
                         announcement: input.announcement.clone(),
                     });
                 }
-                sqlx::query("UPDATE rooms SET name=$2,kind=$3,read_only=$4,topic=$5,description=$6,announcement=$7 WHERE id=$1")
-                    .bind(room).bind(input.name.trim()).bind(kind).bind(input.read_only).bind(&input.topic).bind(&input.description).bind(&input.announcement).execute(&mut *tx).await?;
+                sqlx::query("UPDATE rooms SET name=$2,kind=$3,read_only=$4,topic=$5,description=$6,announcement=$7,voice=$8 WHERE id=$1")
+                    .bind(room).bind(input.name.trim()).bind(kind).bind(input.read_only).bind(&input.topic).bind(&input.description).bind(&input.announcement).bind(voice).execute(&mut *tx).await?;
             }
             changed
         }
@@ -389,7 +399,7 @@ pub(crate) async fn publish(
 ) -> Result<rv_protocol::Room> {
     let position = store::next_position(tx).await?;
     let row: RoomRow =
-        sqlx::query_as("UPDATE rooms SET revision=$2 WHERE id=$1 RETURNING id,name,kind,revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=rooms.id) AS encrypted")
+        sqlx::query_as("UPDATE rooms SET revision=$2 WHERE id=$1 RETURNING id,name,kind,revision,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=rooms.id) AS encrypted,rooms.voice")
             .bind(room)
             .bind(position)
             .fetch_one(&mut **tx)

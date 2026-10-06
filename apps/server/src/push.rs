@@ -42,7 +42,7 @@ impl Sender {
         })
     }
 
-    async fn deliver(&self, job: &Lease) -> Outcome {
+    async fn deliver(&self, body: &Value) -> Outcome {
         // Both OAuth and delivery happen after the claim transaction committed.
         let Ok(Ok(token)) = tokio::time::timeout(Duration::from_secs(25), async {
             let _guard = self.oauth.lock().await;
@@ -53,7 +53,7 @@ impl Sender {
             tracing::warn!("FCM OAuth unavailable");
             return Outcome::Retry(60);
         };
-        send_http(&self.http, &self.endpoint, token.as_str(), job).await
+        send_http(&self.http, &self.endpoint, token.as_str(), body).await
     }
 }
 
@@ -89,11 +89,11 @@ fn payload(job: &Lease) -> Value {
     }
     json!({"message":{"token":job.token,"data":data,"android":{"priority":"high","ttl":"86400s"}}})
 }
-async fn send_http(http: &reqwest::Client, endpoint: &str, bearer: &str, job: &Lease) -> Outcome {
+async fn send_http(http: &reqwest::Client, endpoint: &str, bearer: &str, body: &Value) -> Outcome {
     let Ok(mut response) = http
         .post(endpoint)
         .bearer_auth(bearer)
-        .json(&payload(job))
+        .json(body)
         .send()
         .await
     else {
@@ -252,16 +252,80 @@ pub async fn drain(app: &App) -> Result<usize> {
         return Ok(0);
     };
     let jobs = claim(app).await?;
-    let count = jobs.len();
+    let rings = claim_voice(app).await?;
+    let count = jobs.len() + rings.len();
     let results = futures_util::future::join_all(
         jobs.iter()
-            .map(|job| async { acknowledge(app, job, sender.deliver(job).await).await }),
+            .map(|job| async { acknowledge(app, job, sender.deliver(&payload(job)).await).await }),
     )
     .await;
-    for result in results {
+    let voice = futures_util::future::join_all(rings.iter().map(|job| async {
+        acknowledge_voice(app, job, sender.deliver(&voice_payload(job)).await).await
+    }))
+    .await;
+    for result in results.into_iter().chain(voice) {
         result?;
     }
     Ok(count)
+}
+
+/// A ring or its end, for one device of the callee. Ids only; the app reads
+/// the ring with GET /api/v1/voice/rings/{id}.
+#[derive(sqlx::FromRow)]
+struct VoiceLease {
+    id: String,
+    ring_id: String,
+    device_id: String,
+    user_id: String,
+    room_id: String,
+    kind: String,
+    token: String,
+    data_epoch: String,
+    instance_id: String,
+    lease_id: String,
+    attempts: i32,
+}
+const VOICE_ATTEMPTS: i32 = 3;
+fn voice_payload(job: &VoiceLease) -> Value {
+    let kind = if job.kind == "ring" {
+        "voice_ring"
+    } else {
+        "voice_ring_end"
+    };
+    json!({"message":{"token":job.token,"data":{"product":"rocketvibe","type":kind,
+        "instanceId":job.instance_id,"dataEpoch":job.data_epoch,"userId":job.user_id,
+        "deviceId":job.device_id,"ringId":job.ring_id,"rid":job.room_id},
+        "android":{"priority":"high","ttl":"30s"}}})
+}
+async fn claim_voice(app: &App) -> Result<Vec<VoiceLease>> {
+    let mut tx = app.pool.begin().await?;
+    auth::mutation_deadlines(&mut tx).await?;
+    // A ring nobody needs anymore never reaches FCM: resolved, or a rotated token.
+    sqlx::query("UPDATE voice_pushes p SET state='retired',lease_id=NULL,lease_expires_at=NULL WHERE p.id IN (SELECT p.id FROM voice_pushes p JOIN voice_rings v ON v.id=p.ring_id LEFT JOIN push_devices d ON d.device_id=p.device_id AND d.generation=p.generation WHERE p.state='pending' AND (p.expires_at<=now() OR d.device_id IS NULL OR (p.kind='ring' AND v.state<>'ringing') OR (p.attempts>=$1 AND (p.lease_expires_at IS NULL OR p.lease_expires_at<=now()))) LIMIT 100 FOR UPDATE OF p SKIP LOCKED)")
+        .bind(VOICE_ATTEMPTS).execute(&mut *tx).await?;
+    let jobs = sqlx::query_as("WITH selected AS (SELECT p.id FROM voice_pushes p WHERE p.state='pending' AND p.attempts<$1 AND p.expires_at>now() AND p.available_at<=now() AND (p.lease_expires_at IS NULL OR p.lease_expires_at<=now()) ORDER BY p.available_at,p.id LIMIT 8 FOR UPDATE OF p SKIP LOCKED), leased AS (UPDATE voice_pushes p SET attempts=attempts+1,lease_id=gen_random_uuid()::text,lease_expires_at=now()+interval '20 seconds' FROM selected s WHERE s.id=p.id RETURNING p.*) SELECT p.id,p.ring_id,p.device_id,d.user_id,v.room_id,p.kind,d.token,d.data_epoch,i.instance_id,p.lease_id,p.attempts FROM leased p JOIN push_devices d ON d.device_id=p.device_id AND d.generation=p.generation JOIN voice_rings v ON v.id=p.ring_id JOIN instance i ON i.singleton")
+        .bind(VOICE_ATTEMPTS).fetch_all(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(jobs)
+}
+async fn acknowledge_voice(app: &App, job: &VoiceLease, outcome: Outcome) -> Result<()> {
+    let mut tx = app.pool.begin().await?;
+    auth::mutation_deadlines(&mut tx).await?;
+    if outcome == Outcome::InvalidToken {
+        sqlx::query("DELETE FROM push_devices WHERE device_id=$1 AND generation=(SELECT generation FROM voice_pushes WHERE id=$2)")
+            .bind(&job.device_id).bind(&job.id).execute(&mut *tx).await?;
+    } else {
+        // A ring is worth seconds: retry fast, a few times, then give up.
+        let (state, delay) = match outcome {
+            Outcome::Delivered => ("delivered", 0),
+            Outcome::Retry(_) if job.attempts < VOICE_ATTEMPTS => ("pending", 2),
+            _ => ("retired", 0),
+        };
+        sqlx::query("UPDATE voice_pushes SET state=$3,lease_id=NULL,lease_expires_at=NULL,available_at=now()+$4*interval '1 second' WHERE id=$1 AND lease_id=$2 AND state='pending'")
+            .bind(&job.id).bind(&job.lease_id).bind(state).bind(delay).execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
+    Ok(())
 }
 
 pub(crate) async fn content(

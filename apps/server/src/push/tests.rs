@@ -437,22 +437,22 @@ async fn push_fcm_http_v1_only_purges_explicit_unregistered_tokens_and_honors_ba
     };
     let http = reqwest::Client::new();
     assert_eq!(
-        send_http(&http, &endpoint, "fixture-oauth", &job).await,
+        send_http(&http, &endpoint, "fixture-oauth", &payload(&job)).await,
         Outcome::Delivered
     );
     job.token = "gone".into();
     assert_eq!(
-        send_http(&http, &endpoint, "fixture-oauth", &job).await,
+        send_http(&http, &endpoint, "fixture-oauth", &payload(&job)).await,
         Outcome::InvalidToken
     );
     job.token = "bad-payload".into();
     assert_eq!(
-        send_http(&http, &endpoint, "fixture-oauth", &job).await,
+        send_http(&http, &endpoint, "fixture-oauth", &payload(&job)).await,
         Outcome::Retired
     );
     job.token = "quota".into();
     assert_eq!(
-        send_http(&http, &endpoint, "fixture-oauth", &job).await,
+        send_http(&http, &endpoint, "fixture-oauth", &payload(&job)).await,
         Outcome::Retry(300)
     );
     assert_eq!(

@@ -5,7 +5,11 @@ from ordinary messages and from old v1 responses. It contains a typed `kind`
 and only the necessary data: name, topic, description, announcement,
 privacy, read-only, target user and roles before / after.
 Creation, join, leave, adding and removing members are covered.
-Future file, call and administration activities will follow their batches.
+A direct call's ring publishes `call_started` (its `meeting_id` is the ring
+id), and each outcome revises that row: the additive `Message.call` carries
+`{state, duration_seconds?}` ([VOICE.md](VOICE.md)). An older client keeps
+showing "call started". Future file and administration activities will follow
+their batches.
 
 The author of the row remains the account that performed the action. No translated
 sentence, no Markdown tree and no Rocket.Chat type identifier

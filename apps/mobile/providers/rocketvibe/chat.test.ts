@@ -139,7 +139,10 @@ test('device actions preserve recent-auth failures and discard replies after pro
     queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;
   }});
   try {
-    await chat.connect();assert.equal((await chat.deviceSessions())[0].label,'Mobile');
+    // Asked before the session is verified (a screen opened at launch): it waits for it.
+    const early=chat.deviceSessions();
+    await chat.connect();assert.equal((await early)[0].label,'Mobile');
+    assert.equal((await chat.deviceSessions())[0].label,'Mobile');
     await chat.renameDevice(current.id,'Mobile renamed');assert.equal((await chat.deviceSessions())[0].label,'Mobile renamed');
     await assert.rejects(chat.revokeDevice(current.id),/current_device_requires_logout/);
     await assert.rejects(chat.revokeDevice('other'),e=>e instanceof NativeError && e.code==='reauthentication_required' && e.requestId==='reauth-device');

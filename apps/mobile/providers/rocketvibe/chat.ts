@@ -438,6 +438,21 @@ export class NativeChat {
     if (this.stopped) throw new NativeError(0,'session_closed');
     if (!this.verified) throw new NativeError(0,'offline');
   }
+  /** `ready`, after waiting up to 10 s for the session's first verification:
+   * a screen opened right at launch (settings, a room's encryption) acts once
+   * the session is verified instead of failing with `offline` until reopened. */
+  private async verifiedReady(): Promise<void> {
+    if (this.stopped || this.verified) return this.ready();
+    let wake:()=>void=()=>{};
+    const unsubscribe=this.subscribe(()=>wake());
+    const deadline=Date.now()+10_000;
+    try {
+      while(!this.stopped && !this.verified && Date.now()<deadline){
+        await new Promise<void>(resolve=>{wake=resolve;setTimeout(resolve,Math.max(0,deadline-Date.now()));});
+      }
+    } finally {unsubscribe();}
+    this.ready();
+  }
   private emitPresence(status:import('./protocol.generated.ts').PresenceStatus):void {
     const generation=this.generation;
     this.presenceCommands=this.presenceCommands.then(async()=>{
@@ -581,13 +596,13 @@ export class NativeChat {
     void request.finally(()=>{if(this.roomAccessReads.get(room)===request)this.roomAccessReads.delete(room);}).catch(()=>{});
     return request;
   }
-  private deviceAccess():number {
-    this.ready();
+  private async deviceAccess():Promise<number> {
+    await this.verifiedReady();
     if(!this.capabilities?.device_sessions)throw new NativeError(501,'unsupported_feature');
     return this.generation;
   }
   async cryptoStorage(bridge:CryptoStorageBridge,visible:()=>boolean=()=>true):Promise<CryptoStorageAccess> {
-    this.ready();
+    await this.verifiedReady();
     if(!this.capabilities?.e2ee || !this.capabilities.device_sessions)throw new NativeError(501,'unsupported_feature');
     const generation=this.generation;
     const alive=()=>visible() && !this.stopped && this.verified && generation===this.generation;
@@ -795,18 +810,18 @@ export class NativeChat {
     }};
   }
   async deviceSessions():Promise<import('./protocol.generated.ts').DeviceSession[]> {
-    const generation=this.deviceAccess();
+    const generation=await this.deviceAccess();
     const devices=await this.transport.deviceSessions();
     if(this.stopped || generation!==this.generation)throw new NativeError(0,'session_closed');
     if(devices.filter(d=>d.current).length!==1 || new Set(devices.map(d=>d.id)).size!==devices.length)throw new NativeError(502,'invalid_native_session');
     return devices;
   }
   async renameDevice(id:string,label:string):Promise<void> {
-    const generation=this.deviceAccess();await this.transport.renameDevice(id,label);
+    const generation=await this.deviceAccess();await this.transport.renameDevice(id,label);
     if(this.stopped || generation!==this.generation)throw new NativeError(0,'session_closed');
   }
   async revokeDevice(id:string):Promise<void> {
-    const generation=this.deviceAccess();
+    const generation=await this.deviceAccess();
     if((await this.deviceSessions()).some(d=>d.id===id && d.current))throw new NativeError(409,'current_device_requires_logout');
     if(this.stopped || generation!==this.generation)throw new NativeError(0,'session_closed');
     await this.transport.revokeDevice(id);

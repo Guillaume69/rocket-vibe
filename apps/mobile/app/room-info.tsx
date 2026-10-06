@@ -14,7 +14,7 @@ import { eq } from 'drizzle-orm';
 import { useCoalescedLiveQuery } from '../ui/liveQuery.ts';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import type { LocalDatabase } from '../db/client.ts';
 import { subscriptions, rooms } from '../db/schema.ts';
@@ -147,9 +147,13 @@ function RoomInfoContent({
     .filter((x): x is string => x !== null)
     .join(' · ');
 
+  const sheetHeight = useWindowDimensions().height * 0.9;
   if(native && !room)return null;
   return (
-    <ScrollView style={{ backgroundColor: c.deepCard }} contentContainerStyle={[styles.sheet, { paddingBottom: bottomMargin }]}>
+    // `maxHeight`: the sheet fits its content, so a ScrollView as tall as its
+    // content never scrolls and the end of a long section (the encrypted
+    // group's review) would sit below the screen, out of reach.
+    <ScrollView style={{ backgroundColor: c.deepCard, maxHeight: sheetHeight }} contentContainerStyle={[styles.sheet, { paddingBottom: bottomMargin }]}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
         <RoomAvatar

@@ -15,7 +15,7 @@
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type {ReactNode} from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import {EncryptedTrustSection} from '../ui/encryptedTrust.tsx';
 import {EncryptedGroupSection} from '../ui/encryptedGroup.tsx';
 import {RoomMembershipBound} from '../ui/roomMembership.tsx';
@@ -405,7 +405,9 @@ export default function ProfileScreen() {
 
 function ProfileBody({c,bottom,scrollable,children}:{c:ReturnType<typeof useColors>;bottom:number;scrollable:boolean;children:ReactNode}) {
   const content=[styles.sheet,{backgroundColor:c.deepCard,paddingBottom:bottom}];
-  return scrollable ? <ScrollView style={{backgroundColor:c.deepCard}} contentContainerStyle={content} keyboardShouldPersistTaps="handled">{children}</ScrollView>
+  // Capped like the room info: a sheet fitted to a long content would not scroll.
+  const maxHeight=useWindowDimensions().height*0.9;
+  return scrollable ? <ScrollView style={{backgroundColor:c.deepCard,maxHeight}} contentContainerStyle={content} keyboardShouldPersistTaps="handled">{children}</ScrollView>
     : <View style={content}>{children}</View>;
 }
 

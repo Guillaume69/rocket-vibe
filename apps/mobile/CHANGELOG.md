@@ -322,6 +322,9 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- The room information and profile sheets scroll when their content is taller than the
+  screen: the end of a long section, such as the confirmation of an encrypted group
+  review, used to sit below the screen, out of reach.
 - RocketVibe: an encryption action no longer fails because the open room is reading its
   messages at the same moment; it waits for that read to finish.
 - In a RocketVibe private room not yet encrypted, the room info offers the encrypted group

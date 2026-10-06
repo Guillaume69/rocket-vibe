@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-06
+
 ### Changed
 
 - In the macOS SwiftUI app, a search result, or a pinned or starred message, older than what
@@ -354,7 +356,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.8.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.9.0...HEAD
+[0.9.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.8.0...desktop-v0.9.0
 [0.8.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.7.0...desktop-v0.8.0
 [0.7.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.6.1...desktop-v0.7.0
 [0.6.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.6.0...desktop-v0.6.1

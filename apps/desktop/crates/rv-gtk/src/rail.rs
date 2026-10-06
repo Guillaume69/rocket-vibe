@@ -45,10 +45,19 @@ fn host(info: &SessionInfo) -> String {
 impl Rail {
     pub fn new() -> Rc<Self> {
         let buttons = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(10).build();
-        let add = gtk::Button::builder()
+        // A square of the tiles' very size, not a padded button.
+        // An image draws its icon centred in its requested size.
+        let square = gtk::Image::builder()
             .icon_name("list-add-symbolic")
-            .tooltip_text(t("rail.add"))
+            .pixel_size(20)
+            .width_request(44)
+            .height_request(44)
             .css_classes(["rail-add"])
+            .build();
+        let add = gtk::Button::builder()
+            .child(&square)
+            .tooltip_text(t("rail.add"))
+            .css_classes(["rail-button"])
             .halign(gtk::Align::Center)
             .build();
         let root = gtk::Box::builder()

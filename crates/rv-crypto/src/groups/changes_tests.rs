@@ -754,3 +754,24 @@ fn public_input_and_reference_history_are_bounded_without_mutating_group() {
         Some(Error::Limit)
     );
 }
+
+#[test]
+fn a_journal_page_read_between_review_and_confirmation_keeps_the_consent() {
+    let (alice, _bob, _) = incoming::fixture(false);
+    let request = change(&alice, "rotate-after-read", &["alice", "bob"], &[], vec![]);
+    let (preview, consent) = alice.coordinator().preview_change(&request, NOW).unwrap();
+    // What a received journal page does to the group state: only its clock moves.
+    alice
+        .manager
+        .transact(|_, records| {
+            let mut state = read(records, "room").unwrap().unwrap();
+            state.clock = NOW + 5;
+            save(records, &state).unwrap();
+            Ok(())
+        })
+        .unwrap();
+    alice
+        .coordinator()
+        .prepare_change(&request, &consent, preview.fingerprint, NOW + 5)
+        .unwrap();
+}

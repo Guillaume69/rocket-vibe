@@ -151,6 +151,9 @@ section here.
 
 ### Fixed
 
+- RocketVibe: confirming an encrypted group review (creation, update, admission) no longer
+  fails now and then with "the operation did not succeed" while the room is open.
+
 - RocketVibe: after a member's role or rights change in an encrypted room, the room
   encryption dialog offers to replace that member's device ("Replace and invite again"),
   the update the group needs before anyone can write again; the update used to fail.

@@ -139,7 +139,7 @@ impl Coordinator {
                 .min(context.certificate.device.expires_at)
                 .min(transition.certificate.device.expires_at)
                 .min(now.saturating_add(300));
-            let state = fingerprint("rocketvibe-local-group-state-v1", &Some(&state))?;
+            let state = consent_state(Some(&state))?;
             let own = context.certificate.fingerprint()?;
             let fingerprint = fingerprint(
                 "rocketvibe-local-group-confirmation-v1",
@@ -198,9 +198,7 @@ impl Coordinator {
                 // Historical ACK reconciliation does not reauthorize encryption.
                 return check_actual(group.public_group(), &active.transition.plan);
             }
-            if now >= consent.expires
-                || fingerprint("rocketvibe-local-group-state-v1", &Some(&state))? != consent.state
-            {
+            if now >= consent.expires || consent_state(Some(&state))? != consent.state {
                 return Err(Error::Changed);
             };
             let context = self.context(records, now)?;

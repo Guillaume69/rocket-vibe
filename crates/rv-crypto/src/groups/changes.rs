@@ -210,7 +210,7 @@ impl Coordinator {
             let context = self.context(records, now)?;
             let (plan, _, _, expires) =
                 self.change_plan(provider, &context, &state, request, now)?;
-            let state = fingerprint("rocketvibe-local-group-state-v1", &Some(&state))?;
+            let state = consent_state(Some(&state))?;
             let own = context.certificate.fingerprint()?;
             let fingerprint = fingerprint(
                 "rocketvibe-local-group-confirmation-v1",
@@ -266,9 +266,7 @@ impl Coordinator {
                 }
                 return self.retry_pending(provider, records, pending, now);
             }
-            if now >= consent.expires
-                || fingerprint("rocketvibe-local-group-state-v1", &Some(&state))? != consent.state
-            {
+            if now >= consent.expires || consent_state(Some(&state))? != consent.state {
                 return Err(Error::Changed);
             }
             let context = self.context(records, now)?;

@@ -68,7 +68,7 @@ impl Coordinator {
                 .min(transition.certificate.device.expires_at)
                 .min(now.saturating_add(300));
             let own = context.certificate.fingerprint()?;
-            let state = fingerprint("rocketvibe-local-group-state-v1", &Some(state))?;
+            let state = consent_state(Some(&state))?;
             let fingerprint = fingerprint(
                 "rocketvibe-local-group-confirmation-v1",
                 &(intent, state, context.pins_fingerprint, own, expires),
@@ -117,9 +117,7 @@ impl Coordinator {
                 .ok_or(Error::Changed)?;
                 return check_actual(group.public_group(), &active.transition.plan);
             }
-            if now >= consent.expires
-                || fingerprint("rocketvibe-local-group-state-v1", &Some(&old))? != consent.state
-            {
+            if now >= consent.expires || consent_state(Some(&old))? != consent.state {
                 return Err(Error::Changed);
             }
             let context = self.context(records, now)?;

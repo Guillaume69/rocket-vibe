@@ -233,6 +233,17 @@ struct Context {
 fn digest(value: &[u8]) -> Fingerprint {
     Sha256::digest(value).into()
 }
+/// The group state a consent is bound to: all of it but the anti-rollback
+/// clock, which every received journal page advances without changing the
+/// group. Binding the clock made a review fail at confirmation whenever the
+/// open conversation read a page in between.
+fn consent_state(state: Option<&State>) -> Result<Fingerprint> {
+    let mut neutral = serde_json::to_value(state).map_err(|_| Error::Changed)?;
+    if let Some(object) = neutral.as_object_mut() {
+        object.insert("clock".into(), 0.into());
+    }
+    fingerprint("rocketvibe-local-group-state-v1", &neutral)
+}
 fn fingerprint(domain: &str, value: &impl Serialize) -> Result<Fingerprint> {
     let value = serde_json::to_vec(value).map_err(|_| Error::Changed)?;
     let mut hash = Sha256::new();
@@ -572,7 +583,7 @@ impl Coordinator {
             let recipients = participants(&context, &peers)?;
             draft(request, recipients.clone()).validate()?;
             let own = context.certificate.fingerprint()?;
-            let state = fingerprint("rocketvibe-local-group-state-v1", &state)?;
+            let state = consent_state(state.as_ref())?;
             let expires = peers
                 .iter()
                 .map(|p| p.certificate.device.expires_at)
@@ -631,9 +642,7 @@ impl Coordinator {
             if state.is_some() {
                 return Err(Error::Exists);
             }
-            if fingerprint("rocketvibe-local-group-state-v1", &state)? != consent.state
-                || now >= consent.expires
-            {
+            if consent_state(state.as_ref())? != consent.state || now >= consent.expires {
                 return Err(Error::Changed);
             }
             let context = self.context(records, now)?;
@@ -917,7 +926,7 @@ impl Coordinator {
             let recipients_expire =
                 self.validate_admission(provider, &context, admission, &transition, now)?;
             let own = context.certificate.fingerprint()?;
-            let state = fingerprint("rocketvibe-local-group-state-v1", &state)?;
+            let state = consent_state(state.as_ref())?;
             let expires = recipients_expire
                 .min(
                     transition
@@ -984,9 +993,7 @@ impl Coordinator {
                 }
                 return Err(Error::Changed);
             }
-            if now >= consent.expires
-                || fingerprint("rocketvibe-local-group-state-v1", &state)? != consent.state
-            {
+            if now >= consent.expires || consent_state(state.as_ref())? != consent.state {
                 return Err(Error::Changed);
             }
             let context = self.context(records, now)?;

@@ -1,8 +1,4 @@
 {
-  "start_meeting": { "operation_id": "meeting-operation", "membership_version": "membership-version", "data_epoch": "fixture-epoch" },
-  "join_meeting": { "membership_version": "membership-version", "data_epoch": "fixture-epoch" },
-  "meeting": { "id": "meeting-id", "room_id": "room-id", "public_url": "https://meet.example.test/rvconference", "created_by": "alice-id", "expires_at": "2026-10-03T12:00:00Z", "ended": false },
-  "meeting_join": { "meeting": { "id": "meeting-id", "room_id": "room-id", "public_url": "https://meet.example.test/rvconference", "created_by": "alice-id", "expires_at": "2026-10-03T12:00:00Z", "ended": false }, "url": "https://meet.example.test/rvconference?jwt=fixture-only-token", "expires_at": "2026-10-03T10:02:00Z" },
   "own_profile": { "profile": { "user": { "id": "alice-id", "username": "alice", "display_name": "Alice" }, "revision": "profile-revision", "bio": "Salut", "status": "away", "status_text": "Disponible", "avatar_file_id": null }, "preferences": { "revision": "preferences-revision", "language": "fr", "clock_24h": true, "push_enabled": true, "push_mentions_only": false, "desktop_notifications": "mention" }, "email": null },
   "update_profile": { "operation_id": "profile-operation", "expected_revision": "profile-revision", "username": "alice", "display_name": "Alice", "bio": "Salut", "status": "away", "status_text": "Disponible" },
   "update_preferences": { "operation_id": "preferences-operation", "expected_revision": "preferences-revision", "language": "auto", "clock_24h": true, "push_enabled": false, "push_mentions_only": true, "desktop_notifications": "nothing" },

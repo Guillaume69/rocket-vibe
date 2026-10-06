@@ -2460,22 +2460,6 @@
       },
       "type": "object"
     },
-    "JoinMeeting": {
-      "additionalProperties": false,
-      "properties": {
-        "data_epoch": {
-          "type": "string"
-        },
-        "membership_version": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "membership_version",
-        "data_epoch"
-      ],
-      "type": "object"
-    },
     "JoinVoice": {
       "additionalProperties": false,
       "properties": {
@@ -2709,56 +2693,6 @@
       },
       "required": [
         "position"
-      ],
-      "type": "object"
-    },
-    "Meeting": {
-      "properties": {
-        "created_by": {
-          "type": "string"
-        },
-        "ended": {
-          "type": "boolean"
-        },
-        "expires_at": {
-          "type": "string"
-        },
-        "id": {
-          "type": "string"
-        },
-        "public_url": {
-          "type": "string"
-        },
-        "room_id": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "id",
-        "room_id",
-        "public_url",
-        "created_by",
-        "expires_at",
-        "ended"
-      ],
-      "type": "object"
-    },
-    "MeetingJoin": {
-      "properties": {
-        "expires_at": {
-          "type": "string"
-        },
-        "meeting": {
-          "$ref": "#/$defs/Meeting"
-        },
-        "url": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "meeting",
-        "url",
-        "expires_at"
       ],
       "type": "object"
     },
@@ -6101,26 +6035,6 @@
       ],
       "type": "object"
     },
-    "StartMeeting": {
-      "additionalProperties": false,
-      "properties": {
-        "data_epoch": {
-          "type": "string"
-        },
-        "membership_version": {
-          "type": "string"
-        },
-        "operation_id": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "operation_id",
-        "membership_version",
-        "data_epoch"
-      ],
-      "type": "object"
-    },
     "SyncBatch": {
       "properties": {
         "changes": {
@@ -6917,9 +6831,6 @@
     "error": {
       "$ref": "#/$defs/ApiError"
     },
-    "join_meeting": {
-      "$ref": "#/$defs/JoinMeeting"
-    },
     "join_voice": {
       "$ref": "#/$defs/JoinVoice"
     },
@@ -6931,12 +6842,6 @@
     },
     "mark_thread_read": {
       "$ref": "#/$defs/MarkThreadRead"
-    },
-    "meeting": {
-      "$ref": "#/$defs/Meeting"
-    },
-    "meeting_join": {
-      "$ref": "#/$defs/MeetingJoin"
     },
     "message": {
       "$ref": "#/$defs/Message"
@@ -6998,9 +6903,6 @@
     "socket_ticket": {
       "$ref": "#/$defs/SocketTicket"
     },
-    "start_meeting": {
-      "$ref": "#/$defs/StartMeeting"
-    },
     "sync_batch": {
       "$ref": "#/$defs/SyncBatch"
     },
@@ -7021,10 +6923,6 @@
     }
   },
   "required": [
-    "start_meeting",
-    "join_meeting",
-    "meeting",
-    "meeting_join",
     "register_push",
     "push_registration",
     "push_content",

@@ -322,6 +322,14 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- RocketVibe: when a member of an encrypted group is not trusted yet, the room information
+  says so and what to do (pin their identity and approve their device in their profile)
+  instead of a generic "Operation unavailable". The group review names members instead of
+  showing their account ids.
+- RocketVibe: signed-in devices and the encryption settings load when the settings open
+  right after launch; they used to say "Devices could not be managed" until refreshed.
+- Avatar tiles take their colour from the person or room again; every tile had the same
+  one.
 - The room information and profile sheets scroll when their content is taller than the
   screen: the end of a long section, such as the confirmation of an encrypted group
   review, used to sit below the screen, out of reach.

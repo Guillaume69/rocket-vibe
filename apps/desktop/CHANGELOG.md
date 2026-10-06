@@ -151,6 +151,9 @@ section here.
 
 ### Fixed
 
+- RocketVibe: when a member of an encrypted group is not trusted yet, the room encryption
+  dialog says so and what to do instead of a generic failure.
+
 - RocketVibe: the composer shows again in an encrypted room and its threads, once this
   device is in the group; they were shown as read-only ("Unlock the room to write") to
   every member.

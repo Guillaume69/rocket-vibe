@@ -9,6 +9,9 @@ release, and its notes are that version's section here.
 
 ### Added
 
+- A server rail down the home screen's left edge: a button per signed-in server to
+  switch in one tap, "+" to add one, and a dot on a server with unread messages
+  (checked every minute while the app is open).
 - The sign-in screen offers the server type under the address: automatic (the default),
   Rocket.Chat or RocketVibe. A forced type is probed alone, for a server whose proxy hides
   what the automatic detection looks for.

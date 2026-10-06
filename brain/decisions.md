@@ -71,6 +71,8 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
 - **macOS GTK draws with cairo** (`GSK_RENDERER=cairo`): the GL renderer drew emoji as `?` and crawled without a GPU. That made the app feel laggy, hence:
 - **A SwiftUI app for macOS over `rv-ffi`** (UniFFI proc-macros). `rv-ffi` runs its own tokio runtime rather than UniFFI's, shares accounts, keychain items and databases with the GTK install, and hands Swift parsed records so Swift never parses Rocket.Chat documents. It records voice as AAC `.m4a` (AVFoundation cannot write Ogg/Opus). It is built and notarized on CI but not yet walked against a server on a Mac. See [desktop-macos](architecture/desktop-macos.md).
 - **`rv-native` for system integration GLib lacks:** clickable toasts and badges on Windows, `UNUserNotificationCenter` on macOS, tray, single instance, start at login.
+- **The server rail polls; it does not connect every account.** Only the open account holds a live connection; each other one is read once a minute (`subscriptions.get` or the native rooms list) for its dot. Keeping every account connected would multiply sockets, sync and battery for one bit of information. See [login-and-servers](features/login-and-servers.md).
+- **The rustls provider is chosen explicitly** (`rv-core/src/tls.rs`): two are compiled in (ring through rv-client's reqwest 0.12, aws-lc-rs through ours), and rustls then panics a `wss://` connection instead of guessing, which silently kept every HTTPS server's live connection down.
 
 ## Repository and process
 

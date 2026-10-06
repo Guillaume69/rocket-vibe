@@ -9,6 +9,9 @@ section here.
 
 ### Added
 
+- A server rail on the left of the window (GTK and SwiftUI): a button per account to
+  switch in one click, "+" to add one, and a dot on an account with unread messages
+  (checked every minute).
 - The sign-in screen offers the server type under the address: automatic (the default),
   Rocket.Chat or RocketVibe. A forced type is probed alone, for a server whose proxy hides
   what the automatic detection looks for.
@@ -500,6 +503,8 @@ section here.
 
 - The live connection to a server reached over HTTPS comes up again: it failed
   silently, leaving the status dot orange and the loading bar running.
+- The message actions button and the composer's close buttons are icons: their
+  glyphs (⋯, ✕) showed as boxes on systems without a font carrying them (WSLg).
 
 ## [0.7.0] - 2026-10-03
 

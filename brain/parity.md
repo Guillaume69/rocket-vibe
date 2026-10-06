@@ -28,6 +28,7 @@ beta does.
 | Choose the server type at sign-in (automatic, Rocket.Chat, RocketVibe) | done | done | done | SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
 | Known servers offered on the login screen | done | done | done | |
 | Several servers side by side, switch without signing out | done | done | done | One database per (server, account) everywhere. |
+| Server rail: a button per account, "+" to add one, a dot on another account with unread | done | done | done | Other accounts read once a minute (mobile: in the foreground only). Mobile: a push lights the dot at once only where it reaches JS (iOS); Android waits for the next read. SwiftUI checked by the Linux build only. |
 | Several accounts on the same server | missing | done | done | Mobile holds one account per server. |
 | Sign out: `logout` sent, keychain item and local data removed | done | done | partial | Mobile keeps the account's SQLite file on purpose; GTK deletes `.sqlite`, `-wal` and `-shm`; SwiftUI deletes the `.sqlite` only, leaving `-wal` and `-shm`. |
 | Replay of a sign-out that failed offline | done | missing | missing | Mobile retries it at the next start. Desktop has no push token to remove, but the server session stays open. |

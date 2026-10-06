@@ -251,10 +251,14 @@ function RoomRow({
   // which case `lastMessageType` says which and the label is translated HERE,
   // at render: the language switches live, a sentence frozen in the database
   // would resist it.
+  // A RocketVibe call row keeps its duration as text: never shown raw.
+  const callPreview = room.lastMessageType?.startsWith('rv-call')
+    ? systemPreview(t, room.lastMessageType, room.lastMessage ?? '')
+    : null;
   const preview =
     room.encrypted && room.lastMessage === null
       ? t('home.encryptedMessages')
-      : ((room.lastMessage !== null ? textPreview(room.lastMessage) : null) ??
+      : (callPreview ?? (room.lastMessage !== null ? textPreview(room.lastMessage) : null) ??
         systemPreview(t, room.lastMessageType) ??
         ' ');
 

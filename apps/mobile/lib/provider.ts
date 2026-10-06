@@ -97,6 +97,8 @@ export type Capabilities = {
   roomFavorites?: boolean;
   roomReads?: boolean;
   quotes?: boolean;
+  /** Voice sessions in every room, voice channels and ringing DMs (RocketVibe). */
+  voice?: boolean;
   typing: boolean;
   presence: boolean;
   push: boolean;

@@ -33,7 +33,7 @@ import { unicodeOfShortcode } from '../lib/emojis.ts';
 import { customEmojiUrl } from '../lib/customEmojis.ts';
 import {ImageEmoji,useCatalogueEmojis} from './emojiImage.tsx';
 import { messageTree } from '../lib/markdown.ts';
-import { systemText } from '../lib/systemMessages.ts';
+import { callSummaryText, systemText } from '../lib/systemMessages.ts';
 import { reactionList, type DisplayedReaction } from '../lib/reactions.ts';
 import { openProfileCard } from '../lib/profilePreload.ts';
 import type { RestClient } from '../lib/rest.ts';
@@ -341,6 +341,9 @@ function MessageContent({ c, message }: { c: Colors; message: MessageRowData }) 
   }
   if (message.systemType === 'videoconf') {
     return <CallCard c={c} callId={message.callId} rid={message.rid} />;
+  }
+  if (message.systemType?.startsWith('rv-call')) {
+    return <VoiceCallCard c={c} type={message.systemType} param={message.text ?? ''} />;
   }
   if (message.systemType !== null && !decryptedEncrypted) {
     // The sentence follows the author name shown just above: "bob joined the
@@ -663,6 +666,18 @@ function CallCard({ c, callId,rid }: { c: Colors; callId: string | null;rid:stri
           <Text style={[styles.joinText, { color: c.onAccent }]}>{t('messageRow.join')}</Text>
         </Tappable>
       )}
+    </View>
+  );
+}
+
+/** A RocketVibe call row: its outcome and, once over, how long it lasted. */
+function VoiceCallCard({ c, type, param }: { c: Colors; type: string; param: string }) {
+  const t = useT();
+  return (
+    <View style={[styles.callCard, { backgroundColor: c.card, borderColor: c.border }]}>
+      <Text style={[styles.callCardTitle, { color: type === 'rv-call-missed' ? c.danger : c.text }]}>
+        {callSummaryText(t, type, param)}
+      </Text>
     </View>
   );
 }

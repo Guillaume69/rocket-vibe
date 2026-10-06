@@ -13,9 +13,11 @@ import {NativeFileOutbox} from './uploads.ts';
 export const ROCKETVIBE_CAPABILITIES: Capabilities = {
   editing:true, deletion:true,
   typing:true, presence:true, push:false, e2ee:false, customEmojis:true,
-  videoCall:true, search:true, threadTemplate:'root_id',
+  search:true, threadTemplate:'root_id',
   files:true, threads:true, reactions:true, marks:true, profile:true, roomInfo:true, roomFavorites:true, quotes:true,
   roomSettings:true,roomRoleList:true,leaveRoom:true,roomReads:true,
+  // Jitsi is retired from the native server: rooms call through voice sessions.
+  videoCall:false,voice:false,
 };
 const unsupported = async (): Promise<never> => { throw new NativeError(501,'unsupported_feature'); };
 const noSubscription = () => () => {};
@@ -35,6 +37,7 @@ export function effectiveCapabilities(announcement: NativeCapabilities | null, c
     roomInfo:both(announcement?.room_info,client.roomInfo), roomFavorites:both(announcement?.favorites,client.roomFavorites), quotes:both(announcement?.quotes,client.quotes),
     roomSettings:both(announcement?.room_settings,client.roomSettings),roomRoleList:both(announcement?.room_roles,client.roomRoleList),leaveRoom:both(announcement?.room_leave,client.leaveRoom),
     roomReads:both(announcement?.read_markers,client.roomReads),
+    voice:both(announcement?.voice,client.voice),
   };
 }
 

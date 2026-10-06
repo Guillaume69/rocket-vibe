@@ -66,6 +66,8 @@ export type LocalRoom = {
   displayName: string | null;
   encrypted: boolean;
   readOnly: boolean;
+  /** A RocketVibe voice channel; Rocket.Chat rooms never are. */
+  voice?: boolean;
   /** The other participant of a two-person DM, see `toRoom`. */
   dmOtherUid: string | null;
   /**

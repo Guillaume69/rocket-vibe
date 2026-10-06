@@ -100,6 +100,33 @@ export function systemText(t: TranslateFn, type: string, param: string | null): 
  * the types that need one: today the video call, the only one whose content
  * lives entirely in `blocks`.
  */
-export function systemPreview(t: TranslateFn, type: string | null): string | null {
+export function systemPreview(t: TranslateFn, type: string | null, param = ''): string | null {
+  if (type?.startsWith('rv-call')) return callSummaryText(t, type, param);
   return type === 'videoconf' ? t('home.callPreview') : null;
+}
+
+/** "12 min", "45 s", "1 h 05": a call's length, as short as it reads. */
+export function callDuration(t: TranslateFn, seconds: number): string {
+  if (seconds < 60) return t('call.seconds', { n: seconds });
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return t('call.minutes', { n: minutes });
+  return t('call.hours', { h: Math.floor(minutes / 60), m: String(minutes % 60).padStart(2, '0') });
+}
+
+/**
+ * A RocketVibe call row (`rv-call-<state>`, see providers/rocketvibe/systemMessages.ts):
+ * its outcome, with the duration once an answered call is over.
+ */
+export function callSummaryText(t: TranslateFn, type: string, param: string): string {
+  switch (type) {
+    case 'rv-call-ringing': return t('call.ringing');
+    case 'rv-call-declined': return t('call.declined');
+    case 'rv-call-missed': return t('call.missed');
+    case 'rv-call-cancelled': return t('call.cancelled');
+    case 'rv-call-answered': {
+      const seconds = Number(param);
+      return param !== '' && Number.isFinite(seconds) ? t('call.answeredFor', { d: callDuration(t, seconds) }) : t('call.answered');
+    }
+    default: return t('call.voice');
+  }
 }

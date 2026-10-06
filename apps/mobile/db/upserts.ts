@@ -82,14 +82,15 @@ export const UPSERT_ROOM = `
 INSERT INTO rooms (
   rid, type, name, display_name, encrypted, read_only, dm_other_uid,
   last_message, last_message_type, last_message_ts, avatar_etag,
-  updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  updated_at, voice
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(rid) DO UPDATE SET
   type = excluded.type,
   name = COALESCE(excluded.name, rooms.name),
   display_name = COALESCE(excluded.display_name, rooms.display_name),
   encrypted = excluded.encrypted,
   read_only = excluded.read_only,
+  voice = excluded.voice,
   dm_other_uid = COALESCE(excluded.dm_other_uid, rooms.dm_other_uid),
   last_message = CASE
     WHEN excluded.encrypted = 1 THEN rooms.last_message
@@ -638,6 +639,7 @@ export function roomParams(s: LocalRoom): SqlParam[] {
     s.lastMessageTs,
     s.avatarEtag,
     s.updatedAt,
+    b(s.voice ?? false),
   ];
 }
 

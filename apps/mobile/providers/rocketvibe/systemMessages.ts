@@ -1,9 +1,14 @@
 /** Adapt native activity to the system rows already used by the application. */
-import type { SystemMessage } from './protocol.generated.ts';
+import type { CallSummary, SystemMessage } from './protocol.generated.ts';
 
-export function nativeSystemMessage(activity: SystemMessage): {type:string;param:string} {
+/**
+ * A direct call's row becomes `rv-call-<state>`, its parameter the duration in
+ * seconds when known. A row without outcome (a retired Jitsi meeting) is a
+ * plain `rv-call`: no join, nothing left to join.
+ */
+export function nativeSystemMessage(activity: SystemMessage, call?: CallSummary|null): {type:string;param:string} {
   switch(activity.kind) {
-    case 'call_started':return {type:'videoconf',param:''};
+    case 'call_started':return {type:call?`rv-call-${call.state}`:'rv-call',param:call?.duration_seconds==null?'':String(call.duration_seconds)};
     case 'room_created':return {type:'rv-room-created',param:activity.name};
     case 'room_renamed':return {type:'r',param:activity.name};
     case 'topic_changed':return {type:'room_changed_topic',param:activity.topic};

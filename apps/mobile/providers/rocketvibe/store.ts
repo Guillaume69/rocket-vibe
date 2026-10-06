@@ -11,7 +11,6 @@ import {roomIdentifier,roomOperation,sameRoomForm,savedRoomOperation,type RoomOp
 import {decodeNative} from './validation.ts';
 import {nativeMarkdown} from './markdown.ts';
 import {nativeSystemMessage} from './systemMessages.ts';
-import {NativeMeetingIntents} from './meetings.ts';
 import {NativeQuoteCache,type NativeQuoteSelection} from './quotes.ts';
 import {NativeThreadCache,type PendingThreadRead} from './threads.ts';
 import {NativeProfileOperations} from './profileOperations.ts';
@@ -55,7 +54,7 @@ export function nativeReactions(reactions: Message['reactions']): string|null {
 export function localMessage(message: Message, selfId?: string): LocalMessage {
   const time = Date.parse(message.created_at);
   const edited=message.edited_at==null?null:Date.parse(message.edited_at);
-  const system=message.system==null?null:nativeSystemMessage(message.system);
+  const system=message.system==null?null:nativeSystemMessage(message.system,message.call);
   const replies=readDecimal(message.thread?.replies??'0');
   const last=message.thread?.last_reply_at==null?null:Date.parse(message.thread.last_reply_at);
   if(last!==null && !Number.isFinite(last) || message.reply_to!=null && (!roomIdentifier(message.reply_to) || message.reply_to===message.id || message.thread!=null || system))throw new Error('Invalid native thread message');
@@ -67,14 +66,13 @@ export function localMessage(message: Message, selfId?: string): LocalMessage {
     authorId: message.author.id, authorName: message.author.username, systemType: system?.type??null,
     threadId: message.reply_to??null, threadCount: Number(replies>2147483647n?2147483647n:replies), threadLast: last, threadShown: false, editedAt: edited,
     md: message.deleted||system?null:nativeMarkdown(message.body), attachments: nativeAttachments(message), reactions: nativeReactions(message.reactions), urls: nativeUrls(message),
-    callId: message.system?.kind==='call_started' && roomIdentifier(message.system.meeting_id)?message.system.meeting_id:null,
+    callId: null,
     encryptedRaw: null, pinned: message.pinned ?? false,
     starred: message.personal_star?.present && selfId ? JSON.stringify([selfId]) : null, updatedAt: time,
   };
 }
 
 export class NativeStore {
-  readonly meetings:NativeMeetingIntents;
   readonly profileOperations:NativeProfileOperations;
   readonly uploads:NativeUploadIntents;
   private readonly db: NativeDatabase;
@@ -87,7 +85,6 @@ export class NativeStore {
   private fileViews=new Map<string,{file:import('./protocol.generated.ts').FileDescriptor;membership:string;stamp:string}>();
   private previewViews=new Map<string,{access:PreviewAccess;membership:string;stamp:string}>();
   constructor(db: NativeDatabase, queue: WriteQueue, session: AppSession) {
-    this.meetings=new NativeMeetingIntents(db,fn=>this.atomic(fn),(room,nonce)=>this.membershipMatches(room,nonce),session.nativeDataEpoch??'');
     this.profileOperations=new NativeProfileOperations(db,fn=>this.atomic(fn),()=>this.sameGeneration());
     this.uploads=new NativeUploadIntents(db,fn=>this.atomic(fn),(rid,membership)=>this.membershipMatches(rid,membership),message=>this.message(message));
     this.db = db; this.queue = queue; this.session = session;this.quotes=new NativeQuoteCache(db,{instance_id:session.nativeInstanceId??'',data_epoch:session.nativeDataEpoch??''});this.threads=new NativeThreadCache(db);
@@ -227,7 +224,7 @@ export class NativeStore {
   prepare(): Promise<void> {
     return this.atomic(async () => {
       if (await this.sameGeneration()) return;
-      for (const table of ['rooms','subscriptions','messages','outbox','uploads','drafts','native_positions','native_sync_state','cursors','users','native_room_creations','native_commands','native_star_states','native_meeting_intents','native_room_operations','native_profile_operations','native_emoji_catalog','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+      for (const table of ['rooms','subscriptions','messages','outbox','uploads','drafts','native_positions','native_sync_state','cursors','users','native_room_creations','native_commands','native_star_states','native_room_operations','native_profile_operations','native_emoji_catalog','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
     });
   }
   private async membershipMatches(rid:string,membership:string|null):Promise<boolean> {
@@ -287,7 +284,7 @@ export class NativeStore {
     const access=await this.db.getFirstAsync<NativeRoomAccess>('SELECT * FROM native_room_access WHERE rid=?',[room.id]);
     await this.db.runAsync(UPSERT_ROOM, roomParams({
       rid: room.id, type: room.kind === 'direct' ? 'd' : room.kind === 'private' ? 'p' : 'c',
-      name: room.name, displayName: room.name, encrypted: room.encrypted===true, readOnly: access?.can_send===0,
+      name: room.name, displayName: room.name, encrypted: room.encrypted===true, readOnly: access?.can_send===0, voice: room.voice===true,
       dmOtherUid: null, dmOtherUsername: null, lastMessage: null, lastMessageType: null,
       lastMessageTs: null, avatarEtag: null, updatedAt: Date.now(),
     }));
@@ -339,7 +336,7 @@ export class NativeStore {
     await this.preview(message.room_id);
   }
   private async remove(rid: string,keepMetadata=false): Promise<void> {
-    for (const table of ['rooms', 'subscriptions', 'messages', 'outbox', 'uploads', 'native_positions','native_commands','native_star_states','native_meeting_intents','native_room_operations','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) {
+    for (const table of ['rooms', 'subscriptions', 'messages', 'outbox', 'uploads', 'native_positions','native_commands','native_star_states','native_room_operations','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) {
       if(keepMetadata && table==='rooms')continue;
       await this.db.runAsync(`DELETE FROM ${table} WHERE rid=?`, [rid]);
     }
@@ -353,7 +350,7 @@ export class NativeStore {
       const old = await this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []);
       if (!old || old.instance_id !== this.session.nativeInstanceId || old.data_epoch !== this.session.nativeDataEpoch) {
         // A fresh login to a different generation must never replay its predecessor's outbox.
-        for (const table of ['rooms', 'subscriptions', 'messages', 'outbox', 'uploads', 'drafts', 'native_positions', 'cursors', 'users', 'native_room_creations','native_commands','native_star_states','native_meeting_intents','native_room_operations','native_profile_operations','native_emoji_catalog','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+        for (const table of ['rooms', 'subscriptions', 'messages', 'outbox', 'uploads', 'drafts', 'native_positions', 'cursors', 'users', 'native_room_creations','native_commands','native_star_states','native_room_operations','native_profile_operations','native_emoji_catalog','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
       } else {
         const live = new Set(snapshot.rooms.map(room => room.id));
         const known = await this.db.getAllAsync<{rid:string}>('SELECT rid FROM rooms', []);

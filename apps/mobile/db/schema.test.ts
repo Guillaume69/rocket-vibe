@@ -9,7 +9,7 @@ import { getTableConfig } from 'drizzle-orm/sqlite-core';
 
 import {
   cursors, drafts, customEmojis, messages, outbox, rooms, subscriptions, uploads, users,
-  nativeSyncState, nativePositions, nativeStarStates, nativeRoomCreations, nativeMessageCommands, nativeMeetingIntents, nativeRoomOperations, nativeProfileOperations, nativeUploadIntents, nativeRoomAccess, nativeReadStates, nativeReadIntents, nativeThreadStates, nativeThreadReadIntents, nativeFavoriteIntents, nativeQuoteReferences, nativeQuoteSources, nativeOutboxQuotes, nativeEmojiCatalog,
+  nativeSyncState, nativePositions, nativeStarStates, nativeRoomCreations, nativeMessageCommands, nativeRoomOperations, nativeProfileOperations, nativeUploadIntents, nativeRoomAccess, nativeReadStates, nativeReadIntents, nativeThreadStates, nativeThreadReadIntents, nativeFavoriteIntents, nativeQuoteReferences, nativeQuoteSources, nativeOutboxQuotes, nativeEmojiCatalog,
 } from './schema.ts';
 
 /**
@@ -110,7 +110,6 @@ describe('migrations', () => {
       'native_commands',
       'native_emoji_catalog',
       'native_favorite_intents',
-      'native_meeting_intents',
       'native_outbox_quotes',
       'native_positions',
       'native_profile_operations',
@@ -147,7 +146,6 @@ describe('migrations', () => {
       'idx_messages_thread',
       'idx_native_command_message',
       'idx_native_favorite_operation',
-      'idx_native_meeting_intent_room',
       'idx_native_positions_room',
       'idx_native_profile_operation_slot',
       'idx_native_quote_origins',
@@ -405,7 +403,8 @@ describe('English names (0016)', () => {
     ]);
     db.prepare("INSERT INTO outbox (id, rid, text, created_at) VALUES ('s3', 'r1', 'c', 5)").run();
     assert.deepEqual(all("SELECT status FROM outbox WHERE id = 's3'"), [{ status: 'pending' }]);
-    applyMigration(db, 17);
+    // Every later migration, so the tables match the current schema.
+    for (const later of [17, 18, 19]) applyMigration(db, later);
     assert.deepEqual(tables(db), tables(migratedDb()));
     db.close();
   });
@@ -414,7 +413,7 @@ describe('English names (0016)', () => {
     const db = migratedDb();
     for (const table of [
       rooms, subscriptions, messages, outbox, uploads, drafts, customEmojis, users, cursors,
-      nativeSyncState, nativePositions, nativeStarStates, nativeRoomCreations, nativeMessageCommands, nativeMeetingIntents, nativeRoomOperations, nativeProfileOperations, nativeUploadIntents, nativeRoomAccess, nativeReadStates, nativeReadIntents, nativeThreadStates, nativeThreadReadIntents, nativeFavoriteIntents, nativeQuoteReferences, nativeQuoteSources, nativeOutboxQuotes, nativeEmojiCatalog,
+      nativeSyncState, nativePositions, nativeStarStates, nativeRoomCreations, nativeMessageCommands, nativeRoomOperations, nativeProfileOperations, nativeUploadIntents, nativeRoomAccess, nativeReadStates, nativeReadIntents, nativeThreadStates, nativeThreadReadIntents, nativeFavoriteIntents, nativeQuoteReferences, nativeQuoteSources, nativeOutboxQuotes, nativeEmojiCatalog,
     ]) {
       const config = getTableConfig(table);
       const actual = db

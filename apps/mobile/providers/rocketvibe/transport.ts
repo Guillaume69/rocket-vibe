@@ -1,5 +1,5 @@
 /** Native HTTP transport shared by the mobile pilot and integration tests. */
-import type { CreateRoom, Discovery, DirectMessage, Message, MessagePage, NativeTypes, Room, SendMessage, Session, Snapshot, SocketTicket, SyncBatch, StartMeeting, JoinMeeting, Meeting, MeetingJoin } from './protocol.generated.ts';
+import type { CreateRoom, Discovery, DirectMessage, Message, MessagePage, NativeTypes, Room, SendMessage, Session, Snapshot, SocketTicket, SyncBatch, JoinVoice, AnswerRing, VoiceGrant, VoiceRing } from './protocol.generated.ts';
 import { decodeNative } from './validation.ts';
 import {createHash} from 'crypto';
 import {emojiCatalog} from './customEmojis.ts';
@@ -145,18 +145,18 @@ export class NativeTransport {
   cryptoOperation(operation:string):Promise<NativeTypes['OperationReceipt']> {
     return this.request('OperationReceipt',`/api/v1/e2ee/operations/${encodeURIComponent(operation)}`);
   }
-  async startMeeting(room:string,input:StartMeeting):Promise<Meeting> {
-    return this.request('Meeting',`/api/v1/rooms/${encodeURIComponent(room)}/meetings`,input);
+  /** A LiveKit grant for the room's voice session (docs/protocol/VOICE.md). */
+  joinVoice(room:string,input:JoinVoice):Promise<VoiceGrant> {
+    return this.request('VoiceGrant',`/api/v1/rooms/${encodeURIComponent(room)}/voice/join`,input);
   }
-  async meeting(id:string):Promise<Meeting> {
-    return this.request('Meeting',`/api/v1/meetings/${encodeURIComponent(id)}`);
+  async leaveVoice():Promise<void> { await this.value('/api/v1/voice/leave',{}); }
+  voiceRing(id:string):Promise<VoiceRing> {
+    return this.request('VoiceRing',`/api/v1/voice/rings/${encodeURIComponent(id)}`);
   }
-  async joinMeeting(id:string,input:JoinMeeting):Promise<MeetingJoin> {
-    return this.request('MeetingJoin',`/api/v1/meetings/${encodeURIComponent(id)}/join`,input);
+  acceptRing(id:string,input:AnswerRing):Promise<VoiceGrant> {
+    return this.request('VoiceGrant',`/api/v1/voice/rings/${encodeURIComponent(id)}/accept`,input);
   }
-  async endMeeting(id:string,input:JoinMeeting):Promise<Meeting> {
-    return this.request('Meeting',`/api/v1/meetings/${encodeURIComponent(id)}/end`,input);
-  }
+  async declineRing(id:string):Promise<void> { await this.value(`/api/v1/voice/rings/${encodeURIComponent(id)}/decline`,{}); }
   readonly baseUrl: string;
   private readonly fetcher: typeof fetch;
   private token: string | null = null;

@@ -26,6 +26,8 @@ export const rooms = sqliteTable(
     /** End-to-end encrypted room: we do not write there, we do not show the preview. */
     encrypted: integer('encrypted', { mode: 'boolean' }).notNull().default(false),
     readOnly: integer('read_only', { mode: 'boolean' }).notNull().default(false),
+    /** A voice channel (RocketVibe server): opening it joins its voice session. */
+    voice: integer('voice', { mode: 'boolean' }).notNull().default(false),
     /**
      * The OTHER participant of a two-person DM (from the Rooms document's
      * `uids`), for presence (8.4). An 8.5 DM rid is a RANDOM ObjectId, no
@@ -335,13 +337,6 @@ export const nativeMessageCommands = sqliteTable('native_commands', {
   state: text('state').notNull().default('pending'),
   error: text('error'),
 }, (t) => [uniqueIndex('idx_native_command_message').on(t.messageId)]);
-
-/** One meeting start keeps its original membership and operation until acknowledged. */
-export const nativeMeetingIntents = sqliteTable('native_meeting_intents', {
-  id: text('id').primaryKey(),
-  rid: text('rid').notNull(),
-  payload: text('payload').notNull(),
-}, (t) => [uniqueIndex('idx_native_meeting_intent_room').on(t.rid)]);
 
 /** One unresolved room form keeps its original nonce and version until acknowledged. */
 export const nativeRoomOperations = sqliteTable('native_room_operations', {

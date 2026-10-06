@@ -68,8 +68,10 @@ fn native_history_code_is_explicit_the_preview_is_handle_bound_and_the_code_join
     assert_eq!(status["holds_key"], true);
     assert!(call(&controller, &own, json!({"action":"code"})).is_err());
     // Nothing observed yet: nothing to upload, and an unknown field is refused.
+    let published = json!({"scope": own.scope, "active": {"publication": request.publication, "receipt": receipt}});
+    assert!(call(&controller, &own, json!({"action":"upload"})).is_err());
     assert_eq!(
-        call(&controller, &own, json!({"action":"upload"})).unwrap()["upload"],
+        call(&controller, &own, json!({"action":"upload","remote":published})).unwrap()["upload"],
         Value::Null
     );
     assert!(call(&controller, &own, json!({"action":"view","code":code})).is_err());

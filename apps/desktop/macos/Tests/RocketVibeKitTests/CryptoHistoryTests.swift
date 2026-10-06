@@ -14,7 +14,7 @@ final class CryptoHistoryTests: XCTestCase {
         XCTAssertEqual(offers.offers.first?.device, "phone")
         XCTAssertEqual(offers.offers.first?.expiresAt, "9007199254740993")
         let preview: CryptoHistoryPreview = try decode("""
-        {"id":"8","fingerprint":"fp","device":"phone","periods":[{"room":"general","documents":"9007199254740995"}]}
+        {"id":"8","fingerprint":"fp","device":"phone","can_delegate":false,"periods":[{"room":"general","documents":"9007199254740995"}]}
         """)
         XCTAssertEqual(preview.periods.first?.documents, "9007199254740995")
         let waiting: CryptoHistoryImport = try decode(#"{"state":"waiting","request":"fp"}"#)

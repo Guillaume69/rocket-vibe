@@ -157,6 +157,9 @@ section here.
   offered for a review that could only fail with "the operation did not succeed": reading the room applies it.
 - RocketVibe: a message sent in an encrypted room or thread no longer waits for the next
   event to show when the view was already refreshing at the moment it was sent.
+- GTK: files, pictures and voice messages sent from a thread go into the thread (attach,
+  drop, paste or microphone); a picked file was dropped and a recording deleted. Encrypted
+  RocketVibe threads take files too.
 
 - RocketVibe: after a member's role or rights change in an encrypted room, the room
   encryption dialog offers to replace that member's device ("Replace and invite again"),

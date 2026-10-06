@@ -116,6 +116,15 @@ impl ThreadPage {
     pub fn is_private(&self) -> bool {
         self.private
     }
+    /// The thread's private view, once loaded and still current: its files
+    /// answer the thread.
+    pub fn private_access(&self) -> Option<private::Access> {
+        self.crypto.borrow().clone().filter(|_| self.private_current())
+    }
+    /// After a private file was sent: show it.
+    pub fn after_private_send(self: &Rc<Self>) {
+        self.reload();
+    }
     pub fn close_private(&self) {
         self.quote_cards.close();
         if !self.private {

@@ -798,36 +798,9 @@ impl ChatPage {
         });
         let w = weak.clone();
         self.composer.connect_voice(move |path| {
-            let Some(this) = w.upgrade() else { return };
-            if let Some(native) = this.native_session() {
-                let Some((rid, Some(membership))) = this.native_membership.borrow().clone() else { return };
-                let name = format!("{}-{}.ogg", t("voice.file_name"), chrono::Local::now().format("%Y%m%d-%H%M%S"));
-                let weak = Rc::downgrade(&this);
-                glib::spawn_future_local(async move {
-                    if on_tokio(async move {
-                        native.attach_file(&rid, &path, &name, "audio/ogg", None, true, &membership).await
-                    })
-                    .await
-                    .is_err()
-                        && let Some(this) = weak.upgrade()
-                    {
-                        this.toast(t("voice.refused").into());
-                    }
-                });
-                return;
+            if let Some(this) = w.upgrade() {
+                this.send_voice(None, path);
             }
-            let (Some(session), Some(rid)) = (this.session(), this.current_rid()) else { return };
-            let name = format!("{}-{}.ogg", t("voice.file_name"), chrono::Local::now().format("%Y%m%d-%H%M%S"));
-            let weak = Rc::downgrade(&this);
-            glib::spawn_future_local(async move {
-                let sent =
-                    on_tokio(async move { session.attach(&rid, &path, &name, "audio/ogg", None, true).await }).await;
-                if sent.is_err()
-                    && let Some(this) = weak.upgrade()
-                {
-                    this.toast(t("voice.refused").to_owned());
-                }
-            });
         });
         let w = weak.clone();
         self.composer.connect_error(move |text| {
@@ -1172,6 +1145,7 @@ impl ChatPage {
             }
         });
         thread.composer.bind(&session, &open.rid, Some(root_id));
+        self.wire_thread_files(&thread);
         self.room_nav.push(&thread.page);
         thread.reload();
         thread.composer.grab_focus();
@@ -1552,6 +1526,72 @@ impl ChatPage {
     }
 
     /// Chosen, dropped or pasted: they wait in the composer until sent.
+    /// A finished voice message of the room composer (`thread` None) or a thread's.
+    fn send_voice(self: &Rc<Self>, thread: Option<String>, path: std::path::PathBuf) {
+        let name = format!("{}-{}.ogg", t("voice.file_name"), chrono::Local::now().format("%Y%m%d-%H%M%S"));
+        let weak = Rc::downgrade(self);
+        if let Some(native) = self.native_session() {
+            let Some((rid, Some(membership))) = self.native_membership.borrow().clone() else { return };
+            glib::spawn_future_local(async move {
+                if on_tokio(async move {
+                    native
+                        .attach_file_in(&rid, thread.as_deref(), &path, &name, "audio/ogg", None, true, &membership)
+                        .await
+                })
+                .await
+                .is_err()
+                    && let Some(this) = weak.upgrade()
+                {
+                    this.toast(t("voice.refused").into());
+                }
+            });
+            return;
+        }
+        let (Some(session), Some(rid)) = (self.session(), self.current_rid()) else { return };
+        glib::spawn_future_local(async move {
+            let sent = on_tokio(async move {
+                session.attach_in(&rid, thread.as_deref(), &path, &name, "audio/ogg", None, true).await
+            })
+            .await;
+            if sent.is_err()
+                && let Some(this) = weak.upgrade()
+            {
+                this.toast(t("voice.refused").to_owned());
+            }
+        });
+    }
+
+    /// A thread composer stages, sends and records like the room's, its
+    /// files and voice messages answering the thread.
+    pub(super) fn wire_thread_files(self: &Rc<Self>, thread: &Rc<ThreadPage>) {
+        let (weak, target) = (Rc::downgrade(self), Rc::downgrade(thread));
+        thread.composer.connect_files(move |picked| {
+            if let Some(thread) = target.upgrade()
+                && weak.upgrade().is_some_and(|this| this.current_rid().is_some())
+            {
+                thread.composer.stage(picked);
+            }
+        });
+        let (weak, target) = (Rc::downgrade(self), Rc::downgrade(thread));
+        thread.composer.connect_send_files(move |outgoing| {
+            if let (Some(this), Some(thread)) = (weak.upgrade(), target.upgrade()) {
+                this.send_files_in(Some(&thread), outgoing);
+            }
+        });
+        let (weak, root) = (Rc::downgrade(self), thread.root_id.clone());
+        thread.composer.connect_voice(move |path| {
+            if let Some(this) = weak.upgrade() {
+                this.send_voice(Some(root.clone()), path);
+            }
+        });
+        let weak = Rc::downgrade(self);
+        thread.composer.connect_error(move |text| {
+            if let Some(this) = weak.upgrade() {
+                this.toast(text);
+            }
+        });
+    }
+
     fn attach_files(self: &Rc<Self>, picked: Vec<crate::attach::Picked>) {
         if self.current_rid().is_some() {
             self.composer.stage(picked);
@@ -1559,9 +1599,17 @@ impl ChatPage {
     }
 
     fn send_files(self: &Rc<Self>, outgoing: crate::composer::Outgoing) {
+        self.send_files_in(None, outgoing);
+    }
+
+    /// Files of the room composer (`thread` None) or of a thread's.
+    fn send_files_in(self: &Rc<Self>, thread: Option<&Rc<ThreadPage>>, outgoing: crate::composer::Outgoing) {
         let Some(rid) = self.current_rid() else { return };
         if self.current.borrow().as_ref().is_some_and(|r| r.encrypted) {
-            self.send_private_files(outgoing);
+            match thread {
+                Some(thread) => self.send_thread_private_files(thread, outgoing),
+                None => self.send_private_files(outgoing),
+            }
             return;
         }
         let provider = if let Some(s) = self.native_session() {
@@ -1582,6 +1630,7 @@ impl ChatPage {
         crate::attach::send_all_provider(
             provider,
             rid,
+            thread.map(|t| t.root_id.clone()),
             outgoing.items,
             outgoing.caption,
             !outgoing.original,

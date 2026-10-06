@@ -424,6 +424,7 @@ impl NativeSession {
                 file_id: None,
                 status: if u.failed { "failed" } else { "pending" }.into(),
                 temporary: true,
+                tmid: u.complete.reply_to,
             })
             .collect())
     }
@@ -431,6 +432,21 @@ impl NativeSession {
     pub async fn attach_file(
         &self,
         room: &str,
+        path: &Path,
+        name: &str,
+        media_type: &str,
+        caption: Option<&str>,
+        temporary: bool,
+        membership: &str,
+    ) -> Result<(), Error> {
+        self.attach_file_in(room, None, path, name, media_type, caption, temporary, membership).await
+    }
+    /// `attach_file`, answering the thread `reply_to` when there is one.
+    #[allow(clippy::too_many_arguments)] // Existing attachment inputs plus the thread and the captured membership.
+    pub async fn attach_file_in(
+        &self,
+        room: &str,
+        reply_to: Option<&str>,
         path: &Path,
         name: &str,
         media_type: &str,
@@ -497,7 +513,7 @@ impl NativeSession {
                         quotes: vec![],
                         files: vec![],
                     },
-                    reply_to: None,
+                    reply_to: reply_to.map(str::to_owned),
                 },
                 cancelling: false,
                 failed: false,

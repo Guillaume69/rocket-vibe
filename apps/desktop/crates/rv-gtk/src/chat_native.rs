@@ -351,6 +351,7 @@ impl ChatPage {
         self.native_read_last.replace(None);
         self.room_nav.pop_to_tag("room");
         let thread = ThreadPage::new_native(self.session.clone(), session.clone(), &rid, root);
+        self.wire_thread_files(&thread);
         let weak = Rc::downgrade(self);
         thread.list.connect_event(move |event| {
             if let Some(this) = weak.upgrade() {

@@ -162,7 +162,17 @@ impl Uploads {
         self.progress.lock().unwrap().get(id).copied()
     }
 
-    pub fn enqueue(&self, rid: &str, path: &str, name: &str, mime: &str, caption: Option<&str>, temporary: bool) {
+    #[allow(clippy::too_many_arguments)] // The file, its caption and where it goes.
+    pub fn enqueue(
+        &self,
+        rid: &str,
+        path: &str,
+        name: &str,
+        mime: &str,
+        caption: Option<&str>,
+        temporary: bool,
+        tmid: Option<&str>,
+    ) {
         let row = UploadRow {
             id: format!("up-{:016x}", fastrand::u64(..)),
             rid: rid.to_owned(),
@@ -173,6 +183,7 @@ impl Uploads {
             file_id: None,
             status: "pending".to_owned(),
             temporary,
+            tmid: tmid.map(str::to_owned),
         };
         let now = chrono::Utc::now().timestamp_millis();
         self.store.write(|w| w.insert_upload(&row, now));
@@ -296,10 +307,14 @@ impl Uploads {
         if self.abandoned.lock().unwrap().contains(&row.id) {
             return Ok(Outcome::Done);
         }
-        let body = match &row.caption {
+        // `sendFileMessage` validates `tmid` on 8.5: the file answers the thread.
+        let mut body = match &row.caption {
             Some(caption) => json!({"msg": caption}),
             None => json!({}),
         };
+        if let Some(tmid) = &row.tmid {
+            body["tmid"] = json!(tmid);
+        }
         let confirmed =
             match self.rest.post(&format!("rooms.mediaConfirm/{}/{file_id}", row.rid), CallOptions::body(body)).await {
                 Ok(v) => v,
@@ -380,7 +395,11 @@ impl Uploads {
             let (Some(content), Some(file_content)) = (encrypt(&row.rid, &payload), encrypt(&row.rid, &meta(s))) else {
                 return Ok(Outcome::Waiting);
             };
-            json!({"msg": "", "t": crate::normalize::ENCRYPTED_TYPE, "content": content, "fileContent": file_content})
+            let mut body = json!({"msg": "", "t": crate::normalize::ENCRYPTED_TYPE, "content": content, "fileContent": file_content});
+            if let Some(tmid) = &row.tmid {
+                body["tmid"] = json!(tmid);
+            }
+            body
         };
         let confirmed =
             match self.rest.post(&format!("rooms.mediaConfirm/{}/{file_id}", row.rid), CallOptions::body(body)).await {

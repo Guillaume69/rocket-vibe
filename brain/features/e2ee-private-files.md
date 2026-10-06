@@ -8,7 +8,8 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 - **Receiving.** Images, audio and video of the allowed types show inline, other files as cards with open, save and share, like ordinary native files. The first open downloads the object and decrypts it into the app's private cache.
 - **Lifetime.** A private file opens only while a private view (the room, a thread, private search results) shows its message; closing the view closes its files, and desktop drops their decrypted cache too.
 - A message may carry files without text. Deleting the message hides it for readers but cannot recall the object: the server does not know of private deletions, and members already hold the key.
-- **Not done**: voice messages and files sent from a thread in encrypted rooms, quoting a private file elsewhere, resuming an interrupted upload (the attempt fails and can be redone; a prepared message resumes like any private send).
+- **Threads**: files go into an encrypted thread from mobile and GTK through the thread's private view.
+- **Not done**: voice messages in encrypted rooms, files from a SwiftUI thread, quoting a private file elsewhere, resuming an interrupted upload (the attempt fails and can be redone; a prepared message resumes like any private send).
 
 ## Engine and server
 

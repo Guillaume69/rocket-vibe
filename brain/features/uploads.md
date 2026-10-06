@@ -7,7 +7,7 @@ Sending a file is a two-step server exchange (`rooms.media`, then `rooms.mediaCo
 `POST /api/v1/rooms.upload` was removed in Rocket.Chat 8.0. An upload is now two calls (see [the server contract](../architecture/rocket-chat.md)):
 
 1. `POST rooms.media/<rid>`, multipart with the bytes in field `file`. It answers `{file: {_id, url}}` and posts **no** message: the file waits on the server, orphaned.
-2. `POST rooms.mediaConfirm/<rid>/<fileId>` with an optional `{msg: caption}`. This creates the message and answers it in full (`attachments`, `file`, `md`); both apps ingest that document like any other.
+2. `POST rooms.mediaConfirm/<rid>/<fileId>` with an optional `{msg: caption}` and, for a file sent in a thread, `tmid` (passed to `sendFileMessage`, whose `Match` pattern accepts it in 8.5.1). This creates the message and answers it in full (`attachments`, `file`, `md`); both apps ingest that document like any other.
 
 Replaying `rooms.mediaConfirm` on the same `fileId` has no usable answer (probed on 8.5): replayed at once, the server posts a second message but answers 200 with the first one; replayed minutes later, it refuses with `invalid-file` although the file was delivered. Its schema is `additionalProperties: false`, so a client `_id` cannot be added for server-side dedup. Deduplication is therefore entirely local.
 
@@ -79,7 +79,7 @@ Protected files (`FileUpload_ProtectFiles`) need `rc_uid` and `rc_token` in the 
 
 ## Parity
 
-Same queue, dedup, retry and validation in both apps. Desktop adds drag-and-drop and paste in place of the Android share sheet, and automatic timed retries. Reduction differs: mobile reduces photos over 500 KB to JPEG 1920 px and transcodes videos to H.264 720p (`modules/video-compressor`); desktop reduces still images only (JPEG 1920 px, quality 82, skipped when not smaller). The queue has no thread id, so no file is ever posted inside a thread (see [threads](threads.md)). Picking files and the pre-send strip are in [the composer](composer.md); sharing into the app is in [sharing and links](sharing-and-links.md).
+Same queue, dedup, retry and validation in both apps. Desktop adds drag-and-drop and paste in place of the Android share sheet, and automatic timed retries. Reduction differs: mobile reduces photos over 500 KB to JPEG 1920 px and transcodes videos to H.264 720p (`modules/video-compressor`); desktop reduces still images only (JPEG 1920 px, quality 82, skipped when not smaller). Each queued row keeps the thread it answers (`uploads.tmid`, mobile migration 0018 and desktop migration 9), sent as `tmid` with the confirm, or as the native intent's `complete.reply_to` (see [threads](threads.md)). Picking files and the pre-send strip are in [the composer](composer.md); sharing into the app is in [sharing and links](sharing-and-links.md).
 
 ## Sources
 

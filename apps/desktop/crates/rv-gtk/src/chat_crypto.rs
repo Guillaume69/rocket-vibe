@@ -176,6 +176,26 @@ impl ChatPage {
             self.toast(t("crypto.failed").to_owned());
             return;
         };
+        self.send_private_files_with(access, None, outgoing);
+    }
+    /// The same through a thread's private view: the files answer the thread.
+    pub(super) fn send_thread_private_files(
+        self: &Rc<Self>,
+        thread: &Rc<crate::thread::ThreadPage>,
+        outgoing: crate::composer::Outgoing,
+    ) {
+        let Some(access) = thread.private_access() else {
+            self.toast(t("crypto.failed").to_owned());
+            return;
+        };
+        self.send_private_files_with(access, Some(Rc::downgrade(thread)), outgoing);
+    }
+    fn send_private_files_with(
+        self: &Rc<Self>,
+        access: messages::Access,
+        thread: Option<std::rc::Weak<crate::thread::ThreadPage>>,
+        outgoing: crate::composer::Outgoing,
+    ) {
         let (weak, generation) = (Rc::downgrade(self), self.read_generation.get());
         glib::spawn_future_local(async move {
             for (i, (item, mime)) in outgoing.items.into_iter().enumerate() {
@@ -193,7 +213,16 @@ impl ChatPage {
                     Err(_) => page.toast(t("crypto.failed").to_owned()),
                     Ok(()) => (),
                 }
-                page.crypto_history(false).await;
+                match thread.as_ref() {
+                    Some(thread) => {
+                        if let Some(thread) = thread.upgrade() {
+                            thread.after_private_send();
+                        }
+                    }
+                    None => {
+                        page.crypto_history(false).await;
+                    }
+                }
             }
         });
     }

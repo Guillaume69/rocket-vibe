@@ -100,9 +100,11 @@ fn refusal_text(refusal: &Refusal, name: &str) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments)] // The batch, where it goes, and how to report.
 pub fn send_all_provider(
     session: crate::media::Provider,
     rid: String,
+    thread: Option<String>,
     items: Vec<(Picked, String)>,
     caption: String,
     reduce_images: bool,
@@ -127,15 +129,17 @@ pub fn send_all_provider(
             let caption = (i == 0 && !caption.trim().is_empty()).then(|| caption.clone());
             let (s, r, p, n) = (session.clone(), rid.clone(), path.clone(), name.clone());
             let membership = membership.clone();
+            let thread = thread.clone();
             let result = on_tokio(async move {
                 match s {
                     crate::media::Provider::RocketChat(s) => s
-                        .attach(&r, &p, &n, &mime, caption.as_deref(), temporary)
+                        .attach_in(&r, thread.as_deref(), &p, &n, &mime, caption.as_deref(), temporary)
                         .await
                         .map_err(|e| refusal_text(&e, &n)),
                     crate::media::Provider::RocketVibe(s) => s
-                        .attach_file(
+                        .attach_file_in(
                             &r,
+                            thread.as_deref(),
                             &p,
                             &n,
                             &mime,

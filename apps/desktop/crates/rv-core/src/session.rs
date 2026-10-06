@@ -668,9 +668,24 @@ impl Session {
         caption: Option<&str>,
         temporary: bool,
     ) -> Result<(), uploads::Refusal> {
+        self.attach_in(rid, None, file, name, mime, caption, temporary).await
+    }
+
+    /// `attach`, answering the thread `tmid` when there is one.
+    #[allow(clippy::too_many_arguments)] // The file, its caption and where it goes.
+    pub async fn attach_in(
+        self: &Arc<Self>,
+        rid: &str,
+        tmid: Option<&str>,
+        file: &std::path::Path,
+        name: &str,
+        mime: &str,
+        caption: Option<&str>,
+        temporary: bool,
+    ) -> Result<(), uploads::Refusal> {
         let size = std::fs::metadata(file).map(|m| m.len()).unwrap_or(0);
         uploads::validate(self.settings().await, size, mime, self.store.room_encrypted(rid))?;
-        self.uploads.enqueue(rid, &file.to_string_lossy(), name, mime, caption, temporary);
+        self.uploads.enqueue(rid, &file.to_string_lossy(), name, mime, caption, temporary, tmid);
         let uploads = self.uploads.clone();
         tokio::spawn(async move { uploads.process().await });
         Ok(())

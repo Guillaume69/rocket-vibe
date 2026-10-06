@@ -656,9 +656,9 @@ impl Composer {
         draft: &str,
     ) {
         self.unbind_native();
-        // Encrypted files (E2EE_FILES.md) in the room itself; not yet voice
-        // messages, nor files in a thread, like ordinary native threads.
-        self.attach.set_sensitive(access.files_available() && access.thread().is_none());
+        // Encrypted files (E2EE_FILES.md), in the room or a thread; not yet
+        // voice messages.
+        self.attach.set_sensitive(access.files_available());
         self.mic.set_sensitive(false);
         self.staged.switch(rid);
         self.clear_reply();
@@ -679,8 +679,6 @@ impl Composer {
         membership: Option<String>,
     ) {
         self.bind_native(session, rid);
-        self.attach.set_sensitive(false);
-        self.mic.set_sensitive(false);
         self.on_changed.replace(None);
         self.set_text(
             &session.store.thread_draft_from_membership(rid, root, membership.as_deref()).unwrap_or_default(),

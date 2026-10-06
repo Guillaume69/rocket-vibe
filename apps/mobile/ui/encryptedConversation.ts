@@ -73,8 +73,7 @@ export function useEncryptedConversation(chat:NativeChat|undefined,room:string,m
         chat.renewStorageSoon(CryptoNative);
       }
       if(visible()) {
-        chat.forgetPrivateFiles(token.current);
-        chat.registerPrivateFiles(token.current,room,[...(current.root?[current.root]:[]),...current.messages].flatMap(m=>m.document.files??[]));
+        chat.showPrivateFiles(token.current,room,[...(current.root?[current.root]:[]),...current.messages].flatMap(m=>m.document.files??[]));
         setView(current);
         if(lastInitial.current!==n || restore){lastInitial.current=n;setInitial(current.draft);setComposer(v=>v+1);}
       }

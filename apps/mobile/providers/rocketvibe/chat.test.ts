@@ -570,3 +570,22 @@ test('a failed SQLite echo retries the same committed send and a rejected sessio
     assert.equal((await store.pending()).length,1);
   } finally { chat.stop(); db.close(); }
 });
+
+test('a refreshed view keeps the plaintext of the files it still shows, and forgets only the others',async()=>{
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'u',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:'i',nativeDataEpoch:'1'};
+  const {db,adapter}=nativeTestDatabase();const store=new NativeStore(adapter,createWriteQueue(),session);
+  const chat=new NativeChat(session,store,()=>{throw new Error('No send');},{transport:{} as NativeTransport,socket:()=>{throw new Error('No socket');}});
+  try {
+    const file=(id:string)=>({id,key:'k',filename:`${id}.ogg`,media_type:'audio/ogg',bytes:'10',sha256:'0'.repeat(64)});
+    const forgotten:string[][]=[];chat.onPrivateFilesForgotten(ids=>forgotten.push([...ids]));
+    chat.showPrivateFiles(1,'room',[file('a'),file('b')]);
+    chat.showPrivateFiles(1,'room',[file('a'),file('b')]);
+    assert.deepEqual(forgotten,[],'a refresh showing the same files deletes nothing');
+    chat.showPrivateFiles(2,'room',[file('b')]);
+    chat.showPrivateFiles(1,'room',[file('a')]);
+    assert.deepEqual(forgotten,[],'b stays while view 2 shows it');
+    chat.forgetPrivateFiles(2);assert.deepEqual(forgotten,[['b']]);
+    chat.forgetPrivateFiles(1);assert.deepEqual(forgotten,[['b'],['a']]);
+    assert.equal(chat.privateFile('a'),null);
+  } finally {chat.stop();await store.state();db.close();}
+});

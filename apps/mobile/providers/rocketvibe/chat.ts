@@ -212,9 +212,18 @@ export class NativeChat {
   onPrivateFilesForgotten(listener:(ids:readonly string[])=>void):()=>void {
     this.privateForgotten.add(listener);return()=>{this.privateForgotten.delete(listener);};
   }
-  forgetPrivateFiles(view:number):void {
-    const gone:string[]=[];
-    for(const [id,entry] of this.privateFiles){entry.views.delete(view);if(!entry.views.size){this.privateFiles.delete(id);gone.push(id);}}
+  forgetPrivateFiles(view:number):void {this.showPrivateFiles(view,'',[]);}
+  /** What a view shows now replaces what it showed: only the files it no
+   * longer shows, and no other view does, are forgotten. A refresh used to
+   * forget then register, which deleted every plaintext copy each time, under
+   * a player that opens its file only on play. */
+  showPrivateFiles(view:number,room:string,files:readonly NativeTypes['EncryptedFile'][]):void {
+    this.registerPrivateFiles(view,room,files);
+    const kept=new Set(files.map(file=>file.id)),gone:string[]=[];
+    for(const [id,entry] of this.privateFiles){
+      if(kept.has(id) && entry.room===room)continue;
+      entry.views.delete(view);if(!entry.views.size){this.privateFiles.delete(id);gone.push(id);}
+    }
     if(gone.length)for(const listener of this.privateForgotten)listener(gone);
   }
   privateFile(id:string):{room:string;file:NativeTypes['EncryptedFile']}|null {

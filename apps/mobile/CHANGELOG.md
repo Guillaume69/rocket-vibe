@@ -342,6 +342,8 @@ release, and its notes are that version's section here.
 - Deleting a message asks for confirmation first, as on desktop.
 - Files, photos and voice messages can be sent in a thread, encrypted RocketVibe threads
   included; the thread shows their progress and a Retry on failure.
+- RocketVibe: a voice message or an audio file in an encrypted room plays: its decrypted copy
+  was deleted at each refresh of the room, before the player opened it.
 - The send button dims while an encrypted message is being sent, and the composer says it is
   updating the encrypted messages instead of "This channel is read-only".
 - RocketVibe: after a member's role or rights change in an encrypted room, the encrypted

@@ -121,7 +121,7 @@ beta does.
 | Feature | Mobile | GTK | SwiftUI | Notes |
 |---|---|---|---|---|
 | Thread view: root and replies, live, composer targeting the thread | done | done | done | |
-| Files and voice messages in a thread | done | done | done | In encrypted RocketVibe threads, files only (no voice messages in encrypted rooms at all). SwiftUI checked by the macOS CI build only. |
+| Files and voice messages in a thread | done | done | done | Encrypted RocketVibe threads included. SwiftUI checked by the macOS CI build only. |
 | List of a room's threads, following a thread, "also send to the room" | missing | missing | missing | |
 
 ## 7. Search - [search](features/search.md)
@@ -180,7 +180,7 @@ beta does.
 | RocketVibe server: edit and delete own private messages, pending on the target until accepted ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | done | done | Text only. Mobile from the long-press sheet, GTK and SwiftUI from the message menu and Up in an empty composer; SwiftUI checked by the macOS CI build only. |
 | RocketVibe server: react to private messages, pending on the target until accepted ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | done | done | Standard and catalog emojis. Mobile: long-press sheet and reaction chips; GTK: quick reactions in the message menu and chips; SwiftUI: the react action and chips. SwiftUI checked by the macOS CI build only. |
 | RocketVibe server: search an encrypted room on the device ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | done | done | Same search screen as ordinary rooms; nothing goes to the server. SwiftUI checked by the macOS CI build only. |
-| RocketVibe server: send and open encrypted files in private rooms ([e2ee-private-files](features/e2ee-private-files.md)) | done | done | done | In the room itself, not from a thread, no voice messages yet (all three). Mobile compresses on request, desktop sends originals. SwiftUI checked by the macOS CI build only. |
+| RocketVibe server: send and open encrypted files in private rooms ([e2ee-private-files](features/e2ee-private-files.md)) | done | done | done | In the room and from a thread, voice messages included. Mobile compresses on request, desktop sends originals. SwiftUI checked by the macOS CI build only. |
 | RocketVibe server: storage key renewed every 30 days and on request, old keys destroyed ([e2ee-storage-keys](features/e2ee-storage-keys.md)) | done | done | done | Same settings block in all three; background check after private refreshes. SwiftUI checked by the macOS CI build only. |
 | RocketVibe server: hand control of the account to another device with a history share ([e2ee-delegation](features/e2ee-delegation.md)) | done | done | done | Destructive second confirmation in the share review of all three; cannot be taken back. SwiftUI checked by the macOS CI build only. |
 | RocketVibe server: recovered history shown in conversations | done | done | done | The shared projection continues into recovered messages past the device's own oldest one; all three read it unchanged. Reply counts of recovered roots and quotes of recovered messages stay own-only. |

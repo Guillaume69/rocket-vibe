@@ -9,7 +9,8 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 - **Lifetime.** A private file opens only while a private view (the room, a thread, private search results) shows its message; closing the view closes its files, and desktop drops their decrypted cache too.
 - A message may carry files without text. Deleting the message hides it for readers but cannot recall the object: the server does not know of private deletions, and members already hold the key.
 - **Threads**: files go into an encrypted thread from all three apps through the thread's private view.
-- **Not done**: voice messages in encrypted rooms, quoting a private file elsewhere, resuming an interrupted upload (the attempt fails and can be redone; a prepared message resumes like any private send).
+- **Voice messages** are private files like the others, in the room or a thread, in all three apps.
+- **Not done**: quoting a private file elsewhere, resuming an interrupted upload (the attempt fails and can be redone; a prepared message resumes like any private send).
 
 ## Engine and server
 
@@ -21,7 +22,7 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 
 - Rust bridge: free functions `seal_file` / `open_file` (`crates/rv-crypto-mobile/src/files.rs`), exposed by the Expo module as `sealFile` / `openFile` (`modules/crypto-native`); the `prepare` command takes `files`.
 - Sending: `sendPrivateFile` (`providers/rocketvibe/privateFiles.ts`) seals into `cacheDirectory/private-outbox/`, prepares and streams the object through the file-transfer module (`nativeFileSender`, `ui/nativeFiles.ts`), then `CryptoConversationAccess.send(text, [], files)`. The room screen passes the hook's `files` outbox (`ui/encryptedConversation.ts`) to the composer.
-- Rows: `privateFileAttachments` (`cryptoProjection.ts`) shapes them like native attachments; `NativeChat.registerPrivateFiles` / `forgetPrivateFiles` keep the openable ones per view (room and thread hook, `app/message-search.tsx`).
+- Rows: `privateFileAttachments` (`cryptoProjection.ts`) shapes them like native attachments; `NativeChat.showPrivateFiles` / `forgetPrivateFiles` keep the openable ones per view (a refresh swaps a view's set, so only files no view shows any more lose their plaintext copy) (room and thread hook, `app/message-search.tsx`).
 - Opening: the native file reader (`mountNativeFiles`, `ui/nativeFiles.ts`) recognises a registered private id, downloads the object (`copyVerifiedFile` with no digest, the AEAD checks it) and calls `openFile` into the same private cache.
 
 ## Desktop

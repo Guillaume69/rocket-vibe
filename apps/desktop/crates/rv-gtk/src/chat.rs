@@ -1529,6 +1529,22 @@ impl ChatPage {
     /// A finished voice message of the room composer (`thread` None) or a thread's.
     fn send_voice(self: &Rc<Self>, thread: Option<String>, path: std::path::PathBuf) {
         let name = format!("{}-{}.ogg", t("voice.file_name"), chrono::Local::now().format("%Y%m%d-%H%M%S"));
+        // An encrypted room seals it like any private file, never in clear.
+        if self.current.borrow().as_ref().is_some_and(|r| r.encrypted) && self.native_session().is_some() {
+            let item = crate::attach::Picked { path, name, temporary: true };
+            let outgoing = crate::composer::Outgoing {
+                items: vec![(item, "audio/ogg".to_owned())],
+                caption: String::new(),
+                original: true,
+            };
+            let open = self.thread.borrow().clone().filter(|t| Some(&t.root_id) == thread.as_ref());
+            match (thread, open) {
+                (Some(_), Some(page)) => self.send_thread_private_files(&page, outgoing),
+                (Some(_), None) => self.toast(t("voice.refused").to_owned()),
+                (None, _) => self.send_private_files(outgoing),
+            }
+            return;
+        }
         let weak = Rc::downgrade(self);
         if let Some(native) = self.native_session() {
             let Some((rid, Some(membership))) = self.native_membership.borrow().clone() else { return };

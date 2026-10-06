@@ -99,8 +99,7 @@ function MessageSearch({
       privateAccess.current=await native.chat.cryptoConversation(CryptoNative,rid,scope.membership,()=>AppState.currentState==='active',null);
     const found=await privateAccess.current.search(clean);
     // Their encrypted files open while the results are shown (E2EE_FILES.md).
-    native.chat.forgetPrivateFiles(token.current);
-    native.chat.registerPrivateFiles(token.current,rid,found.messages.flatMap(m=>m.document.files??[]));
+    native.chat.showPrivateFiles(token.current,rid,found.messages.flatMap(m=>m.document.files??[]));
     const self=client.auth?.userId?{id:client.auth.userId,username}:undefined;
     return found.messages.map(m=>privateRow(m,rid,0,null,self));
   },[provider,rid,client,username]);

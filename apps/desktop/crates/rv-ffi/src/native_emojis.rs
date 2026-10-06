@@ -30,6 +30,9 @@ impl NativeChat {
         .map_err(|e| rv_core::native::rest_error(e).into())
     }
     pub fn suggestions(&self, before_cursor: String) -> Option<Suggestions> {
+        if let Some(prefix) = rv_core::commands::query(&before_cursor) {
+            return crate::writing::command_suggestions(&self.session.loaded_commands(), prefix, None);
+        }
         let q = rv_core::completion::query(&before_cursor)?;
         if q.trigger != rv_core::completion::Trigger::Emoji {
             return None;

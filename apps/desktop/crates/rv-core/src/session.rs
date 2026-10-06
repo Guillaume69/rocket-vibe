@@ -843,12 +843,21 @@ impl Session {
 
     /// Runs `text` as a slash command when it names one the server knows;
     /// None when it is a message to send. Its answer, if any, comes as
-    /// `SessionEvent::Private`.
+    /// `SessionEvent::Private`. A text command (`/shrug`) is written here and
+    /// sent as a message, which an encrypted room accepts.
     pub async fn run_command(&self, rid: &str, text: &str, thread_id: Option<&str>) -> Option<Result<(), RestError>> {
         let (name, params) = crate::commands::split(text)?;
         let known = self.commands().await.ok()?.iter().any(|c| c.name == name);
         if !known {
             return None;
+        }
+        match crate::commands::text(name, params) {
+            Some(crate::commands::Run::Message(message)) => {
+                self.send_in(rid, &message, thread_id).await;
+                return Some(Ok(()));
+            }
+            Some(crate::commands::Run::Done) => return Some(Ok(())),
+            None => {}
         }
         let mut body = json!({
             "command": name,

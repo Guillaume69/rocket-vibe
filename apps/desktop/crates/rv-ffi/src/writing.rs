@@ -34,6 +34,25 @@ pub struct EmojiCategory {
 
 const SUGGESTED: usize = 8;
 
+/// Every command matching what follows the `/`, the whole list after `/` alone.
+pub(crate) fn command_suggestions(
+    commands: &[rv_core::commands::Command],
+    prefix: &str,
+    granted: Option<&[String]>,
+) -> Option<Suggestions> {
+    let items: Vec<Suggestion> = rv_core::commands::complete(commands, prefix, granted, usize::MAX)
+        .into_iter()
+        .map(|c| Suggestion {
+            insert: format!("/{} ", c.name),
+            label: if c.params.is_empty() { format!("/{}", c.name) } else { format!("/{}  {}", c.name, c.params) },
+            glyph: None,
+            image: None,
+            detail: (!c.description.is_empty()).then(|| c.description.clone()),
+        })
+        .collect();
+    (!items.is_empty()).then_some(Suggestions { start: 0, items })
+}
+
 #[uniffi::export]
 impl Chat {
     /// What to offer for the text before the cursor, or None when it is
@@ -42,21 +61,7 @@ impl Chat {
         if let Some(prefix) = rv_core::commands::query(&before_cursor) {
             let commands = self.commands.lock().unwrap();
             let granted = self.rules.lock().unwrap().1.get(&rid).cloned();
-            let items: Vec<Suggestion> = rv_core::commands::complete(&commands, prefix, granted.as_deref(), SUGGESTED)
-                .into_iter()
-                .map(|c| Suggestion {
-                    insert: format!("/{} ", c.name),
-                    label: if c.params.is_empty() {
-                        format!("/{}", c.name)
-                    } else {
-                        format!("/{}  {}", c.name, c.params)
-                    },
-                    glyph: None,
-                    image: None,
-                    detail: (!c.description.is_empty()).then(|| c.description.clone()),
-                })
-                .collect();
-            return (!items.is_empty()).then_some(Suggestions { start: 0, items });
+            return command_suggestions(&commands, prefix, granted.as_deref());
         }
         let q = completion::query(&before_cursor)?;
         let items: Vec<Suggestion> = match q.trigger {

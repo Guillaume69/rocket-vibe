@@ -68,6 +68,38 @@ pub fn complete<'a>(
     out
 }
 
+/// The commands a RocketVibe server lists (`rv_protocol::commands`), in the
+/// shape of Rocket.Chat's so both read alike.
+pub fn parse_native(list: &rv_protocol::commands::CommandList, lang: Lang) -> Vec<Command> {
+    parse_list(&serde_json::to_value(list).unwrap_or_default(), lang)
+}
+
+/// What running a draft as a command left to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Run {
+    /// A text command (`/shrug`): send this message, the way any other goes.
+    Message(String),
+    /// Done by the server, or nothing to send (`/me` alone).
+    Done,
+}
+
+/// A text command is written here rather than by the server, so it works in
+/// an encrypted room too: the same text Rocket.Chat's own command writes.
+pub fn text(name: &str, params: &str) -> Option<Run> {
+    rv_protocol::commands::decorate(name, params).map(|text| text.map_or(Run::Done, Run::Message))
+}
+
+/// The i18n key of what a RocketVibe server's refusal of a command means.
+pub fn error_key(code: &str) -> Option<&'static str> {
+    match code {
+        "not_found" | "unknown_command" => Some("command.not_found"),
+        "permission_denied" => Some("command.forbidden"),
+        "invalid_request" => Some("command.invalid"),
+        "crypto_required" => Some("command.encrypted"),
+        _ => None,
+    }
+}
+
 /// (name, params) of a draft that reads as a command: `/name` first, then
 /// whatever follows it. The caller checks the name is one the server knows.
 pub fn split(text: &str) -> Option<(&str, &str)> {
@@ -131,6 +163,11 @@ fn words(key: &str, lang: Lang) -> String {
         }
         .to_string();
     }
+    // A Rocket.Chat app namespaces its keys: `app-<id>.GIPHY_Search_Term`.
+    let key = match key.split_once('.') {
+        Some((app, own)) if app.starts_with("app-") && !app.contains(char::is_whitespace) => own,
+        _ => key,
+    };
     let looks_like_key = !key.contains(char::is_whitespace) && key.contains('_') && key.chars().any(char::is_uppercase);
     if looks_like_key { key.replace('_', " ") } else { key.to_owned() }
 }
@@ -195,5 +232,17 @@ mod tests {
         assert_eq!(split("/"), None);
         assert_eq!(split("/usr/bin is a path"), None);
         assert_eq!(split("not /a command"), None);
+    }
+
+    #[test]
+    fn a_rocketvibe_list_reads_like_rocket_chat_s() {
+        let commands = parse_native(&rv_protocol::commands::catalogue(), Lang::En);
+        let shrug = commands.iter().find(|c| c.name == "shrug").unwrap();
+        assert_eq!(shrug.params, "your message (optional)");
+        assert!(shrug.permissions.is_empty());
+        assert_eq!(text("shrug", "ok"), Some(Run::Message("ok ¯\\_(ツ)_/¯".into())));
+        assert_eq!(text("me", ""), Some(Run::Done));
+        assert_eq!(text("topic", "x"), None);
+        assert_eq!(words("app-8b88-42.GIPHY_Search_Term", Lang::En), "GIPHY Search Term");
     }
 }

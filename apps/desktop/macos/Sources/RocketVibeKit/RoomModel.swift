@@ -502,6 +502,7 @@ public final class RoomModel {
 
     func load() async {
         guard active, !loading else { return }
+        if let native = provider.native { Task { await native.prepareCommands() } }
         if privateMode { await refreshPrivate(); return }
         refreshRoomAccess()
         reload()
@@ -553,11 +554,30 @@ public final class RoomModel {
         return found
     }
 
-    /// Sends the draft, or runs it when it names a Rocket.Chat slash command. A
-    /// refused command goes back into the draft, and the refusal is returned.
+    /// Sends the draft, or runs it when it names a slash command. A refused
+    /// command stays in the draft, and the refusal is returned.
     @discardableResult
     public func send() async -> String? {
         guard active else { return nil }
+        // RocketVibe: a server command runs; a text command (`/shrug`) is
+        // written here and goes out like the draft, encrypted or not. A quote
+        // leads the message, so what follows it is text.
+        if let native = provider.native, privateQuote == nil, nativeQuote == nil {
+            let typed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            if typed.hasPrefix("/") {
+                let run: CommandRun
+                do { run = try await native.runCommand(room: room.rid, text: typed) }
+                catch { return L("command.failed", ["error": error.localizedDescription]) }
+                guard active else { return nil }
+                switch run {
+                case .notCommand: break
+                case .done:
+                    if draft.trimmingCharacters(in: .whitespacesAndNewlines) == typed { draft = "" }
+                    return nil
+                case let .message(text): draft = text
+                }
+            }
+        }
         if privateMode {
             guard privateReady, !privateBusy, let privateHandle else { return nil }
             let text = draft

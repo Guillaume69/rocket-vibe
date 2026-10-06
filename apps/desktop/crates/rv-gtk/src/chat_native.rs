@@ -242,6 +242,7 @@ impl ChatPage {
             self.composer.set_text("");
         } else {
             self.composer.bind_native(&session, rid);
+            self.composer.load_native_commands(&session, rid);
         }
         self.refresh_native_call();
         let (access_session, access_room) = (session.clone(), rid.to_owned());
@@ -359,9 +360,10 @@ impl ChatPage {
             }
         });
         if thread.is_private() {
-            let target = Rc::downgrade(&thread);
+            let (weak, target, room) = (Rc::downgrade(self), Rc::downgrade(&thread), rid.clone());
             thread.composer.connect_submit(move |text| {
-                if let Some(thread) = target.upgrade() {
+                let (Some(this), Some(thread)) = (weak.upgrade(), target.upgrade()) else { return };
+                if let Some(text) = this.native_command(&thread.composer, &room, text) {
                     thread.send_private(text);
                 }
             });
@@ -381,6 +383,7 @@ impl ChatPage {
         );
         thread.composer.connect_submit(move |text| {
             let (Some(this), Some(thread)) = (weak.upgrade(), target.upgrade()) else { return };
+            let Some(text) = this.native_command(&thread.composer, &r, text) else { return };
             if thread.composer.send_private_reference(text.clone()) {
                 return;
             }
@@ -459,6 +462,47 @@ impl ChatPage {
                 false
             }
         }
+    }
+
+    /// A slash command typed in a RocketVibe room or thread. A server command
+    /// runs here, a refusal putting the text back; a text command (`/shrug`)
+    /// comes back written, to go out the way the composer sends, encrypted or
+    /// not. None when nothing is left to send.
+    pub(super) fn native_command(
+        self: &Rc<Self>,
+        composer: &Rc<crate::composer::Composer>,
+        rid: &str,
+        text: String,
+    ) -> Option<String> {
+        let Some(session) = self.native_session() else { return Some(text) };
+        let Some((name, params)) = rv_core::commands::split(&text) else { return Some(text) };
+        // A quote leads the message: what follows is text, as on Rocket.Chat.
+        if !composer.knows_command(name) || composer.native_reply().is_some() || composer.private_reply().is_some() {
+            return Some(text);
+        }
+        match rv_core::commands::text(name, params) {
+            Some(rv_core::commands::Run::Message(message)) => return Some(message),
+            Some(rv_core::commands::Run::Done) => return None,
+            None => {}
+        }
+        let (weak, target, rid) = (Rc::downgrade(self), Rc::downgrade(composer), rid.to_owned());
+        glib::spawn_future_local(async move {
+            let draft = text.clone();
+            let result = on_tokio(async move { session.run_command(&rid, &text).await }).await;
+            let Some(this) = weak.upgrade() else { return };
+            let refusal = match result {
+                Some(Ok(_)) => return,
+                Some(Err(error)) => {
+                    rv_core::commands::error_key(error.code()).unwrap_or(native_error_key(error.code()))
+                }
+                None => "native.error",
+            };
+            this.toast(tf("command.failed", &[("error", t(refusal))]));
+            if let Some(composer) = target.upgrade().filter(|c| c.text().is_empty()) {
+                composer.set_text(&draft);
+            }
+        });
+        None
     }
 
     pub fn native_error(&self, error: &rv_core::native::Error) {

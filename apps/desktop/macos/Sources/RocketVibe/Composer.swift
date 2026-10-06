@@ -294,8 +294,71 @@ struct SuggestionList: View {
     let items: [Suggestion]
     let selected: Int
     let pick: (Suggestion) -> Void
+    @State private var hovered: Int?
 
     var body: some View {
+        if items.first?.insert.hasPrefix("/") == true { commands } else { list }
+    }
+
+    /// The selected row, else a lighter one under the pointer.
+    func shade(_ i: Int) -> Color {
+        i == selected ? Vibe.line : i == hovered ? Vibe.line.opacity(0.5) : .clear
+    }
+
+    func hover(_ i: Int, _ inside: Bool) {
+        if inside { hovered = i } else if hovered == i { hovered = nil }
+    }
+
+    /// Every command after `/` alone, under their title, across the field:
+    /// the name and what to type on the left, what it does on the right.
+    var commands: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(L("command.title")).font(.vibe(11, .heavy)).tracking(1).foregroundStyle(Vibe.pink)
+                Spacer()
+                Text(L("command.keys")).font(.vibe(11.5)).foregroundStyle(Vibe.muted)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            Divider().overlay(Vibe.line)
+            ScrollViewReader { reader in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(Array(items.enumerated()), id: \.offset) { i, item in
+                            let parts = item.label.components(separatedBy: "  ")
+                            HStack(spacing: 24) {
+                                (Text(parts[0]).font(.vibe(14, .bold)).foregroundColor(Vibe.text)
+                                    + Text(parts.count > 1 ? "  " + parts[1...].joined(separator: "  ") : "")
+                                    .font(.vibe(14)).foregroundColor(Vibe.muted))
+                                    .lineLimit(1)
+                                Spacer(minLength: 12)
+                                if let detail = item.detail {
+                                    Text(detail).font(.vibe(13)).foregroundStyle(Vibe.muted).lineLimit(1)
+                                }
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(shade(i))
+                            .onHover { hover(i, $0) }
+                            .overlay(alignment: .leading) {
+                                if i == selected { Rectangle().fill(Vibe.pink).frame(width: 3) }
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture { pick(item) }
+                            .id(i)
+                        }
+                    }
+                }
+                .frame(maxHeight: 320)
+                .fixedSize(horizontal: false, vertical: true)
+                .onChange(of: selected) { _, i in reader.scrollTo(i) }
+            }
+        }
+        .vibeCard(radius: 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    var list: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(items.enumerated()), id: \.offset) { i, item in
                 HStack(spacing: 8) {
@@ -314,7 +377,8 @@ struct SuggestionList: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(i == selected ? Vibe.line : .clear)
+                .background(shade(i))
+                .onHover { hover(i, $0) }
                 .contentShape(Rectangle())
                 .onTapGesture { pick(item) }
             }

@@ -2058,6 +2058,8 @@ impl ChatPage {
 
     pub fn send_text(self: &Rc<Self>, text: &str) {
         let Some(open) = self.current.borrow().clone() else { return };
+        let Some(text) = self.native_command(&self.composer, &open.rid, text.to_owned()) else { return };
+        let text = text.as_str();
         if open.encrypted && self.native_session().is_some() {
             self.send_native_crypto(text.to_owned());
             return;

@@ -34,6 +34,11 @@ pub struct Composer {
     on_changed: Handler<String>,
     completion: gtk::Popover,
     choices: gtk::ListBox,
+    /// "Commands" and the keys, over the list while it offers commands.
+    completion_header: gtk::Box,
+    completion_scroll: gtk::ScrolledWindow,
+    /// The field the choices open over: the command list takes its width.
+    completion_anchor: gtk::Box,
     /// (trigger start, text inserted) of each offered choice.
     offered: RefCell<Vec<(usize, String)>>,
     mentions: RefCell<Option<MentionSource>>,
@@ -191,8 +196,32 @@ impl Composer {
         ));
         let choices =
             gtk::ListBox::builder().selection_mode(gtk::SelectionMode::Single).css_classes(["completion"]).build();
-        let completion = gtk::Popover::builder()
+        // A click on a choice completes it, like Tab.
+        choices.set_cursor_from_name(Some("pointer"));
+        // Every command shows after `/` alone, so the list scrolls past a few.
+        let completion_scroll = gtk::ScrolledWindow::builder()
             .child(&choices)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .propagate_natural_height(true)
+            .max_content_height(340)
+            .build();
+        let completion_header =
+            gtk::Box::builder().spacing(12).css_classes(["completion-header"]).visible(false).build();
+        completion_header.append(
+            &gtk::Label::builder()
+                .label(t("command.title"))
+                .xalign(0.0)
+                .hexpand(true)
+                .css_classes(["completion-title"])
+                .build(),
+        );
+        completion_header
+            .append(&gtk::Label::builder().label(t("command.keys")).css_classes(["completion-keys"]).build());
+        let completion_panel = gtk::Box::builder().orientation(gtk::Orientation::Vertical).build();
+        completion_panel.append(&completion_header);
+        completion_panel.append(&completion_scroll);
+        let completion = gtk::Popover::builder()
+            .child(&completion_panel)
             .autohide(false)
             .has_arrow(false)
             .position(gtk::PositionType::Top)
@@ -309,6 +338,9 @@ impl Composer {
             on_changed: RefCell::default(),
             completion,
             choices,
+            completion_header,
+            completion_scroll,
+            completion_anchor: pill.clone(),
             offered: RefCell::default(),
             mentions: RefCell::default(),
             on_files: RefCell::default(),
@@ -647,7 +679,8 @@ impl Composer {
         }
         self.on_changed.replace(None);
         self.completion.popdown();
-        // Slash commands and their private notes belong to a Rocket.Chat room.
+        // A RocketVibe room gets its commands again with `load_native_commands`;
+        // private notes belong to a Rocket.Chat room.
         self.note_bar.set_visible(false);
         self.commands.replace(Commands::default());
     }
@@ -694,6 +727,28 @@ impl Composer {
                     .await;
             });
         });
+    }
+
+    /// The commands a RocketVibe server offers after `/`; it checks rights
+    /// when one runs, so none are left out here.
+    pub fn load_native_commands(self: &Rc<Self>, session: &Arc<rv_core::native::NativeSession>, rid: &str) {
+        let key = format!("native:{rid}");
+        self.commands.replace(Commands { key: key.clone(), ..Default::default() });
+        let (weak, s) = (Rc::downgrade(self), session.clone());
+        glib::spawn_future_local(async move {
+            let list = on_tokio(async move { s.commands().await.map(<[_]>::to_vec) }).await;
+            let Some(this) = weak.upgrade() else { return };
+            if this.commands.borrow().key != key {
+                return;
+            }
+            this.commands.replace(Commands { key, list: list.unwrap_or_default(), granted: None });
+            this.update_completion();
+        });
+    }
+
+    /// Whether `name` is one of the commands offered here.
+    pub fn knows_command(&self, name: &str) -> bool {
+        self.commands.borrow().list.iter().any(|c| c.name == name)
     }
 
     /// Fetches the commands offered after `/`, and my permissions in the room
@@ -743,10 +798,11 @@ impl Composer {
         let buffer = self.text.buffer();
         let cursor = buffer.iter_at_mark(&buffer.get_insert());
         let before = buffer.text(&buffer.start_iter(), &cursor, false).to_string();
+        let commanding = rv_core::commands::query(&before).is_some();
         let offered: Vec<(String, usize, String, Option<gtk::Widget>)> =
             if let Some(prefix) = rv_core::commands::query(&before) {
                 let commands = self.commands.borrow();
-                rv_core::commands::complete(&commands.list, prefix, commands.granted.as_deref(), 8)
+                rv_core::commands::complete(&commands.list, prefix, commands.granted.as_deref(), usize::MAX)
                     .into_iter()
                     .map(|c| (format!("/{}", c.name), 0, format!("/{} ", c.name), Some(command_choice(c))))
                     .collect()
@@ -806,13 +862,26 @@ impl Composer {
             }
         }
         self.offered.replace(offered.into_iter().map(|(_, start, insert, _)| (start, insert)).collect());
+        // Commands spread over the field's width, under their title.
+        self.completion_header.set_visible(commanding);
+        let width = if commanding { (self.completion_anchor.width() - 8).max(360) } else { -1 };
+        self.completion_scroll.set_width_request(width);
+        self.completion_scroll.vadjustment().set_value(0.0);
         self.select(0);
         self.completion.popup();
     }
 
     fn select(&self, index: i32) {
-        if let Some(row) = self.choices.row_at_index(index) {
-            self.choices.select_row(Some(&row));
+        let Some(row) = self.choices.row_at_index(index) else { return };
+        self.choices.select_row(Some(&row));
+        // Keep the chosen row in sight as the arrows walk a long list.
+        let Some(bounds) = row.compute_bounds(&self.choices) else { return };
+        let adjustment = self.completion_scroll.vadjustment();
+        let (top, bottom) = (bounds.y() as f64, (bounds.y() + bounds.height()) as f64);
+        if top < adjustment.value() {
+            adjustment.set_value(top);
+        } else if bottom > adjustment.value() + adjustment.page_size() {
+            adjustment.set_value(bottom - adjustment.page_size());
         }
     }
 
@@ -1010,21 +1079,20 @@ fn command_choice(command: &rv_core::commands::Command) -> gtk::Widget {
             glib::markup_escape_text(params)
         ),
     };
-    let choice = gtk::Box::builder().orientation(gtk::Orientation::Vertical).css_classes(["command-choice"]).build();
+    // The name and what to type after it, then what it does, on one line.
+    let choice = gtk::Box::builder().spacing(24).css_classes(["command-choice"]).build();
     choice.append(
-        &gtk::Label::builder().label(markup).use_markup(true).xalign(0.0).css_classes(["completion-item"]).build(),
+        &gtk::Label::builder().label(markup).use_markup(true).xalign(0.0).css_classes(["command-name"]).build(),
     );
-    if !command.description.is_empty() {
-        choice.append(
-            &gtk::Label::builder()
-                .label(&command.description)
-                .xalign(0.0)
-                .ellipsize(gtk::pango::EllipsizeMode::End)
-                .max_width_chars(48)
-                .css_classes(["command-description"])
-                .build(),
-        );
-    }
+    choice.append(
+        &gtk::Label::builder()
+            .label(&command.description)
+            .xalign(1.0)
+            .hexpand(true)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .css_classes(["command-description"])
+            .build(),
+    );
     choice.upcast()
 }
 

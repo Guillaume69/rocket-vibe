@@ -88,6 +88,9 @@ impl ChatPage {
                 self.list.root.set_tooltip_text(Some(t("crypto.retained_threads")));
                 if !self.native_crypto_restored.replace(true) {
                     self.composer.bind_private(access, &rid, &view.draft);
+                    if let Some(session) = self.native_session() {
+                        self.composer.load_native_commands(&session, &rid);
+                    }
                 }
                 if selected.is_some() && self.composer.private_reply() == selected {
                     self.composer.refresh_private_reply(view.selected_quote);

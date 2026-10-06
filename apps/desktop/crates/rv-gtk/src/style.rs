@@ -258,13 +258,18 @@ button.edit-button.save { background: linear-gradient(135deg, #FF5FA2, #A78BFA);
 .marked-row { padding: 8px 10px; }
 .completion { background: #171529; border-radius: 12px; padding: 4px; }
 .completion row { border-radius: 8px; padding: 4px 10px; }
-.completion row:selected { background: #2C2946; }
+.completion row:hover { background: #211E38; }
+.completion row:selected { background: #2C2946; box-shadow: inset 3px 0 0 #FF5FA2; }
+.completion-header { padding: 8px 12px 7px; margin-bottom: 4px; border-bottom: 1px solid #2C2946; }
+.completion-title { font-size: 11px; font-weight: 800; letter-spacing: 1px; color: #FF5FA2; }
+.completion-keys { font-size: 11.5px; color: #6E6890; }
+.command-name { font-size: 14px; }
 .completion-item { font-size: 14px; }
 .player-frame, .player-holder { background: #000; }
 .video-progress trough { min-height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.25); }
 .video-progress progress { min-height: 6px; border-radius: 3px; background: linear-gradient(90deg, #FF5FA2, #A78BFA); }
-.command-choice { padding: 2px 0; }
-.command-description { color: #8F89AB; font-size: 12.5px; }
+.command-choice { padding: 3px 2px; }
+.command-description { color: #8F89AB; font-size: 13px; }
 .private-note { border-left-color: #34E1D0; }
 .private-note .reply-title { color: #34E1D0; }
 menubutton.emoji-button > button { min-width: 28px; min-height: 24px; padding: 0 2px; color: #8F89AB; background: transparent; }

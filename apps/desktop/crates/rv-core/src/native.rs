@@ -293,6 +293,7 @@ pub struct NativeSession {
     closed: AtomicBool,
     command_lock: tokio::sync::Mutex<()>,
     room_access_lock: tokio::sync::Mutex<()>,
+    commands: tokio::sync::OnceCell<Vec<crate::commands::Command>>,
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     credentials: Option<Arc<dyn credentials::Provider>>,
     security_generation: AtomicU64,
@@ -353,6 +354,7 @@ impl NativeSession {
             closed: AtomicBool::new(false),
             command_lock: tokio::sync::Mutex::new(()),
             room_access_lock: tokio::sync::Mutex::new(()),
+            commands: tokio::sync::OnceCell::new(),
             task: Mutex::new(None),
             credentials,
             security_generation: AtomicU64::new(0),
@@ -611,6 +613,7 @@ impl NativeSession {
                     fine_permissions: true,
                     session_rotation: self.credentials.is_some(),
                     device_sessions: true,
+                    slash_commands: true,
                     ..Default::default()
                 })
             })
@@ -908,6 +911,51 @@ impl NativeSession {
         } else {
             Err(Error::Protocol("offline"))
         }
+    }
+    /// The server's slash commands, read once per session; none on a server
+    /// without them.
+    pub async fn commands(&self) -> Result<&[crate::commands::Command], Error> {
+        if !self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.slash_commands) {
+            return Ok(&[]);
+        }
+        let list = self
+            .commands
+            .get_or_try_init(|| async {
+                self.ready()?;
+                let list = self.client.commands().await?;
+                Ok::<_, Error>(crate::commands::parse_native(&list, crate::i18n::current()))
+            })
+            .await?;
+        Ok(list)
+    }
+    /// The commands `commands` has read so far, for completion as one types.
+    pub fn loaded_commands(&self) -> Vec<crate::commands::Command> {
+        self.commands.get().cloned().unwrap_or_default()
+    }
+    /// Runs `text` as a slash command when it names one the server lists;
+    /// None when it is a message to send. A text command comes back as the
+    /// message to send through the room's own path, encrypted or not.
+    pub async fn run_command(&self, rid: &str, text: &str) -> Option<Result<crate::commands::Run, Error>> {
+        let (name, params) = crate::commands::split(text)?;
+        if !self.commands().await.ok()?.iter().any(|c| c.name == name) {
+            return None;
+        }
+        if let Some(run) = crate::commands::text(name, params) {
+            return Some(Ok(run));
+        }
+        let input =
+            rv_protocol::commands::RunCommand { room_id: rid.into(), command: name.into(), params: params.into() };
+        Some(
+            async {
+                self.ready()?;
+                self.identity().await?;
+                self.client.run_command(&input).await?;
+                // What it changed comes back through sync; ask for it now.
+                self.wake.notify_one();
+                Ok(crate::commands::Run::Done)
+            }
+            .await,
+        )
     }
     pub async fn message_permissions(&self, id: &str) -> Result<rv_protocol::parity::MessagePermissions, Error> {
         self.ready()?;

@@ -934,6 +934,43 @@ impl NativeChat {
     }
 }
 
+/// What a draft run as a slash command left to do.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum CommandRun {
+    /// Not a command the server lists: send the draft as it is.
+    NotCommand,
+    /// A text command (`/shrug`): send this instead, the way the room sends.
+    Message { text: String },
+    /// Done by the server, or nothing to send.
+    Done,
+}
+
+#[uniffi::export]
+impl NativeChat {
+    /// Reads the server's slash commands, once, for `suggestions`.
+    pub async fn prepare_commands(&self) {
+        let s = self.session.clone();
+        on_tokio(async move {
+            let _ = s.commands().await;
+        })
+        .await
+    }
+    /// Runs `text` as a slash command when it names one the server lists. A
+    /// refusal's message says why, in words.
+    pub async fn run_command(&self, room: String, text: String) -> Result<CommandRun, RvError> {
+        let s = self.session.clone();
+        match on_tokio(async move { s.run_command(&room, &text).await }).await {
+            None => Ok(CommandRun::NotCommand),
+            Some(Ok(rv_core::commands::Run::Message(text))) => Ok(CommandRun::Message { text }),
+            Some(Ok(rv_core::commands::Run::Done)) => Ok(CommandRun::Done),
+            Some(Err(error)) => Err(RvError::Local {
+                message: rv_core::i18n::t(rv_core::commands::error_key(error.code()).unwrap_or("native.error"))
+                    .to_owned(),
+            }),
+        }
+    }
+}
+
 fn native_error(error: rv_core::native::Error) -> RvError {
     rv_core::native::rest_error(error).into()
 }

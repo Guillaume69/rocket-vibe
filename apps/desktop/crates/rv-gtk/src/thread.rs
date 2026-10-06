@@ -82,6 +82,7 @@ impl ThreadPage {
             owned.composer.root.set_visible(false);
         } else {
             owned.composer.bind_native_thread(&native, rid, root, membership.clone());
+            owned.composer.load_native_commands(&native, rid);
         }
         owned.native = Some(native);
         owned.membership = membership;
@@ -252,6 +253,9 @@ impl ThreadPage {
                     page.crypto.replace(Some(access.clone()));
                     if !page.private_restored.replace(true) {
                         page.composer.bind_private(access, &page.rid, &view.draft);
+                        if let Some(native) = page.native.clone() {
+                            page.composer.load_native_commands(&native, &page.rid);
+                        }
                     }
                     if selected.is_some() && page.composer.private_reply() == selected {
                         page.composer.refresh_private_reply(view.selected_quote);

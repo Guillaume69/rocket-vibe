@@ -110,6 +110,22 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ),
     ("crypto.peer_review", "Examiner cet appareil", "Review this device"),
     (
+        "crypto.peer_next_pin",
+        "Première étape : mémorisez son empreinte, puis approuvez ses appareils.",
+        "First, save their fingerprint, then approve their devices.",
+    ),
+    (
+        "crypto.peer_next_devices",
+        "Étape suivante : examinez et approuvez ses appareils, plus bas.",
+        "Next, review and approve their devices, below.",
+    ),
+    (
+        "crypto.peer_all_approved",
+        "Ses appareils sont approuvés : ils peuvent rejoindre vos groupes chiffrés.",
+        "Their devices are approved: they can join your encrypted groups.",
+    ),
+    ("crypto.peer_no_devices", "Aucun appareil enregistré pour le moment.", "No registered device yet."),
+    (
         "crypto.peer_device_help",
         "L’approbation vise uniquement ce certificat d’appareil. Elle ne lui accorde pas l’accès à un groupe.",
         "Approval covers only this device certificate. It does not grant access to a group.",

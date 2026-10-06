@@ -151,6 +151,10 @@ section here.
 
 ### Fixed
 
+- RocketVibe: the encryption identity check of a profile says what to do next (save the
+  fingerprint, approve the devices below, or that all are approved) and is tall enough to
+  show the devices, where the approval happens; its result used to sit out of view.
+
 - RocketVibe: when a member of an encrypted group is not trusted yet, the room encryption
   dialog says so and what to do instead of a generic failure.
 

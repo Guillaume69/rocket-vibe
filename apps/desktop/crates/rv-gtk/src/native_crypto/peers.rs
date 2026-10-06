@@ -86,7 +86,15 @@ impl PeerController {
             Trust::Verified => "crypto.peer_verified",
             Trust::Changed => "crypto.peer_changed",
         }));
-        self.status.set_subtitle("");
+        // The next step, here where it is seen: the device list is below the fold.
+        let next = match view.trust {
+            Trust::Unknown => Some("crypto.peer_next_pin"),
+            Trust::Changed => None,
+            _ if view.devices.is_empty() => Some("crypto.peer_no_devices"),
+            _ if view.devices.iter().any(|d| !d.approved) => Some("crypto.peer_next_devices"),
+            _ => Some("crypto.peer_all_approved"),
+        };
+        self.status.set_subtitle(next.map(t).unwrap_or(""));
         self.root.set_subtitle(&view.fingerprint);
         self.previous.set_subtitle(&view.previous_fingerprint);
         self.confirmed.set_text("");
@@ -235,7 +243,9 @@ impl PeerController {
     }
 }
 fn open(parent: &adw::Dialog, session: Arc<NativeSession>, user: String) {
-    let dialog = adw::PreferencesDialog::builder().title(t("crypto.peer_title")).content_width(540).build();
+    // Tall enough to show the devices, where the approval happens.
+    let dialog =
+        adw::PreferencesDialog::builder().title(t("crypto.peer_title")).content_width(560).content_height(640).build();
     let page = adw::PreferencesPage::new();
     let group = adw::PreferencesGroup::builder().description(t("crypto.peer_help")).build();
     let status = adw::ActionRow::new();

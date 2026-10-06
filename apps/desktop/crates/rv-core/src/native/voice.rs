@@ -63,7 +63,7 @@ impl NativeSession {
             let scope = self.voice_scope(room)?;
             self.identity().await?;
             self.check_voice_scope(&scope, room)?;
-            let input = JoinVoice { membership_version: scope.membership.clone(), data_epoch: self.data_epoch(), ring };
+            let input = JoinVoice { membership_version: scope.membership.clone(), data_epoch: self.data_epoch(), ring, e2ee: false };
             let grant = self.client.join_voice(room, &input).await?;
             self.check_voice_scope(&scope, room)?;
             valid_grant(grant, room)
@@ -102,7 +102,7 @@ impl NativeSession {
             let scope = self.voice_scope(&ring.room_id)?;
             self.identity().await?;
             self.check_voice_scope(&scope, &ring.room_id)?;
-            let input = AnswerRing { membership_version: scope.membership.clone(), data_epoch: self.data_epoch() };
+            let input = AnswerRing { membership_version: scope.membership.clone(), data_epoch: self.data_epoch(), e2ee: false };
             let grant = self.client.accept_ring(id, &input).await?;
             self.check_voice_scope(&scope, &ring.room_id)?;
             valid_grant(grant, &ring.room_id)
@@ -182,6 +182,7 @@ mod tests {
             expires_at: "2026-10-06T12:05:00Z".into(),
             can_publish: true,
             ring: None,
+            e2ee: false,
         }
     }
     #[test]

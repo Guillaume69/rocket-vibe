@@ -1,7 +1,7 @@
 // Generated from crates/rv-protocol. Run scripts/generate-native-protocol.mjs.
 export type AcceptInvitation = { "password": string; "token": string; "username": string; };
 export type AccountPermissions = { "create_private_room": boolean; "create_public_room": boolean; "manage_accounts": boolean; "manage_instance": boolean; };
-export type AnswerRing = { "data_epoch": string; "membership_version": string; };
+export type AnswerRing = { "data_epoch": string; "e2ee"?: boolean; "membership_version": string; };
 export type ApiError = { "code": string; "request_id": string; };
 export type ApplicationCancellation = { "fingerprint": string; "header": string; "operation_id": string; "room_id": string; "scope": Scope; };
 export type ApplicationMessage = { "ciphertext": string; "proof": string; "receipt": ApplicationReceipt; };
@@ -84,7 +84,7 @@ export type HistoryRequests = { "requests": (HistoryRequestEntry)[]; "scope": Sc
 export type HistoryShareState = { "fingerprint": string; "scope": Scope; "share": string; "sharer_device_id": string; };
 export type Identity = { "fingerprint": string; "revision": string; "root": string; "user_id": string; };
 export type IntegrationCard = { "author"?: string | null; "color"?: string | null; "fields"?: (CardField)[]; "text"?: string | null; "title"?: string | null; "url"?: string | null; };
-export type JoinVoice = { "data_epoch": string; "membership_version": string; "ring"?: boolean; };
+export type JoinVoice = { "data_epoch": string; "e2ee"?: boolean; "membership_version": string; "ring"?: boolean; };
 export type LeaveRoom = { "expected_revision": string; "operation_id": string; };
 export type LinkPreview = { "description"?: string | null; "image"?: PreviewImage | null; "kind": PreviewKind; "site"?: string | null; "title"?: string | null; "url": string; };
 export type LiveFrame = { "data": LiveState; "type": "live"; };
@@ -192,7 +192,7 @@ export type User = { "display_name": string; "id": string; "username": string; }
 export type UserPreferences = { "clock_24h": boolean; "desktop_notifications"?: DesktopNotifications; "language": string; "push_enabled": boolean; "push_mentions_only": boolean; "revision": string; };
 export type UserProfile = { "avatar_file_id"?: string | null; "bio": string; "revision": string; "status"?: PresenceStatus; "status_text": string; "user": User; };
 export type VerifyFactor = { "challenge_id": string; "code": string; "method": SecondFactor; };
-export type VoiceGrant = { "can_publish": boolean; "expires_at": string; "ring"?: VoiceRing | null; "room_id": string; "token": string; "url": string; };
+export type VoiceGrant = { "can_publish": boolean; "e2ee"?: boolean; "expires_at": string; "ring"?: VoiceRing | null; "room_id": string; "token": string; "url": string; };
 export type VoiceParticipant = { "camera"?: boolean; "deafened": boolean; "muted": boolean; "screen"?: boolean; "user": User; };
 export type VoiceRing = { "callee": User; "caller": User; "expires_in_ms": number; "id": string; "room_id": string; "state": RingState; };
 
@@ -249,6 +249,9 @@ export const nativeSchema = {
       "properties": {
         "data_epoch": {
           "type": "string"
+        },
+        "e2ee": {
+          "type": "boolean"
         },
         "membership_version": {
           "type": "string"
@@ -2665,6 +2668,10 @@ export const nativeSchema = {
       "properties": {
         "data_epoch": {
           "type": "string"
+        },
+        "e2ee": {
+          "description": "The client encrypts its frames with the group's voice key. Required in\nan encrypted room, where a join without it is refused.",
+          "type": "boolean"
         },
         "membership_version": {
           "type": "string"
@@ -6905,6 +6912,10 @@ export const nativeSchema = {
       "properties": {
         "can_publish": {
           "description": "False in a read-only room for a plain member: listening only.",
+          "type": "boolean"
+        },
+        "e2ee": {
+          "description": "The room is encrypted: the client must encrypt and decrypt every frame\nwith the group's voice key, or leave.",
           "type": "boolean"
         },
         "expires_at": {

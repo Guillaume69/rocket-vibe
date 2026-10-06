@@ -27,6 +27,11 @@ enum Action {
     Pending {
         room: String,
     },
+    /// The room's voice frame key at the group's current epoch (VOICE.md):
+    /// the only group secret that leaves Rust, for LiveKit's frame cryptor.
+    VoiceKey {
+        room: String,
+    },
     Retry {
         room: String,
     },
@@ -401,6 +406,16 @@ impl CryptoInstallation {
             Action::Pending { room: id } => {
                 room(&id)?;
                 pending(&c, &id)?
+            }
+            Action::VoiceKey { room: id } => {
+                room(&id)?;
+                match c.voice_key(&id) {
+                    Ok((epoch, key)) => {
+                        json!({"epoch":epoch,"key":data_encoding::BASE64.encode(&key)})
+                    }
+                    Err(engine::Error::NotReady) => Value::Null,
+                    Err(error) => return Err(error.into()),
+                }
             }
             Action::Retry { room: id } => {
                 room(&id)?;

@@ -50,6 +50,9 @@
         "data_epoch": {
           "type": "string"
         },
+        "e2ee": {
+          "type": "boolean"
+        },
         "membership_version": {
           "type": "string"
         }
@@ -2465,6 +2468,10 @@
       "properties": {
         "data_epoch": {
           "type": "string"
+        },
+        "e2ee": {
+          "description": "The client encrypts its frames with the group's voice key. Required in\nan encrypted room, where a join without it is refused.",
+          "type": "boolean"
         },
         "membership_version": {
           "type": "string"
@@ -6705,6 +6712,10 @@
       "properties": {
         "can_publish": {
           "description": "False in a read-only room for a plain member: listening only.",
+          "type": "boolean"
+        },
+        "e2ee": {
+          "description": "The room is encrypted: the client must encrypt and decrypt every frame\nwith the group's voice key, or leave.",
           "type": "boolean"
         },
         "expires_at": {

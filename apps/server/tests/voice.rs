@@ -183,6 +183,7 @@ impl Bench {
                 .unwrap(),
             data_epoch: c.discover().await.unwrap().data_epoch,
             ring,
+            e2ee: false,
         }
     }
     async fn epoch(&self, c: &NativeClient) -> String {
@@ -469,6 +470,7 @@ async fn direct_calls_ring_and_their_row_carries_the_outcome(pool: PgPool) {
     let answer = AnswerRing {
         membership_version: b.input(&bob, &direct, false).await.membership_version,
         data_epoch: epoch.clone(),
+        e2ee: false,
     };
     let grant = bob.accept_ring(&ring.id, &answer).await.unwrap();
     assert_eq!(grant.ring.unwrap().state, RingState::Answered);
@@ -656,4 +658,48 @@ async fn one_screen_share_per_room_and_the_sfu_follows_the_claim(pool: PgPool) {
     b.disconnect(&sfu_room, &bob_id);
     b.reconcile().await;
     alice.claim_screen().await.unwrap();
+}
+
+#[sqlx::test]
+async fn an_encrypted_room_takes_only_encrypted_voice(pool: PgPool) {
+    let b = Bench::new(pool.clone()).await;
+    let (alice, alice_id) = b.user("crypt-alice").await;
+    let (_bob, bob_id) = b.user("crypt-bob").await;
+    let room = b.room(&alice, true).await;
+    alice.add_member(&room, &bob_id).await.unwrap();
+    let epoch = b.epoch(&alice).await;
+    sqlx::query("INSERT INTO e2ee_groups(room_id,data_epoch,incarnation,revision,epoch,fingerprint,transition,tree,receipt) VALUES($1,$2,'i',1,1,'f',$3,$3,'{}')")
+        .bind(&room).bind(&epoch).bind(vec![0u8]).execute(&pool).await.unwrap();
+    // A client that cannot encrypt its frames stays out.
+    refused(
+        alice
+            .join_voice(&room, &b.input(&alice, &room, false).await)
+            .await,
+        403,
+        "voice_encrypted_room",
+    );
+    let mut input = b.input(&alice, &room, false).await;
+    input.e2ee = true;
+    let grant = alice.join_voice(&room, &input).await.unwrap();
+    assert!(grant.e2ee, "the client is told to encrypt");
+    // The encrypted session has its own LiveKit room, which the worker keeps.
+    let sfu_room = format!("rve:{epoch}:{room}");
+    assert_eq!(claims(&grant.token)["video"]["room"], sfu_room.as_str());
+    b.connect(&sfu_room, participant(&alice_id, false, false));
+    // A plaintext participant left from before the group existed is evicted.
+    let plain = format!("rv:{epoch}:{room}");
+    b.connect(&plain, participant(&bob_id, false, false));
+    b.reconcile().await;
+    let removed = b.sfu.lock().unwrap().removed.clone();
+    assert!(!removed.iter().any(|(_, id)| id == &alice_id));
+    assert!(removed.contains(&(plain, bob_id.clone())));
+    let voice = live(&alice)
+        .await
+        .rooms
+        .into_iter()
+        .find(|r| r.room_id == room)
+        .unwrap()
+        .voice;
+    assert_eq!(voice.len(), 1);
+    assert_eq!(voice[0].user.id, alice_id);
 }

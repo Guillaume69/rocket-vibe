@@ -71,6 +71,19 @@ ids, positions or directories.
 - **Path confinement (T-5).** Have the bridge accept only paths under the cache and
   files directories it knows.
 
+## Voice frame key (added 2026-10-07)
+
+Encrypted voice ([VOICE.md](VOICE.md#encrypted-rooms)) exports one secret per
+epoch from the room's MLS group (`Coordinator::voice_key`, label `rocketvibe
+voice v1`, context the group id) and hands it to LiveKit's frame cryptor. It is
+the only group secret that leaves Rust: through the mobile bridge (`voice_key`
+action) it crosses JS as base64 into the Kotlin engine, and on desktop it goes
+over the sidecar's stdin pipe. Accepted because it only opens this epoch's voice
+frames, never messages or files, and the next epoch replaces it. Not covered:
+LiveKit's frame format is shared-key AES-GCM without sender authentication, so a
+current member can forge frames under another member's identity; MLS does not
+bind who speaks.
+
 ## Known limitation: keystore rollback
 
 The vault's anti-rollback anchor is the keystore record alone. Restoring a keystore

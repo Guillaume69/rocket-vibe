@@ -33,14 +33,20 @@ fn livekit(app: &App) -> Result<&LiveKit> {
     app.livekit.as_deref().ok_or_else(unavailable)
 }
 
-/// A new data generation never meets an old session.
-pub(crate) fn sfu_room(epoch: &str, room: &str) -> String {
-    format!("rv:{epoch}:{room}")
+/// A new data generation never meets an old session, and an encrypted
+/// session (`rve:`) never meets a plaintext one.
+pub(crate) fn sfu_room(epoch: &str, room: &str, e2ee: bool) -> String {
+    let prefix = if e2ee { "rve" } else { "rv" };
+    format!("{prefix}:{epoch}:{room}")
 }
 
-fn parse_sfu_room(name: &str) -> Option<(&str, &str)> {
-    let (epoch, room) = name.strip_prefix("rv:")?.split_once(':')?;
-    (auth::identifier(epoch) && auth::identifier(room)).then_some((epoch, room))
+fn parse_sfu_room(name: &str) -> Option<(&str, &str, bool)> {
+    let (e2ee, rest) = match name.strip_prefix("rve:") {
+        Some(rest) => (true, rest),
+        None => (false, name.strip_prefix("rv:")?),
+    };
+    let (epoch, room) = rest.split_once(':')?;
+    (auth::identifier(epoch) && auth::identifier(room)).then_some((epoch, room, e2ee))
 }
 
 /// Plain members of a read-only room listen without publishing.
@@ -53,6 +59,7 @@ struct Scope {
     read_only: bool,
     direct: bool,
     epoch: String,
+    encrypted: bool,
 }
 
 async fn lock_scope(
@@ -61,6 +68,7 @@ async fn lock_scope(
     room: &str,
     membership: &str,
     epoch: &str,
+    e2ee: bool,
 ) -> Result<Scope> {
     let (_, current) = crate::live::device(tx, actor).await?;
     let grant: Option<(String, String, bool, String, bool)> = sqlx::query_as("SELECT m.role,s.membership_version,r.read_only,r.kind,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=r.id) FROM members m JOIN rooms r ON r.id=m.room_id JOIN room_read_states s ON s.room_id=m.room_id AND s.user_id=m.user_id WHERE m.room_id=$1 AND m.user_id=$2 FOR SHARE OF m,s,r")
@@ -72,8 +80,9 @@ async fn lock_scope(
     if current != epoch {
         return Err(Error::new(StatusCode::CONFLICT, "data_epoch_changed"));
     }
-    // Until voice frames are encrypted with a key derived from the room's group.
-    if encrypted {
+    // An encrypted room's voice is end-to-end encrypted too: frames under a key
+    // only the group's devices derive. A client that cannot is refused.
+    if encrypted && !e2ee {
         return Err(Error::new(StatusCode::FORBIDDEN, "voice_encrypted_room"));
     }
     Ok(Scope {
@@ -81,6 +90,7 @@ async fn lock_scope(
         read_only,
         direct: kind == "direct",
         epoch: current,
+        encrypted,
     })
 }
 
@@ -230,16 +240,18 @@ pub(crate) async fn join(
         room,
         &input.membership_version,
         &input.data_epoch,
+        input.e2ee,
     )
     .await?;
-    let previous: Option<(String, String)> =
-        sqlx::query_as("SELECT room_id,data_epoch FROM voice_sessions WHERE user_id=$1 FOR UPDATE")
-            .bind(&actor.id)
-            .fetch_optional(&mut *tx)
-            .await?;
+    let previous: Option<(String, String, bool)> = sqlx::query_as(
+        "SELECT room_id,data_epoch,e2ee FROM voice_sessions WHERE user_id=$1 FOR UPDATE",
+    )
+    .bind(&actor.id)
+    .fetch_optional(&mut *tx)
+    .await?;
     // Rejoining the same session keeps what the SFU reported; another room starts over.
-    sqlx::query("INSERT INTO voice_sessions(user_id,room_id,data_epoch,state,expires_at) VALUES($1,$2,$3,'joining',clock_timestamp()+make_interval(secs => $4)) ON CONFLICT(user_id) DO UPDATE SET state=CASE WHEN voice_sessions.room_id=EXCLUDED.room_id AND voice_sessions.data_epoch=EXCLUDED.data_epoch THEN voice_sessions.state ELSE 'joining' END,screen=voice_sessions.screen AND voice_sessions.room_id=EXCLUDED.room_id,joined_at=CASE WHEN voice_sessions.room_id=EXCLUDED.room_id THEN voice_sessions.joined_at ELSE clock_timestamp() END,room_id=EXCLUDED.room_id,data_epoch=EXCLUDED.data_epoch,expires_at=GREATEST(voice_sessions.expires_at,EXCLUDED.expires_at)")
-        .bind(&actor.id).bind(room).bind(&scope.epoch).bind(SESSION_SECONDS).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO voice_sessions(user_id,room_id,data_epoch,state,e2ee,expires_at) VALUES($1,$2,$3,'joining',$5,clock_timestamp()+make_interval(secs => $4)) ON CONFLICT(user_id) DO UPDATE SET state=CASE WHEN voice_sessions.room_id=EXCLUDED.room_id AND voice_sessions.data_epoch=EXCLUDED.data_epoch AND voice_sessions.e2ee=EXCLUDED.e2ee THEN voice_sessions.state ELSE 'joining' END,screen=voice_sessions.screen AND voice_sessions.room_id=EXCLUDED.room_id,joined_at=CASE WHEN voice_sessions.room_id=EXCLUDED.room_id THEN voice_sessions.joined_at ELSE clock_timestamp() END,room_id=EXCLUDED.room_id,data_epoch=EXCLUDED.data_epoch,e2ee=EXCLUDED.e2ee,expires_at=GREATEST(voice_sessions.expires_at,EXCLUDED.expires_at)")
+        .bind(&actor.id).bind(room).bind(&scope.epoch).bind(SESSION_SECONDS).bind(scope.encrypted).execute(&mut *tx).await?;
     let mut ring_id = None;
     if scope.direct {
         // Calling someone who is calling you answers their call.
@@ -265,14 +277,18 @@ pub(crate) async fn join(
     let (token, expires) = livekit.join_token(
         &actor.id,
         &actor.display_name,
-        &sfu_room(&scope.epoch, room),
+        &sfu_room(&scope.epoch, room, scope.encrypted),
         can_publish,
     )?;
     tx.commit().await?;
-    if let Some((old_room, old_epoch)) = previous
-        && (old_room != room || old_epoch != scope.epoch)
+    if let Some((old_room, old_epoch, old_e2ee)) = previous
+        && (old_room != room || old_epoch != scope.epoch || old_e2ee != scope.encrypted)
     {
-        evict(app, sfu_room(&old_epoch, &old_room), actor.id.clone());
+        evict(
+            app,
+            sfu_room(&old_epoch, &old_room, old_e2ee),
+            actor.id.clone(),
+        );
     }
     Ok(VoiceGrant {
         room_id: room.into(),
@@ -281,6 +297,7 @@ pub(crate) async fn join(
         expires_at: expires.to_rfc3339(),
         can_publish,
         ring,
+        e2ee: scope.encrypted,
     })
 }
 
@@ -300,11 +317,12 @@ pub(crate) async fn leave(app: &App, actor: &Account) -> Result<()> {
     livekit(app)?;
     let mut tx = app.pool.begin().await?;
     auth::lock_active(&mut tx, actor).await?;
-    let session: Option<(String, String)> =
-        sqlx::query_as("DELETE FROM voice_sessions WHERE user_id=$1 RETURNING room_id,data_epoch")
-            .bind(&actor.id)
-            .fetch_optional(&mut *tx)
-            .await?;
+    let session: Option<(String, String, bool)> = sqlx::query_as(
+        "DELETE FROM voice_sessions WHERE user_id=$1 RETURNING room_id,data_epoch,e2ee",
+    )
+    .bind(&actor.id)
+    .fetch_optional(&mut *tx)
+    .await?;
     let ringing: Vec<String> = sqlx::query_scalar(
         "SELECT id FROM voice_rings WHERE caller_id=$1 AND state='ringing' FOR UPDATE",
     )
@@ -315,8 +333,8 @@ pub(crate) async fn leave(app: &App, actor: &Account) -> Result<()> {
         resolve(&mut tx, &id, "cancelled").await?;
     }
     tx.commit().await?;
-    if let Some((room, epoch)) = session {
-        evict(app, sfu_room(&epoch, &room), actor.id.clone());
+    if let Some((room, epoch, e2ee)) = session {
+        evict(app, sfu_room(&epoch, &room, e2ee), actor.id.clone());
     }
     Ok(())
 }
@@ -353,6 +371,7 @@ pub(crate) async fn accept(
             membership_version: input.membership_version,
             data_epoch: input.data_epoch,
             ring: false,
+            e2ee: input.e2ee,
         },
     )
     .await
@@ -382,13 +401,13 @@ async fn share(app: &App, actor: &Account, on: bool) -> Result<()> {
     let livekit = livekit(app)?;
     let mut tx = app.pool.begin().await?;
     auth::lock_active(&mut tx, actor).await?;
-    let session: Option<(String, String, String)> = sqlx::query_as(
-        "SELECT room_id,data_epoch,state FROM voice_sessions WHERE user_id=$1 FOR UPDATE",
+    let session: Option<(String, String, String, bool)> = sqlx::query_as(
+        "SELECT room_id,data_epoch,state,e2ee FROM voice_sessions WHERE user_id=$1 FOR UPDATE",
     )
     .bind(&actor.id)
     .fetch_optional(&mut *tx)
     .await?;
-    let Some((room, epoch, state)) = session else {
+    let Some((room, epoch, state, e2ee)) = session else {
         return Err(Error::new(StatusCode::CONFLICT, "voice_not_connected"));
     };
     let grant: Option<(String, bool)> = sqlx::query_as("SELECT m.role,r.read_only FROM members m JOIN rooms r ON r.id=m.room_id WHERE m.room_id=$1 AND m.user_id=$2 FOR SHARE OF m")
@@ -426,7 +445,7 @@ async fn share(app: &App, actor: &Account, on: bool) -> Result<()> {
     // The worker repeats it if the SFU misses this one.
     livekit
         .permit(
-            &sfu_room(&epoch, &room),
+            &sfu_room(&epoch, &room, e2ee),
             &actor.id,
             &livekit::sources(may_publish(&role, read_only), on),
         )
@@ -458,13 +477,14 @@ struct Seen {
     sfu_room: String,
     epoch: String,
     room: String,
+    e2ee: bool,
     participant: livekit::Participant,
 }
 
 async fn observe(livekit: &LiveKit) -> Result<Vec<Seen>> {
     let mut seen = Vec::new();
     for name in livekit.rooms().await? {
-        let Some((epoch, room)) = parse_sfu_room(&name) else {
+        let Some((epoch, room, e2ee)) = parse_sfu_room(&name) else {
             continue;
         };
         let (epoch, room) = (epoch.to_owned(), room.to_owned());
@@ -473,6 +493,7 @@ async fn observe(livekit: &LiveKit) -> Result<Vec<Seen>> {
                 sfu_room: name.clone(),
                 epoch: epoch.clone(),
                 room: room.clone(),
+                e2ee,
                 participant,
             });
         }
@@ -501,32 +522,35 @@ async fn pass(app: &App, livekit: &LiveKit) -> Result<()> {
             .map(|s| s.participant.identity.as_str())
             .collect();
         let rooms: Vec<&str> = seen.iter().map(|s| s.room.as_str()).collect();
-        let grants: Vec<(String, String, String, bool)> = sqlx::query_as("SELECT o.user_id,o.room_id,m.role,r.read_only FROM unnest($1::text[],$2::text[]) AS o(user_id,room_id) JOIN users u ON u.id=o.user_id AND NOT u.disabled JOIN members m ON m.user_id=o.user_id AND m.room_id=o.room_id JOIN rooms r ON r.id=o.room_id WHERE NOT EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=r.id)")
+        // An encrypted room's session is its `rve:` room only: plaintext
+        // participants left from before the group existed are evicted.
+        let grants: Vec<(String, String, String, bool, bool)> = sqlx::query_as("SELECT o.user_id,o.room_id,m.role,r.read_only,EXISTS(SELECT 1 FROM e2ee_groups g WHERE g.room_id=r.id) FROM unnest($1::text[],$2::text[]) AS o(user_id,room_id) JOIN users u ON u.id=o.user_id AND NOT u.disabled JOIN members m ON m.user_id=o.user_id AND m.room_id=o.room_id JOIN rooms r ON r.id=o.room_id")
             .bind(&users).bind(&rooms).fetch_all(&mut *tx).await?;
-        let sessions: Vec<(String, String, String, bool)> = sqlx::query_as(
-            "SELECT user_id,room_id,data_epoch,screen FROM voice_sessions ORDER BY user_id FOR UPDATE",
+        let sessions: Vec<(String, String, String, bool, bool)> = sqlx::query_as(
+            "SELECT user_id,room_id,data_epoch,screen,e2ee FROM voice_sessions ORDER BY user_id FOR UPDATE",
         )
         .fetch_all(&mut *tx)
         .await?;
         let mut kept = HashSet::new();
         for s in seen {
             let identity = &s.participant.identity;
-            let grant = grants
-                .iter()
-                .find(|(u, r, _, _)| u == identity && *r == s.room);
+            let grant = grants.iter().find(|(u, r, _, _, encrypted)| {
+                u == identity && *r == s.room && *encrypted == s.e2ee
+            });
             // A join elsewhere wins over this connection.
-            let moved = sessions
-                .iter()
-                .any(|(u, r, e, _)| u == identity && (*r != s.room || *e != s.epoch));
+            let moved = sessions.iter().any(|(u, r, e, _, e2ee)| {
+                u == identity && (*r != s.room || *e != s.epoch || *e2ee != s.e2ee)
+            });
             let screen = sessions
                 .iter()
-                .any(|(u, r, _, screen)| u == identity && *r == s.room && *screen);
-            let Some((_, _, role, read_only)) = grant.filter(|_| s.epoch == epoch && !moved) else {
+                .any(|(u, r, _, screen, _)| u == identity && *r == s.room && *screen);
+            let Some((_, _, role, read_only, _)) = grant.filter(|_| s.epoch == epoch && !moved)
+            else {
                 evictions.push((s.sfu_room.clone(), identity.clone()));
                 continue;
             };
-            sqlx::query("INSERT INTO voice_sessions(user_id,room_id,data_epoch,state,muted,deafened,camera,expires_at) VALUES($1,$2,$3,'connected',$4,$5,$6,clock_timestamp()+make_interval(secs => $7)) ON CONFLICT(user_id) DO UPDATE SET state='connected',muted=EXCLUDED.muted,deafened=EXCLUDED.deafened,camera=EXCLUDED.camera,expires_at=EXCLUDED.expires_at,joined_at=CASE WHEN voice_sessions.room_id=EXCLUDED.room_id THEN voice_sessions.joined_at ELSE clock_timestamp() END,room_id=EXCLUDED.room_id,data_epoch=EXCLUDED.data_epoch")
-                .bind(identity).bind(&s.room).bind(&s.epoch).bind(s.participant.muted).bind(s.participant.deafened).bind(s.participant.camera).bind(SESSION_SECONDS)
+            sqlx::query("INSERT INTO voice_sessions(user_id,room_id,data_epoch,state,muted,deafened,camera,e2ee,expires_at) VALUES($1,$2,$3,'connected',$4,$5,$6,$8,clock_timestamp()+make_interval(secs => $7)) ON CONFLICT(user_id) DO UPDATE SET state='connected',muted=EXCLUDED.muted,deafened=EXCLUDED.deafened,camera=EXCLUDED.camera,e2ee=EXCLUDED.e2ee,expires_at=EXCLUDED.expires_at,joined_at=CASE WHEN voice_sessions.room_id=EXCLUDED.room_id THEN voice_sessions.joined_at ELSE clock_timestamp() END,room_id=EXCLUDED.room_id,data_epoch=EXCLUDED.data_epoch")
+                .bind(identity).bind(&s.room).bind(&s.epoch).bind(s.participant.muted).bind(s.participant.deafened).bind(s.participant.camera).bind(SESSION_SECONDS).bind(s.e2ee)
                 .execute(&mut *tx).await?;
             kept.insert(identity.clone());
             // The SFU's permissions follow the room's rights and the screen claim.
@@ -579,8 +603,11 @@ mod tests {
 
     #[test]
     fn sfu_rooms_round_trip_and_reject_foreign_names() {
-        let name = sfu_room("epoch1", "room1");
-        assert_eq!(parse_sfu_room(&name), Some(("epoch1", "room1")));
+        let name = sfu_room("epoch1", "room1", false);
+        assert_eq!(parse_sfu_room(&name), Some(("epoch1", "room1", false)));
+        let name = sfu_room("epoch1", "room1", true);
+        assert_eq!(name, "rve:epoch1:room1");
+        assert_eq!(parse_sfu_room(&name), Some(("epoch1", "room1", true)));
         assert_eq!(parse_sfu_room("lobby"), None);
         assert_eq!(parse_sfu_room("rv:epoch1"), None);
         assert_eq!(parse_sfu_room("rv::room"), None);

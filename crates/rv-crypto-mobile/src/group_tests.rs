@@ -1193,6 +1193,8 @@ fn two_native_actors_create_join_rotate_reopen_original_and_cancel_without_expor
         json!({"action":"preview","roster":roster,"packages":[],"removals":[],"event":event}),
     );
     assert_eq!(preview["kind"], "admission");
+    // Not welcomed yet: no voice key.
+    assert!(call(&bob, &peer, json!({"action":"voice_key","room":"room"})).is_null());
     call(
         &bob,
         &peer,
@@ -1201,6 +1203,20 @@ fn two_native_actors_create_join_rotate_reopen_original_and_cancel_without_expor
     assert_eq!(
         call(&bob, &peer, json!({"action":"view","roster":roster}))["accepted"]["fingerprint"],
         ack.fingerprint
+    );
+    // Both devices derive the same voice key, base64 of 32 bytes, at the group's epoch.
+    let voice = call(&alice, &own, json!({"action":"voice_key","room":"room"}));
+    assert_eq!(
+        voice,
+        call(&bob, &peer, json!({"action":"voice_key","room":"room"}))
+    );
+    assert_eq!(voice["epoch"].as_u64().unwrap().to_string(), ack.epoch);
+    assert_eq!(
+        data_encoding::BASE64
+            .decode(voice["key"].as_str().unwrap().as_bytes())
+            .unwrap()
+            .len(),
+        32
     );
     assert_eq!(
         call(&alice, &own, json!({"action":"view","roster":roster}))["needs_credential_update"],

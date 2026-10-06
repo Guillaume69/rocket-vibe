@@ -19,6 +19,7 @@ fn grant(room: &str, url: &str) -> VoiceGrant {
         expires_at: "2026-10-06T12:05:00Z".into(),
         can_publish: true,
         ring: None,
+        e2ee: false,
     }
 }
 

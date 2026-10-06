@@ -12,6 +12,10 @@ pub struct JoinVoice {
     /// Direct rooms only: ring the other member. Ignored when a call already rings.
     #[serde(default, skip_serializing_if = "crate::is_false")]
     pub ring: bool,
+    /// The client encrypts its frames with the group's voice key. Required in
+    /// an encrypted room, where a join without it is refused.
+    #[serde(default, skip_serializing_if = "crate::is_false")]
+    pub e2ee: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
@@ -19,6 +23,8 @@ pub struct JoinVoice {
 pub struct AnswerRing {
     pub membership_version: String,
     pub data_epoch: String,
+    #[serde(default, skip_serializing_if = "crate::is_false")]
+    pub e2ee: bool,
 }
 
 // No Debug: the token admits its bearer to the room's media.
@@ -34,6 +40,10 @@ pub struct VoiceGrant {
     /// The ring this join started or answered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ring: Option<VoiceRing>,
+    /// The room is encrypted: the client must encrypt and decrypt every frame
+    /// with the group's voice key, or leave.
+    #[serde(default, skip_serializing_if = "crate::is_false")]
+    pub e2ee: bool,
 }
 
 /// One account connected to a room's voice session, as the SFU last reported it.

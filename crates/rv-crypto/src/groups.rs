@@ -1277,7 +1277,33 @@ impl Coordinator {
     pub fn ready_epoch(&self, room: &str) -> Result<u64> {
         self.accepted_receipt(room).map(|receipt| receipt.epoch)
     }
+    /// The key encrypting the room's voice frames for the accepted epoch
+    /// (docs/protocol/VOICE.md): an MLS exporter secret bound to the group's
+    /// scope, so only an admitted, active device of the group derives it and
+    /// the server never can. Peers on another epoch derive another key and
+    /// fail closed.
+    pub fn voice_key(&self, room: &str) -> Result<(u64, zeroize::Zeroizing<Vec<u8>>)> {
+        self.inspect(|provider, records| {
+            let state = read(records, room)?.ok_or(Error::NotReady)?;
+            self.scope(&state.scope)?;
+            let active = state.active.ok_or(Error::NotReady)?;
+            let id = state.scope.group_id()?;
+            let group = MlsGroup::load(provider.storage(), &GroupId::from_slice(&id))
+                .map_err(|_| Error::Mls)?
+                .ok_or(Error::Changed)?;
+            check_actual(group.public_group(), &active.transition.plan)?;
+            if !group.is_active() || group.epoch().as_u64() != active.receipt.epoch {
+                return Err(Error::NotReady);
+            }
+            let key = group
+                .export_secret(provider.crypto(), VOICE_LABEL, &id, 32)
+                .map_err(|_| Error::Mls)?;
+            Ok((active.receipt.epoch, zeroize::Zeroizing::new(key)))
+        })
+    }
 }
+/// Distinct from every other exporter use: a voice key opens no message.
+const VOICE_LABEL: &str = "rocketvibe voice v1";
 fn check_admission(admission: &Admission) -> Result<(Transition, Fingerprint)> {
     let welcome = &admission.welcome;
     if admission.transition.len() > public::WIRE_LIMIT

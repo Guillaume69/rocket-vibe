@@ -26,16 +26,38 @@ current member and observes the SFU; the clients speak WebRTC to LiveKit:
   `rv.deafened` (`"1"` / absent). The display name comes from the profiles,
   never from LiveKit metadata.
 
-Encrypted rooms (an E2EE group exists) refuse voice with `403
-voice_encrypted_room` until voice frames are end-to-end encrypted with a key
-derived from the group (a later batch).
+## Encrypted rooms
+
+An encrypted room (an E2EE group exists, [E2EE_GROUPS.md](E2EE_GROUPS.md))
+has end-to-end encrypted voice: the SFU forwards frames it cannot read.
+
+- A join must say `"e2ee": true` (the client can encrypt), or it is refused
+  with `403 voice_encrypted_room`. The grant answers `"e2ee": true`: the
+  client encrypts every frame or does not connect. In a plaintext room the
+  flag is ignored and the grant omits it.
+- The session lives in its own LiveKit room, `rve:{data_epoch}:{room_id}`,
+  so plaintext and encrypted participants never meet: one connected before the
+  room's group existed is evicted by the worker and rejoins encrypted.
+- **The key** never reaches the server. Each device exports it from the
+  room's MLS group at the current epoch: `MLS-Exporter("rocketvibe voice v1",
+  group_id, 32)`. LiveKit's frame encryption (AES-GCM) takes it as its
+  **shared key**, at key index 0, as the ASCII bytes of its standard padded
+  base64 (`setSharedKey(String)` on Android and Swift, `Vec<u8>` in Rust: the
+  same bytes everywhere), with LiveKit's default ratchet salt and PBKDF2.
+- A new epoch (a member or device added or removed) is a new key: every
+  client replaces key 0 when it sees its group advance. Until all have,
+  frames under the other key do not decrypt: a short silence, never
+  plaintext. A removed member cannot derive the new key, and the worker
+  evicts it when it is no longer a member.
+- A device whose group is not ready yet (not welcomed, epoch behind) cannot
+  join: the client says why instead of connecting.
 
 ## Joining and leaving
 
 `POST /api/v1/rooms/{id}/voice/join`
 
 ```json
-{"membership_version":"grant1","data_epoch":"epoch1","ring":true}
+{"membership_version":"grant1","data_epoch":"epoch1","ring":true,"e2ee":false}
 ```
 
 answers a `VoiceGrant`, `Cache-Control: no-store`:

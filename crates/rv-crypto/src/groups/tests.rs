@@ -349,11 +349,33 @@ fn real_welcome_retry_and_ack_keep_the_same_mls_group_after_reopening() {
             Ok(())
         })
         .unwrap();
+    // Both devices derive the same voice key for the accepted epoch; it is
+    // not the group's other exporter output.
+    let (epoch, voice) = alice.reopened().voice_key("room").unwrap();
+    assert_eq!(epoch, 1);
+    assert_eq!(voice.len(), 32);
+    // Bob holds the same group: his exporter gives the same voice key, while
+    // his coordinator, not yet accepted here, refuses to hand it out.
+    bob.manager
+        .inspect(|provider, _| {
+            let group = MlsGroup::load(provider.storage(), &id).unwrap().unwrap();
+            assert_eq!(
+                group
+                    .export_secret(provider.crypto(), VOICE_LABEL, id.as_slice(), 32)
+                    .unwrap(),
+                voice.to_vec()
+            );
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(bob.reopened().voice_key("room").err(), Some(Error::NotReady));
+    assert_ne!(voice.as_slice(), secret.as_slice());
+    assert_eq!(alice.reopened().voice_key("another-room").err(), Some(Error::NotReady));
     for path in fs::read_dir(alice.directory.path()).unwrap() {
         let path = path.unwrap().path();
         if path.extension().is_some_and(|e| e == "sqlite") {
             let database = fs::read(path).unwrap();
-            for private in [b"crypto-group-v1/room".as_slice(), secret.as_slice()] {
+            for private in [b"crypto-group-v1/room".as_slice(), secret.as_slice(), voice.as_slice()] {
                 assert!(!database.windows(private.len()).any(|w| w == private));
             }
         }

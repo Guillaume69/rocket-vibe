@@ -21,6 +21,9 @@ CREATE UNLOGGED TABLE voice_sessions (
     camera BOOLEAN NOT NULL DEFAULT false,
     -- The room's one screen share, claimed before the SFU lets it publish.
     screen BOOLEAN NOT NULL DEFAULT false,
+    -- The session's frames are end-to-end encrypted: an encrypted room's own
+    -- LiveKit room, never shared with plaintext participants.
+    e2ee BOOLEAN NOT NULL DEFAULT false,
     joined_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     expires_at TIMESTAMPTZ NOT NULL
 );

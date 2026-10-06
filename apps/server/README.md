@@ -64,7 +64,12 @@ From the repository root, with Docker Desktop / Docker Engine running:
 docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml up --build -d
 ```
 
-The server listens on `http://127.0.0.1:3400`. PostgreSQL has no port published on
+The server listens on `http://127.0.0.1:3400`. To try the native end-to-end
+encryption on a test bench, add `RV_E2EE_PREVIEW=1` to `docker/.env.native`: the
+server then advertises the `e2ee` capability and the apps show their encryption
+settings. It is off by default because RFC 0002 activates it only after an
+independent review ([internal review](../../docs/protocol/E2EE_REVIEW.md)); never
+enable it on a server with real users. PostgreSQL has no port published on
 the host. This Compose file and its volumes are separate from the Rocket.Chat bench.
 
 Create an account with a password of at least 12 bytes supplied by the

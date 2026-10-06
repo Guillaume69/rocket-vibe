@@ -415,6 +415,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             structured_cards: true,
             push: app.push.is_some(),
             calls: app.jitsi.is_some(),
+            e2ee: app.e2ee_preview,
             session_rotation: true,
             device_sessions: true,
             account_invitations: true,

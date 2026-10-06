@@ -2889,6 +2889,7 @@ async fn auth_validation_and_generation_reset(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(discovery.product, "rocketvibe");
+    // Off unless the operator opts into the preview (RV_E2EE_PREVIEW).
     assert!(!discovery.capabilities.e2ee);
     assert!(!discovery.capabilities.uploads);
     let unknown = server
@@ -3846,4 +3847,28 @@ async fn snapshot_room_and_total_byte_limits_refund_failed_reservations(pool: Pg
         .await
         .unwrap();
     assert_eq!(remaining, 0);
+}
+
+#[sqlx::test]
+async fn the_e2ee_preview_is_an_operator_opt_in(pool: PgPool) {
+    let app = App::from_pool(pool).await.unwrap().with_e2ee_preview(true);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.router()
+                .into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+    let discovery: Discovery = reqwest::get(format!("{base}/.well-known/rocketvibe"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(discovery.capabilities.e2ee);
+    task.abort();
 }

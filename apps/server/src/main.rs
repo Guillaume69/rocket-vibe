@@ -17,6 +17,10 @@ struct Args {
     /// Private operator configuration shared with the Jitsi token verifier.
     #[arg(long, env = "RV_JITSI_CONFIG_FILE", hide_env_values = true)]
     jitsi_config_file: Option<std::path::PathBuf>,
+    /// Advertise the unreviewed native E2EE to clients (test benches only:
+    /// RFC 0002 activates it after the independent review).
+    #[arg(long, env = "RV_E2EE_PREVIEW")]
+    e2ee_preview: bool,
     /// Durable volume; include it with PostgreSQL in backups.
     #[arg(long, env = "RV_OBJECTS_DIR", default_value = "data/objects")]
     objects_dir: std::path::PathBuf,
@@ -224,7 +228,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .as_deref()
                 .map(rv_server::meetings::Jitsi::from_file)
                 .transpose()?,
-        );
+        )
+        .with_e2ee_preview(args.e2ee_preview);
     match args.command {
         Command::Emoji { command } => match command {
             EmojiCommand::List => operator_output(rv_server::custom_emojis::catalog(&app).await)?,

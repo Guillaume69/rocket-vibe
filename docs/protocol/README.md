@@ -107,7 +107,7 @@ presence does not declare the corresponding endpoints available.
 | GET / upgrade | `/sync/socket?ticket=…&cursor=…` | Same `SyncBatch` format, replay then follow |
 
 Account creation is a local command, not a public HTTP registration.
-The [`threads`](THREADS.md) capability is enabled; `uploads`, `push`, `e2ee`, `calls` stay false.
+The [`threads`](THREADS.md) capability is enabled; `uploads`, `push`, `e2ee`, `calls` stay false. `e2ee` turns true only when the operator opts into the unreviewed preview (`RV_E2EE_PREVIEW=1`, test benches only).
 `reactions` advertises explicit additions / removals, available in the three clients.
 `room_discovery` advertises the directory and joining; `idempotent_room_creation`
 advertises the creation receipts. Their handlers are available in the three clients.

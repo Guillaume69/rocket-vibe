@@ -50,6 +50,9 @@ pub struct App {
     pub mail: Option<Arc<mail::Sender>>,
     pub push: Option<Arc<push::Sender>>,
     pub jitsi: Option<Arc<meetings::Jitsi>>,
+    /// Advertises the `e2ee` capability before its independent review (RFC
+    /// 0002 step 6): an operator opt-in for test benches, off by default.
+    pub e2ee_preview: bool,
     pub(crate) objects: Option<objects::LocalObjects>,
     image_slots: Arc<tokio::sync::Semaphore>,
     file_slots: Arc<tokio::sync::Semaphore>,
@@ -105,6 +108,7 @@ impl App {
             mail: None,
             push: None,
             jitsi: None,
+            e2ee_preview: false,
             objects: None,
             image_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             file_slots: Arc::new(tokio::sync::Semaphore::new(4)),
@@ -136,6 +140,11 @@ impl App {
 
     pub fn with_jitsi(mut self, jitsi: Option<meetings::Jitsi>) -> Self {
         self.jitsi = jitsi.map(Arc::new);
+        self
+    }
+
+    pub fn with_e2ee_preview(mut self, enabled: bool) -> Self {
+        self.e2ee_preview = enabled;
         self
     }
 

@@ -17,6 +17,9 @@
 //!   RV_SMOKE_COMMANDS=<tag>  completes `/shr`, runs `/join` on a missing channel (the
 //!                          server's private answer must show), then sends `/shrug <tag>`
 //!   RV_SMOKE_FILES=1       fetches every file attached in the room to the local cache
+//!   RV_SMOKE_JOIN_VOICE=<n>  RocketVibe: joins the room's voice session as the header's call
+//!                          button does (ringing in a direct room), then checks it connected
+//!                          with n people in it
 //!   RV_SMOKE_UPLOAD="<path>|<caption>"  stages the file in the composer, types the caption and
 //!                          sends (RV_SMOKE_UPLOAD_HOLD=1: left staged, for a screenshot)
 //!   RV_SMOKE_SPOTLIGHT=<query>  finds a channel, joins it and opens it
@@ -253,6 +256,20 @@ pub fn install(window: &Rc<AppWindow>) {
             {
                 let chat = w.chat.clone();
                 glib::timeout_add_local_once(Duration::from_millis(3000), move || command_checks(chat, tag));
+            }
+            if let Ok(expected) = std::env::var("RV_SMOKE_JOIN_VOICE")
+                && let Ok(expected) = expected.parse::<usize>()
+            {
+                let (chat, rid) = (w.chat.clone(), rid.clone());
+                glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+                    chat.join_voice_now(&rid);
+                    glib::timeout_add_local_once(Duration::from_millis(6000), move || {
+                        let (connected, people, panel) = chat.voice_summary();
+                        check("voice connected", connected, connected);
+                        check("voice occupants", people == expected, people);
+                        check("voice panel shown", panel, panel);
+                    });
+                });
             }
             if std::env::var("RV_SMOKE_FILES").as_deref() == Ok("1") {
                 let chat = w.chat.clone();

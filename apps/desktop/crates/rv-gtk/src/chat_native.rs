@@ -15,6 +15,7 @@ impl ChatPage {
         self.native.replace(Some(session.clone()));
         self.list.set_native_provider(session.clone());
         self.native_features(&session);
+        self.follow_voice(&session);
         self.account_name.set_label(&session.info.username);
         let host = url::Url::parse(&session.info.base_url)
             .ok()
@@ -65,6 +66,7 @@ impl ChatPage {
                 }
                 this.refresh_uploads();
                 this.refresh_room_header();
+                this.refresh_voice();
                 if let Some(rid) = this.current_rid() {
                     this.on_typing(&rid);
                 }
@@ -151,6 +153,7 @@ impl ChatPage {
             return;
         };
         if self.current_rid().as_deref() == Some(rid) {
+            self.content_stack.set_visible_child_name("room");
             self.split.set_show_content(true);
             return;
         }
@@ -196,8 +199,7 @@ impl ChatPage {
             self.composer.bind_native(&session, rid);
             self.composer.load_native_commands(&session, rid);
         }
-        // Native rooms have no Jitsi meetings.
-        self.call_button.set_visible(false);
+        self.voice_call_button(&session);
         let (access_session, access_room) = (session.clone(), rid.to_owned());
         runtime().spawn(async move {
             let _ = access_session.refresh_room_access(&access_room).await;
@@ -1026,18 +1028,24 @@ impl ChatPage {
             let group = adw::PreferencesGroup::new();
             let name = adw::EntryRow::builder().title(t("native.room_name")).build();
             let private = adw::SwitchRow::builder().title(t("native.private")).active(true).build();
+            let voice = adw::SwitchRow::builder()
+                .title(t("voice_session.channel"))
+                .subtitle(t("voice_session.channel_hint"))
+                .visible(session.voice_supported())
+                .build();
             let create = adw::ButtonRow::builder().title(t("native.create")).build();
             group.add(&name);
             group.add(&private);
+            group.add(&voice);
             group.add(&create);
             let (weak, d, s) = (Rc::downgrade(self), dialog.clone(), session.clone());
             create.connect_activated(move |b| {
                 b.set_sensitive(false);
                 let (weak, d, s, name, private, b) =
                     (weak.clone(), d.clone(), s.clone(), name.text().to_string(), private.is_active(), b.clone());
-                let expected = s.clone();
+                let (expected, voice) = (s.clone(), voice.is_visible() && voice.is_active());
                 glib::spawn_future_local(async move {
-                    let result = on_tokio(async move { s.create_room(&name, private, false).await }).await;
+                    let result = on_tokio(async move { s.create_room(&name, private, voice).await }).await;
                     b.set_sensitive(true);
                     let Some(this) = weak.upgrade() else {
                         return;

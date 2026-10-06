@@ -367,6 +367,8 @@ fn room_widget(
     let clear = r.last_encrypted.as_deref().zip(session).and_then(|(raw, s)| s.decrypt(&r.rid, raw));
     let preview = match (&r.last_message, r.encrypted) {
         _ if let Some(text) = &clear => label(&rv_core::runs::preview(text), &["room-preview"]),
+        // A RocketVibe call is a voice ring, not Rocket.Chat's video meeting.
+        _ if native.is_some() && system == Some("videoconf") => label(t("voice_session.call"), &["room-preview"]),
         _ if let Some(kind) = system => {
             let param = r.last_message.as_deref().unwrap_or_default();
             let author = r.last_author.as_deref().unwrap_or_default();
@@ -386,6 +388,14 @@ fn room_widget(
     }
 
     let top = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    if r.voice {
+        let icon = gtk::Image::builder()
+            .icon_name("audio-volume-high-symbolic")
+            .css_classes(["voice-channel-icon"])
+            .tooltip_text(t("voice_session.channel"))
+            .build();
+        top.append(&icon);
+    }
     top.append(&name);
     top.append(&time);
     let bottom = gtk::Box::new(gtk::Orientation::Horizontal, 6);
@@ -684,7 +694,9 @@ fn message_from_provider(
             column.append(&cards::link_preview_provider(provider.clone(), &preview));
         }
     }
-    if is_call {
+    if is_call && native.is_some() {
+        column.append(&cards::voice_call());
+    } else if is_call {
         column.append(&cards::call(row.call_id.as_deref(), on_event.clone()));
     }
 

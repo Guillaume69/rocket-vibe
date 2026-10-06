@@ -27,6 +27,8 @@ mod crypto;
 mod native;
 #[path = "chat_quotes.rs"]
 mod quotes;
+#[path = "chat_voice.rs"]
+mod voice;
 
 #[derive(Debug, Clone)]
 struct OpenRoom {
@@ -186,6 +188,7 @@ pub struct ChatPage {
     history: RefCell<Vec<String>>,
     history_at: Cell<usize>,
     walking: Cell<bool>,
+    voice: Rc<voice::VoiceUi>,
 }
 
 impl ChatPage {
@@ -201,6 +204,8 @@ impl ChatPage {
         let native_shared = native_session.clone();
         let toggle_section: Rc<Handler<Section>> = Rc::default();
         let toggler = toggle_section.clone();
+        let voice_ui = voice::VoiceUi::new();
+        let binder = voice_ui.clone();
         room_factory.connect_bind(move |_, item| {
             let item = item.downcast_ref::<gtk::ListItem>().expect("list item");
             let object = item.item().and_downcast::<glib::BoxedAnyObject>().expect("room");
@@ -224,7 +229,9 @@ impl ChatPage {
                     item.set_selectable(true);
                     item.set_activatable(true);
                     let widget = match native_shared.borrow().as_ref() {
-                        Some(session) => crate::rows::native_room_widget(room, session),
+                        Some(session) => {
+                            binder.bind_room(crate::rows::native_room_widget(room, session), session, &room.rid)
+                        }
                         None => crate::rows::room_widget_with_presence(room, shared.borrow().as_ref(), None),
                     };
                     if let Some(session) = shared.borrow().clone() {
@@ -298,6 +305,7 @@ impl ChatPage {
         ));
         let update_slot = gtk::Box::builder().orientation(gtk::Orientation::Vertical).build();
         sidebar_toolbar.add_bottom_bar(&update_slot);
+        sidebar_toolbar.add_bottom_bar(&voice_ui.bar);
         sidebar_toolbar.add_bottom_bar(&account);
         let sidebar_page = adw::NavigationPage::new(&sidebar_toolbar, "rocket-vibe");
 
@@ -392,6 +400,7 @@ impl ChatPage {
         let room_nav = adw::NavigationView::new();
         room_nav.add(&adw::NavigationPage::builder().child(&room_view).title("room").tag("room").build());
         content_stack.add_named(&room_nav, Some("room"));
+        content_stack.add_named(&voice_ui.page, Some("voice"));
         let content_page = adw::NavigationPage::new(&content_stack, "rocket-vibe");
 
         let split = adw::NavigationSplitView::new();
@@ -467,6 +476,7 @@ impl ChatPage {
             history: RefCell::default(),
             history_at: Cell::new(0),
             walking: Cell::new(false),
+            voice: voice_ui,
         });
         let weak = Rc::downgrade(&this);
         toggle_section.replace(Some(Rc::new(move |section| {
@@ -475,6 +485,7 @@ impl ChatPage {
             }
         })));
         this.wire(&status_button, &logout);
+        this.wire_voice();
         let weak = Rc::downgrade(&this);
         unlock_button.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade()
@@ -676,6 +687,7 @@ impl ChatPage {
             if let Some(rid) = rid {
                 this.user_navigation();
                 this.open_room(&rid);
+                this.voice_channel_opened(&rid);
                 return;
             }
             let object = this.rooms_store.item(position).and_downcast::<glib::BoxedAnyObject>();
@@ -801,6 +813,7 @@ impl ChatPage {
         self.call_button.connect_clicked(move |_| {
             let Some(this) = w.upgrade() else { return };
             if this.native_session().is_some() {
+                this.voice_call();
                 return;
             }
             let (Some(session), Some(rid)) = (this.session(), this.current_rid()) else { return };
@@ -857,6 +870,7 @@ impl ChatPage {
             if let Some(rid) = rid {
                 this.user_navigation();
                 this.open_room(&rid);
+                this.voice_channel_opened(&rid);
             }
         });
 
@@ -1194,6 +1208,7 @@ impl ChatPage {
 
     pub fn set_session(&self, session: Option<Arc<Session>>) {
         self.close_native_crypto();
+        self.voice.reset();
         self.read_generation.set(self.read_generation.get().wrapping_add(1));
         self.native_read_pending.set(false);
         self.native_read_last.replace(None);
@@ -1358,8 +1373,26 @@ impl ChatPage {
             }),
             call: Box::new(move |found| {
                 let Some(this) = w2.upgrade() else { return };
-                let rv_core::rooms::Found::User { username, .. } = found else { return };
-                if this.native_session().is_some() {
+                let rv_core::rooms::Found::User { id, username, .. } = found else { return };
+                if let Some(session) = this.native_session() {
+                    let (weak, expected) = (Rc::downgrade(&this), session.clone());
+                    glib::spawn_future_local(async move {
+                        let rid = on_tokio(async move {
+                            if id.is_empty() { session.direct(&username).await } else { session.direct_user(&id).await }
+                        })
+                        .await;
+                        let Some(this) = weak.upgrade() else { return };
+                        if this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected)) {
+                            return;
+                        }
+                        match rid {
+                            Ok(rid) => {
+                                this.reload_rooms();
+                                this.join_voice(&rid, expected.voice_participants(&rid).is_empty());
+                            }
+                            Err(_) => this.toast(t("voice_session.join_failed").to_owned()),
+                        }
+                    });
                     return;
                 }
                 let Some(session) = this.session() else { return };
@@ -1998,6 +2031,8 @@ impl ChatPage {
         self.list.set_unread_after(seen.map(|ls| (ls, session.info.user_id.clone())));
         self.typing_label.set_visible(false);
         self.call_button.set_visible(false);
+        self.call_button.set_icon_name("camera-video-symbolic");
+        self.call_button.set_tooltip_text(Some(t("room.call")));
         if !room.read_only {
             let (weak, s, rid) = (Rc::downgrade(self), session.clone(), rid.to_owned());
             let expected = session.clone();

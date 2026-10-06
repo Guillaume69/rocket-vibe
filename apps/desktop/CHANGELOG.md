@@ -163,6 +163,15 @@ section here.
 - Hand control of the account to another of your devices while sharing history with it
   (GTK and SwiftUI): "Share and hand over control" gives it the account's root key, so it
   can approve and withdraw devices too. The choice is explicit and cannot be taken back.
+- Voice on a RocketVibe server whose operator set it up (GTK): a voice channel, marked by a
+  speaker in the room list and created with the new room dialog's "Voice channel" switch,
+  joins its voice session when clicked; any other room joins its own from the header's call
+  button, which rings the other person in a direct room (a profile's Call button too). Who
+  is in a room's session shows under its row, their avatar ringing green while they speak
+  in yours; the voice page shows everyone as cards, with "Join voice" and "Open the chat".
+  While connected, a panel above the account shows the state and the room, with mute,
+  deafen and leave. An incoming call asks to accept or decline over a ringtone; the caller
+  hears a ringback, and short cues mark joins, leaves, mute and missed calls.
 
 ### Removed
 

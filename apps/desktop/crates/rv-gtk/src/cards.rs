@@ -601,6 +601,13 @@ pub fn call(call_id: Option<&str>, on_event: OnRowEvent) -> gtk::Widget {
     card.upcast()
 }
 
+/// A RocketVibe direct call's row: a voice ring, nothing to join from here.
+pub fn voice_call() -> gtk::Widget {
+    let card = gtk::Box::builder().css_classes(["call-card"]).halign(gtk::Align::Start).build();
+    card.append(&gtk::Label::builder().label(t("voice_session.call")).css_classes(["call-title"]).build());
+    card.upcast()
+}
+
 /// A bot's or an integration's card: its colour down the side, the author,
 /// the linked title, the text and the fields, two abreast when short.
 pub fn attachment_card(card: &CardAttachment) -> gtk::Widget {

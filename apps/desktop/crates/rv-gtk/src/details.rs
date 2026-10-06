@@ -453,7 +453,10 @@ fn fill_profile(
             (a.call)(found.clone());
         });
         buttons.append(&message);
-        if matches!(session, ProfileSource::Legacy(_)) {
+        if match session {
+            ProfileSource::Legacy(_) => true,
+            ProfileSource::Native(session) => session.voice_supported(),
+        } {
             buttons.append(&call);
         }
         content.append(&buttons);

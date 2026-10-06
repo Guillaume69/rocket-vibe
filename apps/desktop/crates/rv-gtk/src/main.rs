@@ -37,6 +37,7 @@ mod secrets;
 mod settings;
 mod sizer;
 mod smoke;
+mod sounds;
 mod spell;
 mod spotlight;
 mod staged;

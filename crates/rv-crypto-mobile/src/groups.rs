@@ -479,13 +479,9 @@ impl CryptoInstallation {
                 )?;
                 // A commit after the journal started is applied by the journal
                 // when the room is read: it is not a transition to review.
+                // A Welcome (a readmission) still is, wherever it sits in the page.
                 let journal = c.journal_started(&wire.room_id)?;
-                public(
-                    &page
-                        .events
-                        .first()
-                        .filter(|e| e.welcome.is_some() || !journal),
-                )?
+                public(&page.events.iter().find(|e| e.welcome.is_some() || !journal))?
             }
             Action::PackagesPrepare => {
                 packages::Coordinator::new(manager, root)?.prepare(&revision, 4, time)?;

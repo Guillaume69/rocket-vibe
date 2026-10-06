@@ -1075,11 +1075,10 @@ impl Worker {
             groups::wire::validate_page(&page, &scope, after)?;
             let mut page = page;
             // A commit after the journal started is applied by the journal
-            // when the room is read: it is not a transition to review.
-            if page.events.first().is_some_and(|e| e.welcome.is_none())
-                && groups::Coordinator::new(manager, root)?.journal_started(&scope.room)?
-            {
-                page.events.clear();
+            // when the room is read: it is not a transition to review. A
+            // Welcome (a readmission) still is, wherever it sits in the page.
+            if groups::Coordinator::new(manager, root)?.journal_started(&scope.room)? {
+                page.events.retain(|e| e.welcome.is_some());
             }
             Ok(Batch { head, page })
         })

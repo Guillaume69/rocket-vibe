@@ -479,6 +479,11 @@ impl ChatPage {
     }
 
     pub(super) fn native_row_event(self: &Rc<Self>, event: RowEvent, in_thread: bool) {
+        // An author's photo or name opens their profile, in every native room.
+        if let RowEvent::Profile(username) = &event {
+            self.show_profile(username, false);
+            return;
+        }
         if self.current.borrow().as_ref().is_some_and(|r| r.encrypted) {
             match event {
                 RowEvent::OpenThread(root) if !in_thread => self.open_native_thread(&root),

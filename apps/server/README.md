@@ -130,6 +130,23 @@ curl http://127.0.0.1:3400/.well-known/rocketvibe
 curl -f http://127.0.0.1:3400/health/ready
 ```
 
+## Importing a Rocket.Chat instance
+
+`import-rocketchat` reads a Rocket.Chat 8.x database (MongoDB, read only) into an
+instance that has no rooms or messages yet, with the server stopped:
+
+```sh
+docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm   -e RV_IMPORT_MONGO_URL='mongodb://host:27017/rocketchat?replicaSet=rs0' server import-rocketchat
+```
+
+Accounts keep their Rocket.Chat password (checked once, then rehashed); rooms,
+members, roles, history, threads, quotes, files, reactions, pins, stars, favorites,
+read positions, avatars and custom emojis come over. It prints a report of what it
+imported and of every omission with its reason, and resumes after an interruption
+without duplicating anything. Encrypted rooms are not imported yet. Rules and
+limits: [IMPORT.md](../../docs/protocol/IMPORT.md). To try it locally, fill the
+Rocket.Chat bench with `node scripts/seed.mjs` then `node scripts/seed-import.mjs`.
+
 ## Reproducible checks
 
 From the root, run:

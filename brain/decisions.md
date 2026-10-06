@@ -77,6 +77,31 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
 - **The server rail polls; it does not connect every account.** Only the open account holds a live connection; each other one is read once a minute (`subscriptions.get` or the native rooms list) for its dot. Keeping every account connected would multiply sockets, sync and battery for one bit of information. See [login-and-servers](features/login-and-servers.md).
 - **The rustls provider is chosen explicitly** (`rv-core/src/tls.rs`): two are compiled in (ring through rv-client's reqwest 0.12, aws-lc-rs through ours), and rustls then panics a `wss://` connection instead of guessing, which silently kept every HTTPS server's live connection down.
 
+## Voice
+
+- **LiveKit, self-hosted, rather than a home-made SFU.** It carries WebRTC, TURN and
+  simulcast, and has native SDKs for every client we ship (Android, Swift, Rust). The
+  RocketVibe server only mints short tokens and mirrors who is connected. See
+  [voice](features/voice.md).
+- **The Android engine is a Kotlin module over the LiveKit Android SDK**, not
+  `react-native-webrtc`: the latter is a fragile bet under the New Architecture on RN 0.86
+  (the same reason the Jitsi SDK was refused), and audio needs no JS-side media.
+- **The desktop audio runs in a sidecar process, `rv-voice`.** The `livekit` crate links
+  libwebrtc, which ships only for MSVC on Windows while the GTK app builds with MSYS2, and
+  it must stay out of rv-ffi's static library. A separate process also keeps a WebRTC crash
+  from taking the window down.
+- **Presence comes from the SFU, polled.** The server polls LiveKit every 2 s rather than
+  trusting client heartbeats (Android suspends JS timers in the background) or webhooks
+  (an inbound endpoint for under 2 s gained). Who speaks stays client-side: too fast for a
+  2 s snapshot.
+- **One voice connection per account**: the LiveKit identity is the account id, so joining
+  elsewhere moves the connection, like Discord.
+- **Additive wire changes only.** A call's outcome rides on `Message.call` and voice state
+  on optional live fields: a new `SystemMessage`, `Change` or `RoomKind` variant would make
+  older clients reject whole batches.
+- **Original sounds generated from code** (`scripts/sounds`): no sample, no licence to
+  track; the ringtone ("Neon Drive") was chosen by ear among four candidates.
+
 ## Repository and process
 
 - **One monorepo, one version per app.** `apps/mobile/app.json` (plus `package.json` and `versionCode` = major×10000 + minor×100 + patch) and `apps/desktop/Cargo.toml`, checked by `scripts/version.mjs`. CI checks an app only when its files change and builds packages only on a `mobile-vX.Y.Z` / `desktop-vX.Y.Z` tag or a manual run; the release notes are the version's changelog section, which is mandatory. See [operations](operations.md).

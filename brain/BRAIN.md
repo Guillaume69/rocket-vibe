@@ -84,7 +84,8 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | [e2ee-storage-keys.md](features/e2ee-storage-keys.md) | RocketVibe server: the vault's storage key renewed every 30 days, old keys destroyed. |
 | [e2ee-private-files.md](features/e2ee-private-files.md) | RocketVibe server: files of private rooms sealed on the device, opaque to the server. |
 | [e2ee-private-actions.md](features/e2ee-private-actions.md) | RocketVibe server: encrypted edits, deletions and reactions of private messages, and private search on the device. |
-| [calls.md](features/calls.md) | Jitsi calls, the mobile WebView exception, desktop call windows. |
+| [voice.md](features/voice.md) | RocketVibe server: voice channels, calls in every room and ringing DMs over LiveKit. |
+| [calls.md](features/calls.md) | Rocket.Chat servers: Jitsi calls, the mobile WebView exception, desktop call windows. |
 | [sharing-and-links.md](features/sharing-and-links.md) | `rocketvibe://` deep links, the incoming share screen, outgoing-link guard, drag and paste. |
 | [desktop-updates.md](features/desktop-updates.md) | The desktop self-update from GitHub releases, per platform. |
 
@@ -104,6 +105,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | How does a push turn into a notification when the push carries no content? | [features/notifications.md](features/notifications.md) |
 | How is an encrypted room read and written? | [architecture/e2ee.md](architecture/e2ee.md), [features/e2ee.md](features/e2ee.md) |
 | Why is there a WebView in the mobile app at all? | [features/calls.md](features/calls.md), [decisions.md](decisions.md) |
+| How does voice reach the server and who sees who is speaking? | [features/voice.md](features/voice.md) |
 | Why doesn't a changed avatar show up? | [features/avatars.md](features/avatars.md) |
 | Where do core events reach the GTK main thread? | [architecture/desktop-gtk.md](architecture/desktop-gtk.md) |
 | How does the SwiftUI app talk to the Rust core? | [architecture/desktop-macos.md](architecture/desktop-macos.md) |

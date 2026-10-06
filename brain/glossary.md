@@ -4,6 +4,17 @@ The vocabulary you meet in rocket-vibe: Rocket.Chat protocol terms, the mobile c
 
 All code, comments and docs are in English. French survives in two places only: the French UI catalog users see, and the legacy stored names the mobile app still reads once so an upgrade loses nothing (see [Legacy French names](#legacy-french-names) and [decisions](decisions.md)).
 
+## Voice (RocketVibe server)
+
+| Term | Meaning | More |
+|---|---|---|
+| Voice session | A room's live audio on the LiveKit SFU, LiveKit room `rv:{epoch}:{room}`. Every room has one. | [voice](features/voice.md) |
+| Voice channel | A room flagged `voice`: selecting it joins its session. | [voice](features/voice.md) |
+| Grant | `VoiceGrant`: the SFU URL and a 5-minute token for one member and one room. | [voice](features/voice.md) |
+| Ring | A direct call ringing the other member; resolves to answered, declined, missed or cancelled, kept on its `call_started` row. | [voice](features/voice.md) |
+| Deafen | Silence everyone else (and your microphone); shared through the participant attribute `rv.deafened`. | [voice](features/voice.md) |
+| Sidecar | `rv-voice`, the desktop process that runs LiveKit and the audio devices, driven over JSON lines. | [voice](features/voice.md) |
+
 ## Rocket.Chat protocol
 
 | Term | Meaning | More |

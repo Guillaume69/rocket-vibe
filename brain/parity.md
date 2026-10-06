@@ -194,8 +194,23 @@ beta does.
 
 | Feature | Mobile | GTK | SwiftUI | Notes |
 |---|---|---|---|---|
-| Start and join a Jitsi call (`video-conference.start`, `.join`) | done | done | done | Locked on the call's origin: mobile WebView, WebView2 on Windows, WKWebView on macOS; on Linux a Chromium app window, else the browser. |
+| Start and join a Jitsi call (`video-conference.start`, `.join`), Rocket.Chat servers | done | done | done | Locked on the call's origin: mobile WebView, WebView2 on Windows, WKWebView on macOS; on Linux a Chromium app window, else the browser. |
 | Meeting information: the link without the token (`video-conference.info`) | missing | done | missing | |
+
+## 12b. Voice (RocketVibe server) - [voice](features/voice.md)
+
+| Feature | Mobile | GTK | SwiftUI | Notes |
+|---|---|---|---|---|
+| Voice channels: speaker mark, entered on selection, writable | done | missing | missing | GTK: core and sidecar ready (`rv-core/src/voice.rs`), UI in progress. |
+| People connected under each room of the list, ring lit while speaking in your session | done | missing | missing | |
+| Voice screen: a card per person, glowing while they speak, chat one step away | done | missing | missing | |
+| "Voice connected" panel: mute, deafen, leave | done | missing | missing | Mobile adds the speaker route; the ongoing call notification also mutes and leaves. |
+| Call from any room's header (joins its voice) | done | missing | missing | |
+| Direct call rings the other member, accept or decline, original ringtone | done | missing | missing | Mobile: in-app ring, full-screen ring from a push even locked. |
+| Call rows show the outcome (missed, declined, duration) and call back | done | missing | missing | |
+| Create a voice channel | done | missing | missing | Mobile gained "Create a room" with it. |
+| Camera and one screen share per room | missing | missing | missing | Server ready (`docs/protocol/VOICE.md`); clients audio only for now. |
+| Voice in encrypted rooms (end-to-end encrypted frames) | missing | missing | missing | Refused by the server until then. |
 
 ## 13. Sharing and links - [sharing-and-links](features/sharing-and-links.md)
 

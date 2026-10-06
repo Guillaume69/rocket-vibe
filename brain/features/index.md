@@ -47,6 +47,7 @@ two-way parity tracker is [../parity.md](../parity.md). Back to
 | [e2ee-storage-keys.md](e2ee-storage-keys.md) | RocketVibe server: storage key renewal (state and blocks re-sealed, old key destroyed, resumable), expired KeyPackage keys destroyed. |
 | [e2ee-private-files.md](e2ee-private-files.md) | RocketVibe server: files sealed on the device (`rv-file-v1`), the key only in the encrypted message, opened into the private cache while a view shows them. |
 | [e2ee-private-actions.md](e2ee-private-actions.md) | RocketVibe server: encrypted amendments (the author's edits and deletions, any member's reactions) shown pending until accepted, and private search on the device. |
-| [calls.md](calls.md) | Jitsi over `video-conference.*`, availability probe, the mobile WebView exception and its origin lock, desktop call windows per platform. |
+| [voice.md](voice.md) | RocketVibe server: voice sessions over LiveKit in every room, voice channels, ringing direct calls, who speaks; the Android module, the controller and screens; the desktop sidecar and core. |
+| [calls.md](calls.md) | Rocket.Chat servers: Jitsi over `video-conference.*`, availability probe, the mobile WebView exception and its origin lock, desktop call windows per platform. |
 | [sharing-and-links.md](sharing-and-links.md) | `rocketvibe://room/<rid>?host=` deep links, the incoming share screen, the outgoing-link guard, desktop drag and paste. |
 | [desktop-updates.md](desktop-updates.md) | GitHub release discovery, cached check and dismissal, in-place replacement on Linux, installer on Windows, DMG on macOS. |

@@ -21,6 +21,8 @@ Read [overview.md](overview.md) first for where the desktop sits in the monorepo
 | `rocket-vibe-gtk` (dir `rv-gtk`) | bin | The GTK 4 + libadwaita app: Linux, Windows, and a GTK build for macOS. Owns the main thread, runs `rv-core` on a tokio runtime. |
 | `rv-native` | lib | Windows (WinRT, Win32, WebView2) and macOS (AppKit, UserNotifications, WKWebView) shims the GTK app needs where GLib falls short: toasts and badges, tray and single instance, start at login, call windows, the inline video player. No GTK dependency. On other systems every call is a no-op. |
 | `rv-ffi` | lib (`lib`, `staticlib`, `cdylib`) + bin `uniffi-bindgen-swift` | A UniFFI facade over `rv-core::session::Session` and its helpers, for Swift. |
+| `rv-voice-protocol` | lib | The JSON-lines contract between `rv-core` and the voice sidecar. Serde only. |
+| `apps/desktop/voice` (`rv-voice`) | bin, **separate workspace** | The voice sidecar: LiveKit and the platform audio devices. Excluded from the main workspace because it links libwebrtc (MSVC only on Windows, clang 21 on Linux); `rv-core::voice` finds it next to the executable. See [voice](../features/voice.md). |
 | `apps/desktop/macos` | SwiftPM package `RocketVibeMac` | The SwiftUI app (`RocketVibe`), its view models (`RocketVibeKit`), the generated bindings (`RocketVibeCore`), a CLI (`rv-rooms`) and XCTests. |
 
 The crate directory `rv-gtk` builds a package named `rocket-vibe-gtk` with a binary of the same name: `cargo build -p rocket-vibe-gtk`, `target/<profile>/rocket-vibe-gtk`.

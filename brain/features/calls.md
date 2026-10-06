@@ -1,5 +1,8 @@
 # Calls
 
+This page is the **Rocket.Chat** path. A RocketVibe server has no video conference since
+2026-10-06: its rooms call through voice sessions, see [voice](voice.md).
+
 Video calls use the conference provider configured on the Rocket.Chat server (Jitsi on the target server). Both apps only start and join calls over REST and render the provider's web page in an embedded browser locked to the call's origin: a full-screen WebView on mobile (the app's single WebView exception) and a dedicated call window on desktop.
 
 ## Server contract

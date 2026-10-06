@@ -9,6 +9,16 @@ release, and its notes are that version's section here.
 
 ### Added
 
+- Voice on a RocketVibe server, Discord style: voice channels you enter with a tap and
+  can also write in, and a call in any room from the header's call button. A voice
+  screen shows a card per person, lit up while they speak, with microphone, sound,
+  speaker and leave controls and the chat one tap away; the people connected appear
+  under each room of the list, and a "Voice connected" panel stays at its foot. The
+  call keeps going in the background, with an ongoing call notification to mute or leave.
+- Calling someone in a direct message rings them, with an original ringtone: a full
+  screen incoming call, even locked, to accept or decline. A missed, declined or
+  finished call shows its outcome in the conversation, and calling back is one tap.
+- "Create a room" on a RocketVibe server, voice channels included.
 - Slash commands on a RocketVibe server: /topic, /invite, /kick, /leave, /join,
   /msg and /status run on the server; /me, /shrug, /tableflip, /unflip,
   /lennyface and /gimme are written by the app, so they also work in encrypted
@@ -327,6 +337,11 @@ release, and its notes are that version's section here.
 - Hand control of the account to another of your devices while sharing history with it:
   "Share and hand over control" gives it the account's root key, so it can approve and
   withdraw devices too. The choice is explicit and cannot be taken back.
+
+### Removed
+
+- Jitsi video calls on a RocketVibe server: its rooms call through voice. Rocket.Chat
+  calls are unchanged.
 
 ### Changed
 

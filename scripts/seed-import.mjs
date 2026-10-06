@@ -64,11 +64,12 @@ const channel = (await admin.call('GET', 'channels.info?roomName=test-public')).
 const rid = channel._id;
 const historyOf = async () => (await admin.call('GET', `channels.history?roomId=${rid}&count=200`)).messages;
 let messages = await historyOf();
-const byText = (prefix) => messages.find((m) => typeof m.msg === 'string' && m.msg.startsWith(prefix));
-async function post(who, text, extra = {}) {
-  const found = byText(text);
+const byText = (marker) => messages.find((m) => typeof m.msg === 'string' && m.msg.includes(marker));
+/** Posts `text` unless a message already carries `marker` (the text by default). */
+async function post(who, text, marker = text) {
+  const found = byText(marker);
   if (found) return found;
-  const sent = (await who.call('POST', 'chat.sendMessage', { message: { rid, msg: text, ...extra } })).message;
+  const sent = (await who.call('POST', 'chat.sendMessage', { message: { rid, msg: text } })).message;
   messages = await historyOf();
   return sent;
 }
@@ -94,7 +95,7 @@ for (const who of [alice, bob]) await who.call('POST', 'chat.starMessage', { mes
 console.log('  pin and stars: ready');
 
 // Edited and deleted messages.
-const edited = await post(alice, '[import edit] Avant modification.');
+const edited = await post(alice, '[import edit] Avant modification.', '[import edit]');
 if (!edited.editedAt) {
   await alice.call('POST', 'chat.update', { roomId: rid, msgId: edited._id, text: '[import edit] Après modification.' });
 }
@@ -106,7 +107,8 @@ console.log('  edit and delete: ready');
 
 // A mention and a quote (permalink to an earlier message).
 await post(bob, '[import mention] Salut @alice, tu as vu ?');
-await post(alice, `[import quote] [ ](${BASE}/channel/test-public?msg=${first._id}) Je cite ce message.`);
+// Rocket.Chat puts the quote link first, then the words.
+await post(alice, `[ ](${BASE}/channel/test-public?msg=${first._id}) [import quote] Je cite ce message.`, '[import quote]');
 console.log('  mention and quote: ready');
 
 // Files: an image and a text document, through the two-step upload.

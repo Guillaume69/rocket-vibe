@@ -151,6 +151,13 @@ section here.
 
 ### Fixed
 
+- RocketVibe: a click on an author's photo or name opens their profile again, where the
+  encryption identity is verified; it did nothing in RocketVibe rooms.
+
+- RocketVibe: the room encryption, identity and verification dialogs work while the
+  encrypted room is open; they used to fail with "the operation did not succeed" whenever
+  the open room was reading its messages at the same moment.
+
 - In the encryption identity settings, the association code, the recovery code and the
   history code wrap inside the dialog: a code with no spaces used to widen it, pushing
   the buttons' labels out of view.

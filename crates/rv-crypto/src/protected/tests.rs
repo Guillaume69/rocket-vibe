@@ -254,6 +254,24 @@ struct Delayed {
 }
 
 #[test]
+fn a_short_operation_in_progress_is_waited_for_not_reported_busy() {
+    let directory = private_directory();
+    let storage = Arc::new(Fixture::default());
+    let manager = Arc::new(test_manager(directory.path(), storage));
+    let held = manager.lease().unwrap();
+    let (taken, waited) = mpsc::channel();
+    let other = manager.clone();
+    let waiter = std::thread::spawn(move || {
+        taken.send(()).unwrap();
+        other.lease().map(drop)
+    });
+    waited.recv().unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    drop(held);
+    assert_eq!(waiter.join().unwrap(), Ok(()));
+}
+
+#[test]
 fn completed_lease_unlocks_even_while_a_child_style_descriptor_copy_exists() {
     let directory = private_directory();
     let storage = Arc::new(Fixture::default());

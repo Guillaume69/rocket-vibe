@@ -322,6 +322,8 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- RocketVibe: an encryption action no longer fails because the open room is reading its
+  messages at the same moment; it waits for that read to finish.
 - In a RocketVibe private room not yet encrypted, the room info offers the encrypted group
   as on desktop: a member prepares this device for invitations, and the owner creates the
   group. A phone used to be able to join only a group created without it.

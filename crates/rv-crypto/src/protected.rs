@@ -444,13 +444,32 @@ pub(crate) fn lease(directory: &std::path::Path, name: &str) -> Result<Lease, Er
             return Err(Error::Storage);
         }
     }
+    // Every operation holds the lease only while it runs, and several views of
+    // one app (an open room, a settings dialog) use the vault side by side:
+    // a short wait lets an operation in progress finish instead of failing the
+    // other one. A lease still held after it (another process, a stuck
+    // checkpoint) is Busy.
+    let deadline = std::time::Instant::now() + LEASE_WAIT;
+    loop {
+        match try_lease(&file) {
+            Err(Error::Busy) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Err(error) => return Err(error),
+            Ok(()) => return Ok(Lease(file)),
+        }
+    }
+}
+/// How long an operation waits for another one holding the vault.
+const LEASE_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+fn try_lease(file: &fs::File) -> Result<(), Error> {
     #[cfg(not(target_os = "android"))]
     file.try_lock().map_err(|error| match error {
         std::fs::TryLockError::WouldBlock => Error::Busy,
         std::fs::TryLockError::Error(_) => Error::Storage,
     })?;
     #[cfg(target_os = "android")]
-    rustix::fs::flock(&file, rustix::fs::FlockOperation::NonBlockingLockExclusive).map_err(
+    rustix::fs::flock(file, rustix::fs::FlockOperation::NonBlockingLockExclusive).map_err(
         |error| {
             if error == rustix::io::Errno::WOULDBLOCK {
                 Error::Busy
@@ -459,7 +478,7 @@ pub(crate) fn lease(directory: &std::path::Path, name: &str) -> Result<Lease, Er
             }
         },
     )?;
-    Ok(Lease(file))
+    Ok(())
 }
 
 #[cfg(all(

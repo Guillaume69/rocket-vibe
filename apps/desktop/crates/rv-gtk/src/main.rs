@@ -30,6 +30,7 @@ mod native_quote_cards;
 mod native_security;
 mod notifier;
 mod player;
+mod rail;
 mod recorder;
 mod rows;
 mod secrets;

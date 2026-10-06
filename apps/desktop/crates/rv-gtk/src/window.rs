@@ -52,6 +52,7 @@ pub struct AppWindow {
     stack: gtk::Stack,
     pub login: LoginPage,
     pub chat: Rc<ChatPage>,
+    rail: Rc<crate::rail::Rail>,
     session: RefCell<Option<Arc<Session>>>,
     db_path: RefCell<Option<PathBuf>>,
     forward: RefCell<Option<tokio::task::JoinHandle<()>>>,
@@ -129,10 +130,16 @@ impl AppWindow {
     pub fn new(app: &adw::Application) -> Rc<Self> {
         let login = LoginPage::new();
         let chat = ChatPage::new();
+        // The server rail beside the chat: a button per signed-in account.
+        let rail = crate::rail::Rail::new();
+        let chat_area = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        chat_area.append(&rail.root);
+        chat.widget().set_hexpand(true);
+        chat_area.append(chat.widget());
         let stack = gtk::Stack::builder().transition_type(gtk::StackTransitionType::Crossfade).build();
         stack.add_named(&adw::Spinner::new(), Some("starting"));
         stack.add_named(&login.widget, Some("login"));
-        stack.add_named(chat.widget(), Some("chat"));
+        stack.add_named(&chat_area, Some("chat"));
         let toasts = adw::ToastOverlay::new();
         toasts.set_child(Some(&stack));
         stack.set_visible_child_name("starting");
@@ -159,6 +166,7 @@ impl AppWindow {
             stack,
             login,
             chat,
+            rail,
             session: RefCell::default(),
             db_path: RefCell::default(),
             forward: RefCell::default(),
@@ -331,6 +339,18 @@ impl AppWindow {
                     this.add_account();
                 }
             }),
+        });
+        let weak = Rc::downgrade(&this);
+        this.rail.connect_switch(move |info| {
+            if let Some(this) = weak.upgrade() {
+                this.switch_to(info);
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        this.rail.connect_add(move |()| {
+            if let Some(this) = weak.upgrade() {
+                this.add_account();
+            }
         });
         let weak = Rc::downgrade(&this);
         crate::updater::set_presenter(move |release| {
@@ -754,6 +774,7 @@ impl AppWindow {
                     });
                     self.chat.set_native_session(session);
                     self.stack.set_visible_child_name("chat");
+                    self.refresh_rail();
                 }
                 Err(error) => self.show_login(Some(&error.to_string())),
             }
@@ -847,6 +868,18 @@ impl AppWindow {
         self.chat.set_session(Some(session.clone()));
         self.session.replace(Some(session));
         self.stack.set_visible_child_name("chat");
+        self.refresh_rail();
+    }
+
+    /// The rail's accounts and which one is open, read again from the keyring.
+    fn refresh_rail(self: &Rc<Self>) {
+        let current = self.session.borrow().as_ref().map(|s| s.info.clone());
+        let current = current.or_else(|| self.chat.native_session().map(|s| s.info.clone()));
+        let this = self.clone();
+        glib::spawn_future_local(async move {
+            let accounts = on_tokio(secrets::load_all()).await;
+            this.rail.set_accounts(accounts, current.as_ref());
+        });
     }
 
     /// Unless I am looking at that very room.

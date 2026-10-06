@@ -101,6 +101,12 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 .tile-g6 { background-image: linear-gradient(135deg, #FFD34E, #FF5FA2); }
 .tile-neutral { background-image: linear-gradient(135deg, #8F89AB, #5A5573); }
 
+.server-rail { background: #08070F; padding: 12px 10px; border-right: 1px solid #1E1B33; }
+.rail-button { padding: 0; background: none; border-radius: 15px; border: 2px solid transparent; }
+.rail-button:hover { border-color: #3A3560; }
+.rail-button.rail-active { border-color: #FF5FA2; }
+.rail-dot { min-width: 12px; min-height: 12px; border-radius: 6px; background: #FFD34E; border: 2px solid #08070F; margin: -2px -2px 0 0; }
+.rail-add { min-width: 44px; min-height: 44px; border-radius: 15px; background: #171529; color: #34E1D0; }
 .badge { border-radius: 11px; min-width: 22px; min-height: 22px; padding: 0 7px; font-weight: 800; font-size: 12px; }
 .badge-unread { background: #FFD34E; color: #0B0913; }
 .badge-mention { background: #FF5FA2; color: #0B0913; }

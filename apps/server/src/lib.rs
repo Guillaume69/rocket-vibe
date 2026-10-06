@@ -1,4 +1,5 @@
 pub mod auth;
+mod commands;
 pub mod custom_emojis;
 mod delivery;
 pub mod e2ee;

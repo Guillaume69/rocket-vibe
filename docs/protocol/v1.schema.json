@@ -553,6 +553,10 @@
           "default": false,
           "type": "boolean"
         },
+        "slash_commands": {
+          "default": false,
+          "type": "boolean"
+        },
         "snapshot_paging": {
           "default": false,
           "type": "boolean"
@@ -717,6 +721,20 @@
         "operation_id",
         "expected_revision",
         "role"
+      ],
+      "type": "object"
+    },
+    "CommandList": {
+      "properties": {
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/SlashCommand"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "commands"
       ],
       "type": "object"
     },
@@ -5596,6 +5614,27 @@
       ],
       "type": "object"
     },
+    "RunCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "params": {
+          "description": "Everything after the name, trimmed.",
+          "type": "string"
+        },
+        "room_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "room_id",
+        "command",
+        "params"
+      ],
+      "type": "object"
+    },
     "Scope": {
       "additionalProperties": false,
       "properties": {
@@ -5814,6 +5853,33 @@
       "required": [
         "active",
         "membership_version"
+      ],
+      "type": "object"
+    },
+    "SlashCommand": {
+      "properties": {
+        "client_side": {
+          "description": "Written by the client (`decorate`), never sent to `commands/run`.",
+          "type": "boolean"
+        },
+        "command": {
+          "description": "The name typed after `/`.",
+          "type": "string"
+        },
+        "description": {
+          "description": "i18n key of the description (`Slash_Shrug_Description`).",
+          "type": "string"
+        },
+        "params": {
+          "description": "i18n key of what follows the name (`Slash_Topic_Params`), or literal\ntext (`@username`), as Rocket.Chat's `commands.list` gives it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "params",
+        "description",
+        "client_side"
       ],
       "type": "object"
     },
@@ -6600,6 +6666,9 @@
     "avatar_command": {
       "$ref": "#/$defs/AvatarCommand"
     },
+    "command_list": {
+      "$ref": "#/$defs/CommandList"
+    },
     "create_room": {
       "$ref": "#/$defs/CreateRoom"
     },
@@ -6662,6 +6731,9 @@
     },
     "room": {
       "$ref": "#/$defs/Room"
+    },
+    "run_command": {
+      "$ref": "#/$defs/RunCommand"
     },
     "search_messages": {
       "$ref": "#/$defs/SearchMessages"
@@ -6742,6 +6814,8 @@
     "sync_batch",
     "socket_ticket",
     "error",
+    "command_list",
+    "run_command",
     "parity"
   ],
   "title": "Contract",

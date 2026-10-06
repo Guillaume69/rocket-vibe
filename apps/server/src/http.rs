@@ -35,6 +35,8 @@ pub fn router(app: App) -> Router {
             put(register_push).delete(unregister_push),
         )
         .route("/api/v1/push/notifications/{id}", get(push_content))
+        .route("/api/v1/commands", get(command_list))
+        .route("/api/v1/commands/run", post(run_command))
         .route("/api/v1/emoji", get(emoji_catalog))
         .route("/api/v1/emoji/files/{id}", get(emoji_image))
         .route(
@@ -428,6 +430,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             email_factors: app.auth_key.is_some(),
             email_factor_delivery: app.mail.is_some() && app.auth_key.is_some(),
             email_recovery: app.mail.is_some() && app.auth_key.is_some(),
+            slash_commands: true,
             ..Default::default()
         },
     }))
@@ -1794,6 +1797,26 @@ async fn remove_member(
     Path((room, user)): Path<(String, String)>,
 ) -> Result<StatusCode> {
     store::membership(&app, &account(&app, &headers).await?, &room, &user, true).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn command_list(State(app): State<App>, headers: HeaderMap) -> Result<Response> {
+    let (_, hash, proof) = read_access(&app, &headers, Scope::None).await?;
+    let bytes =
+        serde_json::to_vec(&rv_protocol::commands::catalogue()).map_err(|_| Error::internal())?;
+    let lease = proof.lock(&app, &hash, &[], None).await?;
+    Ok(crate::delivery::leased_bytes(
+        bytes.into(),
+        lease,
+        "application/json",
+    ))
+}
+async fn run_command(
+    State(app): State<App>,
+    headers: HeaderMap,
+    input: Input<rv_protocol::commands::RunCommand>,
+) -> Result<StatusCode> {
+    crate::commands::run(&app, &account(&app, &headers).await?, body(input)?).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

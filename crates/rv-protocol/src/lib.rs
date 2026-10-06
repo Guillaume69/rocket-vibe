@@ -4,6 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub mod cards;
+pub mod commands;
 pub mod custom_emojis;
 pub mod e2ee;
 pub mod emojis;
@@ -102,6 +103,8 @@ pub struct Capabilities {
     pub email_factor_delivery: bool,
     #[serde(default)]
     pub email_recovery: bool,
+    #[serde(default)]
+    pub slash_commands: bool,
 }
 
 impl Default for Capabilities {
@@ -152,6 +155,7 @@ impl Default for Capabilities {
             email_factors: false,
             email_factor_delivery: false,
             email_recovery: false,
+            slash_commands: false,
         }
     }
 }
@@ -208,7 +212,8 @@ impl Capabilities {
             email_removal,
             email_factors,
             email_factor_delivery,
-            email_recovery
+            email_recovery,
+            slash_commands
         );
         features
     }
@@ -546,6 +551,8 @@ pub struct Contract {
     pub sync_batch: SyncBatch,
     pub socket_ticket: SocketTicket,
     pub error: ApiError,
+    pub command_list: commands::CommandList,
+    pub run_command: commands::RunCommand,
     pub parity: parity::ParityContract,
 }
 

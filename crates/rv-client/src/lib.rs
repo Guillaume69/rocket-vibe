@@ -1590,6 +1590,18 @@ impl NativeClient {
         )
         .await
     }
+    /// The slash commands the server offers (`rv_protocol::commands`).
+    pub async fn commands(&self) -> Result<rv_protocol::commands::CommandList, Error> {
+        self.get("/api/v1/commands").await
+    }
+    /// Runs a server-side slash command; text commands never come here.
+    pub async fn run_command(
+        &self,
+        input: &rv_protocol::commands::RunCommand,
+    ) -> Result<(), Error> {
+        self.empty_input(Method::POST, "/api/v1/commands/run", Some(input))
+            .await
+    }
     pub async fn add_member(&self, room: &str, user: &str) -> Result<(), Error> {
         if !path_segment(room) || !path_segment(user) {
             return Err(Error::InvalidUrl);

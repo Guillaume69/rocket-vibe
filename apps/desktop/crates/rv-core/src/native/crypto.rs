@@ -60,6 +60,18 @@ pub(super) struct Context {
     stopped: AtomicBool,
 }
 impl Context {
+    /// A turn at the vault beside other operations; none while the storage
+    /// key is renewed, which can hold the vault for seconds (a full re-seal
+    /// and a keystore write).
+    pub(super) async fn shared(&self) -> Option<tokio::sync::OwnedRwLockReadGuard<()>> {
+        let gate = self.session.upgrade()?.vault_gate.clone();
+        Some(gate.read_owned().await)
+    }
+    /// The vault alone, for the storage key renewal.
+    pub(super) async fn exclusive(&self) -> Option<tokio::sync::OwnedRwLockWriteGuard<()>> {
+        let gate = self.session.upgrade()?.vault_gate.clone();
+        Some(gate.write_owned().await)
+    }
     pub(super) fn check(&self) -> std::result::Result<(), super::Error> {
         if self.stopped.load(Ordering::SeqCst) {
             return Err(closed());
@@ -179,6 +191,7 @@ impl Access {
         F: Future<Output = std::result::Result<T, delivery::Error>>,
     {
         self.check()?;
+        let _turn = self.0.context.shared().await;
         let result = action(self.0.worker.clone()).await;
         self.check()?;
         if matches!(&result, Err(delivery::Error::Scope)) {

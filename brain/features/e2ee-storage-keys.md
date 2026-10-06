@@ -23,7 +23,7 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 
 ## Desktop
 
-- `rv-core` `enrollment/storage.rs`: `storage_status`, `renew_storage`, `renew_storage_soon` (called from `enrollment/rooms/messages.rs` refreshes).
+- `rv-core` `enrollment/storage.rs`: `storage_status`, `renew_storage`, `renew_storage_soon` (called from `enrollment/rooms/messages.rs` refreshes). A renewal re-seals the whole vault and writes the keystore, seconds on a slow Windows machine, longer than the vault lease's 2 s wait: it holds the session's `vault_gate` exclusively (`crypto::Context::exclusive`), and every private-conversation operation takes it shared (`Access::call`), so a draft or a send that comes during a renewal waits for its end instead of failing `Busy`.
 - GTK: `native_crypto/storage.rs`, a group in the crypto preferences loaded with each account view; SwiftUI: `CryptoStorageControls.swift` in `CryptoSection` over `CryptoModel.renewStorage` and the FFI `storage_action` (`crates/rv-ffi/src/native_crypto/storage.rs`). Strings `crypto.storage_*`.
 
 ## Sources

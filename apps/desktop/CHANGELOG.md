@@ -511,6 +511,8 @@ section here.
   silently, leaving the status dot orange and the loading bar running.
 - The message actions button and the composer's close buttons are icons: their
   glyphs (⋯, ✕) showed as boxes on systems without a font carrying them (WSLg).
+- A draft or a message in an encrypted room right after opening it no longer fails
+  while the storage key is being renewed in the background (slow on Windows).
 - A backslash before punctuation keeps it literal in room list previews and in
   messages read without a server tree: `¯\_(ツ)_/¯` no longer loses its arms.
 

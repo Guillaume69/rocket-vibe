@@ -13,6 +13,7 @@ impl Access {
     /// the old key no longer exists anywhere.
     pub async fn renew_storage(&self) -> Result<StorageStatus> {
         let _dispatch = self.0.dispatch.lock().await;
+        let _alone = self.0.context.exclusive().await;
         self.owned(|slot, time| Ok(Coordinator::new(slot).renew_storage(time)?)).await
     }
     /// At most once an hour per view, in the background: renews the storage
@@ -29,6 +30,7 @@ impl Access {
         let access = self.clone();
         tokio::spawn(async move {
             let _dispatch = access.0.dispatch.lock().await;
+            let _alone = access.0.context.exclusive().await;
             let _ = access.owned(|slot, time| Ok(Coordinator::new(slot).renew_storage_if_due(time)?)).await;
         });
     }

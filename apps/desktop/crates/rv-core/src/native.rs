@@ -298,6 +298,10 @@ pub struct NativeSession {
     credentials: Option<Arc<dyn credentials::Provider>>,
     security_generation: AtomicU64,
     crypto: crypto::Registry,
+    /// Held shared by encrypted-room operations, exclusively by the storage
+    /// key renewal: one that comes during a renewal waits for its end instead
+    /// of timing out on the vault's lease (`crypto::Context::shared`).
+    vault_gate: Arc<tokio::sync::RwLock<()>>,
     state_intent_lock: tokio::sync::Mutex<()>,
     read_retry: Mutex<Option<tokio::time::Instant>>,
     favorite_retry: Mutex<Option<tokio::time::Instant>>,
@@ -359,6 +363,7 @@ impl NativeSession {
             credentials,
             security_generation: AtomicU64::new(0),
             crypto: crypto::Registry::default(),
+            vault_gate: Arc::default(),
             state_intent_lock: tokio::sync::Mutex::new(()),
             read_retry: Mutex::new(None),
             favorite_retry: Mutex::new(None),

@@ -26,7 +26,8 @@ mkdir -p "$copy/docs/protocol"
 
 RV_INVENTORY_ROOT="$copy" node scripts/inventory-rocketchat.mjs >/dev/null
 for name in rocketchat-inventory.json rocketchat-inventory.md; do
-  if ! cmp -s "$copy/docs/protocol/$name" "docs/protocol/$name"; then
+  # Against the staged version: the working copy may carry CRLF endings.
+  if ! git show ":docs/protocol/$name" | cmp -s - "$copy/docs/protocol/$name"; then
     cp "$copy/docs/protocol/$name" "docs/protocol/$name"
     git add "docs/protocol/$name"
     echo "pre-commit: regenerated docs/protocol/$name" >&2

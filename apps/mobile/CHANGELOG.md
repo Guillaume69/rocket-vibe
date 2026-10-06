@@ -330,6 +330,8 @@ release, and its notes are that version's section here.
 
 ### Changed
 
+- The encryption settings no longer warn that device enrollment is experimental:
+  native end-to-end encryption is on by default on RocketVibe servers.
 - The app moves its local data, settings and notification links to new internal names on
   the first launch after the update. You stay signed in, with your messages, language,
   collapsed sections and unsent messages; notifications already on screen still open and

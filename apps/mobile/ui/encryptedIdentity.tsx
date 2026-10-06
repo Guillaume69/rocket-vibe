@@ -191,7 +191,6 @@ function Identity({c,chat}:{c:Colors;chat:NativeChat}) {
   return <>
     <Text style={[styles.heading,{color:c.dimmed}]}>{t('private.title')}</Text>
     <View style={[styles.card,{backgroundColor:c.deepCard,borderColor:c.border}]}>
-      <Text style={[styles.text,{color:c.secondaryText}]}>{t('private.experimental')}</Text>
       {busy && <ActivityIndicator color={c.accent}/>}
       {view && <Text style={[styles.title,{color:c.text}]}>{t(labels[view.phase])}</Text>}
       {view?.certificateExpiresAt && <Text style={[styles.text,{color:c.secondaryText}]}>{t('private.expires')} : {new Date(Number(view.certificateExpiresAt)*1000).toLocaleString()}</Text>}

@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-440 production files scanned; 457 occurrences.
+442 production files scanned; 461 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -153,7 +153,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/session.rs:1004](../../apps/desktop/crates/rv-core/src/session.rs#L1004) | endpoint | chat.getMessage |
 | [apps/desktop/crates/rv-core/src/session.rs:1015](../../apps/desktop/crates/rv-core/src/session.rs#L1015) | call:GET | "chat.getThreadMessages", options).await?; |
 | [apps/desktop/crates/rv-core/src/session.rs:1015](../../apps/desktop/crates/rv-core/src/session.rs#L1015) | endpoint | chat.getThreadMessages |
-| [apps/desktop/crates/rv-core/src/store.rs:289](../../apps/desktop/crates/rv-core/src/store.rs#L289) | resource | /file-upload/{…}/% |
+| [apps/desktop/crates/rv-core/src/store.rs:318](../../apps/desktop/crates/rv-core/src/store.rs#L318) | resource | /file-upload/{…}/% |
 | [apps/desktop/crates/rv-core/src/sync.rs:12](../../apps/desktop/crates/rv-core/src/sync.rs#L12) | stream | stream-room-messages |
 | [apps/desktop/crates/rv-core/src/sync.rs:13](../../apps/desktop/crates/rv-core/src/sync.rs#L13) | stream | stream-notify-user |
 | [apps/desktop/crates/rv-core/src/sync.rs:14](../../apps/desktop/crates/rv-core/src/sync.rs#L14) | stream | stream-notify-room |
@@ -168,7 +168,9 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/sync.rs:161](../../apps/desktop/crates/rv-core/src/sync.rs#L161) | endpoint | subscriptions.get |
 | [apps/desktop/crates/rv-core/src/sync.rs:199](../../apps/desktop/crates/rv-core/src/sync.rs#L199) | call:GET | "chat.syncMessages", options).await?; |
 | [apps/desktop/crates/rv-core/src/sync.rs:199](../../apps/desktop/crates/rv-core/src/sync.rs#L199) | endpoint | chat.syncMessages |
-| [apps/desktop/crates/rv-core/src/sync.rs:242](../../apps/desktop/crates/rv-core/src/sync.rs#L242) | call:GET | history_endpoint(kind), o).await?; |
+| [apps/desktop/crates/rv-core/src/sync.rs:280](../../apps/desktop/crates/rv-core/src/sync.rs#L280) | call:GET | history_endpoint(kind), o).await?; |
+| [apps/desktop/crates/rv-core/src/sync.rs:286](../../apps/desktop/crates/rv-core/src/sync.rs#L286) | call:GET | "chat.getMessage" |
+| [apps/desktop/crates/rv-core/src/sync.rs:286](../../apps/desktop/crates/rv-core/src/sync.rs#L286) | endpoint | chat.getMessage |
 | [apps/desktop/crates/rv-core/src/uploads.rs:88](../../apps/desktop/crates/rv-core/src/uploads.rs#L88) | resource | /file-upload/{…}/{…} |
 | [apps/desktop/crates/rv-core/src/uploads.rs:319](../../apps/desktop/crates/rv-core/src/uploads.rs#L319) | call:POST | &format!("rooms.mediaConfirm/{…}/{…}", row.rid) |
 | [apps/desktop/crates/rv-core/src/uploads.rs:319](../../apps/desktop/crates/rv-core/src/uploads.rs#L319) | endpoint | rooms.mediaConfirm/{…}/{…} |
@@ -178,22 +180,22 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/uploads.rs:427](../../apps/desktop/crates/rv-core/src/uploads.rs#L427) | endpoint | rooms.media/{…} |
 | [apps/desktop/crates/rv-gtk/src/chat_native.rs:1033](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L1033) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/chat_quotes.rs:98](../../apps/desktop/crates/rv-gtk/src/chat_quotes.rs#L98) | endpoint | spotlight |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:83](../../apps/desktop/crates/rv-gtk/src/chat.rs#L83) | endpoint | rooms.favorite_add |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:83](../../apps/desktop/crates/rv-gtk/src/chat.rs#L83) | endpoint | rooms.favorite_remove |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:243](../../apps/desktop/crates/rv-gtk/src/chat.rs#L243) | endpoint | rooms.offline |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:247](../../apps/desktop/crates/rv-gtk/src/chat.rs#L247) | endpoint | rooms.sign_out |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:257](../../apps/desktop/crates/rv-gtk/src/chat.rs#L257) | endpoint | rooms.back_to_room |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:266](../../apps/desktop/crates/rv-gtk/src/chat.rs#L266) | endpoint | rooms.new |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:354](../../apps/desktop/crates/rv-gtk/src/chat.rs#L354) | endpoint | e2e.banner |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:356](../../apps/desktop/crates/rv-gtk/src/chat.rs#L356) | endpoint | e2e.unlock |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1217](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1217) | endpoint | rooms.online |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1218](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1218) | endpoint | rooms.connecting |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1219](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1219) | endpoint | rooms.offline |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1734](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1734) | endpoint | rooms.section_unread |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1735](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1735) | endpoint | rooms.section_favorites |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1736](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1736) | endpoint | rooms.section_channels |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1737](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1737) | endpoint | rooms.section_direct |
-| [apps/desktop/crates/rv-gtk/src/chat.rs:1853](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1853) | endpoint | e2e.read_only |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:85](../../apps/desktop/crates/rv-gtk/src/chat.rs#L85) | endpoint | rooms.favorite_add |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:85](../../apps/desktop/crates/rv-gtk/src/chat.rs#L85) | endpoint | rooms.favorite_remove |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:248](../../apps/desktop/crates/rv-gtk/src/chat.rs#L248) | endpoint | rooms.offline |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:252](../../apps/desktop/crates/rv-gtk/src/chat.rs#L252) | endpoint | rooms.sign_out |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:262](../../apps/desktop/crates/rv-gtk/src/chat.rs#L262) | endpoint | rooms.back_to_room |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:271](../../apps/desktop/crates/rv-gtk/src/chat.rs#L271) | endpoint | rooms.new |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:355](../../apps/desktop/crates/rv-gtk/src/chat.rs#L355) | endpoint | e2e.banner |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:357](../../apps/desktop/crates/rv-gtk/src/chat.rs#L357) | endpoint | e2e.unlock |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1241](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1241) | endpoint | rooms.online |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1242](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1242) | endpoint | rooms.connecting |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1243](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1243) | endpoint | rooms.offline |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1755](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1755) | endpoint | rooms.section_unread |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1756](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1756) | endpoint | rooms.section_favorites |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1757](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1757) | endpoint | rooms.section_channels |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1758](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1758) | endpoint | rooms.section_direct |
+| [apps/desktop/crates/rv-gtk/src/chat.rs:1874](../../apps/desktop/crates/rv-gtk/src/chat.rs#L1874) | endpoint | e2e.read_only |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L19) | endpoint | rooms.favorite_add |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L19) | endpoint | rooms.favorite_remove |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:31](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L31) | endpoint | rooms.conflict |
@@ -445,10 +447,12 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/providers/rocketchat/history.ts:18](../../apps/mobile/providers/rocketchat/history.ts#L18) | endpoint | groups.history |
 | [apps/mobile/providers/rocketchat/history.ts:19](../../apps/mobile/providers/rocketchat/history.ts#L19) | endpoint | im.history |
 | [apps/mobile/providers/rocketchat/history.ts:32](../../apps/mobile/providers/rocketchat/history.ts#L32) | call:GET | historyPath(type) |
-| [apps/mobile/providers/rocketchat/history.ts:92](../../apps/mobile/providers/rocketchat/history.ts#L92) | call:GET | 'chat.getMessage' |
-| [apps/mobile/providers/rocketchat/history.ts:93](../../apps/mobile/providers/rocketchat/history.ts#L93) | endpoint | chat.getMessage |
-| [apps/mobile/providers/rocketchat/history.ts:99](../../apps/mobile/providers/rocketchat/history.ts#L99) | call:GET | 'chat.getThreadMessages' |
-| [apps/mobile/providers/rocketchat/history.ts:100](../../apps/mobile/providers/rocketchat/history.ts#L100) | endpoint | chat.getThreadMessages |
+| [apps/mobile/providers/rocketchat/history.ts:66](../../apps/mobile/providers/rocketchat/history.ts#L66) | call:GET | 'chat.getMessage' |
+| [apps/mobile/providers/rocketchat/history.ts:66](../../apps/mobile/providers/rocketchat/history.ts#L66) | endpoint | chat.getMessage |
+| [apps/mobile/providers/rocketchat/history.ts:125](../../apps/mobile/providers/rocketchat/history.ts#L125) | call:GET | 'chat.getMessage' |
+| [apps/mobile/providers/rocketchat/history.ts:126](../../apps/mobile/providers/rocketchat/history.ts#L126) | endpoint | chat.getMessage |
+| [apps/mobile/providers/rocketchat/history.ts:132](../../apps/mobile/providers/rocketchat/history.ts#L132) | call:GET | 'chat.getThreadMessages' |
+| [apps/mobile/providers/rocketchat/history.ts:133](../../apps/mobile/providers/rocketchat/history.ts#L133) | endpoint | chat.getThreadMessages |
 | [apps/mobile/providers/rocketchat/index.ts:51](../../apps/mobile/providers/rocketchat/index.ts#L51) | call:GET | 'users.info' |
 | [apps/mobile/providers/rocketchat/index.ts:51](../../apps/mobile/providers/rocketchat/index.ts#L51) | endpoint | users.info |
 | [apps/mobile/providers/rocketchat/index.ts:53](../../apps/mobile/providers/rocketchat/index.ts#L53) | call:GET | 'chat.search' |

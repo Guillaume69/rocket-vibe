@@ -17,9 +17,6 @@ struct Args {
     /// The LiveKit SFU of voice sessions: client origin, API origin and key.
     #[arg(long, env = "RV_LIVEKIT_CONFIG_FILE", hide_env_values = true)]
     livekit_config_file: Option<std::path::PathBuf>,
-    /// Private operator configuration shared with the Jitsi token verifier.
-    #[arg(long, env = "RV_JITSI_CONFIG_FILE", hide_env_values = true)]
-    jitsi_config_file: Option<std::path::PathBuf>,
     /// Offer native end-to-end encryption to clients (`e2ee` capability). On
     /// by default; `RV_E2EE=false` turns it off for this instance.
     #[arg(
@@ -235,12 +232,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             args.fcm_config_file
                 .as_deref()
                 .map(rv_server::push::Sender::from_file)
-                .transpose()?,
-        )
-        .with_jitsi(
-            args.jitsi_config_file
-                .as_deref()
-                .map(rv_server::meetings::Jitsi::from_file)
                 .transpose()?,
         )
         .with_livekit(

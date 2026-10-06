@@ -19,7 +19,6 @@ pub mod livekit;
 pub mod mail;
 mod mail_admission;
 mod marks;
-pub mod meetings;
 mod mentions;
 mod message_actions;
 pub mod objects;
@@ -52,7 +51,6 @@ pub struct App {
     pub pool: PgPool,
     pub mail: Option<Arc<mail::Sender>>,
     pub push: Option<Arc<push::Sender>>,
-    pub jitsi: Option<Arc<meetings::Jitsi>>,
     /// The operator's SFU: advertises the `voice` capability when configured.
     pub livekit: Option<Arc<livekit::LiveKit>>,
     /// Advertises the `e2ee` capability: on by default, an operator may turn
@@ -112,7 +110,6 @@ impl App {
             pool,
             mail: None,
             push: None,
-            jitsi: None,
             livekit: None,
             e2ee: true,
             objects: None,
@@ -141,11 +138,6 @@ impl App {
 
     pub fn with_push(mut self, push: Option<push::Sender>) -> Self {
         self.push = push.map(Arc::new);
-        self
-    }
-
-    pub fn with_jitsi(mut self, jitsi: Option<meetings::Jitsi>) -> Self {
-        self.jitsi = jitsi.map(Arc::new);
         self
     }
 

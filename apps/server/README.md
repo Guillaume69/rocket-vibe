@@ -45,7 +45,9 @@ accounts / rights / deactivation, rooms / members / settings, command receipts,
 transactional audit and diagnostics (`health`). The [file lifecycle](../../docs/protocol/FILES.md)
 offers preparation, streamed transfer, idempotent confirmation and protected
 download / Range. Outboxes and readers are wired to the existing clients.
-Desktop notifications, calls,
+[Voice](../../docs/protocol/VOICE.md) runs over an operator LiveKit SFU
+(`docker/compose.voice.yml`): voice channels, calls in every room and ringing
+direct calls; it replaced the Jitsi meetings. Desktop notifications,
 encryption and full parity remain in the backlog. The [public crypto directory](../../docs/protocol/E2EE_DIRECTORY.md)
 now verifies certified devices and KeyPackage publication; it does not yet
 make encrypted conversations available. The limits are explicit in

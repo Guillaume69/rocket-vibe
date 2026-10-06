@@ -1,4 +1,12 @@
-# Native Jitsi meetings (P20 / J4)
+# Native Jitsi meetings (P20 / J4): retired
+
+> **Retired on 2026-10-06.** The native server no longer runs Jitsi meetings:
+> [native voice](VOICE.md) replaces them in every room, direct calls included.
+> The routes below answer 404, `RV_JITSI_CONFIG_FILE` is gone, migration 0050
+> dropped the tables and the discovery keeps `calls: false` for older clients.
+> `call_started` rows keep their `meeting_id` as an opaque parameter. This page
+> stays as the record of what older clients expect; Rocket.Chat servers keep
+> their own Jitsi integration.
 
 The server and the Rust / TypeScript transports are available. GTK and SwiftUI
 wire up the existing room / profile buttons, cards and call windows.

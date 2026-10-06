@@ -57,8 +57,9 @@ export class CryptoIdentityAccess {
   view():Promise<CryptoIdentityStatus> {return this.storage.withNative(async(handle,scope,check)=>
     status(await this.bridge.identityView(handle,await this.directory(scope,check))));}
   /** Native peer/group adapters share this terminal view and signed directory reader. */
-  withIdentity<T>(action:(handle:string,ownDirectory:string,read:(user:string)=>Promise<string>,check:()=>Promise<void>,scope:CryptoAccount)=>Promise<T>):Promise<T> {
-    return this.storage.withNative(async(handle,scope,check)=>action(handle,await this.directory(scope,check),user=>this.directory(scope,check,user),check,scope));
+  withIdentity<T>(action:(handle:string,ownDirectory:string,read:(user:string)=>Promise<string>,check:()=>Promise<void>,scope:CryptoAccount)=>Promise<T>,
+    readOnly=false):Promise<T> {
+    return this.storage.withNative(async(handle,scope,check)=>action(handle,await this.directory(scope,check),user=>this.directory(scope,check,user),check,scope),readOnly);
   }
   begin(expectedRoot:string):Promise<CryptoIdentityStatus> {return this.storage.withNative(async(handle,scope,check)=>
     status(await this.bridge.identityBegin(handle,await this.directory(scope,check),expectedRoot)));}

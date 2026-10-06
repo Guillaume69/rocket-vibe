@@ -326,6 +326,9 @@ release, and its notes are that version's section here.
   fails now and then with "Operation unavailable" while the room is open.
 - RocketVibe: an encrypted group update received after the room was read is no longer
   offered for a review that could only fail with "Operation unavailable": reading the room applies it.
+- RocketVibe: an open encrypted room refreshes about four times faster: a refresh no longer
+  re-checks the device over the network before each of its steps, nor re-reads the same
+  directories and member devices several times.
 - RocketVibe: after a member's role or rights change in an encrypted room, the encrypted
   group offers to replace that member's device, the update the group needs before anyone
   can write again.

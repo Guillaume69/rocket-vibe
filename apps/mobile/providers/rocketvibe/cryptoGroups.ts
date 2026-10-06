@@ -75,7 +75,16 @@ export class CryptoGroupAccess {
   close():Promise<void> {return this.identity.close();}
   get isClosed():boolean {return this.identity.isClosed;}
   withRoom<T>(mutation:boolean,nativeRPC:(handle:string,directory:string,input:string)=>Promise<string>,action:CryptoRoomAction<T>):Promise<T> {
-    return this.identity.withIdentity(async(handle,own,read,check,scope)=>{
+    return this.identity.withIdentity(async(handle,own,fresh,check,scope)=>{
+      // A read-only run reads each directory and the room's devices once; a
+      // mutation keeps a fresh read before every native call.
+      const directories=new Map<string,Promise<string>>();
+      const read=(user:string):Promise<string>=>{
+        if(mutation)return fresh(user);
+        let directory=directories.get(user);
+        if(!directory){directory=fresh(user);directories.set(user,directory);}
+        return directory;
+      };
       const gate=async()=>{await check();await this.guard(mutation);};
       const call=async<R>(fn:()=>Promise<R>,write=false):Promise<R>=>{await gate();if(write)await this.guard(true);const v=await fn();await gate();return v;};
       const rpc=async(input:unknown):Promise<unknown>=>{
@@ -87,14 +96,26 @@ export class CryptoGroupAccess {
       const roster=decodeNative('GroupRoster',await call(()=>this.remote.cryptoGroupRoster(this.room)));
       if(roster.room_id!==this.room || roster.scope.instance_id!==scope.instance || roster.scope.data_epoch!==scope.dataEpoch
         || roster.members.length>128 || !roster.members.some(m=>m.user_id===scope.user))throw new NativeError(409,'crypto_scope_changed');
+      // A member's devices as this device trusts them, once per read-only run:
+      // the room's own sources come with their own roster objects.
+      const statuses=new Map<string,Promise<CryptoPeerStatus>>();
+      const status=async(user:string):Promise<CryptoPeerStatus>=>{
+        const directory=await read(user);
+        const result=await call(()=>this.bridge.peerView(handle,own,user,directory));
+        return JSON.parse(result.statusJson) as CryptoPeerStatus;
+      };
+      const statusOf=(user:string):Promise<CryptoPeerStatus>=>{
+        if(mutation)return status(user);
+        let value=statuses.get(user);
+        if(!value){value=status(user);statuses.set(user,value);}
+        return value;
+      };
       const peers=async(source=roster)=>{
         if(source.scope.instance_id!==scope.instance || source.scope.data_epoch!==scope.dataEpoch || source.members.length>128
           || !source.members.some(m=>m.user_id===scope.user))throw new NativeError(409,'crypto_scope_changed');
         const devices:CurrentDevice[]=[];
         for(const member of source.members) {
-          const directory=await read(member.user_id);
-          const result=await call(()=>this.bridge.peerView(handle,own,member.user_id,directory));
-          const status=JSON.parse(result.statusJson) as CryptoPeerStatus;
+          const status=await statusOf(member.user_id);
           if(status.user!==member.user_id || !Array.isArray(status.devices) || status.devices.length>64)integrity();
           for(const d of status.devices) {
             if(!id(d.id) || !/^[0-9a-f]{32}$/.test(d.incarnation) || !fp(d.fingerprint) || typeof d.approved!=='boolean')integrity();
@@ -105,7 +126,7 @@ export class CryptoGroupAccess {
         return devices;
       };
       return action(rpc,roster,peers,scope,call);
-    });
+    },!mutation);
   }
   private run<T>(mutation:boolean,action:CryptoRoomAction<T>):Promise<T> {
     return this.withRoom(mutation,(handle,directory,input)=>this.bridge.groupAction(handle,directory,input),action);

@@ -203,6 +203,10 @@ test('each local keystroke uses the bound native coffer without HTTP and the wri
   await Promise.all([f.access.saveDraft('one'),f.access.saveDraft('two')]);assert.equal(f.scopeReads,reads);assert.equal(f.nativeDrafts,2);
   assert.equal(await f.access.draft(),'two');await f.access.close();await assert.rejects(f.access.saveDraft('late'));assert.equal(f.nativeDrafts,2);
 });
+test('a read-only refresh checks the HTTP device at its bounds, not before each of its steps',async()=>{
+  const f=await setup();await f.access.refresh();const reads=f.scopeReads;
+  await f.access.refresh();assert.ok(f.scopeReads-reads<=2,`${f.scopeReads-reads} scope reads`);await f.access.close();
+});
 test('a new admission cannot reuse a retained private viewer',async()=>{
   const f=await setup();await f.access.refresh();f.changeAdmission();await assert.rejects(f.access.refresh(),/crypto_scope_changed/);
   await assert.rejects(f.access.saveDraft('old view'));assert.equal(f.nativeDrafts,0);

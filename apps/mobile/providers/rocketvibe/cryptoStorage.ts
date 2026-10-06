@@ -2,6 +2,9 @@ import type {CryptoAccount,CryptoInstallationStatus,CryptoStorageBridge} from '.
 import {NativeError} from './transport.ts';
 
 type ScopeReader = () => Promise<CryptoAccount>;
+/** How long a remote scope check (three HTTP requests) covers the checks made
+ * inside a native run. Each run still starts and ends with a full one. */
+const SCOPE_REUSE_MS=1000;
 function sameAccount(left:CryptoAccount,right:CryptoAccount):boolean {
   return left.origin===right.origin && left.instance===right.instance && left.dataEpoch===right.dataEpoch
     && left.user===right.user && left.device===right.device;
@@ -19,6 +22,7 @@ function validStatus(value:CryptoInstallationStatus):void {
 export class CryptoStorageAccess {
   private closed=false;
   private queue:Promise<void>=Promise.resolve();
+  private validatedAt=-Infinity;
   private closing:Promise<void>|null=null;
   private readonly bridge:CryptoStorageBridge;
   private readonly handle:string;
@@ -62,6 +66,15 @@ export class CryptoStorageAccess {
     }
     this.check();
     if(!sameAccount(scope,this.scope)){void this.close();throw new NativeError(409,'crypto_scope_changed');}
+    this.validatedAt=Date.now();
+  }
+  /** The local check always; the remote one unless a full check succeeded
+   * within SCOPE_REUSE_MS. A read-only room refresh made some forty of them,
+   * three requests each, every ten seconds. */
+  private async recentScope():Promise<void> {
+    this.check();
+    if(Date.now()-this.validatedAt<SCOPE_REUSE_MS)return;
+    await this.validateScope();
   }
   private run<T>(action:()=>Promise<T>):Promise<T> {
     const request=this.queue.then(async()=>{
@@ -75,9 +88,11 @@ export class CryptoStorageAccess {
     this.queue=request.then(()=>{},()=>{});
     return request;
   }
-  /** Serialize public ceremony RPCs on the same terminal native view. */
-  withNative<T>(action:(handle:string,scope:CryptoAccount,check:()=>Promise<void>)=>Promise<T>):Promise<T> {
-    return this.run(()=>action(this.handle,{...this.scope},()=>this.validateScope()));
+  /** Serialize public ceremony RPCs on the same terminal native view. A
+   * `readOnly` run may reuse a recent remote scope check between its own
+   * steps; anything that mutates re-checks the HTTP device before each one. */
+  withNative<T>(action:(handle:string,scope:CryptoAccount,check:()=>Promise<void>)=>Promise<T>,readOnly=false):Promise<T> {
+    return this.run(()=>action(this.handle,{...this.scope},()=>readOnly?this.recentScope():this.validateScope()));
   }
   status():Promise<CryptoInstallationStatus> {return this.run(async()=>{
     const value=await this.bridge.status(this.handle);validStatus(value);

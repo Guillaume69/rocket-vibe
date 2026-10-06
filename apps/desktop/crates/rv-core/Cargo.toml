@@ -16,6 +16,7 @@ futures-util = "0.3.34"
 gif = "0.13"
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "multipart", "stream"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
+rustls = { version = "0.23.45", default-features = false, features = ["aws_lc_rs"] }
 rv-client = { path = "../../../../crates/rv-client" }
 rv-crypto = { path = "../../../../crates/rv-crypto", features = ["native-http", "system-keystore"] }
 rv-protocol = { path = "../../../../crates/rv-protocol" }

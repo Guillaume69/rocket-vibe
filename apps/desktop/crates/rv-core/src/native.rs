@@ -689,6 +689,7 @@ impl NativeSession {
         } else {
             self.client.socket_url(&cursor).await?
         };
+        crate::tls::ensure_provider();
         let (mut socket, _) =
             tokio::time::timeout(Duration::from_secs(15), tokio_tungstenite::connect_async(url.as_str()))
                 .await

@@ -189,10 +189,10 @@ impl Actor {
         loop {
             if std::mem::take(&mut self.connect_requested) {
                 let url = self.url.to_string();
-                connecting =
-                    Some(Box::pin(
-                        async move { tokio_tungstenite::connect_async(url).await.map(|(socket, _)| socket) },
-                    ));
+                connecting = Some(Box::pin(async move {
+                    crate::tls::ensure_provider();
+                    tokio_tungstenite::connect_async(url).await.map(|(socket, _)| socket)
+                }));
             }
             let epoch = self.epoch;
             let deadline = self.next_deadline();

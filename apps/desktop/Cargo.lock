@@ -4244,6 +4244,7 @@ dependencies = [
  "gif",
  "reqwest 0.13.5",
  "rusqlite",
+ "rustls",
  "rv-client",
  "rv-crypto",
  "rv-crypto-public",

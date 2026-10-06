@@ -495,6 +495,12 @@ section here.
   Missing native capabilities are disabled; callbacks from a previous account stop
   affecting the active view. A real Secret Service keyring exercises secure resume
   in the Linux view-model integration bench.
+
+### Fixed
+
+- The live connection to a server reached over HTTPS comes up again: it failed
+  silently, leaving the status dot orange and the loading bar running.
+
 ## [0.7.0] - 2026-10-03
 
 ### Added

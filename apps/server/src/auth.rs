@@ -125,6 +125,16 @@ pub(crate) async fn lock_active(
     Ok(())
 }
 
+/// A Rocket.Chat (Meteor) password hash: bcrypt over the lowercase SHA-256
+/// hex digest of the password, which the web client used to send.
+pub(crate) fn legacy_password_matches(password: &str, legacy: &str) -> bool {
+    let digest: String = Sha256::digest(password.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    bcrypt::verify(digest, legacy).unwrap_or(false)
+}
+
 pub async fn create_user(app: &App, username: &str, password: String, admin: bool) -> Result<User> {
     if !identifier(username) || !(12..=1024).contains(&password.len()) {
         return Err(Error::invalid());
@@ -215,25 +225,39 @@ async fn password_login(
         .try_acquire_owned()
         .map_err(|_| Error::throttled("auth_busy", 1))?;
     crate::limits::login_attempt(app, &username, peer).await?;
-    let record: Option<(String,String,String,String)> = sqlx::query_as("SELECT id,username,display_name,password_hash FROM users WHERE username=$1 AND NOT disabled")
+    let record: Option<(String,String,String,String,Option<String>)> = sqlx::query_as("SELECT id,username,display_name,password_hash,legacy_password FROM users WHERE username=$1 AND NOT disabled")
         .bind(username).fetch_optional(&app.pool).await?;
     let hash = record
         .as_ref()
         .map(|r| r.3.clone())
         .unwrap_or_else(|| app.dummy_password_hash.clone());
-    let valid = tokio::task::spawn_blocking(move || {
+    let legacy = record.as_ref().and_then(|r| r.4.clone());
+    let (valid, rehashed) = tokio::task::spawn_blocking(move || {
         // Dropping a cancelled HTTP future must not release the slot while
         // Argon2 is still running in the blocking thread pool.
         let _permit = permit;
-        PasswordHash::new(&hash).ok().is_some_and(|h| {
+        // An imported account answers to its Rocket.Chat password once; it
+        // leaves with the native hash of that same password.
+        if let Some(legacy) = legacy {
+            if !legacy_password_matches(&password, &legacy) {
+                return (false, None);
+            }
+            let fresh = Argon2::default()
+                .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+                .map(|v| v.to_string())
+                .ok();
+            return (fresh.is_some(), fresh);
+        }
+        let valid = PasswordHash::new(&hash).ok().is_some_and(|h| {
             Argon2::default()
                 .verify_password(password.as_bytes(), &h)
                 .is_ok()
-        })
+        });
+        (valid, None)
     })
     .await
     .map_err(|_| Error::internal())?;
-    let Some((id, username, display_name, verified_hash)) = record.filter(|_| valid) else {
+    let Some((id, username, display_name, verified_hash, _)) = record.filter(|_| valid) else {
         return Err(Error::unauthorized());
     };
     let mut tx = app.pool.begin().await?;
@@ -250,6 +274,14 @@ async fn password_login(
     .await?;
     if active.as_deref() != Some(&verified_hash) {
         return Err(Error::unauthorized());
+    }
+    if let Some(fresh) = rehashed {
+        // The trigger drops the legacy hash with the change.
+        sqlx::query("UPDATE users SET password_hash=$2 WHERE id=$1")
+            .bind(&id)
+            .bind(fresh)
+            .execute(&mut *tx)
+            .await?;
     }
     let user = User {
         id,
@@ -319,4 +351,24 @@ pub(crate) async fn create_session(
         expires_at: expires_at.to_rfc3339(),
         user: user.clone(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_rocket_chat_password_hash_is_checked_the_meteor_way() {
+        let digest: String = Sha256::digest(b"alice-dev-2026")
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let hash = bcrypt::hash(digest, 4).unwrap();
+        assert!(legacy_password_matches("alice-dev-2026", &hash));
+        assert!(!legacy_password_matches("alice-dev-2027", &hash));
+        assert!(!legacy_password_matches(
+            "alice-dev-2026",
+            "not a bcrypt hash"
+        ));
+    }
 }

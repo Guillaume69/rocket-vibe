@@ -41,6 +41,17 @@ enum Command {
         #[command(subcommand)]
         command: EmojiCommand,
     },
+    /// Imports a Rocket.Chat database into this still-empty instance, or
+    /// resumes an interrupted import (docs/protocol/IMPORT.md). Run it with
+    /// the server stopped; it prints its report.
+    ImportRocketchat {
+        /// `mongodb://…/rocketchat?replicaSet=rs0`, read only.
+        #[arg(long, env = "RV_IMPORT_MONGO_URL", hide_env_values = true)]
+        mongo_url: String,
+        /// The directory of a FileSystem upload store.
+        #[arg(long)]
+        files_dir: Option<std::path::PathBuf>,
+    },
     Serve {
         #[arg(long, env = "RV_BIND", default_value = "127.0.0.1:3400")]
         bind: SocketAddr,
@@ -237,6 +248,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         )
         .with_e2ee(args.e2ee);
     match args.command {
+        Command::ImportRocketchat {
+            mongo_url,
+            files_dir,
+        } => {
+            let app = app.with_objects(rv_server::objects::LocalObjects::open(&args.objects_dir)?);
+            let report = rv_server::import::rocketchat(
+                &app,
+                rv_server::import::Options {
+                    mongo_url,
+                    files_dir,
+                },
+            )
+            .await
+            .map_err(|e| format!("Import failed: {e}"))?;
+            output(report)?;
+        }
         Command::Emoji { command } => match command {
             EmojiCommand::List => operator_output(rv_server::custom_emojis::catalog(&app).await)?,
             EmojiCommand::Put {

@@ -7,10 +7,12 @@ publish = false
 [dependencies]
 aes-gcm-siv = "0.11.1"
 argon2 = "0.5.3"
+bcrypt = "0.17"
+mongodb = "3"
 axum = { version = "0.8.9", features = ["ws"] }
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
-futures-util = "0.3"
+futures-util = { version = "0.3", features = ["io"] }
 gcp_auth = { version = "0.12.7", default-features = false, features = ["ring"] }
 data-encoding = "2"
 hmac = "0.12"

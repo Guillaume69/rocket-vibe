@@ -184,8 +184,16 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U rocketvibe -d rocketvibe"
           --health-interval 2s --health-timeout 3s --health-retries 30
+      # The Rocket.Chat import's test builds its source database here.
+      mongo:
+        image: mongo:8.0
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1})'"
+          --health-interval 2s --health-timeout 5s --health-retries 30
     env:
       DATABASE_URL: postgres://rocketvibe:native-ci-disposable-password@localhost/rocketvibe
+      RV_IMPORT_TEST_MONGO: mongodb://localhost:27017
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.97.1

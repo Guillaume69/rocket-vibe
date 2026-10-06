@@ -38,8 +38,11 @@ class VoiceService : Service() {
       return START_NOT_STICKY
     }
     // A microphone service needs the permission; without it the call only listens.
-    val type = if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
-      ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+    fun granted(permission: String) = ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+    var type = if (granted(Manifest.permission.RECORD_AUDIO)) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+      else ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+    // A camera kept on in the background needs its own foreground type.
+    if (VoiceEngine.camera && granted(Manifest.permission.CAMERA)) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
     ServiceCompat.startForeground(this, NOTIFICATION, notification(this), type)
     foreground = true
     return START_NOT_STICKY

@@ -2,6 +2,7 @@ package com.rocketvibe.voice
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import com.twilio.audioswitch.AudioDevice
@@ -14,6 +15,10 @@ import io.livekit.android.room.participant.Participant
 import io.livekit.android.room.participant.RemoteParticipant
 import io.livekit.android.room.track.RemoteAudioTrack
 import io.livekit.android.room.track.RemoteTrackPublication
+import io.livekit.android.room.track.Track
+import io.livekit.android.room.track.VideoTrack
+import io.livekit.android.room.track.screencapture.ScreenCaptureParams
+import io.livekit.android.renderer.TextureViewRenderer
 import java.util.concurrent.CopyOnWriteArraySet
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,6 +45,9 @@ object VoiceEngine {
   /** What the user asked for; deafened silences it without forgetting it. */
   var microphone = true; private set
   var deafened = false; private set
+  /** The camera is off until asked for; the screen is shared after the server's claim. */
+  var camera = false; private set
+  var sharing = false; private set
   private var reason: String? = null
 
   fun attach(context: Context) {
@@ -55,10 +63,12 @@ object VoiceEngine {
     if (roomId != null) VoiceService.refresh(app)
   }
 
+  private fun canFilm() = ContextCompat.checkSelfPermission(app, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
   private fun canRecord() = ContextCompat.checkSelfPermission(app, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
   private fun snapshot(): Map<String, Any?> = mapOf(
     "state" to state, "room" to roomId, "microphone" to microphone, "deafened" to deafened,
+    "camera" to camera, "sharing" to sharing,
     "reason" to reason, "route" to route(), "routes" to routes(), "participants" to members(),
   )
 
@@ -69,6 +79,8 @@ object VoiceEngine {
     "deafened" to if (local) deafened else p.attributes["rv.deafened"] == "1",
     "level" to p.audioLevel.toDouble(),
     "local" to local,
+    "camera" to p.isCameraEnabled,
+    "screen" to p.isScreenShareEnabled,
   )
   private fun members(): List<Map<String, Any?>> {
     val r = room ?: return emptyList()
@@ -88,7 +100,7 @@ object VoiceEngine {
   fun connect(roomId: String, url: String, token: String, title: String, link: String?, microphone: Boolean) {
     teardown(null, cue = false)
     this.roomId = roomId; this.title = title; this.link = link
-    this.microphone = microphone; this.deafened = false; reason = null; state = "connecting"
+    this.microphone = microphone; this.deafened = false; camera = false; sharing = false; reason = null; state = "connecting"
     VoiceService.start(app)
     val r = LiveKit.create(app, RoomOptions(adaptiveStream = false, dynacast = false))
     room = r
@@ -172,6 +184,60 @@ object VoiceEngine {
     changed()
   }
 
+  fun setCamera(enabled: Boolean) {
+    camera = enabled && canFilm()
+    val r = room ?: return changed()
+    // The service restarts in the foreground with the camera type added.
+    if (camera) VoiceService.start(app)
+    scope.launch {
+      r.localParticipant.setCameraEnabled(camera)
+      changed()
+    }
+  }
+
+  /** [data] is the user's MediaProjection consent; the server already granted the screen. */
+  fun startScreenShare(data: Intent) {
+    val r = room ?: return
+    sharing = true
+    scope.launch {
+      val started = try {
+        r.localParticipant.setScreenShareEnabled(true, ScreenCaptureParams(data, null, null) {
+          scope.launch { if (room === r) { sharing = false; changed() } }
+        })
+      } catch (_: Exception) { false }
+      if (!started) sharing = false
+      changed()
+    }
+  }
+
+  fun stopScreenShare() {
+    val r = room ?: return
+    sharing = false
+    scope.launch {
+      r.localParticipant.setScreenShareEnabled(false)
+      changed()
+    }
+  }
+
+  internal fun localIdentity(): String? = room?.localParticipant?.identity?.value
+
+  internal fun initRenderer(renderer: TextureViewRenderer): Boolean {
+    val r = room ?: return false
+    r.initVideoRenderer(renderer)
+    return true
+  }
+
+  /** The camera or screen track of a participant, local or remote, once subscribed. */
+  internal fun videoTrack(identity: String, screen: Boolean): VideoTrack? {
+    val r = room ?: return null
+    val participant: Participant = if (r.localParticipant.identity?.value == identity) r.localParticipant
+      else r.remoteParticipants.values.firstOrNull { it.identity?.value == identity } ?: return null
+    val source = if (screen) Track.Source.SCREEN_SHARE else Track.Source.CAMERA
+    val publication = participant.getTrackPublication(source) ?: return null
+    if (publication.muted) return null
+    return publication.track as? VideoTrack
+  }
+
   fun leave() = teardown("client_initiated", cue = true)
 
   private fun teardown(why: String?, cue: Boolean) {
@@ -182,6 +248,7 @@ object VoiceEngine {
     r.release()
     if (cue) VoiceSounds.cue(app, R.raw.cue_leave)
     state = if (why == null) "idle" else "disconnected"
+    camera = false; sharing = false
     reason = why
     roomId = null
     VoiceService.stop(app)

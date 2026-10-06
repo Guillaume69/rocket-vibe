@@ -11,7 +11,7 @@ const grant = (room: string, extra: Partial<VoiceGrant> = {}): VoiceGrant => ({
   room_id: room, url: 'wss://voice.test', token: 't', expires_at: '', can_publish: true, ...extra,
 });
 
-function bench(server: Partial<VoiceServer> = {}) {
+function bench(server: Partial<VoiceServer> = {}, consent = true) {
   const calls: string[] = [];
   let listener: (s: VoiceSnapshot) => void = () => {};
   let current: VoiceSnapshot = { state: 'idle', participants: [] };
@@ -23,6 +23,9 @@ function bench(server: Partial<VoiceServer> = {}) {
     setMicrophone: async on => { calls.push(`mic ${on}`); },
     setDeafened: async on => { calls.push(`deaf ${on}`); },
     setRoute: async () => {},
+    setCamera: async on => { calls.push(`camera ${on}`); },
+    startScreenShare: async () => { calls.push('screen'); return consent; },
+    stopScreenShare: async () => { calls.push('stop screen'); },
     ringback: async on => { calls.push(`ringback ${on}`); },
     missed: async () => { calls.push('missed'); },
     addListener: (_e, fn) => { listener = fn; return { remove: () => {} }; },
@@ -32,6 +35,8 @@ function bench(server: Partial<VoiceServer> = {}) {
     leaveVoice: async () => { calls.push('leave'); },
     acceptRing: async id => { calls.push(`accept ${id}`); return grant('dm'); },
     declineRing: async id => { calls.push(`decline ${id}`); },
+    claimScreen: async () => { calls.push('claim'); },
+    releaseScreen: async () => { calls.push('release'); },
     ...server,
   });
   return { voice, calls, emit };
@@ -106,8 +111,33 @@ test('an engine that kept the call across a JS reload is adopted', () => {
     snapshot: () => ({ state: 'connected', room: 'lounge', microphone: false, deafened: true, participants: [] }),
     connect: async () => {}, disconnect: async () => {}, setMicrophone: async () => {}, setDeafened: async () => {},
     setRoute: async () => {}, ringback: async () => {}, missed: async () => {},
+    setCamera: async () => {}, startScreenShare: async () => true, stopScreenShare: async () => {},
     addListener: () => ({ remove: () => {} }),
   };
-  const voice = new VoiceController(engine, { joinVoice: async r => grant(r), leaveVoice: async () => {}, acceptRing: async () => grant('dm'), declineRing: async () => {} });
+  const voice = new VoiceController(engine, { joinVoice: async r => grant(r), leaveVoice: async () => {}, acceptRing: async () => grant('dm'), declineRing: async () => {}, claimScreen: async () => {}, releaseScreen: async () => {} });
   assert.deepEqual([voice.state.phase, voice.state.room, voice.state.microphone, voice.state.deafened], ['connected', 'lounge', false, true]);
+});
+
+test('the screen is claimed from the server before Android is asked, and given back when refused or stopped', async () => {
+  const shared = bench();
+  await shared.voice.join('lounge', { title: 'Lounge', microphone: true });
+  shared.calls.length = 0;
+  assert.equal(await shared.voice.shareScreen(), true);
+  assert.deepEqual(shared.calls, ['claim', 'screen']);
+  shared.emit({ state: 'connected', room: 'lounge', sharing: true, participants: [] });
+  // Stopped from the system's projection notification.
+  shared.emit({ state: 'connected', room: 'lounge', sharing: false, participants: [] });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(shared.calls.includes('release'));
+
+  const refused = bench({}, false);
+  await refused.voice.join('lounge', { title: 'Lounge', microphone: true });
+  refused.calls.length = 0;
+  assert.equal(await refused.voice.shareScreen(), false);
+  assert.deepEqual(refused.calls, ['claim', 'screen', 'release']);
+
+  const taken = bench({ claimScreen: async () => { throw new Error('screen_taken'); } });
+  await taken.voice.join('lounge', { title: 'Lounge', microphone: true });
+  await assert.rejects(taken.voice.shareScreen(), /screen_taken/);
+  assert.ok(!taken.calls.includes('screen'));
 });

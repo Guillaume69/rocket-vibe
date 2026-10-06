@@ -1,8 +1,10 @@
-import {requireOptionalNativeModule} from 'expo-modules-core';
+import {requireNativeViewManager, requireOptionalNativeModule} from 'expo-modules-core';
+import type {ComponentType} from 'react';
+import type {ViewProps} from 'react-native';
 
 export type VoiceState='idle'|'connecting'|'connected'|'reconnecting'|'disconnected';
 export type VoiceRoute='speaker'|'earpiece'|'bluetooth'|'wired';
-export type VoiceMember={identity:string;speaking:boolean;muted:boolean;deafened:boolean;level:number;local:boolean};
+export type VoiceMember={identity:string;speaking:boolean;muted:boolean;deafened:boolean;level:number;local:boolean;camera?:boolean;screen?:boolean};
 /** The process's one voice connection, as the native engine sees it. */
 export type VoiceSnapshot={
   state:VoiceState;
@@ -10,6 +12,9 @@ export type VoiceSnapshot={
   room?:string|null;
   microphone?:boolean;
   deafened?:boolean;
+  /** The own camera is on; the own screen is shared. */
+  camera?:boolean;
+  sharing?:boolean;
   /** Why the last connection ended (LiveKit's reason, lowercase): duplicate_identity, participant_removed... */
   reason?:string|null;
   route?:VoiceRoute|null;
@@ -24,6 +29,10 @@ type Bridge={
   setMicrophone(enabled:boolean):Promise<void>;
   setDeafened(on:boolean):Promise<void>;
   setRoute(route:VoiceRoute):Promise<void>;
+  setCamera(enabled:boolean):Promise<void>;
+  /** Asks Android for the screen, then shares it; false when the user refused. */
+  startScreenShare():Promise<boolean>;
+  stopScreenShare():Promise<void>;
   ringback(on:boolean):Promise<void>;
   ringtone(on:boolean):Promise<void>;
   missed():Promise<void>;
@@ -36,3 +45,7 @@ type Bridge={
  * build without the module: the app then never offers voice.
  */
 export const VoiceNative=requireOptionalNativeModule<Bridge>('Voice');
+
+export type VoiceVideoProps=ViewProps&{identity:string;source:'camera'|'screen';fit?:'cover'|'contain'};
+/** A participant's camera or screen, from the engine's room. Null without the module. */
+export const VoiceVideoView:ComponentType<VoiceVideoProps>|null=VoiceNative?requireNativeViewManager<VoiceVideoProps>('Voice'):null;

@@ -465,10 +465,10 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/ui/messages.ts:454](../../apps/mobile/ui/messages.ts#L454) | endpoint | e2e.unlock |
 | [apps/mobile/ui/messages.ts:455](../../apps/mobile/ui/messages.ts#L455) | endpoint | e2e.wrongPassword |
 | [apps/mobile/ui/messages.ts:456](../../apps/mobile/ui/messages.ts#L456) | endpoint | e2e.genericError |
-| [apps/mobile/ui/messages.ts:1236](../../apps/mobile/ui/messages.ts#L1236) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:1237](../../apps/mobile/ui/messages.ts#L1237) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:1239](../../apps/mobile/ui/messages.ts#L1239) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:1240](../../apps/mobile/ui/messages.ts#L1240) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:1241](../../apps/mobile/ui/messages.ts#L1241) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:1242](../../apps/mobile/ui/messages.ts#L1242) | endpoint | e2e.genericError |
+| [apps/mobile/ui/messages.ts:1243](../../apps/mobile/ui/messages.ts#L1243) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:1244](../../apps/mobile/ui/messages.ts#L1244) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:1246](../../apps/mobile/ui/messages.ts#L1246) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:1247](../../apps/mobile/ui/messages.ts#L1247) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:1248](../../apps/mobile/ui/messages.ts#L1248) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:1249](../../apps/mobile/ui/messages.ts#L1249) | endpoint | e2e.genericError |
 | [apps/mobile/ui/serverRail.tsx:33](../../apps/mobile/ui/serverRail.tsx#L33) | endpoint | subscriptions.get |

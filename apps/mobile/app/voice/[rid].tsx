@@ -14,8 +14,9 @@ import { useT } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
 import { type Colors, FONTS, useColors } from '../../ui/theme.ts';
 import { SpeakingAvatar, VoiceControls, useJoinVoice, usePeople, useRoomVoice, useVoice } from '../../ui/voice.tsx';
+import { VoiceVideoView } from '../../modules/voice/index.ts';
 
-type Card = { uid: string; name: string; speaking: boolean; muted: boolean; deafened: boolean; local: boolean };
+type Card = { uid: string; name: string; speaking: boolean; muted: boolean; deafened: boolean; local: boolean; camera: boolean; screen: boolean };
 
 export default function VoiceScreen() {
   const { rid, title } = useLocalSearchParams<{ rid: string; title?: string }>();
@@ -35,12 +36,14 @@ export default function VoiceScreen() {
   const cards: Card[] = here
     ? voice.participants.map(p => ({
         uid: p.identity, name: people(p.identity).name, speaking: p.speaking,
-        muted: p.muted, deafened: p.deafened, local: p.local,
+        muted: p.muted, deafened: p.deafened, local: p.local, camera: p.camera === true, screen: p.screen === true,
       }))
     : occupants.map(o => ({
         uid: o.user.id, name: o.user.display_name || o.user.username, speaking: false,
-        muted: o.muted, deafened: o.deafened, local: false,
+        muted: o.muted, deafened: o.deafened, local: false, camera: false, screen: false,
       }));
+  // The room's one screen share takes the stage, the people go below it.
+  const sharer = here ? cards.find(card => card.screen) : undefined;
   const status = !here ? null
     : voice.ring?.state === 'ringing' && voice.participants.length < 2 ? t('voice.ringing')
     : voice.phase === 'connected' ? t('voice.connected')
@@ -70,6 +73,14 @@ export default function VoiceScreen() {
           <Text style={styles.headerIcon}>💬</Text>
         </Pressable>
       </View>
+      {sharer !== undefined && VoiceVideoView !== null && (
+        <View style={[styles.stage, { backgroundColor: c.deepCard, borderColor: c.border }]}>
+          <VoiceVideoView identity={sharer.uid} source="screen" fit="contain" style={StyleSheet.absoluteFill} />
+          <Text style={[styles.stageLabel, { color: c.text, backgroundColor: c.background }]} numberOfLines={1}>
+            🖥️ {t('voice.screenOf', { name: sharer.name })}
+          </Text>
+        </View>
+      )}
       <FlatList
         key={columns}
         data={cards}
@@ -104,7 +115,13 @@ function VoiceCard({ c, client, card, columns, you }: { c: Colors; client: RestC
   return (
     <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border, flexBasis: `${100 / columns - 3}%` }]}>
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.cardGlow, { borderColor: c.online }, border]} />
-      <SpeakingAvatar c={c} client={client} uid={card.uid} name={card.name} speaking={card.speaking} size={72} radius={36} />
+      {card.camera && VoiceVideoView !== null ? (
+        <View style={styles.camera}>
+          <VoiceVideoView identity={card.uid} source="camera" fit="cover" style={StyleSheet.absoluteFill} />
+        </View>
+      ) : (
+        <SpeakingAvatar c={c} client={client} uid={card.uid} name={card.name} speaking={card.speaking} size={72} radius={36} />
+      )}
       <Text style={[styles.cardName, { color: c.text }]} numberOfLines={1}>
         {card.name}{card.local ? ` (${you})` : ''}
       </Text>
@@ -127,7 +144,10 @@ const styles = StyleSheet.create({
   grid: { padding: 12, gap: 12, flexGrow: 1 },
   row: { gap: 12 },
   card: { flexGrow: 1, alignItems: 'center', gap: 8, paddingVertical: 20, paddingHorizontal: 10, borderRadius: 22, borderWidth: 1, overflow: 'hidden' },
-  cardGlow: { borderRadius: 22, borderWidth: 3 },
+  cardGlow: { borderRadius: 22, borderWidth: 3, zIndex: 1 },
+  camera: { width: '100%', aspectRatio: 4 / 3, borderRadius: 16, overflow: 'hidden' },
+  stage: { marginHorizontal: 12, marginTop: 12, aspectRatio: 16 / 9, borderRadius: 18, borderWidth: 1, overflow: 'hidden' },
+  stageLabel: { position: 'absolute', left: 10, bottom: 10, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, fontFamily: FONTS.bodyBold, fontSize: 12, opacity: 0.85 },
   cardName: { fontFamily: FONTS.bodyStrong, fontSize: 14, maxWidth: '100%' },
   cardIcons: { flexDirection: 'row', gap: 6, minHeight: 16 },
   cardIcon: { fontSize: 13 },

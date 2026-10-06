@@ -156,6 +156,8 @@ export class NativeTransport {
   acceptRing(id:string,input:AnswerRing):Promise<VoiceGrant> {
     return this.request('VoiceGrant',`/api/v1/voice/rings/${encodeURIComponent(id)}/accept`,input);
   }
+  async claimScreen():Promise<void> { await this.value('/api/v1/voice/screen',{}); }
+  async releaseScreen():Promise<void> { await this.value('/api/v1/voice/screen',undefined,false,undefined,'DELETE'); }
   async declineRing(id:string):Promise<void> { await this.value(`/api/v1/voice/rings/${encodeURIComponent(id)}/decline`,{}); }
   readonly baseUrl: string;
   private readonly fetcher: typeof fetch;

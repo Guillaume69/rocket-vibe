@@ -42,13 +42,15 @@ export function useVoiceController(): VoiceController | null {
       leaveVoice: () => chat.leaveVoice(),
       acceptRing: id => chat.acceptRing(id),
       declineRing: id => chat.declineRing(id),
+      claimScreen: () => chat.claimScreen(),
+      releaseScreen: () => chat.releaseScreen(),
     });
     controllers.set(chat, controller);
   }
   return controller;
 }
 
-const IDLE_VIEW: VoiceView = { phase: 'idle', room: null, microphone: true, deafened: false, participants: [], route: null, routes: [], ring: null, ended: null };
+const IDLE_VIEW: VoiceView = { phase: 'idle', room: null, microphone: true, deafened: false, camera: false, sharing: false, participants: [], route: null, routes: [], ring: null, ended: null };
 
 export function useVoice(): VoiceView {
   const controller = useVoiceController();
@@ -177,6 +179,8 @@ export function VoiceOccupants({ c, rid, client }: { c: Colors; rid: string; cli
             </Text>
             {(local?.muted ?? o.muted) && <Text style={styles.occupantIcon}>🎙️̸</Text>}
             {(local?.deafened ?? o.deafened) && <Text style={styles.occupantIcon}>🔇</Text>}
+            {(local?.camera ?? o.camera) === true && <Text style={styles.occupantIcon}>📷</Text>}
+            {(local?.screen ?? o.screen) === true && <Text style={styles.occupantIcon}>🖥️</Text>}
           </View>
         );
       })}
@@ -213,6 +217,14 @@ export function VoiceControls({ c, size = 'small' }: { c: Colors; size?: 'small'
         onPress={() => void controller.setMicrophone(muted)} />
       <ControlButton c={c} label={voice.deafened ? t('voice.undeafen') : t('voice.deafen')} glyph={voice.deafened ? '🔇' : '🎧'} active={voice.deafened}
         onPress={() => void controller.setDeafened(!voice.deafened)} />
+      {size === 'large' && (
+        <ControlButton c={c} label={voice.camera ? t('voice.cameraOff') : t('voice.camera')} glyph="📷" active={voice.camera}
+          onPress={() => void toggleCamera(controller, voice.camera, t)} />
+      )}
+      {size === 'large' && (
+        <ControlButton c={c} label={voice.sharing ? t('voice.stopScreen') : t('voice.shareScreen')} glyph="🖥️" active={voice.sharing}
+          onPress={() => void toggleScreen(controller, voice.sharing, t)} />
+      )}
       {size === 'large' && voice.routes.includes('speaker') && (
         <ControlButton c={c} label={t('voice.speaker')} glyph="🔊" active={voice.route === 'speaker'}
           onPress={() => void controller.setRoute(voice.route === 'speaker' ? (voice.routes.find(r => r !== 'speaker') ?? 'earpiece') : 'speaker')} />
@@ -220,6 +232,24 @@ export function VoiceControls({ c, size = 'small' }: { c: Colors; size?: 'small'
       <ControlButton c={c} label={t('voice.leave')} glyph="📞" danger onPress={() => void controller.leave()} />
     </View>
   );
+}
+
+async function toggleCamera(controller: VoiceController, on: boolean, t: T): Promise<void> {
+  if (on) return controller.setCamera(false);
+  if (Platform.OS === 'android' && await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA) !== PermissionsAndroid.RESULTS.GRANTED) {
+    notify(t('voice.cameraDenied'));
+    return;
+  }
+  await controller.setCamera(true);
+}
+
+async function toggleScreen(controller: VoiceController, on: boolean, t: T): Promise<void> {
+  if (on) return controller.stopScreen();
+  try {
+    await controller.shareScreen();
+  } catch (error) {
+    notify((error as { code?: unknown })?.code === 'screen_taken' ? t('voice.screenTaken') : t('voice.joinFailed'));
+  }
 }
 
 /** "Voice connected · room": at the foot of the room list while a session lives. */

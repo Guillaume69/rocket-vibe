@@ -1341,6 +1341,8 @@ export class NativeChat {
     return this.transport.acceptRing(id,{membership_version:membership,data_epoch:epoch});
   }
   async declineRing(id:string):Promise<void> {this.ready();await this.transport.declineRing(id);}
+  async claimScreen():Promise<void> {this.ready();await this.transport.claimScreen();}
+  async releaseScreen():Promise<void> {this.ready();await this.transport.releaseScreen();}
   async direct(username: string,uid?:string): Promise<string> {
     this.ready();
     const generation = this.generation;

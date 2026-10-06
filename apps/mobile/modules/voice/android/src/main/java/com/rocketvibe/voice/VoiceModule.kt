@@ -1,5 +1,9 @@
 package com.rocketvibe.voice
 
+import android.app.Activity
+import android.content.Context
+import android.media.projection.MediaProjectionManager
+import expo.modules.kotlin.Promise
 import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -18,6 +22,7 @@ class ConnectOptions : Record {
 /** JS face of [VoiceEngine]: commands in, one `change` event carrying the whole snapshot out. */
 class VoiceModule : Module() {
   private val listener: () -> Unit = { sendEvent("change", VoiceEngine.last) }
+  private var consent: Promise? = null
 
   override fun definition() = ModuleDefinition {
     Name("Voice")
@@ -47,9 +52,37 @@ class VoiceModule : Module() {
       appContext.reactContext?.let { VoiceRinging.cancel(it, ring) }
       Unit
     }.runOnQueue(Queues.MAIN)
+    AsyncFunction("setCamera") { enabled: Boolean -> VoiceEngine.setCamera(enabled) }.runOnQueue(Queues.MAIN)
+    // Asks Android for the screen (MediaProjection consent), then shares it. Resolves false when refused.
+    AsyncFunction("startScreenShare") { promise: Promise ->
+      val activity = appContext.currentActivity
+      val projection = activity?.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
+      if (activity == null || projection == null) { promise.resolve(false); return@AsyncFunction }
+      consent?.resolve(false)
+      consent = promise
+      activity.startActivityForResult(projection.createScreenCaptureIntent(), SCREEN_REQUEST)
+    }.runOnQueue(Queues.MAIN)
+    OnActivityResult { _, payload ->
+      if (payload.requestCode != SCREEN_REQUEST) return@OnActivityResult
+      val promise = consent ?: return@OnActivityResult
+      consent = null
+      val data = payload.data
+      if (payload.resultCode == Activity.RESULT_OK && data != null) {
+        VoiceEngine.startScreenShare(data)
+        promise.resolve(true)
+      } else promise.resolve(false)
+    }
+    AsyncFunction("stopScreenShare") { VoiceEngine.stopScreenShare() }.runOnQueue(Queues.MAIN)
+    View(VoiceVideoView::class) {
+      Prop("identity") { view: VoiceVideoView, identity: String -> view.identity = identity }
+      Prop("source") { view: VoiceVideoView, source: String -> view.source = source }
+      Prop("fit") { view: VoiceVideoView, fit: String -> view.fit = fit }
+    }
     AsyncFunction("missed") {
       appContext.reactContext?.let { VoiceSounds.cue(it, R.raw.cue_missed) }
       Unit
     }.runOnQueue(Queues.MAIN)
   }
 }
+
+private const val SCREEN_REQUEST = 0x7276

@@ -19,6 +19,9 @@ release, and its notes are that version's section here.
   screen incoming call, even locked, to accept or decline. A missed, declined or
   finished call shows its outcome in the conversation, and calling back is one tap.
 - "Create a room" on a RocketVibe server, voice channels included.
+- In a voice session, turn your camera on (off by default) and share your screen: one
+  person shares at a time in a room, and the shared screen takes the stage above the
+  cameras.
 - Slash commands on a RocketVibe server: /topic, /invite, /kick, /leave, /join,
   /msg and /status run on the server; /me, /shrug, /tableflip, /unflip,
   /lennyface and /gimme are written by the app, so they also work in encrypted

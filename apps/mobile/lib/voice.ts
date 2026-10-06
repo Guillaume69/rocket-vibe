@@ -15,6 +15,9 @@ export type VoiceEngine = {
   setMicrophone(enabled: boolean): Promise<void>;
   setDeafened(on: boolean): Promise<void>;
   setRoute(route: VoiceRoute): Promise<void>;
+  setCamera(enabled: boolean): Promise<void>;
+  startScreenShare(): Promise<boolean>;
+  stopScreenShare(): Promise<void>;
   ringback(on: boolean): Promise<void>;
   missed(): Promise<void>;
   addListener(event: 'change', listener: (snapshot: VoiceSnapshot) => void): { remove: () => void };
@@ -24,6 +27,9 @@ export type VoiceServer = {
   leaveVoice(): Promise<void>;
   acceptRing(id: string): Promise<VoiceGrant>;
   declineRing(id: string): Promise<void>;
+  /** The room's one screen share (`409 screen_taken` while someone else holds it). */
+  claimScreen(): Promise<void>;
+  releaseScreen(): Promise<void>;
 };
 
 /** What the screens read: the engine's view, plus the step before it (asking the server). */
@@ -32,6 +38,8 @@ export type VoiceView = {
   room: string | null;
   microphone: boolean;
   deafened: boolean;
+  camera: boolean;
+  sharing: boolean;
   participants: VoiceMember[];
   route: VoiceRoute | null;
   routes: VoiceRoute[];
@@ -42,7 +50,7 @@ export type VoiceView = {
 };
 
 const IDLE: VoiceView = {
-  phase: 'idle', room: null, microphone: true, deafened: false, participants: [],
+  phase: 'idle', room: null, microphone: true, deafened: false, camera: false, sharing: false, participants: [],
   route: null, routes: [], ring: null, ended: null,
 };
 
@@ -92,10 +100,13 @@ export class VoiceController {
       this.set({ ...IDLE, ended: wasActive ? ended : this.view.ended });
       return;
     }
+    // Stopped from the system (the projection notification): the server lets the screen go.
+    if (this.view.sharing && s.sharing === false) void this.server.releaseScreen().catch(() => {});
     const remote = s.participants.some(p => !p.local);
     if (remote && this.view.ring?.state === 'ringing') void this.engine.ringback(false);
     this.set({
       phase: s.state, room: s.room ?? this.view.room, microphone: s.microphone ?? true, deafened: s.deafened ?? false,
+      camera: s.camera ?? false, sharing: s.sharing ?? false,
       participants: s.participants, route: s.route ?? null, routes: s.routes ?? [],
     });
   }
@@ -173,4 +184,26 @@ export class VoiceController {
   setMicrophone(enabled: boolean): Promise<void> { return this.engine.setMicrophone(enabled); }
   setDeafened(on: boolean): Promise<void> { return this.engine.setDeafened(on); }
   setRoute(route: VoiceRoute): Promise<void> { return this.engine.setRoute(route); }
+  setCamera(enabled: boolean): Promise<void> { return this.engine.setCamera(enabled); }
+
+  /**
+   * Shares the screen: the server's claim first (one share per room), then
+   * Android's consent. A refusal on either side leaves nothing claimed.
+   * Throws the server's refusal (screen_taken).
+   */
+  async shareScreen(): Promise<boolean> {
+    await this.server.claimScreen();
+    let started = false;
+    try {
+      started = await this.engine.startScreenShare();
+    } finally {
+      if (!started) await this.server.releaseScreen().catch(() => {});
+    }
+    return started;
+  }
+
+  async stopScreen(): Promise<void> {
+    await this.engine.stopScreenShare();
+    await this.server.releaseScreen().catch(() => {});
+  }
 }

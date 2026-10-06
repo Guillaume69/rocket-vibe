@@ -125,7 +125,7 @@ export function MentionCompletionBanner({
             ) : (
               <AvatarTile
                 c={c}
-                key={username}
+                hueKey={username}
                 initial={username.charAt(0)}
                 size={22}
                 radius={7}

@@ -346,7 +346,7 @@ function MyProfileForm({
           >
             <AvatarTile
               c={c}
-              key={username}
+              hueKey={username}
               initial={(form.name || username).charAt(0)}
               size={96}
               radius={30}

@@ -181,7 +181,7 @@ function Settings({
       >
         <AvatarTile
           c={c}
-          key={username}
+          hueKey={username}
           initial={username.charAt(0)}
           uri={avatarUrl(client, { username, etag: etags.byUsername.get(username) })}
         />

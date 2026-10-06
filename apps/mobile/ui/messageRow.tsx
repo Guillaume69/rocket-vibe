@@ -202,7 +202,7 @@ export const MessageRow = memo(function MessageRow({
         >
           <AvatarTile
             c={c}
-            key={author}
+            hueKey={author}
             initial={author.charAt(0) || '?'}
             // Avatar addressed by the CURRENT username (`identities`), uid as fallback.
             // By uid alone, the URI `/avatar/uid/<uid>` NEVER changes: RN's image

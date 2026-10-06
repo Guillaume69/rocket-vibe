@@ -103,7 +103,7 @@ export function Brand({
 /**
  * Avatar tile: rounded gradient square, with an initial or a child (lock emoji
  * of an encrypted room, "+" of a new conversation). The colour is STABLE per
- * `key`: the same person keeps their hue everywhere.
+ * `hueKey`: the same person keeps their hue everywhere.
  *
  * If `uri` is given, the REAL photo goes on top of the tile: it serves as the
  * background while loading, and as the fallback if the photo does not exist
@@ -112,7 +112,7 @@ export function Brand({
  */
 export function AvatarTile({
   c,
-  key,
+  hueKey,
   initial,
   size = 44,
   radius = 15,
@@ -124,13 +124,14 @@ export function AvatarTile({
   style,
 }: {
   c: Colors;
-  /** Key (name, id) that sets the hue. Optional if `deg` or `neutral` is given. */
-  key?: string;
+  /** Key (name, id) that sets the hue. Optional if `deg` or `neutral` is given.
+   * Not `key`: React keeps that one for itself, the tile would never see it. */
+  hueKey?: string;
   initial?: string;
   size?: number;
   radius?: number;
   neutral?: boolean;
-  /** IMPOSED gradient (2FA shield, etc.), bypasses the choice by `key`. */
+  /** IMPOSED gradient (2FA shield, etc.), bypasses the choice by `hueKey`. */
   deg?: Gradient;
   textColor?: string;
   child?: ReactNode;
@@ -139,7 +140,7 @@ export function AvatarTile({
   style?: StyleProp<ViewStyle>;
 }) {
   const gradient: Gradient =
-    deg ?? (neutral ? c.neutralGradient : avatarGradient(key ?? '', c.avatarGradients));
+    deg ?? (neutral ? c.neutralGradient : avatarGradient(hueKey ?? '', c.avatarGradients));
 
   // A failed photo (SVG placeholder, network) falls back to the tile. Re-armed
   // on every `uri` change (recycled list rows) via the "adjust state during
@@ -258,7 +259,7 @@ export function RoomAvatar({
   return (
     <AvatarTile
       c={c}
-      key={name}
+      hueKey={name}
       initial={isDM ? name.charAt(0) || '?' : '#'}
       uri={uri}
       size={size}

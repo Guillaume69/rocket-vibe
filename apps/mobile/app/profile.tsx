@@ -297,7 +297,7 @@ export default function ProfileScreen() {
       <View style={styles.header}>
         <AvatarTile
           c={c}
-          key={shownUsername ?? '?'}
+          hueKey={shownUsername ?? '?'}
           initial={(shownUsername ?? '?').charAt(0)}
           size={72}
           radius={22}

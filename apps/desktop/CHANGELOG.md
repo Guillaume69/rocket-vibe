@@ -155,6 +155,8 @@ section here.
   fails now and then with "the operation did not succeed" while the room is open.
 - RocketVibe: an encrypted group update received after the room was read is no longer
   offered for a review that could only fail with "the operation did not succeed": reading the room applies it.
+- RocketVibe: a message sent in an encrypted room or thread no longer waits for the next
+  event to show when the view was already refreshing at the moment it was sent.
 
 - RocketVibe: after a member's role or rights change in an encrypted room, the room
   encryption dialog offers to replace that member's device ("Replace and invite again"),

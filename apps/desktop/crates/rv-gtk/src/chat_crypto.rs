@@ -12,6 +12,7 @@ impl ChatPage {
         }
         self.native_crypto_ready.set(false);
         self.native_crypto_restored.set(false);
+        self.native_crypto_stale.set(false);
         self.native_crypto_rows.borrow_mut().clear();
         self.native_crypto_meta.borrow_mut().clear();
         self.composer.clear_reply();
@@ -19,6 +20,9 @@ impl ChatPage {
     }
     pub(super) async fn crypto_history(self: &Rc<Self>, older: bool) -> bool {
         if self.loading.get() {
+            if !older {
+                self.native_crypto_stale.set(true);
+            }
             return false;
         }
         let (Some(session), Some(rid)) = (self.native_session(), self.current_rid()) else { return false };
@@ -68,6 +72,16 @@ impl ChatPage {
             return false;
         }
         self.set_loading(false);
+        if self.native_crypto_stale.replace(false) {
+            let weak = Rc::downgrade(self);
+            glib::idle_add_local_once(move || {
+                if let Some(page) = weak.upgrade().filter(|p| p.read_generation.get() == generation) {
+                    glib::spawn_future_local(async move {
+                        page.crypto_history(false).await;
+                    });
+                }
+            });
+        }
         match result {
             Ok((access, view)) => {
                 self.native_crypto.replace(Some(access.clone()));

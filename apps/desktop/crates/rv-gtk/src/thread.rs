@@ -25,6 +25,9 @@ pub struct ThreadPage {
     crypto: RefCell<Option<private::Access>>,
     private_meta: RefCell<Vec<(String, String)>>,
     private_loading: Cell<bool>,
+    /// A reload asked while one was running: it runs again once that one ends,
+    /// or a message sent meanwhile waits for the next event to show.
+    private_stale: Cell<bool>,
     private_generation: Cell<u64>,
     private_restored: Cell<bool>,
     private_map: Cell<u64>,
@@ -57,6 +60,7 @@ impl ThreadPage {
             crypto: RefCell::default(),
             private_meta: RefCell::default(),
             private_loading: Cell::new(false),
+            private_stale: Cell::new(false),
             private_generation: Cell::new(0),
             private_restored: Cell::new(false),
             private_map: Cell::new(0),
@@ -119,6 +123,7 @@ impl ThreadPage {
         }
         self.private_generation.set(self.private_generation.get().wrapping_add(1));
         self.private_loading.set(false);
+        self.private_stale.set(false);
         self.private_restored.set(false);
         if let Some(access) = self.crypto.take() {
             access.close();
@@ -173,7 +178,11 @@ impl ThreadPage {
         }
     }
     fn reload_private(self: &Rc<Self>) {
-        if !self.list.root.is_mapped() || self.private_loading.replace(true) {
+        if !self.list.root.is_mapped() {
+            return;
+        }
+        if self.private_loading.replace(true) {
+            self.private_stale.set(true);
             return;
         }
         let Some(native) = self.native.clone().filter(|s| s.crypto_settings_supported()) else {
@@ -221,6 +230,10 @@ impl ThreadPage {
                 return;
             };
             page.private_loading.set(false);
+            if page.private_stale.replace(false) {
+                let again = page.clone();
+                gtk::glib::idle_add_local_once(move || again.reload_private());
+            }
             match result {
                 Ok((access, view)) => {
                     if access.check().is_err() {

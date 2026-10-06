@@ -121,6 +121,9 @@ pub struct ChatPage {
     native_crypto: RefCell<Option<rv_core::native::crypto::enrollment::rooms::messages::Access>>,
     native_crypto_ready: Cell<bool>,
     native_crypto_restored: Cell<bool>,
+    /// A refresh asked while another load was running: it runs again once
+    /// that one ends, or a message just sent waits for the next event to show.
+    native_crypto_stale: Cell<bool>,
     native_crypto_rows: RefCell<Vec<rv_core::store::MessageRow>>,
     native_crypto_meta: RefCell<Vec<(String, String, Option<String>)>>,
     native_quote_cards: Rc<crate::native_quote_cards::QuoteCards>,
@@ -403,6 +406,7 @@ impl ChatPage {
             native_crypto: RefCell::default(),
             native_crypto_ready: Cell::new(false),
             native_crypto_restored: Cell::new(false),
+            native_crypto_stale: Cell::new(false),
             native_crypto_rows: RefCell::default(),
             native_crypto_meta: RefCell::default(),
             native_quote_cards: crate::native_quote_cards::QuoteCards::new(&list),

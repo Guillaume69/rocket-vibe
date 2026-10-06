@@ -1,3 +1,4 @@
+import { VoiceRingHost } from '../ui/voice.tsx';
 import { setAudioModeAsync } from 'expo-audio';
 import { ShareIntentProvider, useShareIntentContext } from 'expo-share-intent';
 import { router, Stack, useRouter } from 'expo-router';
@@ -121,6 +122,19 @@ export default function RootLayout() {
                         contentStyle: { backgroundColor: darkColors.deepCard },
                       }}
                     />
+                    {/* New room, voice channels included (RocketVibe server). */}
+                    <Stack.Screen
+                      name="new-room"
+                      options={{
+                        presentation: 'formSheet',
+                        headerShown: false,
+                        sheetAllowedDetents: 'fitToContents',
+                        sheetGrabberVisible: true,
+                        sheetCornerRadius: 24,
+                        sheetElevation: 24,
+                        contentStyle: { backgroundColor: darkColors.deepCard },
+                      }}
+                    />
                     {/* Room info (tap on the name in the header). */}
                     <Stack.Screen
                       name="room-info"
@@ -162,6 +176,8 @@ export default function RootLayout() {
                       stack, only shows if opening drags on (>threshold). */}
                   <ProfileOpeningIndicator />
                   <ToastHost />
+                  {/* Rings of direct calls and the end of a voice session (RocketVibe). */}
+                  <VoiceRingHost />
                   {/* Redirects to the share screen as soon as an intent arrives. */}
                   <ShareGuard />
                 </ImageViewerProvider>

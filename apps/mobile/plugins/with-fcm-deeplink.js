@@ -111,6 +111,7 @@ const NATIVE_STRINGS = {
   rv_push_encrypted_message: { en: 'Encrypted message', fr: 'Message chiffré' },
   rv_push_me: { en: 'You', fr: 'Vous' },
   rv_push_new_message: { en: 'New message', fr: 'Nouveau message' },
+  rv_push_incoming_call: { en: 'Incoming call', fr: 'Appel entrant' },
   rv_push_reply: { en: 'Reply', fr: 'Répondre' },
   rv_push_reply_failed: { en: 'Reply not sent', fr: 'Réponse non envoyée' },
 };
@@ -139,6 +140,7 @@ import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
@@ -190,7 +192,8 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
       }
       intent.replaceExtras(extras)
       if (extras.getString("product") == "rocketvibe") {
-        receiveNativePush(this, extras)
+        if (extras.getString("type")?.startsWith("voice_ring") == true) receiveVoicePush(this, extras)
+        else receiveNativePush(this, extras)
         return
       }
       if (BuildConfig.DEBUG) {
@@ -1371,6 +1374,7 @@ function withServiceFile(config) {
 function declareComponents(application) {
   addService(application);
   addReceiver(application);
+  addReceiver(application, '.NativeVoiceReceiver');
   addReceiver(application, `.${LEGACY_RECEIVER_CLASS}`);
   return application;
 }

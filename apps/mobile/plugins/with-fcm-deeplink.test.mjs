@@ -154,7 +154,8 @@ describe('addReceiver', () => {
     const application = declareComponents({});
     assert.deepEqual(
       application.receiver.map((r) => r.$['android:name']),
-      [`.${RECEIVER_CLASS}`, `.${LEGACY_RECEIVER_CLASS}`],
+      // The voice receiver declines a ringing call from its notification.
+      [`.${RECEIVER_CLASS}`, '.NativeVoiceReceiver', `.${LEGACY_RECEIVER_CLASS}`],
     );
     assert.equal(application.service[0].$['android:name'], `.${SERVICE_CLASS}`);
   });

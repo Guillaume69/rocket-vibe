@@ -33,6 +33,7 @@ import { unicodeOfShortcode } from '../lib/emojis.ts';
 import { customEmojiUrl } from '../lib/customEmojis.ts';
 import {ImageEmoji,useCatalogueEmojis} from './emojiImage.tsx';
 import { messageTree } from '../lib/markdown.ts';
+import { useJoinVoice, useVoice } from './voice.tsx';
 import { callSummaryText, systemText } from '../lib/systemMessages.ts';
 import { reactionList, type DisplayedReaction } from '../lib/reactions.ts';
 import { openProfileCard } from '../lib/profilePreload.ts';
@@ -343,7 +344,7 @@ function MessageContent({ c, message }: { c: Colors; message: MessageRowData }) 
     return <CallCard c={c} callId={message.callId} rid={message.rid} />;
   }
   if (message.systemType?.startsWith('rv-call')) {
-    return <VoiceCallCard c={c} type={message.systemType} param={message.text ?? ''} />;
+    return <VoiceCallCard c={c} rid={message.rid} type={message.systemType} param={message.text ?? ''} />;
   }
   if (message.systemType !== null && !decryptedEncrypted) {
     // The sentence follows the author name shown just above: "bob joined the
@@ -670,14 +671,32 @@ function CallCard({ c, callId,rid }: { c: Colors; callId: string | null;rid:stri
   );
 }
 
-/** A RocketVibe call row: its outcome and, once over, how long it lasted. */
-function VoiceCallCard({ c, type, param }: { c: Colors; type: string; param: string }) {
+/**
+ * A RocketVibe call row: its outcome and, once over, how long it lasted. A
+ * call still going is joined; one that ended is called back (a DM rings).
+ */
+function VoiceCallCard({ c, rid, type, param }: { c: Colors; rid: string; type: string; param: string }) {
   const t = useT();
+  const join = useJoinVoice();
+  const voice = useVoice();
+  const ongoing = type === 'rv-call-ringing' || type === 'rv-call-answered' && param === '';
+  const here = voice.room === rid && voice.phase !== 'idle';
   return (
     <View style={[styles.callCard, { backgroundColor: c.card, borderColor: c.border }]}>
       <Text style={[styles.callCardTitle, { color: type === 'rv-call-missed' ? c.danger : c.text }]}>
         {callSummaryText(t, type, param)}
       </Text>
+      {type !== 'rv-call' && !here && (
+        <Tappable
+          onPress={() => void join(rid, t('voice.title'), !ongoing)}
+          android_ripple={{ color: c.ripple }}
+          unstable_pressDelay={LIST_PRESS_DELAY}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.join, { backgroundColor: c.accent, opacity: pressed ? 0.7 : 1 }]}
+        >
+          <Text style={[styles.joinText, { color: c.onAccent }]}>{ongoing ? t('messageRow.join') : t('call.back')}</Text>
+        </Tappable>
+      )}
     </View>
   );
 }

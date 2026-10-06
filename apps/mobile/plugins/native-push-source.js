@@ -124,6 +124,62 @@ private fun nativeLink(session: JSONObject, scope: JSONObject): String =
     "&msg=" + Uri.encode(scope.optString("messageId")) +
     (scope.optString("tmid").takeIf { it.isNotEmpty() }?.let { "&tmid=" + Uri.encode(it) } ?: "")
 
+// A ringing direct call (docs/protocol/VOICE.md): ids only, the ring is read
+// authenticated, then the voice module rings it over the lock screen.
+private fun nativeVoiceScope(extras: Bundle): JSONObject? {
+  val scope = JSONObject()
+  for (key in arrayOf("instanceId", "dataEpoch", "userId", "deviceId", "ringId", "rid")) {
+    val value = extras.getString(key).orEmpty()
+    if (!isNativeIdentifier(value)) return null
+    scope.put(key, value)
+  }
+  return scope
+}
+private fun receiveVoicePush(ctx: Context, extras: Bundle) {
+  try {
+    val scope = nativeVoiceScope(extras) ?: return
+    val session = readNativeSession(ctx, scope) ?: return
+    val ring = scope.optString("ringId")
+    if (extras.getString("type") == "voice_ring_end") { com.rocketvibe.voice.VoiceRinging.cancel(ctx, ring); return }
+    // A few seconds at most (FCM leaves ~10 s): the caller's name, and whether it still rings for us.
+    val value = nativeHttp(session, "/api/v1/voice/rings/" + ring).body
+    if (value != null && (value.optString("state") != "ringing" || value.optJSONObject("callee")?.optString("id") != scope.optString("userId") ||
+        value.optString("room_id") != scope.optString("rid"))) return
+    val caller = value?.optJSONObject("caller")?.let { it.optString("display_name").ifEmpty { it.optString("username") } }
+      ?: localizedString(ctx, R.string.rv_push_incoming_call, "Incoming call")
+    val remaining = value?.optLong("expires_in_ms", 30000L) ?: 30000L
+    val answer = "rocketvibe://voice-ring/" + Uri.encode(ring) + "?rid=" + Uri.encode(scope.optString("rid")) +
+      "&host=" + Uri.encode(session.optString("baseUrl")) + "&nativeScope=" + Uri.encode(JSONObject()
+        .put("instanceId", scope.optString("instanceId")).put("dataEpoch", scope.optString("dataEpoch")).put("userId", scope.optString("userId")).toString())
+    val decline = PendingIntent.getBroadcast(ctx, ("voice-decline:" + ring).hashCode(),
+      Intent(ctx, NativeVoiceReceiver::class.java).setAction("decline").putExtra("scope", scope.toString()),
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    com.rocketvibe.voice.VoiceRinging.show(ctx, ring, caller.take(128), answer, decline, remaining)
+  } catch (_: Exception) { debugLog(ctx, "native voice ring failed") }
+}
+/** "Decline" on the ringing call: stop ringing now, tell the server through WorkManager. */
+class NativeVoiceReceiver : BroadcastReceiver() {
+  override fun onReceive(ctx: Context, intent: Intent) {
+    val raw = intent.getStringExtra("scope") ?: return
+    val scope = try { JSONObject(raw) } catch (_: Exception) { return }
+    com.rocketvibe.voice.VoiceRinging.cancel(ctx, scope.optString("ringId"))
+    val work = OneTimeWorkRequest.Builder(NativeVoiceDeclineWorker::class.java).setInputData(Data.Builder().putString("scope", raw).build())
+      .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+      .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST).build()
+    WorkManager.getInstance(ctx).enqueueUniqueWork("native-voice-decline:" + scope.optString("ringId"), ExistingWorkPolicy.KEEP, work)
+  }
+}
+class NativeVoiceDeclineWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params) {
+  override fun doWork(): Result {
+    val scope = try { JSONObject(inputData.getString("scope") ?: return Result.failure()) } catch (_: Exception) { return Result.failure() }
+    val session = readNativeSession(applicationContext, scope) ?: return Result.success()
+    // A declined call stops mattering when its ring would have ended anyway.
+    if (isStopped || runAttemptCount >= 3) return Result.success()
+    val result = nativeHttp(session, "/api/v1/voice/rings/" + scope.optString("ringId") + "/decline", JSONObject())
+    return if (result.code == 0 || result.code >= 500) Result.retry() else Result.success()
+  }
+}
+
 private fun receiveNativePush(ctx: Context, extras: Bundle) {
   try {
     val scope = nativePushContext(extras) ?: return

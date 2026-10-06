@@ -25,6 +25,7 @@ import { useSync } from './sync.tsx';
 import { type Colors, FONTS } from './theme.ts';
 import { Tappable } from './tappable.tsx';
 import {CryptoNative} from '../modules/crypto-native/index.ts';
+import { useJoinVoice, useVoice } from './voice.tsx';
 
 type RoomRow = typeof rooms.$inferSelect;
 
@@ -68,6 +69,12 @@ export function RoomHeader({
   const sync = useSync();
   const capabilities = sync.phase === 'ready' ? sync.capabilities : null;
   const unlocked = useE2EUnlocked(sync.phase === 'ready' ? sync.e2e : null);
+  // RocketVibe: every room calls through its voice session (a DM rings).
+  // Encrypted rooms wait for end-to-end encrypted voice.
+  const joinVoice = useJoinVoice();
+  const voice = useVoice();
+  const voiceCall = capabilities?.voice === true && room !== undefined && !room.encrypted;
+  const inVoice = voice.room === rid && voice.phase !== 'idle';
 
   // Video conference availability: hides the button where no provider is
   // configured (local Docker), shows it on the target (Jitsi).
@@ -156,6 +163,17 @@ export function RoomHeader({
           </View>
         </Tappable>
       </View>
+      {voiceCall && (
+        <Tappable
+          onPress={() => void joinVoice(rid, name, isDM && !inVoice)}
+          hitSlop={8}
+          android_ripple={{ color: c.ripple, borderless: true }}
+          accessibilityRole="button"
+          accessibilityLabel={inVoice ? t('voice.inCall') : t('voice.startCall')}
+        >
+          <Text style={[styles.headerIcon, inVoice && { color: c.online }]}>{inVoice ? '🔊' : '📞'}</Text>
+        </Tappable>
+      )}
       {callAvailable && (
         <Tappable
           onPress={startCall}

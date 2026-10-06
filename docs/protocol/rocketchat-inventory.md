@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-443 production files scanned; 461 occurrences.
+447 production files scanned; 463 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -411,12 +411,14 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/plugins/ios-notification-service/NotificationService.swift:163](../../apps/mobile/plugins/ios-notification-service/NotificationService.swift#L163) | url | /api/v1/push.get |
 | [apps/mobile/plugins/native-push-source.js:36](../../apps/mobile/plugins/native-push-source.js#L36) | url | /api/v1/me/push |
 | [apps/mobile/plugins/native-push-source.js:117](../../apps/mobile/plugins/native-push-source.js#L117) | url | /api/v1 |
-| [apps/mobile/plugins/native-push-source.js:165](../../apps/mobile/plugins/native-push-source.js#L165) | url | /api/v1/push/notifications |
-| [apps/mobile/plugins/native-push-source.js:224](../../apps/mobile/plugins/native-push-source.js#L224) | url | /api/v1/rooms |
-| [apps/mobile/plugins/with-fcm-deeplink.js:1066](../../apps/mobile/plugins/with-fcm-deeplink.js#L1066) | url | /api/v1/chat.sendMessage |
-| [apps/mobile/plugins/with-fcm-deeplink.js:1079](../../apps/mobile/plugins/with-fcm-deeplink.js#L1079) | url | /api/v1/chat.sendMessage |
-| [apps/mobile/plugins/with-fcm-deeplink.js:1173](../../apps/mobile/plugins/with-fcm-deeplink.js#L1173) | url | /api/v1/push.get |
-| [apps/mobile/plugins/with-fcm-deeplink.js:1191](../../apps/mobile/plugins/with-fcm-deeplink.js#L1191) | url | /api/v1/push.get |
+| [apps/mobile/plugins/native-push-source.js:145](../../apps/mobile/plugins/native-push-source.js#L145) | url | /api/v1/voice/rings |
+| [apps/mobile/plugins/native-push-source.js:178](../../apps/mobile/plugins/native-push-source.js#L178) | url | /api/v1/voice/rings |
+| [apps/mobile/plugins/native-push-source.js:221](../../apps/mobile/plugins/native-push-source.js#L221) | url | /api/v1/push/notifications |
+| [apps/mobile/plugins/native-push-source.js:280](../../apps/mobile/plugins/native-push-source.js#L280) | url | /api/v1/rooms |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1069](../../apps/mobile/plugins/with-fcm-deeplink.js#L1069) | url | /api/v1/chat.sendMessage |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1082](../../apps/mobile/plugins/with-fcm-deeplink.js#L1082) | url | /api/v1/chat.sendMessage |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1176](../../apps/mobile/plugins/with-fcm-deeplink.js#L1176) | url | /api/v1/push.get |
+| [apps/mobile/plugins/with-fcm-deeplink.js:1194](../../apps/mobile/plugins/with-fcm-deeplink.js#L1194) | url | /api/v1/push.get |
 | [apps/mobile/providers/rocketchat/actions.ts:23](../../apps/mobile/providers/rocketchat/actions.ts#L23) | call:POST | 'rooms.favorite' |
 | [apps/mobile/providers/rocketchat/actions.ts:23](../../apps/mobile/providers/rocketchat/actions.ts#L23) | endpoint | rooms.favorite |
 | [apps/mobile/providers/rocketchat/actions.ts:27](../../apps/mobile/providers/rocketchat/actions.ts#L27) | call:GET | 'rooms.info' |
@@ -463,10 +465,10 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/ui/messages.ts:454](../../apps/mobile/ui/messages.ts#L454) | endpoint | e2e.unlock |
 | [apps/mobile/ui/messages.ts:455](../../apps/mobile/ui/messages.ts#L455) | endpoint | e2e.wrongPassword |
 | [apps/mobile/ui/messages.ts:456](../../apps/mobile/ui/messages.ts#L456) | endpoint | e2e.genericError |
-| [apps/mobile/ui/messages.ts:1195](../../apps/mobile/ui/messages.ts#L1195) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:1196](../../apps/mobile/ui/messages.ts#L1196) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:1198](../../apps/mobile/ui/messages.ts#L1198) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:1199](../../apps/mobile/ui/messages.ts#L1199) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:1200](../../apps/mobile/ui/messages.ts#L1200) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:1201](../../apps/mobile/ui/messages.ts#L1201) | endpoint | e2e.genericError |
+| [apps/mobile/ui/messages.ts:1236](../../apps/mobile/ui/messages.ts#L1236) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:1237](../../apps/mobile/ui/messages.ts#L1237) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:1239](../../apps/mobile/ui/messages.ts#L1239) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:1240](../../apps/mobile/ui/messages.ts#L1240) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:1241](../../apps/mobile/ui/messages.ts#L1241) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:1242](../../apps/mobile/ui/messages.ts#L1242) | endpoint | e2e.genericError |
 | [apps/mobile/ui/serverRail.tsx:33](../../apps/mobile/ui/serverRail.tsx#L33) | endpoint | subscriptions.get |

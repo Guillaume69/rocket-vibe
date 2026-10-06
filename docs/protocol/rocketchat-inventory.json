@@ -271,6 +271,7 @@
     "apps/mobile/app/message-search.tsx",
     "apps/mobile/app/my-profile.tsx",
     "apps/mobile/app/native.tsx",
+    "apps/mobile/app/new-room.tsx",
     "apps/mobile/app/profile.tsx",
     "apps/mobile/app/room-info.tsx",
     "apps/mobile/app/room/[rid].tsx",
@@ -279,6 +280,8 @@
     "apps/mobile/app/share.tsx",
     "apps/mobile/app/thread/[id].tsx",
     "apps/mobile/app/unlock-e2e.tsx",
+    "apps/mobile/app/voice-ring/[id].tsx",
+    "apps/mobile/app/voice/[rid].tsx",
     "apps/mobile/lib/accountUnread.ts",
     "apps/mobile/lib/activity.ts",
     "apps/mobile/lib/attachment.ts",
@@ -452,7 +455,8 @@
     "apps/mobile/ui/unreadBar.ts",
     "apps/mobile/ui/uploadBands.tsx",
     "apps/mobile/ui/uploadProbe.ts",
-    "apps/mobile/ui/videoPlayer.tsx"
+    "apps/mobile/ui/videoPlayer.tsx",
+    "apps/mobile/ui/voice.tsx"
   ],
   "entries": [
     {
@@ -2869,37 +2873,49 @@
     },
     {
       "file": "apps/mobile/plugins/native-push-source.js",
-      "line": 165,
+      "line": 145,
+      "kind": "url",
+      "surface": "/api/v1/voice/rings"
+    },
+    {
+      "file": "apps/mobile/plugins/native-push-source.js",
+      "line": 178,
+      "kind": "url",
+      "surface": "/api/v1/voice/rings"
+    },
+    {
+      "file": "apps/mobile/plugins/native-push-source.js",
+      "line": 221,
       "kind": "url",
       "surface": "/api/v1/push/notifications"
     },
     {
       "file": "apps/mobile/plugins/native-push-source.js",
-      "line": 224,
+      "line": 280,
       "kind": "url",
       "surface": "/api/v1/rooms"
     },
     {
       "file": "apps/mobile/plugins/with-fcm-deeplink.js",
-      "line": 1066,
+      "line": 1069,
       "kind": "url",
       "surface": "/api/v1/chat.sendMessage"
     },
     {
       "file": "apps/mobile/plugins/with-fcm-deeplink.js",
-      "line": 1079,
+      "line": 1082,
       "kind": "url",
       "surface": "/api/v1/chat.sendMessage"
     },
     {
       "file": "apps/mobile/plugins/with-fcm-deeplink.js",
-      "line": 1173,
+      "line": 1176,
       "kind": "url",
       "surface": "/api/v1/push.get"
     },
     {
       "file": "apps/mobile/plugins/with-fcm-deeplink.js",
-      "line": 1191,
+      "line": 1194,
       "kind": "url",
       "surface": "/api/v1/push.get"
     },
@@ -3181,37 +3197,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1195,
+      "line": 1236,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1196,
+      "line": 1237,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1198,
+      "line": 1239,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1199,
+      "line": 1240,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1200,
+      "line": 1241,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1201,
+      "line": 1242,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

@@ -27,6 +27,7 @@ import { useE2EUnlocked } from '../ui/e2e.ts';
 import type { E2EEngine } from '../lib/e2e/engine.ts';
 import { type Colors, LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
 import { Tappable } from '../ui/tappable.tsx';
+import { VoiceBar, VoiceOccupants, useJoinVoice } from '../ui/voice.tsx';
 
 /**
  * Gatekeeper and room list. Without a session we go log in; with one, the
@@ -59,6 +60,7 @@ export default function HomeScreen() {
         <View style={styles.full}>
           <ListHeader c={c} />
           <RoomList c={c} client={state.client} />
+          <VoiceFooter c={c} />
         </View>
       </View>
     </SafeAreaView>
@@ -91,6 +93,20 @@ function ListHeader({ c }: { c: Colors }) {
       <SyncBar c={c} active={syncing} />
     </View>
   );
+}
+
+/** "Voice connected" panel at the foot of the list, while a session lives. */
+function VoiceFooter({ c }: { c: Colors }) {
+  const sync = useSync();
+  return sync.phase === 'ready' ? <VoiceFooterRooms c={c} base={sync.base} /> : null;
+}
+function VoiceFooterRooms({ c, base }: { c: Colors; base: LocalDatabase }) {
+  const { data } = useCoalescedLiveQuery(base.select().from(rooms));
+  const title = (rid: string) => {
+    const room = data.find(r => r.rid === rid);
+    return room?.displayName ?? room?.name ?? '';
+  };
+  return <VoiceBar c={c} title={title} />;
 }
 
 function RoomList({ c, client }: { c: Colors; client: RestClient }) {
@@ -235,6 +251,7 @@ function RoomRow({
 }) {
   const router = useRouter();
   const t = useT();
+  const joinVoice = useJoinVoice();
   // Presence dot (8.4), two-person DMs only (`dmOtherUid` is null elsewhere).
   // Unknown status, or broadcast turned off server-side
   // (Presence_broadcast_disabled): nothing; the UI never depends on it.
@@ -268,7 +285,10 @@ function RoomRow({
     // emulator), only a PARENT's clip cuts it.
     <View style={styles.rowWrapper}>
       <Tappable
-        onPress={() => router.push({ pathname: '/room/[rid]', params: { rid: room.rid } })}
+        // A voice channel is entered, like in Discord: selecting it joins its session.
+        onPress={() => room.voice
+          ? void joinVoice(room.rid, name)
+          : router.push({ pathname: '/room/[rid]', params: { rid: room.rid } })}
         android_ripple={{ color: c.ripple }}
         unstable_pressDelay={LIST_PRESS_DELAY}
         style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
@@ -305,6 +325,7 @@ function RoomRow({
           numberOfLines={1}
         >
           {room.encrypted && <Text style={styles.encryptedBadge}>🔒 </Text>}
+          {room.voice && <Text style={styles.encryptedBadge}>🔊 </Text>}
           {name}
         </Text>
         <Text
@@ -317,15 +338,19 @@ function RoomRow({
 
         <UnreadBadge c={c} n={unread} />
       </Tappable>
+      <VoiceOccupants c={c} rid={room.rid} client={client} />
     </View>
   );
 }
 
-/** First row, fixed at the top of the list: start a conversation. */
+/** First rows, fixed at the top of the list: start a conversation, create a room. */
 function NewConversationRow({ c }: { c: Colors }) {
   const router = useRouter();
   const t = useT();
+  const sync = useSync();
+  const native = sync.phase === 'ready' && sync.provider.native !== undefined;
   return (
+    <View>
     <View style={styles.rowWrapper}>
       <Tappable
         onPress={() => router.push('/search')}
@@ -342,6 +367,20 @@ function NewConversationRow({ c }: { c: Colors }) {
           {t('home.newConversation')}
         </Text>
       </Tappable>
+    </View>
+    {native && (
+      <View style={styles.rowWrapper}>
+        <Tappable
+          onPress={() => router.push('/new-room')}
+          android_ripple={{ color: c.ripple }}
+          unstable_pressDelay={LIST_PRESS_DELAY}
+          style={[styles.row, { borderBottomColor: c.softBorder, borderBottomWidth: 1 }]}
+        >
+          <AvatarTile c={c} neutral child={<Text style={[styles.more, { color: c.text }]}>#</Text>} />
+          <Text style={[styles.next, { color: c.text }]}>{t('newRoom.open')}</Text>
+        </Tappable>
+      </View>
+    )}
     </View>
   );
 }

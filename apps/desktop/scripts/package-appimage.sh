@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds the Linux AppImage in pkgforge-dev's Arch Linux image, from this
 # checkout: dist/rocket-vibe-desktop-<version>-linux-x86_64.AppImage
+# With the voice sidecar when voice/scripts/build-linux.sh left it in dist/voice.
 #   scripts/package-appimage.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."

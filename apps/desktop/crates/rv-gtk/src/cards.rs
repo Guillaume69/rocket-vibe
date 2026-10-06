@@ -601,10 +601,28 @@ pub fn call(call_id: Option<&str>, on_event: OnRowEvent) -> gtk::Widget {
     card.upcast()
 }
 
-/// A RocketVibe direct call's row: a voice ring, nothing to join from here.
-pub fn voice_call() -> gtk::Widget {
-    let card = gtk::Box::builder().css_classes(["call-card"]).halign(gtk::Align::Start).build();
-    card.append(&gtk::Label::builder().label(t("voice_session.call")).css_classes(["call-title"]).build());
+/// A RocketVibe direct call's row (`rv-call-<state>`): its outcome and, once
+/// over, how long it lasted. A call still going is joined, one that ended is
+/// called back (`joinable`: this installation carries voice); a row without
+/// an outcome (`rv-call`, or an older `videoconf`) has nothing to join.
+pub fn voice_call(kind: &str, param: &str, joinable: bool, on_event: OnRowEvent) -> gtk::Widget {
+    let card = gtk::Box::builder().spacing(12).css_classes(["call-card"]).halign(gtk::Align::Start).build();
+    let summary = crate::i18n::call_summary(kind, param).unwrap_or_else(|| t("voice_session.call").to_owned());
+    let title = gtk::Label::builder().label(summary).css_classes(["call-title"]).valign(gtk::Align::Center).build();
+    if kind == "rv-call-missed" {
+        title.add_css_class("missed");
+    }
+    card.append(&title);
+    if joinable && kind.starts_with("rv-call-") {
+        let ongoing = crate::i18n::call_ongoing(kind, param);
+        let button = gtk::Button::builder()
+            .label(t(if ongoing { "message.join" } else { "voice_call.back" }))
+            .css_classes(["call-join"])
+            .build();
+        button.set_cursor(pointer().as_ref());
+        button.connect_clicked(move |_| on_event(RowEvent::VoiceCall { ring: !ongoing }));
+        card.append(&button);
+    }
     card.upcast()
 }
 
@@ -694,3 +712,42 @@ fn color_class(color: &str) -> Option<String> {
 #[cfg(test)]
 #[path = "tests/link_previews.rs"]
 mod preview_tests;
+
+#[cfg(test)]
+mod voice_call_tests {
+    use super::*;
+
+    fn texts(widget: &gtk::Widget) -> Vec<(String, Option<gtk::Button>)> {
+        std::iter::successors(widget.first_child(), |w| w.next_sibling())
+            .filter_map(|w| match w.downcast::<gtk::Button>() {
+                Ok(button) => Some((button.label().unwrap_or_default().to_string(), Some(button))),
+                Err(w) => w.downcast::<gtk::Label>().ok().map(|l| (l.label().to_string(), None)),
+            })
+            .collect()
+    }
+
+    #[test]
+    #[ignore = "requires a GTK display; run under Xvfb"]
+    fn call_rows_say_the_outcome_and_join_or_call_back() {
+        gtk::init().unwrap();
+        crate::i18n::set(crate::i18n::Lang::En);
+        let events: Rc<RefCell<Vec<bool>>> = Rc::default();
+        let seen = events.clone();
+        let on_event: OnRowEvent = Rc::new(move |event| {
+            if let RowEvent::VoiceCall { ring } = event {
+                seen.borrow_mut().push(ring);
+            }
+        });
+        let ended = texts(&voice_call("rv-call-answered", "754", true, on_event.clone()));
+        assert_eq!(ended[0].0, "📞 Call · 12 min");
+        assert_eq!(ended[1].0, "Call back");
+        ended[1].1.as_ref().unwrap().emit_clicked();
+        let ongoing = texts(&voice_call("rv-call-ringing", "", true, on_event.clone()));
+        assert_eq!((ongoing[0].0.as_str(), ongoing[1].0.as_str()), ("📞 Calling…", "Join"));
+        ongoing[1].1.as_ref().unwrap().emit_clicked();
+        assert_eq!(*events.borrow(), [true, false]);
+        // No sidecar, or no outcome to act on: the outcome alone.
+        assert_eq!(texts(&voice_call("rv-call-missed", "", false, on_event.clone())).len(), 1);
+        assert_eq!(texts(&voice_call("rv-call", "", true, on_event)).len(), 1);
+    }
+}

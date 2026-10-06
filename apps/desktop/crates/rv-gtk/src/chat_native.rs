@@ -484,6 +484,10 @@ impl ChatPage {
             self.show_profile(username, false);
             return;
         }
+        if let RowEvent::VoiceCall { ring } = event {
+            self.voice_call_back(ring);
+            return;
+        }
         if self.current.borrow().as_ref().is_some_and(|r| r.encrypted) {
             match event {
                 RowEvent::OpenThread(root) if !in_thread => self.open_native_thread(&root),
@@ -639,7 +643,7 @@ impl ChatPage {
             return;
         }
         match event {
-            RowEvent::JoinCall(_) | RowEvent::CallInfo(_) => {}
+            RowEvent::JoinCall(_) | RowEvent::CallInfo(_) | RowEvent::VoiceCall { .. } => {}
             RowEvent::Retry(id) => self.retry(id),
             RowEvent::React { id, shortcode, add } => self.native_react(id, shortcode, add),
             RowEvent::OpenThread(root) => self.open_thread(&root),

@@ -201,14 +201,16 @@ beta does.
 
 | Feature | Mobile | GTK | SwiftUI | Notes |
 |---|---|---|---|---|
-| Voice channels: speaker mark, entered on selection, writable | done | missing | missing | GTK: core and sidecar ready (`rv-core/src/voice.rs`), UI in progress. |
-| People connected under each room of the list, ring lit while speaking in your session | done | missing | missing | |
-| Voice screen: a card per person, glowing while they speak, chat one step away | done | missing | missing | |
-| "Voice connected" panel: mute, deafen, leave | done | missing | missing | Mobile adds the speaker route; the ongoing call notification also mutes and leaves. |
-| Call from any room's header (joins its voice) | done | missing | missing | |
-| Direct call rings the other member, accept or decline, original ringtone | done | missing | missing | Mobile: in-app ring, full-screen ring from a push even locked. |
-| Call rows show the outcome (missed, declined, duration) and call back | done | missing | missing | |
-| Create a voice channel | done | missing | missing | Mobile gained "Create a room" with it. |
+| Voice channels: speaker mark, entered on selection, writable | done | done | missing | Desktop needs the `rv-voice` sidecar beside the app, which every package carries. |
+| People connected under each room of the list, ring lit while speaking in your session | done | done | missing | |
+| Voice screen: a card per person, glowing while they speak, chat one step away | done | done | missing | |
+| "Voice connected" panel: mute, deafen, leave | done | done | missing | Mobile adds the speaker route; the ongoing call notification also mutes and leaves. |
+| Call from any room's header (joins its voice) | done | done | missing | GTK: also a profile's Call, which opens the DM and rings. |
+| Direct call rings the other member, accept or decline, original ringtone | done | done | missing | Mobile: in-app ring, full-screen ring from a push even locked. GTK: a dialog while the app runs (kept running in the tray or dock on Windows and macOS), no push. |
+| Call rows show the outcome (missed, declined, duration) and call back | done | done | missing | Both also preview the outcome in the room list. |
+| Create a voice channel | done | done | missing | Mobile gained "Create a room" with it. |
+| Turn a room into a voice channel or back (room settings, owners) | missing | done | missing | GTK sends `UpdateRoom.voice` only when the server announces voice. |
+| Choose the microphone and speakers | mapped | done | missing | Mobile: the speaker route button (earpiece, speaker, Bluetooth) meets the phone's need. GTK: a "Voice" group in the settings, kept per machine. |
 | Camera and one screen share per room | missing | missing | missing | Server ready (`docs/protocol/VOICE.md`); clients audio only for now. |
 | Voice in encrypted rooms (end-to-end encrypted frames) | missing | missing | missing | Refused by the server until then. |
 

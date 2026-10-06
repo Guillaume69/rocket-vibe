@@ -93,8 +93,28 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   `native/voice.rs` (`NativeSession`: join with membership and epoch checks, leave, rings,
   each room's participants and the rings from the live cache, `create_room(.., voice)`).
   `store::RoomRow.voice` marks voice channels.
-- **GTK**: the voice UI (sidebar participants, voice page, voice panel, rings) is the next
-  layer; see [parity](../parity.md).
+  The native store presents a call row's `Message.call` as mobile does: `rv-call-<state>`, the
+  duration in seconds as its parameter (`rv-call` before an outcome); `i18n::call_summary` says
+  it ("📞 Missed call", "📞 Call · 12 min").
+- **GTK** (`rv-gtk/src/chat_voice.rs`, only when `voice_supported()`): a voice channel shows a
+  speaker icon and joins on selection; the people in any room's session are listed under its
+  row, the ring of their avatar lit while they speak in your session (a CSS class toggled per
+  account, no rebuild per speaking tick); the voice page (a card per person glowing while they
+  speak, "Open the chat", Join, controls); the "Voice connected" panel above the account bar
+  (mute, deafen, leave, a click opens the page). The header's call button joins the open room's
+  voice and rings in a DM nobody is in yet; a profile's Call opens the DM and rings. An incoming
+  ring opens an Accept / Decline dialog over the ringtone (the window is presented if hidden),
+  the caller hears the ringback, cues mark join, leave, mute and a missed call (`sounds.rs`
+  plays `assets/sounds` through GStreamer). Call rows show the outcome (missed in red) with
+  Join while the call goes on or Call back once it ended (rings in a DM), and the room list
+  previews the outcome. Toasts say why a session ended (another device took it, removed,
+  interrupted). Settings gain a "Voice" group (shown when the sidecar ships) choosing the
+  microphone and speakers, kept in the config dir (`voice-input`, `voice-output`) and handed to
+  each session's controller (`settings/voice.rs`). The create-room dialog has a "Voice channel"
+  switch, and an owner edits it in the room settings when the server announces voice
+  (`details/native_rooms.rs` sends `UpdateRoom.voice` only then).
+- **Packaging**: every desktop package carries `rv-voice` next to the app (`desktop.yml` calls
+  `desktop-voice.yml`); see [desktop-gtk](../architecture/desktop-gtk.md#packaging).
 - **SwiftUI**: not yet; the plan is LiveKit's Swift SDK in the macOS-only target.
 
 ## Sources
@@ -123,3 +143,11 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
 - apps/desktop/crates/rv-voice-protocol/src/lib.rs
 - apps/desktop/crates/rv-core/src/voice.rs
 - apps/desktop/crates/rv-core/src/native/voice.rs
+- apps/desktop/crates/rv-core/src/native/store.rs
+- apps/desktop/crates/rv-gtk/src/chat_voice.rs
+- apps/desktop/crates/rv-gtk/src/sounds.rs
+- apps/desktop/crates/rv-gtk/src/cards.rs
+- apps/desktop/crates/rv-gtk/src/rows.rs
+- apps/desktop/crates/rv-gtk/src/settings/voice.rs
+- apps/desktop/crates/rv-gtk/src/details/native_rooms.rs
+- .github/workflows/desktop-voice.yml

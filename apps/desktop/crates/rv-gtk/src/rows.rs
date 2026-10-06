@@ -30,6 +30,11 @@ pub enum RowEvent {
         link: Option<String>,
     },
     JoinCall(String),
+    /// A RocketVibe call row's button: the open room's voice, `ring` to call
+    /// the other member of a direct room back.
+    VoiceCall {
+        ring: bool,
+    },
     /// The meeting link of a call, by call id.
     CallInfo(String),
     /// Someone's profile, by username.
@@ -369,6 +374,12 @@ fn room_widget(
         _ if let Some(text) = &clear => label(&rv_core::runs::preview(text), &["room-preview"]),
         // A RocketVibe call is a voice ring, not Rocket.Chat's video meeting.
         _ if native.is_some() && system == Some("videoconf") => label(t("voice_session.call"), &["room-preview"]),
+        // Its outcome, standing alone: "📞 Missed call", "📞 Call · 12 min".
+        _ if let Some(summary) =
+            system.and_then(|kind| i18n::call_summary(kind, r.last_message.as_deref().unwrap_or_default())) =>
+        {
+            label(&summary, &["room-preview"])
+        }
         _ if let Some(kind) = system => {
             let param = r.last_message.as_deref().unwrap_or_default();
             let author = r.last_author.as_deref().unwrap_or_default();
@@ -561,7 +572,7 @@ fn message_from_provider(
         outer.append(&day);
     }
 
-    let is_call = row.system_type.as_deref() == Some("videoconf");
+    let is_call = row.system_type.as_deref().is_some_and(|kind| kind == "videoconf" || kind.starts_with("rv-call"));
     if d.new_marker {
         let marker = gtk::Box::builder().spacing(6).margin_top(8).margin_bottom(4).build();
         marker.append(&widgets::sparkle());
@@ -694,8 +705,10 @@ fn message_from_provider(
             column.append(&cards::link_preview_provider(provider.clone(), &preview));
         }
     }
-    if is_call && native.is_some() {
-        column.append(&cards::voice_call());
+    if let Some(native) = native.filter(|_| is_call) {
+        let kind = row.system_type.as_deref().unwrap_or_default();
+        let param = row.text.as_deref().unwrap_or_default();
+        column.append(&cards::voice_call(kind, param, native.voice_supported(), on_event.clone()));
     } else if is_call {
         column.append(&cards::call(row.call_id.as_deref(), on_event.clone()));
     }

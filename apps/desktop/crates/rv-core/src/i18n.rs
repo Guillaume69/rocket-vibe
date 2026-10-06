@@ -492,6 +492,21 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("voice_session.accept", "Accepter", "Accept"),
     ("voice_session.decline", "Refuser", "Decline"),
     ("voice_session.call", "📞 Appel", "📞 Call"),
+    ("voice_call.ringing", "📞 Appel en cours…", "📞 Calling…"),
+    ("voice_call.missed", "📞 Appel manqué", "📞 Missed call"),
+    ("voice_call.declined", "📞 Appel refusé", "📞 Declined call"),
+    ("voice_call.cancelled", "📞 Appel annulé", "📞 Cancelled call"),
+    ("voice_call.answered_for", "📞 Appel · {d}", "📞 Call · {d}"),
+    ("voice_call.seconds", "{n} s", "{n} s"),
+    ("voice_call.minutes", "{n} min", "{n} min"),
+    ("voice_call.hours", "{h} h {m}", "{h} h {m}"),
+    ("voice_call.back", "Rappeler", "Call back"),
+    ("voice_settings.title", "Vocal", "Voice"),
+    ("voice_settings.input", "Micro", "Microphone"),
+    ("voice_settings.output", "Haut-parleurs", "Speakers"),
+    ("voice_settings.default", "Par défaut du système", "System default"),
+    ("voice_settings.loading", "Recherche des appareils…", "Looking for devices…"),
+    ("voice_settings.failed", "Impossible de lister les appareils audio.", "Couldn't list the audio devices."),
     ("native.username", "Pseudo exact", "Exact username"),
     ("native.user_missing", "Utilisateur introuvable.", "User not found."),
     ("native.direct", "Ouvrir un DM", "Open a DM"),
@@ -1273,9 +1288,46 @@ pub fn system_message(kind: &str, param: &str) -> String {
         "room-disallowed-reacting" => with_p("sys.reactions_disallowed"),
         "message-deleted-notification" => with_p("sys.message_deleted"),
         "videoconf" => t("sys.call").to_owned(),
+        _ if let Some(summary) = call_summary(kind, param) => summary,
         _ if param.is_empty() => tf("sys.unknown", &[("type", kind)]),
         _ => tf("sys.unknown_param", &[("type", kind), ("p", param)]),
     }
+}
+
+/// "45 s", "12 min", "1 h 05": a call's length, as short as it reads (mobile's `callDuration`).
+pub fn call_duration(seconds: u64) -> String {
+    let minutes = seconds / 60;
+    if seconds < 60 {
+        tf("voice_call.seconds", &[("n", &seconds.to_string())])
+    } else if minutes < 60 {
+        tf("voice_call.minutes", &[("n", &minutes.to_string())])
+    } else {
+        tf("voice_call.hours", &[("h", &(minutes / 60).to_string()), ("m", &format!("{:02}", minutes % 60))])
+    }
+}
+
+/// A RocketVibe call row (`rv-call-<state>`, its parameter the duration in
+/// seconds once known; `rv-call` without an outcome): what it says, standing
+/// alone. None for any other kind.
+pub fn call_summary(kind: &str, param: &str) -> Option<String> {
+    let text = match kind {
+        "rv-call" => t("voice_session.call").to_owned(),
+        "rv-call-ringing" => t("voice_call.ringing").to_owned(),
+        "rv-call-missed" => t("voice_call.missed").to_owned(),
+        "rv-call-declined" => t("voice_call.declined").to_owned(),
+        "rv-call-cancelled" => t("voice_call.cancelled").to_owned(),
+        "rv-call-answered" => match param.parse::<u64>() {
+            Ok(seconds) => tf("voice_call.answered_for", &[("d", &call_duration(seconds))]),
+            Err(_) => t("voice_session.call").to_owned(),
+        },
+        _ => return None,
+    };
+    Some(text)
+}
+
+/// A call row still going: ringing, or answered and not over yet (no duration).
+pub fn call_ongoing(kind: &str, param: &str) -> bool {
+    kind == "rv-call-ringing" || kind == "rv-call-answered" && param.is_empty()
 }
 
 #[cfg(test)]
@@ -1320,5 +1372,24 @@ mod tests {
         assert_eq!(system_message("livechat-close", ""), "(system action “livechat-close”)");
         set(Lang::Fr);
         assert_eq!(system_message("r", "général"), "a renommé le salon en général");
+    }
+
+    #[test]
+    fn call_rows_say_their_outcome_and_length() {
+        let _serial = LANGUAGE.lock().unwrap();
+        set(Lang::En);
+        assert_eq!(call_duration(45), "45 s");
+        assert_eq!(call_duration(600), "10 min");
+        assert_eq!(call_duration(3900), "1 h 05");
+        assert_eq!(call_summary("rv-call-missed", "").as_deref(), Some("📞 Missed call"));
+        assert_eq!(call_summary("rv-call-answered", "754").as_deref(), Some("📞 Call · 12 min"));
+        assert_eq!(call_summary("rv-call-answered", "").as_deref(), Some("📞 Call"));
+        assert_eq!(call_summary("rv-call-ringing", "").as_deref(), Some("📞 Calling…"));
+        assert_eq!(call_summary("uj", ""), None);
+        assert_eq!(system_message("rv-call-declined", ""), "📞 Declined call");
+        assert!(call_ongoing("rv-call-ringing", "") && call_ongoing("rv-call-answered", ""));
+        assert!(!call_ongoing("rv-call-answered", "60") && !call_ongoing("rv-call-missed", ""));
+        set(Lang::Fr);
+        assert_eq!(call_summary("rv-call-cancelled", "").as_deref(), Some("📞 Appel annulé"));
     }
 }

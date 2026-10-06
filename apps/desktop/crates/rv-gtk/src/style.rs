@@ -231,6 +231,7 @@ button.file-action, button.call-join { background: linear-gradient(135deg, #FF5F
 .link-description { font-size: 13px; color: #BDB7D6; }
 .preview-image { background: #0D0B1A; border-radius: 10px; }
 .call-title { font-weight: 800; }
+.call-title.missed { color: #FF7A8A; }
 .video-frame { background: #000000; border-radius: 12px; }
 .video-bar { background: linear-gradient(0deg, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0)); padding: 18px 8px 4px 8px; color: #FFFFFF; }
 .video-bar button { color: #FFFFFF; }

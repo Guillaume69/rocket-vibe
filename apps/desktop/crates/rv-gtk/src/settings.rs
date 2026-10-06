@@ -20,6 +20,7 @@ use crate::widgets::{self, TileSize};
 const NOTIFICATION_CHOICES: [&str; 4] = ["default", "all", "mention", "nothing"];
 const LANGUAGE_CHOICES: [&str; 3] = ["auto", "fr", "en"];
 mod native_profiles;
+pub(crate) mod voice;
 
 #[derive(Clone)]
 enum ProfileSource {
@@ -57,6 +58,9 @@ pub fn open_native(
     }
     if crate::background::SUPPORTED {
         page.add(&background_group(&dialog));
+    }
+    if rv_core::voice::available() {
+        page.add(&voice::group(session.clone()));
     }
     native_profiles::settings(&dialog, &page, &row, session.clone());
     let group = adw::PreferencesGroup::builder().title(t("settings.account")).build();

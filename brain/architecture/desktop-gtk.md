@@ -22,6 +22,7 @@ Context: [desktop-app.md](desktop-app.md) (workspace, build container), [desktop
 | `composer`, `staged`, `attach`, `emoji_picker`, `spell`, `recorder` | The message field (Enter sends, Shift+Enter breaks), staged files with captions and image quality, pick/drop/paste, emoji picker, Hunspell spell check, voice recording to Ogg/Opus |
 | `actions_menu`, `marked`, `details`, `spotlight`, `thread`, `unlock`, `settings` | Message actions menu, pinned/starred dialog, room info / profiles / search, new conversation, thread page, the E2E password prompt, settings |
 | `notifier`, `badge`, `background`, `call_window`, `updater` | Notifications, unread badge, tray/dock life, call windows, self-update |
+| `chat_voice`, `sounds`, `settings/voice` | Native voice sessions on the chat page (`VoiceUi`: who is in each room's session under its row, the voice page, the "Voice connected" panel, the ring dialog, cues), the voice sounds of `assets/sounds` played through GStreamer's `playbin` (one-shot cues; the ringtone and ringback looped while their `Player` lives), the microphone and speaker choice. See [../features/voice.md](../features/voice.md) |
 | `style`, `widgets`, `fonts`, `icon`, `sizer`, `i18n` | The "Nuit Étoilée" theme over libadwaita's dark style, the Android kit's widgets (gradient avatars, pills, the sync comet), bundled fonts and icon, language choice |
 | `smoke` | The unattended run driven by `RV_SMOKE_*` variables, and the sample-message gallery |
 | `macos`, `windows`, `focus`, `crashlog`, `logs`, `bundle` | Platform start-up fixes and where packaged data lives |
@@ -31,6 +32,10 @@ Context: [desktop-app.md](desktop-app.md) (workspace, build container), [desktop
 `ChatPage::on_change(&Change)` reloads the room list when `change.rooms` is set, and the open room (plus its uploads and read mark) or the open thread when their rid is in `change.rids`. Reloading reads the store synchronously (`session.store.messages(rid, limit)`) and hands the rows to `MessageList::set_rows`, which groups them (`timeline::group`), places the unread marker, diffs against the previous rows with `rv_core::diff::diff_sorted` keyed on `(ts, id)`, and applies the result as `ListStore::splice` calls. Splicing instead of replacing keeps the scroll position and untouched widgets. When the list is pinned to the bottom it scrolls again 120 ms later, after GTK re-measures the inserted rows.
 
 Footgun: the list factory's `bind` builds a brand-new widget tree for each row it binds (`rows::message_widget`); nothing is reused from `setup`. Anything a row shows that does not come from its data (presence, photos, the E2E lock) needs an explicit `rebind()` or `load_rooms(force)`, which is what `on_avatar`, `on_presence` and `on_e2e` do. It is also the cost the SwiftUI app was started to avoid on macOS.
+
+### How voice changes reach the UI
+
+Voice has two sources, kept apart. **Who is connected** to any room and the **rings** come from the live snapshot (`NativeSession::voice_participants`, `rings`), so they arrive with the native session's ordinary refresh, which calls `ChatPage::refresh_voice`. **This device's session** (state, microphone, who speaks) comes from the `VoiceController` snapshot: `follow_voice` (on `set_native_session`) forwards `voice().changes()` from tokio through a one-slot `async_channel` (a full slot means a wake-up is already pending; the snapshot is read when handled), and `on_voice_change` plays the cues, then compares the snapshot's `shape` (room, state, microphone, deafen, who is muted). A changed shape rebuilds what voice shows (`refresh_voice`: occupants under the bound rows, the panel, the voice page keyed so an identical page is not redrawn, the header's call button, rings); a speaking tick, about ten a second, only toggles the `speaking` class on the registered avatar frames and cards (`VoiceUi::light`). `VoiceUi::reset` drops everything of the previous account. Call rows (`rv-call-<state>`) are message rows: `cards::voice_call` shows the outcome and Join or Call back, which sends `RowEvent::VoiceCall` to `ChatPage::voice_call_back`.
 
 ## Threading model
 
@@ -77,10 +82,12 @@ Release assets are named `rocket-vibe-desktop-<version>-<platform>`; `rv-core::u
 
 | Asset | Built by | How |
 |---|---|---|
-| `-linux-x86_64.tar.gz` | CI `linux` job | Release binary, `.desktop` file, icons, README. Uses the host's libraries (GTK 4.12+, libadwaita 1.6+, Pango 1.56, WebKitGTK 6.0, a recent glibc) |
-| `-linux-x86_64.AppImage` | `scripts/package-appimage.sh` runs `scripts/appimage-build.sh` in `ghcr.io/pkgforge-dev/archlinux` | Builds against Arch's libraries into `target/appimage`, installs under `/usr`, then Anylinux's `quick-sharun` gathers the binary and every library it loads, glibc and loader included, with GTK, GStreamer (`DEPLOY_GSTREAMER=1`), Mesa and the Adwaita icons; dictionaries and Noto Color Emoji are added. Runs on any distribution. `scripts/install.sh` installs it to `~/.local/bin/rocket-vibe.AppImage` with a launcher entry and `rocketvibe://` handler |
-| `-windows-x86_64.zip`, `-windows-x86_64-setup.exe` | `scripts/package-windows.sh` in an MSYS2 UCRT64 shell, then Inno Setup (`data/windows/rocket-vibe.iss`) in CI | A folder with the exe, `WebView2Loader.dll`, every UCRT64 DLL `ldd` finds, selected GStreamer plugins (Media Foundation decodes H.264 and AAC), gdk-pixbuf loaders, fontconfig config, schemas, icons, dictionaries, emoji font. The installer is per user, adds a Start menu entry and registers `rocketvibe://` |
-| `-macos-arm64.dmg` | `scripts/package-macos.sh` on macOS with Homebrew's gtk4, libadwaita, gstreamer and `dylibbundler` | `rocket-vibe.app` with its libraries copied into `Frameworks` and data into `Resources`; signed with `MACOS_SIGN_IDENTITY` (Developer ID, hardened runtime, `data/macos/entitlements.plist`) or ad hoc. CI notarizes and staples, then starts the bundled app with `/opt/homebrew` moved aside, so a library still taken from Homebrew fails the job |
+| `-linux-x86_64.tar.gz` | CI `linux` job | Release binary, `rv-voice` beside it, `.desktop` file, icons, README. Uses the host's libraries (GTK 4.12+, libadwaita 1.6+, Pango 1.56, WebKitGTK 6.0, a recent glibc) |
+| `-linux-x86_64.AppImage` | `scripts/package-appimage.sh` runs `scripts/appimage-build.sh` in `ghcr.io/pkgforge-dev/archlinux` | Builds against Arch's libraries into `target/appimage`, installs under `/usr`, then Anylinux's `quick-sharun` gathers the binary and every library it loads, glibc and loader included, with GTK, GStreamer (`DEPLOY_GSTREAMER=1`), Mesa and the Adwaita icons; dictionaries and Noto Color Emoji are added. `rv-voice` is wrapped by sharun like the app (`AppDir/bin/rv-voice`, with PulseAudio through `DEPLOY_PULSE=1`), found under `$SHARUN_DIR` since the app's current executable is sharun's loader. Runs on any distribution. `scripts/install.sh` installs it to `~/.local/bin/rocket-vibe.AppImage` with a launcher entry and `rocketvibe://` handler |
+| `-windows-x86_64.zip`, `-windows-x86_64-setup.exe` | `scripts/package-windows.sh` in an MSYS2 UCRT64 shell, then Inno Setup (`data/windows/rocket-vibe.iss`) in CI | A folder with the exe, `WebView2Loader.dll`, every UCRT64 DLL `ldd` finds, `rv-voice.exe` (MSVC, static C runtime), selected GStreamer plugins (Media Foundation decodes H.264 and AAC), gdk-pixbuf loaders, fontconfig config, schemas, icons, dictionaries, emoji font. The installer is per user, adds a Start menu entry and registers `rocketvibe://` |
+| `-macos-arm64.dmg` | `scripts/package-macos.sh` on macOS with Homebrew's gtk4, libadwaita, gstreamer and `dylibbundler` | `rocket-vibe.app` with its libraries copied into `Frameworks`, data into `Resources` and `rv-voice` in `Contents/MacOS` (signed with the same entitlements); signed with `MACOS_SIGN_IDENTITY` (Developer ID, hardened runtime, `data/macos/entitlements.plist`) or ad hoc. CI notarizes and staples, then starts the bundled app with `/opt/homebrew` moved aside, so a library still taken from Homebrew fails the job |
+
+Every package carries the `rv-voice` sidecar next to the app's executable, else the app offers no voice: CI's `voice` job calls `.github/workflows/desktop-voice.yml` (Linux in `ubuntu:22.04`, glibc 2.35), and each packaging job downloads its artifact into `dist/voice/`, where the scripts look by default (`RV_VOICE` overrides; `RV_VOICE_REQUIRED=1` makes a missing sidecar fatal, as in CI). Locally, `voice/scripts/build-linux.sh` leaves it there ([apps/desktop/voice/README.md](../../apps/desktop/voice/README.md)).
 
 From a checkout, `scripts/install-desktop.sh` registers the release build with the desktop. Release flow and CI gating: [../operations.md](../operations.md).
 
@@ -103,6 +110,11 @@ From a checkout, `scripts/install-desktop.sh` registers the release build with t
 - apps/desktop/crates/rv-gtk/src/recorder.rs
 - apps/desktop/crates/rv-gtk/src/macos.rs
 - apps/desktop/crates/rv-gtk/src/smoke.rs
+- apps/desktop/crates/rv-gtk/src/chat_voice.rs
+- apps/desktop/crates/rv-gtk/src/chat_native.rs
+- apps/desktop/crates/rv-gtk/src/sounds.rs
+- apps/desktop/crates/rv-gtk/src/settings/voice.rs
+- apps/desktop/crates/rv-gtk/src/cards.rs
 - apps/desktop/crates/rv-native/Cargo.toml
 - apps/desktop/crates/rv-native/src/lib.rs
 - apps/desktop/crates/rv-native/src/windows_impl.rs
@@ -123,3 +135,5 @@ From a checkout, `scripts/install-desktop.sh` registers the release build with t
 - apps/desktop/scripts/install-desktop.sh
 - apps/desktop/data/windows/rocket-vibe.iss
 - .github/workflows/desktop.yml
+- .github/workflows/desktop-voice.yml
+- apps/desktop/voice/scripts/build-linux.sh

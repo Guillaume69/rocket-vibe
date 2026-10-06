@@ -3,9 +3,21 @@
 # runs on a Windows without MSYS2 (the exe, the DLLs it and its plugins
 # load, GStreamer plugins for recording and playback, schemas, icons).
 #   scripts/package-windows.sh <version>
+# The voice sidecar comes prebuilt with MSVC (voice/README.md): $RV_VOICE, else
+# dist/voice/rv-voice.exe, put next to the exe; without it the app offers no
+# voice, a failure when RV_VOICE_REQUIRED=1 (CI).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 version=$1
+voice=${RV_VOICE:-dist/voice/rv-voice.exe}
+if [ ! -f "$voice" ]; then
+  if [ "${RV_VOICE_REQUIRED:-}" = 1 ]; then
+    echo "no voice sidecar at $voice" >&2
+    exit 1
+  fi
+  echo "warning: no voice sidecar at $voice, the package will not offer voice" >&2
+  voice=
+fi
 name="rocket-vibe-desktop-$version-windows-x86_64"
 out="dist/$name"
 prefix=/ucrt64
@@ -15,6 +27,8 @@ cp target/release/rocket-vibe-gtk.exe "$out/bin/"
 # The call window's WebView2 loader, which the exe loads at start: GNU builds link it as a DLL.
 loader=$(find target/release/build -path "*webview2-com-sys-*/out/x64/WebView2Loader.dll" | head -n 1)
 cp "$loader" "$out/bin/"
+# Static C runtime, no DLL of its own: rv-core looks for it beside the exe.
+if [ -n "$voice" ]; then cp "$voice" "$out/bin/rv-voice.exe"; fi
 
 # GStreamer finds its plugins in ../lib/gstreamer-1.0 next to its DLL.
 # GTK reads the file through gio's giostreamsrc; Media Foundation decodes H.264 and AAC

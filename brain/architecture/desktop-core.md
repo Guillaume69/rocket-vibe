@@ -36,6 +36,8 @@ Context: [desktop-app.md](desktop-app.md) for the crate layout, [rocket-chat.md]
 | `timeline`, `diff` | Author grouping, day separators, "new messages" marker; list refreshes as splices |
 | `rooms` | Room-list sections, unread counts, badge, spotlight results |
 | `actions`, `commands`, `completion`, `compose`, `emoji`, `content` | Message actions and permissions, slash commands, `@`/`:` completion, formatting toolbar, emoji table, attachments and link cards |
+| `voice` | The `rv-voice` sidecar's controller (`VoiceController`): one process per voice connection, its snapshot and change notifications; see [voice](#voice) |
+| `native/voice.rs` | `NativeSession`'s voice: join, leave, rings, each room's participants and the rings from the live cache; see [voice](#voice) |
 | `notify`, `links`, `call`, `player`, `info`, `account`, `server`, `update`, `i18n`, `animation` | Notification rules, `rocketvibe://` links, call-origin rule, video embed page, on-demand details, my account, server probe, self-update, the shared catalog (see [i18n.md](i18n.md)), GIF frames |
 
 ## session
@@ -132,6 +134,14 @@ Feature-level detail: [../features/uploads.md](../features/uploads.md).
 - `timeline::group` sets author headers (new day, system message, other author, or a gap), day separators and gutter times; `mark_new` puts the "new messages" marker on the first later message from someone else. `diff::diff_sorted` turns old and new sorted lists into splices so list views keep scroll position and widgets.
 - `media::protected_url` adds `rc_uid`/`rc_token` only when the URL's origin is our server's: attachment URLs come from message fields, so from anyone. `MediaCache` keeps up to 400 fetched files in memory (cleared wholesale when full) and decrypts files of encrypted rooms whose keys it learnt.
 
+## voice
+
+Native voice ([../features/voice.md](../features/voice.md), `docs/protocol/VOICE.md`) is split in two, so libwebrtc never links into `rv-core` or `rv-ffi`:
+
+- `voice.rs`: `VoiceController` drives the `rv-voice` sidecar over JSON lines (`crates/rv-voice-protocol`). `connect(grant)` bumps a generation, stops the previous sidecar (`disconnect`, killed after 4 s), spawns a new one (`kill_on_drop`, no console window on Windows), checks its `hello` version within 5 s, then sends the devices, microphone, deafen and `connect`. A reader task applies events to the `Snapshot` (room, state, participants with `speaking`, `can_publish`, microphone, deafened, `ended`, last error) only for the current generation, so a replaced sidecar's last words are ignored; an exit becomes `Ended::Failed("sidecar_exited")`, LiveKit's `duplicate_identity` `Ended::MovedElsewhere`. `changes()` is a payload-less broadcast, sent only when the snapshot moved. Microphone, deafen and the chosen devices outlive a connection; `devices()` asks the running sidecar or a short-lived one. `locate()` finds the binary through `RV_VOICE_BIN`, beside the executable, or under `$SHARUN_DIR`/`$APPDIR` `bin` (the AppImage); `available()` gates the whole feature.
+- `native/voice.rs`: `voice_announced()` (the server's `voice` capability) and `voice_supported()` (that plus the sidecar). `join_voice` and `accept_ring` read the room's membership version and the security generation, check them again after the request, send the data epoch, and validate the grant (same room, `ws`/`wss` origin without credentials, bounded token, RFC 3339 expiry); a terminal error shuts the session down. `connect_voice` / `answer_ring` hand the grant to the controller; `disconnect_voice` ends the media first, then tells the server (best effort). `voice_participants` reads the live cache only while the room's membership is current; `rings` lists rings ringing or resolved in the last seconds.
+- The native store keeps a direct call's `Message.call` as the row's presentation, like mobile: `rv-call-<state>` with the duration in seconds as the parameter, plain `rv-call` before an outcome (`call_presentation` in `native/store.rs`); `i18n::call_summary` / `call_duration` say it ("📞 Call · 12 min").
+
 ## Tests
 
 Unit tests sit next to the code; integration tests in `crates/rv-core/tests/` (`rest`, `ddp`, `sync`, `outbox`, `uploads`, `actions`) run against fake HTTP and WebSocket servers (`tests/common/mod.rs`). See [testing.md](testing.md).
@@ -161,4 +171,9 @@ Unit tests sit next to the code; integration tests in `crates/rv-core/tests/` (`
 - apps/desktop/crates/rv-core/src/server.rs
 - apps/desktop/crates/rv-core/src/e2e.rs
 - apps/desktop/crates/rv-core/src/update.rs
+- apps/desktop/crates/rv-core/src/voice.rs
+- apps/desktop/crates/rv-core/src/native/voice.rs
+- apps/desktop/crates/rv-core/src/native/store.rs
+- apps/desktop/crates/rv-core/src/i18n.rs
+- apps/desktop/crates/rv-voice-protocol/src/lib.rs
 - apps/desktop/crates/rv-core/tests/

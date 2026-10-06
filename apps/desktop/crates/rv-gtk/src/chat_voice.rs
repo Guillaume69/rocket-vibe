@@ -453,6 +453,7 @@ impl ChatPage {
     /// who speaks changes about ten times a second.
     pub(super) fn follow_voice(self: &Rc<Self>, session: &Arc<NativeSession>) {
         self.voice.reset();
+        crate::settings::voice::apply(session);
         let (tx, rx) = async_channel::bounded(1);
         let mut changes = session.voice().changes();
         self.voice.forward.replace(Some(runtime().spawn(async move {
@@ -691,6 +692,13 @@ impl ChatPage {
         let (Some(session), Some(open)) = (self.native_session(), self.current.borrow().clone()) else { return };
         let ring = open.kind == "d" && session.voice_participants(&open.rid).is_empty();
         self.join_voice(&open.rid, ring);
+    }
+
+    /// A call row's button: the open room's voice; `ring` calls the other
+    /// member of a direct room back.
+    pub(super) fn voice_call_back(self: &Rc<Self>, ring: bool) {
+        let Some(open) = self.current.borrow().clone() else { return };
+        self.join_voice(&open.rid, ring && open.kind == "d");
     }
 
     pub(super) fn voice_call_button(&self, session: &NativeSession) {

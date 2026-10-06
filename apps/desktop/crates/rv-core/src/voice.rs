@@ -22,14 +22,21 @@ const BINARY: &str = if cfg!(windows) { "rv-voice.exe" } else { "rv-voice" };
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
 const EXIT_TIMEOUT: Duration = Duration::from_secs(4);
 
-/// `RV_VOICE_BIN`, else `rv-voice` next to the running executable.
+/// `RV_VOICE_BIN`, else `rv-voice` next to the running executable, else in the
+/// AppImage's `bin`: sharun runs the app through its bundled loader, so the
+/// current executable is that loader, and names the root in `SHARUN_DIR`.
 pub fn locate() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("RV_VOICE_BIN") {
         let path = PathBuf::from(path);
         return path.is_file().then_some(path);
     }
-    let path = std::env::current_exe().ok()?.parent()?.join(BINARY);
-    path.is_file().then_some(path)
+    let beside = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join(BINARY)));
+    let bundled = ["SHARUN_DIR", "APPDIR"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .filter(|root| !root.is_empty())
+        .map(|root| PathBuf::from(root).join("bin").join(BINARY));
+    beside.into_iter().chain(bundled).find(|path| path.is_file())
 }
 
 /// This installation can carry voice: the sidecar ships with it.

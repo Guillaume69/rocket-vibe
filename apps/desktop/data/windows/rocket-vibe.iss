@@ -34,6 +34,8 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "fr"; MessagesFile: "compiler:Languages\French.isl"
 
 [Files]
+; The whole package folder, bin\rv-voice.exe (the voice sidecar) included: it
+; must stay next to bin\rocket-vibe-gtk.exe, where the app looks for it.
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "rocket-vibe.ico"; DestDir: "{app}"; Flags: ignoreversion
 

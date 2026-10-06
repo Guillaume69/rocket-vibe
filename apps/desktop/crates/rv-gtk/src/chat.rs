@@ -990,6 +990,8 @@ impl ChatPage {
             }
             RowEvent::OpenThread(root) => self.open_thread(&root),
             RowEvent::Profile(username) => self.show_profile(&username, false),
+            // RocketVibe call rows only.
+            RowEvent::VoiceCall { .. } => {}
             RowEvent::JoinCall(call_id) => {
                 let weak = Rc::downgrade(self);
                 let room = self.current_name();

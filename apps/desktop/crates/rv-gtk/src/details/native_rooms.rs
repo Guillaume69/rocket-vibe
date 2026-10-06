@@ -57,7 +57,13 @@ fn submit<F>(
         }
     });
 }
-fn values(details: &RoomDetails) -> UpdateRoom {
+/// The form's starting values. `voice` is Some only where its switch shows:
+/// an owner, a room that is not direct, a server announcing voice. None
+/// leaves the flag as it is.
+fn values(details: &RoomDetails, session: &NativeSession) -> UpdateRoom {
+    let voice_editable = details.permissions.role == RoomRole::Owner
+        && details.room.kind != RoomKind::Direct
+        && session.voice_announced();
     UpdateRoom {
         operation_id: String::new(),
         expected_revision: details.revision.clone(),
@@ -67,7 +73,7 @@ fn values(details: &RoomDetails) -> UpdateRoom {
         description: details.description.clone(),
         announcement: details.announcement.clone(),
         read_only: details.read_only,
-        voice: None,
+        voice: voice_editable.then_some(details.voice),
     }
 }
 pub(super) fn controls(
@@ -162,7 +168,7 @@ pub(super) fn controls(
         let edit_button = button("rooms.edit");
         edit_button.add_css_class("native-room-edit");
         edit_button.set_sensitive(!occupied);
-        let (s, parent, input, r) = (session.clone(), parent.downgrade(), values(&details), rid.clone());
+        let (s, parent, input, r) = (session.clone(), parent.downgrade(), values(&details, &session), rid.clone());
         let live = active.clone();
         edit_button.connect_clicked(move |_| {
             if live.get()
@@ -278,6 +284,17 @@ fn edit(parent: &adw::Dialog, session: Arc<NativeSession>, rid: String, input: U
     read_only.add_css_class("native-room-read-only");
     content.append(&private);
     content.append(&read_only);
+    // Shown only when the form carries the flag (`values`); otherwise sent as None.
+    let voice = input.voice.map(|active| {
+        let row = adw::SwitchRow::builder()
+            .title(t("voice_session.channel"))
+            .subtitle(t("voice_session.channel_hint"))
+            .active(active)
+            .build();
+        row.add_css_class("native-room-voice");
+        content.append(&row);
+        row
+    });
     let status = centered("", &["details-sub"]);
     content.append(&status);
     let save = button("settings.save");
@@ -307,7 +324,7 @@ fn edit(parent: &adw::Dialog, session: Arc<NativeSession>, rid: String, input: U
             topic: read(&topic),
             description: read(&description),
             announcement: read(&announcement),
-            voice: None,
+            voice: voice.as_ref().map(adw::SwitchRow::is_active),
         };
         submit(button, &status, active.clone(), async move { s.update_room(&rid, command).await }, move || {
             if let Some(window) = weak.upgrade() {

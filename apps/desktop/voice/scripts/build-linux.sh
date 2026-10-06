@@ -2,7 +2,8 @@
 # Builds the shippable Linux rv-voice in ubuntu:22.04 (glibc 2.35), so it runs on
 # any distribution at least that recent: a binary built in the Fedora image needs
 # glibc 2.43. webrtc-sys needs clang >= 21 (libwebrtc's hermetic libc++), taken
-# from apt.llvm.org. Output: apps/desktop/dist/rv-voice-linux-x86_64.
+# from apt.llvm.org. Output: apps/desktop/dist/voice/rv-voice, where the Linux
+# packaging scripts (scripts/appimage-build.sh) take it.
 #
 #   apps/desktop/voice/scripts/build-linux.sh
 #
@@ -13,7 +14,7 @@ if command -v cygpath > /dev/null; then
     desktop=$(cygpath -m "$desktop")
     export MSYS_NO_PATHCONV=1
 fi
-mkdir -p "$desktop/dist"
+mkdir -p "$desktop/dist/voice"
 docker run --rm -v "$desktop:/desktop" -v rv-voice-cargo:/cache ubuntu:22.04 bash -euo pipefail -c '
 export DEBIAN_FRONTEND=noninteractive CARGO_HOME=/cache/cargo RUSTUP_HOME=/cache/rustup CARGO_TARGET_DIR=/cache/target CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-6}
 apt-get update -qq
@@ -28,7 +29,7 @@ ln -sf /usr/bin/clang++-21 /usr/bin/clang++
 export PATH="$CARGO_HOME/bin:$PATH"
 cd /desktop/voice
 cargo build --release --locked
-cp "$CARGO_TARGET_DIR/release/rv-voice" /desktop/dist/rv-voice-linux-x86_64
-objdump -T /desktop/dist/rv-voice-linux-x86_64 | grep -o "GLIBC_[0-9.]*" | sort -uV | tail -1
+cp "$CARGO_TARGET_DIR/release/rv-voice" /desktop/dist/voice/rv-voice
+objdump -T /desktop/dist/voice/rv-voice | grep -o "GLIBC_[0-9.]*" | sort -uV | tail -1
 '
-ls -l "$desktop/dist/rv-voice-linux-x86_64"
+ls -l "$desktop/dist/voice/rv-voice"

@@ -172,6 +172,13 @@ section here.
   While connected, a panel above the account shows the state and the room, with mute,
   deafen and leave. An incoming call asks to accept or decline over a ringtone; the caller
   hears a ringback, and short cues mark joins, leaves, mute and missed calls.
+- Call messages on a RocketVibe server say how the call went (GTK): "📞 Missed call",
+  "📞 Declined call", "📞 Cancelled call", "📞 Calling…" or "📞 Call · 12 min", in the room
+  and in the room list, with "Join" while the call goes on and "Call back" once it ended.
+- Voice settings (GTK): a "Voice" group chooses the microphone and the speakers, remembered
+  on this computer; an owner can turn a room into a voice channel, or back, in its settings.
+- The Linux tarball and AppImage, the Windows installer and the macOS app now ship the voice
+  helper (`rv-voice`) next to the app, so voice is offered in released builds.
 
 ### Removed
 

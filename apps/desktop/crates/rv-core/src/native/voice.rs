@@ -11,7 +11,9 @@ struct Scope {
 }
 
 impl NativeSession {
-    fn voice_announced(&self) -> bool {
+    /// The server announces voice (an SFU is configured), sidecar or not:
+    /// enough to edit a room's voice channel flag.
+    pub fn voice_announced(&self) -> bool {
         self.capabilities.lock().unwrap().as_ref().is_some_and(|c| c.voice)
     }
     /// The server offers voice and this installation ships its sidecar.

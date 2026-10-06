@@ -141,6 +141,22 @@ pub struct NativeStore {
     projection: AtomicU64,
     search_revision: AtomicU64,
 }
+/// A direct call's row, as mobile's `rv-call-<state>`: the outcome as the type,
+/// the duration in seconds (once both sides left) as the parameter; a plain
+/// `rv-call` before the server reported an outcome. Each resolution revises the
+/// row, so the stored type follows the call.
+fn call_presentation(call: Option<&rv_protocol::voice::CallSummary>) -> (String, String) {
+    use rv_protocol::voice::RingState;
+    let Some(call) = call else { return ("rv-call".into(), String::new()) };
+    let state = match call.state {
+        RingState::Ringing => "ringing",
+        RingState::Answered => "answered",
+        RingState::Declined => "declined",
+        RingState::Missed => "missed",
+        RingState::Cancelled => "cancelled",
+    };
+    (format!("rv-call-{state}"), call.duration_seconds.map(|s| s.to_string()).unwrap_or_default())
+}
 fn json<T: serde::Serialize>(value: &T) -> rusqlite::Result<String> {
     serde_json::to_string(value).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
 }
@@ -519,7 +535,13 @@ impl NativeStore {
         } else {
             Some(json(&message.reactions.iter().map(|reaction|(format!(":{}:",reaction.emoji),serde_json::json!({"usernames":reaction.users.iter().map(|user|&user.username).collect::<Vec<_>>()}))).collect::<std::collections::BTreeMap<_,_>>())?)
         };
-        let system = message.system.as_ref().map(|activity| activity.presentation());
+        let system = message.system.as_deref().map(|activity| match activity {
+            rv_protocol::system::SystemMessage::CallStarted { .. } => call_presentation(message.call.as_deref()),
+            other => {
+                let (kind, param) = other.presentation();
+                (kind.to_owned(), param)
+            }
+        });
         let (text, system_type) = match system {
             Some((kind, param)) => (param, Some(kind)),
             None => (message.text.clone(), None),
@@ -1113,6 +1135,7 @@ mod tests {
     }
     #[test]
     fn a_direct_call_row_offers_no_meeting_to_join_and_voice_channels_persist() {
+        use rv_protocol::voice::{CallSummary, RingState};
         let store = store();
         let mut snapshot = snapshot();
         snapshot.rooms[0].voice = true;
@@ -1121,10 +1144,25 @@ mod tests {
         message.body = None;
         message.system = Some(Box::new(rv_protocol::system::SystemMessage::CallStarted { meeting_id: "ring".into() }));
         store.snapshot(&snapshot).unwrap();
-        let row = store.messages(&snapshot.rooms[0].id, 10).unwrap().remove(0).presentation(&snapshot.rooms[0].id, "a");
-        assert_eq!(row.system_type.as_deref(), Some("videoconf"));
+        let rid = snapshot.rooms[0].id.clone();
+        let row = store.messages(&rid, 10).unwrap().remove(0).presentation(&rid, "a");
+        assert_eq!(row.system_type.as_deref(), Some("rv-call"));
+        assert_eq!(row.text.as_deref(), Some(""));
         assert_eq!(row.call_id, None);
         assert!(store.rooms().unwrap()[0].voice);
+        // Each resolution revises the row: the outcome, then the duration once both left.
+        let outcomes = [
+            (CallSummary { state: RingState::Missed, duration_seconds: None }, "rv-call-missed", ""),
+            (CallSummary { state: RingState::Answered, duration_seconds: Some(754) }, "rv-call-answered", "754"),
+        ];
+        let mut revised = snapshot.messages[0].clone();
+        for (call, kind, param) in outcomes {
+            revised.revision = (decimal(&revised.revision).unwrap() + 1).to_string();
+            revised.call = Some(Box::new(call));
+            store.snapshot(&Snapshot { messages: vec![revised.clone()], ..snapshot.clone() }).unwrap();
+            let row = store.messages(&rid, 10).unwrap().remove(0).presentation(&rid, "a");
+            assert_eq!((row.system_type.as_deref(), row.text.as_deref()), (Some(kind), Some(param)));
+        }
         let conn = store.conn.lock().unwrap();
         assert!(
             conn.query_row("SELECT 1 FROM sqlite_master WHERE name='native_meeting_intents'", [], |_| Ok(())).is_err()

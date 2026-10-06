@@ -4,9 +4,21 @@
 # in a DMG. Signed with MACOS_SIGN_IDENTITY (a Developer ID Application
 # identity in the keychain, hardened runtime) when set, ad-hoc otherwise.
 #   scripts/package-macos.sh <version>
+# The voice sidecar comes prebuilt (voice/README.md): $RV_VOICE, else
+# dist/voice/rv-voice, put in Contents/MacOS next to the app and signed like it;
+# without it the app offers no voice, a failure when RV_VOICE_REQUIRED=1 (CI).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 version=$1
+voice=${RV_VOICE:-dist/voice/rv-voice}
+if [ ! -f "$voice" ]; then
+  if [ "${RV_VOICE_REQUIRED:-}" = 1 ]; then
+    echo "no voice sidecar at $voice" >&2
+    exit 1
+  fi
+  echo "warning: no voice sidecar at $voice, the bundle will not offer voice" >&2
+  voice=
+fi
 brew=$(brew --prefix)
 app=dist/rocket-vibe.app
 contents=$app/Contents
@@ -16,6 +28,8 @@ mkdir -p "$contents/MacOS" "$contents/Frameworks" "$res/lib/gstreamer-1.0" "$res
 
 sed "s/@VERSION@/$version/g" data/macos/Info.plist > "$contents/Info.plist"
 cp target/release/rocket-vibe-gtk "$contents/MacOS/"
+# System frameworks only (no Homebrew): artifacts lose the executable bit.
+if [ -n "$voice" ]; then install -m 755 "$voice" "$contents/MacOS/rv-voice"; fi
 scanner="$brew/libexec/gstreamer-1.0/gst-plugin-scanner"
 if [ -f "$scanner" ]; then cp "$scanner" "$contents/MacOS/"; fi
 
@@ -76,7 +90,8 @@ identity=${MACOS_SIGN_IDENTITY:--}
 sign=(codesign --force --sign "$identity")
 if [ "$identity" != - ]; then sign+=(--options runtime --timestamp); fi
 machos | grep -v "^$contents/MacOS/" | while IFS= read -r file; do "${sign[@]}" "$file"; done
-for program in "$contents/MacOS/gst-plugin-scanner" "$contents/MacOS/rocket-vibe-gtk"; do
+# rv-voice opens the microphone: the same entitlements (audio input) as the app.
+for program in "$contents/MacOS/gst-plugin-scanner" "$contents/MacOS/rv-voice" "$contents/MacOS/rocket-vibe-gtk"; do
   if [ -f "$program" ]; then "${sign[@]}" --entitlements data/macos/entitlements.plist "$program"; fi
 done
 "${sign[@]}" --entitlements data/macos/entitlements.plist "$app"

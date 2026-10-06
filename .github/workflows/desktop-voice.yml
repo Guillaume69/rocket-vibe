@@ -1,9 +1,12 @@
-# DRAFT: builds the rv-voice sidecar (apps/desktop/voice) on the three desktop
-# platforms and uploads it. Not wired into desktop.yml's packages yet: the
-# installers/bundles must still copy rv-voice next to the app's executable.
+# Builds the rv-voice sidecar (apps/desktop/voice) on the three desktop
+# platforms and uploads it: rv-voice-linux-x86_64, rv-voice-windows-x86_64,
+# rv-voice-macos-arm64. On its own when the sidecar changes; called by
+# desktop.yml when it packages, whose jobs put rv-voice next to the app's
+# executable in every package (apps/desktop/voice/README.md).
 name: desktop-voice
 
 on:
+  workflow_call:
   push:
     branches: [master]
     paths:
@@ -17,8 +20,10 @@ on:
       - '.github/workflows/desktop-voice.yml'
   workflow_dispatch:
 
+# Called, github.workflow is the caller's: its own group, never cancelled by
+# (nor cancelling) a standalone run of this workflow.
 concurrency:
-  group: desktop-voice-${{ github.ref }}-${{ github.event_name }}
+  group: voice-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:

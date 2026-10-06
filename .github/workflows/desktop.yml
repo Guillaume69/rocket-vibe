@@ -39,10 +39,19 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+  # The rv-voice sidecar every package carries next to the app's executable,
+  # so voice::available() holds: Linux in ubuntu:22.04 (glibc 2.35), Windows
+  # with MSVC, macOS. Only when packaging: it builds libwebrtc's bindings.
+  voice:
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/desktop-voice.yml
+
   # The same Fedora as scripts/build.sh: GTK 4 and libadwaita recent enough
   # for the features the app asks for, which Ubuntu 24.04 does not ship.
+  # Waits for the sidecar only when packaging (skipped otherwise).
   linux:
-    needs: version
+    needs: [version, voice]
+    if: ${{ !cancelled() && needs.version.result == 'success' && (needs.voice.result == 'success' || needs.voice.result == 'skipped') }}
     runs-on: ubuntu-24.04
     container: fedora:44
     defaults:
@@ -68,12 +77,20 @@ jobs:
       - run: cargo test --locked --workspace
       - run: cargo build --locked --release -p rocket-vibe-gtk
         if: env.PACKAGE == 'true'
+      - uses: actions/download-artifact@v4
+        if: env.PACKAGE == 'true'
+        with:
+          name: rv-voice-linux-x86_64
+          path: apps/desktop/dist/voice
       - name: Package
         if: env.PACKAGE == 'true'
         run: |
           name="rocket-vibe-desktop-${{ needs.version.outputs.version }}-linux-x86_64"
           mkdir -p "dist/$name"
           cp target/release/rocket-vibe-gtk data/com.rocketvibe.app.desktop README.md "dist/$name/"
+          # Artifacts lose the executable bit.
+          install -m755 dist/voice/rv-voice "dist/$name/rv-voice"
+          "dist/$name/rv-voice" --version
           cp -R data/icons "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
       - uses: actions/upload-artifact@v4
@@ -85,7 +102,7 @@ jobs:
   # Built on Arch against Arch's libraries, glibc included, so it runs on any
   # distribution: see scripts/appimage-build.sh.
   appimage:
-    needs: version
+    needs: [version, voice]
     if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     container: ghcr.io/pkgforge-dev/archlinux:latest
@@ -101,7 +118,13 @@ jobs:
             apps/desktop/target/appimage
           key: desktop-appimage-${{ hashFiles('apps/desktop/Cargo.lock') }}
           restore-keys: desktop-appimage-
+      - uses: actions/download-artifact@v4
+        with:
+          name: rv-voice-linux-x86_64
+          path: apps/desktop/dist/voice
       - run: sh scripts/appimage-build.sh "${{ needs.version.outputs.version }}" dist
+        env:
+          RV_VOICE_REQUIRED: 1
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-appimage
@@ -128,6 +151,10 @@ jobs:
           apt-get install -y -qq xvfb x11-apps imagemagick ca-certificates > /dev/null
           if ldconfig -p | grep -q 'libgtk-4\|libadwaita'; then echo "::error::GTK is on this system"; exit 1; fi
           chmod +x ./*.AppImage
+          # The sidecar where the app looks for it ($SHARUN_DIR/bin), running on this glibc.
+          ./*.AppImage --appimage-extract > /dev/null
+          squashfs-root/bin/rv-voice --version
+          rm -rf squashfs-root
           Xvfb :99 -screen 0 1100x750x24 > /dev/null 2>&1 &
           export DISPLAY=:99 HOME="$RUNNER_TEMP/home" RV_SMOKE_GALLERY=1
           media="$PWD/repo/apps/desktop/tests/media"
@@ -151,7 +178,7 @@ jobs:
 
   windows:
     if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
-    needs: version
+    needs: [version, voice]
     runs-on: windows-2025
     defaults:
       run:
@@ -183,7 +210,13 @@ jobs:
           restore-keys: desktop-windows-
       - run: cargo test --locked -p rv-core
       - run: cargo build --locked --release -p rocket-vibe-gtk
+      - uses: actions/download-artifact@v4
+        with:
+          name: rv-voice-windows-x86_64
+          path: apps/desktop/dist/voice
       - run: scripts/package-windows.sh "${{ needs.version.outputs.version }}"
+        env:
+          RV_VOICE_REQUIRED: 1
       - name: Installer
         shell: pwsh
         run: |
@@ -203,6 +236,9 @@ jobs:
           $app = "$env:LOCALAPPDATA\Programs\rocket-vibe"
           $exe = "$app\bin\rocket-vibe-gtk.exe"
           if (-not (Test-Path $exe)) { throw "not installed at $exe" }
+          # The voice sidecar beside the exe, where voice::available() looks.
+          & "$app\bin\rv-voice.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "rv-voice.exe does not run from the install" }
           if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\rocket-vibe\rocket-vibe.lnk")) { throw "no Start menu shortcut" }
           $command = (Get-ItemProperty "HKCU:\Software\Classes\rocketvibe\shell\open\command").'(default)'
           if ($command -notlike "*rocket-vibe-gtk.exe*%1*") { throw "rocketvibe:// is not registered: $command" }
@@ -376,7 +412,7 @@ jobs:
 
   macos:
     if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
-    needs: version
+    needs: [version, voice]
     runs-on: macos-15
     defaults:
       run:
@@ -418,7 +454,13 @@ jobs:
           identity=$(security find-identity -v -p codesigning "$keychain" | awk -F'"' '/Developer ID Application/ {print $2; exit}')
           if [ -z "$identity" ]; then echo "::error::no Developer ID Application identity in the certificate"; exit 1; fi
           echo "MACOS_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          name: rv-voice-macos-arm64
+          path: apps/desktop/dist/voice
       - run: scripts/package-macos.sh "${{ needs.version.outputs.version }}"
+        env:
+          RV_VOICE_REQUIRED: 1
       # Apple's notary checks the signed DMG; the ticket stapled to it lets
       # the app open offline without any prompt.
       - name: Notarization
@@ -463,6 +505,7 @@ jobs:
         run: |
           sudo mv /opt/homebrew /opt/homebrew-aside
           app="$PWD/dist/rocket-vibe.app"
+          "$app/Contents/MacOS/rv-voice" --version
           "$app/Contents/MacOS/rocket-vibe-gtk" rocketvibe://room/smoke > "$RUNNER_TEMP/app.log" 2>&1 &
           pid=$!
           sleep 10

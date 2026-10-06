@@ -101,6 +101,26 @@ fn diagnostics(error: &Error) -> (Option<String>, Option<u64>) {
     }
 }
 
+/// The kind of server the user says is at an address: found by probing
+/// (`Auto`), or forced when the probe gets it wrong behind an unusual proxy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ServerKind {
+    #[default]
+    Auto,
+    RocketChat,
+    RocketVibe,
+}
+
+/// `probe` under the user's choice: Rocket.Chat never asks for native
+/// discovery, RocketVibe requires it (`not_native` otherwise).
+pub async fn probe_as(base: &url::Url, kind: ServerKind) -> Result<Option<Discovery>, Error> {
+    match kind {
+        ServerKind::Auto => probe(base).await,
+        ServerKind::RocketChat => Ok(None),
+        ServerKind::RocketVibe => probe(base).await?.ok_or(Error::Protocol("not_native")).map(Some),
+    }
+}
+
 /// Absence may fall back to RC; a positively identified incompatible native protocol never does.
 pub async fn probe(base: &url::Url) -> Result<Option<Discovery>, Error> {
     let client = reqwest::Client::builder()

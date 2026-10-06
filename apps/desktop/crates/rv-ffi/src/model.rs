@@ -33,6 +33,24 @@ pub struct TwoFactor {
     pub code_generated: bool,
 }
 
+/// The kind of server the user says is at an address (`ServerKind`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ServerChoice {
+    Auto,
+    RocketChat,
+    RocketVibe,
+}
+
+impl From<ServerChoice> for rv_core::native::ServerKind {
+    fn from(choice: ServerChoice) -> Self {
+        match choice {
+            ServerChoice::Auto => Self::Auto,
+            ServerChoice::RocketChat => Self::RocketChat,
+            ServerChoice::RocketVibe => Self::RocketVibe,
+        }
+    }
+}
+
 impl From<RestError> for RvError {
     fn from(e: RestError) -> Self {
         RvError::Server {

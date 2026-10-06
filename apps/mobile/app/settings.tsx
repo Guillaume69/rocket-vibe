@@ -225,8 +225,8 @@ function Settings({
 
       <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('settings.sectionAccount')}</Text>
       <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
-        <Pair c={c} key={t('settings.signedIn')} value={`@${username}`} />
-        <Pair c={c} key={t('settings.server')} value={baseUrl} />
+        <Pair c={c} label={t('settings.signedIn')} value={`@${username}`} />
+        <Pair c={c} label={t('settings.server')} value={baseUrl} />
       </View>
 
       {client.kind !== 'rocketvibe' && <>
@@ -462,10 +462,11 @@ function SectionE2E({ c, t }: { c: Colors; t: TranslateFn }) {
   );
 }
 
-function Pair({ c, key, value }: { c: Colors; key: string; value: string }) {
+// `label`, never `key`: React keeps that prop to itself, the label showed empty.
+function Pair({ c, label, value }: { c: Colors; label: string; value: string }) {
   return (
     <View style={styles.pair}>
-      <Text style={[styles.key, { color: c.dimmed }]}>{key}</Text>
+      <Text style={[styles.key, { color: c.dimmed }]}>{label}</Text>
       <Text style={[styles.value, { color: c.text }]} selectable>
         {value}
       </Text>

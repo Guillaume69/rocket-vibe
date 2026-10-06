@@ -139,24 +139,27 @@ impl Client {
         blocking(move || accounts::load_all(&dirs)).await.iter().map(account).collect()
     }
 
-    pub async fn probe(&self, server: String) -> Result<ServerProfile, RvError> {
+    pub async fn probe(&self, server: String, kind: ServerChoice) -> Result<ServerProfile, RvError> {
         let url = session::normalize_server(&server).ok_or_else(|| RvError::local("invalid server address"))?;
-        Ok(on_tokio(async move { rv_core::server::probe(&url).await }).await?.into())
+        Ok(on_tokio(async move { rv_core::server::probe_as(&url, kind.into()).await }).await?.into())
     }
 
     /// With `code`, the answer to the `method` challenge a previous attempt raised.
+    #[allow(clippy::too_many_arguments)] // The form, its code answer and the chosen kind.
     pub async fn login(
         &self,
         server: String,
+        kind: ServerChoice,
         user: String,
         password: String,
         method: Option<String>,
         code: Option<String>,
     ) -> Result<Arc<Chat>, RvError> {
         let url = session::normalize_server(&server).ok_or_else(|| RvError::local("invalid server address"))?;
+        let kind: rv_core::native::ServerKind = kind.into();
         if on_tokio({
             let url = url.clone();
-            async move { rv_core::native::probe(&url).await }
+            async move { rv_core::native::probe_as(&url, kind).await }
         })
         .await
         .map_err(RvError::local)?
@@ -165,7 +168,7 @@ impl Client {
             return Err(RvError::local("Use native_login for the native pilot"));
         }
         let two_factor = method.zip(code).map(|(m, c)| session::two_factor_code(&m, &c));
-        let info = on_tokio(async move { session::login(&url, &user, &password, two_factor).await }).await?;
+        let info = on_tokio(async move { session::login_as(&url, kind, &user, &password, two_factor).await }).await?;
         let (dirs, saved) = (self.dirs.clone(), info.clone());
         blocking(move || {
             accounts::remember_server(&dirs, &saved.base_url);

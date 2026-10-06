@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DEFAULT_SERVER } from '../db/migrate.ts';
 import { requestEmailCode, prepareTwoFactorCode, logIn } from '../lib/auth.ts';
 import { RestClient, TwoFactorError, RestError, type TwoFactorCode } from '../lib/rest.ts';
-import { discoverServer, type ServerProfile as ServerProfile } from '../lib/serverKind.ts';
+import { discoverServer, NotRocketVibeError, type ServerKind, type ServerProfile as ServerProfile } from '../lib/serverKind.ts';
 import { startNativeLogin, startNativeAccountCodeLogin, type LoginChallenge } from '../providers/rocketvibe/authentication.ts';
 import type { SecondFactor } from '../providers/rocketvibe/protocol.generated.ts';
 import { nativeAuthenticationVault, completeNativeAuthentication } from '../lib/nativeAuthenticationStore.ts';
@@ -54,6 +54,7 @@ export default function LoginScreen() {
 
   const [phase, setPhase] = useState<Phase>({ name: 'server' });
   const [address, setAddress] = useState(DEFAULT_SERVER);
+  const [kind, setKind] = useState<ServerKind>('auto');
   const [user, setUser] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
@@ -143,7 +144,7 @@ export default function LoginScreen() {
     setBusy(true);
     setMessage(null);
     try {
-      const profile = await discoverServer(address, controller.signal);
+      const profile = await discoverServer(address, controller.signal, fetch, kind);
       if (controller.signal.aborted) return;
       if (!profile.loginForm) {
         // `Accounts_ShowFormLogin = false`: the server only offers SSO. The API
@@ -153,13 +154,13 @@ export default function LoginScreen() {
       setPhase({ name: 'credentials', profile, client: new RestClient(profile.baseUrl) });
     } catch (e) {
       if (!controller.signal.aborted) {
-        setMessage(e instanceof Error ? e.message : t('login.serverUnreachable'));
+        setMessage(e instanceof NotRocketVibeError ? t('login.notRocketVibe') : e instanceof Error ? e.message : t('login.serverUnreachable'));
       }
     } finally {
       inFlight.current = false;
       if (!controller.signal.aborted) setBusy(false);
     }
-  }, [address, t]);
+  }, [address, kind, t]);
 
   const tryLogin = useCallback(
     async (twoFactor?: TwoFactorCode) => {
@@ -404,6 +405,16 @@ export default function LoginScreen() {
               placeholder="chat.example.org"
               autoComplete="url"
             />
+            {/* Found by probing; forced when the probe gets it wrong behind an unusual proxy. */}
+            <View style={styles.kindRow} accessibilityRole="radiogroup" accessibilityLabel={t('login.kind')}>
+              {([['auto','login.kindAuto'],['rocketchat','login.kindRocketChat'],['rocketvibe','login.kindRocketVibe']] as const).map(([value,label]) => (
+                <Pressable key={value} onPress={() => setKind(value)} disabled={busy}
+                  accessibilityRole="radio" accessibilityState={{checked:kind===value}}
+                  style={[styles.kindOption,{borderColor:kind===value?c.accent:c.border,backgroundColor:kind===value?c.card:'transparent'}]}>
+                  <Text style={[styles.kindText,{color:kind===value?c.text:c.dimmed}]}>{t(label)}</Text>
+                </Pressable>
+              ))}
+            </View>
             <PrimaryButton c={c} busy={busy} onPress={() => void submitServer()} title={t('login.continue')} />
 
             {knownServers.length > 0 && (
@@ -725,6 +736,9 @@ const styles = StyleSheet.create({
   card: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 9 },
   overline: { fontFamily: FONTS.bodyStrong, fontSize: 11.5, letterSpacing: 0.4, textTransform: 'uppercase' },
   serverLink: { fontFamily: FONTS.bodyBold, fontSize: 14, paddingVertical: 3 },
+  kindRow: { flexDirection: 'row', gap: 8 },
+  kindOption: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 12, borderWidth: 1 },
+  kindText: { fontFamily: FONTS.bodyBold, fontSize: 13 },
   errorMessage: { fontFamily: FONTS.bodyBold, fontSize: 14 },
   help: { fontFamily: FONTS.body, fontSize: 13, lineHeight: 18 },
   link: { fontFamily: FONTS.bodyBold, fontSize: 14, paddingVertical: 12, textAlign: 'center' },

@@ -21,6 +21,17 @@ public final class LoginModel {
             }
         }
     }
+    /// Found by probing; forced when the probe gets it wrong behind an unusual proxy.
+    public var kind: ServerChoice = .auto {
+        didSet {
+            if kind != oldValue {
+                probeRevision = UUID()
+                leave()
+                probeLine = nil
+                probeBad = false
+            }
+        }
+    }
     public var user = "" { didSet { if user != oldValue { cancelCode(); password = ""; invitation = "" } } }
     public var password = ""
     public var code = ""
@@ -76,7 +87,7 @@ public final class LoginModel {
         canRecover = false
         canEmailRecover = false
         do {
-            let p = try await client.probe(server: asked)
+            let p = try await client.probe(server: asked, kind: kind)
             guard asked == server, expected == probeRevision else { return }
             canRegister = p.genre == "rocketvibe" && p.accountInvitations
             canRecover = p.genre == "rocketvibe" && p.accountRecovery
@@ -95,6 +106,10 @@ public final class LoginModel {
             probeBad = false
         } catch RvError.Local {
             if asked == server, expected == probeRevision { probeLine = nil }
+        } catch let RvError.Server(_, _, errorCode, _, _, _) {
+            guard asked == server, expected == probeRevision else { return }
+            probeLine = L(errorCode == "not_native" ? "login.not_rocketvibe" : "login.probe_failed")
+            probeBad = true
         } catch {
             guard asked == server, expected == probeRevision else { return }
             probeLine = L("login.probe_failed")
@@ -237,7 +252,7 @@ public final class LoginModel {
                 guard current(expected, address: address, username: username) else { native.shutdown(); return nil }
                 chat = .rocketVibe(native)
             } else {
-                let native = try await client.isNativeServer(server: address)
+                let native = try await client.isNativeServer(server: address, kind: kind)
                 guard current(expected, address: address, username: username) else { return nil }
                 if native {
                     let attempt = try await client.nativeStartLogin(server: address, user: username, password: secret,
@@ -258,7 +273,7 @@ public final class LoginModel {
                     chat = .rocketVibe(accepted)
                 } else {
                     chat = .rocketChat(try await client.login(
-                        server: address, user: username, password: secret,
+                        server: address, kind: kind, user: username, password: secret,
                         method: challenge, code: asking ? answer : nil))
                     guard current(expected, address: address, username: username) else { chat.shutdown(); return nil }
                 }
@@ -277,6 +292,7 @@ public final class LoginModel {
         } catch let RvError.Server(status, message, errorCode, twoFactor, _, _) {
             guard current(expected, address: address, username: username) else { return nil }
             if let attempt = nativeAttempt, !attempt.methods().isEmpty { refreshNativeForm(attempt) }
+            if errorCode == "not_native" { error = L("login.not_rocketvibe"); return nil }
             if errorCode == "factor_rejected" || errorCode == "invalid_factor_code" { error = L("login.bad_code"); return nil }
             if errorCode == "factor_expired" { error = L("login.factor_expired"); return nil }
             if errorCode == "factor_unavailable" { error = L("login.factor_unavailable"); return nil }

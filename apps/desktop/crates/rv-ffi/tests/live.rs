@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use futures::executor::block_on;
 use rv_ffi::markup::BodyBlock;
-use rv_ffi::model::RoomSection;
+use rv_ffi::model::{RoomSection, ServerChoice};
 use rv_ffi::{Client, Event, Listener};
 
 struct Heard(Mutex<Vec<Event>>);
@@ -34,12 +34,15 @@ fn login_rooms_send_and_hear_it() {
     let home = std::env::temp_dir().join(format!("rv-ffi-live-{}", std::process::id()));
     let client = Client::new(home.to_string_lossy().into_owned());
 
-    let profile = block_on(client.probe(server.clone())).expect("probe");
+    let profile = block_on(client.probe(server.clone(), ServerChoice::Auto)).expect("probe");
     assert!(profile.password_login);
-    assert!(block_on(client.login(server.clone(), "alice".into(), "wrong".into(), None, None)).is_err());
+    assert!(
+        block_on(client.login(server.clone(), ServerChoice::Auto, "alice".into(), "wrong".into(), None, None)).is_err()
+    );
 
     let chat =
-        block_on(client.login(server.clone(), "alice".into(), "alice-dev-2026".into(), None, None)).expect("login");
+        block_on(client.login(server.clone(), ServerChoice::Auto, "alice".into(), "alice-dev-2026".into(), None, None))
+            .expect("login");
     assert_eq!(chat.account().username, "alice");
     assert_eq!(client.known_servers().first().map(String::as_str), Some(server.trim_end_matches('/')));
     let heard = Arc::new(Heard(Mutex::default()));

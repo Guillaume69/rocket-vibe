@@ -488,6 +488,25 @@ async fn a_proxy_refusing_well_known_still_finds_the_rocket_chat_behind_it() {
 }
 
 #[tokio::test]
+async fn a_chosen_server_kind_is_probed_alone() {
+    use rv_core::native::ServerKind;
+    let server = FakeHttp::start(|r| match r.path() {
+        "/api/info" => respond(200, r#"{"version":"8.8","success":true}"#),
+        "/api/v1/settings.public" => respond(200, r#"{"success":true,"settings":[]}"#),
+        _ => respond(404, "{}"),
+    })
+    .await;
+    let rocket_chat = rv_core::server::probe_as(&server.url, ServerKind::RocketChat).await.unwrap();
+    assert_eq!(rocket_chat.genre, "rocketchat");
+    assert!(server.requests().iter().all(|r| r.path() != "/.well-known/rocketvibe"), "Rocket.Chat asks no discovery");
+    let info = |s: &FakeHttp| s.requests().iter().filter(|r| r.path() == "/api/info").count();
+    let before = info(&server);
+    let native = rv_core::server::probe_as(&server.url, ServerKind::RocketVibe).await.unwrap_err();
+    assert_eq!(native.error.as_deref(), Some("not_native"));
+    assert_eq!(info(&server), before, "RocketVibe never falls back to the Rocket.Chat probe");
+}
+
+#[tokio::test]
 async fn official_rocket_chat_discovery_and_password_login_keep_their_original_contract() {
     let server = FakeHttp::start(|r| match r.path() {
         "/.well-known/rocketvibe" => respond(404, "{}"),

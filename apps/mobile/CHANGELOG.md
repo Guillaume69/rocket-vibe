@@ -9,6 +9,9 @@ release, and its notes are that version's section here.
 
 ### Added
 
+- The sign-in screen offers the server type under the address: automatic (the default),
+  Rocket.Chat or RocketVibe. A forced type is probed alone, for a server whose proxy hides
+  what the automatic detection looks for.
 - A Rocket.Chat server whose reverse proxy refuses `/.well-known/` (a 403, as on
   chat.barrut.me) is found again: only a positive RocketVibe answer stops the Rocket.Chat
   probe; it used to report "no Rocket.Chat reachable at this address".

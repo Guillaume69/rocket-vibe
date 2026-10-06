@@ -3,9 +3,15 @@ import { normalizeUrl, probeServer, type ServerProfile as BaseServerProfile } fr
 import { NativeTransport } from '../providers/rocketvibe/transport.ts';
 import type { Discovery } from '../providers/rocketvibe/protocol.generated.ts';
 export type ServerProfile = BaseServerProfile & { native?: Discovery };
+/** Found by probing (`auto`), or forced when the probe gets it wrong behind an unusual proxy. */
+export type ServerKind = 'auto' | 'rocketchat' | 'rocketvibe';
+/** The server is not RocketVibe although the user chose it. */
+export class NotRocketVibeError extends Error {}
 
-export async function discoverServer(input: string, signal?: AbortSignal, fetcher: typeof fetch = fetch): Promise<ServerProfile> {
+export async function discoverServer(input: string, signal?: AbortSignal, fetcher: typeof fetch = fetch, kind: ServerKind = 'auto'): Promise<ServerProfile> {
   const baseUrl = normalizeUrl(input);
+  // Rocket.Chat chosen: no native discovery at all.
+  if (kind === 'rocketchat') return probeServer(baseUrl, signal, {fetch:fetcher});
   const controller = new AbortController();
   const relay = () => controller.abort();
   signal?.addEventListener('abort', relay);
@@ -29,6 +35,7 @@ export async function discoverServer(input: string, signal?: AbortSignal, fetche
     clearTimeout(timer);
     signal?.removeEventListener('abort', relay);
   }
+  if (!native && kind === 'rocketvibe') throw new NotRocketVibeError('Not a RocketVibe server');
   if (!native) return probeServer(baseUrl, signal, {fetch:fetcher});
   const discovery = await new NativeTransport(baseUrl,fetcher).discover(signal);
   return {

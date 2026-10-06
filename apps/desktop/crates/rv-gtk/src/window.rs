@@ -37,6 +37,7 @@ struct NotificationAction {
 
 struct PendingLogin {
     server: url::Url,
+    kind: rv_core::native::ServerKind,
     user: String,
     password: String,
     method: Option<String>,
@@ -99,6 +100,7 @@ fn database_path(info: &SessionInfo) -> PathBuf {
 
 fn describe(e: &RestError, asking_code: bool, recovering: bool) -> String {
     match e.error.as_deref() {
+        Some("not_native") => return t("login.not_rocketvibe").into(),
         Some("factor_rejected" | "invalid_factor_code") => return t("login.bad_code").into(),
         Some("factor_expired") => return t("login.factor_expired").into(),
         Some("factor_unavailable") => return t("login.factor_unavailable").into(),
@@ -456,16 +458,17 @@ impl AppWindow {
             };
             self.pending.replace(Some(PendingLogin {
                 server,
+                kind: self.login.server_kind(),
                 user: self.login.user().trim().to_owned(),
                 password: self.login.password(),
                 method: None,
             }));
         }
-        let (server, user, password, two_factor) = {
+        let (server, kind, user, password, two_factor) = {
             let pending = self.pending.borrow();
             let p = pending.as_ref().unwrap();
             let tf = p.method.as_deref().map(|m| session::two_factor_code(m, &self.login.code()));
-            (p.server.clone(), p.user.clone(), p.password.clone(), tf)
+            (p.server.clone(), p.kind, p.user.clone(), p.password.clone(), tf)
         };
 
         self.login.set_error(None);
@@ -474,7 +477,9 @@ impl AppWindow {
         glib::spawn_future_local(async move {
             let (s, u, p) = (server.clone(), user.clone(), password);
             let result = on_tokio(async move {
-                if let Some(discovery) = rv_core::native::probe(&s).await.map_err(rv_core::native::rest_error)? {
+                if let Some(discovery) =
+                    rv_core::native::probe_as(&s, kind).await.map_err(rv_core::native::rest_error)?
+                {
                     use rv_core::native::authentication;
                     let step = if let Some(code) = recovery_code {
                         authentication::start_account_code(&s, &discovery, &u, &p, &code, true).await
@@ -496,7 +501,7 @@ impl AppWindow {
                         "invitation_unavailable"
                     })))
                 } else {
-                    session::login(&s, &u, &p, two_factor).await.map(LoginOutcome::RocketChat)
+                    session::login_as(&s, kind, &u, &p, two_factor).await.map(LoginOutcome::RocketChat)
                 }
             })
             .await;

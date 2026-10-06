@@ -110,7 +110,18 @@ pub async fn login(
     password: &str,
     two_factor: Option<TwoFactorCode>,
 ) -> Result<SessionInfo, RestError> {
-    if let Some(discovery) = crate::native::probe(server).await.map_err(crate::native::rest_error)? {
+    login_as(server, crate::native::ServerKind::Auto, user, password, two_factor).await
+}
+
+/// `login` under the user's choice of server kind (`native::probe_as`).
+pub async fn login_as(
+    server: &Url,
+    kind: crate::native::ServerKind,
+    user: &str,
+    password: &str,
+    two_factor: Option<TwoFactorCode>,
+) -> Result<SessionInfo, RestError> {
+    if let Some(discovery) = crate::native::probe_as(server, kind).await.map_err(crate::native::rest_error)? {
         return crate::native::login(server, &discovery, user, password).await.map_err(crate::native::rest_error);
     }
     let rest = RestClient::new(server.clone());

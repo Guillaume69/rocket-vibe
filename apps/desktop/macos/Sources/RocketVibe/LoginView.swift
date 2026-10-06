@@ -1,3 +1,4 @@
+import RocketVibeCore
 import RocketVibeKit
 import SwiftUI
 
@@ -50,6 +51,13 @@ struct LoginView: View {
                     TextField(L("login.server"), text: $login.server)
                         .focused($focus, equals: .server)
                         .textContentType(.URL)
+                    // Found by probing; forced when the probe gets it wrong.
+                    Picker(L("login.kind"), selection: $login.kind) {
+                        Text(L("login.kind_auto")).tag(ServerChoice.auto)
+                        Text(L("login.kind_rocketchat")).tag(ServerChoice.rocketChat)
+                        Text(L("login.kind_rocketvibe")).tag(ServerChoice.rocketVibe)
+                    }
+                    .pickerStyle(.segmented)
                     if let probe = login.probeLine {
                         Text(probe)
                             .font(.caption)
@@ -144,7 +152,7 @@ struct LoginView: View {
         .onDisappear { login.leave() }
         .onChange(of: login.method) { _, method in if method != nil { focus = .code } }
         .onChange(of: login.server) { _, _ in login.registering = false; login.recovering = false; login.invitation = "" }
-        .task(id: login.server) {
+        .task(id: "\(login.server)|\(login.kind)") {
             try? await Task.sleep(nanoseconds: 600_000_000)
             if !Task.isCancelled { await login.probe(client: app.client) }
         }

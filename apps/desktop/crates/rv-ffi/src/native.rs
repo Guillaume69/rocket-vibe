@@ -173,10 +173,13 @@ impl Drop for NativeChat {
 
 #[uniffi::export]
 impl Client {
-    pub async fn is_native_server(&self, server: String) -> Result<bool, RvError> {
+    /// Whether the address is a RocketVibe server, under the user's choice of kind.
+    pub async fn is_native_server(&self, server: String, kind: crate::model::ServerChoice) -> Result<bool, RvError> {
         let url =
             rv_core::session::normalize_server(&server).ok_or_else(|| RvError::local("invalid server address"))?;
-        on_tokio(async move { rv_core::native::probe(&url).await.map(|p| p.is_some()) }).await.map_err(native_error)
+        on_tokio(async move { rv_core::native::probe_as(&url, kind.into()).await.map(|p| p.is_some()) })
+            .await
+            .map_err(native_error)
     }
     pub async fn native_login(
         &self,

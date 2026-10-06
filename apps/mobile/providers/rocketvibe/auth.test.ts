@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { checkIdentity, transportFor } from './auth.ts';
 import { NativeError, NativeTransport } from './transport.ts';
-import { discoverServer } from '../../lib/serverKind.ts';
+import { discoverServer, NotRocketVibeError } from '../../lib/serverKind.ts';
 import { clientForSession } from '../../lib/sessionTransport.ts';
 import type { Session } from '../../lib/auth.ts';
 import { decodeNative } from './validation.ts';
@@ -44,6 +44,20 @@ test('a proxy refusing /.well-known still finds the Rocket.Chat behind it',async
     return new Response('',{status:404});
   });
   assert.equal(profile.native,undefined);assert.equal(profile.version,'8.8');
+});
+test('a chosen server kind is probed alone',async () => {
+  const calls:string[] = [];
+  const fetcher = async (url:string|URL|Request) => {
+    const path = new URL(String(url)).pathname;calls.push(path);
+    if (path === '/api/info') return Response.json({version:'8.8',success:true});
+    if (path === '/api/v1/settings.public') return Response.json({success:true,settings:[]});
+    return new Response('',{status:404});
+  };
+  const rocketChat = await discoverServer(session.baseUrl,undefined,fetcher as typeof fetch,'rocketchat');
+  assert.equal(rocketChat.version,'8.8');assert(!calls.includes('/.well-known/rocketvibe'),'Rocket.Chat asks no discovery');
+  calls.length = 0;
+  await assert.rejects(discoverServer(session.baseUrl,undefined,fetcher as typeof fetch,'rocketvibe'),NotRocketVibeError);
+  assert.deepEqual(calls,['/.well-known/rocketvibe'],'RocketVibe never falls back to the Rocket.Chat probe');
 });
 test('the metadata client blocks legacy Rocket.Chat endpoints on a native account',async () => {
   const client = clientForSession(session,() => {});

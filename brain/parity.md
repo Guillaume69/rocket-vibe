@@ -25,6 +25,7 @@ beta does.
 | 2FA by email: send and resend the code | done | partial | partial | Desktop requests the code automatically when the server has not sent one, with no resend control. |
 | Session in the system keychain, resumed at launch; a 401 on an authenticated call signs out | done | done | done | |
 | Server probe before login (`/api/info`, `settings.public`) | done | done | done | |
+| Choose the server type at sign-in (automatic, Rocket.Chat, RocketVibe) | done | done | done | SwiftUI checked by the Linux build of RocketVibeKit and the macOS CI build only. |
 | Known servers offered on the login screen | done | done | done | |
 | Several servers side by side, switch without signing out | done | done | done | One database per (server, account) everywhere. |
 | Several accounts on the same server | missing | done | done | Mobile holds one account per server. |

@@ -822,6 +822,11 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("notify.reply", "Répondre", "Reply"),
     ("notify.reply_placeholder", "Répondre…", "Reply…"),
     ("login.probe_failed", "Pas de Rocket.Chat joignable à cette adresse", "No Rocket.Chat reachable at this address"),
+    ("login.not_rocketvibe", "Pas de serveur RocketVibe à cette adresse", "No RocketVibe server at this address"),
+    ("login.kind", "Type de serveur", "Server type"),
+    ("login.kind_auto", "Automatique", "Automatic"),
+    ("login.kind_rocketchat", "Rocket.Chat", "Rocket.Chat"),
+    ("login.kind_rocketvibe", "RocketVibe", "RocketVibe"),
     (
         "login.probe_no_password",
         "Ce serveur n'accepte pas la connexion par mot de passe",

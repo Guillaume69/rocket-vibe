@@ -53,7 +53,12 @@ pub fn profile_from(base_url: &str, info: &Value, settings: &Value) -> Option<Se
 /// `/api/info` for the version (proof it is a Rocket.Chat), `settings.public`
 /// (every page: `count=0`, `query` is ignored since 7.0) for the rest.
 pub async fn probe(base: &Url) -> Result<ServerProfile, RestError> {
-    if let Some(native) = crate::native::probe(base).await.map_err(crate::native::rest_error)? {
+    probe_as(base, crate::native::ServerKind::Auto).await
+}
+
+/// `probe` under the user's choice of server kind (`native::probe_as`).
+pub async fn probe_as(base: &Url, kind: crate::native::ServerKind) -> Result<ServerProfile, RestError> {
+    if let Some(native) = crate::native::probe_as(base, kind).await.map_err(crate::native::rest_error)? {
         return Ok(ServerProfile {
             genre: "rocketvibe".into(),
             base_url: base.as_str().trim_end_matches('/').into(),

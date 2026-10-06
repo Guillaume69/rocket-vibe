@@ -26,6 +26,7 @@ pub struct LoginPage {
     pub widget: gtk::Overlay,
     credentials: gtk::Box,
     server: gtk::Entry,
+    kind: gtk::DropDown,
     user: gtk::Entry,
     password: gtk::Entry,
     signup: gtk::CheckButton,
@@ -108,6 +109,15 @@ fn code_fields(code: &gtk::Entry, caption: &gtk::Label, intro: &gtk::Label, meth
     }
 }
 
+fn server_kind(kind: &gtk::DropDown) -> rv_core::native::ServerKind {
+    use rv_core::native::ServerKind;
+    match kind.selected() {
+        1 => ServerKind::RocketChat,
+        2 => ServerKind::RocketVibe,
+        _ => ServerKind::Auto,
+    }
+}
+
 impl LoginPage {
     pub fn new() -> Self {
         let (server_group, server) = widgets::pill_field(t("login.server"), "chat.example.com", false);
@@ -117,6 +127,18 @@ impl LoginPage {
         let credentials = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(14).build();
         credentials.append(&hero());
         credentials.append(&server_group);
+        // Found by probing; forced when the probe gets it wrong behind an
+        // unusual proxy.
+        let kind = gtk::DropDown::from_strings(&[
+            t("login.kind_auto"),
+            t("login.kind_rocketchat"),
+            t("login.kind_rocketvibe"),
+        ]);
+        kind.set_tooltip_text(Some(t("login.kind")));
+        let kind_row = gtk::Box::builder().spacing(10).margin_start(14).build();
+        kind_row.append(&gtk::Label::builder().label(t("login.kind")).css_classes(["file-detail"]).build());
+        kind_row.append(&kind);
+        credentials.append(&kind_row);
         let probe =
             gtk::Label::builder().css_classes(["probe"]).xalign(0.0).wrap(true).visible(false).margin_start(14).build();
         credentials.append(&probe);
@@ -294,7 +316,15 @@ impl LoginPage {
         ));
 
         let generation = std::rc::Rc::new(std::cell::Cell::new(0u64));
+        // Another kind asks the probe again, under that kind.
+        kind.connect_selected_notify(glib::clone!(
+            #[weak]
+            server,
+            move |_| server.emit_by_name::<()>("changed", &[])
+        ));
         server.connect_changed(glib::clone!(
+            #[weak]
+            kind,
             #[weak]
             recovery_email,
             #[weak]
@@ -321,8 +351,9 @@ impl LoginPage {
                         probe.set_visible(false);
                         return;
                     };
+                    let chosen = server_kind(&kind);
                     glib::spawn_future_local(async move {
-                        let found = crate::on_tokio(async move { rv_core::server::probe(&url).await }).await;
+                        let found = crate::on_tokio(async move { rv_core::server::probe_as(&url, chosen).await }).await;
                         if generation.get() != current {
                             return;
                         }
@@ -347,9 +378,13 @@ impl LoginPage {
                                 }
                                 probe.set_label(&facts.join(" · "));
                             }
-                            Err(_) => {
+                            Err(e) => {
                                 probe.add_css_class("bad");
-                                probe.set_label(t("login.probe_failed"));
+                                probe.set_label(t(if e.error.as_deref() == Some("not_native") {
+                                    "login.not_rocketvibe"
+                                } else {
+                                    "login.probe_failed"
+                                }));
                             }
                         }
                     });
@@ -361,6 +396,7 @@ impl LoginPage {
             widget: starry(page.upcast_ref()),
             credentials,
             server,
+            kind,
             user,
             password,
             signup,
@@ -450,6 +486,11 @@ impl LoginPage {
 
     pub fn server(&self) -> String {
         self.server.text().into()
+    }
+
+    /// The kind of server chosen under the address.
+    pub fn server_kind(&self) -> rv_core::native::ServerKind {
+        server_kind(&self.kind)
     }
 
     pub fn set_server(&self, server: &str) {

@@ -113,11 +113,12 @@ pub async fn probe(base: &url::Url) -> Result<Option<Discovery>, Error> {
         .send()
         .await
         .map_err(|_| Error::Protocol("discovery_unavailable"))?;
-    if matches!(response.status().as_u16(), 404 | 410) {
-        return Ok(None);
-    }
+    // Only a 2xx naming the product identifies a RocketVibe server. Anything
+    // else falls back to the Rocket.Chat probe, which has its own proofs: a
+    // reverse proxy may well forbid `/.well-known/` (chat.barrut.me answers
+    // 403), and a refusal used to hide the Rocket.Chat behind it.
     if !response.status().is_success() {
-        return Err(Error::Protocol("discovery_unavailable"));
+        return Ok(None);
     }
     let body = response.text().await.map_err(|_| Error::Protocol("discovery_unavailable"))?;
     let native = serde_json::from_str::<Value>(&body).ok().is_some_and(|v| v["product"] == "rocketvibe");

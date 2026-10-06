@@ -35,6 +35,16 @@ test('unsupported advertised native versions never fall back to RC discovery',as
   }));
   assert(calls.every(url => url.endsWith('/.well-known/rocketvibe')));
 });
+test('a proxy refusing /.well-known still finds the Rocket.Chat behind it',async () => {
+  const profile = await discoverServer(session.baseUrl,undefined,async url => {
+    const path = new URL(String(url)).pathname;
+    if (path === '/.well-known/rocketvibe') return new Response('',{status:403});
+    if (path === '/api/info') return Response.json({version:'8.8',success:true});
+    if (path === '/api/v1/settings.public') return Response.json({success:true,settings:[]});
+    return new Response('',{status:404});
+  });
+  assert.equal(profile.native,undefined);assert.equal(profile.version,'8.8');
+});
 test('the metadata client blocks legacy Rocket.Chat endpoints on a native account',async () => {
   const client = clientForSession(session,() => {});
   await assert.rejects(client.get('users.info'));

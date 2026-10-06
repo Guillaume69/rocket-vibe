@@ -9,6 +9,9 @@ section here.
 
 ### Added
 
+- A Rocket.Chat server whose reverse proxy refuses `/.well-known/` (a 403, as on
+  chat.barrut.me) is found again: only a positive RocketVibe answer stops the Rocket.Chat
+  probe; it used to report "no Rocket.Chat reachable at this address".
 - Experimental private conversations keep receiving past 64 messages, and past
   8,192: settled bodies leave the hot cache by themselves once the verified journal
   archive holds them, the oldest settled identities leave the operation registry,

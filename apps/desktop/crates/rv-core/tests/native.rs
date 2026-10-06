@@ -475,6 +475,19 @@ async fn room_creation_retries_a_lost_reply_with_its_durable_intention() {
 }
 
 #[tokio::test]
+async fn a_proxy_refusing_well_known_still_finds_the_rocket_chat_behind_it() {
+    let server = FakeHttp::start(|r| match r.path() {
+        "/.well-known/rocketvibe" => respond(403, ""),
+        "/api/info" => respond(200, r#"{"version":"8.8","success":true}"#),
+        "/api/v1/settings.public" => respond(200, r#"{"success":true,"settings":[]}"#),
+        _ => respond(404, "{}"),
+    })
+    .await;
+    let profile = rv_core::server::probe(&server.url).await.unwrap();
+    assert_eq!((profile.genre.as_str(), profile.version.as_str()), ("rocketchat", "8.8"));
+}
+
+#[tokio::test]
 async fn official_rocket_chat_discovery_and_password_login_keep_their_original_contract() {
     let server = FakeHttp::start(|r| match r.path() {
         "/.well-known/rocketvibe" => respond(404, "{}"),

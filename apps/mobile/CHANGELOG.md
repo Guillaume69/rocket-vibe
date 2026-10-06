@@ -9,6 +9,9 @@ release, and its notes are that version's section here.
 
 ### Added
 
+- A Rocket.Chat server whose reverse proxy refuses `/.well-known/` (a 403, as on
+  chat.barrut.me) is found again: only a positive RocketVibe answer stops the Rocket.Chat
+  probe; it used to report "no Rocket.Chat reachable at this address".
 - RocketVibe entries concern the native RocketVibe server provider. Rocket.Chat accounts keep
   all their features, and both providers' accounts live side by side in the existing account
   switcher. Native capabilities not implemented yet (production E2EE, among others) stay

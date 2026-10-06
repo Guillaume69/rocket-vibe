@@ -20,9 +20,11 @@ export async function discoverServer(input: string, signal?: AbortSignal, fetche
         const parsed: unknown = JSON.parse(String(body));
         native = typeof parsed === 'object' && parsed !== null && 'product' in parsed && parsed.product === 'rocketvibe';
       } catch { /* An RC frontend may serve HTML for unknown routes. */ }
-    } else if (response.status !== 404 && response.status !== 410) {
-      throw new Error('Découverte du serveur indisponible.');
     }
+    // Only a 2xx naming the product identifies a RocketVibe server. Anything
+    // else falls back to the Rocket.Chat probe, which has its own proofs: a
+    // reverse proxy may well forbid `/.well-known/` (chat.barrut.me answers
+    // 403), and a refusal used to hide the Rocket.Chat behind it.
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', relay);

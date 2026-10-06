@@ -127,7 +127,7 @@ Feature-level detail: [../features/uploads.md](../features/uploads.md).
 
 ## Display helpers
 
-- `markdown::render` turns the server's `md` tree into `Block`s of Pango markup; messages without `md` go through `parse::tree`, which produces the same node shapes, so one renderer serves both. Unknown nodes show their text. `runs` re-reads that markup as styled runs for the SwiftUI app and for GTK text views that hold custom emoji as pictures.
+- `markdown::render` turns the server's `md` tree into `Block`s of Pango markup; messages without `md` go through `parse::tree`, which produces the same node shapes, so one renderer serves both; a backslash before punctuation keeps it literal, as message-parser does. The room list previews (`runs::preview`) go through it too. Unknown nodes show their text. `runs` re-reads that markup as styled runs for the SwiftUI app and for GTK text views that hold custom emoji as pictures.
 - `timeline::group` sets author headers (new day, system message, other author, or a gap), day separators and gutter times; `mark_new` puts the "new messages" marker on the first later message from someone else. `diff::diff_sorted` turns old and new sorted lists into splices so list views keep scroll position and widgets.
 - `media::protected_url` adds `rc_uid`/`rc_token` only when the URL's origin is our server's: attachment URLs come from message fields, so from anyone. `MediaCache` keeps up to 400 fetched files in memory (cleared wholesale when full) and decrypts files of encrypted rooms whose keys it learnt.
 

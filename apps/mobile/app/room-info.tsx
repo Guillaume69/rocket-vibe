@@ -194,7 +194,7 @@ function RoomInfoContent({
       )}
 
       {extras?.management && actions.roomManagement && <RoomCommands rid={rid} base={base} details={extras.management} actions={actions.roomManagement} c={c} refresh={()=>setRefreshing(value=>value+1)} />}
-      {native && membership && room?.encrypted && <EncryptedGroupSection c={c} room={rid} membership={membership}/>}
+      {native && membership && <EncryptedGroupSection c={c} room={rid} membership={membership}/>}
 
       {extras?.announcement !== null && extras !== null && (
         <Section c={c} title={t('roomInfo.announcement')} text={extras.announcement} />

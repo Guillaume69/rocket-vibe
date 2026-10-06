@@ -669,7 +669,10 @@ export class NativeChat {
       if(!alive())throw new NativeError(0,'session_closed');
       let access=await this.store.cryptoRoomAccess(room);
       if(mutation){await this.roomDetails(room);access=await this.store.cryptoRoomAccess(room);}
-      if(!alive() || !access || access.membership!==membership || !access.encrypted) {
+      // Not only rooms already encrypted: a member prepares this device for
+      // invitations, and the owner creates the group, before it exists (as on
+      // desktop). The server decides who may create it.
+      if(!alive() || !access || access.membership!==membership) {
         closed=true;throw new NativeError(403,'room_access_denied');
       }
       if(mutation && !access.canSend)throw new NativeError(403,'room_access_denied');

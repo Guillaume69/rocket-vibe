@@ -322,6 +322,10 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- In a RocketVibe private room not yet encrypted, the room info offers the encrypted group
+  as on desktop: a member prepares this device for invitations, and the owner creates the
+  group. A phone used to be able to join only a group created without it.
+
 - RocketVibe: an obsolete edit keeps the words you typed and reports a conflict, even if the
   cache already received the new version of the message.
 - RocketVibe: the cache detects a removal followed by a rejoin even after a missed event and a

@@ -33,6 +33,7 @@ class VoiceService : Service() {
     }
     if (VoiceEngine.roomId == null) {
       ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+      foreground = false
       stopSelf()
       return START_NOT_STICKY
     }
@@ -40,6 +41,7 @@ class VoiceService : Service() {
     val type = if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
       ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
     ServiceCompat.startForeground(this, NOTIFICATION, notification(this), type)
+    foreground = true
     return START_NOT_STICKY
   }
 
@@ -49,6 +51,8 @@ class VoiceService : Service() {
     private const val ACTION_MUTE = "com.rocketvibe.voice.MUTE"
     private const val ACTION_LEAVE = "com.rocketvibe.voice.LEAVE"
     private var running = false
+    /** A call notification may only be posted once the service is in the foreground. */
+    @Volatile private var foreground = false
 
     fun start(context: Context) {
       running = true
@@ -56,11 +60,17 @@ class VoiceService : Service() {
     }
     /** Mute state and title moved: redraw the notification. */
     fun refresh(context: Context) {
-      if (running) context.getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION, notification(context))
+      if (!running || !foreground) return
+      try {
+        context.getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION, notification(context))
+      } catch (_: IllegalArgumentException) {
+        // The service left the foreground meanwhile: nothing to redraw.
+      }
     }
     fun stop(context: Context) {
       if (!running) return
       running = false
+      foreground = false
       context.stopService(Intent(context, VoiceService::class.java))
     }
 

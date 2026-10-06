@@ -2889,8 +2889,8 @@ async fn auth_validation_and_generation_reset(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(discovery.product, "rocketvibe");
-    // Off unless the operator opts into the preview (RV_E2EE_PREVIEW).
-    assert!(!discovery.capabilities.e2ee);
+    // On by default; an operator may turn it off (`RV_E2EE=false`).
+    assert!(discovery.capabilities.e2ee);
     assert!(!discovery.capabilities.uploads);
     let unknown = server
         .client
@@ -3850,8 +3850,8 @@ async fn snapshot_room_and_total_byte_limits_refund_failed_reservations(pool: Pg
 }
 
 #[sqlx::test]
-async fn the_e2ee_preview_is_an_operator_opt_in(pool: PgPool) {
-    let app = App::from_pool(pool).await.unwrap().with_e2ee_preview(true);
+async fn an_operator_can_turn_e2ee_off(pool: PgPool) {
+    let app = App::from_pool(pool).await.unwrap().with_e2ee(false);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let task = tokio::spawn(async move {
@@ -3869,6 +3869,6 @@ async fn the_e2ee_preview_is_an_operator_opt_in(pool: PgPool) {
         .json()
         .await
         .unwrap();
-    assert!(discovery.capabilities.e2ee);
+    assert!(!discovery.capabilities.e2ee);
     task.abort();
 }

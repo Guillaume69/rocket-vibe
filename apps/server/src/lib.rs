@@ -51,9 +51,9 @@ pub struct App {
     pub mail: Option<Arc<mail::Sender>>,
     pub push: Option<Arc<push::Sender>>,
     pub jitsi: Option<Arc<meetings::Jitsi>>,
-    /// Advertises the `e2ee` capability before its independent review (RFC
-    /// 0002 step 6): an operator opt-in for test benches, off by default.
-    pub e2ee_preview: bool,
+    /// Advertises the `e2ee` capability: on by default, an operator may turn
+    /// native end-to-end encryption off for an instance (`RV_E2EE=false`).
+    pub e2ee: bool,
     pub(crate) objects: Option<objects::LocalObjects>,
     image_slots: Arc<tokio::sync::Semaphore>,
     file_slots: Arc<tokio::sync::Semaphore>,
@@ -109,7 +109,7 @@ impl App {
             mail: None,
             push: None,
             jitsi: None,
-            e2ee_preview: false,
+            e2ee: true,
             objects: None,
             image_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             file_slots: Arc::new(tokio::sync::Semaphore::new(4)),
@@ -144,8 +144,8 @@ impl App {
         self
     }
 
-    pub fn with_e2ee_preview(mut self, enabled: bool) -> Self {
-        self.e2ee_preview = enabled;
+    pub fn with_e2ee(mut self, enabled: bool) -> Self {
+        self.e2ee = enabled;
         self
     }
 

@@ -22,8 +22,8 @@ services:
       DATABASE_URL: postgres://rocketvibe:${RV_DATABASE_PASSWORD}@postgres/rocketvibe
       RV_BIND: 0.0.0.0:3400
       RV_OBJECTS_DIR: /var/lib/rocketvibe/objects
-      # Unreviewed native E2EE, for test benches only (apps/server/README.md).
-      RV_E2EE_PREVIEW: ${RV_E2EE_PREVIEW:-false}
+      # Native E2EE, on by default; false turns it off (apps/server/README.md).
+      RV_E2EE: ${RV_E2EE:-true}
     volumes:
       - native-objects:/var/lib/rocketvibe/objects
     ports:

@@ -131,11 +131,14 @@ fn chip(item: &Picked, mime: &str, on_remove: impl Fn() + 'static) -> gtk::Widge
         .build();
     thumb.set_child(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
     let texture = mime.starts_with("image/").then(|| gdk::Texture::from_filename(&item.path).ok()).flatten();
+    let audio = mime.starts_with("audio/");
     match &texture {
         Some(texture) => thumb.add_overlay(
             &gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Cover).can_shrink(true).build(),
         ),
-        None => thumb.add_overlay(&gtk::Label::builder().label("📄").css_classes(["staged-icon"]).build()),
+        None => thumb.add_overlay(
+            &gtk::Label::builder().label(if audio { "🎵" } else { "📄" }).css_classes(["staged-icon"]).build(),
+        ),
     }
     chip.append(&thumb);
     let names = gtk::Box::builder().orientation(gtk::Orientation::Vertical).valign(gtk::Align::Center).build();
@@ -156,15 +159,21 @@ fn chip(item: &Picked, mime: &str, on_remove: impl Fn() + 'static) -> gtk::Widge
             .build(),
     );
     chip.append(&names);
+    // A recording (or any sound) is listened to here, before it goes.
+    let player = audio.then(|| audio_toggle(&item.path));
+    if let Some(button) = &player {
+        chip.append(button);
+    }
     chip.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
     chip.set_tooltip_text(Some(t("attach.preview")));
     let click = gtk::GestureClick::new();
     let (path, title) = (item.path.clone(), item.name.clone());
     click.connect_released(move |gesture, _, _, _| {
         let Some(widget) = gesture.widget() else { return };
-        match &texture {
-            Some(texture) => crate::rows::open_viewer(&widget, texture, &title, None),
-            None => crate::cards::open_file(&widget, &path, || {}),
+        match (&texture, &player) {
+            (Some(texture), _) => crate::rows::open_viewer(&widget, texture, &title, None),
+            (None, Some(button)) => button.emit_clicked(),
+            (None, None) => crate::cards::open_file(&widget, &path, || {}),
         }
     });
     chip.add_controller(click);
@@ -177,4 +186,48 @@ fn chip(item: &Picked, mime: &str, on_remove: impl Fn() + 'static) -> gtk::Widge
     remove.connect_clicked(move |_| on_remove());
     chip.append(&remove);
     chip.upcast()
+}
+
+/// Play / pause of a staged sound, its stream made on the first play and
+/// paused when the chip goes.
+fn audio_toggle(path: &std::path::Path) -> gtk::Button {
+    let button = gtk::Button::builder()
+        .icon_name("media-playback-start-symbolic")
+        .tooltip_text(t("voice.play"))
+        .css_classes(["flat", "circular"])
+        .valign(gtk::Align::Center)
+        .build();
+    let stream: Rc<RefCell<Option<gtk::MediaStream>>> = Rc::default();
+    let (path, shared) = (path.to_owned(), stream.clone());
+    button.connect_clicked(move |button| {
+        let mut slot = shared.borrow_mut();
+        let stream = slot.get_or_insert_with(|| {
+            let stream = crate::gst_stream::for_file(&path);
+            let weak = button.downgrade();
+            stream.connect_playing_notify(move |s| {
+                if let Some(button) = weak.upgrade() {
+                    button.set_icon_name(if s.is_playing() {
+                        "media-playback-pause-symbolic"
+                    } else {
+                        "media-playback-start-symbolic"
+                    });
+                }
+            });
+            stream
+        });
+        if stream.is_playing() {
+            stream.pause();
+        } else {
+            if stream.is_ended() {
+                stream.seek(0);
+            }
+            stream.play();
+        }
+    });
+    button.connect_unrealize(move |_| {
+        if let Some(stream) = stream.borrow().as_ref() {
+            stream.pause();
+        }
+    });
+    button
 }

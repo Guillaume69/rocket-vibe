@@ -44,7 +44,6 @@ pub struct Composer {
     record_bar: gtk::Box,
     record_time: gtk::Label,
     recorder: RefCell<Option<crate::recorder::Recorder>>,
-    on_voice: Handler<std::path::PathBuf>,
     on_error: Handler<String>,
     on_edit_last: Handler<()>,
     staged: Rc<crate::staged::Staged>,
@@ -221,9 +220,10 @@ impl Composer {
         let record_time =
             gtk::Label::builder().label("0:00").css_classes(["record-time"]).hexpand(true).xalign(0.0).build();
         let record_cancel = gtk::Button::builder().label(t("voice.cancel")).css_classes(["flat"]).build();
+        // Stopping stages the recording, to be listened to before it goes.
         let record_send = gtk::Button::builder()
-            .child(&widgets::send_arrow())
-            .tooltip_text(t("voice.send"))
+            .icon_name("media-playback-stop-symbolic")
+            .tooltip_text(t("voice.stop"))
             .css_classes(["send"])
             .build();
         let record_bar = gtk::Box::builder().spacing(10).css_classes(["record-bar"]).visible(false).build();
@@ -312,7 +312,6 @@ impl Composer {
             record_bar,
             record_time,
             recorder: RefCell::default(),
-            on_voice: RefCell::default(),
             on_error: RefCell::default(),
             on_edit_last: RefCell::default(),
             staged,
@@ -482,11 +481,6 @@ impl Composer {
         self.on_changed.replace(Some(Rc::new(f)));
     }
 
-    /// A finished voice message, ready to upload.
-    pub fn connect_voice(&self, f: impl Fn(std::path::PathBuf) + 'static) {
-        self.on_voice.replace(Some(Rc::new(f)));
-    }
-
     /// Up with nothing typed: the page edits my last message.
     pub fn connect_edit_last(&self, f: impl Fn() + 'static) {
         self.on_edit_last.replace(Some(Rc::new(move |()| f())));
@@ -539,21 +533,23 @@ impl Composer {
         self.record_bar.is_visible()
     }
 
-    /// `send`: the recording goes out; otherwise it is thrown away.
-    pub fn stop_recording(&self, send: bool) {
+    /// `keep`: the recording joins the files waiting to go, where it can be
+    /// listened to and captioned; otherwise it is thrown away.
+    pub fn stop_recording(&self, keep: bool) {
         let Some(recorder) = self.recorder.take() else { return };
         self.record_bar.set_visible(false);
         self.field.set_visible(true);
-        if !send {
+        if !keep {
             recorder.cancel();
             return;
         }
-        match (recorder.finish(), self.on_voice.borrow().clone()) {
-            (Some(path), Some(f)) => f(path),
-            (Some(path), None) => {
-                let _ = std::fs::remove_file(path);
+        match recorder.finish() {
+            Some(path) => {
+                let name = format!("{}-{}.ogg", t("voice.file_name"), chrono::Local::now().format("%Y%m%d-%H%M%S"));
+                self.staged.add(vec![Picked { path, name, temporary: true }]);
+                self.grab_focus();
             }
-            (None, _) => self.report(t("voice.empty").to_owned()),
+            None => self.report(t("voice.empty").to_owned()),
         }
     }
 

@@ -1032,6 +1032,8 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("voice.record", "Enregistrer un message vocal", "Record a voice message"),
     ("voice.cancel", "Annuler", "Cancel"),
     ("voice.send", "Envoyer", "Send"),
+    ("voice.stop", "Arrêter pour réécouter avant l'envoi", "Stop to listen before sending"),
+    ("voice.play", "Écouter", "Listen"),
     ("voice.failed", "Enregistrement impossible : {error}", "Couldn't record: {error}"),
     ("voice.empty", "Rien n'a été enregistré", "Nothing was recorded"),
     ("voice.refused", "Le serveur refuse les messages vocaux", "The server refuses voice messages"),

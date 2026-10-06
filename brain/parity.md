@@ -99,7 +99,7 @@ beta does.
 | Checks against `FileUpload_MaxFileSize` and `FileUpload_MediaTypeWhiteList` | done | done | done | |
 | Two-step upload (`rooms.media`, `rooms.mediaConfirm`) with progress | done | done | done | |
 | Voice recording | done | done | done | Mobile and SwiftUI send AAC `.m4a`, GTK Ogg/Opus. |
-| Replay and caption a voice message before sending | done | missing | missing | |
+| Replay and caption a voice message before sending | done | done | done | SwiftUI checked by the macOS CI build only. |
 | Slash commands (`commands.list`, `commands.run`) and their private answers | done | done | done | |
 
 ## 5. Message actions - [message-actions](features/message-actions.md)
@@ -220,8 +220,7 @@ gaps, listed last.
   continuation; opening a search result at its message;
   removing my photo; logs folder; meeting information.
 - **GTK**: email 2FA resend; replay of an offline sign-out; padlock tile once
-  unlocked; DM avatar versions in the list; video reduction; voice replay before
-  sending; reconciliation snapshot; catch-up of
+  unlocked; DM avatar versions in the list; video reduction; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.
 - **SwiftUI**: everything GTK owes, plus `-wal` / `-shm` cleanup on sign-out;
   formatting toolbar; list continuation; notification check; logs folder; new

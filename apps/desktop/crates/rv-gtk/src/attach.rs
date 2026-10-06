@@ -36,8 +36,11 @@ fn scratch_file(name: &str) -> PathBuf {
 pub fn mime_of(path: &Path) -> String {
     let data = std::fs::read(path).ok().map(|b| b.into_iter().take(4096).collect::<Vec<u8>>());
     let (content_type, _) = gio::content_type_guess(Some(path), data.as_deref());
-    gio::content_type_get_mime_type(&content_type)
-        .map_or_else(|| "application/octet-stream".to_owned(), |m| m.to_string())
+    let mime = gio::content_type_get_mime_type(&content_type)
+        .map_or_else(|| "application/octet-stream".to_owned(), |m| m.to_string());
+    // Shared MIME info names Ogg by its codec (`audio/x-opus+ogg`): servers
+    // and the other apps know `audio/ogg`, which plays as audio everywhere.
+    if mime.starts_with("audio/x-") && mime.ends_with("+ogg") { "audio/ogg".to_owned() } else { mime }
 }
 
 fn reducible(mime: &str) -> bool {

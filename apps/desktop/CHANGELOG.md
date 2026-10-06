@@ -160,6 +160,11 @@ section here.
 - GTK: files, pictures and voice messages sent from a thread go into the thread (attach,
   drop, paste or microphone); a picked file was dropped and a recording deleted. Encrypted
   RocketVibe threads take files too.
+- GTK: a voice message waits with the attachments once recorded, to be listened to and
+  captioned before ➤ sends it; it used to go as soon as the recording stopped. Ogg files are
+  sent as `audio/ogg`, so they play as audio everywhere.
+- macOS: the same for voice messages: stopping the recording stages it, its chip plays it, and
+  ➤ sends it with the text as caption.
 - GTK: voice messages in encrypted RocketVibe rooms and threads, sealed like private files;
   the microphone was disabled there.
 - macOS: files and voice messages sent from a thread go into the thread instead of the room,

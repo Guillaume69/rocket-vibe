@@ -74,7 +74,7 @@ struct Composer: View {
                 ScrollView(.horizontal) {
                     HStack {
                         ForEach(staged, id: \.self) { url in
-                            StagedChip(url: url) { staged.removeAll { $0 == url } }
+                            StagedChip(url: url) { unstage(url) }
                                 .onTapGesture { previewing = url }
                         }
                     }
@@ -127,9 +127,10 @@ struct Composer: View {
                 .background(Vibe.card, in: RoundedRectangle(cornerRadius: 22))
                 .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(Vibe.line, lineWidth: 1.5))
                 if recorder.recording {
-                    Button(action: sendVoice) { Image(systemName: "arrow.up") }
+                    // Stopping stages the recording, to be listened to before it goes.
+                    Button(action: stopVoice) { Image(systemName: "stop.fill") }
                         .buttonStyle(SendButtonStyle())
-                        .help(L("voice.send"))
+                        .help(L("voice.stop"))
                         .transition(.scale.combined(with: .opacity))
                 } else {
                     Button(action: send) { Image(systemName: "arrow.up") }
@@ -148,7 +149,7 @@ struct Composer: View {
         }
         .sheet(item: Binding(get: { previewing.map(Playing.init) }, set: { previewing = $0?.url })) { p in
             StagedPreview(url: p.url, caption: $model.draft, original: $original) {
-                staged.removeAll { $0 == p.url }
+                unstage(p.url)
                 previewing = nil
             }
         }
@@ -196,11 +197,12 @@ struct Composer: View {
         let caption = model.draft.trimmingCharacters(in: .whitespacesAndNewlines)
         model.draft = ""
         let reduce = !original
-        let outgoing = URL(fileURLWithPath: app.client.cacheDir()).appendingPathComponent("outgoing")
+        let outgoing = outgoingDirectory
         Task {
             for (i, url) in files.enumerated() {
-                var (path, name, temporary) = (url.path, url.lastPathComponent, false)
-                var mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+                // A recording is our own copy, deleted once uploaded.
+                var (path, name, temporary) = (url.path, url.lastPathComponent, isOwnCopy(url))
+                var mime = mimeType(url)
                 if reduce, let copy = reduceImage(url, mime: mime, into: outgoing) {
                     (path, name, mime, temporary) = (copy.path, url.deletingPathExtension().lastPathComponent + ".jpg", "image/jpeg", true)
                 }
@@ -237,17 +239,29 @@ struct Composer: View {
         if let error = await recorder.start(in: dir) { app.notice = error }
     }
 
-    func sendVoice() {
+    /// The recording joins the files waiting to go, under the name the room
+    /// sees, to be listened to and captioned before ➤ sends it.
+    func stopVoice() {
         guard let file = recorder.stop() else {
             app.notice = L("voice.empty")
             return
         }
-        Task {
-            let name = "\(L("voice.file_name"))-\(Int(Date().timeIntervalSince1970)).m4a"
-            if let refusal = await model.attach(path: file.path, name: name, mime: "audio/mp4", caption: nil, temporary: true) {
-                app.notice = refusal
-            }
-        }
+        let named = file.deletingLastPathComponent()
+            .appendingPathComponent("\(L("voice.file_name"))-\(Int(Date().timeIntervalSince1970)).m4a")
+        let url = (try? FileManager.default.moveItem(at: file, to: named)) != nil ? named : file
+        staged.append(url)
+    }
+
+    var outgoingDirectory: URL { URL(fileURLWithPath: app.client.cacheDir()).appendingPathComponent("outgoing") }
+
+    /// Recordings and reduced pictures live in our cache: removed with their chip.
+    func isOwnCopy(_ url: URL) -> Bool {
+        url.standardizedFileURL.path.hasPrefix(outgoingDirectory.standardizedFileURL.path + "/")
+    }
+
+    func unstage(_ url: URL) {
+        staged.removeAll { $0 == url }
+        if isOwnCopy(url) { try? FileManager.default.removeItem(at: url) }
     }
 }
 
@@ -338,14 +352,31 @@ struct PrivateNote: View {
     }
 }
 
+/// The MIME type sent for a file: by its extension, `.m4a` as `audio/mp4`
+/// (what the Android app sends and servers whitelist, not `audio/x-m4a`).
+func mimeType(_ url: URL) -> String {
+    if url.pathExtension.lowercased() == "m4a" { return "audio/mp4" }
+    return UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+}
+
 struct StagedChip: View {
     let url: URL
     let remove: () -> Void
+    @State var listening = StagedAudio()
+
+    var isAudio: Bool { UTType(filenameExtension: url.pathExtension)?.conforms(to: .audio) == true }
 
     var body: some View {
         HStack(spacing: 6) {
             if let image = NSImage(contentsOf: url), UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true {
                 Image(nsImage: image).resizable().scaledToFill().frame(width: 22, height: 22).clipShape(RoundedRectangle(cornerRadius: 4))
+            } else if isAudio {
+                // A sound, a recording first of all, is listened to before it goes.
+                Button { listening.toggle(url) } label: {
+                    Image(systemName: listening.playing ? "pause.fill" : "play.fill")
+                }
+                .buttonStyle(.plain)
+                .help(L("voice.play"))
             } else {
                 Image(systemName: "doc")
             }
@@ -360,6 +391,33 @@ struct StagedChip: View {
         .padding(.vertical, 4)
         .background(Vibe.card, in: Capsule())
         .overlay(Capsule().strokeBorder(Vibe.line))
+        .onDisappear { listening.stop() }
+    }
+}
+
+/// Plays a staged sound; the button follows the end of the playback.
+@MainActor @Observable
+final class StagedAudio: NSObject, AVAudioPlayerDelegate {
+    var playing = false
+    @ObservationIgnored var player: AVAudioPlayer?
+
+    func toggle(_ url: URL) {
+        if playing { player?.pause(); playing = false; return }
+        if player == nil {
+            player = try? AVAudioPlayer(contentsOf: url)
+            player?.delegate = self
+        }
+        playing = player?.play() == true
+    }
+
+    func stop() {
+        player?.stop()
+        player = nil
+        playing = false
+    }
+
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in self.playing = false }
     }
 }
 

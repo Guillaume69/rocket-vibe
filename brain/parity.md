@@ -121,7 +121,7 @@ beta does.
 | Feature | Mobile | GTK | SwiftUI | Notes |
 |---|---|---|---|---|
 | Thread view: root and replies, live, composer targeting the thread | done | done | done | |
-| Files and voice messages in a thread | done | done | partial | SwiftUI posts them to the room (`RoomModel.attach` takes no thread id). In encrypted RocketVibe threads, files only (no voice messages in encrypted rooms at all). |
+| Files and voice messages in a thread | done | done | done | In encrypted RocketVibe threads, files only (no voice messages in encrypted rooms at all). SwiftUI checked by the macOS CI build only. |
 | List of a room's threads, following a thread, "also send to the room" | missing | missing | missing | |
 
 ## 7. Search - [search](features/search.md)
@@ -223,7 +223,7 @@ gaps, listed last.
   unlocked; DM avatar versions in the list; video reduction; voice replay before
   sending; reconciliation snapshot; catch-up of
   deletions in rooms already caught up; message retention.
-- **SwiftUI**: everything GTK owes, plus files and voice in a thread; `-wal` / `-shm` cleanup on sign-out;
+- **SwiftUI**: everything GTK owes, plus `-wal` / `-shm` cleanup on sign-out;
   formatting toolbar; list continuation; notification check; logs folder; new
   versions; running with the window closed and starting at login; meeting
   information.

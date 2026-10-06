@@ -61,6 +61,7 @@ impl NativeChat {
     pub async fn attach(
         &self,
         rid: String,
+        thread: Option<String>,
         path: String,
         name: String,
         mime: String,
@@ -71,8 +72,17 @@ impl NativeChat {
         let s = self.session.clone();
         let refused = mime.clone();
         on_tokio(async move {
-            s.attach_file(&rid, std::path::Path::new(&path), &name, &mime, caption.as_deref(), temporary, &membership)
-                .await
+            s.attach_file_in(
+                &rid,
+                thread.as_deref(),
+                std::path::Path::new(&path),
+                &name,
+                &mime,
+                caption.as_deref(),
+                temporary,
+                &membership,
+            )
+            .await
         })
         .await
         .map_err(|e| match e.code() {
@@ -93,6 +103,7 @@ impl NativeChat {
                         id: u.id,
                         name: u.name,
                         mime: u.mime,
+                        thread: u.tmid,
                     })
                     .collect()
             })

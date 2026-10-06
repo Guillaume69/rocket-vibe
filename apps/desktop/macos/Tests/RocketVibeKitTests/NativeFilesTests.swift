@@ -39,12 +39,22 @@ final class NativeFilesTests:XCTestCase {
         XCTAssertTrue(quoted.files.isEmpty);XCTAssertEqual(quoted.quotes[0].files.count,1)
         XCTAssertEqual(quoted.quotes[0].files[0].url,path)
         try await until{room.uploads.isEmpty}
+        // A file sent from a thread answers the thread, not the room.
+        app.openThread(message.id)
+        try await until{app.thread?.loading == false}
+        let thread=try XCTUnwrap(app.thread);XCTAssertTrue(thread.supportsFiles)
+        let threadFailure=await thread.attach(path:source,name:"thread-file.txt",mime:"text/plain",caption:"Swift thread file",temporary:false)
+        XCTAssertNil(threadFailure)
+        try await until{thread.messages.contains{$0.text=="Swift thread file" && !$0.files.isEmpty}}
+        try await until{thread.uploads.isEmpty}
+        XCTAssertFalse(room.messages.contains{$0.text=="Swift thread file"})
+        app.closeThread()
         native.suspend();try await until{app.connection != .online}
         let abandoned=await room.attach(path:source,name:"cancelled.txt",mime:"text/plain",caption:nil,temporary:false)
         XCTAssertNil(abandoned);room.refreshUploads();let upload=try XCTUnwrap(room.uploads.first)
         room.discardUpload(upload.id);native.reconnect()
         try await until{app.connection == .online && room.uploads.isEmpty}
-        XCTAssertEqual(room.messages.filter{!$0.files.isEmpty}.count,1)
+        XCTAssertEqual(room.messages.filter{!$0.files.isEmpty && $0.text != "Swift thread file"}.count,1)
         room.deactivate()
         let closed=await room.attach(path:source,name:"closed.txt",mime:"text/plain",caption:nil,temporary:false)
         XCTAssertNotNil(closed)

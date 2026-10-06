@@ -33,11 +33,11 @@ Replies are ordinary message rows with a thread column (mobile `messages.thread_
 
 ## Desktop (SwiftUI)
 
-`ThreadView` shows a `RoomModel` built with `threadId` beside the room (`AppModel.openThread`, `closeThread`), with its own `Composer`. Text and commands carry the thread id. Its file and voice buttons work but `RoomModel.attach` takes no thread id, so those files land in the room itself.
+`ThreadView` shows a `RoomModel` built with `threadId` beside the room (`AppModel.openThread`, `closeThread`), with its own `Composer`. Text and commands carry the thread id. Its file and voice buttons send into the thread: `RoomModel.attach` passes `threadId` to `Chat.attach` / `NativeFiles.attach` (`thread`), an encrypted thread's private handle writes into its thread, and `UploadsView` shows the thread's own queued files (`Upload.thread`).
 
 ## Parity
 
-Thread view, live replies and thread composer in all three. Not available anywhere: a list of the room's threads, following a thread, "also send to the room" (`tshow`) on send. Files and voice messages in a thread: mobile and GTK send them into the thread (encrypted RocketVibe threads included); SwiftUI still posts them to the room, since `RoomModel.attach` takes no thread id.
+Thread view, live replies and thread composer in all three. Not available anywhere: a list of the room's threads, following a thread, "also send to the room" (`tshow`) on send. Files and voice messages in a thread: all three send them into the thread, encrypted RocketVibe threads included (files only there).
 
 ## Sources
 

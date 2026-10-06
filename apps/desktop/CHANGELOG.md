@@ -160,6 +160,8 @@ section here.
 - GTK: files, pictures and voice messages sent from a thread go into the thread (attach,
   drop, paste or microphone); a picked file was dropped and a recording deleted. Encrypted
   RocketVibe threads take files too.
+- macOS: files and voice messages sent from a thread go into the thread instead of the room,
+  and the thread shows its own files waiting to go. Encrypted RocketVibe threads take files.
 
 - RocketVibe: after a member's role or rights change in an encrypted room, the room
   encryption dialog offers to replace that member's device ("Replace and invite again"),

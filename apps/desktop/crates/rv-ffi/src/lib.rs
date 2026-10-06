@@ -263,6 +263,8 @@ pub struct Upload {
     pub progress: Option<f64>,
     /// Waiting for the connection, retried by itself.
     pub retrying: bool,
+    /// The thread the file answers; `None` in the room.
+    pub thread: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
@@ -645,10 +647,13 @@ impl Chat {
         self.session.typing(&rid)
     }
 
-    /// Queues a file for the room; the refusal says why the server's rules reject it.
+    /// Queues a file for the room, or for its thread `thread`; the refusal
+    /// says why the server's rules reject it.
+    #[allow(clippy::too_many_arguments)] // The file, its caption and where it goes.
     pub async fn attach(
         &self,
         rid: String,
+        thread: Option<String>,
         path: String,
         name: String,
         mime: String,
@@ -657,7 +662,16 @@ impl Chat {
     ) -> Result<(), RvError> {
         let s = self.session.clone();
         on_tokio(async move {
-            s.attach(&rid, std::path::Path::new(&path), &name, &mime, caption.as_deref(), temporary).await
+            s.attach_in(
+                &rid,
+                thread.as_deref(),
+                std::path::Path::new(&path),
+                &name,
+                &mime,
+                caption.as_deref(),
+                temporary,
+            )
+            .await
         })
         .await
         .map_err(|r| match r {
@@ -679,6 +693,7 @@ impl Chat {
                 id: u.id,
                 name: u.name,
                 mime: u.mime,
+                thread: u.tmid,
             })
             .collect()
     }

@@ -32,7 +32,7 @@ public final class RoomModel {
     public let provider: ChatProvider
     var chat: Chat? { provider.legacy }
     /// Encrypted rooms send files sealed on the device (E2EE_FILES.md), in the room itself.
-    public var supportsFiles: Bool { privateMode ? privateReady && threadId == nil && privateHandle?.filesAvailable() == true : provider.supportsFiles }
+    public var supportsFiles: Bool { privateMode ? privateReady && privateHandle?.filesAvailable() == true : provider.supportsFiles }
     public var supportsEditing: Bool { privateMode ? privateReady : provider.supportsEditing }
     public var supportsRoomInfo: Bool { active && provider.supportsRoomInfo }
     public var supportsCalls: Bool { active && membershipIsCurrent && provider.supportsCalls }
@@ -367,7 +367,7 @@ public final class RoomModel {
                 for item in fresh where item.delivery == .sent { loadNativeActions(item) }
             }
         }
-        if threadId == nil { refreshUploads() }
+        refreshUploads()
         projectQuoteCards(fresh)
         if privateQuote != nil { Task { [weak self] in await self?.refreshQuoteAuthor() } }
     }
@@ -439,8 +439,10 @@ public final class RoomModel {
         if fresh != typing { typing = fresh }
     }
 
+    /// The room shows all its files waiting to go, a thread only its own.
     func refreshUploads() {
-        let fresh = chat?.uploads(rid: room.rid) ?? (try? provider.native?.uploads(rid: room.rid)) ?? []
+        let all = chat?.uploads(rid: room.rid) ?? (try? provider.native?.uploads(rid: room.rid)) ?? []
+        let fresh = threadId == nil ? all : all.filter { $0.thread == threadId }
         if fresh != uploads { uploads = fresh }
     }
 
@@ -971,9 +973,9 @@ public final class RoomModel {
                 return nil
             }
             if let chat {
-                try await chat.attach(rid: room.rid, path: path, name: name, mime: mime, caption: caption, temporary: temporary)
+                try await chat.attach(rid: room.rid, thread: threadId, path: path, name: name, mime: mime, caption: caption, temporary: temporary)
             } else if let native=provider.native, let nativeMembership {
-                try await native.attach(rid: room.rid, path: path, name: name, mime: mime, caption: caption, temporary: temporary, membership: nativeMembership)
+                try await native.attach(rid: room.rid, thread: threadId, path: path, name: name, mime: mime, caption: caption, temporary: temporary, membership: nativeMembership)
             } else { return L("native.error") }
             refreshUploads()
             return nil

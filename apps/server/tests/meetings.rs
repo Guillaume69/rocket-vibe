@@ -74,6 +74,7 @@ impl Bench {
             name: "Private meeting".into(),
             private: true,
             operation_id: Some(auth::random_token()),
+            voice: false,
         })
         .await
         .unwrap()

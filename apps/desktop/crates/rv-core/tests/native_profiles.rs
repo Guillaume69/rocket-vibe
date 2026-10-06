@@ -146,7 +146,9 @@ fn direct_peer_identity_survives_offline_and_tracks_profile_changes_only_for_cur
             membership_version: "first-grant".into(),
             direct_peer: Some(stamp.user.clone()),
             typing: vec![],
+            voice: vec![],
         }],
+        rings: vec![],
     };
     // A response cancelled during the transaction cannot partially publish a peer or avatar.
     let alive = AtomicUsize::new(0);

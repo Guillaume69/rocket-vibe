@@ -164,6 +164,7 @@ impl NativeChat {
                         description: fields.description,
                         announcement: fields.announcement,
                         read_only: fields.read_only,
+                        voice: None,
                     },
                 )
                 .await

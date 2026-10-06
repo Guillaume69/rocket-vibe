@@ -118,6 +118,7 @@ async fn room(app: &App, owner: &Ready, guest: Option<&Ready>) -> Room {
             name: format!("crypto-{}", auth::random_token()),
             private: true,
             operation_id: None,
+            voice: false,
         },
     )
     .await
@@ -458,6 +459,7 @@ async fn actual_mls_welcome_is_atomic_targeted_durable_and_admission_is_single_u
             name: "different-room".into(),
             private: true,
             operation_id: None,
+            voice: false,
         },
     )
     .await
@@ -633,6 +635,7 @@ async fn genesis_and_concurrent_commands_bind_current_session_and_empty_history(
             name: "plain-history".into(),
             private: true,
             operation_id: None,
+            voice: false,
         },
     )
     .await

@@ -742,6 +742,7 @@ async fn quota_and_operation_namespaces_are_durable_and_rejected_sends_leave_no_
             name: "application-plain-namespace".into(),
             private: true,
             operation_id: None,
+            voice: false,
         },
     )
     .await

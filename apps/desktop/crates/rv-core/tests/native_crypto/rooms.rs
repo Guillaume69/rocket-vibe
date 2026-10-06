@@ -278,6 +278,7 @@ fn room() -> rv_protocol::Room {
         revision: "1".into(),
         read_state: None,
         encrypted: false,
+        voice: false,
     }
 }
 fn snapshot(pilot: &Pilot, present: bool) {

@@ -151,10 +151,17 @@
   },
   "live_frame": {
     "type":"live",
-    "data":{"ttl_ms":8000,"limited":false,"presence":[],"rooms":[],"emoji_catalog_revision":"3"}
+    "data":{"ttl_ms":8000,"limited":false,"presence":[],"emoji_catalog_revision":"3",
+      "rooms":[{"room_id":"room-id","membership_version":"current-grant","typing":[],
+        "voice":[{"user":{"id":"bob-id","username":"bob","display_name":"Bob"},"muted":true,"deafened":false}]}]}
   },
   "set_presence":{"status":"online"},
   "set_typing":{"active":true,"membership_version":"current-grant"},
+  "join_voice":{"membership_version":"current-grant","data_epoch":"fixture-epoch","ring":true},
+  "answer_ring":{"membership_version":"current-grant","data_epoch":"fixture-epoch"},
+  "voice_grant":{"room_id":"room-id","url":"wss://voice.example.org","token":"fixture-voice-token","expires_at":"2026-10-30T12:05:00+00:00","can_publish":true,
+    "ring":{"id":"ring-id","room_id":"room-id","caller":{"id":"alice-id","username":"alice","display_name":"Alice"},"callee":{"id":"bob-id","username":"bob","display_name":"Bob"},"state":"ringing","expires_in_ms":30000}},
+  "voice_ring":{"id":"ring-id","room_id":"room-id","caller":{"id":"alice-id","username":"alice","display_name":"Alice"},"callee":{"id":"bob-id","username":"bob","display_name":"Bob"},"state":"missed","expires_in_ms":0},
   "search_messages":{"q":"hello","limit":50},
   "search_page":{"membership_version":"current-grant","messages":[],"has_more":false},
   "mark_thread_read": {

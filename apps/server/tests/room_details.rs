@@ -63,6 +63,7 @@ impl Bench {
                 name: "Original".into(),
                 private: true,
                 operation_id: Some("create-room".into()),
+                voice: false,
             })
             .await
             .unwrap()
@@ -109,6 +110,7 @@ fn settings(details: &RoomDetails, operation: &str) -> UpdateRoom {
         description: details.description.clone(),
         announcement: details.announcement.clone(),
         read_only: details.read_only,
+        voice: None,
     }
 }
 fn code<T>(result: Result<T, rv_client::Error>, expected: &str) {
@@ -748,6 +750,7 @@ async fn mutation_budget_preserves_receipt_reads_and_global_operation_namespace(
                 name: "Other".into(),
                 private: true,
                 operation_id: Some(original.operation_id.clone()),
+                voice: false,
             })
             .await,
         "operation_conflict",

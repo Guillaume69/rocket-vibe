@@ -83,6 +83,7 @@ async fn slash_commands_act_through_the_operations_they_name(pool: PgPool) {
             name: "Commands".into(),
             private: true,
             operation_id: Some("commands-room".into()),
+            voice: false,
         })
         .await
         .unwrap()
@@ -115,6 +116,7 @@ async fn slash_commands_act_through_the_operations_they_name(pool: PgPool) {
             name: "Lobby".into(),
             private: false,
             operation_id: Some("commands-lobby".into()),
+            voice: false,
         })
         .await
         .unwrap()

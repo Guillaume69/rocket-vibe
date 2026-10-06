@@ -138,6 +138,7 @@ async fn catalogue_receipts_aliases_and_protected_images_survive_retirement(pool
             operation_id: Some(auth::random_token()),
             name: "custom reactions".into(),
             private: true,
+            voice: false,
         })
         .await
         .unwrap();

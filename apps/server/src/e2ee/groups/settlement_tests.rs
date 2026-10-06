@@ -241,6 +241,7 @@ async fn ordinary_operations_and_cancellation_share_the_author_namespace_and_bud
                 name: "namespace-reuse".into(),
                 private: true,
                 operation_id: Some(doc.operation_id),
+                voice: false,
             },
         )
         .await,

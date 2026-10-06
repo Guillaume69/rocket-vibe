@@ -1388,7 +1388,12 @@ impl NativeSession {
         let operation_id = if supported { Some(self.store.room_creation(name, private)?) } else { None };
         let room = self
             .client
-            .create_room(&rv_protocol::CreateRoom { name: name.into(), private, operation_id: operation_id.clone() })
+            .create_room(&rv_protocol::CreateRoom {
+                name: name.into(),
+                private,
+                operation_id: operation_id.clone(),
+                voice: false,
+            })
             .await?;
         self.ready()?;
         if let Some(id) = operation_id {

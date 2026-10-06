@@ -52,6 +52,7 @@ async fn cards_use_normal_permissions_receipts_sync_search_edit_and_erasure(pool
             name: "Integration cards".into(),
             private: true,
             operation_id: Some(auth::random_token()),
+            voice: false,
         })
         .await
         .unwrap();

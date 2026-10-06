@@ -423,6 +423,7 @@ mod tests {
                 name: "Secret".into(),
                 private: true,
                 operation_id: None,
+                voice: false,
             },
         )
         .await
@@ -457,6 +458,7 @@ mod tests {
                 name: "Quoted destination".into(),
                 private: true,
                 operation_id: Some("quoted-destination".into()),
+                voice: false,
             },
         )
         .await
@@ -932,6 +934,7 @@ mod tests {
                 name: "Public metadata".into(),
                 private: false,
                 operation_id: None,
+                voice: false,
             },
         )
         .await
@@ -1494,7 +1497,8 @@ mod tests {
                     CreateRoom {
                         name: "Must not exist".into(),
                         private: true,
-                        operation_id: None
+                        operation_id: None,
+                        voice: false,
                     }
                 )
                 .await

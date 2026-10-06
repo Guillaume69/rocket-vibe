@@ -30,6 +30,7 @@ impl RoomRow {
             revision: self.revision.to_string(),
             read_state: None,
             encrypted: self.encrypted,
+            voice: false,
         }
     }
 }
@@ -104,6 +105,7 @@ impl MessageRow {
             pinned: self.pinned,
             personal_star: None,
             personal_mention: None,
+            call: None,
             cards: if self.deleted {
                 Vec::new()
             } else {

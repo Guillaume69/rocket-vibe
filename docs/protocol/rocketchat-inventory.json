@@ -1668,55 +1668,49 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 85,
+      "line": 86,
       "kind": "endpoint",
       "surface": "rooms.pending"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 85,
+      "line": 86,
       "kind": "endpoint",
       "surface": "rooms.rejected"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 89,
+      "line": 90,
       "kind": "endpoint",
       "surface": "rooms.clear"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 89,
+      "line": 90,
       "kind": "endpoint",
       "surface": "rooms.resume"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 117,
+      "line": 118,
       "kind": "endpoint",
       "surface": "rooms.review"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 161,
+      "line": 162,
       "kind": "endpoint",
       "surface": "rooms.edit"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 175,
+      "line": 176,
       "kind": "endpoint",
       "surface": "rooms.members"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 192,
-      "kind": "endpoint",
-      "surface": "rooms.leave"
-    },
-    {
-      "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 206,
+      "line": 193,
       "kind": "endpoint",
       "surface": "rooms.leave"
     },
@@ -1724,77 +1718,83 @@
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
       "line": 207,
       "kind": "endpoint",
+      "surface": "rooms.leave"
+    },
+    {
+      "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
+      "line": 208,
+      "kind": "endpoint",
       "surface": "rooms.leave_body"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 211,
+      "line": 212,
       "kind": "endpoint",
       "surface": "rooms.leave"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 219,
+      "line": 220,
       "kind": "endpoint",
       "surface": "rooms.leave"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 263,
+      "line": 264,
       "kind": "endpoint",
       "surface": "rooms.revision"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 285,
+      "line": 286,
       "kind": "endpoint",
       "surface": "rooms.edit"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 324,
+      "line": 326,
       "kind": "endpoint",
       "surface": "rooms.more"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 327,
+      "line": 329,
       "kind": "endpoint",
       "surface": "rooms.members"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 397,
+      "line": 399,
       "kind": "endpoint",
       "surface": "rooms.member"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 397,
+      "line": 399,
       "kind": "endpoint",
       "surface": "rooms.moderator"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 397,
+      "line": 399,
       "kind": "endpoint",
       "surface": "rooms.owner"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 404,
+      "line": 406,
       "kind": "endpoint",
       "surface": "rooms.disabled"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 404,
+      "line": 406,
       "kind": "endpoint",
       "surface": "rooms.role"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/details/native_rooms.rs",
-      "line": 412,
+      "line": 414,
       "kind": "endpoint",
       "surface": "rooms.apply_role"
     },

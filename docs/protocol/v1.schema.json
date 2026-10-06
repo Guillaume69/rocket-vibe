@@ -44,6 +44,22 @@
       ],
       "type": "object"
     },
+    "AnswerRing": {
+      "additionalProperties": false,
+      "properties": {
+        "data_epoch": {
+          "type": "string"
+        },
+        "membership_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "membership_version",
+        "data_epoch"
+      ],
+      "type": "object"
+    },
     "ApiError": {
       "properties": {
         "code": {
@@ -406,6 +422,27 @@
       ],
       "type": "object"
     },
+    "CallSummary": {
+      "description": "The outcome carried by a direct call's `call_started` row.",
+      "properties": {
+        "duration_seconds": {
+          "description": "Answered calls, once both sides left.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/RingState"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
     "Capabilities": {
       "properties": {
         "account_invitations": {
@@ -580,6 +617,11 @@
           "type": "boolean"
         },
         "uploads": {
+          "type": "boolean"
+        },
+        "voice": {
+          "default": false,
+          "description": "Voice sessions in every room, voice channels and ringing direct calls.",
           "type": "boolean"
         }
       },
@@ -814,6 +856,10 @@
           ]
         },
         "private": {
+          "type": "boolean"
+        },
+        "voice": {
+          "description": "Sent only to a server announcing `voice`.",
           "type": "boolean"
         }
       },
@@ -2430,6 +2476,26 @@
       ],
       "type": "object"
     },
+    "JoinVoice": {
+      "additionalProperties": false,
+      "properties": {
+        "data_epoch": {
+          "type": "string"
+        },
+        "membership_version": {
+          "type": "string"
+        },
+        "ring": {
+          "description": "Direct rooms only: ring the other member. Ignored when a call already rings.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "membership_version",
+        "data_epoch"
+      ],
+      "type": "object"
+    },
     "LeaveRoom": {
       "additionalProperties": false,
       "properties": {
@@ -2533,6 +2599,13 @@
             "$ref": "#/$defs/Typist"
           },
           "type": "array"
+        },
+        "voice": {
+          "description": "Accounts connected to this room's voice session.",
+          "items": {
+            "$ref": "#/$defs/VoiceParticipant"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -2564,6 +2637,13 @@
         "profiles": {
           "items": {
             "$ref": "#/$defs/ProfileStamp"
+          },
+          "type": "array"
+        },
+        "rings": {
+          "description": "Direct calls where the reader is caller or callee: ringing, or resolved\nin the last seconds so both sides see the outcome.",
+          "items": {
+            "$ref": "#/$defs/VoiceRing"
           },
           "type": "array"
         },
@@ -2697,6 +2777,17 @@
             }
           ],
           "description": "Optional canonical native presentation. Source remains authoritative;\nno Rocket.Chat tree, HTML markup, or authenticated resource URL."
+        },
+        "call": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CallSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The outcome of a direct call, on its `call_started` row."
         },
         "cards": {
           "items": {
@@ -5200,6 +5291,28 @@
       ],
       "type": "object"
     },
+    "RingState": {
+      "oneOf": [
+        {
+          "enum": [
+            "ringing",
+            "answered",
+            "declined"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "missed",
+          "description": "Nobody answered before the ring expired.",
+          "type": "string"
+        },
+        {
+          "const": "cancelled",
+          "description": "The caller left before an answer.",
+          "type": "string"
+        }
+      ]
+    },
     "Room": {
       "properties": {
         "encrypted": {
@@ -5228,6 +5341,10 @@
         },
         "revision": {
           "type": "string"
+        },
+        "voice": {
+          "description": "A voice channel: selecting it joins its voice session. Never a direct room.",
+          "type": "boolean"
         }
       },
       "required": [
@@ -5285,6 +5402,10 @@
         },
         "topic": {
           "type": "string"
+        },
+        "voice": {
+          "default": false,
+          "type": "boolean"
         }
       },
       "required": [
@@ -6444,6 +6565,13 @@
         },
         "topic": {
           "type": "string"
+        },
+        "voice": {
+          "description": "None leaves the flag unchanged; sent only to a server announcing `voice`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [
@@ -6658,11 +6786,108 @@
         "code"
       ],
       "type": "object"
+    },
+    "VoiceGrant": {
+      "properties": {
+        "can_publish": {
+          "description": "False in a read-only room for a plain member: listening only.",
+          "type": "boolean"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "ring": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VoiceRing"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The ring this join started or answered."
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        },
+        "url": {
+          "description": "LiveKit signalling origin (`wss://` in production).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "room_id",
+        "url",
+        "token",
+        "expires_at",
+        "can_publish"
+      ],
+      "type": "object"
+    },
+    "VoiceParticipant": {
+      "description": "One account connected to a room's voice session, as the SFU last reported it.",
+      "properties": {
+        "deafened": {
+          "type": "boolean"
+        },
+        "muted": {
+          "type": "boolean"
+        },
+        "user": {
+          "$ref": "#/$defs/User"
+        }
+      },
+      "required": [
+        "user",
+        "muted",
+        "deafened"
+      ],
+      "type": "object"
+    },
+    "VoiceRing": {
+      "properties": {
+        "callee": {
+          "$ref": "#/$defs/User"
+        },
+        "caller": {
+          "$ref": "#/$defs/User"
+        },
+        "expires_in_ms": {
+          "description": "Receiver-relative time left while ringing; zero once resolved.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/RingState"
+        }
+      },
+      "required": [
+        "id",
+        "room_id",
+        "caller",
+        "callee",
+        "state",
+        "expires_in_ms"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "Single schema root, also used by the TypeScript binding generator.",
   "properties": {
+    "answer_ring": {
+      "$ref": "#/$defs/AnswerRing"
+    },
     "avatar_command": {
       "$ref": "#/$defs/AvatarCommand"
     },
@@ -6686,6 +6911,9 @@
     },
     "join_meeting": {
       "$ref": "#/$defs/JoinMeeting"
+    },
+    "join_voice": {
+      "$ref": "#/$defs/JoinVoice"
     },
     "live_frame": {
       "$ref": "#/$defs/LiveFrame"
@@ -6776,6 +7004,12 @@
     },
     "update_profile": {
       "$ref": "#/$defs/UpdateProfile"
+    },
+    "voice_grant": {
+      "$ref": "#/$defs/VoiceGrant"
+    },
+    "voice_ring": {
+      "$ref": "#/$defs/VoiceRing"
     }
   },
   "required": [
@@ -6795,6 +7029,10 @@
     "search_messages",
     "search_page",
     "live_frame",
+    "join_voice",
+    "answer_ring",
+    "voice_grant",
+    "voice_ring",
     "set_presence",
     "set_typing",
     "discovery",

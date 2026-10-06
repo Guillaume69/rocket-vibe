@@ -30,6 +30,7 @@ async fn main() {
             operation_id: Some(format!("{:032x}", fastrand::u128(..))),
             name: format!("desktop-files-{:08x}", fastrand::u32(..)),
             private: true,
+            voice: false,
         })
         .await
         .unwrap();
@@ -124,6 +125,7 @@ async fn main() {
             operation_id: Some(format!("{:032x}", fastrand::u128(..))),
             name: "Desktop files GTK pilot".into(),
             private: true,
+            voice: false,
         })
         .await
         .unwrap();

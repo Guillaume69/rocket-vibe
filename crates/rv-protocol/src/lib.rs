@@ -17,6 +17,7 @@ pub mod profiles;
 pub mod push;
 pub mod search;
 pub mod system;
+pub mod voice;
 
 pub const VERSION: u32 = 1;
 
@@ -105,6 +106,9 @@ pub struct Capabilities {
     pub email_recovery: bool,
     #[serde(default)]
     pub slash_commands: bool,
+    /// Voice sessions in every room, voice channels and ringing direct calls.
+    #[serde(default)]
+    pub voice: bool,
 }
 
 impl Default for Capabilities {
@@ -156,6 +160,7 @@ impl Default for Capabilities {
             email_factor_delivery: false,
             email_recovery: false,
             slash_commands: false,
+            voice: false,
         }
     }
 }
@@ -213,7 +218,8 @@ impl Capabilities {
             email_factors,
             email_factor_delivery,
             email_recovery,
-            slash_commands
+            slash_commands,
+            voice
         );
         features
     }
@@ -272,6 +278,9 @@ pub struct Room {
     /// An MLS group exists. This metadata grants no key or group admission.
     #[serde(default, skip_serializing_if = "unencrypted")]
     pub encrypted: bool,
+    /// A voice channel: selecting it joins its voice session. Never a direct room.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub voice: bool,
 }
 fn unencrypted(value: &bool) -> bool {
     !value
@@ -285,6 +294,9 @@ pub struct CreateRoom {
     /// Absent only for clients predating durable room creation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub operation_id: Option<String>,
+    /// Sent only to a server announcing `voice`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub voice: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -364,6 +376,9 @@ pub struct Message {
     /// recipients of @here. Never persisted in a shared journal payload.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub personal_mention: Option<bool>,
+    /// The outcome of a direct call, on its `call_started` row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call: Option<Box<voice::CallSummary>>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -532,6 +547,10 @@ pub struct Contract {
     pub search_messages: search::SearchMessages,
     pub search_page: search::SearchPage,
     pub live_frame: live::LiveFrame,
+    pub join_voice: voice::JoinVoice,
+    pub answer_ring: voice::AnswerRing,
+    pub voice_grant: voice::VoiceGrant,
+    pub voice_ring: voice::VoiceRing,
     pub set_presence: live::SetPresence,
     pub set_typing: live::SetTyping,
     pub discovery: Discovery,

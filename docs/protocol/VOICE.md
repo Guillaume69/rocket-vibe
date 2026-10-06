@@ -1,0 +1,127 @@
+# Native voice (P21)
+
+Every room has a voice session. A **voice channel** is a room flagged `voice`:
+selecting it joins its session, the way Discord does. Any other room, direct
+messages included, joins its session from the header's call button. Audio only.
+
+The server announces `voice` only when the operator configured a LiveKit SFU
+(`RV_LIVEKIT_CONFIG_FILE`). It replaces Jitsi meetings, retired from the native
+server ([MEETINGS.md](MEETINGS.md)); `calls` stays in the discovery document,
+always `false`, for older clients.
+
+## The media path
+
+The server never carries audio. It mints a short LiveKit access token for a
+current member and observes the SFU; the clients speak WebRTC to LiveKit:
+
+- the LiveKit room of a native room is `rv:{data_epoch}:{room_id}`, so a new
+  data generation never meets an old session;
+- the participant identity is the **account id**: an account has one voice
+  connection, joining elsewhere moves it. A second device joining the same room
+  takes the place of the first (LiveKit closes the older one with
+  `DUPLICATE_IDENTITY`); joining another room removes it from the previous one;
+- the grant allows subscribing and publishing the **microphone only**, with
+  `can_publish` false for a plain member of a read-only room;
+- a participant reports being deafened through its own attribute
+  `rv.deafened` (`"1"` / absent). The display name comes from the profiles,
+  never from LiveKit metadata.
+
+Encrypted rooms (an E2EE group exists) refuse voice with `403
+voice_encrypted_room` until voice frames are end-to-end encrypted with a key
+derived from the group (a later batch).
+
+## Joining and leaving
+
+`POST /api/v1/rooms/{id}/voice/join`
+
+```json
+{"membership_version":"grant1","data_epoch":"epoch1","ring":true}
+```
+
+answers a `VoiceGrant`, `Cache-Control: no-store`:
+
+```json
+{"room_id":"r1","url":"wss://voice.example.org","token":"eyJ...","expires_at":"2026-10-06T12:05:00Z",
+ "can_publish":true,"ring":{"id":"g1","room_id":"r1","caller":{...},"callee":{...},"state":"ringing","expires_in_ms":30000}}
+```
+
+- The membership token and the data generation must be current (`409
+  membership_replaced`, `409 data_epoch_changed`), like a typing lease.
+- The token lives **5 minutes**: enough to connect. LiveKit keeps an
+  established connection past the token's expiry; a reconnection after a
+  network change asks for a new grant.
+- `ring` is honoured in a direct room only, when no ring is already active
+  there; elsewhere it is ignored.
+- `503 voice_unavailable` when no SFU is configured.
+
+`POST /api/v1/voice/leave` (no body, `204`) removes the account from its
+session and cancels a ring it started that nobody answered yet. A client that
+dies without leaving is removed when the SFU drops it.
+
+## Who is connected
+
+A server worker reconciles its table of voice sessions with the SFU every
+**2 seconds** (`ListRooms`, `ListParticipants`, under an advisory lock so one
+process polls). It adopts participants, forgets those gone, reads `muted` from
+the microphone track and `deafened` from the attribute, and removes from the SFU
+an identity that has no right to be there anymore: membership withdrawn, account
+disabled, another room joined, an older data generation. A room switched to
+read-only revokes the members' right to publish.
+
+The live snapshot ([LIVE.md](LIVE.md)) carries it, per room:
+
+```json
+{"room_id":"r1","membership_version":"grant1","typing":[],
+ "voice":[{"user":{"id":"u2","username":"bob","display_name":"Bob"},"muted":false,"deafened":false}]}
+```
+
+Who is **speaking** is not in the snapshot: two seconds is too slow. A connected
+client reads it from LiveKit (active speakers), so it shows for the session it
+is in.
+
+## Ringing (direct rooms)
+
+A join with `ring:true` in a direct room creates a ring and the room's
+`call_started` system row (`SystemMessage::CallStarted`, its `meeting_id` being
+the ring id). Both sides see the ring in the live snapshot's `rings` while it
+rings and for **10 seconds** after it resolves:
+
+| State | When |
+|---|---|
+| `ringing` | for **30 seconds** at most |
+| `answered` | the callee accepted |
+| `declined` | the callee declined |
+| `missed` | nobody answered in time |
+| `cancelled` | the caller left first |
+
+- `GET /api/v1/voice/rings/{id}`: the ring, for its caller or callee.
+- `POST /api/v1/voice/rings/{id}/accept` with `{"membership_version","data_epoch"}`
+  answers a `VoiceGrant` for the room.
+- `POST /api/v1/voice/rings/{id}/decline`: `204`.
+
+Each resolution revises the `call_started` message, which then carries
+`call: {"state":"missed"}`, or `{"state":"answered","duration_seconds":754}`
+once both sides left. An older client keeps showing "call started".
+
+The callee's push devices get a data push `voice_ring` (high priority, TTL
+30 s) even when the callee is online, unless their chosen status is busy, and a
+`voice_ring_end` when it resolves ([PUSH.md](PUSH.md)). A push carries ids only;
+the app reads the ring with `GET /api/v1/voice/rings/{id}`.
+
+## Operator configuration
+
+`RV_LIVEKIT_CONFIG_FILE`: a regular JSON file of at most 16 KiB, not readable by
+group or others:
+
+```json
+{"url":"wss://voice.example.org","api_url":"http://livekit:7880","api_key":"rv","api_secret":"<at least 32 bytes>"}
+```
+
+`url` is what clients connect to; `api_url` is where the server reaches the
+LiveKit API (Twirp), usually on the internal network. `docker/compose.rocketvibe.yml`
+runs LiveKit under the `voice` profile.
+
+Room flag: `create-room --voice`, `set-room --voice true|false` on the CLI;
+`voice` in `CreateRoom` and `UpdateRoom` (optional: absent leaves it unchanged),
+exposed by `Room.voice` and `RoomDetails.voice`. A direct room is never a voice
+channel.

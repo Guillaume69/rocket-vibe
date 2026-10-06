@@ -517,6 +517,7 @@ async fn profile_budget_does_not_block_messages_and_replays_do_not_consume_it(po
             name: "Room".into(),
             private: true,
             operation_id: Some("room".into()),
+            voice: false,
         })
         .await
         .unwrap();

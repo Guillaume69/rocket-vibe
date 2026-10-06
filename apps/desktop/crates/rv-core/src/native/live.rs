@@ -86,7 +86,9 @@ mod tests {
                     Typist { user: user.clone(), root_id: None },
                     Typist { user, root_id: Some("root".into()) },
                 ],
+                voice: vec![],
             }],
+            rings: vec![],
         };
         cache.apply(state.clone(), now);
         assert_eq!(cache.typing("room", None, "me", now), ["bob"]);

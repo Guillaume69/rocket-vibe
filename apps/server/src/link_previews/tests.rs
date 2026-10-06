@@ -40,6 +40,7 @@ async fn fixture(pool: PgPool) -> Fixture {
             name: "Previews".into(),
             private: true,
             operation_id: Some("preview-room".into()),
+            voice: false,
         },
     )
     .await

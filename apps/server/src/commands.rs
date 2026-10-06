@@ -55,6 +55,7 @@ pub async fn run(app: &App, actor: &Account, input: RunCommand) -> Result<()> {
                 description: details.description,
                 announcement: details.announcement,
                 read_only: details.read_only,
+                voice: None,
             };
             room_details::apply(app, actor, room, room_details::Command::Settings(settings))
                 .await?;

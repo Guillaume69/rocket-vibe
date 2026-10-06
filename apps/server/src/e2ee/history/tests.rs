@@ -47,6 +47,7 @@ pub(super) async fn owner(app: &App, name: &str) -> Owner {
             name: format!("history-{}", auth::random_token()),
             private: true,
             operation_id: None,
+            voice: false,
         },
     )
     .await
@@ -429,6 +430,7 @@ async fn records_need_the_sharing_certificate_a_readable_room_and_a_live_request
             name: format!("closed-{}", auth::random_token()),
             private: true,
             operation_id: None,
+            voice: false,
         },
     )
     .await

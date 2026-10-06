@@ -67,6 +67,7 @@ fn values(details: &RoomDetails) -> UpdateRoom {
         description: details.description.clone(),
         announcement: details.announcement.clone(),
         read_only: details.read_only,
+        voice: None,
     }
 }
 pub(super) fn controls(
@@ -306,6 +307,7 @@ fn edit(parent: &adw::Dialog, session: Arc<NativeSession>, rid: String, input: U
             topic: read(&topic),
             description: read(&description),
             announcement: read(&announcement),
+            voice: None,
         };
         submit(button, &status, active.clone(), async move { s.update_room(&rid, command).await }, move || {
             if let Some(window) = weak.upgrade() {

@@ -95,6 +95,7 @@ impl Bench {
                 operation_id: Some(auth::random_token()),
                 name: "Files pilot".into(),
                 private: true,
+                voice: false,
             })
             .await
             .unwrap()

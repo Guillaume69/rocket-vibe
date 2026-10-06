@@ -94,6 +94,7 @@ async fn setup(pool: PgPool) -> (App, Account, Account, String, String) {
             name: "Push".into(),
             private: true,
             operation_id: None,
+            voice: false,
         },
     )
     .await

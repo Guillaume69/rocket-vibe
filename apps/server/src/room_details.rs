@@ -58,6 +58,7 @@ pub async fn read(app: &App, actor: &Account, room: &str) -> Result<RoomDetails>
         read_only: row.core.read_only,
         member_count: u32::try_from(row.member_count).map_err(|_| Error::internal())?,
         permissions: p,
+        voice: false,
     })
 }
 pub async fn members(

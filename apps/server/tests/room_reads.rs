@@ -87,6 +87,7 @@ async fn search_plaintext_is_room_scoped_paginated_and_tracks_edits_and_deletion
             name: "Search source".into(),
             private: true,
             operation_id: Some("search-source".into()),
+            voice: false,
         })
         .await
         .unwrap();
@@ -888,6 +889,7 @@ async fn threads_enforce_same_room_roots_replays_deletions_and_withdrawal(pool: 
             name: "Elsewhere".into(),
             private: true,
             operation_id: Some("elsewhere".into()),
+            voice: false,
         })
         .await
         .unwrap();
@@ -1050,6 +1052,7 @@ impl Bench {
                 name: "Read room".into(),
                 private: true,
                 operation_id: Some("room-create".into()),
+                voice: false,
             })
             .await
             .unwrap();
@@ -1104,6 +1107,7 @@ impl QuoteBench {
                 name: "Private source".into(),
                 private: true,
                 operation_id: Some("quote-origin".into()),
+                voice: false,
             })
             .await
             .unwrap();

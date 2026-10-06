@@ -35,6 +35,7 @@ async fn protected_http_worker_publishes_joins_rotates_and_reconciles_real_postg
             name: "protected-worker-room".into(),
             private: true,
             operation_id: None,
+            voice: false,
         },
     )
     .await

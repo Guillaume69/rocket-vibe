@@ -264,6 +264,8 @@ pub struct RoomDetails {
     pub read_only: bool,
     pub member_count: u32,
     pub permissions: RoomPermissions,
+    #[serde(default)]
+    pub voice: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct RoomMember {
@@ -289,6 +291,9 @@ pub struct UpdateRoom {
     pub description: String,
     pub announcement: String,
     pub read_only: bool,
+    /// None leaves the flag unchanged; sent only to a server announcing `voice`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice: Option<bool>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

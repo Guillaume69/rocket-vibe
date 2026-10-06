@@ -153,6 +153,7 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
         limited: false,
         presence: vec![],
         rooms: vec![],
+        rings: vec![],
     };
     if grants.len() > 1000 {
         state.limited = true;
@@ -221,6 +222,7 @@ pub(crate) async fn state(app: &App, actor: &Account) -> Result<LiveState> {
                     display_name,
                 }),
             typing: vec![],
+            voice: vec![],
         })
         .collect();
     for (room, root, id, username, display_name) in typists {

@@ -1,6 +1,7 @@
 // Generated from crates/rv-protocol. Run scripts/generate-native-protocol.mjs.
 export type AcceptInvitation = { "password": string; "token": string; "username": string; };
 export type AccountPermissions = { "create_private_room": boolean; "create_public_room": boolean; "manage_accounts": boolean; "manage_instance": boolean; };
+export type AnswerRing = { "data_epoch": string; "membership_version": string; };
 export type ApiError = { "code": string; "request_id": string; };
 export type ApplicationCancellation = { "fingerprint": string; "header": string; "operation_id": string; "room_id": string; "scope": Scope; };
 export type ApplicationMessage = { "ciphertext": string; "proof": string; "receipt": ApplicationReceipt; };
@@ -14,7 +15,8 @@ export type AvatarCommand = { "expected_revision": string; "operation_id": strin
 export type BeginEmailVerification = { "address": string; "context": ReauthenticationContext; "expected_version": string; "operation_id": string; "verification_id": string; "verification_version": string; };
 export type BeginFactorSetup = { "operation_id": string; };
 export type BeginReauthentication = { "challenge_id": string; "context"?: ReauthenticationContext | null; "operation_id": string; "password": string; "proof_version": string; };
-export type Capabilities = { "account_invitations"?: boolean; "account_recovery"?: boolean; "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "device_sessions"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "email_factor_delivery"?: boolean; "email_factors"?: boolean; "email_recovery"?: boolean; "email_removal"?: boolean; "email_verification"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "idempotent_room_creation"?: boolean; "link_previews"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profile_avatars"?: boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "reauthentication"?: boolean; "reauthentication_retirement"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "room_leave"?: boolean; "room_roles"?: boolean; "room_settings"?: boolean; "search"?: boolean; "second_factors"?: boolean; "session_rotation"?: boolean; "slash_commands"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "structured_cards"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; };
+export type CallSummary = { "duration_seconds"?: number | null; "state": RingState; };
+export type Capabilities = { "account_invitations"?: boolean; "account_recovery"?: boolean; "calls": boolean; "custom_emojis"?: boolean; "deletion"?: boolean; "device_sessions"?: boolean; "direct_messages": boolean; "durable_sync": boolean; "e2ee": boolean; "editing"?: boolean; "email_factor_delivery"?: boolean; "email_factors"?: boolean; "email_recovery"?: boolean; "email_removal"?: boolean; "email_verification"?: boolean; "favorites"?: boolean; "fine_permissions"?: boolean; "idempotent_room_creation"?: boolean; "link_previews"?: boolean; "pins"?: boolean; "presence"?: boolean; "private_rooms": boolean; "profile_avatars"?: boolean; "profiles"?: boolean; "push": boolean; "quotes"?: boolean; "reactions": boolean; "read_markers"?: boolean; "reauthentication"?: boolean; "reauthentication_retirement"?: boolean; "room_discovery"?: boolean; "room_info"?: boolean; "room_leave"?: boolean; "room_roles"?: boolean; "room_settings"?: boolean; "search"?: boolean; "second_factors"?: boolean; "session_rotation"?: boolean; "slash_commands"?: boolean; "snapshot_paging"?: boolean; "stars"?: boolean; "structured_cards"?: boolean; "text_messages": boolean; "threads": boolean; "typing"?: boolean; "uploads": boolean; "voice"?: boolean; };
 export type CardField = { "short"?: boolean; "title": string; "value": string; };
 export type Change = { "data": Room; "type": "room_upsert"; } | { "data": Message; "type": "message_upsert"; } | { "data": { "room_id": string; }; "type": "room_removed"; };
 export type ChangeEmailFactor = { "context": ReauthenticationContext; "email_version": string; "factor_version"?: string | null; "operation_id": string; };
@@ -23,7 +25,7 @@ export type CommandList = { "commands": (SlashCommand)[]; };
 export type CommitHistoryShare = { "scope": Scope; "share": string; };
 export type CompleteUpload = { "content": MessageContent; "operation_id": string; "reply_to"?: string | null; };
 export type ConfirmEmailVerification = { "code": string; "context": ReauthenticationContext; "operation_id": string; "verification_id": string; };
-export type CreateRoom = { "name": string; "operation_id"?: string | null; "private": boolean; };
+export type CreateRoom = { "name": string; "operation_id"?: string | null; "private": boolean; "voice"?: boolean; };
 export type CustomEmoji = { "aliases": (string)[]; "bytes": string; "file_id": string; "id": string; "media_type": string; "name": string; "revision": string; "sha256": string; };
 export type DeleteMessage = { "expected_revision": string; "operation_id": string; };
 export type DeliveryContent = { "data": GroupEvent; "kind": "group"; } | { "data": ApplicationMessage; "kind": "message"; };
@@ -83,17 +85,18 @@ export type HistoryShareState = { "fingerprint": string; "scope": Scope; "share"
 export type Identity = { "fingerprint": string; "revision": string; "root": string; "user_id": string; };
 export type IntegrationCard = { "author"?: string | null; "color"?: string | null; "fields"?: (CardField)[]; "text"?: string | null; "title"?: string | null; "url"?: string | null; };
 export type JoinMeeting = { "data_epoch": string; "membership_version": string; };
+export type JoinVoice = { "data_epoch": string; "membership_version": string; "ring"?: boolean; };
 export type LeaveRoom = { "expected_revision": string; "operation_id": string; };
 export type LinkPreview = { "description"?: string | null; "image"?: PreviewImage | null; "kind": PreviewKind; "site"?: string | null; "title"?: string | null; "url": string; };
 export type LiveFrame = { "data": LiveState; "type": "live"; };
-export type LiveRoom = { "direct_peer"?: User | null; "membership_version": string; "room_id": string; "typing": (Typist)[]; };
-export type LiveState = { "emoji_catalog_revision"?: string | null; "limited": boolean; "presence": (PresenceEntry)[]; "profiles"?: (ProfileStamp)[]; "rooms": (LiveRoom)[]; "ttl_ms": number; };
+export type LiveRoom = { "direct_peer"?: User | null; "membership_version": string; "room_id": string; "typing": (Typist)[]; "voice"?: (VoiceParticipant)[]; };
+export type LiveState = { "emoji_catalog_revision"?: string | null; "limited": boolean; "presence": (PresenceEntry)[]; "profiles"?: (ProfileStamp)[]; "rings"?: (VoiceRing)[]; "rooms": (LiveRoom)[]; "ttl_ms": number; };
 export type Login = { "password": string; "username": string; };
 export type MarkRead = { "reply_position": string; "root_position": string; };
 export type MarkThreadRead = { "position": string; };
 export type Meeting = { "created_by": string; "ended": boolean; "expires_at": string; "id": string; "public_url": string; "room_id": string; };
 export type MeetingJoin = { "expires_at": string; "meeting": Meeting; "url": string; };
-export type Message = { "author": User; "body"?: Document | null; "cards"?: (IntegrationCard)[]; "created_at": string; "deleted"?: boolean; "edited_at"?: string | null; "files"?: (FileDescriptor)[]; "id": string; "personal_mention"?: boolean | null; "personal_star"?: PersonalStar | null; "pinned"?: boolean; "position": string; "previews"?: (LinkPreview)[]; "quotes"?: (MessageQuote)[]; "reactions"?: (MessageReaction)[]; "reply_to"?: string | null; "revision": string; "room_id": string; "system"?: SystemMessage | null; "text": string; "thread"?: ThreadSummary | null; };
+export type Message = { "author": User; "body"?: Document | null; "call"?: CallSummary | null; "cards"?: (IntegrationCard)[]; "created_at": string; "deleted"?: boolean; "edited_at"?: string | null; "files"?: (FileDescriptor)[]; "id": string; "personal_mention"?: boolean | null; "personal_star"?: PersonalStar | null; "pinned"?: boolean; "position": string; "previews"?: (LinkPreview)[]; "quotes"?: (MessageQuote)[]; "reactions"?: (MessageReaction)[]; "reply_to"?: string | null; "revision": string; "room_id": string; "system"?: SystemMessage | null; "text": string; "thread"?: ThreadSummary | null; };
 export type MessageContent = { "files": (string)[]; "kind": "plain"; "markdown": string; "mentions": (string)[]; "quotes": (QuoteReference)[]; } | { "format": string; "key_version": string; "kind": "encrypted"; "payload": string; };
 export type MessagePage = { "has_more": boolean; "messages": (Message)[]; };
 export type MessagePermissions = { "delete": boolean; "edit": boolean; "edit_until"?: string | null; "message_id": string; "pin": boolean; "react": boolean; "revision": string; "star": boolean; };
@@ -144,9 +147,10 @@ export type RetireEmailVerification = { "context": ReauthenticationContext; "exp
 export type RetireReauthentication = { "context": ReauthenticationContext; "proof_version": string; };
 export type Revocation = { "position": string; "signed": string; };
 export type RevokeDevice = { "device_revision": string; "incarnation": string; "operation_id": string; "scope": Scope; "signed": string; };
-export type Room = { "encrypted"?: boolean; "id": string; "kind": RoomKind; "name": string; "read_state"?: ReadState | null; "revision": string; };
+export type RingState = "ringing" | "answered" | "declined" | "missed" | "cancelled";
+export type Room = { "encrypted"?: boolean; "id": string; "kind": RoomKind; "name": string; "read_state"?: ReadState | null; "revision": string; "voice"?: boolean; };
 export type RoomCommandReceipt = { "applied_revision": string; "operation_id": string; "room_id": string; };
-export type RoomDetails = { "announcement": string; "description": string; "member_count": number; "permissions": RoomPermissions; "read_only": boolean; "revision": string; "room": Room; "topic": string; };
+export type RoomDetails = { "announcement": string; "description": string; "member_count": number; "permissions": RoomPermissions; "read_only": boolean; "revision": string; "room": Room; "topic": string; "voice"?: boolean; };
 export type RoomKeyEnvelope = { "ciphertext": string; "format": string; "key_version": string; "recipient_device_id": string; "recipient_user_id": string; "room_id": string; "sender_device_id": string; };
 export type RoomKind = "public" | "private" | "direct";
 export type RoomMember = { "disabled": boolean; "role": RoomRole; "user": User; };
@@ -183,7 +187,7 @@ export type ThreadSummary = { "last_reply_at"?: string | null; "replies": string
 export type Typist = { "root_id"?: string | null; "user": User; };
 export type UpdatePreferences = { "clock_24h": boolean; "desktop_notifications": DesktopNotifications; "expected_revision": string; "language": string; "operation_id": string; "push_enabled": boolean; "push_mentions_only": boolean; };
 export type UpdateProfile = { "bio": string; "display_name": string; "expected_revision": string; "operation_id": string; "status": PresenceStatus; "status_text": string; "username": string; };
-export type UpdateRoom = { "announcement": string; "description": string; "expected_revision": string; "name": string; "operation_id": string; "private": boolean; "read_only": boolean; "topic": string; };
+export type UpdateRoom = { "announcement": string; "description": string; "expected_revision": string; "name": string; "operation_id": string; "private": boolean; "read_only": boolean; "topic": string; "voice"?: boolean | null; };
 export type Upload = { "expires_at": string; "file": FileDescriptor; "id": string; "message_id"?: string | null; "state": UploadState; };
 export type UploadHistoryBackup = { "checkpoint": string; "records": (string)[]; "scope": Scope; "start": string; };
 export type UploadHistoryRecords = { "period": number; "records": (string)[]; "scope": Scope; "start": string; };
@@ -192,8 +196,11 @@ export type User = { "display_name": string; "id": string; "username": string; }
 export type UserPreferences = { "clock_24h": boolean; "desktop_notifications"?: DesktopNotifications; "language": string; "push_enabled": boolean; "push_mentions_only": boolean; "revision": string; };
 export type UserProfile = { "avatar_file_id"?: string | null; "bio": string; "revision": string; "status"?: PresenceStatus; "status_text": string; "user": User; };
 export type VerifyFactor = { "challenge_id": string; "code": string; "method": SecondFactor; };
+export type VoiceGrant = { "can_publish": boolean; "expires_at": string; "ring"?: VoiceRing | null; "room_id": string; "token": string; "url": string; };
+export type VoiceParticipant = { "deafened": boolean; "muted": boolean; "user": User; };
+export type VoiceRing = { "callee": User; "caller": User; "expires_in_ms": number; "id": string; "room_id": string; "state": RingState; };
 
-export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; ApiError: ApiError; ApplicationCancellation: ApplicationCancellation; ApplicationMessage: ApplicationMessage; ApplicationReceipt: ApplicationReceipt; ApplicationSettlement: ApplicationSettlement; ApplicationSubmission: ApplicationSubmission; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; AvailableKeyPackage: AvailableKeyPackage; AvatarCommand: AvatarCommand; BeginEmailVerification: BeginEmailVerification; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; Capabilities: Capabilities; CardField: CardField; Change: Change; ChangeEmailFactor: ChangeEmailFactor; ChangeRoomRole: ChangeRoomRole; CommandList: CommandList; CommitHistoryShare: CommitHistoryShare; CompleteUpload: CompleteUpload; ConfirmEmailVerification: ConfirmEmailVerification; CreateRoom: CreateRoom; CustomEmoji: CustomEmoji; DeleteMessage: DeleteMessage; DeliveryContent: DeliveryContent; DeliveryEvent: DeliveryEvent; DeliveryPage: DeliveryPage; DesktopNotifications: DesktopNotifications; Device: Device; DeviceSession: DeviceSession; DirectMessage: DirectMessage; Directory: Directory; DisableFactor: DisableFactor; Discovery: Discovery; Document: Document; EditMessage: EditMessage; EmailDeliveryState: EmailDeliveryState; EmailFactorChange: EmailFactorChange; EmailRecoveryRequested: EmailRecoveryRequested; EmailRemovalReceipt: EmailRemovalReceipt; EmailStatus: EmailStatus; EmailVerificationStep: EmailVerificationStep; EmojiCatalog: EmojiCatalog; EnableFactor: EnableFactor; EncryptedFile: EncryptedFile; EncryptedKeyBackup: EncryptedKeyBackup; FactorBackupCodes: FactorBackupCodes; FactorEmailDelivery: FactorEmailDelivery; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; Format: Format; GroupCancellation: GroupCancellation; GroupEvent: GroupEvent; GroupEventPage: GroupEventPage; GroupMember: GroupMember; GroupReceipt: GroupReceipt; GroupRoster: GroupRoster; GroupSettlement: GroupSettlement; GroupState: GroupState; GroupSubmission: GroupSubmission; GroupWelcome: GroupWelcome; HistoryBackupPage: HistoryBackupPage; HistoryBackupPeriod: HistoryBackupPeriod; HistoryBackupPeriods: HistoryBackupPeriods; HistoryBackupReceipt: HistoryBackupReceipt; HistoryKeyCancellation: HistoryKeyCancellation; HistoryKeyReceipt: HistoryKeyReceipt; HistoryKeySettlement: HistoryKeySettlement; HistoryKeyState: HistoryKeyState; HistoryKeyVersion: HistoryKeyVersion; HistoryRecordsPage: HistoryRecordsPage; HistoryRecordsReceipt: HistoryRecordsReceipt; HistoryRequestEntry: HistoryRequestEntry; HistoryRequests: HistoryRequests; HistoryShareState: HistoryShareState; Identity: Identity; IntegrationCard: IntegrationCard; JoinMeeting: JoinMeeting; LeaveRoom: LeaveRoom; LinkPreview: LinkPreview; LiveFrame: LiveFrame; LiveRoom: LiveRoom; LiveState: LiveState; Login: Login; MarkRead: MarkRead; MarkThreadRead: MarkThreadRead; Meeting: Meeting; MeetingJoin: MeetingJoin; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageQuote: MessageQuote; MessageReaction: MessageReaction; Node: Node; OperationReceipt: OperationReceipt; OwnProfile: OwnProfile; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PresenceEntry: PresenceEntry; PresenceStatus: PresenceStatus; PreviewImage: PreviewImage; PreviewKind: PreviewKind; ProfileReceipt: ProfileReceipt; ProfileStamp: ProfileStamp; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; PublishHistoryKey: PublishHistoryKey; PublishHistoryRequest: PublishHistoryRequest; PublishKeyPackages: PublishKeyPackages; PublishRootBackup: PublishRootBackup; PushContent: PushContent; PushRegistration: PushRegistration; QuoteExcerpt: QuoteExcerpt; QuoteReference: QuoteReference; ReadState: ReadState; ReauthenticationContext: ReauthenticationContext; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RegisterDevice: RegisterDevice; RegisterPush: RegisterPush; RemoveVerifiedEmail: RemoveVerifiedEmail; RenameDevice: RenameDevice; RenewSession: RenewSession; RequestEmailRecovery: RequestEmailRecovery; RequestFactorEmail: RequestFactorEmail; ResumeEmailRemoval: ResumeEmailRemoval; ResumeEmailVerification: ResumeEmailVerification; ResumeReauthentication: ResumeReauthentication; RetireEmailRemoval: RetireEmailRemoval; RetireEmailVerification: RetireEmailVerification; RetireReauthentication: RetireReauthentication; Revocation: Revocation; RevokeDevice: RevokeDevice; Room: Room; RoomCommandReceipt: RoomCommandReceipt; RoomDetails: RoomDetails; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomMember: RoomMember; RoomMemberPage: RoomMemberPage; RoomPermissions: RoomPermissions; RoomRole: RoomRole; RootBackupCancellation: RootBackupCancellation; RootBackupReceipt: RootBackupReceipt; RootBackupSettlement: RootBackupSettlement; RootBackupState: RootBackupState; RootBackupVersion: RootBackupVersion; RunCommand: RunCommand; Scope: Scope; SearchMessages: SearchMessages; SearchPage: SearchPage; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetPresence: SetPresence; SetReaction: SetReaction; SetRoomFavorite: SetRoomFavorite; SetTyping: SetTyping; SlashCommand: SlashCommand; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; StartMeeting: StartMeeting; SyncBatch: SyncBatch; SystemMessage: SystemMessage; ThreadPage: ThreadPage; ThreadReadState: ThreadReadState; ThreadSummary: ThreadSummary; Typist: Typist; UpdatePreferences: UpdatePreferences; UpdateProfile: UpdateProfile; UpdateRoom: UpdateRoom; Upload: Upload; UploadHistoryBackup: UploadHistoryBackup; UploadHistoryRecords: UploadHistoryRecords; UploadState: UploadState; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; };
+export type NativeTypes = { AcceptInvitation: AcceptInvitation; AccountPermissions: AccountPermissions; AnswerRing: AnswerRing; ApiError: ApiError; ApplicationCancellation: ApplicationCancellation; ApplicationMessage: ApplicationMessage; ApplicationReceipt: ApplicationReceipt; ApplicationSettlement: ApplicationSettlement; ApplicationSubmission: ApplicationSubmission; AuthChallenge: AuthChallenge; AuthenticationStep: AuthenticationStep; AvailableKeyPackage: AvailableKeyPackage; AvatarCommand: AvatarCommand; BeginEmailVerification: BeginEmailVerification; BeginFactorSetup: BeginFactorSetup; BeginReauthentication: BeginReauthentication; CallSummary: CallSummary; Capabilities: Capabilities; CardField: CardField; Change: Change; ChangeEmailFactor: ChangeEmailFactor; ChangeRoomRole: ChangeRoomRole; CommandList: CommandList; CommitHistoryShare: CommitHistoryShare; CompleteUpload: CompleteUpload; ConfirmEmailVerification: ConfirmEmailVerification; CreateRoom: CreateRoom; CustomEmoji: CustomEmoji; DeleteMessage: DeleteMessage; DeliveryContent: DeliveryContent; DeliveryEvent: DeliveryEvent; DeliveryPage: DeliveryPage; DesktopNotifications: DesktopNotifications; Device: Device; DeviceSession: DeviceSession; DirectMessage: DirectMessage; Directory: Directory; DisableFactor: DisableFactor; Discovery: Discovery; Document: Document; EditMessage: EditMessage; EmailDeliveryState: EmailDeliveryState; EmailFactorChange: EmailFactorChange; EmailRecoveryRequested: EmailRecoveryRequested; EmailRemovalReceipt: EmailRemovalReceipt; EmailStatus: EmailStatus; EmailVerificationStep: EmailVerificationStep; EmojiCatalog: EmojiCatalog; EnableFactor: EnableFactor; EncryptedFile: EncryptedFile; EncryptedKeyBackup: EncryptedKeyBackup; FactorBackupCodes: FactorBackupCodes; FactorEmailDelivery: FactorEmailDelivery; FactorSetup: FactorSetup; FactorStatus: FactorStatus; FileDescriptor: FileDescriptor; FinishFactor: FinishFactor; FinishReauthentication: FinishReauthentication; Format: Format; GroupCancellation: GroupCancellation; GroupEvent: GroupEvent; GroupEventPage: GroupEventPage; GroupMember: GroupMember; GroupReceipt: GroupReceipt; GroupRoster: GroupRoster; GroupSettlement: GroupSettlement; GroupState: GroupState; GroupSubmission: GroupSubmission; GroupWelcome: GroupWelcome; HistoryBackupPage: HistoryBackupPage; HistoryBackupPeriod: HistoryBackupPeriod; HistoryBackupPeriods: HistoryBackupPeriods; HistoryBackupReceipt: HistoryBackupReceipt; HistoryKeyCancellation: HistoryKeyCancellation; HistoryKeyReceipt: HistoryKeyReceipt; HistoryKeySettlement: HistoryKeySettlement; HistoryKeyState: HistoryKeyState; HistoryKeyVersion: HistoryKeyVersion; HistoryRecordsPage: HistoryRecordsPage; HistoryRecordsReceipt: HistoryRecordsReceipt; HistoryRequestEntry: HistoryRequestEntry; HistoryRequests: HistoryRequests; HistoryShareState: HistoryShareState; Identity: Identity; IntegrationCard: IntegrationCard; JoinMeeting: JoinMeeting; JoinVoice: JoinVoice; LeaveRoom: LeaveRoom; LinkPreview: LinkPreview; LiveFrame: LiveFrame; LiveRoom: LiveRoom; LiveState: LiveState; Login: Login; MarkRead: MarkRead; MarkThreadRead: MarkThreadRead; Meeting: Meeting; MeetingJoin: MeetingJoin; Message: Message; MessageContent: MessageContent; MessagePage: MessagePage; MessagePermissions: MessagePermissions; MessageQuote: MessageQuote; MessageReaction: MessageReaction; Node: Node; OperationReceipt: OperationReceipt; OwnProfile: OwnProfile; ParityContract: ParityContract; PersonalStar: PersonalStar; PrepareUpload: PrepareUpload; PresenceEntry: PresenceEntry; PresenceStatus: PresenceStatus; PreviewImage: PreviewImage; PreviewKind: PreviewKind; ProfileReceipt: ProfileReceipt; ProfileStamp: ProfileStamp; PublicDeviceKey: PublicDeviceKey; PublicRoom: PublicRoom; PublicRoomPage: PublicRoomPage; PublishHistoryKey: PublishHistoryKey; PublishHistoryRequest: PublishHistoryRequest; PublishKeyPackages: PublishKeyPackages; PublishRootBackup: PublishRootBackup; PushContent: PushContent; PushRegistration: PushRegistration; QuoteExcerpt: QuoteExcerpt; QuoteReference: QuoteReference; ReadState: ReadState; ReauthenticationContext: ReauthenticationContext; ReauthenticationGrant: ReauthenticationGrant; ReauthenticationStatus: ReauthenticationStatus; ReauthenticationStep: ReauthenticationStep; RecoverAccount: RecoverAccount; RegenerateFactorBackups: RegenerateFactorBackups; RegisterDevice: RegisterDevice; RegisterPush: RegisterPush; RemoveVerifiedEmail: RemoveVerifiedEmail; RenameDevice: RenameDevice; RenewSession: RenewSession; RequestEmailRecovery: RequestEmailRecovery; RequestFactorEmail: RequestFactorEmail; ResumeEmailRemoval: ResumeEmailRemoval; ResumeEmailVerification: ResumeEmailVerification; ResumeReauthentication: ResumeReauthentication; RetireEmailRemoval: RetireEmailRemoval; RetireEmailVerification: RetireEmailVerification; RetireReauthentication: RetireReauthentication; Revocation: Revocation; RevokeDevice: RevokeDevice; RingState: RingState; Room: Room; RoomCommandReceipt: RoomCommandReceipt; RoomDetails: RoomDetails; RoomKeyEnvelope: RoomKeyEnvelope; RoomKind: RoomKind; RoomMember: RoomMember; RoomMemberPage: RoomMemberPage; RoomPermissions: RoomPermissions; RoomRole: RoomRole; RootBackupCancellation: RootBackupCancellation; RootBackupReceipt: RootBackupReceipt; RootBackupSettlement: RootBackupSettlement; RootBackupState: RootBackupState; RootBackupVersion: RootBackupVersion; RunCommand: RunCommand; Scope: Scope; SearchMessages: SearchMessages; SearchPage: SearchPage; SecondFactor: SecondFactor; SendMessage: SendMessage; Session: Session; SetMark: SetMark; SetPresence: SetPresence; SetReaction: SetReaction; SetRoomFavorite: SetRoomFavorite; SetTyping: SetTyping; SlashCommand: SlashCommand; Snapshot: Snapshot; SnapshotPage: SnapshotPage; SocketTicket: SocketTicket; StartMeeting: StartMeeting; SyncBatch: SyncBatch; SystemMessage: SystemMessage; ThreadPage: ThreadPage; ThreadReadState: ThreadReadState; ThreadSummary: ThreadSummary; Typist: Typist; UpdatePreferences: UpdatePreferences; UpdateProfile: UpdateProfile; UpdateRoom: UpdateRoom; Upload: Upload; UploadHistoryBackup: UploadHistoryBackup; UploadHistoryRecords: UploadHistoryRecords; UploadState: UploadState; User: User; UserPreferences: UserPreferences; UserProfile: UserProfile; VerifyFactor: VerifyFactor; VoiceGrant: VoiceGrant; VoiceParticipant: VoiceParticipant; VoiceRing: VoiceRing; };
 
 export const nativeSchema = {
   "$defs": {
@@ -238,6 +245,22 @@ export const nativeSchema = {
         "create_private_room",
         "manage_accounts",
         "manage_instance"
+      ],
+      "type": "object"
+    },
+    "AnswerRing": {
+      "additionalProperties": false,
+      "properties": {
+        "data_epoch": {
+          "type": "string"
+        },
+        "membership_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "membership_version",
+        "data_epoch"
       ],
       "type": "object"
     },
@@ -603,6 +626,27 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "CallSummary": {
+      "description": "The outcome carried by a direct call's `call_started` row.",
+      "properties": {
+        "duration_seconds": {
+          "description": "Answered calls, once both sides left.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/RingState"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
     "Capabilities": {
       "properties": {
         "account_invitations": {
@@ -777,6 +821,11 @@ export const nativeSchema = {
           "type": "boolean"
         },
         "uploads": {
+          "type": "boolean"
+        },
+        "voice": {
+          "default": false,
+          "description": "Voice sessions in every room, voice channels and ringing direct calls.",
           "type": "boolean"
         }
       },
@@ -1011,6 +1060,10 @@ export const nativeSchema = {
           ]
         },
         "private": {
+          "type": "boolean"
+        },
+        "voice": {
+          "description": "Sent only to a server announcing `voice`.",
           "type": "boolean"
         }
       },
@@ -2627,6 +2680,26 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "JoinVoice": {
+      "additionalProperties": false,
+      "properties": {
+        "data_epoch": {
+          "type": "string"
+        },
+        "membership_version": {
+          "type": "string"
+        },
+        "ring": {
+          "description": "Direct rooms only: ring the other member. Ignored when a call already rings.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "membership_version",
+        "data_epoch"
+      ],
+      "type": "object"
+    },
     "LeaveRoom": {
       "additionalProperties": false,
       "properties": {
@@ -2730,6 +2803,13 @@ export const nativeSchema = {
             "$ref": "#/$defs/Typist"
           },
           "type": "array"
+        },
+        "voice": {
+          "description": "Accounts connected to this room's voice session.",
+          "items": {
+            "$ref": "#/$defs/VoiceParticipant"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -2761,6 +2841,13 @@ export const nativeSchema = {
         "profiles": {
           "items": {
             "$ref": "#/$defs/ProfileStamp"
+          },
+          "type": "array"
+        },
+        "rings": {
+          "description": "Direct calls where the reader is caller or callee: ringing, or resolved\nin the last seconds so both sides see the outcome.",
+          "items": {
+            "$ref": "#/$defs/VoiceRing"
           },
           "type": "array"
         },
@@ -2894,6 +2981,17 @@ export const nativeSchema = {
             }
           ],
           "description": "Optional canonical native presentation. Source remains authoritative;\nno Rocket.Chat tree, HTML markup, or authenticated resource URL."
+        },
+        "call": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CallSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The outcome of a direct call, on its `call_started` row."
         },
         "cards": {
           "items": {
@@ -5397,6 +5495,28 @@ export const nativeSchema = {
       ],
       "type": "object"
     },
+    "RingState": {
+      "oneOf": [
+        {
+          "enum": [
+            "ringing",
+            "answered",
+            "declined"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "missed",
+          "description": "Nobody answered before the ring expired.",
+          "type": "string"
+        },
+        {
+          "const": "cancelled",
+          "description": "The caller left before an answer.",
+          "type": "string"
+        }
+      ]
+    },
     "Room": {
       "properties": {
         "encrypted": {
@@ -5425,6 +5545,10 @@ export const nativeSchema = {
         },
         "revision": {
           "type": "string"
+        },
+        "voice": {
+          "description": "A voice channel: selecting it joins its voice session. Never a direct room.",
+          "type": "boolean"
         }
       },
       "required": [
@@ -5482,6 +5606,10 @@ export const nativeSchema = {
         },
         "topic": {
           "type": "string"
+        },
+        "voice": {
+          "default": false,
+          "type": "boolean"
         }
       },
       "required": [
@@ -6641,6 +6769,13 @@ export const nativeSchema = {
         },
         "topic": {
           "type": "string"
+        },
+        "voice": {
+          "description": "None leaves the flag unchanged; sent only to a server announcing `voice`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [
@@ -6855,11 +6990,108 @@ export const nativeSchema = {
         "code"
       ],
       "type": "object"
+    },
+    "VoiceGrant": {
+      "properties": {
+        "can_publish": {
+          "description": "False in a read-only room for a plain member: listening only.",
+          "type": "boolean"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "ring": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VoiceRing"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The ring this join started or answered."
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        },
+        "url": {
+          "description": "LiveKit signalling origin (`wss://` in production).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "room_id",
+        "url",
+        "token",
+        "expires_at",
+        "can_publish"
+      ],
+      "type": "object"
+    },
+    "VoiceParticipant": {
+      "description": "One account connected to a room's voice session, as the SFU last reported it.",
+      "properties": {
+        "deafened": {
+          "type": "boolean"
+        },
+        "muted": {
+          "type": "boolean"
+        },
+        "user": {
+          "$ref": "#/$defs/User"
+        }
+      },
+      "required": [
+        "user",
+        "muted",
+        "deafened"
+      ],
+      "type": "object"
+    },
+    "VoiceRing": {
+      "properties": {
+        "callee": {
+          "$ref": "#/$defs/User"
+        },
+        "caller": {
+          "$ref": "#/$defs/User"
+        },
+        "expires_in_ms": {
+          "description": "Receiver-relative time left while ringing; zero once resolved.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "room_id": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/RingState"
+        }
+      },
+      "required": [
+        "id",
+        "room_id",
+        "caller",
+        "callee",
+        "state",
+        "expires_in_ms"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "Single schema root, also used by the TypeScript binding generator.",
   "properties": {
+    "answer_ring": {
+      "$ref": "#/$defs/AnswerRing"
+    },
     "avatar_command": {
       "$ref": "#/$defs/AvatarCommand"
     },
@@ -6883,6 +7115,9 @@ export const nativeSchema = {
     },
     "join_meeting": {
       "$ref": "#/$defs/JoinMeeting"
+    },
+    "join_voice": {
+      "$ref": "#/$defs/JoinVoice"
     },
     "live_frame": {
       "$ref": "#/$defs/LiveFrame"
@@ -6973,6 +7208,12 @@ export const nativeSchema = {
     },
     "update_profile": {
       "$ref": "#/$defs/UpdateProfile"
+    },
+    "voice_grant": {
+      "$ref": "#/$defs/VoiceGrant"
+    },
+    "voice_ring": {
+      "$ref": "#/$defs/VoiceRing"
     }
   },
   "required": [
@@ -6992,6 +7233,10 @@ export const nativeSchema = {
     "search_messages",
     "search_page",
     "live_frame",
+    "join_voice",
+    "answer_ring",
+    "voice_grant",
+    "voice_ring",
     "set_presence",
     "set_typing",
     "discovery",

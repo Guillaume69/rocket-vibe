@@ -1575,6 +1575,7 @@ async fn edit_delete_receipts_revisions_and_erasure_survive_restart(pool: PgPool
             name: "Actions".into(),
             private: true,
             operation_id: Some("actions-room".into()),
+            voice: false,
         })
         .await
         .unwrap();
@@ -1782,7 +1783,8 @@ async fn edit_delete_receipts_revisions_and_erasure_survive_restart(pool: PgPool
                 .create_room(&rv_protocol::CreateRoom {
                     name: "Wrong kind".into(),
                     private: true,
-                    operation_id: Some(operation.into())
+                    operation_id: Some(operation.into()),
+                    voice: false,
                 })
                 .await,
             Err(rv_client::Error::Server { status: 409, .. })
@@ -1816,6 +1818,7 @@ async fn message_commands_enforce_membership_author_deadlines_and_read_only(pool
             name: "Authority".into(),
             private: true,
             operation_id: None,
+            voice: false,
         })
         .await
         .unwrap();

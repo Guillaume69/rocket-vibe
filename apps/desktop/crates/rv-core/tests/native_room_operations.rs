@@ -81,6 +81,7 @@ fn update() -> UpdateRoom {
         description: String::new(),
         announcement: String::new(),
         read_only: false,
+        voice: None,
     }
 }
 

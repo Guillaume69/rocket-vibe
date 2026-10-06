@@ -214,6 +214,7 @@ mod tests {
                 kind: RoomKind::Private,
                 revision: "1".into(),
                 encrypted: false,
+                voice: false,
                 read_state: None,
             }],
             messages: vec![],
@@ -231,6 +232,7 @@ mod tests {
                 description: "Description".into(),
                 announcement: String::new(),
                 read_only: false,
+                voice: None,
             },
         }
     }

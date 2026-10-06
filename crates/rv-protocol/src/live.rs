@@ -45,6 +45,9 @@ pub struct LiveRoom {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub direct_peer: Option<User>,
     pub typing: Vec<Typist>,
+    /// Accounts connected to this room's voice session.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub voice: Vec<crate::voice::VoiceParticipant>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -60,6 +63,10 @@ pub struct LiveState {
     pub limited: bool,
     pub presence: Vec<PresenceEntry>,
     pub rooms: Vec<LiveRoom>,
+    /// Direct calls where the reader is caller or callee: ringing, or resolved
+    /// in the last seconds so both sides see the outcome.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rings: Vec<crate::voice::VoiceRing>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

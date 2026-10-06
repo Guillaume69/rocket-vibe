@@ -586,14 +586,14 @@ export class NativeStore {
       return true;
     });
   }
-  async roomCreation(name: string, privateRoom: boolean, generateId: () => string): Promise<string> {
+  async roomCreation(name: string, privateRoom: boolean, generateId: () => string, voice = false): Promise<string> {
     let id='';
     await this.atomic(async () => {
       if (!await this.sameGeneration()) throw new Error('Native generation unavailable');
-      const previous = await this.db.getFirstAsync<{id:string}>('SELECT id FROM native_room_creations WHERE name=? AND private=?',[name,privateRoom?1:0]);
+      const previous = await this.db.getFirstAsync<{id:string}>('SELECT id FROM native_room_creations WHERE name=? AND private=? AND voice=?',[name,privateRoom?1:0,voice?1:0]);
       if (previous) { id=previous.id; return; }
       id=generateId();
-      await this.db.runAsync('INSERT INTO native_room_creations(id,name,private) VALUES(?,?,?)',[id,name,privateRoom?1:0]);
+      await this.db.runAsync('INSERT INTO native_room_creations(id,name,private,voice) VALUES(?,?,?,?)',[id,name,privateRoom?1:0,voice?1:0]);
     });
     return id;
   }

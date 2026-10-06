@@ -22,6 +22,7 @@
 import * as Crypto from 'expo-crypto';
 import {NativeError} from '../providers/rocketvibe/transport.ts';
 import {mountProviderProfiles} from '../lib/providerProfiles.ts';
+import {VoiceNative} from '../modules/voice/index.ts';
 import {mountProviderCalls} from '../lib/providerCalls.ts';
 import {mountProviderEmojis} from '../lib/providerEmojis.ts';
 import {mountNativePreviews} from '../lib/nativePreviews.ts';
@@ -196,6 +197,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         if (!alive) return;
         const provider = createProvider(session,client,() => idFromBytes(Crypto.getRandomBytes(12)),store,{
           pushAndroid:Platform.OS==='android',
+          voice:VoiceNative!==null,
           credentials:async(previous)=>{
             const fresh=await prepareNativeSession(previous);
             if(!alive)throw new NativeError(0,'session_closed');

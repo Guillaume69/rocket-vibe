@@ -1,0 +1,25 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+group = 'com.rocketvibe.voice'
+version = '1.0.0'
+
+// The voice sounds live once, at the repository root (assets/sounds, generated
+// by scripts/sounds): copied here as raw resources, under Android-legal names.
+def sounds = file("${projectDir}/../../../../../assets/sounds")
+def generatedRes = layout.buildDirectory.dir('generated/voice-sounds/res').get().asFile
+def copyVoiceSounds = tasks.register('copyVoiceSounds', Copy) {
+  from(sounds) { include '*.ogg' }
+  into(new File(generatedRes, 'raw'))
+  rename { name -> name.replace('-', '_') }
+}
+android {
+  namespace 'com.rocketvibe.voice'
+  defaultConfig { versionCode 1; versionName '1.0.0' }
+  sourceSets { main { res.srcDirs += generatedRes } }
+}
+preBuild.dependsOn(copyVoiceSounds)
+dependencies {
+  implementation 'io.livekit:livekit-android:2.29.0'
+}

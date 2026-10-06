@@ -345,6 +345,7 @@
     "apps/mobile/lib/upload.ts",
     "apps/mobile/lib/uploadQueue.ts",
     "apps/mobile/lib/videoLinks.ts",
+    "apps/mobile/lib/voice.ts",
     "apps/mobile/plugins/ios-notification-service/NotificationService.swift",
     "apps/mobile/plugins/native-push-source.js",
     "apps/mobile/plugins/with-fcm-deeplink.js",

@@ -1,0 +1,11 @@
+<resources>
+  <string name="voice_channel">Vocal</string>
+  <string name="voice_connected">Vocal connecté</string>
+  <string name="voice_muted">Vocal connecté, micro coupé</string>
+  <string name="voice_mute">Couper le micro</string>
+  <string name="voice_unmute">Réactiver le micro</string>
+  <string name="voice_calls">Appels</string>
+  <string name="voice_incoming">Appel entrant…</string>
+  <string name="voice_accept">Accepter</string>
+  <string name="voice_decline">Refuser</string>
+</resources>

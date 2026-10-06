@@ -67,7 +67,7 @@ export function createRocketVibeProvider(session: Session, client: RestClient, g
       return {_id:p.user.id,username:p.user.username,name:p.user.display_name,status:p.status??'online',statusText:p.status_text,bio:p.bio,avatarETag:p.avatar_file_id??'none'};
     },
     searchMessages:async(rid,text)=>(await chat.searchMessages(rid,text)).map(m=>localMessage(m,session.userId)),
-    native:{chat,store}, messageOrder:'sequence', get capabilities() { return effectiveCapabilities(chat.capabilities,{...ROCKETVIBE_CAPABILITIES,files:filesConnected,push:options.pushAndroid===true}); }, listener,
+    native:{chat,store}, messageOrder:'sequence', get capabilities() { return effectiveCapabilities(chat.capabilities,{...ROCKETVIBE_CAPABILITIES,files:filesConnected,push:options.pushAndroid===true,voice:options.voice===true}); }, listener,
     translator:{
       translateEvent:() => ({kind:'silence'}),
       toMessage:raw => localMessage(decodeNative('Message',raw),session.userId),

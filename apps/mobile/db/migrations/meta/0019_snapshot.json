@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c537a90f-5c13-486e-b379-5d067253a148",
+  "id": "7dce13cf-61c4-457c-87c8-6376c116df1c",
   "prevId": "0d3c59ea-9558-4b54-a490-580524b4f2c6",
   "tables": {
     "cursors": {
@@ -855,6 +855,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "voice": {
+          "name": "voice",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         }
       },
       "indexes": {
@@ -862,7 +870,8 @@
           "name": "idx_native_room_creation_form",
           "columns": [
             "name",
-            "private"
+            "private",
+            "voice"
           ],
           "isUnique": true
         }

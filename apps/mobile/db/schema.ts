@@ -323,7 +323,9 @@ export const nativeRoomCreations = sqliteTable('native_room_creations', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   privateRoom: integer('private', {mode:'boolean'}).notNull(),
-}, (t) => [uniqueIndex('idx_native_room_creation_form').on(t.name,t.privateRoom)]);
+  /** A voice channel is another form: replaying it must not create a text room. */
+  voice: integer('voice', {mode:'boolean'}).notNull().default(false),
+}, (t) => [uniqueIndex('idx_native_room_creation_form').on(t.name,t.privateRoom,t.voice)]);
 
 /** An unresolved action keeps its original revision across receipt/journal races. */
 export const nativeMessageCommands = sqliteTable('native_commands', {

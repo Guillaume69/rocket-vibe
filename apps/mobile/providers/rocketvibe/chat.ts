@@ -9,7 +9,7 @@ import {avatarBytes,type ProfileOperation,type ProfileSlot,type SavedProfileOper
 import {avatarBase64} from '../../lib/nativeAvatars.ts';
 import type {MyProfile} from '../../lib/myProfile.ts';
 import { decodeNative } from './validation.ts';
-import type { Capabilities, NativeTypes } from './protocol.generated.ts';
+import type { Capabilities, NativeTypes, VoiceGrant, VoiceRing } from './protocol.generated.ts';
 import type {RoomOperation,SavedRoomOperation} from './roomOperations.ts';
 import type {PendingRead,SavedFavorite} from './readIntents.ts';
 import { canonicalEmoji } from './emojis.ts';
@@ -84,6 +84,8 @@ export class NativeChat {
   constructor(session: Session, store: NativeStore, id: () => string, options: {
     transport?: NativeTransport; socket?: (url:string) => WebSocket; revoke?: (token:string) => void;
     pushAndroid?: boolean;
+    /** The native voice engine is in this build (modules/voice). */
+    voice?: boolean;
     credentials?:(session:Session)=>Promise<Session>;
   } = {}) {
     this.session = session; this.store = store; this.id = id;
@@ -1307,18 +1309,38 @@ export class NativeChat {
     }
     throw new NativeError(409,'thread_limit');
   }
-  async createRoom(name: string, privateRoom: boolean): Promise<string> {
+  async createRoom(name: string, privateRoom: boolean, voice=false): Promise<string> {
     this.ready();
     const generation = this.generation;
     name=name.trim();
     if (!name || utf8RoomBytes(name)>128) throw new NativeError(400,'invalid_request');
-    const operation = this.capabilities?.idempotent_room_creation ? await this.store.roomCreation(name,privateRoom,this.id) : undefined;
-    const room = await this.transport.createRoom({name,private:privateRoom,...(operation?{operation_id:operation}:{})});
+    // Only a server announcing voice knows the field; an older one refuses it.
+    voice=voice && this.capabilities?.voice===true;
+    const operation = this.capabilities?.idempotent_room_creation ? await this.store.roomCreation(name,privateRoom,this.id,voice) : undefined;
+    const room = await this.transport.createRoom({name,private:privateRoom,...(operation?{operation_id:operation}:{}),...(voice?{voice}:{})});
     if (this.stopped || generation !== this.generation) throw new NativeError(0,'session_closed');
     if (operation) await this.store.completeRoomCreation(operation);
     // The next journal batch provides authoritative membership and the durable cursor.
     this.refresh(); return room.id;
   }
+  /** A grant for the room's voice session (docs/protocol/VOICE.md); `ring` calls the other member of a DM. */
+  async joinVoice(room:string,ring=false):Promise<VoiceGrant> {
+    this.ready();
+    if(this.capabilities?.voice!==true)throw new NativeError(501,'unsupported_feature');
+    const membership=(await this.store.readState(room))?.membership_version,epoch=this.session.nativeDataEpoch;
+    if(!membership || !epoch)throw new NativeError(409,'delivery_revalidate');
+    return this.transport.joinVoice(room,{membership_version:membership,data_epoch:epoch,...(ring?{ring}:{})});
+  }
+  async leaveVoice():Promise<void> {this.ready();await this.transport.leaveVoice();}
+  voiceRing(id:string):Promise<VoiceRing> {this.ready();return this.transport.voiceRing(id);}
+  async acceptRing(id:string):Promise<VoiceGrant> {
+    this.ready();
+    const ring=await this.transport.voiceRing(id);
+    const membership=(await this.store.readState(ring.room_id))?.membership_version,epoch=this.session.nativeDataEpoch;
+    if(!membership || !epoch)throw new NativeError(409,'delivery_revalidate');
+    return this.transport.acceptRing(id,{membership_version:membership,data_epoch:epoch});
+  }
+  async declineRing(id:string):Promise<void> {this.ready();await this.transport.declineRing(id);}
   async direct(username: string,uid?:string): Promise<string> {
     this.ready();
     const generation = this.generation;

@@ -35,7 +35,8 @@ export function useEncryptedConversation(chat:NativeChat|undefined,room:string,m
   const focused=useRef(false),covered=useRef(false),epoch=useRef(0),access=useRef<CryptoConversationAccess|null>(null),job=useRef<number|null>(null);
   const opening=useRef<Promise<CryptoConversationAccess>|null>(null),lastInitial=useRef<number|null>(null);
   // This view's token for the encrypted files it makes openable (E2EE_FILES.md).
-  const token=useRef(Math.floor(Math.random()*2**52));
+  const [viewToken]=useState(()=>Math.floor(Math.random()*2**52));
+  const token=useRef(viewToken);
   const clear=useCallback(()=>{epoch.current++;job.current=null;opening.current=null;lastInitial.current=null;
     chat?.forgetPrivateFiles(token.current);
     const target=readReply(replyKey);if(target?.native)invalidateNativeReply(replyKey,target);

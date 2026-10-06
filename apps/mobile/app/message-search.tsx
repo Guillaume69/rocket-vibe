@@ -84,7 +84,9 @@ function MessageSearch({
   // Results are normalised on arrival (`toMessage`, like any server
   // document), never written to the database; see the file header.
   // An encrypted room's own actor, closed with the screen or in background.
-  const privateAccess=useRef<CryptoConversationAccess|null>(null),token=useRef(Math.floor(Math.random()*2**52));
+  // This view's token for the encrypted files it opens, drawn once.
+  const [viewToken]=useState(()=>Math.floor(Math.random()*2**52));
+  const privateAccess=useRef<CryptoConversationAccess|null>(null),token=useRef(viewToken);
   useEffect(()=>{
     const close=()=>{void privateAccess.current?.close();privateAccess.current=null;provider.native?.chat.forgetPrivateFiles(token.current);};
     const sub=AppState.addEventListener('change',state=>{if(state!=='active')close();});

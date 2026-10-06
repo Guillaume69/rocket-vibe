@@ -87,7 +87,7 @@ impl Account {
         let client = NativeClient::new(base)?;
         client.update_token(login.token.clone());
         let info = client.discover().await?;
-        assert!(!info.capabilities.e2ee, "fixture must not activate E2EE");
+        assert!(info.capabilities.e2ee, "the server offers native E2EE");
         assert!(client.me().await?.id == login.user, "wrong fixture account");
         let sessions = client.device_sessions().await?;
         let current: Vec<_> = sessions.into_iter().filter(|s| s.current).collect();

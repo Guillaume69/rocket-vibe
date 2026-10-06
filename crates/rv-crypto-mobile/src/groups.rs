@@ -77,8 +77,16 @@ pub(super) struct Staged {
 }
 impl From<engine::Error> for CryptoBridgeError {
     fn from(error: engine::Error) -> Self {
+        use rv_crypto::identity::Error as Identity;
         match error {
             engine::Error::Storage(error) => error.into(),
+            engine::Error::Identity(
+                Identity::Untrusted
+                | Identity::Unapproved
+                | Identity::Revoked
+                | Identity::Changed
+                | Identity::Expired,
+            ) => Self::Untrusted,
             _ => Self::Integrity,
         }
     }

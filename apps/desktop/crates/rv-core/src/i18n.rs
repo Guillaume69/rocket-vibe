@@ -44,6 +44,11 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ),
     ("crypto.group_title", "Chiffrement du salon", "Room encryption"),
     (
+        "crypto.group_untrusted",
+        "Un appareil du groupe n’est pas encore approuvé. Ouvrez le profil de chaque membre, mémorisez son identité et approuvez son appareil, puis actualisez.",
+        "A device in the group is not approved yet. Open each member’s profile, pin their identity and approve their device, then refresh.",
+    ),
+    (
         "crypto.group_help",
         "Préparez cet appareil pour les invitations et comparez les identités dans les profils. Seuls les appareils de l’aperçu rejoignent le groupe.",
         "Prepare this device for invitations and compare identities in profiles. Only devices in the review join the group.",

@@ -321,12 +321,16 @@ impl Controller {
                     this.ui.render(&value);
                     *this.value.borrow_mut() = Some(value);
                 }
-                Err(_) => {
+                Err(error) => {
                     this.value.borrow_mut().take();
                     this.ui.clear();
                     this.ui.buttons(None, false);
                     this.ui.status.set_title(t("crypto.failed"));
-                    this.ui.status.set_subtitle(t("crypto.group_need_empty"));
+                    this.ui.status.set_subtitle(t(if untrusted(&error.to_string()) {
+                        "crypto.group_untrusted"
+                    } else {
+                        "crypto.group_need_empty"
+                    }));
                     let closed = this.access.borrow().as_ref().is_some_and(|a| a.check().is_err());
                     if closed {
                         this.access.borrow_mut().take();
@@ -466,4 +470,15 @@ mod tests {
         dialog.close();
         window.close();
     }
+}
+/// A member is not trusted yet: fixed in their profile, not by retrying.
+fn untrusted(code: &str) -> bool {
+    matches!(
+        code,
+        "crypto_identity_untrusted"
+            | "crypto_device_unapproved"
+            | "crypto_device_revoked"
+            | "crypto_identity_changed"
+            | "crypto_identity_expired"
+    )
 }

@@ -1355,3 +1355,22 @@ fn two_native_actors_create_join_rotate_reopen_original_and_cancel_without_expor
         ack.epoch
     );
 }
+
+#[test]
+fn an_untrusted_member_is_reported_as_such_not_as_an_integrity_failure() {
+    use rv_crypto::identity::Error as Identity;
+    for error in [Identity::Untrusted, Identity::Unapproved, Identity::Revoked] {
+        assert!(matches!(
+            CryptoBridgeError::from(rv_crypto::groups::Error::Identity(error)),
+            CryptoBridgeError::Untrusted
+        ));
+    }
+    assert!(matches!(
+        CryptoBridgeError::from(rv_crypto::groups::Error::Mls),
+        CryptoBridgeError::Integrity
+    ));
+    assert!(matches!(
+        CryptoBridgeError::from(rv_crypto::vault::Error::Busy),
+        CryptoBridgeError::Storage
+    ));
+}

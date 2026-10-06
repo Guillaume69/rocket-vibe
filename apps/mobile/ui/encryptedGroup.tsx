@@ -23,8 +23,27 @@ const kinds:Record<CryptoGroupPreview['kind'],TranslationKey>={genesis:'group.cr
 function Group({c,room,membership,chat}:{c:Colors;room:string;membership:string;chat:NativeChat}) {
   const t=useT(),[expanded,setExpanded]=useState(false),[view,setView]=useState<CryptoGroupView|null>(null);
   const [preview,setPreview]=useState<CryptoGroupPreview|null>(null),[selected,setSelected]=useState<string[]>([]),[removals,setRemovals]=useState<string[]>([]);
-  const [busy,setBusy]=useState(false),[failed,setFailed]=useState(false);
+  const [busy,setBusy]=useState(false),[failed,setFailed]=useState<false|'untrusted'|true>(false);
   const focused=useRef(false),epoch=useRef(0),job=useRef<number|null>(null),access=useRef<CryptoGroupAccess|null>(null);
+  // Members are reviewed by name, not by account id; the id stays the fallback.
+  const [names,setNames]=useState<Record<string,string>>({});
+  useEffect(()=>{
+    if(!expanded)return;
+    let live=true;
+    void (async()=>{
+      const found:Record<string,string>={};
+      let after:string|undefined;
+      for(let page=0;page<8;page++){
+        const members=await chat.roomMembers(room,after);
+        for(const m of members.members)found[m.user.id]=m.user.display_name||m.user.username;
+        if(!members.next)break;
+        after=members.next;
+      }
+      if(live)setNames(found);
+    })().catch(()=>{});
+    return()=>{live=false;};
+  },[chat,room,expanded]);
+  const who=(user:string)=>names[user]??user;
   const clear=useCallback(()=>{epoch.current++;job.current=null;void access.current?.close();access.current=null;
     setView(null);setPreview(null);setSelected([]);setRemovals([]);setBusy(false);setFailed(false);},[]);
   const run=useCallback(async(action:(a:CryptoGroupAccess,visible:()=>boolean)=>Promise<CryptoGroupView|void>)=>{
@@ -35,7 +54,7 @@ function Group({c,room,membership,chat}:{c:Colors;room:string;membership:string;
       const a=access.current??await chat.cryptoGroup(CryptoNative,room,membership,visible);
       if(!visible()){void a.close();return;}access.current=a;
       const result=await action(a,visible);if(visible() && result)setView(result);
-    } catch {if(visible()){setFailed(true);setView(null);setPreview(null);setSelected([]);setRemovals([]);}}
+    } catch(error) {if(visible()){setFailed(String(error).includes('CryptoBridgeException$Untrusted')?'untrusted':true);setView(null);setPreview(null);setSelected([]);setRemovals([]);}}
     finally {if(job.current===n){job.current=null;if(visible())setBusy(false);}}
   },[chat,room,membership,expanded]);
   const reload=useCallback(()=>{setPreview(null);setSelected([]);setRemovals([]);void run(a=>a.read());},[run]);
@@ -84,9 +103,9 @@ function Group({c,room,membership,chat}:{c:Colors;room:string;membership:string;
           {view.event && <Action c={c} label={t('group.previewEvent')} onPress={()=>prepare(true)} disabled={busy}/>}
           {(!view.roster.group || view.accepted && !view.event) && <>
             <Text style={[styles.text,{color:c.secondaryText}]}>{t('group.chooseDevices')}</Text>
-            {view.eligible.map(d=><Action key={d.device} c={c} label={`${selected.includes(d.device)?'☑':'☐'} ${d.user} · ${d.device}${d.replacement?` · ${t('group.replaceDevice')}`:''}`} onPress={()=>toggle(d.device)} disabled={busy}/>)}
+            {view.eligible.map(d=><Action key={d.device} c={c} label={`${selected.includes(d.device)?'☑':'☐'} ${who(d.user)} · ${d.device}${d.replacement?` · ${t('group.replaceDevice')}`:''}`} onPress={()=>toggle(d.device)} disabled={busy}/>)}
             {view.participants.map(p=><View key={p.device} style={styles.device}>
-              <Text style={[styles.text,{color:c.text}]}>{p.user} · {p.device}</Text>
+              <Text style={[styles.text,{color:c.text}]}>{who(p.user)} · {p.device}</Text>
               <Text selectable style={[styles.fingerprint,{color:c.secondaryText}]}>{p.certificate}</Text>
               {p.device!==view.own_device && <Action c={c} label={`${removals.includes(p.device)?'☑':'☐'} ${t('group.removeDevice')}`} onPress={()=>toggle(p.device,true)} disabled={busy}/>}
             </View>)}
@@ -99,14 +118,14 @@ function Group({c,room,membership,chat}:{c:Colors;room:string;membership:string;
         <Text selectable style={[styles.fingerprint,{color:c.secondaryText}]}>{preview.fingerprint}</Text>
         <Text style={[styles.text,{color:c.secondaryText}]}>{t('group.confirmBody')}</Text>
         {preview.recipients.map(p=><View key={p.device} style={styles.device}>
-          <Text style={[styles.text,{color:c.text}]}>{p.user} · {p.device}</Text>
+          <Text style={[styles.text,{color:c.text}]}>{who(p.user)} · {p.device}</Text>
           <Text selectable style={[styles.fingerprint,{color:c.secondaryText}]}>{p.root}</Text>
           <Text selectable style={[styles.fingerprint,{color:c.secondaryText}]}>{p.certificate}</Text>
         </View>)}
         <Action c={c} label={t(kinds[preview.kind])} onPress={()=>confirm()} disabled={busy}/>
         <Action c={c} label={t('common.cancel')} onPress={()=>reload()} disabled={busy}/>
       </>}
-      {failed && <Text accessibilityRole="alert" style={[styles.text,{color:c.errorText}]}>{t('group.failed')}</Text>}
+      {failed && <Text accessibilityRole="alert" style={[styles.text,{color:c.errorText}]}>{t(failed==='untrusted'?'group.untrusted':'group.failed')}</Text>}
       <Action c={c} label={t('devices.refresh')} onPress={()=>reload()} disabled={busy}/>
     </>}
   </View>;

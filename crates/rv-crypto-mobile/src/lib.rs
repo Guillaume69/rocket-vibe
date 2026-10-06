@@ -36,6 +36,11 @@ pub enum CryptoBridgeError {
     Closed,
     #[error("crypto_integrity_failed")]
     Integrity,
+    /// A member's identity is not pinned, or one of their devices is not
+    /// approved (or revoked, or its certificate expired): the user can fix
+    /// it in that member's profile, unlike a real integrity failure.
+    #[error("crypto_peer_untrusted")]
+    Untrusted,
 }
 type Result<T> = std::result::Result<T, CryptoBridgeError>;
 impl From<vault::Error> for CryptoBridgeError {
@@ -43,6 +48,8 @@ impl From<vault::Error> for CryptoBridgeError {
         match error {
             vault::Error::Storage => Self::Storage,
             vault::Error::Scope => Self::Changed,
+            // Another operation held the vault past the wait: retry later.
+            vault::Error::Busy => Self::Storage,
             _ => Self::Integrity,
         }
     }
